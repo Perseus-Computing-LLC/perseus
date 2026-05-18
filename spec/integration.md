@@ -1,100 +1,123 @@
-# Hermes Agent Integration
+# Integrating Perseus with an AI Assistant
 
-Perseus is designed to wire directly into Hermes Agent as a first-class context source.
+Perseus is assistant-agnostic. The core pattern is simple:
 
----
+1. Write a live context source file with `@perseus` directives
+2. Render it on a schedule or at session start
+3. Point your assistant at the rendered markdown output
 
-## Session Context Injection
-
-Hermes Agent supports a `context_script` config key that runs before each session and injects output into the system prompt. Perseus plugs in here:
-
-```yaml
-# ~/.hermes/config.yaml
-context_script: ~/.perseus/bin/render-session-context.sh
-```
-
-The script:
-1. Runs `perseus render ~/.perseus/context.md`
-2. Outputs rendered markdown to stdout
-3. Hermes injects it into the session as a system-level context block
-
-The assistant starts with a complete, accurate picture — no pre-flight tax.
+The rendered output is plain markdown. No special file format is required.
 
 ---
 
-## AGENTS.md / CLAUDE.md Augmentation
+## The Pattern
 
-Perseus does not replace `AGENTS.md`. It augments it. The recommended pattern:
-
-```
-# AGENTS.md (in project root)
-
-<!-- static project conventions, architecture decisions, non-changing rules -->
-
-@perseus
-@include .perseus/context.md
-<!-- ↑ Perseus renders this section live at session start -->
+```text
+source.md with @perseus directives
+    ↓ perseus render --output <assistant-specific-file>
+plain markdown output
+    ↓
+assistant reads that file at session start
 ```
 
-Or keep them separate and let the `context_script` handle injection.
+The `@prompt ... @end` block is how you embed assistant-specific instructions in the context source itself.
 
 ---
 
-## Workdir Integration
+## Auto-Injection Approaches
 
-When a Hermes cron job or session specifies a `workdir`, Perseus can render a workspace-local context file:
+### Cron / scheduled render
+Works anywhere a scheduler is available.
 
+```bash
+perseus render .perseus/context.md --output AGENTS.md
 ```
+
+Use this when you want periodic refresh regardless of assistant.
+
+### macOS LaunchAgent / launchd
+Perseus provides a helper for Mac users:
+
+```bash
+perseus launchd .perseus/context.md --output AGENTS.md
+```
+
+This scaffolds a LaunchAgent plist that periodically refreshes the rendered output.
+
+### systemd timer (Linux)
+Use `perseus render ... --output ...` inside a systemd service/timer pair.
+
+### Git hook
+A pre-commit or post-checkout hook can refresh rendered context for local workflows.
+
+---
+
+## Per-Assistant Notes
+
+### Hermes Agent
+Hermes commonly uses `.hermes.md` as the rendered output file.
+
+```bash
+perseus render .perseus/context.md --output .hermes.md
+```
+
+Hermes can read that file at session start, or a wrapper script can render on demand before invoking Hermes.
+
+### Claude Code / claude.ai Projects
+Render to `CLAUDE.md` or another project knowledge file Claude reads.
+
+```bash
+perseus render .perseus/context.md --output CLAUDE.md
+```
+
+### Rovo Dev
+Render to `AGENTS.md` in the repo root.
+
+```bash
+perseus render .perseus/context.md --output AGENTS.md
+```
+
+Rovo Dev reads `AGENTS.md` at session start.
+
+### Cursor
+Render to `.cursorrules` or another Cursor-readable context file.
+
+```bash
+perseus render .perseus/context.md --output .cursorrules
+```
+
+### Generic
+Any assistant with file access can use Perseus. Pick any output filename and point the assistant at it.
+
+```bash
+perseus render .perseus/context.md --output live-context.md
+```
+
+---
+
+## Workspace-Local Integration
+
+A workspace can carry its own context source and config:
+
+```text
 /workspace/myproject/
   .perseus/
-    context.md        ← workspace-specific live context
-    config.yaml       ← workspace-local Perseus config (overrides global)
+    context.md
+    config.yaml
 ```
 
-Perseus detects the workdir and renders the local `.perseus/context.md` if present, falling back to the global default.
+`perseus render .perseus/context.md --output <file>` loads the workspace-local config automatically.
 
 ---
 
-## Waypoint Hooks
+## Example
 
-Perseus hooks into Hermes session lifecycle events:
-
-| Event | Perseus Action |
-|---|---|
-| Session start | Load latest waypoint (if within TTL), inject into context |
-| Tool call complete | Optionally update lightweight checkpoint |
-| Session end (clean) | Write full waypoint |
-| Session end (interrupted / disconnect) | Write emergency waypoint with last known state |
-
-Today, the reliable integration path is explicit agent tool usage: the assistant calls `perseus checkpoint` at meaningful pause points. Future session-hook integration remains possible, but is not required by the current implementation.
-
----
-
-## Cron Job Integration
-
-For long-running or recurring cron jobs, Perseus provides resumable state:
-
-```yaml
-# cron job definition
-schedule: "0 9 * * *"
-prompt: |
-  @perseus ~/.perseus/daily-briefing.md
-  
-  Using the above live context, generate today's briefing...
-```
-
-The rendered context includes: recent sessions digest, service health, active workspace state, pending waypoints.
-
----
-
-## Example: Full Session Context Document
-
-```
-@perseus v0.1
+```markdown
+@perseus v0.4
 
 @prompt
-This context was rendered live by Perseus at session start.
-All values are current. Do not verify independently unless instructed.
+This context was rendered live by Perseus.
+Trust the rendered output and skip orientation.
 @end
 
 # Session Context — @date format="YYYY-MM-DD HH:mm z"
@@ -107,24 +130,9 @@ All values are current. Do not verify independently unless instructed.
 
 ## Services
 @services
-  - name: Hermes WebUI
-    url: http://localhost:7779
-  - name: ntfy
-    url: http://localhost:8080/v1/health
-  - name: Portainer
-    url: https://localhost:9443/api/status
+  - name: Local API
+    url: http://localhost:8000/health
 
 ## Available Skills
 @skills flag_stale=true
-
-## Workspace
-@if file.exists ".perseus/context.md"
-  @include .perseus/context.md
-@endif
 ```
-
----
-
-## macOS LaunchAgents
-
-In addition to cron-style integration, Perseus now provides `perseus launchd` to scaffold a LaunchAgent plist that periodically renders a source context document to an output file on macOS. This is the preferred local scheduler path for Mac users.

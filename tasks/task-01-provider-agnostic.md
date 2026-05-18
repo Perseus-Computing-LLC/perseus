@@ -1,6 +1,6 @@
 # Task 01 — Provider-Agnostic Config & Integration Docs
 
-**Status: Open**  
+**Status: Completed**  
 **Scope: Medium** — config renaming + doc rewrite, no new features  
 **Tests required: Yes** — existing tests must still pass; add any if behavior changes
 
@@ -130,3 +130,19 @@ pattern generically before showing Hermes as the primary example.
 - Don't rename `@skills` or `@session` directives — the names are fine; only the
   implementation defaults and docs need updating.
 - The `spec/` files are documentation — update them to match the code changes.
+
+---
+
+## Completed
+
+- Renamed provider-specific defaults to `SKILLS_DIR` / `SESSIONS_DIR` with `PERSEUS_*` env vars preferred and legacy `HERMES_*` env vars preserved as fallback.
+- Replaced the `hermes` default config section with `assistant` and added backward-compatible migration of legacy `hermes:` user config into `assistant:` during config load.
+- Generalized `resolve_session()` and `resolve_skills()` docstrings and session config lookup to use the provider-agnostic assistant config.
+- Rewrote `spec/integration.md` as a provider-agnostic integration guide covering Hermes, Rovo Dev, Claude Code, Cursor, and generic file-based assistants.
+- Generalized the README auto-injection section to describe the shared render-to-file pattern first, with Hermes retained as an example.
+- Added compatibility tests covering legacy `hermes:` config migration and `PERSEUS_*` env var precedence.
+
+### Notes
+
+- I kept `.hermes.md` as the documented Hermes example instead of removing it, per task notes.
+- I did not rename `@skills` or `@session`; only defaults, config naming, and docs were generalized.

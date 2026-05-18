@@ -34,8 +34,8 @@ import yaml  # pyyaml
 # ─────────────────────────────── Paths & Config ───────────────────────────────
 
 PERSEUS_HOME = Path(os.environ.get("PERSEUS_HOME", Path.home() / ".perseus"))
-HERMES_SKILLS_DIR = Path(os.environ.get("HERMES_SKILLS_DIR", Path.home() / ".hermes" / "skills"))
-HERMES_SESSIONS_DIR = Path(os.environ.get("HERMES_SESSIONS_DIR", Path.home() / ".hermes" / "sessions"))
+SKILLS_DIR = Path(os.environ.get("PERSEUS_SKILLS_DIR", os.environ.get("HERMES_SKILLS_DIR", Path.home() / ".hermes" / "skills")))
+SESSIONS_DIR = Path(os.environ.get("PERSEUS_SESSIONS_DIR", os.environ.get("HERMES_SESSIONS_DIR", Path.home() / ".hermes" / "sessions")))
 
 DEFAULT_CONFIG = {
     "render": {
@@ -53,15 +53,15 @@ DEFAULT_CONFIG = {
         "max_keep": 30,
     },
     "oracle": {
-        "skill_dir": str(HERMES_SKILLS_DIR),
+        "skill_dir": str(SKILLS_DIR),
         "stale_skill_days": 30,
         "llm_provider": "ollama",
         "ollama_model": "llama3.1",
         "llm_timeout_s": 30,
         "ollama_host": os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434"),
     },
-    "hermes": {
-        "sessions_dir": str(HERMES_SESSIONS_DIR),
+    "assistant": {
+        "sessions_dir": str(SESSIONS_DIR),
     },
 }
 
@@ -72,26 +72,29 @@ def load_config(workspace: Path | None = None) -> dict:
     for section, vals in DEFAULT_CONFIG.items():
         cfg[section] = dict(vals)
 
-    global_cfg = PERSEUS_HOME / "config.yaml"
-    if global_cfg.exists():
-        with open(global_cfg) as f:
-            user = yaml.safe_load(f) or {}
-        for section, vals in user.items():
+    def merge_loaded(loaded: dict) -> None:
+        loaded = dict(loaded or {})
+        legacy = loaded.pop("hermes", None)
+        if isinstance(legacy, dict):
+            assistant_vals = dict(loaded.get("assistant", {}) or {})
+            assistant_vals.update(legacy)
+            loaded["assistant"] = assistant_vals
+        for section, vals in loaded.items():
             if section in cfg and isinstance(vals, dict):
                 cfg[section].update(vals)
             else:
                 cfg[section] = vals
 
+    global_cfg = PERSEUS_HOME / "config.yaml"
+    if global_cfg.exists():
+        with open(global_cfg) as f:
+            merge_loaded(yaml.safe_load(f) or {})
+
     if workspace:
         local_cfg = workspace / ".perseus" / "config.yaml"
         if local_cfg.exists():
             with open(local_cfg) as f:
-                local = yaml.safe_load(f) or {}
-            for section, vals in local.items():
-                if section in cfg and isinstance(vals, dict):
-                    cfg[section].update(vals)
-                else:
-                    cfg[section] = vals
+                merge_loaded(yaml.safe_load(f) or {})
 
     return cfg
 
@@ -689,7 +692,7 @@ def evaluate_condition(condition: str, workspace: Path | None = None, cfg: dict 
 # ──────────────────────────────── @skills ─────────────────────────────────────
 
 def resolve_skills(args_str: str, cfg: dict) -> str:
-    """Scan ~/.hermes/skills/ and emit a markdown summary."""
+    """Scan the configured skills directory and emit a markdown summary."""
     skill_dir = Path(cfg["oracle"]["skill_dir"])
     stale_days = int(cfg["oracle"].get("stale_skill_days", 30))
     flag_stale = "flag_stale=true" in args_str
@@ -838,7 +841,7 @@ def resolve_services(block_content: str, cfg: dict) -> str:
 # ──────────────────────────────── @session ────────────────────────────────────
 
 def resolve_session(args_str: str, cfg: dict) -> str:
-    """Read recent Hermes sessions from the sessions dir and summarize."""
+    """Read recent assistant sessions from the configured sessions dir and summarize."""
     count = 5
     m = re.search(r'count=(\d+)', args_str)
     if m:
@@ -851,7 +854,7 @@ def resolve_session(args_str: str, cfg: dict) -> str:
     if m:
         topic = m.group(1).lower()
 
-    sessions_dir = Path(cfg["hermes"].get("sessions_dir", HERMES_SESSIONS_DIR))
+    sessions_dir = Path(cfg["assistant"].get("sessions_dir", SESSIONS_DIR))
     if not sessions_dir.exists():
         return "> ⚠ Sessions directory not found."
 

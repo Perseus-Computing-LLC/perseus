@@ -218,7 +218,16 @@ perseus suggest "best way to search for a pattern across a large Python codebase
 
 ---
 
-## Auto-Injection with Hermes
+## Auto-Injection
+
+Perseus works with any assistant that can read a file at session start. The general pattern is:
+
+```bash
+perseus render .perseus/context.md --output <assistant-specific-file>
+```
+
+The output is plain markdown, so the only assistant-specific detail is the filename you choose. Hermes is just one example.
+
 
 Perseus keeps `.hermes.md` fresh via a `no_agent` cron watchdog (no model tokens, no noise):
 
