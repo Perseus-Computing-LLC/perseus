@@ -2,6 +2,10 @@
 
 > *Athena didn't tell Perseus to fight Medusa. She handed him a shield — polished to a mirror — and let him see the monster clearly without meeting her gaze. The trick was never strength. It was reflection.*
 
+![Perseus with the Head of Medusa — Benvenuto Cellini, 1545. Piazza della Signoria, Florence.](https://upload.wikimedia.org/wikipedia/commons/thumb/9/91/Perseus_with_the_Head_of_Medusa.JPG/800px-Perseus_with_the_Head_of_Medusa.JPG)
+
+*Perseus with the Head of Medusa — Benvenuto Cellini, 1545. Piazza della Signoria, Florence. ([BeEXT](https://commons.wikimedia.org/wiki/File:Perseus_with_the_Head_of_Medusa.JPG), CC BY-SA 4.0)*
+
 **Perseus** is a live context engine for AI assistants. It solves the cold-start problem: every new session begins with an assistant that has no idea what's running, what you were working on, which tools are available, or where things broke. Perseus resolves that state **before it ever reaches the context window** — so the assistant starts with a complete, accurate picture instead of burning turns on orientation.
 
 Built as a companion to [Hermes Agent](https://hermes-agent.nousresearch.com). Designed to be assistant-agnostic.
