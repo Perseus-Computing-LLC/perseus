@@ -1486,8 +1486,8 @@ def _list_checkpoint_files(cfg: dict) -> list[Path]:
     if not store.exists():
         return []
     return sorted(
-        [f for f in store.glob("*.yaml") if f.name != "latest.yaml"],
-        key=lambda f: f.stat().st_mtime,
+        [f for f in store.glob("*.yaml") if f.name != "latest.yaml" and not f.name.startswith("latest-")],
+        key=lambda f: f.name,
         reverse=True,
     )
 
