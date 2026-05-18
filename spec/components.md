@@ -302,3 +302,104 @@ Routes through Ollama using `llm.daedalus_model` (default `perseus-daedalus`) at
 `llm.daedalus_url` (default `http://localhost:11434`). The fine-tuned model is a
 user concern; Perseus only handles data export and request routing.
 
+
+
+---
+
+## 8. Inbox (`perseus inbox`) — Point-to-Point Messages
+
+Per-workspace message store, parallel to checkpoints.
+
+Storage: `~/.perseus/inbox/<workspace-hash>/<timestamp>-<sender>.yaml`
+
+### CLI
+
+```bash
+perseus inbox send "subject" --body "..." [--recipient X] [--from Y] [--workspace .]
+perseus inbox list [--unread] [--all]
+perseus inbox read <id-prefix|latest>
+perseus inbox dismiss <id-prefix>
+```
+
+### Directive
+
+`@inbox [unread=true] [limit=N]` — renders pending messages inline. Dismissed
+messages are always excluded. `unread=true` filters to unread.
+
+### Config
+
+```yaml
+inbox:
+  store: ~/.perseus/inbox
+  default_recipient: anyone
+  default_sender: perseus
+```
+
+---
+
+## 9. Templates (`perseus init --template`)
+
+Curated starter `.perseus/context.md` files keyed by AI assistant.
+
+Shipped templates: `generic`, `hermes`, `rovodev`, `claude-code`, `cursor`.
+
+### CLI
+
+```bash
+perseus init --template hermes
+perseus init --list-templates
+```
+
+### Discovery
+
+1. `$PERSEUS_TEMPLATE_DIR` if set
+2. `<dir-of-perseus.py>/templates/`
+3. Embedded `INIT_CONTEXT_TEMPLATE` (legacy default — used when no `--template`)
+
+---
+
+## 10. Serve (`perseus serve`) — Read-Only HTTP View
+
+Stdlib HTTP server for browsing rendered workspace state.
+
+### CLI
+
+```bash
+perseus serve [--port 7991] [--host 127.0.0.1] [--workspace .]
+```
+
+### Endpoints
+
+| Path | Returns |
+|---|---|
+| `/` | HTML index linking to other endpoints |
+| `/context` | `text/markdown` — `perseus render .perseus/context.md` output |
+| `/narrative` | `text/markdown` — Mnēmē narrative body |
+| `/health` | `text/markdown` — health report |
+| `/agora` | `text/markdown` — Agora list |
+| `/checkpoint/latest` | `text/yaml` — workspace pointer or global latest |
+| `/oracle/log?limit=N` | `application/json` — recent oracle log entries |
+
+POST returns 405. No auth — bind to localhost by default.
+
+---
+
+## 11. Cron (`perseus cron`) — Cross-platform Scheduling
+
+Generates a crontab entry for periodic rendering. Works on macOS, Linux, BSD.
+Recommended over `perseus launchd` / `perseus systemd` when portability matters.
+
+### CLI
+
+```bash
+perseus cron .perseus/context.md -o AGENTS.md --every 5
+perseus cron .perseus/context.md -o AGENTS.md --every 5 --install
+```
+
+`--every` accepts minutes; `1`, `60`, and `>60` are translated to the
+appropriate `* * * * *` / `0 * * * *` / `0 */N * * *` schedule.
+
+`--install` appends the entry to the user's crontab via
+`crontab -l` → edit → `crontab -`. Entries are tagged `# perseus-render` for
+easy lookup.
+

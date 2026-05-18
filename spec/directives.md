@@ -294,3 +294,52 @@ The `@cache` modifier can be appended to any directive:
 | `@cache ttl=N` | Cached for N seconds |
 | `@cache persist` | Written to disk cache; survives across sessions until TTL expires |
 | `@cache mock` | Returns a static mock value (for testing/offline use) |
+
+
+---
+
+## Subprocess (Phase 8)
+
+### `@agent`
+
+Run a local subprocess and embed its stdout inline.
+
+```
+@agent "echo hello"
+@agent "my-script.sh" timeout=30 fallback="(unavailable)"
+@agent "git diff --stat HEAD~1" strip=true @cache ttl=300
+```
+
+| Arg | Default | Description |
+|---|---|---|
+| `timeout` | 10 | Seconds before subprocess is killed |
+| `strip` | `true` | Strip leading/trailing whitespace from stdout |
+| `fallback` | (none) | Substitute text on failure/timeout instead of warning |
+
+Differs from `@query` in three ways:
+1. Output is substituted INLINE (no fenced code block by default)
+2. Failure with `fallback=` silently substitutes the fallback text
+3. Gated by `render.allow_agent_shell` (default `true`)
+
+Composes with `@cache session|ttl=N|persist|mock`.
+
+---
+
+## Messaging (Phase 8)
+
+### `@inbox`
+
+Render pending point-to-point messages from `perseus inbox send`.
+
+```
+@inbox
+@inbox unread=true
+@inbox limit=5
+```
+
+Dismissed messages are always excluded. `unread=true` filters to messages that
+have not been opened via `perseus inbox read`.
+
+Empty inbox renders `_No new messages._`
+
+See `spec/components.md` § 8 (Inbox) for the CLI surface.

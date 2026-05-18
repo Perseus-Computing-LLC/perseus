@@ -1102,3 +1102,350 @@ def test_run_llm_daedalus_routes_to_ollama(monkeypatch):
     assert text == "daedalus-reply"
     assert "/api/chat" in captured["url"]
     assert captured["data"]["model"] == "perseus-daedalus"
+
+
+# ───────────────────────── Phase 8 — tasks 15-18 ──────────────────────────────
+
+# ── task-15: @agent directive ────────────────────────────────────────────────
+
+def test_agent_happy_path(tmp_path):
+    out = perseus.resolve_agent('"echo hello-world"', cfg(), tmp_path)
+    assert out == "hello-world"
+
+
+def test_agent_command_must_be_quoted(tmp_path):
+    out = perseus.resolve_agent('echo hello', cfg(), tmp_path)
+    assert "must be quoted" in out
+
+
+def test_agent_nonzero_exit_warns(tmp_path):
+    out = perseus.resolve_agent('"false"', cfg(), tmp_path)
+    assert "@agent: command exited" in out
+
+
+def test_agent_fallback_on_failure(tmp_path):
+    out = perseus.resolve_agent('"false" fallback="(unavailable)"', cfg(), tmp_path)
+    assert out == "(unavailable)"
+
+
+def test_agent_timeout(tmp_path):
+    out = perseus.resolve_agent('"sleep 5" timeout=1', cfg(), tmp_path)
+    assert "timed out" in out
+
+
+def test_agent_timeout_with_fallback(tmp_path):
+    out = perseus.resolve_agent('"sleep 5" timeout=1 fallback="(busy)"', cfg(), tmp_path)
+    assert out == "(busy)"
+
+
+def test_agent_security_gate(tmp_path):
+    local = cfg()
+    local["render"]["allow_agent_shell"] = False
+    out = perseus.resolve_agent('"echo nope"', local, tmp_path)
+    assert "disabled by config" in out
+
+
+def test_agent_through_render(tmp_path):
+    out = perseus._render_lines(['@agent "echo via-render"'], cfg(), workspace=tmp_path)
+    assert "via-render" in out
+
+
+def test_agent_strip_false_preserves_trailing_newline(tmp_path):
+    out = perseus.resolve_agent('"printf hello\\\\n" strip=false', cfg(), tmp_path)
+    assert out.endswith("\n") or out == "hello\n"
+
+
+# ── task-16: agent inbox ─────────────────────────────────────────────────────
+
+def _inbox_cfg(tmp_path):
+    local = cfg()
+    local["inbox"]["store"] = str(tmp_path / "inbox")
+    return local
+
+
+def test_inbox_send_writes_yaml(tmp_path, capsys):
+    local = _inbox_cfg(tmp_path)
+    perseus.cmd_inbox(argparse.Namespace(
+        inbox_command="send", subject="Hi", body="Body text",
+        recipient="alice", from_="bob", workspace=str(tmp_path),
+    ), local)
+    capsys.readouterr()
+    files = list((tmp_path / "inbox").rglob("*.yaml"))
+    assert len(files) == 1
+    msg = yaml.safe_load(files[0].read_text())
+    assert msg["subject"] == "Hi"
+    assert msg["recipient"] == "alice"
+    assert msg["sender"] == "bob"
+    assert msg["read_at"] is None
+
+
+def test_inbox_list_per_workspace_scoping(tmp_path, capsys):
+    local = _inbox_cfg(tmp_path)
+    ws_a = tmp_path / "a"; ws_a.mkdir()
+    ws_b = tmp_path / "b"; ws_b.mkdir()
+    perseus.cmd_inbox(argparse.Namespace(
+        inbox_command="send", subject="A", body="", recipient=None, from_=None,
+        workspace=str(ws_a),
+    ), local)
+    perseus.cmd_inbox(argparse.Namespace(
+        inbox_command="send", subject="B", body="", recipient=None, from_=None,
+        workspace=str(ws_b),
+    ), local)
+    capsys.readouterr()
+    perseus.cmd_inbox(argparse.Namespace(
+        inbox_command="list", workspace=str(ws_a), unread=False, all=False,
+    ), local)
+    out = capsys.readouterr().out
+    assert "A" in out
+    assert "B" not in out
+
+
+def test_inbox_read_marks_read(tmp_path, capsys):
+    local = _inbox_cfg(tmp_path)
+    perseus.cmd_inbox(argparse.Namespace(
+        inbox_command="send", subject="S", body="content", recipient=None, from_=None,
+        workspace=str(tmp_path),
+    ), local)
+    capsys.readouterr()
+    perseus.cmd_inbox(argparse.Namespace(
+        inbox_command="read", msg_id="latest", workspace=str(tmp_path),
+    ), local)
+    capsys.readouterr()
+    files = list((tmp_path / "inbox").rglob("*.yaml"))
+    msg = yaml.safe_load(files[0].read_text())
+    assert msg["read_at"] is not None
+
+
+def test_inbox_dismiss_excludes_from_directive(tmp_path, capsys):
+    local = _inbox_cfg(tmp_path)
+    perseus.cmd_inbox(argparse.Namespace(
+        inbox_command="send", subject="S", body="", recipient=None, from_=None,
+        workspace=str(tmp_path),
+    ), local)
+    capsys.readouterr()
+    perseus.cmd_inbox(argparse.Namespace(
+        inbox_command="dismiss", msg_id="latest", workspace=str(tmp_path),
+    ), local)
+    capsys.readouterr()
+    out = perseus.resolve_inbox("", local, tmp_path)
+    assert "No new messages" in out
+
+
+def test_inbox_directive_unread_filter(tmp_path, capsys):
+    local = _inbox_cfg(tmp_path)
+    perseus.cmd_inbox(argparse.Namespace(
+        inbox_command="send", subject="Unread", body="", recipient=None, from_=None,
+        workspace=str(tmp_path),
+    ), local)
+    capsys.readouterr()
+    out = perseus.resolve_inbox("unread=true", local, tmp_path)
+    assert "Unread" in out
+    # Read it then re-check
+    perseus.cmd_inbox(argparse.Namespace(
+        inbox_command="read", msg_id="latest", workspace=str(tmp_path),
+    ), local)
+    capsys.readouterr()
+    out2 = perseus.resolve_inbox("unread=true", local, tmp_path)
+    assert "No new messages" in out2
+
+
+def test_inbox_empty_renders_placeholder(tmp_path):
+    local = _inbox_cfg(tmp_path)
+    out = perseus.resolve_inbox("", local, tmp_path)
+    assert "No new messages" in out
+
+
+def test_inbox_through_render(tmp_path, capsys):
+    local = _inbox_cfg(tmp_path)
+    perseus.cmd_inbox(argparse.Namespace(
+        inbox_command="send", subject="From render", body="x", recipient=None, from_=None,
+        workspace=str(tmp_path),
+    ), local)
+    capsys.readouterr()
+    out = perseus._render_lines(['@inbox'], local, workspace=tmp_path)
+    assert "From render" in out
+
+
+# ── task-17: template gallery ────────────────────────────────────────────────
+
+def test_list_templates_returns_known_names():
+    templates = perseus._list_templates()
+    assert "generic" in templates
+    assert "hermes" in templates
+    assert "rovodev" in templates
+    assert "claude-code" in templates
+    assert "cursor" in templates
+
+
+def test_load_template_known_name():
+    content = perseus._load_template("hermes")
+    assert content is not None
+    assert "@perseus" in content
+
+
+def test_load_template_unknown_returns_none():
+    assert perseus._load_template("does-not-exist") is None
+
+
+def test_init_with_template_writes_chosen_content(tmp_path, capsys):
+    args = argparse.Namespace(workspace=str(tmp_path), force=False,
+                              template="rovodev", list_templates=False)
+    perseus.cmd_init(args, cfg())
+    capsys.readouterr()
+    ctx = tmp_path / ".perseus" / "context.md"
+    assert ctx.exists()
+    body = ctx.read_text()
+    assert "Rovo Dev" in body
+    assert str(tmp_path) in body
+
+
+def test_init_unknown_template_errors(tmp_path, capsys):
+    args = argparse.Namespace(workspace=str(tmp_path), force=False,
+                              template="bogus-template-name", list_templates=False)
+    try:
+        perseus.cmd_init(args, cfg())
+        assert False, "expected SystemExit"
+    except SystemExit:
+        err = capsys.readouterr().err
+        assert "Unknown template" in err
+
+
+def test_init_list_templates_lists_known(tmp_path, capsys):
+    args = argparse.Namespace(workspace=str(tmp_path), force=False,
+                              template=None, list_templates=True)
+    perseus.cmd_init(args, cfg())
+    out = capsys.readouterr().out
+    assert "hermes" in out
+    assert "generic" in out
+
+
+def test_template_dir_respects_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("PERSEUS_TEMPLATE_DIR", str(tmp_path))
+    assert perseus._template_dir() == tmp_path.resolve()
+
+
+# ── task-18: perseus serve endpoints ─────────────────────────────────────────
+
+def test_serve_endpoint_index_returns_html(tmp_path):
+    status, ctype, body = perseus._serve_render_endpoint("/", cfg(), tmp_path, {})
+    assert status == 200
+    assert "text/html" in ctype
+    assert "Perseus" in body
+    assert "/context" in body
+
+
+def test_serve_endpoint_context_missing(tmp_path):
+    status, ctype, body = perseus._serve_render_endpoint("/context", cfg(), tmp_path, {})
+    assert status == 404
+    assert "No .perseus/context.md" in body
+
+
+def test_serve_endpoint_context_renders(tmp_path):
+    (tmp_path / ".perseus").mkdir()
+    (tmp_path / ".perseus" / "context.md").write_text("@perseus v0.5\n\n# Hello\n")
+    status, ctype, body = perseus._serve_render_endpoint("/context", cfg(), tmp_path, {})
+    assert status == 200
+    assert "Hello" in body
+
+
+def test_serve_endpoint_narrative_missing(tmp_path):
+    local = cfg()
+    local["memory"]["store"] = str(tmp_path / "mem")
+    status, ctype, body = perseus._serve_render_endpoint("/narrative", local, tmp_path, {})
+    assert status == 404
+
+
+def test_serve_endpoint_narrative_present(tmp_path):
+    local = cfg()
+    local["memory"]["store"] = str(tmp_path / "mem")
+    mp = perseus._mneme_path(tmp_path, local)
+    fm = perseus._mneme_default_frontmatter(tmp_path)
+    perseus._save_narrative(mp, fm, "## Project Arc\n\nx.\n")
+    status, ctype, body = perseus._serve_render_endpoint("/narrative", local, tmp_path, {})
+    assert status == 200
+    assert "Project Arc" in body
+
+
+def test_serve_endpoint_health(tmp_path):
+    local = cfg()
+    local["checkpoints"]["store"] = str(tmp_path / "cp")
+    status, ctype, body = perseus._serve_render_endpoint("/health", local, tmp_path, {})
+    assert status == 200
+    assert "text/markdown" in ctype
+
+
+def test_serve_endpoint_unknown_returns_404(tmp_path):
+    status, _, body = perseus._serve_render_endpoint("/totally-bogus", cfg(), tmp_path, {})
+    assert status == 404
+
+
+def test_serve_endpoint_checkpoint_missing(tmp_path):
+    local = cfg()
+    local["checkpoints"]["store"] = str(tmp_path / "cp")
+    status, _, _ = perseus._serve_render_endpoint("/checkpoint/latest", local, tmp_path, {})
+    assert status == 404
+
+
+def test_serve_endpoint_checkpoint_present(tmp_path):
+    local = cfg()
+    local["checkpoints"]["store"] = str(tmp_path / "cp")
+    perseus.cmd_checkpoint(argparse.Namespace(
+        task="t", status="", next="", workspace=str(tmp_path), notes=""), local)
+    status, ctype, body = perseus._serve_render_endpoint("/checkpoint/latest", local, tmp_path, {})
+    assert status == 200
+    assert "text/yaml" in ctype
+
+
+def test_serve_endpoint_oracle_log_returns_json(tmp_path, monkeypatch):
+    monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path)
+    log = tmp_path / "oracle_log.jsonl"
+    log.write_text(json.dumps({"timestamp": "t1", "task": "a"}) + "\n")
+    status, ctype, body = perseus._serve_render_endpoint("/oracle/log", cfg(), tmp_path, {})
+    assert status == 200
+    assert "application/json" in ctype
+    data = json.loads(body)
+    assert isinstance(data, list)
+    assert data[0]["task"] == "a"
+
+
+# ── cron scaffolding ─────────────────────────────────────────────────────────
+
+def test_cron_command_default_5min(tmp_path, capsys):
+    src = tmp_path / "ctx.md"
+    src.write_text("@perseus\n")
+    args = argparse.Namespace(source=str(src), output=str(tmp_path / "out.md"),
+                              every="5", install=False)
+    perseus.cmd_cron(args, cfg())
+    out = capsys.readouterr().out
+    assert "*/5 * * * *" in out
+    assert "# perseus-render" in out
+
+
+def test_cron_command_hourly(tmp_path, capsys):
+    src = tmp_path / "ctx.md"; src.write_text("@perseus\n")
+    args = argparse.Namespace(source=str(src), output=str(tmp_path / "out.md"),
+                              every="60", install=False)
+    perseus.cmd_cron(args, cfg())
+    out = capsys.readouterr().out
+    assert "0 * * * *" in out
+
+
+def test_cron_command_2hourly(tmp_path, capsys):
+    src = tmp_path / "ctx.md"; src.write_text("@perseus\n")
+    args = argparse.Namespace(source=str(src), output=str(tmp_path / "out.md"),
+                              every="120", install=False)
+    perseus.cmd_cron(args, cfg())
+    out = capsys.readouterr().out
+    assert "0 */2 * * *" in out
+
+
+def test_cron_command_invalid_every(tmp_path, capsys):
+    src = tmp_path / "ctx.md"; src.write_text("@perseus\n")
+    args = argparse.Namespace(source=str(src), output=str(tmp_path / "out.md"),
+                              every="not-a-number", install=False)
+    try:
+        perseus.cmd_cron(args, cfg())
+        assert False, "expected SystemExit"
+    except SystemExit:
+        err = capsys.readouterr().err
+        assert "must be an integer" in err

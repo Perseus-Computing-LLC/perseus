@@ -42,6 +42,7 @@ DEFAULT_CONFIG = {
     "render": {
         "cache_dir": str(PERSEUS_HOME / "cache"),
         "persist_cache_ttl_s": 3600,  # task-09: default TTL for @cache persist
+        "allow_agent_shell": True,    # task-15: @agent gate (mirrors allow_query_shell)
         "session_digest_count": 5,
         "services_timeout_s": 3,
         "shell": "/bin/bash",
@@ -91,6 +92,11 @@ DEFAULT_CONFIG = {
         "llm_provider": None,       # None = deterministic; "ollama" / "openai-compat" enables LLM
         "llm_model": None,          # inherits from llm: block if None
         "max_narrative_lines": 300, # warn (not error) if narrative grows beyond this
+    },
+    "inbox": {                       # task-16 (Phase 8 P8.3)
+        "store": str(PERSEUS_HOME / "inbox"),
+        "default_recipient": "anyone",
+        "default_sender": "perseus",
     },
 }
 
@@ -632,6 +638,84 @@ def _guess_lang(cmd: str) -> str:
     if cmd_lower.startswith(("jq", "yq")):
         return "json"
     return "text"
+
+
+# ──────────────────────────────── @agent ──────────────────────────────────────
+
+def resolve_agent(args_str: str, cfg: dict, workspace: Path | None = None) -> str:
+    """
+    @agent "command" [timeout=N] [strip=true|false] [fallback="text"]
+
+    Run a local subprocess and embed its stdout verbatim. Stderr is discarded
+    on success; on failure (non-zero exit code) the warning surfaces it.
+
+    Differs from @query in three ways:
+      - Output is substituted INLINE (no fenced code block by default)
+      - Failure with fallback= silently substitutes the fallback text
+      - Gated by render.allow_agent_shell (default true)
+    """
+    render_cfg = cfg.get("render", {})
+    if not render_cfg.get("allow_agent_shell", True):
+        return "> ⚠ @agent is disabled by config (`render.allow_agent_shell=false`)."
+
+    raw = args_str.strip()
+    # Extract command (double or single quoted, else first whitespace-delimited token)
+    cmd_match = re.match(r'^"((?:[^"\\]|\\.)*)"', raw)
+    if cmd_match:
+        cmd = cmd_match.group(1)
+        rest = raw[cmd_match.end():].strip()
+    else:
+        cmd_match = re.match(r"^'((?:[^'\\]|\\.)*)'", raw)
+        if cmd_match:
+            cmd = cmd_match.group(1)
+            rest = raw[cmd_match.end():].strip()
+        else:
+            return "> ⚠ @agent: command must be quoted."
+
+    mods = _parse_kv_modifiers(rest)
+    try:
+        timeout = int(mods.get("timeout", "10"))
+    except (TypeError, ValueError):
+        timeout = 10
+    strip_output = str(mods.get("strip", "true")).strip().lower() != "false"
+    fallback = mods.get("fallback")
+
+    shell = render_cfg.get("shell", "/bin/bash")
+
+    try:
+        result = subprocess.run(
+            cmd,
+            shell=True,
+            executable=shell,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            cwd=str(workspace) if workspace else None,
+        )
+    except subprocess.TimeoutExpired:
+        if fallback is not None:
+            return fallback
+        return f"> ⚠ @agent: timed out after {timeout}s: `{cmd}`"
+    except Exception as exc:
+        if fallback is not None:
+            return fallback
+        return f"> ⚠ @agent: error: {exc}"
+
+    if result.returncode != 0:
+        if fallback is not None:
+            return fallback
+        stderr = (result.stderr or "").strip()
+        body = result.stdout or stderr or "(no output)"
+        return f"> ⚠ @agent: command exited {result.returncode}: `{cmd}`\n\n```\n{body}\n```"
+
+    output = result.stdout or ""
+    if strip_output:
+        output = output.strip()
+    if not output:
+        if fallback is not None:
+            return fallback
+        return f"> (no output from `{cmd}`)"
+    return output
 
 
 # ──────────────────────────────── @read ───────────────────────────────────────
@@ -1505,7 +1589,7 @@ CONSTRAINT_RE = re.compile(r'^@constraint\s+(.+)$', re.IGNORECASE)
 CONSTRAINT_END_RE = re.compile(r'^@end\s*$', re.IGNORECASE)
 
 INLINE_DIRECTIVE_RE = re.compile(
-    r'^(@query|@skills|@session|@date|@waypoint|@read|@env|@include|@prompt|@agora|@memory|@list|@tree|@health)(\s+.*)?$',
+    r'^(@query|@skills|@session|@date|@waypoint|@read|@env|@include|@prompt|@agora|@memory|@list|@tree|@health|@agent|@inbox)(\s+.*)?$',
     re.IGNORECASE,
 )
 
@@ -1700,6 +1784,10 @@ def _render_lines(
                 result = resolve_tree(clean_args, cfg, workspace)
             elif directive == "@health":
                 result = resolve_health(clean_args, cfg, workspace)
+            elif directive == "@agent":
+                result = resolve_agent(clean_args, cfg, workspace)
+            elif directive == "@inbox":
+                result = resolve_inbox(clean_args, cfg, workspace)
             else:
                 result = line
 
@@ -2382,6 +2470,182 @@ def resolve_memory(args_str: str, cfg: dict, workspace: Path | None = None) -> s
         return f"> ⚠ @memory focus={focus!r}: section not found in narrative."
     return section.rstrip()
 
+
+
+# ──────────────────────────────── Inbox (task-16) ─────────────────────────────
+#
+# Point-to-point message store for cross-instance agent communication.
+# Per-workspace by default (uses _workspace_hash from Mnēmē / task-07).
+#
+# Storage: ~/.perseus/inbox/<workspace-hash>/<id>.yaml
+# Schema: schema=1; sent_at, sender, recipient, subject, body, read_at, dismissed_at
+
+def _inbox_dir(workspace: Path, cfg: dict) -> Path:
+    base = Path(cfg.get("inbox", {}).get("store", str(PERSEUS_HOME / "inbox")))
+    return base / _workspace_hash(workspace)
+
+
+def _inbox_load_all(workspace: Path, cfg: dict) -> list[tuple[Path, dict]]:
+    """Return [(path, message_dict), ...] sorted by sent_at ascending."""
+    d = _inbox_dir(workspace, cfg)
+    if not d.exists():
+        return []
+    out = []
+    for fp in sorted(d.glob("*.yaml")):
+        try:
+            msg = yaml.safe_load(fp.read_text()) or {}
+            if isinstance(msg, dict):
+                out.append((fp, msg))
+        except Exception:
+            continue
+    return out
+
+
+def _inbox_write(path: Path, msg: dict) -> None:
+    """Atomic YAML write."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = yaml.safe_dump(msg, default_flow_style=False, allow_unicode=True, sort_keys=False)
+    tmp = path.with_suffix(".yaml.tmp")
+    tmp.write_text(text)
+    os.replace(tmp, path)
+
+
+def _inbox_find(workspace: Path, cfg: dict, msg_id: str) -> tuple[Path, dict] | None:
+    """Find by full id (filename stem), by prefix, or 'latest'."""
+    items = _inbox_load_all(workspace, cfg)
+    if not items:
+        return None
+    if msg_id == "latest":
+        return items[-1]
+    for fp, msg in items:
+        if fp.stem == msg_id:
+            return (fp, msg)
+    for fp, msg in items:
+        if fp.stem.startswith(msg_id):
+            return (fp, msg)
+    return None
+
+
+def cmd_inbox(args, cfg):
+    ws_raw = getattr(args, "workspace", None) or os.getcwd()
+    workspace = Path(ws_raw).expanduser().resolve()
+    sub = getattr(args, "inbox_command", None)
+
+    if sub == "send":
+        subject = args.subject
+        body = getattr(args, "body", "") or ""
+        recipient = getattr(args, "recipient", None) or cfg.get("inbox", {}).get("default_recipient", "anyone")
+        sender = getattr(args, "from_", None) or cfg.get("inbox", {}).get("default_sender", "perseus")
+        now = datetime.now().astimezone()
+        ts = now.strftime("%Y-%m-%dT%H%M%S")
+        msg = {
+            "schema": 1,
+            "sent_at": now.isoformat(timespec="seconds"),
+            "sender": sender,
+            "recipient": recipient,
+            "subject": subject,
+            "body": body,
+            "read_at": None,
+            "dismissed_at": None,
+        }
+        path = _inbox_dir(workspace, cfg) / f"{ts}-{sender}.yaml"
+        _inbox_write(path, msg)
+        print(f"✔ Inbox message sent: {path.stem}")
+        print(f"  Recipient: {recipient}")
+        print(f"  Subject:   {subject}")
+        return
+
+    if sub == "list":
+        items = _inbox_load_all(workspace, cfg)
+        unread = bool(getattr(args, "unread", False))
+        show_all = bool(getattr(args, "all", False))
+        rows = []
+        for fp, msg in items:
+            if msg.get("dismissed_at") and not show_all:
+                continue
+            if unread and msg.get("read_at"):
+                continue
+            tag = "·" if msg.get("read_at") is None else "✓"
+            if msg.get("dismissed_at"):
+                tag = "✗"
+            rows.append(f"  {tag}  {fp.stem}  [{msg.get('sender','?')} → {msg.get('recipient','?')}]  {msg.get('subject','')}")
+        print(f"Inbox — {workspace}")
+        if not rows:
+            print("  (no messages)")
+            return
+        for r in rows:
+            print(r)
+        return
+
+    if sub == "read":
+        found = _inbox_find(workspace, cfg, args.msg_id)
+        if not found:
+            print(f"> ⚠ No inbox message matched: {args.msg_id}")
+            return
+        fp, msg = found
+        if msg.get("read_at") is None:
+            msg["read_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
+            _inbox_write(fp, msg)
+        print(f"# {msg.get('subject','(no subject)')}")
+        print(f"From: {msg.get('sender','?')}")
+        print(f"To:   {msg.get('recipient','?')}")
+        print(f"Sent: {msg.get('sent_at','?')}")
+        print()
+        print(msg.get("body", "") or "(empty)")
+        return
+
+    if sub == "dismiss":
+        found = _inbox_find(workspace, cfg, args.msg_id)
+        if not found:
+            print(f"> ⚠ No inbox message matched: {args.msg_id}")
+            return
+        fp, msg = found
+        msg["dismissed_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
+        _inbox_write(fp, msg)
+        print(f"✔ Dismissed: {fp.stem}")
+        return
+
+    print(f"> ⚠ Unknown inbox subcommand: {sub}")
+
+
+def resolve_inbox(args_str: str, cfg: dict, workspace: Path | None = None) -> str:
+    """
+    @inbox [unread=true] [limit=N]
+
+    Render pending inbox messages inline. Dismissed messages are always
+    excluded. By default lists all non-dismissed; `unread=true` filters to
+    unread only.
+    """
+    ws = (workspace or Path.cwd()).expanduser().resolve()
+    mods = _parse_kv_modifiers(args_str)
+    unread_only = str(mods.get("unread", "false")).strip().lower() == "true"
+    try:
+        limit = int(mods.get("limit", "10"))
+    except (TypeError, ValueError):
+        limit = 10
+
+    items = _inbox_load_all(ws, cfg)
+    visible = []
+    for fp, msg in items:
+        if msg.get("dismissed_at"):
+            continue
+        if unread_only and msg.get("read_at"):
+            continue
+        visible.append((fp, msg))
+
+    if not visible:
+        return "_No new messages._"
+
+    lines = []
+    for fp, msg in visible[-limit:][::-1]:
+        sent = str(msg.get("sent_at", ""))[:19]
+        tag = "📬" if msg.get("read_at") is None else "📭"
+        lines.append(f"- {tag} **{msg.get('subject','(no subject)')}** — _{msg.get('sender','?')} → {msg.get('recipient','?')}_ ({sent})")
+        body = (msg.get("body") or "").strip()
+        if body:
+            for bl in body.splitlines():
+                lines.append(f"  > {bl}")
+    return "\n".join(lines)
 
 
 # ──────────────────────────────── Checkpoint ──────────────────────────────────
@@ -3165,6 +3429,83 @@ def cmd_launchd(args, cfg):
     print(f"  3. Check logs: tail -f {stdout_log} {stderr_log}")
 
 
+# ─────────────────────────────── cron (POSIX) ────────────────────────────────
+
+def cmd_cron(args, cfg):
+    """Generate a crontab entry for periodic rendering.
+
+    Cross-platform: works on any POSIX system with cron (macOS, Linux, BSD).
+    Recommended over launchd/systemd when portability matters.
+    """
+    try:
+        every = int(args.every)
+    except (TypeError, ValueError):
+        print(f"Error: --every must be an integer (got {args.every!r})", file=sys.stderr)
+        sys.exit(1)
+    if every <= 0:
+        print("Error: --every must be > 0", file=sys.stderr)
+        sys.exit(1)
+
+    source_path = Path(args.source).expanduser().resolve()
+    output_path = Path(args.output).expanduser().resolve()
+    python_path = Path(sys.executable).resolve()
+    script_path = Path(__file__).resolve()
+
+    # Build crontab schedule expression
+    if every == 1:
+        schedule = "* * * * *"
+    elif every < 60:
+        schedule = f"*/{every} * * * *"
+    elif every == 60:
+        schedule = "0 * * * *"
+    else:
+        hours = every // 60
+        schedule = f"0 */{hours} * * *"
+
+    cmd = f"{python_path} {script_path} render {source_path} --output {output_path}"
+    # Suppress crontab MAILTO noise; route stderr to /dev/null on success render
+    entry = f"{schedule} {cmd} >/dev/null 2>&1  # perseus-render"
+
+    if args.install:
+        try:
+            existing = subprocess.run(
+                ["crontab", "-l"],
+                capture_output=True, text=True, check=False,
+            )
+            current = existing.stdout if existing.returncode == 0 else ""
+        except FileNotFoundError:
+            print("Error: `crontab` not found in PATH. Install cron first.", file=sys.stderr)
+            sys.exit(1)
+
+        if "# perseus-render" in current:
+            print("> ⚠ A perseus-render entry already exists in crontab. Remove it first or edit by hand.")
+            print(current)
+            sys.exit(1)
+
+        new_crontab = current.rstrip() + ("\n" if current.strip() else "") + entry + "\n"
+        try:
+            proc = subprocess.run(["crontab", "-"], input=new_crontab, text=True,
+                                  capture_output=True, check=False)
+            if proc.returncode != 0:
+                print(f"Error: `crontab -` failed: {proc.stderr.strip()}", file=sys.stderr)
+                sys.exit(1)
+        except FileNotFoundError:
+            print("Error: `crontab` not found in PATH.", file=sys.stderr)
+            sys.exit(1)
+        print("✔ Installed crontab entry:")
+        print(f"  {entry}")
+        print()
+        print("Verify with: crontab -l")
+        print("Remove with: crontab -e  (delete the line tagged `# perseus-render`)")
+        return
+
+    # Default: print the entry
+    print("# Add this line to your crontab (run `crontab -e`):")
+    print(entry)
+    print()
+    print("Or install automatically with: perseus cron ... --install")
+
+
 # ─────────────────────────────── systemd (Linux) ─────────────────────────────
 
 SYSTEMD_SERVICE_TEMPLATE = """\
@@ -3483,8 +3824,179 @@ def cmd_oracle(args, cfg):
 
 # ─────────────────────────────────────────────────────────────────────────────
 
+# ─────────────────────────────── HTTP view (task-18) ─────────────────────────
+
+def _serve_render_endpoint(endpoint: str, cfg: dict, workspace: Path, query: dict[str, str]) -> tuple[int, str, str]:
+    """Build (status, content_type, body) for a given serve endpoint.
+
+    Pure function — separated from the HTTP layer for testing.
+    """
+    try:
+        if endpoint == "/":
+            html = (
+                "<!doctype html><html><head><meta charset='utf-8'>"
+                "<title>Perseus</title></head><body>"
+                "<h1>Perseus — Live Context Engine</h1>"
+                f"<p><strong>Workspace:</strong> <code>{workspace}</code></p>"
+                "<ul>"
+                "<li><a href='/context'>/context</a> — rendered .perseus/context.md</li>"
+                "<li><a href='/narrative'>/narrative</a> — Mnēmē narrative body</li>"
+                "<li><a href='/health'>/health</a> — maintenance report</li>"
+                "<li><a href='/agora'>/agora</a> — task board</li>"
+                "<li><a href='/checkpoint/latest'>/checkpoint/latest</a> — latest workspace checkpoint</li>"
+                "<li><a href='/oracle/log'>/oracle/log</a> — recent oracle log entries (JSON)</li>"
+                "</ul></body></html>"
+            )
+            return (200, "text/html; charset=utf-8", html)
+
+        if endpoint == "/context":
+            ctx = workspace / ".perseus" / "context.md"
+            if not ctx.exists():
+                return (404, "text/plain; charset=utf-8", f"No .perseus/context.md in {workspace}")
+            text = ctx.read_text(errors="replace")
+            rendered = render_source(text, cfg, workspace)
+            return (200, "text/markdown; charset=utf-8", rendered)
+
+        if endpoint == "/narrative":
+            mp = _mneme_path(workspace, cfg)
+            if not mp.exists():
+                return (404, "text/plain; charset=utf-8",
+                        "No Mnēmē narrative initialized. Run `perseus memory update`.")
+            return (200, "text/markdown; charset=utf-8", mp.read_text())
+
+        if endpoint == "/health":
+            body = _health_report(cfg, workspace)
+            return (200, "text/markdown; charset=utf-8", body)
+
+        if endpoint == "/agora":
+            tasks_dir = _get_tasks_dir(workspace, cfg)
+            tasks = _load_tasks(tasks_dir)
+            return (200, "text/markdown; charset=utf-8", _render_agora_table(tasks))
+
+        if endpoint == "/checkpoint/latest":
+            store = Path(cfg["checkpoints"]["store"])
+            ws_hash = _workspace_hash(workspace)
+            ptr = store / f"latest-{ws_hash}.yaml"
+            if not ptr.exists():
+                ptr = store / "latest.yaml"
+            if not ptr.exists():
+                return (404, "text/plain; charset=utf-8", "No checkpoints found.")
+            return (200, "text/yaml; charset=utf-8", ptr.read_text())
+
+        if endpoint == "/oracle/log":
+            try:
+                limit = int(query.get("limit", "20"))
+            except (TypeError, ValueError):
+                limit = 20
+            entries = _read_all_oracle_entries()[-limit:][::-1]
+            return (200, "application/json; charset=utf-8",
+                    json.dumps(entries, ensure_ascii=False, indent=2))
+
+        return (404, "text/plain; charset=utf-8", f"Unknown endpoint: {endpoint}")
+    except Exception as exc:
+        return (500, "text/plain; charset=utf-8", f"Internal error: {exc}")
+
+
+def cmd_serve(args, cfg):
+    """Start a read-only HTTP view of workspace state.
+
+    All routes are GET-only. Binds to 127.0.0.1 by default — no auth, no
+    write surface, intentional.
+    """
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    from urllib.parse import urlsplit, parse_qsl
+
+    ws_raw = getattr(args, "workspace", None) or os.getcwd()
+    workspace = Path(ws_raw).expanduser().resolve()
+    host = getattr(args, "host", "127.0.0.1") or "127.0.0.1"
+    try:
+        port = int(getattr(args, "port", 7991))
+    except (TypeError, ValueError):
+        port = 7991
+
+    if host == "0.0.0.0":
+        print("> ⚠ Binding to 0.0.0.0 — Perseus serve has no authentication.")
+
+    class PerseusHandler(BaseHTTPRequestHandler):
+        def _respond(self, status: int, content_type: str, body: str) -> None:
+            data = body.encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_GET(self):  # noqa: N802 (http.server API)
+            parsed = urlsplit(self.path)
+            endpoint = parsed.path or "/"
+            qs = dict(parse_qsl(parsed.query))
+            status, ctype, body = _serve_render_endpoint(endpoint, cfg, workspace, qs)
+            self._respond(status, ctype, body)
+
+        def do_POST(self):  # noqa: N802
+            self._respond(405, "text/plain; charset=utf-8", "Method Not Allowed (perseus serve is read-only)")
+
+        # quiet default logging — one line per request via stderr
+        def log_message(self, fmt, *fargs):
+            sys.stderr.write(f"[perseus serve] {fmt % fargs}\n")
+
+    server = HTTPServer((host, port), PerseusHandler)
+    url = f"http://{host}:{port}"
+    print(f"Perseus serve — {workspace}")
+    print(f"  Listening on {url}")
+    print(f"  Endpoints: /, /context, /narrative, /health, /agora, /checkpoint/latest, /oracle/log")
+    print(f"  Press Ctrl-C to stop.")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nShutting down.")
+    finally:
+        server.server_close()
+
+
+# ────────────────────────────── Templates (task-17) ──────────────────────────
+
+def _template_dir() -> Path:
+    """Return the templates/ directory location (task-17).
+
+    Lookup order: $PERSEUS_TEMPLATE_DIR → <dir-of-perseus.py>/templates/.
+    """
+    env = os.environ.get("PERSEUS_TEMPLATE_DIR")
+    if env:
+        return Path(env).expanduser().resolve()
+    return Path(__file__).resolve().parent / "templates"
+
+
+def _list_templates() -> list[str]:
+    d = _template_dir()
+    if not d.exists():
+        return []
+    return sorted(
+        sub.name for sub in d.iterdir()
+        if sub.is_dir() and (sub / ".perseus" / "context.md").exists()
+    )
+
+
+def _load_template(name: str) -> str | None:
+    """Load template content, returns None if not found."""
+    fp = _template_dir() / name / ".perseus" / "context.md"
+    if not fp.exists():
+        return None
+    return fp.read_text(encoding="utf-8")
+
+
 def cmd_init(args, cfg):
     """Scaffold .perseus/context.md for a new workspace."""
+    if getattr(args, "list_templates", False):
+        templates = _list_templates()
+        if not templates:
+            print(f"No templates found in {_template_dir()}")
+            return
+        print(f"Available templates (in {_template_dir()}):")
+        for t in templates:
+            print(f"  - {t}")
+        return
+
     workspace = Path(args.workspace).resolve() if args.workspace else Path.cwd().resolve()
     perseus_dir = workspace / ".perseus"
     context_file = perseus_dir / "context.md"
@@ -3494,7 +4006,20 @@ def cmd_init(args, cfg):
         sys.exit(1)
 
     perseus_dir.mkdir(parents=True, exist_ok=True)
-    content = INIT_CONTEXT_TEMPLATE.format(workspace=str(workspace))
+    template_name = getattr(args, "template", None)
+    if template_name:
+        tpl = _load_template(template_name)
+        if tpl is None:
+            available = _list_templates()
+            print(
+                f"⚠ Unknown template: {template_name!r}\n"
+                f"  Available: {', '.join(available) if available else '(none)'}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        content = tpl.replace("{workspace}", str(workspace))
+    else:
+        content = INIT_CONTEXT_TEMPLATE.format(workspace=str(workspace))
     context_file.write_text(content)
 
     # Also add .hermes.md to .gitignore if there's a git repo here
@@ -3526,9 +4051,9 @@ def cmd_init(args, cfg):
 def main():
     parser = argparse.ArgumentParser(
         prog="perseus",
-        description="Perseus — Live Context Engine for AI Assistants (alpha v0.4)",
+        description="Perseus — Live Context Engine for AI Assistants (alpha v0.6)",
     )
-    parser.add_argument("--version", action="version", version="perseus alpha v0.4")
+    parser.add_argument("--version", action="version", version="perseus alpha v0.6")
     sub = parser.add_subparsers(dest="command", required=True)
 
     # render
@@ -3587,6 +4112,26 @@ def main():
     p_suggest.add_argument("--model-url", default=None,
                            help="Override the configured LLM provider URL")
 
+    # inbox (task-16)
+    p_inbox = sub.add_parser("inbox", help="Point-to-point agent message store")
+    inbox_sub = p_inbox.add_subparsers(dest="inbox_command", required=True)
+    p_inbox_send = inbox_sub.add_parser("send", help="Send a message")
+    p_inbox_send.add_argument("subject", help="Subject line")
+    p_inbox_send.add_argument("--body", default="", help="Message body")
+    p_inbox_send.add_argument("--recipient", default=None, help="Recipient agent name")
+    p_inbox_send.add_argument("--from", dest="from_", default=None, help="Sender agent name")
+    p_inbox_send.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
+    p_inbox_list = inbox_sub.add_parser("list", help="List messages")
+    p_inbox_list.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
+    p_inbox_list.add_argument("--unread", action="store_true", help="Only show unread")
+    p_inbox_list.add_argument("--all", action="store_true", help="Include dismissed messages")
+    p_inbox_read = inbox_sub.add_parser("read", help="Print a message and mark it read")
+    p_inbox_read.add_argument("msg_id", help="Message id, prefix, or 'latest'")
+    p_inbox_read.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
+    p_inbox_dismiss = inbox_sub.add_parser("dismiss", help="Mark a message dismissed (excluded from @inbox)")
+    p_inbox_dismiss.add_argument("msg_id", help="Message id or prefix")
+    p_inbox_dismiss.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
+
     # memory (Mnēmē)
     p_mem = sub.add_parser("memory", help="Mnēmē — narrative project memory")
     mem_sub = p_mem.add_subparsers(dest="memory_command", required=True)
@@ -3611,6 +4156,25 @@ def main():
                         help="Workspace directory (default: cwd)")
     p_init.add_argument("--force", action="store_true",
                         help="Overwrite existing context.md")
+    p_init.add_argument("--template", default=None,
+                        help="Template name (see `perseus init --list-templates`)")
+    p_init.add_argument("--list-templates", dest="list_templates", action="store_true",
+                        help="List available templates and exit")
+
+    # serve (read-only HTTP view)
+    p_serve = sub.add_parser("serve", help="Start a read-only HTTP view of workspace state")
+    p_serve.add_argument("--port", type=int, default=7991, help="Port (default: 7991)")
+    p_serve.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
+    p_serve.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
+
+    # cron (cross-platform scheduling)
+    p_cron = sub.add_parser("cron", help="Generate a crontab entry for periodic rendering (cross-platform)")
+    p_cron.add_argument("source", help="Path to Perseus source file")
+    p_cron.add_argument("--output", "-o", required=True, help="Rendered output path")
+    p_cron.add_argument("--every", default="5",
+                        help="Minutes between renders (default: 5). Accepts '5', '15', '60'.")
+    p_cron.add_argument("--install", action="store_true",
+                        help="Append the entry to the current user's crontab (uses `crontab -l` + `crontab -`)")
 
     # launchd
     p_launchd = sub.add_parser("launchd", help="Scaffold a macOS LaunchAgent for periodic rendering")
@@ -3669,6 +4233,12 @@ def main():
         cmd_suggest(args, cfg)
     elif args.command == "memory":
         cmd_memory(args, cfg)
+    elif args.command == "inbox":
+        cmd_inbox(args, cfg)
+    elif args.command == "serve":
+        cmd_serve(args, cfg)
+    elif args.command == "cron":
+        cmd_cron(args, cfg)
     elif args.command == "systemd":
         cmd_systemd(args, cfg)
     elif args.command == "health":
