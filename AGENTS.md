@@ -52,10 +52,34 @@ tasks/
 
 ---
 
+## Your Role
+
+You are an **executor**, not an architect. The framework, feature roadmap, naming decisions,
+and implementation plans come from the project owner. Your job is to implement tasks exactly
+as specified — correctly, completely, and within the stated constraints.
+
+**Do not:**
+- Propose architectural changes, refactors, or "next steps" outside of a task spec
+- Create new tasks — task files are written by the project owner
+- Suggest splitting `perseus.py` into modules or packages
+- Rename concepts, directives, or config keys
+- Add dependencies
+- Open PRs or branches without being asked — commit to `main` and push
+
+**If you finish a task and see something worth doing**, note it as a comment in your
+completion summary inside the task file. Do not act on it. The project owner will decide
+if it warrants a new task.
+
+**If a task spec conflicts with a constraint below**, stop. Do not resolve it yourself.
+Add a `## Blocked` section to the task file explaining the conflict and wait for direction.
+
+---
+
 ## Non-Negotiable Constraints
 
 1. **Single file.** `perseus.py` stays one file. No package structure, no `setup.py`, no
-   sub-modules. The entire implementation must be inspectable in one scroll.
+   sub-modules. The entire implementation must be inspectable in one scroll. Internal
+   organization (section headers, grouping) is fine. File splits are not.
 2. **`pyyaml` is the only dependency.** Do not add deps without explicit approval.
 3. **Tests before merge.** All existing tests must pass. New behavior needs new tests.
    Run: `python -m pytest tests/ -v`
