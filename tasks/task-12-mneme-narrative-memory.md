@@ -1,12 +1,12 @@
 ---
 id: task-12
 title: "Task 12 — Mnēmē: Narrative Project Memory"
-status: open
+status: in_progress
 scope: large
 depends_on:
   - task-02
   - task-04
-claimed_by: null
+claimed_by: claude-sonnet-4.5
 opened: 2026-05-18
 closed: null
 ---
