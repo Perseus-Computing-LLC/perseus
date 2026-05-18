@@ -2,7 +2,7 @@
 
 > *Athena didn't tell Perseus to fight Medusa. She handed him a shield — polished to a mirror — and let him see the monster clearly without meeting her gaze. The trick was never strength. It was reflection.*
 
-![Perseus with the Head of Medusa — Benvenuto Cellini, 1545. Piazza della Signoria, Florence.](https://upload.wikimedia.org/wikipedia/commons/thumb/9/91/Perseus_with_the_Head_of_Medusa.JPG/800px-Perseus_with_the_Head_of_Medusa.JPG)
+![Perseus with the Head of Medusa — Benvenuto Cellini, 1545. Piazza della Signoria, Florence.](https://upload.wikimedia.org/wikipedia/commons/thumb/9/91/Perseus_with_the_Head_of_Medusa.JPG/960px-Perseus_with_the_Head_of_Medusa.JPG)
 
 *Perseus with the Head of Medusa — Benvenuto Cellini, 1545. Piazza della Signoria, Florence. ([BeEXT](https://commons.wikimedia.org/wiki/File:Perseus_with_the_Head_of_Medusa.JPG), CC BY-SA 4.0)*
 
@@ -10,7 +10,9 @@
 
 Built as a companion to [Hermes Agent](https://hermes-agent.nousresearch.com). Designed to be assistant-agnostic.
 
-**Status: Alpha v0.3 — Core engine complete. Phases 1–3 shipped.**
+Perseus dogfoods itself: `ROADMAP.md` is a live `@perseus` source — the project's own documentation resolves its git state, CLI version, recent sessions, and last checkpoint at render time.
+
+**Status: Alpha v0.4 — Core engine complete. Phases 1–4 shipped.**
 
 ---
 
@@ -56,7 +58,7 @@ Any `.md` file beginning with `@perseus` on the first line becomes live. No spec
 Resolves directive blocks in a source document before it hits the context window. Shell output, file values, environment variables, service health, session history — all pulled live at render time.
 
 ```markdown
-@perseus v0.3
+@perseus v0.4
 
 # Context — @date format="YYYY-MM-DD HH:mm z"
 
@@ -137,7 +139,7 @@ Emits a structured oracle prompt with a live environment snapshot — skills tab
 | `@if file.exists ".env"` / `@endif` | Conditional blocks: `file.exists/missing`, `env.set/unset/eq/neq` |
 | `@constraint id="..." severity="..."` | Machine-readable rules rendered as a `\| ID \| Severity \| Rule \|` table |
 | `@skills [flag_stale=true]` | Scans the Hermes skills dir, reads frontmatter, flags stale entries |
-| `@services` (YAML block) | HTTP health checks with latency for each configured endpoint |
+| `@services` (YAML block) | HTTP health checks (`url:`), Docker container status (`docker:`), or shell exit check (`command:`) |
 | `@session [count=N] [topic="..."]` | Recent session digest from the sessions directory |
 | `@date format="YYYY-MM-DD HH:mm z"` | Live date/time, inline or standalone |
 | `@waypoint [ttl=N]` | Latest checkpoint rendered inline; `ttl=` skips it if too old |
@@ -170,33 +172,10 @@ hermes:
   sessions_dir: /home/you/.hermes/sessions
 EOF
 
-# Write a source document for your workspace
-mkdir -p /workspace/myproject/.perseus
-cat > /workspace/myproject/.perseus/context.md << 'EOF'
-@perseus v0.3
+# Scaffold a source document for your workspace (v0.4+)
+perseus init /workspace/myproject
 
-@prompt
-This document was rendered live by Perseus. Trust all values below.
-@end
-
-# Context — @date format="YYYY-MM-DD HH:mm z"
-
-## Last Session
-@waypoint ttl=86400
-
-## Environment
-@query "git log --oneline -5"
-
-## Services
-@services
-  - name: My App
-    url: http://localhost:3001/health
-
-## Recent Sessions
-@session count=5
-EOF
-
-# Render it
+# Edit to taste, then render
 perseus render /workspace/myproject/.perseus/context.md
 
 # Write a waypoint
@@ -242,8 +221,8 @@ Hermes reads `.hermes.md` at session start with higher priority than `AGENTS.md`
 | **Phase 1** | Pythia skill loop · `@query` · workdir auto-injection via cron | ✅ Complete |
 | **Phase 2** | `@read` · `@env` · `@if/@else/@endif` · `@include` — real project opt-in | ✅ Complete |
 | **Phase 3** | `@cache session/ttl=N` · smart `recover --workspace` · `@constraint` | ✅ Complete |
-| **Phase 4** | Perseus renders its own roadmap live — CURRENT STATE block retired | 🔶 Active |
-| **Phase 5** | `--llm` flag for local model oracle · checkpoint diffing · `perseus init` | Planned |
+| **Phase 4** | `@services command:` · `perseus init` · `--version` · ROADMAP.md goes live | ✅ Complete |
+| **Phase 5** | `--llm` flag for local model oracle · checkpoint diffing | Planned |
 
 Full detail: [ROADMAP.md](./ROADMAP.md)
 
@@ -253,7 +232,7 @@ Full detail: [ROADMAP.md](./ROADMAP.md)
 
 ```
 Source document (.perseus/context.md)
-  @perseus v0.3
+  @perseus v0.4
   @query "git log --oneline -5"          ┐
   @read .env key="PORT"                  │  Directives resolved
   @waypoint ttl=86400                    │  before context window.
