@@ -1,13 +1,13 @@
 ---
 id: task-04
 title: "Task 04 \u2014 The Agora: Async Agent Coordination Substrate"
-status: in_progress
+status: completed
 scope: medium
 depends_on:
-- Task 01 (provider-agnostic config recommended first)
+- task-01
 claimed_by: null
 opened: '2026-05-18'
-closed: null
+closed: '2026-05-18'
 ---
 # Task 04 — The Agora: Async Agent Coordination Substrate
 

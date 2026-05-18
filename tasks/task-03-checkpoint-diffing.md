@@ -1,12 +1,12 @@
 ---
 id: task-03
 title: "Task 03 \u2014 Checkpoint Diffing (`perseus diff`)"
-status: open
+status: completed
 scope: small-medium
 depends_on: []
 claimed_by: null
 opened: '2026-05-18'
-closed: null
+closed: '2026-05-18'
 ---
 # Task 03 — Checkpoint Diffing (`perseus diff`)
 
