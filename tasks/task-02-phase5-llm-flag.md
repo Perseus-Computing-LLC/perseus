@@ -1,3 +1,13 @@
+---
+id: task-02
+title: "Task 02 \u2014 Phase 5: `--llm` Flag & Oracle Log"
+status: completed
+scope: large
+depends_on: []
+claimed_by: null
+opened: '2026-05-18'
+closed: null
+---
 # Task 02 — Phase 5: `--llm` Flag & Oracle Log
 
 **Status: Completed**  

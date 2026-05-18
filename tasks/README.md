@@ -14,8 +14,4 @@ Hermes Agent, etc.) without a synchronous handoff.
 
 ## Task Status at a Glance
 
-| File | Title | Status |
-|---|---|---|
-| [task-01-provider-agnostic.md](task-01-provider-agnostic.md) | Provider-Agnostic Config & Integration Docs | Open |
-| [task-02-phase5-llm-flag.md](task-02-phase5-llm-flag.md) | Phase 5: `--llm` Flag & Oracle Log | Open |
-| [task-03-checkpoint-diffing.md](task-03-checkpoint-diffing.md) | Checkpoint Diffing (`perseus diff`) | Open |
+@agora status=open,in_progress,completed,blocked

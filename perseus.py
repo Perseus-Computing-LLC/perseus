@@ -69,6 +69,9 @@ DEFAULT_CONFIG = {
     "assistant": {
         "sessions_dir": str(SESSIONS_DIR),
     },
+    "agora": {
+        "tasks_dir": "tasks",
+    },
 }
 
 
@@ -221,6 +224,167 @@ def _update_latest_checkpoint_pointer(latest: Path, outfile: Path) -> None:
         latest.symlink_to(outfile.name)
     except OSError:
         latest.write_text(outfile.read_text())
+
+
+def _get_tasks_dir(workspace: Path | None, cfg: dict) -> Path:
+    """Resolve the Agora tasks directory with backward-compatible defaults."""
+    base = workspace or Path.cwd()
+    configured = str(cfg.get("agora", {}).get("tasks_dir", "tasks"))
+    candidate = Path(configured)
+    if not candidate.is_absolute():
+        candidate = base / candidate
+    if candidate.exists():
+        return candidate
+    legacy = base / "tasks"
+    if legacy.exists():
+        return legacy
+    return candidate
+
+
+def _dump_frontmatter_body(frontmatter: dict, body: str) -> str:
+    return "---\n" + yaml.safe_dump(frontmatter, sort_keys=False).strip() + "\n---\n" + body.lstrip("\n")
+
+
+def _load_task_file(task_path: Path) -> tuple[dict, str]:
+    text = task_path.read_text(errors="replace")
+    fm, body = _parse_frontmatter(text)
+    return dict(fm or {}), body
+
+
+def _save_task_file(task_path: Path, frontmatter: dict, body: str) -> None:
+    task_path.write_text(_dump_frontmatter_body(frontmatter, body))
+
+
+def _task_id_from_path(task_path: Path) -> str:
+    m = re.match(r'(task-\d+)', task_path.stem)
+    return m.group(1) if m else task_path.stem
+
+
+def _extract_title_from_body(body: str, fallback: str) -> str:
+    for line in body.splitlines():
+        if line.startswith('# '):
+            return line[2:].strip()
+    return fallback
+
+
+def _normalize_task_frontmatter(task_path: Path, frontmatter: dict, body: str) -> tuple[dict, str, bool]:
+    changed = False
+    fm = dict(frontmatter or {})
+    if 'id' not in fm:
+        fm['id'] = _task_id_from_path(task_path)
+        changed = True
+    if 'title' not in fm:
+        fm['title'] = _extract_title_from_body(body, task_path.stem)
+        changed = True
+    if 'status' not in fm:
+        m = re.search(r'\*\*Status:\s*([^*]+)\*\*', body)
+        status = (m.group(1).strip().lower().replace(' ', '_') if m else 'open')
+        fm['status'] = status
+        changed = True
+    if 'scope' not in fm:
+        m = re.search(r'\*\*Scope:\s*([^*]+)\*\*', body)
+        scope = (m.group(1).split('—', 1)[0].strip().lower() if m else 'medium')
+        fm['scope'] = scope
+        changed = True
+    if 'depends_on' not in fm:
+        dep_m = re.search(r'\*\*Depends-on:\s*([^*]+)\*\*', body)
+        if dep_m and dep_m.group(1).strip().lower() != 'none':
+            fm['depends_on'] = [d.strip() for d in dep_m.group(1).split(',') if d.strip()]
+        else:
+            fm['depends_on'] = []
+        changed = True
+    if 'claimed_by' not in fm:
+        fm['claimed_by'] = None
+        changed = True
+    if 'opened' not in fm:
+        fm['opened'] = datetime.now().date().isoformat()
+        changed = True
+    if 'closed' not in fm:
+        fm['closed'] = None
+        changed = True
+    return fm, body, changed
+
+
+def _load_tasks(tasks_dir: Path) -> list[tuple[Path, dict, str]]:
+    tasks = []
+    if not tasks_dir.exists():
+        return tasks
+    for task_path in sorted(tasks_dir.glob('task-*.md')):
+        fm, body = _load_task_file(task_path)
+        fm, body, changed = _normalize_task_frontmatter(task_path, fm, body)
+        if changed:
+            _save_task_file(task_path, fm, body)
+        tasks.append((task_path, fm, body))
+    return tasks
+
+
+def _render_agora_table(tasks: list[tuple[Path, dict, str]]) -> str:
+    if not tasks:
+        return '> No tasks found.'
+    rows = ['| ID | Scope | Title | Status |', '|---|---|---|---|']
+    for _path, fm, _body in tasks:
+        rows.append(f"| {fm.get('id','')} | {fm.get('scope','')} | {fm.get('title','')} | {fm.get('status','')} |")
+    return '\n'.join(rows)
+
+
+def resolve_agora(args_str: str, cfg: dict, workspace: Path | None = None) -> str:
+    """Render a filtered Agora task table."""
+    mods = _parse_kv_modifiers(args_str)
+    status_filter = {s.strip() for s in mods.get('status', '').split(',') if s.strip()}
+    scope_filter = {s.strip() for s in mods.get('scope', '').split(',') if s.strip()}
+    tasks_dir = _get_tasks_dir(workspace, cfg)
+    tasks = _load_tasks(tasks_dir)
+    filtered = []
+    for item in tasks:
+        fm = item[1]
+        if status_filter and str(fm.get('status', '')) not in status_filter:
+            continue
+        if scope_filter and str(fm.get('scope', '')) not in scope_filter:
+            continue
+        filtered.append(item)
+    return _render_agora_table(filtered)
+
+
+def cmd_agora(args, cfg):
+    """Agora task coordination commands."""
+    tasks_dir = _get_tasks_dir(Path.cwd(), cfg)
+    tasks = _load_tasks(tasks_dir)
+    task_map = {fm.get('id'): (path, fm, body) for path, fm, body in tasks}
+
+    if args.agora_command in {'list', 'status'}:
+        groups = {'open': [], 'in_progress': [], 'completed': [], 'blocked': []}
+        for _path, fm, _body in tasks:
+            groups.setdefault(str(fm.get('status', 'open')), []).append(fm)
+        print(f'Agora — {tasks_dir}')
+        for status in ['open', 'in_progress', 'completed', 'blocked']:
+            print(f"\n{status.upper()}\n{'─' * len(status)}")
+            items = groups.get(status, [])
+            if not items:
+                print('(none)')
+                continue
+            for fm in items:
+                print(f"{fm.get('id')}   [{fm.get('scope')}]  {fm.get('title')}")
+        return
+
+    task_id = getattr(args, 'task_id', None)
+    if task_id not in task_map:
+        print(f'Task not found: {task_id}')
+        return
+    task_path, fm, body = task_map[task_id]
+
+    if args.agora_command == 'claim':
+        fm['status'] = 'in_progress'
+        fm['claimed_by'] = args.agent
+        _save_task_file(task_path, fm, body)
+        print(f'Claimed {task_id} as {args.agent}')
+        return
+
+    if args.agora_command == 'complete':
+        fm['status'] = 'completed'
+        fm['closed'] = datetime.now().date().isoformat()
+        _save_task_file(task_path, fm, body)
+        print(f'Completed {task_id}')
+        return
 
 
 def _parse_frontmatter(text: str) -> tuple[dict, str]:
@@ -1207,6 +1371,8 @@ def _render_lines(
                 result = resolve_env(clean_args)
             elif directive == "@include":
                 result = resolve_include(clean_args, workspace, cfg)
+            elif directive == "@agora":
+                result = resolve_agora(clean_args, cfg, workspace)
             else:
                 result = line
 
@@ -1907,6 +2073,17 @@ def main():
     p_diff.add_argument("--old", default=None, help="Older checkpoint file path")
     p_diff.add_argument("--new", default=None, help="Newer checkpoint file path")
 
+    # agora
+    p_agora = sub.add_parser("agora", help="Agora task coordination commands")
+    agora_sub = p_agora.add_subparsers(dest="agora_command", required=True)
+    agora_sub.add_parser("list", help="List Agora tasks grouped by status")
+    agora_sub.add_parser("status", help="Alias for list")
+    p_agora_claim = agora_sub.add_parser("claim", help="Claim a task")
+    p_agora_claim.add_argument("task_id", help="Task ID to claim")
+    p_agora_claim.add_argument("--agent", required=True, help="Agent identifier")
+    p_agora_complete = agora_sub.add_parser("complete", help="Complete a task")
+    p_agora_complete.add_argument("task_id", help="Task ID to complete")
+
     # suggest
     p_suggest = sub.add_parser("suggest", help="Oracle: ranked tool recommendations")
     p_suggest.add_argument("task", help="Task description")
@@ -1950,6 +2127,8 @@ def main():
         cmd_recover(args, cfg)
     elif args.command == "diff":
         cmd_diff(args, cfg)
+    elif args.command == "agora":
+        cmd_agora(args, cfg)
     elif args.command == "suggest":
         cmd_suggest(args, cfg)
     elif args.command == "init":

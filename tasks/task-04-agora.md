@@ -1,6 +1,17 @@
+---
+id: task-04
+title: "Task 04 \u2014 The Agora: Async Agent Coordination Substrate"
+status: in_progress
+scope: medium
+depends_on:
+- Task 01 (provider-agnostic config recommended first)
+claimed_by: null
+opened: '2026-05-18'
+closed: null
+---
 # Task 04 — The Agora: Async Agent Coordination Substrate
 
-**Status: Open**  
+**Status: Completed**  
 **Depends-on: Task 01 (provider-agnostic config recommended first)**  
 **Scope: Medium** — formalizes and extends the `tasks/` pattern already in the repo  
 **Tests required: Yes**
@@ -173,3 +184,20 @@ last.
   The Agora enables coordination; it doesn't enforce exclusivity.
 - Future enhancement (not this task): `@agora` could filter by `claimed_by` to show what a
   specific agent has in flight. Not now.
+
+---
+
+## Completed
+
+- Added Agora task frontmatter normalization for task files, including id, title, status, scope, dependency list, claimed_by, opened, and closed fields.
+- Added `perseus agora` CLI with `list`, `status`, `claim`, and `complete` subcommands.
+- Added the `@agora` renderer directive to embed a live task table into rendered markdown.
+- Added configurable task directory resolution via `agora.tasks_dir` with backward-compatible `tasks/` detection.
+- Migrated existing task files to machine-readable frontmatter on load/save.
+- Replaced the static task table in `tasks/README.md` with a live `@agora` directive.
+- Added focused tests covering Agora list output, claim/complete frontmatter updates, and `@agora` rendering.
+
+### Notes
+
+- The implementation keeps task state in YAML frontmatter, using git as the history mechanism, exactly as the task specifies.
+- Task normalization is additive: existing markdown bodies are preserved and frontmatter is added only where missing.

@@ -1,3 +1,13 @@
+---
+id: task-01
+title: "Task 01 \u2014 Provider-Agnostic Config & Integration Docs"
+status: completed
+scope: medium
+depends_on: []
+claimed_by: null
+opened: '2026-05-18'
+closed: null
+---
 # Task 01 — Provider-Agnostic Config & Integration Docs
 
 **Status: Completed**  
