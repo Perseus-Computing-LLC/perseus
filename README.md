@@ -12,7 +12,7 @@ Built as a companion to [Hermes Agent](https://hermes-agent.nousresearch.com). D
 
 Perseus dogfoods itself: `ROADMAP.md` is a live `@perseus` source — the project's own documentation resolves its git state, CLI version, recent sessions, and last checkpoint at render time.
 
-**Status: Alpha v0.4 — Core engine complete, hardening pass shipped, Phase 5 next.**
+**Status: Alpha v0.4 — Core engine complete, hardening pass shipped, Phase 5A (`suggest --llm`) in progress.**
 
 ---
 
@@ -246,6 +246,17 @@ perseus launchd .perseus/context.md --output .hermes.md
 ```
 
 This writes a LaunchAgent plist that periodically renders the source document to the output path.
+
+
+Oracle config options:
+
+```yaml
+oracle:
+  llm_provider: ollama
+  ollama_model: llama3.1
+  llm_timeout_s: 30
+  ollama_host: http://127.0.0.1:11434
+```
 
 ## Roadmap
 

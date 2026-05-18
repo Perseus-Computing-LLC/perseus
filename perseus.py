@@ -55,6 +55,10 @@ DEFAULT_CONFIG = {
     "oracle": {
         "skill_dir": str(HERMES_SKILLS_DIR),
         "stale_skill_days": 30,
+        "llm_provider": "ollama",
+        "ollama_model": "llama3.1",
+        "llm_timeout_s": 30,
+        "ollama_host": os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434"),
     },
     "hermes": {
         "sessions_dir": str(HERMES_SESSIONS_DIR),
@@ -1428,55 +1432,50 @@ def cmd_render(args, cfg):
 
 # ──────────────────────────────── Suggest ─────────────────────────────────────
 
-def cmd_suggest(args, cfg):
-    """Oracle: build an environment snapshot and emit a structured oracle prompt."""
-    task = args.task
-    quick = getattr(args, "quick", False)
-    no_services = getattr(args, "no_services", False)
-    category = getattr(args, "category", None)
-
+def build_oracle_snapshot(cfg: dict, category: str | None = None, no_services: bool = False, quick: bool = False) -> dict:
+    """Build the environment snapshot used by `perseus suggest`."""
     now = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z")
-
-    # Collect environment snapshot
     skills_args = "flag_stale=true" + (f" category={category}" if category else "")
     skills_table = resolve_skills(skills_args, cfg)
-    services_table = ("(skipped)" if no_services
-                      else "(no services configured in oracle — add @services to .perseus/context.md)")
+    services_table = "(skipped)" if no_services else "(no services configured in oracle — add @services to .perseus/context.md)"
     session_digest = resolve_session("count=3", cfg)
     checkpoint_summary = resolve_waypoint("", cfg)
 
+    snapshot = {
+        "rendered_at": now,
+        "skills_table": skills_table,
+        "services_table": services_table,
+        "session_digest": session_digest,
+        "checkpoint_summary": checkpoint_summary,
+    }
+
     if quick:
-        print(f"Task: {task}")
-        print(f"Environment: {now}")
-        print()
-        print("Skills (top-level):")
         skill_dir = Path(cfg["oracle"]["skill_dir"])
-        count = len(list(skill_dir.rglob("SKILL.md"))) if skill_dir.exists() else 0
-        print(f"  {count} skills available")
-        print()
-        print(checkpoint_summary)
-        return
+        snapshot["skill_count"] = len(list(skill_dir.rglob("SKILL.md"))) if skill_dir.exists() else 0
+    return snapshot
 
+
+def render_oracle_prompt(task: str, snapshot: dict) -> str:
+    """Render the full oracle prompt from a task and snapshot."""
     divider = "━" * 55
-
-    print(f"""You are the Perseus Tool Oracle. Given a task and a live environment snapshot,
+    return f"""You are the Perseus Tool Oracle. Given a task and a live environment snapshot,
 recommend the top 2-3 approaches in ranked order.
 
 TASK: {task}
 
-ENVIRONMENT SNAPSHOT (rendered {now}):
+ENVIRONMENT SNAPSHOT (rendered {snapshot['rendered_at']}):
 
 ### Available Skills
-{skills_table}
+{snapshot['skills_table']}
 
 ### Service Health
-{services_table}
+{snapshot['services_table']}
 
 ### Recent Checkpoint
-{checkpoint_summary}
+{snapshot['checkpoint_summary']}
 
 ### Recent Sessions
-{session_digest}
+{snapshot['session_digest']}
 
 ---
 
@@ -1487,7 +1486,61 @@ For each recommendation:
 - Flag if the approach is overkill or underpowered for this task
 
 Format: ranked list, most recommended first. Be direct. No hedging.
-{divider}""")
+{divider}"""
+
+
+def run_ollama(prompt: str, cfg: dict, model_override: str | None = None) -> str:
+    """Run the oracle prompt against a local Ollama instance."""
+    host = str(cfg["oracle"].get("ollama_host", "http://127.0.0.1:11434")).rstrip("/")
+    model = model_override or str(cfg["oracle"].get("ollama_model", "llama3.1"))
+    timeout = float(cfg["oracle"].get("llm_timeout_s", 30))
+    body = json.dumps({"model": model, "prompt": prompt, "stream": False}).encode()
+    req = urllib.request.Request(
+        f"{host}/api/generate",
+        data=body,
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            payload = json.loads(resp.read().decode())
+        return str(payload.get("response", "")).strip() or "> ⚠ Ollama returned no response."
+    except urllib.error.URLError as exc:
+        return f"> ⚠ Ollama request failed: {exc}"
+    except Exception as exc:
+        return f"> ⚠ Ollama error: {exc}"
+
+
+def cmd_suggest(args, cfg):
+    """Oracle: build a live snapshot, render a prompt, and optionally run a local model."""
+    task = args.task
+    quick = getattr(args, "quick", False)
+    no_services = getattr(args, "no_services", False)
+    category = getattr(args, "category", None)
+    llm = getattr(args, "llm", None)
+
+    snapshot = build_oracle_snapshot(cfg, category=category, no_services=no_services, quick=quick)
+
+    if quick:
+        print(f"Task: {task}")
+        print(f"Environment: {snapshot['rendered_at']}")
+        print()
+        print("Skills (top-level):")
+        print(f"  {snapshot.get('skill_count', 0)} skills available")
+        print()
+        print(snapshot["checkpoint_summary"])
+        return
+
+    prompt = render_oracle_prompt(task, snapshot)
+    if llm:
+        provider, _, model_override = llm.partition(":")
+        provider = provider.strip().lower()
+        if provider != "ollama":
+            print(f"> ⚠ Unsupported llm provider: {provider}. Currently supported: ollama")
+            return
+        print(run_ollama(prompt, cfg, model_override or None))
+        return
+
+    print(prompt)
 
 
 # ──────────────────────────────── cmd_init ────────────────────────────────────
@@ -1666,6 +1719,8 @@ def main():
     p_suggest.add_argument("--category", default=None, help="Limit skill search to category")
     p_suggest.add_argument("--no-services", action="store_true", dest="no_services",
                            help="Skip live service health checks")
+    p_suggest.add_argument("--llm", default=None,
+                           help="Optionally run the oracle prompt through a local model, e.g. ollama or ollama:llama3.1")
 
     # init
     p_init = sub.add_parser("init", help="Scaffold .perseus/context.md for a new workspace")

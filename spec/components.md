@@ -20,6 +20,7 @@ This is the core value prop. Every other component exists to make this answer mo
 
 ```bash
 perseus suggest "download and summarize recent arxiv papers on RAG"
+perseus suggest "download and summarize recent arxiv papers on RAG" --llm ollama
 ```
 
 ### Output
@@ -52,11 +53,11 @@ Environment: 2026-05-18 06:49 CT | Hermes WebUI ✅ | 87 skills loaded
 | Recency signal | Last waypoint — what tools worked in recent sessions | Medium |
 | Token/latency estimate | Rough cost model per approach type | Low |
 
-### Alpha Scope
+### Alpha / Phase 5A Scope
 
-For alpha, the oracle is a **structured prompt** over live environment state — not a trained model. Perseus renders the environment snapshot (skills, services, recent waypoints) and passes it plus the task description to the assistant via a well-structured template. The assistant does the ranking. The value is in the *structured input*, not a separate ML component.
+Perseus still supports the original **structured prompt** flow over live environment state. In addition, the current implementation supports an optional local-model path via `perseus suggest --llm ollama[:model]`. This keeps prompt generation as the core interface while allowing local inference when available.
 
-Full autonomous scoring (local model, no round-trip) is a future milestone.
+Full autonomous scoring and learned ranking remain future milestones.
 
 ---
 
@@ -69,7 +70,7 @@ Processes a source `.md` file with a `@perseus` header and produces plain markdo
 Any standard `.md` file. Perseus activates when `@perseus` appears on the first line:
 
 ```markdown
-@perseus v0.1
+@perseus v0.4
 
 @prompt
 This document was rendered live. All values are current.
@@ -166,7 +167,10 @@ checkpoints:
 oracle:
   skill_dir: ~/.hermes/skills
   stale_skill_days: 30
-  use_session_history: true
+  llm_provider: ollama
+  ollama_model: llama3.1
+  llm_timeout_s: 30
+  ollama_host: http://127.0.0.1:11434
 
 hermes:
   session_search_available: true
