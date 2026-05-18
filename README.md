@@ -12,7 +12,7 @@ Built as a companion to [Hermes Agent](https://hermes-agent.nousresearch.com). D
 
 Perseus dogfoods itself: `ROADMAP.md` is a live `@perseus` source — the project's own documentation resolves its git state, CLI version, recent sessions, and last checkpoint at render time.
 
-**Status: Alpha v0.4 — Core engine complete. Phases 1–4 shipped.**
+**Status: Alpha v0.4 — Core engine complete, hardening pass shipped, Phase 5 next.**
 
 ---
 
@@ -139,7 +139,7 @@ Emits a structured oracle prompt with a live environment snapshot — skills tab
 | `@if file.exists ".env"` / `@endif` | Conditional blocks: `file.exists/missing`, `env.set/unset/eq/neq` |
 | `@constraint id="..." severity="..."` | Machine-readable rules rendered as a `\| ID \| Severity \| Rule \|` table |
 | `@skills [flag_stale=true]` | Scans the Hermes skills dir, reads frontmatter, flags stale entries |
-| `@services` (YAML block) | HTTP health checks (`url:`), Docker container status (`docker:`), or shell exit check (`command:`) |
+| `@services` (YAML block or `@services ... @end`) | HTTP health checks (`url:`), Docker container status (`docker:`), or optional shell exit check (`command:`) |
 | `@session [count=N] [topic="..."]` | Recent session digest from the sessions directory |
 | `@date format="YYYY-MM-DD HH:mm z"` | Live date/time, inline or standalone |
 | `@waypoint [ttl=N]` | Latest checkpoint rendered inline; `ttl=` skips it if too old |
@@ -149,6 +149,22 @@ Any directive accepts a `@cache` modifier:
 
 ```markdown
 @query "git log --oneline -5" @cache session      ← run once per render, reuse after
+
+## Safety & Trust Model
+
+Perseus executes local commands intentionally, but shell-backed features can now be gated in config:
+
+```yaml
+render:
+  allow_query_shell: true
+  allow_services_command: false
+  allow_outside_workspace: false
+```
+
+- `allow_query_shell`: enables or disables `@query` command execution
+- `allow_services_command`: enables or disables `command:` checks inside `@services`
+- `allow_outside_workspace`: controls whether `@read` / `@include` may escape the workspace
+
 @skills flag_stale=true @cache ttl=3600           ← cache to disk for 1 hour
 ```
 
@@ -156,7 +172,13 @@ Any directive accepts a `@cache` modifier:
 
 ## Quick Start
 
-**Requirements:** Python 3.10+, `pyyaml` (`pip install pyyaml`)
+**Requirements:** Python 3.10+ and `pyyaml`.
+
+Install runtime dependency:
+
+```bash
+pip install -r requirements.txt
+```
 
 ```bash
 # Install
@@ -214,6 +236,17 @@ Hermes reads `.hermes.md` at session start with higher priority than `AGENTS.md`
 
 ---
 
+
+## macOS launchd
+
+Perseus now includes a `launchd` scaffolding command for macOS users:
+
+```bash
+perseus launchd .perseus/context.md --output .hermes.md
+```
+
+This writes a LaunchAgent plist that periodically renders the source document to the output path.
+
 ## Roadmap
 
 | Phase | Focus | Status |
@@ -222,6 +255,7 @@ Hermes reads `.hermes.md` at session start with higher priority than `AGENTS.md`
 | **Phase 2** | `@read` · `@env` · `@if/@else/@endif` · `@include` — real project opt-in | ✅ Complete |
 | **Phase 3** | `@cache session/ttl=N` · smart `recover --workspace` · `@constraint` | ✅ Complete |
 | **Phase 4** | `@services command:` · `perseus init` · `--version` · ROADMAP.md goes live | ✅ Complete |
+| **Hardening Pass** | parser fixes · trust gates · workspace safety · launchd scaffolding · focused tests | ✅ Complete |
 | **Phase 5** | `--llm` flag for local model oracle · checkpoint diffing | Planned |
 
 Full detail: [ROADMAP.md](./ROADMAP.md)

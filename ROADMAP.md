@@ -53,7 +53,7 @@ Perseus is a live context engine for AI assistants (Hermes Agent). Three compone
 | Directive | Status | Notes |
 |---|---|---|
 | `@skills [flag_stale=true]` | ✅ | Scans `~/.hermes/skills/`, reads frontmatter, flags by mtime |
-| `@services` (YAML block) | ✅ | HTTP health checks (url:), docker status (docker:), shell cmd (command:) |
+| `@services` (YAML block / explicit block) | ✅ | HTTP health checks (url:), docker status (docker:), optional shell cmd (command:) |
 | `@session [count=N]` | ✅ | Recent sessions from sessions dir |
 | `@date format="..."` | ✅ | Inline substitution |
 | `@waypoint [ttl=N]` | ✅ | Latest checkpoint content |
@@ -67,6 +67,10 @@ Perseus is a live context engine for AI assistants (Hermes Agent). Three compone
 | `@constraint...@end` | ✅ | Block directive; renders as table at doc end |
 
 ### Files
+
+- `requirements.txt` — runtime dependency list (`pyyaml`)
+- `tests/test_perseus.py` — focused regression tests for the hardening pass
+
 
 ```
 /workspace/perseus/
@@ -141,6 +145,18 @@ Perseus renders its own roadmap live. This file is now a `@perseus` source.
 **P4.4** — `--version` flag, v0.4 bump
 
 ---
+
+### Hardening pass — completed after alpha audit
+
+- safer workspace inference for `render`
+- quote-aware `@read` parsing helpers
+- visible `@if` parse errors and unmatched-block warnings
+- workspace-boundary checks for `@read` / `@include`
+- `@query` and `@services command` trust gates
+- structural frontmatter parsing for `@skills`
+- `stale_after`-aware recover logic
+- macOS `perseus launchd` scaffolding
+- focused pytest coverage
 
 ### Phase 5 — Pythia Autonomy (v2) ← CURRENT PRIORITY
 
