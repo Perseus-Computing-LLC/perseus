@@ -82,9 +82,10 @@ oracle:
   llm_timeout_s: 30
   ollama_host: http://127.0.0.1:11434
 
-hermes:
-  session_search_available: true   # set false if not running Hermes
-  skills_list_available: true
+assistant:
+  # Directory where session transcripts are stored.
+  # This is used for session search and context retrieval.
+  sessions_dir: /home/user/.hermes/sessions
 ```
 
 ---
