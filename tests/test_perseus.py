@@ -175,6 +175,27 @@ def test_launchd_subcommand_scaffolds_plist_on_macos(tmp_path, monkeypatch):
     assert "<string>render</string>" in plist.read_text()
 
 
+def test_load_config_migrates_legacy_hermes_section(tmp_path, monkeypatch):
+    fake_home = tmp_path / 'home'
+    monkeypatch.setenv('PERSEUS_HOME', str(fake_home / '.perseus-home'))
+    monkeypatch.setattr(perseus, 'PERSEUS_HOME', fake_home / '.perseus-home')
+    (fake_home / '.perseus-home').mkdir(parents=True)
+    (fake_home / '.perseus-home' / 'config.yaml').write_text('hermes:\n  sessions_dir: /tmp/legacy-sessions\n')
+    loaded = perseus.load_config()
+    assert loaded['assistant']['sessions_dir'] == '/tmp/legacy-sessions'
+
+
+def test_load_config_prefers_perseus_env_vars(monkeypatch):
+    monkeypatch.setenv('PERSEUS_SKILLS_DIR', '/tmp/perseus-skills')
+    monkeypatch.setenv('PERSEUS_SESSIONS_DIR', '/tmp/perseus-sessions')
+    spec = importlib.util.spec_from_file_location('perseus_reload', Path(__file__).resolve().parents[1] / 'perseus.py')
+    mod = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    spec.loader.exec_module(mod)
+    assert str(mod.SKILLS_DIR) == '/tmp/perseus-skills'
+    assert str(mod.SESSIONS_DIR) == '/tmp/perseus-sessions'
+
+
 def test_build_oracle_snapshot_collects_expected_keys(monkeypatch):
     monkeypatch.setattr(perseus, "resolve_skills", lambda *a, **k: "skills")
     monkeypatch.setattr(perseus, "resolve_session", lambda *a, **k: "sessions")
