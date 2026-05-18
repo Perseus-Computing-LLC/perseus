@@ -43,6 +43,9 @@ DEFAULT_CONFIG = {
         "session_digest_count": 5,
         "services_timeout_s": 3,
         "shell": "/bin/bash",
+        "allow_query_shell": True,
+        "allow_services_command": False,
+        "allow_outside_workspace": False,
     },
     "checkpoints": {
         "store": str(PERSEUS_HOME / "checkpoints"),
@@ -87,6 +90,144 @@ def load_config(workspace: Path | None = None) -> dict:
                     cfg[section] = vals
 
     return cfg
+
+
+def _infer_workspace(source_path: Path) -> Path:
+    """Infer workspace from a source path without assuming .perseus/context.md."""
+    source_path = source_path.expanduser().resolve()
+    if source_path.parent.name == ".perseus":
+        return source_path.parent.parent.resolve()
+    return source_path.parent.resolve()
+
+
+def _extract_quoted_token(raw: str) -> tuple[str | None, str]:
+    """Extract a leading quoted token using the opening quote as delimiter."""
+    raw = raw.lstrip()
+    if not raw:
+        return None, ""
+    if raw[0] not in {'"', "'"}:
+        parts = raw.split(None, 1)
+        token = parts[0]
+        rest = parts[1] if len(parts) > 1 else ""
+        return token, rest
+
+    quote = raw[0]
+    escaped = False
+    buf: list[str] = []
+    for idx in range(1, len(raw)):
+        ch = raw[idx]
+        if escaped:
+            buf.append(ch)
+            escaped = False
+            continue
+        if ch == "\\":
+            escaped = True
+            continue
+        if ch == quote:
+            return "".join(buf), raw[idx + 1:]
+        buf.append(ch)
+    return None, raw
+
+
+def _parse_kv_modifiers(raw: str) -> dict[str, str]:
+    """Parse key=value modifiers with quoted or bare values."""
+    out: dict[str, str] = {}
+    i = 0
+    n = len(raw)
+    while i < n:
+        while i < n and raw[i].isspace():
+            i += 1
+        if i >= n:
+            break
+        start = i
+        while i < n and (raw[i].isalnum() or raw[i] in {'_', '-', '.'}):
+            i += 1
+        key = raw[start:i]
+        if not key:
+            i += 1
+            continue
+        while i < n and raw[i].isspace():
+            i += 1
+        if i >= n or raw[i] != '=':
+            while i < n and not raw[i].isspace():
+                i += 1
+            continue
+        i += 1
+        while i < n and raw[i].isspace():
+            i += 1
+        if i >= n:
+            out[key] = ""
+            break
+        if raw[i] in {'"', "'"}:
+            quote = raw[i]
+            i += 1
+            buf: list[str] = []
+            escaped = False
+            while i < n:
+                ch = raw[i]
+                if escaped:
+                    buf.append(ch)
+                    escaped = False
+                elif ch == "\\":
+                    escaped = True
+                elif ch == quote:
+                    i += 1
+                    break
+                else:
+                    buf.append(ch)
+                i += 1
+            out[key] = "".join(buf)
+        else:
+            start = i
+            while i < n and not raw[i].isspace():
+                i += 1
+            out[key] = raw[start:i]
+    return out
+
+
+def _resolve_path(file_path_str: str, workspace: Path | None = None, allow_outside_workspace: bool = False) -> tuple[Path, str | None]:
+    """Resolve a path relative to workspace and optionally block escapes."""
+    fp = Path(file_path_str).expanduser()
+    if not fp.is_absolute() and workspace:
+        fp = workspace / fp
+    fp = fp.resolve(strict=False)
+    if workspace and not allow_outside_workspace:
+        ws = workspace.expanduser().resolve()
+        try:
+            fp.relative_to(ws)
+        except ValueError:
+            return fp, f"> ⚠ path escapes workspace: `{file_path_str}`"
+    return fp, None
+
+
+def _update_latest_checkpoint_pointer(latest: Path, outfile: Path) -> None:
+    """Update latest checkpoint pointer using symlink when supported, else file copy."""
+    if latest.is_symlink() or latest.exists():
+        latest.unlink()
+    try:
+        latest.symlink_to(outfile.name)
+    except OSError:
+        latest.write_text(outfile.read_text())
+
+
+def _parse_frontmatter(text: str) -> tuple[dict, str]:
+    """Return (frontmatter, body) if a YAML frontmatter block is present."""
+    if not text.startswith('---\n'):
+        return {}, text
+    marker = '\n---\n'
+    idx = text.find(marker, 4)
+    if idx == -1:
+        return {}, text
+    fm_text = text[4:idx]
+    body = text[idx + len(marker):]
+    try:
+        return yaml.safe_load(fm_text) or {}, body
+    except Exception:
+        return {}, text
+
+
+class ConditionParseError(ValueError):
+    pass
 
 
 # ─────────────────────────────── Cache Layer ──────────────────────────────────
@@ -181,13 +322,14 @@ def resolve_query(args_str: str, cfg: dict) -> str:
     @query "shell command" [@cache session|ttl=N]
 
     Runs the shell command and returns its stdout as a fenced code block.
-    @cache modifiers are parsed (for forward compatibility) but not yet
-    acted on — caching is Phase 3. The command always runs.
+    Cache modifiers are handled by the renderer before this resolver is called.
 
     If the command fails (non-zero exit) the block includes a warning header
     but still shows whatever output was produced.
     """
     shell = cfg["render"].get("shell", "/bin/bash")
+    if not cfg["render"].get("allow_query_shell", True):
+        return "> ⚠ @query is disabled by config (`render.allow_query_shell=false`)."
 
     # Strip @cache modifier first, then extract the command string.
     # Use the opening quote character to find the correct closing quote,
@@ -264,35 +406,25 @@ def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str
     - fallback= : value returned when file/key is missing (no fallback → warning)
     Without path= or key=, embeds the full file as a fenced code block.
     """
-    # Parse file path (quoted or unquoted, stops at first modifier)
-    file_match = re.match(r'^["\'](.+?)["\']|^(\S+)', args_str.strip())
-    if not file_match:
+    file_path_str, remaining = _extract_quoted_token(args_str.strip())
+    if not file_path_str:
         return "> ⚠ @read: no file specified."
 
-    file_path_str = file_match.group(1) or file_match.group(2)
-    remaining = args_str[file_match.end():].strip()
-
-    # Parse modifiers
-    path_key = None
-    env_key = None
-    fallback = None
-
-    m = re.search(r'path=["\']([^"\']+)["\']', remaining)
-    if m:
-        path_key = m.group(1)
-
-    m = re.search(r'key=["\']([^"\']+)["\']', remaining)
-    if m:
-        env_key = m.group(1)
-
-    m = re.search(r'fallback=["\']([^"\']*)["\']', remaining)
-    if m:
-        fallback = m.group(1)
+    modifiers = _parse_kv_modifiers(remaining)
+    path_key = modifiers.get("path")
+    env_key = modifiers.get("key")
+    fallback = modifiers.get("fallback")
 
     # Resolve file path
-    fp = Path(file_path_str).expanduser()
-    if not fp.is_absolute() and workspace:
-        fp = workspace / fp
+    fp, path_warning = _resolve_path(
+        file_path_str,
+        workspace,
+        allow_outside_workspace=bool(cfg["render"].get("allow_outside_workspace", False)),
+    )
+    if path_warning:
+        if fallback is not None:
+            return fallback
+        return path_warning
 
     if not fp.exists():
         if fallback is not None:
@@ -425,22 +557,28 @@ def resolve_env(args_str: str) -> str:
 
 # ──────────────────────────────── @include ────────────────────────────────────
 
-def resolve_include(args_str: str, workspace: Path | None = None) -> str:
+def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | None = None) -> str:
     """
     @include <file>
 
     Embeds the contents of a file inline. Markdown files are embedded as-is;
     structured files (.yaml, .yml, .json, .toml) are wrapped in a fenced block.
     """
-    # Strip quotes
-    m = re.match(r'^["\'](.+?)["\']|^(\S+)', args_str.strip())
-    if not m:
+    file_path_str, remaining = _extract_quoted_token(args_str.strip())
+    if not file_path_str:
         return "> ⚠ @include: no file specified."
+    if remaining.strip():
+        return f"> ⚠ @include: unexpected trailing input: `{remaining.strip()}`"
 
-    file_path_str = m.group(1) or m.group(2)
-    fp = Path(file_path_str).expanduser()
-    if not fp.is_absolute() and workspace:
-        fp = workspace / fp
+    render_cfg = (cfg or DEFAULT_CONFIG).get("render", {})
+    base = workspace or Path.cwd()
+    fp, path_warning = _resolve_path(
+        file_path_str,
+        base,
+        allow_outside_workspace=bool(render_cfg.get("allow_outside_workspace", False)),
+    )
+    if path_warning:
+        return path_warning
 
     if not fp.exists():
         return f"> ⚠ @include: file not found: `{file_path_str}`"
@@ -469,7 +607,7 @@ def resolve_include(args_str: str, workspace: Path | None = None) -> str:
 
 # ──────────────────────────────── @if condition ───────────────────────────────
 
-def evaluate_condition(condition: str, workspace: Path | None = None) -> bool:
+def evaluate_condition(condition: str, workspace: Path | None = None, cfg: dict | None = None) -> bool:
     """
     Evaluate a Perseus @if condition expression. Supported forms:
 
@@ -481,21 +619,36 @@ def evaluate_condition(condition: str, workspace: Path | None = None) -> bool:
       env.neq VAR "value"       — true if env var does not equal value
     """
     condition = condition.strip()
+    render_cfg = (cfg or DEFAULT_CONFIG).get("render", {})
 
     # file.exists "path"
-    m = re.match(r'file\.exists\s+["\'](.+?)["\']', condition)
+    m = re.match(r'file\.exists\s+(.+)$', condition)
     if m:
-        fp = Path(m.group(1)).expanduser()
-        if not fp.is_absolute() and workspace:
-            fp = workspace / fp
+        token, trailing = _extract_quoted_token(m.group(1).strip())
+        if token is None or trailing.strip():
+            raise ConditionParseError(f"invalid file.exists syntax: {condition}")
+        fp, path_warning = _resolve_path(
+            token,
+            workspace,
+            allow_outside_workspace=bool(render_cfg.get("allow_outside_workspace", False)),
+        )
+        if path_warning:
+            raise ConditionParseError(path_warning[4:])
         return fp.exists()
 
     # file.missing "path"
-    m = re.match(r'file\.missing\s+["\'](.+?)["\']', condition)
+    m = re.match(r'file\.missing\s+(.+)$', condition)
     if m:
-        fp = Path(m.group(1)).expanduser()
-        if not fp.is_absolute() and workspace:
-            fp = workspace / fp
+        token, trailing = _extract_quoted_token(m.group(1).strip())
+        if token is None or trailing.strip():
+            raise ConditionParseError(f"invalid file.missing syntax: {condition}")
+        fp, path_warning = _resolve_path(
+            token,
+            workspace,
+            allow_outside_workspace=bool(render_cfg.get("allow_outside_workspace", False)),
+        )
+        if path_warning:
+            raise ConditionParseError(path_warning[4:])
         return not fp.exists()
 
     # env.set VAR
@@ -511,17 +664,22 @@ def evaluate_condition(condition: str, workspace: Path | None = None) -> bool:
         return val is None or val == ""
 
     # env.eq VAR "value"
-    m = re.match(r'env\.eq\s+(\S+)\s+["\'](.+?)["\']', condition)
+    m = re.match(r'env\.eq\s+(\S+)\s+(.+)$', condition)
     if m:
-        return os.environ.get(m.group(1)) == m.group(2)
+        token, trailing = _extract_quoted_token(m.group(2).strip())
+        if token is None or trailing.strip():
+            raise ConditionParseError(f"invalid env.eq syntax: {condition}")
+        return os.environ.get(m.group(1)) == token
 
     # env.neq VAR "value"
-    m = re.match(r'env\.neq\s+(\S+)\s+["\'](.+?)["\']', condition)
+    m = re.match(r'env\.neq\s+(\S+)\s+(.+)$', condition)
     if m:
-        return os.environ.get(m.group(1)) != m.group(2)
+        token, trailing = _extract_quoted_token(m.group(2).strip())
+        if token is None or trailing.strip():
+            raise ConditionParseError(f"invalid env.neq syntax: {condition}")
+        return os.environ.get(m.group(1)) != token
 
-    # Unknown condition → warn and treat as false
-    return False
+    raise ConditionParseError(f"unknown @if condition: {condition}")
 
 
 # ──────────────────────────────── @skills ─────────────────────────────────────
@@ -564,10 +722,9 @@ def resolve_skills(args_str: str, cfg: dict) -> str:
         description = ""
         try:
             text = skill_md.read_text(errors="replace")
-            if text.startswith("---"):
-                end = text.index("---", 3)
-                fm = yaml.safe_load(text[3:end])
-                description = (fm or {}).get("description", "")
+            fm, _body = _parse_frontmatter(text)
+            description = str((fm or {}).get("description", ""))
+            name = str((fm or {}).get("name", name))
         except Exception:
             pass
 
@@ -615,6 +772,9 @@ def resolve_services(block_content: str, cfg: dict) -> str:
 
     rows = ["| Service | Status | Latency |", "|---|---|---|"]
     for svc in services:
+        if not isinstance(svc, dict):
+            rows.append("| (invalid) | ⚠ service entry must be a mapping | — |")
+            continue
         name = svc.get("name", "(unnamed)")
         url = svc.get("url", "")
         docker = svc.get("docker", "")
@@ -640,10 +800,18 @@ def resolve_services(block_content: str, cfg: dict) -> str:
                 status = "⚠ docker unavailable"
             rows.append(f"| {name} | {status} | — |")
         elif command := str(svc.get("command") or ""):
+            if not cfg["render"].get("allow_services_command", False):
+                status = "⚠ command checks disabled by config"
+                rows.append(f"| {name} | {status} | — |")
+                continue
             # Run arbitrary shell command; success = exit 0
             try:
                 result = subprocess.run(
-                    command, shell=True, capture_output=True, text=True,
+                    command,
+                    shell=True,
+                    executable=cfg["render"].get("shell", "/bin/bash"),
+                    capture_output=True,
+                    text=True,
                     timeout=timeout,
                 )
                 out_text = (result.stdout or result.stderr).strip()
@@ -785,6 +953,8 @@ def resolve_date(args_str: str) -> str:
 
 def load_latest_checkpoint(cfg: dict) -> dict | None:
     store = Path(cfg["checkpoints"]["store"])
+    if not store.exists():
+        return None
     latest = store / "latest.yaml"
     if latest.exists():
         try:
@@ -844,7 +1014,7 @@ def resolve_prompt_block(content: str) -> str:
 PROMPT_BLOCK_RE = re.compile(r'^@prompt\s*$', re.IGNORECASE)
 PROMPT_END_RE = re.compile(r'^@end\s*$', re.IGNORECASE)
 SERVICES_RE = re.compile(r'^@services\s*$', re.IGNORECASE)
-PERCY_HEADER_RE = re.compile(r'^@perseus\s', re.IGNORECASE)
+PERCY_HEADER_RE = re.compile(r'^@perseus(?:\s+.*)?$', re.IGNORECASE)
 IF_RE = re.compile(r'^@if\s+(.+)$', re.IGNORECASE)
 ELSE_RE = re.compile(r'^@else\s*$', re.IGNORECASE)
 ENDIF_RE = re.compile(r'^@endif\s*$', re.IGNORECASE)
@@ -917,19 +1087,33 @@ def _render_lines(
             _constraint_rows.append(f"| {con_id} | {con_sev} | {rule_text} |")
             continue
 
-        # ── @services block (consumes indented YAML lines until blank/directive) ──
+        # ── @services block ──
         if SERVICES_RE.match(line):
             block_lines = []
             i += 1
+            explicit_end = False
             while i < len(lines):
                 next_line = lines[i]
-                # Stop at blank line or another directive
-                if next_line.strip() == "" or next_line.startswith("@"):
+                if PROMPT_END_RE.match(next_line):
+                    explicit_end = True
+                    i += 1
+                    break
+                if next_line.startswith("@") and next_line.strip() != "@":
+                    if block_lines:
+                        break
+                    output.append("> ⚠ @services: empty block")
                     break
                 block_lines.append(next_line)
                 i += 1
+
+            while block_lines and block_lines[-1].strip() == "":
+                block_lines.pop()
+
             block_content = "\n".join(block_lines)
-            output.append(resolve_services(block_content, cfg))
+            if not block_content.strip() and explicit_end:
+                output.append("> ⚠ @services: empty block")
+            else:
+                output.append(resolve_services(block_content, cfg))
             continue
 
         # ── @if/@else/@endif block ──
@@ -960,8 +1144,16 @@ def _render_lines(
                     true_lines.append(inner)
                 i += 1
 
+            if depth != 0:
+                output.append(f"> ⚠ unmatched @if: missing @endif for `{condition_str}`")
+                break
+
             # Evaluate condition and render the correct branch
-            branch = true_lines if evaluate_condition(condition_str, workspace) else false_lines
+            try:
+                branch = true_lines if evaluate_condition(condition_str, workspace, cfg) else false_lines
+            except ConditionParseError as exc:
+                output.append(f"> ⚠ @if error: {exc}")
+                continue
             if branch:
                 output.append(_render_lines(branch, cfg, workspace, _constraint_rows))
             continue
@@ -1001,7 +1193,7 @@ def _render_lines(
             elif directive == "@env":
                 result = resolve_env(clean_args)
             elif directive == "@include":
-                result = resolve_include(clean_args, workspace)
+                result = resolve_include(clean_args, workspace, cfg)
             else:
                 result = line
 
@@ -1082,11 +1274,9 @@ def cmd_checkpoint(args, cfg):
     with open(outfile, "w") as f:
         yaml.dump(cp, f, default_flow_style=False, allow_unicode=True)
 
-    # Update latest symlink
+    # Update latest pointer
     latest = store / "latest.yaml"
-    if latest.is_symlink() or latest.exists():
-        latest.unlink()
-    latest.symlink_to(outfile.name)
+    _update_latest_checkpoint_pointer(latest, outfile)
 
     # Prune old checkpoints
     all_cps = sorted(
@@ -1116,6 +1306,10 @@ def cmd_recover(args, cfg):
     target_ws = getattr(args, "workspace", None) or os.getcwd()
     target_ws = str(Path(target_ws).resolve())
 
+    if not store.exists():
+        print(f"No checkpoint store found at {store}. Run `perseus checkpoint` first.")
+        return
+
     # Load all checkpoints sorted by mtime desc
     all_files = sorted(
         [f for f in store.glob("*.yaml") if f.name != "latest.yaml"],
@@ -1138,11 +1332,18 @@ def cmd_recover(args, cfg):
         if cp_ws != target_ws:
             continue
         written = cp.get("written", "")
+        stale_after = cp.get("stale_after", "")
         if written:
             try:
                 dt = datetime.fromisoformat(str(written))
                 age = (datetime.now(dt.tzinfo) - dt).total_seconds()
-                if age <= ttl_s:
+                fresh = age <= ttl_s
+                if stale_after:
+                    try:
+                        fresh = datetime.now().astimezone() <= datetime.fromisoformat(str(stale_after))
+                    except Exception:
+                        pass
+                if fresh:
                     print(f"# Checkpoint (workspace match, {int(age)}s ago)\n")
                     print(yaml.dump(cp, default_flow_style=False, allow_unicode=True))
                     return
@@ -1173,13 +1374,44 @@ def cmd_recover(args, cfg):
 
 # ──────────────────────────────── Render ──────────────────────────────────────
 
+LAUNCHD_TEMPLATE = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>{label}</string>
+    <key>ProgramArguments</key>
+    <array>
+      <string>{python}</string>
+      <string>{script}</string>
+      <string>render</string>
+      <string>{source}</string>
+      <string>--output</string>
+      <string>{output}</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>{workdir}</string>
+    <key>StartInterval</key>
+    <integer>{interval}</integer>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>{stdout_log}</string>
+    <key>StandardErrorPath</key>
+    <string>{stderr_log}</string>
+  </dict>
+</plist>
+"""
+
+
 def cmd_render(args, cfg):
-    source_path = Path(args.source)
+    source_path = Path(args.source).expanduser().resolve()
     if not source_path.exists():
         print(f"Error: file not found: {source_path}", file=sys.stderr)
         sys.exit(1)
 
-    workspace = source_path.parent.parent  # assume source is in .perseus/context.md
+    workspace = _infer_workspace(source_path)
     cfg = load_config(workspace)
 
     text = source_path.read_text(errors="replace")
@@ -1303,6 +1535,59 @@ rendered output and skip orientation. Start work immediately.
 @session count=3
 """
 
+def cmd_launchd(args, cfg):
+    if sys.platform != "darwin":
+        print("Error: `perseus launchd` is only supported on macOS.", file=sys.stderr)
+        sys.exit(1)
+
+    source_path = Path(args.source).expanduser().resolve()
+    if not source_path.exists():
+        print(f"Error: file not found: {source_path}", file=sys.stderr)
+        sys.exit(1)
+
+    output_path = Path(args.output).expanduser().resolve()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    launch_agents = Path.home() / "Library" / "LaunchAgents"
+    launch_agents.mkdir(parents=True, exist_ok=True)
+
+    logs_dir = PERSEUS_HOME / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+
+    label = args.label or f"com.perseus.render.{source_path.stem}"
+    plist_path = launch_agents / f"{label}.plist"
+    python_path = Path(sys.executable).resolve()
+    script_path = Path(__file__).resolve()
+    workdir = _infer_workspace(source_path)
+    stdout_log = logs_dir / f"{label}.out.log"
+    stderr_log = logs_dir / f"{label}.err.log"
+
+    content = LAUNCHD_TEMPLATE.format(
+        label=label,
+        python=str(python_path),
+        script=str(script_path),
+        source=str(source_path),
+        output=str(output_path),
+        workdir=str(workdir),
+        interval=int(args.interval),
+        stdout_log=str(stdout_log),
+        stderr_log=str(stderr_log),
+    )
+
+    if plist_path.exists() and not args.force:
+        print(f"Error: {plist_path} already exists. Use --force to overwrite.", file=sys.stderr)
+        sys.exit(1)
+
+    plist_path.write_text(content)
+
+    print(f"✔ Wrote LaunchAgent plist: {plist_path}")
+    print()
+    print("Next steps:")
+    print(f"  1. Load it:    launchctl load {plist_path}")
+    print(f"  2. Start now:  launchctl start {label}")
+    print(f"  3. Check logs: tail -f {stdout_log} {stderr_log}")
+
+
 def cmd_init(args, cfg):
     """Scaffold .perseus/context.md for a new workspace."""
     workspace = Path(args.workspace).resolve() if args.workspace else Path.cwd().resolve()
@@ -1389,6 +1674,17 @@ def main():
     p_init.add_argument("--force", action="store_true",
                         help="Overwrite existing context.md")
 
+    # launchd
+    p_launchd = sub.add_parser("launchd", help="Scaffold a macOS LaunchAgent for periodic rendering")
+    p_launchd.add_argument("source", help="Path to Perseus source file")
+    p_launchd.add_argument("--output", "-o", required=True, help="Rendered output path")
+    p_launchd.add_argument("--interval", type=int, default=300,
+                           help="Render interval in seconds (default: 300)")
+    p_launchd.add_argument("--label", default=None,
+                           help="launchd label (default: com.perseus.render.<source-stem>)")
+    p_launchd.add_argument("--force", action="store_true",
+                           help="Overwrite existing plist")
+
     args = parser.parse_args()
     cfg = load_config()
 
@@ -1402,6 +1698,8 @@ def main():
         cmd_suggest(args, cfg)
     elif args.command == "init":
         cmd_init(args, cfg)
+    elif args.command == "launchd":
+        cmd_launchd(args, cfg)
 
 
 if __name__ == "__main__":
