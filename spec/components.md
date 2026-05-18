@@ -1,20 +1,97 @@
 # Components
 
-## 1. Renderer (`perseus render`)
+## Priority Order
 
-The renderer processes a source document (`.pctx` or annotated `.md`) and produces a plain markdown output with all directives resolved. The output is what the assistant actually receives — it never sees directive syntax.
+The oracle is the MVP — the thing that actually solves the Medusa problem. The renderer and waypoints are supporting infrastructure that feed it live environment data to score against. Build order:
 
-### Rendering pipeline
+1. **Oracle** — tool/skill selection with scored recommendations
+2. **Renderer** — live context injection (feeds the oracle's env awareness)
+3. **Checkpoints** — lightweight session recovery (feeds the oracle's recency signal)
+
+---
+
+## 1. Tool Oracle (`perseus suggest`) — **MVP / Alpha**
+
+Given a task description and the current environment state, returns a ranked list of approaches: which Hermes skill to load, which integration to prefer, which path minimizes latency and maximizes fidelity.
+
+This is the core value prop. Every other component exists to make this answer more accurate.
+
+### Interface
+
+```bash
+perseus suggest "download and summarize recent arxiv papers on RAG"
+```
+
+### Output
 
 ```
-source.pctx
+Suggested approaches for: "download and summarize recent arxiv papers on RAG"
+Environment: 2026-05-18 06:49 CT | Hermes WebUI ✅ | 87 skills loaded
+
+1. ★★★  skill:arxiv + web_extract
+   Load the arxiv skill, search by keyword, fetch papers via web_extract.
+   Why: arxiv skill handles structured search + metadata; web_extract handles PDF→markdown.
+   Deps: all present. No service issues detected.
+
+2. ★★☆  web_search + web_extract
+   Generic fallback. Works but loses structured arxiv metadata (categories, authors, IDs).
+   Use if: arxiv skill is unavailable or you need broader source coverage.
+
+3. ★☆☆  skill:dspy RAG pipeline
+   Overkill for a one-off. Worth it if this becomes a recurring automated job.
+```
+
+### Scoring Factors
+
+| Factor | Signal Source | Weight |
+|---|---|---|
+| Skill availability | `~/.hermes/skills/` directory scan | High |
+| Skill freshness | Last-modified date vs. 30-day threshold | Medium |
+| Service health | `@services` render (live health checks) | High |
+| Task complexity match | Heuristic: one-off vs. recurring, structured vs. ad-hoc | Medium |
+| Recency signal | Last waypoint — what tools worked in recent sessions | Medium |
+| Token/latency estimate | Rough cost model per approach type | Low |
+
+### Alpha Scope
+
+For alpha, the oracle is a **structured prompt** over live environment state — not a trained model. Perseus renders the environment snapshot (skills, services, recent waypoints) and passes it plus the task description to the assistant via a well-structured template. The assistant does the ranking. The value is in the *structured input*, not a separate ML component.
+
+Full autonomous scoring (local model, no round-trip) is a future milestone.
+
+---
+
+## 2. Renderer (`perseus render`)
+
+Processes a source `.md` file with a `@perseus` header and produces plain markdown with all directives resolved. The assistant never sees directive syntax — only resolved values.
+
+### Source Format
+
+Any standard `.md` file. Perseus activates when `@perseus` appears on the first line:
+
+```markdown
+@perseus v0.1
+
+@prompt
+This document was rendered live. All values are current.
+@end
+
+# Session Context — @date format="YYYY-MM-DD HH:mm z"
+...
+```
+
+No specialized file extension. Compatible with all markdown tooling, renderable as-is by GitHub, editors, and existing AI context systems. Existing `AGENTS.md` / `CLAUDE.md` files can opt in by adding `@perseus` to the first line.
+
+### Rendering Pipeline
+
+```
+source.md  (@perseus header)
     │
     ▼
 [Parse] — tokenize directives vs. passthrough markdown
     │
     ▼
-[Resolve] — execute each directive (shell, file read, http, etc.)
-    │  ↕ cache layer (session/ttl/persist)
+[Resolve] — execute each directive (shell, file, http, env...)
+    │  ↕ cache layer (session / ttl / persist)
     ▼
 [Conditional eval] — @if/@else blocks collapsed to one branch
     │
@@ -22,128 +99,76 @@ source.pctx
 [Assemble] — stitch resolved values into final markdown
     │
     ▼
-rendered.md  →  injected into assistant context
+rendered output  →  injected into assistant context
 ```
 
-### Source format
-
-Source files use the `.pctx` extension (Perseus ConTeXt). Any `.md` file with `@perseus` on the first line is also valid.
-
-### Directive categories
-
-See [`directives.md`](directives.md) for full reference. Summary:
-
-| Category | Directives |
-|---|---|
-| Shell | `@query` |
-| Files | `@read`, `@list`, `@tree`, `@include` |
-| Environment | `@env` |
-| Time | `@date` |
-| Session | `@session` — digest of recent Hermes sessions |
-| Services | `@services` — health check a list of endpoints/containers |
-| Skills | `@skills` — list available Hermes skills, flag stale ones |
-| Conditional | `@if`, `@else`, `@endif` |
-| Constraints | `@constraint` — rendered as structured table, not prose |
-| Caching | `@cache` modifier on any directive |
-| Meta | `@prompt` — embedded instruction stripped in non-AI render mode |
+See [`directives.md`](directives.md) for the full directive reference.
 
 ---
 
-## 2. Waypoint Store (`perseus checkpoint` / `recover`)
+## 3. Checkpoints (`perseus checkpoint`)
 
-Waypoints are structured resumption snapshots written during a session. They are not logs — they contain only what's needed to resume without re-orientation.
+Lightweight resumption snapshots. Written explicitly by the assistant at natural pause points — end of a task, before a large operation, at a logical handoff. Not automatic, not a log.
 
-### Write path
+### Design Principles
 
+- **Explicit over automatic.** The assistant calls `perseus checkpoint` as a tool at the right moment. This keeps the implementation simple and the data meaningful — checkpoints are written when there's actually something worth resuming, not on a timer.
+- **Lightweight.** A checkpoint is a YAML file with 5-8 fields. It should take one tool call to write and one to read.
+- **Resumption-focused.** Contains only what's needed to continue without re-orientation. Not a log, not an audit trail.
+
+### Write (assistant tool call)
+
+```bash
+perseus checkpoint \
+  --task "Rewriting webhook handler to validate Bearer token" \
+  --status "done — handler written and tested" \
+  --next "update .env.example with HERMES_WEBHOOK_SECRET placeholder" \
+  --workspace /workspace/hermes-ntfy \
+  --notes "JWT lib is python-jose; secret lives in .env as HERMES_WEBHOOK_SECRET"
 ```
-perseus checkpoint --task "..." --status "..." --next "..." --context "..."
-```
 
-Or called automatically via Hermes session hooks.
+All fields except `--task` are optional. Short and fast.
 
-### Recovery path
+### Recover
 
-On session start, if a waypoint newer than N minutes exists:
-1. `perseus recover` emits a waypoint block
-2. Renderer includes it in the context document under `## Last Session`
-3. Assistant sees: task, status, next action, working paths — and can continue
+On session start, if a recent checkpoint exists, the renderer includes it under `## Last Session`. The assistant sees task, status, next action, and notes — and can continue immediately.
 
-### Waypoint schema (draft)
+### Schema
 
 ```yaml
-waypoint:
-  written: 2026-05-18T06:49:00-05:00
-  task: "Setting up ntfy webhook integration"
-  status: "handler written, pending test run"
-  next: "run pytest tests/test_webhook.py"
-  workspace: /workspace/hermes-ntfy
-  branch: feature/webhook-auth
-  open_files:
-    - src/webhook_handler.py
-    - tests/test_webhook.py
-  notes: "JWT secret not yet set in .env — will cause test failure"
+version: 1
+written: 2026-05-18T06:49:00-05:00
+task: "Rewriting webhook handler to validate Bearer token"
+status: "done — handler written and tested"
+next: "update .env.example with HERMES_WEBHOOK_SECRET placeholder"
+workspace: /workspace/hermes-ntfy
+notes: "JWT lib is python-jose; secret lives in .env as HERMES_WEBHOOK_SECRET"
 ```
-
-### Staleness
-
-Waypoints older than a configurable TTL (default: 24h) are surfaced as stale context, not live resumption state. They remain in `waypoints/` history for reference.
 
 ---
 
-## 3. Tool Oracle (`perseus suggest`)
+## Configuration
 
-Given a task description and the current environment state, returns a ranked list of approaches — which Hermes skill to load, which integration to prefer, which command path is fastest.
-
-### Input
-
-```
-perseus suggest "download and summarize recent arxiv papers on RAG"
-```
-
-### Output (draft)
-
-```
-Suggested approaches (ranked):
-
-1. skill:arxiv + skill:youtube-content [HIGH confidence]
-   → arxiv skill handles search/fetch; summarization pattern from youtube-content
-   → All deps present. No network issues detected.
-
-2. web_search + web_extract [MEDIUM]
-   → Generic fallback. Works but no structured metadata.
-
-3. skill:dspy pipeline [LOW — overkill for one-off]
-   → Worth it if recurring; setup cost high for single task.
-```
-
-### Scoring factors
-
-- Skill availability and freshness (recently patched vs. stale)
-- Required service health (is the integration actually live?)
-- Task complexity match (don't suggest DSPy for a one-liner)
-- Historical effectiveness (from session search patterns — future)
-- Token/latency cost estimate
-
----
-
-## Cross-cutting: Configuration
-
-Perseus reads from `~/.perseus/config.yaml` (global) and `.perseus/config.yaml` (workspace-local, takes precedence).
+Perseus reads `~/.perseus/config.yaml` (global) with workspace-local `.perseus/config.yaml` taking precedence.
 
 ```yaml
-# ~/.perseus/config.yaml
 render:
   cache_dir: ~/.perseus/cache
-  session_digest_count: 5      # how many recent sessions to summarize
-  services_timeout: 3          # seconds per health check
+  session_digest_count: 5
+  services_timeout_s: 3
+  shell: /bin/bash
 
-waypoints:
-  auto: true                   # write checkpoints automatically
-  interval: 300                # seconds between auto-checkpoints
-  ttl: 86400                   # seconds before waypoint is considered stale
-  store: ~/.perseus/waypoints
+checkpoints:
+  store: ~/.perseus/checkpoints
+  ttl_s: 86400        # stale after 24h; still kept, just not injected as live
+  max_keep: 30
 
 oracle:
   skill_dir: ~/.hermes/skills
-  hermes_session_search: true  # use session_search for historical scoring
+  stale_skill_days: 30
+  use_session_history: true
+
+hermes:
+  session_search_available: true
+  skills_list_available: true
 ```

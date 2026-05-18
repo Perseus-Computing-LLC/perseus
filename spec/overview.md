@@ -28,9 +28,8 @@ It is the mirror Perseus used against Medusa — the assistant faces complexity 
 
 - [`components.md`](components.md) — detailed spec for each component
 - [`directives.md`](directives.md) — full directive reference for the renderer
-- [`waypoints.md`](waypoints.md) — waypoint schema and recovery protocol
 - [`integration.md`](integration.md) — Hermes Agent wiring (AGENTS.md, workdir, cron)
-- [`oracle.md`](oracle.md) — tool oracle design and scoring model
+- [`oracle.md`](oracle.md) — tool oracle design and scoring model **(MVP)**
 - [`data-model.md`](data-model.md) — file layout, schemas, state storage
 
 ---
