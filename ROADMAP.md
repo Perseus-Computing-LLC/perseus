@@ -1,4 +1,4 @@
-@perseus v0.1
+@perseus v0.2
 
 @prompt
 This document is the single source of truth for the Perseus project.
@@ -56,10 +56,10 @@ Perseus is a live context engine for AI assistants (Hermes Agent). Three compone
 | `@waypoint [ttl=N]` | ✅ | Latest checkpoint content |
 | `@prompt...@end` | ✅ | AI instruction callout block |
 | `@query "..."` | ✅ Built | Runs shell cmd, embeds stdout as fenced code block; `@cache` parsed (no-op, Phase 3) |
-| `@read <file> path="..."` | ❌ Not built | Phase 2 |
-| `@env <VAR>` | ❌ Not built | Phase 2 |
-| `@if/@else/@endif` | ❌ Not built | Phase 2 |
-| `@include <file>` | ❌ Not built | Phase 2 |
+| `@read <file> path="..."` | ✅ Built | JSON/YAML/TOML path=, .env key=, fallback= |
+| `@env <VAR>` | ✅ Built | required=, fallback= modifiers |
+| `@if/@else/@endif` | ✅ Built | file.exists/missing, env.set/unset/eq/neq |
+| `@include <file>` | ✅ Built | md embedded raw; structured files fenced |
 | `@constraint...@end` | ❌ Not built | Phase 3 |
 | `@cache session/ttl=N` | ❌ Not built | Phase 3 |
 
@@ -95,7 +95,7 @@ Perseus is a live context engine for AI assistants (Hermes Agent). Three compone
 
 ## Roadmap
 
-### Phase 1 — Close the Pythia Loop ← CURRENT PRIORITY
+### Phase 1 — Close the Pythia Loop ← COMPLETE ✅
 
 The oracle prompt is emitted to stdout. That's half the loop. Close it.
 
@@ -120,7 +120,7 @@ The oracle prompt is emitted to stdout. That's half the loop. Close it.
 
 ---
 
-### Phase 2 — Real Project Opt-In
+### Phase 2 — Real Project Opt-In ← COMPLETE ✅
 
 Any project's `AGENTS.md` adds `@perseus` on line 1 and gets live values.
 
@@ -154,7 +154,7 @@ Any project's `AGENTS.md` adds `@perseus` on line 1 and gets live values.
 
 ---
 
-### Phase 3 — Reliability + Scale
+### Phase 3 — Reliability + Scale ← CURRENT PRIORITY
 
 **P3.1 — Cache layer (`@cache session` / `@cache ttl=N`)**
 - Currently every render re-runs all directives
@@ -207,9 +207,9 @@ Manual state block below is retired.
 ## Sequencing Summary
 
 ```
-Phase 1 (now):    Pythia skill loop → @query → workdir auto-injection
-Phase 2 (next):   @read → @env → @if/@else → @include  (real project opt-in)
-Phase 3 (after):  Cache layer → smart recover → @constraint
+Phase 1 (done):   Pythia skill loop → @query → workdir auto-injection
+Phase 2 (done):   @read → @env → @if/@else → @include  (real project opt-in)
+Phase 3 (now):    Cache layer → smart recover → @constraint
 Phase 4 (target): Perseus renders its own roadmap live (this section goes away)
 Phase 5 (future): Local scoring model, full autonomy
 ```
@@ -219,28 +219,32 @@ Phase 5 (future): Local scoring model, full autonomy
 ## CURRENT STATE
 *Manually updated each session until Phase 4. Update this block at session end.*
 
-**As of:** 2026-05-18 (session 4 — Phase 1 complete)
+**As of:** 2026-05-18 (session 5 — Phase 2 complete)
 
 **Last completed:**
-- P1.3 ✅ — Hermes workdir auto-injection via `no_agent` cron watchdog; `.hermes.md` rendered every 5 min from `.perseus/context.md`; `.gitignore` updated
-- P1.1 ✅ — `perseus-context-engine` skill updated with Pythia invocation pattern
-- P1.2 ✅ — `@query "shell cmd"` directive implemented
+- P2.1 ✅ — `@read <file>` — full file embed, `path=` dot-notation (JSON/YAML/TOML), `.env` `key=` lookup, `fallback=`
+- P2.2 ✅ — `@env VAR` — env var injection, `required=true` warning, `fallback=` support
+- P2.3 ✅ — `@if/@else/@endif` — condition blocks: `file.exists`, `file.missing`, `env.set`, `env.unset`, `env.eq`, `env.neq`; recursive via `_render_lines`
+- P2.4 ✅ — `@include <file>` — md embedded raw, structured files fenced
+- Renderer refactor: `render_source` → `_render_lines` (recursive, used for `@if` branches)
+- Version bump: alpha v0.2
 
-**Phase 1 complete. Cold-start is solved.**
+**Phase 2 complete. Real project opt-in unlocked — any project's `AGENTS.md` can add `@perseus v0.2` and get live values.**
 
-**Active thread:** Phase 2 — Real Project Opt-In
+**Active thread:** Phase 3 — Reliability + Scale
 
 **Next session should:**
 1. Read this file first
-2. P2.1: Implement `@read` directive — reads files from workspace, supports `path=` and `key=` modifiers
-3. P2.2: Implement `@env` directive — reads env vars, supports `required=` and `fallback=`
-4. Consider `@if/@else/@endif` (P2.3) as stretch goal if P2.1+P2.2 land cleanly
+2. P3.1: Implement `@cache session` / `@cache ttl=N` — `~/.perseus/cache/` keyed by SHA256(directive+args)
+3. P3.2: Smart `perseus recover` — workspace TTL match before printing
+4. P3.3: `@constraint...@end` — machine-readable rules table
+5. Consider Phase 4 opt-in: update this ROADMAP.md itself to use `@read` / `@query` directives
 
 **Blocking / notes:**
 - Container `$HOME` quirk: use absolute paths (`/home/hermeswebui`) not `~` in config
 - No `gh` CLI — use `curl` + token from `/home/hermeswebui/.hermes/.env`
 - Git push: `https://tcconnally:***@github.com/tcconnally/perseus.git`
-- Services health check shows all ❌ URLError — these services run on the Docker host network, not localhost inside the container. Expected behavior; `@services` still works for external URLs.
+- Services health check shows all ❌ URLError — expected (container can't reach host-network `localhost`). Not a bug.
 
 ---
 
