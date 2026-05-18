@@ -12,7 +12,7 @@ Built as a companion to [Hermes Agent](https://hermes-agent.nousresearch.com). D
 
 Perseus dogfoods itself: `ROADMAP.md` is a live `@perseus` source — the project's own documentation resolves its git state, CLI version, recent sessions, and last checkpoint at render time.
 
-**Status: Alpha v0.4 — Core engine complete, hardening pass shipped, Phase 5A shipped, Phase 5B (`diff`) in progress.**
+**Status: Alpha v0.4 — Core engine complete, hardening pass shipped, Phase 5A (`suggest --llm`) and Phase 5B (`diff`) shipped.**
 
 ---
 
@@ -94,9 +94,9 @@ The assistant never sees a directive. It sees a document that was already true.
 
 ---
 
-### ⚡ Session Waypoints — `perseus checkpoint`
+### ⚡ Session Waypoints — `perseus checkpoint` / `perseus diff`
 
-Perseus now also supports checkpoint comparison with `perseus diff`, which shows field-level changes between two checkpoints or the most recent pair.
+Perseus supports both writing lightweight checkpoints and comparing them with `perseus diff`, which shows field-level changes between two checkpoints or the most recent pair.
 
 The Fates cut the thread when the connection drops. Waypoints are how you pick it back up.
 
@@ -269,6 +269,8 @@ oracle:
 | **Phase 3** | `@cache session/ttl=N` · smart `recover --workspace` · `@constraint` | ✅ Complete |
 | **Phase 4** | `@services command:` · `perseus init` · `--version` · ROADMAP.md goes live | ✅ Complete |
 | **Hardening Pass** | parser fixes · trust gates · workspace safety · launchd scaffolding · focused tests | ✅ Complete |
+| **Phase 5A** | optional `suggest --llm ollama[:model]` execution path | ✅ Complete |
+| **Phase 5B** | `perseus diff` field-level checkpoint comparison | ✅ Complete |
 | **Phase 5** | `--llm` flag for local model oracle · checkpoint diffing | Planned |
 
 Full detail: [ROADMAP.md](./ROADMAP.md)
