@@ -1,6 +1,6 @@
 # Directives Reference
 
-Directives appear in `.pctx` source files and are resolved at render time. The assistant never sees directive syntax — only the resolved output.
+Directives appear in standard `.md` files that begin with `@perseus` on the first line. They are resolved at render time. The assistant never sees directive syntax — only the resolved output.
 
 All directives follow the pattern: `@directive [args] [@cache modifier]`
 
