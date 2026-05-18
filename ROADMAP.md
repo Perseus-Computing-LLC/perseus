@@ -167,6 +167,12 @@ Perseus renders its own roadmap live. This file is now a `@perseus` source.
 - local Ollama invocation path added
 - focused tests added for snapshot/prompt/model flow
 
+#### Phase 5B status
+
+- `perseus diff` implemented for field-level checkpoint comparison
+- supports explicit `--old` / `--new` paths or the latest checkpoint pair
+- focused tests added for diff formatting and CLI behavior
+
 
 - `--llm` flag: pipe oracle prompt to local model (Ollama/llama.cpp) — no Hermes round-trip
 - Accepted recommendations become training data
