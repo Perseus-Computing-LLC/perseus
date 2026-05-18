@@ -1,99 +1,149 @@
 # Perseus 🪞
 
-> *"Hold up the mirror so you can face the Medusa without being turned to stone."*
+> *Athena didn't tell Perseus to fight Medusa. She handed him a shield — polished to a mirror — and let him see the monster clearly without meeting her gaze. The trick was never strength. It was reflection.*
 
-Perseus is a **live context engine** for AI assistants. It solves the cold-start problem: every session begins with an AI that has no idea what's running, what you've been working on, which tools are available, or where you left off. Perseus resolves that state **before** it hits the context window — and writes waypoints **during** a session so the next one can resume exactly where it left off.
+**Perseus** is a live context engine for AI assistants. It solves the cold-start problem: every new session begins with an assistant that has no idea what's running, what you were working on, which tools are available, or where things broke. Perseus resolves that state **before it ever reaches the context window** — so the assistant starts with a complete, accurate picture instead of burning turns on orientation.
 
-Built as a companion to [Hermes Agent](https://hermes-agent.nousresearch.com), but designed to be assistant-agnostic.
+Built as a companion to [Hermes Agent](https://hermes-agent.nousresearch.com). Designed to be assistant-agnostic.
 
-**Status: Alpha v0.1 — Core CLI built and working.**
+**Status: Alpha v0.3 — Core engine complete. Phases 1–3 shipped.**
 
 ---
 
 ## The Problem
 
-Every AI assistant session starts cold. Before useful work can begin, the assistant burns turns on orientation:
+Every AI assistant session starts cold. Before useful work can begin, the assistant spends turns on orientation:
 
-- What services are running?
-- What were we working on last time?
-- Which tool is the right one for this task?
-- Where did we leave off when the connection dropped?
+- *What services are running right now?*
+- *What were we working on last time?*
+- *Which tool is the right one for this?*
+- *Where did we leave off when the connection dropped?*
 
-This is the **pre-flight tax** — and it compounds across every session, every day, every developer.
+This is the **pre-flight tax** — and it compounds across every session, every developer, every context switch.
 
-Static markdown files (CLAUDE.md, AGENTS.md, READMEs) make it worse: they were accurate when written and are stale by the time they're read. The assistant either trusts outdated data or stops to verify it, spawning more tool calls, consuming more context, delaying actual work.
+Static markdown files (AGENTS.md, CLAUDE.md, READMEs) make it worse. They were accurate when written. By the time they're read, the port has changed, the test suite has grown, and the container that was "always running" hasn't been started since Tuesday. The assistant either trusts stale data or stops to verify it — spawning more tool calls, consuming context, delaying work.
 
----
-
-## The Solution
-
-Perseus has three interlocking components:
-
-### 1. Live Context Injection (`perseus render`)
-Resolves a session context document **before** it reaches the assistant's context window. No stale values, no pre-flight verification calls needed.
-
-```
-# Instead of:                          # Perseus renders:
-"Port is 3001 (check .env)"      →    "Port: 3001 (live from .env)"
-"47 tests (may be stale)"         →    "Tests: 52 passing (run 30s ago)"
-"Check docker ps first"           →    "mongo-dev: Up 3h  redis-dev: Up 3h"
-```
-
-Any `.md` file beginning with `@perseus v0.1` becomes live — no special extension required. Compatible with `AGENTS.md`, `CLAUDE.md`, and any doc an assistant would read.
-
-### 2. Session Waypoints (`perseus checkpoint`)
-Writes incremental resumption state during a session. If the connection drops — service restart, timeout, network blip — the next session loads the last waypoint and picks up without re-orientation.
-
-```
-✅ Checkpoint written: 2026-05-18T0649.yaml
-   Task:   Setting up ntfy webhook integration
-   Status: handler written, pending test run
-   Next:   run pytest tests/test_webhook.py
-```
-
-### 3. Pythia — Tool Oracle (`perseus suggest`)
-Given a task description and the current environment state, ranks the highest-utility tool paths: which skill to load, which integration to use, which approach minimizes friction. The Medusa of tool selection — faced with the mirror instead of directly.
-
-Named **Pythia** (the Oracle at Delphi who gave Perseus his mission). Oracle Corp is litigious.
-
-```
-$ perseus suggest "deploy the staging container"
-
-# → structured prompt emitted with live env snapshot:
-#   - 102 available skills with freshness
-#   - service health checks
-#   - recent sessions digest
-#   - last checkpoint
-# → assistant reads prompt, produces ranked recommendations inline
-```
+**Stale context isn't neutral. It's drag.**
 
 ---
 
-## Architecture
+## The Solution: Resolve Before Context
+
+Like Perseus holding up the mirror, the fix is indirection: don't hand the assistant a static document and let it go look things up. Resolve everything first, hand it the reflection.
 
 ```
-┌─────────────────────────────────────────────────┐
-│                  Perseus                         │
-│                                                  │
-│  ┌──────────────┐  ┌───────────────────────────┐ │
-│  │   Renderer   │  │    Waypoint Store         │ │
-│  │              │  │                           │ │
-│  │ @query   ✅  │  │  checkpoints/ (history)   │ │
-│  │ @read    🔶  │  │  latest.yaml  (symlink)   │ │
-│  │ @session ✅  │  └───────────────────────────┘ │
-│  │ @services ✅ │                                │
-│  │ @skills  ✅  │  ┌───────────────────────────┐ │
-│  │ @date    ✅  │  │    Pythia (Tool Oracle)   │ │
-│  │ @waypoint ✅ │  │                           │ │
-│  │ @if/cache 🔶 │  │  task → ranked tool paths │ │
-│  └──────────────┘  └───────────────────────────┘ │
-└─────────────────────────────────────────────────┘
-         ↓ rendered context
-┌─────────────────────────────────────────────────┐
-│              AI Assistant (Hermes)               │
-│   Starts with complete, accurate picture.        │
-│   No pre-flight tax. Resume from waypoint.       │
-└─────────────────────────────────────────────────┘
+Without Perseus                   With Perseus
+──────────────────────────────    ─────────────────────────────────────
+"Port is 3001 (check .env)"  →   Port: 3001
+"47 tests (may be stale)"    →   Tests: 54 passing (run 8s ago)
+"Check docker ps first"      →   mongo-dev: Up 4h 12m
+"Where did we leave off?"    →   Checkpoint: webhook handler written,
+                                             pending test run
+```
+
+Any `.md` file beginning with `@perseus` on the first line becomes live. No special extension. No new toolchain. The file renders to plain markdown — the assistant reads facts, not instructions to go find facts.
+
+---
+
+## Three Components
+
+### 🪞 The Renderer — `perseus render`
+
+Resolves directive blocks in a source document before it hits the context window. Shell output, file values, environment variables, service health, session history — all pulled live at render time.
+
+```markdown
+@perseus v0.3
+
+# Context — @date format="YYYY-MM-DD HH:mm z"
+
+## What's Running
+@query "docker ps --format 'table {{.Names}}\t{{.Status}}'"
+
+## Last Session
+@waypoint ttl=86400
+
+## Ports
+@read .env key="API_PORT" fallback="3001"
+```
+
+Becomes, by the time the assistant reads it:
+
+```markdown
+# Context — 2026-05-18 08:33 CDT
+
+## What's Running
+mongo-dev    Up 4 hours
+redis-dev    Up 4 hours
+
+## Last Session
+Checkpoint written: 2026-05-18T08:28
+Task: webhook handler — written, pending test run
+Next: run pytest tests/test_webhook.py
+
+## Ports
+3001
+```
+
+The assistant never sees a directive. It sees a document that was already true.
+
+---
+
+### ⚡ Session Waypoints — `perseus checkpoint`
+
+The Fates cut the thread when the connection drops. Waypoints are how you pick it back up.
+
+Write a checkpoint at any natural pause point — end of a task, before a large operation, at a logical handoff. The next session recovers immediately, without re-orientation.
+
+```bash
+$ perseus checkpoint \
+    --task "Implementing webhook integration" \
+    --status "handler written, pending test run" \
+    --next "run pytest tests/test_webhook.py" \
+    --workspace /workspace/myproject
+
+✅ Checkpoint written: ~/.perseus/checkpoints/2026-05-18T0833.yaml
+```
+
+`perseus recover` is workspace-aware: it finds the most relevant checkpoint for your current project, prioritising workspace match and recency, with fallback levels that tell you exactly how stale the data is.
+
+---
+
+### 🔮 Pythia — Tool Oracle (`perseus suggest`)
+
+Pythia was the Oracle at Delphi who gave Perseus his mission. She didn't make decisions — she surfaced the truth so the hero could act clearly. That's the Tool Oracle: given a task and the current environment state, it ranks the highest-utility approaches and tells you *why*.
+
+The Medusa of tool selection is the paralysis of facing too many options directly — 90 skills, 12 integrations, 4 possible approaches. Pythia holds up the mirror.
+
+```bash
+$ perseus suggest "deploy the staging container" --category devops
+```
+
+Emits a structured oracle prompt with a live environment snapshot — skills table with freshness, service health, recent checkpoint, session digest — which the assistant reads and answers with ranked recommendations. No extra model required. No separate API call. The loop closes in the same context window.
+
+---
+
+## Directives
+
+| Directive | What it does |
+|---|---|
+| `@query "shell cmd"` | Runs a shell command, embeds stdout as a fenced block |
+| `@read <file> [path="key"]` | Reads a file; dot-notation path for JSON/YAML/TOML; `key=` for `.env` files |
+| `@env VAR [fallback="x"]` | Injects an environment variable; `required=true` emits a visible warning if unset |
+| `@include <file>` | Embeds a file inline; markdown raw, structured files fenced |
+| `@if file.exists ".env"` / `@endif` | Conditional blocks: `file.exists/missing`, `env.set/unset/eq/neq` |
+| `@constraint id="..." severity="..."` | Machine-readable rules rendered as a `\| ID \| Severity \| Rule \|` table |
+| `@skills [flag_stale=true]` | Scans the Hermes skills dir, reads frontmatter, flags stale entries |
+| `@services` (YAML block) | HTTP health checks with latency for each configured endpoint |
+| `@session [count=N] [topic="..."]` | Recent session digest from the sessions directory |
+| `@date format="YYYY-MM-DD HH:mm z"` | Live date/time, inline or standalone |
+| `@waypoint [ttl=N]` | Latest checkpoint rendered inline; `ttl=` skips it if too old |
+| `@prompt...@end` | AI instruction callout — visible to the assistant, attributed to Perseus |
+
+Any directive accepts a `@cache` modifier:
+
+```markdown
+@query "git log --oneline -5" @cache session      ← run once per render, reuse after
+@skills flag_stale=true @cache ttl=3600           ← cache to disk for 1 hour
 ```
 
 ---
@@ -107,7 +157,7 @@ $ perseus suggest "deploy the staging container"
 cp perseus.py ~/.local/bin/perseus
 chmod +x ~/.local/bin/perseus
 
-# Configure (set absolute paths for your environment)
+# Configure (absolute paths required — ~ won't resolve in all environments)
 mkdir -p ~/.perseus
 cat > ~/.perseus/config.yaml << 'EOF'
 oracle:
@@ -116,91 +166,68 @@ hermes:
   sessions_dir: /home/you/.hermes/sessions
 EOF
 
-# Render a live context document
-perseus render /workspace/myproject/.perseus/context.md
-
-# Write a session waypoint
-perseus checkpoint \
-  --task "Implementing @query directive" \
-  --status "resolver written, tests pending" \
-  --next "add to render loop, test with context.md" \
-  --workspace /workspace/perseus
-
-# Recover last waypoint
-perseus recover
-
-# Get Pythia recommendations
-perseus suggest "I need to search for a pattern across a large codebase"
-```
-
----
-
-## Directives
-
-Directives appear inside `.md` files that start with `@perseus v0.1`. The file renders to plain markdown — no special syntax visible to the reader.
-
-| Directive | Status | Notes |
-|---|---|---|
-| `@query "shell cmd"` | ✅ | Runs command, embeds output as code block |
-| `@skills [flag_stale=true] [category=X]` | ✅ | Scans Hermes skills dir, reads frontmatter |
-| `@services` (YAML block) | ✅ | HTTP health checks with latency |
-| `@session [count=N] [topic="..."]` | ✅ | Recent session digest from sessions dir |
-| `@date format="YYYY-MM-DD HH:mm z"` | ✅ | Live date/time inline or standalone |
-| `@waypoint [ttl=N]` | ✅ | Latest checkpoint rendered inline |
-| `@prompt...@end` | ✅ | AI instruction callout block |
-| `@read <file> path="..."` | 🔶 Phase 2 | File/JSON/YAML key extraction |
-| `@env VAR [fallback="..."]` | 🔶 Phase 2 | Environment variable with fallback |
-| `@if/@else/@endif` | 🔶 Phase 2 | Conditional context blocks |
-| `@include <file>` | 🔶 Phase 2 | File inclusion |
-| `@constraint...@end` | 🔶 Phase 3 | Machine-readable rules table |
-| `@cache session/ttl=N` | 🔶 Phase 3 | Avoid re-running slow queries |
-
----
-
-## Source File Format
-
-```markdown
-@perseus v0.1
+# Write a source document for your workspace
+mkdir -p /workspace/myproject/.perseus
+cat > /workspace/myproject/.perseus/context.md << 'EOF'
+@perseus v0.3
 
 @prompt
-This document was rendered live by Perseus. Trust all values.
+This document was rendered live by Perseus. Trust all values below.
 @end
 
-# Session Context — @date format="YYYY-MM-DD HH:mm z"
+# Context — @date format="YYYY-MM-DD HH:mm z"
 
 ## Last Session
 @waypoint ttl=86400
 
 ## Environment
 @query "git log --oneline -5"
-@query "docker ps --format 'table {{.Names}}\t{{.Status}}'"
-
-## Available Skills
-@skills flag_stale=true
 
 ## Services
 @services
-  - name: Hermes WebUI
-    url: http://localhost:7779
   - name: My App
     url: http://localhost:3001/health
 
 ## Recent Sessions
 @session count=5
+EOF
+
+# Render it
+perseus render /workspace/myproject/.perseus/context.md
+
+# Write a waypoint
+perseus checkpoint \
+  --task "Adding @query directive" \
+  --status "resolver written, tests pending" \
+  --next "add to render loop, test with context.md" \
+  --workspace /workspace/myproject
+
+# Recover — workspace-aware
+perseus recover --workspace /workspace/myproject
+
+# Get Pythia's recommendations
+perseus suggest "best way to search for a pattern across a large Python codebase"
 ```
 
 ---
 
-## Integration with Hermes Agent
+## Auto-Injection with Hermes
 
-Perseus is designed to wire into Hermes via `AGENTS.md` injection and `workdir` cron:
+Perseus keeps `.hermes.md` fresh via a `no_agent` cron watchdog (no model tokens, no noise):
 
-```yaml
-# .hermes/config.yaml (excerpt)
-context_script: ~/.perseus/render.sh   # runs before each session opens
+```
+Cron (every 5 min, silent)
+  └─ perseus render .perseus/context.md → .hermes.md
+                                               ↓
+                                   Hermes session start
+                                   reads .hermes.md automatically
+                                   (highest priority context file)
+                                               ↓
+                               Assistant has full live context.
+                               No orientation phase. Start working.
 ```
 
-Any workspace can opt in by adding `@perseus v0.1` to the first line of its `AGENTS.md` or `CLAUDE.md`. Perseus pre-renders it and hands the assistant a live, accurate document.
+Hermes reads `.hermes.md` at session start with higher priority than `AGENTS.md`, `CLAUDE.md`, or `.cursorrules`. The cron job keeps it ≤5 minutes stale. The cold-start problem is solved before the session opens.
 
 ---
 
@@ -208,23 +235,57 @@ Any workspace can opt in by adding `@perseus v0.1` to the first line of its `AGE
 
 | Phase | Focus | Status |
 |---|---|---|
-| **Phase 1** | Close the Pythia loop; `@query` directive; workdir auto-injection | 🔶 Active |
-| **Phase 2** | `@read`, `@env`, `@if/@else`, `@include` — real project AGENTS.md opt-in | Planned |
-| **Phase 3** | Cache layer; smart `recover`; `@constraint` | Planned |
-| **Phase 4** | Perseus renders its own roadmap live (self-bootstrapping) | Planned |
-| **Phase 5** | `--llm` flag for local model; accepted-recommendation training data; `perseus init` | Future |
+| **Phase 1** | Pythia skill loop · `@query` · workdir auto-injection via cron | ✅ Complete |
+| **Phase 2** | `@read` · `@env` · `@if/@else/@endif` · `@include` — real project opt-in | ✅ Complete |
+| **Phase 3** | `@cache session/ttl=N` · smart `recover --workspace` · `@constraint` | ✅ Complete |
+| **Phase 4** | Perseus renders its own roadmap live — CURRENT STATE block retired | 🔶 Active |
+| **Phase 5** | `--llm` flag for local model oracle · checkpoint diffing · `perseus init` | Planned |
 
 Full detail: [ROADMAP.md](./ROADMAP.md)
 
 ---
 
+## Architecture
+
+```
+Source document (.perseus/context.md)
+  @perseus v0.3
+  @query "git log --oneline -5"          ┐
+  @read .env key="PORT"                  │  Directives resolved
+  @waypoint ttl=86400                    │  before context window.
+  @services                              │  Cache layer avoids
+    - name: My App                       │  re-running slow queries.
+      url: http://localhost:3001/health  ┘
+          │
+          ▼ perseus render
+  Resolved markdown (facts, not instructions)
+          │
+          ▼
+  .hermes.md  ←── cron watchdog keeps this ≤5 min fresh
+          │
+          ▼
+  Hermes session start
+  build_context_files_prompt()
+          │
+          ▼
+  AI context window — complete, accurate, zero pre-flight tax
+
+  Waypoints: ~/.perseus/checkpoints/
+  Cache:     ~/.perseus/cache/
+  Config:    ~/.perseus/config.yaml
+```
+
+---
+
 ## Etymology
 
-**Perseus** — the hero who slew Medusa by using a mirrored shield rather than looking at her directly. The Medusa here is the chaos of knowing which tool, which context, which approach to use — paralyzing in complexity when faced head-on. The mirror is live, resolved context: you face the complexity through an accurate reflection instead of being turned to stone by it.
+**Perseus** slew Medusa not by meeting her gaze but by watching her reflection in Athena's polished shield. The Medusa here is the paralysis of facing your environment directly — too many tools, stale docs, no continuity between sessions. The mirror is resolved context: you see the situation clearly without being turned to stone by it.
 
-**Hermes** provided Perseus with winged sandals, a sword, and guidance. This Perseus returns the favor.
+**Hermes** gave Perseus three gifts for the quest: winged sandals for speed, a kibisis to carry what could not be looked at directly, and guidance through the unknown. This Perseus returns the favor — giving Hermes a way to navigate any workspace without the orientation tax.
 
-**Pythia** — the Oracle at Delphi. She didn't make decisions; she surfaced the truth so the hero could. That's the Tool Oracle: it doesn't choose for you, it shows you the ranked paths clearly so you can move.
+**Pythia** was the Oracle at Delphi who spoke for Apollo. Pilgrims came with impossible questions; she gave them the truth in a form they could act on. The Tool Oracle works the same way: you come with a task and a tangled environment; it gives you ranked paths forward. She didn't need to know everything — she needed to know what mattered *now*.
+
+**The Graeae** — the three grey sisters who shared a single eye — are what you're working around. Three sisters who can only see one thing at a time: the current context, the tool choice, or the session history. Perseus stole the eye and made them see all three at once. So does the renderer.
 
 ---
 
