@@ -154,24 +154,31 @@ Any project's `AGENTS.md` adds `@perseus` on line 1 and gets live values.
 
 ---
 
-### Phase 3 — Reliability + Scale ← CURRENT PRIORITY
+### Phase 3 — Reliability + Scale ← COMPLETE ✅
 
 **P3.1 — Cache layer (`@cache session` / `@cache ttl=N`)**
-- Currently every render re-runs all directives
-- `~/.perseus/cache/` directory already specced in data-model.md
-- Key by SHA256 of directive + args
+- ✅ Two-level cache: in-memory (`_SESSION_CACHE`) for `@cache session`, disk-backed JSON for `@cache ttl=N`
+- ✅ `_parse_cache_modifier()` strips modifier from any directive line; returns `(clean_args, mode, ttl)`
+- ✅ `cache_get()` / `cache_set()` — session cache is in-process only; TTL cache persists under `~/.perseus/cache/`
+- ✅ Cache key = SHA256 of whitespace-normalised directive + clean args (stable across whitespace variations)
+- ✅ Expired disk entries auto-pruned on first miss; write failures are non-fatal
+- ✅ All inline directives (`@query`, `@skills`, `@session`, `@read`, `@env`, `@include`, `@waypoint`, `@date`) now route through cache layer
 
 **P3.2 — Smart `perseus recover`**
-- If workspace checkpoint is within TTL and `workspace` field matches cwd, print structured recovery block
-- This closes the interrupted-session continuity loop that motivated checkpoints
+- ✅ `--workspace` flag (defaults to cwd) — prioritises checkpoints by workspace path match + within TTL
+- ✅ Three-phase fallback: (1) workspace match + within TTL → (2) workspace match any age → (3) most recent any workspace
+- ✅ Each phase annotates output with match quality: "workspace match, 42s ago" / "outside TTL" / "no workspace match"
+- ✅ Closes the interrupted-session continuity loop
 
 **P3.3 — `@constraint...@end`**
-- Machine-readable rules rendered as structured table
-- Better signal than prose rules buried in docs
+- ✅ Block directive: `@constraint id="..." severity="..."` gathers body until `@end`
+- ✅ All constraint rows in a document are accumulated and flushed as a single table after last line
+- ✅ Works inside `@if` branches (rows passed via `_constraint_rows` shared list to recursive calls)
+- ✅ Rendered as: `| ID | Severity | Rule |` table — clear machine-readable signal to assistant
 
 ---
 
-### Phase 4 — Self-Bootstrapping
+### Phase 4 — Self-Bootstrapping ← CURRENT PRIORITY
 
 At this point Perseus renders its own roadmap live. This file becomes:
 
@@ -209,8 +216,8 @@ Manual state block below is retired.
 ```
 Phase 1 (done):   Pythia skill loop → @query → workdir auto-injection
 Phase 2 (done):   @read → @env → @if/@else → @include  (real project opt-in)
-Phase 3 (now):    Cache layer → smart recover → @constraint
-Phase 4 (target): Perseus renders its own roadmap live (this section goes away)
+Phase 3 (done):   Cache layer → smart recover → @constraint
+Phase 4 (now):    Perseus renders its own roadmap live (this section goes away)
 Phase 5 (future): Local scoring model, full autonomy
 ```
 
@@ -219,32 +226,31 @@ Phase 5 (future): Local scoring model, full autonomy
 ## CURRENT STATE
 *Manually updated each session until Phase 4. Update this block at session end.*
 
-**As of:** 2026-05-18 (session 5 — Phase 2 complete)
+**As of:** 2026-05-18 (session 6 — Phase 3 complete)
 
 **Last completed:**
-- P2.1 ✅ — `@read <file>` — full file embed, `path=` dot-notation (JSON/YAML/TOML), `.env` `key=` lookup, `fallback=`
-- P2.2 ✅ — `@env VAR` — env var injection, `required=true` warning, `fallback=` support
-- P2.3 ✅ — `@if/@else/@endif` — condition blocks: `file.exists`, `file.missing`, `env.set`, `env.unset`, `env.eq`, `env.neq`; recursive via `_render_lines`
-- P2.4 ✅ — `@include <file>` — md embedded raw, structured files fenced
-- Renderer refactor: `render_source` → `_render_lines` (recursive, used for `@if` branches)
-- Version bump: alpha v0.2
+- P3.1 ✅ — `@cache session` / `@cache ttl=N` — two-level cache (in-memory + disk), `_parse_cache_modifier`, `cache_get/cache_set`, all inline directives wired through cache
+- P3.2 ✅ — Smart `perseus recover --workspace` — three-phase fallback: workspace+TTL → workspace-any-age → latest; annotated output
+- P3.3 ✅ — `@constraint id="..." severity="..."...@end` — block directive, table accumulator, flushed at top-level render
+- Version bump: alpha v0.3; `context.md` and `ROADMAP.md` updated
 
-**Phase 2 complete. Real project opt-in unlocked — any project's `AGENTS.md` can add `@perseus v0.2` and get live values.**
+**Phase 3 complete. Reliability and caching layer is live.**
 
-**Active thread:** Phase 3 — Reliability + Scale
+**Active thread:** Phase 4 — Self-Bootstrapping (Perseus renders its own roadmap)
 
 **Next session should:**
 1. Read this file first
-2. P3.1: Implement `@cache session` / `@cache ttl=N` — `~/.perseus/cache/` keyed by SHA256(directive+args)
-3. P3.2: Smart `perseus recover` — workspace TTL match before printing
-4. P3.3: `@constraint...@end` — machine-readable rules table
-5. Consider Phase 4 opt-in: update this ROADMAP.md itself to use `@read` / `@query` directives
+2. P4.1: Convert ROADMAP.md itself to use `@perseus` directives — replace the manual CURRENT STATE block with `@waypoint`, git log with `@query`, etc.
+3. P4.2: Add `@version` or `@read perseus.py path="..."` to render the CLI version inline
+4. P4.3: Consider `perseus init` — scaffolds `.perseus/context.md` for a new workspace (Phase 5 spec item that unlocks Phase 4 dogfooding for other projects)
+5. Consider: add `@cache session` to `@skills` and `@session` in the workspace `context.md` (they're stable within a render session)
 
 **Blocking / notes:**
 - Container `$HOME` quirk: use absolute paths (`/home/hermeswebui`) not `~` in config
 - No `gh` CLI — use `curl` + token from `/home/hermeswebui/.hermes/.env`
 - Git push: `https://tcconnally:***@github.com/tcconnally/perseus.git`
 - Services health check shows all ❌ URLError — expected (container can't reach host-network `localhost`). Not a bug.
+- `@constraint` table is flushed at the *end* of the document. If you need it inline (e.g. mid-document positioning), that's a future enhancement — current placement is after all prose.
 
 ---
 

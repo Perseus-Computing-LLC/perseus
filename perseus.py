@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
 """
 Perseus — Live Context Engine for AI Assistants
-Alpha v0.2: render (@query, @skills, @services, @session, @read, @env,
-            @if/@else/@endif, @include), checkpoint, suggest
+Alpha v0.3: render (@query, @skills, @services, @session, @read, @env,
+            @if/@else/@endif, @include, @constraint), checkpoint, suggest
+            + @cache session / @cache ttl=N caching layer
+            + smart recover with workspace + TTL matching
 
 Usage:
   perseus render <source.md>               → resolved markdown to stdout
   perseus checkpoint --task "..." [opts]   → write checkpoint YAML
-  perseus recover                          → print latest checkpoint
+  perseus recover [--workspace DIR]        → print latest checkpoint (smart TTL)
   perseus suggest "<task description>"     → oracle ranked suggestions
 """
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -81,6 +84,91 @@ def load_config(workspace: Path | None = None) -> dict:
                     cfg[section] = vals
 
     return cfg
+
+
+# ─────────────────────────────── Cache Layer ──────────────────────────────────
+#
+# Two-level cache:
+#   1. In-memory (session): populated on first resolve, reused for subsequent
+#      renders within the same process.  Key: SHA256(directive_line).
+#   2. Disk (ttl=N): JSON files in ~/.perseus/cache/ named <sha256>.json.
+#      Each entry has 'expires' (unix epoch) and 'value' (string output).
+#
+# @cache modifiers:
+#   @cache session          → in-memory only (never written to disk)
+#   @cache ttl=N            → disk-backed, expires after N seconds
+#   (no modifier)           → always re-run (current default for all directives)
+#
+# cache_key(directive_line) — stable SHA256 hash of the full directive line
+#                              (command + args, whitespace-normalised)
+
+_SESSION_CACHE: dict[str, str] = {}  # in-memory store for @cache session
+
+
+def _cache_key(directive_line: str) -> str:
+    """Stable SHA256 hash for a directive line (whitespace-normalised)."""
+    normalised = " ".join(directive_line.strip().split())
+    return hashlib.sha256(normalised.encode()).hexdigest()
+
+
+def _parse_cache_modifier(line: str) -> tuple[str, str, int | None]:
+    """
+    Strip any @cache modifier from a directive line and return:
+      (clean_line, cache_mode, ttl_seconds)
+    cache_mode: "" | "session" | "ttl"
+    ttl_seconds: set when cache_mode == "ttl", else None
+    """
+    # @cache ttl=N
+    m = re.search(r'\s*@cache\s+ttl=(\d+)', line, re.IGNORECASE)
+    if m:
+        ttl = int(m.group(1))
+        clean = line[:m.start()] + line[m.end():]
+        return clean.rstrip(), "ttl", ttl
+
+    # @cache session
+    m = re.search(r'\s*@cache\s+session', line, re.IGNORECASE)
+    if m:
+        clean = line[:m.start()] + line[m.end():]
+        return clean.rstrip(), "session", None
+
+    return line, "", None
+
+
+def cache_get(key: str, mode: str, ttl: int | None, cfg: dict) -> str | None:
+    """Return cached value or None (miss/expired)."""
+    if mode == "session":
+        return _SESSION_CACHE.get(key)
+
+    if mode == "ttl" and ttl is not None:
+        cache_dir = Path(cfg["render"].get("cache_dir", str(PERSEUS_HOME / "cache")))
+        entry_file = cache_dir / f"{key}.json"
+        if entry_file.exists():
+            try:
+                entry = json.loads(entry_file.read_text())
+                if time.time() < entry.get("expires", 0):
+                    return entry["value"]
+                # expired — remove
+                entry_file.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+    return None
+
+
+def cache_set(key: str, value: str, mode: str, ttl: int | None, cfg: dict) -> None:
+    """Store value in the appropriate cache tier."""
+    if mode == "session":
+        _SESSION_CACHE[key] = value
+        return
+
+    if mode == "ttl" and ttl is not None:
+        cache_dir = Path(cfg["render"].get("cache_dir", str(PERSEUS_HOME / "cache")))
+        try:
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            entry = {"expires": time.time() + ttl, "value": value}
+            (cache_dir / f"{key}.json").write_text(json.dumps(entry))
+        except Exception:
+            pass  # cache write failure is non-fatal
 
 
 # ──────────────────────────────── @query ──────────────────────────────────────
@@ -735,9 +823,11 @@ PERCY_HEADER_RE = re.compile(r'^@perseus\s', re.IGNORECASE)
 IF_RE = re.compile(r'^@if\s+(.+)$', re.IGNORECASE)
 ELSE_RE = re.compile(r'^@else\s*$', re.IGNORECASE)
 ENDIF_RE = re.compile(r'^@endif\s*$', re.IGNORECASE)
+CONSTRAINT_RE = re.compile(r'^@constraint\s+(.+)$', re.IGNORECASE)
+CONSTRAINT_END_RE = re.compile(r'^@end\s*$', re.IGNORECASE)
 
 INLINE_DIRECTIVE_RE = re.compile(
-    r'^(@query|@skills|@session|@date|@waypoint|@read|@env|@include|@prompt)\s*(.*?)$',
+    r'^(@query|@skills|@session|@date|@waypoint|@read|@env|@include|@prompt)(\s+.*)?$',
     re.IGNORECASE,
 )
 
@@ -746,13 +836,22 @@ def _render_lines(
     lines: list[str],
     cfg: dict,
     workspace: Path | None = None,
+    _constraint_rows: list[str] | None = None,
 ) -> str:
     """
     Core rendering loop. Processes a list of lines (already stripped of the
     @perseus header) and returns the resolved markdown string.
 
     This function is called recursively for @if/@else branches.
+
+    _constraint_rows: shared mutable list used to accumulate @constraint rows
+    across the full document so a single table is emitted at the end.
     """
+    # Top-level call owns the constraint rows list and decides when to flush it
+    top_level = _constraint_rows is None
+    if top_level:
+        _constraint_rows = []
+
     output = []
     i = 0
 
@@ -768,6 +867,29 @@ def _render_lines(
                 i += 1
             i += 1  # skip @end
             output.append(resolve_prompt_block("\n".join(block_lines)))
+            continue
+
+        # ── @constraint id="..." severity="..." block ──
+        m_con = CONSTRAINT_RE.match(line)
+        if m_con:
+            attrs_str = m_con.group(1)
+            con_id = ""
+            con_sev = "info"
+            mid = re.search(r'id=["\']([^"\']+)["\']', attrs_str)
+            if mid:
+                con_id = mid.group(1)
+            msev = re.search(r'severity=["\']([^"\']+)["\']', attrs_str)
+            if msev:
+                con_sev = msev.group(1).upper()
+            # Gather body lines until @end
+            body_lines = []
+            i += 1
+            while i < len(lines) and not CONSTRAINT_END_RE.match(lines[i]):
+                body_lines.append(lines[i].strip())
+                i += 1
+            i += 1  # skip @end
+            rule_text = " ".join(body_lines).strip()
+            _constraint_rows.append(f"| {con_id} | {con_sev} | {rule_text} |")
             continue
 
         # ── @services block (consumes indented YAML lines until blank/directive) ──
@@ -816,32 +938,53 @@ def _render_lines(
             # Evaluate condition and render the correct branch
             branch = true_lines if evaluate_condition(condition_str, workspace) else false_lines
             if branch:
-                output.append(_render_lines(branch, cfg, workspace))
+                output.append(_render_lines(branch, cfg, workspace, _constraint_rows))
             continue
 
-        # ── inline directives ──
+        # ── inline directives (with optional @cache modifier) ──
         m = INLINE_DIRECTIVE_RE.match(line)
         if m:
             directive = m.group(1).lower()
-            args = m.group(2).strip()
+            raw_args = (m.group(2) or "").strip()
+
+            # Strip @cache modifier from args; determine cache mode
+            clean_args, cache_mode, cache_ttl = _parse_cache_modifier(raw_args)
+
+            # Build stable cache key from directive + clean args
+            cache_key = _cache_key(f"{directive} {clean_args}")
+
+            # Check cache first
+            cached = cache_get(cache_key, cache_mode, cache_ttl, cfg)
+            if cached is not None:
+                output.append(cached)
+                i += 1
+                continue
+
+            # Resolve the directive
             if directive == "@query":
-                output.append(resolve_query(args, cfg))
+                result = resolve_query(clean_args, cfg)
             elif directive == "@skills":
-                output.append(resolve_skills(args, cfg))
+                result = resolve_skills(clean_args, cfg)
             elif directive == "@session":
-                output.append(resolve_session(args, cfg))
+                result = resolve_session(clean_args, cfg)
             elif directive == "@date":
-                output.append(resolve_date(args))
+                result = resolve_date(clean_args)
             elif directive == "@waypoint":
-                output.append(resolve_waypoint(args, cfg))
+                result = resolve_waypoint(clean_args, cfg)
             elif directive == "@read":
-                output.append(resolve_read(args, cfg, workspace))
+                result = resolve_read(clean_args, cfg, workspace)
             elif directive == "@env":
-                output.append(resolve_env(args))
+                result = resolve_env(clean_args)
             elif directive == "@include":
-                output.append(resolve_include(args, workspace))
+                result = resolve_include(clean_args, workspace)
             else:
-                output.append(line)
+                result = line
+
+            # Store in cache if a modifier was specified
+            if cache_mode:
+                cache_set(cache_key, result, cache_mode, cache_ttl, cfg)
+
+            output.append(result)
             i += 1
             continue
 
@@ -854,6 +997,11 @@ def _render_lines(
             )
         output.append(line)
         i += 1
+
+    # ── Flush constraint table at top-level only ──
+    if top_level and _constraint_rows:
+        header = "| ID | Severity | Rule |\n|---|---|---|"
+        output.append(header + "\n" + "\n".join(_constraint_rows))
 
     return "\n".join(output)
 
@@ -933,10 +1081,68 @@ def cmd_checkpoint(args, cfg):
 
 
 def cmd_recover(args, cfg):
+    """
+    Smart recover: if --workspace is given, prefer checkpoints whose
+    'workspace' field matches and are within TTL. Falls back to the most
+    recent checkpoint with a workspace-match warning, then to any checkpoint.
+    """
+    store = Path(cfg["checkpoints"]["store"])
+    ttl_s = int(cfg["checkpoints"].get("ttl_s", 86400))
+    target_ws = getattr(args, "workspace", None) or os.getcwd()
+    target_ws = str(Path(target_ws).resolve())
+
+    # Load all checkpoints sorted by mtime desc
+    all_files = sorted(
+        [f for f in store.glob("*.yaml") if f.name != "latest.yaml"],
+        key=lambda f: f.stat().st_mtime,
+        reverse=True,
+    )
+
+    def load_cp(fp: Path) -> dict | None:
+        try:
+            return yaml.safe_load(fp.read_text()) or {}
+        except Exception:
+            return None
+
+    # Phase 1: workspace match + within TTL
+    for fp in all_files:
+        cp = load_cp(fp)
+        if not cp:
+            continue
+        cp_ws = str(Path(cp.get("workspace", "")).resolve()) if cp.get("workspace") else ""
+        if cp_ws != target_ws:
+            continue
+        written = cp.get("written", "")
+        if written:
+            try:
+                dt = datetime.fromisoformat(str(written))
+                age = (datetime.now(dt.tzinfo) - dt).total_seconds()
+                if age <= ttl_s:
+                    print(f"# Checkpoint (workspace match, {int(age)}s ago)\n")
+                    print(yaml.dump(cp, default_flow_style=False, allow_unicode=True))
+                    return
+            except Exception:
+                pass
+
+    # Phase 2: workspace match (any age)
+    for fp in all_files:
+        cp = load_cp(fp)
+        if not cp:
+            continue
+        cp_ws = str(Path(cp.get("workspace", "")).resolve()) if cp.get("workspace") else ""
+        if cp_ws == target_ws:
+            written = cp.get("written", "unknown")
+            print(f"# Checkpoint (workspace match, outside TTL — written {written})\n")
+            print(yaml.dump(cp, default_flow_style=False, allow_unicode=True))
+            return
+
+    # Phase 3: most recent checkpoint regardless of workspace
     cp = load_latest_checkpoint(cfg)
     if not cp:
         print("No checkpoint found.")
         return
+    cp_ws = cp.get("workspace", "(no workspace recorded)")
+    print(f"# Checkpoint (no workspace match — checkpoint workspace: {cp_ws})\n")
     print(yaml.dump(cp, default_flow_style=False, allow_unicode=True))
 
 
@@ -1025,7 +1231,7 @@ Format: ranked list, most recommended first. Be direct. No hedging.
 def main():
     parser = argparse.ArgumentParser(
         prog="perseus",
-        description="Perseus — Live Context Engine for AI Assistants (alpha v0.2)",
+        description="Perseus — Live Context Engine for AI Assistants (alpha v0.3)",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -1042,7 +1248,11 @@ def main():
     p_cp.add_argument("--notes", default="", help="Context that would be lost")
 
     # recover
-    sub.add_parser("recover", help="Print the latest checkpoint")
+    p_recover = sub.add_parser("recover", help="Print the latest checkpoint")
+    p_recover.add_argument(
+        "--workspace", default=None,
+        help="Prefer checkpoints from this workspace path (default: cwd)"
+    )
 
     # suggest
     p_suggest = sub.add_parser("suggest", help="Oracle: ranked tool recommendations")
