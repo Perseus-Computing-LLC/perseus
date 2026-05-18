@@ -1,6 +1,6 @@
 ---
 id: task-05
-title: "Task 05 — Daedalus: Self-Maintaining Context Refinement"
+title: "Task 05 — Context Health: Maintenance Heuristics & `perseus health`"
 status: open
 scope: large
 depends_on:
@@ -10,17 +10,22 @@ opened: 2026-05-18
 closed: null
 ---
 
-# Task 05 — Daedalus: Self-Maintaining Context Refinement
+# Task 05 — Context Health: Maintenance Heuristics & `perseus health`
 
 **Status: Open**  
 **Scope: Large**  
 **Depends-on: task-04**
 
+> **Naming note:** This task was originally filed as "Daedalus" — that name is reserved in
+> the roadmap for the local autonomous scoring model (Phase 6). This task is a distinct,
+> earlier feature: deterministic context maintenance heuristics. It lives under
+> `perseus health`, not `perseus daedalus`.
+
 ---
 
 ## Concept
 
-If Perseus solves the cold-start problem, **Daedalus** is the next layer: it helps maintain the *quality* of context over time.
+If Perseus solves the cold-start problem, **context health** is the maintenance layer: it helps keep context artifacts sharp, current, and low-noise over time.
 
 Today Perseus can render live state, store checkpoints, diff them, and coordinate work through Agora. But context artifacts still accumulate manually. Old sections linger. Stale notes survive longer than they should. Checkpoints pile up, but nothing suggests what to prune, merge, or refresh.
 
@@ -38,12 +43,12 @@ This should stay fully local and deterministic for the first version. No new dep
 
 ## What Needs to Be Built
 
-### 1. `perseus daedalus` subcommand
+### 1. `perseus health` subcommand
 
 Add a new CLI surface:
 
 ```bash
-perseus daedalus
+perseus health
 ```
 
 Initial behavior:
@@ -69,23 +74,23 @@ Implement simple deterministic heuristics such as:
 
 Keep heuristics explainable and transparent.
 
-### 3. `@daedalus` directive
+### 3. `@health` directive
 
 Add a renderer directive:
 
 ```markdown
 ## Maintenance Suggestions
-@daedalus
+@health
 ```
 
 This should embed the same maintenance summary into rendered markdown.
 
 ### 4. Config section
 
-Add a config block for Daedalus, e.g.:
+Add a config block for health heuristics, e.g.:
 
 ```yaml
-daedalus:
+health:
   stale_checkpoint_days: 7
   duplicate_checkpoint_window: 5
   context_line_warning: 400
@@ -113,9 +118,9 @@ Update docs/specs as needed so Daedalus is represented consistently with the roa
 
 ## Acceptance Criteria
 
-- [ ] `perseus daedalus` exists and runs locally
-- [ ] `@daedalus` directive renders maintenance guidance
-- [ ] Daedalus uses configurable thresholds from `config.yaml`
+- [ ] `perseus health` exists and runs locally
+- [ ] `@health` directive renders maintenance guidance
+- [ ] health uses configurable thresholds from `config.yaml`
 - [ ] stale and duplicate checkpoint suggestions are surfaced
 - [ ] large-context warning is surfaced when thresholds are exceeded
 - [ ] old completed-task review suggestions are surfaced
@@ -128,4 +133,5 @@ Update docs/specs as needed so Daedalus is represented consistently with the roa
 
 - Keep v1 intentionally narrow: suggestions only, no automatic cleanup.
 - Favor simple rules and transparent output over cleverness.
-- This task defines the first concrete slice of roadmap Phase 6.
+- This task defines Phase 5C — a maintenance layer that sits between Phase 5 (Agora/Pythia) and Phase 6 (Daedalus).
+- **Daedalus (Phase 6) is a different thing entirely:** a local trained scoring model that runs Pythia without an LLM round-trip. Do not conflate them.
