@@ -1,6 +1,6 @@
 # Task 02 — Phase 5: `--llm` Flag & Oracle Log
 
-**Status: Open**  
+**Status: Completed**  
 **Depends-on: None** (independent of Task 01)  
 **Scope: Large** — new feature with meaningful design surface  
 **Tests required: Yes** — unit tests for oracle log + argument wiring; LLM call can be mocked
@@ -121,3 +121,20 @@ Every time `perseus suggest` runs (with or without `--llm`), log the interaction
   captures the rest.
 - Config for the `llm:` block should live in `~/.perseus/config.yaml` alongside the existing
   config keys. The `data-model.md` spec should be updated to show it.
+
+---
+
+## Completed
+
+- Added a dedicated `llm` config block with provider, model, URL, and timeout settings.
+- Extended `perseus suggest` with `--model` and `--model-url` overrides in addition to `--llm`.
+- Implemented local-provider execution for `ollama`, `llamacpp`, and `openai-compat` using stdlib `urllib.request` only.
+- Added clear non-zero failure behavior for unsupported providers and request failures.
+- Added append-only oracle logging to `~/.perseus/oracle_log.jsonl` with task, prompt, response, provider, model, and env snapshot summary fields.
+- Preserved existing no-`--llm` behavior while logging prompt-only runs with `response: null`.
+- Added focused tests for provider handling, logging behavior, and failure cases.
+
+### Notes
+
+- The implementation keeps the existing prompt template and layers provider execution on top of it, consistent with the task notes.
+- Logging failures warn without failing `perseus suggest`, as requested.

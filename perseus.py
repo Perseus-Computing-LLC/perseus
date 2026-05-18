@@ -60,6 +60,12 @@ DEFAULT_CONFIG = {
         "llm_timeout_s": 30,
         "ollama_host": os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434"),
     },
+    "llm": {
+        "provider": "ollama",
+        "model": "mistral",
+        "url": "http://localhost:11434",
+        "timeout_s": 30,
+    },
     "assistant": {
         "sessions_dir": str(SESSIONS_DIR),
     },
@@ -1507,6 +1513,105 @@ def cmd_render(args, cfg):
 
 # ──────────────────────────────── Suggest ─────────────────────────────────────
 
+def append_oracle_log(entry: dict, cfg: dict) -> None:
+    """Append a JSONL oracle log entry; warn on failure without raising."""
+    log_path = PERSEUS_HOME / "oracle_log.jsonl"
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with log_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception as exc:
+        print(f"> ⚠ Could not write oracle log: {exc}")
+
+
+def _checkpoint_age_s(snapshot_checkpoint: str) -> int | None:
+    m = re.search(r'\*\*Checkpoint written:\*\*\s+([^\\n]+)', snapshot_checkpoint or "")
+    if not m:
+        return None
+    try:
+        dt = datetime.fromisoformat(m.group(1).strip())
+        return int((datetime.now(dt.tzinfo) - dt).total_seconds())
+    except Exception:
+        return None
+
+
+def build_oracle_log_entry(task: str, snapshot: dict, prompt: str, response: str | None, provider: str | None, model: str | None) -> dict:
+    """Build the append-only oracle log entry."""
+    services_summary = []
+    for line in snapshot.get("services_table", "").splitlines():
+        if not line.startswith("|") or line.startswith("| Service") or line.startswith("|---"):
+            continue
+        parts = [p.strip() for p in line.strip('|').split('|')]
+        if len(parts) >= 2:
+            services_summary.append({"name": parts[0], "status": parts[1]})
+    return {
+        "version": 1,
+        "timestamp": datetime.now().astimezone().isoformat(),
+        "task": task,
+        "env_snapshot": {
+            "skills_count": snapshot.get("skill_count"),
+            "stale_skills_count": None,
+            "services": services_summary,
+            "checkpoint_age_s": _checkpoint_age_s(snapshot.get("checkpoint_summary", "")),
+        },
+        "prompt": prompt,
+        "response": response,
+        "provider": provider,
+        "model": model,
+        "accepted": None,
+    }
+
+
+def run_llm(provider: str, prompt: str, cfg: dict, model: str | None = None, model_url: str | None = None) -> tuple[str, int]:
+    """Run the oracle prompt through a configured provider and return (text, exit_code)."""
+    provider = provider.strip().lower()
+    llm_cfg = cfg.get("llm", {})
+    timeout = float(llm_cfg.get("timeout_s", 30))
+
+    if provider == "ollama":
+        url = (model_url or str(llm_cfg.get("url", "http://localhost:11434"))).rstrip("/") + "/api/chat"
+        payload = {
+            "model": model or str(llm_cfg.get("model", "mistral")),
+            "messages": [
+                {"role": "system", "content": "You are the Perseus Tool Oracle."},
+                {"role": "user", "content": prompt},
+            ],
+            "stream": False,
+        }
+    elif provider in {"llamacpp", "openai-compat"}:
+        base = (model_url or str(llm_cfg.get("url", "http://localhost:11434"))).rstrip("/")
+        url = base + "/v1/chat/completions"
+        payload = {
+            "model": model or str(llm_cfg.get("model", "mistral")),
+            "messages": [
+                {"role": "system", "content": "You are the Perseus Tool Oracle."},
+                {"role": "user", "content": prompt},
+            ],
+            "stream": False,
+        }
+    else:
+        return (f"> ⚠ Unsupported llm provider: {provider}. Currently supported: ollama, llamacpp, openai-compat", 2)
+
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            body = json.loads(resp.read().decode())
+        if provider == "ollama":
+            text = str(body.get("message", {}).get("content", "")).strip()
+        else:
+            choices = body.get("choices", [])
+            text = str(choices[0].get("message", {}).get("content", "")).strip() if choices else ""
+        return (text or "> ⚠ LLM returned no response.", 0)
+    except urllib.error.URLError as exc:
+        return (f"> ⚠ LLM request failed: {exc}", 2)
+    except Exception as exc:
+        return (f"> ⚠ LLM error: {exc}", 2)
+
+
 def build_oracle_snapshot(cfg: dict, category: str | None = None, no_services: bool = False, quick: bool = False) -> dict:
     """Build the environment snapshot used by `perseus suggest`."""
     now = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z")
@@ -1586,12 +1691,14 @@ def run_ollama(prompt: str, cfg: dict, model_override: str | None = None) -> str
 
 
 def cmd_suggest(args, cfg):
-    """Oracle: build a live snapshot, render a prompt, and optionally run a local model."""
+    """Oracle: build a live snapshot, render a prompt, optionally run a local model, and log the interaction."""
     task = args.task
     quick = getattr(args, "quick", False)
     no_services = getattr(args, "no_services", False)
     category = getattr(args, "category", None)
     llm = getattr(args, "llm", None)
+    model = getattr(args, "model", None)
+    model_url = getattr(args, "model_url", None)
 
     snapshot = build_oracle_snapshot(cfg, category=category, no_services=no_services, quick=quick)
 
@@ -1606,16 +1713,24 @@ def cmd_suggest(args, cfg):
         return
 
     prompt = render_oracle_prompt(task, snapshot)
-    if llm:
-        provider, _, model_override = llm.partition(":")
-        provider = provider.strip().lower()
-        if provider != "ollama":
-            print(f"> ⚠ Unsupported llm provider: {provider}. Currently supported: ollama")
-            return
-        print(run_ollama(prompt, cfg, model_override or None))
-        return
+    response_text = None
+    provider_used = None
+    model_used = None
+    exit_code = 0
 
-    print(prompt)
+    if llm:
+        provider_used = llm.strip().lower()
+        if ":" in provider_used and not model:
+            provider_used, _, model = provider_used.partition(":")
+        response_text, exit_code = run_llm(provider_used, prompt, cfg, model=model or None, model_url=model_url)
+        model_used = model or cfg.get("llm", {}).get("model")
+        print(response_text)
+    else:
+        print(prompt)
+
+    append_oracle_log(build_oracle_log_entry(task, snapshot, prompt, response_text, provider_used, model_used), cfg)
+    if exit_code:
+        raise SystemExit(exit_code)
 
 
 # ──────────────────────────────── cmd_init ────────────────────────────────────
@@ -1800,7 +1915,11 @@ def main():
     p_suggest.add_argument("--no-services", action="store_true", dest="no_services",
                            help="Skip live service health checks")
     p_suggest.add_argument("--llm", default=None,
-                           help="Optionally run the oracle prompt through a local model, e.g. ollama or ollama:llama3.1")
+                           help="Optionally run the oracle prompt through a local model provider (ollama, llamacpp, openai-compat)")
+    p_suggest.add_argument("--model", default=None,
+                           help="Override the configured LLM model name")
+    p_suggest.add_argument("--model-url", default=None,
+                           help="Override the configured LLM provider URL")
 
     # init
     p_init = sub.add_parser("init", help="Scaffold .perseus/context.md for a new workspace")

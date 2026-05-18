@@ -237,9 +237,11 @@ def test_run_ollama_success(monkeypatch):
 
 
 def test_cmd_suggest_with_unsupported_llm_warns(capsys):
-    args = argparse.Namespace(task="x", quick=False, no_services=True, category=None, llm="other:model")
-    perseus.cmd_suggest(args, cfg())
+    args = argparse.Namespace(task="x", quick=False, no_services=True, category=None, llm="other:model", model=None, model_url=None)
+    with pytest.raises(SystemExit) as exc:
+        perseus.cmd_suggest(args, cfg())
     captured = capsys.readouterr()
+    assert exc.value.code == 2
     assert "Unsupported llm provider" in captured.out
 
 
@@ -251,11 +253,54 @@ def test_cmd_suggest_with_ollama_prints_model_output(monkeypatch, capsys):
         "checkpoint_summary": "checkpoint",
         "session_digest": "sessions",
     })
-    monkeypatch.setattr(perseus, "run_ollama", lambda *a, **k: "llm result")
-    args = argparse.Namespace(task="x", quick=False, no_services=True, category=None, llm="ollama:llama3.1")
+    monkeypatch.setattr(perseus, "run_llm", lambda *a, **k: ("llm result", 0))
+    monkeypatch.setattr(perseus, "append_oracle_log", lambda *a, **k: None)
+    args = argparse.Namespace(task="x", quick=False, no_services=True, category=None, llm="ollama:llama3.1", model=None, model_url=None)
     perseus.cmd_suggest(args, cfg())
     captured = capsys.readouterr()
     assert captured.out.strip() == "llm result"
+
+
+def test_run_llm_openai_compat_success(monkeypatch):
+    class Resp:
+        def __enter__(self):
+            return self
+        def __exit__(self, exc_type, exc, tb):
+            return False
+        def read(self):
+            return b'{"choices":[{"message":{"content":"compat result"}}]}'
+    monkeypatch.setattr(perseus.urllib.request, "urlopen", lambda *a, **k: Resp())
+    out, code = perseus.run_llm("openai-compat", "prompt", cfg(), model="mistral", model_url="http://localhost:11434")
+    assert code == 0
+    assert out == "compat result"
+
+
+def test_cmd_suggest_appends_oracle_log(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(perseus, "build_oracle_snapshot", lambda *a, **k: {
+        "rendered_at": "now",
+        "skills_table": "skills",
+        "services_table": "| Service | Status |\n|---|---|\n| API | ✅ ok |",
+        "checkpoint_summary": "**Checkpoint written:** 2026-05-18T01:00:00+00:00",
+        "session_digest": "sessions",
+        "skill_count": 7,
+    })
+    monkeypatch.setattr(perseus, "append_oracle_log", lambda entry, cfg: seen.setdefault("entry", entry))
+    args = argparse.Namespace(task="x", quick=False, no_services=True, category=None, llm=None, model=None, model_url=None)
+    perseus.cmd_suggest(args, cfg())
+    assert seen["entry"]["task"] == "x"
+    assert seen["entry"]["response"] is None
+    assert seen["entry"]["env_snapshot"]["skills_count"] == 7
+
+
+def test_append_oracle_log_warns_on_failure(monkeypatch, capsys, tmp_path):
+    monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path / "missing" / "nested")
+    def boom(*a, **k):
+        raise OSError("disk full")
+    monkeypatch.setattr(perseus.Path, "open", boom)
+    perseus.append_oracle_log({"x": 1}, cfg())
+    captured = capsys.readouterr()
+    assert "Could not write oracle log" in captured.out
 
 
 def test_diff_checkpoints_renders_changed_fields():
