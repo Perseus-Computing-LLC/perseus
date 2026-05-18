@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Perseus — Live Context Engine for AI Assistants
-Alpha v0.1: render (@skills, @services, @session), checkpoint, suggest
+Alpha v0.1: render (@query, @skills, @services, @session), checkpoint, suggest
 
 Usage:
   perseus render <source.md>               → resolved markdown to stdout
@@ -80,6 +80,78 @@ def load_config(workspace: Path | None = None) -> dict:
                     cfg[section] = vals
 
     return cfg
+
+
+# ──────────────────────────────── @query ──────────────────────────────────────
+
+def resolve_query(args_str: str, cfg: dict) -> str:
+    """
+    @query "shell command" [@cache session|ttl=N]
+
+    Runs the shell command and returns its stdout as a fenced code block.
+    @cache modifiers are parsed (for forward compatibility) but not yet
+    acted on — caching is Phase 3. The command always runs.
+
+    If the command fails (non-zero exit) the block includes a warning header
+    but still shows whatever output was produced.
+    """
+    shell = cfg["render"].get("shell", "/bin/bash")
+
+    # Extract the command — accept single or double quotes
+    cmd_match = re.match(r'^["\'](.+?)["\']', args_str.strip())
+    if not cmd_match:
+        # Try unquoted (everything up to @cache or end)
+        cmd_raw = re.sub(r'\s*@cache\s.*$', '', args_str.strip())
+        if not cmd_raw:
+            return "> ⚠ @query: no command specified."
+        cmd = cmd_raw
+    else:
+        cmd = cmd_match.group(1)
+
+    # Detect language hint for syntax highlighting (best-effort)
+    lang = _guess_lang(cmd)
+
+    try:
+        result = subprocess.run(
+            cmd,
+            shell=True,
+            executable=shell,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        stdout = result.stdout.rstrip("\n")
+        stderr = result.stderr.strip()
+        exit_code = result.returncode
+
+        if exit_code != 0:
+            header = f"> ⚠ `@query` exited {exit_code}: `{cmd}`\n\n"
+            body = stdout or stderr or "(no output)"
+            return header + f"```{lang}\n{body}\n```"
+
+        if not stdout:
+            return f"> (no output from `{cmd}`)"
+
+        return f"```{lang}\n{stdout}\n```"
+
+    except subprocess.TimeoutExpired:
+        return f"> ⚠ `@query` timed out (30s): `{cmd}`"
+    except Exception as exc:
+        return f"> ⚠ `@query` error: {exc}"
+
+
+def _guess_lang(cmd: str) -> str:
+    """Heuristic language hint for fenced code blocks."""
+    cmd_lower = cmd.lower().strip()
+    if cmd_lower.startswith(("git ", "docker ", "kubectl ")):
+        return "text"
+    if cmd_lower.startswith(("python", "python3")):
+        return "python"
+    if cmd_lower.startswith(("cat ", "ls ", "find ", "grep ")):
+        return "text"
+    if cmd_lower.startswith(("jq", "yq")):
+        return "json"
+    return "text"
 
 
 # ──────────────────────────────── @skills ─────────────────────────────────────
@@ -382,7 +454,7 @@ def resolve_prompt_block(content: str) -> str:
 BLOCK_DIRECTIVES = {"@services"}
 # Matches inline directives on their own line
 INLINE_DIRECTIVE_RE = re.compile(
-    r'^(@skills|@session|@date|@waypoint|@prompt)\s*(.*?)$',
+    r'^(@query|@skills|@session|@date|@waypoint|@prompt)\s*(.*?)$',
     re.IGNORECASE,
 )
 PROMPT_BLOCK_RE = re.compile(r'^@prompt\s*$', re.IGNORECASE)
@@ -439,7 +511,9 @@ def render_source(source_text: str, cfg: dict) -> str:
         if m:
             directive = m.group(1).lower()
             args = m.group(2).strip()
-            if directive == "@skills":
+            if directive == "@query":
+                output.append(resolve_query(args, cfg))
+            elif directive == "@skills":
                 output.append(resolve_skills(args, cfg))
             elif directive == "@session":
                 output.append(resolve_session(args, cfg))
