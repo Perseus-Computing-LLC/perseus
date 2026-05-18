@@ -1,4 +1,4 @@
-@perseus v0.2
+@perseus v0.3
 
 @prompt
 This document was rendered live by Perseus. All values below are current —
@@ -10,7 +10,7 @@ rendered output and skip orientation. Start work immediately.
 
 **Workspace:** `/workspace/perseus`  
 **Repo:** https://github.com/tcconnally/perseus  
-**Project:** Perseus — Live Context Engine for AI Assistants (alpha v0.2)
+**Project:** Perseus — Live Context Engine for AI Assistants (alpha v0.3)
 
 ---
 
