@@ -174,7 +174,7 @@ oracle:
   llm_timeout_s: 30
   ollama_host: http://127.0.0.1:11434
 
-hermes:
+assistant:
   session_search_available: true
   skills_list_available: true
 ```
