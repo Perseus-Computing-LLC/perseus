@@ -1449,3 +1449,117 @@ def test_cron_command_invalid_every(tmp_path, capsys):
     except SystemExit:
         err = capsys.readouterr().err
         assert "must be an integer" in err
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# perseus serve — HTML index helpers (polish pass)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_format_age_buckets():
+    assert perseus._format_age(None) == "—"
+    assert perseus._format_age(5) == "5s ago"
+    assert perseus._format_age(125) == "2m ago"
+    assert perseus._format_age(3700) == "1h 1m ago"
+    assert perseus._format_age(90_000) == "1d ago"
+
+
+def test_serve_collect_stats_handles_empty_workspace(tmp_path):
+    local = cfg()
+    # Re-route every store into tmp_path so we don't read real data
+    local["memory"]["store"] = str(tmp_path / "memory")
+    local["checkpoints"]["store"] = str(tmp_path / "checkpoints")
+    local["inbox"]["store"] = str(tmp_path / "inbox")
+    local["oracle"]["skill_dir"] = str(tmp_path / "skills")
+    stats = perseus._serve_collect_stats(local, tmp_path)
+    assert stats["narrative_lines"] is None
+    assert stats["latest_checkpoint_age_s"] is None
+    assert stats["inbox_unread"] is None
+    assert stats["context_file_present"] is False
+
+
+def test_serve_collect_stats_finds_real_data(tmp_path, monkeypatch):
+    local = cfg()
+    local["memory"]["store"] = str(tmp_path / "memory")
+    local["checkpoints"]["store"] = str(tmp_path / "checkpoints")
+    local["inbox"]["store"] = str(tmp_path / "inbox")
+    local["oracle"]["skill_dir"] = str(tmp_path / "skills")
+    # tasks_dir is per-workspace; create one
+    (tmp_path / "tasks").mkdir()
+    (tmp_path / "tasks" / "task-99-fake.md").write_text(
+        "---\nid: task-99\ntitle: Fake\nstatus: open\n---\n\n# fake\n"
+    )
+    # Skills
+    (tmp_path / "skills" / "git").mkdir(parents=True)
+    (tmp_path / "skills" / "git" / "SKILL.md").write_text("# Git\n")
+    (tmp_path / "skills" / "ci").mkdir(parents=True)
+    (tmp_path / "skills" / "ci" / "SKILL.md").write_text("# CI\n")
+    # Narrative
+    (tmp_path / "memory").mkdir()
+    npath = perseus._mneme_path(tmp_path, local)
+    npath.write_text("line one\nline two\nline three\n")
+    # Context file
+    (tmp_path / ".perseus").mkdir()
+    (tmp_path / ".perseus" / "context.md").write_text("hi\n")
+
+    stats = perseus._serve_collect_stats(local, tmp_path)
+    assert stats["open_tasks"] == 1
+    assert stats["in_progress_tasks"] == 0
+    assert stats["skills_count"] == 2
+    assert stats["narrative_lines"] == 3
+    assert stats["context_file_present"] is True
+
+
+def test_serve_render_index_includes_stats_and_endpoints(tmp_path):
+    stats = {
+        "narrative_lines": 42,
+        "narrative_mtime": None,
+        "latest_checkpoint_age_s": 600,
+        "open_tasks": 3,
+        "in_progress_tasks": 1,
+        "oracle_entries_total": 100,
+        "oracle_entries_24h": 7,
+        "inbox_unread": 0,
+        "skills_count": 19,
+        "context_file_present": True,
+    }
+    html = perseus._serve_render_index(tmp_path, stats)
+    # All endpoint cards present
+    for ep in ["/context", "/narrative", "/health", "/agora", "/checkpoint/latest", "/oracle/log"]:
+        assert f"href='{ep}'" in html
+    # CSS present
+    assert "<style>" in html
+    # Stat values escaped and shown
+    assert ">42<" in html         # narrative lines
+    assert ">3<" in html          # open tasks
+    assert ">19<" in html         # skills
+    assert "10m ago" in html      # 600s → 10m
+    # Footer
+    assert "github.com/tcconnally/perseus" in html
+    # Version badge
+    assert "v0.6" in html
+    # Workspace shown
+    assert str(tmp_path) in html
+
+
+def test_serve_render_index_escapes_workspace_name(tmp_path):
+    weird = tmp_path / "<script>"
+    weird.mkdir()
+    stats = perseus._serve_collect_stats(cfg(), weird)
+    html = perseus._serve_render_index(weird, stats)
+    # Raw tag must NOT survive
+    assert "<script>" not in html.replace("&lt;script&gt;", "")
+    assert "&lt;script&gt;" in html
+
+
+def test_serve_render_endpoint_index_returns_polished_html(tmp_path):
+    local = cfg()
+    local["memory"]["store"] = str(tmp_path / "memory")
+    local["checkpoints"]["store"] = str(tmp_path / "checkpoints")
+    local["inbox"]["store"] = str(tmp_path / "inbox")
+    local["oracle"]["skill_dir"] = str(tmp_path / "skills")
+    status, ctype, body = perseus._serve_render_endpoint("/", local, tmp_path, {})
+    assert status == 200
+    assert ctype.startswith("text/html")
+    assert "<style>" in body
+    assert "Endpoints" in body
+    assert "Live state" in body

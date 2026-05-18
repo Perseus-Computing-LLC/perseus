@@ -3826,6 +3826,226 @@ def cmd_oracle(args, cfg):
 
 # ─────────────────────────────── HTTP view (task-18) ─────────────────────────
 
+def _serve_collect_stats(cfg: dict, workspace: Path) -> dict:
+    """Gather small live counters for the index page (best-effort, never throws)."""
+    stats: dict = {
+        "narrative_lines": None,
+        "narrative_mtime": None,
+        "latest_checkpoint_age_s": None,
+        "open_tasks": None,
+        "in_progress_tasks": None,
+        "oracle_entries_total": None,
+        "oracle_entries_24h": None,
+        "inbox_unread": None,
+        "skills_count": None,
+        "context_file_present": False,
+    }
+
+    # Narrative
+    try:
+        mp = _mneme_path(workspace, cfg)
+        if mp.exists():
+            txt = mp.read_text(errors="replace")
+            stats["narrative_lines"] = txt.count("\n") + (1 if txt and not txt.endswith("\n") else 0)
+            stats["narrative_mtime"] = int(mp.stat().st_mtime)
+    except Exception:
+        pass
+
+    # Latest checkpoint (per-workspace pointer first, then global latest)
+    try:
+        store = Path(cfg["checkpoints"]["store"])
+        pointer = store / f"latest-{_workspace_hash(workspace)}.yaml"
+        if not pointer.exists():
+            pointer = store / "latest.yaml"
+        if pointer.exists():
+            stats["latest_checkpoint_age_s"] = int(time.time() - pointer.stat().st_mtime)
+    except Exception:
+        pass
+
+    # Agora task counts
+    try:
+        tdir = _get_tasks_dir(workspace, cfg)
+        open_n = ip_n = 0
+        if tdir.exists():
+            for tf in tdir.glob("task-*.md"):
+                try:
+                    fm, _ = _load_task_file(tf)
+                    s = (fm.get("status") or "").lower()
+                    if s == "open":
+                        open_n += 1
+                    elif s == "in_progress":
+                        ip_n += 1
+                except Exception:
+                    continue
+        stats["open_tasks"] = open_n
+        stats["in_progress_tasks"] = ip_n
+    except Exception:
+        pass
+
+    # Oracle log
+    try:
+        log_path = PERSEUS_HOME / "oracle_log.jsonl"
+        if log_path.exists():
+            total = 0
+            recent = 0
+            cutoff = time.time() - 24 * 3600
+            with log_path.open() as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    total += 1
+                    try:
+                        entry = json.loads(line)
+                        ts = entry.get("timestamp", "")
+                        # ISO 8601 → epoch (best effort)
+                        if ts:
+                            dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                            if dt.timestamp() >= cutoff:
+                                recent += 1
+                    except Exception:
+                        continue
+            stats["oracle_entries_total"] = total
+            stats["oracle_entries_24h"] = recent
+    except Exception:
+        pass
+
+    # Inbox unread count
+    try:
+        idir = _inbox_dir(cfg, workspace)
+        if idir.exists():
+            n = 0
+            for mf in idir.glob("*.yaml"):
+                try:
+                    data = yaml.safe_load(mf.read_text()) or {}
+                    if not bool(data.get("read", False)):
+                        n += 1
+                except Exception:
+                    continue
+            stats["inbox_unread"] = n
+    except Exception:
+        pass
+
+    # Skills count
+    try:
+        skill_dir = Path(cfg.get("oracle", {}).get("skill_dir", "")).expanduser()
+        if skill_dir.exists():
+            stats["skills_count"] = sum(1 for _ in skill_dir.glob("*/SKILL.md"))
+    except Exception:
+        pass
+
+    # Context file presence
+    try:
+        stats["context_file_present"] = (workspace / ".perseus" / "context.md").exists()
+    except Exception:
+        pass
+
+    return stats
+
+
+def _format_age(seconds: int | None) -> str:
+    """Human-friendly age formatter."""
+    if seconds is None:
+        return "—"
+    if seconds < 60:
+        return f"{seconds}s ago"
+    if seconds < 3600:
+        return f"{seconds // 60}m ago"
+    if seconds < 86400:
+        return f"{seconds // 3600}h {(seconds % 3600) // 60}m ago"
+    return f"{seconds // 86400}d ago"
+
+
+def _serve_render_index(workspace: Path, stats: dict) -> str:
+    """Render the / index page with CSS and live stats."""
+    import html as _html
+
+    def _esc(v) -> str:
+        return _html.escape(str(v))
+
+    def _stat(label: str, value, suffix: str = "") -> str:
+        if value is None:
+            v_html = "<span class='dim'>—</span>"
+        else:
+            v_html = f"{_esc(value)}{_esc(suffix)}"
+        return f"<div class='stat'><div class='stat-label'>{_esc(label)}</div><div class='stat-value'>{v_html}</div></div>"
+
+    cp_age = _format_age(stats.get("latest_checkpoint_age_s"))
+    narr_age = _format_age(int(time.time() - stats["narrative_mtime"]) if stats.get("narrative_mtime") else None)
+    ctx_indicator = "✅" if stats.get("context_file_present") else "⚠"
+
+    # Endpoint cards
+    endpoints = [
+        ("/context", "Rendered .perseus/context.md", "Live render of the canonical context file (markdown)."),
+        ("/narrative", "Mnēmē narrative", "Per-workspace project narrative distilled from checkpoints."),
+        ("/health", "Maintenance report", "Stale checkpoints, near-duplicates, large context, old completed tasks."),
+        ("/agora", "Task board", "All tasks in tasks/ with frontmatter status (markdown table)."),
+        ("/checkpoint/latest", "Latest checkpoint (YAML)", "Most recent checkpoint for this workspace."),
+        ("/oracle/log", "Oracle log (JSON)", "Append-only log of Pythia recommendations + accept/reject decisions."),
+    ]
+    cards = "\n".join(
+        f"<a class='card' href='{_esc(p)}'><div class='card-path'>{_esc(p)}</div>"
+        f"<div class='card-title'>{_esc(t)}</div><div class='card-desc'>{_esc(d)}</div></a>"
+        for p, t, d in endpoints
+    )
+
+    css = (
+        "*{box-sizing:border-box}"
+        "body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;"
+        "background:#0d1117;color:#c9d1d9;line-height:1.5}"
+        ".wrap{max-width:980px;margin:0 auto;padding:32px 24px}"
+        "h1{margin:0 0 4px;font-size:28px;font-weight:600;color:#f0f6fc}"
+        "h1 .sub{color:#8b949e;font-weight:400;font-size:18px}"
+        ".meta{color:#8b949e;font-size:14px;margin-bottom:24px}"
+        ".meta code{background:#161b22;padding:2px 6px;border-radius:4px;color:#79c0ff}"
+        ".badge{display:inline-block;background:#1f6feb;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;margin-left:8px;vertical-align:middle}"
+        ".stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin:24px 0}"
+        ".stat{background:#161b22;border:1px solid #30363d;border-radius:6px;padding:12px 14px}"
+        ".stat-label{font-size:12px;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px}"
+        ".stat-value{font-size:20px;font-weight:600;color:#f0f6fc;margin-top:4px}"
+        ".stat-value .dim{color:#484f58;font-weight:400}"
+        "h2{font-size:14px;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;margin:32px 0 12px;font-weight:600}"
+        ".cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}"
+        ".card{display:block;background:#161b22;border:1px solid #30363d;border-radius:6px;padding:14px 16px;"
+        "text-decoration:none;color:inherit;transition:border-color 0.15s,background 0.15s}"
+        ".card:hover{border-color:#58a6ff;background:#1c2128}"
+        ".card-path{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;color:#79c0ff;margin-bottom:4px}"
+        ".card-title{font-weight:600;color:#f0f6fc;margin-bottom:4px}"
+        ".card-desc{font-size:13px;color:#8b949e}"
+        ".footer{margin-top:32px;padding-top:16px;border-top:1px solid #21262d;font-size:12px;color:#6e7681;text-align:center}"
+        ".footer a{color:#58a6ff;text-decoration:none}"
+        ".footer a:hover{text-decoration:underline}"
+    )
+
+    return (
+        f"<!doctype html><html lang='en'><head><meta charset='utf-8'>"
+        f"<title>Perseus · {_esc(workspace.name)}</title>"
+        f"<meta name='viewport' content='width=device-width,initial-scale=1'>"
+        f"<style>{css}</style></head><body><div class='wrap'>"
+        f"<h1>Perseus <span class='sub'>· {_esc(workspace.name)}</span>"
+        f"<span class='badge'>v0.6</span></h1>"
+        f"<div class='meta'>Workspace: <code>{_esc(workspace)}</code> · "
+        f"Context file: {ctx_indicator}</div>"
+        f"<h2>Live state</h2>"
+        f"<div class='stats'>"
+        f"{_stat('Open tasks', stats.get('open_tasks'))}"
+        f"{_stat('In progress', stats.get('in_progress_tasks'))}"
+        f"{_stat('Skills available', stats.get('skills_count'))}"
+        f"{_stat('Inbox unread', stats.get('inbox_unread'))}"
+        f"{_stat('Narrative lines', stats.get('narrative_lines'))}"
+        f"{_stat('Narrative updated', narr_age)}"
+        f"{_stat('Checkpoint age', cp_age)}"
+        f"{_stat('Oracle calls (24h)', stats.get('oracle_entries_24h'))}"
+        f"{_stat('Oracle calls (all)', stats.get('oracle_entries_total'))}"
+        f"</div>"
+        f"<h2>Endpoints</h2>"
+        f"<div class='cards'>{cards}</div>"
+        f"<div class='footer'>Perseus — Live Context Engine for AI Assistants · "
+        f"<a href='https://github.com/tcconnally/perseus'>github.com/tcconnally/perseus</a></div>"
+        f"</div></body></html>"
+    )
+
+
 def _serve_render_endpoint(endpoint: str, cfg: dict, workspace: Path, query: dict[str, str]) -> tuple[int, str, str]:
     """Build (status, content_type, body) for a given serve endpoint.
 
@@ -3833,20 +4053,8 @@ def _serve_render_endpoint(endpoint: str, cfg: dict, workspace: Path, query: dic
     """
     try:
         if endpoint == "/":
-            html = (
-                "<!doctype html><html><head><meta charset='utf-8'>"
-                "<title>Perseus</title></head><body>"
-                "<h1>Perseus — Live Context Engine</h1>"
-                f"<p><strong>Workspace:</strong> <code>{workspace}</code></p>"
-                "<ul>"
-                "<li><a href='/context'>/context</a> — rendered .perseus/context.md</li>"
-                "<li><a href='/narrative'>/narrative</a> — Mnēmē narrative body</li>"
-                "<li><a href='/health'>/health</a> — maintenance report</li>"
-                "<li><a href='/agora'>/agora</a> — task board</li>"
-                "<li><a href='/checkpoint/latest'>/checkpoint/latest</a> — latest workspace checkpoint</li>"
-                "<li><a href='/oracle/log'>/oracle/log</a> — recent oracle log entries (JSON)</li>"
-                "</ul></body></html>"
-            )
+            stats = _serve_collect_stats(cfg, workspace)
+            html = _serve_render_index(workspace, stats)
             return (200, "text/html; charset=utf-8", html)
 
         if endpoint == "/context":
