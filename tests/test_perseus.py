@@ -352,3 +352,44 @@ def test_cmd_diff_requires_two_checkpoints(tmp_path, capsys):
     perseus.cmd_diff(argparse.Namespace(old=None, new=None), local_cfg)
     captured = capsys.readouterr()
     assert "Need at least two checkpoints" in captured.out
+
+
+def test_agora_list_groups_tasks_by_status(tmp_path, capsys):
+    tasks_dir = tmp_path / 'tasks'
+    tasks_dir.mkdir()
+    (tasks_dir / 'task-01-demo.md').write_text('---\nid: task-01\ntitle: Demo\nstatus: open\nscope: medium\ndepends_on: []\nclaimed_by: null\nopened: 2026-05-18\nclosed: null\n---\n# Demo\n')
+    local_cfg = cfg()
+    local_cfg['agora'] = {'tasks_dir': str(tasks_dir)}
+    perseus.cmd_agora(argparse.Namespace(agora_command='list'), local_cfg)
+    captured = capsys.readouterr()
+    assert 'OPEN' in captured.out
+    assert 'task-01' in captured.out
+
+
+def test_agora_claim_and_complete_update_frontmatter(tmp_path):
+    tasks_dir = tmp_path / 'tasks'
+    tasks_dir.mkdir()
+    task = tasks_dir / 'task-01-demo.md'
+    task.write_text('---\nid: task-01\ntitle: Demo\nstatus: open\nscope: medium\ndepends_on: []\nclaimed_by: null\nopened: 2026-05-18\nclosed: null\n---\n# Demo\n')
+    local_cfg = cfg()
+    local_cfg['agora'] = {'tasks_dir': str(tasks_dir)}
+    perseus.cmd_agora(argparse.Namespace(agora_command='claim', task_id='task-01', agent='rovo-dev'), local_cfg)
+    fm, body = perseus._load_task_file(task)
+    assert fm['status'] == 'in_progress'
+    assert fm['claimed_by'] == 'rovo-dev'
+    perseus.cmd_agora(argparse.Namespace(agora_command='complete', task_id='task-01'), local_cfg)
+    fm, body = perseus._load_task_file(task)
+    assert fm['status'] == 'completed'
+    assert fm['closed'] is not None
+
+
+def test_resolve_agora_renders_filtered_table(tmp_path):
+    tasks_dir = tmp_path / 'tasks'
+    tasks_dir.mkdir()
+    (tasks_dir / 'task-01-demo.md').write_text('---\nid: task-01\ntitle: Demo\nstatus: open\nscope: medium\ndepends_on: []\nclaimed_by: null\nopened: 2026-05-18\nclosed: null\n---\n# Demo\n')
+    (tasks_dir / 'task-02-done.md').write_text('---\nid: task-02\ntitle: Done\nstatus: completed\nscope: small\ndepends_on: []\nclaimed_by: null\nopened: 2026-05-18\nclosed: 2026-05-18\n---\n# Done\n')
+    local_cfg = cfg()
+    local_cfg['agora'] = {'tasks_dir': str(tasks_dir)}
+    out = perseus.resolve_agora('status=open', local_cfg, tmp_path)
+    assert '| task-01 | medium | Demo | open |' in out
+    assert 'task-02' not in out
