@@ -1,13 +1,13 @@
 ---
 id: task-05
 title: "Task 05 — Context Health: Maintenance Heuristics & `perseus health`"
-status: open
+status: completed
 scope: large
 depends_on:
   - task-04
-claimed_by: null
+claimed_by: claude-sonnet-4.5
 opened: 2026-05-18
-closed: null
+closed: 2026-05-18
 ---
 
 # Task 05 — Context Health: Maintenance Heuristics & `perseus health`
@@ -135,3 +135,16 @@ Update docs/specs as needed so Daedalus is represented consistently with the roa
 - Favor simple rules and transparent output over cleverness.
 - This task defines Phase 5C — a maintenance layer that sits between Phase 5 (Agora/Pythia) and Phase 6 (Daedalus).
 - **Daedalus (Phase 6) is a different thing entirely:** a local trained scoring model that runs Pythia without an LLM round-trip. Do not conflate them.
+
+---
+
+# Completed
+
+**Closed:** 2026-05-18 · **Implemented by:** claude-sonnet-4.5
+
+- `perseus health [--workspace]` writes a deterministic maintenance report (stdout)
+- `@health` directive embeds the same report inline in rendered context files
+- Heuristics: stale checkpoints, near-duplicate checkpoint windows, large `.perseus/context.md`, old completed Agora tasks
+- All thresholds live under `health:` config block; defaults are conservative
+- Read-only — no file modifications
+- Tests cover clean workspace, stale, duplicate, large-context, and inline render paths

@@ -105,6 +105,32 @@ Do not start a task that is already marked Completed or In Progress.
 
 ---
 
+## Active Tasks (live Agora board)
+
+@perseus
+
+@agora status=open
+
+@agora status=in_progress
+
+> ↑ This block is rendered live by Perseus itself. When viewing this file via
+> `perseus render AGENTS.md`, the `@agora` directives are expanded to a markdown
+> table of open and in-progress task files. When viewing this file raw on
+> GitHub/GitLab, you'll see the directive source — pick up a task whose
+> `status: open` and claim it via `perseus agora claim <task-id> --agent <name>`.
+
+## Maintenance Snapshot
+
+@perseus
+
+@health
+
+> ↑ Same idea — when rendered, this is a Mnēmē/Daedalus-style maintenance
+> report (stale checkpoints, near-duplicates, large context files, old
+> completed tasks). Raw view shows the directive.
+
+---
+
 ## Running Perseus Locally
 
 ```bash

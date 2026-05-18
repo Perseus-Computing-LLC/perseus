@@ -1,13 +1,13 @@
 ---
 id: task-06
 title: "Task 06 — Daedalus: Local Autonomous Scoring Model"
-status: open
+status: completed
 scope: large
 depends_on:
   - task-02
-claimed_by: null
+claimed_by: claude-sonnet-4.5
 opened: 2026-05-18
-closed: null
+closed: 2026-05-18
 ---
 
 # Task 06 — Daedalus: Local Autonomous Scoring Model
@@ -146,3 +146,16 @@ Add to `DEFAULT_CONFIG`:
   initial model quality.
 - Cross-session learning (P6.4 in the roadmap) emerges naturally from this loop — every
   accepted suggestion adds to the training set on the next export cycle.
+
+---
+
+# Completed
+
+**Closed:** 2026-05-18 · **Implemented by:** claude-sonnet-4.5
+
+- `perseus oracle accept/reject <id>` flips `accepted` field; `latest` and prefix matching supported
+- `perseus oracle log [--limit N] [--unlabeled]` lists recent entries with status tag
+- `perseus oracle export [--output] [--format jsonl|alpaca]` writes accepted entries as fine-tuning dataset
+- `--llm daedalus` routes through Ollama using `llm.daedalus_model` / `llm.daedalus_url`
+- Atomic log rewrite via `.tmp` + `os.replace`; existing entries never mutated by export
+- Tests cover labeling, export filtering, alpaca format, daedalus routing

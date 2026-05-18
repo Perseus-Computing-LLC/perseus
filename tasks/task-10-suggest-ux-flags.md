@@ -1,13 +1,13 @@
 ---
 id: task-10
 title: "Task 10 — Pythia Suggest UX Flags: --quick, --category, --no-services"
-status: open
+status: completed
 scope: small
 depends_on:
   - task-02
-claimed_by: null
+claimed_by: claude-sonnet-4.5
 opened: 2026-05-18
-closed: null
+closed: 2026-05-18
 ---
 
 # Task 10 — Pythia Suggest UX Flags: `--quick`, `--category`, `--no-services`
@@ -129,3 +129,16 @@ entries without `flags` are valid.
   it should feel near-instant compared to a full `suggest` with service checks.
 - `--no-services` and `--quick` are not mutually exclusive, but `--quick` implies
   `--no-services`. If both are passed, treat as `--quick`.
+
+---
+
+# Completed
+
+**Closed:** 2026-05-18 · **Implemented by:** claude-sonnet-4.5
+
+- `--quick` emits a stripped prompt (skills only); implies `--no-services`
+- `--no-services` replaces Services section with `(service health check skipped — use without --no-services for live status)`
+- `--category <name>` restricts skill scan; falls back to full scan with `> ⚠` warning when directory absent
+- Oracle log entries now include `flags: [...]` array (backward compatible — legacy entries valid without it)
+- `--quick` no longer takes an early-return shortcut; same code path serves `--llm` callers
+- Tests cover prompt shape, flag-array, fallback warning

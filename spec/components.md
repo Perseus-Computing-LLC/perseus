@@ -217,3 +217,88 @@ and never aborts the checkpoint write.
 (or a single named section) when a Perseus source file is rendered. See
 `spec/directives.md` for the full reference.
 
+
+
+---
+
+## 5. Health (`perseus health`) — Context Maintenance Heuristics
+
+Read-only deterministic maintenance report. Same content backs the `@health`
+inline directive.
+
+### CLI
+
+```bash
+perseus health [--workspace <path>]
+```
+
+### Heuristics
+
+- **Stale Checkpoints** — older than `health.stale_checkpoint_days`
+- **Duplicate Checkpoints** — repeated (task, status, next) in the last
+  `health.duplicate_checkpoint_window`
+- **Context Source Size** — `.perseus/context.md` line count exceeds
+  `health.context_line_warning`
+- **Old Completed Tasks** — Agora tasks closed more than
+  `health.include_completed_tasks_older_than_days` days ago
+
+### Config
+
+```yaml
+health:
+  stale_checkpoint_days: 7
+  duplicate_checkpoint_window: 5
+  context_line_warning: 400
+  include_completed_tasks_older_than_days: 14
+```
+
+Read-only by design — never modifies files.
+
+---
+
+## 6. Agora (`perseus agora`) — Task Coordination Substrate
+
+A flat-file task board. Each `tasks/task-NN-*.md` file owns YAML frontmatter
+(`id`, `title`, `status`, `scope`, `depends_on`, `claimed_by`, `opened`, `closed`).
+
+### CLI
+
+```bash
+perseus agora list                                # group by status
+perseus agora claim <task-id> --agent <name>      # mark in_progress
+perseus agora complete <task-id>                  # mark completed
+```
+
+### Directive
+
+`@agora [status=...] [scope=...]` renders the same view inline.
+
+---
+
+## 7. Daedalus (`perseus oracle` + `--llm daedalus`)
+
+Two related surfaces:
+
+### Dataset curation
+
+```bash
+perseus oracle accept <log-id>          # label as accepted
+perseus oracle reject <log-id>          # label as rejected
+perseus oracle log [--limit N] [--unlabeled]
+perseus oracle export [--output FILE] [--format jsonl|alpaca]
+```
+
+- `log-id` accepts `latest`, full timestamp, or timestamp prefix
+- `export` writes ONLY entries with `accepted=true`
+- Atomic rewrite (`.tmp` + `os.replace`); original log never partially mutated
+
+### Local model routing
+
+```bash
+perseus suggest "task" --llm daedalus
+```
+
+Routes through Ollama using `llm.daedalus_model` (default `perseus-daedalus`) at
+`llm.daedalus_url` (default `http://localhost:11434`). The fine-tuned model is a
+user concern; Perseus only handles data export and request routing.
+

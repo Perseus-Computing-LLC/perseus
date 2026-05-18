@@ -17,6 +17,7 @@ Usage:
 """
 
 import argparse
+import fnmatch
 import hashlib
 import json
 import os
@@ -40,6 +41,7 @@ SESSIONS_DIR = Path(os.environ.get("PERSEUS_SESSIONS_DIR", os.environ.get("HERME
 DEFAULT_CONFIG = {
     "render": {
         "cache_dir": str(PERSEUS_HOME / "cache"),
+        "persist_cache_ttl_s": 3600,  # task-09: default TTL for @cache persist
         "session_digest_count": 5,
         "services_timeout_s": 3,
         "shell": "/bin/bash",
@@ -65,12 +67,21 @@ DEFAULT_CONFIG = {
         "model": "mistral",
         "url": "http://localhost:11434",
         "timeout_s": 30,
+        # task-06: Daedalus — local fine-tuned model routed via ollama
+        "daedalus_model": "perseus-daedalus",
+        "daedalus_url": "http://localhost:11434",
     },
     "assistant": {
         "sessions_dir": str(SESSIONS_DIR),
     },
     "agora": {
         "tasks_dir": "tasks",
+    },
+    "health": {
+        "stale_checkpoint_days": 7,
+        "duplicate_checkpoint_window": 5,
+        "context_line_warning": 400,
+        "include_completed_tasks_older_than_days": 14,
     },
     "memory": {
         "store": str(PERSEUS_HOME / "memory"),
@@ -441,35 +452,69 @@ def _cache_key(directive_line: str) -> str:
     return hashlib.sha256(normalised.encode()).hexdigest()
 
 
-def _parse_cache_modifier(line: str) -> tuple[str, str, int | None]:
+def _parse_cache_modifier(line: str) -> tuple[str, str, int | None, str | None]:
     """
     Strip any @cache modifier from a directive line and return:
-      (clean_line, cache_mode, ttl_seconds)
-    cache_mode: "" | "session" | "ttl"
-    ttl_seconds: set when cache_mode == "ttl", else None
+      (clean_line, cache_mode, ttl_seconds, mock_value)
+    cache_mode: "" | "session" | "ttl" | "persist" | "mock"
+    ttl_seconds: set when cache_mode == "ttl", else None (persist uses cfg)
+    mock_value: set when cache_mode == "mock"; literal substitution string
     """
     # @cache ttl=N
     m = re.search(r'\s*@cache\s+ttl=(\d+)', line, re.IGNORECASE)
     if m:
         ttl = int(m.group(1))
         clean = line[:m.start()] + line[m.end():]
-        return clean.rstrip(), "ttl", ttl
+        return clean.rstrip(), "ttl", ttl, None
 
     # @cache session
     m = re.search(r'\s*@cache\s+session', line, re.IGNORECASE)
     if m:
         clean = line[:m.start()] + line[m.end():]
-        return clean.rstrip(), "session", None
+        return clean.rstrip(), "session", None, None
 
-    return line, "", None
+    # @cache persist
+    m = re.search(r'\s*@cache\s+persist\b', line, re.IGNORECASE)
+    if m:
+        clean = line[:m.start()] + line[m.end():]
+        return clean.rstrip(), "persist", None, None
+
+    # @cache mock="..." (with value)
+    m = re.search(r'\s*@cache\s+mock=(".*?"|\'.*?\'|\S+)', line, re.IGNORECASE)
+    if m:
+        raw = m.group(1)
+        if (raw.startswith('"') and raw.endswith('"')) or (raw.startswith("'") and raw.endswith("'")):
+            raw = raw[1:-1]
+        clean = line[:m.start()] + line[m.end():]
+        return clean.rstrip(), "mock", None, raw
+
+    # @cache mock (bare)
+    m = re.search(r'\s*@cache\s+mock\b', line, re.IGNORECASE)
+    if m:
+        clean = line[:m.start()] + line[m.end():]
+        return clean.rstrip(), "mock", None, "(mock — directive skipped)"
+
+    return line, "", None, None
 
 
 def cache_get(key: str, mode: str, ttl: int | None, cfg: dict) -> str | None:
-    """Return cached value or None (miss/expired)."""
+    """Return cached value or None (miss/expired).
+
+    Modes:
+      - "session" → in-memory (this process only)
+      - "ttl"     → disk cache with explicit ttl seconds
+      - "persist" → disk cache with ttl from cfg["render"]["persist_cache_ttl_s"]
+      - "mock"    → never returns a cached value (handled by caller)
+    """
     if mode == "session":
         return _SESSION_CACHE.get(key)
 
-    if mode == "ttl" and ttl is not None:
+    if mode in {"ttl", "persist"}:
+        effective_ttl = ttl
+        if mode == "persist":
+            effective_ttl = int(cfg.get("render", {}).get("persist_cache_ttl_s", 3600))
+        if effective_ttl is None:
+            return None
         cache_dir = Path(cfg["render"].get("cache_dir", str(PERSEUS_HOME / "cache")))
         entry_file = cache_dir / f"{key}.json"
         if entry_file.exists():
@@ -486,16 +531,25 @@ def cache_get(key: str, mode: str, ttl: int | None, cfg: dict) -> str | None:
 
 
 def cache_set(key: str, value: str, mode: str, ttl: int | None, cfg: dict) -> None:
-    """Store value in the appropriate cache tier."""
+    """Store value in the appropriate cache tier.
+
+    "mock" mode never writes — by design, mock values bypass execution entirely.
+    "persist" writes to the disk cache using cfg["render"]["persist_cache_ttl_s"].
+    """
     if mode == "session":
         _SESSION_CACHE[key] = value
         return
 
-    if mode == "ttl" and ttl is not None:
+    if mode in {"ttl", "persist"}:
+        effective_ttl = ttl
+        if mode == "persist":
+            effective_ttl = int(cfg.get("render", {}).get("persist_cache_ttl_s", 3600))
+        if effective_ttl is None:
+            return
         cache_dir = Path(cfg["render"].get("cache_dir", str(PERSEUS_HOME / "cache")))
         try:
             cache_dir.mkdir(parents=True, exist_ok=True)
-            entry = {"expires": time.time() + ttl, "value": value}
+            entry = {"expires": time.time() + effective_ttl, "value": value}
             (cache_dir / f"{key}.json").write_text(json.dumps(entry))
         except Exception:
             pass  # cache write failure is non-fatal
@@ -868,6 +922,249 @@ def evaluate_condition(condition: str, workspace: Path | None = None, cfg: dict 
     raise ConditionParseError(f"unknown @if condition: {condition}")
 
 
+# ───────────────────────────── @list / @tree ─────────────────────────────────
+
+def _list_emit_warning(msg: str) -> str:
+    return f"> ⚠ {msg}"
+
+
+def _structured_load(fp: Path) -> object:
+    """Load JSON or YAML based on extension. Returns the parsed object or None on failure."""
+    suffix = fp.suffix.lower()
+    try:
+        text = fp.read_text(errors="replace")
+    except Exception:
+        return None
+    if suffix == ".json":
+        try:
+            return json.loads(text)
+        except Exception:
+            return None
+    if suffix in {".yaml", ".yml"}:
+        try:
+            return yaml.safe_load(text)
+        except Exception:
+            return None
+    return None
+
+
+def _walk_dot_path(obj: object, dot: str) -> object:
+    cur = obj
+    if not dot:
+        return cur
+    for part in dot.split("."):
+        if isinstance(cur, dict) and part in cur:
+            cur = cur[part]
+        else:
+            return None
+    return cur
+
+
+def _render_struct_as_table(value: object, columns: str | None) -> str:
+    """Render a dict-of-scalars or list-of-dicts as a markdown table."""
+    # Parse columns="key:Label,value:Label"
+    col_pairs: list[tuple[str, str]] = []
+    if columns:
+        for item in columns.split(","):
+            if ":" in item:
+                k, _, lbl = item.partition(":")
+                col_pairs.append((k.strip(), lbl.strip()))
+            else:
+                col_pairs.append((item.strip(), item.strip()))
+
+    # dict-of-scalars → two-column table
+    if isinstance(value, dict):
+        if not col_pairs:
+            col_pairs = [("key", "Key"), ("value", "Value")]
+        labels = [lbl for _, lbl in col_pairs[:2]] or ["Key", "Value"]
+        rows = ["| " + " | ".join(labels) + " |", "|" + "|".join(["---"] * len(labels)) + "|"]
+        for k, v in value.items():
+            rows.append(f"| {k} | {v} |")
+        return "\n".join(rows)
+
+    # list-of-dicts
+    if isinstance(value, list) and value and isinstance(value[0], dict):
+        if not col_pairs:
+            col_pairs = [(k, k) for k in value[0].keys()]
+        keys = [k for k, _ in col_pairs]
+        labels = [lbl for _, lbl in col_pairs]
+        rows = ["| " + " | ".join(labels) + " |", "|" + "|".join(["---"] * len(labels)) + "|"]
+        for item in value:
+            rows.append("| " + " | ".join(str(item.get(k, "")) for k in keys) + " |")
+        return "\n".join(rows)
+
+    # scalar / list-of-scalars fallback
+    if isinstance(value, list):
+        return "\n".join(f"- {v}" for v in value)
+    return str(value)
+
+
+def _render_struct_as_list(value: object) -> str:
+    if isinstance(value, dict):
+        return "\n".join(f"- **{k}**: {v}" for k, v in value.items())
+    if isinstance(value, list):
+        return "\n".join(f"- {v}" for v in value)
+    return str(value)
+
+
+def resolve_list(args_str: str, cfg: dict, workspace: Path | None = None) -> str:
+    """
+    @list <path> [type=dirs|files|all] [depth=N] [match=glob]
+                 [path="dot.key"] [columns="key:Label,value:Label"] [as=list|table]
+
+    For directories: lists contents per type/depth/match.
+    For structured files (json/yaml): extracts path= and renders as list or table.
+    """
+    path_str, remaining = _extract_quoted_token(args_str.strip())
+    if path_str is None:
+        # try bare first-token
+        toks = args_str.strip().split(None, 1)
+        if not toks:
+            return _list_emit_warning("@list: no path specified.")
+        path_str = toks[0]
+        remaining = toks[1] if len(toks) > 1 else ""
+
+    mods = _parse_kv_modifiers(remaining)
+    as_mode = (mods.get("as") or "list").strip().lower()
+    list_type = (mods.get("type") or "all").strip().lower()
+    try:
+        depth = int(mods.get("depth", "1"))
+    except (TypeError, ValueError):
+        depth = 1
+    if depth < 1:
+        warn = f"> ⚠ @list: depth={depth} treated as 1.\n"
+        depth = 1
+    else:
+        warn = ""
+    match_pat = mods.get("match")
+    dot_path = mods.get("path")
+    columns = mods.get("columns")
+
+    render_cfg = (cfg or {}).get("render", {})
+    fp, path_warning = _resolve_path(
+        path_str,
+        workspace,
+        allow_outside_workspace=bool(render_cfg.get("allow_outside_workspace", False)),
+    )
+    if path_warning:
+        return path_warning
+
+    if not fp.exists():
+        return _list_emit_warning(f"@list: path not found: `{path_str}`")
+
+    # Structured file path
+    if fp.is_file():
+        value = _structured_load(fp)
+        if value is None:
+            return _list_emit_warning(f"@list: cannot extract structured data from `{path_str}` (unsupported file type)")
+        extracted = _walk_dot_path(value, dot_path) if dot_path else value
+        if extracted is None:
+            return _list_emit_warning(f"@list: path `{dot_path}` not found in `{path_str}`")
+        if as_mode == "table":
+            return warn + _render_struct_as_table(extracted, columns)
+        return warn + _render_struct_as_list(extracted)
+
+    # Directory listing
+    base = fp
+    entries: list[tuple[Path, int]] = []  # (path, relative depth)
+    for root, dirs, files in os.walk(base):
+        root_p = Path(root)
+        try:
+            cur_depth = len(root_p.relative_to(base).parts)
+        except ValueError:
+            continue
+        if cur_depth >= depth:
+            dirs[:] = []
+        if list_type in {"dirs", "all"}:
+            for d in sorted(dirs):
+                entries.append((root_p / d, cur_depth + 1))
+        if list_type in {"files", "all"}:
+            for f in sorted(files):
+                if match_pat and not fnmatch.fnmatch(f, match_pat):
+                    continue
+                entries.append((root_p / f, cur_depth + 1))
+
+    if not entries:
+        return warn + _list_emit_warning(f"@list: no matching entries under `{path_str}`")
+
+    lines: list[str] = []
+    for p, d in entries:
+        indent = "  " * (d - 1)
+        name = p.name + ("/" if p.is_dir() else "")
+        lines.append(f"{indent}- {name}")
+    return warn + "\n".join(lines)
+
+
+def resolve_tree(args_str: str, cfg: dict, workspace: Path | None = None) -> str:
+    """
+    @tree <path> [depth=N] [match=glob] [exclude=glob]
+    """
+    path_str, remaining = _extract_quoted_token(args_str.strip())
+    if path_str is None:
+        toks = args_str.strip().split(None, 1)
+        if not toks:
+            return _list_emit_warning("@tree: no path specified.")
+        path_str = toks[0]
+        remaining = toks[1] if len(toks) > 1 else ""
+
+    mods = _parse_kv_modifiers(remaining)
+    try:
+        depth = int(mods.get("depth", "3"))
+    except (TypeError, ValueError):
+        depth = 3
+    if depth < 1:
+        warn = f"> ⚠ @tree: depth={depth} treated as 1.\n"
+        depth = 1
+    else:
+        warn = ""
+    match_pat = mods.get("match")
+    exclude_pat = mods.get("exclude")
+
+    render_cfg = (cfg or {}).get("render", {})
+    fp, path_warning = _resolve_path(
+        path_str,
+        workspace,
+        allow_outside_workspace=bool(render_cfg.get("allow_outside_workspace", False)),
+    )
+    if path_warning:
+        return path_warning
+
+    if not fp.exists():
+        return _list_emit_warning(f"@tree: path not found: `{path_str}`")
+    if not fp.is_dir():
+        return _list_emit_warning(f"@tree: not a directory: `{path_str}`")
+
+    def is_excluded(name: str) -> bool:
+        return bool(exclude_pat and fnmatch.fnmatch(name, exclude_pat))
+
+    def matches_file(name: str) -> bool:
+        return not match_pat or fnmatch.fnmatch(name, match_pat)
+
+    out_lines = [f"{fp.name}/"]
+
+    def walk(dirp: Path, cur_depth: int):
+        if cur_depth > depth:
+            return
+        try:
+            children = sorted(dirp.iterdir(), key=lambda c: (not c.is_dir(), c.name.lower()))
+        except Exception:
+            return
+        for child in children:
+            if is_excluded(child.name):
+                continue
+            indent = "  " * cur_depth
+            if child.is_dir():
+                out_lines.append(f"{indent}{child.name}/")
+                walk(child, cur_depth + 1)
+            else:
+                if matches_file(child.name):
+                    out_lines.append(f"{indent}{child.name}")
+
+    walk(fp, 1)
+
+    return warn + "```\n" + "\n".join(out_lines) + "\n```"
+
+
 # ──────────────────────────────── @skills ─────────────────────────────────────
 
 def resolve_skills(args_str: str, cfg: dict) -> str:
@@ -1208,7 +1505,7 @@ CONSTRAINT_RE = re.compile(r'^@constraint\s+(.+)$', re.IGNORECASE)
 CONSTRAINT_END_RE = re.compile(r'^@end\s*$', re.IGNORECASE)
 
 INLINE_DIRECTIVE_RE = re.compile(
-    r'^(@query|@skills|@session|@date|@waypoint|@read|@env|@include|@prompt|@agora|@memory)(\s+.*)?$',
+    r'^(@query|@skills|@session|@date|@waypoint|@read|@env|@include|@prompt|@agora|@memory|@list|@tree|@health)(\s+.*)?$',
     re.IGNORECASE,
 )
 
@@ -1358,10 +1655,16 @@ def _render_lines(
                     raw_args = f"{raw_args} @cache ttl={m_ttl.group(1)}".strip()
 
             # Strip @cache modifier from args; determine cache mode
-            clean_args, cache_mode, cache_ttl = _parse_cache_modifier(raw_args)
+            clean_args, cache_mode, cache_ttl, cache_mock = _parse_cache_modifier(raw_args)
 
             # Build stable cache key from directive + clean args
             cache_key = _cache_key(f"{directive} {clean_args}")
+
+            # @cache mock — substitute the mock value, bypass execution entirely
+            if cache_mode == "mock":
+                output.append(cache_mock or "(mock — directive skipped)")
+                i += 1
+                continue
 
             # Check cache first
             cached = cache_get(cache_key, cache_mode, cache_ttl, cfg)
@@ -1391,6 +1694,12 @@ def _render_lines(
                 result = resolve_agora(clean_args, cfg, workspace)
             elif directive == "@memory":
                 result = resolve_memory(clean_args, cfg, workspace)
+            elif directive == "@list":
+                result = resolve_list(clean_args, cfg, workspace)
+            elif directive == "@tree":
+                result = resolve_tree(clean_args, cfg, workspace)
+            elif directive == "@health":
+                result = resolve_health(clean_args, cfg, workspace)
             else:
                 result = line
 
@@ -2108,18 +2417,54 @@ def cmd_checkpoint(args, cfg):
     with open(outfile, "w") as f:
         yaml.dump(cp, f, default_flow_style=False, allow_unicode=True)
 
-    # Update latest pointer
+    # Update latest pointer (global)
     latest = store / "latest.yaml"
     _update_latest_checkpoint_pointer(latest, outfile)
 
-    # Prune old checkpoints
+    # Update per-workspace pointer (task-07)
+    if cp.get("workspace"):
+        try:
+            ws_path = Path(str(cp["workspace"])).expanduser().resolve()
+            ws_hash = _workspace_hash(ws_path)
+            ws_pointer = store / f"latest-{ws_hash}.yaml"
+            # Pointer is always a plain copy (not a symlink) — safer across FS
+            ws_pointer.write_text(outfile.read_text())
+        except Exception as exc:
+            print(f"> ⚠ Could not write per-workspace pointer: {exc}")
+
+    # Prune old checkpoints (filename-based, deterministic — exclude pointer files)
     all_cps = sorted(
-        [f for f in store.glob("*.yaml") if f.name != "latest.yaml"],
-        key=lambda f: f.stat().st_mtime,
+        [f for f in store.glob("*.yaml")
+         if f.name != "latest.yaml" and not f.name.startswith("latest-")],
+        key=lambda f: f.name,
         reverse=True,
     )
+    pruned = set()
     for old in all_cps[max_keep:]:
+        pruned.add(old.name)
         old.unlink(missing_ok=True)
+
+    # Clean up workspace pointers that now point to deleted checkpoints (task-07)
+    if pruned:
+        for ptr in store.glob("latest-*.yaml"):
+            try:
+                ptr_cp = yaml.safe_load(ptr.read_text()) or {}
+                ptr_written = str(ptr_cp.get("written", ""))
+                ptr_ws = str(ptr_cp.get("workspace", ""))
+                # If pointer's checkpoint no longer exists, re-point to most recent for that ws
+                surviving = []
+                for f in all_cps[:max_keep]:
+                    f_cp = _load_checkpoint_file(f) or {}
+                    if str(f_cp.get("workspace", "")) == ptr_ws:
+                        surviving.append((f, f_cp.get("written", "")))
+                if surviving:
+                    # Pick most recent (filename-sorted desc, so first survivor wins)
+                    surviving.sort(key=lambda x: x[1], reverse=True)
+                    ptr.write_text(surviving[0][0].read_text())
+                else:
+                    ptr.unlink(missing_ok=True)
+            except Exception:
+                pass
 
     print(f"✅ Checkpoint written: {outfile}")
     print(f"   Task:   {cp['task']}")
@@ -2281,15 +2626,41 @@ def cmd_recover(args, cfg):
     Smart recover: if --workspace is given, prefer checkpoints whose
     'workspace' field matches and are within TTL. Falls back to the most
     recent checkpoint with a workspace-match warning, then to any checkpoint.
+
+    Fast path (task-07): when --workspace is supplied and a
+    ``latest-<workspace-hash>.yaml`` pointer exists, load it directly
+    instead of scanning the entire store.
     """
     store = Path(cfg["checkpoints"]["store"])
     ttl_s = int(cfg["checkpoints"].get("ttl_s", 86400))
     target_ws = getattr(args, "workspace", None) or os.getcwd()
-    target_ws = str(Path(target_ws).resolve())
+    target_ws_path = Path(target_ws).expanduser().resolve()
+    target_ws = str(target_ws_path)
 
     if not store.exists():
         print(f"No checkpoint store found at {store}. Run `perseus checkpoint` first.")
         return
+
+    # Fast path — per-workspace pointer
+    ws_hash = _workspace_hash(target_ws_path)
+    ws_pointer = store / f"latest-{ws_hash}.yaml"
+    if ws_pointer.exists():
+        cp = _load_checkpoint_file(ws_pointer)
+        if cp:
+            written = cp.get("written", "")
+            try:
+                dt = datetime.fromisoformat(str(written))
+                age = int((datetime.now(dt.tzinfo) - dt).total_seconds())
+            except Exception:
+                age = None
+            fresh = age is not None and age <= ttl_s
+            label = (
+                f"workspace pointer, {age}s ago" if fresh
+                else f"workspace pointer, outside TTL — written {written}"
+            )
+            print(f"# Checkpoint ({label})\n")
+            print(yaml.dump(cp, default_flow_style=False, allow_unicode=True))
+            return
 
     all_files = _list_checkpoint_files(cfg)
 
@@ -2420,8 +2791,13 @@ def _checkpoint_age_s(snapshot_checkpoint: str) -> int | None:
         return None
 
 
-def build_oracle_log_entry(task: str, snapshot: dict, prompt: str, response: str | None, provider: str | None, model: str | None) -> dict:
-    """Build the append-only oracle log entry."""
+def build_oracle_log_entry(task: str, snapshot: dict, prompt: str, response: str | None, provider: str | None, model: str | None, flags: list[str] | None = None) -> dict:
+    """Build the append-only oracle log entry.
+
+    task-10: an optional ``flags`` array records which suggest flags were
+    active for this invocation. Empty list when none. Backward compatible —
+    legacy entries without ``flags`` remain valid.
+    """
     services_summary = []
     for line in snapshot.get("services_table", "").splitlines():
         if not line.startswith("|") or line.startswith("| Service") or line.startswith("|---"):
@@ -2444,6 +2820,7 @@ def build_oracle_log_entry(task: str, snapshot: dict, prompt: str, response: str
         "provider": provider,
         "model": model,
         "accepted": None,
+        "flags": list(flags or []),
     }
 
 
@@ -2463,6 +2840,19 @@ def run_llm(provider: str, prompt: str, cfg: dict, model: str | None = None, mod
             ],
             "stream": False,
         }
+    elif provider == "daedalus":
+        # task-06: routes to a fine-tuned local model via ollama
+        url = (model_url or str(llm_cfg.get("daedalus_url", "http://localhost:11434"))).rstrip("/") + "/api/chat"
+        payload = {
+            "model": model or str(llm_cfg.get("daedalus_model", "perseus-daedalus")),
+            "messages": [
+                {"role": "system", "content": "You are the Perseus Tool Oracle (Daedalus)."},
+                {"role": "user", "content": prompt},
+            ],
+            "stream": False,
+        }
+        # share the ollama response-parsing branch below
+        provider = "ollama"
     elif provider in {"llamacpp", "openai-compat"}:
         base = (model_url or str(llm_cfg.get("url", "http://localhost:11434"))).rstrip("/")
         url = base + "/v1/chat/completions"
@@ -2475,7 +2865,7 @@ def run_llm(provider: str, prompt: str, cfg: dict, model: str | None = None, mod
             "stream": False,
         }
     else:
-        return (f"> ⚠ Unsupported llm provider: {provider}. Currently supported: ollama, llamacpp, openai-compat", 2)
+        return (f"> ⚠ Unsupported llm provider: {provider}. Currently supported: ollama, llamacpp, openai-compat, daedalus", 2)
 
     req = urllib.request.Request(
         url,
@@ -2498,13 +2888,42 @@ def run_llm(provider: str, prompt: str, cfg: dict, model: str | None = None, mod
 
 
 def build_oracle_snapshot(cfg: dict, category: str | None = None, no_services: bool = False, quick: bool = False) -> dict:
-    """Build the environment snapshot used by `perseus suggest`."""
+    """Build the environment snapshot used by `perseus suggest`.
+
+    --quick implies --no-services (task-10).
+
+    --category falls back to a full scan with a warning if the category
+    directory does not exist.
+    """
     now = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z")
+
+    effective_no_services = no_services or quick
+
+    # --category fallback: warn and drop the filter when the directory is absent
+    category_warning = None
+    if category:
+        skill_dir = Path(cfg["oracle"]["skill_dir"])
+        if not (skill_dir / category).exists():
+            category_warning = f"> ⚠ Skills category `{category}` not found in {skill_dir} — falling back to full scan."
+            category = None
+
     skills_args = "flag_stale=true" + (f" category={category}" if category else "")
     skills_table = resolve_skills(skills_args, cfg)
-    services_table = "(skipped)" if no_services else "(no services configured in oracle — add @services to .perseus/context.md)"
-    session_digest = resolve_session("count=3", cfg)
-    checkpoint_summary = resolve_waypoint("", cfg)
+    if category_warning:
+        skills_table = category_warning + "\n\n" + skills_table
+
+    if effective_no_services:
+        services_table = "(service health check skipped — use without --no-services for live status)"
+    else:
+        services_table = "(no services configured in oracle — add @services to .perseus/context.md)"
+
+    if quick:
+        # In --quick mode, do not even attempt to assemble session/checkpoint context
+        session_digest = ""
+        checkpoint_summary = ""
+    else:
+        session_digest = resolve_session("count=3", cfg)
+        checkpoint_summary = resolve_waypoint("", cfg)
 
     snapshot = {
         "rendered_at": now,
@@ -2512,6 +2931,7 @@ def build_oracle_snapshot(cfg: dict, category: str | None = None, no_services: b
         "services_table": services_table,
         "session_digest": session_digest,
         "checkpoint_summary": checkpoint_summary,
+        "quick": quick,
     }
 
     if quick:
@@ -2521,8 +2941,29 @@ def build_oracle_snapshot(cfg: dict, category: str | None = None, no_services: b
 
 
 def render_oracle_prompt(task: str, snapshot: dict) -> str:
-    """Render the full oracle prompt from a task and snapshot."""
+    """Render the full oracle prompt from a task and snapshot.
+
+    In --quick mode (``snapshot["quick"] is True``) the Services and
+    Sessions/Checkpoint sections are omitted entirely (task-10).
+    """
     divider = "━" * 55
+
+    if snapshot.get("quick"):
+        return f"""You are the Perseus Tool Oracle. Given a task and a snapshot of available skills,
+recommend the single best skill/tool/approach.
+
+TASK: {task}
+
+ENVIRONMENT SNAPSHOT (rendered {snapshot['rendered_at']}):
+
+### Available Skills
+{snapshot['skills_table']}
+
+---
+
+Return ONE recommendation, one sentence. No alternatives, no hedging.
+{divider}"""
+
     return f"""You are the Perseus Tool Oracle. Given a task and a live environment snapshot,
 recommend the top 2-3 approaches in ranked order.
 
@@ -2576,7 +3017,13 @@ def run_ollama(prompt: str, cfg: dict, model_override: str | None = None) -> str
 
 
 def cmd_suggest(args, cfg):
-    """Oracle: build a live snapshot, render a prompt, optionally run a local model, and log the interaction."""
+    """Oracle: build a live snapshot, render a prompt, optionally run a local model, and log the interaction.
+
+    Flag handling (task-10):
+      --quick           shortens the prompt; implies --no-services
+      --no-services     skips live service health checks
+      --category NAME   limits skill scan to ~/.hermes/skills/<NAME>/ (falls back with warning)
+    """
     task = args.task
     quick = getattr(args, "quick", False)
     no_services = getattr(args, "no_services", False)
@@ -2585,17 +3032,16 @@ def cmd_suggest(args, cfg):
     model = getattr(args, "model", None)
     model_url = getattr(args, "model_url", None)
 
-    snapshot = build_oracle_snapshot(cfg, category=category, no_services=no_services, quick=quick)
-
+    # Build list of active flags for log entry
+    active_flags: list[str] = []
     if quick:
-        print(f"Task: {task}")
-        print(f"Environment: {snapshot['rendered_at']}")
-        print()
-        print("Skills (top-level):")
-        print(f"  {snapshot.get('skill_count', 0)} skills available")
-        print()
-        print(snapshot["checkpoint_summary"])
-        return
+        active_flags.append("--quick")
+    if no_services and not quick:  # --quick implies --no-services; don't double-record
+        active_flags.append("--no-services")
+    if category:
+        active_flags.append(f"--category={category}")
+
+    snapshot = build_oracle_snapshot(cfg, category=category, no_services=no_services, quick=quick)
 
     prompt = render_oracle_prompt(task, snapshot)
     response_text = None
@@ -2613,7 +3059,10 @@ def cmd_suggest(args, cfg):
     else:
         print(prompt)
 
-    append_oracle_log(build_oracle_log_entry(task, snapshot, prompt, response_text, provider_used, model_used), cfg)
+    append_oracle_log(
+        build_oracle_log_entry(task, snapshot, prompt, response_text, provider_used, model_used, flags=active_flags),
+        cfg,
+    )
     if exit_code:
         raise SystemExit(exit_code)
 
@@ -2715,6 +3164,324 @@ def cmd_launchd(args, cfg):
     print(f"  2. Start now:  launchctl start {label}")
     print(f"  3. Check logs: tail -f {stdout_log} {stderr_log}")
 
+
+# ─────────────────────────────── systemd (Linux) ─────────────────────────────
+
+SYSTEMD_SERVICE_TEMPLATE = """\
+[Unit]
+Description=Perseus context renderer
+After=default.target
+
+[Service]
+Type=oneshot
+ExecStart={python} {script} render {source} --output {output}
+"""
+
+SYSTEMD_TIMER_TEMPLATE = """\
+[Unit]
+Description=Perseus context render timer
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec={interval}
+Unit=perseus-render.service
+
+[Install]
+WantedBy=timers.target
+"""
+
+
+def _parse_systemd_interval(raw: str) -> str:
+    """Accept '5m', '2h', or systemd-native like '30s'/'1h30min' — return systemd time spec.
+
+    Defaults to '5min' if empty. Raises ValueError on garbage.
+    """
+    s = (raw or "").strip().lower()
+    if not s:
+        return "5min"
+    m = re.fullmatch(r"(\d+)\s*([smh])", s)
+    if m:
+        n, unit = m.group(1), m.group(2)
+        return {"s": f"{n}s", "m": f"{n}min", "h": f"{n}h"}[unit]
+    # passthrough for already-systemd-native values
+    if re.fullmatch(r"[\d\s a-z]+", s):
+        return s
+    raise ValueError(f"unrecognised interval: {raw!r}")
+
+
+def cmd_systemd(args, cfg):
+    """Scaffold ~/.config/systemd/user/perseus-render.{service,timer} units."""
+    if sys.platform == "darwin":
+        print("Use `perseus launchd` on macOS.", file=sys.stderr)
+        sys.exit(1)
+    if sys.platform != "linux" and getattr(args, "install", False):
+        print(f"Warning: --install is only supported on Linux (detected {sys.platform}).", file=sys.stderr)
+
+    source_path = Path(args.source).expanduser().resolve()
+    output_path = Path(args.output).expanduser().resolve()
+    try:
+        interval = _parse_systemd_interval(getattr(args, "interval", "5m") or "5m")
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    python_path = Path(sys.executable).resolve()
+    script_path = Path(__file__).resolve()
+
+    service_content = SYSTEMD_SERVICE_TEMPLATE.format(
+        python=str(python_path),
+        script=str(script_path),
+        source=str(source_path),
+        output=str(output_path),
+    )
+    timer_content = SYSTEMD_TIMER_TEMPLATE.format(interval=interval)
+
+    if getattr(args, "install", False):
+        unit_dir = Path.home() / ".config" / "systemd" / "user"
+        unit_dir.mkdir(parents=True, exist_ok=True)
+        service_path = unit_dir / "perseus-render.service"
+        timer_path = unit_dir / "perseus-render.timer"
+        service_path.write_text(service_content)
+        timer_path.write_text(timer_content)
+        print(f"✔ Wrote {service_path}")
+        print(f"✔ Wrote {timer_path}")
+        print()
+        print("Next steps:")
+        print("  systemctl --user daemon-reload")
+        print("  systemctl --user enable perseus-render.timer")
+        print("  systemctl --user start perseus-render.timer")
+        if getattr(args, "enable", False):
+            for cmd in (
+                ["systemctl", "--user", "daemon-reload"],
+                ["systemctl", "--user", "enable", "perseus-render.timer"],
+                ["systemctl", "--user", "start", "perseus-render.timer"],
+            ):
+                try:
+                    subprocess.run(cmd, check=False)
+                except Exception as exc:
+                    print(f"> ⚠ {' '.join(cmd)} failed: {exc}")
+        return
+
+    # Default: print both unit files to stdout, separated
+    print("# ~/.config/systemd/user/perseus-render.service")
+    print(service_content)
+    print("# ~/.config/systemd/user/perseus-render.timer")
+    print(timer_content)
+
+
+# ─────────────────────────────── Health (task-05) ────────────────────────────
+
+def _health_collect(cfg: dict, workspace: Path) -> list[str]:
+    """Run deterministic maintenance heuristics. Returns markdown lines."""
+    hcfg = cfg.get("health", {})
+    stale_days = int(hcfg.get("stale_checkpoint_days", 7))
+    dup_window = int(hcfg.get("duplicate_checkpoint_window", 5))
+    ctx_warn = int(hcfg.get("context_line_warning", 400))
+    completed_days = int(hcfg.get("include_completed_tasks_older_than_days", 14))
+
+    lines: list[str] = []
+
+    # 1. Stale checkpoints
+    cp_files = _list_checkpoint_files(cfg)
+    stale_threshold = time.time() - stale_days * 86400
+    stale = []
+    for fp in cp_files:
+        cp = _load_checkpoint_file(fp) or {}
+        w = str(cp.get("written", ""))
+        try:
+            dt = datetime.fromisoformat(w)
+            if dt.timestamp() < stale_threshold:
+                stale.append((fp.name, _human_age(w)))
+        except Exception:
+            continue
+    if stale:
+        lines.append(f"### Stale Checkpoints (older than {stale_days} days)")
+        for name, age in stale[:10]:
+            lines.append(f"- `{name}` — {age}")
+        if len(stale) > 10:
+            lines.append(f"- _… and {len(stale) - 10} more_")
+        lines.append("")
+
+    # 2. Duplicate / near-duplicate checkpoints
+    window = cp_files[:dup_window]
+    seen: dict[tuple, list[str]] = {}
+    for fp in window:
+        cp = _load_checkpoint_file(fp) or {}
+        key = (str(cp.get("task", "")).strip(), str(cp.get("status", "")).strip(), str(cp.get("next", "")).strip())
+        seen.setdefault(key, []).append(fp.name)
+    dups = [(k, v) for k, v in seen.items() if len(v) > 1]
+    if dups:
+        lines.append(f"### Duplicate Checkpoints (in last {dup_window})")
+        for (task, status, nxt), names in dups:
+            lines.append(f"- **{task or '(no task)'}** — appears {len(names)}× with same status/next:")
+            for n in names:
+                lines.append(f"  - `{n}`")
+        lines.append("")
+
+    # 3. Large context source file
+    ctx_path = workspace / ".perseus" / "context.md"
+    if ctx_path.exists():
+        try:
+            n_lines = ctx_path.read_text(errors="replace").count("\n") + 1
+            if n_lines > ctx_warn:
+                lines.append("### Context Source Size")
+                lines.append(
+                    f"- `{ctx_path}` is **{n_lines} lines** (warning threshold: {ctx_warn})."
+                    " Consider extracting sections into separate `@include`d files."
+                )
+                lines.append("")
+        except Exception:
+            pass
+
+    # 4. Old completed tasks in Agora
+    tasks_dir = _get_tasks_dir(workspace, cfg)
+    if tasks_dir.exists():
+        completed_threshold = time.time() - completed_days * 86400
+        old_done = []
+        for task_file in sorted(tasks_dir.glob("task-*.md")):
+            try:
+                fm, _ = _load_task_file(task_file)
+            except Exception:
+                continue
+            if str(fm.get("status", "")).lower() != "completed":
+                continue
+            closed = str(fm.get("closed", "") or "")
+            try:
+                dt = datetime.fromisoformat(closed)
+                if dt.timestamp() < completed_threshold:
+                    old_done.append((task_file.name, closed))
+            except Exception:
+                continue
+        if old_done:
+            lines.append(f"### Old Completed Tasks (closed > {completed_days} days ago)")
+            for name, closed in old_done[:10]:
+                lines.append(f"- `{name}` — closed {closed} (consider archiving)")
+            lines.append("")
+
+    if not lines:
+        lines.append("_All clear — no maintenance suggestions._")
+
+    return lines
+
+
+def _health_report(cfg: dict, workspace: Path) -> str:
+    """Render full health report as markdown."""
+    header = f"# Perseus Health Report\n\n**Workspace:** `{workspace}`  \n**Generated:** {datetime.now().astimezone().strftime('%Y-%m-%d %H:%M %Z')}\n\n---\n\n"
+    body = "\n".join(_health_collect(cfg, workspace))
+    return header + body + "\n"
+
+
+def cmd_health(args, cfg):
+    ws = Path(getattr(args, "workspace", None) or os.getcwd()).expanduser().resolve()
+    print(_health_report(cfg, ws))
+
+
+def resolve_health(args_str: str, cfg: dict, workspace: Path | None = None) -> str:
+    """@health [section-only] — embed maintenance suggestions inline."""
+    ws = (workspace or Path.cwd()).expanduser().resolve()
+    return "\n".join(_health_collect(cfg, ws))
+
+
+# ────────────────────────── Oracle / Daedalus (task-06) ──────────────────────
+
+def _oracle_log_entries() -> list[dict]:
+    return _read_all_oracle_entries()
+
+
+def _find_oracle_entry(entries: list[dict], log_id: str) -> int | None:
+    if log_id == "latest":
+        return len(entries) - 1 if entries else None
+    for i, e in enumerate(entries):
+        if str(e.get("timestamp", "")) == log_id:
+            return i
+    # match by prefix
+    for i, e in enumerate(entries):
+        if str(e.get("timestamp", "")).startswith(log_id):
+            return i
+    return None
+
+
+def _rewrite_oracle_log(entries: list[dict]) -> None:
+    log_path = PERSEUS_HOME / "oracle_log.jsonl"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = "\n".join(json.dumps(e, ensure_ascii=False) for e in entries) + ("\n" if entries else "")
+    tmp = log_path.with_suffix(".jsonl.tmp")
+    tmp.write_text(payload, encoding="utf-8")
+    os.replace(tmp, log_path)
+
+
+def _label_oracle_entry(log_id: str, accepted: bool) -> tuple[bool, str]:
+    entries = _oracle_log_entries()
+    idx = _find_oracle_entry(entries, log_id)
+    if idx is None:
+        return (False, f"No oracle log entry matched `{log_id}`")
+    entries[idx]["accepted"] = bool(accepted)
+    _rewrite_oracle_log(entries)
+    return (True, f"Entry `{entries[idx].get('timestamp')}` marked accepted={accepted}")
+
+
+def cmd_oracle(args, cfg):
+    sub = getattr(args, "oracle_command", None)
+
+    if sub == "accept":
+        ok, msg = _label_oracle_entry(args.log_id, True)
+        print(msg)
+        return
+    if sub == "reject":
+        ok, msg = _label_oracle_entry(args.log_id, False)
+        print(msg)
+        return
+
+    if sub == "log":
+        entries = _oracle_log_entries()
+        limit = int(getattr(args, "limit", 20))
+        unlabeled = bool(getattr(args, "unlabeled", False))
+        rows = []
+        for e in entries[-limit * 4 :][::-1]:  # iterate recent first
+            if unlabeled and e.get("accepted") is not None:
+                continue
+            ts = str(e.get("timestamp", ""))[:19]
+            task = str(e.get("task", ""))[:60]
+            acc = e.get("accepted")
+            tag = "✅" if acc is True else ("❌" if acc is False else "·")
+            rows.append(f"  {tag}  {ts}  {task}")
+            if len(rows) >= limit:
+                break
+        if not rows:
+            print("(no oracle log entries)")
+            return
+        print(f"Recent oracle log entries (most recent first; limit={limit}{' unlabeled only' if unlabeled else ''})")
+        for r in rows:
+            print(r)
+        return
+
+    if sub == "export":
+        entries = _oracle_log_entries()
+        accepted = [e for e in entries if e.get("accepted") is True]
+        rejected = [e for e in entries if e.get("accepted") is False]
+        unlabeled = [e for e in entries if e.get("accepted") is None]
+        out_path = Path(getattr(args, "output", None) or (PERSEUS_HOME / "daedalus_dataset.jsonl")).expanduser().resolve()
+        fmt = getattr(args, "format", "jsonl") or "jsonl"
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        with out_path.open("w", encoding="utf-8") as f:
+            for e in accepted:
+                if fmt == "alpaca":
+                    rec = {
+                        "instruction": e.get("prompt", ""),
+                        "input": "",
+                        "output": e.get("response", "") or "",
+                    }
+                else:
+                    rec = {"prompt": e.get("prompt", ""), "completion": e.get("response", "") or ""}
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        print(f"✔ Exported {len(accepted)} accepted entries → {out_path} (format={fmt})")
+        print(f"  Summary: {len(accepted)} accepted · {len(rejected)} rejected · {len(unlabeled)} unlabeled")
+        return
+
+    print(f"> ⚠ Unknown oracle subcommand: {sub}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 
 def cmd_init(args, cfg):
     """Scaffold .perseus/context.md for a new workspace."""
@@ -2856,6 +3623,35 @@ def main():
     p_launchd.add_argument("--force", action="store_true",
                            help="Overwrite existing plist")
 
+    # systemd (Linux)
+    p_systemd = sub.add_parser("systemd", help="Scaffold a user-space systemd timer for periodic rendering")
+    p_systemd.add_argument("source", help="Path to Perseus source file")
+    p_systemd.add_argument("--output", "-o", required=True, help="Rendered output path")
+    p_systemd.add_argument("--interval", default="5m",
+                           help="Render interval (e.g. '5m', '2h'); systemd time spec also accepted")
+    p_systemd.add_argument("--install", action="store_true",
+                           help="Write unit files to ~/.config/systemd/user/ and print activation commands")
+    p_systemd.add_argument("--enable", action="store_true",
+                           help="When combined with --install, run systemctl --user daemon-reload/enable/start")
+
+    # health (Daedalus v1)
+    p_health = sub.add_parser("health", help="Context maintenance heuristics report")
+    p_health.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
+
+    # oracle (Daedalus dataset / labeling)
+    p_oracle = sub.add_parser("oracle", help="Oracle log labeling and dataset export")
+    oracle_sub = p_oracle.add_subparsers(dest="oracle_command", required=True)
+    p_oracle_accept = oracle_sub.add_parser("accept", help="Mark an oracle log entry as accepted")
+    p_oracle_accept.add_argument("log_id", help="Entry id (timestamp) or 'latest'")
+    p_oracle_reject = oracle_sub.add_parser("reject", help="Mark an oracle log entry as rejected")
+    p_oracle_reject.add_argument("log_id", help="Entry id (timestamp) or 'latest'")
+    p_oracle_log = oracle_sub.add_parser("log", help="List recent oracle log entries")
+    p_oracle_log.add_argument("--limit", type=int, default=20, help="Max entries to show")
+    p_oracle_log.add_argument("--unlabeled", action="store_true", help="Only show unlabeled entries")
+    p_oracle_export = oracle_sub.add_parser("export", help="Export accepted entries as fine-tuning dataset")
+    p_oracle_export.add_argument("--output", default=None, help="Output path (default: ~/.perseus/daedalus_dataset.jsonl)")
+    p_oracle_export.add_argument("--format", default="jsonl", choices=["jsonl", "alpaca"], help="Output format")
+
     args = parser.parse_args()
     cfg = load_config()
 
@@ -2873,6 +3669,12 @@ def main():
         cmd_suggest(args, cfg)
     elif args.command == "memory":
         cmd_memory(args, cfg)
+    elif args.command == "systemd":
+        cmd_systemd(args, cfg)
+    elif args.command == "health":
+        cmd_health(args, cfg)
+    elif args.command == "oracle":
+        cmd_oracle(args, cfg)
     elif args.command == "init":
         cmd_init(args, cfg)
     elif args.command == "launchd":

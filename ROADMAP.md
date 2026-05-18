@@ -41,8 +41,9 @@ checkpoints feed it.
 | **Renderer** | Resolves `@directive` blocks in `.md` files before context window | ✅ Complete |
 | **Checkpoints** | Lightweight explicit session recovery snapshots | ✅ Complete |
 | **Pythia** | Tool oracle — ranks approaches given task + live env | ✅ Complete |
-| **Agora** | Async agent coordination substrate — task queue + `@agora` directive | 🔲 Phase 5 |
-| **Daedalus** | Local autonomous scoring model — Pythia without a round-trip | 🔲 Phase 6 |
+| **Agora** | Async agent coordination substrate — task queue + `@agora` directive | ✅ Phase 5C |
+| **Health** | Deterministic context maintenance heuristics — `perseus health` + `@health` directive (Daedalus v1) | ✅ Phase 5E |
+| **Daedalus** | Local autonomous scoring model — Pythia without a round-trip (dataset + routing shipped; model training is a user step) | ✅ Phase 6 |
 | **Mnēmē** | Narrative project memory — distills checkpoints + oracle log into a per-workspace narrative | ✅ Phase 7 |
 
 ---
@@ -80,15 +81,14 @@ checkpoints feed it.
 | `@if/@else/@endif` | ✅ | file.exists/missing, env.set/unset/eq/neq |
 | `@include <file>` | ✅ | md embedded raw; structured files fenced |
 | `@cache session/ttl=N` | ✅ | Two-level cache: in-memory (session) + disk (TTL) |
-| `@cache persist` | 🔲 | Disk-backed cache surviving across sessions — task-09 |
-| `@cache mock` | 🔲 | Static mock value; bypasses execution — task-09 |
+| `@cache persist` | ✅ | Disk-backed cache; TTL via `render.persist_cache_ttl_s` (task-09) |
+| `@cache mock[="value"]` | ✅ | Bypasses execution entirely — substitutes literal value (task-09) |
 | `@constraint...@end` | ✅ | Block directive; renders as table at doc end |
 | `@agora [status=open]` | ✅ | Live task board from tasks/ directory |
 | `@memory [focus=...] [ttl=N]` | ✅ | Inline Mnēmē narrative or single focus section — Phase 7 |
-| `@list` | 🔲 | Directory listing or structured-file table — task-08 |
-| `@tree` | 🔲 | Filtered directory tree — task-08 |
-| `@health` | 🔲 | Inline context maintenance suggestions — task-05 |
-| `@memory` | 🔲 | Narrative project memory — task-12 |
+| `@list <path> [type] [depth] [path] [columns] [as]` | ✅ | Directory listing OR structured-file table from JSON/YAML (task-08) |
+| `@tree <path> [depth] [match] [exclude]` | ✅ | Filtered directory tree (task-08) |
+| `@health` | ✅ | Inline context maintenance suggestions (task-05) |
 
 ### Files
 
@@ -292,7 +292,7 @@ Hermes, Rovo Dev, Claude Code, Cursor, and generic assistants.
 
 ---
 
-### Phase 6 — Daedalus ← PLANNED
+### Phase 6 — Daedalus ← COMPLETE ✅
 
 **Daedalus** is the local autonomous scoring model that powers Pythia without any external
 round-trip. Named for the master craftsman who built autonomous mechanical intelligences —
@@ -320,6 +320,28 @@ better Daedalus's recommendations become.
 
 **Design constraint:** Daedalus is a model you run, not a service you call. It must work
 offline. The implementation stays inside `perseus.py` — Daedalus is not a separate daemon.
+
+**Implementation note (2026-05-18):** The Perseus side of Daedalus shipped in task-06.
+`perseus oracle accept/reject/log/export` and `--llm daedalus` provider routing are live.
+The model itself is a user step — fine-tune your chosen small model on the exported
+dataset and push to Ollama under the `llm.daedalus_model` name (default `perseus-daedalus`).
+
+---
+
+### Phase 5C — Context Health (Daedalus v1) ← COMPLETE ✅
+
+Independent of the trained Daedalus model, task-05 shipped **deterministic context
+maintenance heuristics** as the first Daedalus-shaped workflow:
+
+- `perseus health [--workspace]` — markdown maintenance report (stdout)
+- `@health` directive — embeds the same report inline
+- Heuristics: stale checkpoints, near-duplicate checkpoint windows, large `.perseus/context.md`,
+  old completed Agora tasks
+- Configurable thresholds under the `health:` config block
+- Read-only — never modifies files
+
+The naming is intentional: this is the maintenance layer. The trained scoring model in
+Phase 6 is the autonomous version.
 
 ---
 
@@ -373,10 +395,78 @@ Spec backfill:    task-07 (multi-workspace namespacing)
                   task-11 (linux systemd scaffolding)
                   task-13 (@if query)
                   task-14 (@query fallback)
-Phase 5C (next):  task-05 context health + @health directive
-Phase 6 (later):  task-06 Daedalus — local scoring model, dataset curation, cross-session learning
+Phase 5C (done):  task-05 context health + @health directive
+Phase 5D (done):  task-08/09/10/11 — @list/@tree, @cache persist/mock, suggest UX flags, systemd
+Phase 5A.2 (done):task-07 — multi-workspace checkpoint namespacing
+Phase 6 (done):   task-06 Daedalus — dataset curation (oracle accept/reject/log/export) + --llm daedalus routing
 Phase 7 (done):   task-12 Mnēmē — narrative project memory, @memory directive, auto-update on checkpoint
 ```
+
+---
+
+### Phase 8 — Live Agent Orchestration ← PLANNED (next major arc)
+
+With single-file, single-machine context resolved end-to-end, the next arc is
+multi-agent and multi-source. Sketches only; tasks will land in `tasks/` when
+the design is locked.
+
+**P8.1 — `@agent` directive: embed another agent's output**  
+A way for one rendered context file to invoke another (local) agent and embed
+its response. The first concrete use case: render a Pythia recommendation
+inline in a `.perseus/context.md`. Generalizable to any subprocess that emits
+markdown.
+
+**P8.2 — Cross-workspace narrative**  
+Mnēmē today is per-workspace. Many users run multiple workspaces that share an
+arc (e.g. monorepo + adjacent infra repo). A `memory.federation` config block
+that pulls narrative slices from related workspaces into a unified view.
+
+**P8.3 — Live agent inbox**  
+A new `inbox/` store, parallel to checkpoints, where one Perseus instance can
+write a message addressed to another instance (or itself in a later session).
+Adds the missing direction to Agora's coordination story (Agora is a task
+board; inbox is a comms layer).
+
+**P8.4 — Template gallery**  
+A `templates/` directory at repo root with starter `.perseus/context.md` files
+per assistant: Hermes, Rovo Dev, Claude Code, Cursor, generic. `perseus init
+--template <name>` picks one. Reduces the per-workspace setup cost from
+"author a context file" to "fill in three placeholders."
+
+**P8.5 — Web view (read-only)**  
+A `perseus serve` command that serves the rendered narrative + health +
+checkpoint state over HTTP for browser viewing. No write surface — observation
+only. Useful for sharing project state in code reviews and standups.
+
+---
+
+### Phase 9 — Daedalus v2: Closed-loop autonomy ← FUTURE
+
+Once Daedalus has accumulated enough labeled training data to be useful:
+
+**P9.1 — Self-rating loop**  
+After Pythia recommends X and the user picks X (or a tool that overlaps with
+X), automatically increment a confidence signal in the oracle log. Manual
+accept/reject becomes the exception, not the rule.
+
+**P9.2 — Trained pattern extraction in Mnēmē**  
+Replace the rule-based pattern-extractor in Mnēmē's "Patterns & Anti-patterns"
+section with a Daedalus inference call. Better signal-to-noise for projects
+with hundreds of oracle log entries.
+
+**P9.3 — Drift detection**  
+When Daedalus's confidence on recent recommendations starts diverging from
+historical confidence, surface a notice: "Recent recommendations have low
+confidence — Daedalus may benefit from re-training on the most recent dataset
+export."
+
+---
+
+### Phase 10 — Editor integration ← FUTURE
+
+A minimal LSP/extension that surfaces Perseus directives in editor (hover to
+preview rendered output, jump to source, run `perseus render` on save).
+Probably starts as a VSCode extension because that's where most users live.
 
 ---
 
