@@ -89,6 +89,8 @@ checkpoints feed it.
 | `@list <path> [type] [depth] [path] [columns] [as]` | ✅ | Directory listing OR structured-file table from JSON/YAML (task-08) |
 | `@tree <path> [depth] [match] [exclude]` | ✅ | Filtered directory tree (task-08) |
 | `@health` | ✅ | Inline context maintenance suggestions (task-05) |
+| `@agent "cmd" [timeout=N] [strip] [fallback]` | ✅ | Run a local subprocess, embed stdout inline (task-15) |
+| `@inbox [unread=true] [limit=N]` | ✅ | Render pending point-to-point messages (task-16) |
 
 ### Files
 
@@ -400,43 +402,47 @@ Phase 5D (done):  task-08/09/10/11 — @list/@tree, @cache persist/mock, suggest
 Phase 5A.2 (done):task-07 — multi-workspace checkpoint namespacing
 Phase 6 (done):   task-06 Daedalus — dataset curation (oracle accept/reject/log/export) + --llm daedalus routing
 Phase 7 (done):   task-12 Mnēmē — narrative project memory, @memory directive, auto-update on checkpoint
+Phase 8 (done):   task-15/16/17/18 — @agent, @inbox, template gallery, perseus serve, perseus cron
+Phase 8.2 (deferred): cross-workspace Mnēmē federation — design needs clarification
 ```
 
 ---
 
-### Phase 8 — Live Agent Orchestration ← PLANNED (next major arc)
+### Phase 8 — Live Agent Orchestration ← MOSTLY COMPLETE ✅
 
-With single-file, single-machine context resolved end-to-end, the next arc is
-multi-agent and multi-source. Sketches only; tasks will land in `tasks/` when
-the design is locked.
+With single-file, single-machine context resolved end-to-end, this arc adds
+multi-agent message passing, a template gallery, and a read-only HTTP view.
 
-**P8.1 — `@agent` directive: embed another agent's output**  
-A way for one rendered context file to invoke another (local) agent and embed
-its response. The first concrete use case: render a Pythia recommendation
-inline in a `.perseus/context.md`. Generalizable to any subprocess that emits
-markdown.
+**P8.1 — `@agent` directive ← COMPLETE ✅** (task-15)  
+`@agent "cmd" [timeout=N] [strip=true] [fallback="text"]` — runs a local
+subprocess and embeds its stdout inline. Gated by `render.allow_agent_shell`.
+Composes with the existing `@cache` modifier (including `persist` and `mock`).
 
-**P8.2 — Cross-workspace narrative**  
-Mnēmē today is per-workspace. Many users run multiple workspaces that share an
-arc (e.g. monorepo + adjacent infra repo). A `memory.federation` config block
-that pulls narrative slices from related workspaces into a unified view.
+**P8.2 — Cross-workspace narrative ← DEFERRED**  
+Federation design needs use-case clarification (which workspaces feed which?
+how is conflict resolved?). Not blocking anything else.
 
-**P8.3 — Live agent inbox**  
-A new `inbox/` store, parallel to checkpoints, where one Perseus instance can
-write a message addressed to another instance (or itself in a later session).
-Adds the missing direction to Agora's coordination story (Agora is a task
-board; inbox is a comms layer).
+**P8.3 — Agent inbox ← COMPLETE ✅** (task-16)  
+Per-workspace inbox store at `~/.perseus/inbox/<workspace-hash>/`. CLI:
+`perseus inbox send|list|read|dismiss`. Directive: `@inbox [unread=true] [limit=N]`.
+Adds the comms layer that Agora's task-board model was missing.
 
-**P8.4 — Template gallery**  
-A `templates/` directory at repo root with starter `.perseus/context.md` files
-per assistant: Hermes, Rovo Dev, Claude Code, Cursor, generic. `perseus init
---template <name>` picks one. Reduces the per-workspace setup cost from
-"author a context file" to "fill in three placeholders."
+**P8.4 — Template gallery ← COMPLETE ✅** (task-17)  
+`templates/{generic,hermes,rovodev,claude-code,cursor}/.perseus/context.md`
+shipped. `perseus init --template <name>` + `perseus init --list-templates`.
+Discovery: `$PERSEUS_TEMPLATE_DIR` → `<dir-of-perseus.py>/templates/` →
+embedded stub.
 
-**P8.5 — Web view (read-only)**  
-A `perseus serve` command that serves the rendered narrative + health +
-checkpoint state over HTTP for browser viewing. No write surface — observation
-only. Useful for sharing project state in code reviews and standups.
+**P8.5 — `perseus serve` ← COMPLETE ✅** (task-18)  
+Stdlib `http.server` view, read-only. Endpoints: `/`, `/context`, `/narrative`,
+`/health`, `/agora`, `/checkpoint/latest`, `/oracle/log`. POST returns 405.
+Default bind: `127.0.0.1`.
+
+**Bonus — `perseus cron` ← COMPLETE ✅** (Phase 8 add-on)  
+Cross-platform crontab scaffolder. Works on macOS, Linux, BSD — anywhere cron
+is available. Recommended over the OS-specific launchd/systemd wrappers when
+portability matters. `--install` mutates the user's crontab via
+`crontab -l | edit | crontab -`.
 
 ---
 

@@ -108,12 +108,19 @@ memory:                                  # task-12 (Mnēmē)
   llm_model: null
   max_narrative_lines: 300
 
+inbox:                           # task-16 (Phase 8)
+  store: ~/.perseus/inbox
+  default_recipient: anyone
+  default_sender: perseus
+
 assistant:                               # task-01 (legacy `hermes:` migrated here)
   sessions_dir: ~/.hermes/sessions
 ```
 
-Render block also accepts `persist_cache_ttl_s: 3600` (task-09 — TTL for
-`@cache persist`; default shown).
+Render block also accepts:
+
+- `persist_cache_ttl_s: 3600` (task-09 — TTL for `@cache persist`)
+- `allow_agent_shell: true` (task-15 — gates `@agent` execution; mirrors `allow_query_shell`)
 
 ---
 
