@@ -72,6 +72,15 @@ DEFAULT_CONFIG = {
     "agora": {
         "tasks_dir": "tasks",
     },
+    "memory": {
+        "store": str(PERSEUS_HOME / "memory"),
+        "recent_keep": 5,           # raw checkpoints to include in Recent Activity
+        "auto_update": True,        # update narrative on every checkpoint write
+        "compact_threshold": 20,    # advisory: compact after this many incremental updates
+        "llm_provider": None,       # None = deterministic; "ollama" / "openai-compat" enables LLM
+        "llm_model": None,          # inherits from llm: block if None
+        "max_narrative_lines": 300, # warn (not error) if narrative grows beyond this
+    },
 }
 
 
@@ -1199,7 +1208,7 @@ CONSTRAINT_RE = re.compile(r'^@constraint\s+(.+)$', re.IGNORECASE)
 CONSTRAINT_END_RE = re.compile(r'^@end\s*$', re.IGNORECASE)
 
 INLINE_DIRECTIVE_RE = re.compile(
-    r'^(@query|@skills|@session|@date|@waypoint|@read|@env|@include|@prompt)(\s+.*)?$',
+    r'^(@query|@skills|@session|@date|@waypoint|@read|@env|@include|@prompt|@agora|@memory)(\s+.*)?$',
     re.IGNORECASE,
 )
 
@@ -1341,6 +1350,13 @@ def _render_lines(
             directive = m.group(1).lower()
             raw_args = (m.group(2) or "").strip()
 
+            # @memory ttl=N → syntactic sugar for @cache ttl=N
+            if directive == "@memory" and "@cache" not in raw_args.lower():
+                m_ttl = re.search(r'\bttl=(\d+)\b', raw_args, re.IGNORECASE)
+                if m_ttl:
+                    raw_args = (raw_args[:m_ttl.start()] + raw_args[m_ttl.end():]).strip()
+                    raw_args = f"{raw_args} @cache ttl={m_ttl.group(1)}".strip()
+
             # Strip @cache modifier from args; determine cache mode
             clean_args, cache_mode, cache_ttl = _parse_cache_modifier(raw_args)
 
@@ -1373,6 +1389,8 @@ def _render_lines(
                 result = resolve_include(clean_args, workspace, cfg)
             elif directive == "@agora":
                 result = resolve_agora(clean_args, cfg, workspace)
+            elif directive == "@memory":
+                result = resolve_memory(clean_args, cfg, workspace)
             else:
                 result = line
 
@@ -1418,6 +1436,643 @@ def render_source(
         return source_text  # not a perseus doc; pass through unchanged
 
     return _render_lines(lines[1:], cfg, workspace)  # skip @perseus header line
+
+
+# ─────────────────────────────── Mnēmē Memory ────────────────────────────────
+#
+# Mnēmē — narrative project memory. Distills checkpoints + oracle log into a
+# per-workspace narrative file at ~/.perseus/memory/<workspace-hash>.md.
+#
+# Two modes:
+#   - Deterministic (default): rule-based extraction; no LLM needed.
+#   - LLM-assisted: opt-in via memory.llm_provider; routed through run_llm().
+#
+# Narrative file format: standard markdown with YAML frontmatter.
+#
+# Public surface: cmd_memory dispatch + resolve_memory directive handler.
+
+_MEMORY_SECTION_HEADINGS = ["Project Arc", "Key Decisions", "Task History",
+                            "Patterns & Anti-patterns", "Recent Activity"]
+
+_DECISION_KEYWORDS = [
+    "renamed", "rejected", "switched", "decided", "constraint",
+    "must not", "never", "always", "chose", "replaced",
+]
+
+
+def _workspace_hash(workspace: Path) -> str:
+    """12-char sha256 hex digest of the resolved workspace path.
+
+    Stable for the same path across sessions. Shared with task-07
+    (multi-workspace checkpoint namespacing) if/when that lands.
+    """
+    return hashlib.sha256(str(workspace.resolve()).encode()).hexdigest()[:12]
+
+
+def _mneme_path(workspace: Path, cfg: dict) -> Path:
+    """Return the per-workspace narrative file path."""
+    store = Path(cfg.get("memory", {}).get("store", str(PERSEUS_HOME / "memory")))
+    return store / f"{_workspace_hash(workspace)}.md"
+
+
+def _load_narrative(path: Path) -> tuple[dict, str]:
+    """Load (frontmatter_dict, body_str). Missing file → ({}, '')."""
+    if not path.exists():
+        return {}, ""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except Exception:
+        return {}, ""
+    fm, body = _parse_frontmatter(text)
+    # If parser didn't see frontmatter, treat the whole file as body
+    if not fm:
+        return {}, text
+    return fm, body
+
+
+def _save_narrative(path: Path, frontmatter: dict, body: str) -> None:
+    """Atomically write the narrative file (temp + rename)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fm_yaml = yaml.safe_dump(frontmatter, default_flow_style=False, allow_unicode=True, sort_keys=False).strip()
+    payload = f"---\n{fm_yaml}\n---\n\n{body.rstrip()}\n"
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(payload, encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def _mneme_default_frontmatter(workspace: Path) -> dict:
+    return {
+        "schema": 1,
+        "workspace": str(workspace),
+        "workspace_hash": _workspace_hash(workspace),
+        "updated": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "checkpoints_processed": 0,
+        "oracle_entries_processed": 0,
+        "compaction_count": 0,
+        "last_compaction_at_update": 0,
+    }
+
+
+def _read_all_oracle_entries() -> list[dict]:
+    """Load every JSONL entry from ~/.perseus/oracle_log.jsonl in order."""
+    log_path = PERSEUS_HOME / "oracle_log.jsonl"
+    if not log_path.exists():
+        return []
+    entries: list[dict] = []
+    try:
+        with log_path.open("r", encoding="utf-8") as f:
+            for raw in f:
+                line = raw.strip()
+                if not line:
+                    continue
+                try:
+                    entries.append(json.loads(line))
+                except Exception:
+                    continue
+    except Exception:
+        return []
+    return entries
+
+
+def _short_date(iso_ts: str | None) -> str:
+    if not iso_ts:
+        return "????-??-??"
+    try:
+        return datetime.fromisoformat(iso_ts).strftime("%Y-%m-%d")
+    except Exception:
+        return str(iso_ts)[:10]
+
+
+def _split_sentences(text: str) -> list[str]:
+    if not text:
+        return []
+    parts = re.split(r'(?<=[\.!?])\s+', text.strip())
+    return [p.strip() for p in parts if p.strip()]
+
+
+def _extract_section(body: str, heading: str) -> str:
+    """Slice the named `## heading` section from the narrative body.
+
+    Heading-to-heading: returns lines from `## heading` (inclusive) up to the
+    next `## ` line or EOF. Returns '' if heading is not found.
+    """
+    pattern = re.compile(rf'^##\s+{re.escape(heading)}\s*$', re.MULTILINE)
+    m = pattern.search(body)
+    if not m:
+        return ""
+    start = m.start()
+    next_m = re.search(r'^##\s+', body[m.end():], re.MULTILINE)
+    if not next_m:
+        return body[start:].rstrip() + "\n"
+    return body[start:m.end() + next_m.start()].rstrip() + "\n"
+
+
+def _deterministic_narrative(
+    checkpoints: list[dict],
+    oracle_entries: list[dict],
+    existing_body: str,
+    workspace: Path,
+    cfg: dict,
+) -> str:
+    """Build a full narrative body from sources, deterministically.
+
+    When called from compact, existing_body is "". When called from update,
+    existing_body contains the current narrative; we still rebuild the
+    standard sections from cumulative inputs (caller passes ALL checkpoints
+    and ALL oracle entries when doing a deterministic update so the result
+    is consistent rather than additively drifting).
+    """
+    recent_keep = int(cfg.get("memory", {}).get("recent_keep", 5))
+
+    # ── Project Arc ────────────────────────────────────────────────────────
+    n_cp = len(checkpoints)
+    if n_cp:
+        first_d = _short_date(checkpoints[0].get("written"))
+        last_d = _short_date(checkpoints[-1].get("written"))
+        if first_d == last_d:
+            span = first_d
+        else:
+            span = f"{first_d} → {last_d}"
+        arc_s1 = f"Project at {workspace} — {n_cp} checkpoints recorded over {span}."
+        last_task = checkpoints[-1].get("task", "(unknown)")
+        arc_s2 = f"Most recently: {last_task}"
+    else:
+        arc_s1 = f"Project at {workspace} — no checkpoints yet."
+        arc_s2 = "Most recently: (none)"
+
+    arc_section = "## Project Arc\n\n" + arc_s1 + " " + arc_s2 + "\n"
+
+    # ── Key Decisions ──────────────────────────────────────────────────────
+    decisions: list[tuple[str, str]] = []  # (date, sentence)
+    seen: set[str] = set()
+    for cp in checkpoints:
+        notes = cp.get("notes") or ""
+        date = _short_date(cp.get("written"))
+        for sentence in _split_sentences(str(notes)):
+            lower = sentence.lower()
+            if any(kw in lower for kw in _DECISION_KEYWORDS):
+                norm = " ".join(lower.split())
+                if norm in seen:
+                    continue
+                seen.add(norm)
+                decisions.append((date, sentence))
+    if decisions:
+        decisions_body = "\n".join(f"- **{d}** — {s}" for d, s in decisions)
+    else:
+        decisions_body = "_No decisions extracted yet._"
+    decisions_section = "## Key Decisions\n\n" + decisions_body + "\n"
+
+    # ── Task History ───────────────────────────────────────────────────────
+    by_task: dict[str, dict] = {}
+    for cp in checkpoints:
+        task = cp.get("task") or "(unknown)"
+        entry = by_task.setdefault(task, {"first": cp.get("written"), "last_status": ""})
+        if cp.get("status"):
+            entry["last_status"] = cp["status"]
+    if by_task:
+        rows = ["| Date | Task | Outcome |", "|---|---|---|"]
+        for task, info in by_task.items():
+            rows.append(f"| {_short_date(info['first'])} | {task} | {info['last_status'] or '_in progress_'} |")
+        history_body = "\n".join(rows)
+    else:
+        history_body = "_No task history yet._"
+    history_section = "## Task History\n\n" + history_body + "\n"
+
+    # ── Patterns & Anti-patterns ───────────────────────────────────────────
+    accepted = [e for e in oracle_entries if e.get("accepted") is True]
+    bucket: dict[str, dict] = {}
+    known_prefixes = ("skill:", "web_", "terminal", "delegate", "cron")
+    for entry in accepted:
+        resp = str(entry.get("response", "") or "").strip()
+        if not resp:
+            continue
+        first_token = resp.split()[0] if resp.split() else ""
+        # Try to match a known prefix
+        tool = None
+        for pref in known_prefixes:
+            if first_token.lower().startswith(pref):
+                tool = first_token
+                break
+        if not tool:
+            continue
+        b = bucket.setdefault(tool, {"count": 0, "last": ""})
+        b["count"] += 1
+        ts = entry.get("timestamp") or ""
+        if ts > b["last"]:
+            b["last"] = ts
+    if bucket:
+        patterns_lines = []
+        for tool, info in sorted(bucket.items(), key=lambda kv: -kv[1]["count"]):
+            patterns_lines.append(
+                f"- **{tool}** — used {info['count']} times (last: {_short_date(info['last'])})"
+            )
+        patterns_body = "\n".join(patterns_lines)
+    else:
+        patterns_body = "_No accepted oracle patterns yet._"
+    patterns_section = "## Patterns & Anti-patterns\n\n" + patterns_body + "\n"
+
+    # ── Recent Activity ────────────────────────────────────────────────────
+    recent_lines = []
+    for cp in checkpoints[-recent_keep:][::-1]:
+        ts = cp.get("written", "")
+        # Short-form date like 2026-05-18T1432
+        try:
+            short_ts = datetime.fromisoformat(ts).strftime("%Y-%m-%dT%H%M")
+        except Exception:
+            short_ts = ts
+        task = cp.get("task", "(unknown)")
+        recent_lines.append(f"### {short_ts} — {task}")
+        if cp.get("status"):
+            recent_lines.append(f"- **Status:** {cp['status']}")
+        if cp.get("next"):
+            recent_lines.append(f"- **Next:** {cp['next']}")
+        if cp.get("notes"):
+            recent_lines.append(f"- **Notes:** {cp['notes']}")
+        recent_lines.append("")
+    if recent_lines:
+        recent_body = "\n".join(recent_lines).rstrip()
+    else:
+        recent_body = "_No recent activity._"
+    recent_section = "## Recent Activity\n\n" + recent_body + "\n"
+
+    # ── Compose ────────────────────────────────────────────────────────────
+    title = f"# Mnēmē — {workspace}\n"
+    now_h = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z").strip()
+    preamble = (
+        f"> Narrative last updated {now_h}.\n"
+        f"> Source: {len(checkpoints)} checkpoints, {len(oracle_entries)} oracle entries.\n"
+        f"> Run `perseus memory compact` for a full re-distillation.\n"
+    )
+
+    return "\n".join([
+        title,
+        preamble,
+        arc_section,
+        decisions_section,
+        history_section,
+        patterns_section,
+        recent_section,
+    ]).rstrip() + "\n"
+
+
+# ── LLM-assisted paths (opt-in) ───────────────────────────────────────────────
+
+def _truncate_oracle_for_llm(entries: list[dict]) -> list[dict]:
+    return [
+        {"task": e.get("task"), "accepted": e.get("accepted"), "timestamp": e.get("timestamp")}
+        for e in entries
+    ]
+
+
+def _mneme_update_llm(
+    existing_body: str,
+    frontmatter: dict,
+    new_checkpoints: list[dict],
+    new_oracle_entries: list[dict],
+    cfg: dict,
+    provider: str,
+) -> str:
+    """LLM-assisted incremental update. Returns updated narrative body."""
+    recent_keep = int(cfg.get("memory", {}).get("recent_keep", 5))
+    truncated = _truncate_oracle_for_llm(new_oracle_entries)
+    cp_yaml = yaml.safe_dump(new_checkpoints, default_flow_style=False, allow_unicode=True, sort_keys=False)
+    oc_json = json.dumps(truncated, ensure_ascii=False, indent=2)
+    body_block = existing_body if existing_body.strip() else "(none — initialize from scratch)"
+    prompt = (
+        "You are Mnēmē, the keeper of project narrative for an AI development workflow.\n\n"
+        "Your job: update a structured project narrative by incorporating new activity.\n"
+        "Preserve all existing content unless it directly contradicts new information.\n"
+        "Do not invent content. Do not pad. Be terse and factual.\n\n"
+        f"EXISTING NARRATIVE:\n{body_block}\n\n"
+        f"NEW CHECKPOINTS ({len(new_checkpoints)} since last update):\n{cp_yaml}\n\n"
+        f"NEW ORACLE LOG ENTRIES ({len(new_oracle_entries)} since last update):\n{oc_json}\n\n"
+        "INSTRUCTIONS:\n"
+        "- Update the \"Project Arc\" section if the recent work represents a significant milestone\n"
+        "- Add new entries to \"Key Decisions\" if checkpoint notes contain decision language\n"
+        "- Update \"Task History\" table with any newly completed tasks\n"
+        "- Update \"Patterns & Anti-patterns\" based on accepted oracle entries\n"
+        f"- Rewrite \"Recent Activity\" with the {recent_keep} most recent checkpoints\n"
+        "- Return ONLY the updated markdown body. No preamble. No commentary. Start with \"## Project Arc\".\n"
+    )
+    model = cfg.get("memory", {}).get("llm_model") or cfg.get("llm", {}).get("model")
+    text, code = run_llm(provider, prompt, cfg, model=model)
+    if code != 0:
+        raise RuntimeError(text)
+    return text
+
+
+def _mneme_compact_llm(
+    all_checkpoints: list[dict],
+    all_oracle_entries: list[dict],
+    workspace: Path,
+    cfg: dict,
+    provider: str,
+) -> str:
+    """LLM-assisted full compaction. Returns rebuilt narrative body."""
+    recent_keep = int(cfg.get("memory", {}).get("recent_keep", 5))
+    truncated = _truncate_oracle_for_llm(all_oracle_entries)
+    cp_yaml = yaml.safe_dump(all_checkpoints, default_flow_style=False, allow_unicode=True, sort_keys=False)
+    oc_json = json.dumps(truncated, ensure_ascii=False, indent=2)
+    prompt = (
+        "You are Mnēmē, the keeper of project narrative for an AI development workflow.\n\n"
+        f"Your job: build a structured project narrative from scratch for workspace {workspace}.\n"
+        "Do not invent content. Do not pad. Be terse and factual.\n\n"
+        f"ALL CHECKPOINTS ({len(all_checkpoints)}):\n{cp_yaml}\n\n"
+        f"ALL ORACLE LOG ENTRIES ({len(all_oracle_entries)}):\n{oc_json}\n\n"
+        "INSTRUCTIONS:\n"
+        "- Produce the sections: Project Arc, Key Decisions, Task History, "
+        "Patterns & Anti-patterns, Recent Activity\n"
+        f"- Recent Activity should contain the {recent_keep} most recent checkpoints verbatim\n"
+        "- Return ONLY the markdown body. No preamble. No commentary. Start with \"## Project Arc\".\n"
+    )
+    model = cfg.get("memory", {}).get("llm_model") or cfg.get("llm", {}).get("model")
+    text, code = run_llm(provider, prompt, cfg, model=model)
+    if code != 0:
+        raise RuntimeError(text)
+    return text
+
+
+# ── Command dispatch ──────────────────────────────────────────────────────────
+
+def _memory_workspace(args, cfg) -> Path:
+    raw = getattr(args, "workspace", None)
+    if raw:
+        return Path(raw).expanduser().resolve()
+    return Path.cwd().resolve()
+
+
+def _memory_llm_provider(args, cfg) -> str | None:
+    """Resolve effective llm provider for this call. None == deterministic."""
+    flag = getattr(args, "llm", None)
+    if flag:
+        return str(flag).strip().lower() or None
+    cfg_provider = cfg.get("memory", {}).get("llm_provider")
+    if cfg_provider:
+        return str(cfg_provider).strip().lower() or None
+    return None
+
+
+def _memory_do_update(workspace: Path, cfg: dict, provider: str | None) -> tuple[bool, str]:
+    """Core incremental update routine.
+
+    Returns (changed, message). On `changed=False`, message is "Nothing new...".
+    On error, raises.
+    """
+    cp_files = _list_checkpoint_files(cfg)
+    # _list_checkpoint_files returns reverse-chrono; sort filename-asc for hwm
+    cp_files = sorted(cp_files, key=lambda f: f.name)
+    all_checkpoints: list[dict] = []
+    for fp in cp_files:
+        cp = _load_checkpoint_file(fp)
+        if cp:
+            all_checkpoints.append(cp)
+    all_oracle = _read_all_oracle_entries()
+
+    mp = _mneme_path(workspace, cfg)
+    fm, body = _load_narrative(mp)
+    if not fm:
+        fm = _mneme_default_frontmatter(workspace)
+        body = ""
+
+    cp_hwm = int(fm.get("checkpoints_processed", 0))
+    or_hwm = int(fm.get("oracle_entries_processed", 0))
+    new_cp = all_checkpoints[cp_hwm:]
+    new_or = all_oracle[or_hwm:]
+
+    # No new data and we already have a body? Nothing to do.
+    if not new_cp and not new_or and body.strip():
+        return (False, "Nothing new since last update.")
+
+    if provider:
+        new_body = _mneme_update_llm(body, fm, new_cp, new_or, cfg, provider)
+    else:
+        new_body = _deterministic_narrative(all_checkpoints, all_oracle, body, workspace, cfg)
+
+    fm["checkpoints_processed"] = len(all_checkpoints)
+    fm["oracle_entries_processed"] = len(all_oracle)
+    fm["updated"] = datetime.now().astimezone().isoformat(timespec="seconds")
+    fm["workspace"] = str(workspace)
+    fm["workspace_hash"] = _workspace_hash(workspace)
+    fm.setdefault("schema", 1)
+    fm.setdefault("compaction_count", 0)
+    fm.setdefault("last_compaction_at_update", 0)
+
+    _save_narrative(mp, fm, new_body)
+    return (True, f"Updated {mp} (+{len(new_cp)} checkpoints, +{len(new_or)} oracle entries)")
+
+
+def _memory_do_compact(workspace: Path, cfg: dict, provider: str | None) -> str:
+    cp_files = sorted(_list_checkpoint_files(cfg), key=lambda f: f.name)
+    all_checkpoints: list[dict] = []
+    for fp in cp_files:
+        cp = _load_checkpoint_file(fp)
+        if cp:
+            all_checkpoints.append(cp)
+    all_oracle = _read_all_oracle_entries()
+
+    mp = _mneme_path(workspace, cfg)
+    fm, _ = _load_narrative(mp)
+    if not fm:
+        fm = _mneme_default_frontmatter(workspace)
+
+    if provider:
+        new_body = _mneme_compact_llm(all_checkpoints, all_oracle, workspace, cfg, provider)
+    else:
+        new_body = _deterministic_narrative(all_checkpoints, all_oracle, "", workspace, cfg)
+
+    fm["checkpoints_processed"] = len(all_checkpoints)
+    fm["oracle_entries_processed"] = len(all_oracle)
+    fm["compaction_count"] = int(fm.get("compaction_count", 0)) + 1
+    fm["last_compaction_at_update"] = fm["compaction_count"]
+    fm["updated"] = datetime.now().astimezone().isoformat(timespec="seconds")
+    fm["workspace"] = str(workspace)
+    fm["workspace_hash"] = _workspace_hash(workspace)
+    fm.setdefault("schema", 1)
+
+    _save_narrative(mp, fm, new_body)
+    return f"Compacted {mp} ({len(all_checkpoints)} checkpoints, {len(all_oracle)} oracle entries)"
+
+
+def cmd_memory_update_silent(workspace: Path, cfg: dict) -> None:
+    """Silent side-effect for cmd_checkpoint. Never raises."""
+    try:
+        provider = None
+        cfg_provider = cfg.get("memory", {}).get("llm_provider")
+        if cfg_provider:
+            provider = str(cfg_provider).strip().lower() or None
+        _memory_do_update(workspace, cfg, provider)
+    except Exception as exc:
+        print(f"> ⚠ Mnēmē update failed: {exc}")
+
+
+def cmd_memory(args, cfg):
+    sub = getattr(args, "memory_command", None)
+    workspace = _memory_workspace(args, cfg)
+
+    if sub == "update":
+        provider = _memory_llm_provider(args, cfg)
+        changed, msg = _memory_do_update(workspace, cfg, provider)
+        print(msg)
+        if changed:
+            mp = _mneme_path(workspace, cfg)
+            fm, body = _load_narrative(mp)
+            threshold = int(cfg.get("memory", {}).get("compact_threshold", 20))
+            cp_processed = int(fm.get("checkpoints_processed", 0))
+            last_compact_cp = int(fm.get("last_compaction_at_update", 0)) * 0  # legacy slot
+            updates_since = cp_processed - int(fm.get("last_compact_processed", 0))
+            # Advisory based on uncompacted growth
+            if threshold and updates_since >= threshold:
+                print(
+                    f"> 💡 Narrative has {updates_since} incremental updates since last compaction. "
+                    "Consider running `perseus memory compact`."
+                )
+            max_lines = int(cfg.get("memory", {}).get("max_narrative_lines", 300))
+            line_count = body.count("\n") + (1 if body and not body.endswith("\n") else 0)
+            if max_lines and line_count > max_lines:
+                print(f"> ⚠ Narrative is {line_count} lines (max={max_lines}); compact recommended.")
+        return
+
+    if sub == "compact":
+        provider = _memory_llm_provider(args, cfg)
+        msg = _memory_do_compact(workspace, cfg, provider)
+        # Record last_compact_processed so future advisory math works
+        mp = _mneme_path(workspace, cfg)
+        fm, body = _load_narrative(mp)
+        fm["last_compact_processed"] = int(fm.get("checkpoints_processed", 0))
+        _save_narrative(mp, fm, body)
+        print(msg)
+        return
+
+    if sub == "show":
+        mp = _mneme_path(workspace, cfg)
+        if not mp.exists():
+            print(f"> ⚠ No Mnēmē narrative found for {workspace}.")
+            print("> Run `perseus memory update` to initialize.")
+            return
+        print(mp.read_text(encoding="utf-8"))
+        return
+
+    if sub == "status":
+        mp = _mneme_path(workspace, cfg)
+        if not mp.exists():
+            print(f"Mnēmē — {workspace}")
+            print("  No narrative file yet. Run `perseus memory update` to initialize.")
+            return
+        fm, body = _load_narrative(mp)
+        all_cp = _list_checkpoint_files(cfg)
+        all_or = _read_all_oracle_entries()
+        cp_hwm = int(fm.get("checkpoints_processed", 0))
+        or_hwm = int(fm.get("oracle_entries_processed", 0))
+        cp_pending = max(0, len(all_cp) - cp_hwm)
+        or_pending = max(0, len(all_or) - or_hwm)
+        line_count = body.count("\n") + (1 if body and not body.endswith("\n") else 0)
+        mode = "LLM (" + str(cfg.get("memory", {}).get("llm_provider")) + ")" if cfg.get("memory", {}).get("llm_provider") else "deterministic"
+        updated = fm.get("updated", "(unknown)")
+        age = _human_age(updated) if isinstance(updated, str) else "(unknown)"
+        print(f"Mnēmē — {workspace}")
+        print(f"  Updated:     {updated} ({age})")
+        print(f"  Checkpoints: {cp_hwm} processed ({cp_pending} pending)")
+        print(f"  Oracle log:  {or_hwm} entries processed ({or_pending} pending)")
+        print(f"  Compactions: {fm.get('compaction_count', 0)}")
+        print(f"  Size:        {line_count} lines")
+        print(f"  Mode:        {mode}")
+        if mode == "deterministic":
+            print("               (set memory.llm_provider to enable LLM distillation)")
+        return
+
+    if sub == "query":
+        question = getattr(args, "question", "") or ""
+        mp = _mneme_path(workspace, cfg)
+        if not mp.exists():
+            print(f"> ⚠ No Mnēmē narrative found for {workspace}.")
+            print("> Run `perseus memory update` to initialize.")
+            return
+        fm, body = _load_narrative(mp)
+        provider = _memory_llm_provider(args, cfg)
+        if provider:
+            prompt = (
+                "You are Mnēmē. Answer the user's question about this project, citing "
+                "only the narrative below. If the narrative does not contain the answer, "
+                "say so plainly.\n\n"
+                f"NARRATIVE:\n{body}\n\nQUESTION: {question}\n"
+            )
+            model = cfg.get("memory", {}).get("llm_model") or cfg.get("llm", {}).get("model")
+            text, code = run_llm(provider, prompt, cfg, model=model)
+            print(text if code == 0 else f"> ⚠ Mnēmē query (LLM) failed: {text}")
+            return
+        # Deterministic grep-style search
+        terms = [t for t in re.split(r'\s+', question.strip()) if t]
+        matches: list[str] = []
+        sections = re.split(r'(?m)^(?=##\s+)', body)
+        for sec in sections:
+            sec_lower = sec.lower()
+            if all(t.lower() in sec_lower for t in terms) if terms else True:
+                matches.append(sec.strip())
+        if not matches:
+            print("> No matching sections in narrative.")
+            return
+        for m_text in matches:
+            print(m_text)
+            print()
+        return
+
+    print(f"> ⚠ Unknown memory subcommand: {sub}")
+
+
+def resolve_memory(args_str: str, cfg: dict, workspace: Path | None = None) -> str:
+    """Render the @memory directive.
+
+    Args:
+      focus="decisions|recent|patterns|arc" → emit only the named section
+      ttl=N → sugar for @cache ttl=N (caller handles by pre-rewriting)
+    """
+    ws = workspace or Path.cwd()
+    mods = _parse_kv_modifiers(args_str)
+    focus = (mods.get("focus") or "").strip().lower()
+
+    mp = _mneme_path(ws, cfg)
+    if not mp.exists():
+        return (
+            "> ⚠ No Mnēmē narrative found for this workspace.\n"
+            "> Run `perseus memory update` to initialize."
+        )
+
+    fm, body = _load_narrative(mp)
+
+    # Staleness check (uses checkpoints.ttl_s as the cadence reference)
+    ttl_s = int(cfg.get("checkpoints", {}).get("ttl_s", 86400))
+    updated = str(fm.get("updated", ""))
+    try:
+        dt = datetime.fromisoformat(updated)
+        age_s = (datetime.now(dt.tzinfo) - dt).total_seconds()
+        if age_s > ttl_s:
+            age_h = _human_age(updated)
+            return (
+                f"> ⚠ Mnēmē narrative is stale (last updated {age_h}).\n"
+                "> Run `perseus memory update` to refresh."
+            )
+    except Exception:
+        pass
+
+    if not focus:
+        return body.rstrip()
+
+    focus_map = {
+        "decisions": "Key Decisions",
+        "recent": "Recent Activity",
+        "patterns": "Patterns & Anti-patterns",
+        "arc": "Project Arc",
+        "tasks": "Task History",
+        "history": "Task History",
+    }
+    heading = focus_map.get(focus)
+    if not heading:
+        return f"> ⚠ Unknown @memory focus={focus!r}. Valid: {', '.join(sorted(focus_map.keys()))}"
+    section = _extract_section(body, heading)
+    if not section.strip():
+        return f"> ⚠ @memory focus={focus!r}: section not found in narrative."
+    return section.rstrip()
+
 
 
 # ──────────────────────────────── Checkpoint ──────────────────────────────────
@@ -1472,6 +2127,12 @@ def cmd_checkpoint(args, cfg):
         print(f"   Status: {cp['status']}")
     if cp.get("next"):
         print(f"   Next:   {cp['next']}")
+
+    # ── Mnēmē auto-update (silent side-effect) ──
+    if bool(cfg.get("memory", {}).get("auto_update", True)):
+        ws_arg = getattr(args, "workspace", "") or ""
+        ws = Path(ws_arg).expanduser().resolve() if ws_arg else Path.cwd().resolve()
+        cmd_memory_update_silent(ws, cfg)
 
 
 def _load_checkpoint_file(fp: Path) -> dict | None:
@@ -2159,6 +2820,24 @@ def main():
     p_suggest.add_argument("--model-url", default=None,
                            help="Override the configured LLM provider URL")
 
+    # memory (Mnēmē)
+    p_mem = sub.add_parser("memory", help="Mnēmē — narrative project memory")
+    mem_sub = p_mem.add_subparsers(dest="memory_command", required=True)
+    p_mem_update = mem_sub.add_parser("update", help="Incrementally update narrative")
+    p_mem_update.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
+    p_mem_update.add_argument("--llm", default=None, help="LLM provider (ollama, openai-compat)")
+    p_mem_compact = mem_sub.add_parser("compact", help="Fully re-distill narrative")
+    p_mem_compact.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
+    p_mem_compact.add_argument("--llm", default=None, help="LLM provider")
+    p_mem_show = mem_sub.add_parser("show", help="Print narrative to stdout")
+    p_mem_show.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
+    p_mem_status = mem_sub.add_parser("status", help="Summarize narrative state")
+    p_mem_status.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
+    p_mem_query = mem_sub.add_parser("query", help="Query narrative (grep or LLM)")
+    p_mem_query.add_argument("question", help="Question or search terms")
+    p_mem_query.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
+    p_mem_query.add_argument("--llm", default=None, help="LLM provider")
+
     # init
     p_init = sub.add_parser("init", help="Scaffold .perseus/context.md for a new workspace")
     p_init.add_argument("workspace", nargs="?", default="",
@@ -2192,6 +2871,8 @@ def main():
         cmd_agora(args, cfg)
     elif args.command == "suggest":
         cmd_suggest(args, cfg)
+    elif args.command == "memory":
+        cmd_memory(args, cfg)
     elif args.command == "init":
         cmd_init(args, cfg)
     elif args.command == "launchd":
