@@ -43,15 +43,12 @@ stale_after: 2026-05-19T06:49:00-05:00
 
 ```json
 {
-  "key": "sha256:<directive+args>",
-  "directive": "@query",
-  "args": "docker ps --format ...",
-  "resolved_at": "2026-05-18T06:49:00-05:00",
-  "expires_at": "2026-05-18T07:49:00-05:00",
-  "scope": "session",
-  "output": "CONTAINER ID   IMAGE   ...\nmongo-dev   Up 3 hours\n"
+  "expires": 1747621800,
+  "value": "actual output of the @query"
 }
 ```
+
+> **Note:** The current cache implementation is minimal. A future enhancement will expand this to store the full directive metadata (directive name, args, scope, etc.) for more robust cache invalidation.
 
 ---
 
