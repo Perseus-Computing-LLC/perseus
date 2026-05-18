@@ -1,6 +1,8 @@
 import argparse
 import copy
 import importlib.util
+import json
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -196,17 +198,26 @@ def test_load_config_prefers_perseus_env_vars(monkeypatch):
     assert str(mod.SESSIONS_DIR) == '/tmp/perseus-sessions'
 
 
-def test_build_oracle_snapshot_collects_expected_keys(monkeypatch):
+def test_build_oracle_snapshot_collects_expected_keys(monkeypatch, tmp_path):
     monkeypatch.setattr(perseus, "resolve_skills", lambda *a, **k: "skills")
     monkeypatch.setattr(perseus, "resolve_session", lambda *a, **k: "sessions")
     monkeypatch.setattr(perseus, "resolve_waypoint", lambda *a, **k: "checkpoint")
-    snap = perseus.build_oracle_snapshot(cfg(), category="git", no_services=True, quick=True)
+    local = cfg()
+    # Re-point skill_dir into tmp_path so we don't touch the real ~/.hermes/skills,
+    # and create a real "git" category dir so --category does not trigger fallback
+    skill_dir = tmp_path / "skills"
+    (skill_dir / "git").mkdir(parents=True, exist_ok=True)
+    local["oracle"]["skill_dir"] = str(skill_dir)
+    snap = perseus.build_oracle_snapshot(local, category="git", no_services=True, quick=True)
     assert snap["skills_table"] == "skills"
-    assert snap["services_table"] == "(skipped)"
-    assert snap["session_digest"] == "sessions"
-    assert snap["checkpoint_summary"] == "checkpoint"
+    # --quick implies --no-services; full skipped sentence per task-10 spec
+    assert "service health check skipped" in snap["services_table"]
+    # --quick suppresses session and checkpoint entirely
+    assert snap["session_digest"] == ""
+    assert snap["checkpoint_summary"] == ""
     assert "rendered_at" in snap
     assert "skill_count" in snap
+    assert snap["quick"] is True
 
 
 def test_render_oracle_prompt_contains_snapshot_sections():
@@ -683,3 +694,411 @@ def test_memory_directive_ttl_sugar_caches(tmp_path):
     src = "@perseus\n\n@memory ttl=3600\n"
     out = perseus._render_lines(src.splitlines()[1:], local, workspace=tmp_path)
     assert "## Project Arc" in out
+
+
+# ─────────────────────── Tasks 05-11 follow-on tests ──────────────────────────
+
+# ── task-07: multi-workspace pointer ─────────────────────────────────────────
+
+def test_checkpoint_writes_per_workspace_pointer(tmp_path):
+    local = cfg()
+    local["checkpoints"]["store"] = str(tmp_path / "cp")
+    args = argparse.Namespace(task="t", status="", next="", workspace=str(tmp_path), notes="")
+    perseus.cmd_checkpoint(args, local)
+    store = Path(local["checkpoints"]["store"])
+    ws_hash = perseus._workspace_hash(tmp_path.resolve())
+    ptr = store / f"latest-{ws_hash}.yaml"
+    assert ptr.exists()
+    fm = yaml.safe_load(ptr.read_text())
+    assert fm["task"] == "t"
+
+
+def test_recover_uses_workspace_pointer_fast_path(tmp_path, capsys):
+    local = cfg()
+    local["checkpoints"]["store"] = str(tmp_path / "cp")
+    # Two workspaces — write checkpoints alternately
+    ws_a = tmp_path / "a"
+    ws_b = tmp_path / "b"
+    ws_a.mkdir()
+    ws_b.mkdir()
+    for ws, task in [(ws_a, "A1"), (ws_b, "B1"), (ws_a, "A2"), (ws_b, "B2")]:
+        perseus.cmd_checkpoint(argparse.Namespace(task=task, status="", next="", workspace=str(ws), notes=""), local)
+    capsys.readouterr()
+    # Recover for A — should be A2, not B2 (the latest overall)
+    perseus.cmd_recover(argparse.Namespace(workspace=str(ws_a)), local)
+    out = capsys.readouterr().out
+    assert "workspace pointer" in out
+    assert "task: A2" in out
+
+
+def test_workspace_pointer_cleaned_on_prune(tmp_path):
+    local = cfg()
+    local["checkpoints"]["store"] = str(tmp_path / "cp")
+    local["checkpoints"]["max_keep"] = 2
+    for i in range(4):
+        perseus.cmd_checkpoint(argparse.Namespace(task=f"t{i}", status="", next="", workspace=str(tmp_path), notes=""), local)
+    store = Path(local["checkpoints"]["store"])
+    surviving = [f for f in store.glob("*.yaml")
+                 if f.name != "latest.yaml" and not f.name.startswith("latest-")]
+    assert len(surviving) <= 2
+    ws_hash = perseus._workspace_hash(tmp_path.resolve())
+    ptr = store / f"latest-{ws_hash}.yaml"
+    # Pointer should still exist and reference a surviving checkpoint
+    assert ptr.exists()
+
+
+# ── task-09: @cache persist and @cache mock ──────────────────────────────────
+
+def test_parse_cache_modifier_returns_four_tuple():
+    clean, mode, ttl, mock = perseus._parse_cache_modifier('@query "foo" @cache persist')
+    assert mode == "persist"
+    assert mock is None
+    clean, mode, ttl, mock = perseus._parse_cache_modifier('@query "foo" @cache mock="hi"')
+    assert mode == "mock"
+    assert mock == "hi"
+    clean, mode, ttl, mock = perseus._parse_cache_modifier('@query "foo" @cache mock')
+    assert mode == "mock"
+    assert mock == "(mock — directive skipped)"
+
+
+def test_cache_persist_writes_and_reads_disk(tmp_path):
+    local = cfg()
+    local["render"]["cache_dir"] = str(tmp_path / "cache")
+    local["render"]["persist_cache_ttl_s"] = 3600
+    perseus.cache_set("k1", "v1", "persist", None, local)
+    assert (tmp_path / "cache" / "k1.json").exists()
+    assert perseus.cache_get("k1", "persist", None, local) == "v1"
+
+
+def test_cache_persist_respects_ttl(tmp_path):
+    local = cfg()
+    local["render"]["cache_dir"] = str(tmp_path / "cache")
+    local["render"]["persist_cache_ttl_s"] = 1
+    perseus.cache_set("k1", "v1", "persist", None, local)
+    import time as _t
+    _t.sleep(1.05)
+    assert perseus.cache_get("k1", "persist", None, local) is None
+
+
+def test_cache_mock_substitutes_without_execution(tmp_path):
+    local = cfg()
+    local["render"]["cache_dir"] = str(tmp_path / "cache")
+    # @query would normally shell out; @cache mock bypasses it
+    src = '@query "this should never run" @cache mock="STUB"'
+    out = perseus._render_lines([src], local, workspace=tmp_path)
+    assert "STUB" in out
+    assert "this should never run" not in out
+
+
+def test_cache_mock_bare_uses_placeholder(tmp_path):
+    local = cfg()
+    out = perseus._render_lines(['@query "x" @cache mock'], local, workspace=tmp_path)
+    assert "mock — directive skipped" in out
+
+
+# ── task-10: suggest UX flags & oracle log ──────────────────────────────────
+
+def test_oracle_log_entry_includes_flags():
+    entry = perseus.build_oracle_log_entry(
+        task="t", snapshot={}, prompt="p", response=None, provider=None, model=None,
+        flags=["--quick", "--category=git"],
+    )
+    assert entry["flags"] == ["--quick", "--category=git"]
+
+
+def test_oracle_log_entry_default_flags_empty():
+    entry = perseus.build_oracle_log_entry(
+        task="t", snapshot={}, prompt="p", response=None, provider=None, model=None,
+    )
+    assert entry["flags"] == []
+
+
+def test_quick_oracle_prompt_omits_services_and_sessions():
+    snap = {
+        "rendered_at": "now",
+        "skills_table": "skills",
+        "services_table": "should-not-appear",
+        "session_digest": "should-not-appear",
+        "checkpoint_summary": "should-not-appear",
+        "quick": True,
+    }
+    prompt = perseus.render_oracle_prompt("do thing", snap)
+    assert "Service Health" not in prompt
+    assert "Recent Sessions" not in prompt
+    assert "Recent Checkpoint" not in prompt
+    assert "skills" in prompt
+
+
+def test_category_fallback_warns_when_dir_missing(tmp_path, monkeypatch):
+    monkeypatch.setattr(perseus, "resolve_skills", lambda *a, **k: "all skills")
+    local = cfg()
+    local["oracle"]["skill_dir"] = str(tmp_path / "skills")
+    (tmp_path / "skills").mkdir()
+    snap = perseus.build_oracle_snapshot(local, category="nonexistent", no_services=True, quick=False)
+    assert "not found" in snap["skills_table"]
+
+
+# ── task-11: systemd ──────────────────────────────────────────────────────────
+
+def test_parse_systemd_interval_variants():
+    assert perseus._parse_systemd_interval("5m") == "5min"
+    assert perseus._parse_systemd_interval("2h") == "2h"
+    assert perseus._parse_systemd_interval("30s") == "30s"
+    assert perseus._parse_systemd_interval("") == "5min"
+
+
+def test_parse_systemd_interval_rejects_garbage():
+    import pytest
+    with pytest.raises(ValueError):
+        perseus._parse_systemd_interval("~!@")
+
+
+def test_cmd_systemd_macos_redirects(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(perseus.sys, "platform", "darwin")
+    src = tmp_path / "ctx.md"
+    src.write_text("@perseus\n")
+    args = argparse.Namespace(source=str(src), output=str(tmp_path / "out.md"),
+                              interval="5m", install=False, enable=False)
+    try:
+        perseus.cmd_systemd(args, cfg())
+    except SystemExit:
+        pass
+    err = capsys.readouterr().err
+    assert "launchd" in err
+
+
+def test_cmd_systemd_prints_units_on_linux(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(perseus.sys, "platform", "linux")
+    src = tmp_path / "ctx.md"
+    src.write_text("@perseus\n")
+    args = argparse.Namespace(source=str(src), output=str(tmp_path / "out.md"),
+                              interval="10m", install=False, enable=False)
+    perseus.cmd_systemd(args, cfg())
+    out = capsys.readouterr().out
+    assert "[Service]" in out
+    assert "[Timer]" in out
+    assert "10min" in out
+    assert "perseus-render.service" in out
+    assert "perseus-render.timer" in out
+
+
+# ── task-08: @list and @tree ─────────────────────────────────────────────────
+
+def test_list_directory_simple(tmp_path):
+    local = cfg()
+    (tmp_path / "packages" / "api").mkdir(parents=True)
+    (tmp_path / "packages" / "web").mkdir(parents=True)
+    out = perseus.resolve_list('./packages/ type="dirs" depth=1 as="list"', local, tmp_path)
+    assert "- api/" in out
+    assert "- web/" in out
+
+
+def test_list_structured_json_table(tmp_path):
+    local = cfg()
+    pkg = tmp_path / "package.json"
+    pkg.write_text(json.dumps({"scripts": {"dev": "vite dev", "build": "vite build"}}))
+    out = perseus.resolve_list('./package.json path="scripts" columns="key:Command,value:Runs" as="table"', local, tmp_path)
+    assert "| Command | Runs |" in out
+    assert "dev" in out
+    assert "vite build" in out
+
+
+def test_list_missing_path_warns(tmp_path):
+    out = perseus.resolve_list('./nope', cfg(), tmp_path)
+    assert "not found" in out
+
+
+def test_list_outside_workspace_warns(tmp_path):
+    local = cfg()
+    local["render"]["allow_outside_workspace"] = False
+    other = tmp_path.parent / "other-ws"
+    other.mkdir(exist_ok=True)
+    out = perseus.resolve_list(str(other), local, tmp_path)
+    assert "escapes workspace" in out
+
+
+def test_tree_basic(tmp_path):
+    local = cfg()
+    (tmp_path / "src" / "api").mkdir(parents=True)
+    (tmp_path / "src" / "api" / "routes.py").write_text("")
+    (tmp_path / "src" / "api" / "models.py").write_text("")
+    (tmp_path / "src" / "utils").mkdir(parents=True)
+    (tmp_path / "src" / "utils" / "parser.py").write_text("")
+    out = perseus.resolve_tree('./src/ depth=3', local, tmp_path)
+    assert "```" in out
+    assert "src/" in out
+    assert "routes.py" in out
+    assert "parser.py" in out
+
+
+def test_tree_match_and_exclude(tmp_path):
+    local = cfg()
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.py").write_text("")
+    (tmp_path / "src" / "b.txt").write_text("")
+    (tmp_path / "src" / "node_modules").mkdir()
+    (tmp_path / "src" / "node_modules" / "x.py").write_text("")
+    out = perseus.resolve_tree('./src/ depth=2 match="*.py" exclude="node_modules"', local, tmp_path)
+    assert "a.py" in out
+    assert "b.txt" not in out
+    assert "node_modules" not in out
+
+
+def test_list_and_tree_dispatch_through_render(tmp_path):
+    local = cfg()
+    (tmp_path / "pkgs").mkdir()
+    (tmp_path / "pkgs" / "x").mkdir()
+    src = ['@list ./pkgs type="dirs"']
+    out = perseus._render_lines(src, local, workspace=tmp_path)
+    assert "- x/" in out
+
+
+# ── task-05: health command + @health directive ─────────────────────────────
+
+def test_health_clean_workspace_says_all_clear(tmp_path):
+    local = cfg()
+    local["checkpoints"]["store"] = str(tmp_path / "cp")
+    lines = perseus._health_collect(local, tmp_path)
+    assert any("All clear" in line for line in lines)
+
+
+def test_health_flags_stale_checkpoints(tmp_path):
+    local = cfg()
+    local["checkpoints"]["store"] = str(tmp_path / "cp")
+    local["health"]["stale_checkpoint_days"] = 1
+    store = Path(local["checkpoints"]["store"])
+    store.mkdir(parents=True)
+    old_iso = (datetime.now().astimezone() - timedelta(days=10)).isoformat()
+    cp = {"version": 1, "written": old_iso, "task": "stale"}
+    (store / "2026-01-01T0000.yaml").write_text(yaml.dump(cp))
+    lines = perseus._health_collect(local, tmp_path)
+    text = "\n".join(lines)
+    assert "Stale Checkpoints" in text
+
+
+def test_health_flags_duplicates(tmp_path):
+    local = cfg()
+    local["checkpoints"]["store"] = str(tmp_path / "cp")
+    store = Path(local["checkpoints"]["store"])
+    store.mkdir(parents=True)
+    for i, ts in enumerate(["2026-05-15T1000", "2026-05-15T1100", "2026-05-15T1200"]):
+        cp = {"version": 1, "written": ts + ":00+00:00", "task": "same", "status": "wip", "next": "more"}
+        (store / f"{ts}.yaml").write_text(yaml.dump(cp))
+    lines = perseus._health_collect(local, tmp_path)
+    text = "\n".join(lines)
+    assert "Duplicate Checkpoints" in text
+
+
+def test_health_flags_large_context(tmp_path):
+    local = cfg()
+    local["checkpoints"]["store"] = str(tmp_path / "cp")
+    local["health"]["context_line_warning"] = 5
+    (tmp_path / ".perseus").mkdir()
+    (tmp_path / ".perseus" / "context.md").write_text("\n".join(["line"] * 50))
+    lines = perseus._health_collect(local, tmp_path)
+    text = "\n".join(lines)
+    assert "Context Source Size" in text
+
+
+def test_health_directive_through_render(tmp_path):
+    local = cfg()
+    local["checkpoints"]["store"] = str(tmp_path / "cp")
+    out = perseus._render_lines(["@health"], local, workspace=tmp_path)
+    assert "All clear" in out or "Checkpoint" in out  # something rendered
+
+
+# ── task-06: Daedalus oracle CLI ─────────────────────────────────────────────
+
+def _seed_oracle_log(monkeypatch, tmp_path, entries):
+    monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path)
+    log = tmp_path / "oracle_log.jsonl"
+    log.write_text("\n".join(json.dumps(e) for e in entries) + "\n")
+
+
+def test_oracle_accept_marks_entry(tmp_path, monkeypatch, capsys):
+    _seed_oracle_log(monkeypatch, tmp_path, [
+        {"timestamp": "2026-05-18T10:00:00", "task": "a", "accepted": None},
+        {"timestamp": "2026-05-18T11:00:00", "task": "b", "accepted": None},
+    ])
+    perseus.cmd_oracle(argparse.Namespace(oracle_command="accept", log_id="latest"), cfg())
+    out = capsys.readouterr().out
+    assert "accepted=True" in out
+    log = tmp_path / "oracle_log.jsonl"
+    lines = [json.loads(l) for l in log.read_text().splitlines() if l]
+    assert lines[-1]["accepted"] is True
+
+
+def test_oracle_reject_marks_entry(tmp_path, monkeypatch, capsys):
+    _seed_oracle_log(monkeypatch, tmp_path, [
+        {"timestamp": "2026-05-18T10:00:00", "task": "a", "accepted": None},
+    ])
+    perseus.cmd_oracle(argparse.Namespace(oracle_command="reject", log_id="2026-05-18T10:00:00"), cfg())
+    out = capsys.readouterr().out
+    assert "accepted=False" in out
+
+
+def test_oracle_log_lists_entries(tmp_path, monkeypatch, capsys):
+    _seed_oracle_log(monkeypatch, tmp_path, [
+        {"timestamp": "2026-05-18T10:00:00", "task": "a", "accepted": True},
+        {"timestamp": "2026-05-18T11:00:00", "task": "b", "accepted": None},
+        {"timestamp": "2026-05-18T12:00:00", "task": "c", "accepted": False},
+    ])
+    perseus.cmd_oracle(argparse.Namespace(oracle_command="log", limit=10, unlabeled=False), cfg())
+    out = capsys.readouterr().out
+    assert "a" in out and "b" in out and "c" in out
+
+
+def test_oracle_log_filter_unlabeled(tmp_path, monkeypatch, capsys):
+    _seed_oracle_log(monkeypatch, tmp_path, [
+        {"timestamp": "2026-05-18T10:00:00", "task": "labeled", "accepted": True},
+        {"timestamp": "2026-05-18T11:00:00", "task": "open", "accepted": None},
+    ])
+    perseus.cmd_oracle(argparse.Namespace(oracle_command="log", limit=10, unlabeled=True), cfg())
+    out = capsys.readouterr().out
+    # Only data rows are bullet-indented with " · "; the header contains the
+    # word "unlabeled" which would otherwise trigger a false match.
+    body_lines = [l for l in out.splitlines() if l.startswith("  ·")]
+    assert any("open" in l for l in body_lines)
+    assert not any("labeled" in l for l in body_lines)
+
+
+def test_oracle_export_jsonl_only_accepted(tmp_path, monkeypatch, capsys):
+    _seed_oracle_log(monkeypatch, tmp_path, [
+        {"timestamp": "2026-05-18T10:00:00", "task": "a", "prompt": "P-A", "response": "R-A", "accepted": True},
+        {"timestamp": "2026-05-18T11:00:00", "task": "b", "prompt": "P-B", "response": "R-B", "accepted": False},
+        {"timestamp": "2026-05-18T12:00:00", "task": "c", "prompt": "P-C", "response": "R-C", "accepted": None},
+    ])
+    out_path = tmp_path / "dataset.jsonl"
+    perseus.cmd_oracle(argparse.Namespace(oracle_command="export", output=str(out_path), format="jsonl"), cfg())
+    rows = [json.loads(l) for l in out_path.read_text().splitlines() if l]
+    assert len(rows) == 1
+    assert rows[0]["prompt"] == "P-A"
+    assert rows[0]["completion"] == "R-A"
+
+
+def test_oracle_export_alpaca_format(tmp_path, monkeypatch):
+    _seed_oracle_log(monkeypatch, tmp_path, [
+        {"timestamp": "t1", "task": "x", "prompt": "P", "response": "R", "accepted": True},
+    ])
+    out_path = tmp_path / "alpaca.jsonl"
+    perseus.cmd_oracle(argparse.Namespace(oracle_command="export", output=str(out_path), format="alpaca"), cfg())
+    rows = [json.loads(l) for l in out_path.read_text().splitlines() if l]
+    assert rows[0] == {"instruction": "P", "input": "", "output": "R"}
+
+
+def test_run_llm_daedalus_routes_to_ollama(monkeypatch):
+    captured = {}
+    class FakeResp:
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+        def read(self): return b'{"message":{"content":"daedalus-reply"}}'
+    def fake_urlopen(req, timeout=None):
+        captured["url"] = req.full_url
+        captured["data"] = json.loads(req.data.decode())
+        return FakeResp()
+    monkeypatch.setattr(perseus.urllib.request, "urlopen", fake_urlopen)
+    text, code = perseus.run_llm("daedalus", "the prompt", cfg())
+    assert code == 0
+    assert text == "daedalus-reply"
+    assert "/api/chat" in captured["url"]
+    assert captured["data"]["model"] == "perseus-daedalus"

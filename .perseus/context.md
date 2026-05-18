@@ -44,3 +44,19 @@ rendered output and skip orientation. Start work immediately.
 
 ## Recent Sessions
 @session count=5
+
+---
+
+## Active Tasks
+@agora status=open
+@agora status=in_progress
+
+---
+
+## Maintenance Snapshot
+@health
+
+---
+
+## Project Narrative
+@memory focus="recent"

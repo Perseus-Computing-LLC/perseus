@@ -1,13 +1,13 @@
 ---
 id: task-07
 title: "Task 07 — Multi-Workspace Checkpoint Namespacing"
-status: open
+status: completed
 scope: small-medium
 depends_on:
   - task-03
-claimed_by: null
+claimed_by: claude-sonnet-4.5
 opened: 2026-05-18
-closed: null
+closed: 2026-05-18
 ---
 
 # Task 07 — Multi-Workspace Checkpoint Namespacing
@@ -127,3 +127,16 @@ perseus diff --workspace /workspace/perseus
 - The workspace hash approach (rather than path sanitization) avoids problems with deep
   or OS-special characters in workspace paths.
 - This is the last remaining item in Phase 5A. Once complete, Phase 5 is fully done.
+
+---
+
+# Completed
+
+**Closed:** 2026-05-18 · **Implemented by:** claude-sonnet-4.5
+
+- `perseus checkpoint` writes `latest-<workspace-hash>.yaml` alongside `latest.yaml`
+- `_workspace_hash()` (introduced for Mnēmē in task-12) reused — single source of truth
+- Pointer files are plain copies, not symlinks (safer across filesystems)
+- `perseus recover --workspace <path>` takes fast path via pointer when present, falls back to scan
+- Pointer cleanup runs on `max_keep` prune — re-points or removes stale pointers
+- Tests cover multi-workspace interleave + prune cleanup

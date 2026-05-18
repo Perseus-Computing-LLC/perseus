@@ -1,12 +1,12 @@
 ---
 id: task-08
 title: "Task 08 — Renderer Directives: @list and @tree"
-status: open
+status: completed
 scope: medium
 depends_on: []
-claimed_by: null
+claimed_by: claude-sonnet-4.5
 opened: 2026-05-18
-closed: null
+closed: 2026-05-18
 ---
 
 # Task 08 — Renderer Directives: `@list` and `@tree`
@@ -161,3 +161,16 @@ Both directives support the standard `@cache` modifier:
   Scalar values are rendered inline.
 - Don't gold-plate depth=1 for v1 — implement correctly for all specified args, but the
   common case is shallow directory listings and top-level key tables.
+
+---
+
+# Completed
+
+**Closed:** 2026-05-18 · **Implemented by:** claude-sonnet-4.5
+
+- `@list <path>` supports `type=dirs|files|all`, `depth=N`, `match=glob`, `path="dot.key"`, `columns="key:Label,value:Label"`, `as=list|table`
+- `@tree <path>` supports `depth=N`, `match=glob`, `exclude=glob`; emits fenced code block with plain indentation (no box-drawing)
+- Both honor `render.allow_outside_workspace` via the existing `_resolve_path` boundary check
+- Both compose with the existing `@cache` modifier (including the new `persist` and `mock` variants from task-09)
+- Stdlib only (`os.walk` + `fnmatch` + `pathlib`)
+- Tests cover directory listing, structured-file table, tree match/exclude, missing path, boundary violation, render-through dispatch

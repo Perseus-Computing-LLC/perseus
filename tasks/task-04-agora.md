@@ -5,7 +5,7 @@ status: completed
 scope: medium
 depends_on:
 - task-01
-claimed_by: null
+claimed_by: retroactive-backfill
 opened: '2026-05-18'
 closed: '2026-05-18'
 ---
@@ -71,7 +71,7 @@ scope: medium         # small | medium | large
 depends_on: []        # list of task IDs
 claimed_by: null      # agent identifier, set when status → in_progress
 opened: 2026-05-18
-closed: null
+closed: '2026-05-18'
 ---
 ```
 

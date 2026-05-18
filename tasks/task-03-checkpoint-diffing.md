@@ -4,7 +4,7 @@ title: "Task 03 \u2014 Checkpoint Diffing (`perseus diff`)"
 status: completed
 scope: small-medium
 depends_on: []
-claimed_by: null
+claimed_by: retroactive-backfill
 opened: '2026-05-18'
 closed: '2026-05-18'
 ---

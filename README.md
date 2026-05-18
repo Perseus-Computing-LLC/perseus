@@ -14,7 +14,7 @@ Provider-agnostic defaults now use `PERSEUS_SKILLS_DIR` and `PERSEUS_SESSIONS_DI
 
 Perseus dogfoods itself: `ROADMAP.md` is a live `@perseus` source — the project's own documentation resolves its git state, CLI version, recent sessions, and last checkpoint at render time.
 
-**Status: Alpha v0.4 — Core engine complete, hardening pass shipped, Phase 5A (`suggest --llm`) and Phase 5B (`diff`) shipped.**
+**Status: Alpha v0.5 — Phases 1–7 all complete. Renderer, checkpoints, Pythia, Agora, Mnēmē, context health (Daedalus v1), and Daedalus oracle dataset/routing all shipped. 95 tests passing.**
 
 ---
 
@@ -148,11 +148,18 @@ Emits a structured oracle prompt with a live environment snapshot — skills tab
 | `@date format="YYYY-MM-DD HH:mm z"` | Live date/time, inline or standalone |
 | `@waypoint [ttl=N]` | Latest checkpoint rendered inline; `ttl=` skips it if too old |
 | `@prompt...@end` | AI instruction callout — visible to the assistant, attributed to Perseus |
+| `@agora [status=...] [scope=...]` | Live task board from `tasks/` — markdown table by status/scope |
+| `@memory [focus="..."] [ttl=N]` | Mnēmē narrative for the workspace; `focus=` slices a single section (`arc`, `decisions`, `recent`, `patterns`, `history`) |
+| `@health` | Maintenance suggestions (stale checkpoints, near-duplicates, large context, old completed tasks) |
+| `@list <path> [type] [depth] [path] [columns] [as]` | Directory listing OR structured-file table from `path="dot.key"` of JSON/YAML |
+| `@tree <path> [depth] [match] [exclude]` | Fenced directory tree with plain indentation |
 
 Any directive accepts a `@cache` modifier:
 
 ```markdown
 @query "git log --oneline -5" @cache session      ← run once per render, reuse after
+@services @cache mock="(stubbed in CI)"           ← bypass execution entirely
+@skills flag_stale=true @cache persist             ← survives across processes
 
 ## Safety & Trust Model
 
@@ -280,9 +287,14 @@ oracle:
 | **Phase 3** | `@cache session/ttl=N` · smart `recover --workspace` · `@constraint` | ✅ Complete |
 | **Phase 4** | `@services command:` · `perseus init` · `--version` · ROADMAP.md goes live | ✅ Complete |
 | **Hardening Pass** | parser fixes · trust gates · workspace safety · launchd scaffolding · focused tests | ✅ Complete |
-| **Phase 5A** | optional `suggest --llm ollama[:model]` execution path | ✅ Complete |
+| **Phase 5A** | `suggest --llm` · oracle log · multi-workspace checkpoint namespacing | ✅ Complete |
 | **Phase 5B** | `perseus diff` field-level checkpoint comparison | ✅ Complete |
-| **Phase 5** | `--llm` flag for local model oracle · checkpoint diffing | Planned |
+| **Phase 5C** | Agora task coordination · `perseus agora` · `@agora` directive | ✅ Complete |
+| **Phase 5D** | `@cache persist` / `@cache mock` · `@list` / `@tree` · suggest UX flags · systemd | ✅ Complete |
+| **Phase 5E** | Context health: `perseus health` + `@health` (deterministic maintenance heuristics) | ✅ Complete |
+| **Phase 6** | Daedalus — oracle labeling/export CLI + `--llm daedalus` provider routing | ✅ Complete |
+| **Phase 7** | Mnēmē — narrative project memory + `@memory` directive | ✅ Complete |
+| **Phase 8 (planned)** | Live agent orchestration · multi-source narrative · template gallery — see ROADMAP |  Planned |
 
 Full detail: [ROADMAP.md](./ROADMAP.md)
 

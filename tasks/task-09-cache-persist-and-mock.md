@@ -1,12 +1,12 @@
 ---
 id: task-09
 title: "Task 09 — Cache Modifiers: @cache persist and @cache mock"
-status: open
+status: completed
 scope: small
 depends_on: []
-claimed_by: null
+claimed_by: claude-sonnet-4.5
 opened: 2026-05-18
-closed: null
+closed: 2026-05-18
 ---
 
 # Task 09 — Cache Modifiers: `@cache persist` and `@cache mock`
@@ -109,3 +109,16 @@ placeholder: `(mock — directive skipped)`.
   with `now + persist_cache_ttl_s` rather than `now + N`.
 - `@cache mock` is primarily for template authors and CI. Don't overthink it.
   A simple bypass-and-substitute is the complete implementation.
+
+---
+
+# Completed
+
+**Closed:** 2026-05-18 · **Implemented by:** claude-sonnet-4.5
+
+- `_parse_cache_modifier` now returns a 4-tuple `(clean, mode, ttl, mock_value)`
+- `@cache persist` writes to the existing disk cache; TTL governed by `render.persist_cache_ttl_s` (default 3600)
+- `@cache mock` and `@cache mock="..."` bypass execution entirely — no shell, no HTTP, no file IO
+- Mock placeholder when bare: `(mock — directive skipped)`
+- `cache_get` / `cache_set` extended to handle `persist` symmetrically with `ttl`
+- Tests cover modifier parsing, persist write/read/expiry, mock substitution, bare mock placeholder

@@ -1,12 +1,12 @@
 ---
 id: task-11
 title: "Task 11 — Linux systemd Timer Integration (`perseus systemd`)"
-status: open
+status: completed
 scope: small
 depends_on: []
-claimed_by: null
+claimed_by: claude-sonnet-4.5
 opened: 2026-05-18
-closed: null
+closed: 2026-05-18
 ---
 
 # Task 11 — Linux systemd Timer Integration (`perseus systemd`)
@@ -138,3 +138,17 @@ emit a clear message: "Use `perseus launchd` on macOS."
 - User-space systemd (`~/.config/systemd/user/`) is the right target — no root, no
   system-wide side effects.
 - The pattern mirrors `perseus launchd` exactly. Read that implementation first.
+
+---
+
+# Completed
+
+**Closed:** 2026-05-18 · **Implemented by:** claude-sonnet-4.5
+
+- `perseus systemd <source> -o <output> [--interval Nm|Nh] [--install] [--enable]`
+- Scaffolds user-space `~/.config/systemd/user/perseus-render.{service,timer}` units
+- `--install` writes the files and prints the three `systemctl --user` activation commands
+- `--enable` (with `--install`) runs the systemctl commands as a convenience
+- On macOS, redirects with `Use \`perseus launchd\` on macOS.` (parity with launchd's macOS guard)
+- `_parse_systemd_interval` accepts `5m`/`2h`/`30s` plus systemd-native forms; raises on garbage
+- Tests cover unit content, interval substitution, macOS guard

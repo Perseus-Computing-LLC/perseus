@@ -45,7 +45,22 @@ perseus launchd .perseus/context.md --output AGENTS.md
 This scaffolds a LaunchAgent plist that periodically refreshes the rendered output.
 
 ### systemd timer (Linux)
-Use `perseus render ... --output ...` inside a systemd service/timer pair.
+
+Perseus scaffolds user-space systemd units for Linux users:
+
+```bash
+# Print the .service and .timer files to stdout
+perseus systemd .perseus/context.md --output AGENTS.md --interval 5m
+
+# Write them to ~/.config/systemd/user/ and print activation commands
+perseus systemd .perseus/context.md --output AGENTS.md --interval 5m --install
+
+# Combined: write + run systemctl --user daemon-reload/enable/start
+perseus systemd .perseus/context.md --output AGENTS.md --install --enable
+```
+
+Interval accepts `Nm` / `Nh` / `Ns` shorthand or any systemd time spec.
+Falls back to a clear redirect message on macOS (use `perseus launchd` instead).
 
 ### Git hook
 A pre-commit or post-checkout hook can refresh rendered context for local workflows.

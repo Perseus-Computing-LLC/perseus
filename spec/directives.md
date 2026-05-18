@@ -231,6 +231,59 @@ narrative file.
 
 ---
 
+## Maintenance
+
+### `@health`
+
+Inline maintenance suggestions for the current workspace. Same content as
+`perseus health` writes to stdout. Read-only — runs deterministic heuristics
+and emits a markdown list.
+
+```
+@health
+```
+
+Heuristics emitted (when applicable):
+
+- **Stale Checkpoints** — checkpoints older than `health.stale_checkpoint_days`
+- **Duplicate Checkpoints** — repeated (task, status, next) tuples in the last
+  `health.duplicate_checkpoint_window` checkpoints
+- **Context Source Size** — `.perseus/context.md` exceeds `health.context_line_warning`
+- **Old Completed Tasks** — Agora tasks closed more than
+  `health.include_completed_tasks_older_than_days` days ago
+
+When nothing is flagged, emits `_All clear — no maintenance suggestions._`
+
+---
+
+## Tasks (Agora)
+
+### `@agora`
+
+Live task board from `tasks/` directory. Renders a markdown table grouped by
+`status` and optionally filtered by `scope`.
+
+```
+@agora
+@agora status=open
+@agora status=in_progress scope=small,medium
+```
+
+**Arguments:**
+
+| Arg | Values | Description |
+|---|---|---|
+| `status` | `open`, `in_progress`, `completed`, `all` (default) | Filter by frontmatter status |
+| `scope` | comma list (e.g. `small,medium`) | Filter by frontmatter scope |
+
+Task files live under `cfg.agora.tasks_dir` (default: `tasks/`) and must have
+YAML frontmatter with `id`, `title`, `status`, `scope`, optional `claimed_by`,
+`opened`, `closed`, `depends_on`.
+
+See `perseus agora list / claim / complete` for managing tasks from the CLI.
+
+---
+
 ## Caching
 
 The `@cache` modifier can be appended to any directive:

@@ -82,11 +82,38 @@ oracle:
   llm_timeout_s: 30
   ollama_host: http://127.0.0.1:11434
 
-assistant:
-  # Directory where session transcripts are stored.
-  # This is used for session search and context retrieval.
-  sessions_dir: /home/user/.hermes/sessions
+llm:                                     # task-02 / task-06
+  provider: ollama
+  model: mistral
+  url: http://localhost:11434
+  timeout_s: 30
+  daedalus_model: perseus-daedalus       # routed by --llm daedalus
+  daedalus_url: http://localhost:11434
+
+agora:                                   # task-04
+  tasks_dir: tasks                       # default; can be absolute
+
+health:                                  # task-05
+  stale_checkpoint_days: 7
+  duplicate_checkpoint_window: 5
+  context_line_warning: 400
+  include_completed_tasks_older_than_days: 14
+
+memory:                                  # task-12 (Mnēmē)
+  store: ~/.perseus/memory
+  recent_keep: 5
+  auto_update: true
+  compact_threshold: 20
+  llm_provider: null
+  llm_model: null
+  max_narrative_lines: 300
+
+assistant:                               # task-01 (legacy `hermes:` migrated here)
+  sessions_dir: ~/.hermes/sessions
 ```
+
+Render block also accepts `persist_cache_ttl_s: 3600` (task-09 — TTL for
+`@cache persist`; default shown).
 
 ---
 
