@@ -10,7 +10,7 @@ closed: null
 ---
 # Task 03 — Checkpoint Diffing (`perseus diff`)
 
-**Status: Open**  
+**Status: Completed**  
 **Depends-on: None**  
 **Scope: Small-Medium** — new subcommand, pure Python, no new deps  
 **Tests required: Yes**
@@ -105,3 +105,18 @@ excluded from the file list.
 - If both checkpoints are identical (no fields changed), print "No changes between checkpoints."
 - The `latest.yaml` symlink and `latest-<hash>.yaml` pointers in the store directory should
   be skipped when listing checkpoints for diffing (they're pointers, not originals).
+
+---
+
+## Completed
+
+- Extended `perseus diff` to support `--a` / `--b` selectors by index or filename.
+- Added `--workspace` filtering so diffs can be scoped to a specific workspace path.
+- Reworked diff output into the task-specified human-readable format, including workspace context, age comparison, and BEFORE/AFTER notes rendering.
+- Added graceful handling for missing checkpoint stores, missing selectors, and too-few-checkpoints cases.
+- Added and updated tests to cover selector behavior, workspace filtering, missing-store handling, and the human-readable output format.
+
+### Notes
+
+- I preserved explicit `--old` / `--new` path support as an additive compatibility path alongside the task-specified `--a` / `--b` interface.
+- The implementation keeps pointer skipping simple by excluding `latest.yaml` and filtering from the timestamped originals list.
