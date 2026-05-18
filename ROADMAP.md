@@ -43,6 +43,7 @@ checkpoints feed it.
 | **Pythia** | Tool oracle — ranks approaches given task + live env | ✅ Complete |
 | **Agora** | Async agent coordination substrate — task queue + `@agora` directive | 🔲 Phase 5 |
 | **Daedalus** | Local autonomous scoring model — Pythia without a round-trip | 🔲 Phase 6 |
+| **Mnēmē** | Narrative project memory — distills checkpoints + oracle log into a per-workspace narrative | ✅ Phase 7 |
 
 ---
 
@@ -83,6 +84,7 @@ checkpoints feed it.
 | `@cache mock` | 🔲 | Static mock value; bypasses execution — task-09 |
 | `@constraint...@end` | ✅ | Block directive; renders as table at doc end |
 | `@agora [status=open]` | ✅ | Live task board from tasks/ directory |
+| `@memory [focus=...] [ttl=N]` | ✅ | Inline Mnēmē narrative or single focus section — Phase 7 |
 | `@list` | 🔲 | Directory listing or structured-file table — task-08 |
 | `@tree` | 🔲 | Filtered directory tree — task-08 |
 | `@health` | 🔲 | Inline context maintenance suggestions — task-05 |
@@ -321,7 +323,7 @@ offline. The implementation stays inside `perseus.py` — Daedalus is not a sepa
 
 ---
 
-### Phase 7 — Mnēmē: Narrative Project Memory ← PLANNED
+### Phase 7 — Mnēmē: Narrative Project Memory ← COMPLETE ✅
 
 **Mnēmē** (Μνήμη) was the original Muse of Memory — not a log, not a snapshot, but the
 *distilled narrative* of experience. She answers the question no snapshot can: *how did we
@@ -373,7 +375,7 @@ Spec backfill:    task-07 (multi-workspace namespacing)
                   task-14 (@query fallback)
 Phase 5C (next):  task-05 context health + @health directive
 Phase 6 (later):  task-06 Daedalus — local scoring model, dataset curation, cross-session learning
-Phase 7 (planned): task-12 Mnēmē — narrative project memory, @memory directive, auto-update on checkpoint
+Phase 7 (done):   task-12 Mnēmē — narrative project memory, @memory directive, auto-update on checkpoint
 ```
 
 ---

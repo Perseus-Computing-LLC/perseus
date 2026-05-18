@@ -178,3 +178,42 @@ assistant:
   session_search_available: true
   skills_list_available: true
 ```
+
+
+---
+
+## 4. Mnēmē (`perseus memory`) — Narrative Project Memory
+
+Mnēmē distills checkpoints and oracle log entries into a per-workspace narrative
+markdown file stored at `~/.perseus/memory/<workspace-hash>.md`. Snapshots tell you
+where you are now; Mnēmē tells you how you got here.
+
+### Modes
+
+- **Deterministic (default):** rule-based extraction. No LLM required. Sections:
+  Project Arc, Key Decisions, Task History, Patterns & Anti-patterns, Recent Activity.
+- **LLM-assisted (opt-in):** set `memory.llm_provider` to `ollama` or `openai-compat`.
+  The narrative is distilled by a local model via the existing `run_llm` infrastructure.
+
+### CLI
+
+```bash
+perseus memory update    # incremental — only new checkpoints + oracle entries
+perseus memory compact   # full re-distillation; increments compaction_count
+perseus memory show      # print the narrative file
+perseus memory status    # high-water marks, age, mode, size
+perseus memory query "<question>"  # grep (deterministic) or LLM Q&A
+```
+
+### Auto-update
+
+When `memory.auto_update` is true (default), `perseus checkpoint` calls the silent
+Mnēmē update path after writing the checkpoint. A failure in Mnēmē prints a warning
+and never aborts the checkpoint write.
+
+### Directive
+
+`@memory [focus="decisions|recent|patterns|arc"] [ttl=N]` injects the narrative inline
+(or a single named section) when a Perseus source file is rendered. See
+`spec/directives.md` for the full reference.
+

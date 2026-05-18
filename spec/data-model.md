@@ -14,6 +14,9 @@
     2026-05-18T0649.yaml
     2026-05-17T2231.yaml
     ...
+  memory/
+    <workspace-hash>.md ← Mnēmē per-workspace narrative file
+  oracle_log.jsonl      ← Pythia recommendation log (append-only)
 
 /workspace/<project>/
   .perseus/
@@ -90,3 +93,88 @@ assistant:
 ## Checkpoint Diff Output
 
 `perseus diff` renders a simple field-level markdown table showing changed keys between an older and newer checkpoint. Unchanged fields are omitted.
+
+
+---
+
+## Mnēmē Narrative Schema
+
+Per-workspace narrative file at `~/.perseus/memory/<workspace-hash>.md`. Standard
+markdown with YAML frontmatter. Human-readable, GitHub-renderable, Perseus-parseable.
+
+### Workspace Hash
+
+```python
+sha256(str(workspace_path.resolve()).encode()).hexdigest()[:12]
+```
+
+12-char hex; stable for the same resolved path. Shared with `task-07`
+(multi-workspace checkpoint namespacing) when that lands.
+
+### File Format
+
+```markdown
+---
+schema: 1
+workspace: /workspace/perseus
+workspace_hash: a3f9c12b8e44
+updated: 2026-05-18T14:32:00-05:00
+checkpoints_processed: 47
+oracle_entries_processed: 312
+compaction_count: 2
+last_compaction_at_update: 2
+last_compact_processed: 47
+---
+
+# Mnēmē — /workspace/perseus
+
+> Narrative last updated 2026-05-18 14:32 CT.
+> Source: 47 checkpoints, 312 oracle entries.
+> Run `perseus memory compact` for a full re-distillation.
+
+## Project Arc
+...
+
+## Key Decisions
+...
+
+## Task History
+...
+
+## Patterns & Anti-patterns
+...
+
+## Recent Activity
+...
+```
+
+### Frontmatter Keys
+
+| Key | Type | Description |
+|---|---|---|
+| `schema` | int | Format version (currently `1`) |
+| `workspace` | str | Resolved absolute workspace path |
+| `workspace_hash` | str | 12-char sha256 hex of workspace |
+| `updated` | ISO ts | Last write timestamp |
+| `checkpoints_processed` | int | High-water mark (count of checkpoints) |
+| `oracle_entries_processed` | int | High-water mark (count of oracle log entries) |
+| `compaction_count` | int | Number of full re-distillations |
+| `last_compact_processed` | int | Checkpoints processed at last compact (used for advisory) |
+
+### Atomic Writes
+
+`_save_narrative` writes to a sibling `<file>.tmp` and `os.replace`s it into
+place. Partial writes never corrupt the narrative.
+
+### Memory Config Block
+
+```yaml
+memory:
+  store: /Users/.../.perseus/memory
+  recent_keep: 5            # raw checkpoints in Recent Activity
+  auto_update: true         # silent update on every checkpoint write
+  compact_threshold: 20     # advisory: compact after N incremental updates
+  llm_provider: null        # null = deterministic; "ollama" / "openai-compat" = LLM
+  llm_model: null           # inherits from llm: block if null
+  max_narrative_lines: 300  # advisory cap
+```

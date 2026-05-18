@@ -201,6 +201,36 @@ An instruction embedded in the source that is included in AI render mode and str
 
 ---
 
+## Project Memory
+
+### `@memory`
+
+Inject the Mnēmē narrative for the current workspace inline. Reads the
+narrative file at `~/.perseus/memory/<workspace-hash>.md`. If no narrative
+exists yet, renders a warning advising the user to run `perseus memory update`.
+If the narrative is stale (age > `checkpoints.ttl_s`), renders a staleness
+warning.
+
+```
+@memory
+@memory focus="decisions"
+@memory focus="recent"
+@memory ttl=3600
+@memory @cache ttl=3600
+```
+
+**Arguments:**
+
+| Arg | Values | Description |
+|---|---|---|
+| `focus` | `"arc"`, `"decisions"`, `"history"` (alias `"tasks"`), `"patterns"`, `"recent"` | Emit only the named `##` section from the narrative body |
+| `ttl` | integer (seconds) | Short-form cache — equivalent to `@cache ttl=N` |
+
+See `spec/components.md` § 4 (Mnēmē) for the CLI surface that produces the
+narrative file.
+
+---
+
 ## Caching
 
 The `@cache` modifier can be appended to any directive:
