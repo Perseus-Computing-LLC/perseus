@@ -1,12 +1,12 @@
 ---
 id: task-14
 title: Implement fallback="text" for @query directive
-status: open
+status: completed
 scope: small
 depends_on: []
-claimed_by: null
+claimed_by: claude-sonnet-4.5
 opened: '2026-05-18'
-closed: null
+closed: '2026-05-18'
 ---
 
 ### Description
@@ -47,3 +47,32 @@ The purpose of the fallback is to provide a default value when the shell command
 *   **Effort**: Small. This is a minor addition to an existing function.
 *   **Dependencies**: No new external dependencies are required.
 *   **Files**: All code changes should be in `perseus.py`.
+
+---
+
+# Completed
+
+**Date:** 2026-05-18
+**By:** claude-sonnet-4.5
+**Commit:** (pending)
+
+## What shipped
+
+- Extended `resolve_query()` in `perseus.py` with `fallback="text"` (or
+  single-quoted `fallback='text'`) modifier.
+- Fallback fires on: non-zero exit code, empty stdout on success, timeout,
+  or any other subprocess exception.
+- When no fallback is provided, behavior is unchanged (warning header + body).
+- Fallback parsing happens BEFORE command extraction, so commands containing
+  the literal substring `fallback=` are not mis-parsed.
+- Backslash escapes inside fallback text are honored (`\n` → newline, etc.).
+- Composes cleanly with `@cache` modifier (modifier is stripped first by the
+  renderer; fallback parsing runs against the cleaned args).
+- 7 tests covering: failed command, empty stdout, success-with-fallback-ignored,
+  no-fallback-warning, single-quoted, with @cache modifier, escape sequences.
+
+## Notes for follow-up
+
+- Fallback text is returned as a bare string (no markdown fencing). If the
+  source document already wraps `@query` output in a fence, embed the
+  language fence in the fallback itself: `fallback="```\nno data\n```"`.

@@ -1563,3 +1563,138 @@ def test_serve_render_endpoint_index_returns_polished_html(tmp_path):
     assert "<style>" in body
     assert "Endpoints" in body
     assert "Live state" in body
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# task-14: @query fallback="text"
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_query_fallback_on_failed_command():
+    out = perseus.resolve_query('"false" fallback="no git here"', cfg())
+    assert out == "no git here"
+
+
+def test_query_fallback_on_empty_stdout():
+    out = perseus.resolve_query('"true" fallback="no output"', cfg())
+    assert out == "no output"
+
+
+def test_query_fallback_ignored_on_success():
+    out = perseus.resolve_query('"echo hello" fallback="never seen"', cfg())
+    assert "hello" in out
+    assert "never seen" not in out
+
+
+def test_query_no_fallback_still_shows_warning_on_failure():
+    out = perseus.resolve_query('"false"', cfg())
+    assert "⚠" in out or "exited" in out
+
+
+def test_query_fallback_single_quoted():
+    out = perseus.resolve_query("\"false\" fallback='single-q text'", cfg())
+    assert out == "single-q text"
+
+
+def test_query_fallback_with_cache_modifier_stripped_first(monkeypatch):
+    # When @cache is stripped before fallback parsing, fallback should still work.
+    raw = '"false" fallback="cached fallback" @cache ttl=10'
+    # The renderer normally strips @cache; we strip manually here to simulate
+    cleaned, _, _, _ = perseus._parse_cache_modifier(raw)
+    out = perseus.resolve_query(cleaned, cfg())
+    assert out == "cached fallback"
+
+
+def test_query_fallback_unescapes_simple_escapes():
+    out = perseus.resolve_query(r'"false" fallback="line one\nline two"', cfg())
+    assert "line one\nline two" == out
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# task-13: @if query("...") matches /regex/
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_if_query_matches_true():
+    assert perseus.evaluate_condition(
+        'query("echo hello world") matches /hello/',
+        workspace=None,
+        cfg=cfg(),
+    ) is True
+
+
+def test_if_query_matches_false():
+    assert perseus.evaluate_condition(
+        'query("echo goodbye") matches /hello/',
+        workspace=None,
+        cfg=cfg(),
+    ) is False
+
+
+def test_if_query_not_matches_true():
+    assert perseus.evaluate_condition(
+        'query("echo goodbye") not matches /hello/',
+        workspace=None,
+        cfg=cfg(),
+    ) is True
+
+
+def test_if_query_not_matches_false():
+    assert perseus.evaluate_condition(
+        'query("echo hello world") not matches /hello/',
+        workspace=None,
+        cfg=cfg(),
+    ) is False
+
+
+def test_if_query_respects_allow_query_shell_false(capsys):
+    local = cfg()
+    local["render"]["allow_query_shell"] = False
+    result = perseus.evaluate_condition(
+        'query("echo hello") matches /hello/',
+        workspace=None,
+        cfg=local,
+    )
+    assert result is False
+    err = capsys.readouterr().err
+    assert "allow_query_shell" in err
+
+
+def test_if_query_case_insensitive_flag():
+    assert perseus.evaluate_condition(
+        'query("echo HELLO") matches /hello/i',
+        workspace=None,
+        cfg=cfg(),
+    ) is True
+
+
+def test_if_query_invalid_regex_raises():
+    with pytest.raises(perseus.ConditionParseError):
+        perseus.evaluate_condition(
+            'query("echo x") matches /[unclosed/',
+            workspace=None,
+            cfg=cfg(),
+        )
+
+
+def test_if_query_failed_command_returns_false(capsys):
+    # `false` always exits non-zero with empty stdout — the regex can't match empty
+    assert perseus.evaluate_condition(
+        'query("false") matches /anything/',
+        workspace=None,
+        cfg=cfg(),
+    ) is False
+
+
+def test_if_query_matches_inside_render_block():
+    cfg_local = cfg()
+    cfg_local["render"]["allow_query_shell"] = True
+    src = """@perseus v0.6
+
+@if query("echo present") matches /present/
+SHOWN
+@else
+HIDDEN
+@endif
+"""
+    rendered = perseus.render_source(src, cfg_local, workspace=None)
+    assert "SHOWN" in rendered
+    assert "HIDDEN" not in rendered

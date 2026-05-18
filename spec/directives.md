@@ -19,7 +19,11 @@ Run a shell command and embed stdout. Shell execution can be disabled via `rende
 Options:
 - `@cache session` — run once per session, reuse output on subsequent renders
 - `@cache ttl=300` — cache for N seconds
-- `fallback="text"` — output to show if command fails or returns empty
+- `fallback="text"` — output to show if command fails (non-zero exit),
+  returns empty stdout, times out, or raises an exception. Returns the
+  literal text as a bare string (no fence). Both `"text"` and `'text'`
+  quoting work. Backslash escapes are honored (`\n`, `\t`, etc.). Composes
+  with `@cache`: write the fallback BEFORE the cache modifier.
 
 ---
 
@@ -163,7 +167,33 @@ Malformed or unknown conditions render a visible warning block rather than silen
 @else
   Port 27018 is clear.
 @endif
+
+@if query("git status --porcelain") not matches /./
+  Working tree is clean.
+@endif
+
+@if query("uname -a") matches /Darwin/i
+  Running on macOS.
+@endif
 ```
+
+**Supported condition forms:**
+
+| Form | Description |
+|---|---|
+| `file.exists "path"` | True if the file/dir exists |
+| `file.missing "path"` | True if the file/dir does NOT exist |
+| `env.set VAR` | True if `$VAR` is set and non-empty |
+| `env.unset VAR` | True if `$VAR` is unset or empty |
+| `env.eq VAR "value"` | True if `$VAR` equals the literal value |
+| `env.neq VAR "value"` | True if `$VAR` does not equal the literal value |
+| `query("cmd") matches /regex/[i]` | Run the command and test stdout against the regex; `i` = case-insensitive |
+| `query("cmd") not matches /regex/[i]` | Negated form |
+
+`@if query(...)` honors `render.allow_query_shell` — when false, the
+condition evaluates to False and a stderr warning is printed (parsing does
+not raise). Invalid regex raises a `ConditionParseError` so the renderer
+surfaces a visible warning instead of silently failing.
 
 ---
 

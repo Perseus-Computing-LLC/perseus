@@ -14,7 +14,7 @@ Provider-agnostic defaults now use `PERSEUS_SKILLS_DIR` and `PERSEUS_SESSIONS_DI
 
 Perseus dogfoods itself: `ROADMAP.md` is a live `@perseus` source — the project's own documentation resolves its git state, CLI version, recent sessions, and last checkpoint at render time.
 
-**Status: Alpha v0.6 — Phases 1–8 (partial) complete. Phase 8 added `@agent`, `@inbox`, template gallery, cross-platform `cron` scaffolder, and read-only `perseus serve` HTTP view. 132 tests passing.**
+**Status: Alpha v0.6 — Phases 1–8 complete (8.2 federation deferred by design). Phase 8 added `@agent`, `@inbox`, template gallery, cross-platform `cron` scaffolder, read-only `perseus serve` HTTP view, `@query fallback="text"`, and `@if query(...) matches /regex/`. All 19 in-scope tasks closed. 154 tests passing.**
 
 ---
 
@@ -136,11 +136,11 @@ Emits a structured oracle prompt with a live environment snapshot — skills tab
 
 | Directive | What it does |
 |---|---|
-| `@query "shell cmd"` | Runs a shell command, embeds stdout as a fenced block |
+| `@query "shell cmd" [fallback="text"]` | Runs a shell command, embeds stdout as a fenced block; `fallback=` emits the literal text on failure or empty output |
 | `@read <file> [path="key"]` | Reads a file; dot-notation path for JSON/YAML/TOML; `key=` for `.env` files |
 | `@env VAR [fallback="x"]` | Injects an environment variable; `required=true` emits a visible warning if unset |
 | `@include <file>` | Embeds a file inline; markdown raw, structured files fenced |
-| `@if file.exists ".env"` / `@endif` | Conditional blocks: `file.exists/missing`, `env.set/unset/eq/neq` |
+| `@if <cond>` / `@else` / `@endif` | Conditional blocks: `file.exists/missing`, `env.set/unset/eq/neq`, `query("cmd") [not] matches /regex/[i]` |
 | `@constraint id="..." severity="..."` | Machine-readable rules rendered as a `\| ID \| Severity \| Rule \|` table |
 | `@skills [flag_stale=true]` | Scans the Hermes skills dir, reads frontmatter, flags stale entries |
 | `@services` (YAML block or `@services ... @end`) | HTTP health checks (`url:`), Docker container status (`docker:`), or optional shell exit check (`command:`) |

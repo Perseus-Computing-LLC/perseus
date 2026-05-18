@@ -75,10 +75,10 @@ checkpoints feed it.
 | `@date format="..."` | ✅ | Inline substitution |
 | `@waypoint [ttl=N]` | ✅ | Latest checkpoint content |
 | `@prompt...@end` | ✅ | AI instruction callout block |
-| `@query "..."` | ✅ | Runs shell cmd, embeds stdout as fenced code block |
+| `@query "..." [fallback="text"]` | ✅ | Runs shell cmd, embeds stdout as fenced code block; `fallback=` returns literal text on failure/empty (task-14) |
 | `@read <file> path="..."` | ✅ | JSON/YAML/TOML path=, .env key=, fallback= |
 | `@env <VAR>` | ✅ | required=, fallback= modifiers |
-| `@if/@else/@endif` | ✅ | file.exists/missing, env.set/unset/eq/neq |
+| `@if/@else/@endif` | ✅ | file.exists/missing, env.set/unset/eq/neq, `query("cmd") [not] matches /regex/[i]` (task-13) |
 | `@include <file>` | ✅ | md embedded raw; structured files fenced |
 | `@cache session/ttl=N` | ✅ | Two-level cache: in-memory (session) + disk (TTL) |
 | `@cache persist` | ✅ | Disk-backed cache; TTL via `render.persist_cache_ttl_s` (task-09) |
