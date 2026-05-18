@@ -369,6 +369,8 @@ Spec backfill:    task-07 (multi-workspace namespacing)
                   task-09 (@cache persist + mock)
                   task-10 (suggest --quick/--category/--no-services flags)
                   task-11 (linux systemd scaffolding)
+                  task-13 (@if query)
+                  task-14 (@query fallback)
 Phase 5C (next):  task-05 context health + @health directive
 Phase 6 (later):  task-06 Daedalus — local scoring model, dataset curation, cross-session learning
 Phase 7 (planned): task-12 Mnēmē — narrative project memory, @memory directive, auto-update on checkpoint
