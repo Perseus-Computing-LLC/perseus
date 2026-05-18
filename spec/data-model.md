@@ -86,3 +86,9 @@ hermes:
   session_search_available: true   # set false if not running Hermes
   skills_list_available: true
 ```
+
+---
+
+## Checkpoint Diff Output
+
+`perseus diff` renders a simple field-level markdown table showing changed keys between an older and newer checkpoint. Unchanged fields are omitted.

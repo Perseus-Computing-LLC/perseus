@@ -109,6 +109,8 @@ See [`directives.md`](directives.md) for the full directive reference.
 
 ## 3. Checkpoints (`perseus checkpoint`)
 
+Checkpoint state can now also be compared with `perseus diff`, which renders a field-level diff between two checkpoints or the latest pair.
+
 Lightweight resumption snapshots. Written explicitly by the assistant at natural pause points — end of a task, before a large operation, at a logical handoff. Not automatic, not a log.
 
 ### Design Principles

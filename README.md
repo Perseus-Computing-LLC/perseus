@@ -12,7 +12,7 @@ Built as a companion to [Hermes Agent](https://hermes-agent.nousresearch.com). D
 
 Perseus dogfoods itself: `ROADMAP.md` is a live `@perseus` source — the project's own documentation resolves its git state, CLI version, recent sessions, and last checkpoint at render time.
 
-**Status: Alpha v0.4 — Core engine complete, hardening pass shipped, Phase 5A (`suggest --llm`) in progress.**
+**Status: Alpha v0.4 — Core engine complete, hardening pass shipped, Phase 5A shipped, Phase 5B (`diff`) in progress.**
 
 ---
 
@@ -95,6 +95,8 @@ The assistant never sees a directive. It sees a document that was already true.
 ---
 
 ### ⚡ Session Waypoints — `perseus checkpoint`
+
+Perseus now also supports checkpoint comparison with `perseus diff`, which shows field-level changes between two checkpoints or the most recent pair.
 
 The Fates cut the thread when the connection drops. Waypoints are how you pick it back up.
 

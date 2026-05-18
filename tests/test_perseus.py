@@ -235,3 +235,54 @@ def test_cmd_suggest_with_ollama_prints_model_output(monkeypatch, capsys):
     perseus.cmd_suggest(args, cfg())
     captured = capsys.readouterr()
     assert captured.out.strip() == "llm result"
+
+
+def test_diff_checkpoints_renders_changed_fields():
+    old_cp = {"written": "2026-05-18T01:00:00+00:00", "task": "a", "status": "old"}
+    new_cp = {"written": "2026-05-18T02:00:00+00:00", "task": "a", "status": "new", "next": "ship it"}
+    out = perseus.diff_checkpoints(old_cp, new_cp)
+    assert "# Checkpoint Diff" in out
+    assert "| status | old | new |" in out
+    assert "| next | — | ship it |" in out
+
+
+def test_diff_checkpoints_reports_no_changes():
+    cp = {"written": "2026-05-18T01:00:00+00:00", "task": "a"}
+    out = perseus.diff_checkpoints(cp, dict(cp))
+    assert "No checkpoint changes detected" in out
+
+
+def test_cmd_diff_uses_latest_two_checkpoints(tmp_path, capsys):
+    store = tmp_path / "checkpoints"
+    store.mkdir()
+    older = store / "2026-05-18T0100.yaml"
+    newer = store / "2026-05-18T0200.yaml"
+    older.write_text(yaml.dump({"written": "2026-05-18T01:00:00+00:00", "task": "a", "status": "old"}))
+    newer.write_text(yaml.dump({"written": "2026-05-18T02:00:00+00:00", "task": "a", "status": "new"}))
+    local_cfg = cfg()
+    local_cfg["checkpoints"]["store"] = str(store)
+    perseus.cmd_diff(argparse.Namespace(old=None, new=None), local_cfg)
+    captured = capsys.readouterr()
+    assert "Checkpoint Diff" in captured.out
+    assert "| status | old | new |" in captured.out
+
+
+def test_cmd_diff_accepts_explicit_paths(tmp_path, capsys):
+    old_fp = tmp_path / "old.yaml"
+    new_fp = tmp_path / "new.yaml"
+    old_fp.write_text(yaml.dump({"written": "2026-05-18T01:00:00+00:00", "task": "a"}))
+    new_fp.write_text(yaml.dump({"written": "2026-05-18T02:00:00+00:00", "task": "b"}))
+    perseus.cmd_diff(argparse.Namespace(old=str(old_fp), new=str(new_fp)), cfg())
+    captured = capsys.readouterr()
+    assert "| task | a | b |" in captured.out
+
+
+def test_cmd_diff_requires_two_checkpoints(tmp_path, capsys):
+    store = tmp_path / "checkpoints"
+    store.mkdir()
+    (store / "only.yaml").write_text(yaml.dump({"written": "2026-05-18T01:00:00+00:00", "task": "a"}))
+    local_cfg = cfg()
+    local_cfg["checkpoints"]["store"] = str(store)
+    perseus.cmd_diff(argparse.Namespace(old=None, new=None), local_cfg)
+    captured = capsys.readouterr()
+    assert "Need at least two checkpoints" in captured.out

@@ -1299,6 +1299,89 @@ def cmd_checkpoint(args, cfg):
         print(f"   Next:   {cp['next']}")
 
 
+def _load_checkpoint_file(fp: Path) -> dict | None:
+    try:
+        return yaml.safe_load(fp.read_text()) or {}
+    except Exception:
+        return None
+
+
+def _list_checkpoint_files(cfg: dict) -> list[Path]:
+    store = Path(cfg["checkpoints"]["store"])
+    if not store.exists():
+        return []
+    return sorted(
+        [f for f in store.glob("*.yaml") if f.name != "latest.yaml"],
+        key=lambda f: f.stat().st_mtime,
+        reverse=True,
+    )
+
+
+def _normalize_checkpoint(cp: dict) -> dict:
+    out = dict(cp or {})
+    if out.get("workspace"):
+        try:
+            out["workspace"] = str(Path(str(out["workspace"])).resolve())
+        except Exception:
+            pass
+    return out
+
+
+def diff_checkpoints(old_cp: dict, new_cp: dict) -> str:
+    """Render a field-level diff between two checkpoints."""
+    old_cp = _normalize_checkpoint(old_cp)
+    new_cp = _normalize_checkpoint(new_cp)
+    keys = sorted(set(old_cp) | set(new_cp))
+    rows = ["| Field | Old | New |", "|---|---|---|"]
+    changed = 0
+    for key in keys:
+        old = old_cp.get(key, "")
+        new = new_cp.get(key, "")
+        if old == new:
+            continue
+        changed += 1
+        old_s = str(old).replace("\n", " ")[:120] if old != "" else "—"
+        new_s = str(new).replace("\n", " ")[:120] if new != "" else "—"
+        rows.append(f"| {key} | {old_s} | {new_s} |")
+
+    if changed == 0:
+        return "> No checkpoint changes detected."
+
+    header = [
+        "# Checkpoint Diff",
+        "",
+        f"Old: {old_cp.get('written', '(unknown)')}",
+        f"New: {new_cp.get('written', '(unknown)')}",
+        "",
+    ]
+    return "\n".join(header + rows)
+
+
+def cmd_diff(args, cfg):
+    """Compare two checkpoints or the most recent pair."""
+    files = _list_checkpoint_files(cfg)
+    old_arg = getattr(args, "old", None)
+    new_arg = getattr(args, "new", None)
+
+    if old_arg and new_arg:
+        old_fp = Path(old_arg).expanduser().resolve()
+        new_fp = Path(new_arg).expanduser().resolve()
+    else:
+        if len(files) < 2:
+            print("Need at least two checkpoints to diff.")
+            return
+        new_fp = files[0]
+        old_fp = files[1]
+
+    old_cp = _load_checkpoint_file(old_fp)
+    new_cp = _load_checkpoint_file(new_fp)
+    if not old_cp or not new_cp:
+        print("Could not load one or both checkpoints for diff.")
+        return
+
+    print(diff_checkpoints(old_cp, new_cp))
+
+
 def cmd_recover(args, cfg):
     """
     Smart recover: if --workspace is given, prefer checkpoints whose
@@ -1314,22 +1397,11 @@ def cmd_recover(args, cfg):
         print(f"No checkpoint store found at {store}. Run `perseus checkpoint` first.")
         return
 
-    # Load all checkpoints sorted by mtime desc
-    all_files = sorted(
-        [f for f in store.glob("*.yaml") if f.name != "latest.yaml"],
-        key=lambda f: f.stat().st_mtime,
-        reverse=True,
-    )
-
-    def load_cp(fp: Path) -> dict | None:
-        try:
-            return yaml.safe_load(fp.read_text()) or {}
-        except Exception:
-            return None
+    all_files = _list_checkpoint_files(cfg)
 
     # Phase 1: workspace match + within TTL
     for fp in all_files:
-        cp = load_cp(fp)
+        cp = _load_checkpoint_file(fp)
         if not cp:
             continue
         cp_ws = str(Path(cp.get("workspace", "")).resolve()) if cp.get("workspace") else ""
@@ -1356,7 +1428,7 @@ def cmd_recover(args, cfg):
 
     # Phase 2: workspace match (any age)
     for fp in all_files:
-        cp = load_cp(fp)
+        cp = _load_checkpoint_file(fp)
         if not cp:
             continue
         cp_ws = str(Path(cp.get("workspace", "")).resolve()) if cp.get("workspace") else ""
@@ -1712,6 +1784,11 @@ def main():
         help="Prefer checkpoints from this workspace path (default: cwd)"
     )
 
+    # diff
+    p_diff = sub.add_parser("diff", help="Diff two checkpoints or the most recent pair")
+    p_diff.add_argument("--old", default=None, help="Older checkpoint file path")
+    p_diff.add_argument("--new", default=None, help="Newer checkpoint file path")
+
     # suggest
     p_suggest = sub.add_parser("suggest", help="Oracle: ranked tool recommendations")
     p_suggest.add_argument("task", help="Task description")
@@ -1749,6 +1826,8 @@ def main():
         cmd_checkpoint(args, cfg)
     elif args.command == "recover":
         cmd_recover(args, cfg)
+    elif args.command == "diff":
+        cmd_diff(args, cfg)
     elif args.command == "suggest":
         cmd_suggest(args, cfg)
     elif args.command == "init":
