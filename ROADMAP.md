@@ -111,10 +111,12 @@ The oracle prompt is emitted to stdout. That's half the loop. Close it.
 - Unlocks real project AGENTS.md opt-in: `@query "git log --oneline -5"`, `@query "docker ps ..."`
 
 **P1.3 — Hermes workdir auto-injection**
-- Cold-start isn't solved until Perseus fires automatically
-- Each workspace gets `.perseus/context.md`
-- Check whether Hermes `workdir` supports `context_script` hook or needs cron pre-render pattern
-- If cron: schedule `perseus render .perseus/context.md > /tmp/perseus-context.md` before session opens
+- ✅ Implemented via `no_agent` cron watchdog pattern
+- **Finding:** Hermes has no `context_script` hook. It reads `.hermes.md` at cwd at session start (highest priority over AGENTS.md, CLAUDE.md, .cursorrules).
+- **Solution:** cron job `70c2cfa762e5` (`perseus-render-workspace.sh`) runs every 5 min; renders `.perseus/context.md` → `.hermes.md` silently (no delivery); Hermes picks it up automatically on next session open.
+- Script lives at `~/.hermes/scripts/perseus-render-workspace.sh`; add new workspaces to `WORKSPACES=()` array there.
+- `.hermes.md` added to `.gitignore` (generated output, not source)
+- Cold-start is now solved: open workspace → `.hermes.md` is ≤5 min stale → Hermes reads it → no orientation phase needed
 
 ---
 
@@ -217,20 +219,22 @@ Phase 5 (future): Local scoring model, full autonomy
 ## CURRENT STATE
 *Manually updated each session until Phase 4. Update this block at session end.*
 
-**As of:** 2026-05-18 (session 3 — Phase 1 close-the-loop session)
+**As of:** 2026-05-18 (session 4 — Phase 1 complete)
 
 **Last completed:**
-- README rewritten — now reflects v0.1 alpha status, accurate directive table, Quick Start, Etymology
-- P1.1 ✅ — `perseus-context-engine` skill updated with Pythia invocation pattern (loop is closed: `perseus suggest` → terminal → agent reads + ranks inline)
-- P1.2 ✅ — `@query "shell cmd"` directive implemented; `@cache` modifiers accepted (no-op, Phase 3); `context.md` uses `@query` for live git log + status
+- P1.3 ✅ — Hermes workdir auto-injection via `no_agent` cron watchdog; `.hermes.md` rendered every 5 min from `.perseus/context.md`; `.gitignore` updated
+- P1.1 ✅ — `perseus-context-engine` skill updated with Pythia invocation pattern
+- P1.2 ✅ — `@query "shell cmd"` directive implemented
 
-**Active thread:** Phase 1 — P1.3 (workdir auto-injection) is the remaining item
+**Phase 1 complete. Cold-start is solved.**
+
+**Active thread:** Phase 2 — Real Project Opt-In
 
 **Next session should:**
 1. Read this file first
-2. P1.3: Investigate Hermes `workdir` / `context_script` hook support; implement cron pre-render if needed
-3. Consider starting Phase 2 (`@read`, `@env`) if P1.3 turns out to require Hermes config changes beyond current scope
-4. Update CURRENT STATE block at end
+2. P2.1: Implement `@read` directive — reads files from workspace, supports `path=` and `key=` modifiers
+3. P2.2: Implement `@env` directive — reads env vars, supports `required=` and `fallback=`
+4. Consider `@if/@else/@endif` (P2.3) as stretch goal if P2.1+P2.2 land cleanly
 
 **Blocking / notes:**
 - Container `$HOME` quirk: use absolute paths (`/home/hermeswebui`) not `~` in config
