@@ -86,6 +86,7 @@ checkpoints feed it.
 | `@list` | 🔲 | Directory listing or structured-file table — task-08 |
 | `@tree` | 🔲 | Filtered directory tree — task-08 |
 | `@health` | 🔲 | Inline context maintenance suggestions — task-05 |
+| `@memory` | 🔲 | Narrative project memory — task-12 |
 
 ### Files
 
@@ -320,6 +321,39 @@ offline. The implementation stays inside `perseus.py` — Daedalus is not a sepa
 
 ---
 
+### Phase 7 — Mnēmē: Narrative Project Memory ← PLANNED
+
+**Mnēmē** (Μνήμη) was the original Muse of Memory — not a log, not a snapshot, but the
+*distilled narrative* of experience. She answers the question no snapshot can: *how did we
+get here?*
+
+Perseus solves cold-start. Mnēmē solves *arc*: the decisions made three weeks ago, the
+approach tried and rejected, the constraint added after a painful bug. The raw material
+already exists in checkpoints and the oracle log. Mnēmē distills it.
+
+**P7.1 — Narrative store and deterministic distillation**  
+Per-workspace narrative file at `~/.perseus/memory/<workspace-hash>.md`. Assembled
+deterministically from checkpoints (decisions, task history) and oracle log (patterns,
+accepted recommendations). No LLM required for v1.
+
+**P7.2 — LLM-assisted distillation**  
+Optional `memory.llm_provider` config key enables richer narrative via the existing
+`run_llm` infrastructure. Incremental update and full compaction prompts.
+
+**P7.3 — `@memory` renderer directive**  
+Injects the narrative inline, with optional `focus=` argument to extract a single section.
+
+**P7.4 — Auto-update on checkpoint write**  
+`cmd_checkpoint` silently calls memory update when `memory.auto_update=True`. Every
+checkpoint automatically advances the narrative. Compounding value.
+
+**P7.5 — `perseus memory query`**  
+Deterministic section search or LLM-answering against the narrative. Read-only.
+
+Full spec: `tasks/task-12-mneme-narrative-memory.md`
+
+---
+
 ## Sequencing Summary
 
 ```
@@ -337,6 +371,7 @@ Spec backfill:    task-07 (multi-workspace namespacing)
                   task-11 (linux systemd scaffolding)
 Phase 5C (next):  task-05 context health + @health directive
 Phase 6 (later):  task-06 Daedalus — local scoring model, dataset curation, cross-session learning
+Phase 7 (planned): task-12 Mnēmē — narrative project memory, @memory directive, auto-update on checkpoint
 ```
 
 ---
