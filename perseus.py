@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 Perseus — Live Context Engine for AI Assistants
-Alpha v0.1: render (@query, @skills, @services, @session), checkpoint, suggest
+Alpha v0.2: render (@query, @skills, @services, @session, @read, @env,
+            @if/@else/@endif, @include), checkpoint, suggest
 
 Usage:
   perseus render <source.md>               → resolved markdown to stdout
@@ -98,7 +99,9 @@ def resolve_query(args_str: str, cfg: dict) -> str:
     shell = cfg["render"].get("shell", "/bin/bash")
 
     # Extract the command — accept single or double quotes
-    cmd_match = re.match(r'^["\'](.+?)["\']', args_str.strip())
+    cmd_match = re.match(r'^["\'"](.+?)["\'"]', args_str.strip())
+    if not cmd_match:
+        cmd_match = re.match(r"^['\"](.+?)['\"]", args_str.strip())
     if not cmd_match:
         # Try unquoted (everything up to @cache or end)
         cmd_raw = re.sub(r'\s*@cache\s.*$', '', args_str.strip())
@@ -154,6 +157,278 @@ def _guess_lang(cmd: str) -> str:
     return "text"
 
 
+# ──────────────────────────────── @read ───────────────────────────────────────
+
+def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str:
+    """
+    @read <file> [path="key.subkey"] [key="ENV_KEY"] [fallback="default"]
+
+    Reads a file and optionally extracts a value from it:
+    - path=  : dot-notation traversal for JSON/YAML/TOML files
+    - key=   : KEY=VALUE lookup for .env-style files
+    - fallback= : value returned when file/key is missing (no fallback → warning)
+    Without path= or key=, embeds the full file as a fenced code block.
+    """
+    # Parse file path (quoted or unquoted, stops at first modifier)
+    file_match = re.match(r'^["\'](.+?)["\']|^(\S+)', args_str.strip())
+    if not file_match:
+        return "> ⚠ @read: no file specified."
+
+    file_path_str = file_match.group(1) or file_match.group(2)
+    remaining = args_str[file_match.end():].strip()
+
+    # Parse modifiers
+    path_key = None
+    env_key = None
+    fallback = None
+
+    m = re.search(r'path=["\']([^"\']+)["\']', remaining)
+    if m:
+        path_key = m.group(1)
+
+    m = re.search(r'key=["\']([^"\']+)["\']', remaining)
+    if m:
+        env_key = m.group(1)
+
+    m = re.search(r'fallback=["\']([^"\']*)["\']', remaining)
+    if m:
+        fallback = m.group(1)
+
+    # Resolve file path
+    fp = Path(file_path_str).expanduser()
+    if not fp.is_absolute() and workspace:
+        fp = workspace / fp
+
+    if not fp.exists():
+        if fallback is not None:
+            return fallback
+        return f"> ⚠ @read: file not found: `{file_path_str}`"
+
+    try:
+        content = fp.read_text(errors="replace")
+    except Exception as e:
+        if fallback is not None:
+            return fallback
+        return f"> ⚠ @read: could not read `{file_path_str}`: {e}"
+
+    # ── No modifier → full file as fenced block ──
+    if path_key is None and env_key is None:
+        ext = fp.suffix.lower()
+        lang_map = {".json": "json", ".yaml": "yaml", ".yml": "yaml",
+                    ".toml": "toml", ".env": "text", ".md": "markdown",
+                    ".sh": "bash", ".py": "python", ".txt": "text"}
+        lang = lang_map.get(ext, "text")
+        return f"```{lang}\n{content.rstrip()}\n```"
+
+    # ── key= → .env-style KEY=VALUE lookup ──
+    if env_key is not None:
+        for line in content.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, _, v = line.partition("=")
+            if k.strip() == env_key:
+                # Strip surrounding quotes from value
+                v = v.strip().strip('"').strip("'")
+                return v
+        if fallback is not None:
+            return fallback
+        return f"> ⚠ @read: key `{env_key}` not found in `{file_path_str}`"
+
+    # ── path= → JSON/YAML/TOML dot-notation traversal ──
+    if path_key is not None:
+        ext = fp.suffix.lower()
+        try:
+            if ext == ".json":
+                data = json.loads(content)
+            elif ext in (".yaml", ".yml"):
+                data = yaml.safe_load(content)
+            elif ext == ".toml":
+                try:
+                    import tomllib  # Python 3.11+
+                    data = tomllib.loads(content)
+                except ImportError:
+                    try:
+                        import tomli
+                        data = tomli.loads(content)  # type: ignore[import]
+                    except ImportError:
+                        return "> ⚠ @read: TOML support requires `tomllib` (Python 3.11+) or `pip install tomli`"
+            else:
+                # Try JSON, then YAML
+                try:
+                    data = json.loads(content)
+                except Exception:
+                    data = yaml.safe_load(content)
+        except Exception as e:
+            if fallback is not None:
+                return fallback
+            return f"> ⚠ @read: could not parse `{file_path_str}`: {e}"
+
+        # Traverse dot-notation path
+        current = data
+        for k in path_key.split("."):
+            if isinstance(current, dict):
+                if k not in current:
+                    if fallback is not None:
+                        return fallback
+                    return f"> ⚠ @read: path `{path_key}` not found in `{file_path_str}`"
+                current = current[k]
+            elif isinstance(current, list):
+                try:
+                    current = current[int(k)]
+                except (ValueError, IndexError):
+                    if fallback is not None:
+                        return fallback
+                    return f"> ⚠ @read: path `{path_key}` not found in `{file_path_str}`"
+            else:
+                if fallback is not None:
+                    return fallback
+                return (f"> ⚠ @read: cannot traverse into `{type(current).__name__}` "
+                        f"at `{k}` in `{file_path_str}`")
+
+        return str(current)
+
+    return content.rstrip()
+
+
+# ──────────────────────────────── @env ────────────────────────────────────────
+
+def resolve_env(args_str: str) -> str:
+    """
+    @env VAR [required=true] [fallback="default"]
+
+    Reads an environment variable. Supports:
+    - required=true  : emit a warning block if the variable is not set
+    - fallback="val" : return this value when the variable is unset
+    Without either modifier, emits a warning if the variable is unset.
+    """
+    parts = args_str.strip().split()
+    if not parts:
+        return "> ⚠ @env: no variable name specified."
+
+    var_name = parts[0]
+    remaining = " ".join(parts[1:])
+
+    required = "required=true" in remaining
+
+    fallback = None
+    m = re.search(r'fallback=["\']([^"\']*)["\']', remaining)
+    if m:
+        fallback = m.group(1)
+
+    value = os.environ.get(var_name)
+
+    if value is None:
+        if required:
+            return f"> ⚠ **`{var_name}` is required but not set.**"
+        if fallback is not None:
+            return fallback
+        return f"> ⚠ `{var_name}` is not set (no fallback)"
+
+    return value
+
+
+# ──────────────────────────────── @include ────────────────────────────────────
+
+def resolve_include(args_str: str, workspace: Path | None = None) -> str:
+    """
+    @include <file>
+
+    Embeds the contents of a file inline. Markdown files are embedded as-is;
+    structured files (.yaml, .yml, .json, .toml) are wrapped in a fenced block.
+    """
+    # Strip quotes
+    m = re.match(r'^["\'](.+?)["\']|^(\S+)', args_str.strip())
+    if not m:
+        return "> ⚠ @include: no file specified."
+
+    file_path_str = m.group(1) or m.group(2)
+    fp = Path(file_path_str).expanduser()
+    if not fp.is_absolute() and workspace:
+        fp = workspace / fp
+
+    if not fp.exists():
+        return f"> ⚠ @include: file not found: `{file_path_str}`"
+
+    try:
+        content = fp.read_text(errors="replace").rstrip()
+    except Exception as e:
+        return f"> ⚠ @include: could not read `{file_path_str}`: {e}"
+
+    ext = fp.suffix.lower()
+    if ext == ".md":
+        return content  # embed raw markdown
+    elif ext in (".yaml", ".yml"):
+        return f"```yaml\n{content}\n```"
+    elif ext == ".json":
+        return f"```json\n{content}\n```"
+    elif ext == ".toml":
+        return f"```toml\n{content}\n```"
+    elif ext in (".sh", ".bash"):
+        return f"```bash\n{content}\n```"
+    elif ext == ".py":
+        return f"```python\n{content}\n```"
+    else:
+        return f"```text\n{content}\n```"
+
+
+# ──────────────────────────────── @if condition ───────────────────────────────
+
+def evaluate_condition(condition: str, workspace: Path | None = None) -> bool:
+    """
+    Evaluate a Perseus @if condition expression. Supported forms:
+
+      file.exists "path"        — true if file exists
+      file.missing "path"       — true if file does NOT exist
+      env.set VAR               — true if env var is set (non-empty)
+      env.unset VAR             — true if env var is unset or empty
+      env.eq VAR "value"        — true if env var equals value
+      env.neq VAR "value"       — true if env var does not equal value
+    """
+    condition = condition.strip()
+
+    # file.exists "path"
+    m = re.match(r'file\.exists\s+["\'](.+?)["\']', condition)
+    if m:
+        fp = Path(m.group(1)).expanduser()
+        if not fp.is_absolute() and workspace:
+            fp = workspace / fp
+        return fp.exists()
+
+    # file.missing "path"
+    m = re.match(r'file\.missing\s+["\'](.+?)["\']', condition)
+    if m:
+        fp = Path(m.group(1)).expanduser()
+        if not fp.is_absolute() and workspace:
+            fp = workspace / fp
+        return not fp.exists()
+
+    # env.set VAR
+    m = re.match(r'env\.set\s+(\S+)', condition)
+    if m:
+        val = os.environ.get(m.group(1))
+        return val is not None and val != ""
+
+    # env.unset VAR
+    m = re.match(r'env\.unset\s+(\S+)', condition)
+    if m:
+        val = os.environ.get(m.group(1))
+        return val is None or val == ""
+
+    # env.eq VAR "value"
+    m = re.match(r'env\.eq\s+(\S+)\s+["\'](.+?)["\']', condition)
+    if m:
+        return os.environ.get(m.group(1)) == m.group(2)
+
+    # env.neq VAR "value"
+    m = re.match(r'env\.neq\s+(\S+)\s+["\'](.+?)["\']', condition)
+    if m:
+        return os.environ.get(m.group(1)) != m.group(2)
+
+    # Unknown condition → warn and treat as false
+    return False
+
+
 # ──────────────────────────────── @skills ─────────────────────────────────────
 
 def resolve_skills(args_str: str, cfg: dict) -> str:
@@ -162,7 +437,7 @@ def resolve_skills(args_str: str, cfg: dict) -> str:
     stale_days = int(cfg["oracle"].get("stale_skill_days", 30))
     flag_stale = "flag_stale=true" in args_str
     category_filter = None
-    m = re.search(r'category=["\']?([^"\'>\s]+)["\']?', args_str)
+    m = re.search(r'category=["\'"]?([^"\'">\\s]+)["\'"]?', args_str)
     if m:
         category_filter = m.group(1).lower()
 
@@ -285,7 +560,9 @@ def resolve_session(args_str: str, cfg: dict) -> str:
         count = int(m.group(1))
 
     topic = None
-    m = re.search(r'topic=["\']([^"\']+)["\']', args_str)
+    m = re.search(r'topic=["\'"]([^"\']+)["\'"]', args_str)
+    if not m:
+        m = re.search(r"topic='([^']+)'", args_str)
     if m:
         topic = m.group(1).lower()
 
@@ -373,7 +650,9 @@ def resolve_session(args_str: str, cfg: dict) -> str:
 
 def resolve_date(args_str: str) -> str:
     """Resolve @date with optional format."""
-    fmt_match = re.search(r'format=["\']([^"\']+)["\']', args_str)
+    fmt_match = re.search(r'format=["\'"]([^"\']+)["\'"]', args_str)
+    if not fmt_match:
+        fmt_match = re.search(r"format='([^']+)'", args_str)
     fmt = fmt_match.group(1) if fmt_match else "YYYY-MM-DD HH:mm z"
 
     now = datetime.now()
@@ -449,33 +728,33 @@ def resolve_prompt_block(content: str) -> str:
 
 # ──────────────────────────────── Renderer ────────────────────────────────────
 
-# Matches block-style directives that consume multiple lines until a blank line
-# or the next directive
-BLOCK_DIRECTIVES = {"@services"}
-# Matches inline directives on their own line
-INLINE_DIRECTIVE_RE = re.compile(
-    r'^(@query|@skills|@session|@date|@waypoint|@prompt)\s*(.*?)$',
-    re.IGNORECASE,
-)
 PROMPT_BLOCK_RE = re.compile(r'^@prompt\s*$', re.IGNORECASE)
 PROMPT_END_RE = re.compile(r'^@end\s*$', re.IGNORECASE)
 SERVICES_RE = re.compile(r'^@services\s*$', re.IGNORECASE)
 PERCY_HEADER_RE = re.compile(r'^@perseus\s', re.IGNORECASE)
+IF_RE = re.compile(r'^@if\s+(.+)$', re.IGNORECASE)
+ELSE_RE = re.compile(r'^@else\s*$', re.IGNORECASE)
+ENDIF_RE = re.compile(r'^@endif\s*$', re.IGNORECASE)
+
+INLINE_DIRECTIVE_RE = re.compile(
+    r'^(@query|@skills|@session|@date|@waypoint|@read|@env|@include|@prompt)\s*(.*?)$',
+    re.IGNORECASE,
+)
 
 
-def render_source(source_text: str, cfg: dict) -> str:
+def _render_lines(
+    lines: list[str],
+    cfg: dict,
+    workspace: Path | None = None,
+) -> str:
     """
-    Parse and resolve a @perseus source document.
-    Returns plain rendered markdown.
+    Core rendering loop. Processes a list of lines (already stripped of the
+    @perseus header) and returns the resolved markdown string.
+
+    This function is called recursively for @if/@else branches.
     """
-    lines = source_text.splitlines()
-
-    # Must start with @perseus
-    if not lines or not PERCY_HEADER_RE.match(lines[0]):
-        return source_text  # not a perseus doc; pass through unchanged
-
     output = []
-    i = 1  # skip the @perseus header line
+    i = 0
 
     while i < len(lines):
         line = lines[i]
@@ -506,6 +785,40 @@ def render_source(source_text: str, cfg: dict) -> str:
             output.append(resolve_services(block_content, cfg))
             continue
 
+        # ── @if/@else/@endif block ──
+        m_if = IF_RE.match(line)
+        if m_if:
+            condition_str = m_if.group(1).strip()
+            true_lines: list[str] = []
+            false_lines: list[str] = []
+            in_else = False
+            i += 1
+            depth = 1  # track nested @if depth
+            while i < len(lines):
+                inner = lines[i]
+                if IF_RE.match(inner):
+                    depth += 1
+                elif ENDIF_RE.match(inner):
+                    depth -= 1
+                    if depth == 0:
+                        i += 1  # skip @endif
+                        break
+                elif ELSE_RE.match(inner) and depth == 1:
+                    in_else = True
+                    i += 1
+                    continue
+                if in_else:
+                    false_lines.append(inner)
+                else:
+                    true_lines.append(inner)
+                i += 1
+
+            # Evaluate condition and render the correct branch
+            branch = true_lines if evaluate_condition(condition_str, workspace) else false_lines
+            if branch:
+                output.append(_render_lines(branch, cfg, workspace))
+            continue
+
         # ── inline directives ──
         m = INLINE_DIRECTIVE_RE.match(line)
         if m:
@@ -521,6 +834,12 @@ def render_source(source_text: str, cfg: dict) -> str:
                 output.append(resolve_date(args))
             elif directive == "@waypoint":
                 output.append(resolve_waypoint(args, cfg))
+            elif directive == "@read":
+                output.append(resolve_read(args, cfg, workspace))
+            elif directive == "@env":
+                output.append(resolve_env(args))
+            elif directive == "@include":
+                output.append(resolve_include(args, workspace))
             else:
                 output.append(line)
             i += 1
@@ -529,7 +848,7 @@ def render_source(source_text: str, cfg: dict) -> str:
         # Inline @date substitution within any line
         if "@date" in line:
             line = re.sub(
-                r'@date(?:\s+format=["\']([^"\']+)["\'])?',
+                r'@date(?:\s+format=["\'"]([^"\']+)["\'"])?',
                 lambda m2: resolve_date(f'format="{m2.group(1)}"' if m2.group(1) else ""),
                 line,
             )
@@ -537,6 +856,24 @@ def render_source(source_text: str, cfg: dict) -> str:
         i += 1
 
     return "\n".join(output)
+
+
+def render_source(
+    source_text: str,
+    cfg: dict,
+    workspace: Path | None = None,
+) -> str:
+    """
+    Parse and resolve a @perseus source document.
+    Returns plain rendered markdown.
+    """
+    lines = source_text.splitlines()
+
+    # Must start with @perseus
+    if not lines or not PERCY_HEADER_RE.match(lines[0]):
+        return source_text  # not a perseus doc; pass through unchanged
+
+    return _render_lines(lines[1:], cfg, workspace)  # skip @perseus header line
 
 
 # ──────────────────────────────── Checkpoint ──────────────────────────────────
@@ -615,7 +952,7 @@ def cmd_render(args, cfg):
     cfg = load_config(workspace)
 
     text = source_path.read_text(errors="replace")
-    rendered = render_source(text, cfg)
+    rendered = render_source(text, cfg, workspace)
     print(rendered)
 
 
@@ -631,19 +968,18 @@ def cmd_suggest(args, cfg):
     now = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z")
 
     # Collect environment snapshot
-    skills_args = f"flag_stale=true" + (f" category={category}" if category else "")
+    skills_args = "flag_stale=true" + (f" category={category}" if category else "")
     skills_table = resolve_skills(skills_args, cfg)
-    services_table = "(skipped)" if no_services else "(no services configured in oracle — add @services to .perseus/context.md)"
+    services_table = ("(skipped)" if no_services
+                      else "(no services configured in oracle — add @services to .perseus/context.md)")
     session_digest = resolve_session("count=3", cfg)
     checkpoint_summary = resolve_waypoint("", cfg)
 
     if quick:
-        # Just print the oracle template for the assistant to fill in
         print(f"Task: {task}")
         print(f"Environment: {now}")
         print()
         print("Skills (top-level):")
-        # summarize skill count only
         skill_dir = Path(cfg["oracle"]["skill_dir"])
         count = len(list(skill_dir.rglob("SKILL.md"))) if skill_dir.exists() else 0
         print(f"  {count} skills available")
@@ -689,7 +1025,7 @@ Format: ranked list, most recommended first. Be direct. No hedging.
 def main():
     parser = argparse.ArgumentParser(
         prog="perseus",
-        description="Perseus — Live Context Engine for AI Assistants (alpha v0.1)",
+        description="Perseus — Live Context Engine for AI Assistants (alpha v0.2)",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
