@@ -2,9 +2,11 @@
 
 > *"Hold up the mirror so you can face the Medusa without being turned to stone."*
 
-Perseus is a **live context engine** for AI assistants. It solves the cold-start problem: every session begins with an AI that has no idea what's running, what you've been working on, which tools are available, or where you left off. Perseus resolves that state **before** it hits the context window — and writes waypoints **during** a session so you can resume exactly where you were interrupted.
+Perseus is a **live context engine** for AI assistants. It solves the cold-start problem: every session begins with an AI that has no idea what's running, what you've been working on, which tools are available, or where you left off. Perseus resolves that state **before** it hits the context window — and writes waypoints **during** a session so the next one can resume exactly where it left off.
 
 Built as a companion to [Hermes Agent](https://hermes-agent.nousresearch.com), but designed to be assistant-agnostic.
+
+**Status: Alpha v0.1 — Core CLI built and working.**
 
 ---
 
@@ -37,21 +39,33 @@ Resolves a session context document **before** it reaches the assistant's contex
 "Check docker ps first"           →    "mongo-dev: Up 3h  redis-dev: Up 3h"
 ```
 
-Directives supported: `@query` (shell), `@read` (file/JSON/YAML/env), `@session` (recent work digest), `@services` (health checks), `@skills` (available tools), `@if/@else` (conditional context), `@cache` (ttl/session scoping).
+Any `.md` file beginning with `@perseus v0.1` becomes live — no special extension required. Compatible with `AGENTS.md`, `CLAUDE.md`, and any doc an assistant would read.
 
 ### 2. Session Waypoints (`perseus checkpoint`)
 Writes incremental resumption state during a session. If the connection drops — service restart, timeout, network blip — the next session loads the last waypoint and picks up without re-orientation.
 
 ```
-Waypoint written: 2026-05-18T06:49 CT
-  Task: Setting up ntfy webhook integration
-  Status: handler written, pending test run
-  Next: run pytest tests/test_webhook.py
-  Context: /workspace/ntfy-dev, branch: feature/webhook-auth
+✅ Checkpoint written: 2026-05-18T0649.yaml
+   Task:   Setting up ntfy webhook integration
+   Status: handler written, pending test run
+   Next:   run pytest tests/test_webhook.py
 ```
 
-### 3. Tool Oracle (`perseus suggest`)
-Given a task description and the current environment state, surfaces the highest-utility tool path: which skill to load, which integration to use, which approach minimizes latency and maximizes fidelity. The Medusa of tool selection — faced with the mirror instead of directly.
+### 3. Pythia — Tool Oracle (`perseus suggest`)
+Given a task description and the current environment state, ranks the highest-utility tool paths: which skill to load, which integration to use, which approach minimizes friction. The Medusa of tool selection — faced with the mirror instead of directly.
+
+Named **Pythia** (the Oracle at Delphi who gave Perseus his mission). Oracle Corp is litigious.
+
+```
+$ perseus suggest "deploy the staging container"
+
+# → structured prompt emitted with live env snapshot:
+#   - 102 available skills with freshness
+#   - service health checks
+#   - recent sessions digest
+#   - last checkpoint
+# → assistant reads prompt, produces ranked recommendations inline
+```
 
 ---
 
@@ -64,16 +78,15 @@ Given a task description and the current environment state, surfaces the highest
 │  ┌──────────────┐  ┌───────────────────────────┐ │
 │  │   Renderer   │  │    Waypoint Store         │ │
 │  │              │  │                           │ │
-│  │ @query       │  │  session.md  (current)    │ │
-│  │ @read        │  │  waypoints/  (history)    │ │
-│  │ @session     │  │  recovery.md (last known) │ │
-│  │ @services    │  └───────────────────────────┘ │
-│  │ @skills      │                                │
-│  │ @if/@cache   │  ┌───────────────────────────┐ │
-│  └──────────────┘  │    Tool Oracle            │ │
-│                    │                           │ │
-│                    │  task → ranked tool paths │ │
-│                    └───────────────────────────┘ │
+│  │ @query   ✅  │  │  checkpoints/ (history)   │ │
+│  │ @read    🔶  │  │  latest.yaml  (symlink)   │ │
+│  │ @session ✅  │  └───────────────────────────┘ │
+│  │ @services ✅ │                                │
+│  │ @skills  ✅  │  ┌───────────────────────────┐ │
+│  │ @date    ✅  │  │    Pythia (Tool Oracle)   │ │
+│  │ @waypoint ✅ │  │                           │ │
+│  │ @if/cache 🔶 │  │  task → ranked tool paths │ │
+│  └──────────────┘  └───────────────────────────┘ │
 └─────────────────────────────────────────────────┘
          ↓ rendered context
 ┌─────────────────────────────────────────────────┐
@@ -85,45 +98,123 @@ Given a task description and the current environment state, surfaces the highest
 
 ---
 
+## Quick Start
+
+**Requirements:** Python 3.10+, `pyyaml` (`pip install pyyaml`)
+
+```bash
+# Install
+cp perseus.py ~/.local/bin/perseus
+chmod +x ~/.local/bin/perseus
+
+# Configure (set absolute paths for your environment)
+mkdir -p ~/.perseus
+cat > ~/.perseus/config.yaml << 'EOF'
+oracle:
+  skill_dir: /home/you/.hermes/skills
+hermes:
+  sessions_dir: /home/you/.hermes/sessions
+EOF
+
+# Render a live context document
+perseus render /workspace/myproject/.perseus/context.md
+
+# Write a session waypoint
+perseus checkpoint \
+  --task "Implementing @query directive" \
+  --status "resolver written, tests pending" \
+  --next "add to render loop, test with context.md" \
+  --workspace /workspace/perseus
+
+# Recover last waypoint
+perseus recover
+
+# Get Pythia recommendations
+perseus suggest "I need to search for a pattern across a large codebase"
+```
+
+---
+
+## Directives
+
+Directives appear inside `.md` files that start with `@perseus v0.1`. The file renders to plain markdown — no special syntax visible to the reader.
+
+| Directive | Status | Notes |
+|---|---|---|
+| `@query "shell cmd"` | ✅ | Runs command, embeds output as code block |
+| `@skills [flag_stale=true] [category=X]` | ✅ | Scans Hermes skills dir, reads frontmatter |
+| `@services` (YAML block) | ✅ | HTTP health checks with latency |
+| `@session [count=N] [topic="..."]` | ✅ | Recent session digest from sessions dir |
+| `@date format="YYYY-MM-DD HH:mm z"` | ✅ | Live date/time inline or standalone |
+| `@waypoint [ttl=N]` | ✅ | Latest checkpoint rendered inline |
+| `@prompt...@end` | ✅ | AI instruction callout block |
+| `@read <file> path="..."` | 🔶 Phase 2 | File/JSON/YAML key extraction |
+| `@env VAR [fallback="..."]` | 🔶 Phase 2 | Environment variable with fallback |
+| `@if/@else/@endif` | 🔶 Phase 2 | Conditional context blocks |
+| `@include <file>` | 🔶 Phase 2 | File inclusion |
+| `@constraint...@end` | 🔶 Phase 3 | Machine-readable rules table |
+| `@cache session/ttl=N` | 🔶 Phase 3 | Avoid re-running slow queries |
+
+---
+
+## Source File Format
+
+```markdown
+@perseus v0.1
+
+@prompt
+This document was rendered live by Perseus. Trust all values.
+@end
+
+# Session Context — @date format="YYYY-MM-DD HH:mm z"
+
+## Last Session
+@waypoint ttl=86400
+
+## Environment
+@query "git log --oneline -5"
+@query "docker ps --format 'table {{.Names}}\t{{.Status}}'"
+
+## Available Skills
+@skills flag_stale=true
+
+## Services
+@services
+  - name: Hermes WebUI
+    url: http://localhost:7779
+  - name: My App
+    url: http://localhost:3001/health
+
+## Recent Sessions
+@session count=5
+```
+
+---
+
 ## Integration with Hermes Agent
 
-Perseus is designed to wire into Hermes via `AGENTS.md` injection and the `workdir` cron job feature:
+Perseus is designed to wire into Hermes via `AGENTS.md` injection and `workdir` cron:
 
 ```yaml
 # .hermes/config.yaml (excerpt)
-context_script: ~/.perseus/render.sh   # runs before each session
-checkpoint_hook: ~/.perseus/checkpoint.sh  # called on session events
+context_script: ~/.perseus/render.sh   # runs before each session opens
 ```
 
-A rendered Perseus context document is injected into every session that uses a configured workspace — same mechanism as `AGENTS.md`, but always live.
+Any workspace can opt in by adding `@perseus v0.1` to the first line of its `AGENTS.md` or `CLAUDE.md`. Perseus pre-renders it and hands the assistant a live, accurate document.
 
 ---
 
 ## Roadmap
 
-### v0.1 — Foundation
-- [ ] `perseus render` — directive-based context renderer (shell, file, env)
-- [ ] `@query`, `@read`, `@env`, `@date`, `@if`, `@cache` directives
-- [ ] AGENTS.md / CLAUDE.md compatible output format
-- [ ] Hermes `workdir` integration
+| Phase | Focus | Status |
+|---|---|---|
+| **Phase 1** | Close the Pythia loop; `@query` directive; workdir auto-injection | 🔶 Active |
+| **Phase 2** | `@read`, `@env`, `@if/@else`, `@include` — real project AGENTS.md opt-in | Planned |
+| **Phase 3** | Cache layer; smart `recover`; `@constraint` | Planned |
+| **Phase 4** | Perseus renders its own roadmap live (self-bootstrapping) | Planned |
+| **Phase 5** | `--llm` flag for local model; accepted-recommendation training data; `perseus init` | Future |
 
-### v0.2 — Waypoints
-- [ ] `perseus checkpoint` — write resumption state
-- [ ] `perseus recover` — load last waypoint into session context
-- [ ] Cron job integration for automatic checkpointing
-- [ ] Waypoint diffing (what changed since last checkpoint)
-
-### v0.3 — Tool Oracle
-- [ ] `perseus suggest <task>` — ranked tool/skill recommendations
-- [ ] Environment-aware scoring (what's installed, what's healthy)
-- [ ] Skill freshness tracking (stale skill detection)
-- [ ] Integration fingerprinting (which services are actually live)
-
-### v0.4 — Production Hardening
-- [ ] Multi-workspace support
-- [ ] TTL cache management
-- [ ] Hermes plugin packaging
-- [ ] Assistant-agnostic adapter layer (Claude Code, OpenAI, etc.)
+Full detail: [ROADMAP.md](./ROADMAP.md)
 
 ---
 
@@ -133,11 +224,7 @@ A rendered Perseus context document is injected into every session that uses a c
 
 **Hermes** provided Perseus with winged sandals, a sword, and guidance. This Perseus returns the favor.
 
----
-
-## Status
-
-🚧 **Early design phase.** Architecture and roadmap are being defined.
+**Pythia** — the Oracle at Delphi. She didn't make decisions; she surfaced the truth so the hero could. That's the Tool Oracle: it doesn't choose for you, it shows you the ranked paths clearly so you can move.
 
 ---
 

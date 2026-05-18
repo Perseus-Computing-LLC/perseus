@@ -19,6 +19,13 @@ rendered output and skip orientation. Start work immediately.
 
 ---
 
+## Workspace State
+
+@query "git -C /workspace/perseus log --oneline -5"
+@query "git -C /workspace/perseus status --short"
+
+---
+
 ## Available Skills
 @skills flag_stale=true
 

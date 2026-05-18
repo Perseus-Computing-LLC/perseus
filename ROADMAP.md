@@ -55,7 +55,7 @@ Perseus is a live context engine for AI assistants (Hermes Agent). Three compone
 | `@date format="..."` | ✅ | Inline substitution |
 | `@waypoint [ttl=N]` | ✅ | Latest checkpoint content |
 | `@prompt...@end` | ✅ | AI instruction callout block |
-| `@query "..."` | ❌ Not built | Next priority — unlocks real project opt-in |
+| `@query "..."` | ✅ Built | Runs shell cmd, embeds stdout as fenced code block; `@cache` parsed (no-op, Phase 3) |
 | `@read <file> path="..."` | ❌ Not built | Phase 2 |
 | `@env <VAR>` | ❌ Not built | Phase 2 |
 | `@if/@else/@endif` | ❌ Not built | Phase 2 |
@@ -100,16 +100,15 @@ Perseus is a live context engine for AI assistants (Hermes Agent). Three compone
 The oracle prompt is emitted to stdout. That's half the loop. Close it.
 
 **P1.1 — Pythia as live Hermes skill call (short path)**
-- Update `perseus-context-engine` skill with explicit invocation pattern
+- ✅ Updated `perseus-context-engine` skill with explicit Pythia invocation pattern
 - When assistant calls `perseus suggest "task"`, Perseus renders env snapshot, assistant produces ranked output inline
-- Zero infrastructure cost. Do this first.
+- Zero infrastructure cost. Done.
 
 **P1.2 — `@query` directive**
-- Most powerful directive. Unlocks real project AGENTS.md opt-in.
-- `@query "git log --oneline -5" @cache session`
-- `@query "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'"` 
-- Enables `@if query(...) matches /pattern/` conditional path later
-- Turns Perseus into a general-purpose live doc engine, not just Hermes-specific
+- ✅ Implemented. Runs arbitrary shell commands, embeds stdout as fenced code block.
+- `@cache` modifiers parsed for forward compat but no-op until Phase 3
+- `context.md` updated to use `@query` for live git log + status
+- Unlocks real project AGENTS.md opt-in: `@query "git log --oneline -5"`, `@query "docker ps ..."`
 
 **P1.3 — Hermes workdir auto-injection**
 - Cold-start isn't solved until Perseus fires automatically
@@ -218,25 +217,26 @@ Phase 5 (future): Local scoring model, full autonomy
 ## CURRENT STATE
 *Manually updated each session until Phase 4. Update this block at session end.*
 
-**As of:** 2026-05-18 (session 2 — implementation session)
+**As of:** 2026-05-18 (session 3 — Phase 1 close-the-loop session)
 
 **Last completed:**
-- Perseus v0.1 fully built and pushed (perseus.py, CLI, 6 directives, skill, config)
-- Renders 102 skills, 3 services, 5 recent sessions against live homelab
-- `perseus suggest` emits structured Pythia prompt — loop not yet closed
+- README rewritten — now reflects v0.1 alpha status, accurate directive table, Quick Start, Etymology
+- P1.1 ✅ — `perseus-context-engine` skill updated with Pythia invocation pattern (loop is closed: `perseus suggest` → terminal → agent reads + ranks inline)
+- P1.2 ✅ — `@query "shell cmd"` directive implemented; `@cache` modifiers accepted (no-op, Phase 3); `context.md` uses `@query` for live git log + status
 
-**Active thread:** Phase 1 — close the Pythia loop
+**Active thread:** Phase 1 — P1.3 (workdir auto-injection) is the remaining item
 
 **Next session should:**
 1. Read this file first
-2. P1.1: Update `perseus-context-engine` skill with Pythia invocation pattern
-3. P1.2: Implement `@query` directive in `perseus.py`
+2. P1.3: Investigate Hermes `workdir` / `context_script` hook support; implement cron pre-render if needed
+3. Consider starting Phase 2 (`@read`, `@env`) if P1.3 turns out to require Hermes config changes beyond current scope
 4. Update CURRENT STATE block at end
 
 **Blocking / notes:**
 - Container `$HOME` quirk: use absolute paths (`/home/hermeswebui`) not `~` in config
 - No `gh` CLI — use `curl` + token from `/home/hermeswebui/.hermes/.env`
-- Git push: `https://tcconnally:${GITHUB_TOKEN}@github.com/tcconnally/perseus.git`
+- Git push: `https://tcconnally:***@github.com/tcconnally/perseus.git`
+- Services health check shows all ❌ URLError — these services run on the Docker host network, not localhost inside the container. Expected behavior; `@services` still works for external URLs.
 
 ---
 
