@@ -189,13 +189,17 @@ def resolve_query(args_str: str, cfg: dict) -> str:
     """
     shell = cfg["render"].get("shell", "/bin/bash")
 
-    # Extract the command — accept single or double quotes
-    cmd_match = re.match(r'^["\'"](.+?)["\'"]', args_str.strip())
+    # Strip @cache modifier first, then extract the command string.
+    # Use the opening quote character to find the correct closing quote,
+    # so commands containing the other quote type (e.g. "bash -c 'foo'")
+    # are parsed correctly.
+    raw = re.sub(r'\s+@cache\s.*$', '', args_str.strip())
+    cmd_match = re.match(r'^"((?:[^"\\]|\\.)*)"', raw)   # double-quoted
     if not cmd_match:
-        cmd_match = re.match(r"^['\"](.+?)['\"]", args_str.strip())
+        cmd_match = re.match(r"^'((?:[^'\\]|\\.)*)'", raw)  # single-quoted
     if not cmd_match:
-        # Try unquoted (everything up to @cache or end)
-        cmd_raw = re.sub(r'\s*@cache\s.*$', '', args_str.strip())
+        # Unquoted — everything remaining
+        cmd_raw = raw.strip()
         if not cmd_raw:
             return "> ⚠ @query: no command specified."
         cmd = cmd_raw
@@ -1180,7 +1184,14 @@ def cmd_render(args, cfg):
 
     text = source_path.read_text(errors="replace")
     rendered = render_source(text, cfg, workspace)
-    print(rendered)
+
+    output = getattr(args, "output", None)
+    if output:
+        out_path = Path(output)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(rendered)
+    else:
+        print(rendered)
 
 
 # ──────────────────────────────── Suggest ─────────────────────────────────────
@@ -1343,6 +1354,10 @@ def main():
     # render
     p_render = sub.add_parser("render", help="Render a @perseus source file")
     p_render.add_argument("source", help="Path to .md file with @perseus header")
+    p_render.add_argument(
+        "--output", "-o", default=None, metavar="FILE",
+        help="Write rendered output to FILE instead of stdout",
+    )
 
     # checkpoint
     p_cp = sub.add_parser("checkpoint", help="Write a session checkpoint")
