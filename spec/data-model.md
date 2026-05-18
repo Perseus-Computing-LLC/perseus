@@ -10,7 +10,7 @@
   cache/
     <hash>.json         ← cached directive outputs (keyed by directive + args)
   checkpoints/
-    latest.yaml         ← symlink to most recent checkpoint
+    latest.yaml         ← most recent checkpoint (symlink when supported, file fallback otherwise)
     2026-05-18T0649.yaml
     2026-05-17T2231.yaml
     ...
@@ -65,6 +65,9 @@ render:
   session_digest_count: 5
   services_timeout_s: 3
   shell: /bin/bash
+  allow_query_shell: true
+  allow_services_command: false
+  allow_outside_workspace: false
 
 checkpoints:
   store: ~/.perseus/checkpoints
@@ -74,7 +77,10 @@ checkpoints:
 oracle:
   skill_dir: ~/.hermes/skills
   stale_skill_days: 30
-  use_session_history: true
+  llm_provider: ollama
+  ollama_model: llama3.1
+  llm_timeout_s: 30
+  ollama_host: http://127.0.0.1:11434
 
 hermes:
   session_search_available: true   # set false if not running Hermes

@@ -173,3 +173,65 @@ def test_launchd_subcommand_scaffolds_plist_on_macos(tmp_path, monkeypatch):
     plist = fake_home / "Library" / "LaunchAgents" / "com.test.perseus.plist"
     assert plist.exists()
     assert "<string>render</string>" in plist.read_text()
+
+
+def test_build_oracle_snapshot_collects_expected_keys(monkeypatch):
+    monkeypatch.setattr(perseus, "resolve_skills", lambda *a, **k: "skills")
+    monkeypatch.setattr(perseus, "resolve_session", lambda *a, **k: "sessions")
+    monkeypatch.setattr(perseus, "resolve_waypoint", lambda *a, **k: "checkpoint")
+    snap = perseus.build_oracle_snapshot(cfg(), category="git", no_services=True, quick=True)
+    assert snap["skills_table"] == "skills"
+    assert snap["services_table"] == "(skipped)"
+    assert snap["session_digest"] == "sessions"
+    assert snap["checkpoint_summary"] == "checkpoint"
+    assert "rendered_at" in snap
+    assert "skill_count" in snap
+
+
+def test_render_oracle_prompt_contains_snapshot_sections():
+    prompt = perseus.render_oracle_prompt("do thing", {
+        "rendered_at": "now",
+        "skills_table": "skills",
+        "services_table": "services",
+        "checkpoint_summary": "checkpoint",
+        "session_digest": "sessions",
+    })
+    assert "TASK: do thing" in prompt
+    assert "### Available Skills" in prompt
+    assert "skills" in prompt
+    assert "sessions" in prompt
+
+
+def test_run_ollama_success(monkeypatch):
+    class Resp:
+        def __enter__(self):
+            return self
+        def __exit__(self, exc_type, exc, tb):
+            return False
+        def read(self):
+            return b'{"response":"ranked output"}'
+    monkeypatch.setattr(perseus.urllib.request, "urlopen", lambda *a, **k: Resp())
+    out = perseus.run_ollama("prompt", cfg())
+    assert out == "ranked output"
+
+
+def test_cmd_suggest_with_unsupported_llm_warns(capsys):
+    args = argparse.Namespace(task="x", quick=False, no_services=True, category=None, llm="other:model")
+    perseus.cmd_suggest(args, cfg())
+    captured = capsys.readouterr()
+    assert "Unsupported llm provider" in captured.out
+
+
+def test_cmd_suggest_with_ollama_prints_model_output(monkeypatch, capsys):
+    monkeypatch.setattr(perseus, "build_oracle_snapshot", lambda *a, **k: {
+        "rendered_at": "now",
+        "skills_table": "skills",
+        "services_table": "services",
+        "checkpoint_summary": "checkpoint",
+        "session_digest": "sessions",
+    })
+    monkeypatch.setattr(perseus, "run_ollama", lambda *a, **k: "llm result")
+    args = argparse.Namespace(task="x", quick=False, no_services=True, category=None, llm="ollama:llama3.1")
+    perseus.cmd_suggest(args, cfg())
+    captured = capsys.readouterr()
+    assert captured.out.strip() == "llm result"

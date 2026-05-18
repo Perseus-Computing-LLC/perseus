@@ -160,6 +160,14 @@ Perseus renders its own roadmap live. This file is now a `@perseus` source.
 
 ### Phase 5 — Pythia Autonomy (v2) ← CURRENT PRIORITY
 
+#### Phase 5A status
+
+- `perseus suggest --llm ollama[:model]` foundation implemented
+- snapshot builder split from prompt rendering
+- local Ollama invocation path added
+- focused tests added for snapshot/prompt/model flow
+
+
 - `--llm` flag: pipe oracle prompt to local model (Ollama/llama.cpp) — no Hermes round-trip
 - Accepted recommendations become training data
 - Checkpoint diffing — what changed between last two checkpoints

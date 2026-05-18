@@ -14,7 +14,7 @@ context_script: ~/.perseus/bin/render-session-context.sh
 ```
 
 The script:
-1. Runs `perseus render ~/.perseus/context.pctx`
+1. Runs `perseus render ~/.perseus/context.md`
 2. Outputs rendered markdown to stdout
 3. Hermes injects it into the session as a system-level context block
 
@@ -31,7 +31,8 @@ Perseus does not replace `AGENTS.md`. It augments it. The recommended pattern:
 
 <!-- static project conventions, architecture decisions, non-changing rules -->
 
-@perseus ./context.pctx
+@perseus
+@include .perseus/context.md
 <!-- ↑ Perseus renders this section live at session start -->
 ```
 
@@ -46,11 +47,11 @@ When a Hermes cron job or session specifies a `workdir`, Perseus can render a wo
 ```
 /workspace/myproject/
   .perseus/
-    context.pctx      ← workspace-specific live context
+    context.md        ← workspace-specific live context
     config.yaml       ← workspace-local Perseus config (overrides global)
 ```
 
-Perseus detects the workdir and renders the local `.perseus/context.pctx` if present, falling back to the global default.
+Perseus detects the workdir and renders the local `.perseus/context.md` if present, falling back to the global default.
 
 ---
 
@@ -65,7 +66,7 @@ Perseus hooks into Hermes session lifecycle events:
 | Session end (clean) | Write full waypoint |
 | Session end (interrupted / disconnect) | Write emergency waypoint with last known state |
 
-Hooks are registered via Hermes's `session_hooks` config (planned feature) or called explicitly by the agent using `perseus checkpoint` as a tool call.
+Today, the reliable integration path is explicit agent tool usage: the assistant calls `perseus checkpoint` at meaningful pause points. Future session-hook integration remains possible, but is not required by the current implementation.
 
 ---
 
@@ -77,7 +78,7 @@ For long-running or recurring cron jobs, Perseus provides resumable state:
 # cron job definition
 schedule: "0 9 * * *"
 prompt: |
-  @perseus ~/.perseus/daily-briefing.pctx
+  @perseus ~/.perseus/daily-briefing.md
   
   Using the above live context, generate today's briefing...
 ```
@@ -117,7 +118,13 @@ All values are current. Do not verify independently unless instructed.
 @skills flag_stale=true
 
 ## Workspace
-@if file.exists ".perseus/context.pctx"
-  @include .perseus/context.pctx
+@if file.exists ".perseus/context.md"
+  @include .perseus/context.md
 @endif
 ```
+
+---
+
+## macOS LaunchAgents
+
+In addition to cron-style integration, Perseus now provides `perseus launchd` to scaffold a LaunchAgent plist that periodically renders a source context document to an output file on macOS. This is the preferred local scheduler path for Mac users.

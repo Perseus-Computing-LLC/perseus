@@ -9,7 +9,7 @@ All directives follow the pattern: `@directive [args] [@cache modifier]`
 ## Shell
 
 ### `@query`
-Run a shell command and embed stdout.
+Run a shell command and embed stdout. Shell execution can be disabled via `render.allow_query_shell`.
 
 ```
 @query "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'"
@@ -121,7 +121,7 @@ Include the most recent checkpoint (or a specific one).
 ## Services
 
 ### `@services`
-Health-check a list of endpoints or containers.
+Health-check a list of endpoints or containers. Supports either a YAML block immediately following `@services` or an explicit `@services ... @end` block. `command:` checks are gated by `render.allow_services_command`.
 
 ```
 @services
@@ -142,6 +142,8 @@ Output: structured table with name, status (✅/❌), and latency.
 ## Conditional
 
 ### `@if` / `@else` / `@endif`
+
+Malformed or unknown conditions render a visible warning block rather than silently evaluating false.
 
 ```
 @if env.DATABASE_URL != ""

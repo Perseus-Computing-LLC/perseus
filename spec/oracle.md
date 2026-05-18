@@ -17,9 +17,11 @@ Without live environment awareness, picking the right approach requires prior kn
 
 ---
 
-## Alpha Design: Structured Prompt, Not Trained Model
+## Alpha Design: Structured Prompt First, Optional Local Model
 
-For alpha, the oracle is not a separate ML component. It is a **structured prompt over a live environment snapshot**, passed to the assistant. The value is in the quality and currency of the input — not in autonomous scoring.
+The oracle is still built around a **structured prompt over a live environment snapshot**. That remains the core design.
+
+Current implementation also supports an optional local-model execution path via `perseus suggest --llm ollama[:model]`. The value is still in the quality and currency of the input; local inference is an execution mode layered on top of the same prompt.
 
 ```
 [perseus suggest "task description"]
@@ -57,10 +59,11 @@ perseus suggest "<task description>"
 
 Optional flags:
 ```bash
-perseus suggest "..." --mode quick       # top recommendation only, no explanation
-perseus suggest "..." --mode full        # include rationale, deps, tradeoffs
+perseus suggest "..." --quick           # lightweight local summary
 perseus suggest "..." --category github  # limit skill search to a category
 perseus suggest "..." --no-services      # skip live service health checks (faster)
+perseus suggest "..." --llm ollama       # run the oracle prompt through local Ollama
+perseus suggest "..." --llm ollama:llama3.1
 ```
 
 ---
@@ -152,6 +155,7 @@ Format: ranked list, most recommended first. Be direct. No hedging.
 | Phase | Oracle Capability |
 |---|---|
 | Alpha | Structured prompt over env snapshot; assistant does ranking |
+| Phase 5A | Optional local-model execution of the same oracle prompt |
 | Beta | Persist oracle outputs; build scoring dataset from accepted recommendations |
 | v1 | Local lightweight scoring model; no round-trip required |
 | v2 | Cross-session learning; scores improve with usage patterns |
