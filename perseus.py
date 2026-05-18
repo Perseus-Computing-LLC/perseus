@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """
 Perseus — Live Context Engine for AI Assistants
-Alpha v0.3: render (@query, @skills, @services, @session, @read, @env,
+Alpha v0.4: render (@query, @skills, @services, @session, @read, @env,
             @if/@else/@endif, @include, @constraint), checkpoint, suggest
             + @cache session / @cache ttl=N caching layer
             + smart recover with workspace + TTL matching
+            + @services command: variant
+            + `perseus init` workspace scaffolder
+            + --version flag
 
 Usage:
   perseus render <source.md>               → resolved markdown to stdout
@@ -632,8 +635,26 @@ def resolve_services(block_content: str, cfg: dict) -> str:
             except Exception:
                 status = "⚠ docker unavailable"
             rows.append(f"| {name} | {status} | — |")
+        elif command := str(svc.get("command") or ""):
+            # Run arbitrary shell command; success = exit 0
+            try:
+                result = subprocess.run(
+                    command, shell=True, capture_output=True, text=True,
+                    timeout=timeout,
+                )
+                out_text = (result.stdout or result.stderr).strip()
+                first_line = out_text.splitlines()[0][:80] if out_text else ""
+                if result.returncode == 0:
+                    status = f"✅ {first_line}" if first_line else "✅ ok"
+                else:
+                    status = f"❌ {first_line}" if first_line else f"❌ exit {result.returncode}"
+            except subprocess.TimeoutExpired:
+                status = "⚠ timeout"
+            except Exception as exc:
+                status = f"⚠ {exc}"
+            rows.append(f"| {name} | {status} | — |")
         else:
-            rows.append(f"| {name} | ⚠ no url/docker | — |")
+            rows.append(f"| {name} | ⚠ no url/docker/command | — |")
 
     return "\n".join(rows)
 
@@ -1226,13 +1247,97 @@ Format: ranked list, most recommended first. Be direct. No hedging.
 {divider}""")
 
 
+# ──────────────────────────────── cmd_init ────────────────────────────────────
+
+INIT_CONTEXT_TEMPLATE = """\
+@perseus v0.4
+
+@prompt
+This document was rendered live by Perseus. All values below are current —
+do not verify services, re-scan skills, or re-read session history. Trust the
+rendered output and skip orientation. Start work immediately.
+@end
+
+# Perseus Session Context — @date format="YYYY-MM-DD HH:mm CDT"
+
+**Workspace:** `{workspace}`
+
+---
+
+## Last Session
+@waypoint ttl=86400
+
+---
+
+## Workspace State
+
+@query "git -C {workspace} log --oneline -5 2>/dev/null || echo '(no git repo)'"
+@query "git -C {workspace} status --short 2>/dev/null || echo ''"
+
+---
+
+## Available Skills
+@skills flag_stale=true
+
+---
+
+## Services
+@services
+  - name: Perseus CLI
+    command: python3 {workspace}/perseus.py --version 2>&1 || perseus --version
+
+---
+
+## Recent Sessions
+@session count=3
+"""
+
+def cmd_init(args, cfg):
+    """Scaffold .perseus/context.md for a new workspace."""
+    workspace = Path(args.workspace).resolve() if args.workspace else Path.cwd().resolve()
+    perseus_dir = workspace / ".perseus"
+    context_file = perseus_dir / "context.md"
+
+    if context_file.exists() and not args.force:
+        print(f"⚠ {context_file} already exists. Use --force to overwrite.", file=sys.stderr)
+        sys.exit(1)
+
+    perseus_dir.mkdir(parents=True, exist_ok=True)
+    content = INIT_CONTEXT_TEMPLATE.format(workspace=str(workspace))
+    context_file.write_text(content)
+
+    # Also add .hermes.md to .gitignore if there's a git repo here
+    gitignore = workspace / ".gitignore"
+    gitignore_entries = [".hermes.md", ".perseus/cache/"]
+    if gitignore.exists():
+        existing = gitignore.read_text()
+        additions = [e for e in gitignore_entries if e not in existing]
+        if additions:
+            with gitignore.open("a") as f:
+                f.write("\n# Perseus generated output\n")
+                for e in additions:
+                    f.write(f"{e}\n")
+            print(f"✔ Updated {gitignore} with Perseus entries")
+    else:
+        gitignore.write_text("# Perseus generated output\n" + "\n".join(gitignore_entries) + "\n")
+        print(f"✔ Created {gitignore}")
+
+    print(f"✔ Scaffolded {context_file}")
+    print()
+    print("Next steps:")
+    print(f"  1. Edit {context_file} to add project-specific @services and @query blocks")
+    print(f"  2. Run: perseus render {context_file}")
+    print(f"  3. Add to cron watchdog: add '{workspace}' to WORKSPACES in perseus-render-workspace.sh")
+
+
 # ──────────────────────────────── Main ────────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser(
         prog="perseus",
-        description="Perseus — Live Context Engine for AI Assistants (alpha v0.3)",
+        description="Perseus — Live Context Engine for AI Assistants (alpha v0.4)",
     )
+    parser.add_argument("--version", action="version", version="perseus alpha v0.4")
     sub = parser.add_subparsers(dest="command", required=True)
 
     # render
@@ -1262,6 +1367,13 @@ def main():
     p_suggest.add_argument("--no-services", action="store_true", dest="no_services",
                            help="Skip live service health checks")
 
+    # init
+    p_init = sub.add_parser("init", help="Scaffold .perseus/context.md for a new workspace")
+    p_init.add_argument("workspace", nargs="?", default="",
+                        help="Workspace directory (default: cwd)")
+    p_init.add_argument("--force", action="store_true",
+                        help="Overwrite existing context.md")
+
     args = parser.parse_args()
     cfg = load_config()
 
@@ -1273,6 +1385,8 @@ def main():
         cmd_recover(args, cfg)
     elif args.command == "suggest":
         cmd_suggest(args, cfg)
+    elif args.command == "init":
+        cmd_init(args, cfg)
 
 
 if __name__ == "__main__":
