@@ -10,6 +10,8 @@
 
 Built as a companion to [Hermes Agent](https://hermes-agent.nousresearch.com). Designed to be assistant-agnostic.
 
+Provider-agnostic defaults now use `PERSEUS_SKILLS_DIR` and `PERSEUS_SESSIONS_DIR`, with legacy `HERMES_*` environment variables preserved as fallback for backward compatibility.
+
 Perseus dogfoods itself: `ROADMAP.md` is a live `@perseus` source — the project's own documentation resolves its git state, CLI version, recent sessions, and last checkpoint at render time.
 
 **Status: Alpha v0.4 — Core engine complete, hardening pass shipped, Phase 5A (`suggest --llm`) and Phase 5B (`diff`) shipped.**
