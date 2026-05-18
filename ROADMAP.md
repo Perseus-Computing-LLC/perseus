@@ -79,8 +79,13 @@ checkpoints feed it.
 | `@if/@else/@endif` | ✅ | file.exists/missing, env.set/unset/eq/neq |
 | `@include <file>` | ✅ | md embedded raw; structured files fenced |
 | `@cache session/ttl=N` | ✅ | Two-level cache: in-memory (session) + disk (TTL) |
+| `@cache persist` | 🔲 | Disk-backed cache surviving across sessions — task-09 |
+| `@cache mock` | 🔲 | Static mock value; bypasses execution — task-09 |
 | `@constraint...@end` | ✅ | Block directive; renders as table at doc end |
-| `@agora [status=open]` | 🔲 | Live task board from tasks/ directory — Phase 5 |
+| `@agora [status=open]` | ✅ | Live task board from tasks/ directory |
+| `@list` | 🔲 | Directory listing or structured-file table — task-08 |
+| `@tree` | 🔲 | Filtered directory tree — task-08 |
+| `@health` | 🔲 | Inline context maintenance suggestions — task-05 |
 
 ### Files
 
@@ -203,9 +208,10 @@ Completed after alpha audit by Rovo Dev. Not a named phase — a quality gate.
 
 ---
 
-### Phase 5 — Pythia Autonomy + Agora ← CURRENT
+### Phase 5 — Pythia Autonomy + Agora ← COMPLETE ✅
 
-Phase 5 has two parallel tracks. They are independent and can be worked in any order.
+Phase 5 has two parallel tracks. Both are complete. One remaining item (P5A.4) is tracked
+as task-07.
 
 #### Track A — Pythia Autonomy
 
@@ -322,9 +328,15 @@ Phase 2 (done):   @read → @env → @if/@else → @include
 Phase 3 (done):   Cache layer → smart recover → @constraint
 Phase 4 (done):   Self-bootstrapping — ROADMAP.md is now live
 Hardening (done): Parsing safety, trust gates, tests, launchd
-Phase 5 (now):    Track A: Pythia autonomy (--llm, oracle log, diff, multi-workspace)
+Phase 5 (done):   Track A: Pythia autonomy (--llm, oracle log, diff)
                   Track B: Agora (task schema, agora subcommand, @agora directive, provider-agnostic)
-Phase 6 (next):   Daedalus — local scoring model, dataset curation, cross-session learning
+Spec backfill:    task-07 (multi-workspace namespacing)
+                  task-08 (@list + @tree directives)
+                  task-09 (@cache persist + mock)
+                  task-10 (suggest --quick/--category/--no-services flags)
+                  task-11 (linux systemd scaffolding)
+Phase 5C (next):  task-05 context health + @health directive
+Phase 6 (later):  task-06 Daedalus — local scoring model, dataset curation, cross-session learning
 ```
 
 ---
