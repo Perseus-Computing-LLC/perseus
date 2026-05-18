@@ -1502,51 +1502,109 @@ def _normalize_checkpoint(cp: dict) -> dict:
     return out
 
 
+def _human_age(iso_ts: str) -> str:
+    try:
+        dt = datetime.fromisoformat(str(iso_ts))
+        total = int((datetime.now(dt.tzinfo) - dt).total_seconds())
+        hours, rem = divmod(max(total, 0), 3600)
+        minutes, _ = divmod(rem, 60)
+        if hours:
+            return f"{hours}h {minutes}m ago"
+        return f"{minutes}m ago"
+    except Exception:
+        return str(iso_ts)
+
+
+def _resolve_checkpoint_selector(selector: str, files: list[Path]) -> Path | None:
+    if selector.isdigit():
+        idx = int(selector)
+        return files[idx] if 0 <= idx < len(files) else None
+    for fp in files:
+        if fp.name == selector:
+            return fp
+    candidate = Path(selector).expanduser().resolve()
+    return candidate if candidate.exists() else None
+
+
 def diff_checkpoints(old_cp: dict, new_cp: dict) -> str:
-    """Render a field-level diff between two checkpoints."""
+    """Render a human-readable diff between two checkpoints."""
     old_cp = _normalize_checkpoint(old_cp)
     new_cp = _normalize_checkpoint(new_cp)
-    keys = sorted(set(old_cp) | set(new_cp))
-    rows = ["| Field | Old | New |", "|---|---|---|"]
-    changed = 0
-    for key in keys:
-        old = old_cp.get(key, "")
-        new = new_cp.get(key, "")
-        if old == new:
-            continue
-        changed += 1
-        old_s = str(old).replace("\n", " ")[:120] if old != "" else "—"
-        new_s = str(new).replace("\n", " ")[:120] if new != "" else "—"
-        rows.append(f"| {key} | {old_s} | {new_s} |")
+    changed = []
+    for key in ["task", "status", "next", "workspace"]:
+        if old_cp.get(key, "") != new_cp.get(key, ""):
+            changed.append(f"  {key}:       \"{old_cp.get(key, '')}\"  →  \"{new_cp.get(key, '')}\"")
 
-    if changed == 0:
-        return "> No checkpoint changes detected."
+    old_age = _human_age(old_cp.get("written", "unknown"))
+    new_age = _human_age(new_cp.get("written", "unknown"))
+    if old_cp.get("written") != new_cp.get("written"):
+        changed.append(f"  age:        {old_age}  →  {new_age}")
 
-    header = [
-        "# Checkpoint Diff",
-        "",
-        f"Old: {old_cp.get('written', '(unknown)')}",
-        f"New: {new_cp.get('written', '(unknown)')}",
-        "",
-    ]
-    return "\n".join(header + rows)
+    notes_old = str(old_cp.get("notes", "")).strip()
+    notes_new = str(new_cp.get("notes", "")).strip()
+    if notes_old != notes_new:
+        changed.append("")
+        changed.append("  notes:")
+        changed.append(f"  - BEFORE: {notes_old or '(empty)'}")
+        changed.append(f"  + AFTER:  {notes_new or '(empty)'}")
+
+    if not changed:
+        return "No changes between checkpoints."
+
+    if old_cp.get("workspace") and old_cp.get("workspace") == new_cp.get("workspace"):
+        workspace_line = f"Workspace: {old_cp.get('workspace')} (matched both)"
+    elif old_cp.get("workspace") or new_cp.get("workspace"):
+        workspace_line = f"Workspace: {old_cp.get('workspace', '(none)')} → {new_cp.get('workspace', '(none)')}"
+    else:
+        workspace_line = "Workspace: (none)"
+
+    return (
+        f"Checkpoint diff: {old_cp.get('written', '(unknown)')} → {new_cp.get('written', '(unknown)')}\n"
+        f"{workspace_line}\n\n"
+        + "\n".join(changed)
+    )
 
 
 def cmd_diff(args, cfg):
     """Compare two checkpoints or the most recent pair."""
-    files = _list_checkpoint_files(cfg)
-    old_arg = getattr(args, "old", None)
-    new_arg = getattr(args, "new", None)
+    store = Path(cfg["checkpoints"]["store"])
+    if not store.exists():
+        print("No checkpoint store found.")
+        return
 
-    if old_arg and new_arg:
-        old_fp = Path(old_arg).expanduser().resolve()
-        new_fp = Path(new_arg).expanduser().resolve()
+    files = _list_checkpoint_files(cfg)
+    target_ws = getattr(args, "workspace", None)
+    if target_ws:
+        target_ws = str(Path(target_ws).resolve())
+        filtered = []
+        for fp in files:
+            cp = _load_checkpoint_file(fp)
+            cp_ws = str(Path(cp.get("workspace", "")).resolve()) if cp and cp.get("workspace") else ""
+            if cp_ws == target_ws:
+                filtered.append(fp)
+        files = filtered
+
+    a_sel = getattr(args, "a", None)
+    b_sel = getattr(args, "b", None)
+    if a_sel is not None and b_sel is not None:
+        old_fp = _resolve_checkpoint_selector(str(a_sel), files)
+        new_fp = _resolve_checkpoint_selector(str(b_sel), files)
     else:
-        if len(files) < 2:
-            print("Need at least two checkpoints to diff.")
-            return
-        new_fp = files[0]
-        old_fp = files[1]
+        old_arg = getattr(args, "old", None)
+        new_arg = getattr(args, "new", None)
+        if old_arg and new_arg:
+            old_fp = Path(old_arg).expanduser().resolve()
+            new_fp = Path(new_arg).expanduser().resolve()
+        else:
+            if len(files) < 2:
+                print("Need at least two checkpoints to diff.")
+                return
+            new_fp = files[0]
+            old_fp = files[1]
+
+    if not old_fp or not new_fp:
+        print("Could not resolve one or both checkpoints for diff.")
+        return
 
     old_cp = _load_checkpoint_file(old_fp)
     new_cp = _load_checkpoint_file(new_fp)
@@ -2072,6 +2130,9 @@ def main():
     p_diff = sub.add_parser("diff", help="Diff two checkpoints or the most recent pair")
     p_diff.add_argument("--old", default=None, help="Older checkpoint file path")
     p_diff.add_argument("--new", default=None, help="Newer checkpoint file path")
+    p_diff.add_argument("--a", default=None, help="Older checkpoint selector (index or filename)")
+    p_diff.add_argument("--b", default=None, help="Newer checkpoint selector (index or filename)")
+    p_diff.add_argument("--workspace", default=None, help="Filter checkpoints to a workspace path")
 
     # agora
     p_agora = sub.add_parser("agora", help="Agora task coordination commands")
