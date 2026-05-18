@@ -565,13 +565,19 @@ def cache_set(key: str, value: str, mode: str, ttl: int | None, cfg: dict) -> No
 
 def resolve_query(args_str: str, cfg: dict) -> str:
     """
-    @query "shell command" [@cache session|ttl=N]
+    @query "shell command" [fallback="text"] [@cache session|ttl=N]
 
     Runs the shell command and returns its stdout as a fenced code block.
     Cache modifiers are handled by the renderer before this resolver is called.
 
     If the command fails (non-zero exit) the block includes a warning header
     but still shows whatever output was produced.
+
+    task-14: ``fallback="text"`` modifier returns the literal text (no fence,
+    no warning header) when the command fails with a non-zero exit OR succeeds
+    but produces no stdout. Use this to make `@query` graceful for "best effort"
+    contextual data (git status when not in a git repo, optional service
+    health checks, etc.).
     """
     shell = cfg["render"].get("shell", "/bin/bash")
     if not cfg["render"].get("allow_query_shell", True):
@@ -582,6 +588,17 @@ def resolve_query(args_str: str, cfg: dict) -> str:
     # so commands containing the other quote type (e.g. "bash -c 'foo'")
     # are parsed correctly.
     raw = re.sub(r'\s+@cache\s.*$', '', args_str.strip())
+
+    # task-14: extract fallback="..." (or fallback='...') BEFORE command parsing,
+    # so a command containing the literal substring `fallback=` is not mis-parsed.
+    fallback = None
+    fb_match = re.search(r'\s+fallback=(?:"((?:[^"\\]|\\.)*)"|\'((?:[^\'\\]|\\.)*)\')\s*$', raw)
+    if fb_match:
+        fallback = fb_match.group(1) if fb_match.group(1) is not None else fb_match.group(2)
+        # Unescape backslash-escapes inside the captured text
+        fallback = fallback.encode("utf-8").decode("unicode_escape", errors="replace")
+        raw = raw[:fb_match.start()].rstrip()
+
     cmd_match = re.match(r'^"((?:[^"\\]|\\.)*)"', raw)   # double-quoted
     if not cmd_match:
         cmd_match = re.match(r"^'((?:[^'\\]|\\.)*)'", raw)  # single-quoted
@@ -611,18 +628,26 @@ def resolve_query(args_str: str, cfg: dict) -> str:
         exit_code = result.returncode
 
         if exit_code != 0:
+            if fallback is not None:
+                return fallback
             header = f"> ⚠ `@query` exited {exit_code}: `{cmd}`\n\n"
             body = stdout or stderr or "(no output)"
             return header + f"```{lang}\n{body}\n```"
 
         if not stdout:
+            if fallback is not None:
+                return fallback
             return f"> (no output from `{cmd}`)"
 
         return f"```{lang}\n{stdout}\n```"
 
     except subprocess.TimeoutExpired:
+        if fallback is not None:
+            return fallback
         return f"> ⚠ `@query` timed out (30s): `{cmd}`"
     except Exception as exc:
+        if fallback is not None:
+            return fallback
         return f"> ⚠ `@query` error: {exc}"
 
 
@@ -1002,6 +1027,53 @@ def evaluate_condition(condition: str, workspace: Path | None = None, cfg: dict 
         if token is None or trailing.strip():
             raise ConditionParseError(f"invalid env.neq syntax: {condition}")
         return os.environ.get(m.group(1)) != token
+
+    # task-13: query("shell command") [not] matches /regex/[flags]
+    # `flags` is the optional suffix `i` for IGNORECASE — kept tiny on purpose.
+    m = re.match(
+        r'query\s*\(\s*(?:"((?:[^"\\]|\\.)*)"|\'((?:[^\'\\]|\\.)*)\')\s*\)'
+        r'\s+(not\s+)?matches\s+/((?:[^/\\]|\\.)*)/([i]*)\s*$',
+        condition,
+    )
+    if m:
+        cmd = m.group(1) if m.group(1) is not None else m.group(2)
+        negated = bool(m.group(3))
+        pattern_src = m.group(4)
+        flag_str = m.group(5) or ""
+        re_flags = re.IGNORECASE if "i" in flag_str else 0
+        try:
+            pattern = re.compile(pattern_src, re_flags)
+        except re.error as e:
+            raise ConditionParseError(f"invalid @if query regex /{pattern_src}/: {e}")
+
+        if not render_cfg.get("allow_query_shell", True):
+            print(
+                "⚠ @if query(...) skipped: `render.allow_query_shell=false`. "
+                f"Condition evaluates to False.",
+                file=sys.stderr,
+            )
+            return False
+
+        shell = render_cfg.get("shell", "/bin/bash")
+        try:
+            result = subprocess.run(
+                cmd,
+                shell=True,
+                executable=shell,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            stdout = result.stdout or ""
+        except subprocess.TimeoutExpired:
+            print(f"⚠ @if query(...) timed out (30s): `{cmd}` → False", file=sys.stderr)
+            return False
+        except Exception as exc:
+            print(f"⚠ @if query(...) failed for `{cmd}`: {exc} → False", file=sys.stderr)
+            return False
+
+        found = bool(pattern.search(stdout))
+        return (not found) if negated else found
 
     raise ConditionParseError(f"unknown @if condition: {condition}")
 

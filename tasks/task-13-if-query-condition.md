@@ -1,12 +1,12 @@
 ---
 id: task-13
 title: Implement @if query("...") matches /regex/ conditional
-status: open
+status: completed
 scope: small-medium
 depends_on: []
-claimed_by: null
+claimed_by: claude-sonnet-4.5
 opened: '2026-05-18'
-closed: null
+closed: '2026-05-18'
 ---
 
 ### Description
@@ -68,3 +68,30 @@ And the negated version:
 *   **Effort**: Small-Medium. The logic involves shell execution and regex parsing, which needs to be done carefully.
 *   **Dependencies**: No new external dependencies are required.
 *   **Files**: All code changes should be in `perseus.py`.
+
+---
+
+# Completed
+
+**Date:** 2026-05-18
+**By:** claude-sonnet-4.5
+**Commit:** (pending)
+
+## What shipped
+
+- Extended `evaluate_condition()` in `perseus.py` with a new branch for
+  `query("shell command") [not] matches /regex/[i]` syntax.
+- Honors `render.allow_query_shell` — when false, prints a warning to stderr
+  and evaluates to False (does NOT raise).
+- 30-second subprocess timeout matches the rest of `@query` family.
+- Optional `i` flag for case-insensitive matching (kept minimal on purpose).
+- Invalid regex raises `ConditionParseError` so the renderer surfaces a
+  clear warning instead of silently failing.
+- Tests cover: matches (true/false), not matches (true/false), allow_query_shell=false,
+  case-insensitive flag, invalid regex, failed command, full render integration.
+
+## Notes for follow-up
+
+- Only `i` flag is supported. Adding `m`/`s` is trivial if the use case appears.
+- Stdout-only matching; stderr is ignored. If a user needs stderr matching,
+  they can wire it with `query("cmd 2>&1")`.
