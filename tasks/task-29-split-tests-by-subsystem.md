@@ -8,11 +8,11 @@ claimed_by: null
 created: 2026-05-18
 closed: null
 phase: 11
-theme: E — Quality of life
+theme: "E \u2014 Quality of life"
 depends_on: []
 blocks: []
+opened: '2026-05-18'
 ---
-
 ## Why
 
 Per the 2026-05-18 review:

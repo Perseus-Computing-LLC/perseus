@@ -1,19 +1,21 @@
 ---
 id: task-26
-title: perseus doctor — single contract-stable readiness check
+title: "perseus doctor — single contract-stable readiness check"
 status: open
 priority: high
 scope: small
-claimed_by: null
+claimed_by:
 created: 2026-05-18
-closed: null
+closed:
 phase: 11
-theme: A — Closed-loop intelligence / safety
+theme: "A \u2014 Closed-loop intelligence / safety"
 depends_on: []
 blocks: []
-related: [task-25, task-28]
+related:
+- task-25
+- task-28
+opened: '2026-05-18'
 ---
-
 ## Why
 
 Per the 2026-05-18 review: build `perseus doctor` not as a feature grab-bag but

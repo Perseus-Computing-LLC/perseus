@@ -1,6 +1,6 @@
 ---
 id: task-27
-title: LSP integration test harness — exercise the real JSON-RPC loop
+title: "LSP integration test harness \u2014 exercise the real JSON-RPC loop"
 status: open
 priority: medium
 scope: medium
@@ -8,11 +8,12 @@ claimed_by: null
 created: 2026-05-18
 closed: null
 phase: 11
-theme: C — Editor + LSP polish
-depends_on: [task-25]
+theme: "C \u2014 Editor + LSP polish"
+depends_on:
+- task-25
 blocks: []
+opened: '2026-05-18'
 ---
-
 ## Why
 
 Per the 2026-05-18 review: the existing LSP tests cover helpers (message

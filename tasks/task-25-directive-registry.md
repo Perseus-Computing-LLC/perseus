@@ -1,6 +1,6 @@
 ---
 id: task-25
-title: Internal DIRECTIVE_REGISTRY — single source of truth for directive metadata
+title: "Internal DIRECTIVE_REGISTRY \u2014 single source of truth for directive metadata"
 status: open
 priority: high
 scope: medium
@@ -8,11 +8,13 @@ claimed_by: null
 created: 2026-05-18
 closed: null
 phase: 11
-theme: A — Closed-loop intelligence / safety
+theme: "A \u2014 Closed-loop intelligence / safety"
 depends_on: []
-blocks: [task-27, task-28]
+blocks:
+- task-27
+- task-28
+opened: '2026-05-18'
 ---
-
 ## Why
 
 Per the 2026-05-18 principal code review, directive knowledge is duplicated across:

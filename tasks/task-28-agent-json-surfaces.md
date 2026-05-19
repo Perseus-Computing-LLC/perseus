@@ -4,15 +4,16 @@ title: Agent-readable JSON output for oracle/memory/drift/federation commands
 status: open
 priority: medium
 scope: medium
-claimed_by: null
+claimed_by:
 created: 2026-05-18
-closed: null
+closed:
 phase: 11
-theme: A — Agent surface
-depends_on: [task-26]
+theme: "A \u2014 Agent surface"
+depends_on:
+- task-26
 blocks: []
+opened: '2026-05-18'
 ---
-
 ## Why
 
 Per the 2026-05-18 review: "Output is prose only. Agents have to scrape prose."
