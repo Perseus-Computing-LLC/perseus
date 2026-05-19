@@ -1,13 +1,13 @@
 ---
 id: task-22
 title: Task 22 — Drift Detection (Phase 9.3)
-status: open
+status: in_progress
 scope: medium
 depends_on:
   - task-02
   - task-06
   - task-20
-claimed_by: null
+claimed_by: claude-sonnet-4.5
 opened: 2026-05-18
 closed: null
 phase: 9.3

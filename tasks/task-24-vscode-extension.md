@@ -1,11 +1,11 @@
 ---
 id: task-24
 title: Task 24 — VSCode Extension (Phase 10.2)
-status: open
+status: in_progress
 scope: medium
 depends_on:
   - task-23
-claimed_by: null
+claimed_by: claude-sonnet-4.5
 opened: 2026-05-18
 closed: null
 phase: 10.2
