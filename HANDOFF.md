@@ -2,8 +2,8 @@
 
 **For:** Principal developer continuing Phase 13
 **Repo:** https://github.com/tcconnally/perseus  
-**Baseline:** task-33 batch, 287 tests passing, 1 sandbox-skipped TCP smoke
-**State:** Phases 11 and 12 complete; Phase 13 task files authored; task-33 complete locally, task-34 next
+**Baseline:** task-34 batch, 293 tests passing, 1 sandbox-skipped TCP smoke
+**State:** Phases 11 and 12 complete; Phase 13A/13B complete; task-35 next
 
 ---
 
@@ -24,6 +24,7 @@
 | **task-31** directive output schema annotations | `2453fba` | complete | `DirectiveSpec.output_schema`; automatic render-time validation; explicit `schema=` precedence |
 | **task-32** `perseus validate` CLI | `5e105b6` | complete | file/stdin input, human and JSON output, non-zero invalid/error exits |
 | **task-33** directive dependency graph | task-33 batch | complete | `perseus graph`, JSON graph, static resource hints |
+| **task-34** pattern prefetch rules | task-34 batch | complete | `prefetch.rules`, `perseus prefetch`, cache warming with trust gates |
 
 Phase 11 was already complete in the prior handoff: baseline repairs, `DIRECTIVE_REGISTRY`, `perseus doctor`, JSON agent surfaces, LSP integration tests, and the split test suite are all on `main`.
 
@@ -40,7 +41,7 @@ python -m pytest tests/ -q
 Latest local result:
 
 ```text
-287 passed, 1 skipped
+293 passed, 1 skipped
 ```
 
 The skipped test is the TCP LSP smoke when sandboxed; it has passed outside the sandbox.
@@ -82,7 +83,7 @@ tests/
 
 ## Next: Phase 13 — Predictive Pre-Fetching
 
-Task files now exist. Task-33 is implemented; continue with:
+Task files now exist. Task-33 and task-34 are implemented; continue with:
 
 1. **13A Directive Dependency Graph**
    - Build a static graph over directives found in a source document.
@@ -97,6 +98,7 @@ Task files now exist. Task-33 is implemented; continue with:
 3. **13C Daedalus-Powered Adaptive Pre-Fetch**
    - Optional scoring layer using existing oracle/Mnēmē patterns.
    - Keep deterministic fallback and no required model dependency.
+   - Preserve the Phase 14 resolver-vs-generator decision gate.
 
 Before Phase 14 planning, write the resolver-vs-generator decision brief called out in `ROADMAP.md`.
 

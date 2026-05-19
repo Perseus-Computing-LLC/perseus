@@ -63,6 +63,7 @@ checkpoints feed it.
 |---|---|
 | `perseus render <file.md>` | Resolves `@perseus` source doc → plain markdown |
 | `perseus graph <file.md> [--json]` | Builds a static directive graph without executing directives |
+| `perseus prefetch <file.md> [--json]` | Applies opt-in pre-fetch rules to the static graph and warms directive caches |
 | `perseus validate --schema SCHEMA [payload|-]` | Validates a payload against a Perseus schema; `--json` for CI/agents |
 | `perseus checkpoint --task "..."` | Writes timestamped YAML to `~/.perseus/checkpoints/` |
 | `perseus recover` | Prints latest checkpoint (workspace + TTL aware) |
@@ -555,19 +556,25 @@ shows it's almost always followed by `git diff`, pre-cache the diff output.
 without executing directives, skips fenced code blocks, and reports registry
 metadata plus static resource hints.
 
-### 13B: Pattern-based pre-fetch rules
+### 13B: Pattern-based pre-fetch rules (task-34) ✅
 
-Use the oracle log + Mnēmē narrative patterns to identify recurring directive
+Use explicit, user-configured patterns to identify recurring directive
 sequences. Configurable pre-fetch rules in `config.yaml`:
 
 ```yaml
 prefetch:
   rules:
     - trigger: "@query \"git status\""
-      prefetch: "@query \"git diff --stat\""
+      prefetch: "@query \"git diff --stat\" @cache ttl=300"
     - trigger: "@agora status=open"
-      prefetch: "@memory focus=decisions"
+      prefetch: "@memory focus=decisions @cache ttl=300"
 ```
+
+**Status:** Complete. `perseus prefetch <source> [--json]` builds the static
+graph, matches configured triggers, and executes only cacheable inline
+prefetch directives. It reports ran/skipped/failed entries, requires cache
+modifiers for prefetch outputs, and respects existing trust gates such as
+`render.allow_query_shell`.
 
 ### 13C: Daedalus-powered adaptive pre-fetch
 
@@ -683,7 +690,7 @@ Phase 12B ─── Directive-level schema annotations ✅ ─────┤
 Phase 12C ─── `perseus validate` CLI ✅ ─────────────────┤
                                                          │
 Phase 13A ─── Directive dependency graph ✅ ─────────────┤
-Phase 13B ─── Pattern-based pre-fetch rules ─────────────┤
+Phase 13B ─── Pattern-based pre-fetch rules ✅ ──────────┤
 Phase 13C ─── Daedalus-powered adaptive pre-fetch ───────┤
                                                          │
 Phase 14A ─── RL signal collection ──────────────────────┤
@@ -697,8 +704,8 @@ Phase 14C ─── A/B recommendation testing ───────────
 Phase 15  ─── Generative Context (if decided yes) ───────┘
 ```
 
-**Estimated scope:** Phase 11 and Phase 12 are complete. Phase 13A is complete;
-Phase 13B/13C remain. Phase 14 is 2-3 sessions. Then the decision gate.
+**Estimated scope:** Phase 11 and Phase 12 are complete. Phase 13A and 13B are
+complete; Phase 13C remains. Phase 14 is 2-3 sessions. Then the decision gate.
 
 ---
 

@@ -1,12 +1,12 @@
 ---
 id: task-34
 title: Phase 13B pattern-based prefetch rules
-status: open
+status: completed
 priority: medium
 scope: medium
-claimed_by:
+claimed_by: codex
 created: 2026-05-19
-closed:
+closed: 2026-05-19
 phase: 13
 theme: "Predictive Pre-Fetching"
 depends_on:
@@ -44,3 +44,14 @@ context based on explicit user-configured patterns.
 
 - Do not add model-scored prefetching here.
 - Do not invent a background daemon.
+
+## Completed
+
+- Added `prefetch.rules` config and `perseus prefetch <source> [--json]`.
+- Implemented static rule matching over directive graph nodes, including string
+  triggers and mapping triggers for directive, args, and resource patterns.
+- Limited execution to cacheable inline directives with explicit cache
+  modifiers, reusing existing cache keys, TTL behavior, and resolver output
+  schema validation.
+- Preserved trust gates such as `render.allow_query_shell`.
+- Added human/JSON ran/skipped/failed reporting plus focused tests.

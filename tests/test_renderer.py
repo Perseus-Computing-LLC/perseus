@@ -328,6 +328,89 @@ def test_directive_graph_does_not_execute_shell_directives(tmp_path):
     assert graph["nodes"][0]["resources"] == [{"kind": "shell", "value": "exit 99"}]
 
 
+def test_prefetch_rules_match_graph_and_write_cache(tmp_path):
+    local = cfg()
+    local["render"]["cache_dir"] = str(tmp_path / "cache")
+    local["prefetch"]["rules"] = [{
+        "name": "read-md",
+        "trigger": {"directive": "@read", "resource": "*.md"},
+        "prefetch": ['@query "printf prefetched" @cache ttl=120'],
+    }]
+
+    result = perseus.prefetch_source("@perseus\n@read README.md\n", local, tmp_path, "ctx.md")
+
+    assert result["summary"]["matches"] == 1
+    assert result["summary"]["ran"] == 1
+    cache_key = perseus._cache_key('@query "printf prefetched"')
+    cached = perseus.cache_get(cache_key, "ttl", 120, local)
+    assert cached is not None
+    assert "prefetched" in cached
+
+
+def test_prefetch_respects_disabled_query_gate(tmp_path):
+    local = cfg()
+    local["render"]["cache_dir"] = str(tmp_path / "cache")
+    local["render"]["allow_query_shell"] = False
+    local["prefetch"]["rules"] = [{
+        "trigger": "@read",
+        "prefetch": ['@query "printf blocked" @cache ttl=120'],
+    }]
+
+    result = perseus.prefetch_source("@perseus\n@read README.md\n", local, tmp_path, "ctx.md")
+
+    assert result["summary"]["ran"] == 0
+    assert result["summary"]["skipped"] == 1
+    assert result["results"][0]["reason"] == "render.allow_query_shell=false"
+    cache_key = perseus._cache_key('@query "printf blocked"')
+    assert perseus.cache_get(cache_key, "ttl", 120, local) is None
+
+
+def test_prefetch_reports_no_match_behavior(tmp_path):
+    local = cfg()
+    local["prefetch"]["rules"] = [{
+        "trigger": "@env",
+        "prefetch": ['@query "printf unused" @cache ttl=120'],
+    }]
+
+    result = perseus.prefetch_source("@perseus\n@read README.md\n", local, tmp_path, "ctx.md")
+    human = perseus.format_prefetch_human(result)
+
+    assert result["summary"]["matches"] == 0
+    assert result["results"] == []
+    assert "No prefetch rules matched." in human
+
+
+def test_prefetch_trigger_string_can_include_args(tmp_path):
+    (tmp_path / "README.md").write_text("prefetched read")
+    local = cfg()
+    local["render"]["cache_dir"] = str(tmp_path / "cache")
+    local["prefetch"]["rules"] = [{
+        "trigger": '@query "git status"',
+        "prefetch": ['@read README.md @cache ttl=120'],
+    }]
+
+    result = perseus.prefetch_source('@perseus\n@query "git status"\n', local, tmp_path, "ctx.md")
+
+    assert result["summary"]["matches"] == 1
+    assert result["summary"]["ran"] == 1
+    cache_key = perseus._cache_key("@read README.md")
+    assert "prefetched read" in perseus.cache_get(cache_key, "ttl", 120, local)
+
+
+def test_prefetch_skips_directives_without_cache_modifier(tmp_path):
+    local = cfg()
+    local["prefetch"]["rules"] = [{
+        "trigger": "@read",
+        "prefetch": ['@query "printf uncached"'],
+    }]
+
+    result = perseus.prefetch_source("@perseus\n@read README.md\n", local, tmp_path, "ctx.md")
+
+    assert result["summary"]["ran"] == 0
+    assert result["summary"]["skipped"] == 1
+    assert "require @cache" in result["results"][0]["reason"]
+
+
 
 def test_skills_frontmatter_parses_structurally(tmp_path):
     skill_dir = tmp_path / "skills" / "cat" / "demo"

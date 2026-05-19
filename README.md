@@ -14,7 +14,7 @@ Provider-agnostic defaults now use `PERSEUS_SKILLS_DIR` and `PERSEUS_SESSIONS_DI
 
 Perseus dogfoods itself: `ROADMAP.md` is a live `@perseus` source — the project's own documentation resolves its git state, CLI version, recent sessions, and last checkpoint at render time.
 
-**Status: Alpha v0.8.1 — Phases 1-12 complete and Phase 13A landed. Phase 11 stabilization and Phase 12 schema validation are done, and `perseus graph` now provides the static directive graph substrate for predictive prefetching. 33 tasks closed, 2 Phase 13 tasks open. 287 tests passing, 1 sandbox-skipped TCP smoke.**
+**Status: Alpha v0.8.1 — Phases 1-12 complete and Phase 13B landed. Phase 11 stabilization and Phase 12 schema validation are done, and `perseus graph` / `perseus prefetch` now provide the static and rule-based substrate for predictive prefetching. 34 tasks closed, 1 Phase 13 task open. 293 tests passing, 1 sandbox-skipped TCP smoke.**
 
 ---
 
@@ -191,6 +191,23 @@ Disk-cached results survive across processes for as long as their TTL allows:
 @skills flag_stale=true @cache ttl=3600           ← cache to disk for 1 hour
 ```
 
+## Predictive Prefetch
+
+`perseus prefetch <file>` reads opt-in `prefetch.rules`, builds the static
+directive graph, and warms cacheable inline directives without rendering the
+source first. Shell-backed prefetches still obey the render trust gates, and
+prefetch directives must include `@cache ttl=N`, `@cache persist`, or
+`@cache session`.
+
+```yaml
+prefetch:
+  rules:
+    - name: status-diff
+      trigger: '@query "git status"'
+      prefetch:
+        - '@query "git diff --stat" @cache ttl=300'
+```
+
 ---
 
 ## Real-World Examples
@@ -270,6 +287,7 @@ Run `perseus <command> --help` for full flags. Summary of the surface:
 |---|---|
 | `perseus render <file>` | Resolve all directives in a source document and print rendered output. Add `--output <path>` to write to disk. |
 | `perseus graph <file> [--json]` | Build a static directive graph without executing directives; foundation for predictive prefetching. |
+| `perseus prefetch <file> [--json]` | Apply configured `prefetch.rules` to the static graph and warm directive caches. |
 | `perseus validate --schema SCHEMA [payload|-] [--json]` | Validate YAML/JSON payloads against Perseus schemas; omit payload or pass `-` to read stdin. |
 | `perseus checkpoint --task ... --status ... --next ...` | Write a YAML waypoint to `~/.perseus/checkpoints/`. Auto-updates Mnēmē narrative. |
 | `perseus diff [--from FILE] [--to FILE]` | Show diff between two checkpoints (default: latest two). |

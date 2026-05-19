@@ -146,6 +146,28 @@ def test_graph_cli_json_output(tmp_path, capsys):
     assert data["nodes"][0]["resources"][0] == {"kind": "file", "value": "config.yaml"}
 
 
+def test_prefetch_cli_human_output_reports_no_matches(tmp_path, capsys):
+    source = tmp_path / ".perseus" / "context.md"
+    source.parent.mkdir(parents=True)
+    source.write_text('@perseus\n@read config.yaml path="service.port"\n')
+    (tmp_path / ".perseus" / "config.yaml").write_text(yaml.safe_dump({
+        "prefetch": {
+            "rules": [{
+                "trigger": "@env",
+                "prefetch": ['@query "printf unused" @cache ttl=60'],
+            }],
+        },
+    }))
+    args = argparse.Namespace(source=str(source), workspace=str(tmp_path), json=False)
+
+    rc = perseus.cmd_prefetch(args, cfg())
+
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "No prefetch rules matched." in out
+    assert "Rules: 1  Matches: 0" in out
+
+
 def test_parse_systemd_interval_variants():
     assert perseus._parse_systemd_interval("5m") == "5min"
     assert perseus._parse_systemd_interval("2h") == "2h"

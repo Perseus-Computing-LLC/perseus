@@ -211,6 +211,9 @@ DEFAULT_CONFIG = {
         "default_recipient": "anyone",
         "default_sender": "perseus",
     },
+    "prefetch": {
+        "rules": [],
+    },
 }
 
 
@@ -2545,6 +2548,280 @@ def directive_dependency_graph(
     }
 
 
+# ───────────────────────── Pattern prefetch rules ────────────────────────────
+
+def _normalise_directive_pattern(value: object, default: str = "*") -> str:
+    pattern = str(value or default).strip().lower()
+    if pattern and pattern != "*" and not pattern.startswith("@"):
+        pattern = "@" + pattern
+    return pattern or default
+
+
+def _prefetch_rule_name(rule: object, index: int) -> str:
+    if isinstance(rule, dict) and rule.get("name"):
+        return str(rule["name"])
+    return f"rule-{index}"
+
+
+def _prefetch_rule_trigger(rule: dict) -> dict:
+    trigger = rule.get("trigger", rule.get("match", {}))
+    if isinstance(trigger, str):
+        raw = trigger.strip()
+        m = INLINE_DIRECTIVE_RE.match(raw) if INLINE_DIRECTIVE_RE else None
+        if m and (m.group(2) or "").strip():
+            return {"directive": m.group(1).lower(), "args_pattern": (m.group(2) or "").strip()}
+        return {"directive": trigger}
+    if isinstance(trigger, dict):
+        return trigger
+    return {}
+
+
+def _prefetch_rule_items(rule: dict) -> list:
+    items = rule.get("prefetch", rule.get("prefetches", rule.get("directives", [])))
+    if isinstance(items, (str, dict)):
+        return [items]
+    if isinstance(items, list):
+        return items
+    return []
+
+
+def _pattern_matches(value: str, pattern: object, *, case_sensitive: bool = False) -> bool:
+    text = str(value or "")
+    pat = str(pattern or "*")
+    if case_sensitive:
+        return fnmatch.fnmatchcase(text, pat)
+    return fnmatch.fnmatchcase(text.lower(), pat.lower())
+
+
+def _prefetch_node_matches(node: dict, trigger: dict) -> bool:
+    directive_pattern = _normalise_directive_pattern(
+        trigger.get("directive", trigger.get("pattern", "*"))
+    )
+    if not _pattern_matches(node.get("directive", ""), directive_pattern):
+        return False
+
+    kind = trigger.get("kind")
+    if kind and str(node.get("kind", "")).lower() != str(kind).lower():
+        return False
+
+    args_contains = trigger.get("args_contains")
+    if args_contains and str(args_contains) not in str(node.get("args", "")):
+        return False
+
+    args_pattern = trigger.get("args_pattern", trigger.get("args"))
+    if args_pattern and not _pattern_matches(str(node.get("args", "")), args_pattern):
+        return False
+
+    resources = list(node.get("resources", []) or [])
+    resource_kind = trigger.get("resource_kind")
+    if resource_kind:
+        resources = [r for r in resources if str(r.get("kind", "")).lower() == str(resource_kind).lower()]
+        if not resources:
+            return False
+
+    resource_pattern = trigger.get("resource", trigger.get("resource_pattern"))
+    if resource_pattern and not any(_pattern_matches(str(r.get("value", "")), resource_pattern) for r in resources):
+        return False
+
+    return True
+
+
+def _prefetch_directive_from_config(item: object) -> tuple[str | None, str, str, str | None]:
+    if isinstance(item, str):
+        raw = item.strip()
+    elif isinstance(item, dict):
+        raw = str(item.get("line") or item.get("directive_line") or "").strip()
+        if not raw:
+            directive = _normalise_directive_pattern(item.get("directive") or item.get("name") or "", "")
+            args = str(item.get("args") or "").strip()
+            cache = item.get("cache")
+            if cache and "@cache" not in args.lower():
+                if isinstance(cache, dict):
+                    if cache.get("ttl") is not None:
+                        args = f"{args} @cache ttl={cache['ttl']}".strip()
+                    elif cache.get("mode"):
+                        args = f"{args} @cache {cache['mode']}".strip()
+                else:
+                    args = f"{args} @cache {cache}".strip()
+            raw = f"{directive} {args}".strip()
+    else:
+        return None, "", "", f"unsupported prefetch directive config: {type(item).__name__}"
+
+    if not raw:
+        return None, "", "", "empty prefetch directive"
+
+    m = INLINE_DIRECTIVE_RE.match(raw) if INLINE_DIRECTIVE_RE else None
+    if not m:
+        return None, "", raw, "prefetch directive must be an inline Perseus directive"
+    return m.group(1).lower(), (m.group(2) or "").strip(), raw, None
+
+
+def _prefetch_trust_block_reason(directive: str, spec: DirectiveSpec, cfg: dict) -> str | None:
+    if spec.kind != "inline":
+        return "only inline directives can be prefetched"
+    if spec.mutates_state:
+        return "mutating directives cannot be prefetched"
+    if not spec.cacheable:
+        return "directive is not cacheable"
+    if spec.executes_shell:
+        render_cfg = cfg.get("render", {})
+        if directive == "@query" and not render_cfg.get("allow_query_shell", True):
+            return "render.allow_query_shell=false"
+        if directive == "@agent" and not render_cfg.get("allow_agent_shell", True):
+            return "render.allow_agent_shell=false"
+    return None
+
+
+def _execute_prefetch_directive(
+    item: object,
+    rule_name: str,
+    trigger_node: dict,
+    cfg: dict,
+    workspace: Path | None,
+) -> dict:
+    directive, raw_args, raw, parse_error = _prefetch_directive_from_config(item)
+    result = {
+        "rule": rule_name,
+        "trigger": trigger_node.get("id"),
+        "trigger_directive": trigger_node.get("directive"),
+        "directive": directive,
+        "line": raw,
+        "status": "skipped",
+        "reason": "",
+        "cache": {"mode": "", "ttl": None, "key": None},
+    }
+    if parse_error:
+        result["reason"] = parse_error
+        return result
+
+    spec = DIRECTIVE_REGISTRY.get(directive or "")
+    if spec is None:
+        result["reason"] = "unknown directive"
+        return result
+
+    clean_args, cache_mode, cache_ttl, cache_mock = _parse_cache_modifier(raw_args)
+    cache_key = _cache_key(f"{directive} {clean_args}")
+    result["cache"] = {"mode": cache_mode, "ttl": cache_ttl, "key": cache_key}
+
+    trust_reason = _prefetch_trust_block_reason(directive or "", spec, cfg)
+    if trust_reason:
+        result["reason"] = trust_reason
+        return result
+
+    if not cache_mode:
+        result["reason"] = "prefetch directives require @cache ttl=N, @cache persist, or @cache session"
+        return result
+    if cache_mode == "mock":
+        result["reason"] = "mock cache directives do not prefetch"
+        return result
+    if cache_mock is not None:
+        result["reason"] = "mock cache directives do not prefetch"
+        return result
+
+    cached = cache_get(cache_key, cache_mode, cache_ttl, cfg)
+    if cached is not None:
+        result["reason"] = "cache hit"
+        return result
+
+    try:
+        value = _call_resolver(spec, clean_args, cfg, workspace)
+        value = _apply_output_schema_validation(spec, clean_args, value, workspace)
+        cache_set(cache_key, value, cache_mode, cache_ttl, cfg)
+    except Exception as exc:
+        result["status"] = "failed"
+        result["reason"] = str(exc)
+        return result
+
+    result["status"] = "ran"
+    result["reason"] = "cached"
+    return result
+
+
+def prefetch_source(
+    source_text: str,
+    cfg: dict,
+    workspace: Path | None = None,
+    source_name: str = "<memory>",
+) -> dict:
+    graph = directive_dependency_graph(source_text, source_name=source_name, workspace=workspace)
+    rules = cfg.get("prefetch", {}).get("rules", [])
+    if not isinstance(rules, list):
+        rules = []
+
+    entries: list[dict] = []
+    match_count = 0
+    for idx, rule in enumerate(rules, start=1):
+        rule_name = _prefetch_rule_name(rule, idx)
+        if not isinstance(rule, dict):
+            entries.append({
+                "rule": rule_name,
+                "trigger": None,
+                "trigger_directive": None,
+                "directive": None,
+                "line": "",
+                "status": "skipped",
+                "reason": "prefetch rule must be a mapping",
+                "cache": {"mode": "", "ttl": None, "key": None},
+            })
+            continue
+
+        trigger = _prefetch_rule_trigger(rule)
+        items = _prefetch_rule_items(rule)
+        matched_nodes = [node for node in graph["nodes"] if _prefetch_node_matches(node, trigger)]
+        match_count += len(matched_nodes)
+        for node in matched_nodes:
+            if not items:
+                entries.append({
+                    "rule": rule_name,
+                    "trigger": node.get("id"),
+                    "trigger_directive": node.get("directive"),
+                    "directive": None,
+                    "line": "",
+                    "status": "skipped",
+                    "reason": "rule has no prefetch directives",
+                    "cache": {"mode": "", "ttl": None, "key": None},
+                })
+                continue
+            for item in items:
+                entries.append(_execute_prefetch_directive(item, rule_name, node, cfg, workspace))
+
+    return {
+        "source": source_name,
+        "workspace": str(workspace) if workspace else None,
+        "graph_summary": graph["summary"],
+        "results": entries,
+        "summary": {
+            "rules_configured": len(rules),
+            "matches": match_count,
+            "ran": sum(1 for e in entries if e["status"] == "ran"),
+            "skipped": sum(1 for e in entries if e["status"] == "skipped"),
+            "failed": sum(1 for e in entries if e["status"] == "failed"),
+        },
+    }
+
+
+def format_prefetch_human(result: dict) -> str:
+    summary = result["summary"]
+    lines = [
+        f"Prefetch: {result['source']}",
+        (
+            f"Rules: {summary['rules_configured']}  Matches: {summary['matches']}  "
+            f"Ran: {summary['ran']}  Skipped: {summary['skipped']}  Failed: {summary['failed']}"
+        ),
+    ]
+    if summary["rules_configured"] == 0:
+        lines.append("No prefetch rules configured.")
+    elif summary["matches"] == 0:
+        lines.append("No prefetch rules matched.")
+
+    for entry in result["results"]:
+        target = entry.get("line") or "(none)"
+        reason = f" ({entry['reason']})" if entry.get("reason") else ""
+        trigger = entry.get("trigger") or "no-trigger"
+        lines.append(f"- {entry['status']}: {entry['rule']} {trigger} -> {target}{reason}")
+    return "\n".join(lines)
+
+
 # ─────────────────────────────── Mnēmē Memory ────────────────────────────────
 #
 # Mnēmē — narrative project memory. Distills checkpoints + oracle log into a
@@ -4258,6 +4535,27 @@ def cmd_graph(args, cfg) -> int:
         resource_text = f" -> {resources}" if resources else ""
         print(f"- {node['id']} line {node['line']}: {node['directive']} ({node['kind']}){flag_text}{resource_text}")
     return 0
+
+
+def cmd_prefetch(args, cfg) -> int:
+    """Run configured prefetch rules against a static directive graph."""
+    source_path = Path(args.source).expanduser().resolve()
+    if not source_path.exists():
+        print(f"Error: file not found: {source_path}", file=sys.stderr)
+        return 1
+    workspace = Path(args.workspace).expanduser().resolve() if getattr(args, "workspace", None) else _infer_workspace(source_path)
+    cfg = load_config(workspace)
+    result = prefetch_source(
+        source_path.read_text(errors="replace"),
+        cfg,
+        workspace=workspace,
+        source_name=str(source_path),
+    )
+    if getattr(args, "json", False):
+        print(json.dumps(result, indent=2))
+    else:
+        print(format_prefetch_human(result))
+    return 1 if result["summary"]["failed"] else 0
 
 
 # ───────────────────────────── Schema validation CLI ─────────────────────────
@@ -6750,6 +7048,12 @@ def main():
     p_graph.add_argument("--workspace", default=None, help="Workspace path for graph metadata (default: inferred)")
     p_graph.add_argument("--json", action="store_true", help="Output machine-readable JSON")
 
+    # prefetch (Phase 13B)
+    p_prefetch = sub.add_parser("prefetch", help="Run configured prefetch rules against a static graph")
+    p_prefetch.add_argument("source", help="Path to .md file with @perseus header")
+    p_prefetch.add_argument("--workspace", default=None, help="Workspace path for config/resource resolution")
+    p_prefetch.add_argument("--json", action="store_true", help="Output machine-readable JSON")
+
     # validate (Phase 12C)
     p_validate = sub.add_parser("validate", help="Validate a payload against a Perseus schema")
     p_validate.add_argument("payload", nargs="?", default="-", help="Payload file path, or '-' / omitted for stdin")
@@ -6966,6 +7270,8 @@ def main():
         cmd_render(args, cfg)
     elif args.command == "graph":
         return cmd_graph(args, cfg)
+    elif args.command == "prefetch":
+        return cmd_prefetch(args, cfg)
     elif args.command == "validate":
         return cmd_validate(args, cfg)
     elif args.command == "checkpoint":

@@ -488,7 +488,43 @@ The command never executes shell-backed directives.
 
 ---
 
-## 15. Cron (`perseus cron`) — Cross-platform Scheduling
+## 15. Pattern Prefetch (`perseus prefetch`) — Rule-Based Cache Warming
+
+`perseus prefetch` applies explicit `prefetch.rules` to the static directive
+graph and warms the existing directive cache before a render. It does not
+render the source document first.
+
+### CLI
+
+```bash
+perseus prefetch .perseus/context.md
+perseus prefetch .perseus/context.md --json
+```
+
+### Config
+
+```yaml
+prefetch:
+  rules:
+    - name: status-diff
+      trigger: '@query "git status"'
+      prefetch:
+        - '@query "git diff --stat" @cache ttl=300'
+```
+
+Rules can use a string trigger such as `@query "git status"` or a mapping with
+`directive`, `kind`, `args`, `args_pattern`, `args_contains`,
+`resource_kind`, and `resource`. Prefetch directives must be inline,
+cacheable directives and must include `@cache ttl=N`, `@cache persist`, or
+`@cache session`.
+
+The command reports every ran, skipped, or failed prefetch. It respects existing
+render trust gates such as `render.allow_query_shell`; cache writes are the only
+intended side effect.
+
+---
+
+## 16. Cron (`perseus cron`) — Cross-platform Scheduling
 
 Generates a crontab entry for periodic rendering. Works on macOS, Linux, BSD.
 Recommended over `perseus launchd` / `perseus systemd` when portability matters.
@@ -510,7 +546,7 @@ easy lookup.
 
 ---
 
-## 16. Mnēmē Federation (task-19, Phase 8.2)
+## 17. Mnēmē Federation (task-19, Phase 8.2)
 
 Cross-workspace narrative aggregation. Lets one workspace subscribe to
 another workspace's Mnēmē narrative so curated project memory flows across
