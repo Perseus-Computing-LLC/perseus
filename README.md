@@ -14,7 +14,7 @@ Provider-agnostic defaults now use `PERSEUS_SKILLS_DIR` and `PERSEUS_SESSIONS_DI
 
 Perseus dogfoods itself: `ROADMAP.md` is a live `@perseus` source — the project's own documentation resolves its git state, CLI version, recent sessions, and last checkpoint at render time.
 
-**Status: Alpha v0.8.1 — Phases 1-13 complete. Phase 11 stabilization, Phase 12 schema validation, and Phase 13 predictive prefetching are done: `perseus graph` builds the static substrate, `perseus prefetch` warms configured caches, and adaptive scoring can opt into deterministic or Daedalus-ranked candidates. 35 tasks closed. 297 tests passing, 1 sandbox-skipped TCP smoke.**
+**Status: Alpha v0.8.1 — Phases 1-13 complete and Phase 14A landed. Phase 14 now has deterministic reinforcement signal collection via `perseus oracle outcomes`; Phase 14B/14C remain. 36 tasks closed, 2 Phase 14 tasks open. 300 tests passing, 1 sandbox-skipped TCP smoke.**
 
 ---
 
@@ -306,7 +306,7 @@ Run `perseus <command> --help` for full flags. Summary of the surface:
 | `perseus memory {update,compact,show,status,query,federation}` | Mnēmē narrative project memory + cross-workspace federation. |
 | `perseus inbox {send,list,read,unread,mark-read}` | Point-to-point messages between agents (task-16). |
 | `perseus health` | Maintenance report — stale skills, large narrative, oracle log volume. |
-| `perseus oracle {accept,reject,log,export,infer-labels,drift}` | Daedalus oracle log management (Phase 9). |
+| `perseus oracle {accept,reject,log,export,infer-labels,outcomes,drift}` | Daedalus oracle log management, inferred labels, outcome signals, and drift checks. |
 | `perseus llm ping [--provider hermes\|ollama\|...]` | Verify the configured LLM provider is reachable. |
 | `perseus init [--template name] <workspace>` | Scaffold a `.perseus/context.md` and `~/.perseus/config.yaml`. |
 | `perseus serve [--port N] [--host H]` | Read-only HTTP view of workspace state on `http://127.0.0.1:7991/`. |
@@ -441,7 +441,8 @@ oracle:
 | **Phase 11** | Internal hardening — registry, doctor, JSON surfaces, LSP integration tests, split suite | ✅ Complete |
 | **Phase 12** | Schema validation engine — `schema=`, `@validate`, `output_schema`, `perseus validate` | ✅ Complete |
 | **Phase 13** | Predictive prefetching — static graph, rule-based cache warming, adaptive deterministic/Daedalus scoring | ✅ Complete |
-| **Phase 14+** | See "Future development" at the bottom of [ROADMAP.md](./ROADMAP.md) | 🌅 Open canvas |
+| **Phase 14** | Adaptive self-optimizing oracle — outcome signals landed; online scoring and A/B testing remain | 🚧 In progress |
+| **Phase 15+** | See "Future development" at the bottom of [ROADMAP.md](./ROADMAP.md) | 🌅 Open canvas |
 
 Full detail: [ROADMAP.md](./ROADMAP.md)
 

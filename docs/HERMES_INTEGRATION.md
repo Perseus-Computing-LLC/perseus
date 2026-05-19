@@ -177,7 +177,7 @@ The SSH-tunnel option is the simplest secure default — Hermes stays bound to l
 
 - **Phase 9 (Daedalus v2)** — `perseus oracle drift` is implemented as a deterministic/JSON-first surface. Future LLM explanations can use `perseus llm ping` as a precondition.
 - **Phase 10 (LSP)** — the LSP server (`perseus serve --lsp`) is implemented. Surfacing `llm.provider` and recent ping state in editor UI remains an optional editor enhancement.
-- **Phase 14+ (Team mode)** — if/when Perseus grows a server mode for shared federation, Hermes will likely be one of the first inference paths supported via the same alias, with auth headers added.
+- **Future team mode** — if/when Perseus grows a server mode for shared federation, Hermes will likely be one of the first inference paths supported via the same alias, with auth headers added.
 
 ---
 

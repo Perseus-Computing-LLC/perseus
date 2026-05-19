@@ -428,6 +428,87 @@ def test_infer_labels_prose_unchanged(tmp_path, monkeypatch):
     assert "(no oracle log entries)" in text
 
 
+def test_oracle_outcomes_json_updates_accepted_entry(tmp_path, monkeypatch):
+    _seed_oracle_log(monkeypatch, tmp_path, [{
+        "timestamp": "2026-05-18T10:00:00+00:00",
+        "task": "ship the feature",
+        "accepted": True,
+    }])
+    local = cfg()
+    store = tmp_path / "checkpoints"
+    store.mkdir()
+    local["checkpoints"]["store"] = str(store)
+    (store / "later-a.yaml").write_text(yaml.safe_dump({
+        "written": "2026-05-18T10:30:00+00:00",
+        "task": "ship the feature",
+        "status": "in_progress",
+        "notes": "hit error in parser",
+    }))
+    (store / "later-b.yaml").write_text(yaml.safe_dump({
+        "written": "2026-05-18T11:00:00+00:00",
+        "task": "ship the feature",
+        "status": "completed",
+        "notes": "merged to main",
+    }))
+    args = argparse.Namespace(window_days=1, window_checkpoints=5, dry_run=False, json=True)
+
+    out, rc = _capture_json(monkeypatch, perseus.cmd_oracle_outcomes, args, local)
+
+    assert rc == 0
+    assert out["scanned"] == 1
+    assert out["eligible"] == 1
+    assert out["updated"] == 1
+    log_rows = [json.loads(line) for line in (tmp_path / "oracle_log.jsonl").read_text().splitlines()]
+    outcome = log_rows[0]["outcome"]
+    assert outcome["completed"] is True
+    assert outcome["completion_signal"] == "completed"
+    assert outcome["checkpoint_count"] == 2
+    assert outcome["error_count"] == 1
+    assert outcome["error_rate"] == 0.5
+    assert outcome["time_to_completion_s"] == 3600
+
+
+def test_oracle_outcomes_dry_run_does_not_write(tmp_path, monkeypatch):
+    _seed_oracle_log(monkeypatch, tmp_path, [{
+        "timestamp": "2026-05-18T10:00:00+00:00",
+        "task": "dry run",
+        "accepted": True,
+    }])
+    local = cfg()
+    store = tmp_path / "checkpoints"
+    store.mkdir()
+    local["checkpoints"]["store"] = str(store)
+    (store / "done.yaml").write_text(yaml.safe_dump({
+        "written": "2026-05-18T10:05:00+00:00",
+        "task": "dry run",
+        "status": "done",
+    }))
+    args = argparse.Namespace(window_days=1, window_checkpoints=5, dry_run=True, json=True)
+
+    out, rc = _capture_json(monkeypatch, perseus.cmd_oracle_outcomes, args, local)
+
+    assert rc == 0
+    assert out["would_update"] == 1
+    assert out["updated"] == 0
+    row = json.loads((tmp_path / "oracle_log.jsonl").read_text().strip())
+    assert "outcome" not in row
+
+
+def test_oracle_outcomes_skips_rejected_and_unlabeled(tmp_path, monkeypatch):
+    _seed_oracle_log(monkeypatch, tmp_path, [
+        {"timestamp": "2026-05-18T10:00:00+00:00", "task": "rejected", "accepted": False},
+        {"timestamp": "2026-05-18T11:00:00+00:00", "task": "unlabeled", "accepted": None},
+    ])
+    args = argparse.Namespace(window_days=1, window_checkpoints=5, dry_run=False, json=True)
+
+    out, rc = _capture_json(monkeypatch, perseus.cmd_oracle_outcomes, args, cfg())
+
+    assert rc == 0
+    assert out["eligible"] == 0
+    assert out["skipped"] == 2
+    assert out["updated"] == 0
+
+
 def test_drift_json_schema(tmp_path, monkeypatch):
     """oracle drift --json emits correct schema with verdict."""
     monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path)

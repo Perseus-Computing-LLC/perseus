@@ -286,11 +286,20 @@ perseus oracle accept <log-id>          # label as accepted
 perseus oracle reject <log-id>          # label as rejected
 perseus oracle log [--limit N] [--unlabeled]
 perseus oracle export [--output FILE] [--format jsonl|alpaca]
+perseus oracle infer-labels [--json]
+perseus oracle outcomes [--dry-run] [--json]
+perseus oracle drift [--json]
 ```
 
 - `log-id` accepts `latest`, full timestamp, or timestamp prefix
 - `export` writes ONLY entries with `accepted=true`
 - Atomic rewrite (`.tmp` + `os.replace`); original log never partially mutated
+- `outcomes` annotates accepted/inferred-accepted entries with deterministic
+  checkpoint-correlated reinforcement signals:
+  - `completed` / `completion_signal`
+  - `checkpoint_count`
+  - `error_count` / `error_rate`
+  - `time_to_completion_s`
 
 ### Local model routing
 

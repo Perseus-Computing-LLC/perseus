@@ -474,8 +474,9 @@ explicit mutation gate for `perseus.compactMemory`.
 
 Split `tests/test_perseus.py` into subsystem files plus `tests/conftest.py`.
 At Phase 11 close the suite collected 272 tests. After Phase 12 it reached
-283 passed, 1 skipped; after Phase 13 it reached 297 passed, 1 skipped
-(sandbox-blocked TCP bind; the same TCP smoke passes outside the sandbox).
+283 passed, 1 skipped; after Phase 13 it reached 297 passed, 1 skipped; after
+Phase 14A it reached 300 passed, 1 skipped (sandbox-blocked TCP bind; the same
+TCP smoke passes outside the sandbox).
 - `test_oracle.py` — suggest, oracle log, drift, infer-labels
 - `test_memory.py` — Mnēmē narrative, federation
 - `test_lsp.py` — LSP helpers, framing, diagnostics
@@ -594,13 +595,18 @@ does not generate new context prose or cross the Phase 14/15 decision gate.
 
 **Goal:** Pythia's recommendations improve autonomously from real usage signals.
 
-### 14A: Reinforcement signal collection
+### 14A: Reinforcement signal collection (task-36) ✅
 
 The oracle log already captures accept/reject. Extend it with:
 - Task completion signal (did the accepted recommendation lead to a completed
   checkpoint?)
 - Error rate (did the session hit errors after following the recommendation?)
 - Time-to-completion
+
+**Status:** Complete. `perseus oracle outcomes [--dry-run] [--json]`
+correlates accepted and inferred-accepted oracle entries with subsequent
+checkpoints and writes deterministic `outcome` objects containing completion,
+error-rate, checkpoint-count, and time-to-completion signals.
 
 ### 14B: Online scoring adjustment
 
@@ -703,7 +709,7 @@ Phase 13A ─── Directive dependency graph ✅ ─────────�
 Phase 13B ─── Pattern-based pre-fetch rules ✅ ──────────┤
 Phase 13C ─── Daedalus-powered adaptive pre-fetch ✅ ────┤
                                                          │
-Phase 14A ─── RL signal collection ──────────────────────┤
+Phase 14A ─── RL signal collection ✅ ───────────────────┤
 Phase 14B ─── Online scoring adjustment ─────────────────┤
 Phase 14C ─── A/B recommendation testing ────────────────┤
                                                          │
@@ -714,8 +720,8 @@ Phase 14C ─── A/B recommendation testing ───────────
 Phase 15  ─── Generative Context (if decided yes) ───────┘
 ```
 
-**Estimated scope:** Phase 11, Phase 12, and Phase 13 are complete. Phase 14 is
-2-3 sessions. Then the decision gate.
+**Estimated scope:** Phase 11, Phase 12, Phase 13, and Phase 14A are complete.
+Phase 14B/14C remain. Then the decision gate.
 
 ---
 

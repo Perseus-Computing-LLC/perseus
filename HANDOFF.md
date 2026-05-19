@@ -2,8 +2,8 @@
 
 **For:** Principal developer preparing Phase 14
 **Repo:** https://github.com/tcconnally/perseus  
-**Baseline:** task-35 batch, 297 tests passing, 1 sandbox-skipped TCP smoke
-**State:** Phases 11, 12, and 13 complete; resolver-vs-generator brief is written; Phase 14 planning can begin
+**Baseline:** task-36 batch, 300 tests passing, 1 sandbox-skipped TCP smoke
+**State:** Phases 11, 12, and 13 complete; Phase 14A complete; task-37 next
 
 ---
 
@@ -28,6 +28,7 @@
 | **task-34** pattern prefetch rules | task-34 batch | complete | `prefetch.rules`, `perseus prefetch`, cache warming with trust gates |
 | **task-35** adaptive prefetch scoring | task-35 batch | complete | deterministic/Daedalus scoring over predeclared candidates with fallback |
 | **Decision brief** resolver vs generator | decision-brief batch | complete | recommends resolver boundary through Phase 14; Phase 15 generation must be opt-in |
+| **task-36** reinforcement signal collection | task-36 batch | complete | `perseus oracle outcomes`, deterministic checkpoint-correlated outcome signals |
 
 Phase 11 was already complete in the prior handoff: baseline repairs, `DIRECTIVE_REGISTRY`, `perseus doctor`, JSON agent surfaces, LSP integration tests, and the split test suite are all on `main`.
 
@@ -44,7 +45,7 @@ python -m pytest tests/ -q
 Latest local result:
 
 ```text
-297 passed, 1 skipped
+300 passed, 1 skipped
 ```
 
 The skipped test is the TCP LSP smoke when sandboxed; it has passed outside the sandbox.
@@ -84,9 +85,9 @@ tests/
 
 ---
 
-## Next: Phase 14 Planning
+## Next: Phase 14B Online Scoring
 
-Phase 13 is complete:
+Phase 13 is complete and Phase 14A is complete:
 
 1. **13A Directive Dependency Graph**
    - Build a static graph over directives found in a source document.
@@ -107,6 +108,10 @@ The resolver-vs-generator decision brief now lives at
 `docs/RESOLVER_VS_GENERATOR.md`. It recommends keeping Phase 14 inside the
 resolver boundary and treating Phase 15 generation as an explicit opt-in product
 pivot.
+
+Task-37 is open for online scoring adjustment. Use task-36 `outcome` objects as
+the signal source; keep no-data behavior neutral and explain any applied score
+adjustments in output.
 
 ---
 

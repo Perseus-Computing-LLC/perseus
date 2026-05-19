@@ -168,6 +168,8 @@ DEFAULT_CONFIG = {
         "drift_acceptance_drop": 0.20,        # ≥ 20pp drop in accept-rate
         "drift_jaccard_floor": 0.30,          # Jaccard < this is "low overlap"
         "drift_confidence_drop": 0.15,        # avg confidence falls ≥ 15pp
+        "outcome_window_days": 7,             # Phase 14A: checkpoints after accepted recommendation
+        "outcome_window_checkpoints": 10,
     },
     "llm": {
         "provider": "ollama",
@@ -5900,7 +5902,7 @@ def _load_indexed_checkpoints(cfg: dict) -> list[tuple[float, dict]]:
     out: list[tuple[float, dict]] = []
     for fp in _list_checkpoint_files(cfg):
         body = _load_checkpoint_file(fp) or {}
-        ts = _parse_iso_ts(str(body.get("ts") or body.get("timestamp") or ""))
+        ts = _parse_iso_ts(str(body.get("written") or body.get("ts") or body.get("timestamp") or ""))
         if ts is None:
             # Fall back to file mtime
             try:
@@ -5910,6 +5912,206 @@ def _load_indexed_checkpoints(cfg: dict) -> list[tuple[float, dict]]:
         out.append((ts, body))
     out.sort(key=lambda t: t[0])
     return out
+
+
+def _indexed_checkpoints_in_window(
+    entry_ts_epoch: float | None,
+    all_checkpoints: list[tuple[float, dict]],
+    window_days: int,
+    window_checkpoints: int,
+) -> list[tuple[float, dict]]:
+    """Return timestamped checkpoints after an oracle entry within a bounded window."""
+    if entry_ts_epoch is None:
+        return []
+    cutoff = entry_ts_epoch + window_days * 86400
+    window: list[tuple[float, dict]] = []
+    for cp_ts, cp in all_checkpoints:
+        if cp_ts <= entry_ts_epoch:
+            continue
+        if cp_ts > cutoff:
+            break
+        window.append((cp_ts, cp))
+        if len(window) >= window_checkpoints:
+            break
+    return window
+
+
+_OUTCOME_COMPLETE_WORDS = {"complete", "completed", "done", "shipped", "merged", "closed", "resolved"}
+_OUTCOME_ERROR_WORDS = {"error", "errors", "failed", "failure", "exception", "traceback", "blocked", "regression"}
+
+
+def _oracle_entry_has_positive_label(entry: dict) -> bool:
+    if entry.get("accepted") is True:
+        return True
+    return entry.get("accepted") is None and entry.get("inferred_label") == "inferred_accept"
+
+
+def _outcome_checkpoint_text(checkpoint: dict) -> str:
+    parts: list[str] = []
+    for key in ("task", "status", "next", "notes", "summary", "blockers"):
+        val = checkpoint.get(key)
+        if isinstance(val, list):
+            parts.extend(str(item) for item in val)
+        elif val is not None:
+            parts.append(str(val))
+    return " ".join(parts).lower()
+
+
+def _checkpoint_completion_signal(checkpoint: dict) -> bool:
+    status = str(checkpoint.get("status", "") or "").strip().lower()
+    if any(word in status for word in _OUTCOME_COMPLETE_WORDS):
+        return True
+    text = _outcome_checkpoint_text(checkpoint)
+    return any(phrase in text for phrase in ("task completed", "work completed", "merged to main", "shipped"))
+
+
+def _checkpoint_error_signal(checkpoint: dict) -> bool:
+    text = _outcome_checkpoint_text(checkpoint)
+    return any(word in text for word in _OUTCOME_ERROR_WORDS)
+
+
+def _oracle_outcome_for_entry(
+    entry: dict,
+    indexed_checkpoints: list[tuple[float, dict]],
+    window_days: int,
+    window_checkpoints: int,
+) -> dict:
+    entry_ts = _parse_iso_ts(str(entry.get("timestamp", "") or ""))
+    window = _indexed_checkpoints_in_window(entry_ts, indexed_checkpoints, window_days, window_checkpoints)
+    checkpoint_count = len(window)
+    error_count = sum(1 for _, cp in window if _checkpoint_error_signal(cp))
+    completion_ts = None
+    for cp_ts, cp in window:
+        if _checkpoint_completion_signal(cp):
+            completion_ts = cp_ts
+            break
+
+    completed = completion_ts is not None
+    if completed:
+        completion_signal = "completed"
+    elif checkpoint_count:
+        completion_signal = "no_completion"
+    else:
+        completion_signal = "no_checkpoints"
+
+    return {
+        "schema": 1,
+        "source": "checkpoint_correlation",
+        "window_days": window_days,
+        "window_checkpoints": window_checkpoints,
+        "checkpoint_count": checkpoint_count,
+        "completion_signal": completion_signal,
+        "completed": completed,
+        "time_to_completion_s": int(completion_ts - entry_ts) if completed and entry_ts is not None else None,
+        "error_count": error_count,
+        "error_rate": round(error_count / checkpoint_count, 3) if checkpoint_count else 0.0,
+    }
+
+
+def collect_oracle_outcomes(entries: list[dict], cfg: dict, dry_run: bool = False) -> dict:
+    """Annotate accepted oracle entries with deterministic outcome signals."""
+    o_cfg = cfg.get("oracle", {})
+    window_days = int(o_cfg.get("outcome_window_days", 7))
+    window_checkpoints = int(o_cfg.get("outcome_window_checkpoints", 10))
+    indexed = _load_indexed_checkpoints(cfg)
+
+    results: list[dict] = []
+    changed = 0
+    eligible = 0
+    skipped = 0
+    for idx, entry in enumerate(entries):
+        ts = str(entry.get("timestamp", ""))
+        task = str(entry.get("task", ""))
+        if not _oracle_entry_has_positive_label(entry):
+            skipped += 1
+            results.append({
+                "index": idx,
+                "timestamp": ts,
+                "task": task,
+                "status": "skipped",
+                "reason": "entry is not accepted or inferred-accepted",
+            })
+            continue
+
+        eligible += 1
+        outcome = _oracle_outcome_for_entry(entry, indexed, window_days, window_checkpoints)
+        if entry.get("outcome") == outcome:
+            results.append({
+                "index": idx,
+                "timestamp": ts,
+                "task": task,
+                "status": "unchanged",
+                "outcome": outcome,
+            })
+            continue
+
+        changed += 1
+        if not dry_run:
+            entry["outcome"] = outcome
+        results.append({
+            "index": idx,
+            "timestamp": ts,
+            "task": task,
+            "status": "would_update" if dry_run else "updated",
+            "outcome": outcome,
+        })
+
+    return {
+        "scanned": len(entries),
+        "eligible": eligible,
+        "skipped": skipped,
+        "updated": 0 if dry_run else changed,
+        "would_update": changed if dry_run else 0,
+        "unchanged": sum(1 for item in results if item["status"] == "unchanged"),
+        "dry_run": dry_run,
+        "window_days": window_days,
+        "window_checkpoints": window_checkpoints,
+        "results": results,
+    }
+
+
+def cmd_oracle_outcomes(args, cfg) -> int:
+    """`perseus oracle outcomes` — collect Phase 14A reinforcement signals."""
+    cfg_local = copy.deepcopy(cfg)
+    o_cfg = cfg_local.setdefault("oracle", {})
+    if getattr(args, "window_days", None) is not None:
+        o_cfg["outcome_window_days"] = int(args.window_days)
+    if getattr(args, "window_checkpoints", None) is not None:
+        o_cfg["outcome_window_checkpoints"] = int(args.window_checkpoints)
+
+    dry_run = bool(getattr(args, "dry_run", False))
+    entries = _oracle_log_entries()
+    result = collect_oracle_outcomes(entries, cfg_local, dry_run=dry_run)
+    if not dry_run and result["updated"]:
+        _rewrite_oracle_log(entries)
+
+    if getattr(args, "json", False):
+        print(json.dumps(result, indent=2))
+        return 0
+
+    print("Oracle outcomes")
+    print(f"  scanned:            {result['scanned']}")
+    print(f"  eligible:           {result['eligible']}")
+    print(f"  skipped:            {result['skipped']}")
+    print(f"  updated:            {result['updated']}")
+    print(f"  would_update:       {result['would_update']}")
+    print(f"  unchanged:          {result['unchanged']}")
+    print(f"  dry_run:            {result['dry_run']}")
+    print(f"  window_days:        {result['window_days']}")
+    print(f"  window_checkpoints: {result['window_checkpoints']}")
+    for item in result["results"][:10]:
+        if item["status"] in {"updated", "would_update", "unchanged"}:
+            outcome = item["outcome"]
+            print(
+                f"  {item['status']}: {item['timestamp']} "
+                f"completed={outcome['completed']} errors={outcome['error_count']} "
+                f"time_to_completion_s={outcome['time_to_completion_s']}"
+            )
+        else:
+            print(f"  skipped: {item['timestamp']} ({item['reason']})")
+    if len(result["results"]) > 10:
+        print(f"  ... {len(result['results']) - 10} more")
+    return 0
 
 
 def cmd_oracle_infer_labels(args, cfg) -> int:
@@ -6543,6 +6745,8 @@ def cmd_oracle(args, cfg):
 
     if sub == "infer-labels":
         return cmd_oracle_infer_labels(args, cfg)
+    if sub == "outcomes":
+        return cmd_oracle_outcomes(args, cfg)
     if sub == "drift":
         return cmd_oracle_drift(args, cfg)
 
@@ -7597,6 +7801,13 @@ def main():
     p_oracle_infer.add_argument("--window-checkpoints", type=int, default=None, help="Override oracle.inferred_label_window_checkpoints")
     p_oracle_infer.add_argument("--dry-run", action="store_true", help="Print what would change without writing")
     p_oracle_infer.add_argument("--json", action="store_true", help="Machine-readable JSON output")
+
+    # Phase 14A — task-36: reinforcement outcome collection
+    p_oracle_outcomes = oracle_sub.add_parser("outcomes", help="Collect completion/error/time outcome signals")
+    p_oracle_outcomes.add_argument("--window-days", type=int, default=None, help="Override oracle.outcome_window_days")
+    p_oracle_outcomes.add_argument("--window-checkpoints", type=int, default=None, help="Override oracle.outcome_window_checkpoints")
+    p_oracle_outcomes.add_argument("--dry-run", action="store_true", help="Print what would change without writing")
+    p_oracle_outcomes.add_argument("--json", action="store_true", help="Machine-readable JSON output")
 
     # Phase 9.3 — task-22: drift detection
     p_oracle_drift = oracle_sub.add_parser("drift", help="Report drift in recent oracle behavior vs baseline")
