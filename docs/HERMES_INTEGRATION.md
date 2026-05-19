@@ -148,7 +148,7 @@ The SSH-tunnel option is the simplest secure default — Hermes stays bound to l
 
 ## Federation + Hermes
 
-`@memory federation` and `perseus memory federation *` are **LLM-free**. Subscriptions read narrative files directly from disk; no model is invoked. If you want LLM-summarized federation digests (future Phase 13+ territory), file an issue tagged `federation-llm-digest`.
+`@memory federation` and `perseus memory federation *` are **LLM-free**. Subscriptions read narrative files directly from disk; no model is invoked. If you want LLM-summarized federation digests, treat that as post-Phase 14 generator/curator work and file an issue tagged `federation-llm-digest`.
 
 ---
 
