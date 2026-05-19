@@ -8589,9 +8589,9 @@ def cmd_init(args, cfg):
 def main():
     parser = argparse.ArgumentParser(
         prog="perseus",
-        description="Perseus — Live Context Engine for AI Assistants (alpha v0.8.1)",
+        description="Perseus — Live Context Engine for AI Assistants (alpha v0.9.0)",
     )
-    parser.add_argument("--version", action="version", version="perseus alpha v0.8.1")
+    parser.add_argument("--version", action="version", version="perseus alpha v0.9.0")
     sub = parser.add_subparsers(dest="command", required=True)
 
     # render
