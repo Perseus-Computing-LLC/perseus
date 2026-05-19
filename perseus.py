@@ -72,7 +72,8 @@ DEFAULT_CONFIG = {
         "inferred_label_min_checkpoints": 2,
         # Phase 9.3 — drift detection thresholds (tasks 22).
         # Surfaced via `perseus oracle drift` and the `@drift` directive.
-        "drift_window_days": 30,
+        "drift_window_days": 30,              # baseline window for comparisons
+        "drift_recent_window_days": 7,        # recent window vs baseline
         "drift_acceptance_drop": 0.20,        # ≥ 20pp drop in accept-rate
         "drift_jaccard_floor": 0.30,          # Jaccard < this is "low overlap"
         "drift_confidence_drop": 0.15,        # avg confidence falls ≥ 15pp
@@ -4542,12 +4543,15 @@ def _compute_drift(cfg: dict, now_epoch: float | None = None) -> dict:
     """
     o = cfg.get("oracle", {})
     win_days = int(o.get("drift_window_days", 30))
+    # Recent window: trailing N days, default 7. Was hardcoded as 7 in v0.8; made
+    # config-driven 2026-05-18 in response to review (consistency with baseline window).
+    recent_days = int(o.get("drift_recent_window_days", 7))
     acc_drop = float(o.get("drift_acceptance_drop", 0.20))
     jac_floor = float(o.get("drift_jaccard_floor", 0.30))
     conf_drop = float(o.get("drift_confidence_drop", 0.15))
 
     now = now_epoch if now_epoch is not None else time.time()
-    recent_cutoff = now - 7 * 86400
+    recent_cutoff = now - recent_days * 86400
     baseline_cutoff = now - win_days * 86400
 
     entries = _oracle_log_entries()

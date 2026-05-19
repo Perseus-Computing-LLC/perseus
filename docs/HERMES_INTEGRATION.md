@@ -9,7 +9,7 @@
 
 ```bash
 # 1. Start Hermes's OpenAI-compatible server (any port, this example uses 8080)
-hermes proxy --port 8080            # OAuth provider (Claude Pro, ChatGPT Pro, SuperGrok)
+hermes proxy start --port 8080      # OAuth provider (Claude Pro, ChatGPT Pro, SuperGrok)
 # — or —
 hermes serve --openai --port 8080   # any configured Hermes provider
 
@@ -137,10 +137,10 @@ The example assumes Perseus and Hermes on the same machine. They don't have to b
 
 | Topology | Hermes side | Perseus side |
 |---|---|---|
-| **Same box** | `hermes proxy --port 8080` | `hermes_url: http://localhost:8080` |
-| **Mac → Linux box on LAN** | `hermes proxy --host 0.0.0.0 --port 8080` | `hermes_url: http://hermes-box.lan:8080` |
-| **Mac → Linux via SSH tunnel** | `hermes proxy --port 8080` (on remote) + `ssh -L 8080:localhost:8080 user@remote` | `hermes_url: http://localhost:8080` |
-| **Mac → Linux via Tailscale/WireGuard** | `hermes proxy --host 0.0.0.0 --port 8080` | `hermes_url: http://<tailscale-ip>:8080` |
+| **Same box** | `hermes proxy start --port 8080` | `hermes_url: http://localhost:8080` |
+| **Mac → Linux box on LAN** | `hermes proxy start --host 0.0.0.0 --port 8080` | `hermes_url: http://hermes-box.lan:8080` |
+| **Mac → Linux via SSH tunnel** | `hermes proxy start --port 8080` (on remote) + `ssh -L 8080:localhost:8080 user@remote` | `hermes_url: http://localhost:8080` |
+| **Mac → Linux via Tailscale/WireGuard** | `hermes proxy start --host 0.0.0.0 --port 8080` | `hermes_url: http://<tailscale-ip>:8080` |
 
 The SSH-tunnel option is the simplest secure default — Hermes stays bound to localhost on the remote, the tunnel handles authn, and Perseus's config doesn't need to know where Hermes actually lives.
 
@@ -156,7 +156,7 @@ The SSH-tunnel option is the simplest secure default — Hermes stays bound to l
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `ping` returns `connection refused` | Hermes not running, wrong port | `hermes proxy --port 8080` and check `lsof -i :8080` |
+| `ping` returns `connection refused` | Hermes not running, wrong port | `hermes proxy start --port 8080` and check `lsof -i :8080` |
 | `ping` returns `404 Not Found` | `hermes_url` has `/v1` suffix | Strip it — Perseus appends the path itself |
 | `ping` returns `Model not found` | `hermes_model` not configured in Hermes | `hermes model` to see what's available |
 | `ping` returns `timeout` | Model is slow (large prompts, GPU offload) | Bump `llm.timeout_s` to 120 or higher |
