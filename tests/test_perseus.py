@@ -2679,3 +2679,60 @@ def test_infer_labels_inferred_none_counter_is_real(tmp_path, monkeypatch):
     out = "\n".join(captured)
     # Bucket must show 1, not 0 (the bug)
     assert "inferred_none:   1" in out or "inferred_none: 1" in out
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Task-25: DIRECTIVE_REGISTRY invariant tests
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def test_registry_every_directive_has_callable_resolver_or_is_control():
+    """Every registered directive with kind='inline' must have a callable resolver."""
+    for name, spec in perseus.DIRECTIVE_REGISTRY.items():
+        if spec.kind == "inline":
+            assert callable(spec.resolver), f"{name}: inline directive must have callable resolver"
+        # Control/block directives may have None resolver
+        if spec.kind == "control":
+            assert spec.resolver is None, f"{name}: control directive should have no resolver"
+
+
+def test_registry_unsafe_hover_invariant():
+    """Directives that execute shell or mutate state must NOT be safe_for_hover."""
+    for name, spec in perseus.DIRECTIVE_REGISTRY.items():
+        if spec.executes_shell or spec.mutates_state:
+            assert not spec.safe_for_hover, (
+                f"{name}: executes_shell={spec.executes_shell} mutates_state={spec.mutates_state} "
+                f"but safe_for_hover=True — violates safety invariant"
+            )
+
+
+def test_registry_inline_re_matches_all_inline_directives():
+    """INLINE_DIRECTIVE_RE must match every registered inline directive."""
+    for name, spec in perseus.DIRECTIVE_REGISTRY.items():
+        if spec.kind == "inline":
+            m = perseus.INLINE_DIRECTIVE_RE.match(name)
+            assert m is not None, f"{name}: not matched by INLINE_DIRECTIVE_RE"
+            m2 = perseus.INLINE_DIRECTIVE_RE.match(f"{name} some_arg=value")
+            assert m2 is not None, f"{name} with args: not matched by INLINE_DIRECTIVE_RE"
+
+
+def test_registry_no_unknown_call_sigs():
+    """call_sig must be one of the known adapter patterns."""
+    valid = {"acw", "ac", "a", "awc", "block"}
+    for name, spec in perseus.DIRECTIVE_REGISTRY.items():
+        assert spec.call_sig in valid, f"{name}: unknown call_sig={spec.call_sig!r}"
+
+
+def test_registry_completeness_against_resolver_functions():
+    """Every resolve_* function in perseus module should be in the registry."""
+    import inspect
+    resolver_funcs = {
+        name for name, obj in inspect.getmembers(perseus, inspect.isfunction)
+        if name.startswith("resolve_")
+    }
+    registered_resolvers = {
+        spec.resolver.__name__ for spec in perseus.DIRECTIVE_REGISTRY.values()
+        if spec.resolver is not None
+    }
+    missing = resolver_funcs - registered_resolvers
+    assert not missing, f"resolve_* functions not in registry: {missing}"
+

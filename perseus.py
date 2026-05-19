@@ -32,6 +32,95 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml  # pyyaml
+from typing import NamedTuple, Callable
+
+# ─────────────────────────────── Directive Registry ───────────────────────────
+#
+# Single source of truth for every directive (task-25).  Adding a new directive
+# requires one entry here plus the resolver function itself — no regex edits,
+# no dispatch chain changes, no LSP table changes.
+
+
+class DirectiveSpec(NamedTuple):
+    """Metadata for a single Perseus directive."""
+    name: str                           # canonical name, e.g. "@query"
+    resolver: "Callable | None"         # resolve_* function (None for control)
+    args: list[str]                     # LSP completion args, e.g. ["fallback="]
+    kind: str                           # "inline" | "block" | "control"
+    call_sig: str                       # "acw" | "ac" | "a" | "awc" | "block"
+    executes_shell: bool = False
+    reads_files: bool = False
+    mutates_state: bool = False
+    safe_for_hover: bool = True
+    cacheable: bool = False
+    summary: str = ""
+
+
+# NOTE: resolver references are forward-declared as strings and bound after
+# all resolve_* functions are defined.  See _bind_registry() below.
+DIRECTIVE_REGISTRY: dict[str, DirectiveSpec] = {}
+
+
+def _bind_registry() -> None:
+    """Populate DIRECTIVE_REGISTRY. Called once after all resolvers are defined."""
+    # fmt: off
+    _entries: list[DirectiveSpec] = [
+        DirectiveSpec("@query",     resolve_query,     ["fallback=", "schema="],   "inline",  "acw", executes_shell=True,  safe_for_hover=False, cacheable=True,  summary="Run a shell command and embed stdout"),
+        DirectiveSpec("@skills",    resolve_skills,    ["flag_stale=", "category=", "limit="], "inline", "ac", reads_files=True, cacheable=True, summary="List available skills"),
+        DirectiveSpec("@session",   resolve_session,   ["count="],                 "inline",  "ac",  reads_files=True, cacheable=True, summary="Recent session digests"),
+        DirectiveSpec("@date",      resolve_date,      ["format="],                "inline",  "a",   cacheable=False, summary="Current date/time"),
+        DirectiveSpec("@waypoint",  resolve_waypoint,  ["ttl="],                   "inline",  "ac",  reads_files=True, cacheable=True, summary="Latest checkpoint summary"),
+        DirectiveSpec("@read",      resolve_read,      [],                         "inline",  "acw", reads_files=True, cacheable=True, summary="Embed file contents"),
+        DirectiveSpec("@env",       resolve_env,       [],                         "inline",  "a",   cacheable=False, summary="Embed environment variable"),
+        DirectiveSpec("@include",   resolve_include,   [],                         "inline",  "awc", reads_files=True, cacheable=True, summary="Include and render another file"),
+        DirectiveSpec("@agora",     resolve_agora,     ["status="],                "inline",  "acw", reads_files=True, cacheable=True, summary="Task board from tasks/*.md"),
+        DirectiveSpec("@memory",    resolve_memory,    ["focus=", "federation", "include_federation=", "alias="], "inline", "acw", reads_files=True, cacheable=True, summary="Mnēmē narrative memory"),
+        DirectiveSpec("@list",      resolve_list,      ["limit=", "sort="],        "inline",  "acw", reads_files=True, cacheable=True, summary="List directory or structured data"),
+        DirectiveSpec("@tree",      resolve_tree,      ["depth="],                 "inline",  "acw", reads_files=True, cacheable=True, summary="Tree view of directory"),
+        DirectiveSpec("@health",    resolve_health,    [],                         "inline",  "acw", reads_files=True, summary="Context maintenance report"),
+        DirectiveSpec("@agent",     resolve_agent,     [],                         "inline",  "acw", executes_shell=True, safe_for_hover=False, summary="Execute local agent subprocess"),
+        DirectiveSpec("@inbox",     resolve_inbox,     ["unread=", "limit="],      "inline",  "acw", reads_files=True, cacheable=True, summary="Agent message inbox"),
+        DirectiveSpec("@drift",     resolve_drift,     [],                         "inline",  "ac",  reads_files=True, summary="Oracle drift report"),
+        # Block directives — resolved via special block-parsing logic, not the inline dispatch
+        DirectiveSpec("@services",  resolve_services,  [],                         "block",   "block", executes_shell=True, safe_for_hover=False, summary="Health-check listed services"),
+        DirectiveSpec("@prompt",    resolve_prompt_block, [],                      "block",   "block", summary="System prompt block"),
+        DirectiveSpec("@constraint", None,             [],                         "block",   "block", summary="Constraint block for validation"),
+        # Control directives — structural, no resolver
+        DirectiveSpec("@if",        None,              [],                         "control", "block", summary="Conditional block start"),
+        DirectiveSpec("@else",      None,              [],                         "control", "block", summary="Conditional block else"),
+        DirectiveSpec("@endif",     None,              [],                         "control", "block", summary="Conditional block end"),
+        DirectiveSpec("@end",       None,              [],                         "control", "block", summary="Block directive end"),
+    ]
+    # fmt: on
+    for spec in _entries:
+        DIRECTIVE_REGISTRY[spec.name] = spec
+
+
+def _call_resolver(spec: DirectiveSpec, args_str: str, cfg: dict, workspace: "Path | None") -> str:
+    """Adapt resolver call to match its actual signature via call_sig."""
+    sig = spec.call_sig
+    if sig == "acw":
+        return spec.resolver(args_str, cfg, workspace)
+    elif sig == "ac":
+        return spec.resolver(args_str, cfg)
+    elif sig == "a":
+        return spec.resolver(args_str)
+    elif sig == "awc":
+        return spec.resolver(args_str, workspace, cfg)
+    else:
+        raise ValueError(f"Unknown call_sig {sig!r} for {spec.name}")
+
+
+# Built at import time from the registry (after _bind_registry is called).
+def _build_inline_directive_re():
+    """Build INLINE_DIRECTIVE_RE from the registry. Inline directives only."""
+    names = sorted(
+        (s.name for s in DIRECTIVE_REGISTRY.values() if s.kind == "inline"),
+        key=lambda n: -len(n),  # longest first to avoid prefix shadowing
+    )
+    pattern = r'^(' + '|'.join(re.escape(n) for n in names) + r')(\s+.*)?$'
+    return re.compile(pattern, re.IGNORECASE)
+
 
 # ─────────────────────────────── Paths & Config ───────────────────────────────
 
@@ -1714,10 +1803,11 @@ ENDIF_RE = re.compile(r'^@endif\s*$', re.IGNORECASE)
 CONSTRAINT_RE = re.compile(r'^@constraint\s+(.+)$', re.IGNORECASE)
 CONSTRAINT_END_RE = re.compile(r'^@end\s*$', re.IGNORECASE)
 
-INLINE_DIRECTIVE_RE = re.compile(
-    r'^(@query|@skills|@session|@date|@waypoint|@read|@env|@include|@prompt|@agora|@memory|@list|@tree|@health|@agent|@inbox|@drift)(\s+.*)?$',
-    re.IGNORECASE,
-)
+# INLINE_DIRECTIVE_RE — built from DIRECTIVE_REGISTRY after all resolvers are
+# defined.  See _bind_registry() + _build_inline_directive_re() call below
+# resolve_drift (the last resolver in the file).
+# Placeholder; actual value set at module-load time.
+INLINE_DIRECTIVE_RE: "re.Pattern[str] | None" = None
 
 
 def _render_lines(
@@ -1883,39 +1973,10 @@ def _render_lines(
                 i += 1
                 continue
 
-            # Resolve the directive
-            if directive == "@query":
-                result = resolve_query(clean_args, cfg)
-            elif directive == "@skills":
-                result = resolve_skills(clean_args, cfg)
-            elif directive == "@session":
-                result = resolve_session(clean_args, cfg)
-            elif directive == "@date":
-                result = resolve_date(clean_args)
-            elif directive == "@waypoint":
-                result = resolve_waypoint(clean_args, cfg)
-            elif directive == "@read":
-                result = resolve_read(clean_args, cfg, workspace)
-            elif directive == "@env":
-                result = resolve_env(clean_args)
-            elif directive == "@include":
-                result = resolve_include(clean_args, workspace, cfg)
-            elif directive == "@agora":
-                result = resolve_agora(clean_args, cfg, workspace)
-            elif directive == "@memory":
-                result = resolve_memory(clean_args, cfg, workspace)
-            elif directive == "@list":
-                result = resolve_list(clean_args, cfg, workspace)
-            elif directive == "@tree":
-                result = resolve_tree(clean_args, cfg, workspace)
-            elif directive == "@health":
-                result = resolve_health(clean_args, cfg, workspace)
-            elif directive == "@agent":
-                result = resolve_agent(clean_args, cfg, workspace)
-            elif directive == "@inbox":
-                result = resolve_inbox(clean_args, cfg, workspace)
-            elif directive == "@drift":
-                result = resolve_drift(clean_args, cfg)
+            # Resolve the directive via registry (task-25)
+            spec = DIRECTIVE_REGISTRY.get(directive)
+            if spec and spec.resolver and spec.kind == "inline":
+                result = _call_resolver(spec, clean_args, cfg, workspace)
             else:
                 result = line
 
@@ -4693,6 +4754,23 @@ def resolve_drift(args: str, cfg: dict) -> str:
     return "\n".join(lines)
 
 
+# ───────────── Bind the Directive Registry (task-25) ─────────────────────────
+# All resolve_* functions are now defined; wire up the registry and build the
+# regex.  This runs once at import time.
+_bind_registry()
+INLINE_DIRECTIVE_RE = _build_inline_directive_re()
+
+# Validate invariant: shell-executing or state-mutating directives must NOT be
+# safe for hover preview.
+for _spec in DIRECTIVE_REGISTRY.values():
+    if (_spec.executes_shell or _spec.mutates_state) and _spec.safe_for_hover:
+        raise AssertionError(
+            f"Registry invariant violation: {_spec.name} executes_shell={_spec.executes_shell} "
+            f"mutates_state={_spec.mutates_state} but safe_for_hover=True"
+        )
+# ─────────────────────────────────────────────────────────────────────────────
+
+
 def cmd_oracle(args, cfg):
     sub = getattr(args, "oracle_command", None)
 
@@ -5070,33 +5148,8 @@ def _serve_render_endpoint(endpoint: str, cfg: dict, workspace: Path, query: dic
 # ───── Phase 10.1 — Perseus LSP server (task-23) ─────────────────────────────
 
 
-# Known directive arguments for completion. Hand-curated to match the
-# canonical directive set in INLINE_DIRECTIVE_RE plus block directives.
-_LSP_DIRECTIVE_ARGS = {
-    "@query": ["fallback="],
-    "@skills": ["flag_stale=", "category=", "limit="],
-    "@session": ["count="],
-    "@date": ["format="],
-    "@waypoint": ["ttl="],
-    "@read": [],
-    "@env": [],
-    "@include": [],
-    "@prompt": [],
-    "@agora": ["status="],
-    "@memory": ["focus=", "federation", "include_federation=", "alias="],
-    "@list": ["limit=", "sort="],
-    "@tree": ["depth="],
-    "@health": [],
-    "@agent": [],
-    "@inbox": ["unread=", "limit="],
-    "@drift": [],
-    "@constraint": [],
-    "@if": [],
-    "@else": [],
-    "@endif": [],
-    "@end": [],
-}
-
+# Directive arguments and names — derived from DIRECTIVE_REGISTRY (task-25).
+_LSP_DIRECTIVE_ARGS = {s.name: s.args for s in DIRECTIVE_REGISTRY.values()}
 _LSP_DIRECTIVE_NAMES = sorted(_LSP_DIRECTIVE_ARGS.keys())
 
 
@@ -5272,45 +5325,23 @@ def _lsp_diagnostics_for(text: str, cfg: dict, workspace: Path) -> list[dict]:
 
 
 # Directives that NEVER execute in hover. Adding a directive to hover support
-# is a deliberate decision: it must be read-only with no subprocess, no network,
-# and no state mutation. Per code review 2026-05-18, hover previously called
-# resolve_agent which can spawn a subprocess — that meant an editor hover over
-# `@agent` executed code. The contract now is: every entry in HOVER_SAFE_RESOLVERS
-# is explicitly side-effect-free. `@agent`, `@query`, and `@if query(...)` are
-# permanently excluded and return a labelled stub instead.
-_HOVER_UNSAFE_STUBS = {
-    "@agent": "(hover disabled for @agent — directive can execute a subprocess; run `perseus render` to see output)",
-    "@query": "(hover disabled for @query — directive can execute a shell command; run `perseus render` to see output)",
-    "@services": "(hover disabled for @services — directive may execute service checks; run `perseus render` to see output)",
-}
-
+# Hover safety — driven by DIRECTIVE_REGISTRY.safe_for_hover (task-25).
+# Unsafe directives (executes_shell, mutates_state) return a labelled stub.
+# Safe directives are resolved via the registry adapter.
 
 def _lsp_resolve_directive_for_hover(name: str, args_str: str, cfg: dict, workspace: Path) -> str:
     """Resolve a directive for hover preview. Read-only and side-effect-free."""
-    if name in _HOVER_UNSAFE_STUBS:
-        return _HOVER_UNSAFE_STUBS[name]
+    spec = DIRECTIVE_REGISTRY.get(name)
+    if spec is None:
+        return "(no hover preview)"
+    if not spec.safe_for_hover:
+        return f"(hover disabled for {name} — directive can execute a subprocess; run `perseus render` to see output)"
+    if spec.resolver is None:
+        return "(no hover preview)"
     try:
-        if name == "@waypoint":
-            return resolve_waypoint(args_str, cfg)
-        if name == "@memory":
-            return resolve_memory(args_str, cfg, workspace)
-        if name == "@health":
-            return resolve_health(args_str, cfg, workspace)
-        if name == "@agora":
-            return resolve_agora(args_str, cfg, workspace)
-        if name == "@inbox":
-            return resolve_inbox(args_str, cfg, workspace)
-        if name == "@skills":
-            return resolve_skills(args_str, cfg)
-        if name == "@session":
-            return resolve_session(args_str, cfg)
-        if name == "@drift":
-            return resolve_drift(args_str, cfg)
-        if name == "@date":
-            return resolve_date(args_str)
+        return _call_resolver(spec, args_str, cfg, workspace)
     except Exception as exc:
         return f"(hover error: {exc})"
-    return "(no hover preview)"
 
 
 def _run_lsp_server(args, cfg) -> int:
