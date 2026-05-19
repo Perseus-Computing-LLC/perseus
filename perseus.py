@@ -338,6 +338,75 @@ def _parse_kv_modifiers(raw: str) -> dict[str, str]:
     return out
 
 
+def _schema_required(value: object) -> bool:
+    """Return true for common YAML truthy spellings used in schema files."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "yes", "y", "1"}
+    return bool(value)
+
+
+def _schema_type_matches(value: object, expected: str) -> bool:
+    """Tiny pykwalify-compatible subset for @query schema= without new deps."""
+    expected = (expected or "any").strip().lower()
+    if expected == "any":
+        return True
+    if expected in {"map", "mapping", "dict", "object"}:
+        return isinstance(value, dict)
+    if expected in {"seq", "sequence", "list", "array"}:
+        return isinstance(value, list)
+    if expected in {"str", "string"}:
+        return isinstance(value, str)
+    if expected in {"int", "integer"}:
+        return isinstance(value, int) and not isinstance(value, bool)
+    if expected in {"float", "number"}:
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if expected in {"bool", "boolean"}:
+        return isinstance(value, bool)
+    return True
+
+
+def _validate_basic_schema(data: object, schema: object, prefix: str = "") -> list[str]:
+    """Validate the minimal YAML schema subset Perseus documents today.
+
+    Supported subset mirrors the current pykwalify-style examples:
+    top-level ``type: map``/``mapping:``, primitive field ``type`` values, and
+    ``required`` booleans. Unsupported schema features are ignored so Phase 12
+    can define the fuller validator deliberately.
+    """
+    if not isinstance(schema, dict):
+        return ["schema must be a mapping"]
+
+    expected_type = str(schema.get("type", "any"))
+    if not _schema_type_matches(data, expected_type):
+        label = prefix or "value"
+        return [f"{label}: expected {expected_type}"]
+
+    errors: list[str] = []
+    mapping = schema.get("mapping")
+    if isinstance(mapping, dict):
+        if not isinstance(data, dict):
+            label = prefix or "value"
+            return [f"{label}: expected map"]
+        for key, rules in mapping.items():
+            key_str = str(key)
+            field_path = f"{prefix}.{key_str}" if prefix else key_str
+            rules = rules if isinstance(rules, dict) else {}
+            if key_str not in data:
+                if _schema_required(rules.get("required", False)):
+                    errors.append(f"{field_path}: required key missing")
+                continue
+            field_type = str(rules.get("type", "any"))
+            if not _schema_type_matches(data[key_str], field_type):
+                errors.append(f"{field_path}: expected {field_type}")
+            nested_mapping = rules.get("mapping")
+            if nested_mapping is not None:
+                nested_schema = {"type": field_type, "mapping": nested_mapping}
+                errors.extend(_validate_basic_schema(data[key_str], nested_schema, field_path))
+    return errors
+
+
 def _resolve_path(file_path_str: str, workspace: Path | None = None, allow_outside_workspace: bool = False) -> tuple[Path, str | None]:
     """Resolve a path relative to workspace and optionally block escapes."""
     fp = Path(file_path_str).expanduser()
@@ -761,13 +830,24 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
                 return fallback
             return f"> (no output from `{cmd}`)"
 
-        # schema validation (optional, requires pykwalify)
+        # schema validation: built-in minimal validator first, optional
+        # pykwalify-compatible surface without requiring a new dependency.
         if schema_path:
             try:
                 import yaml as _yaml
                 data = _yaml.safe_load(stdout)
             except Exception:
                 return f"> ⚠ `@query` schema validation: stdout is not valid YAML.\n\n```{lang}\n{stdout}\n```"
+            try:
+                schema_data = _yaml.safe_load(Path(schema_path).expanduser().read_text()) or {}
+            except Exception as e:
+                return f"> ⚠ `@query` schema error: {e}"
+            validation_errors = _validate_basic_schema(data, schema_data)
+            if validation_errors:
+                return (
+                    f"> ⚠ `@query` Validation Error against `{schema_path}`:\n\n"
+                    "```\n" + "\n".join(validation_errors) + "\n```"
+                )
             try:
                 from pykwalify.core import Core as _Core
                 from pykwalify.errors import SchemaError as _SchemaError
@@ -776,7 +856,7 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
                 c = _Core(source_data=data, schema_files=[str(schema_path)])
                 c.validate(raise_exception=True)
             except ImportError:
-                pass  # pykwalify not installed — skip validation silently
+                pass  # optional dependency; built-in validation already ran
             except _SchemaError as e:
                 return f"> ⚠ `@query` Validation Error against `{schema_path}`:\n\n```\n{e}\n```"
             except Exception as e:
@@ -1791,6 +1871,27 @@ def resolve_prompt_block(content: str) -> str:
     return f"> 📌 **Perseus prompt:** {content.strip()}"
 
 
+def _replace_inline_date_outside_code(line: str) -> str:
+    """Resolve @date in prose while preserving inline code spans."""
+    if "@date" not in line:
+        return line
+
+    def repl(segment: str) -> str:
+        return re.sub(
+            r'@date(?:\s+format=["\'"]([^"\']+)["\'"])?',
+            lambda m2: resolve_date(f'format="{m2.group(1)}"' if m2.group(1) else ""),
+            segment,
+        )
+
+    if "`" not in line:
+        return repl(line)
+
+    parts = line.split("`")
+    for idx in range(0, len(parts), 2):
+        parts[idx] = repl(parts[idx])
+    return "`".join(parts)
+
+
 # ──────────────────────────────── Renderer ────────────────────────────────────
 
 PROMPT_BLOCK_RE = re.compile(r'^@prompt\s*$', re.IGNORECASE)
@@ -1832,9 +1933,30 @@ def _render_lines(
 
     output = []
     i = 0
+    in_fence = False
+    fence_char = ""
+    fence_len = 0
 
     while i < len(lines):
         line = lines[i]
+
+        fence_match = re.match(r'^\s*(`{3,}|~{3,})(.*)$', line)
+        if in_fence:
+            output.append(line)
+            if re.match(rf'^\s*{re.escape(fence_char)}{{{fence_len},}}\s*$', line):
+                in_fence = False
+                fence_char = ""
+                fence_len = 0
+            i += 1
+            continue
+        if fence_match:
+            marker = fence_match.group(1)
+            in_fence = True
+            fence_char = marker[0]
+            fence_len = len(marker)
+            output.append(line)
+            i += 1
+            continue
 
         # ── @prompt...@end block ──
         if PROMPT_BLOCK_RE.match(line):
@@ -1990,11 +2112,7 @@ def _render_lines(
 
         # Inline @date substitution within any line
         if "@date" in line:
-            line = re.sub(
-                r'@date(?:\s+format=["\'"]([^"\']+)["\'"])?',
-                lambda m2: resolve_date(f'format="{m2.group(1)}"' if m2.group(1) else ""),
-                line,
-            )
+            line = _replace_inline_date_outside_code(line)
         output.append(line)
         i += 1
 
@@ -3439,34 +3557,35 @@ def diff_checkpoints(old_cp: dict, new_cp: dict) -> str:
 
 def cmd_diff(args, cfg):
     """Compare two checkpoints or the most recent pair."""
-    store = Path(cfg["checkpoints"]["store"])
-    if not store.exists():
-        print("No checkpoint store found.")
-        return
-
-    files = _list_checkpoint_files(cfg)
-    target_ws = getattr(args, "workspace", None)
-    if target_ws:
-        target_ws = str(Path(target_ws).resolve())
-        filtered = []
-        for fp in files:
-            cp = _load_checkpoint_file(fp)
-            cp_ws = str(Path(cp.get("workspace", "")).resolve()) if cp and cp.get("workspace") else ""
-            if cp_ws == target_ws:
-                filtered.append(fp)
-        files = filtered
-
     a_sel = getattr(args, "a", None)
     b_sel = getattr(args, "b", None)
-    if a_sel is not None and b_sel is not None:
-        old_fp = _resolve_checkpoint_selector(str(a_sel), files)
-        new_fp = _resolve_checkpoint_selector(str(b_sel), files)
+    old_arg = getattr(args, "old", None)
+    new_arg = getattr(args, "new", None)
+
+    if old_arg and new_arg:
+        old_fp = Path(old_arg).expanduser().resolve()
+        new_fp = Path(new_arg).expanduser().resolve()
     else:
-        old_arg = getattr(args, "old", None)
-        new_arg = getattr(args, "new", None)
-        if old_arg and new_arg:
-            old_fp = Path(old_arg).expanduser().resolve()
-            new_fp = Path(new_arg).expanduser().resolve()
+        store = Path(cfg["checkpoints"]["store"])
+        if not store.exists():
+            print("No checkpoint store found.")
+            return
+
+        files = _list_checkpoint_files(cfg)
+        target_ws = getattr(args, "workspace", None)
+        if target_ws:
+            target_ws = str(Path(target_ws).resolve())
+            filtered = []
+            for fp in files:
+                cp = _load_checkpoint_file(fp)
+                cp_ws = str(Path(cp.get("workspace", "")).resolve()) if cp and cp.get("workspace") else ""
+                if cp_ws == target_ws:
+                    filtered.append(fp)
+            files = filtered
+
+        if a_sel is not None and b_sel is not None:
+            old_fp = _resolve_checkpoint_selector(str(a_sel), files)
+            new_fp = _resolve_checkpoint_selector(str(b_sel), files)
         else:
             if len(files) < 2:
                 print("Need at least two checkpoints to diff.")
@@ -4859,13 +4978,12 @@ def _doctor_check_latest_checkpoint(cfg: dict, workspace: Path) -> DoctorResult:
 def _doctor_check_mneme(cfg: dict, workspace: Path) -> DoctorResult:
     """Check Mnēmē narrative existence and size."""
     mem_cfg = cfg.get("memory", {})
-    mem_dir = Path(mem_cfg.get("workspace_memories_dir", str(PERSEUS_HOME / "memories")))
-    narrative = mem_dir / "narrative.md"
+    narrative = _mneme_path(workspace, cfg)
     if not narrative.exists():
         return DoctorResult("mneme_narrative", "warn", "Mnēmē narrative",
                             "not found", "Memory will auto-create on next render with @memory")
     lines = narrative.read_text(errors="replace").splitlines()
-    max_lines = mem_cfg.get("max_narrative_lines", 200)
+    max_lines = mem_cfg.get("max_narrative_lines", 300)
     line_count = len(lines)
     val = f"{line_count} lines"
     if line_count > max_lines:
@@ -4878,14 +4996,17 @@ def _doctor_check_mneme(cfg: dict, workspace: Path) -> DoctorResult:
 def _doctor_check_federation(cfg: dict, workspace: Path) -> DoctorResult:
     """Check federation subscription health."""
     mem_cfg = cfg.get("memory", {})
-    mem_dir = Path(mem_cfg.get("workspace_memories_dir", str(PERSEUS_HOME / "memories")))
-    manifest_path = mem_dir / "federation_manifest.yaml"
+    manifest_path = _federation_manifest_path(cfg)
     if not manifest_path.exists():
         return DoctorResult("federation_subscriptions", "ok", "federation",
                             "no subscriptions configured", "")
     try:
         with open(manifest_path) as f:
             manifest = yaml.safe_load(f) or {}
+        if not isinstance(manifest, dict):
+            raise ValueError(f"manifest is not a mapping (got {type(manifest).__name__})")
+        if not isinstance(manifest.get("subscriptions", []), list):
+            raise ValueError("subscriptions must be a list")
     except Exception as exc:
         return DoctorResult("federation_subscriptions", "error", "federation",
                             f"manifest unreadable: {exc}", f"Fix {manifest_path}")
@@ -4897,10 +5018,13 @@ def _doctor_check_federation(cfg: dict, workspace: Path) -> DoctorResult:
     stale_threshold_days = mem_cfg.get("federation_stale_threshold_days", 7)
     for sub_entry in subs:
         alias = sub_entry.get("alias", "?")
-        cached = mem_dir / "federation" / f"{alias}.md"
-        if cached.exists():
+        narrative, err = _resolve_subscription_narrative(sub_entry, cfg)
+        if err or narrative is None:
+            stale.append(f"{alias} (unavailable)")
+            continue
+        if narrative.exists():
             import os as _os
-            mtime = datetime.fromtimestamp(_os.path.getmtime(cached))
+            mtime = datetime.fromtimestamp(_os.path.getmtime(narrative))
             age = (datetime.now() - mtime).days
             if age > stale_threshold_days:
                 stale.append(f"{alias} ({age}d old)")
@@ -4914,21 +5038,26 @@ def _doctor_check_federation(cfg: dict, workspace: Path) -> DoctorResult:
 
 def _doctor_check_oracle_log(cfg: dict, workspace: Path) -> DoctorResult:
     """Check oracle log readability."""
-    log_path = PERSEUS_HOME / "oracle_log.yaml"
+    log_path = PERSEUS_HOME / "oracle_log.jsonl"
     if not log_path.exists():
         return DoctorResult("oracle_log_readable", "ok", "oracle log",
                             "no log file (will be created on first suggest)", "")
     try:
+        count = 0
         with open(log_path) as f:
-            data = yaml.safe_load(f)
-        if isinstance(data, list):
-            return DoctorResult("oracle_log_readable", "ok", "oracle log",
-                                f"{len(data)} entries", "")
-        return DoctorResult("oracle_log_readable", "warn", "oracle log",
-                            "unexpected format (not a list)", "Check oracle_log.yaml")
+            for lineno, line in enumerate(f, start=1):
+                line = line.strip()
+                if not line:
+                    continue
+                data = json.loads(line)
+                if not isinstance(data, dict):
+                    raise ValueError(f"line {lineno}: entry is not an object")
+                count += 1
+        return DoctorResult("oracle_log_readable", "ok", "oracle log",
+                            f"{count} entries", "")
     except Exception as exc:
         return DoctorResult("oracle_log_readable", "error", "oracle log",
-                            str(exc), f"Fix YAML in {log_path}")
+                            str(exc), f"Fix JSONL in {log_path}")
 
 
 def _doctor_check_serve_loopback(cfg: dict, workspace: Path) -> DoctorResult:

@@ -8,7 +8,7 @@ rendered output and skip orientation. Start work immediately.
 
 # Perseus Session Context — @date format="YYYY-MM-DD HH:mm CDT"
 
-**Workspace:** `/workspace/perseus`  
+**Workspace:** current repo checkout  
 **Repo:** https://github.com/tcconnally/perseus  
 **Project:** Perseus — Live Context Engine for AI Assistants (alpha v0.8)
 
@@ -21,8 +21,8 @@ rendered output and skip orientation. Start work immediately.
 
 ## Workspace State
 
-@query "git -C /workspace/perseus log --oneline -5"
-@query "git -C /workspace/perseus status --short"
+@query "git log --oneline -5" fallback="git log unavailable"
+@query "git status --short" fallback="git status unavailable"
 
 ---
 

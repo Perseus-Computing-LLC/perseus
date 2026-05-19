@@ -39,6 +39,20 @@ def test_render_accepts_bare_perseus_header():
     assert out == "Hello"
 
 
+def test_render_preserves_directives_inside_fenced_code():
+    text = '@perseus\n```markdown\n@date format="YYYY"\n@agora status=open\n```\n@date format="YYYY"'
+    out = perseus.render_source(text, cfg(), None)
+    assert '```markdown\n@date format="YYYY"\n@agora status=open\n```' in out
+    assert out.rstrip().endswith(str(datetime.now().year))
+
+
+def test_inline_date_preserves_code_span_examples():
+    text = '@perseus\n| `@date format="YYYY"` | @date format="YYYY" |'
+    out = perseus.render_source(text, cfg(), None)
+    assert '`@date format="YYYY"`' in out
+    assert f"| {datetime.now().year} |" in out
+
+
 def test_read_parses_quoted_path_and_fallback_with_quotes(tmp_path):
     workspace = tmp_path
     target = workspace / "a'b.txt"
@@ -2570,6 +2584,7 @@ def test_serve_collect_stats_inbox_unread_reports_real_count(tmp_path, monkeypat
     workspace = tmp_path / "ws"
     workspace.mkdir()
     cfg_ = cfg()
+    cfg_["inbox"]["store"] = str(tmp_path / ".perseus" / "inbox")
     # Seed two unread messages by writing YAML directly to the inbox dir
     idir = perseus._inbox_dir(workspace, cfg_)
     idir.mkdir(parents=True, exist_ok=True)
@@ -2833,9 +2848,10 @@ def test_doctor_mneme_oversized(tmp_path):
     """Doctor warns when narrative exceeds max_narrative_lines."""
     mem_dir = tmp_path / "memories"
     mem_dir.mkdir()
-    (mem_dir / "narrative.md").write_text("\n".join(f"line {i}" for i in range(300)))
     c = cfg()
-    c["memory"] = {"workspace_memories_dir": str(mem_dir), "max_narrative_lines": 200}
+    c["memory"] = {"store": str(mem_dir), "max_narrative_lines": 200}
+    narrative = perseus._mneme_path(tmp_path, c)
+    narrative.write_text("\n".join(f"line {i}" for i in range(300)))
     result = perseus._doctor_check_mneme(c, tmp_path)
     assert result.status == "warn"
     assert "exceeds" in result.value
@@ -2844,9 +2860,20 @@ def test_doctor_mneme_oversized(tmp_path):
 def test_doctor_oracle_log_corrupt(tmp_path, monkeypatch):
     """Doctor errors on corrupt oracle log."""
     monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path)
-    (tmp_path / "oracle_log.yaml").write_text(": : : bad yaml {{{")
+    (tmp_path / "oracle_log.jsonl").write_text("{not json}\n")
     result = perseus._doctor_check_oracle_log(cfg(), tmp_path)
     assert result.status == "error"
+
+
+def test_doctor_federation_uses_configured_manifest(tmp_path):
+    """Doctor checks the real memory.federation_manifest path."""
+    manifest = tmp_path / "fed.yaml"
+    manifest.write_text("subscriptions: nope\n")
+    c = cfg()
+    c["memory"]["federation_manifest"] = str(manifest)
+    result = perseus._doctor_check_federation(c, tmp_path)
+    assert result.status == "error"
+    assert str(manifest) in result.remediation
 
 
 def test_doctor_serve_non_loopback():
@@ -2874,5 +2901,3 @@ def test_doctor_error_exits_1(tmp_path, monkeypatch):
     monkeypatch.setattr("builtins.print", lambda *a, **k: captured.append(" ".join(str(x) for x in a)))
     rc = perseus.cmd_doctor(ns, cfg())
     assert rc == 1
-
-

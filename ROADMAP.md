@@ -11,7 +11,7 @@ The framework and plan belong to the project owner. Your job is to execute tasks
 # Perseus — Living Roadmap
 
 **Repo:** https://github.com/tcconnally/perseus  
-**Workspace:** `/workspace/perseus`  
+**Workspace:** current repo checkout  
 **Skill:** `perseus-context-engine` (installed at `~/.hermes/skills/`)  
 **CLI:** `~/.local/bin/perseus`  
 **Last updated:** @date format="YYYY-MM-DD"
@@ -57,7 +57,7 @@ checkpoints feed it.
 
 ### `perseus.py` — full CLI
 
-@query "python3 /workspace/perseus/perseus.py --version"
+@query "grep -o 'perseus alpha v[0-9.]*' perseus.py | head -1" fallback="perseus version unavailable"
 
 | Command | What it does |
 |---|---|
@@ -102,7 +102,7 @@ checkpoints feed it.
 ### Files
 
 ```
-/workspace/perseus/
+<workspace>/
   perseus.py                    ← single-file CLI; entire implementation lives here
   requirements.txt              ← pyyaml only; no other deps
   tests/
@@ -141,8 +141,8 @@ checkpoints feed it.
 
 ## Workspace State
 
-@query "git -C /workspace/perseus log --oneline -5"
-@query "git -C /workspace/perseus status --short"
+@query "git log --oneline -5" fallback="git log unavailable"
+@query "git status --short" fallback="git status unavailable"
 
 ---
 
