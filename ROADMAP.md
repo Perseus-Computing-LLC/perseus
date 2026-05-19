@@ -66,13 +66,14 @@ checkpoints feed it.
 | `perseus graph <file.md> [--json]` | Builds a static directive graph without executing directives |
 | `perseus prefetch <file.md> [--json]` | Applies opt-in pre-fetch rules to the static graph and warms directive caches |
 | `perseus synthesize "question" --source FILE [--json]` | Builds cited synthesis prompts and validates LLM-drafted claims |
+| `perseus pack {validate,show} [--json]` | Inspects and validates `.perseus/pack.yaml` context pack manifests |
 | `perseus validate --schema SCHEMA [payload|-]` | Validates a payload against a Perseus schema; `--json` for CI/agents |
 | `perseus checkpoint --task "..."` | Writes timestamped YAML to `~/.perseus/checkpoints/` |
 | `perseus recover` | Prints latest checkpoint (workspace + TTL aware) |
 | `perseus diff` | Shows what changed between last two checkpoints |
 | `perseus suggest "<task>"` | Emits structured Pythia prompt over live env snapshot |
 | `perseus suggest "<task>" --llm ollama` | Pipes oracle prompt to local model, no round-trip |
-| `perseus init [workspace]` | Scaffolds `.perseus/context.md` for a new workspace |
+| `perseus init [--profile name] [workspace]` | Scaffolds `.perseus/context.md`; profiles also write `.perseus/pack.yaml` |
 | `perseus launchd` | Scaffolds macOS LaunchAgent plist for scheduled render |
 
 ### Directives implemented
@@ -430,7 +431,7 @@ Phase 14:         Adaptive Self-Optimizing Oracle — RL-driven Pythia scoring
               STOP: Product identity decision — resolver vs generator
               ════════════════════════════════════════════════════════
 Phase 15:         Cited Synthesis Under Scarcity (bounded curator layer)
-Phase 16:         Product Contract and Context Packs
+Phase 16 (done): Product Contract and Context Packs
 Phase 17:         Trust, Privacy, and Local Policy
 Phase 18:         Distribution and Installation
 Phase 19:         Assistant Adapter Ecosystem
@@ -486,8 +487,9 @@ At Phase 11 close the suite collected 272 tests. After Phase 12 it reached
 283 passed, 1 skipped; after Phase 13 it reached 297 passed, 1 skipped; after
 Phase 14A it reached 300 passed, 1 skipped; after Phase 14B it reached
 304 passed, 1 skipped; after Phase 14C it reached 308 passed, 1 skipped; after
-Phase 15A it reached 314 passed, 1 skipped (sandbox-blocked TCP bind; the same
-TCP smoke passes outside the sandbox).
+Phase 15A it reached 314 passed, 1 skipped; after Phase 16 it reached
+322 passed, 1 skipped (sandbox-blocked TCP bind; the same TCP smoke passes
+outside the sandbox).
 - `test_oracle.py` — suggest, oracle log, drift, infer-labels
 - `test_memory.py` — Mnēmē narrative, federation
 - `test_lsp.py` — LSP helpers, framing, diagnostics
@@ -724,19 +726,27 @@ operated across common assistant/workspace environments. The product line stays
 resolver-first: generation is optional, cited, and never allowed to replace
 resolved facts.
 
-### Phase 16 — Product Contract and Context Packs
+### Phase 16 — Product Contract and Context Packs ✅
 
 **Goal:** Turn the current feature set into a clear product surface. A new user
 should understand what Perseus promises, initialize a workspace profile, and
 produce a portable context pack without reading the whole roadmap.
 
-- **16A Product contract (task-42):** Define the v1 promise, non-goals, trust
+**Status:** Complete. The v1 product promise is documented in
+`docs/PRODUCT_CONTRACT.md`, context packs are documented in
+`docs/CONTEXT_PACKS.md`, `perseus pack validate/show` validates optional
+`.perseus/pack.yaml` manifests, and `perseus init --profile ...` writes
+portable profile contexts plus pack manifests for `generic`, `hermes`, `codex`,
+`claude-code`, `cursor`, and `rovodev`.
+
+- **16A Product contract (task-42) ✅:** Define the v1 promise, non-goals, trust
   boundaries, supported platforms, and stable CLI surfaces.
-- **16B Context pack manifest (task-43):** Add a workspace manifest that names
-  source files, assistant targets, render outputs, trust profile, and synthesis
-  packs.
-- **16C Init/profile workflow (task-44):** Extend onboarding so `perseus init`
-  can create usable profiles for common assistants and product modes.
+- **16B Context pack manifest (task-43) ✅:** Add a workspace manifest that
+  names source files, assistant targets, render outputs, trust profile, and
+  synthesis packs.
+- **16C Init/profile workflow (task-44) ✅:** Extend onboarding so
+  `perseus init` can create usable profiles for common assistants and product
+  modes.
 
 ### Phase 17 — Trust, Privacy, and Local Policy
 
@@ -868,9 +878,9 @@ Phase 15A ─── Cited synthesis contract ✅ ──────────�
 Phase 15B ─── Cross-source consistency synthesis ─────────┤
 Phase 15C ─── Optional curated render surface ────────────┤
                                                          │
-Phase 16A ─── Product contract ──────────────────────────┤
-Phase 16B ─── Context pack manifest ─────────────────────┤
-Phase 16C ─── Init/profile workflow ─────────────────────┤
+Phase 16A ─── Product contract ✅ ───────────────────────┤
+Phase 16B ─── Context pack manifest ✅ ──────────────────┤
+Phase 16C ─── Init/profile workflow ✅ ──────────────────┤
                                                          │
 Phase 17A ─── Permission profiles ───────────────────────┤
 Phase 17B ─── Secrets and redaction ─────────────────────┤
@@ -897,9 +907,9 @@ Phase 22B ─── Example workspace/demo pack ──────────�
 Phase 22C ─── v1 release candidate checklist ────────────┘
 ```
 
-**Estimated scope:** Phase 11, Phase 12, Phase 13, Phase 14, and Phase 15A are
-complete. Phases 15B through 22C are now queued in Agora as the productization
-path to a deployable v1.
+**Estimated scope:** Phase 11, Phase 12, Phase 13, Phase 14, Phase 15A, and
+Phase 16 are complete. Phases 15B-C and 17A through 22C remain queued in Agora
+as the productization path to a deployable v1.
 
 ---
 

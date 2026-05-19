@@ -22,6 +22,7 @@
   .perseus/
     config.yaml         ← workspace-local config (overrides global)
     context.md          ← workspace-specific live context source (@perseus header)
+    pack.yaml           ← optional Phase 16 context pack manifest
     schemas/
       <name>.yaml       ← validation schemas for @query/@read/@env/@validate
 ```
@@ -195,6 +196,35 @@ Render block also accepts:
 
 - `persist_cache_ttl_s: 3600` (task-09 — TTL for `@cache persist`)
 - `allow_agent_shell: true` (task-15 — gates `@agent` execution; mirrors `allow_query_shell`)
+
+---
+
+## Context Pack Manifest
+
+Optional workspace manifest at `.perseus/pack.yaml`.
+
+```yaml
+version: 1
+name: generic-context
+profile: generic
+trust_profile: balanced
+renders:
+  - name: default
+    source: .perseus/context.md
+    output: live-context.md
+    assistant: generic
+synthesis:
+  - name: project-status
+    question: What is the current project status and next allowable action?
+    sources:
+      - ROADMAP.md
+      - HANDOFF.md
+      - README.md
+    enabled: false
+```
+
+`renders` is required and must be non-empty. `synthesis` is optional and is
+only a source-pack declaration; it does not run generation by itself.
 
 ---
 

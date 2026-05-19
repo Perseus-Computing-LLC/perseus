@@ -264,6 +264,156 @@ def test_init_list_templates_lists_known(tmp_path, capsys):
 def test_template_dir_respects_env(tmp_path, monkeypatch):
     monkeypatch.setenv("PERSEUS_TEMPLATE_DIR", str(tmp_path))
     assert perseus._template_dir() == tmp_path.resolve()
+
+
+def test_pack_manifest_validation_accepts_profile_pack(tmp_path):
+    (tmp_path / ".perseus").mkdir()
+    (tmp_path / ".perseus" / "context.md").write_text("@perseus\n")
+    (tmp_path / "ROADMAP.md").write_text("roadmap")
+    (tmp_path / "HANDOFF.md").write_text("handoff")
+    (tmp_path / "README.md").write_text("readme")
+    manifest = perseus._context_pack_manifest("generic", perseus.PRODUCT_PROFILES["generic"])
+    (tmp_path / ".perseus" / "pack.yaml").write_text(yaml.safe_dump(manifest))
+
+    result = perseus.validate_context_pack(tmp_path)
+
+    assert result["valid"] is True
+    assert result["profile"] == "generic"
+    assert result["renders"][0]["source"] == ".perseus/context.md"
+    assert result["renders"][0]["source_exists"] is True
+
+
+def test_pack_manifest_validation_reports_invalid_pack(tmp_path):
+    (tmp_path / ".perseus").mkdir()
+    (tmp_path / ".perseus" / "pack.yaml").write_text("version: 99\nrenders: []\ntrust_profile: chaos\n")
+
+    result = perseus.validate_context_pack(tmp_path)
+
+    assert result["valid"] is False
+    assert any("version must be" in err for err in result["errors"])
+    assert any("renders must be" in err for err in result["errors"])
+    assert any("unknown trust_profile" in err for err in result["errors"])
+
+
+def test_cmd_pack_validate_json_outputs_contract(tmp_path, capsys):
+    (tmp_path / ".perseus").mkdir()
+    (tmp_path / ".perseus" / "context.md").write_text("@perseus\n")
+    manifest = perseus._context_pack_manifest("generic", perseus.PRODUCT_PROFILES["generic"])
+    manifest["synthesis"] = []
+    (tmp_path / ".perseus" / "pack.yaml").write_text(yaml.safe_dump(manifest))
+    args = argparse.Namespace(pack_command="validate", workspace=str(tmp_path), manifest=None, json=True)
+
+    rc = perseus.cmd_pack(args, cfg())
+    payload = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert payload["valid"] is True
+    assert payload["trust_profile"] == "balanced"
+
+
+def test_init_profile_generic_writes_context_and_pack(tmp_path, capsys):
+    args = argparse.Namespace(
+        workspace=str(tmp_path),
+        force=False,
+        template=None,
+        list_templates=False,
+        profile="generic",
+        list_profiles=False,
+        output=None,
+        trust_profile=None,
+        no_pack=False,
+    )
+
+    perseus.cmd_init(args, cfg())
+    capsys.readouterr()
+
+    context = tmp_path / ".perseus" / "context.md"
+    pack = tmp_path / ".perseus" / "pack.yaml"
+    assert context.exists()
+    assert pack.exists()
+    assert str(tmp_path) not in context.read_text()
+    manifest = yaml.safe_load(pack.read_text())
+    assert manifest["profile"] == "generic"
+    assert manifest["renders"][0]["output"] == "live-context.md"
+
+
+def test_init_profile_with_output_override(tmp_path, capsys):
+    args = argparse.Namespace(
+        workspace=str(tmp_path),
+        force=False,
+        template=None,
+        list_templates=False,
+        profile="hermes",
+        list_profiles=False,
+        output=".custom-hermes.md",
+        trust_profile="strict",
+        no_pack=False,
+    )
+
+    perseus.cmd_init(args, cfg())
+    capsys.readouterr()
+
+    manifest = yaml.safe_load((tmp_path / ".perseus" / "pack.yaml").read_text())
+    assert manifest["trust_profile"] == "strict"
+    assert manifest["renders"][0]["output"] == ".custom-hermes.md"
+
+
+def test_init_profile_and_template_conflict(tmp_path, capsys):
+    args = argparse.Namespace(
+        workspace=str(tmp_path),
+        force=False,
+        template="generic",
+        list_templates=False,
+        profile="generic",
+        list_profiles=False,
+        output=None,
+        trust_profile=None,
+        no_pack=False,
+    )
+
+    with pytest.raises(SystemExit):
+        perseus.cmd_init(args, cfg())
+    assert "Choose either --profile or --template" in capsys.readouterr().err
+
+
+def test_init_list_profiles_lists_known(tmp_path, capsys):
+    args = argparse.Namespace(
+        workspace=str(tmp_path),
+        force=False,
+        template=None,
+        list_templates=False,
+        profile=None,
+        list_profiles=True,
+        output=None,
+        trust_profile=None,
+        no_pack=False,
+    )
+
+    perseus.cmd_init(args, cfg())
+    out = capsys.readouterr().out
+    assert "generic" in out
+    assert "hermes" in out
+    assert "claude-code" in out
+
+
+def test_init_without_profile_does_not_require_pack(tmp_path, capsys):
+    args = argparse.Namespace(
+        workspace=str(tmp_path),
+        force=False,
+        template=None,
+        list_templates=False,
+        profile=None,
+        list_profiles=False,
+        output=None,
+        trust_profile=None,
+        no_pack=False,
+    )
+
+    perseus.cmd_init(args, cfg())
+    capsys.readouterr()
+
+    assert (tmp_path / ".perseus" / "context.md").exists()
+    assert not (tmp_path / ".perseus" / "pack.yaml").exists()
 # ── cron scaffolding ─────────────────────────────────────────────────────────
 
 def test_cron_command_default_5min(tmp_path, capsys):

@@ -1,12 +1,12 @@
 ---
 id: task-43
 title: Phase 16B context pack manifest
-status: open
+status: completed
 priority: high
 scope: large
-claimed_by: null
+claimed_by: codex
 created: 2026-05-19
-closed: null
+closed: 2026-05-19
 phase: 16
 theme: "Product Contract and Context Packs"
 depends_on:
@@ -46,3 +46,12 @@ profiles, trust profile, and optional synthesis packs.
 - Do not require a manifest for existing users.
 - Do not introduce a package structure.
 - Do not generate uncited synthesis from the manifest.
+
+## Completed
+
+- Added optional `.perseus/pack.yaml` manifest support.
+- Added `perseus pack validate` and `perseus pack show` with human and JSON
+  output.
+- Documented context packs in `docs/CONTEXT_PACKS.md`, README, and specs.
+- Added validation tests for valid, invalid, JSON, and no-manifest
+  compatibility behavior.

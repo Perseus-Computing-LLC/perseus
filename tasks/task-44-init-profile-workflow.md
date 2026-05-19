@@ -1,12 +1,12 @@
 ---
 id: task-44
 title: Phase 16C init profile workflow
-status: open
+status: completed
 priority: high
 scope: medium
-claimed_by: null
+claimed_by: codex
 created: 2026-05-19
-closed: null
+closed: 2026-05-19
 phase: 16
 theme: "Product Contract and Context Packs"
 depends_on:
@@ -43,3 +43,13 @@ trust settings, and next command.
 - Do not install assistant-specific tools.
 - Do not change render semantics.
 - Do not add dependencies.
+
+## Completed
+
+- Added `perseus init --profile` and `perseus init --list-profiles`.
+- Added profiles for `generic`, `hermes`, `codex`, `claude-code`, `cursor`,
+  and `rovodev`.
+- Profile init writes portable `.perseus/context.md` plus optional
+  `.perseus/pack.yaml`.
+- Added `--output`, `--trust-profile`, and `--no-pack` profile options.
+- Preserved existing `--template` and no-profile behavior.

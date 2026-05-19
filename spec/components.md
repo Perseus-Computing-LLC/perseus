@@ -352,17 +352,22 @@ inbox:
 
 ---
 
-## 9. Templates (`perseus init --template`)
+## 9. Init, Templates, and Profiles (`perseus init`)
 
 Curated starter `.perseus/context.md` files keyed by AI assistant.
 
 Shipped templates: `generic`, `hermes`, `rovodev`, `claude-code`, `cursor`.
+
+Phase 16 adds product profiles. A profile creates a portable context source and
+`.perseus/pack.yaml` manifest instead of only a loose template.
 
 ### CLI
 
 ```bash
 perseus init --template hermes
 perseus init --list-templates
+perseus init --profile generic
+perseus init --list-profiles
 ```
 
 ### Discovery
@@ -370,6 +375,48 @@ perseus init --list-templates
 1. `$PERSEUS_TEMPLATE_DIR` if set
 2. `<dir-of-perseus.py>/templates/`
 3. Embedded `INIT_CONTEXT_TEMPLATE` (legacy default — used when no `--template`)
+
+---
+
+## 9.1 Context Packs (`perseus pack`)
+
+Context packs are optional manifests at `.perseus/pack.yaml`. They name the
+workspace profile, trust profile, render targets, assistant output files, and
+optional cited-synthesis source packs.
+
+### CLI
+
+```bash
+perseus pack validate
+perseus pack validate --json
+perseus pack show --workspace /path/to/workspace
+```
+
+`perseus pack validate` returns `0` for valid packs and `1` for invalid or
+missing manifests. Existing `.perseus/context.md` workflows do not require a
+pack.
+
+### Manifest Shape
+
+```yaml
+version: 1
+name: generic-context
+profile: generic
+trust_profile: balanced
+renders:
+  - name: default
+    source: .perseus/context.md
+    output: live-context.md
+    assistant: generic
+synthesis:
+  - name: project-status
+    question: What is the current project status and next allowable action?
+    sources: [ROADMAP.md, HANDOFF.md, README.md]
+    enabled: false
+```
+
+Supported profiles in Phase 16: `generic`, `hermes`, `codex`,
+`claude-code`, `cursor`, and `rovodev`.
 
 ---
 

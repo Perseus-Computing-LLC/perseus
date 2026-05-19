@@ -2,8 +2,8 @@
 
 **For:** Principal developer continuing productization
 **Repo:** https://github.com/tcconnally/perseus  
-**Baseline:** productization roadmap batch, 314 tests passing, 1 sandbox-skipped TCP smoke
-**State:** Phases 11, 12, 13, 14, and 15A complete; Phases 15B-22C are queued in Agora as the deployable-product path
+**Baseline:** Phase 16 batch, 322 tests passing, 1 sandbox-skipped TCP smoke
+**State:** Phases 11, 12, 13, 14, 15A, and 16 complete; Phases 15B-C and 17A-22C remain queued in Agora as the deployable-product path
 
 ---
 
@@ -15,7 +15,9 @@
 4. `spec/data-model.md` — current schema validation DSL and `perseus validate` contract
 5. `docs/RESOLVER_VS_GENERATOR.md` — decision brief for the Phase 14/15 boundary
 6. `docs/CITED_SYNTHESIS.md` — Phase 15A citation contract and command surface
-7. `docs/PERSEUS_PRODUCT_REPORT.md` — full project/productization report
+7. `docs/PRODUCT_CONTRACT.md` — v1 product promise, deployment modes, trust boundary
+8. `docs/CONTEXT_PACKS.md` — `.perseus/pack.yaml` manifest reference
+9. `docs/PERSEUS_PRODUCT_REPORT.md` — full project/productization report
 
 ---
 
@@ -34,7 +36,10 @@
 | **task-37** online scoring adjustment | task-37 batch | complete | outcome-weighted prompt hints for `perseus suggest` |
 | **task-38** A/B recommendation testing | task-38 batch | complete | opt-in primary/alternate exploration with oracle log attribution |
 | **task-39** cited synthesis contract | task-39 batch | complete | `perseus synthesize`, opt-in LLM drafting, exact quote citation gate |
-| **tasks 40-62** productization roadmap | productization-roadmap batch | open | Phase 15B through v1 release candidate path queued in Agora |
+| **tasks 40-62** productization roadmap | productization-roadmap batch | queued | Phase 15B through v1 release candidate path added to Agora |
+| **task-42** product contract | Phase 16 batch | complete | `docs/PRODUCT_CONTRACT.md` defines v1 promise, surfaces, modes, and non-goals |
+| **task-43** context pack manifest | Phase 16 batch | complete | `perseus pack validate/show` for optional `.perseus/pack.yaml` |
+| **task-44** init profile workflow | Phase 16 batch | complete | `perseus init --profile` for generic/hermes/codex/claude-code/cursor/rovodev |
 
 Phase 11 was already complete in the prior handoff: baseline repairs, `DIRECTIVE_REGISTRY`, `perseus doctor`, JSON agent surfaces, LSP integration tests, and the split test suite are all on `main`.
 
@@ -51,7 +56,7 @@ python -m pytest tests/ -q
 Latest local result:
 
 ```text
-314 passed, 1 skipped
+322 passed, 1 skipped
 ```
 
 The skipped test is the TCP LSP smoke when sandboxed; it has passed outside the sandbox.
@@ -125,10 +130,17 @@ Next work starts with task-40: use the cited-claim contract for cross-source
 consistency synthesis. Do not add a render-time generated section until task-40
 proves the command surface is useful.
 
-The deployable-product path is now queued through task-62:
+Phase 16 is complete:
+
+- `docs/PRODUCT_CONTRACT.md` defines the v1 promise and deployment modes.
+- `docs/CONTEXT_PACKS.md` documents `.perseus/pack.yaml`.
+- `perseus pack validate/show` validates optional context packs.
+- `perseus init --profile ...` creates portable profile contexts and pack
+  manifests.
+
+The remaining deployable-product path is queued through task-62:
 
 - **Phase 15B-C:** finish cited synthesis only where it adds cross-source value.
-- **Phase 16:** product contract, context pack manifest, init/profile workflow.
 - **Phase 17:** permission profiles, redaction, audit log, trust report.
 - **Phase 18:** installer, release artifacts, versioning, scheduler parity.
 - **Phase 19:** adapter conformance, assistant profiles, VSCode release polish.

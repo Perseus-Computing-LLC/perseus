@@ -27,6 +27,18 @@ assistant reads that file at session start
 
 The `@prompt ... @end` block is how you embed assistant-specific instructions in the context source itself.
 
+Phase 16 product profiles provide a higher-level entry point:
+
+```bash
+perseus init --profile generic
+perseus pack validate
+```
+
+Profiles write `.perseus/context.md` plus `.perseus/pack.yaml`, which records
+the assistant target, rendered output path, trust profile, and optional
+synthesis source packs. Existing `perseus init --template` and direct render
+flows remain supported.
+
 ---
 
 ## Auto-Injection Approaches
