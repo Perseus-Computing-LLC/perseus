@@ -2475,7 +2475,11 @@ def cmd_memory(args, cfg):
             fm, body = _load_narrative(mp)
             threshold = int(cfg.get("memory", {}).get("compact_threshold", 20))
             cp_processed = int(fm.get("checkpoints_processed", 0))
-            last_compact_cp = int(fm.get("last_compaction_at_update", 0)) * 0  # legacy slot
+            # Note: `last_compaction_at_update` tracks the absolute compaction count at
+            # last status check (frontmatter key written by _memory_do_compact). It is
+            # not used here; we measure growth against `last_compact_processed` which is
+            # the per-checkpoint watermark. The dead `* 0` slot was removed 2026-05-18
+            # per code review.
             updates_since = cp_processed - int(fm.get("last_compact_processed", 0))
             # Advisory based on uncompacted growth
             if threshold and updates_since >= threshold:
@@ -4496,7 +4500,22 @@ def cmd_oracle_infer_labels(args, cfg) -> int:
         entry_ts = _parse_iso_ts(str(entry.get("timestamp", "") or ""))
         window = _checkpoints_in_window(entry_ts, indexed_cps, window_days, window_cps)
         new_label = _infer_label_for_entry(entry, window, min_checkpoints=floor)
+        # _infer_label_for_entry returns:
+        #   - None  → entry already has explicit accept/reject; should not happen
+        #             here since we filtered above, but treat as no-op.
+        #   - "inferred_none" → no signal (empty tokens, no window, or zero hits)
+        #   - "inferred_accept" / "inferred_reject" → real inference
         if new_label is None:
+            # Defensive — already filtered, but never crash
+            continue
+        if new_label == "inferred_none":
+            # Per code review 2026-05-18: this was previously suppressed (continue
+            # without increment), so the inferred_none bucket was always 0 even
+            # when many entries produced no signal. That was actively misleading.
+            changes["inferred_none"] += 1
+            continue
+        if new_label not in ("inferred_accept", "inferred_reject"):
+            # Unknown label — refuse to silently grow a new bucket
             continue
         old = entry.get("inferred_label")
         if old == new_label:
@@ -4504,7 +4523,7 @@ def cmd_oracle_infer_labels(args, cfg) -> int:
             continue
         if not dry_run:
             entry["inferred_label"] = new_label
-        changes[new_label] = changes.get(new_label, 0) + 1
+        changes[new_label] += 1
 
     if not dry_run:
         _rewrite_oracle_log(entries)
@@ -4820,7 +4839,10 @@ def _serve_collect_stats(cfg: dict, workspace: Path) -> dict:
 
     # Inbox unread count
     try:
-        idir = _inbox_dir(cfg, workspace)
+        # bug fix 2026-05-18 per code review: args were swapped.
+        # _inbox_dir signature is (workspace, cfg). The blanket except below
+        # was hiding this since v0.6 (task-18), so /` never reported inbox_unread.
+        idir = _inbox_dir(workspace, cfg)
         if idir.exists():
             n = 0
             for mf in idir.glob("*.yaml"):
@@ -5217,8 +5239,24 @@ def _lsp_diagnostics_for(text: str, cfg: dict, workspace: Path) -> list[dict]:
     return diagnostics
 
 
+# Directives that NEVER execute in hover. Adding a directive to hover support
+# is a deliberate decision: it must be read-only with no subprocess, no network,
+# and no state mutation. Per code review 2026-05-18, hover previously called
+# resolve_agent which can spawn a subprocess — that meant an editor hover over
+# `@agent` executed code. The contract now is: every entry in HOVER_SAFE_RESOLVERS
+# is explicitly side-effect-free. `@agent`, `@query`, and `@if query(...)` are
+# permanently excluded and return a labelled stub instead.
+_HOVER_UNSAFE_STUBS = {
+    "@agent": "(hover disabled for @agent — directive can execute a subprocess; run `perseus render` to see output)",
+    "@query": "(hover disabled for @query — directive can execute a shell command; run `perseus render` to see output)",
+    "@services": "(hover disabled for @services — directive may execute service checks; run `perseus render` to see output)",
+}
+
+
 def _lsp_resolve_directive_for_hover(name: str, args_str: str, cfg: dict, workspace: Path) -> str:
-    """Resolve a directive for hover preview. Best-effort, never throws."""
+    """Resolve a directive for hover preview. Read-only and side-effect-free."""
+    if name in _HOVER_UNSAFE_STUBS:
+        return _HOVER_UNSAFE_STUBS[name]
     try:
         if name == "@waypoint":
             return resolve_waypoint(args_str, cfg)
@@ -5238,8 +5276,6 @@ def _lsp_resolve_directive_for_hover(name: str, args_str: str, cfg: dict, worksp
             return resolve_drift(args_str, cfg)
         if name == "@date":
             return resolve_date(args_str)
-        if name == "@agent":
-            return resolve_agent(args_str, cfg, workspace)
     except Exception as exc:
         return f"(hover error: {exc})"
     return "(no hover preview)"
@@ -5414,8 +5450,24 @@ def cmd_serve(args, cfg):
     except (TypeError, ValueError):
         port = 7991
 
-    if host == "0.0.0.0":
-        print("> ⚠ Binding to 0.0.0.0 — Perseus serve has no authentication.")
+    # Per code review 2026-05-18: any non-loopback bind is a deliberate, irreversible
+    # security decision. A warning was previously printed but the bind proceeded,
+    # which is exactly the surprise an operator in a container/Docker/Portainer
+    # context cannot recover from. Now: refuse unless the operator opts in.
+    is_loopback = host in ("127.0.0.1", "localhost", "::1")
+    if not is_loopback:
+        if not getattr(args, "i_understand_no_auth", False):
+            sys.stderr.write(
+                f"perseus serve: refusing to bind {host}:{port} — non-loopback hosts expose\n"
+                "  ALL of: rendered context, narrative, health, agora, latest checkpoint,\n"
+                "  AND oracle log (which may contain prompts/responses from other workspaces).\n"
+                "  No authentication is enforced. Pass --i-understand-no-auth to proceed.\n"
+            )
+            return 2
+        sys.stderr.write(
+            f"> ⚠ Binding to {host}:{port} — Perseus serve has NO authentication.\n"
+            "  Exposed endpoints: /, /context, /narrative, /health, /agora, /checkpoint/latest, /oracle/log\n"
+        )
 
     class PerseusHandler(BaseHTTPRequestHandler):
         def _respond(self, status: int, content_type: str, body: str) -> None:
@@ -5551,9 +5603,9 @@ def cmd_init(args, cfg):
 def main():
     parser = argparse.ArgumentParser(
         prog="perseus",
-        description="Perseus — Live Context Engine for AI Assistants (alpha v0.8)",
+        description="Perseus — Live Context Engine for AI Assistants (alpha v0.8.1)",
     )
-    parser.add_argument("--version", action="version", version="perseus alpha v0.8")
+    parser.add_argument("--version", action="version", version="perseus alpha v0.8.1")
     sub = parser.add_subparsers(dest="command", required=True)
 
     # render
@@ -5679,7 +5731,8 @@ def main():
     # serve (read-only HTTP view)
     p_serve = sub.add_parser("serve", help="Start a read-only HTTP view of workspace state, or an LSP server")
     p_serve.add_argument("--port", type=int, default=7991, help="HTTP port (default: 7991)")
-    p_serve.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
+    p_serve.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1; non-loopback requires --i-understand-no-auth)")
+    p_serve.add_argument("--i-understand-no-auth", action="store_true", dest="i_understand_no_auth", help="Opt-in to non-loopback bind. Required for --host other than 127.0.0.1/localhost/::1. Exposes all read-only endpoints with no auth.")
     p_serve.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
     # task-23 (Phase 10.1) — LSP transport
     p_serve.add_argument("--lsp", action="store_true", help="Run as a Language Server Protocol server instead of HTTP")

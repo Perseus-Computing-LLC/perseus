@@ -14,7 +14,7 @@ Provider-agnostic defaults now use `PERSEUS_SKILLS_DIR` and `PERSEUS_SESSIONS_DI
 
 Perseus dogfoods itself: `ROADMAP.md` is a live `@perseus` source — the project's own documentation resolves its git state, CLI version, recent sessions, and last checkpoint at render time.
 
-**Status: Alpha v0.8 — All ten phases complete. Phases 9 (Daedalus v2: self-rating, trained pattern extraction, drift detection) and 10 (LSP server + VSCode extension) shipped 2026-05-18. The entire originally-scoped spec is implemented. 24 tasks closed. 224 tests passing.**
+**Status: Alpha v0.8.1 — All ten originally-scoped phases complete. Phase 11 (Code review remediation) active: 5 urgent fixes shipped (hover sandboxing, non-loopback bind gate, inbox bug, infer-labels counter, dead-code removal), 5 follow-up tasks (task-25 through task-29) scoped. 24 tasks closed, 5 open. 231 tests passing.**
 
 ---
 
