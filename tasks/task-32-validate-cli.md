@@ -11,6 +11,7 @@ phase: 12
 theme: "Schema Validation Engine"
 depends_on:
 - task-30
+- task-31
 blocks: []
 opened: '2026-05-19'
 ---

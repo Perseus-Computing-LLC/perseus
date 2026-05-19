@@ -63,6 +63,18 @@ mapping:             # alias: properties
 Unsupported schema keys are ignored so future schema versions can grow without
 breaking older Perseus versions.
 
+### Directive Output Schemas
+
+`DIRECTIVE_REGISTRY` entries may declare an `output_schema`. Registry-level
+schemas validate the rendered directive output automatically during render and
+are best for stable, directive-wide invariants such as "this resolver always
+returns a non-empty string."
+
+Per-invocation `schema="..."` remains stronger. When a directive call provides
+`schema=`, Perseus lets the resolver validate the underlying payload and skips
+the registry-level output schema for that invocation. Use per-invocation schemas
+for local data contracts; use `output_schema` for global directive contracts.
+
 ---
 
 ## Checkpoint Schema

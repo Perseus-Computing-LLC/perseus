@@ -1,12 +1,12 @@
 ---
 id: task-31
 title: Phase 12B directive output schema annotations
-status: open
+status: completed
 priority: medium
 scope: medium
-claimed_by:
+claimed_by: codex
 created: 2026-05-19
-closed:
+closed: 2026-05-19
 phase: 12
 theme: "Schema Validation Engine"
 depends_on:
@@ -42,3 +42,14 @@ requiring every call site to repeat `schema="..."`.
 
 - Do not force every directive to declare a schema in this task.
 - Do not change directive output formats.
+
+## Completed
+
+Added an optional `output_schema` field to `DirectiveSpec` and centralized
+registry-level validation in the renderer. `@date` now carries a safe,
+deterministic non-empty-string output schema, and render-time validation also
+applies to cached directive output.
+
+Explicit per-invocation `schema="..."` remains stronger than registry-level
+schemas, so `@read`, `@env`, and `@query` local contracts keep their Phase 12A
+behavior. Added regression tests for automatic validation and precedence.

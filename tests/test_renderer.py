@@ -243,6 +243,42 @@ mapping:
     assert "Validation Error" in out
 
 
+def test_registry_output_schema_validates_annotated_directive(monkeypatch):
+    spec = perseus.DIRECTIVE_REGISTRY["@date"]
+    assert spec.output_schema is not None
+
+    monkeypatch.setitem(
+        perseus.DIRECTIVE_REGISTRY,
+        "@date",
+        spec._replace(resolver=lambda args: ""),
+    )
+
+    out = perseus.render_source('@perseus\n@date format="YYYY"', cfg(), None)
+    assert "Validation Error" in out
+    assert "`@date`" in out
+
+
+def test_explicit_schema_takes_precedence_over_registry_output_schema(monkeypatch, tmp_path):
+    schemas_dir = tmp_path / ".perseus" / "schemas"
+    schemas_dir.mkdir(parents=True)
+    (schemas_dir / "number.yaml").write_text("type: int\n")
+    (tmp_path / "service.yaml").write_text("service:\n  port: 3000\n")
+
+    spec = perseus.DIRECTIVE_REGISTRY["@read"]
+    monkeypatch.setitem(
+        perseus.DIRECTIVE_REGISTRY,
+        "@read",
+        spec._replace(output_schema={"type": "str", "pattern": "^NEVER$"}),
+    )
+
+    out = perseus.render_source(
+        '@perseus\n@read service.yaml path="service.port" schema="number"',
+        cfg(),
+        tmp_path,
+    )
+    assert out == "3000"
+
+
 
 def test_skills_frontmatter_parses_structurally(tmp_path):
     skill_dir = tmp_path / "skills" / "cat" / "demo"

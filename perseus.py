@@ -54,6 +54,7 @@ class DirectiveSpec(NamedTuple):
     safe_for_hover: bool = True
     cacheable: bool = False
     summary: str = ""
+    output_schema: object | None = None  # Optional registry-level rendered output schema
 
 
 # NOTE: resolver references are forward-declared as strings and bound after
@@ -68,7 +69,7 @@ def _bind_registry() -> None:
         DirectiveSpec("@query",     resolve_query,     ["fallback=", "schema="],   "inline",  "acw", executes_shell=True,  safe_for_hover=False, cacheable=True,  summary="Run a shell command and embed stdout"),
         DirectiveSpec("@skills",    resolve_skills,    ["flag_stale=", "category=", "limit="], "inline", "ac", reads_files=True, cacheable=True, summary="List available skills"),
         DirectiveSpec("@session",   resolve_session,   ["count="],                 "inline",  "ac",  reads_files=True, cacheable=True, summary="Recent session digests"),
-        DirectiveSpec("@date",      resolve_date,      ["format="],                "inline",  "a",   cacheable=False, summary="Current date/time"),
+        DirectiveSpec("@date",      resolve_date,      ["format="],                "inline",  "a",   cacheable=False, summary="Current date/time", output_schema={"type": "str", "pattern": ".+"}),
         DirectiveSpec("@waypoint",  resolve_waypoint,  ["ttl="],                   "inline",  "ac",  reads_files=True, cacheable=True, summary="Latest checkpoint summary"),
         DirectiveSpec("@read",      resolve_read,      ["path=", "key=", "fallback=", "schema="], "inline", "acw", reads_files=True, cacheable=True, summary="Embed file contents"),
         DirectiveSpec("@env",       resolve_env,       ["required=", "fallback=", "schema="], "inline", "acw", cacheable=False, summary="Embed environment variable"),
@@ -442,6 +443,55 @@ def _validate_against_schema_ref(
     if validation_errors:
         return _schema_validation_error(source, schema_label, validation_errors)
     return None
+
+
+def _validate_against_inline_schema(
+    data: object,
+    schema: object,
+    source: str,
+    schema_label: str = "output_schema",
+) -> str | None:
+    """Return a rendered warning string when inline schema validation fails."""
+    validation_errors = _validate_basic_schema(data, schema)
+    if validation_errors:
+        return _schema_validation_error(source, schema_label, validation_errors)
+    return None
+
+
+def _directive_has_schema_modifier(spec: DirectiveSpec, args_str: str) -> bool:
+    """Detect an explicit per-invocation schema= modifier for precedence."""
+    if "schema=" not in spec.args:
+        return False
+    if spec.name == "@query":
+        return re.search(r'\s+schema=(?:"(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\')(\s|$)', args_str.strip()) is not None
+    if spec.name == "@read":
+        _, remaining = _extract_quoted_token(args_str.strip())
+        return "schema" in _parse_kv_modifiers(remaining)
+    if spec.name == "@env":
+        parts = args_str.strip().split(maxsplit=1)
+        return len(parts) > 1 and "schema" in _parse_kv_modifiers(parts[1])
+    return "schema" in _parse_kv_modifiers(args_str)
+
+
+def _apply_output_schema_validation(
+    spec: DirectiveSpec,
+    args_str: str,
+    rendered_output: str,
+    workspace: Path | None,
+) -> str:
+    """Apply registry-level output_schema unless the invocation overrides it."""
+    if spec.output_schema is None or _directive_has_schema_modifier(spec, args_str):
+        return rendered_output
+    if isinstance(spec.output_schema, str):
+        warning = _validate_against_schema_ref(rendered_output, spec.output_schema, workspace, spec.name)
+    else:
+        warning = _validate_against_inline_schema(
+            rendered_output,
+            spec.output_schema,
+            spec.name,
+            "registry output_schema",
+        )
+    return warning or rendered_output
 
 
 def _unfence_rendered_payload(text: str) -> str:
@@ -2034,15 +2084,23 @@ def resolve_validate_block(
     return warning or content
 
 
-def _replace_inline_date_outside_code(line: str) -> str:
+def _replace_inline_date_outside_code(line: str, workspace: Path | None = None) -> str:
     """Resolve @date in prose while preserving inline code spans."""
     if "@date" not in line:
         return line
 
+    def resolve_inline_date(match: re.Match) -> str:
+        args = f'format="{match.group(1)}"' if match.group(1) else ""
+        result = resolve_date(args)
+        spec = DIRECTIVE_REGISTRY.get("@date")
+        if spec:
+            result = _apply_output_schema_validation(spec, args, result, workspace)
+        return result
+
     def repl(segment: str) -> str:
         return re.sub(
             r'@date(?:\s+format=["\'"]([^"\']+)["\'"])?',
-            lambda m2: resolve_date(f'format="{m2.group(1)}"' if m2.group(1) else ""),
+            resolve_inline_date,
             segment,
         )
 
@@ -2282,16 +2340,19 @@ def _render_lines(
                 continue
 
             # Check cache first
+            spec = DIRECTIVE_REGISTRY.get(directive)
             cached = cache_get(cache_key, cache_mode, cache_ttl, cfg)
             if cached is not None:
+                if spec and spec.kind == "inline":
+                    cached = _apply_output_schema_validation(spec, clean_args, cached, workspace)
                 output.append(cached)
                 i += 1
                 continue
 
             # Resolve the directive via registry (task-25)
-            spec = DIRECTIVE_REGISTRY.get(directive)
             if spec and spec.resolver and spec.kind == "inline":
                 result = _call_resolver(spec, clean_args, cfg, workspace)
+                result = _apply_output_schema_validation(spec, clean_args, result, workspace)
             else:
                 result = line
 
@@ -2305,7 +2366,7 @@ def _render_lines(
 
         # Inline @date substitution within any line
         if "@date" in line:
-            line = _replace_inline_date_outside_code(line)
+            line = _replace_inline_date_outside_code(line, workspace)
         output.append(line)
         i += 1
 

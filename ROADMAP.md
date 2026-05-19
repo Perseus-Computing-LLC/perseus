@@ -514,11 +514,16 @@ sequences, regex patterns, and enums. It is not full JSON Schema.
 
 **Status:** Complete.
 
-### 12B: Directive-level schema annotations
+### 12B: Directive-level schema annotations (task-31) ✅
 
 Once the registry exists (✅ done), add an optional `output_schema` field to
 `DirectiveSpec`. Directives that declare a schema get automatic validation
 on every render — no per-invocation `schema=` modifier needed.
+
+Per-invocation `schema=` remains stronger than registry-level `output_schema`
+so local data contracts can override broad directive invariants.
+
+**Status:** Complete.
 
 ### 12C: `perseus validate` CLI command
 
@@ -662,7 +667,7 @@ Phase 11E ─── Split tests (task-29) ✅ ───────────�
                   Option B: pure-Python validator         │
                   (pyyaml remains the only dependency)    │
                                                          │
-Phase 12B ─── Directive-level schema annotations ────────┤
+Phase 12B ─── Directive-level schema annotations ✅ ─────┤
 Phase 12C ─── `perseus validate` CLI ────────────────────┤
                                                          │
 Phase 13A ─── Directive dependency graph ────────────────┤
@@ -680,9 +685,9 @@ Phase 14C ─── A/B recommendation testing ───────────
 Phase 15  ─── Generative Context (if decided yes) ───────┘
 ```
 
-**Estimated scope:** Phase 11 is complete. Phase 12A is complete; Phase 12B/12C
-remain. Phase 13 is 2 sessions. Phase 14 is 2-3 sessions. Then the decision
-gate.
+**Estimated scope:** Phase 11 is complete. Phase 12A/12B are complete; Phase
+12C remains. Phase 13 is 2 sessions. Phase 14 is 2-3 sessions. Then the
+decision gate.
 
 ---
 
