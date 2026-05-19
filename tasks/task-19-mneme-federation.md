@@ -1,11 +1,11 @@
 ---
 id: task-19
 title: Task 19 — Mnēmē Federation (cross-workspace narrative aggregation)
-status: open
+status: in_progress
 scope: large
 depends_on:
   - task-12
-claimed_by: null
+claimed_by: claude-sonnet-4.5
 opened: 2026-05-18
 closed: null
 phase: 8.2
@@ -90,7 +90,7 @@ inspectable with `perseus memory federation list`. Symlinks (b) break
 silently when the other workspace moves; config blocks (a) get lost when
 config is regenerated.
 
-**Decision:** _______________
+**Decision:** Manifest file at `~/.perseus/memory/federation.yaml`. Use **structured list-of-objects form** (not bare `{alias: path}`) from v1 so we can add `enabled`, `share`, `stale_after`, `notes`, etc. without a migration. Shape: `subscriptions: [{alias, path, enabled}, ...]`.
 
 ---
 
@@ -113,7 +113,7 @@ opt-in once primitives are stable. Mnēmē narratives are already curated
 (deterministic distillation + LLM compression); they're the right unit of
 sharing.
 
-**Decision:** _______________
+**Decision:** Narrative-only. v1 federation reads `~/.perseus/memory/<hash>.md` of subscribed workspaces and nothing else. No checkpoints, oracle logs, inboxes, task files, health reports, or full rendered context. Per-sub sharing model can be added in v2 with the `share:` field reserved.
 
 ---
 
@@ -133,7 +133,7 @@ How does federated content surface in workspace A's rendered context?
 section to an existing `@memory` block surprises users; a new directive is
 discoverable via `perseus --help`.
 
-**Decision:** _______________
+**Decision:** Both, with strict local-only default. New directive `@memory federation` for the federated digest is primary UX. `@memory include_federation=true` is the opt-in for callers who want both in one block. Plain `@memory` stays local-only forever — never silently changes behavior because a manifest appeared.
 
 ---
 
@@ -152,7 +152,7 @@ When does workspace A re-read workspace B's narrative?
 **Recommendation:** (a) for the directive (cheap, always-fresh), (d) for the
 CLI (no surprises). (b) and (c) introduce mtime drift.
 
-**Decision:** _______________
+**Decision:** Re-read federated narratives every render for directive output (narratives are small; cache invalidation is not worth the surprise). `perseus memory federation list/subscribe/unsubscribe/pull` is manual and side-effect-free. No background sync. Staleness derived from file mtime at render time.
 
 ---
 
@@ -170,7 +170,7 @@ or stale?
 **Recommendation:** (b) — make staleness visible without breaking the
 render. Mirrors how `@waypoint` handles stale checkpoints.
 
-**Decision:** _______________
+**Decision:** Warning block rendered inline. Missing, unreadable, or stale subscribed narratives produce a `> ⚠ Federated memory \`<alias>\` unavailable: <reason>` block. Render proceeds. Never silently skip; never hard-fail.
 
 ---
 
@@ -192,7 +192,7 @@ explicitly subscribes. After federation, what is the analogous guarantee?
 adding gates on data they already control is theatre. Re-evaluate when a
 non-trivial multi-user case appears.
 
-**Decision:** _______________
+**Decision:** Subscriber-side-only for v1. Publisher-side ACLs are theatre on a shared filesystem and out of scope. Docs must say this clearly. Revisit if Perseus grows a daemon/server or true team mode.
 
 ---
 
@@ -208,7 +208,7 @@ What's the alias for a federated narrative inside the manifest?
 
 **Recommendation:** (b) — user-chosen. Lets the user write `@memory federation alias=support` legibly.
 
-**Decision:** _______________
+**Decision:** User-chosen aliases. Validation: aliases must match `[a-zA-Z0-9_-]+` and be unique within the manifest. Path must exist or emit a warning (not refuse to save — paths may be temporarily absent during dev). Duplicate resolved paths warn but do not block.
 
 ---
 
