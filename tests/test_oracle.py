@@ -118,6 +118,66 @@ def test_oracle_log_entry_default_flags_empty():
     assert entry["flags"] == []
 
 
+def test_online_score_adjustments_no_data_neutral():
+    local = cfg()
+    assert perseus._oracle_online_score_adjustments([], local) == []
+
+
+def test_online_score_adjustments_boost_successful_tool():
+    local = cfg()
+    rows = [{
+        "accepted": True,
+        "response": "Use `tool-a` for this.",
+        "outcome": {"checkpoint_count": 2, "completed": True, "error_rate": 0.0},
+    }]
+
+    adjustments = perseus._oracle_online_score_adjustments(rows, local)
+
+    tool = next(item for item in adjustments if item["token"] == "tool-a")
+    assert tool["direction"] == "boost"
+    assert tool["weight"] > 0
+    assert tool["completed"] == 1
+
+
+def test_online_score_adjustments_lowers_error_heavy_tool():
+    local = cfg()
+    rows = [{
+        "accepted": True,
+        "response": "Use `tool-b` for this.",
+        "outcome": {"checkpoint_count": 2, "completed": False, "error_rate": 0.5},
+    }]
+
+    adjustments = perseus._oracle_online_score_adjustments(rows, local)
+
+    tool = next(item for item in adjustments if item["token"] == "tool-b")
+    assert tool["direction"] == "lower"
+    assert tool["weight"] < 0
+    assert tool["errors"] == 1
+
+
+def test_oracle_prompt_includes_outcome_weight_hints():
+    prompt = perseus.render_oracle_prompt("do thing", {
+        "rendered_at": "now",
+        "skills_table": "skills",
+        "services_table": "services",
+        "checkpoint_summary": "checkpoint",
+        "session_digest": "sessions",
+        "outcome_weights": [{
+            "token": "tool-a",
+            "weight": 0.75,
+            "direction": "boost",
+            "samples": 2,
+            "completed": 2,
+            "errors": 0,
+            "reason": "2/2 completed, 0/2 with errors",
+        }],
+    })
+
+    assert "Outcome Weight Hints" in prompt
+    assert "boost `tool-a`" in prompt
+    assert "resolved context still wins" in prompt
+
+
 def test_quick_oracle_prompt_omits_services_and_sessions():
     snap = {
         "rendered_at": "now",

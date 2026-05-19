@@ -170,6 +170,9 @@ DEFAULT_CONFIG = {
         "drift_confidence_drop": 0.15,        # avg confidence falls ≥ 15pp
         "outcome_window_days": 7,             # Phase 14A: checkpoints after accepted recommendation
         "outcome_window_checkpoints": 10,
+        "online_scoring_enabled": True,       # Phase 14B: outcome-weighted prompt hints
+        "online_scoring_recent_entries": 50,
+        "online_scoring_min_abs_weight": 0.15,
     },
     "llm": {
         "provider": "ollama",
@@ -5018,6 +5021,7 @@ def build_oracle_log_entry(task: str, snapshot: dict, prompt: str, response: str
             "stale_skills_count": None,
             "services": services_summary,
             "checkpoint_age_s": _checkpoint_age_s(snapshot.get("checkpoint_summary", "")),
+            "outcome_weights": snapshot.get("outcome_weights", []),
         },
         "prompt": prompt,
         "response": response,
@@ -5172,6 +5176,86 @@ def cmd_llm(args, cfg) -> int:
     return 0
 
 
+def _outcome_weight_for_entry(entry: dict) -> float | None:
+    outcome = entry.get("outcome")
+    if not isinstance(outcome, dict):
+        return None
+    checkpoints = int(outcome.get("checkpoint_count", 0) or 0)
+    if checkpoints <= 0:
+        return 0.0
+    error_rate = float(outcome.get("error_rate", 0.0) or 0.0)
+    error_rate = max(0.0, min(1.0, error_rate))
+    if outcome.get("completed") is True:
+        return max(-1.0, min(1.0, 1.0 - error_rate))
+    return max(-1.0, min(1.0, -0.5 - (0.5 * error_rate)))
+
+
+def _oracle_online_score_adjustments(entries: list[dict], cfg: dict) -> list[dict]:
+    """Compute transparent outcome-weight hints per recommendation token."""
+    o_cfg = cfg.get("oracle", {})
+    if not bool(o_cfg.get("online_scoring_enabled", True)):
+        return []
+    recent_n = int(o_cfg.get("online_scoring_recent_entries", 50))
+    min_abs = float(o_cfg.get("online_scoring_min_abs_weight", 0.15))
+    buckets: dict[str, dict] = {}
+    for entry in entries[-recent_n:]:
+        if not _oracle_entry_has_positive_label(entry):
+            continue
+        weight = _outcome_weight_for_entry(entry)
+        if weight is None:
+            continue
+        tokens = sorted(_extract_recommendation_tokens(str(entry.get("response", "") or "")))
+        for token in tokens[:12]:
+            bucket = buckets.setdefault(token, {"sum": 0.0, "samples": 0, "completed": 0, "errors": 0})
+            bucket["sum"] += weight
+            bucket["samples"] += 1
+            outcome = entry.get("outcome") or {}
+            if outcome.get("completed") is True:
+                bucket["completed"] += 1
+            if float(outcome.get("error_rate", 0.0) or 0.0) > 0:
+                bucket["errors"] += 1
+
+    adjustments: list[dict] = []
+    for token, bucket in buckets.items():
+        samples = int(bucket["samples"])
+        if samples <= 0:
+            continue
+        weight = round(float(bucket["sum"]) / samples, 3)
+        if abs(weight) < min_abs:
+            continue
+        direction = "boost" if weight > 0 else "lower"
+        adjustments.append({
+            "token": token,
+            "weight": weight,
+            "direction": direction,
+            "samples": samples,
+            "completed": int(bucket["completed"]),
+            "errors": int(bucket["errors"]),
+            "reason": (
+                f"{int(bucket['completed'])}/{samples} completed, "
+                f"{int(bucket['errors'])}/{samples} with errors"
+            ),
+        })
+    adjustments.sort(key=lambda item: (-abs(item["weight"]), item["token"]))
+    return adjustments[:10]
+
+
+def _render_outcome_weight_hints(adjustments: list[dict]) -> str:
+    if not adjustments:
+        return ""
+    lines = [
+        "### Outcome Weight Hints",
+        "Use these deterministic outcome signals as tie-breakers; resolved context still wins.",
+    ]
+    for item in adjustments:
+        sign = "+" if item["weight"] > 0 else ""
+        lines.append(
+            f"- {item['direction']} `{item['token']}` ({sign}{item['weight']}, "
+            f"n={item['samples']}): {item['reason']}"
+        )
+    return "\n".join(lines)
+
+
 def build_oracle_snapshot(cfg: dict, category: str | None = None, no_services: bool = False, quick: bool = False) -> dict:
     """Build the environment snapshot used by `perseus suggest`.
 
@@ -5217,6 +5301,7 @@ def build_oracle_snapshot(cfg: dict, category: str | None = None, no_services: b
         "session_digest": session_digest,
         "checkpoint_summary": checkpoint_summary,
         "quick": quick,
+        "outcome_weights": _oracle_online_score_adjustments(_oracle_log_entries(), cfg),
     }
 
     if quick:
@@ -5232,6 +5317,8 @@ def render_oracle_prompt(task: str, snapshot: dict) -> str:
     Sessions/Checkpoint sections are omitted entirely (task-10).
     """
     divider = "━" * 55
+    outcome_hints = _render_outcome_weight_hints(snapshot.get("outcome_weights", []))
+    outcome_section = f"\n\n{outcome_hints}" if outcome_hints else ""
 
     if snapshot.get("quick"):
         return f"""You are the Perseus Tool Oracle. Given a task and a snapshot of available skills,
@@ -5243,6 +5330,7 @@ ENVIRONMENT SNAPSHOT (rendered {snapshot['rendered_at']}):
 
 ### Available Skills
 {snapshot['skills_table']}
+{outcome_section}
 
 ---
 
@@ -5267,6 +5355,7 @@ ENVIRONMENT SNAPSHOT (rendered {snapshot['rendered_at']}):
 
 ### Recent Sessions
 {snapshot['session_digest']}
+{outcome_section}
 
 ---
 

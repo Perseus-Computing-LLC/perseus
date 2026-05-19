@@ -300,6 +300,9 @@ perseus oracle drift [--json]
   - `checkpoint_count`
   - `error_count` / `error_rate`
   - `time_to_completion_s`
+- `suggest` converts recent outcome objects into transparent prompt hints:
+  successful completed outcomes boost related recommendation tokens; incomplete
+  or error-heavy outcomes lower them. No-data behavior is neutral.
 
 ### Local model routing
 

@@ -1,12 +1,12 @@
 ---
 id: task-37
 title: Phase 14B online scoring adjustment
-status: open
+status: completed
 priority: medium
 scope: large
-claimed_by:
+claimed_by: codex
 created: 2026-05-19
-closed:
+closed: 2026-05-19
 phase: 14
 theme: "Adaptive Self-Optimizing Oracle"
 depends_on:
@@ -43,3 +43,15 @@ weights from recent success/failure observations without retraining.
 - Do not add A/B exploration here.
 - Do not require model inference.
 - Do not generate context prose.
+
+## Completed
+
+- Added deterministic online scoring from recent oracle entries with task-36
+  `outcome` objects.
+- Successful completed outcomes boost related recommendation tokens; incomplete
+  or error-heavy outcomes lower them.
+- Added transparent `Outcome Weight Hints` to the Pythia prompt when signals
+  exist; no-data behavior remains neutral.
+- Recorded applied outcome weights in oracle log `env_snapshot` metadata.
+- Added focused tests for no-data, positive, negative, and prompt-visible
+  adjustment paths.

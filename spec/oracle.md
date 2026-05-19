@@ -159,4 +159,5 @@ Format: ranked list, most recommended first. Be direct. No hedging.
 | Beta | Persist oracle outputs; build scoring dataset from accepted recommendations |
 | v1 | Local lightweight scoring model; no round-trip required |
 | Phase 14A | Deterministic outcome signals from checkpoint correlation (`perseus oracle outcomes`) |
+| Phase 14B | Transparent online scoring hints from recent outcome signals |
 | v2 | Cross-session learning; scores improve with usage patterns |

@@ -14,7 +14,7 @@ Provider-agnostic defaults now use `PERSEUS_SKILLS_DIR` and `PERSEUS_SESSIONS_DI
 
 Perseus dogfoods itself: `ROADMAP.md` is a live `@perseus` source — the project's own documentation resolves its git state, CLI version, recent sessions, and last checkpoint at render time.
 
-**Status: Alpha v0.8.1 — Phases 1-13 complete and Phase 14A landed. Phase 14 now has deterministic reinforcement signal collection via `perseus oracle outcomes`; Phase 14B/14C remain. 36 tasks closed, 2 Phase 14 tasks open. 300 tests passing, 1 sandbox-skipped TCP smoke.**
+**Status: Alpha v0.8.1 — Phases 1-13 complete and Phase 14B landed. Phase 14 now has deterministic reinforcement signal collection and transparent outcome-weighted Pythia prompt hints; Phase 14C remains. 37 tasks closed, 1 Phase 14 task open. 304 tests passing, 1 sandbox-skipped TCP smoke.**
 
 ---
 
@@ -302,7 +302,7 @@ Run `perseus <command> --help` for full flags. Summary of the surface:
 | `perseus diff [--from FILE] [--to FILE]` | Show diff between two checkpoints (default: latest two). |
 | `perseus recover [--workspace PATH]` | Print the latest checkpoint for the workspace. |
 | `perseus agora [--status open\|in_progress\|completed]` | Live task board from `tasks/*.md`. |
-| `perseus suggest <prompt> [--llm provider]` | Pythia tool oracle — ranks skills against a prompt. |
+| `perseus suggest <prompt> [--llm provider]` | Pythia tool oracle — ranks skills against a prompt, with transparent outcome-weight hints when data exists. |
 | `perseus memory {update,compact,show,status,query,federation}` | Mnēmē narrative project memory + cross-workspace federation. |
 | `perseus inbox {send,list,read,unread,mark-read}` | Point-to-point messages between agents (task-16). |
 | `perseus health` | Maintenance report — stale skills, large narrative, oracle log volume. |
@@ -441,7 +441,7 @@ oracle:
 | **Phase 11** | Internal hardening — registry, doctor, JSON surfaces, LSP integration tests, split suite | ✅ Complete |
 | **Phase 12** | Schema validation engine — `schema=`, `@validate`, `output_schema`, `perseus validate` | ✅ Complete |
 | **Phase 13** | Predictive prefetching — static graph, rule-based cache warming, adaptive deterministic/Daedalus scoring | ✅ Complete |
-| **Phase 14** | Adaptive self-optimizing oracle — outcome signals landed; online scoring and A/B testing remain | 🚧 In progress |
+| **Phase 14** | Adaptive self-optimizing oracle — outcome signals and online scoring landed; A/B testing remains | 🚧 In progress |
 | **Phase 15+** | See "Future development" at the bottom of [ROADMAP.md](./ROADMAP.md) | 🌅 Open canvas |
 
 Full detail: [ROADMAP.md](./ROADMAP.md)
