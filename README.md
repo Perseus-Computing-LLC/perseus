@@ -14,7 +14,7 @@ Provider-agnostic defaults now use `PERSEUS_SKILLS_DIR` and `PERSEUS_SESSIONS_DI
 
 Perseus dogfoods itself: `ROADMAP.md` is a live `@perseus` source — the project's own documentation resolves its git state, CLI version, recent sessions, and last checkpoint at render time.
 
-**Status: Alpha v0.8.1 — Phases 1-13 complete and Phase 14B landed. Phase 14 now has deterministic reinforcement signal collection and transparent outcome-weighted Pythia prompt hints; Phase 14C remains. 37 tasks closed, 1 Phase 14 task open. 304 tests passing, 1 sandbox-skipped TCP smoke.**
+**Status: Alpha v0.8.1 — Phases 1-14 complete. Phase 14 added deterministic reinforcement signal collection, transparent outcome-weighted Pythia prompt hints, and opt-in A/B recommendation exploration. 38 tasks closed. 308 tests passing, 1 sandbox-skipped TCP smoke.**
 
 ---
 
@@ -441,8 +441,8 @@ oracle:
 | **Phase 11** | Internal hardening — registry, doctor, JSON surfaces, LSP integration tests, split suite | ✅ Complete |
 | **Phase 12** | Schema validation engine — `schema=`, `@validate`, `output_schema`, `perseus validate` | ✅ Complete |
 | **Phase 13** | Predictive prefetching — static graph, rule-based cache warming, adaptive deterministic/Daedalus scoring | ✅ Complete |
-| **Phase 14** | Adaptive self-optimizing oracle — outcome signals and online scoring landed; A/B testing remains | 🚧 In progress |
-| **Phase 15+** | See "Future development" at the bottom of [ROADMAP.md](./ROADMAP.md) | 🌅 Open canvas |
+| **Phase 14** | Adaptive self-optimizing oracle — outcome signals, online scoring, and opt-in A/B exploration | ✅ Complete |
+| **Phase 15+** | See the resolver/generator decision gate in [ROADMAP.md](./ROADMAP.md) before proceeding | 🌅 Contingent |
 
 Full detail: [ROADMAP.md](./ROADMAP.md)
 

@@ -303,6 +303,9 @@ perseus oracle drift [--json]
 - `suggest` converts recent outcome objects into transparent prompt hints:
   successful completed outcomes boost related recommendation tokens; incomplete
   or error-heavy outcomes lower them. No-data behavior is neutral.
+- Opt-in A/B exploration (`oracle.ab_testing_enabled`) selects deterministic
+  primary/alternate candidates from outcome-weight hints, labels the prompt
+  with an exploration id, and stores `ab_test` metadata in the oracle log.
 
 ### Local model routing
 

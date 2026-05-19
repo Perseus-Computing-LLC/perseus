@@ -476,8 +476,8 @@ Split `tests/test_perseus.py` into subsystem files plus `tests/conftest.py`.
 At Phase 11 close the suite collected 272 tests. After Phase 12 it reached
 283 passed, 1 skipped; after Phase 13 it reached 297 passed, 1 skipped; after
 Phase 14A it reached 300 passed, 1 skipped; after Phase 14B it reached
-304 passed, 1 skipped (sandbox-blocked TCP bind; the same TCP smoke passes
-outside the sandbox).
+304 passed, 1 skipped; after Phase 14C it reached 308 passed, 1 skipped
+(sandbox-blocked TCP bind; the same TCP smoke passes outside the sandbox).
 - `test_oracle.py` — suggest, oracle log, drift, infer-labels
 - `test_memory.py` — Mnēmē narrative, federation
 - `test_lsp.py` — LSP helpers, framing, diagnostics
@@ -621,10 +621,15 @@ Successful completed outcomes boost related recommendation tokens; incomplete
 or error-heavy outcomes lower them. The hints are transparent in the oracle
 prompt and omitted when no outcome data exists.
 
-### 14C: A/B recommendation testing
+### 14C: A/B recommendation testing (task-38) ✅
 
 Occasionally present alternative recommendations alongside the primary one.
 Track which the user follows. Exploration/exploitation tradeoff for the oracle.
+
+**Status:** Complete. A/B exploration is off by default. When enabled, Pythia
+selects deterministic primary/alternate candidates from outcome-weight signals,
+labels the prompt with an exploration id, and records the `ab_test` metadata in
+the oracle log for later accept/reject and outcome attribution.
 
 ---
 
@@ -718,7 +723,7 @@ Phase 13C ─── Daedalus-powered adaptive pre-fetch ✅ ────┤
                                                          │
 Phase 14A ─── RL signal collection ✅ ───────────────────┤
 Phase 14B ─── Online scoring adjustment ✅ ──────────────┤
-Phase 14C ─── A/B recommendation testing ────────────────┤
+Phase 14C ─── A/B recommendation testing ✅ ─────────────┤
                                                          │
               ══════════════════════════════════          │
               STOP: Product identity decision             │
@@ -727,8 +732,8 @@ Phase 14C ─── A/B recommendation testing ───────────
 Phase 15  ─── Generative Context (if decided yes) ───────┘
 ```
 
-**Estimated scope:** Phase 11, Phase 12, Phase 13, Phase 14A, and Phase 14B
-are complete. Phase 14C remains. Then the decision gate.
+**Estimated scope:** Phase 11, Phase 12, Phase 13, and Phase 14 are complete.
+The resolver/generator decision gate is next before any Phase 15 work.
 
 ---
 

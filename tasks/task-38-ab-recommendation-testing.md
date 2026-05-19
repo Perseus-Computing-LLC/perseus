@@ -1,12 +1,12 @@
 ---
 id: task-38
 title: Phase 14C A/B recommendation testing
-status: open
+status: completed
 priority: medium
 scope: large
-claimed_by:
+claimed_by: codex
 created: 2026-05-19
-closed:
+closed: 2026-05-19
 phase: 14
 theme: "Adaptive Self-Optimizing Oracle"
 depends_on:
@@ -41,3 +41,13 @@ explore alternate recommendation orderings and learn from what the user accepts.
 - Do not optimize with an opaque model.
 - Do not hide alternates from users.
 - Do not cross the resolver-vs-generator boundary.
+
+## Completed
+
+- Added opt-in `oracle.ab_testing_enabled` with deterministic rate gating.
+- Selected primary and alternate candidates from outcome-weight hints.
+- Added an explicit `A/B Recommendation Test` prompt section when exploration
+  is active.
+- Recorded `ab_test` metadata in oracle log `env_snapshot` for later
+  accept/reject and outcome attribution.
+- Added tests for disabled, enabled, prompt-visible, and logging behavior.

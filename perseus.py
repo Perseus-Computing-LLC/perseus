@@ -173,6 +173,8 @@ DEFAULT_CONFIG = {
         "online_scoring_enabled": True,       # Phase 14B: outcome-weighted prompt hints
         "online_scoring_recent_entries": 50,
         "online_scoring_min_abs_weight": 0.15,
+        "ab_testing_enabled": False,          # Phase 14C: transparent candidate exploration
+        "ab_testing_rate": 0.10,
     },
     "llm": {
         "provider": "ollama",
@@ -5022,6 +5024,7 @@ def build_oracle_log_entry(task: str, snapshot: dict, prompt: str, response: str
             "services": services_summary,
             "checkpoint_age_s": _checkpoint_age_s(snapshot.get("checkpoint_summary", "")),
             "outcome_weights": snapshot.get("outcome_weights", []),
+            "ab_test": snapshot.get("ab_test"),
         },
         "prompt": prompt,
         "response": response,
@@ -5256,7 +5259,82 @@ def _render_outcome_weight_hints(adjustments: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def build_oracle_snapshot(cfg: dict, category: str | None = None, no_services: bool = False, quick: bool = False) -> dict:
+def _stable_unit_interval(value: str) -> float:
+    digest = hashlib.sha256(value.encode()).hexdigest()[:12]
+    return int(digest, 16) / float(0xFFFFFFFFFFFF)
+
+
+def _oracle_ab_test_plan(task: str, adjustments: list[dict], cfg: dict) -> dict:
+    o_cfg = cfg.get("oracle", {})
+    enabled = bool(o_cfg.get("ab_testing_enabled", False))
+    plan = {
+        "enabled": enabled,
+        "active": False,
+        "id": None,
+        "primary": None,
+        "alternate": None,
+        "rate": float(o_cfg.get("ab_testing_rate", 0.10)),
+        "bucket": None,
+        "reason": "disabled",
+    }
+    if not enabled:
+        return plan
+    candidates = [item for item in adjustments if item.get("token")]
+    if len(candidates) < 2:
+        plan["reason"] = "insufficient outcome-weight candidates"
+        return plan
+    rate = max(0.0, min(1.0, float(o_cfg.get("ab_testing_rate", 0.10))))
+    bucket = _stable_unit_interval(f"{task}|ab-testing")
+    plan["rate"] = rate
+    plan["bucket"] = round(bucket, 6)
+    if bucket > rate:
+        plan["reason"] = f"bucket {bucket:.3f} above rate {rate:.3f}"
+        return plan
+
+    ranked = sorted(candidates, key=lambda item: (-item["weight"], item["token"]))
+    primary = ranked[0]
+    alternate = sorted(
+        [item for item in candidates if item["token"] != primary["token"]],
+        key=lambda item: (item["weight"], item["token"]),
+    )[0]
+    test_id = hashlib.sha256(f"{task}|{primary['token']}|{alternate['token']}".encode()).hexdigest()[:12]
+    plan.update({
+        "active": True,
+        "id": test_id,
+        "primary": {
+            "token": primary["token"],
+            "weight": primary["weight"],
+            "reason": primary.get("reason", ""),
+        },
+        "alternate": {
+            "token": alternate["token"],
+            "weight": alternate["weight"],
+            "reason": alternate.get("reason", ""),
+        },
+        "reason": "active",
+    })
+    return plan
+
+
+def _render_ab_test_hint(plan: dict) -> str:
+    if not plan or not plan.get("active"):
+        return ""
+    primary = plan["primary"]
+    alternate = plan["alternate"]
+    return "\n".join([
+        "### A/B Recommendation Test",
+        (
+            f"Exploration id `{plan['id']}`: compare primary `{primary['token']}` "
+            f"against alternate `{alternate['token']}`."
+        ),
+        (
+            "Label the final recommendation with "
+            f"`ab_test={plan['id']}` and state whether primary or alternate won."
+        ),
+    ])
+
+
+def build_oracle_snapshot(cfg: dict, category: str | None = None, no_services: bool = False, quick: bool = False, task: str | None = None) -> dict:
     """Build the environment snapshot used by `perseus suggest`.
 
     --quick implies --no-services (task-10).
@@ -5294,6 +5372,7 @@ def build_oracle_snapshot(cfg: dict, category: str | None = None, no_services: b
         session_digest = resolve_session("count=3", cfg)
         checkpoint_summary = resolve_waypoint("", cfg)
 
+    outcome_weights = _oracle_online_score_adjustments(_oracle_log_entries(), cfg)
     snapshot = {
         "rendered_at": now,
         "skills_table": skills_table,
@@ -5301,7 +5380,8 @@ def build_oracle_snapshot(cfg: dict, category: str | None = None, no_services: b
         "session_digest": session_digest,
         "checkpoint_summary": checkpoint_summary,
         "quick": quick,
-        "outcome_weights": _oracle_online_score_adjustments(_oracle_log_entries(), cfg),
+        "outcome_weights": outcome_weights,
+        "ab_test": _oracle_ab_test_plan(task or "", outcome_weights, cfg),
     }
 
     if quick:
@@ -5318,7 +5398,9 @@ def render_oracle_prompt(task: str, snapshot: dict) -> str:
     """
     divider = "━" * 55
     outcome_hints = _render_outcome_weight_hints(snapshot.get("outcome_weights", []))
-    outcome_section = f"\n\n{outcome_hints}" if outcome_hints else ""
+    ab_hint = _render_ab_test_hint(snapshot.get("ab_test", {}))
+    advisory_parts = [part for part in (outcome_hints, ab_hint) if part]
+    advisory_section = "\n\n" + "\n\n".join(advisory_parts) if advisory_parts else ""
 
     if snapshot.get("quick"):
         return f"""You are the Perseus Tool Oracle. Given a task and a snapshot of available skills,
@@ -5330,7 +5412,7 @@ ENVIRONMENT SNAPSHOT (rendered {snapshot['rendered_at']}):
 
 ### Available Skills
 {snapshot['skills_table']}
-{outcome_section}
+{advisory_section}
 
 ---
 
@@ -5355,7 +5437,7 @@ ENVIRONMENT SNAPSHOT (rendered {snapshot['rendered_at']}):
 
 ### Recent Sessions
 {snapshot['session_digest']}
-{outcome_section}
+{advisory_section}
 
 ---
 
@@ -5415,7 +5497,7 @@ def cmd_suggest(args, cfg):
     if category:
         active_flags.append(f"--category={category}")
 
-    snapshot = build_oracle_snapshot(cfg, category=category, no_services=no_services, quick=quick)
+    snapshot = build_oracle_snapshot(cfg, category=category, no_services=no_services, quick=quick, task=task)
 
     prompt = render_oracle_prompt(task, snapshot)
     response_text = None

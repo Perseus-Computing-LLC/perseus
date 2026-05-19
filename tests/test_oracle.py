@@ -178,6 +178,67 @@ def test_oracle_prompt_includes_outcome_weight_hints():
     assert "resolved context still wins" in prompt
 
 
+def test_ab_testing_disabled_by_default():
+    plan = perseus._oracle_ab_test_plan("task", [
+        {"token": "tool-a", "weight": 0.8},
+        {"token": "tool-b", "weight": -0.4},
+    ], cfg())
+
+    assert plan["enabled"] is False
+    assert plan["active"] is False
+    assert plan["reason"] == "disabled"
+
+
+def test_ab_testing_enabled_selects_primary_and_alternate():
+    local = cfg()
+    local["oracle"]["ab_testing_enabled"] = True
+    local["oracle"]["ab_testing_rate"] = 1.0
+
+    plan = perseus._oracle_ab_test_plan("task", [
+        {"token": "tool-a", "weight": 0.8, "reason": "2/2 completed"},
+        {"token": "tool-b", "weight": -0.4, "reason": "0/2 completed"},
+    ], local)
+
+    assert plan["active"] is True
+    assert plan["primary"]["token"] == "tool-a"
+    assert plan["alternate"]["token"] == "tool-b"
+    assert plan["id"]
+
+
+def test_oracle_prompt_includes_ab_test_hint():
+    prompt = perseus.render_oracle_prompt("do thing", {
+        "rendered_at": "now",
+        "skills_table": "skills",
+        "services_table": "services",
+        "checkpoint_summary": "checkpoint",
+        "session_digest": "sessions",
+        "ab_test": {
+            "active": True,
+            "id": "abc123",
+            "primary": {"token": "tool-a", "weight": 0.8, "reason": "good"},
+            "alternate": {"token": "tool-b", "weight": -0.4, "reason": "explore"},
+        },
+    })
+
+    assert "A/B Recommendation Test" in prompt
+    assert "primary `tool-a`" in prompt
+    assert "alternate `tool-b`" in prompt
+    assert "ab_test=abc123" in prompt
+
+
+def test_oracle_log_entry_records_ab_test_metadata():
+    entry = perseus.build_oracle_log_entry(
+        task="t",
+        snapshot={"ab_test": {"active": True, "id": "abc123"}},
+        prompt="p",
+        response=None,
+        provider=None,
+        model=None,
+    )
+
+    assert entry["env_snapshot"]["ab_test"] == {"active": True, "id": "abc123"}
+
+
 def test_quick_oracle_prompt_omits_services_and_sessions():
     snap = {
         "rendered_at": "now",
