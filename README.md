@@ -14,7 +14,7 @@ Provider-agnostic defaults now use `PERSEUS_SKILLS_DIR` and `PERSEUS_SESSIONS_DI
 
 Perseus dogfoods itself: `ROADMAP.md` is a live `@perseus` source — the project's own documentation resolves its git state, CLI version, recent sessions, and last checkpoint at render time.
 
-**Status: Alpha v0.6 — Phases 1–8 complete (8.2 federation deferred by design). Phase 8 added `@agent`, `@inbox`, template gallery, cross-platform `cron` scaffolder, read-only `perseus serve` HTTP view, `@query fallback="text"`, and `@if query(...) matches /regex/`. All 19 in-scope tasks closed. 154 tests passing.**
+**Status: Alpha v0.7 — Phases 1–8 all complete including Mnēmē federation (P8.2). Every directive, every CLI command, every config block in the spec is implemented. All 19 tasks closed. 179 tests passing.**
 
 ---
 
@@ -155,6 +155,8 @@ Emits a structured oracle prompt with a live environment snapshot — skills tab
 | `@tree <path> [depth] [match] [exclude]` | Fenced directory tree with plain indentation |
 | `@agent "command" [timeout=N] [strip=true] [fallback="text"]` | Run a local subprocess, embed stdout inline (gated by `render.allow_agent_shell`) |
 | `@inbox [unread=true] [limit=N]` | Render pending point-to-point messages from `perseus inbox send` |
+| `@memory federation [alias=name]` | Render digest of subscribed cross-workspace narratives (see `perseus memory federation`) |
+| `@memory include_federation=true` | Local narrative + appended `## Federated Context` digest |
 
 Any directive accepts a `@cache` modifier:
 
@@ -296,8 +298,7 @@ oracle:
 | **Phase 5E** | Context health: `perseus health` + `@health` (deterministic maintenance heuristics) | ✅ Complete |
 | **Phase 6** | Daedalus — oracle labeling/export CLI + `--llm daedalus` provider routing | ✅ Complete |
 | **Phase 7** | Mnēmē — narrative project memory + `@memory` directive | ✅ Complete |
-| **Phase 8** | `@agent` · `@inbox` · template gallery (`perseus init --template`) · `perseus serve` (read-only HTTP view) · cross-platform `perseus cron` scaffolder | ✅ 4 of 5 sub-tasks complete |
-| **Phase 8 (deferred)** | Cross-workspace Mnēmē federation (P8.2) — design needs clarification | 🔲 Planned |
+| **Phase 8** | `@agent` · `@inbox` · template gallery (`perseus init --template`) · `perseus serve` (read-only HTTP view) · cross-platform `perseus cron` scaffolder · Mnēmē federation (`@memory federation` + manifest + 4 CLI subcommands) | ✅ Complete |
 | **Phase 9 (planned)** | Daedalus v2: closed-loop autonomy (self-rating, trained pattern extraction, drift detection) | 🔲 Planned |
 | **Phase 10 (planned)** | Editor integration (LSP / VSCode) | 🔲 Planned |
 

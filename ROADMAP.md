@@ -45,6 +45,11 @@ checkpoints feed it.
 | **Health** | Deterministic context maintenance heuristics — `perseus health` + `@health` directive (Daedalus v1) | ✅ Phase 5E |
 | **Daedalus** | Local autonomous scoring model — Pythia without a round-trip (dataset + routing shipped; model training is a user step) | ✅ Phase 6 |
 | **Mnēmē** | Narrative project memory — distills checkpoints + oracle log into a per-workspace narrative | ✅ Phase 7 |
+| **Federation** | Cross-workspace Mnēmē narrative aggregation via subscribable manifest | ✅ Phase 8.2 |
+| **Templates** | Starter scaffolds for generic/hermes/rovodev/claude-code/cursor via `perseus init --template` | ✅ Phase 8 |
+| **Serve** | Read-only HTTP view of workspace state | ✅ Phase 8 |
+| **Inbox** | Per-workspace point-to-point message store + `@inbox` directive | ✅ Phase 8 |
+| **Cron** | Cross-platform scheduler (macOS/Linux/BSD) — bridges launchd + systemd | ✅ Phase 8 |
 
 ---
 
@@ -91,6 +96,8 @@ checkpoints feed it.
 | `@health` | ✅ | Inline context maintenance suggestions (task-05) |
 | `@agent "cmd" [timeout=N] [strip] [fallback]` | ✅ | Run a local subprocess, embed stdout inline (task-15) |
 | `@inbox [unread=true] [limit=N]` | ✅ | Render pending point-to-point messages (task-16) |
+| `@memory federation [alias=name]` | ✅ | Cross-workspace narrative digest (task-19) |
+| `@memory include_federation=true` | ✅ | Local narrative + appended federated digest (task-19) |
 
 ### Files
 
@@ -403,7 +410,7 @@ Phase 5A.2 (done):task-07 — multi-workspace checkpoint namespacing
 Phase 6 (done):   task-06 Daedalus — dataset curation (oracle accept/reject/log/export) + --llm daedalus routing
 Phase 7 (done):   task-12 Mnēmē — narrative project memory, @memory directive, auto-update on checkpoint
 Phase 8 (done):   task-15/16/17/18 — @agent, @inbox, template gallery, perseus serve, perseus cron
-Phase 8.2 (deferred): cross-workspace Mnēmē federation — design needs clarification
+Phase 8.2 (done): task-19 Mnēmē federation — manifest, 4 CLI subcommands, @memory federation directive
 ```
 
 ---
