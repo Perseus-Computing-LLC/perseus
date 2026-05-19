@@ -162,6 +162,26 @@ generation:                              # task-39 / Phase 15A
   enabled: false                         # LLM drafting stays opt-in
   model: null                            # optional model override for synthesis
   max_source_bytes: 12000
+
+serve:                                   # task-45 / Phase 17A
+  bind: 127.0.0.1                        # serve binds loopback by default
+
+permissions:                             # task-45 / Phase 17A
+  # profile: null | strict | balanced | power-user
+  # null  → no profile applied; DEFAULT_CONFIG values are used as-is
+  # strict → disables every shell, services-command, outside-workspace, and
+  #          generation surface. Recommended for shared / unattended hosts.
+  # balanced → mirrors current defaults; pin if you don't want future default
+  #            changes to surprise you.
+  # power-user → enables `@services command:` but keeps generation opt-in;
+  #              workspace boundary remains enforced.
+  #
+  # Layering: DEFAULT_CONFIG → profile → global config.yaml → workspace
+  # config.yaml. Explicit keys ALWAYS win over a profile, so a profile is
+  # safe to enable without losing existing overrides. Unknown profile names
+  # are ignored (defaults stay in force); `perseus trust` surfaces the
+  # mismatch so the operator can catch typos.
+  profile: null
   max_claims: 6
 
 agora:                                   # task-04
