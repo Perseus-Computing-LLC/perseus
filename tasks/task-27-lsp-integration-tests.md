@@ -1,12 +1,12 @@
 ---
 id: task-27
 title: "LSP integration test harness \u2014 exercise the real JSON-RPC loop"
-status: open
+status: completed
 priority: medium
 scope: medium
 claimed_by: null
 created: 2026-05-18
-closed: null
+closed: 2026-05-19
 phase: 11
 theme: "C \u2014 Editor + LSP polish"
 depends_on:
@@ -122,3 +122,13 @@ def test_lsp_malformed_jsonrpc_returns_parse_error(lsp_harness):
 2. Write `test_lsp_initialize_returns_capabilities` and get it green.
 3. Layer in the other tests one at a time.
 4. Make sure `pytest -q` doesn't slow down by more than ~2s overall.
+
+## Completed
+
+- Added a real subprocess JSON-RPC harness for `perseus serve --lsp --stdio`.
+- Covered initialize, didOpen/didChange diagnostics, completion from
+  `DIRECTIVE_REGISTRY`, safe hover over `@agent`, shutdown/exit, malformed
+  JSON-RPC, and TCP initialize smoke.
+- Added the LSP mutation gate: `perseus.compactMemory` now requires
+  `--allow-lsp-mutations`; the VSCode bridge exposes this as
+  `perseus.allowMutations`.

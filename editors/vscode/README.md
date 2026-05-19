@@ -9,9 +9,9 @@ specific niceties.
 
 - **Diagnostics** — unknown directives, malformed `@if/@else/@endif`, bad
   `@cache ttl=`, unsubscribed federation aliases, unclosed `@constraint`
-- **Hover** — preview the rendered output of `@waypoint`, `@memory`,
-  `@health`, `@agora`, `@inbox`, `@skills`, `@session`, `@drift`, `@date`,
-  `@agent` directly inline
+- **Hover** — preview safe rendered directives such as `@waypoint`,
+  `@memory`, `@health`, `@agora`, `@inbox`, `@skills`, `@session`,
+  `@drift`, and `@date`; shell-backed directives show a disabled stub
 - **Completion** — directive names + per-directive argument keys
 - **CodeLens** — "▶ Render" lens at the first directive of each document
 - **Commands** — `Perseus: Render Current Document`, `Perseus: Open Latest
@@ -31,6 +31,7 @@ specific niceties.
 |---|---|---|
 | `perseus.binary` | `perseus` | Path to the `perseus` executable. |
 | `perseus.tracing` | `off` | LSP trace level (`off`, `messages`, `verbose`). |
+| `perseus.allowMutations` | `false` | Start the LSP with mutation commands enabled, including Mneme compaction. |
 
 ## Development
 

@@ -268,7 +268,7 @@ Run `perseus <command> --help` for full flags. Summary of the surface:
 | `perseus llm ping [--provider hermes\|ollama\|...]` | Verify the configured LLM provider is reachable. |
 | `perseus init [--template name] <workspace>` | Scaffold a `.perseus/context.md` and `~/.perseus/config.yaml`. |
 | `perseus serve [--port N] [--host H]` | Read-only HTTP view of workspace state on `http://127.0.0.1:7991/`. |
-| `perseus serve --lsp --stdio\|--tcp PORT` | Run as a Language Server Protocol server for editor integration (Phase 10.1). |
+| `perseus serve --lsp --stdio\|--tcp PORT [--allow-lsp-mutations]` | Run as a Language Server Protocol server for editor integration (Phase 10.1). Mutation commands are opt-in. |
 | `perseus cron [setup\|disable] --interval 5m` | Cross-platform scheduler scaffolder (cron/launchd/Task Scheduler). |
 | `perseus systemd [install\|uninstall] --interval 5m` | Linux-only systemd `--user` service + timer scaffolder. |
 | `perseus launchd {install,uninstall}` | macOS-only LaunchAgent scaffolder. |

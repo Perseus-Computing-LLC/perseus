@@ -20,10 +20,15 @@ export function activate(context: vscode.ExtensionContext) {
     const config = vscode.workspace.getConfiguration('perseus');
     const binary = config.get<string>('binary', 'perseus');
     const trace = config.get<string>('tracing', 'off');
+    const allowMutations = config.get<boolean>('allowMutations', false);
+    const serverArgs = ['serve', '--lsp', '--stdio'];
+    if (allowMutations) {
+        serverArgs.push('--allow-lsp-mutations');
+    }
 
     const serverOptions: ServerOptions = {
-        run: { command: binary, args: ['serve', '--lsp', '--stdio'], transport: TransportKind.stdio },
-        debug: { command: binary, args: ['serve', '--lsp', '--stdio'], transport: TransportKind.stdio },
+        run: { command: binary, args: serverArgs, transport: TransportKind.stdio },
+        debug: { command: binary, args: [...serverArgs], transport: TransportKind.stdio },
     };
 
     const clientOptions: LanguageClientOptions = {
@@ -72,11 +77,16 @@ export function activate(context: vscode.ExtensionContext) {
         }),
         vscode.commands.registerCommand('perseus.compactMemory', async () => {
             if (!client) { return; }
-            const result: any = await client.sendRequest('workspace/executeCommand', {
-                command: 'perseus.compactMemory',
-                arguments: [],
-            });
-            vscode.window.showInformationMessage(`Perseus: ${result?.message ?? 'compacted'}`);
+            try {
+                const result: any = await client.sendRequest('workspace/executeCommand', {
+                    command: 'perseus.compactMemory',
+                    arguments: [],
+                });
+                vscode.window.showInformationMessage(`Perseus: ${result?.message ?? 'compacted'}`);
+            } catch (err) {
+                const message = err instanceof Error ? err.message : String(err);
+                vscode.window.showWarningMessage(`Perseus: ${message}`);
+            }
         }),
     );
 

@@ -5695,6 +5695,10 @@ _LSP_DIRECTIVE_ARGS = {s.name: s.args for s in DIRECTIVE_REGISTRY.values()}
 _LSP_DIRECTIVE_NAMES = sorted(_LSP_DIRECTIVE_ARGS.keys())
 
 
+class LSPParseError(Exception):
+    """Raised when a framed LSP message is present but malformed."""
+
+
 def _lsp_read_message(stream) -> dict | None:
     """Read one LSP message (Content-Length + JSON body) from a binary stream."""
     headers = b""
@@ -5704,16 +5708,16 @@ def _lsp_read_message(stream) -> dict | None:
             return None
         headers += ch
         if len(headers) > 8192:
-            return None
+            raise LSPParseError("Header block too large")
     length = 0
     for line in headers.split(b"\r\n"):
         if line.lower().startswith(b"content-length:"):
             try:
                 length = int(line.split(b":", 1)[1].strip())
             except ValueError:
-                return None
+                raise LSPParseError("Invalid Content-Length")
     if length <= 0:
-        return None
+        raise LSPParseError("Missing Content-Length")
     body = b""
     while len(body) < length:
         chunk = stream.read(length - len(body))
@@ -5721,9 +5725,12 @@ def _lsp_read_message(stream) -> dict | None:
             return None
         body += chunk
     try:
-        return json.loads(body.decode("utf-8"))
-    except json.JSONDecodeError:
-        return None
+        decoded = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise LSPParseError(str(exc)) from exc
+    if not isinstance(decoded, dict):
+        raise LSPParseError("JSON-RPC message must be an object")
+    return decoded
 
 
 def _lsp_write_message(stream, obj: dict) -> None:
@@ -5889,7 +5896,11 @@ def _lsp_resolve_directive_for_hover(name: str, args_str: str, cfg: dict, worksp
 def _run_lsp_server(args, cfg) -> int:
     """Run the Perseus LSP server over the configured transport."""
     documents: dict[str, str] = {}
-    server_state = {"workspace": Path.cwd(), "shutdown": False}
+    server_state = {
+        "workspace": Path.cwd(),
+        "shutdown": False,
+        "allow_mutations": bool(getattr(args, "allow_lsp_mutations", False)),
+    }
 
     def transport_stream():
         if getattr(args, "tcp", None):
@@ -5924,7 +5935,11 @@ def _run_lsp_server(args, cfg) -> int:
         notify("textDocument/publishDiagnostics", {"uri": uri, "diagnostics": diags})
 
     while True:
-        msg = _lsp_read_message(reader)
+        try:
+            msg = _lsp_read_message(reader)
+        except LSPParseError as exc:
+            respond(None, None, error={"code": -32700, "message": f"Parse error: {exc}"})
+            continue
         if msg is None:
             break
         method = msg.get("method")
@@ -6024,6 +6039,12 @@ def _run_lsp_server(args, cfg) -> int:
                     pointer = store / "latest.yaml"
                 respond(req_id, {"uri": pointer.as_uri() if pointer.exists() else None})
             elif cmd == "perseus.compactMemory":
+                if not server_state["allow_mutations"]:
+                    respond(req_id, None, error={
+                        "code": -32000,
+                        "message": "Mutation command disabled; restart Perseus LSP with --allow-lsp-mutations",
+                    })
+                    continue
                 ws = server_state["workspace"]
                 msg = _memory_do_compact(ws, cfg, provider=None)
                 respond(req_id, {"message": msg})
@@ -6346,6 +6367,7 @@ def main():
     p_serve.add_argument("--lsp", action="store_true", help="Run as a Language Server Protocol server instead of HTTP")
     p_serve.add_argument("--stdio", action="store_true", help="LSP transport: stdin/stdout (default for --lsp)")
     p_serve.add_argument("--tcp", type=int, default=None, help="LSP transport: listen on TCP port instead of stdio")
+    p_serve.add_argument("--allow-lsp-mutations", action="store_true", dest="allow_lsp_mutations", help="Allow LSP executeCommand handlers that mutate Perseus state")
 
     # cron (cross-platform scheduling)
     p_cron = sub.add_parser("cron", help="Generate a crontab entry for periodic rendering (cross-platform)")

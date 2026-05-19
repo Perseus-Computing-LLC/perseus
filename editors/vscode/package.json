@@ -39,6 +39,11 @@
           "enum": ["off", "messages", "verbose"],
           "default": "off",
           "description": "LSP trace level"
+        },
+        "perseus.allowMutations": {
+          "type": "boolean",
+          "default": false,
+          "description": "Start the Perseus LSP with --allow-lsp-mutations so executeCommand handlers such as compactMemory may write local state."
         }
       }
     }
