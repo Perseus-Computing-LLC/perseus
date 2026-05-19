@@ -1,9 +1,9 @@
 # Developer Handoff — 2026-05-19
 
-**For:** Principal developer continuing Phase 15
+**For:** Principal developer continuing productization
 **Repo:** https://github.com/tcconnally/perseus  
-**Baseline:** task-39 batch, 314 tests passing, 1 sandbox-skipped TCP smoke
-**State:** Phases 11, 12, 13, 14, and 15A complete; continue with task-40 before any render-time synthesis surface
+**Baseline:** productization roadmap batch, 314 tests passing, 1 sandbox-skipped TCP smoke
+**State:** Phases 11, 12, 13, 14, and 15A complete; Phases 15B-22C are queued in Agora as the deployable-product path
 
 ---
 
@@ -15,6 +15,7 @@
 4. `spec/data-model.md` — current schema validation DSL and `perseus validate` contract
 5. `docs/RESOLVER_VS_GENERATOR.md` — decision brief for the Phase 14/15 boundary
 6. `docs/CITED_SYNTHESIS.md` — Phase 15A citation contract and command surface
+7. `docs/PERSEUS_PRODUCT_REPORT.md` — full project/productization report
 
 ---
 
@@ -33,6 +34,7 @@
 | **task-37** online scoring adjustment | task-37 batch | complete | outcome-weighted prompt hints for `perseus suggest` |
 | **task-38** A/B recommendation testing | task-38 batch | complete | opt-in primary/alternate exploration with oracle log attribution |
 | **task-39** cited synthesis contract | task-39 batch | complete | `perseus synthesize`, opt-in LLM drafting, exact quote citation gate |
+| **tasks 40-62** productization roadmap | productization-roadmap batch | open | Phase 15B through v1 release candidate path queued in Agora |
 
 Phase 11 was already complete in the prior handoff: baseline repairs, `DIRECTIVE_REGISTRY`, `perseus doctor`, JSON agent surfaces, LSP integration tests, and the split test suite are all on `main`.
 
@@ -90,7 +92,7 @@ tests/
 
 ---
 
-## Next: Phase 15B
+## Next: Productization Roadmap
 
 Phase 13 and Phase 14 are complete:
 
@@ -119,9 +121,20 @@ a full generator. Phase 15A implements the guardrail foundation:
 - Uncited or invalid claims are dropped.
 - Normal `perseus render` output is unchanged.
 
-Next work is task-40: use the cited-claim contract for cross-source consistency
-synthesis. Do not add a render-time generated section until task-40 proves the
-command surface is useful.
+Next work starts with task-40: use the cited-claim contract for cross-source
+consistency synthesis. Do not add a render-time generated section until task-40
+proves the command surface is useful.
+
+The deployable-product path is now queued through task-62:
+
+- **Phase 15B-C:** finish cited synthesis only where it adds cross-source value.
+- **Phase 16:** product contract, context pack manifest, init/profile workflow.
+- **Phase 17:** permission profiles, redaction, audit log, trust report.
+- **Phase 18:** installer, release artifacts, versioning, scheduler parity.
+- **Phase 19:** adapter conformance, assistant profiles, VSCode release polish.
+- **Phase 20:** authenticated serve, container sidecar, headless watch mode.
+- **Phase 21:** golden eval corpus, performance budgets, compatibility suite.
+- **Phase 22:** v1 docs, demo workspaces, release candidate checklist.
 
 ---
 

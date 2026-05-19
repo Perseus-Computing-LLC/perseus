@@ -458,9 +458,17 @@ oracle:
 | **Phase 13** | Predictive prefetching — static graph, rule-based cache warming, adaptive deterministic/Daedalus scoring | ✅ Complete |
 | **Phase 14** | Adaptive self-optimizing oracle — outcome signals, online scoring, and opt-in A/B exploration | ✅ Complete |
 | **Phase 15A** | Cited synthesis contract — `perseus synthesize`, opt-in generation, exact quote citation gate | ✅ Complete |
-| **Phase 15B+** | Cross-source consistency synthesis and optional curated render surface | 🌅 Planned |
+| **Phase 15B-C** | Cross-source consistency synthesis and optional curated render surface | 🌅 Planned |
+| **Phase 16** | Product contract, context pack manifest, and init/profile workflow | 🌅 Planned |
+| **Phase 17** | Trust, privacy, permission profiles, redaction, and audit reporting | 🌅 Planned |
+| **Phase 18** | Installer, release artifacts, versioning, and scheduler parity | 🌅 Planned |
+| **Phase 19** | Assistant adapter conformance and profile gallery | 🌅 Planned |
+| **Phase 20** | Managed runtime: authenticated serve, container, and watch mode | 🌅 Planned |
+| **Phase 21** | Golden evals, performance budgets, and compatibility gates | 🌅 Planned |
+| **Phase 22** | v1 release candidate docs, demos, and release checklist | 🌅 Planned |
 
-Full detail: [ROADMAP.md](./ROADMAP.md)
+Full detail: [ROADMAP.md](./ROADMAP.md). Productization summary:
+[Perseus Product Report](./docs/PERSEUS_PRODUCT_REPORT.md).
 
 ---
 
