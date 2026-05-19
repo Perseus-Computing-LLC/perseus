@@ -411,6 +411,7 @@ Phase 6 (done):   task-06 Daedalus — dataset curation (oracle accept/reject/lo
 Phase 7 (done):   task-12 Mnēmē — narrative project memory, @memory directive, auto-update on checkpoint
 Phase 8 (done):   task-15/16/17/18 — @agent, @inbox, template gallery, perseus serve, perseus cron
 Phase 8.2 (done): task-19 Mnēmē federation — manifest, 4 CLI subcommands, @memory federation directive
+Phase 8.3 (done): Hermes integration — `hermes` provider alias, `perseus llm ping`, docs/HERMES_INTEGRATION.md
 Phase 9 (scoped): task-20/21/22 — Daedalus self-rating, trained pattern extraction, drift detection
 Phase 10 (scoped): task-23/24 — LSP server, VSCode extension
 ```

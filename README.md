@@ -231,6 +231,31 @@ perseus suggest "best way to search for a pattern across a large Python codebase
 
 ---
 
+## Connecting an LLM (optional)
+
+Perseus is fully usable **without an LLM** — rendering, checkpoints, federation,
+agora, health, and inbox are all deterministic. The LLM-augmented surfaces
+(Pythia oracle, Mnēmē compaction, Daedalus drift detection) plug into whichever
+provider you prefer:
+
+| Provider | Use case |
+|---|---|
+| **`hermes`** | [NousResearch Hermes Agent](https://github.com/NousResearch/hermes-agent) — autonomous agent with built-in provider routing (Claude/GPT/Grok/local). See [`docs/HERMES_INTEGRATION.md`](docs/HERMES_INTEGRATION.md). |
+| **`ollama`** | Local models via Ollama (default; no config needed for `mistral`). |
+| **`openai-compat`** / **`llamacpp`** | Any server speaking OpenAI's `/v1/chat/completions` (vLLM, llama.cpp, LocalAI, LiteLLM, etc.). |
+| **`daedalus`** | Perseus's own fine-tuned local model (task-06 / Phase 9). |
+
+**Verify your setup with one command:**
+
+```bash
+perseus llm ping
+# ✓ hermes · model=claude-sonnet-4.6 · http://localhost:8080 · 312 ms · 'pong'
+```
+
+Full Hermes setup walkthrough: [`docs/HERMES_INTEGRATION.md`](docs/HERMES_INTEGRATION.md).
+
+---
+
 ## Auto-Injection
 
 Perseus works with any assistant that can read a file at session start. The general pattern is:

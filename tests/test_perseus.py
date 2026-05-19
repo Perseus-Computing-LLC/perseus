@@ -2090,3 +2090,118 @@ def test_cmd_memory_federation_pull_reads_without_writing(tmp_path, capsys):
     # Manifest unchanged
     mp_after = perseus._federation_manifest_path(local).stat().st_mtime
     assert mp_before == mp_after
+
+
+# ─── Hermes provider alias + perseus llm ping (Hermes integration) ─────────
+
+
+def test_run_llm_hermes_alias_routes_to_openai_compat(monkeypatch):
+    """`provider=hermes` should hit /v1/chat/completions like openai-compat."""
+    captured = {}
+
+    class Resp:
+        def __enter__(self): return self
+        def __exit__(self, exc_type, exc, tb): return False
+        def read(self):
+            return b'{"choices":[{"message":{"content":"pong"}}]}'
+
+    def fake_urlopen(req, *a, **k):
+        captured["url"] = req.full_url
+        captured["body"] = req.data
+        return Resp()
+
+    monkeypatch.setattr(perseus.urllib.request, "urlopen", fake_urlopen)
+    out, code = perseus.run_llm("hermes", "test", cfg(), model_url="http://localhost:8080")
+    assert code == 0
+    assert out == "pong"
+    # Hermes serves the OpenAI-compatible chat-completions endpoint
+    assert captured["url"] == "http://localhost:8080/v1/chat/completions"
+
+
+def test_run_llm_hermes_uses_hermes_config_keys(monkeypatch):
+    """When `hermes_url`/`hermes_model` are set, they should be used."""
+    captured = {}
+
+    class Resp:
+        def __enter__(self): return self
+        def __exit__(self, exc_type, exc, tb): return False
+        def read(self):
+            return b'{"choices":[{"message":{"content":"ok"}}]}'
+
+    def fake_urlopen(req, *a, **k):
+        captured["url"] = req.full_url
+        captured["payload"] = json.loads(req.data.decode())
+        return Resp()
+
+    monkeypatch.setattr(perseus.urllib.request, "urlopen", fake_urlopen)
+    cfg_ = cfg()
+    cfg_["llm"]["hermes_url"] = "http://hermes.local:9000"
+    cfg_["llm"]["hermes_model"] = "claude-sonnet"
+    out, code = perseus.run_llm("hermes", "test", cfg_)
+    assert code == 0
+    assert captured["url"] == "http://hermes.local:9000/v1/chat/completions"
+    assert captured["payload"]["model"] == "claude-sonnet"
+
+
+def test_run_llm_hermes_falls_back_to_generic_keys(monkeypatch):
+    """If hermes_url is unset, fall back to llm.url (shared openai-compat config)."""
+    captured = {}
+
+    class Resp:
+        def __enter__(self): return self
+        def __exit__(self, exc_type, exc, tb): return False
+        def read(self):
+            return b'{"choices":[{"message":{"content":"ok"}}]}'
+
+    def fake_urlopen(req, *a, **k):
+        captured["url"] = req.full_url
+        return Resp()
+
+    monkeypatch.setattr(perseus.urllib.request, "urlopen", fake_urlopen)
+    cfg_ = cfg()
+    cfg_["llm"]["url"] = "http://shared:7000"
+    perseus.run_llm("hermes", "test", cfg_)
+    assert captured["url"] == "http://shared:7000/v1/chat/completions"
+
+
+def test_run_llm_unsupported_provider_lists_hermes():
+    """Error message should mention hermes so users know it's supported."""
+    text, code = perseus.run_llm("bogus", "test", cfg())
+    assert code == 2
+    assert "hermes" in text
+
+
+def test_cmd_llm_ping_success(monkeypatch, capsys):
+    monkeypatch.setattr(perseus, "run_llm", lambda *a, **k: ("pong", 0))
+    args = argparse.Namespace(llm_sub="ping", provider="hermes", model=None, url=None)
+    rc = perseus.cmd_llm(args, cfg())
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "✓" in out
+    assert "hermes" in out
+
+
+def test_cmd_llm_ping_failure_returns_2(monkeypatch, capsys):
+    monkeypatch.setattr(perseus, "run_llm", lambda *a, **k: ("> ⚠ LLM request failed: connection refused", 2))
+    args = argparse.Namespace(llm_sub="ping", provider="hermes", model=None, url="http://localhost:8080")
+    rc = perseus.cmd_llm(args, cfg())
+    assert rc == 2
+    out = capsys.readouterr().out
+    assert "✗" in out
+    assert "connection refused" in out
+
+
+def test_cmd_llm_ping_unsupported_provider_short_circuits(monkeypatch, capsys):
+    """Unknown providers should bail before run_llm is invoked."""
+    called = []
+    monkeypatch.setattr(perseus, "run_llm", lambda *a, **k: called.append(1) or ("", 0))
+    args = argparse.Namespace(llm_sub="ping", provider="bogus", model=None, url=None)
+    rc = perseus.cmd_llm(args, cfg())
+    assert rc == 2
+    assert not called
+
+
+def test_cmd_llm_unknown_subcommand_returns_3(capsys):
+    args = argparse.Namespace(llm_sub="bogus", provider=None, model=None, url=None)
+    rc = perseus.cmd_llm(args, cfg())
+    assert rc == 3
