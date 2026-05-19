@@ -192,6 +192,15 @@ Disk-cached results survive across processes for as long as their TTL allows:
 
 ---
 
+## Real-World Examples
+
+See how Perseus is used in practice:
+- [Subagent Handover](./docs/EXAMPLES.md#subagent-handover-zero-tax-orientation) — Zero-tax orientation for fresh agents.
+- [Automated Verification](./docs/EXAMPLES.md#automated-environment-verification) — Ensuring context health.
+- [Renderer Dogfooding](./docs/EXAMPLES.md#renderer-dogfooding-self-documenting-roadmap) — Live roadmaps and docs.
+
+---
+
 ## Quick Start
 
 **Requirements:** Python 3.10+ and `pyyaml`.

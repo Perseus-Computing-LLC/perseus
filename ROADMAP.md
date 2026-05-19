@@ -414,239 +414,82 @@ Phase 8.2 (done): task-19 Mnēmē federation — manifest, 4 CLI subcommands, @m
 Phase 8.3 (done): Hermes integration — `hermes` provider alias, `perseus llm ping`, docs/HERMES_INTEGRATION.md
 Phase 9 (done):   task-20/21/22 — `perseus oracle infer-labels`, `memory.pattern_extractor: daedalus`, `perseus oracle drift` + `@drift`
 Phase 10 (done):  task-23/24 — LSP server (`perseus serve --lsp`), VSCode extension (`editors/vscode/`)
-Phase 11+:        Future Development — see themed roadmap below
+Phase 11+:        Future Development — see "Future development" at the bottom of [ROADMAP.md](./ROADMAP.md) | 🌅 Open canvas |
+```
+
+
+---
+
+## Future Directions: Enhancing Uniqueness & IP
+
+These ideas focus on deepening Perseus's core strengths and exploring advanced capabilities to further distinguish it from other applications and increase its intellectual property value. They are aspirational concepts for future phases.
+
+1.  **Proactive Context Discovery & Predictive Pre-fetching:**
+    *   **Concept:** Develop a system where Perseus not only resolves current context but also *predictively identifies* and pre-fetches context that the AI is likely to need *next*, based on the task at hand, historical patterns, and common workflow sequences.
+    *   **Uniqueness:** Minimizes latency and further reduces "pre-flight tax" by anticipating future context requirements, offering a truly proactive context delivery mechanism.
+
+2.  **Adaptive & Self-Optimizing Tool Oracle with Real-time Feedback:**
+    *   **Concept:** Implement a sophisticated, **reinforcement learning-based feedback loop** for the Tool Oracle. The system would actively learn from the *success or failure* (e.g., task completion, error rates, user satisfaction signals) of the chosen tools in real-time.
+    *   **Uniqueness:** Continuously refines the oracle's ranking algorithms, making it truly self-optimizing and uniquely tuned to the specific environment and user preferences over time, evolving beyond static scoring rules.
+
+3.  **Formalized Context Schemas & Semantic Validation Engine:**
+    *   **Concept:** Introduce a declarative language or schema (e.g., a custom DSL or extended JSON Schema) for defining the *structure and semantics* of expected context. Perseus would then not only resolve context but actively **validate it against these schemas**.
+    *   **Uniqueness:** Ensures that the AI receives context that is not just live, but also well-formed, complete, and semantically consistent (e.g., verifying data types, existence of entities). This adds a critical layer of "context quality assurance."
+
+4.  **Generative Context Enhancement with Verified Guardrails:**
+    *   **Concept:** Implement a capability for Perseus to *generatively elaborate* on sparse or ambiguous context using an internal LLM, but with **strict, verifiable guardrails**.
+    *   **Uniqueness:** Moves beyond simple summarization to intelligent, hallucination-resistant context enrichment, where generated information is independently verified against live data or trusted internal knowledge bases before injection.
+
+5.  **Decentralized Context Federation with Dynamic Access Control:**
+    *   **Concept:** Deepen the **federation capabilities** of Perseus to securely and dynamically share context across *decentralized* workspaces or even different organizations. This would involve sophisticated mechanisms for conflict resolution, dynamic access control, and provable data lineage.
+    *   **Uniqueness:** Enables a distributed "global context graph" where multiple Perseus instances can seamlessly and securely exchange verified context segments without a central authority.
+
+---
+
+## Architecture
+
+```
+Source document (.perseus/context.md)
+  @perseus v0.4
+  @query "git log --oneline -5"          ┐
+  @read .env key="PORT"                  │  Directives resolved
+  @waypoint ttl=86400                    │  before context window.
+  @services                              │  Cache layer avoids
+    - name: My App                       │  re-running slow queries.
+      url: http://localhost:3001/health  ┘
+          │
+          ▼ perseus render
+  Resolved markdown (facts, not instructions)
+          │
+          ▼
+  .hermes.md  ←── cron watchdog keeps this ≤5 min fresh
+          │
+          ▼
+  Hermes session start
+  build_context_files_prompt()
+          │
+          ▼
+  AI context window — complete, accurate, zero pre-flight tax
+
+  Waypoints: ~/.perseus/checkpoints/
+  Cache:     ~/.perseus/cache/
+  Config:    ~/.perseus/config.yaml
 ```
 
 ---
 
-### Phase 8 — Live Agent Orchestration ← MOSTLY COMPLETE ✅
+## Etymology
 
-With single-file, single-machine context resolved end-to-end, this arc adds
-multi-agent message passing, a template gallery, and a read-only HTTP view.
+**Perseus** slew Medusa not by meeting her gaze but by watching her reflection in Athena's polished shield. The Medusa here is the paralysis of facing your environment directly — too many tools, stale docs, no continuity between sessions. The mirror is resolved context: you see the situation clearly without being turned to stone by it.
 
-**P8.1 — `@agent` directive ← COMPLETE ✅** (task-15)  
-`@agent "cmd" [timeout=N] [strip=true] [fallback="text"]` — runs a local
-subprocess and embeds its stdout inline. Gated by `render.allow_agent_shell`.
-Composes with the existing `@cache` modifier (including `persist` and `mock`).
+**Hermes** gave Perseus three gifts for the quest: winged sandals for speed, a kibisis to carry what could not be looked at directly, and guidance through the unknown. This Perseus returns the favor — giving Hermes a way to navigate any workspace without the orientation tax.
 
-**P8.2 — Cross-workspace narrative ← DEFERRED**  
-Federation design needs use-case clarification (which workspaces feed which?
-how is conflict resolved?). Not blocking anything else.
+**Pythia** was the Oracle at Delphi who spoke for Apollo. Pilgrims came with impossible questions; she gave them the truth in a form they could act on. The Tool Oracle works the same way: you come with a task and a tangled environment; it gives you ranked paths forward. She didn't need to know everything — she needed to know what mattered *now*.
 
-**P8.3 — Agent inbox ← COMPLETE ✅** (task-16)  
-Per-workspace inbox store at `~/.perseus/inbox/<workspace-hash>/`. CLI:
-`perseus inbox send|list|read|dismiss`. Directive: `@inbox [unread=true] [limit=N]`.
-Adds the comms layer that Agora's task-board model was missing.
-
-**P8.4 — Template gallery ← COMPLETE ✅** (task-17)  
-`templates/{generic,hermes,rovodev,claude-code,cursor}/.perseus/context.md`
-shipped. `perseus init --template <name>` + `perseus init --list-templates`.
-Discovery: `$PERSEUS_TEMPLATE_DIR` → `<dir-of-perseus.py>/templates/` →
-embedded stub.
-
-**P8.5 — `perseus serve` ← COMPLETE ✅** (task-18)  
-Stdlib `http.server` view, read-only. Endpoints: `/`, `/context`, `/narrative`,
-`/health`, `/agora`, `/checkpoint/latest`, `/oracle/log`. POST returns 405.
-Default bind: `127.0.0.1`.
-
-**Bonus — `perseus cron` ← COMPLETE ✅** (Phase 8 add-on)  
-Cross-platform crontab scaffolder. Works on macOS, Linux, BSD — anywhere cron
-is available. Recommended over the OS-specific launchd/systemd wrappers when
-portability matters. `--install` mutates the user's crontab via
-`crontab -l | edit | crontab -`.
+**The Graeae** — the three grey sisters who shared a single eye — are what you're working around. Three sisters who can only see one thing at a time: the current context, the tool choice, or the session history. Perseus stole the eye and made them see all three at once. So does the renderer.
 
 ---
 
-### Phase 9 — Daedalus v2: Closed-loop autonomy ← COMPLETE ✅
+## License
 
-All three task files shipped 2026-05-18.
-
-| Sub-phase | Task | Scope | Status |
-|---|---|---|---|
-| **P9.1** — Self-rating loop | [task-20](tasks/task-20-daedalus-self-rating.md) | medium | ✅ |
-| **P9.2** — Trained pattern extraction in Mnēmē | [task-21](tasks/task-21-trained-pattern-extraction.md) | large | ✅ |
-| **P9.3** — Drift detection | [task-22](tasks/task-22-drift-detection.md) | medium | ✅ |
-
-**P9.1 — Self-rating loop**
-After Pythia recommends X and the user's next checkpoint mentions a tool
-overlapping with X, automatically increment a confidence signal in the
-oracle log. Inferred labels never override explicit accept/reject. New
-CLI: `perseus oracle infer-labels`.
-
-**P9.2 — Trained pattern extraction in Mnēmē**
-Replace rule-based pattern extraction in Mnēmē's "Patterns & Anti-patterns"
-section with a Daedalus inference call when `memory.pattern_extractor:
-daedalus` is configured. Graceful fallback to deterministic on any
-failure. Bundles a `--format daedalus-patterns` export for training-data
-curation.
-
-**P9.3 — Drift detection**
-Three drift metrics (acceptance rate, skill recommendation Jaccard,
-Daedalus confidence) surfaced via `perseus oracle drift` and a new
-`@drift` directive. All thresholds config-driven.
-
----
-
-### Phase 10 — Editor integration ← COMPLETE ✅
-
-Both task files shipped 2026-05-18.
-
-| Sub-phase | Task | Scope | Status |
-|---|---|---|---|
-| **P10.1** — Perseus LSP server | [task-23](tasks/task-23-lsp-server.md) | large | ✅ |
-| **P10.2** — VSCode extension | [task-24](tasks/task-24-vscode-extension.md) | medium | ✅ |
-
-**P10.1 — Perseus LSP server**
-`perseus serve --lsp --stdio|--tcp PORT` ships an LSP 3.17 subset:
-diagnostics (unknown directives, malformed args, stale waypoints),
-hover (live-resolved directive output), completion (directive names +
-arg keys), codeLens ("▶ Render"), and `workspace/executeCommand`
-(render, openCheckpoint, compactMemory). Hand-rolled JSON-RPC — no
-`pygls` (single-file constraint preserved).
-
-**P10.2 — VSCode extension**
-First and only deliverable outside `perseus.py` (mechanically required
-by VSCode's `.vsix` packaging). Lives at `editors/vscode/`. Thin
-TypeScript wrapper: launches the LSP, adds tree view + status bar +
-command palette entries. All real logic stays in the LSP.
-
----
-
-### Phase 11 — Code review remediation ← ACTIVE
-
-The 2026-05-18 principal code review produced one urgent fix-batch
-(v0.8.1, all in `main`) and five follow-up tasks. The remaining tasks are
-spec-complete and waiting for an executor.
-
-| Task | Scope | Open? | Source |
-|---|---|---|---|
-| [task-25](tasks/task-25-directive-registry.md) — `DIRECTIVE_REGISTRY` single source of truth | medium | 🔲 | Review: "no authoritative directive registry" |
-| [task-26](tasks/task-26-perseus-doctor.md) — `perseus doctor` contract stabilizer | small | 🔲 | Review: "next priority — perseus doctor" |
-| [task-27](tasks/task-27-lsp-integration-tests.md) — LSP JSON-RPC integration test harness | medium | 🔲 | Review: "tests do not adequately test the actual LSP event loop" |
-| [task-28](tasks/task-28-agent-json-surfaces.md) — `--json` for oracle/drift/memory/federation/llm | medium | 🔲 | Review: "agents have to scrape prose" |
-| [task-29](tasks/task-29-split-tests-by-subsystem.md) — split test file into 5 subsystem files | small | 🔲 | Review: "discoverability problem at the edge" |
-
-Already shipped in v0.8.1 (no task file — direct fixes per review):
-
-- `_serve_collect_stats` inbox arg-order bug + regression test
-- LSP hover sandboxed; `@agent` / `@query` / `@services` return labelled stub instead of executing
-- `serve --host <non-loopback>` requires explicit `--i-understand-no-auth` flag
-- `cmd_memory` status: removed dead `* 0` legacy slot, documented the field semantics
-- `cmd_oracle infer-labels`: `inferred_none` counter now actually counts (was always 0)
-
----
-
-## Future Development (Phase 11+)
-
-All originally-scoped phases (1-10) are now complete. Perseus v0.8 is
-**feature-complete against the original spec**. Future work is "what next"
-territory — open canvas. Below is the principal engineer's current thinking
-on directions, organized by theme and rough effort.
-
-### Theme A — Closed-loop intelligence (extends Phase 9)
-
-| ID | Title | Scope | Notes |
-|---|---|---|---|
-| **P11.1** | Real confidence scoring from Daedalus | medium | Replace the length-as-confidence proxy in `_compute_drift` with a real model-provided score once Daedalus is fine-tuned. Wire into `@drift` output. |
-| **P11.2** | Inferred-label model bootstrapping | medium | First-run UX: when oracle log has 100+ inferred labels but no explicit ones, prompt the user to spot-check a sample and confirm the inference quality before training. |
-| **P11.3** | Reinforcement loop | large | When `perseus oracle accept` is called, mine the entry's checkpoint window for new pattern signals and update Mnēmē Patterns section incrementally instead of waiting for `memory compact`. |
-
-### Theme B — Federation v2 (extends Phase 8.2)
-
-| ID | Title | Scope | Notes |
-|---|---|---|---|
-| **P12.1** | Section-level federation filters | medium | `subscriptions: [{alias, path, include_sections: ["arc", "decisions"]}]` so a subscriber can opt into specific sections of a publisher narrative. |
-| **P12.2** | Mnēmē federation digest LLM summarization | small | Optional `--llm` flag for `@memory federation` that produces a unified summary across subscriptions instead of concatenated raw narratives. |
-| **P12.3** | Publisher-side access control (requires server mode) | large | When Perseus grows a daemon/server, add publisher-side ACLs for federation. Currently subscriber-side-only by design. |
-| **P12.4** | Federation conflict detection | medium | Flag when two subscribed workspaces have contradictory facts (e.g. same project, different statuses). |
-
-### Theme C — Editor + LSP polish (extends Phase 10)
-
-| ID | Title | Scope | Notes |
-|---|---|---|---|
-| **P13.1** | LSP code actions (refactor hints) | medium | Driven by Mnēmē patterns: "this directive matches an anti-pattern in your narrative — suggest replacement." Requires LSP `textDocument/codeAction`. |
-| **P13.2** | JetBrains plugin | medium | Same model as VSCode extension: thin Kotlin LSP launcher in `editors/jetbrains/`. |
-| **P13.3** | Helix / Neovim setup docs | small | Tested config snippets in `docs/EDITOR_*.md` files. |
-| **P13.4** | LSP `textDocument/formatting` | small | Currently a non-goal; revisit if directive ordering conventions emerge. |
-| **P13.5** | LSP `Last-Modified` / `ETag` for hover cache | small | Currently every hover re-resolves; add a 2s cache per directive instance. |
-
-### Theme D — Team & server mode (the biggest one)
-
-| ID | Title | Scope | Notes |
-|---|---|---|---|
-| **P14.1** | `perseus daemon` mode | xl | Long-running server that owns the checkpoint store, oracle log, Mnēmē narratives. CLI becomes a thin client. Unblocks real auth, real ACLs, multi-user federation, web UI. |
-| **P14.2** | Web UI (extends `perseus serve`) | large | Today `perseus serve` is read-only HTML. Add SPA frontend, edit access, multi-user view. |
-| **P14.3** | Multi-user federation | xl | Requires P14.1 + auth (OAuth, OIDC, or simple shared-secret). Replaces the local-filesystem federation model with a publish/subscribe service. |
-| **P14.4** | Hermes (and other agents) as first-class clients | medium | Today Perseus is invoked by agents through the CLI. With P14.1, agents can connect over an RPC and stream context changes. |
-
-### Theme E — Smaller quality-of-life
-
-| ID | Title | Scope | Notes |
-|---|---|---|---|
-| **P15.1** | `perseus init --interactive` | small | First-run wizard: pick template, configure LLM, set up federation. |
-| **P15.2** | Better error surfaces | small | Currently many failures emit `> ⚠` lines; richer error objects for LSP diagnostics. |
-| **P15.3** | Telemetry opt-in | medium | Anonymized usage telemetry so future roadmap can be data-driven, not just hunch-driven. Must be strictly opt-in and locally-aggregated before any send. |
-| **P15.4** | `perseus doctor` | small | Single command that runs health + ping + federation list + drift + advisory summary. |
-| **P15.5** | `perseus init` template gallery hosted remotely | medium | Today templates are local; allow `--template github:user/repo`. |
-
-### Sequencing recommendation
-
-If I were prioritizing for the next 6 months, the order would be:
-
-1. **P15.4** (`perseus doctor`) — tiny, high-leverage, surfaces all other features
-2. **P11.1** (real confidence scoring) — unblocks more honest drift detection
-3. **P13.5** (LSP hover cache) — improves editor experience instantly
-4. **P12.4** (federation conflict detection) — federation is shipping but not yet stressed
-5. **P14.1** (`perseus daemon` mode) — the largest unlock; everything in Theme D depends on it
-
-Anything in Theme D should wait until at least one of Themes A–C has produced
-real friction worth solving. Build-it-because-you-need-it, not because-it-would-be-cool.
-
----
-
-## Open Tasks
-
-@query "grep -rl 'status: open' /workspace/perseus/tasks/ 2>/dev/null | xargs -I{} basename {} || echo '(none)'"
-
----
-
-## Last Session
-@waypoint ttl=86400
-
----
-
-## Recent Sessions
-@session count=3 topic="perseus"
-
----
-
-## CLI Health
-@services
-  - name: Perseus CLI
-    command: python3 /workspace/perseus/perseus.py --version
-
----
-
-## Environment Reference
-
-| Thing | Where |
-|---|---|
-| Percy CLI | `~/.local/bin/perseus` |
-| Main script | `/workspace/perseus/perseus.py` |
-| Skill | `~/.hermes/skills/perseus/SKILL.md` (`perseus-context-engine`) |
-| Global config | `~/.perseus/config.yaml` |
-| Checkpoints | `~/.perseus/checkpoints/` |
-| Oracle log | `~/.perseus/oracle_log.jsonl` |
-| Cache | `~/.perseus/cache/` |
-| Live context | `/workspace/perseus/.perseus/context.md` |
-| Task queue | `/workspace/perseus/tasks/` |
-| Spec docs | `/workspace/perseus/spec/` |
-| GitHub token | `/home/hermeswebui/.hermes/.env` → `GITHUB_TOKEN` |
-
-**Notes:**
-- Container `$HOME` quirk: use absolute paths (`/home/hermeswebui`) not `~` in config
-- No `gh` CLI — use `curl` + token from `/home/hermeswebui/.hermes/.env`
-- Git push: `https://tcconnally:***@github.com/tcconnally/perseus.git`
-- Services health check shows all ❌ URLError — expected (container can't reach host-network `localhost`). Not a bug.
-- `@constraint` table flushed at end of document. Inline positioning is a future enhancement.
-- Rovo Dev works on the repo asynchronously. Review commits before pulling; check `tasks/` for status.
+MIT
