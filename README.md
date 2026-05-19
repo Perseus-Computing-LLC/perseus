@@ -14,7 +14,7 @@ Provider-agnostic defaults now use `PERSEUS_SKILLS_DIR` and `PERSEUS_SESSIONS_DI
 
 Perseus dogfoods itself: `ROADMAP.md` is a live `@perseus` source — the project's own documentation resolves its git state, CLI version, recent sessions, and last checkpoint at render time.
 
-**Status: Alpha v0.8.1 — Phases 1-14 complete. Phase 14 added deterministic reinforcement signal collection, transparent outcome-weighted Pythia prompt hints, and opt-in A/B recommendation exploration. 38 tasks closed. 308 tests passing, 1 sandbox-skipped TCP smoke.**
+**Status: Alpha v0.8.1 — Phases 1-14 and Phase 15A complete. Phase 15A adds opt-in cited synthesis with exact quote validation; uncited LLM claims are dropped. 39 tasks closed. 314 tests passing, 1 sandbox-skipped TCP smoke.**
 
 ---
 
@@ -217,6 +217,20 @@ prefetch:
         patterns: ["decision", "memory"]
 ```
 
+## Cited Synthesis
+
+`perseus synthesize` is the first Phase 15 surface. It keeps generation outside
+ordinary render output and treats any LLM as a drafter, not an authority. The
+command builds a line-numbered source bundle; when generation is explicitly
+enabled, only claims with exact source quotes and line citations survive.
+Uncited claims are dropped. See [Cited Synthesis](./docs/CITED_SYNTHESIS.md).
+
+```bash
+perseus synthesize "What is the next allowable action?" \
+  --source ROADMAP.md \
+  --source HANDOFF.md
+```
+
 ---
 
 ## Real-World Examples
@@ -297,6 +311,7 @@ Run `perseus <command> --help` for full flags. Summary of the surface:
 | `perseus render <file>` | Resolve all directives in a source document and print rendered output. Add `--output <path>` to write to disk. |
 | `perseus graph <file> [--json]` | Build a static directive graph without executing directives; foundation for predictive prefetching. |
 | `perseus prefetch <file> [--json]` | Apply configured `prefetch.rules` to the static graph and warm directive caches. |
+| `perseus synthesize <question> --source FILE [--json]` | Build a cited-synthesis prompt, or explicitly run an LLM drafter with citation validation. Uncited claims are dropped. |
 | `perseus validate --schema SCHEMA [payload|-] [--json]` | Validate YAML/JSON payloads against Perseus schemas; omit payload or pass `-` to read stdin. |
 | `perseus checkpoint --task ... --status ... --next ...` | Write a YAML waypoint to `~/.perseus/checkpoints/`. Auto-updates Mnēmē narrative. |
 | `perseus diff [--from FILE] [--to FILE]` | Show diff between two checkpoints (default: latest two). |
@@ -315,7 +330,7 @@ Run `perseus <command> --help` for full flags. Summary of the surface:
 | `perseus systemd [install\|uninstall] --interval 5m` | Linux-only systemd `--user` service + timer scaffolder. |
 | `perseus launchd {install,uninstall}` | macOS-only LaunchAgent scaffolder. |
 
-Agent-readable `--json` contracts for oracle, memory, federation, drift, and LLM health commands are documented in [Agent JSON Surfaces](./docs/AGENT_SURFACES.md).
+Agent-readable `--json` contracts for synthesis, oracle, memory, federation, drift, and LLM health commands are documented in [Agent JSON Surfaces](./docs/AGENT_SURFACES.md).
 
 ---
 
@@ -442,7 +457,8 @@ oracle:
 | **Phase 12** | Schema validation engine — `schema=`, `@validate`, `output_schema`, `perseus validate` | ✅ Complete |
 | **Phase 13** | Predictive prefetching — static graph, rule-based cache warming, adaptive deterministic/Daedalus scoring | ✅ Complete |
 | **Phase 14** | Adaptive self-optimizing oracle — outcome signals, online scoring, and opt-in A/B exploration | ✅ Complete |
-| **Phase 15+** | See the resolver/generator decision gate in [ROADMAP.md](./ROADMAP.md) before proceeding | 🌅 Contingent |
+| **Phase 15A** | Cited synthesis contract — `perseus synthesize`, opt-in generation, exact quote citation gate | ✅ Complete |
+| **Phase 15B+** | Cross-source consistency synthesis and optional curated render surface | 🌅 Planned |
 
 Full detail: [ROADMAP.md](./ROADMAP.md)
 

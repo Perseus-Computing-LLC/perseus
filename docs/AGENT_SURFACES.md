@@ -12,6 +12,56 @@ needed; callers should ignore fields they do not understand.
 All examples are representative. Exact counts, paths, timestamps, and latency
 values depend on the local workspace.
 
+## `perseus synthesize --json`
+
+Returns a Phase 15 cited-synthesis object. Generation is off by default; when
+LLM drafting runs, only claims with exact source quotes and line citations
+survive validation.
+
+```json
+{
+  "version": "phase15a-cited-synthesis-v1",
+  "question": "What is the next allowable action?",
+  "generated": true,
+  "claims": [
+    {
+      "text": "The next action is the Phase 14/15 decision gate.",
+      "citations": [
+        {
+          "source_id": "src1",
+          "path": "/workspace/project/HANDOFF.md",
+          "label": "HANDOFF.md",
+          "line_start": 6,
+          "line_end": 6,
+          "quote": "stop at resolver/generator decision gate before Phase 15"
+        }
+      ]
+    }
+  ],
+  "dropped_claims": [],
+  "source_errors": [],
+  "sources": [
+    {
+      "id": "src1",
+      "path": "/workspace/project/HANDOFF.md",
+      "label": "HANDOFF.md",
+      "line_count": 120,
+      "truncated": false
+    }
+  ],
+  "guardrails": {
+    "citation_required": true,
+    "exact_quote_required": true,
+    "uncited_claims_dropped": true,
+    "model_failure_leaves_render_unchanged": true
+  },
+  "model": {"provider": "ollama", "model": "mistral"}
+}
+```
+
+`dropped_claims` reports uncited, malformed, or non-matching claims. Callers
+should treat only `claims` as accepted generated context.
+
 ## `perseus oracle infer-labels --json`
 
 Summarizes inferred oracle labels and whether the run wrote changes.

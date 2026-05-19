@@ -50,6 +50,7 @@ checkpoints feed it.
 | **Serve** | Read-only HTTP view of workspace state | ✅ Phase 8 |
 | **Inbox** | Per-workspace point-to-point message store + `@inbox` directive | ✅ Phase 8 |
 | **Cron** | Cross-platform scheduler (macOS/Linux/BSD) — bridges launchd + systemd | ✅ Phase 8 |
+| **Synthesis** | Opt-in cited synthesis claims; uncited LLM output is dropped | ✅ Phase 15A |
 
 ---
 
@@ -64,6 +65,7 @@ checkpoints feed it.
 | `perseus render <file.md>` | Resolves `@perseus` source doc → plain markdown |
 | `perseus graph <file.md> [--json]` | Builds a static directive graph without executing directives |
 | `perseus prefetch <file.md> [--json]` | Applies opt-in pre-fetch rules to the static graph and warms directive caches |
+| `perseus synthesize "question" --source FILE [--json]` | Builds cited synthesis prompts and validates LLM-drafted claims |
 | `perseus validate --schema SCHEMA [payload|-]` | Validates a payload against a Perseus schema; `--json` for CI/agents |
 | `perseus checkpoint --task "..."` | Writes timestamped YAML to `~/.perseus/checkpoints/` |
 | `perseus recover` | Prints latest checkpoint (workspace + TTL aware) |
@@ -427,7 +429,7 @@ Phase 14:         Adaptive Self-Optimizing Oracle — RL-driven Pythia scoring
               ════════════════════════════════════════════════════════
               STOP: Product identity decision — resolver vs generator
               ════════════════════════════════════════════════════════
-Phase 15:         Generative Context Enhancement (if decided yes)
+Phase 15:         Cited Synthesis Under Scarcity (bounded curator layer)
 ```
 
 ---
@@ -476,8 +478,9 @@ Split `tests/test_perseus.py` into subsystem files plus `tests/conftest.py`.
 At Phase 11 close the suite collected 272 tests. After Phase 12 it reached
 283 passed, 1 skipped; after Phase 13 it reached 297 passed, 1 skipped; after
 Phase 14A it reached 300 passed, 1 skipped; after Phase 14B it reached
-304 passed, 1 skipped; after Phase 14C it reached 308 passed, 1 skipped
-(sandbox-blocked TCP bind; the same TCP smoke passes outside the sandbox).
+304 passed, 1 skipped; after Phase 14C it reached 308 passed, 1 skipped; after
+Phase 15A it reached 314 passed, 1 skipped (sandbox-blocked TCP bind; the same
+TCP smoke passes outside the sandbox).
 - `test_oracle.py` — suggest, oracle log, drift, infer-labels
 - `test_memory.py` — Mnēmē narrative, federation
 - `test_lsp.py` — LSP helpers, framing, diagnostics
@@ -641,12 +644,14 @@ the oracle log for later accept/reject and outcome attribution.
 and presents it faithfully. The value proposition is trust: what Perseus gives
 you is true.**
 
-Phase 15 makes Perseus a *generator*. It starts putting words in the context
-window that didn't come directly from the environment. Even with guardrails,
-this is a philosophical shift:
+Phase 15 may add a bounded *curator* layer. It starts putting words in the
+context window that did not come directly from one directive, even though every
+claim must be backed by exact source citations. Even with guardrails, this is a
+philosophical shift:
 
 - **Resolver Perseus:** "Here are the facts."
-- **Generator Perseus:** "Here are the facts, and here's what I think they mean."
+- **Curator Perseus:** "Here are the cited facts, compressed into claims the
+  assistant would otherwise have to rediscover."
 
 This changes the trust model, the error surface, the testing requirements, and
 the competitive positioning. It might be the right move — but it's not a
@@ -663,27 +668,44 @@ technical decision, it's a product decision.
 
 **Decision brief:** [`docs/RESOLVER_VS_GENERATOR.md`](docs/RESOLVER_VS_GENERATOR.md)
 recommends keeping Phase 14 inside the resolver boundary and treating Phase 15
-generation as an explicit opt-in product pivot.
+generation as an explicit opt-in product pivot. The accepted Phase 15 direction
+is **bounded cited synthesis under context scarcity**, not generic `@read`
+elaboration and not an unconstrained generator.
 
 ---
 
-## Phase 15 — Generative Context Enhancement (Contingent)
+## Phase 15 — Cited Synthesis Under Scarcity
 
-**Goal:** Perseus can *elaborate* sparse context using an LLM, with strict
-verification guardrails. **Only proceed if the decision gate above is resolved.**
+**Goal:** Perseus can produce compact, cited synthesis claims only when it has a
+pre-assistant advantage: broad source access, context compression, stable reuse,
+or cross-source consistency checking. The consuming assistant is already good at
+reasoning over facts, so Perseus must not spend trust budget explaining obvious
+single-source values.
 
-### 15A: Verified elaboration for `@read`
+**Rule:** The LLM is a drafter, not an authority. **No citation, no claim.**
+Contradiction checks are secondary; the primary gate is that every generated
+claim cites exact source text and invalid or uncited claims are dropped.
 
-When `@read` pulls a config value, Perseus can optionally explain *what it
-means* by cross-referencing the project's docs or README. The elaboration is
-verified against the raw value — if it contradicts the source, it's dropped.
+### 15A: Cited synthesis contract and CLI (task-39) ✅
 
-### 15B: Guardrail framework
+Add `perseus synthesize`, an explicit command that builds a line-numbered source
+bundle and, only when generation is enabled, lets an LLM draft claims. The
+validator keeps only claims with exact source quotes and line citations. Normal
+`perseus render` output is unchanged.
 
-Every generated elaboration must pass:
-1. Source citation (which raw context was the basis?)
-2. Contradiction check (does the elaboration contradict any resolved directive?)
-3. Confidence threshold (below threshold → omit, don't guess)
+### 15B: Cross-source consistency synthesis (task-40)
+
+Use the cited-claim contract for high-value checks such as roadmap/handoff/task
+drift, documented-next-action synthesis, and conflicting source summaries. The
+output should compress relationships across sources, not restate individual
+values.
+
+### 15C: Optional render surface for curated sections (task-41)
+
+Only after 15B is useful, add an opt-in render surface that places cited
+synthesis beside resolved context. Generated sections must be plainly labeled,
+JSON surfaces must separate `resolved` from `generated`, and model failure must
+leave ordinary render output unchanged.
 
 ---
 
@@ -729,11 +751,14 @@ Phase 14C ─── A/B recommendation testing ✅ ─────────�
               STOP: Product identity decision             │
               ══════════════════════════════════          │
                                                          │
-Phase 15  ─── Generative Context (if decided yes) ───────┘
+Phase 15A ─── Cited synthesis contract ✅ ────────────────┤
+Phase 15B ─── Cross-source consistency synthesis ─────────┤
+Phase 15C ─── Optional curated render surface ────────────┘
 ```
 
-**Estimated scope:** Phase 11, Phase 12, Phase 13, and Phase 14 are complete.
-The resolver/generator decision gate is next before any Phase 15 work.
+**Estimated scope:** Phase 11, Phase 12, Phase 13, Phase 14, and Phase 15A are
+complete. The next Phase 15 work is cross-source consistency synthesis using the
+citation gate from task-39.
 
 ---
 

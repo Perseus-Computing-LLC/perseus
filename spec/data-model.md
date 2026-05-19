@@ -157,6 +157,12 @@ llm:                                     # task-02 / task-06
   daedalus_model: perseus-daedalus       # routed by --llm daedalus
   daedalus_url: http://localhost:11434
 
+generation:                              # task-39 / Phase 15A
+  enabled: false                         # LLM drafting stays opt-in
+  model: null                            # optional model override for synthesis
+  max_source_bytes: 12000
+  max_claims: 6
+
 agora:                                   # task-04
   tasks_dir: tasks                       # default; can be absolute
 

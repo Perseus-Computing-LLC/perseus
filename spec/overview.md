@@ -1,6 +1,6 @@
 # Perseus — Specification Overview
 
-**Status:** Alpha v0.8.1 / Phase 12 complete
+**Status:** Alpha v0.8.1 / Phase 15A complete
 **Last updated:** 2026-05-19
 
 ---
@@ -22,6 +22,7 @@ It is the mirror Perseus used against Medusa — the assistant faces complexity 
 | Interrupted sessions | Service restart / timeout drops connection mid-task | `checkpoint` — waypoint written continuously; `recover` resumes |
 | Tool selection paralysis | N ways to do a thing; wrong pick wastes turns | `suggest` — ranked tool paths given task + live env state |
 | Silent bad context | Resolved data has the wrong shape | `schema=`, `@validate`, and `perseus validate` catch malformed context before injection |
+| Repeated cross-source orientation | Assistant spends turns rediscovering relationships across docs | `synthesize` — opt-in cited claims with exact source quotes; uncited claims are dropped |
 
 ---
 

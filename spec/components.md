@@ -555,7 +555,35 @@ intended side effect.
 
 ---
 
-## 16. Cron (`perseus cron`) — Cross-platform Scheduling
+## 16. Cited Synthesis (`perseus synthesize`) — Bounded Curator Surface
+
+Phase 15A adds an explicit command surface for cited synthesis. It does not
+change `perseus render` and does not make generated text part of ordinary
+resolved context.
+
+```bash
+perseus synthesize "What is the next allowable action?" \
+  --source ROADMAP.md \
+  --source HANDOFF.md
+```
+
+Without `--llm`, the command prints the prompt that would be sent to a model.
+With `--llm`, generation still requires `generation.enabled: true` or
+`--enable-generation`.
+
+The LLM is a drafter, not an authority. Accepted claims must include:
+
+- claim text
+- at least one source id
+- source path/label
+- line range
+- exact quote present in that line range
+
+Claims without validated citations are dropped. JSON output keeps accepted
+`claims`, `dropped_claims`, `sources`, model metadata, and guardrail metadata
+separate so downstream agents can inspect what survived validation.
+
+## 17. Cron (`perseus cron`) — Cross-platform Scheduling
 
 Generates a crontab entry for periodic rendering. Works on macOS, Linux, BSD.
 Recommended over `perseus launchd` / `perseus systemd` when portability matters.
@@ -577,7 +605,7 @@ easy lookup.
 
 ---
 
-## 17. Mnēmē Federation (task-19, Phase 8.2)
+## 18. Mnēmē Federation (task-19, Phase 8.2)
 
 Cross-workspace narrative aggregation. Lets one workspace subscribe to
 another workspace's Mnēmē narrative so curated project memory flows across

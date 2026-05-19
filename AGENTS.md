@@ -25,6 +25,7 @@ Core surfaces:
 | **Agora** | `perseus agora ...` / `@agora` | Task board and scoped agent coordination |
 | **Mnēmē** | `perseus memory ...` / `@memory` | Narrative project memory and federation |
 | **Prefetch** | `perseus graph` / `perseus prefetch` | Static directive graphing and opt-in cache warming |
+| **Synthesis** | `perseus synthesize ...` | Opt-in cited claims; uncited LLM output is dropped |
 
 **Design philosophy:** Perseus is assistant-agnostic. It was built alongside Hermes Agent but
 is not tied to it. The renderer output is plain markdown. The checkpoint store is plain YAML.

@@ -8,6 +8,11 @@ Perseus is assistant-agnostic. The core pattern is simple:
 
 The rendered output is plain markdown. No special file format is required.
 
+Phase 15 cited synthesis is deliberately separate from this render path.
+`perseus synthesize` can draft compact claims from source files, but only
+explicitly, only with exact citations, and without changing ordinary rendered
+context.
+
 ---
 
 ## The Pattern

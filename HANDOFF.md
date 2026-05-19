@@ -1,19 +1,20 @@
 # Developer Handoff — 2026-05-19
 
-**For:** Principal developer at the Phase 14/15 decision gate
+**For:** Principal developer continuing Phase 15
 **Repo:** https://github.com/tcconnally/perseus  
-**Baseline:** task-38 batch, 308 tests passing, 1 sandbox-skipped TCP smoke
-**State:** Phases 11, 12, 13, and 14 complete; stop at resolver/generator decision gate before Phase 15
+**Baseline:** task-39 batch, 314 tests passing, 1 sandbox-skipped TCP smoke
+**State:** Phases 11, 12, 13, 14, and 15A complete; continue with task-40 before any render-time synthesis surface
 
 ---
 
 ## Read These First
 
-1. `ROADMAP.md` — canonical future plan through Phase 15 and the resolver/generator decision gate
+1. `ROADMAP.md` — canonical future plan through Phase 15 cited synthesis
 2. `AGENTS.md` — contributor constraints and task workflow
 3. `tasks/README.md` — Agora workflow
 4. `spec/data-model.md` — current schema validation DSL and `perseus validate` contract
 5. `docs/RESOLVER_VS_GENERATOR.md` — decision brief for the Phase 14/15 boundary
+6. `docs/CITED_SYNTHESIS.md` — Phase 15A citation contract and command surface
 
 ---
 
@@ -31,6 +32,7 @@
 | **task-36** reinforcement signal collection | task-36 batch | complete | `perseus oracle outcomes`, deterministic checkpoint-correlated outcome signals |
 | **task-37** online scoring adjustment | task-37 batch | complete | outcome-weighted prompt hints for `perseus suggest` |
 | **task-38** A/B recommendation testing | task-38 batch | complete | opt-in primary/alternate exploration with oracle log attribution |
+| **task-39** cited synthesis contract | task-39 batch | complete | `perseus synthesize`, opt-in LLM drafting, exact quote citation gate |
 
 Phase 11 was already complete in the prior handoff: baseline repairs, `DIRECTIVE_REGISTRY`, `perseus doctor`, JSON agent surfaces, LSP integration tests, and the split test suite are all on `main`.
 
@@ -47,7 +49,7 @@ python -m pytest tests/ -q
 Latest local result:
 
 ```text
-308 passed, 1 skipped
+314 passed, 1 skipped
 ```
 
 The skipped test is the TCP LSP smoke when sandboxed; it has passed outside the sandbox.
@@ -64,6 +66,7 @@ tests/
   test_memory_federation.py
   test_lsp.py
   test_doctor.py
+  test_synthesis.py
   test_agent_inbox_template.py
   test_llm.py
   test_platform_misc.py
@@ -87,7 +90,7 @@ tests/
 
 ---
 
-## Next: Decision Gate
+## Next: Phase 15B
 
 Phase 13 and Phase 14 are complete:
 
@@ -106,16 +109,19 @@ Phase 13 and Phase 14 are complete:
    - Keep deterministic fallback and no required model dependency.
    - Preserve the Phase 14 resolver-vs-generator decision gate.
 
-The resolver-vs-generator decision brief now lives at
-`docs/RESOLVER_VS_GENERATOR.md`. It recommends keeping Phase 14 inside the
-resolver boundary and treating Phase 15 generation as an explicit opt-in product
-pivot.
+The resolver-vs-generator decision resolved toward a bounded curator layer, not
+a full generator. Phase 15A implements the guardrail foundation:
 
-The resolver-vs-generator decision brief lives at
-`docs/RESOLVER_VS_GENERATOR.md`. Do not begin Phase 15 generative context work
-unless the owner explicitly chooses that product direction. The conservative
-recommendation is to keep Perseus a trustworthy resolver and make any future
-generation opt-in, labeled, and provenance-backed.
+- `perseus synthesize` builds a line-numbered source bundle.
+- LLM drafting is off by default and requires `generation.enabled: true` or
+  `--enable-generation`.
+- Every surviving claim must cite an exact source quote and line range.
+- Uncited or invalid claims are dropped.
+- Normal `perseus render` output is unchanged.
+
+Next work is task-40: use the cited-claim contract for cross-source consistency
+synthesis. Do not add a render-time generated section until task-40 proves the
+command surface is useful.
 
 ---
 
