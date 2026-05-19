@@ -102,7 +102,7 @@ Do not begin generative context work until all of these are true:
 - Phase 14 recommendation learning is green and documented.
 - The owner explicitly chooses a generator/curator direction. ✅
 - Generated content has a separate output section or command surface.
-- Every generated claim can point back to exact resolved context, oracle log
+- Every generated claim can point back to exact resolved context, Pythia log
   entries, Mneme narrative text, or explicit user input.
 - Model failure leaves normal `perseus render` output unchanged.
 - Tests include golden fixtures, provenance checks, model-unavailable behavior,

@@ -22,7 +22,7 @@ def cfg():
 
 def _seed_oracle_log(monkeypatch, tmp_path, entries):
     monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path)
-    log = tmp_path / "oracle_log.jsonl"
+    log = tmp_path / "pythia_log.jsonl"
     log.write_text("\n".join(json.dumps(e) for e in entries) + "\n")
 
 

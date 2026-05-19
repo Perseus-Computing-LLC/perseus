@@ -2,15 +2,15 @@
 
 ## Priority Order
 
-The oracle is the MVP — the thing that actually solves the Medusa problem. The renderer and waypoints are supporting infrastructure that feed it live environment data to score against. Build order:
+Pythia is the MVP — the thing that actually solves the Medusa problem. The renderer and waypoints are supporting infrastructure that feed it live environment data to score against. Build order:
 
-1. **Oracle** — tool/skill selection with scored recommendations
-2. **Renderer** — live context injection (feeds the oracle's env awareness)
-3. **Checkpoints** — lightweight session recovery (feeds the oracle's recency signal)
+1. **Pythia** — tool/skill selection with scored recommendations
+2. **Renderer** — live context injection (feeds Pythia's env awareness)
+3. **Checkpoints** — lightweight session recovery (feeds Pythia's recency signal)
 
 ---
 
-## 1. Tool Oracle (`perseus suggest`) — **MVP / Alpha**
+## 1. Pythia — Tool Oracle (`perseus suggest`) — **MVP / Alpha**
 
 Given a task description and the current environment state, returns a ranked list of approaches: which Hermes skill to load, which integration to prefer, which path minimizes latency and maximizes fidelity.
 
@@ -166,7 +166,7 @@ checkpoints:
   ttl_s: 86400        # stale after 24h; still kept, just not injected as live
   max_keep: 30
 
-oracle:
+pythia:
   skill_dir: ~/.hermes/skills
   stale_skill_days: 30
   llm_provider: ollama
@@ -184,7 +184,7 @@ assistant:
 
 ## 4. Mnēmē (`perseus memory`) — Narrative Project Memory
 
-Mnēmē distills checkpoints and oracle log entries into a per-workspace narrative
+Mnēmē distills checkpoints and Pythia log entries into a per-workspace narrative
 markdown file stored at `~/.perseus/memory/<workspace-hash>.md`. Snapshots tell you
 where you are now; Mnēmē tells you how you got here.
 
@@ -198,7 +198,7 @@ where you are now; Mnēmē tells you how you got here.
 ### CLI
 
 ```bash
-perseus memory update    # incremental — only new checkpoints + oracle entries
+perseus memory update    # incremental — only new checkpoints + Pythia entries
 perseus memory compact   # full re-distillation; increments compaction_count
 perseus memory show      # print the narrative file
 perseus memory status    # high-water marks, age, mode, size
@@ -284,7 +284,7 @@ Two related surfaces:
 ```bash
 perseus oracle accept <log-id>          # label as accepted
 perseus oracle reject <log-id>          # label as rejected
-perseus oracle log [--limit N] [--unlabeled]
+perseus Pythia log [--limit N] [--unlabeled]
 perseus oracle export [--output FILE] [--format jsonl|alpaca]
 perseus oracle infer-labels [--json]
 perseus oracle outcomes [--dry-run] [--json]
@@ -303,9 +303,9 @@ perseus oracle drift [--json]
 - `suggest` converts recent outcome objects into transparent prompt hints:
   successful completed outcomes boost related recommendation tokens; incomplete
   or error-heavy outcomes lower them. No-data behavior is neutral.
-- Opt-in A/B exploration (`oracle.ab_testing_enabled`) selects deterministic
+- Opt-in A/B exploration (`pythia.ab_testing_enabled`) selects deterministic
   primary/alternate candidates from outcome-weight hints, labels the prompt
-  with an exploration id, and stores `ab_test` metadata in the oracle log.
+  with an exploration id, and stores `ab_test` metadata in the Pythia log.
 
 ### Local model routing
 
@@ -440,7 +440,7 @@ perseus serve [--port 7991] [--host 127.0.0.1] [--workspace .]
 | `/health` | `text/markdown` — health report |
 | `/agora` | `text/markdown` — Agora list |
 | `/checkpoint/latest` | `text/yaml` — workspace pointer or global latest |
-| `/oracle/log?limit=N` | `application/json` — recent oracle log entries |
+| `/oracle/log?limit=N` | `application/json` — recent Pythia log entries |
 
 POST returns 405. No auth — bind to localhost by default.
 
@@ -493,7 +493,7 @@ perseus doctor [--workspace <path>] [--json]
 - latest checkpoint age
 - Mnēmē narrative health
 - federation manifest/subscription health
-- oracle log readability
+- Pythia log readability
 - serve loopback default
 - directive registry invariants
 
@@ -591,7 +591,7 @@ cacheable directives and must include `@cache ttl=N`, `@cache persist`, or
 
 Adaptive prefetch is disabled by default. When enabled, it scores only
 predeclared `adaptive.candidates`. The deterministic backend reads recent
-accepted oracle entries and the workspace Mnēmē narrative for pattern matches.
+accepted Pythia entries and the workspace Mnēmē narrative for pattern matches.
 The `daedalus` backend routes through existing LLM plumbing and falls back to
 deterministic scoring on transport, provider, or parse errors. Daedalus may
 rank candidates; it must not generate new directives or context prose.
@@ -689,7 +689,7 @@ migrating existing manifests.
 **Directive:** see `spec/directives.md` § `@memory federation`.
 
 **Scope (per Q2):** federation reads `~/.perseus/memory/<hash>.md` only.
-Checkpoints, oracle logs, inboxes, task files, health reports, and
+Checkpoints, Pythia logs, inboxes, task files, health reports, and
 rendered full context are **out of scope** for v1.
 
 **Synchronisation (Q4):** the directive re-reads narratives on every render.

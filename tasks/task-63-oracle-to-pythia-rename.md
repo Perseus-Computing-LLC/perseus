@@ -1,4 +1,24 @@
+---
+id: task-63
+title: Task 63 — Oracle → Pythia Rename
+status: completed
+priority: medium
+scope: medium
+claimed_by: codex
+created: 2026-05-19
+closed: 2026-05-19
+phase: housekeeping
+theme: "Pythia naming consistency"
+depends_on: []
+blocks: []
+opened: '2026-05-19'
+---
+
 # Task 63 — Oracle → Pythia Rename
+
+**Status:** completed
+**Claimed by:** codex
+**Closed:** 2026-05-19
 
 **Phase:** Housekeeping  
 **Size:** Medium (2–4 hours)  
@@ -95,7 +115,7 @@ Similarly, `@drift` directive description referencing "Daedalus drift report" is
 8. New tests:
    - `test_oracle_config_legacy_compat` — config with `oracle:` key works and emits deprecation warning
    - `test_pythia_log_migration` — if `oracle_log.jsonl` exists and `pythia_log.jsonl` does not, migration runs automatically
-9. No `TODO` or `FIXME` markers left behind
+9. No deferred cleanup markers left behind
 
 ---
 
@@ -106,3 +126,13 @@ Similarly, `@drift` directive description referencing "Daedalus drift report" is
 - The `oracle_entries` parameter in internal helper functions is purely a Python local variable name — rename these as you go but they carry no external contract.
 - Run `python -m pytest tests/ -x` frequently. The test suite is fast (< 2s collection).
 - This is a `chore` commit, not a `feat`. Commit message: `chore: rename oracle internals to pythia (cosmetic consistency)`
+
+---
+
+## Completed
+
+- Renamed the spec file to `spec/pythia.md` and updated current docs/spec references.
+- Moved internal config reads/writes to `pythia`, with legacy `oracle:` config accepted and warned.
+- Moved the recommendation log to `pythia_log.jsonl`, with one-time migration from the legacy filename.
+- Renamed Mnēmē's Pythia high-water mark to `pythia_entries_processed` while reading legacy frontmatter.
+- Added tests for legacy config compatibility and log migration.

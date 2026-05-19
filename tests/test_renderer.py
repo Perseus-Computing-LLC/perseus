@@ -531,7 +531,7 @@ def test_skills_frontmatter_parses_structurally(tmp_path):
     skill_dir.mkdir(parents=True)
     (skill_dir / "SKILL.md").write_text("---\nname: demo-name\ndescription: uses --- inside text ok\n---\nbody")
     local_cfg = cfg()
-    local_cfg["oracle"]["skill_dir"] = str(tmp_path / "skills")
+    local_cfg["pythia"]["skill_dir"] = str(tmp_path / "skills")
     out = perseus.resolve_skills("", local_cfg)
     assert "demo-name" in out
     assert "uses --- inside text ok" in out

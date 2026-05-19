@@ -161,14 +161,14 @@ The SSH-tunnel option is the simplest secure default — Hermes stays bound to l
 | `ping` returns `Model not found` | `hermes_model` not configured in Hermes | `hermes model` to see what's available |
 | `ping` returns `timeout` | Model is slow (large prompts, GPU offload) | Bump `llm.timeout_s` to 120 or higher |
 | `ping` returns empty/`> ⚠ LLM returned no response.` | Hermes returned 200 but no `choices[0].message.content` | Check Hermes logs; usually a provider misconfig on Hermes's end |
-| `suggest --llm hermes` falls back to deterministic | Same as above — but Pythia is graceful by design | Run `ping` to isolate; check `~/.perseus/oracle.log` |
+| `suggest --llm hermes` falls back to deterministic | Same as above — but Pythia is graceful by design | Run `ping` to isolate; check `~/.perseus/pythia_log.jsonl` |
 
 ---
 
 ## Operational notes
 
 - **Mnēmē auto-update at checkpoint time** is deterministic-only by design. The LLM path runs *only* when explicitly requested via `--llm` or when `memory.llm_provider` is set in config. This means `perseus checkpoint` never blocks on a network round-trip even if Hermes is misconfigured.
-- **Oracle log entries created with `--llm hermes`** record `provider: hermes` and `model: <resolved-model>` in the log, so retrospective dataset exports (`perseus oracle export`) can filter by provider for training-data curation.
+- **Pythia log entries created with `--llm hermes`** record `provider: hermes` and `model: <resolved-model>` in the log, so retrospective dataset exports (`perseus oracle export`) can filter by provider for training-data curation.
 - **Mixing providers per command is fine.** `perseus suggest ... --llm hermes` and `perseus memory compact --llm ollama` in the same shell coexist without state issues.
 
 ---

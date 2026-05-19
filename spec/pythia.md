@@ -1,6 +1,6 @@
-# Tool Oracle
+# Pythia — Tool Oracle
 
-The oracle is Perseus's **MVP and core value proposition.** It answers the question every session: *given this task and this environment, what's the highest-utility path?*
+Pythia is Perseus's **MVP and core value proposition.** It answers the question every session: *given this task and this environment, what's the highest-utility path?*
 
 ---
 
@@ -13,13 +13,13 @@ With Hermes, there are often 3–5 legitimate ways to accomplish any given task.
 - Is this a one-off or should it be a cron job?
 - Is the generic tool path good enough, or does a specialized skill add real fidelity?
 
-Without live environment awareness, picking the right approach requires prior knowledge or trial and error. The oracle collapses that to a single question-and-answer.
+Without live environment awareness, picking the right approach requires prior knowledge or trial and error. Pythia collapses that to a single question-and-answer.
 
 ---
 
 ## Alpha Design: Structured Prompt First, Optional Local Model
 
-The oracle is still built around a **structured prompt over a live environment snapshot**. That remains the core design.
+Pythia is still built around a **structured prompt over a live environment snapshot**. That remains the core design.
 
 Current implementation also supports an optional local-model execution path via `perseus suggest --llm ollama[:model]`. The value is still in the quality and currency of the input; local inference is an execution mode layered on top of the same prompt.
 
@@ -34,7 +34,7 @@ Current implementation also supports an optional local-model execution path via 
   - Recent session digest (active threads, tools used)
     │
     ▼
-[Structured oracle prompt template]
+[Structured Pythia prompt template]
   "Given this environment and this task, rank the top 2-3 approaches.
    For each: name the tools/skills, explain why, call out any deps or risks."
     │
@@ -45,7 +45,7 @@ Current implementation also supports an optional local-model execution path via 
 [Formatted response to user]
 ```
 
-This means the oracle works immediately — no training, no separate service. It gets better as the renderer's environment snapshot gets richer.
+Pythia works immediately — no training, no separate service. It gets better as the renderer's environment snapshot gets richer.
 
 **Future milestone:** local scoring model that runs without a round-trip. The structured prompt output becomes training data.
 
@@ -62,7 +62,7 @@ Optional flags:
 perseus suggest "..." --quick           # lightweight local summary
 perseus suggest "..." --category github  # limit skill search to a category
 perseus suggest "..." --no-services      # skip live service health checks (faster)
-perseus suggest "..." --llm ollama       # run the oracle prompt through local Ollama
+perseus suggest "..." --llm ollama       # run the Pythia prompt through local Ollama
 perseus suggest "..." --llm ollama:llama3.1
 ```
 
@@ -113,12 +113,12 @@ Loaded from: ~/.hermes/skills/  |  checkpoint: none recent
 
 ---
 
-## Oracle Prompt Template
+## Pythia Prompt Template
 
 The core template passed to the assistant during alpha. This is what Perseus assembles and what makes the output useful:
 
 ```
-You are the Perseus Tool Oracle. Given a task and a live environment snapshot,
+You are Perseus Pythia, the Tool Oracle. Given a task and a live environment snapshot,
 recommend the top 2-3 approaches in ranked order.
 
 TASK: {task}
@@ -152,13 +152,13 @@ Format: ranked list, most recommended first. Be direct. No hedging.
 
 ## Evolution Path
 
-| Phase | Oracle Capability |
+| Phase | Pythia Capability |
 |---|---|
 | Alpha | Structured prompt over env snapshot; assistant does ranking |
-| Phase 5A | Optional local-model execution of the same oracle prompt |
-| Beta | Persist oracle outputs; build scoring dataset from accepted recommendations |
+| Phase 5A | Optional local-model execution of the same Pythia prompt |
+| Beta | Persist Pythia outputs; build scoring dataset from accepted recommendations |
 | v1 | Local lightweight scoring model; no round-trip required |
 | Phase 14A | Deterministic outcome signals from checkpoint correlation (`perseus oracle outcomes`) |
 | Phase 14B | Transparent online scoring hints from recent outcome signals |
-| Phase 14C | Opt-in A/B recommendation exploration with oracle log attribution |
+| Phase 14C | Opt-in A/B recommendation exploration with Pythia log attribution |
 | v2 | Cross-session learning; scores improve with usage patterns |

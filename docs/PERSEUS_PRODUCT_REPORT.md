@@ -1,8 +1,8 @@
 # Perseus Product Report
 
 **Date:** 2026-05-19  
-**Status:** Phases 1-14, 15A, and 16 complete; Phases 15B-C and 17-22C queued in Agora
-**Current baseline:** 322 tests passing, 1 sandbox-skipped TCP smoke
+**Status:** Phases 1-14, 15A, 16, 17, and 18A complete; task-63 Pythia rename complete; Phases 15B-C and 18B-22C queued in Agora
+**Current baseline:** 394 tests passing, 1 sandbox-skipped TCP smoke
 
 ---
 
@@ -14,7 +14,7 @@ assistant receives facts instead of instructions to go find facts.
 
 The project has moved beyond a renderer. It now includes checkpoints, Pythia
 recommendations, Agora task coordination, Mneme narrative memory, federation,
-LSP/editor support, schema validation, predictive prefetch, adaptive oracle
+LSP/editor support, schema validation, predictive prefetch, adaptive Pythia
 signals, and the first bounded Phase 15 synthesis surface.
 
 The next product challenge is not "more intelligence." It is packaging the
@@ -22,8 +22,9 @@ existing power into a deployable, understandable, safe product:
 
 - clear product contract ✅
 - portable context pack manifest ✅
-- trust and redaction controls
-- install/release artifacts
+- trust and redaction controls ✅
+- installer bootstrap ✅
+- release artifacts
 - assistant adapter conformance
 - service/container deployment modes
 - eval and compatibility gates
@@ -73,8 +74,10 @@ Claude Code, Cursor, Rovo Dev, or any assistant that can read a file or stdin.
 | LSP/editor | complete baseline | Needs release polish |
 | Schema validation | complete | Built-in validator, no new dependency |
 | Graph/prefetch | complete | Static graph, rules, adaptive scoring |
-| Oracle learning | complete | Outcomes, online hints, opt-in A/B exploration |
+| Pythia learning | complete | Outcomes, online hints, opt-in A/B exploration |
 | Cited synthesis | Phase 15A complete | Command surface and citation gate exist |
+| Trust/redaction/audit | Phase 17 complete | Profiles, redaction, and audit report are live |
+| Installer | Phase 18A complete | `scripts/install.sh` and `INSTALL.md` are live |
 
 ---
 
@@ -88,7 +91,7 @@ Claude Code, Cursor, Rovo Dev, or any assistant that can read a file or stdin.
    ship, if distribution is handled carefully.
 4. **Assistant agnosticism.** Perseus does not depend on one downstream model or
    product.
-5. **Rich local state loop.** Checkpoints, oracle logs, Mneme, and Agora make
+5. **Rich local state loop.** Checkpoints, Pythia logs, Mneme, and Agora make
    context accumulate value across sessions.
 6. **Good test discipline.** The suite is already broad and split by subsystem.
 7. **Right Phase 15 boundary.** The project rejected vague elaboration and kept
@@ -123,8 +126,8 @@ The new Agora roadmap runs through Phase 22:
 |---|---|
 | 15B-C | Finish cited synthesis with cross-source consistency and optional curated render sections |
 | 16 | Define product contract, context pack manifest, and profile-based init ✅ |
-| 17 | Add trust profiles, redaction, audit logs, and trust reports |
-| 18 | Make installation, versioning, release artifacts, and scheduler parity real |
+| 17 | Add trust profiles, redaction, audit logs, and trust reports ✅ |
+| 18 | Make installation, versioning, release artifacts, and scheduler parity real; 18A complete |
 | 19 | Prove adapter compatibility with profiles and conformance tests |
 | 20 | Support managed runtime through authenticated serve, container, and watch mode |
 | 21 | Add golden evals, performance budgets, and migration/compatibility checks |
@@ -145,13 +148,11 @@ This path aims at a product that can be deployed as:
 
 1. Finish task-40 and task-41 only if cited synthesis proves useful in
    cross-source consistency mode.
-2. Do Phase 17 before remote/container exposure. Trust profiles, redaction, and
-   audit logs should precede wider serve/deploy modes.
-3. Do installer/release work before adapter polish, so profiles point at a real
-   install path.
-4. Do adapter conformance before v1 docs, so docs describe verified flows.
-5. Do managed runtime after auth/trust and installer basics.
-6. Treat Phase 21 as the release safety net.
+2. Finish Phase 18B-C before adapter polish, so profiles point at a versioned
+   install and scheduler story.
+3. Do adapter conformance before v1 docs, so docs describe verified flows.
+4. Do managed runtime after auth/trust and installer basics.
+5. Treat Phase 21 as the release safety net.
 7. Freeze features for Phase 22.
 
 ---

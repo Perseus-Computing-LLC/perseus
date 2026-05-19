@@ -352,11 +352,11 @@ def test_memory_status_json_with_narrative(tmp_path, monkeypatch):
     c["memory"]["store"] = str(tmp_path / "memories")
     narrative = perseus._mneme_path(tmp_path, c)
     narrative.parent.mkdir(parents=True)
-    narrative.write_text("---\nupdated: '2026-05-18T12:00:00'\ncheckpoints_processed: 5\noracle_entries_processed: 3\ncompaction_count: 1\n---\nSome narrative content.\n")
+    narrative.write_text("---\nupdated: '2026-05-18T12:00:00'\ncheckpoints_processed: 5\npythia_entries_processed: 3\ncompaction_count: 1\n---\nSome narrative content.\n")
     ns = argparse.Namespace(workspace=str(tmp_path), memory_command="status", json=True, llm=None)
     out, rc = _capture_json(monkeypatch, perseus.cmd_memory, ns, c)
     assert out["exists"] is True
     for key in ("updated", "checkpoints_processed", "checkpoints_pending",
-                "oracle_entries_processed", "oracle_entries_pending",
+                "pythia_entries_processed", "pythia_entries_pending",
                 "compaction_count", "line_count", "mode", "frontmatter"):
         assert key in out, f"Missing key: {key}"

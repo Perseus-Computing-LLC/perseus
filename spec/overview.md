@@ -1,6 +1,6 @@
 # Perseus — Specification Overview
 
-**Status:** Alpha v0.8.1 / Phase 15A complete
+**Status:** Alpha v0.9.0 / Phase 18A plus task-63 complete
 **Last updated:** 2026-05-19
 
 ---
@@ -31,7 +31,7 @@ It is the mirror Perseus used against Medusa — the assistant faces complexity 
 - [`components.md`](components.md) — detailed spec for each component
 - [`directives.md`](directives.md) — full directive reference for the renderer
 - [`integration.md`](integration.md) — assistant integration wiring (AGENTS.md, workdir, cron)
-- [`oracle.md`](oracle.md) — tool oracle design and scoring model **(MVP)**
+- [`pythia.md`](pythia.md) — tool oracle design and scoring model **(MVP)**
 - [`data-model.md`](data-model.md) — file layout, schemas, state storage
 
 ---

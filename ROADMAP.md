@@ -44,7 +44,7 @@ checkpoints feed it.
 | **Agora** | Async agent coordination substrate — task queue + `@agora` directive | ✅ Phase 5C |
 | **Health** | Deterministic context maintenance heuristics — `perseus health` + `@health` directive (Daedalus v1) | ✅ Phase 5E |
 | **Daedalus** | Local autonomous scoring model — Pythia without a round-trip (dataset + routing shipped; model training is a user step) | ✅ Phase 6 |
-| **Mnēmē** | Narrative project memory — distills checkpoints + oracle log into a per-workspace narrative | ✅ Phase 7 |
+| **Mnēmē** | Narrative project memory — distills checkpoints + Pythia log into a per-workspace narrative | ✅ Phase 7 |
 | **Federation** | Cross-workspace Mnēmē narrative aggregation via subscribable manifest | ✅ Phase 8.2 |
 | **Templates** | Starter scaffolds for generic/hermes/rovodev/claude-code/cursor via `perseus init --template` | ✅ Phase 8 |
 | **Serve** | Read-only HTTP view of workspace state | ✅ Phase 8 |
@@ -72,7 +72,7 @@ checkpoints feed it.
 | `perseus recover` | Prints latest checkpoint (workspace + TTL aware) |
 | `perseus diff` | Shows what changed between last two checkpoints |
 | `perseus suggest "<task>"` | Emits structured Pythia prompt over live env snapshot |
-| `perseus suggest "<task>" --llm ollama` | Pipes oracle prompt to local model, no round-trip |
+| `perseus suggest "<task>" --llm ollama` | Pipes Pythia prompt to local model, no round-trip |
 | `perseus init [--profile name] [workspace]` | Scaffolds `.perseus/context.md`; profiles also write `.perseus/pack.yaml` |
 | `perseus launchd` | Scaffolds macOS LaunchAgent plist for scheduled render |
 
@@ -119,13 +119,13 @@ checkpoints feed it.
     overview.md
     components.md
     directives.md
-    oracle.md                   ← named oracle in spec, Pythia in impl
+    pythia.md                   ← Pythia tool recommendation design
     integration.md              ← adapter patterns for wiring to any AI assistant
     data-model.md
   tasks/
     README.md                   ← Agora workflow rules
     task-01-*.md                ← provider-agnostic config
-    task-02-*.md                ← Phase 5A: --llm flag + oracle log
+    task-02-*.md                ← Phase 5A: --llm flag + Pythia log
     task-03-*.md                ← Phase 5B: checkpoint diffing
     task-04-*.md                ← Agora: formal task substrate
   AGENTS.md                     ← agent contributor guide (read this before touching code)
@@ -136,7 +136,7 @@ checkpoints feed it.
   config.yaml
   checkpoints/
   cache/
-  oracle_log.jsonl              ← Pythia recommendation log (Phase 5A+)
+  pythia_log.jsonl              ← Pythia recommendation log (Phase 5A+)
 
 ~/.local/bin/perseus            ← symlink / wrapper
 
@@ -238,15 +238,15 @@ as task-07.
 Make Pythia self-contained — no assistant round-trip required.
 
 **P5A.1 — `--llm` flag** (`tasks/task-02`)  
-Pipe the oracle prompt directly to a locally running model.
+Pipe the Pythia prompt directly to a locally running model.
 - Primary target: **Ollama** (`http://localhost:11434`, OpenAI-compatible API)
 - Secondary: **llama.cpp server** (also OpenAI-compatible)
 - No new dependencies — stdlib `urllib` only
 - Configurable via `llm:` block in `~/.perseus/config.yaml`
 - Flags: `--llm ollama|llamacpp|openai-compat`, `--model <name>`, `--model-url <url>`
 
-**P5A.2 — Oracle recommendation log** (`tasks/task-02`)  
-Every `perseus suggest` call appends a structured entry to `~/.perseus/oracle_log.jsonl`.
+**P5A.2 — Pythia recommendation log** (`tasks/task-02`)
+Every `perseus suggest` call appends a structured entry to `~/.perseus/pythia_log.jsonl`.
 This is the seed of a future fine-tuning dataset for Daedalus (Phase 6).
 - Schema: `{version, timestamp, task, env_snapshot, prompt, response, provider, model, accepted}`
 - `accepted` is `null` at log time — a future command will flip it
@@ -317,11 +317,11 @@ the bronze giant Talos, the golden servants — tools that operated on their own
 
 Daedalus is what Pythia runs on when it no longer needs to phone home.
 
-The `oracle_log.jsonl` built in Phase 5A is the training data seed.
+The `pythia_log.jsonl` built in Phase 5A is the training data seed.
 
 **P6.1 — Dataset curation tooling**  
 `perseus oracle accept <log-id>` / `reject <log-id>` — flip the `accepted` field in
-`oracle_log.jsonl`. Simple CLI for the human to label good recommendations.
+`pythia_log.jsonl`. Simple CLI for the human to label good recommendations.
 
 **P6.2 — Dataset export**  
 `perseus oracle export` — emit labeled entries as a fine-tuning dataset in a standard format
@@ -370,11 +370,11 @@ get here?*
 
 Perseus solves cold-start. Mnēmē solves *arc*: the decisions made three weeks ago, the
 approach tried and rejected, the constraint added after a painful bug. The raw material
-already exists in checkpoints and the oracle log. Mnēmē distills it.
+already exists in checkpoints and the Pythia log. Mnēmē distills it.
 
 **P7.1 — Narrative store and deterministic distillation**  
 Per-workspace narrative file at `~/.perseus/memory/<workspace-hash>.md`. Assembled
-deterministically from checkpoints (decisions, task history) and oracle log (patterns,
+deterministically from checkpoints (decisions, task history) and Pythia log (patterns,
 accepted recommendations). No LLM required for v1.
 
 **P7.2 — LLM-assisted distillation**  
@@ -403,7 +403,7 @@ Phase 2 (done):   @read → @env → @if/@else → @include
 Phase 3 (done):   Cache layer → smart recover → @constraint
 Phase 4 (done):   Self-bootstrapping — ROADMAP.md is now live
 Hardening (done): Parsing safety, trust gates, tests, launchd
-Phase 5 (done):   Track A: Pythia autonomy (--llm, oracle log, diff)
+Phase 5 (done):   Track A: Pythia autonomy (--llm, Pythia log, diff)
                   Track B: Agora (task schema, agora subcommand, @agora directive, provider-agnostic)
 Spec backfill:    task-07 (multi-workspace namespacing)
                   task-08 (@list + @tree directives)
@@ -426,7 +426,7 @@ Phase 11 (done):   Internal hardening — DIRECTIVE_REGISTRY (task-25 ✅), doct
                   --json surfaces (task-28 ✅), LSP integration tests (task-27 ✅), split tests (task-29 ✅)
 Phase 12 (done):  Schema Validation Engine — schema=, @validate, output_schema, validate CLI
 Phase 13:         Predictive Pre-fetching — anticipate next-needed context from patterns
-Phase 14:         Adaptive Self-Optimizing Oracle — RL-driven Pythia scoring
+Phase 14:         Adaptive Self-Optimizing Pythia — RL-driven Pythia scoring
               ════════════════════════════════════════════════════════
               STOP: Product identity decision — resolver vs generator
               ════════════════════════════════════════════════════════
@@ -459,7 +459,7 @@ one registry entry + one resolver function.
 ### 11B: `perseus doctor` (task-26) ✅
 
 Readiness probe command with 10 checks (config, context file, render settings,
-checkpoint age, Mnēmē narrative, federation, oracle log, serve loopback,
+checkpoint age, Mnēmē narrative, federation, Pythia log, serve loopback,
 directive registry). Supports `--json` for CI/agent consumption.
 
 ### 11C: `--json` Agent Surfaces (task-28) ✅
@@ -488,9 +488,10 @@ At Phase 11 close the suite collected 272 tests. After Phase 12 it reached
 Phase 14A it reached 300 passed, 1 skipped; after Phase 14B it reached
 304 passed, 1 skipped; after Phase 14C it reached 308 passed, 1 skipped; after
 Phase 15A it reached 314 passed, 1 skipped; after Phase 16 it reached
-322 passed, 1 skipped (sandbox-blocked TCP bind; the same TCP smoke passes
+322 passed, 1 skipped; after Phase 17/18A plus task-63 it reached
+394 passed, 1 skipped (sandbox-blocked TCP bind; the same TCP smoke passes
 outside the sandbox).
-- `test_oracle.py` — suggest, oracle log, drift, infer-labels
+- `test_oracle.py` — suggest, Pythia log, drift, infer-labels
 - `test_memory.py` — Mnēmē narrative, federation
 - `test_lsp.py` — LSP helpers, framing, diagnostics
 
@@ -563,7 +564,7 @@ it, reducing even the render-time latency.
 ### 13A: Directive dependency graph (task-33) ✅
 
 The registry declares what each directive reads and produces. Build a static
-dependency graph: if `@query "git status"` is in the doc, and the oracle log
+dependency graph: if `@query "git status"` is in the doc, and the Pythia log
 shows it's almost always followed by `git diff`, pre-cache the diff output.
 
 **Status:** Complete. `perseus graph <source> [--json]` scans a source document
@@ -597,27 +598,27 @@ activate based on the current task context. This is where Daedalus transitions
 from "label UI + export" to an active runtime component.
 
 **Status:** Complete. Adaptive prefetch is opt-in under `prefetch.adaptive`.
-Deterministic scoring uses recent oracle/Mnēmē pattern text with no LLM. The
+Deterministic scoring uses recent Pythia/Mnēmē pattern text with no LLM. The
 Daedalus backend routes through existing LLM plumbing, fails gracefully to the
 deterministic scorer, and only scores predeclared cache-warming candidates. It
 does not generate new context prose or cross the Phase 14/15 decision gate.
 
 ---
 
-## Phase 14 — Adaptive Self-Optimizing Oracle
+## Phase 14 — Adaptive Self-Optimizing Pythia
 
 **Goal:** Pythia's recommendations improve autonomously from real usage signals.
 
 ### 14A: Reinforcement signal collection (task-36) ✅
 
-The oracle log already captures accept/reject. Extend it with:
+The Pythia log already captures accept/reject. Extend it with:
 - Task completion signal (did the accepted recommendation lead to a completed
   checkpoint?)
 - Error rate (did the session hit errors after following the recommendation?)
 - Time-to-completion
 
 **Status:** Complete. `perseus oracle outcomes [--dry-run] [--json]`
-correlates accepted and inferred-accepted oracle entries with subsequent
+correlates accepted and inferred-accepted Pythia entries with subsequent
 checkpoints and writes deterministic `outcome` objects containing completion,
 error-rate, checkpoint-count, and time-to-completion signals.
 
@@ -628,20 +629,20 @@ No full retrain needed — moving average over recent accept/reject ratios per
 tool/skill path.
 
 **Status:** Complete. `perseus suggest` now computes deterministic
-outcome-weight hints from recent oracle entries with task-36 `outcome` objects.
+outcome-weight hints from recent Pythia entries with task-36 `outcome` objects.
 Successful completed outcomes boost related recommendation tokens; incomplete
-or error-heavy outcomes lower them. The hints are transparent in the oracle
+or error-heavy outcomes lower them. The hints are transparent in the Pythia
 prompt and omitted when no outcome data exists.
 
 ### 14C: A/B recommendation testing (task-38) ✅
 
 Occasionally present alternative recommendations alongside the primary one.
-Track which the user follows. Exploration/exploitation tradeoff for the oracle.
+Track which the user follows. Exploration/exploitation tradeoff for Pythia.
 
 **Status:** Complete. A/B exploration is off by default. When enabled, Pythia
 selects deterministic primary/alternate candidates from outcome-weight signals,
 labels the prompt with an exploration id, and records the `ab_test` metadata in
-the oracle log for later accept/reject and outcome attribution.
+the Pythia log for later accept/reject and outcome attribution.
 
 ---
 
@@ -748,18 +749,21 @@ portable profile contexts plus pack manifests for `generic`, `hermes`, `codex`,
   `perseus init` can create usable profiles for common assistants and product
   modes.
 
-### Phase 17 — Trust, Privacy, and Local Policy
+### Phase 17 — Trust, Privacy, and Local Policy ✅
 
 **Goal:** Make Perseus safe enough for broader deployment. A product user should
 be able to see what can execute, what can leave the workspace, what was read,
 and what was redacted.
 
-- **17A Permission profiles (task-45):** Provide named trust profiles such as
+**Status:** Complete. `perseus trust`, permission profiles, deterministic
+redaction, audit logging, and `perseus trust audit` are live.
+
+- **17A Permission profiles (task-45) ✅:** Provide named trust profiles such as
   `strict`, `balanced`, and `power-user` over shell, file, serve, agent, and
   generation behavior.
-- **17B Secrets and redaction (task-46):** Add deterministic redaction for
+- **17B Secrets and redaction (task-46) ✅:** Add deterministic redaction for
   rendered output, synthesis prompts, logs, and serve endpoints.
-- **17C Audit log and trust report (task-47):** Record local file/shell/model
+- **17C Audit log and trust report (task-47) ✅:** Record local file/shell/model
   access decisions and expose a human/JSON `perseus trust` report.
 
 ### Phase 18 — Distribution and Installation
@@ -768,7 +772,10 @@ and what was redacted.
 the single-file implementation while adding real release artifacts and platform
 smoke checks.
 
-- **18A Installer bootstrap (task-48):** Add a single-file install/update path
+**Status:** 18A complete. Release artifacts/versioning and scheduler parity
+remain queued as task-49 and task-50.
+
+- **18A Installer bootstrap (task-48) ✅:** Add a single-file install/update path
   that places Perseus on PATH and verifies `pyyaml`.
 - **18B Release artifacts and versioning (task-49):** Define version bump,
   changelog, checksum, and signed/hashed release artifact workflow.
@@ -810,7 +817,7 @@ fixtures, performance budgets, and migration checks before v1.
 - **21B Performance budgets (task-58):** Track render, graph, prefetch,
   synthesize, serve, and LSP latency against documented budgets.
 - **21C Compatibility and migration suite (task-59):** Verify old configs,
-  checkpoints, cache files, oracle logs, and memory narratives still work.
+  checkpoints, cache files, Pythia logs, and memory narratives still work.
 
 ### Phase 22 — v1 Release Candidate
 
@@ -882,11 +889,11 @@ Phase 16A ─── Product contract ✅ ─────────────
 Phase 16B ─── Context pack manifest ✅ ──────────────────┤
 Phase 16C ─── Init/profile workflow ✅ ──────────────────┤
                                                          │
-Phase 17A ─── Permission profiles ───────────────────────┤
-Phase 17B ─── Secrets and redaction ─────────────────────┤
-Phase 17C ─── Audit log and trust report ────────────────┤
+Phase 17A ─── Permission profiles ✅ ────────────────────┤
+Phase 17B ─── Secrets and redaction ✅ ──────────────────┤
+Phase 17C ─── Audit log and trust report ✅ ─────────────┤
                                                          │
-Phase 18A ─── Installer bootstrap ───────────────────────┤
+Phase 18A ─── Installer bootstrap ✅ ────────────────────┤
 Phase 18B ─── Release artifacts/versioning ──────────────┤
 Phase 18C ─── Scheduler parity ──────────────────────────┤
                                                          │
@@ -907,9 +914,9 @@ Phase 22B ─── Example workspace/demo pack ──────────�
 Phase 22C ─── v1 release candidate checklist ────────────┘
 ```
 
-**Estimated scope:** Phase 11, Phase 12, Phase 13, Phase 14, Phase 15A, and
-Phase 16 are complete. Phases 15B-C and 17A through 22C remain queued in Agora
-as the productization path to a deployable v1.
+**Estimated scope:** Phase 11, Phase 12, Phase 13, Phase 14, Phase 15A,
+Phase 16, Phase 17, and Phase 18A are complete. Phases 15B-C and 18B through
+22C remain queued in Agora as the productization path to a deployable v1.
 
 ---
 
