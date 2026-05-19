@@ -14,6 +14,7 @@ Run a shell command and embed stdout. Shell execution can be disabled via `rende
 ```
 @query "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'"
 @query "git log --oneline -5" @cache session
+@query "python scripts/status.py" schema="status"
 ```
 
 Options:
@@ -24,6 +25,9 @@ Options:
   literal text as a bare string (no fence). Both `"text"` and `'text'`
   quoting work. Backslash escapes are honored (`\n`, `\t`, etc.). Composes
   with `@cache`: write the fallback BEFORE the cache modifier.
+- `schema="name.yaml"` — parse stdout as YAML and validate it against a schema.
+  Relative schema names resolve from `.perseus/schemas/` first, then the
+  workspace root. Extensionless names try `.yaml` and `.yml`.
 
 ---
 
@@ -36,9 +40,17 @@ Read a structured file and extract a value.
 @read ./package.json path="version"
 @read .env key="PORT" fallback="3001"
 @read config.yaml path="database.host"
+@read config.yaml path="database" schema="database"
 ```
 
 Supported formats: JSON, YAML, TOML, `.env`, plaintext.
+
+Options:
+- `path="a.b.0"` — extract a nested value from JSON/YAML/TOML.
+- `key="NAME"` — extract `NAME=value` from `.env`-style files.
+- `fallback="text"` — value to return when the file, key, or path is missing.
+- `schema="name.yaml"` — validate the full file, extracted path, `.env` key, or
+  fallback before injecting it.
 
 ### `@include`
 Inline the full contents of a file at the directive site.
@@ -73,9 +85,31 @@ Resolve an environment variable.
 ```
 @env NODE_ENV fallback="development"
 @env DATABASE_URL required=true
+@env DEPLOY_ENV schema="deploy-env"
 ```
 
 If `required=true` and the var is unset, the rendered output includes a `⚠ MISSING` warning rather than silently omitting it.
+
+`schema="name.yaml"` validates the resolved value, or the fallback when the
+environment variable is unset.
+
+---
+
+## Validation
+
+### `@validate`
+Validate a rendered block before injecting it. The block body is rendered first,
+then parsed as YAML. If the rendered body is a single fenced code block, Perseus
+validates the fenced payload.
+
+```
+@validate schema="service"
+@read config/service.yaml
+@end
+```
+
+If validation fails, Perseus emits a visible warning instead of the invalid
+payload.
 
 ---
 

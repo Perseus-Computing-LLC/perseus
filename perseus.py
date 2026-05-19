@@ -2,7 +2,7 @@
 """
 Perseus — Live Context Engine for AI Assistants
 Alpha v0.4: render (@query, @skills, @services, @session, @read, @env,
-            @if/@else/@endif, @include, @constraint), checkpoint, suggest
+            @if/@else/@endif, @include, @constraint, @validate), checkpoint, suggest
             + @cache session / @cache ttl=N caching layer
             + smart recover with workspace + TTL matching
             + @services command: variant
@@ -70,8 +70,8 @@ def _bind_registry() -> None:
         DirectiveSpec("@session",   resolve_session,   ["count="],                 "inline",  "ac",  reads_files=True, cacheable=True, summary="Recent session digests"),
         DirectiveSpec("@date",      resolve_date,      ["format="],                "inline",  "a",   cacheable=False, summary="Current date/time"),
         DirectiveSpec("@waypoint",  resolve_waypoint,  ["ttl="],                   "inline",  "ac",  reads_files=True, cacheable=True, summary="Latest checkpoint summary"),
-        DirectiveSpec("@read",      resolve_read,      [],                         "inline",  "acw", reads_files=True, cacheable=True, summary="Embed file contents"),
-        DirectiveSpec("@env",       resolve_env,       [],                         "inline",  "a",   cacheable=False, summary="Embed environment variable"),
+        DirectiveSpec("@read",      resolve_read,      ["path=", "key=", "fallback=", "schema="], "inline", "acw", reads_files=True, cacheable=True, summary="Embed file contents"),
+        DirectiveSpec("@env",       resolve_env,       ["required=", "fallback=", "schema="], "inline", "acw", cacheable=False, summary="Embed environment variable"),
         DirectiveSpec("@include",   resolve_include,   [],                         "inline",  "awc", reads_files=True, cacheable=True, summary="Include and render another file"),
         DirectiveSpec("@agora",     resolve_agora,     ["status="],                "inline",  "acw", reads_files=True, cacheable=True, summary="Task board from tasks/*.md"),
         DirectiveSpec("@memory",    resolve_memory,    ["focus=", "federation", "include_federation=", "alias="], "inline", "acw", reads_files=True, cacheable=True, summary="Mnēmē narrative memory"),
@@ -85,6 +85,7 @@ def _bind_registry() -> None:
         DirectiveSpec("@services",  resolve_services,  [],                         "block",   "block", executes_shell=True, safe_for_hover=False, summary="Health-check listed services"),
         DirectiveSpec("@prompt",    resolve_prompt_block, [],                      "block",   "block", summary="System prompt block"),
         DirectiveSpec("@constraint", None,             [],                         "block",   "block", summary="Constraint block for validation"),
+        DirectiveSpec("@validate",  resolve_validate_block, ["schema="],           "block",   "block", reads_files=True, summary="Validate a rendered block against a schema"),
         # Control directives — structural, no resolver
         DirectiveSpec("@if",        None,              [],                         "control", "block", summary="Conditional block start"),
         DirectiveSpec("@else",      None,              [],                         "control", "block", summary="Conditional block else"),
@@ -348,10 +349,12 @@ def _schema_required(value: object) -> bool:
 
 
 def _schema_type_matches(value: object, expected: str) -> bool:
-    """Tiny pykwalify-compatible subset for @query schema= without new deps."""
+    """Minimal schema type matcher used by Phase 12 validation."""
     expected = (expected or "any").strip().lower()
     if expected == "any":
         return True
+    if expected in {"null", "none"}:
+        return value is None
     if expected in {"map", "mapping", "dict", "object"}:
         return isinstance(value, dict)
     if expected in {"seq", "sequence", "list", "array"}:
@@ -367,27 +370,141 @@ def _schema_type_matches(value: object, expected: str) -> bool:
     return True
 
 
+def _schema_sequence_item_schema(schema: object) -> object:
+    """Return the schema for sequence items, accepting pykwalify-like lists."""
+    if isinstance(schema, list):
+        return schema[0] if schema else {"type": "any"}
+    if isinstance(schema, dict):
+        return schema
+    return {"type": "any"}
+
+
+def _schema_path_candidates(schema_ref: str, workspace: Path | None = None) -> list[Path]:
+    """Candidate paths for a schema reference.
+
+    Relative references prefer ``<workspace>/.perseus/schemas/`` and then the
+    workspace root. Absolute references keep their old direct-path behavior.
+    Extensionless refs also try ``.yaml`` and ``.yml``.
+    """
+    raw = Path(schema_ref).expanduser()
+
+    def variants(base: Path) -> list[Path]:
+        if base.suffix:
+            return [base]
+        return [base, base.with_suffix(".yaml"), base.with_suffix(".yml")]
+
+    if raw.is_absolute():
+        return variants(raw)
+
+    candidates: list[Path] = []
+    if workspace is not None:
+        ws = workspace.expanduser().resolve()
+        candidates.extend(variants(ws / ".perseus" / "schemas" / raw))
+        candidates.extend(variants(ws / raw))
+    candidates.extend(variants(raw))
+    return candidates
+
+
+def _load_schema(schema_ref: str, workspace: Path | None = None) -> tuple[Path | None, object | None, str | None]:
+    """Load a YAML schema by reference."""
+    candidates = _schema_path_candidates(schema_ref, workspace)
+    schema_path = next((p for p in candidates if p.exists()), candidates[0] if candidates else None)
+    if schema_path is None:
+        return None, None, "schema path is empty"
+    try:
+        schema_data = yaml.safe_load(schema_path.read_text()) or {}
+    except Exception as exc:
+        return schema_path, None, str(exc)
+    return schema_path, schema_data, None
+
+
+def _schema_validation_error(source: str, schema_ref: str, errors: list[str]) -> str:
+    return (
+        f"> ⚠ `{source}` Validation Error against `{schema_ref}`:\n\n"
+        "```\n" + "\n".join(errors) + "\n```"
+    )
+
+
+def _validate_against_schema_ref(
+    data: object,
+    schema_ref: str | None,
+    workspace: Path | None,
+    source: str,
+) -> str | None:
+    """Return a rendered warning string when validation fails."""
+    if not schema_ref:
+        return None
+    schema_path, schema_data, schema_error = _load_schema(schema_ref, workspace)
+    schema_label = str(schema_path or schema_ref)
+    if schema_error:
+        return f"> ⚠ `{source}` schema error: {schema_error}"
+    validation_errors = _validate_basic_schema(data, schema_data)
+    if validation_errors:
+        return _schema_validation_error(source, schema_label, validation_errors)
+    return None
+
+
+def _unfence_rendered_payload(text: str) -> str:
+    """If a rendered block is one fenced block, validate its inner payload."""
+    stripped = text.strip()
+    lines = stripped.splitlines()
+    if len(lines) >= 2:
+        first = lines[0].strip()
+        last = lines[-1].strip()
+        if re.match(r'^(`{3,}|~{3,})', first):
+            marker = first[:3]
+            if last.startswith(marker):
+                return "\n".join(lines[1:-1])
+    return stripped
+
+
+def _parse_validation_payload(text: str) -> object:
+    payload = _unfence_rendered_payload(text)
+    try:
+        return yaml.safe_load(payload)
+    except Exception:
+        return payload
+
+
 def _validate_basic_schema(data: object, schema: object, prefix: str = "") -> list[str]:
     """Validate the minimal YAML schema subset Perseus documents today.
 
-    Supported subset mirrors the current pykwalify-style examples:
-    top-level ``type: map``/``mapping:``, primitive field ``type`` values, and
-    ``required`` booleans. Unsupported schema features are ignored so Phase 12
-    can define the fuller validator deliberately.
+    Supported subset: ``type``, ``mapping``/``properties``, ``required`` fields,
+    ``sequence``/``items``, ``pattern``, and ``enum``. Unsupported keys are
+    ignored deliberately; this is not full JSON Schema.
     """
     if not isinstance(schema, dict):
         return ["schema must be a mapping"]
 
     expected_type = str(schema.get("type", "any"))
+    label = prefix or "value"
     if not _schema_type_matches(data, expected_type):
-        label = prefix or "value"
         return [f"{label}: expected {expected_type}"]
 
     errors: list[str] = []
+
+    if "enum" in schema:
+        allowed = schema.get("enum")
+        allowed_values = allowed if isinstance(allowed, list) else [allowed]
+        if data not in allowed_values:
+            errors.append(f"{label}: expected one of {allowed_values}")
+
+    pattern = schema.get("pattern")
+    if pattern is not None:
+        if not isinstance(data, str):
+            errors.append(f"{label}: expected string matching /{pattern}/")
+        else:
+            try:
+                if re.search(str(pattern), data) is None:
+                    errors.append(f"{label}: does not match /{pattern}/")
+            except re.error as exc:
+                errors.append(f"{label}: invalid pattern /{pattern}/: {exc}")
+
     mapping = schema.get("mapping")
+    if mapping is None:
+        mapping = schema.get("properties")
     if isinstance(mapping, dict):
         if not isinstance(data, dict):
-            label = prefix or "value"
             return [f"{label}: expected map"]
         for key, rules in mapping.items():
             key_str = str(key)
@@ -397,13 +514,17 @@ def _validate_basic_schema(data: object, schema: object, prefix: str = "") -> li
                 if _schema_required(rules.get("required", False)):
                     errors.append(f"{field_path}: required key missing")
                 continue
-            field_type = str(rules.get("type", "any"))
-            if not _schema_type_matches(data[key_str], field_type):
-                errors.append(f"{field_path}: expected {field_type}")
-            nested_mapping = rules.get("mapping")
-            if nested_mapping is not None:
-                nested_schema = {"type": field_type, "mapping": nested_mapping}
-                errors.extend(_validate_basic_schema(data[key_str], nested_schema, field_path))
+            errors.extend(_validate_basic_schema(data[key_str], rules, field_path))
+
+    sequence_schema = schema.get("sequence")
+    if sequence_schema is None:
+        sequence_schema = schema.get("items")
+    if sequence_schema is not None:
+        if not isinstance(data, list):
+            return [f"{label}: expected seq"]
+        item_schema = _schema_sequence_item_schema(sequence_schema)
+        for idx, item in enumerate(data):
+            errors.extend(_validate_basic_schema(item, item_schema, f"{label}[{idx}]"))
     return errors
 
 
@@ -760,8 +881,9 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
     health checks, etc.).
 
     schema="path": if provided, the stdout is parsed as YAML and validated
-    against the given schema file using pykwalify (if installed). Validation
-    errors are returned as a warning block instead of the output.
+    against the given schema file. Relative schema paths prefer
+    <workspace>/.perseus/schemas/ before the workspace root. Validation errors
+    are returned as a warning block instead of the output.
     """
     shell = cfg["render"].get("shell", "/bin/bash")
     if not cfg["render"].get("allow_query_shell", True):
@@ -830,37 +952,20 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
                 return fallback
             return f"> (no output from `{cmd}`)"
 
-        # schema validation: built-in minimal validator first, optional
-        # pykwalify-compatible surface without requiring a new dependency.
+        # schema validation: pure-Python Phase 12 subset, with schema refs
+        # resolved via <workspace>/.perseus/schemas/ before workspace root.
         if schema_path:
             try:
-                import yaml as _yaml
-                data = _yaml.safe_load(stdout)
+                data = yaml.safe_load(stdout)
             except Exception:
                 return f"> ⚠ `@query` schema validation: stdout is not valid YAML.\n\n```{lang}\n{stdout}\n```"
-            try:
-                schema_data = _yaml.safe_load(Path(schema_path).expanduser().read_text()) or {}
-            except Exception as e:
-                return f"> ⚠ `@query` schema error: {e}"
+            schema_file, schema_data, schema_error = _load_schema(schema_path, workspace)
+            schema_label = str(schema_file or schema_path)
+            if schema_error:
+                return f"> ⚠ `@query` schema error: {schema_error}"
             validation_errors = _validate_basic_schema(data, schema_data)
             if validation_errors:
-                return (
-                    f"> ⚠ `@query` Validation Error against `{schema_path}`:\n\n"
-                    "```\n" + "\n".join(validation_errors) + "\n```"
-                )
-            try:
-                from pykwalify.core import Core as _Core
-                from pykwalify.errors import SchemaError as _SchemaError
-                import logging as _logging
-                _logging.getLogger("pykwalify").setLevel(_logging.CRITICAL)
-                c = _Core(source_data=data, schema_files=[str(schema_path)])
-                c.validate(raise_exception=True)
-            except ImportError:
-                pass  # optional dependency; built-in validation already ran
-            except _SchemaError as e:
-                return f"> ⚠ `@query` Validation Error against `{schema_path}`:\n\n```\n{e}\n```"
-            except Exception as e:
-                return f"> ⚠ `@query` schema error: {e}"
+                return _schema_validation_error("@query", schema_label, validation_errors)
 
         return f"```{lang}\n{stdout}\n```"
 
@@ -968,14 +1073,35 @@ def resolve_agent(args_str: str, cfg: dict, workspace: Path | None = None) -> st
 
 # ──────────────────────────────── @read ───────────────────────────────────────
 
+def _parse_read_content_for_validation(content: str, ext: str) -> object:
+    """Parse @read content for schema validation."""
+    ext = ext.lower()
+    if ext == ".json":
+        return json.loads(content)
+    if ext in (".yaml", ".yml"):
+        return yaml.safe_load(content)
+    if ext == ".toml":
+        try:
+            import tomllib  # Python 3.11+
+            return tomllib.loads(content)
+        except ImportError:
+            try:
+                import tomli
+                return tomli.loads(content)  # type: ignore[import]
+            except ImportError as exc:
+                raise RuntimeError("TOML support requires `tomllib` (Python 3.11+) or `pip install tomli`") from exc
+    return content
+
+
 def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str:
     """
-    @read <file> [path="key.subkey"] [key="ENV_KEY"] [fallback="default"]
+    @read <file> [path="key.subkey"] [key="ENV_KEY"] [fallback="default"] [schema="name.yaml"]
 
     Reads a file and optionally extracts a value from it:
     - path=  : dot-notation traversal for JSON/YAML/TOML files
     - key=   : KEY=VALUE lookup for .env-style files
     - fallback= : value returned when file/key is missing (no fallback → warning)
+    - schema= : validate the full file, path result, or key result
     Without path= or key=, embeds the full file as a fenced code block.
     """
     file_path_str, remaining = _extract_quoted_token(args_str.strip())
@@ -986,6 +1112,11 @@ def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str
     path_key = modifiers.get("path")
     env_key = modifiers.get("key")
     fallback = modifiers.get("fallback")
+    schema_ref = modifiers.get("schema")
+
+    def fallback_result() -> str:
+        warning = _validate_against_schema_ref(fallback, schema_ref, workspace, "@read")
+        return warning or str(fallback)
 
     # Resolve file path
     fp, path_warning = _resolve_path(
@@ -995,19 +1126,19 @@ def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str
     )
     if path_warning:
         if fallback is not None:
-            return fallback
+            return fallback_result()
         return path_warning
 
     if not fp.exists():
         if fallback is not None:
-            return fallback
+            return fallback_result()
         return f"> ⚠ @read: file not found: `{file_path_str}`"
 
     try:
         content = fp.read_text(errors="replace")
     except Exception as e:
         if fallback is not None:
-            return fallback
+            return fallback_result()
         return f"> ⚠ @read: could not read `{file_path_str}`: {e}"
 
     # ── No modifier → full file as fenced block ──
@@ -1017,6 +1148,16 @@ def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str
                     ".toml": "toml", ".env": "text", ".md": "markdown",
                     ".sh": "bash", ".py": "python", ".txt": "text"}
         lang = lang_map.get(ext, "text")
+        if schema_ref:
+            try:
+                data = _parse_read_content_for_validation(content, ext)
+            except Exception as exc:
+                if fallback is not None:
+                    return fallback_result()
+                return f"> ⚠ @read: could not parse `{file_path_str}` for schema validation: {exc}"
+            warning = _validate_against_schema_ref(data, schema_ref, workspace, "@read")
+            if warning:
+                return warning
         return f"```{lang}\n{content.rstrip()}\n```"
 
     # ── key= → .env-style KEY=VALUE lookup ──
@@ -1029,9 +1170,12 @@ def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str
             if k.strip() == env_key:
                 # Strip surrounding quotes from value
                 v = v.strip().strip('"').strip("'")
+                warning = _validate_against_schema_ref(v, schema_ref, workspace, "@read")
+                if warning:
+                    return warning
                 return v
         if fallback is not None:
-            return fallback
+            return fallback_result()
         return f"> ⚠ @read: key `{env_key}` not found in `{file_path_str}`"
 
     # ── path= → JSON/YAML/TOML dot-notation traversal ──
@@ -1060,7 +1204,7 @@ def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str
                     data = yaml.safe_load(content)
         except Exception as e:
             if fallback is not None:
-                return fallback
+                return fallback_result()
             return f"> ⚠ @read: could not parse `{file_path_str}`: {e}"
 
         # Traverse dot-notation path
@@ -1069,7 +1213,7 @@ def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str
             if isinstance(current, dict):
                 if k not in current:
                     if fallback is not None:
-                        return fallback
+                        return fallback_result()
                     return f"> ⚠ @read: path `{path_key}` not found in `{file_path_str}`"
                 current = current[k]
             elif isinstance(current, list):
@@ -1077,14 +1221,17 @@ def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str
                     current = current[int(k)]
                 except (ValueError, IndexError):
                     if fallback is not None:
-                        return fallback
+                        return fallback_result()
                     return f"> ⚠ @read: path `{path_key}` not found in `{file_path_str}`"
             else:
                 if fallback is not None:
-                    return fallback
+                    return fallback_result()
                 return (f"> ⚠ @read: cannot traverse into `{type(current).__name__}` "
                         f"at `{k}` in `{file_path_str}`")
 
+        warning = _validate_against_schema_ref(current, schema_ref, workspace, "@read")
+        if warning:
+            return warning
         return str(current)
 
     return content.rstrip()
@@ -1092,28 +1239,26 @@ def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str
 
 # ──────────────────────────────── @env ────────────────────────────────────────
 
-def resolve_env(args_str: str) -> str:
+def resolve_env(args_str: str, cfg: dict | None = None, workspace: Path | None = None) -> str:
     """
-    @env VAR [required=true] [fallback="default"]
+    @env VAR [required=true] [fallback="default"] [schema="name.yaml"]
 
     Reads an environment variable. Supports:
     - required=true  : emit a warning block if the variable is not set
     - fallback="val" : return this value when the variable is unset
+    - schema=        : validate the resolved value or fallback
     Without either modifier, emits a warning if the variable is unset.
     """
-    parts = args_str.strip().split()
+    parts = args_str.strip().split(maxsplit=1)
     if not parts:
         return "> ⚠ @env: no variable name specified."
 
     var_name = parts[0]
-    remaining = " ".join(parts[1:])
-
-    required = "required=true" in remaining
-
-    fallback = None
-    m = re.search(r'fallback=["\']([^"\']*)["\']', remaining)
-    if m:
-        fallback = m.group(1)
+    remaining = parts[1] if len(parts) > 1 else ""
+    modifiers = _parse_kv_modifiers(remaining)
+    required = _schema_required(modifiers.get("required", False))
+    fallback = modifiers.get("fallback")
+    schema_ref = modifiers.get("schema")
 
     value = os.environ.get(var_name)
 
@@ -1121,9 +1266,15 @@ def resolve_env(args_str: str) -> str:
         if required:
             return f"> ⚠ **`{var_name}` is required but not set.**"
         if fallback is not None:
+            warning = _validate_against_schema_ref(fallback, schema_ref, workspace, "@env")
+            if warning:
+                return warning
             return fallback
         return f"> ⚠ `{var_name}` is not set (no fallback)"
 
+    warning = _validate_against_schema_ref(value, schema_ref, workspace, "@env")
+    if warning:
+        return warning
     return value
 
 
@@ -1871,6 +2022,18 @@ def resolve_prompt_block(content: str) -> str:
     return f"> 📌 **Perseus prompt:** {content.strip()}"
 
 
+def resolve_validate_block(
+    content: str,
+    schema_ref: str,
+    cfg: dict | None = None,
+    workspace: Path | None = None,
+) -> str:
+    """Validate a rendered block and return either the content or a warning."""
+    data = _parse_validation_payload(content)
+    warning = _validate_against_schema_ref(data, schema_ref, workspace, "@validate")
+    return warning or content
+
+
 def _replace_inline_date_outside_code(line: str) -> str:
     """Resolve @date in prose while preserving inline code spans."""
     if "@date" not in line:
@@ -1897,6 +2060,7 @@ def _replace_inline_date_outside_code(line: str) -> str:
 PROMPT_BLOCK_RE = re.compile(r'^@prompt\s*$', re.IGNORECASE)
 PROMPT_END_RE = re.compile(r'^@end\s*$', re.IGNORECASE)
 SERVICES_RE = re.compile(r'^@services\s*$', re.IGNORECASE)
+VALIDATE_RE = re.compile(r'^@validate\s+(.+)$', re.IGNORECASE)
 PERCY_HEADER_RE = re.compile(r'^@perseus(?:\s+.*)?$', re.IGNORECASE)
 IF_RE = re.compile(r'^@if\s+(.+)$', re.IGNORECASE)
 ELSE_RE = re.compile(r'^@else\s*$', re.IGNORECASE)
@@ -1990,6 +2154,35 @@ def _render_lines(
             i += 1  # skip @end
             rule_text = " ".join(body_lines).strip()
             _constraint_rows.append(f"| {con_id} | {con_sev} | {rule_text} |")
+            continue
+
+        # ── @validate schema="..." block ──
+        m_validate = VALIDATE_RE.match(line)
+        if m_validate:
+            attrs = _parse_kv_modifiers(m_validate.group(1))
+            schema_ref = attrs.get("schema")
+            if not schema_ref:
+                output.append('> ⚠ @validate: missing schema="..."')
+                i += 1
+                continue
+
+            block_lines = []
+            i += 1
+            explicit_end = False
+            while i < len(lines):
+                if PROMPT_END_RE.match(lines[i]):
+                    explicit_end = True
+                    i += 1
+                    break
+                block_lines.append(lines[i])
+                i += 1
+
+            if not explicit_end:
+                output.append(f"> ⚠ unmatched @validate: missing @end for schema `{schema_ref}`")
+                break
+
+            rendered_block = _render_lines(block_lines, cfg, workspace, _constraint_rows)
+            output.append(resolve_validate_block(rendered_block, schema_ref, cfg, workspace))
             continue
 
         # ── @services block ──

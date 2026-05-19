@@ -154,7 +154,7 @@ def test_doctor_registry_ok():
     """Doctor registry check passes on the actual registry."""
     result = perseus._doctor_check_registry(cfg(), Path("."))
     assert result.status == "ok"
-    assert "23 directives" in result.value
+    assert f"{len(perseus.DIRECTIVE_REGISTRY)} directives" in result.value
 
 
 def test_doctor_error_exits_1(tmp_path, monkeypatch):

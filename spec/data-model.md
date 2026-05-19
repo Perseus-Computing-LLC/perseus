@@ -22,7 +22,46 @@
   .perseus/
     config.yaml         ← workspace-local config (overrides global)
     context.md          ← workspace-specific live context source (@perseus header)
+    schemas/
+      <name>.yaml       ← validation schemas for @query/@read/@env/@validate
 ```
+
+---
+
+## Schema Validation DSL
+
+Perseus schema validation is intentionally small and pure Python. `pyyaml` remains
+the only required dependency; `pykwalify` and JSON Schema are not required.
+
+Schema references resolve in this order:
+
+1. Absolute path, when an absolute path is provided.
+2. `<workspace>/.perseus/schemas/<name>`.
+3. `<workspace>/<name>`.
+4. The process working directory.
+
+Extensionless references also try `.yaml` and `.yml`.
+
+Supported fields:
+
+```yaml
+type: map            # map/object/dict, seq/list/array, str, int, float, bool, any
+mapping:             # alias: properties
+  name:
+    type: str
+    required: true
+    pattern: "^[a-z0-9-]+$"
+  kind:
+    type: str
+    enum: ["app", "lib"]
+  ports:
+    type: seq
+    items:
+      type: int
+```
+
+Unsupported schema keys are ignored so future schema versions can grow without
+breaking older Perseus versions.
 
 ---
 
@@ -151,7 +190,7 @@ sha256(str(workspace_path.resolve()).encode()).hexdigest()[:12]
 ```markdown
 ---
 schema: 1
-workspace: /workspace/perseus
+workspace: /workspace/example
 workspace_hash: a3f9c12b8e44
 updated: 2026-05-18T14:32:00-05:00
 checkpoints_processed: 47
@@ -161,7 +200,7 @@ last_compaction_at_update: 2
 last_compact_processed: 47
 ---
 
-# Mnēmē — /workspace/perseus
+# Mnēmē — /workspace/example
 
 > Narrative last updated 2026-05-18 14:32 CT.
 > Source: 47 checkpoints, 312 oracle entries.

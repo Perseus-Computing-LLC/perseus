@@ -14,15 +14,15 @@ perseus checkpoint \
   --task "Phase 11: Code Review Remediation" \
   --status "Testing automated recovery via subagent delegation" \
   --next "Final report to user" \
-  --workspace "/workspace/perseus" \
+  --workspace "$PWD" \
   --notes "The goal is to verify the hand-off loop works."
 ```
 
 **2. Child Agent recovers the checkpoint:**
-The child agent only needs one instruction: "Orient yourself using Perseus in `/workspace/perseus`."
+The child agent only needs one instruction: "Orient yourself using Perseus in the current repo checkout."
 
 ```bash
-./perseus.py recover --workspace /workspace/perseus
+./perseus.py recover --workspace "$PWD"
 ```
 
 **Result:** The child agent immediately has the task name, the status, and the specific notes needed to start work without reading through the parent's conversation history.
@@ -42,7 +42,7 @@ A simple Python script that exercises the three pillars:
 
 # 2. Waypoint check (Checkpoints)
 ./perseus.py checkpoint --task "TEST" --status "Checking..."
-./perseus.py recover --workspace /workspace/perseus
+./perseus.py recover --workspace "$PWD"
 
 # 3. Oracle check (Pythia)
 ./perseus.py suggest "How do I fix a broken test?" --quick

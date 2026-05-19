@@ -113,8 +113,8 @@ def test_query_can_be_disabled_by_config():
 
 def test_query_with_schema_validation(tmp_path):
     workspace = tmp_path
-    schemas_dir = workspace / "schemas"
-    schemas_dir.mkdir()
+    schemas_dir = workspace / ".perseus" / "schemas"
+    schemas_dir.mkdir(parents=True)
     schema_file = schemas_dir / "test_schema.yaml"
     schema_file.write_text("""
 type: map
@@ -129,12 +129,117 @@ mapping:
 
     # Test with valid data
     valid_yaml = "{name: my-package, version: 1.0.0}"
-    out = perseus.resolve_query(f'"echo \'{valid_yaml}\'" schema="{schema_file}"', cfg(), workspace)
+    out = perseus.resolve_query(f'"echo \'{valid_yaml}\'" schema="test_schema"', cfg(), workspace)
     assert "my-package" in out
 
     # Test with invalid data
     invalid_yaml = "{name: my-package}"
     out = perseus.resolve_query(f'"echo \'{invalid_yaml}\'" schema="{schema_file}"', cfg(), workspace)
+    assert "Validation Error" in out
+
+
+def test_schema_validator_sequence_pattern_and_enum():
+    schema = {
+        "type": "seq",
+        "items": {
+            "type": "map",
+            "mapping": {
+                "name": {"type": "str", "required": True, "pattern": "^[a-z]+$"},
+                "kind": {"type": "str", "required": True, "enum": ["app", "lib"]},
+            },
+        },
+    }
+
+    assert perseus._validate_basic_schema([{"name": "api", "kind": "app"}], schema) == []
+    errors = perseus._validate_basic_schema([{"name": "API", "kind": "tool"}], schema)
+    assert any("does not match" in e for e in errors)
+    assert any("expected one of" in e for e in errors)
+
+
+def test_read_schema_validates_full_structured_file(tmp_path):
+    schemas_dir = tmp_path / ".perseus" / "schemas"
+    schemas_dir.mkdir(parents=True)
+    (schemas_dir / "service.yaml").write_text("""
+type: map
+mapping:
+  service:
+    type: map
+    required: true
+    mapping:
+      port:
+        type: int
+        required: true
+""")
+    (tmp_path / "service.yaml").write_text("service:\n  port: 3000\n")
+
+    out = perseus.resolve_read('service.yaml schema="service"', cfg(), tmp_path)
+    assert "port: 3000" in out
+
+
+def test_read_schema_validates_extracted_path(tmp_path):
+    schemas_dir = tmp_path / ".perseus" / "schemas"
+    schemas_dir.mkdir(parents=True)
+    (schemas_dir / "port.yaml").write_text("type: int\n")
+    (schemas_dir / "string.yaml").write_text("type: str\n")
+    (tmp_path / "service.yaml").write_text("service:\n  port: 3000\n")
+
+    out = perseus.resolve_read('service.yaml path="service.port" schema="port"', cfg(), tmp_path)
+    assert out == "3000"
+
+    out = perseus.resolve_read('service.yaml path="service.port" schema="string"', cfg(), tmp_path)
+    assert "Validation Error" in out
+
+
+def test_read_schema_validates_env_key_and_fallback(tmp_path):
+    schemas_dir = tmp_path / ".perseus" / "schemas"
+    schemas_dir.mkdir(parents=True)
+    (schemas_dir / "mode.yaml").write_text('type: str\npattern: "^(dev|prod)$"\n')
+    (tmp_path / ".env").write_text("MODE=prod\n")
+
+    out = perseus.resolve_read('.env key="MODE" schema="mode"', cfg(), tmp_path)
+    assert out == "prod"
+
+    out = perseus.resolve_read('.env key="MISSING" fallback="stage" schema="mode"', cfg(), tmp_path)
+    assert "Validation Error" in out
+
+
+def test_env_schema_validates_value_and_fallback(monkeypatch, tmp_path):
+    schemas_dir = tmp_path / ".perseus" / "schemas"
+    schemas_dir.mkdir(parents=True)
+    (schemas_dir / "env.yaml").write_text('type: str\npattern: "^(dev|prod)$"\n')
+    monkeypatch.setenv("DEPLOY_ENV", "prod")
+
+    out = perseus.resolve_env('DEPLOY_ENV schema="env"', cfg(), tmp_path)
+    assert out == "prod"
+
+    monkeypatch.delenv("DEPLOY_ENV")
+    out = perseus.resolve_env('DEPLOY_ENV fallback="stage" schema="env"', cfg(), tmp_path)
+    assert "Validation Error" in out
+
+
+def test_validate_block_validates_rendered_payload(tmp_path):
+    schemas_dir = tmp_path / ".perseus" / "schemas"
+    schemas_dir.mkdir(parents=True)
+    (schemas_dir / "service.yaml").write_text("""
+type: map
+mapping:
+  service:
+    type: map
+    required: true
+    mapping:
+      port:
+        type: int
+        required: true
+""")
+    (tmp_path / "service.yaml").write_text("service:\n  port: 3000\n")
+
+    src = '@perseus\n@validate schema="service"\n@read service.yaml\n@end'
+    out = perseus.render_source(src, cfg(), tmp_path)
+    assert "port: 3000" in out
+    assert "Validation Error" not in out
+
+    (tmp_path / "service.yaml").write_text("service:\n  port: no\n")
+    out = perseus.render_source(src, cfg(), tmp_path)
     assert "Validation Error" in out
 
 

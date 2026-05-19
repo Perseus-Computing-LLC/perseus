@@ -80,15 +80,16 @@ checkpoints feed it.
 | `@date format="..."` | ✅ | Inline substitution |
 | `@waypoint [ttl=N]` | ✅ | Latest checkpoint content |
 | `@prompt...@end` | ✅ | AI instruction callout block |
-| `@query "..." [fallback="text"]` | ✅ | Runs shell cmd, embeds stdout as fenced code block; `fallback=` returns literal text on failure/empty (task-14) |
-| `@read <file> path="..."` | ✅ | JSON/YAML/TOML path=, .env key=, fallback= |
-| `@env <VAR>` | ✅ | required=, fallback= modifiers |
+| `@query "..." [fallback="text"] [schema="..."]` | ✅ | Runs shell cmd, embeds stdout as fenced code block; `fallback=` returns literal text on failure/empty; `schema=` validates YAML stdout |
+| `@read <file> path="..." schema="..."` | ✅ | JSON/YAML/TOML path=, .env key=, fallback=, schema validation |
+| `@env <VAR> schema="..."` | ✅ | required=, fallback=, schema validation modifiers |
 | `@if/@else/@endif` | ✅ | file.exists/missing, env.set/unset/eq/neq, `query("cmd") [not] matches /regex/[i]` (task-13) |
 | `@include <file>` | ✅ | md embedded raw; structured files fenced |
 | `@cache session/ttl=N` | ✅ | Two-level cache: in-memory (session) + disk (TTL) |
 | `@cache persist` | ✅ | Disk-backed cache; TTL via `render.persist_cache_ttl_s` (task-09) |
 | `@cache mock[="value"]` | ✅ | Bypasses execution entirely — substitutes literal value (task-09) |
 | `@constraint...@end` | ✅ | Block directive; renders as table at doc end |
+| `@validate schema="..."...@end` | ✅ | Renders a block, validates the payload, and emits a warning instead of invalid context |
 | `@agora [status=open]` | ✅ | Live task board from tasks/ directory |
 | `@memory [focus=...] [ttl=N]` | ✅ | Inline Mnēmē narrative or single focus section — Phase 7 |
 | `@list <path> [type] [depth] [path] [columns] [as]` | ✅ | Directory listing OR structured-file table from JSON/YAML (task-08) |
@@ -491,23 +492,27 @@ context is well-formed before injection.
 traded the pre-flight tax for a garbage-in problem. Schema validation closes
 that gap.
 
-### 12A: Schema DSL & validation engine
+### 12A: Schema DSL & validation engine (task-30) ✅
 
 - Define a YAML-based schema language for context blocks
 - Validate `@query`, `@read`, `@env` outputs against declared schemas
 - Schema files live in `.perseus/schemas/` per workspace
 - New directive: `@validate schema="path" ...@end` wrapping a block
 
-**⚠️ DECISION POINT:** The proof-of-concept added `pykwalify` which violates
-constraint #2 ("pyyaml is the only dependency"). Options:
+**Decision:** Phase 12 uses option **B** — a minimal built-in schema validator
+implemented in pure Python. `pyyaml` remains the only required dependency.
+
+The proof-of-concept added `pykwalify` which violates constraint #2 ("pyyaml is
+the only dependency"). Rejected options:
 
   **A:** Get explicit owner approval for pykwalify as a second dependency
-  **B:** Implement a minimal schema validator in pure Python (type checks,
-  required fields, basic patterns — no full JSON Schema)
   **C:** Make pykwalify an optional soft dependency — `try: import pykwalify`
   with graceful fallback to a minimal built-in validator
 
-This decision affects the entire validation engine architecture.
+The built-in validator intentionally covers type checks, required fields,
+sequences, regex patterns, and enums. It is not full JSON Schema.
+
+**Status:** Complete.
 
 ### 12B: Directive-level schema annotations
 
@@ -653,9 +658,9 @@ Phase 11D ─── LSP integration tests (task-27) ✅ ───────┤
               │                                          │
 Phase 11E ─── Split tests (task-29) ✅ ─────────────────┤
               │                                          │
-              └── Phase 12A: Schema validation ──────────┤
-                  ⚠️ DEPENDENCY DECISION                 │
-                  (pykwalify vs pure Python)              │
+              └── Phase 12A: Schema validation ✅ ────────┤
+                  Option B: pure-Python validator         │
+                  (pyyaml remains the only dependency)    │
                                                          │
 Phase 12B ─── Directive-level schema annotations ────────┤
 Phase 12C ─── `perseus validate` CLI ────────────────────┤
@@ -675,8 +680,9 @@ Phase 14C ─── A/B recommendation testing ───────────
 Phase 15  ─── Generative Context (if decided yes) ───────┘
 ```
 
-**Estimated scope:** Phase 11 is complete. Phase 12 is 2-3 sessions. Phase 13
-is 2 sessions. Phase 14 is 2-3 sessions. Then the decision gate.
+**Estimated scope:** Phase 11 is complete. Phase 12A is complete; Phase 12B/12C
+remain. Phase 13 is 2 sessions. Phase 14 is 2-3 sessions. Then the decision
+gate.
 
 ---
 

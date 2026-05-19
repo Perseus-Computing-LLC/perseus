@@ -136,9 +136,9 @@ Emits a structured oracle prompt with a live environment snapshot — skills tab
 
 | Directive | What it does |
 |---|---|
-| `@query "shell cmd" [fallback="text"]` | Runs a shell command, embeds stdout as a fenced block; `fallback=` emits the literal text on failure or empty output |
-| `@read <file> [path="key"]` | Reads a file; dot-notation path for JSON/YAML/TOML; `key=` for `.env` files |
-| `@env VAR [fallback="x"]` | Injects an environment variable; `required=true` emits a visible warning if unset |
+| `@query "shell cmd" [fallback="text"] [schema="name"]` | Runs a shell command, embeds stdout as a fenced block; `fallback=` emits literal text on failure or empty output; `schema=` validates YAML stdout |
+| `@read <file> [path="key"] [schema="name"]` | Reads a file; dot-notation path for JSON/YAML/TOML; `key=` for `.env` files; `schema=` validates full or extracted output |
+| `@env VAR [fallback="x"] [schema="name"]` | Injects an environment variable; `required=true` emits a visible warning if unset; `schema=` validates the value or fallback |
 | `@include <file>` | Embeds a file inline; markdown raw, structured files fenced |
 | `@if <cond>` / `@else` / `@endif` | Conditional blocks: `file.exists/missing`, `env.set/unset/eq/neq`, `query("cmd") [not] matches /regex/[i]` |
 | `@constraint id="..." severity="..."` | Machine-readable rules rendered as a `\| ID \| Severity \| Rule \|` table |
@@ -148,6 +148,7 @@ Emits a structured oracle prompt with a live environment snapshot — skills tab
 | `@date format="YYYY-MM-DD HH:mm z"` | Live date/time, inline or standalone |
 | `@waypoint [ttl=N]` | Latest checkpoint rendered inline; `ttl=` skips it if too old |
 | `@prompt...@end` | AI instruction callout — visible to the assistant, attributed to Perseus |
+| `@validate schema="name"...@end` | Renders a block, validates the payload, and emits a visible warning instead of invalid context |
 | `@agora [status=...] [scope=...]` | Live task board from `tasks/` — markdown table by status/scope |
 | `@memory [focus="..."] [ttl=N]` | Mnēmē narrative for the workspace; `focus=` slices a single section (`arc`, `decisions`, `recent`, `patterns`, `history`) |
 | `@health` | Maintenance suggestions (stale checkpoints, near-duplicates, large context, old completed tasks) |

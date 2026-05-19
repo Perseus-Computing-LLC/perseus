@@ -33,7 +33,11 @@ Any AI assistant that can read a file or receive stdin can use Perseus.
 perseus.py              ← single-file CLI; this is the entire implementation
 requirements.txt        ← pyyaml only
 tests/
-  test_perseus.py       ← pytest suite; run before committing
+  conftest.py           ← shared pytest fixtures and module import wiring
+  test_renderer.py      ← directive resolution, rendering, schema validation
+  test_lsp.py           ← LSP JSON-RPC subprocess coverage
+  test_doctor.py        ← doctor checks, exit codes, JSON output
+  test_*.py             ← subsystem suites; run all before committing
 spec/
   overview.md           ← high-level design; start here
   components.md         ← detailed component specs
@@ -60,7 +64,7 @@ as specified — correctly, completely, and within the stated constraints.
 
 **Do not:**
 - Propose architectural changes, refactors, or "next steps" outside of a task spec
-- Create new tasks — task files are written by the project owner
+- Create new tasks unless the owner or current handoff explicitly asks for them
 - Suggest splitting `perseus.py` into modules or packages
 - Rename concepts, directives, or config keys
 - Add dependencies
@@ -82,7 +86,7 @@ Add a `## Blocked` section to the task file explaining the conflict and wait for
    organization (section headers, grouping) is fine. File splits are not.
 2. **`pyyaml` is the only dependency.** Do not add deps without explicit approval.
 3. **Tests before merge.** All existing tests must pass. New behavior needs new tests.
-   Run: `python -m pytest tests/ -v`
+   Run: `python -m pytest tests/ -q`
 4. **Spec and code must agree.** When you change behavior, update the relevant `spec/*.md`
    file. The spec is documentation, not a contract — the code is the truth.
 5. **Keep the mythology.** Perseus, Pythia, Medusa problem. Don't rename core concepts.
@@ -141,7 +145,7 @@ pip install pyyaml
 python perseus.py --version
 
 # Run test suite
-python -m pytest tests/ -v
+python -m pytest tests/ -q
 
 # Render the live roadmap
 python perseus.py render ROADMAP.md
