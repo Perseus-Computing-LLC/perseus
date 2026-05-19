@@ -4771,6 +4771,259 @@ for _spec in DIRECTIVE_REGISTRY.values():
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+# ───── Task-26: perseus doctor ───────────────────────────────────────────────
+
+_PERSEUS_VERSION = "0.8.1"
+
+
+class DoctorResult(NamedTuple):
+    id: str
+    status: str        # "ok" | "warn" | "error"
+    label: str
+    value: str
+    remediation: str   # "" if none
+
+
+def _doctor_check_config(cfg: dict, workspace: Path) -> DoctorResult:
+    """Check that config parses as valid YAML."""
+    config_path = PERSEUS_HOME / "config.yaml"
+    if config_path.exists():
+        try:
+            with open(config_path) as f:
+                yaml.safe_load(f)
+            return DoctorResult("config_parses", "ok", "config parses", str(config_path), "")
+        except Exception as exc:
+            return DoctorResult("config_parses", "error", "config parses", str(exc),
+                                f"Fix YAML syntax in {config_path}")
+    # No config file — using defaults, that's fine
+    return DoctorResult("config_parses", "ok", "config parses", "(defaults — no config file)", "")
+
+
+def _doctor_check_context_file(cfg: dict, workspace: Path) -> DoctorResult:
+    """Check that the workspace has a .perseus/context.md (or .hermes.md)."""
+    for name in (".perseus/context.md", ".hermes.md"):
+        p = workspace / name
+        if p.exists():
+            return DoctorResult("workspace_context_file", "ok", "workspace context file", str(p), "")
+    return DoctorResult("workspace_context_file", "warn", "workspace context file",
+                        "not found (.perseus/context.md or .hermes.md)",
+                        "Run `perseus init` to scaffold a context file")
+
+
+def _doctor_check_render_shell(cfg: dict, workspace: Path) -> DoctorResult:
+    """Informational: is @query shell execution enabled?"""
+    enabled = cfg.get("render", {}).get("allow_query_shell", True)
+    val = f"allow_query_shell={str(enabled).lower()}"
+    return DoctorResult("render_shell", "ok", "render: shell execution", val, "")
+
+
+def _doctor_check_render_outside_workspace(cfg: dict, workspace: Path) -> DoctorResult:
+    """Informational: is @read outside workspace allowed?"""
+    allowed = cfg.get("render", {}).get("allow_outside_workspace", False)
+    val = f"allow_outside_workspace={str(allowed).lower()}"
+    return DoctorResult("render_outside_workspace", "ok", "render: outside-workspace reads", val, "")
+
+
+def _doctor_check_latest_checkpoint(cfg: dict, workspace: Path) -> DoctorResult:
+    """Check recency of the latest checkpoint."""
+    cp_dir = PERSEUS_HOME / "checkpoints"
+    if not cp_dir.is_dir():
+        return DoctorResult("latest_checkpoint_age", "warn", "latest checkpoint",
+                            "no checkpoints directory", "Run `perseus checkpoint --task '...'`")
+    yamls = sorted(cp_dir.glob("2*.yaml"), reverse=True)
+    if not yamls:
+        return DoctorResult("latest_checkpoint_age", "warn", "latest checkpoint",
+                            "no checkpoints found", "Run `perseus checkpoint --task '...'`")
+    try:
+        ts_str = yamls[0].stem[:19]  # 2026-05-18T0828
+        ts = datetime.strptime(ts_str, "%Y-%m-%dT%H%M")
+        age = datetime.now() - ts
+        age_days = age.days
+        hours = age.seconds // 3600
+        minutes = (age.seconds % 3600) // 60
+        if age_days > 0:
+            age_str = f"{age_days}d {hours}h ago"
+        else:
+            age_str = f"{hours}h {minutes}m ago"
+        if age_days > 30:
+            return DoctorResult("latest_checkpoint_age", "error", "latest checkpoint",
+                                age_str, "Run `perseus checkpoint --task '...'` — checkpoint is very stale")
+        if age_days > 7:
+            return DoctorResult("latest_checkpoint_age", "warn", "latest checkpoint",
+                                age_str, "Consider running `perseus checkpoint --task '...'`")
+        return DoctorResult("latest_checkpoint_age", "ok", "latest checkpoint", age_str, "")
+    except Exception:
+        return DoctorResult("latest_checkpoint_age", "ok", "latest checkpoint", str(yamls[0].name), "")
+
+
+def _doctor_check_mneme(cfg: dict, workspace: Path) -> DoctorResult:
+    """Check Mnēmē narrative existence and size."""
+    mem_cfg = cfg.get("memory", {})
+    mem_dir = Path(mem_cfg.get("workspace_memories_dir", str(PERSEUS_HOME / "memories")))
+    narrative = mem_dir / "narrative.md"
+    if not narrative.exists():
+        return DoctorResult("mneme_narrative", "warn", "Mnēmē narrative",
+                            "not found", "Memory will auto-create on next render with @memory")
+    lines = narrative.read_text(errors="replace").splitlines()
+    max_lines = mem_cfg.get("max_narrative_lines", 200)
+    line_count = len(lines)
+    val = f"{line_count} lines"
+    if line_count > max_lines:
+        return DoctorResult("mneme_narrative", "warn", "Mnēmē narrative",
+                            f"{val} (exceeds max_narrative_lines={max_lines})",
+                            "Consider pruning old entries from the narrative")
+    return DoctorResult("mneme_narrative", "ok", "Mnēmē narrative", val, "")
+
+
+def _doctor_check_federation(cfg: dict, workspace: Path) -> DoctorResult:
+    """Check federation subscription health."""
+    mem_cfg = cfg.get("memory", {})
+    mem_dir = Path(mem_cfg.get("workspace_memories_dir", str(PERSEUS_HOME / "memories")))
+    manifest_path = mem_dir / "federation_manifest.yaml"
+    if not manifest_path.exists():
+        return DoctorResult("federation_subscriptions", "ok", "federation",
+                            "no subscriptions configured", "")
+    try:
+        with open(manifest_path) as f:
+            manifest = yaml.safe_load(f) or {}
+    except Exception as exc:
+        return DoctorResult("federation_subscriptions", "error", "federation",
+                            f"manifest unreadable: {exc}", f"Fix {manifest_path}")
+    subs = manifest.get("subscriptions", [])
+    if not subs:
+        return DoctorResult("federation_subscriptions", "ok", "federation",
+                            "no subscriptions", "")
+    stale = []
+    stale_threshold_days = mem_cfg.get("federation_stale_threshold_days", 7)
+    for sub_entry in subs:
+        alias = sub_entry.get("alias", "?")
+        cached = mem_dir / "federation" / f"{alias}.md"
+        if cached.exists():
+            import os as _os
+            mtime = datetime.fromtimestamp(_os.path.getmtime(cached))
+            age = (datetime.now() - mtime).days
+            if age > stale_threshold_days:
+                stale.append(f"{alias} ({age}d old)")
+    if stale:
+        return DoctorResult("federation_subscriptions", "warn", "federation",
+                            f"{len(subs)} subs, stale: {', '.join(stale)}",
+                            "Run `perseus memory federation pull`")
+    return DoctorResult("federation_subscriptions", "ok", "federation",
+                        f"{len(subs)} subscriptions, all fresh", "")
+
+
+def _doctor_check_oracle_log(cfg: dict, workspace: Path) -> DoctorResult:
+    """Check oracle log readability."""
+    log_path = PERSEUS_HOME / "oracle_log.yaml"
+    if not log_path.exists():
+        return DoctorResult("oracle_log_readable", "ok", "oracle log",
+                            "no log file (will be created on first suggest)", "")
+    try:
+        with open(log_path) as f:
+            data = yaml.safe_load(f)
+        if isinstance(data, list):
+            return DoctorResult("oracle_log_readable", "ok", "oracle log",
+                                f"{len(data)} entries", "")
+        return DoctorResult("oracle_log_readable", "warn", "oracle log",
+                            "unexpected format (not a list)", "Check oracle_log.yaml")
+    except Exception as exc:
+        return DoctorResult("oracle_log_readable", "error", "oracle log",
+                            str(exc), f"Fix YAML in {log_path}")
+
+
+def _doctor_check_serve_loopback(cfg: dict, workspace: Path) -> DoctorResult:
+    """Informational: confirm serve defaults to loopback."""
+    bind = cfg.get("serve", {}).get("bind", "127.0.0.1")
+    if bind in ("127.0.0.1", "localhost", "::1"):
+        return DoctorResult("serve_loopback_only", "ok", "serve loopback default",
+                            bind, "")
+    return DoctorResult("serve_loopback_only", "warn", "serve loopback default",
+                        f"bind={bind} (not loopback)",
+                        "Set serve.bind to 127.0.0.1 unless intentional")
+
+
+def _doctor_check_registry(cfg: dict, workspace: Path) -> DoctorResult:
+    """Validate DIRECTIVE_REGISTRY consistency."""
+    issues = []
+    for name, spec in DIRECTIVE_REGISTRY.items():
+        if spec.kind == "inline" and not callable(spec.resolver):
+            issues.append(f"{name}: inline but no callable resolver")
+        if (spec.executes_shell or spec.mutates_state) and spec.safe_for_hover:
+            issues.append(f"{name}: unsafe but safe_for_hover=True")
+    if issues:
+        return DoctorResult("directive_registry", "error", "directive registry",
+                            "; ".join(issues), "Fix DIRECTIVE_REGISTRY entries")
+    return DoctorResult("directive_registry", "ok", "directive registry",
+                        f"{len(DIRECTIVE_REGISTRY)} directives registered", "")
+
+
+# Ordered list of doctor checks — adding a check is one function + one line here.
+_DOCTOR_CHECKS = [
+    _doctor_check_config,
+    _doctor_check_context_file,
+    _doctor_check_render_shell,
+    _doctor_check_render_outside_workspace,
+    _doctor_check_latest_checkpoint,
+    _doctor_check_mneme,
+    _doctor_check_federation,
+    _doctor_check_oracle_log,
+    _doctor_check_serve_loopback,
+    _doctor_check_registry,
+]
+
+
+def cmd_doctor(args, cfg) -> int:
+    """Run readiness checks and report status."""
+    workspace = Path(getattr(args, "workspace", None) or os.getcwd()).resolve()
+    use_json = getattr(args, "json", False)
+
+    results: list[DoctorResult] = []
+    for check_fn in _DOCTOR_CHECKS:
+        try:
+            results.append(check_fn(cfg, workspace))
+        except Exception as exc:
+            results.append(DoctorResult(
+                check_fn.__name__.replace("_doctor_check_", ""),
+                "error", check_fn.__name__, str(exc), ""
+            ))
+
+    ok = sum(1 for r in results if r.status == "ok")
+    warn = sum(1 for r in results if r.status == "warn")
+    err = sum(1 for r in results if r.status == "error")
+    exit_code = 1 if err > 0 else 0
+
+    if use_json:
+        import json as _json
+        output = {
+            "perseus_version": _PERSEUS_VERSION,
+            "workspace": str(workspace),
+            "checks": [
+                {
+                    "id": r.id,
+                    "status": r.status,
+                    "value": r.value,
+                    **({"remediation": r.remediation} if r.remediation else {}),
+                }
+                for r in results
+            ],
+            "summary": {"ok": ok, "warn": warn, "error": err},
+            "exit": exit_code,
+        }
+        print(_json.dumps(output, indent=2))
+    else:
+        status_icons = {"ok": "✓", "warn": "⚠", "error": "✗"}
+        print(f"perseus doctor — workspace: {workspace}")
+        for r in results:
+            icon = status_icons.get(r.status, "?")
+            print(f"{icon} {r.label:<40s} {r.value}")
+        print(f"─ Summary: {ok} ok · {warn} warning · {err} errors  (exit {exit_code})")
+
+    return exit_code
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+
 def cmd_oracle(args, cfg):
     sub = getattr(args, "oracle_command", None)
 
@@ -5837,6 +6090,11 @@ def main():
     p_health = sub.add_parser("health", help="Context maintenance heuristics report")
     p_health.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
 
+    # doctor (task-26) — readiness probe
+    p_doctor = sub.add_parser("doctor", help="Run readiness checks against workspace and config")
+    p_doctor.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
+    p_doctor.add_argument("--json", action="store_true", help="Output machine-readable JSON")
+
     # oracle (Daedalus dataset / labeling)
     p_oracle = sub.add_parser("oracle", help="Oracle log labeling and dataset export")
     oracle_sub = p_oracle.add_subparsers(dest="oracle_command", required=True)
@@ -5898,6 +6156,8 @@ def main():
         cmd_systemd(args, cfg)
     elif args.command == "health":
         cmd_health(args, cfg)
+    elif args.command == "doctor":
+        return cmd_doctor(args, cfg)
     elif args.command == "oracle":
         rc = cmd_oracle(args, cfg)
         if isinstance(rc, int):
