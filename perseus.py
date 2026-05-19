@@ -213,6 +213,13 @@ DEFAULT_CONFIG = {
     },
     "prefetch": {
         "rules": [],
+        "adaptive": {
+            "enabled": False,
+            "backend": "deterministic",
+            "threshold": 0.5,
+            "max_candidates": 5,
+            "candidates": [],
+        },
     },
 }
 
@@ -2737,6 +2744,332 @@ def _execute_prefetch_directive(
     return result
 
 
+def _prefetch_skipped_entry(item: object, rule_name: str, trigger_node: dict, reason: str) -> dict:
+    directive, raw_args, raw, _ = _prefetch_directive_from_config(item)
+    cache_mode = ""
+    cache_ttl = None
+    cache_key = None
+    if directive:
+        clean_args, cache_mode, cache_ttl, _ = _parse_cache_modifier(raw_args)
+        cache_key = _cache_key(f"{directive} {clean_args}")
+    return {
+        "rule": rule_name,
+        "trigger": trigger_node.get("id"),
+        "trigger_directive": trigger_node.get("directive"),
+        "directive": directive,
+        "line": raw,
+        "status": "skipped",
+        "reason": reason,
+        "cache": {"mode": cache_mode, "ttl": cache_ttl, "key": cache_key},
+    }
+
+
+_PREFETCH_ADAPTIVE_DEFAULTS = {
+    "enabled": False,
+    "backend": "deterministic",
+    "threshold": 0.5,
+    "max_candidates": 5,
+    "candidates": [],
+}
+
+
+def _prefetch_adaptive_config(cfg: dict) -> dict:
+    raw = cfg.get("prefetch", {}).get("adaptive", {})
+    if isinstance(raw, bool):
+        raw = {"enabled": raw}
+    if not isinstance(raw, dict):
+        raw = {}
+    out = dict(_PREFETCH_ADAPTIVE_DEFAULTS)
+    out.update(raw)
+    out["enabled"] = str(out.get("enabled", False)).strip().lower() in {"true", "1", "yes", "on"}
+    out["backend"] = str(out.get("backend") or "deterministic").strip().lower()
+    try:
+        out["threshold"] = float(out.get("threshold", 0.5))
+    except (TypeError, ValueError):
+        out["threshold"] = 0.5
+    try:
+        out["max_candidates"] = max(0, int(out.get("max_candidates", 5)))
+    except (TypeError, ValueError):
+        out["max_candidates"] = 5
+    if not isinstance(out.get("candidates"), list):
+        out["candidates"] = []
+    return out
+
+
+def _adaptive_patterns(value: object) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        return [str(item) for item in value if str(item).strip()]
+    return [str(value)]
+
+
+def _adaptive_candidate_from_config(item: object, index: int) -> dict:
+    candidate = {
+        "id": f"candidate-{index}",
+        "prefetch": item,
+        "patterns": [],
+        "trigger": {},
+        "error": "",
+    }
+    if isinstance(item, str):
+        candidate["patterns"] = []
+        return candidate
+    if not isinstance(item, dict):
+        candidate["error"] = f"adaptive candidate must be a mapping or directive string, got {type(item).__name__}"
+        return candidate
+
+    candidate["id"] = str(item.get("id") or item.get("name") or candidate["id"])
+    candidate["patterns"] = _adaptive_patterns(item.get("patterns", item.get("pattern")))
+    if "trigger" in item or "match" in item:
+        candidate["trigger"] = _prefetch_rule_trigger(item)
+    prefetch_item = item.get("prefetch", item.get("directive_line", item.get("line")))
+    if prefetch_item is None:
+        if item.get("directive"):
+            prefetch_item = {"directive": item.get("directive"), "args": item.get("args", ""), "cache": item.get("cache")}
+        else:
+            candidate["error"] = "adaptive candidate is missing a prefetch directive"
+            prefetch_item = ""
+    candidate["prefetch"] = prefetch_item
+    return candidate
+
+
+def _adaptive_pattern_corpus(cfg: dict, workspace: Path | None) -> str:
+    parts: list[str] = []
+    try:
+        entries = _read_all_oracle_entries()
+    except Exception:
+        entries = []
+    for entry in entries[-50:]:
+        if entry.get("accepted") is True or entry.get("inferred_label") == "inferred_accept":
+            parts.append(str(entry.get("prompt", "") or ""))
+            parts.append(str(entry.get("response", "") or ""))
+    if workspace is not None:
+        try:
+            _, body = _load_narrative(_mneme_path(workspace, cfg))
+            parts.append(body)
+        except Exception:
+            pass
+    return "\n".join(parts).lower()
+
+
+def _score_adaptive_candidates_deterministic(candidates: list[dict], corpus: str) -> dict[str, dict]:
+    scores: dict[str, dict] = {}
+    for candidate in candidates:
+        patterns = [p.strip().lower() for p in candidate.get("patterns", []) if p.strip()]
+        if not patterns:
+            scores[candidate["id"]] = {"score": 0.0, "reason": "no adaptive patterns configured"}
+            continue
+        matched = [p for p in patterns if p in corpus]
+        missing = [p for p in patterns if p not in corpus]
+        score = len(matched) / len(patterns)
+        if matched:
+            reason = "matched patterns: " + ", ".join(matched)
+            if missing:
+                reason += "; missing: " + ", ".join(missing)
+        else:
+            reason = "no patterns matched"
+        scores[candidate["id"]] = {"score": score, "reason": reason}
+    return scores
+
+
+def _adaptive_daedalus_prompt(candidates: list[dict], corpus: str) -> str:
+    lines = [
+        "You are Daedalus scoring predeclared Perseus prefetch candidates.",
+        "Do not invent directives, prose, candidates, or context.",
+        "Return only JSON: [{\"id\":\"...\",\"score\":0.0,\"reason\":\"short\"}]",
+        "Scores are 0.0 to 1.0.",
+        "",
+        "Candidates:",
+    ]
+    for candidate in candidates:
+        directive_line = candidate.get("prefetch")
+        if isinstance(directive_line, dict):
+            directive_line = directive_line.get("line") or directive_line.get("directive_line") or directive_line.get("directive") or ""
+        lines.append(
+            f"- id={candidate['id']} directive={directive_line!r} "
+            f"patterns={candidate.get('patterns', [])!r}"
+        )
+    lines.extend(["", "Evidence:", corpus[-4000:]])
+    return "\n".join(lines)
+
+
+def _parse_daedalus_prefetch_scores(text: str, candidates: list[dict]) -> dict[str, dict] | None:
+    raw = text.strip()
+    if raw.startswith("```"):
+        raw = re.sub(r'^```(?:json)?\s*', '', raw)
+        raw = re.sub(r'\s*```$', '', raw)
+    try:
+        data = json.loads(raw)
+    except Exception:
+        m = re.search(r'(\[.*\])', raw, re.DOTALL)
+        if not m:
+            return None
+        try:
+            data = json.loads(m.group(1))
+        except Exception:
+            return None
+    if isinstance(data, dict):
+        data = data.get("scores")
+    if not isinstance(data, list):
+        return None
+
+    known = {candidate["id"] for candidate in candidates}
+    scores: dict[str, dict] = {}
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        cid = str(item.get("id", ""))
+        if cid not in known:
+            continue
+        try:
+            score = float(item.get("score", 0.0))
+        except (TypeError, ValueError):
+            score = 0.0
+        score = max(0.0, min(1.0, score))
+        scores[cid] = {"score": score, "reason": str(item.get("reason") or "daedalus score")}
+    return scores
+
+
+def _score_adaptive_candidates(candidates: list[dict], corpus: str, cfg: dict, adaptive_cfg: dict) -> tuple[dict[str, dict], str, str]:
+    backend = adaptive_cfg.get("backend", "deterministic")
+    if backend == "daedalus":
+        prompt = _adaptive_daedalus_prompt(candidates, corpus)
+        text, code = run_llm("daedalus", prompt, cfg, model=adaptive_cfg.get("model") or None)
+        if code == 0:
+            scores = _parse_daedalus_prefetch_scores(text, candidates)
+            if scores is not None:
+                for candidate in candidates:
+                    scores.setdefault(candidate["id"], {"score": 0.0, "reason": "daedalus returned no score"})
+                return scores, "daedalus", ""
+            fallback = "daedalus returned unparseable scores"
+        else:
+            fallback = f"daedalus failed: {text}"
+        scores = _score_adaptive_candidates_deterministic(candidates, corpus)
+        for value in scores.values():
+            value["reason"] = f"{fallback}; deterministic fallback: {value['reason']}"
+        return scores, "deterministic", fallback
+
+    return _score_adaptive_candidates_deterministic(candidates, corpus), "deterministic", ""
+
+
+def _adaptive_trigger_node(candidate: dict, graph: dict) -> tuple[dict | None, str]:
+    trigger = candidate.get("trigger") or {}
+    if not trigger:
+        return {"id": "adaptive", "directive": "adaptive"}, ""
+    for node in graph["nodes"]:
+        if _prefetch_node_matches(node, trigger):
+            return node, ""
+    return None, "trigger did not match graph"
+
+
+def adaptive_prefetch(graph: dict, cfg: dict, workspace: Path | None) -> dict:
+    adaptive_cfg = _prefetch_adaptive_config(cfg)
+    result = {
+        "enabled": adaptive_cfg["enabled"],
+        "configured_backend": adaptive_cfg.get("backend", "deterministic"),
+        "backend": "disabled",
+        "fallback_reason": "",
+        "candidates": 0,
+        "selected": 0,
+        "results": [],
+    }
+    if not adaptive_cfg["enabled"]:
+        return result
+
+    candidates = [
+        _adaptive_candidate_from_config(item, idx)
+        for idx, item in enumerate(adaptive_cfg.get("candidates", []), start=1)
+    ]
+    result["candidates"] = len(candidates)
+    if not candidates:
+        result["backend"] = "deterministic"
+        return result
+
+    corpus = _adaptive_pattern_corpus(cfg, workspace)
+    scorable = [candidate for candidate in candidates if not candidate.get("error")]
+    scores, backend, fallback_reason = _score_adaptive_candidates(scorable, corpus, cfg, adaptive_cfg)
+    result["backend"] = backend
+    result["fallback_reason"] = fallback_reason
+
+    threshold = float(adaptive_cfg["threshold"])
+    max_candidates = int(adaptive_cfg["max_candidates"])
+    trigger_nodes: dict[str, dict | None] = {}
+    trigger_reasons: dict[str, str] = {}
+    selectable: list[tuple[float, str]] = []
+    for candidate in candidates:
+        node, trigger_reason = _adaptive_trigger_node(candidate, graph)
+        trigger_nodes[candidate["id"]] = node
+        trigger_reasons[candidate["id"]] = trigger_reason
+        if candidate.get("error") or trigger_reason:
+            continue
+        score = float(scores.get(candidate["id"], {}).get("score", 0.0))
+        if score >= threshold:
+            selectable.append((score, candidate["id"]))
+    selectable.sort(key=lambda item: (-item[0], item[1]))
+    selected_ids = {cid for _, cid in selectable[:max_candidates]}
+    result["selected"] = len(selected_ids)
+
+    for candidate in candidates:
+        cid = candidate["id"]
+        node = trigger_nodes.get(cid)
+        score_info = scores.get(cid, {"score": 0.0, "reason": "not scored"})
+        score = float(score_info.get("score", 0.0))
+        score_reason = str(score_info.get("reason", "not scored"))
+        adaptive_meta = {"id": cid, "score": score, "backend": backend, "reason": score_reason}
+
+        if candidate.get("error"):
+            entry = _prefetch_skipped_entry("", f"adaptive:{cid}", {"id": "adaptive", "directive": "adaptive"}, candidate["error"])
+            entry["adaptive"] = adaptive_meta
+            result["results"].append(entry)
+            continue
+        if trigger_reasons.get(cid):
+            entry = _prefetch_skipped_entry(
+                candidate["prefetch"],
+                f"adaptive:{cid}",
+                {"id": "adaptive", "directive": "adaptive"},
+                trigger_reasons[cid],
+            )
+            entry["adaptive"] = adaptive_meta
+            result["results"].append(entry)
+            continue
+        if score < threshold:
+            entry = _prefetch_skipped_entry(
+                candidate["prefetch"],
+                f"adaptive:{cid}",
+                node or {"id": "adaptive", "directive": "adaptive"},
+                f"adaptive score {score:.2f} < threshold {threshold:.2f}: {score_reason}",
+            )
+            entry["adaptive"] = adaptive_meta
+            result["results"].append(entry)
+            continue
+        if cid not in selected_ids:
+            entry = _prefetch_skipped_entry(
+                candidate["prefetch"],
+                f"adaptive:{cid}",
+                node or {"id": "adaptive", "directive": "adaptive"},
+                f"outside max_candidates={max_candidates}: adaptive score {score:.2f}: {score_reason}",
+            )
+            entry["adaptive"] = adaptive_meta
+            result["results"].append(entry)
+            continue
+
+        entry = _execute_prefetch_directive(
+            candidate["prefetch"],
+            f"adaptive:{cid}",
+            node or {"id": "adaptive", "directive": "adaptive"},
+            cfg,
+            workspace,
+        )
+        base_reason = entry.get("reason", "")
+        entry["reason"] = f"adaptive score {score:.2f}: {score_reason}" + (f"; {base_reason}" if base_reason else "")
+        entry["adaptive"] = adaptive_meta
+        result["results"].append(entry)
+    return result
+
+
 def prefetch_source(
     source_text: str,
     cfg: dict,
@@ -2785,10 +3118,14 @@ def prefetch_source(
             for item in items:
                 entries.append(_execute_prefetch_directive(item, rule_name, node, cfg, workspace))
 
+    adaptive = adaptive_prefetch(graph, cfg, workspace)
+    entries.extend(adaptive["results"])
+
     return {
         "source": source_name,
         "workspace": str(workspace) if workspace else None,
         "graph_summary": graph["summary"],
+        "adaptive": adaptive,
         "results": entries,
         "summary": {
             "rules_configured": len(rules),
@@ -2809,8 +3146,19 @@ def format_prefetch_human(result: dict) -> str:
             f"Ran: {summary['ran']}  Skipped: {summary['skipped']}  Failed: {summary['failed']}"
         ),
     ]
-    if summary["rules_configured"] == 0:
+    adaptive = result.get("adaptive", {})
+    if adaptive.get("enabled"):
+        line = (
+            f"Adaptive: backend={adaptive.get('backend')} "
+            f"candidates={adaptive.get('candidates')} selected={adaptive.get('selected')}"
+        )
+        if adaptive.get("fallback_reason"):
+            line += f" fallback={adaptive['fallback_reason']}"
+        lines.append(line)
+    if summary["rules_configured"] == 0 and not adaptive.get("enabled"):
         lines.append("No prefetch rules configured.")
+    elif summary["rules_configured"] == 0:
+        lines.append("No explicit prefetch rules configured.")
     elif summary["matches"] == 0:
         lines.append("No prefetch rules matched.")
 

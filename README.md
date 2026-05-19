@@ -14,7 +14,7 @@ Provider-agnostic defaults now use `PERSEUS_SKILLS_DIR` and `PERSEUS_SESSIONS_DI
 
 Perseus dogfoods itself: `ROADMAP.md` is a live `@perseus` source — the project's own documentation resolves its git state, CLI version, recent sessions, and last checkpoint at render time.
 
-**Status: Alpha v0.8.1 — Phases 1-12 complete and Phase 13B landed. Phase 11 stabilization and Phase 12 schema validation are done, and `perseus graph` / `perseus prefetch` now provide the static and rule-based substrate for predictive prefetching. 34 tasks closed, 1 Phase 13 task open. 293 tests passing, 1 sandbox-skipped TCP smoke.**
+**Status: Alpha v0.8.1 — Phases 1-13 complete. Phase 11 stabilization, Phase 12 schema validation, and Phase 13 predictive prefetching are done: `perseus graph` builds the static substrate, `perseus prefetch` warms configured caches, and adaptive scoring can opt into deterministic or Daedalus-ranked candidates. 35 tasks closed. 297 tests passing, 1 sandbox-skipped TCP smoke.**
 
 ---
 
@@ -197,7 +197,8 @@ Disk-cached results survive across processes for as long as their TTL allows:
 directive graph, and warms cacheable inline directives without rendering the
 source first. Shell-backed prefetches still obey the render trust gates, and
 prefetch directives must include `@cache ttl=N`, `@cache persist`, or
-`@cache session`.
+`@cache session`. Adaptive prefetching is also opt-in and only scores
+predeclared candidates; it does not invent directives or generate context.
 
 ```yaml
 prefetch:
@@ -206,6 +207,14 @@ prefetch:
       trigger: '@query "git status"'
       prefetch:
         - '@query "git diff --stat" @cache ttl=300'
+  adaptive:
+    enabled: true
+    backend: deterministic   # or daedalus
+    threshold: 0.5
+    candidates:
+      - id: decision-memory
+        prefetch: '@memory focus=decisions @cache ttl=300'
+        patterns: ["decision", "memory"]
 ```
 
 ---
@@ -431,7 +440,8 @@ oracle:
 | **Phase 10** | Editor integration — Perseus LSP server (`perseus serve --lsp --stdio\|--tcp`) + VSCode extension (`editors/vscode/`) | ✅ Complete |
 | **Phase 11** | Internal hardening — registry, doctor, JSON surfaces, LSP integration tests, split suite | ✅ Complete |
 | **Phase 12** | Schema validation engine — `schema=`, `@validate`, `output_schema`, `perseus validate` | ✅ Complete |
-| **Phase 13+** | See "Future development" at the bottom of [ROADMAP.md](./ROADMAP.md) | 🌅 Open canvas |
+| **Phase 13** | Predictive prefetching — static graph, rule-based cache warming, adaptive deterministic/Daedalus scoring | ✅ Complete |
+| **Phase 14+** | See "Future development" at the bottom of [ROADMAP.md](./ROADMAP.md) | 🌅 Open canvas |
 
 Full detail: [ROADMAP.md](./ROADMAP.md)
 

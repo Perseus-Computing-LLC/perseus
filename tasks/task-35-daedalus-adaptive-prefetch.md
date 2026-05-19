@@ -1,12 +1,12 @@
 ---
 id: task-35
 title: Phase 13C Daedalus-powered adaptive prefetch
-status: open
+status: completed
 priority: medium
 scope: large
-claimed_by:
+claimed_by: codex
 created: 2026-05-19
-closed:
+closed: 2026-05-19
 phase: 13
 theme: "Predictive Pre-Fetching"
 depends_on:
@@ -42,3 +42,17 @@ requiring users to hand-write every rule.
 - Do not cross the Phase 14/15 resolver-vs-generator decision gate.
 - Do not require a trained model.
 - Do not add dependencies.
+
+## Completed
+
+- Added opt-in `prefetch.adaptive` config with deterministic and `daedalus`
+  backends.
+- Scored only predeclared cache-warming candidates; adaptive prefetch does not
+  invent directives or generate context prose.
+- Deterministic scoring uses recent accepted oracle entries and Mnēmē narrative
+  text as pattern evidence.
+- Daedalus scoring routes through `run_llm("daedalus", ...)`, parses candidate
+  scores, and falls back to deterministic scoring on provider or parse failure.
+- Prefetch output explains selected and skipped candidates with score reasons.
+- Added focused tests for disabled, deterministic, unavailable-model fallback,
+  and below-threshold skip paths.

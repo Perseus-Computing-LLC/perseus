@@ -473,9 +473,9 @@ explicit mutation gate for `perseus.compactMemory`.
 ### 11E: Split Tests by Subsystem (task-29) ✅
 
 Split `tests/test_perseus.py` into subsystem files plus `tests/conftest.py`.
-At Phase 11 close the suite collected 272 tests. After Phase 12, the current
-suite is 283 passed, 1 skipped (sandbox-blocked TCP bind; the same TCP smoke
-passes outside the sandbox).
+At Phase 11 close the suite collected 272 tests. After Phase 12 it reached
+283 passed, 1 skipped; after Phase 13 it reached 297 passed, 1 skipped
+(sandbox-blocked TCP bind; the same TCP smoke passes outside the sandbox).
 - `test_oracle.py` — suggest, oracle log, drift, infer-labels
 - `test_memory.py` — Mnēmē narrative, federation
 - `test_lsp.py` — LSP helpers, framing, diagnostics
@@ -576,11 +576,17 @@ prefetch directives. It reports ran/skipped/failed entries, requires cache
 modifiers for prefetch outputs, and respects existing trust gates such as
 `render.allow_query_shell`.
 
-### 13C: Daedalus-powered adaptive pre-fetch
+### 13C: Daedalus-powered adaptive pre-fetch (task-35) ✅
 
-When a fine-tuned Daedalus model exists, it scores which pre-fetch rules to
+When a fine-tuned Daedalus model exists, it scores which pre-fetch candidates to
 activate based on the current task context. This is where Daedalus transitions
 from "label UI + export" to an active runtime component.
+
+**Status:** Complete. Adaptive prefetch is opt-in under `prefetch.adaptive`.
+Deterministic scoring uses recent oracle/Mnēmē pattern text with no LLM. The
+Daedalus backend routes through existing LLM plumbing, fails gracefully to the
+deterministic scorer, and only scores predeclared cache-warming candidates. It
+does not generate new context prose or cross the Phase 14/15 decision gate.
 
 ---
 
@@ -691,7 +697,7 @@ Phase 12C ─── `perseus validate` CLI ✅ ───────────
                                                          │
 Phase 13A ─── Directive dependency graph ✅ ─────────────┤
 Phase 13B ─── Pattern-based pre-fetch rules ✅ ──────────┤
-Phase 13C ─── Daedalus-powered adaptive pre-fetch ───────┤
+Phase 13C ─── Daedalus-powered adaptive pre-fetch ✅ ────┤
                                                          │
 Phase 14A ─── RL signal collection ──────────────────────┤
 Phase 14B ─── Online scoring adjustment ─────────────────┤
@@ -704,8 +710,8 @@ Phase 14C ─── A/B recommendation testing ───────────
 Phase 15  ─── Generative Context (if decided yes) ───────┘
 ```
 
-**Estimated scope:** Phase 11 and Phase 12 are complete. Phase 13A and 13B are
-complete; Phase 13C remains. Phase 14 is 2-3 sessions. Then the decision gate.
+**Estimated scope:** Phase 11, Phase 12, and Phase 13 are complete. Phase 14 is
+2-3 sessions. Then the decision gate.
 
 ---
 

@@ -411,6 +411,120 @@ def test_prefetch_skips_directives_without_cache_modifier(tmp_path):
     assert "require @cache" in result["results"][0]["reason"]
 
 
+def test_adaptive_prefetch_disabled_does_not_score_or_execute(monkeypatch, tmp_path):
+    called = []
+    monkeypatch.setattr(perseus, "run_llm", lambda *a, **k: called.append(a) or ("[]", 0))
+    local = cfg()
+    local["render"]["cache_dir"] = str(tmp_path / "cache")
+    local["prefetch"]["adaptive"] = {
+        "enabled": False,
+        "backend": "daedalus",
+        "candidates": [{
+            "id": "off",
+            "prefetch": '@query "printf off" @cache ttl=120',
+            "patterns": ["off"],
+        }],
+    }
+
+    result = perseus.prefetch_source("@perseus\n@read README.md\n", local, tmp_path, "ctx.md")
+
+    assert result["adaptive"]["enabled"] is False
+    assert result["results"] == []
+    assert called == []
+    cache_key = perseus._cache_key('@query "printf off"')
+    assert perseus.cache_get(cache_key, "ttl", 120, local) is None
+
+
+def test_adaptive_prefetch_deterministic_scores_patterns(monkeypatch, tmp_path):
+    _seed_oracle_log(monkeypatch, tmp_path, [{
+        "accepted": True,
+        "prompt": "Need decision context",
+        "response": "Use memory for decisions before task planning",
+    }])
+    local = cfg()
+    local["render"]["cache_dir"] = str(tmp_path / "cache")
+    local["prefetch"]["adaptive"] = {
+        "enabled": True,
+        "backend": "deterministic",
+        "threshold": 0.5,
+        "candidates": [{
+            "id": "decision-memory",
+            "trigger": "@read README.md",
+            "prefetch": '@query "printf adaptive" @cache ttl=120',
+            "patterns": ["decision", "memory"],
+        }],
+    }
+
+    result = perseus.prefetch_source("@perseus\n@read README.md\n", local, tmp_path, "ctx.md")
+
+    assert result["adaptive"]["backend"] == "deterministic"
+    assert result["adaptive"]["selected"] == 1
+    assert result["summary"]["ran"] == 1
+    assert result["results"][0]["rule"] == "adaptive:decision-memory"
+    assert "matched patterns" in result["results"][0]["reason"]
+    cache_key = perseus._cache_key('@query "printf adaptive"')
+    assert "adaptive" in perseus.cache_get(cache_key, "ttl", 120, local)
+
+
+def test_adaptive_prefetch_daedalus_unavailable_falls_back(monkeypatch, tmp_path):
+    _seed_oracle_log(monkeypatch, tmp_path, [{
+        "accepted": True,
+        "prompt": "Need decision context",
+        "response": "Use memory for decisions before task planning",
+    }])
+    seen = {}
+
+    def fake_run_llm(provider, prompt, cfg_, model=None, model_url=None):
+        seen["provider"] = provider
+        seen["prompt"] = prompt
+        return ("> ⚠ unavailable", 2)
+
+    monkeypatch.setattr(perseus, "run_llm", fake_run_llm)
+    local = cfg()
+    local["render"]["cache_dir"] = str(tmp_path / "cache")
+    local["prefetch"]["adaptive"] = {
+        "enabled": True,
+        "backend": "daedalus",
+        "threshold": 0.5,
+        "candidates": [{
+            "id": "decision-memory",
+            "prefetch": '@query "printf fallback" @cache ttl=120',
+            "patterns": ["decision", "memory"],
+        }],
+    }
+
+    result = perseus.prefetch_source("@perseus\n@read README.md\n", local, tmp_path, "ctx.md")
+
+    assert seen["provider"] == "daedalus"
+    assert "Do not invent directives" in seen["prompt"]
+    assert result["adaptive"]["backend"] == "deterministic"
+    assert "daedalus failed" in result["adaptive"]["fallback_reason"]
+    assert result["summary"]["ran"] == 1
+    assert "deterministic fallback" in result["results"][0]["reason"]
+
+
+def test_adaptive_prefetch_skips_below_threshold_without_execution(tmp_path):
+    local = cfg()
+    local["render"]["cache_dir"] = str(tmp_path / "cache")
+    local["prefetch"]["adaptive"] = {
+        "enabled": True,
+        "threshold": 0.9,
+        "candidates": [{
+            "id": "too-cold",
+            "prefetch": '@query "printf should-not-run" @cache ttl=120',
+            "patterns": ["absent-pattern"],
+        }],
+    }
+
+    result = perseus.prefetch_source("@perseus\n@read README.md\n", local, tmp_path, "ctx.md")
+
+    assert result["summary"]["ran"] == 0
+    assert result["summary"]["skipped"] == 1
+    assert "adaptive score 0.00 < threshold 0.90" in result["results"][0]["reason"]
+    cache_key = perseus._cache_key('@query "printf should-not-run"')
+    assert perseus.cache_get(cache_key, "ttl", 120, local) is None
+
+
 
 def test_skills_frontmatter_parses_structurally(tmp_path):
     skill_dir = tmp_path / "skills" / "cat" / "demo"

@@ -510,6 +510,15 @@ prefetch:
       trigger: '@query "git status"'
       prefetch:
         - '@query "git diff --stat" @cache ttl=300'
+  adaptive:
+    enabled: true
+    backend: deterministic   # or daedalus
+    threshold: 0.5
+    max_candidates: 5
+    candidates:
+      - id: decision-memory
+        prefetch: '@memory focus=decisions @cache ttl=300'
+        patterns: ["decision", "memory"]
 ```
 
 Rules can use a string trigger such as `@query "git status"` or a mapping with
@@ -517,6 +526,13 @@ Rules can use a string trigger such as `@query "git status"` or a mapping with
 `resource_kind`, and `resource`. Prefetch directives must be inline,
 cacheable directives and must include `@cache ttl=N`, `@cache persist`, or
 `@cache session`.
+
+Adaptive prefetch is disabled by default. When enabled, it scores only
+predeclared `adaptive.candidates`. The deterministic backend reads recent
+accepted oracle entries and the workspace Mnēmē narrative for pattern matches.
+The `daedalus` backend routes through existing LLM plumbing and falls back to
+deterministic scoring on transport, provider, or parse errors. Daedalus may
+rank candidates; it must not generate new directives or context prose.
 
 The command reports every ran, skipped, or failed prefetch. It respects existing
 render trust gates such as `render.allow_query_shell`; cache writes are the only
