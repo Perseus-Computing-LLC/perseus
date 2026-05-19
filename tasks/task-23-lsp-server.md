@@ -1,7 +1,7 @@
 ---
 id: task-23
 title: Task 23 — Perseus LSP Server (Phase 10.1)
-status: in_progress
+status: completed
 scope: large
 depends_on:
   - task-12
@@ -9,7 +9,7 @@ depends_on:
   - task-18
 claimed_by: claude-sonnet-4.5
 opened: 2026-05-18
-closed: null
+closed: 2026-05-18
 phase: 10.1
 ---
 
@@ -138,3 +138,18 @@ The LSP needs a workspace path to resolve directives like `@waypoint` and
 10. Manual smoke test with helix or VSCode (record commands used).
 11. Docs + commit + push.
 12. Add a `# Completed` section.
+
+# Completed
+
+Shipped 2026-05-18 with tasks 20/21/22/24.
+
+- `perseus serve --lsp --stdio` and `--lsp --tcp PORT` both work
+- Hand-rolled JSON-RPC framing (`_lsp_read_message` / `_lsp_write_message`) — no `pygls`, single-file constraint preserved
+- LSP 3.17 subset: initialize, initialized, shutdown, exit, textDocument/didOpen, didChange, didClose, publishDiagnostics, hover, completion, codeLens, workspace/executeCommand
+- Diagnostics for 5 classes: unknown directives, unmatched @else/@endif, unclosed @if, unclosed @constraint, `@cache ttl=` non-integer, unsubscribed federation alias
+- Hover for @waypoint, @memory, @health, @agora, @inbox, @skills, @session, @drift, @date, @agent
+- Completion: 21 directive names + per-directive arg keys
+- CodeLens "▶ Render" above first directive
+- executeCommand: perseus.render, perseus.openCheckpoint, perseus.compactMemory
+- Workspace resolution: workspaceFolders → rootUri → walk for `.perseus/` or `AGENTS.md` → cwd
+- 11 new tests

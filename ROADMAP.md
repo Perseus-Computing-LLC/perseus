@@ -412,8 +412,9 @@ Phase 7 (done):   task-12 Mnēmē — narrative project memory, @memory directiv
 Phase 8 (done):   task-15/16/17/18 — @agent, @inbox, template gallery, perseus serve, perseus cron
 Phase 8.2 (done): task-19 Mnēmē federation — manifest, 4 CLI subcommands, @memory federation directive
 Phase 8.3 (done): Hermes integration — `hermes` provider alias, `perseus llm ping`, docs/HERMES_INTEGRATION.md
-Phase 9 (scoped): task-20/21/22 — Daedalus self-rating, trained pattern extraction, drift detection
-Phase 10 (scoped): task-23/24 — LSP server, VSCode extension
+Phase 9 (done):   task-20/21/22 — `perseus oracle infer-labels`, `memory.pattern_extractor: daedalus`, `perseus oracle drift` + `@drift`
+Phase 10 (done):  task-23/24 — LSP server (`perseus serve --lsp`), VSCode extension (`editors/vscode/`)
+Phase 11+:        Future Development — see themed roadmap below
 ```
 
 ---
@@ -456,17 +457,15 @@ portability matters. `--install` mutates the user's crontab via
 
 ---
 
-### Phase 9 — Daedalus v2: Closed-loop autonomy ← SCOPED
+### Phase 9 — Daedalus v2: Closed-loop autonomy ← COMPLETE ✅
 
-Three task files scoped 2026-05-18. All open. Sequential dependency:
-P9.1 produces inferred labels, P9.2 consumes them for trained pattern
-extraction, P9.3 monitors drift across both.
+All three task files shipped 2026-05-18.
 
-| Sub-phase | Task | Scope | Open? |
+| Sub-phase | Task | Scope | Status |
 |---|---|---|---|
-| **P9.1** — Self-rating loop | [task-20](tasks/task-20-daedalus-self-rating.md) | medium | 🔲 |
-| **P9.2** — Trained pattern extraction in Mnēmē | [task-21](tasks/task-21-trained-pattern-extraction.md) | large | 🔲 |
-| **P9.3** — Drift detection | [task-22](tasks/task-22-drift-detection.md) | medium | 🔲 |
+| **P9.1** — Self-rating loop | [task-20](tasks/task-20-daedalus-self-rating.md) | medium | ✅ |
+| **P9.2** — Trained pattern extraction in Mnēmē | [task-21](tasks/task-21-trained-pattern-extraction.md) | large | ✅ |
+| **P9.3** — Drift detection | [task-22](tasks/task-22-drift-detection.md) | medium | ✅ |
 
 **P9.1 — Self-rating loop**
 After Pythia recommends X and the user's next checkpoint mentions a tool
@@ -488,15 +487,14 @@ Daedalus confidence) surfaced via `perseus oracle drift` and a new
 
 ---
 
-### Phase 10 — Editor integration ← SCOPED
+### Phase 10 — Editor integration ← COMPLETE ✅
 
-Two task files scoped 2026-05-18. Sequential dependency: LSP first, then
-the editor-specific wrapper.
+Both task files shipped 2026-05-18.
 
-| Sub-phase | Task | Scope | Open? |
+| Sub-phase | Task | Scope | Status |
 |---|---|---|---|
-| **P10.1** — Perseus LSP server | [task-23](tasks/task-23-lsp-server.md) | large | 🔲 |
-| **P10.2** — VSCode extension | [task-24](tasks/task-24-vscode-extension.md) | medium | 🔲 |
+| **P10.1** — Perseus LSP server | [task-23](tasks/task-23-lsp-server.md) | large | ✅ |
+| **P10.2** — VSCode extension | [task-24](tasks/task-24-vscode-extension.md) | medium | ✅ |
 
 **P10.1 — Perseus LSP server**
 `perseus serve --lsp --stdio|--tcp PORT` ships an LSP 3.17 subset:
@@ -514,17 +512,71 @@ command palette entries. All real logic stays in the LSP.
 
 ---
 
-### Beyond Phase 10
+## Future Development (Phase 11+)
 
-Open canvas. Candidates not yet scoped:
+All originally-scoped phases (1-10) are now complete. Perseus v0.8 is
+**feature-complete against the original spec**. Future work is "what next"
+territory — open canvas. Below is the principal engineer's current thinking
+on directions, organized by theme and rough effort.
 
-- **Phase 11** — Multi-agent inbox routing (route messages based on content
-  to specific agents in a federation)
-- **Phase 12** — Pattern-aware code actions in the LSP (refactor hints
-  driven by Mnēmē patterns)
-- **Phase 13** — JetBrains plugin, Helix LSP polish, Neovim plugin
-- **Phase 14** — Team/server mode (multi-user federation with real
-  publisher-side access control)
+### Theme A — Closed-loop intelligence (extends Phase 9)
+
+| ID | Title | Scope | Notes |
+|---|---|---|---|
+| **P11.1** | Real confidence scoring from Daedalus | medium | Replace the length-as-confidence proxy in `_compute_drift` with a real model-provided score once Daedalus is fine-tuned. Wire into `@drift` output. |
+| **P11.2** | Inferred-label model bootstrapping | medium | First-run UX: when oracle log has 100+ inferred labels but no explicit ones, prompt the user to spot-check a sample and confirm the inference quality before training. |
+| **P11.3** | Reinforcement loop | large | When `perseus oracle accept` is called, mine the entry's checkpoint window for new pattern signals and update Mnēmē Patterns section incrementally instead of waiting for `memory compact`. |
+
+### Theme B — Federation v2 (extends Phase 8.2)
+
+| ID | Title | Scope | Notes |
+|---|---|---|---|
+| **P12.1** | Section-level federation filters | medium | `subscriptions: [{alias, path, include_sections: ["arc", "decisions"]}]` so a subscriber can opt into specific sections of a publisher narrative. |
+| **P12.2** | Mnēmē federation digest LLM summarization | small | Optional `--llm` flag for `@memory federation` that produces a unified summary across subscriptions instead of concatenated raw narratives. |
+| **P12.3** | Publisher-side access control (requires server mode) | large | When Perseus grows a daemon/server, add publisher-side ACLs for federation. Currently subscriber-side-only by design. |
+| **P12.4** | Federation conflict detection | medium | Flag when two subscribed workspaces have contradictory facts (e.g. same project, different statuses). |
+
+### Theme C — Editor + LSP polish (extends Phase 10)
+
+| ID | Title | Scope | Notes |
+|---|---|---|---|
+| **P13.1** | LSP code actions (refactor hints) | medium | Driven by Mnēmē patterns: "this directive matches an anti-pattern in your narrative — suggest replacement." Requires LSP `textDocument/codeAction`. |
+| **P13.2** | JetBrains plugin | medium | Same model as VSCode extension: thin Kotlin LSP launcher in `editors/jetbrains/`. |
+| **P13.3** | Helix / Neovim setup docs | small | Tested config snippets in `docs/EDITOR_*.md` files. |
+| **P13.4** | LSP `textDocument/formatting` | small | Currently a non-goal; revisit if directive ordering conventions emerge. |
+| **P13.5** | LSP `Last-Modified` / `ETag` for hover cache | small | Currently every hover re-resolves; add a 2s cache per directive instance. |
+
+### Theme D — Team & server mode (the biggest one)
+
+| ID | Title | Scope | Notes |
+|---|---|---|---|
+| **P14.1** | `perseus daemon` mode | xl | Long-running server that owns the checkpoint store, oracle log, Mnēmē narratives. CLI becomes a thin client. Unblocks real auth, real ACLs, multi-user federation, web UI. |
+| **P14.2** | Web UI (extends `perseus serve`) | large | Today `perseus serve` is read-only HTML. Add SPA frontend, edit access, multi-user view. |
+| **P14.3** | Multi-user federation | xl | Requires P14.1 + auth (OAuth, OIDC, or simple shared-secret). Replaces the local-filesystem federation model with a publish/subscribe service. |
+| **P14.4** | Hermes (and other agents) as first-class clients | medium | Today Perseus is invoked by agents through the CLI. With P14.1, agents can connect over an RPC and stream context changes. |
+
+### Theme E — Smaller quality-of-life
+
+| ID | Title | Scope | Notes |
+|---|---|---|---|
+| **P15.1** | `perseus init --interactive` | small | First-run wizard: pick template, configure LLM, set up federation. |
+| **P15.2** | Better error surfaces | small | Currently many failures emit `> ⚠` lines; richer error objects for LSP diagnostics. |
+| **P15.3** | Telemetry opt-in | medium | Anonymized usage telemetry so future roadmap can be data-driven, not just hunch-driven. Must be strictly opt-in and locally-aggregated before any send. |
+| **P15.4** | `perseus doctor` | small | Single command that runs health + ping + federation list + drift + advisory summary. |
+| **P15.5** | `perseus init` template gallery hosted remotely | medium | Today templates are local; allow `--template github:user/repo`. |
+
+### Sequencing recommendation
+
+If I were prioritizing for the next 6 months, the order would be:
+
+1. **P15.4** (`perseus doctor`) — tiny, high-leverage, surfaces all other features
+2. **P11.1** (real confidence scoring) — unblocks more honest drift detection
+3. **P13.5** (LSP hover cache) — improves editor experience instantly
+4. **P12.4** (federation conflict detection) — federation is shipping but not yet stressed
+5. **P14.1** (`perseus daemon` mode) — the largest unlock; everything in Theme D depends on it
+
+Anything in Theme D should wait until at least one of Themes A–C has produced
+real friction worth solving. Build-it-because-you-need-it, not because-it-would-be-cool.
 
 ---
 

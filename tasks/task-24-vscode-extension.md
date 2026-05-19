@@ -1,13 +1,13 @@
 ---
 id: task-24
 title: Task 24 — VSCode Extension (Phase 10.2)
-status: in_progress
+status: completed
 scope: medium
 depends_on:
   - task-23
 claimed_by: claude-sonnet-4.5
 opened: 2026-05-18
-closed: null
+closed: 2026-05-18
 phase: 10.2
 ---
 
@@ -129,3 +129,14 @@ editors/
    verify the 9 acceptance criteria.
 7. Docs + commit + push.
 8. Add a `# Completed` section.
+
+# Completed
+
+Shipped 2026-05-18 with tasks 20/21/22/23.
+
+- Lives at `editors/vscode/` — the one mechanically-required file outside `perseus.py` (VSCode packages as `.vsix` bundles with their own runtime).
+- Thin LSP client (~95 LoC TypeScript): launches `perseus serve --lsp --stdio`, registers 3 commands, adds a status bar item.
+- Files: `package.json`, `tsconfig.json`, `src/extension.ts`, `README.md`, `.vscodeignore`, `.gitignore`
+- Configuration: `perseus.binary`, `perseus.tracing`
+- Activates on markdown, AGENTS.md, .perseus/context.md
+- Real work happens server-side — extension stays minimal so other editors (Helix, Neovim, Zed) get the same LSP for free

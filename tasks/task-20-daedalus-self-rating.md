@@ -1,14 +1,14 @@
 ---
 id: task-20
 title: Task 20 — Daedalus Self-Rating Loop (Phase 9.1)
-status: in_progress
+status: completed
 scope: medium
 depends_on:
   - task-02
   - task-06
 claimed_by: claude-sonnet-4.5
 opened: 2026-05-18
-closed: null
+closed: 2026-05-18
 phase: 9.1
 ---
 
@@ -111,3 +111,15 @@ to do anything.
 7. Extend `perseus oracle export` with `--include-inferred`.
 8. Tests + docs + commit + push.
 9. Add a `# Completed` section summarising what shipped.
+
+# Completed
+
+Shipped 2026-05-18 in commit batch with tasks 21/22/23/24.
+
+- `oracle.inferred_label_window_days` (7), `inferred_label_window_checkpoints` (5), `inferred_label_min_checkpoints` (2)
+- Pure helpers: `_extract_recommendation_tokens`, `_checkpoint_haystack`, `_infer_label_for_entry`, `_parse_iso_ts`, `_checkpoints_in_window`, `_load_indexed_checkpoints`
+- CLI: `perseus oracle infer-labels [--window-days N] [--window-checkpoints N] [--dry-run]`
+- Idempotent: re-runs are no-ops; explicit accept/reject never overridden
+- `perseus oracle log` shows ≈✓ / ≈✗ tags for inferred labels with legend
+- `perseus oracle export --include-inferred` includes inferred-accept entries tagged `label_source=inferred`
+- 11 new tests

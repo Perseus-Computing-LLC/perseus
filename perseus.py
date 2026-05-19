@@ -17,6 +17,7 @@ Usage:
 """
 
 import argparse
+import copy
 import fnmatch
 import hashlib
 import json
@@ -62,6 +63,19 @@ DEFAULT_CONFIG = {
         "ollama_model": "llama3.1",
         "llm_timeout_s": 30,
         "ollama_host": os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434"),
+        # Phase 9.1 — Daedalus self-rating / inferred label window.
+        # Default: 7 days OR 5 checkpoints after the recommendation,
+        # whichever comes first. Floor of 2 checkpoints to call it
+        # `inferred_reject`; below that, label stays `inferred_none`.
+        "inferred_label_window_days": 7,
+        "inferred_label_window_checkpoints": 5,
+        "inferred_label_min_checkpoints": 2,
+        # Phase 9.3 — drift detection thresholds (tasks 22).
+        # Surfaced via `perseus oracle drift` and the `@drift` directive.
+        "drift_window_days": 30,
+        "drift_acceptance_drop": 0.20,        # ≥ 20pp drop in accept-rate
+        "drift_jaccard_floor": 0.30,          # Jaccard < this is "low overlap"
+        "drift_confidence_drop": 0.15,        # avg confidence falls ≥ 15pp
     },
     "llm": {
         "provider": "ollama",
@@ -94,6 +108,11 @@ DEFAULT_CONFIG = {
         "max_narrative_lines": 300, # warn (not error) if narrative grows beyond this
         # task-19 (Phase 8.2) — federation manifest path
         "federation_manifest": str(PERSEUS_HOME / "memory" / "federation.yaml"),
+        # task-21 (Phase 9.2) — pattern extractor backend:
+        #   "deterministic" = rule-based (no model), default
+        #   "daedalus"      = call run_llm("daedalus", ...) for inference
+        # The daedalus path falls back to deterministic on any failure.
+        "pattern_extractor": "deterministic",
     },
     "inbox": {                       # task-16 (Phase 8 P8.3)
         "store": str(PERSEUS_HOME / "inbox"),
@@ -1663,7 +1682,7 @@ CONSTRAINT_RE = re.compile(r'^@constraint\s+(.+)$', re.IGNORECASE)
 CONSTRAINT_END_RE = re.compile(r'^@end\s*$', re.IGNORECASE)
 
 INLINE_DIRECTIVE_RE = re.compile(
-    r'^(@query|@skills|@session|@date|@waypoint|@read|@env|@include|@prompt|@agora|@memory|@list|@tree|@health|@agent|@inbox)(\s+.*)?$',
+    r'^(@query|@skills|@session|@date|@waypoint|@read|@env|@include|@prompt|@agora|@memory|@list|@tree|@health|@agent|@inbox|@drift)(\s+.*)?$',
     re.IGNORECASE,
 )
 
@@ -1862,6 +1881,8 @@ def _render_lines(
                 result = resolve_agent(clean_args, cfg, workspace)
             elif directive == "@inbox":
                 result = resolve_inbox(clean_args, cfg, workspace)
+            elif directive == "@drift":
+                result = resolve_drift(clean_args, cfg)
             else:
                 result = line
 
@@ -2038,6 +2059,99 @@ def _extract_section(body: str, heading: str) -> str:
     return body[start:m.end() + next_m.start()].rstrip() + "\n"
 
 
+def _deterministic_patterns_body(oracle_entries: list[dict]) -> str:
+    """Rule-based pattern extraction — no LLM. The default extractor."""
+    accepted = [e for e in oracle_entries if e.get("accepted") is True]
+    bucket: dict[str, dict] = {}
+    known_prefixes = ("skill:", "web_", "terminal", "delegate", "cron")
+    for entry in accepted:
+        resp = str(entry.get("response", "") or "").strip()
+        if not resp:
+            continue
+        first_token = resp.split()[0] if resp.split() else ""
+        tool = None
+        for pref in known_prefixes:
+            if first_token.lower().startswith(pref):
+                tool = first_token
+                break
+        if not tool:
+            continue
+        b = bucket.setdefault(tool, {"count": 0, "last": ""})
+        b["count"] += 1
+        ts = entry.get("timestamp") or ""
+        if ts > b["last"]:
+            b["last"] = ts
+    if not bucket:
+        return "_No accepted oracle patterns yet._"
+    lines = []
+    for tool, info in sorted(bucket.items(), key=lambda kv: -kv[1]["count"]):
+        lines.append(f"- **{tool}** — used {info['count']} times (last: {_short_date(info['last'])})")
+    return "\n".join(lines)
+
+
+def _daedalus_patterns_body(oracle_entries: list[dict], cfg: dict) -> str | None:
+    """LLM-inferred pattern extraction via run_llm("daedalus", ...).
+
+    Returns ``None`` on any failure so the caller can fall back to the
+    deterministic path. The contract for the model's response is documented
+    in spec/components.md § 6 (Daedalus): a markdown bullet list, one
+    pattern per line, ≤ 80 chars per bullet.
+    """
+    accepted = [e for e in oracle_entries if e.get("accepted") is True or e.get("inferred_label") == "inferred_accept"]
+    if not accepted:
+        return "_No labeled oracle patterns yet for daedalus extraction._"
+
+    prompt_lines = [
+        "You are Daedalus, the Perseus pattern extractor.",
+        "Given a labeled stream of (prompt → accepted response) pairs,",
+        "produce 3-7 concise patterns or anti-patterns observed.",
+        "OUTPUT FORMAT: a markdown bullet list, one bullet per line,",
+        "each bullet ≤ 80 characters. No prose, no headings, just bullets.",
+        "",
+        "Data:",
+    ]
+    for e in accepted[-30:]:  # cap to most recent 30 to keep prompt small
+        p = str(e.get("prompt", "") or "")[:120].replace("\n", " ")
+        r = str(e.get("response", "") or "")[:120].replace("\n", " ")
+        src = "explicit" if e.get("accepted") is True else "inferred"
+        prompt_lines.append(f"- ({src}) {p} → {r}")
+    prompt = "\n".join(prompt_lines)
+
+    try:
+        text, code = run_llm("daedalus", prompt, cfg)
+    except Exception as exc:
+        sys.stderr.write(f"⚠ daedalus pattern extractor failed ({exc}); falling back to deterministic\n")
+        return None
+    if code != 0 or not text:
+        sys.stderr.write(f"⚠ daedalus pattern extractor returned no output (code={code}); falling back to deterministic\n")
+        return None
+
+    # Validate: must contain at least one bullet line; trim each to 80 chars
+    bullets = []
+    for raw in text.splitlines():
+        s = raw.strip()
+        if not s.startswith(("-", "*", "•")):
+            continue
+        if len(s) > 84:  # 80 + leading "- "
+            s = s[:81] + "…"
+        bullets.append(s if s.startswith("- ") else "- " + s.lstrip("*•- ").strip())
+    if not bullets:
+        sys.stderr.write("⚠ daedalus pattern extractor returned no bullets; falling back to deterministic\n")
+        return None
+    return "\n".join(bullets)
+
+
+def _extract_patterns_section(oracle_entries: list[dict], cfg: dict) -> str:
+    """Dispatch to the configured pattern extractor with graceful fallback."""
+    backend = (cfg.get("memory", {}).get("pattern_extractor") or "deterministic").strip().lower()
+    if backend == "daedalus":
+        out = _daedalus_patterns_body(oracle_entries, cfg)
+        if out is not None:
+            return out
+        # fall through to deterministic
+    return _deterministic_patterns_body(oracle_entries)
+
+
 def _deterministic_narrative(
     checkpoints: list[dict],
     oracle_entries: list[dict],
@@ -2110,36 +2224,7 @@ def _deterministic_narrative(
     history_section = "## Task History\n\n" + history_body + "\n"
 
     # ── Patterns & Anti-patterns ───────────────────────────────────────────
-    accepted = [e for e in oracle_entries if e.get("accepted") is True]
-    bucket: dict[str, dict] = {}
-    known_prefixes = ("skill:", "web_", "terminal", "delegate", "cron")
-    for entry in accepted:
-        resp = str(entry.get("response", "") or "").strip()
-        if not resp:
-            continue
-        first_token = resp.split()[0] if resp.split() else ""
-        # Try to match a known prefix
-        tool = None
-        for pref in known_prefixes:
-            if first_token.lower().startswith(pref):
-                tool = first_token
-                break
-        if not tool:
-            continue
-        b = bucket.setdefault(tool, {"count": 0, "last": ""})
-        b["count"] += 1
-        ts = entry.get("timestamp") or ""
-        if ts > b["last"]:
-            b["last"] = ts
-    if bucket:
-        patterns_lines = []
-        for tool, info in sorted(bucket.items(), key=lambda kv: -kv[1]["count"]):
-            patterns_lines.append(
-                f"- **{tool}** — used {info['count']} times (last: {_short_date(info['last'])})"
-            )
-        patterns_body = "\n".join(patterns_lines)
-    else:
-        patterns_body = "_No accepted oracle patterns yet._"
+    patterns_body = _extract_patterns_section(oracle_entries, cfg)
     patterns_section = "## Patterns & Anti-patterns\n\n" + patterns_body + "\n"
 
     # ── Recent Activity ────────────────────────────────────────────────────
@@ -2405,6 +2490,11 @@ def cmd_memory(args, cfg):
 
     if sub == "compact":
         provider = _memory_llm_provider(args, cfg)
+        # task-21: per-invocation override for pattern_extractor
+        pe_override = getattr(args, "pattern_extractor", None)
+        if pe_override:
+            cfg = copy.deepcopy(cfg)
+            cfg.setdefault("memory", {})["pattern_extractor"] = pe_override
         msg = _memory_do_compact(workspace, cfg, provider)
         # Record last_compact_processed so future advisory math works
         mp = _mneme_path(workspace, cfg)
@@ -4246,6 +4336,308 @@ def _label_oracle_entry(log_id: str, accepted: bool) -> tuple[bool, str]:
     return (True, f"Entry `{entries[idx].get('timestamp')}` marked accepted={accepted}")
 
 
+# ───── Phase 9.1 — Daedalus self-rating loop (task-20) ───────────────────────
+
+
+_TOKEN_RE = re.compile(r"[a-z0-9][a-z0-9_\-./]+")
+
+
+def _extract_recommendation_tokens(response_text: str) -> set[str]:
+    """Extract candidate tool/skill names from a Pythia recommendation.
+
+    Deterministic: lowercase the response, pull out backtick-wrapped names,
+    skill-style identifiers, and bare-word commands. Stopwords are stripped
+    so we don't match the literal word "you" or "the".
+    """
+    if not response_text:
+        return set()
+    text = response_text.lower()
+    tokens: set[str] = set()
+    # Backtick-wrapped names — highest signal
+    for m in re.findall(r"`([^`]{2,60})`", text):
+        tokens.add(m.strip().lower())
+    # Skill/tool-style identifiers in body
+    for m in _TOKEN_RE.findall(text):
+        if 2 < len(m) < 40 and m not in _RECO_STOPWORDS:
+            tokens.add(m)
+    return tokens
+
+
+_RECO_STOPWORDS = {
+    "the", "and", "for", "you", "use", "with", "this", "that", "your",
+    "from", "into", "have", "has", "was", "are", "but", "any", "all",
+    "tool", "skill", "task", "command", "perseus", "see", "would",
+    "should", "could", "first", "second", "next", "step", "steps",
+    "recommend", "recommended", "consider", "based", "context",
+}
+
+
+def _checkpoint_haystack(checkpoint: dict) -> str:
+    """Concatenate the fields scanned for inferred-accept matches."""
+    parts = []
+    for key in ("task", "status", "next", "notes", "summary", "blockers"):
+        v = checkpoint.get(key)
+        if isinstance(v, list):
+            parts.extend(str(x) for x in v)
+        elif v is not None:
+            parts.append(str(v))
+    return " ".join(parts).lower()
+
+
+def _infer_label_for_entry(entry: dict, checkpoints_in_window: list[dict], min_checkpoints: int = 2) -> str | None:
+    """Compute the inferred label for one oracle log entry.
+
+    Returns one of: ``inferred_accept``, ``inferred_reject``,
+    ``inferred_none``, or ``None`` if the entry already has an explicit
+    label and shouldn't be touched.
+
+    Pure function — no I/O, no mutation.
+    """
+    if entry.get("accepted") is True:
+        return None  # explicit accept wins
+    if entry.get("accepted") is False:
+        return None  # explicit reject wins
+
+    tokens = _extract_recommendation_tokens(str(entry.get("response", "") or ""))
+    if not tokens:
+        return "inferred_none"
+
+    n = len(checkpoints_in_window)
+    if n == 0:
+        return "inferred_none"
+
+    hits = 0
+    for cp in checkpoints_in_window:
+        hay = _checkpoint_haystack(cp)
+        if any(tok in hay for tok in tokens):
+            hits += 1
+
+    if hits > 0:
+        return "inferred_accept"
+    if n >= min_checkpoints:
+        return "inferred_reject"
+    return "inferred_none"
+
+
+def _parse_iso_ts(ts: str) -> float | None:
+    """Parse oracle log / checkpoint timestamps into epoch seconds (best-effort)."""
+    if not ts:
+        return None
+    try:
+        # checkpoint timestamps look like "2026-05-18T19:00:00+00:00"
+        return datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
+    except Exception:
+        try:
+            return datetime.strptime(ts[:19], "%Y-%m-%dT%H:%M:%S").timestamp()
+        except Exception:
+            return None
+
+
+def _checkpoints_in_window(entry_ts_epoch: float | None, all_checkpoints: list[tuple[float, dict]], window_days: int, window_checkpoints: int) -> list[dict]:
+    """Return up to ``window_checkpoints`` checkpoints that fall within
+    ``window_days`` after ``entry_ts_epoch``. Inputs assumed sorted ascending."""
+    if entry_ts_epoch is None:
+        return []
+    cutoff = entry_ts_epoch + window_days * 86400
+    window: list[dict] = []
+    for cp_ts, cp in all_checkpoints:
+        if cp_ts <= entry_ts_epoch:
+            continue
+        if cp_ts > cutoff:
+            break
+        window.append(cp)
+        if len(window) >= window_checkpoints:
+            break
+    return window
+
+
+def _load_indexed_checkpoints(cfg: dict) -> list[tuple[float, dict]]:
+    """Load all checkpoints into (epoch_ts, body) tuples sorted ascending."""
+    out: list[tuple[float, dict]] = []
+    for fp in _list_checkpoint_files(cfg):
+        body = _load_checkpoint_file(fp) or {}
+        ts = _parse_iso_ts(str(body.get("ts") or body.get("timestamp") or ""))
+        if ts is None:
+            # Fall back to file mtime
+            try:
+                ts = fp.stat().st_mtime
+            except Exception:
+                continue
+        out.append((ts, body))
+    out.sort(key=lambda t: t[0])
+    return out
+
+
+def cmd_oracle_infer_labels(args, cfg) -> int:
+    """`perseus oracle infer-labels` — apply implicit accept/reject labels.
+
+    Idempotent: re-running produces the same result. Never overrides an
+    explicit `accepted: true/false`. Writes the oracle log atomically.
+    """
+    o_cfg = cfg.get("oracle", {})
+    window_days = int(getattr(args, "window_days", None) or o_cfg.get("inferred_label_window_days", 7))
+    window_cps = int(getattr(args, "window_checkpoints", None) or o_cfg.get("inferred_label_window_checkpoints", 5))
+    floor = int(o_cfg.get("inferred_label_min_checkpoints", 2))
+    dry_run = bool(getattr(args, "dry_run", False))
+
+    entries = _oracle_log_entries()
+    if not entries:
+        print("(no oracle log entries)")
+        return 0
+
+    indexed_cps = _load_indexed_checkpoints(cfg)
+
+    changes = {"inferred_accept": 0, "inferred_reject": 0, "inferred_none": 0, "unchanged": 0, "explicit_skipped": 0}
+    for entry in entries:
+        if entry.get("accepted") is True or entry.get("accepted") is False:
+            changes["explicit_skipped"] += 1
+            continue
+        entry_ts = _parse_iso_ts(str(entry.get("timestamp", "") or ""))
+        window = _checkpoints_in_window(entry_ts, indexed_cps, window_days, window_cps)
+        new_label = _infer_label_for_entry(entry, window, min_checkpoints=floor)
+        if new_label is None:
+            continue
+        old = entry.get("inferred_label")
+        if old == new_label:
+            changes["unchanged"] += 1
+            continue
+        if not dry_run:
+            entry["inferred_label"] = new_label
+        changes[new_label] = changes.get(new_label, 0) + 1
+
+    if not dry_run:
+        _rewrite_oracle_log(entries)
+
+    prefix = "(dry-run) " if dry_run else ""
+    print(f"{prefix}Inferred labels (window: {window_days}d / {window_cps} checkpoints, floor: {floor}):")
+    print(f"  ✓ inferred_accept: {changes['inferred_accept']}")
+    print(f"  ✗ inferred_reject: {changes['inferred_reject']}")
+    print(f"  · inferred_none:   {changes['inferred_none']}")
+    print(f"  = unchanged:       {changes['unchanged']}")
+    print(f"  ⏭ explicit-label entries skipped: {changes['explicit_skipped']}")
+    return 0
+
+
+# ───── Phase 9.3 — Drift detection (task-22) ────────────────────────────────
+
+
+def _jaccard(a: set, b: set) -> float:
+    if not a and not b:
+        return 1.0
+    if not a or not b:
+        return 0.0
+    return len(a & b) / len(a | b)
+
+
+def _compute_drift(cfg: dict, now_epoch: float | None = None) -> dict:
+    """Three drift metrics over the oracle log:
+
+    1. **Acceptance rate** — (explicit accepts + inferred accepts) / total
+       compared between the trailing 7-day window and the longer baseline.
+    2. **Skill recommendation Jaccard** — set-similarity of recommended
+       tokens between the recent window and the baseline.
+    3. **Confidence proxy** — average response length (no LLM confidence
+       score exists yet; length is a reasonable surrogate while we wait
+       for the Daedalus inference path to surface a real score).
+    """
+    o = cfg.get("oracle", {})
+    win_days = int(o.get("drift_window_days", 30))
+    acc_drop = float(o.get("drift_acceptance_drop", 0.20))
+    jac_floor = float(o.get("drift_jaccard_floor", 0.30))
+    conf_drop = float(o.get("drift_confidence_drop", 0.15))
+
+    now = now_epoch if now_epoch is not None else time.time()
+    recent_cutoff = now - 7 * 86400
+    baseline_cutoff = now - win_days * 86400
+
+    entries = _oracle_log_entries()
+    recent = []
+    baseline = []
+    for e in entries:
+        ts = _parse_iso_ts(str(e.get("timestamp", "") or ""))
+        if ts is None:
+            continue
+        if ts >= recent_cutoff:
+            recent.append(e)
+        elif ts >= baseline_cutoff:
+            baseline.append(e)
+
+    def rate(es: list[dict]) -> float:
+        if not es:
+            return 0.0
+        pos = sum(1 for e in es if e.get("accepted") is True or e.get("inferred_label") == "inferred_accept")
+        return pos / len(es)
+
+    def tokens(es: list[dict]) -> set[str]:
+        out: set[str] = set()
+        for e in es:
+            out |= _extract_recommendation_tokens(str(e.get("response", "") or ""))
+        return out
+
+    def avg_len(es: list[dict]) -> float:
+        if not es:
+            return 0.0
+        return sum(len(str(e.get("response", "") or "")) for e in es) / len(es)
+
+    r_rate, b_rate = rate(recent), rate(baseline)
+    r_toks, b_toks = tokens(recent), tokens(baseline)
+    r_len, b_len = avg_len(recent), avg_len(baseline)
+    jaccard = _jaccard(r_toks, b_toks)
+
+    findings: list[str] = []
+    if b_rate > 0 and (b_rate - r_rate) >= acc_drop:
+        findings.append(f"acceptance rate dropped {int((b_rate-r_rate)*100)}pp (baseline {int(b_rate*100)}% → recent {int(r_rate*100)}%)")
+    if b_toks and jaccard < jac_floor:
+        findings.append(f"recommendation token Jaccard with baseline = {jaccard:.2f} (floor {jac_floor})")
+    if b_len > 0 and (b_len - r_len) / b_len >= conf_drop:
+        findings.append(f"average response length fell {int((b_len-r_len)/b_len*100)}% (baseline {int(b_len)}c → recent {int(r_len)}c)")
+
+    return {
+        "recent_count": len(recent),
+        "baseline_count": len(baseline),
+        "recent_accept_rate": r_rate,
+        "baseline_accept_rate": b_rate,
+        "jaccard": jaccard,
+        "recent_avg_len": r_len,
+        "baseline_avg_len": b_len,
+        "findings": findings,
+        "window_days": win_days,
+    }
+
+
+def cmd_oracle_drift(args, cfg) -> int:
+    report = _compute_drift(cfg)
+    print(f"Drift report (recent 7d vs baseline {report['window_days']}d):")
+    print(f"  Sample size: recent={report['recent_count']} · baseline={report['baseline_count']}")
+    print(f"  Acceptance rate: recent={report['recent_accept_rate']:.0%} · baseline={report['baseline_accept_rate']:.0%}")
+    print(f"  Jaccard: {report['jaccard']:.2f}")
+    print(f"  Avg response length: recent={int(report['recent_avg_len'])}c · baseline={int(report['baseline_avg_len'])}c")
+    if not report["findings"]:
+        print("  ✓ No drift detected.")
+        return 0
+    print("  ⚠ Drift detected:")
+    for f in report["findings"]:
+        print(f"    - {f}")
+    return 0
+
+
+def resolve_drift(args: str, cfg: dict) -> str:
+    """`@drift` directive — renders drift report inline."""
+    report = _compute_drift(cfg)
+    lines = [
+        f"_Drift report — recent 7d vs baseline {report['window_days']}d_",
+        f"_Sample: recent={report['recent_count']} · baseline={report['baseline_count']}_",
+        "",
+    ]
+    if not report["findings"]:
+        lines.append("✓ No drift detected.")
+    else:
+        lines.append("⚠ **Drift detected:**")
+        for f in report["findings"]:
+            lines.append(f"- {f}")
+    return "\n".join(lines)
+
+
 def cmd_oracle(args, cfg):
     sub = getattr(args, "oracle_command", None)
 
@@ -4269,7 +4661,18 @@ def cmd_oracle(args, cfg):
             ts = str(e.get("timestamp", ""))[:19]
             task = str(e.get("task", ""))[:60]
             acc = e.get("accepted")
-            tag = "✅" if acc is True else ("❌" if acc is False else "·")
+            inferred = e.get("inferred_label")
+            # Tag: explicit beats inferred (per task-20 hard rule); show inferred when no explicit
+            if acc is True:
+                tag = "✅"
+            elif acc is False:
+                tag = "❌"
+            elif inferred == "inferred_accept":
+                tag = "≈✓"
+            elif inferred == "inferred_reject":
+                tag = "≈✗"
+            else:
+                tag = "·"
             rows.append(f"  {tag}  {ts}  {task}")
             if len(rows) >= limit:
                 break
@@ -4277,32 +4680,48 @@ def cmd_oracle(args, cfg):
             print("(no oracle log entries)")
             return
         print(f"Recent oracle log entries (most recent first; limit={limit}{' unlabeled only' if unlabeled else ''})")
+        print("  Legend: ✅ explicit accept · ❌ explicit reject · ≈✓ inferred accept · ≈✗ inferred reject · · unlabeled")
         for r in rows:
             print(r)
         return
 
     if sub == "export":
         entries = _oracle_log_entries()
+        include_inferred = bool(getattr(args, "include_inferred", False))
         accepted = [e for e in entries if e.get("accepted") is True]
         rejected = [e for e in entries if e.get("accepted") is False]
         unlabeled = [e for e in entries if e.get("accepted") is None]
+        inferred_acc = [e for e in entries if e.get("accepted") is None and e.get("inferred_label") == "inferred_accept"]
         out_path = Path(getattr(args, "output", None) or (PERSEUS_HOME / "daedalus_dataset.jsonl")).expanduser().resolve()
         fmt = getattr(args, "format", "jsonl") or "jsonl"
         out_path.parent.mkdir(parents=True, exist_ok=True)
+        n_explicit = 0
+        n_inferred = 0
         with out_path.open("w", encoding="utf-8") as f:
-            for e in accepted:
+            def _record(e: dict, src: str) -> dict:
                 if fmt == "alpaca":
-                    rec = {
-                        "instruction": e.get("prompt", ""),
-                        "input": "",
-                        "output": e.get("response", "") or "",
-                    }
-                else:
-                    rec = {"prompt": e.get("prompt", ""), "completion": e.get("response", "") or ""}
-                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-        print(f"✔ Exported {len(accepted)} accepted entries → {out_path} (format={fmt})")
-        print(f"  Summary: {len(accepted)} accepted · {len(rejected)} rejected · {len(unlabeled)} unlabeled")
+                    return {"instruction": e.get("prompt", ""), "input": "", "output": e.get("response", "") or "", "label_source": src}
+                if fmt == "daedalus-patterns":
+                    # task-21: minimal pattern-training pairs (prompt → bullet)
+                    raw = str(e.get("response", "") or "").strip().splitlines()
+                    bullet = next((ln.strip() for ln in raw if ln.strip().startswith(("-", "*", "•"))), raw[0] if raw else "")
+                    return {"prompt": e.get("prompt", ""), "completion": bullet, "label_source": src}
+                return {"prompt": e.get("prompt", ""), "completion": e.get("response", "") or "", "label_source": src}
+            for e in accepted:
+                f.write(json.dumps(_record(e, "explicit"), ensure_ascii=False) + "\n")
+                n_explicit += 1
+            if include_inferred:
+                for e in inferred_acc:
+                    f.write(json.dumps(_record(e, "inferred"), ensure_ascii=False) + "\n")
+                    n_inferred += 1
+        print(f"✔ Exported {n_explicit} explicit accepts" + (f" + {n_inferred} inferred accepts" if include_inferred else "") + f" → {out_path} (format={fmt})")
+        print(f"  Summary: {len(accepted)} accepted · {len(rejected)} rejected · {len(unlabeled)} unlabeled · {len(inferred_acc)} inferred-accept (available with --include-inferred)")
         return
+
+    if sub == "infer-labels":
+        return cmd_oracle_infer_labels(args, cfg)
+    if sub == "drift":
+        return cmd_oracle_drift(args, cfg)
 
     print(f"> ⚠ Unknown oracle subcommand: {sub}")
 
@@ -4590,12 +5009,396 @@ def _serve_render_endpoint(endpoint: str, cfg: dict, workspace: Path, query: dic
         return (500, "text/plain; charset=utf-8", f"Internal error: {exc}")
 
 
+# ───── Phase 10.1 — Perseus LSP server (task-23) ─────────────────────────────
+
+
+# Known directive arguments for completion. Hand-curated to match the
+# canonical directive set in INLINE_DIRECTIVE_RE plus block directives.
+_LSP_DIRECTIVE_ARGS = {
+    "@query": ["fallback="],
+    "@skills": ["flag_stale=", "category=", "limit="],
+    "@session": ["count="],
+    "@date": ["format="],
+    "@waypoint": ["ttl="],
+    "@read": [],
+    "@env": [],
+    "@include": [],
+    "@prompt": [],
+    "@agora": ["status="],
+    "@memory": ["focus=", "federation", "include_federation=", "alias="],
+    "@list": ["limit=", "sort="],
+    "@tree": ["depth="],
+    "@health": [],
+    "@agent": [],
+    "@inbox": ["unread=", "limit="],
+    "@drift": [],
+    "@constraint": [],
+    "@if": [],
+    "@else": [],
+    "@endif": [],
+    "@end": [],
+}
+
+_LSP_DIRECTIVE_NAMES = sorted(_LSP_DIRECTIVE_ARGS.keys())
+
+
+def _lsp_read_message(stream) -> dict | None:
+    """Read one LSP message (Content-Length + JSON body) from a binary stream."""
+    headers = b""
+    while not headers.endswith(b"\r\n\r\n"):
+        ch = stream.read(1)
+        if not ch:
+            return None
+        headers += ch
+        if len(headers) > 8192:
+            return None
+    length = 0
+    for line in headers.split(b"\r\n"):
+        if line.lower().startswith(b"content-length:"):
+            try:
+                length = int(line.split(b":", 1)[1].strip())
+            except ValueError:
+                return None
+    if length <= 0:
+        return None
+    body = b""
+    while len(body) < length:
+        chunk = stream.read(length - len(body))
+        if not chunk:
+            return None
+        body += chunk
+    try:
+        return json.loads(body.decode("utf-8"))
+    except json.JSONDecodeError:
+        return None
+
+
+def _lsp_write_message(stream, obj: dict) -> None:
+    data = json.dumps(obj, ensure_ascii=False).encode("utf-8")
+    stream.write(f"Content-Length: {len(data)}\r\n\r\n".encode("ascii"))
+    stream.write(data)
+    stream.flush()
+
+
+def _lsp_workspace_from_params(params: dict, doc_uri: str | None = None) -> Path:
+    """Resolve workspace path per LSP precedence."""
+    folders = params.get("workspaceFolders") or []
+    if folders and isinstance(folders, list) and folders[0].get("uri"):
+        return _lsp_uri_to_path(folders[0]["uri"])
+    root_uri = params.get("rootUri")
+    if root_uri:
+        return _lsp_uri_to_path(root_uri)
+    root_path = params.get("rootPath")
+    if root_path:
+        return Path(root_path).expanduser().resolve()
+    if doc_uri:
+        p = _lsp_uri_to_path(doc_uri)
+        # Walk up looking for .perseus/ or AGENTS.md
+        for ancestor in [p] + list(p.parents):
+            if (ancestor / ".perseus").exists() or (ancestor / "AGENTS.md").exists():
+                return ancestor
+        return p.parent if p.is_file() else p
+    return Path.cwd()
+
+
+def _lsp_uri_to_path(uri: str) -> Path:
+    """Convert ``file://`` URI to a Path."""
+    from urllib.parse import unquote, urlparse
+    parsed = urlparse(uri)
+    if parsed.scheme != "file":
+        return Path(uri)
+    return Path(unquote(parsed.path)).resolve()
+
+
+def _lsp_parse_directive_at_line(line: str) -> tuple[str, str] | None:
+    """Return (directive_name, args_str) if the line starts with a known directive."""
+    m = INLINE_DIRECTIVE_RE.match(line.strip())
+    if not m:
+        return None
+    return m.group(1).lower(), (m.group(2) or "").strip()
+
+
+def _lsp_diagnostics_for(text: str, cfg: dict, workspace: Path) -> list[dict]:
+    """Compute diagnostics for a Perseus document.
+
+    Severity codes: 1=Error, 2=Warning, 3=Information, 4=Hint
+    """
+    diagnostics: list[dict] = []
+    in_constraint = False
+    if_depth = 0
+    for lineno, raw in enumerate(text.splitlines()):
+        line = raw.strip()
+        if not line.startswith("@"):
+            continue
+        # Block directive tracking
+        if line.lower().startswith("@constraint"):
+            in_constraint = True
+            continue
+        if line.lower().startswith("@if"):
+            if_depth += 1
+            continue
+        if line.lower() in ("@else",):
+            if if_depth == 0:
+                diagnostics.append({
+                    "range": {"start": {"line": lineno, "character": 0}, "end": {"line": lineno, "character": len(raw)}},
+                    "severity": 1,
+                    "source": "perseus",
+                    "message": "@else without matching @if",
+                })
+            continue
+        if line.lower() in ("@endif",):
+            if if_depth == 0:
+                diagnostics.append({
+                    "range": {"start": {"line": lineno, "character": 0}, "end": {"line": lineno, "character": len(raw)}},
+                    "severity": 1,
+                    "source": "perseus",
+                    "message": "@endif without matching @if",
+                })
+            else:
+                if_depth -= 1
+            continue
+        if line.lower() == "@end":
+            in_constraint = False
+            continue
+        parsed = _lsp_parse_directive_at_line(line)
+        if parsed is None:
+            # Looks like a directive (starts with @) but not recognized
+            first_token = line.split()[0]
+            diagnostics.append({
+                "range": {"start": {"line": lineno, "character": 0}, "end": {"line": lineno, "character": len(raw)}},
+                "severity": 2,
+                "source": "perseus",
+                "message": f"Unknown directive: {first_token}",
+            })
+            continue
+        name, args_str = parsed
+        # task-19: warn on unsubscribed federation alias
+        if name == "@memory" and "federation" in args_str and "alias=" in args_str:
+            mm = re.search(r"alias=([A-Za-z0-9_\-]+)", args_str)
+            if mm:
+                alias = mm.group(1)
+                manifest = _load_federation_manifest(cfg)
+                aliases = {s.get("alias") for s in manifest.get("subscriptions", [])}
+                if alias not in aliases:
+                    diagnostics.append({
+                        "range": {"start": {"line": lineno, "character": 0}, "end": {"line": lineno, "character": len(raw)}},
+                        "severity": 2,
+                        "source": "perseus",
+                        "message": f"Federation alias `{alias}` is not subscribed (run `perseus memory federation subscribe`)",
+                    })
+        # task-09: @cache ttl= must be integer
+        if "@cache" in args_str:
+            mm = re.search(r"ttl=([^\s]+)", args_str)
+            if mm and not mm.group(1).isdigit():
+                diagnostics.append({
+                    "range": {"start": {"line": lineno, "character": 0}, "end": {"line": lineno, "character": len(raw)}},
+                    "severity": 2,
+                    "source": "perseus",
+                    "message": f"@cache ttl= must be a non-negative integer, got `{mm.group(1)}`",
+                })
+    if if_depth > 0:
+        diagnostics.append({
+            "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}},
+            "severity": 1,
+            "source": "perseus",
+            "message": f"{if_depth} unclosed @if block(s)",
+        })
+    if in_constraint:
+        diagnostics.append({
+            "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}},
+            "severity": 1,
+            "source": "perseus",
+            "message": "Unclosed @constraint block (missing @end)",
+        })
+    return diagnostics
+
+
+def _lsp_resolve_directive_for_hover(name: str, args_str: str, cfg: dict, workspace: Path) -> str:
+    """Resolve a directive for hover preview. Best-effort, never throws."""
+    try:
+        if name == "@waypoint":
+            return resolve_waypoint(args_str, cfg)
+        if name == "@memory":
+            return resolve_memory(args_str, cfg, workspace)
+        if name == "@health":
+            return resolve_health(args_str, cfg, workspace)
+        if name == "@agora":
+            return resolve_agora(args_str, cfg, workspace)
+        if name == "@inbox":
+            return resolve_inbox(args_str, cfg, workspace)
+        if name == "@skills":
+            return resolve_skills(args_str, cfg)
+        if name == "@session":
+            return resolve_session(args_str, cfg)
+        if name == "@drift":
+            return resolve_drift(args_str, cfg)
+        if name == "@date":
+            return resolve_date(args_str)
+        if name == "@agent":
+            return resolve_agent(args_str, cfg, workspace)
+    except Exception as exc:
+        return f"(hover error: {exc})"
+    return "(no hover preview)"
+
+
+def _run_lsp_server(args, cfg) -> int:
+    """Run the Perseus LSP server over the configured transport."""
+    documents: dict[str, str] = {}
+    server_state = {"workspace": Path.cwd(), "shutdown": False}
+
+    def transport_stream():
+        if getattr(args, "tcp", None):
+            import socket
+            srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            srv.bind(("127.0.0.1", int(args.tcp)))
+            srv.listen(1)
+            sys.stderr.write(f"perseus LSP listening on tcp://127.0.0.1:{args.tcp}\n")
+            conn, _ = srv.accept()
+            return conn.makefile("rb"), conn.makefile("wb")
+        # Default: stdio
+        return sys.stdin.buffer, sys.stdout.buffer
+
+    reader, writer = transport_stream()
+
+    def respond(req_id, result=None, error=None):
+        msg = {"jsonrpc": "2.0", "id": req_id}
+        if error is not None:
+            msg["error"] = error
+        else:
+            msg["result"] = result
+        _lsp_write_message(writer, msg)
+
+    def notify(method, params):
+        _lsp_write_message(writer, {"jsonrpc": "2.0", "method": method, "params": params})
+
+    def publish_diags(uri: str):
+        text = documents.get(uri, "")
+        ws = server_state["workspace"]
+        diags = _lsp_diagnostics_for(text, cfg, ws)
+        notify("textDocument/publishDiagnostics", {"uri": uri, "diagnostics": diags})
+
+    while True:
+        msg = _lsp_read_message(reader)
+        if msg is None:
+            break
+        method = msg.get("method")
+        params = msg.get("params") or {}
+        req_id = msg.get("id")
+
+        if method == "initialize":
+            server_state["workspace"] = _lsp_workspace_from_params(params)
+            respond(req_id, {
+                "capabilities": {
+                    "textDocumentSync": 1,  # full
+                    "hoverProvider": True,
+                    "completionProvider": {"triggerCharacters": ["@", " ", "="]},
+                    "codeLensProvider": {"resolveProvider": False},
+                    "executeCommandProvider": {"commands": ["perseus.render", "perseus.openCheckpoint", "perseus.compactMemory"]},
+                },
+                "serverInfo": {"name": "perseus-lsp", "version": "0.8"},
+            })
+        elif method == "initialized":
+            pass  # notification, no response
+        elif method == "shutdown":
+            server_state["shutdown"] = True
+            respond(req_id, None)
+        elif method == "exit":
+            break
+        elif method == "textDocument/didOpen":
+            doc = params.get("textDocument", {})
+            documents[doc["uri"]] = doc.get("text", "")
+            publish_diags(doc["uri"])
+        elif method == "textDocument/didChange":
+            uri = params["textDocument"]["uri"]
+            changes = params.get("contentChanges", [])
+            if changes:
+                documents[uri] = changes[-1].get("text", "")
+            publish_diags(uri)
+        elif method == "textDocument/didClose":
+            documents.pop(params["textDocument"]["uri"], None)
+        elif method == "textDocument/hover":
+            uri = params["textDocument"]["uri"]
+            line_no = params["position"]["line"]
+            text = documents.get(uri, "")
+            lines = text.splitlines()
+            preview = "(no directive on this line)"
+            if 0 <= line_no < len(lines):
+                parsed = _lsp_parse_directive_at_line(lines[line_no])
+                if parsed:
+                    name, args_str = parsed
+                    preview = _lsp_resolve_directive_for_hover(name, args_str, cfg, server_state["workspace"])
+            respond(req_id, {"contents": {"kind": "markdown", "value": f"```\n{preview[:2000]}\n```"}})
+        elif method == "textDocument/completion":
+            uri = params["textDocument"]["uri"]
+            line_no = params["position"]["line"]
+            char = params["position"]["character"]
+            text = documents.get(uri, "")
+            lines = text.splitlines()
+            cur_line = lines[line_no] if 0 <= line_no < len(lines) else ""
+            prefix = cur_line[:char]
+            items: list[dict] = []
+            # If line starts with @ but no directive complete yet, offer directive names
+            if "@" in prefix and not any(prefix.lstrip().lower().startswith(d) for d in _LSP_DIRECTIVE_NAMES):
+                for d in _LSP_DIRECTIVE_NAMES:
+                    items.append({"label": d, "kind": 14})  # Keyword
+            else:
+                # offer arg keys for the directive on this line
+                parsed = _lsp_parse_directive_at_line(cur_line)
+                if parsed:
+                    for arg in _LSP_DIRECTIVE_ARGS.get(parsed[0], []):
+                        items.append({"label": arg, "kind": 5})  # Field
+            respond(req_id, {"isIncomplete": False, "items": items})
+        elif method == "textDocument/codeLens":
+            uri = params["textDocument"]["uri"]
+            text = documents.get(uri, "")
+            lenses = []
+            for i, line in enumerate(text.splitlines()):
+                if _lsp_parse_directive_at_line(line):
+                    lenses.append({
+                        "range": {"start": {"line": i, "character": 0}, "end": {"line": i, "character": 0}},
+                        "command": {"title": "▶ Render", "command": "perseus.render", "arguments": [uri]},
+                    })
+                    break
+            respond(req_id, lenses)
+        elif method == "workspace/executeCommand":
+            cmd = params.get("command")
+            cmd_args = params.get("arguments") or []
+            if cmd == "perseus.render":
+                uri = cmd_args[0] if cmd_args else ""
+                text = documents.get(uri, "")
+                try:
+                    rendered = _render_lines(text.splitlines(), cfg, workspace=server_state["workspace"])
+                except Exception as exc:
+                    rendered = f"(render failed: {exc})"
+                respond(req_id, {"rendered": rendered})
+            elif cmd == "perseus.openCheckpoint":
+                store = Path(cfg["checkpoints"]["store"])
+                pointer = store / f"latest-{_workspace_hash(server_state['workspace'])}.yaml"
+                if not pointer.exists():
+                    pointer = store / "latest.yaml"
+                respond(req_id, {"uri": pointer.as_uri() if pointer.exists() else None})
+            elif cmd == "perseus.compactMemory":
+                ws = server_state["workspace"]
+                msg = _memory_do_compact(ws, cfg, provider=None)
+                respond(req_id, {"message": msg})
+            else:
+                respond(req_id, None, error={"code": -32601, "message": f"Unknown command: {cmd}"})
+        else:
+            # Unknown — respond with method-not-found for requests, ignore for notifications
+            if req_id is not None:
+                respond(req_id, None, error={"code": -32601, "message": f"Method not found: {method}"})
+    return 0
+
+
 def cmd_serve(args, cfg):
     """Start a read-only HTTP view of workspace state.
 
     All routes are GET-only. Binds to 127.0.0.1 by default — no auth, no
-    write surface, intentional.
+    write surface, intentional. With --lsp, runs an LSP server instead.
     """
+    if getattr(args, "lsp", False):
+        return _run_lsp_server(args, cfg)
     from http.server import BaseHTTPRequestHandler, HTTPServer
     from urllib.parse import urlsplit, parse_qsl
 
@@ -4744,9 +5547,9 @@ def cmd_init(args, cfg):
 def main():
     parser = argparse.ArgumentParser(
         prog="perseus",
-        description="Perseus — Live Context Engine for AI Assistants (alpha v0.7)",
+        description="Perseus — Live Context Engine for AI Assistants (alpha v0.8)",
     )
-    parser.add_argument("--version", action="version", version="perseus alpha v0.7")
+    parser.add_argument("--version", action="version", version="perseus alpha v0.8")
     sub = parser.add_subparsers(dest="command", required=True)
 
     # render
@@ -4834,6 +5637,7 @@ def main():
     p_mem_compact = mem_sub.add_parser("compact", help="Fully re-distill narrative")
     p_mem_compact.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
     p_mem_compact.add_argument("--llm", default=None, help="LLM provider")
+    p_mem_compact.add_argument("--pattern-extractor", default=None, choices=["deterministic", "daedalus"], help="Override memory.pattern_extractor (task-21)")
     p_mem_show = mem_sub.add_parser("show", help="Print narrative to stdout")
     p_mem_show.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
     p_mem_status = mem_sub.add_parser("status", help="Summarize narrative state")
@@ -4869,10 +5673,14 @@ def main():
                         help="List available templates and exit")
 
     # serve (read-only HTTP view)
-    p_serve = sub.add_parser("serve", help="Start a read-only HTTP view of workspace state")
-    p_serve.add_argument("--port", type=int, default=7991, help="Port (default: 7991)")
+    p_serve = sub.add_parser("serve", help="Start a read-only HTTP view of workspace state, or an LSP server")
+    p_serve.add_argument("--port", type=int, default=7991, help="HTTP port (default: 7991)")
     p_serve.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
     p_serve.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
+    # task-23 (Phase 10.1) — LSP transport
+    p_serve.add_argument("--lsp", action="store_true", help="Run as a Language Server Protocol server instead of HTTP")
+    p_serve.add_argument("--stdio", action="store_true", help="LSP transport: stdin/stdout (default for --lsp)")
+    p_serve.add_argument("--tcp", type=int, default=None, help="LSP transport: listen on TCP port instead of stdio")
 
     # cron (cross-platform scheduling)
     p_cron = sub.add_parser("cron", help="Generate a crontab entry for periodic rendering (cross-platform)")
@@ -4921,7 +5729,17 @@ def main():
     p_oracle_log.add_argument("--unlabeled", action="store_true", help="Only show unlabeled entries")
     p_oracle_export = oracle_sub.add_parser("export", help="Export accepted entries as fine-tuning dataset")
     p_oracle_export.add_argument("--output", default=None, help="Output path (default: ~/.perseus/daedalus_dataset.jsonl)")
-    p_oracle_export.add_argument("--format", default="jsonl", choices=["jsonl", "alpaca"], help="Output format")
+    p_oracle_export.add_argument("--format", default="jsonl", choices=["jsonl", "alpaca", "daedalus-patterns"], help="Output format (daedalus-patterns: task-21 pattern training set)")
+    p_oracle_export.add_argument("--include-inferred", action="store_true", help="Also export inferred-accept entries (clearly tagged label_source=inferred)")
+
+    # Phase 9.1 — task-20: implicit accept/reject inference
+    p_oracle_infer = oracle_sub.add_parser("infer-labels", help="Apply implicit accept/reject labels from checkpoint correlation")
+    p_oracle_infer.add_argument("--window-days", type=int, default=None, help="Override oracle.inferred_label_window_days")
+    p_oracle_infer.add_argument("--window-checkpoints", type=int, default=None, help="Override oracle.inferred_label_window_checkpoints")
+    p_oracle_infer.add_argument("--dry-run", action="store_true", help="Print what would change without writing")
+
+    # Phase 9.3 — task-22: drift detection
+    p_oracle_drift = oracle_sub.add_parser("drift", help="Report drift in recent oracle behavior vs baseline")
 
     # `perseus llm ping` — verify the configured LLM provider is reachable.
     p_llm = sub.add_parser("llm", help="LLM provider utilities (ping)")
@@ -4951,7 +5769,9 @@ def main():
     elif args.command == "inbox":
         cmd_inbox(args, cfg)
     elif args.command == "serve":
-        cmd_serve(args, cfg)
+        rc = cmd_serve(args, cfg)
+        if isinstance(rc, int):
+            return rc
     elif args.command == "cron":
         cmd_cron(args, cfg)
     elif args.command == "systemd":
@@ -4959,7 +5779,9 @@ def main():
     elif args.command == "health":
         cmd_health(args, cfg)
     elif args.command == "oracle":
-        cmd_oracle(args, cfg)
+        rc = cmd_oracle(args, cfg)
+        if isinstance(rc, int):
+            return rc
     elif args.command == "llm":
         return cmd_llm(args, cfg)
     elif args.command == "init":

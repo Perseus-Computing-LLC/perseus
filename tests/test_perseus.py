@@ -2,6 +2,7 @@ import argparse
 import copy
 import importlib.util
 import json
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -1083,7 +1084,11 @@ def test_oracle_export_alpaca_format(tmp_path, monkeypatch):
     out_path = tmp_path / "alpaca.jsonl"
     perseus.cmd_oracle(argparse.Namespace(oracle_command="export", output=str(out_path), format="alpaca"), cfg())
     rows = [json.loads(l) for l in out_path.read_text().splitlines() if l]
-    assert rows[0] == {"instruction": "P", "input": "", "output": "R"}
+    # task-20: export now records label_source so training can weight inferred lower
+    assert rows[0]["instruction"] == "P"
+    assert rows[0]["input"] == ""
+    assert rows[0]["output"] == "R"
+    assert rows[0]["label_source"] == "explicit"
 
 
 def test_run_llm_daedalus_routes_to_ollama(monkeypatch):
@@ -2205,3 +2210,320 @@ def test_cmd_llm_unknown_subcommand_returns_3(capsys):
     args = argparse.Namespace(llm_sub="bogus", provider=None, model=None, url=None)
     rc = perseus.cmd_llm(args, cfg())
     assert rc == 3
+
+
+# ─── task-20: Daedalus self-rating loop ────────────────────────────────────
+
+
+def test_extract_recommendation_tokens_picks_backticks():
+    text = "Use `git-rebase` or `docker-compose` for this."
+    toks = perseus._extract_recommendation_tokens(text)
+    assert "git-rebase" in toks
+    assert "docker-compose" in toks
+
+
+def test_extract_recommendation_tokens_skips_stopwords():
+    text = "you should consider the next step"
+    toks = perseus._extract_recommendation_tokens(text)
+    # All these are stopwords
+    assert "you" not in toks
+    assert "should" not in toks
+    assert "consider" not in toks
+
+
+def test_infer_label_explicit_accept_returns_none():
+    entry = {"accepted": True, "response": "use `tool-x`"}
+    assert perseus._infer_label_for_entry(entry, [{"task": "did stuff with tool-x"}]) is None
+
+
+def test_infer_label_explicit_reject_returns_none():
+    entry = {"accepted": False, "response": "use `tool-x`"}
+    assert perseus._infer_label_for_entry(entry, [{"task": "tool-x"}]) is None
+
+
+def test_infer_label_accept_when_tool_appears_in_checkpoint():
+    entry = {"response": "Recommend `docker-debug`"}
+    cps = [{"task": "Tried docker-debug to find the leak"}]
+    assert perseus._infer_label_for_entry(entry, cps) == "inferred_accept"
+
+
+def test_infer_label_reject_when_no_tool_appears_and_window_full():
+    entry = {"response": "Use `docker-debug`"}
+    cps = [{"task": "something else"}, {"task": "and another"}]
+    assert perseus._infer_label_for_entry(entry, cps, min_checkpoints=2) == "inferred_reject"
+
+
+def test_infer_label_none_when_under_floor():
+    entry = {"response": "Use `docker-debug`"}
+    cps = [{"task": "something else"}]  # only 1 cp, floor=2
+    assert perseus._infer_label_for_entry(entry, cps, min_checkpoints=2) == "inferred_none"
+
+
+def test_infer_label_none_when_no_checkpoints():
+    entry = {"response": "Use `docker-debug`"}
+    assert perseus._infer_label_for_entry(entry, []) == "inferred_none"
+
+
+def test_infer_labels_idempotent(monkeypatch, tmp_path):
+    _seed_oracle_log(monkeypatch, tmp_path, [
+        {"timestamp": "2026-05-01T10:00:00", "task": "x", "prompt": "P", "response": "use `tool-a`"},
+    ])
+    monkeypatch.setattr(perseus, "_load_indexed_checkpoints", lambda cfg: [
+        (perseus._parse_iso_ts("2026-05-02T10:00:00"), {"task": "did tool-a thing"}),
+        (perseus._parse_iso_ts("2026-05-03T10:00:00"), {"task": "more tool-a"}),
+    ])
+    args = argparse.Namespace(window_days=None, window_checkpoints=None, dry_run=False)
+    perseus.cmd_oracle_infer_labels(args, cfg())
+    perseus.cmd_oracle_infer_labels(args, cfg())  # second run = no-op
+    entries = perseus._oracle_log_entries()
+    assert entries[0]["inferred_label"] == "inferred_accept"
+
+
+def test_infer_labels_dry_run_no_write(monkeypatch, tmp_path, capsys):
+    _seed_oracle_log(monkeypatch, tmp_path, [
+        {"timestamp": "2026-05-01T10:00:00", "task": "x", "prompt": "P", "response": "use `tool-a`"},
+    ])
+    monkeypatch.setattr(perseus, "_load_indexed_checkpoints", lambda cfg: [
+        (perseus._parse_iso_ts("2026-05-02T10:00:00"), {"task": "did tool-a thing"}),
+    ])
+    args = argparse.Namespace(window_days=None, window_checkpoints=None, dry_run=True)
+    perseus.cmd_oracle_infer_labels(args, cfg())
+    out = capsys.readouterr().out
+    assert "(dry-run)" in out
+    entries = perseus._oracle_log_entries()
+    assert entries[0].get("inferred_label") is None
+
+
+def test_oracle_export_include_inferred_tags_source(monkeypatch, tmp_path):
+    _seed_oracle_log(monkeypatch, tmp_path, [
+        {"timestamp": "t1", "task": "x", "prompt": "P1", "response": "R1", "accepted": True},
+        {"timestamp": "t2", "task": "y", "prompt": "P2", "response": "R2", "inferred_label": "inferred_accept"},
+    ])
+    out_path = tmp_path / "exp.jsonl"
+    perseus.cmd_oracle(argparse.Namespace(oracle_command="export", output=str(out_path), format="jsonl", include_inferred=True), cfg())
+    rows = [json.loads(l) for l in out_path.read_text().splitlines() if l]
+    assert len(rows) == 2
+    sources = sorted([r["label_source"] for r in rows])
+    assert sources == ["explicit", "inferred"]
+
+
+# ─── task-22: Drift detection ──────────────────────────────────────────────
+
+
+def test_jaccard_empty_sets():
+    assert perseus._jaccard(set(), set()) == 1.0
+    assert perseus._jaccard({"a"}, set()) == 0.0
+
+
+def test_jaccard_basic():
+    assert perseus._jaccard({"a", "b"}, {"b", "c"}) == 1/3
+
+
+def test_compute_drift_empty_log_no_findings(monkeypatch, tmp_path):
+    _seed_oracle_log(monkeypatch, tmp_path, [])
+    report = perseus._compute_drift(cfg())
+    assert report["findings"] == []
+    assert report["recent_count"] == 0
+
+
+def test_compute_drift_detects_acceptance_drop(monkeypatch, tmp_path):
+    now = time.time()
+    iso = lambda offset_s: datetime.fromtimestamp(now + offset_s).strftime("%Y-%m-%dT%H:%M:%S")
+    # Baseline: 5 entries, all accepted (rate=100%)
+    # Recent: 5 entries, all rejected (rate=0%)
+    seed = []
+    for i in range(5):
+        seed.append({"timestamp": iso(-20 * 86400 + i * 3600), "task": "old", "prompt": "P", "response": "use `tool-a`", "accepted": True})
+    for i in range(5):
+        seed.append({"timestamp": iso(-1 * 86400 + i * 3600), "task": "new", "prompt": "P", "response": "use `tool-a`", "accepted": False})
+    _seed_oracle_log(monkeypatch, tmp_path, seed)
+    report = perseus._compute_drift(cfg(), now_epoch=now)
+    assert any("acceptance rate" in f for f in report["findings"])
+
+
+def test_compute_drift_detects_jaccard_drop(monkeypatch, tmp_path):
+    now = time.time()
+    iso = lambda offset_s: datetime.fromtimestamp(now + offset_s).strftime("%Y-%m-%dT%H:%M:%S")
+    # Baseline mentions tool-a, recent mentions completely different tools
+    seed = []
+    for i in range(5):
+        seed.append({"timestamp": iso(-20 * 86400 + i * 3600), "task": "old", "prompt": "P", "response": "use `tool-a` `helper-x`"})
+    for i in range(5):
+        seed.append({"timestamp": iso(-1 * 86400 + i * 3600), "task": "new", "prompt": "P", "response": "use `widget-zzz` `gadget-qqq`"})
+    _seed_oracle_log(monkeypatch, tmp_path, seed)
+    report = perseus._compute_drift(cfg(), now_epoch=now)
+    assert report["jaccard"] < 0.30
+    assert any("Jaccard" in f for f in report["findings"])
+
+
+def test_resolve_drift_renders_no_drift(monkeypatch, tmp_path):
+    _seed_oracle_log(monkeypatch, tmp_path, [])
+    out = perseus.resolve_drift("", cfg())
+    assert "No drift" in out
+
+
+def test_at_drift_directive_renders(monkeypatch, tmp_path):
+    _seed_oracle_log(monkeypatch, tmp_path, [])
+    rendered = perseus._render_lines(["@drift"], cfg(), workspace=tmp_path)
+    assert "Drift report" in rendered
+
+
+# ─── task-21: Trained pattern extraction in Mnēmē ──────────────────────────
+
+
+def test_extract_patterns_section_dispatches_deterministic_by_default():
+    entries = [{"accepted": True, "response": "skill:foo bar", "timestamp": "2026-05-01"}]
+    out = perseus._extract_patterns_section(entries, cfg())
+    assert "skill:foo" in out
+
+
+def test_extract_patterns_section_daedalus_falls_back_on_failure(monkeypatch):
+    entries = [{"accepted": True, "response": "skill:foo bar", "timestamp": "2026-05-01"}]
+    cfg_ = cfg()
+    cfg_["memory"]["pattern_extractor"] = "daedalus"
+    monkeypatch.setattr(perseus, "run_llm", lambda *a, **k: ("", 2))
+    out = perseus._extract_patterns_section(entries, cfg_)
+    assert "skill:foo" in out
+
+
+def test_extract_patterns_section_daedalus_success_uses_bullets(monkeypatch):
+    entries = [{"accepted": True, "response": "skill:foo bar", "timestamp": "2026-05-01"}]
+    cfg_ = cfg()
+    cfg_["memory"]["pattern_extractor"] = "daedalus"
+    monkeypatch.setattr(perseus, "run_llm", lambda *a, **k: ("- always use skill:foo for X\n- never call bar directly", 0))
+    out = perseus._extract_patterns_section(entries, cfg_)
+    assert "always use skill:foo" in out
+    assert "never call bar" in out
+
+
+def test_extract_patterns_section_daedalus_trims_long_bullets(monkeypatch):
+    entries = [{"accepted": True, "response": "skill:foo", "timestamp": "2026-05-01"}]
+    cfg_ = cfg()
+    cfg_["memory"]["pattern_extractor"] = "daedalus"
+    long_bullet = "- " + ("x" * 200)
+    monkeypatch.setattr(perseus, "run_llm", lambda *a, **k: (long_bullet, 0))
+    out = perseus._extract_patterns_section(entries, cfg_)
+    # 80-char limit (+ "- " prefix), plus our ellipsis
+    assert "…" in out
+
+
+def test_oracle_export_daedalus_patterns_format(tmp_path, monkeypatch):
+    _seed_oracle_log(monkeypatch, tmp_path, [
+        {"timestamp": "t1", "task": "x", "prompt": "Q1", "response": "- pattern bullet here", "accepted": True},
+    ])
+    out_path = tmp_path / "pat.jsonl"
+    perseus.cmd_oracle(argparse.Namespace(oracle_command="export", output=str(out_path), format="daedalus-patterns", include_inferred=False), cfg())
+    rows = [json.loads(l) for l in out_path.read_text().splitlines() if l]
+    assert rows[0]["completion"] == "- pattern bullet here"
+    assert rows[0]["label_source"] == "explicit"
+
+
+def test_memory_compact_pattern_extractor_override_flag_overrides_cfg(monkeypatch, tmp_path):
+    """--pattern-extractor daedalus should be honored even when config is deterministic."""
+    seen = {}
+    def fake_compact(workspace, cfg, provider):
+        seen["backend"] = cfg["memory"]["pattern_extractor"]
+        return "ok"
+    monkeypatch.setattr(perseus, "_memory_do_compact", fake_compact)
+    monkeypatch.setattr(perseus, "_mneme_path", lambda ws, cfg: tmp_path / "narr.md")
+    monkeypatch.setattr(perseus, "_load_narrative", lambda p: ({}, ""))
+    monkeypatch.setattr(perseus, "_save_narrative", lambda p, fm, b: None)
+    args = argparse.Namespace(
+        memory_command="compact", workspace=str(tmp_path), llm=None, pattern_extractor="daedalus",
+    )
+    perseus.cmd_memory(args, cfg())
+    assert seen["backend"] == "daedalus"
+
+
+def test_extract_patterns_section_daedalus_actually_calls_run_llm(monkeypatch):
+    cfg_ = cfg()
+    cfg_["memory"]["pattern_extractor"] = "daedalus"
+    called = {"n": 0}
+    def fake_llm(*a, **k):
+        called["n"] += 1
+        return ("- ok", 0)
+    monkeypatch.setattr(perseus, "run_llm", fake_llm)
+    perseus._extract_patterns_section([{"accepted": True, "response": "skill:foo"}], cfg_)
+    assert called["n"] == 1
+
+
+# ─── task-23: Perseus LSP server ───────────────────────────────────────────
+
+
+import io
+
+
+def test_lsp_read_write_message_roundtrip():
+    """Frame a message out, parse it back."""
+    buf = io.BytesIO()
+    perseus._lsp_write_message(buf, {"jsonrpc": "2.0", "id": 1, "method": "ping"})
+    buf.seek(0)
+    msg = perseus._lsp_read_message(buf)
+    assert msg == {"jsonrpc": "2.0", "id": 1, "method": "ping"}
+
+
+def test_lsp_read_message_returns_none_on_eof():
+    buf = io.BytesIO(b"")
+    assert perseus._lsp_read_message(buf) is None
+
+
+def test_lsp_parse_directive_at_line():
+    assert perseus._lsp_parse_directive_at_line("@waypoint ttl=60") == ("@waypoint", "ttl=60")
+    assert perseus._lsp_parse_directive_at_line("just text") is None
+    assert perseus._lsp_parse_directive_at_line("@memory") == ("@memory", "")
+
+
+def test_lsp_diagnostics_unknown_directive():
+    diags = perseus._lsp_diagnostics_for("@bogus arg=1\n", cfg(), Path("/tmp"))
+    assert len(diags) == 1
+    assert "Unknown directive" in diags[0]["message"]
+
+
+def test_lsp_diagnostics_unmatched_else_endif():
+    text = "@else\n@endif\n"
+    diags = perseus._lsp_diagnostics_for(text, cfg(), Path("/tmp"))
+    msgs = [d["message"] for d in diags]
+    assert any("@else without matching @if" in m for m in msgs)
+    assert any("@endif without matching @if" in m for m in msgs)
+
+
+def test_lsp_diagnostics_unclosed_if():
+    text = "@if foo\nhello\n"
+    diags = perseus._lsp_diagnostics_for(text, cfg(), Path("/tmp"))
+    assert any("unclosed @if" in d["message"] for d in diags)
+
+
+def test_lsp_diagnostics_unclosed_constraint():
+    text = "@constraint\nrules\n"
+    diags = perseus._lsp_diagnostics_for(text, cfg(), Path("/tmp"))
+    assert any("Unclosed @constraint" in d["message"] for d in diags)
+
+
+def test_lsp_diagnostics_cache_ttl_non_integer():
+    text = "@waypoint @cache ttl=abc\n"
+    diags = perseus._lsp_diagnostics_for(text, cfg(), Path("/tmp"))
+    assert any("@cache ttl=" in d["message"] for d in diags)
+
+
+def test_lsp_diagnostics_unsubscribed_federation_alias(monkeypatch):
+    text = "@memory federation alias=ghost\n"
+    monkeypatch.setattr(perseus, "_load_federation_manifest", lambda cfg: {"subscriptions": []})
+    diags = perseus._lsp_diagnostics_for(text, cfg(), Path("/tmp"))
+    assert any("not subscribed" in d["message"] for d in diags)
+
+
+def test_lsp_diagnostics_subscribed_federation_alias_passes(monkeypatch):
+    text = "@memory federation alias=sam\n"
+    monkeypatch.setattr(perseus, "_load_federation_manifest", lambda cfg: {"subscriptions": [{"alias": "sam", "path": "/x", "enabled": True}]})
+    diags = perseus._lsp_diagnostics_for(text, cfg(), Path("/tmp"))
+    assert not any("federation" in d["message"].lower() for d in diags)
+
+
+def test_lsp_uri_to_path():
+    p = perseus._lsp_uri_to_path("file:///tmp/foo.md")
+    assert p == Path("/tmp/foo.md").resolve()
+
+
+def test_lsp_workspace_from_params_uses_workspaceFolders():
+    p = perseus._lsp_workspace_from_params({"workspaceFolders": [{"uri": "file:///tmp"}]})
+    assert p == Path("/tmp").resolve()
