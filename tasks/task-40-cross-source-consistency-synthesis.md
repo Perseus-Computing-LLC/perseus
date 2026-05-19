@@ -1,12 +1,12 @@
 ---
 id: task-40
 title: Phase 15B cross-source consistency synthesis
-status: open
+status: closed
 priority: high
 scope: medium
-claimed_by: null
+claimed_by: hermes
 created: 2026-05-19
-closed: null
+closed: '2026-05-19'
 phase: 15
 theme: "Cited Synthesis Under Scarcity"
 depends_on:

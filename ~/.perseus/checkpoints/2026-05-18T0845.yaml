@@ -1,0 +1,10 @@
+next: 'Phase 5: --llm flag (pipe suggest output to local Ollama/llama.cpp model)'
+notes: ROADMAP.md is now a live @perseus doc. Manual CURRENT STATE block retired.
+  perseus init scaffolds .perseus/context.md for new workspaces with gitignore entries.
+stale_after: '2026-05-19T08:45:08.218415-05:00'
+status: 'v0.4 shipped: @services command: variant, perseus init, --version, ROADMAP.md
+  converted to live @perseus source'
+task: Perseus Phase 4 — self-bootstrapping
+version: 1
+workspace: /workspace/perseus
+written: '2026-05-18T08:45:08.218415-05:00'
