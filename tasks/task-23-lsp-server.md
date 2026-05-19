@@ -1,13 +1,13 @@
 ---
 id: task-23
 title: Task 23 — Perseus LSP Server (Phase 10.1)
-status: open
+status: in_progress
 scope: large
 depends_on:
   - task-12
   - task-15
   - task-18
-claimed_by: null
+claimed_by: claude-sonnet-4.5
 opened: 2026-05-18
 closed: null
 phase: 10.1

@@ -1,12 +1,12 @@
 ---
 id: task-21
 title: Task 21 — Trained Pattern Extraction (Phase 9.2)
-status: open
+status: in_progress
 scope: large
 depends_on:
   - task-12
   - task-20
-claimed_by: null
+claimed_by: claude-sonnet-4.5
 opened: 2026-05-18
 closed: null
 phase: 9.2
