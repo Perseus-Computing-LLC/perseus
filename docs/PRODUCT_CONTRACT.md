@@ -101,7 +101,7 @@ then, the existing config keys remain the effective policy surface.
 | `~/.perseus/config.yaml` | Global config |
 | `~/.perseus/checkpoints/` | Recovery checkpoints |
 | `~/.perseus/cache/` | Persistent directive cache |
-| `~/.perseus/oracle_log.jsonl` | Pythia recommendation log |
+| `~/.perseus/pythia_log.jsonl` | Pythia recommendation log |
 | `~/.perseus/memory/` | Mneme narrative memory |
 | `~/.perseus/inbox/` | Agent inbox messages |
 

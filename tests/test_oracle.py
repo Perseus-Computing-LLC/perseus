@@ -18,7 +18,7 @@ from conftest import PY_VER, cfg, perseus, _capture_json, _seed_oracle_log
 
 pytestmark = pytest.mark.skipif(PY_VER < (3, 10), reason="Perseus requires Python 3.10+")
 
-def test_build_oracle_snapshot_collects_expected_keys(monkeypatch, tmp_path):
+def test_build_pythia_snapshot_collects_expected_keys(monkeypatch, tmp_path):
     monkeypatch.setattr(perseus, "resolve_skills", lambda *a, **k: "skills")
     monkeypatch.setattr(perseus, "resolve_session", lambda *a, **k: "sessions")
     monkeypatch.setattr(perseus, "resolve_waypoint", lambda *a, **k: "checkpoint")
@@ -27,8 +27,8 @@ def test_build_oracle_snapshot_collects_expected_keys(monkeypatch, tmp_path):
     # and create a real "git" category dir so --category does not trigger fallback
     skill_dir = tmp_path / "skills"
     (skill_dir / "git").mkdir(parents=True, exist_ok=True)
-    local["oracle"]["skill_dir"] = str(skill_dir)
-    snap = perseus.build_oracle_snapshot(local, category="git", no_services=True, quick=True)
+    local["pythia"]["skill_dir"] = str(skill_dir)
+    snap = perseus.build_pythia_snapshot(local, category="git", no_services=True, quick=True)
     assert snap["skills_table"] == "skills"
     # --quick implies --no-services; full skipped sentence per task-10 spec
     assert "service health check skipped" in snap["services_table"]
@@ -40,8 +40,8 @@ def test_build_oracle_snapshot_collects_expected_keys(monkeypatch, tmp_path):
     assert snap["quick"] is True
 
 
-def test_render_oracle_prompt_contains_snapshot_sections():
-    prompt = perseus.render_oracle_prompt("do thing", {
+def test_render_pythia_prompt_contains_snapshot_sections():
+    prompt = perseus.render_pythia_prompt("do thing", {
         "rendered_at": "now",
         "skills_table": "skills",
         "services_table": "services",
@@ -62,7 +62,7 @@ def test_cmd_suggest_with_unsupported_llm_warns(capsys):
 
 
 def test_cmd_suggest_with_ollama_prints_model_output(monkeypatch, capsys):
-    monkeypatch.setattr(perseus, "build_oracle_snapshot", lambda *a, **k: {
+    monkeypatch.setattr(perseus, "build_pythia_snapshot", lambda *a, **k: {
         "rendered_at": "now",
         "skills_table": "skills",
         "services_table": "services",
@@ -70,14 +70,14 @@ def test_cmd_suggest_with_ollama_prints_model_output(monkeypatch, capsys):
         "session_digest": "sessions",
     })
     monkeypatch.setattr(perseus, "run_llm", lambda *a, **k: ("llm result", 0))
-    monkeypatch.setattr(perseus, "append_oracle_log", lambda *a, **k: None)
+    monkeypatch.setattr(perseus, "append_pythia_log", lambda *a, **k: None)
     args = argparse.Namespace(task="x", quick=False, no_services=True, category=None, llm="ollama:llama3.1", model=None, model_url=None)
     perseus.cmd_suggest(args, cfg())
     captured = capsys.readouterr()
     assert captured.out.strip() == "llm result"
 def test_cmd_suggest_appends_oracle_log(monkeypatch):
     seen = {}
-    monkeypatch.setattr(perseus, "build_oracle_snapshot", lambda *a, **k: {
+    monkeypatch.setattr(perseus, "build_pythia_snapshot", lambda *a, **k: {
         "rendered_at": "now",
         "skills_table": "skills",
         "services_table": "| Service | Status |\n|---|---|\n| API | ✅ ok |",
@@ -85,7 +85,7 @@ def test_cmd_suggest_appends_oracle_log(monkeypatch):
         "session_digest": "sessions",
         "skill_count": 7,
     })
-    monkeypatch.setattr(perseus, "append_oracle_log", lambda entry, cfg: seen.setdefault("entry", entry))
+    monkeypatch.setattr(perseus, "append_pythia_log", lambda entry, cfg: seen.setdefault("entry", entry))
     args = argparse.Namespace(task="x", quick=False, no_services=True, category=None, llm=None, model=None, model_url=None)
     perseus.cmd_suggest(args, cfg())
     assert seen["entry"]["task"] == "x"
@@ -93,18 +93,49 @@ def test_cmd_suggest_appends_oracle_log(monkeypatch):
     assert seen["entry"]["env_snapshot"]["skills_count"] == 7
 
 
-def test_append_oracle_log_warns_on_failure(monkeypatch, capsys, tmp_path):
+def test_append_pythia_log_warns_on_failure(monkeypatch, capsys, tmp_path):
     monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path / "missing" / "nested")
     def boom(*a, **k):
         raise OSError("disk full")
     monkeypatch.setattr(perseus.Path, "open", boom)
-    perseus.append_oracle_log({"x": 1}, cfg())
+    perseus.append_pythia_log({"x": 1}, cfg())
     captured = capsys.readouterr()
-    assert "Could not write oracle log" in captured.out
+    assert "Could not write Pythia log" in captured.out
+
+
+def test_oracle_config_legacy_compat(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path)
+    (tmp_path / "config.yaml").write_text(
+        "oracle:\n"
+        "  skill_dir: /tmp/legacy-skills\n"
+        "  stale_skill_days: 12\n"
+    )
+
+    loaded = perseus.load_config()
+    err = capsys.readouterr().err
+
+    assert loaded["pythia"]["skill_dir"] == "/tmp/legacy-skills"
+    assert loaded["pythia"]["stale_skill_days"] == 12
+    assert "config: 'oracle' key is deprecated" in err
+    assert "oracle" not in loaded
+
+
+def test_pythia_log_migration(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path)
+    legacy = tmp_path / "oracle_log.jsonl"
+    legacy.write_text(json.dumps({"timestamp": "t1", "task": "legacy"}) + "\n")
+
+    entries = perseus._read_all_pythia_entries()
+    err = capsys.readouterr().err
+
+    assert entries[0]["task"] == "legacy"
+    assert not legacy.exists()
+    assert (tmp_path / "pythia_log.jsonl").exists()
+    assert "migrated oracle_log.jsonl" in err
 # ── task-10: suggest UX flags & oracle log ──────────────────────────────────
 
 def test_oracle_log_entry_includes_flags():
-    entry = perseus.build_oracle_log_entry(
+    entry = perseus.build_pythia_log_entry(
         task="t", snapshot={}, prompt="p", response=None, provider=None, model=None,
         flags=["--quick", "--category=git"],
     )
@@ -112,7 +143,7 @@ def test_oracle_log_entry_includes_flags():
 
 
 def test_oracle_log_entry_default_flags_empty():
-    entry = perseus.build_oracle_log_entry(
+    entry = perseus.build_pythia_log_entry(
         task="t", snapshot={}, prompt="p", response=None, provider=None, model=None,
     )
     assert entry["flags"] == []
@@ -120,7 +151,7 @@ def test_oracle_log_entry_default_flags_empty():
 
 def test_online_score_adjustments_no_data_neutral():
     local = cfg()
-    assert perseus._oracle_online_score_adjustments([], local) == []
+    assert perseus._pythia_online_score_adjustments([], local) == []
 
 
 def test_online_score_adjustments_boost_successful_tool():
@@ -131,7 +162,7 @@ def test_online_score_adjustments_boost_successful_tool():
         "outcome": {"checkpoint_count": 2, "completed": True, "error_rate": 0.0},
     }]
 
-    adjustments = perseus._oracle_online_score_adjustments(rows, local)
+    adjustments = perseus._pythia_online_score_adjustments(rows, local)
 
     tool = next(item for item in adjustments if item["token"] == "tool-a")
     assert tool["direction"] == "boost"
@@ -147,7 +178,7 @@ def test_online_score_adjustments_lowers_error_heavy_tool():
         "outcome": {"checkpoint_count": 2, "completed": False, "error_rate": 0.5},
     }]
 
-    adjustments = perseus._oracle_online_score_adjustments(rows, local)
+    adjustments = perseus._pythia_online_score_adjustments(rows, local)
 
     tool = next(item for item in adjustments if item["token"] == "tool-b")
     assert tool["direction"] == "lower"
@@ -156,7 +187,7 @@ def test_online_score_adjustments_lowers_error_heavy_tool():
 
 
 def test_oracle_prompt_includes_outcome_weight_hints():
-    prompt = perseus.render_oracle_prompt("do thing", {
+    prompt = perseus.render_pythia_prompt("do thing", {
         "rendered_at": "now",
         "skills_table": "skills",
         "services_table": "services",
@@ -179,7 +210,7 @@ def test_oracle_prompt_includes_outcome_weight_hints():
 
 
 def test_ab_testing_disabled_by_default():
-    plan = perseus._oracle_ab_test_plan("task", [
+    plan = perseus._pythia_ab_test_plan("task", [
         {"token": "tool-a", "weight": 0.8},
         {"token": "tool-b", "weight": -0.4},
     ], cfg())
@@ -191,10 +222,10 @@ def test_ab_testing_disabled_by_default():
 
 def test_ab_testing_enabled_selects_primary_and_alternate():
     local = cfg()
-    local["oracle"]["ab_testing_enabled"] = True
-    local["oracle"]["ab_testing_rate"] = 1.0
+    local["pythia"]["ab_testing_enabled"] = True
+    local["pythia"]["ab_testing_rate"] = 1.0
 
-    plan = perseus._oracle_ab_test_plan("task", [
+    plan = perseus._pythia_ab_test_plan("task", [
         {"token": "tool-a", "weight": 0.8, "reason": "2/2 completed"},
         {"token": "tool-b", "weight": -0.4, "reason": "0/2 completed"},
     ], local)
@@ -206,7 +237,7 @@ def test_ab_testing_enabled_selects_primary_and_alternate():
 
 
 def test_oracle_prompt_includes_ab_test_hint():
-    prompt = perseus.render_oracle_prompt("do thing", {
+    prompt = perseus.render_pythia_prompt("do thing", {
         "rendered_at": "now",
         "skills_table": "skills",
         "services_table": "services",
@@ -227,7 +258,7 @@ def test_oracle_prompt_includes_ab_test_hint():
 
 
 def test_oracle_log_entry_records_ab_test_metadata():
-    entry = perseus.build_oracle_log_entry(
+    entry = perseus.build_pythia_log_entry(
         task="t",
         snapshot={"ab_test": {"active": True, "id": "abc123"}},
         prompt="p",
@@ -248,7 +279,7 @@ def test_quick_oracle_prompt_omits_services_and_sessions():
         "checkpoint_summary": "should-not-appear",
         "quick": True,
     }
-    prompt = perseus.render_oracle_prompt("do thing", snap)
+    prompt = perseus.render_pythia_prompt("do thing", snap)
     assert "Service Health" not in prompt
     assert "Recent Sessions" not in prompt
     assert "Recent Checkpoint" not in prompt
@@ -258,9 +289,9 @@ def test_quick_oracle_prompt_omits_services_and_sessions():
 def test_category_fallback_warns_when_dir_missing(tmp_path, monkeypatch):
     monkeypatch.setattr(perseus, "resolve_skills", lambda *a, **k: "all skills")
     local = cfg()
-    local["oracle"]["skill_dir"] = str(tmp_path / "skills")
+    local["pythia"]["skill_dir"] = str(tmp_path / "skills")
     (tmp_path / "skills").mkdir()
-    snap = perseus.build_oracle_snapshot(local, category="nonexistent", no_services=True, quick=False)
+    snap = perseus.build_pythia_snapshot(local, category="nonexistent", no_services=True, quick=False)
     assert "not found" in snap["skills_table"]
 
 
@@ -274,7 +305,7 @@ def test_oracle_accept_marks_entry(tmp_path, monkeypatch, capsys):
     perseus.cmd_oracle(argparse.Namespace(oracle_command="accept", log_id="latest"), cfg())
     out = capsys.readouterr().out
     assert "accepted=True" in out
-    log = tmp_path / "oracle_log.jsonl"
+    log = tmp_path / "pythia_log.jsonl"
     lines = [json.loads(l) for l in log.read_text().splitlines() if l]
     assert lines[-1]["accepted"] is True
 
@@ -402,7 +433,7 @@ def test_infer_labels_idempotent(monkeypatch, tmp_path):
     args = argparse.Namespace(window_days=None, window_checkpoints=None, dry_run=False)
     perseus.cmd_oracle_infer_labels(args, cfg())
     perseus.cmd_oracle_infer_labels(args, cfg())  # second run = no-op
-    entries = perseus._oracle_log_entries()
+    entries = perseus._pythia_log_entries()
     assert entries[0]["inferred_label"] == "inferred_accept"
 
 
@@ -417,7 +448,7 @@ def test_infer_labels_dry_run_no_write(monkeypatch, tmp_path, capsys):
     perseus.cmd_oracle_infer_labels(args, cfg())
     out = capsys.readouterr().out
     assert "(dry-run)" in out
-    entries = perseus._oracle_log_entries()
+    entries = perseus._pythia_log_entries()
     assert entries[0].get("inferred_label") is None
 
 
@@ -513,9 +544,9 @@ def test_infer_labels_inferred_none_counter_is_real(tmp_path, monkeypatch):
         # no 'accepted' → eligible for inference; no checkpoints will be in window
     }) + "\n")
     monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path)
-    monkeypatch.setattr(perseus, "_oracle_log_entries", lambda: [json.loads(l) for l in log.read_text().splitlines()])
+    monkeypatch.setattr(perseus, "_pythia_log_entries", lambda: [json.loads(l) for l in log.read_text().splitlines()])
     monkeypatch.setattr(perseus, "_load_indexed_checkpoints", lambda cfg: [])
-    monkeypatch.setattr(perseus, "_rewrite_oracle_log", lambda entries: None)
+    monkeypatch.setattr(perseus, "_rewrite_pythia_log", lambda entries: None)
     ns = argparse.Namespace(
         oracle_command="infer-labels", window_days=None, window_checkpoints=None, dry_run=True,
     )
@@ -546,7 +577,7 @@ def test_infer_labels_prose_unchanged(tmp_path, monkeypatch):
     ns = argparse.Namespace(window_days=7, window_checkpoints=5, dry_run=False, json=False)
     perseus.cmd_oracle_infer_labels(ns, cfg())
     text = "\n".join(captured)
-    assert "(no oracle log entries)" in text
+    assert "(no Pythia log entries)" in text
 
 
 def test_oracle_outcomes_json_updates_accepted_entry(tmp_path, monkeypatch):
@@ -579,7 +610,7 @@ def test_oracle_outcomes_json_updates_accepted_entry(tmp_path, monkeypatch):
     assert out["scanned"] == 1
     assert out["eligible"] == 1
     assert out["updated"] == 1
-    log_rows = [json.loads(line) for line in (tmp_path / "oracle_log.jsonl").read_text().splitlines()]
+    log_rows = [json.loads(line) for line in (tmp_path / "pythia_log.jsonl").read_text().splitlines()]
     outcome = log_rows[0]["outcome"]
     assert outcome["completed"] is True
     assert outcome["completion_signal"] == "completed"
@@ -611,7 +642,7 @@ def test_oracle_outcomes_dry_run_does_not_write(tmp_path, monkeypatch):
     assert rc == 0
     assert out["would_update"] == 1
     assert out["updated"] == 0
-    row = json.loads((tmp_path / "oracle_log.jsonl").read_text().strip())
+    row = json.loads((tmp_path / "pythia_log.jsonl").read_text().strip())
     assert "outcome" not in row
 
 

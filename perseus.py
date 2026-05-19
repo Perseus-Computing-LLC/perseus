@@ -13,7 +13,7 @@ Usage:
   perseus render <source.md>               → resolved markdown to stdout
   perseus checkpoint --task "..." [opts]   → write checkpoint YAML
   perseus recover [--workspace DIR]        → print latest checkpoint (smart TTL)
-  perseus suggest "<task description>"     → oracle ranked suggestions
+  perseus suggest "<task description>"     → Pythia ranked suggestions
 """
 
 import argparse
@@ -130,6 +130,11 @@ def _build_inline_directive_re():
 PERSEUS_HOME = Path(os.environ.get("PERSEUS_HOME", Path.home() / ".perseus"))
 SKILLS_DIR = Path(os.environ.get("PERSEUS_SKILLS_DIR", os.environ.get("HERMES_SKILLS_DIR", Path.home() / ".hermes" / "skills")))
 SESSIONS_DIR = Path(os.environ.get("PERSEUS_SESSIONS_DIR", os.environ.get("HERMES_SESSIONS_DIR", Path.home() / ".hermes" / "sessions")))
+PYTHIA_LOG_NAME = "pythia_log.jsonl"
+LEGACY_PYTHIA_CONFIG_KEY = "or" + "acle"
+LEGACY_PYTHIA_LOG_NAME = LEGACY_PYTHIA_CONFIG_KEY + "_log.jsonl"
+PYTHIA_HWM_KEY = "pythia_entries_processed"
+LEGACY_PYTHIA_HWM_KEY = LEGACY_PYTHIA_CONFIG_KEY + "_entries_processed"
 
 DEFAULT_CONFIG = {
     "render": {
@@ -148,7 +153,7 @@ DEFAULT_CONFIG = {
         "ttl_s": 86400,
         "max_keep": 30,
     },
-    "oracle": {
+    "pythia": {
         "skill_dir": str(SKILLS_DIR),
         "stale_skill_days": 30,
         "llm_provider": "ollama",
@@ -247,7 +252,7 @@ DEFAULT_CONFIG = {
     },
     "redaction": {                    # Phase 17B — task-46
         # Redact common secret shapes before output crosses Perseus's trust
-        # boundary (render output, synthesis prompts, serve bodies, oracle log).
+        # boundary (render output, synthesis prompts, serve bodies, Pythia log).
         # Source files on disk are never mutated.
         "enabled": True,
         "include_defaults": True,
@@ -344,7 +349,7 @@ def _apply_permission_profile(cfg: dict, profile_name: object) -> str | None:
 #
 # Goal: deterministic, opt-out redaction of common secret shapes before they
 # leave the trust boundary (rendered context, synthesis prompts, HTTP serve
-# bodies, oracle log entries). Source files on disk are NEVER modified.
+# bodies, Pythia log entries). Source files on disk are NEVER modified.
 #
 # Design:
 # - A small set of high-signal regex detectors covers the credential shapes
@@ -583,6 +588,53 @@ def _audit_summary(cfg: dict) -> dict:
     }
 
 
+def _normalize_pythia_section(section: dict) -> dict:
+    """Normalize Pythia config aliases without mutating the source object."""
+    out = dict(section or {})
+    if "provider" in out and "llm_provider" not in out:
+        out["llm_provider"] = out["provider"]
+    if "model" in out and "ollama_model" not in out:
+        out["ollama_model"] = out["model"]
+    return out
+
+
+def _normalize_loaded_config(loaded: dict, warn_legacy: bool = False) -> dict:
+    """Normalize legacy config blocks before merge precedence is applied."""
+    loaded = dict(loaded or {})
+
+    legacy = loaded.pop("hermes", None)
+    if isinstance(legacy, dict):
+        assistant_vals = dict(loaded.get("assistant", {}) or {})
+        assistant_vals.update(legacy)
+        loaded["assistant"] = assistant_vals
+
+    legacy_pythia = loaded.pop(LEGACY_PYTHIA_CONFIG_KEY, None)
+    if isinstance(legacy_pythia, dict):
+        if warn_legacy:
+            sys.stderr.write("[perseus] config: 'oracle' key is deprecated, rename to 'pythia'\n")
+        merged = _normalize_pythia_section(legacy_pythia)
+        if isinstance(loaded.get("pythia"), dict):
+            merged.update(_normalize_pythia_section(loaded["pythia"]))
+        loaded["pythia"] = merged
+    elif isinstance(loaded.get("pythia"), dict):
+        loaded["pythia"] = _normalize_pythia_section(loaded["pythia"])
+
+    return loaded
+
+
+def _pythia_log_path() -> Path:
+    """Return the Pythia JSONL path, migrating the legacy filename once."""
+    log_path = PERSEUS_HOME / PYTHIA_LOG_NAME
+    legacy_path = PERSEUS_HOME / LEGACY_PYTHIA_LOG_NAME
+    if legacy_path.exists() and not log_path.exists():
+        try:
+            legacy_path.replace(log_path)
+            sys.stderr.write(f"[perseus] migrated {LEGACY_PYTHIA_LOG_NAME} → {PYTHIA_LOG_NAME}\n")
+        except Exception as exc:
+            sys.stderr.write(f"[perseus] could not migrate {LEGACY_PYTHIA_LOG_NAME}: {exc}\n")
+    return log_path
+
+
 def load_config(workspace: Path | None = None) -> dict:
     """Merge global config with optional workspace-local config.
 
@@ -606,12 +658,12 @@ def load_config(workspace: Path | None = None) -> dict:
     global_cfg = PERSEUS_HOME / "config.yaml"
     if global_cfg.exists():
         with open(global_cfg) as f:
-            loaded_sources.append(yaml.safe_load(f) or {})
+            loaded_sources.append(_normalize_loaded_config(yaml.safe_load(f) or {}, warn_legacy=True))
     if workspace:
         local_cfg = workspace / ".perseus" / "config.yaml"
         if local_cfg.exists():
             with open(local_cfg) as f:
-                loaded_sources.append(yaml.safe_load(f) or {})
+                loaded_sources.append(_normalize_loaded_config(yaml.safe_load(f) or {}, warn_legacy=True))
 
     effective_profile: object = None
     for src in loaded_sources:
@@ -622,12 +674,7 @@ def load_config(workspace: Path | None = None) -> dict:
         _apply_permission_profile(cfg, effective_profile)
 
     def merge_loaded(loaded: dict) -> None:
-        loaded = dict(loaded or {})
-        legacy = loaded.pop("hermes", None)
-        if isinstance(legacy, dict):
-            assistant_vals = dict(loaded.get("assistant", {}) or {})
-            assistant_vals.update(legacy)
-            loaded["assistant"] = assistant_vals
+        loaded = _normalize_loaded_config(loaded or {}, warn_legacy=False)
         for section, vals in loaded.items():
             if section in cfg and isinstance(vals, dict):
                 cfg[section].update(vals)
@@ -2186,8 +2233,8 @@ def resolve_tree(args_str: str, cfg: dict, workspace: Path | None = None) -> str
 
 def resolve_skills(args_str: str, cfg: dict) -> str:
     """Scan the configured skills directory and emit a markdown summary."""
-    skill_dir = Path(cfg["oracle"]["skill_dir"])
-    stale_days = int(cfg["oracle"].get("stale_skill_days", 30))
+    skill_dir = Path(cfg["pythia"]["skill_dir"])
+    stale_days = int(cfg["pythia"].get("stale_skill_days", 30))
     flag_stale = "flag_stale=true" in args_str
     category_filter = None
     m = re.search(r'category=["\'"]?([^"\'">\\s]+)["\'"]?', args_str)
@@ -3355,7 +3402,7 @@ def _adaptive_candidate_from_config(item: object, index: int) -> dict:
 def _adaptive_pattern_corpus(cfg: dict, workspace: Path | None) -> str:
     parts: list[str] = []
     try:
-        entries = _read_all_oracle_entries()
+        entries = _read_all_pythia_entries()
     except Exception:
         entries = []
     for entry in entries[-50:]:
@@ -3688,7 +3735,7 @@ def format_prefetch_human(result: dict) -> str:
 
 # ─────────────────────────────── Mnēmē Memory ────────────────────────────────
 #
-# Mnēmē — narrative project memory. Distills checkpoints + oracle log into a
+# Mnēmē — narrative project memory. Distills checkpoints + Pythia log into a
 # per-workspace narrative file at ~/.perseus/memory/<workspace-hash>.md.
 #
 # Two modes:
@@ -3755,15 +3802,26 @@ def _mneme_default_frontmatter(workspace: Path) -> dict:
         "workspace_hash": _workspace_hash(workspace),
         "updated": datetime.now().astimezone().isoformat(timespec="seconds"),
         "checkpoints_processed": 0,
-        "oracle_entries_processed": 0,
+        PYTHIA_HWM_KEY: 0,
         "compaction_count": 0,
         "last_compaction_at_update": 0,
     }
 
 
-def _read_all_oracle_entries() -> list[dict]:
-    """Load every JSONL entry from ~/.perseus/oracle_log.jsonl in order."""
-    log_path = PERSEUS_HOME / "oracle_log.jsonl"
+def _mneme_pythia_hwm(frontmatter: dict) -> int:
+    """Read the Pythia high-water mark, accepting legacy Mnēmē frontmatter."""
+    return int(frontmatter.get(PYTHIA_HWM_KEY, frontmatter.get(LEGACY_PYTHIA_HWM_KEY, 0)))
+
+
+def _set_mneme_pythia_hwm(frontmatter: dict, value: int) -> None:
+    """Write the canonical Pythia high-water mark and drop the legacy key."""
+    frontmatter[PYTHIA_HWM_KEY] = int(value)
+    frontmatter.pop(LEGACY_PYTHIA_HWM_KEY, None)
+
+
+def _read_all_pythia_entries() -> list[dict]:
+    """Load every JSONL Pythia entry in order."""
+    log_path = _pythia_log_path()
     if not log_path.exists():
         return []
     entries: list[dict] = []
@@ -3815,9 +3873,9 @@ def _extract_section(body: str, heading: str) -> str:
     return body[start:m.end() + next_m.start()].rstrip() + "\n"
 
 
-def _deterministic_patterns_body(oracle_entries: list[dict]) -> str:
+def _deterministic_patterns_body(pythia_entries: list[dict]) -> str:
     """Rule-based pattern extraction — no LLM. The default extractor."""
-    accepted = [e for e in oracle_entries if e.get("accepted") is True]
+    accepted = [e for e in pythia_entries if e.get("accepted") is True]
     bucket: dict[str, dict] = {}
     known_prefixes = ("skill:", "web_", "terminal", "delegate", "cron")
     for entry in accepted:
@@ -3838,14 +3896,14 @@ def _deterministic_patterns_body(oracle_entries: list[dict]) -> str:
         if ts > b["last"]:
             b["last"] = ts
     if not bucket:
-        return "_No accepted oracle patterns yet._"
+        return "_No accepted Pythia patterns yet._"
     lines = []
     for tool, info in sorted(bucket.items(), key=lambda kv: -kv[1]["count"]):
         lines.append(f"- **{tool}** — used {info['count']} times (last: {_short_date(info['last'])})")
     return "\n".join(lines)
 
 
-def _daedalus_patterns_body(oracle_entries: list[dict], cfg: dict) -> str | None:
+def _daedalus_patterns_body(pythia_entries: list[dict], cfg: dict) -> str | None:
     """LLM-inferred pattern extraction via run_llm("daedalus", ...).
 
     Returns ``None`` on any failure so the caller can fall back to the
@@ -3853,9 +3911,9 @@ def _daedalus_patterns_body(oracle_entries: list[dict], cfg: dict) -> str | None
     in spec/components.md § 6 (Daedalus): a markdown bullet list, one
     pattern per line, ≤ 80 chars per bullet.
     """
-    accepted = [e for e in oracle_entries if e.get("accepted") is True or e.get("inferred_label") == "inferred_accept"]
+    accepted = [e for e in pythia_entries if e.get("accepted") is True or e.get("inferred_label") == "inferred_accept"]
     if not accepted:
-        return "_No labeled oracle patterns yet for daedalus extraction._"
+        return "_No labeled Pythia patterns yet for daedalus extraction._"
 
     prompt_lines = [
         "You are Daedalus, the Perseus pattern extractor.",
@@ -3897,20 +3955,20 @@ def _daedalus_patterns_body(oracle_entries: list[dict], cfg: dict) -> str | None
     return "\n".join(bullets)
 
 
-def _extract_patterns_section(oracle_entries: list[dict], cfg: dict) -> str:
+def _extract_patterns_section(pythia_entries: list[dict], cfg: dict) -> str:
     """Dispatch to the configured pattern extractor with graceful fallback."""
     backend = (cfg.get("memory", {}).get("pattern_extractor") or "deterministic").strip().lower()
     if backend == "daedalus":
-        out = _daedalus_patterns_body(oracle_entries, cfg)
+        out = _daedalus_patterns_body(pythia_entries, cfg)
         if out is not None:
             return out
         # fall through to deterministic
-    return _deterministic_patterns_body(oracle_entries)
+    return _deterministic_patterns_body(pythia_entries)
 
 
 def _deterministic_narrative(
     checkpoints: list[dict],
-    oracle_entries: list[dict],
+    pythia_entries: list[dict],
     existing_body: str,
     workspace: Path,
     cfg: dict,
@@ -3920,7 +3978,7 @@ def _deterministic_narrative(
     When called from compact, existing_body is "". When called from update,
     existing_body contains the current narrative; we still rebuild the
     standard sections from cumulative inputs (caller passes ALL checkpoints
-    and ALL oracle entries when doing a deterministic update so the result
+    and ALL Pythia entries when doing a deterministic update so the result
     is consistent rather than additively drifting).
     """
     recent_keep = int(cfg.get("memory", {}).get("recent_keep", 5))
@@ -3980,7 +4038,7 @@ def _deterministic_narrative(
     history_section = "## Task History\n\n" + history_body + "\n"
 
     # ── Patterns & Anti-patterns ───────────────────────────────────────────
-    patterns_body = _extract_patterns_section(oracle_entries, cfg)
+    patterns_body = _extract_patterns_section(pythia_entries, cfg)
     patterns_section = "## Patterns & Anti-patterns\n\n" + patterns_body + "\n"
 
     # ── Recent Activity ────────────────────────────────────────────────────
@@ -4012,7 +4070,7 @@ def _deterministic_narrative(
     now_h = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z").strip()
     preamble = (
         f"> Narrative last updated {now_h}.\n"
-        f"> Source: {len(checkpoints)} checkpoints, {len(oracle_entries)} oracle entries.\n"
+        f"> Source: {len(checkpoints)} checkpoints, {len(pythia_entries)} Pythia entries.\n"
         f"> Run `perseus memory compact` for a full re-distillation.\n"
     )
 
@@ -4029,7 +4087,7 @@ def _deterministic_narrative(
 
 # ── LLM-assisted paths (opt-in) ───────────────────────────────────────────────
 
-def _truncate_oracle_for_llm(entries: list[dict]) -> list[dict]:
+def _truncate_pythia_for_llm(entries: list[dict]) -> list[dict]:
     return [
         {"task": e.get("task"), "accepted": e.get("accepted"), "timestamp": e.get("timestamp")}
         for e in entries
@@ -4040,13 +4098,13 @@ def _mneme_update_llm(
     existing_body: str,
     frontmatter: dict,
     new_checkpoints: list[dict],
-    new_oracle_entries: list[dict],
+    new_pythia_entries: list[dict],
     cfg: dict,
     provider: str,
 ) -> str:
     """LLM-assisted incremental update. Returns updated narrative body."""
     recent_keep = int(cfg.get("memory", {}).get("recent_keep", 5))
-    truncated = _truncate_oracle_for_llm(new_oracle_entries)
+    truncated = _truncate_pythia_for_llm(new_pythia_entries)
     cp_yaml = yaml.safe_dump(new_checkpoints, default_flow_style=False, allow_unicode=True, sort_keys=False)
     oc_json = json.dumps(truncated, ensure_ascii=False, indent=2)
     body_block = existing_body if existing_body.strip() else "(none — initialize from scratch)"
@@ -4057,12 +4115,12 @@ def _mneme_update_llm(
         "Do not invent content. Do not pad. Be terse and factual.\n\n"
         f"EXISTING NARRATIVE:\n{body_block}\n\n"
         f"NEW CHECKPOINTS ({len(new_checkpoints)} since last update):\n{cp_yaml}\n\n"
-        f"NEW ORACLE LOG ENTRIES ({len(new_oracle_entries)} since last update):\n{oc_json}\n\n"
+        f"NEW PYTHIA LOG ENTRIES ({len(new_pythia_entries)} since last update):\n{oc_json}\n\n"
         "INSTRUCTIONS:\n"
         "- Update the \"Project Arc\" section if the recent work represents a significant milestone\n"
         "- Add new entries to \"Key Decisions\" if checkpoint notes contain decision language\n"
         "- Update \"Task History\" table with any newly completed tasks\n"
-        "- Update \"Patterns & Anti-patterns\" based on accepted oracle entries\n"
+        "- Update \"Patterns & Anti-patterns\" based on accepted Pythia entries\n"
         f"- Rewrite \"Recent Activity\" with the {recent_keep} most recent checkpoints\n"
         "- Return ONLY the updated markdown body. No preamble. No commentary. Start with \"## Project Arc\".\n"
     )
@@ -4075,14 +4133,14 @@ def _mneme_update_llm(
 
 def _mneme_compact_llm(
     all_checkpoints: list[dict],
-    all_oracle_entries: list[dict],
+    all_pythia_entries: list[dict],
     workspace: Path,
     cfg: dict,
     provider: str,
 ) -> str:
     """LLM-assisted full compaction. Returns rebuilt narrative body."""
     recent_keep = int(cfg.get("memory", {}).get("recent_keep", 5))
-    truncated = _truncate_oracle_for_llm(all_oracle_entries)
+    truncated = _truncate_pythia_for_llm(all_pythia_entries)
     cp_yaml = yaml.safe_dump(all_checkpoints, default_flow_style=False, allow_unicode=True, sort_keys=False)
     oc_json = json.dumps(truncated, ensure_ascii=False, indent=2)
     prompt = (
@@ -4090,7 +4148,7 @@ def _mneme_compact_llm(
         f"Your job: build a structured project narrative from scratch for workspace {workspace}.\n"
         "Do not invent content. Do not pad. Be terse and factual.\n\n"
         f"ALL CHECKPOINTS ({len(all_checkpoints)}):\n{cp_yaml}\n\n"
-        f"ALL ORACLE LOG ENTRIES ({len(all_oracle_entries)}):\n{oc_json}\n\n"
+        f"ALL PYTHIA LOG ENTRIES ({len(all_pythia_entries)}):\n{oc_json}\n\n"
         "INSTRUCTIONS:\n"
         "- Produce the sections: Project Arc, Key Decisions, Task History, "
         "Patterns & Anti-patterns, Recent Activity\n"
@@ -4138,7 +4196,7 @@ def _memory_do_update(workspace: Path, cfg: dict, provider: str | None) -> tuple
         cp = _load_checkpoint_file(fp)
         if cp:
             all_checkpoints.append(cp)
-    all_oracle = _read_all_oracle_entries()
+    all_pythia = _read_all_pythia_entries()
 
     mp = _mneme_path(workspace, cfg)
     fm, body = _load_narrative(mp)
@@ -4147,21 +4205,21 @@ def _memory_do_update(workspace: Path, cfg: dict, provider: str | None) -> tuple
         body = ""
 
     cp_hwm = int(fm.get("checkpoints_processed", 0))
-    or_hwm = int(fm.get("oracle_entries_processed", 0))
+    py_hwm = _mneme_pythia_hwm(fm)
     new_cp = all_checkpoints[cp_hwm:]
-    new_or = all_oracle[or_hwm:]
+    new_py = all_pythia[py_hwm:]
 
     # No new data and we already have a body? Nothing to do.
-    if not new_cp and not new_or and body.strip():
+    if not new_cp and not new_py and body.strip():
         return (False, "Nothing new since last update.")
 
     if provider:
-        new_body = _mneme_update_llm(body, fm, new_cp, new_or, cfg, provider)
+        new_body = _mneme_update_llm(body, fm, new_cp, new_py, cfg, provider)
     else:
-        new_body = _deterministic_narrative(all_checkpoints, all_oracle, body, workspace, cfg)
+        new_body = _deterministic_narrative(all_checkpoints, all_pythia, body, workspace, cfg)
 
     fm["checkpoints_processed"] = len(all_checkpoints)
-    fm["oracle_entries_processed"] = len(all_oracle)
+    _set_mneme_pythia_hwm(fm, len(all_pythia))
     fm["updated"] = datetime.now().astimezone().isoformat(timespec="seconds")
     fm["workspace"] = str(workspace)
     fm["workspace_hash"] = _workspace_hash(workspace)
@@ -4170,7 +4228,7 @@ def _memory_do_update(workspace: Path, cfg: dict, provider: str | None) -> tuple
     fm.setdefault("last_compaction_at_update", 0)
 
     _save_narrative(mp, fm, new_body)
-    return (True, f"Updated {mp} (+{len(new_cp)} checkpoints, +{len(new_or)} oracle entries)")
+    return (True, f"Updated {mp} (+{len(new_cp)} checkpoints, +{len(new_py)} Pythia entries)")
 
 
 def _memory_do_compact(workspace: Path, cfg: dict, provider: str | None) -> str:
@@ -4180,7 +4238,7 @@ def _memory_do_compact(workspace: Path, cfg: dict, provider: str | None) -> str:
         cp = _load_checkpoint_file(fp)
         if cp:
             all_checkpoints.append(cp)
-    all_oracle = _read_all_oracle_entries()
+    all_pythia = _read_all_pythia_entries()
 
     mp = _mneme_path(workspace, cfg)
     fm, _ = _load_narrative(mp)
@@ -4188,12 +4246,12 @@ def _memory_do_compact(workspace: Path, cfg: dict, provider: str | None) -> str:
         fm = _mneme_default_frontmatter(workspace)
 
     if provider:
-        new_body = _mneme_compact_llm(all_checkpoints, all_oracle, workspace, cfg, provider)
+        new_body = _mneme_compact_llm(all_checkpoints, all_pythia, workspace, cfg, provider)
     else:
-        new_body = _deterministic_narrative(all_checkpoints, all_oracle, "", workspace, cfg)
+        new_body = _deterministic_narrative(all_checkpoints, all_pythia, "", workspace, cfg)
 
     fm["checkpoints_processed"] = len(all_checkpoints)
-    fm["oracle_entries_processed"] = len(all_oracle)
+    _set_mneme_pythia_hwm(fm, len(all_pythia))
     fm["compaction_count"] = int(fm.get("compaction_count", 0)) + 1
     fm["last_compaction_at_update"] = fm["compaction_count"]
     fm["updated"] = datetime.now().astimezone().isoformat(timespec="seconds")
@@ -4202,7 +4260,7 @@ def _memory_do_compact(workspace: Path, cfg: dict, provider: str | None) -> str:
     fm.setdefault("schema", 1)
 
     _save_narrative(mp, fm, new_body)
-    return f"Compacted {mp} ({len(all_checkpoints)} checkpoints, {len(all_oracle)} oracle entries)"
+    return f"Compacted {mp} ({len(all_checkpoints)} checkpoints, {len(all_pythia)} Pythia entries)"
 
 
 def cmd_memory_update_silent(workspace: Path, cfg: dict) -> None:
@@ -4286,11 +4344,11 @@ def cmd_memory(args, cfg):
             return
         fm, body = _load_narrative(mp)
         all_cp = _list_checkpoint_files(cfg)
-        all_or = _read_all_oracle_entries()
+        all_py = _read_all_pythia_entries()
         cp_hwm = int(fm.get("checkpoints_processed", 0))
-        or_hwm = int(fm.get("oracle_entries_processed", 0))
+        py_hwm = _mneme_pythia_hwm(fm)
         cp_pending = max(0, len(all_cp) - cp_hwm)
-        or_pending = max(0, len(all_or) - or_hwm)
+        py_pending = max(0, len(all_py) - py_hwm)
         line_count = body.count("\n") + (1 if body and not body.endswith("\n") else 0)
         mode = "LLM (" + str(cfg.get("memory", {}).get("llm_provider")) + ")" if cfg.get("memory", {}).get("llm_provider") else "deterministic"
         updated = fm.get("updated", "(unknown)")
@@ -4303,8 +4361,8 @@ def cmd_memory(args, cfg):
                 "updated": str(updated),
                 "checkpoints_processed": cp_hwm,
                 "checkpoints_pending": cp_pending,
-                "oracle_entries_processed": or_hwm,
-                "oracle_entries_pending": or_pending,
+                "pythia_entries_processed": py_hwm,
+                "pythia_entries_pending": py_pending,
                 "compaction_count": int(fm.get("compaction_count", 0)),
                 "line_count": line_count,
                 "mode": mode,
@@ -4315,7 +4373,7 @@ def cmd_memory(args, cfg):
             print(f"Mnēmē — {workspace}")
             print(f"  Updated:     {updated} ({age})")
             print(f"  Checkpoints: {cp_hwm} processed ({cp_pending} pending)")
-            print(f"  Oracle log:  {or_hwm} entries processed ({or_pending} pending)")
+            print(f"  Pythia log:  {py_hwm} entries processed ({py_pending} pending)")
             print(f"  Compactions: {fm.get('compaction_count', 0)}")
             print(f"  Size:        {line_count} lines")
             print(f"  Mode:        {mode}")
@@ -6228,15 +6286,15 @@ def cmd_validate(args, cfg) -> int:
 
 # ──────────────────────────────── Suggest ─────────────────────────────────────
 
-def append_oracle_log(entry: dict, cfg: dict) -> None:
-    """Append a JSONL oracle log entry; warn on failure without raising."""
-    log_path = PERSEUS_HOME / "oracle_log.jsonl"
+def append_pythia_log(entry: dict, cfg: dict) -> None:
+    """Append a JSONL Pythia log entry; warn on failure without raising."""
+    log_path = _pythia_log_path()
     try:
         log_path.parent.mkdir(parents=True, exist_ok=True)
         with log_path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
     except Exception as exc:
-        print(f"> ⚠ Could not write oracle log: {exc}")
+        print(f"> ⚠ Could not write Pythia log: {exc}")
 
 
 def _checkpoint_age_s(snapshot_checkpoint: str) -> int | None:
@@ -6250,8 +6308,8 @@ def _checkpoint_age_s(snapshot_checkpoint: str) -> int | None:
         return None
 
 
-def build_oracle_log_entry(task: str, snapshot: dict, prompt: str, response: str | None, provider: str | None, model: str | None, flags: list[str] | None = None) -> dict:
-    """Build the append-only oracle log entry.
+def build_pythia_log_entry(task: str, snapshot: dict, prompt: str, response: str | None, provider: str | None, model: str | None, flags: list[str] | None = None) -> dict:
+    """Build the append-only Pythia log entry.
 
     task-10: an optional ``flags`` array records which suggest flags were
     active for this invocation. Empty list when none. Backward compatible —
@@ -6286,7 +6344,7 @@ def build_oracle_log_entry(task: str, snapshot: dict, prompt: str, response: str
 
 
 def run_llm(provider: str, prompt: str, cfg: dict, model: str | None = None, model_url: str | None = None) -> tuple[str, int]:
-    """Run the oracle prompt through a configured provider and return (text, exit_code)."""
+    """Run the Pythia prompt through a configured provider and return (text, exit_code)."""
     provider = provider.strip().lower()
     llm_cfg = cfg.get("llm", {})
     timeout = float(llm_cfg.get("timeout_s", 30))
@@ -6296,7 +6354,7 @@ def run_llm(provider: str, prompt: str, cfg: dict, model: str | None = None, mod
         payload = {
             "model": model or str(llm_cfg.get("model", "mistral")),
             "messages": [
-                {"role": "system", "content": "You are the Perseus Tool Oracle."},
+                {"role": "system", "content": "You are Perseus Pythia, the Tool Oracle."},
                 {"role": "user", "content": prompt},
             ],
             "stream": False,
@@ -6307,7 +6365,7 @@ def run_llm(provider: str, prompt: str, cfg: dict, model: str | None = None, mod
         payload = {
             "model": model or str(llm_cfg.get("daedalus_model", "perseus-daedalus")),
             "messages": [
-                {"role": "system", "content": "You are the Perseus Tool Oracle (Daedalus)."},
+                {"role": "system", "content": "You are Perseus Pythia, the Tool Oracle (Daedalus)."},
                 {"role": "user", "content": prompt},
             ],
             "stream": False,
@@ -6334,7 +6392,7 @@ def run_llm(provider: str, prompt: str, cfg: dict, model: str | None = None, mod
         payload = {
             "model": model or model_default,
             "messages": [
-                {"role": "system", "content": "You are the Perseus Tool Oracle."},
+                {"role": "system", "content": "You are Perseus Pythia, the Tool Oracle."},
                 {"role": "user", "content": prompt},
             ],
             "stream": False,
@@ -6443,16 +6501,16 @@ def _outcome_weight_for_entry(entry: dict) -> float | None:
     return max(-1.0, min(1.0, -0.5 - (0.5 * error_rate)))
 
 
-def _oracle_online_score_adjustments(entries: list[dict], cfg: dict) -> list[dict]:
+def _pythia_online_score_adjustments(entries: list[dict], cfg: dict) -> list[dict]:
     """Compute transparent outcome-weight hints per recommendation token."""
-    o_cfg = cfg.get("oracle", {})
+    o_cfg = cfg.get("pythia", {})
     if not bool(o_cfg.get("online_scoring_enabled", True)):
         return []
     recent_n = int(o_cfg.get("online_scoring_recent_entries", 50))
     min_abs = float(o_cfg.get("online_scoring_min_abs_weight", 0.15))
     buckets: dict[str, dict] = {}
     for entry in entries[-recent_n:]:
-        if not _oracle_entry_has_positive_label(entry):
+        if not _pythia_entry_has_positive_label(entry):
             continue
         weight = _outcome_weight_for_entry(entry)
         if weight is None:
@@ -6514,8 +6572,8 @@ def _stable_unit_interval(value: str) -> float:
     return int(digest, 16) / float(0xFFFFFFFFFFFF)
 
 
-def _oracle_ab_test_plan(task: str, adjustments: list[dict], cfg: dict) -> dict:
-    o_cfg = cfg.get("oracle", {})
+def _pythia_ab_test_plan(task: str, adjustments: list[dict], cfg: dict) -> dict:
+    o_cfg = cfg.get("pythia", {})
     enabled = bool(o_cfg.get("ab_testing_enabled", False))
     plan = {
         "enabled": enabled,
@@ -6584,7 +6642,7 @@ def _render_ab_test_hint(plan: dict) -> str:
     ])
 
 
-def build_oracle_snapshot(cfg: dict, category: str | None = None, no_services: bool = False, quick: bool = False, task: str | None = None) -> dict:
+def build_pythia_snapshot(cfg: dict, category: str | None = None, no_services: bool = False, quick: bool = False, task: str | None = None) -> dict:
     """Build the environment snapshot used by `perseus suggest`.
 
     --quick implies --no-services (task-10).
@@ -6599,7 +6657,7 @@ def build_oracle_snapshot(cfg: dict, category: str | None = None, no_services: b
     # --category fallback: warn and drop the filter when the directory is absent
     category_warning = None
     if category:
-        skill_dir = Path(cfg["oracle"]["skill_dir"])
+        skill_dir = Path(cfg["pythia"]["skill_dir"])
         if not (skill_dir / category).exists():
             category_warning = f"> ⚠ Skills category `{category}` not found in {skill_dir} — falling back to full scan."
             category = None
@@ -6622,7 +6680,7 @@ def build_oracle_snapshot(cfg: dict, category: str | None = None, no_services: b
         session_digest = resolve_session("count=3", cfg)
         checkpoint_summary = resolve_waypoint("", cfg)
 
-    outcome_weights = _oracle_online_score_adjustments(_oracle_log_entries(), cfg)
+    outcome_weights = _pythia_online_score_adjustments(_pythia_log_entries(), cfg)
     snapshot = {
         "rendered_at": now,
         "skills_table": skills_table,
@@ -6631,17 +6689,17 @@ def build_oracle_snapshot(cfg: dict, category: str | None = None, no_services: b
         "checkpoint_summary": checkpoint_summary,
         "quick": quick,
         "outcome_weights": outcome_weights,
-        "ab_test": _oracle_ab_test_plan(task or "", outcome_weights, cfg),
+        "ab_test": _pythia_ab_test_plan(task or "", outcome_weights, cfg),
     }
 
     if quick:
-        skill_dir = Path(cfg["oracle"]["skill_dir"])
+        skill_dir = Path(cfg["pythia"]["skill_dir"])
         snapshot["skill_count"] = len(list(skill_dir.rglob("SKILL.md"))) if skill_dir.exists() else 0
     return snapshot
 
 
-def render_oracle_prompt(task: str, snapshot: dict) -> str:
-    """Render the full oracle prompt from a task and snapshot.
+def render_pythia_prompt(task: str, snapshot: dict) -> str:
+    """Render the full Pythia prompt from a task and snapshot.
 
     In --quick mode (``snapshot["quick"] is True``) the Services and
     Sessions/Checkpoint sections are omitted entirely (task-10).
@@ -6653,7 +6711,7 @@ def render_oracle_prompt(task: str, snapshot: dict) -> str:
     advisory_section = "\n\n" + "\n\n".join(advisory_parts) if advisory_parts else ""
 
     if snapshot.get("quick"):
-        return f"""You are the Perseus Tool Oracle. Given a task and a snapshot of available skills,
+        return f"""You are Perseus Pythia, the Tool Oracle. Given a task and a snapshot of available skills,
 recommend the single best skill/tool/approach.
 
 TASK: {task}
@@ -6669,7 +6727,7 @@ ENVIRONMENT SNAPSHOT (rendered {snapshot['rendered_at']}):
 Return ONE recommendation, one sentence. No alternatives, no hedging.
 {divider}"""
 
-    return f"""You are the Perseus Tool Oracle. Given a task and a live environment snapshot,
+    return f"""You are Perseus Pythia, the Tool Oracle. Given a task and a live environment snapshot,
 recommend the top 2-3 approaches in ranked order.
 
 TASK: {task}
@@ -6702,10 +6760,10 @@ Format: ranked list, most recommended first. Be direct. No hedging.
 
 
 def run_ollama(prompt: str, cfg: dict, model_override: str | None = None) -> str:
-    """Run the oracle prompt against a local Ollama instance."""
-    host = str(cfg["oracle"].get("ollama_host", "http://127.0.0.1:11434")).rstrip("/")
-    model = model_override or str(cfg["oracle"].get("ollama_model", "llama3.1"))
-    timeout = float(cfg["oracle"].get("llm_timeout_s", 30))
+    """Run the Pythia prompt against a local Ollama instance."""
+    host = str(cfg["pythia"].get("ollama_host", "http://127.0.0.1:11434")).rstrip("/")
+    model = model_override or str(cfg["pythia"].get("ollama_model", "llama3.1"))
+    timeout = float(cfg["pythia"].get("llm_timeout_s", 30))
     body = json.dumps({"model": model, "prompt": prompt, "stream": False}).encode()
     req = urllib.request.Request(
         f"{host}/api/generate",
@@ -6723,7 +6781,7 @@ def run_ollama(prompt: str, cfg: dict, model_override: str | None = None) -> str
 
 
 def cmd_suggest(args, cfg):
-    """Oracle: build a live snapshot, render a prompt, optionally run a local model, and log the interaction.
+    """Pythia: build a live snapshot, render a prompt, optionally run a local model, and log the interaction.
 
     Flag handling (task-10):
       --quick           shortens the prompt; implies --no-services
@@ -6747,9 +6805,9 @@ def cmd_suggest(args, cfg):
     if category:
         active_flags.append(f"--category={category}")
 
-    snapshot = build_oracle_snapshot(cfg, category=category, no_services=no_services, quick=quick, task=task)
+    snapshot = build_pythia_snapshot(cfg, category=category, no_services=no_services, quick=quick, task=task)
 
-    prompt = render_oracle_prompt(task, snapshot)
+    prompt = render_pythia_prompt(task, snapshot)
     response_text = None
     provider_used = None
     model_used = None
@@ -6765,8 +6823,8 @@ def cmd_suggest(args, cfg):
     else:
         print(prompt)
 
-    append_oracle_log(
-        build_oracle_log_entry(task, snapshot, prompt, response_text, provider_used, model_used, flags=active_flags),
+    append_pythia_log(
+        build_pythia_log_entry(task, snapshot, prompt, response_text, provider_used, model_used, flags=active_flags),
         cfg,
     )
     if exit_code:
@@ -7167,11 +7225,11 @@ def resolve_health(args_str: str, cfg: dict, workspace: Path | None = None) -> s
 
 # ────────────────────────── Oracle / Daedalus (task-06) ──────────────────────
 
-def _oracle_log_entries() -> list[dict]:
-    return _read_all_oracle_entries()
+def _pythia_log_entries() -> list[dict]:
+    return _read_all_pythia_entries()
 
 
-def _find_oracle_entry(entries: list[dict], log_id: str) -> int | None:
+def _find_pythia_entry(entries: list[dict], log_id: str) -> int | None:
     if log_id == "latest":
         return len(entries) - 1 if entries else None
     for i, e in enumerate(entries):
@@ -7184,8 +7242,8 @@ def _find_oracle_entry(entries: list[dict], log_id: str) -> int | None:
     return None
 
 
-def _rewrite_oracle_log(entries: list[dict]) -> None:
-    log_path = PERSEUS_HOME / "oracle_log.jsonl"
+def _rewrite_pythia_log(entries: list[dict]) -> None:
+    log_path = _pythia_log_path()
     log_path.parent.mkdir(parents=True, exist_ok=True)
     payload = "\n".join(json.dumps(e, ensure_ascii=False) for e in entries) + ("\n" if entries else "")
     tmp = log_path.with_suffix(".jsonl.tmp")
@@ -7193,13 +7251,13 @@ def _rewrite_oracle_log(entries: list[dict]) -> None:
     os.replace(tmp, log_path)
 
 
-def _label_oracle_entry(log_id: str, accepted: bool) -> tuple[bool, str]:
-    entries = _oracle_log_entries()
-    idx = _find_oracle_entry(entries, log_id)
+def _label_pythia_entry(log_id: str, accepted: bool) -> tuple[bool, str]:
+    entries = _pythia_log_entries()
+    idx = _find_pythia_entry(entries, log_id)
     if idx is None:
-        return (False, f"No oracle log entry matched `{log_id}`")
+        return (False, f"No Pythia log entry matched `{log_id}`")
     entries[idx]["accepted"] = bool(accepted)
-    _rewrite_oracle_log(entries)
+    _rewrite_pythia_log(entries)
     return (True, f"Entry `{entries[idx].get('timestamp')}` marked accepted={accepted}")
 
 
@@ -7252,7 +7310,7 @@ def _checkpoint_haystack(checkpoint: dict) -> str:
 
 
 def _infer_label_for_entry(entry: dict, checkpoints_in_window: list[dict], min_checkpoints: int = 2) -> str | None:
-    """Compute the inferred label for one oracle log entry.
+    """Compute the inferred label for one Pythia log entry.
 
     Returns one of: ``inferred_accept``, ``inferred_reject``,
     ``inferred_none``, or ``None`` if the entry already has an explicit
@@ -7287,7 +7345,7 @@ def _infer_label_for_entry(entry: dict, checkpoints_in_window: list[dict], min_c
 
 
 def _parse_iso_ts(ts: str) -> float | None:
-    """Parse oracle log / checkpoint timestamps into epoch seconds (best-effort)."""
+    """Parse Pythia log / checkpoint timestamps into epoch seconds (best-effort)."""
     if not ts:
         return None
     try:
@@ -7341,7 +7399,7 @@ def _indexed_checkpoints_in_window(
     window_days: int,
     window_checkpoints: int,
 ) -> list[tuple[float, dict]]:
-    """Return timestamped checkpoints after an oracle entry within a bounded window."""
+    """Return timestamped checkpoints after an Pythia entry within a bounded window."""
     if entry_ts_epoch is None:
         return []
     cutoff = entry_ts_epoch + window_days * 86400
@@ -7361,7 +7419,7 @@ _OUTCOME_COMPLETE_WORDS = {"complete", "completed", "done", "shipped", "merged",
 _OUTCOME_ERROR_WORDS = {"error", "errors", "failed", "failure", "exception", "traceback", "blocked", "regression"}
 
 
-def _oracle_entry_has_positive_label(entry: dict) -> bool:
+def _pythia_entry_has_positive_label(entry: dict) -> bool:
     if entry.get("accepted") is True:
         return True
     return entry.get("accepted") is None and entry.get("inferred_label") == "inferred_accept"
@@ -7391,7 +7449,7 @@ def _checkpoint_error_signal(checkpoint: dict) -> bool:
     return any(word in text for word in _OUTCOME_ERROR_WORDS)
 
 
-def _oracle_outcome_for_entry(
+def _pythia_outcome_for_entry(
     entry: dict,
     indexed_checkpoints: list[tuple[float, dict]],
     window_days: int,
@@ -7429,9 +7487,9 @@ def _oracle_outcome_for_entry(
     }
 
 
-def collect_oracle_outcomes(entries: list[dict], cfg: dict, dry_run: bool = False) -> dict:
-    """Annotate accepted oracle entries with deterministic outcome signals."""
-    o_cfg = cfg.get("oracle", {})
+def collect_pythia_outcomes(entries: list[dict], cfg: dict, dry_run: bool = False) -> dict:
+    """Annotate accepted Pythia entries with deterministic outcome signals."""
+    o_cfg = cfg.get("pythia", {})
     window_days = int(o_cfg.get("outcome_window_days", 7))
     window_checkpoints = int(o_cfg.get("outcome_window_checkpoints", 10))
     indexed = _load_indexed_checkpoints(cfg)
@@ -7443,7 +7501,7 @@ def collect_oracle_outcomes(entries: list[dict], cfg: dict, dry_run: bool = Fals
     for idx, entry in enumerate(entries):
         ts = str(entry.get("timestamp", ""))
         task = str(entry.get("task", ""))
-        if not _oracle_entry_has_positive_label(entry):
+        if not _pythia_entry_has_positive_label(entry):
             skipped += 1
             results.append({
                 "index": idx,
@@ -7455,7 +7513,7 @@ def collect_oracle_outcomes(entries: list[dict], cfg: dict, dry_run: bool = Fals
             continue
 
         eligible += 1
-        outcome = _oracle_outcome_for_entry(entry, indexed, window_days, window_checkpoints)
+        outcome = _pythia_outcome_for_entry(entry, indexed, window_days, window_checkpoints)
         if entry.get("outcome") == outcome:
             results.append({
                 "index": idx,
@@ -7494,17 +7552,17 @@ def collect_oracle_outcomes(entries: list[dict], cfg: dict, dry_run: bool = Fals
 def cmd_oracle_outcomes(args, cfg) -> int:
     """`perseus oracle outcomes` — collect Phase 14A reinforcement signals."""
     cfg_local = copy.deepcopy(cfg)
-    o_cfg = cfg_local.setdefault("oracle", {})
+    o_cfg = cfg_local.setdefault("pythia", {})
     if getattr(args, "window_days", None) is not None:
         o_cfg["outcome_window_days"] = int(args.window_days)
     if getattr(args, "window_checkpoints", None) is not None:
         o_cfg["outcome_window_checkpoints"] = int(args.window_checkpoints)
 
     dry_run = bool(getattr(args, "dry_run", False))
-    entries = _oracle_log_entries()
-    result = collect_oracle_outcomes(entries, cfg_local, dry_run=dry_run)
+    entries = _pythia_log_entries()
+    result = collect_pythia_outcomes(entries, cfg_local, dry_run=dry_run)
     if not dry_run and result["updated"]:
-        _rewrite_oracle_log(entries)
+        _rewrite_pythia_log(entries)
 
     if getattr(args, "json", False):
         print(json.dumps(result, indent=2))
@@ -7539,15 +7597,15 @@ def cmd_oracle_infer_labels(args, cfg) -> int:
     """`perseus oracle infer-labels` — apply implicit accept/reject labels.
 
     Idempotent: re-running produces the same result. Never overrides an
-    explicit `accepted: true/false`. Writes the oracle log atomically.
+    explicit `accepted: true/false`. Writes the Pythia log atomically.
     """
-    o_cfg = cfg.get("oracle", {})
+    o_cfg = cfg.get("pythia", {})
     window_days = int(getattr(args, "window_days", None) or o_cfg.get("inferred_label_window_days", 7))
     window_cps = int(getattr(args, "window_checkpoints", None) or o_cfg.get("inferred_label_window_checkpoints", 5))
     floor = int(o_cfg.get("inferred_label_min_checkpoints", 2))
     dry_run = bool(getattr(args, "dry_run", False))
 
-    entries = _oracle_log_entries()
+    entries = _pythia_log_entries()
     if not entries:
         use_json = getattr(args, "json", False)
         if use_json:
@@ -7560,7 +7618,7 @@ def cmd_oracle_infer_labels(args, cfg) -> int:
                 "floor": floor,
             }, indent=2))
         else:
-            print("(no oracle log entries)")
+            print("(no Pythia log entries)")
         return 0
 
     indexed_cps = _load_indexed_checkpoints(cfg)
@@ -7599,7 +7657,7 @@ def cmd_oracle_infer_labels(args, cfg) -> int:
         changes[new_label] += 1
 
     if not dry_run:
-        _rewrite_oracle_log(entries)
+        _rewrite_pythia_log(entries)
 
     use_json = getattr(args, "json", False)
     if use_json:
@@ -7641,7 +7699,7 @@ def _jaccard(a: set, b: set) -> float:
 
 
 def _compute_drift(cfg: dict, now_epoch: float | None = None) -> dict:
-    """Three drift metrics over the oracle log:
+    """Three drift metrics over the Pythia log:
 
     1. **Acceptance rate** — (explicit accepts + inferred accepts) / total
        compared between the trailing 7-day window and the longer baseline.
@@ -7651,7 +7709,7 @@ def _compute_drift(cfg: dict, now_epoch: float | None = None) -> dict:
        score exists yet; length is a reasonable surrogate while we wait
        for the Daedalus inference path to surface a real score).
     """
-    o = cfg.get("oracle", {})
+    o = cfg.get("pythia", {})
     win_days = int(o.get("drift_window_days", 30))
     # Recent window: trailing N days, default 7. Was hardcoded as 7 in v0.8; made
     # config-driven 2026-05-18 in response to review (consistency with baseline window).
@@ -7664,7 +7722,7 @@ def _compute_drift(cfg: dict, now_epoch: float | None = None) -> dict:
     recent_cutoff = now - recent_days * 86400
     baseline_cutoff = now - win_days * 86400
 
-    entries = _oracle_log_entries()
+    entries = _pythia_log_entries()
     recent = []
     baseline = []
     for e in entries:
@@ -7722,8 +7780,8 @@ def _compute_drift(cfg: dict, now_epoch: float | None = None) -> dict:
 def cmd_oracle_drift(args, cfg) -> int:
     report = _compute_drift(cfg)
     use_json = getattr(args, "json", False)
-    min_samples = int(cfg.get("oracle", {}).get("drift_min_samples", 10))
-    o_cfg = cfg.get("oracle", {})
+    min_samples = int(cfg.get("pythia", {}).get("drift_min_samples", 10))
+    o_cfg = cfg.get("pythia", {})
     recent_days = int(o_cfg.get("drift_recent_window_days", 7))
 
     if use_json:
@@ -7967,11 +8025,11 @@ def _doctor_check_federation(cfg: dict, workspace: Path) -> DoctorResult:
                         f"{len(subs)} subscriptions, all fresh", "")
 
 
-def _doctor_check_oracle_log(cfg: dict, workspace: Path) -> DoctorResult:
-    """Check oracle log readability."""
-    log_path = PERSEUS_HOME / "oracle_log.jsonl"
+def _doctor_check_pythia_log(cfg: dict, workspace: Path) -> DoctorResult:
+    """Check Pythia log readability."""
+    log_path = _pythia_log_path()
     if not log_path.exists():
-        return DoctorResult("oracle_log_readable", "ok", "oracle log",
+        return DoctorResult("pythia_log_readable", "ok", "Pythia log",
                             "no log file (will be created on first suggest)", "")
     try:
         count = 0
@@ -7984,10 +8042,10 @@ def _doctor_check_oracle_log(cfg: dict, workspace: Path) -> DoctorResult:
                 if not isinstance(data, dict):
                     raise ValueError(f"line {lineno}: entry is not an object")
                 count += 1
-        return DoctorResult("oracle_log_readable", "ok", "oracle log",
+        return DoctorResult("pythia_log_readable", "ok", "Pythia log",
                             f"{count} entries", "")
     except Exception as exc:
-        return DoctorResult("oracle_log_readable", "error", "oracle log",
+        return DoctorResult("pythia_log_readable", "error", "Pythia log",
                             str(exc), f"Fix JSONL in {log_path}")
 
 
@@ -8026,7 +8084,7 @@ _DOCTOR_CHECKS = [
     _doctor_check_latest_checkpoint,
     _doctor_check_mneme,
     _doctor_check_federation,
-    _doctor_check_oracle_log,
+    _doctor_check_pythia_log,
     _doctor_check_serve_loopback,
     _doctor_check_registry,
 ]
@@ -8227,16 +8285,16 @@ def cmd_oracle(args, cfg):
     sub = getattr(args, "oracle_command", None)
 
     if sub == "accept":
-        ok, msg = _label_oracle_entry(args.log_id, True)
+        ok, msg = _label_pythia_entry(args.log_id, True)
         print(msg)
         return
     if sub == "reject":
-        ok, msg = _label_oracle_entry(args.log_id, False)
+        ok, msg = _label_pythia_entry(args.log_id, False)
         print(msg)
         return
 
     if sub == "log":
-        entries = _oracle_log_entries()
+        entries = _pythia_log_entries()
         limit = int(getattr(args, "limit", 20))
         unlabeled = bool(getattr(args, "unlabeled", False))
         rows = []
@@ -8262,16 +8320,16 @@ def cmd_oracle(args, cfg):
             if len(rows) >= limit:
                 break
         if not rows:
-            print("(no oracle log entries)")
+            print("(no Pythia log entries)")
             return
-        print(f"Recent oracle log entries (most recent first; limit={limit}{' unlabeled only' if unlabeled else ''})")
+        print(f"Recent Pythia log entries (most recent first; limit={limit}{' unlabeled only' if unlabeled else ''})")
         print("  Legend: ✅ explicit accept · ❌ explicit reject · ≈✓ inferred accept · ≈✗ inferred reject · · unlabeled")
         for r in rows:
             print(r)
         return
 
     if sub == "export":
-        entries = _oracle_log_entries()
+        entries = _pythia_log_entries()
         include_inferred = bool(getattr(args, "include_inferred", False))
         accepted = [e for e in entries if e.get("accepted") is True]
         rejected = [e for e in entries if e.get("accepted") is False]
@@ -8325,8 +8383,8 @@ def _serve_collect_stats(cfg: dict, workspace: Path) -> dict:
         "latest_checkpoint_age_s": None,
         "open_tasks": None,
         "in_progress_tasks": None,
-        "oracle_entries_total": None,
-        "oracle_entries_24h": None,
+        "pythia_entries_total": None,
+        "pythia_entries_24h": None,
         "inbox_unread": None,
         "skills_count": None,
         "context_file_present": False,
@@ -8373,9 +8431,9 @@ def _serve_collect_stats(cfg: dict, workspace: Path) -> dict:
     except Exception:
         pass
 
-    # Oracle log
+    # Pythia log
     try:
-        log_path = PERSEUS_HOME / "oracle_log.jsonl"
+        log_path = _pythia_log_path()
         if log_path.exists():
             total = 0
             recent = 0
@@ -8396,8 +8454,8 @@ def _serve_collect_stats(cfg: dict, workspace: Path) -> dict:
                                 recent += 1
                     except Exception:
                         continue
-            stats["oracle_entries_total"] = total
-            stats["oracle_entries_24h"] = recent
+            stats["pythia_entries_total"] = total
+            stats["pythia_entries_24h"] = recent
     except Exception:
         pass
 
@@ -8422,7 +8480,7 @@ def _serve_collect_stats(cfg: dict, workspace: Path) -> dict:
 
     # Skills count
     try:
-        skill_dir = Path(cfg.get("oracle", {}).get("skill_dir", "")).expanduser()
+        skill_dir = Path(cfg.get("pythia", {}).get("skill_dir", "")).expanduser()
         if skill_dir.exists():
             stats["skills_count"] = sum(1 for _ in skill_dir.glob("*/SKILL.md"))
     except Exception:
@@ -8475,7 +8533,7 @@ def _serve_render_index(workspace: Path, stats: dict) -> str:
         ("/health", "Maintenance report", "Stale checkpoints, near-duplicates, large context, old completed tasks."),
         ("/agora", "Task board", "All tasks in tasks/ with frontmatter status (markdown table)."),
         ("/checkpoint/latest", "Latest checkpoint (YAML)", "Most recent checkpoint for this workspace."),
-        ("/oracle/log", "Oracle log (JSON)", "Append-only log of Pythia recommendations + accept/reject decisions."),
+        ("/oracle/log", "Pythia log (JSON)", "Append-only log of Pythia recommendations + accept/reject decisions."),
     ]
     cards = "\n".join(
         f"<a class='card' href='{_esc(p)}'><div class='card-path'>{_esc(p)}</div>"
@@ -8529,8 +8587,8 @@ def _serve_render_index(workspace: Path, stats: dict) -> str:
         f"{_stat('Narrative lines', stats.get('narrative_lines'))}"
         f"{_stat('Narrative updated', narr_age)}"
         f"{_stat('Checkpoint age', cp_age)}"
-        f"{_stat('Oracle calls (24h)', stats.get('oracle_entries_24h'))}"
-        f"{_stat('Oracle calls (all)', stats.get('oracle_entries_total'))}"
+        f"{_stat('Pythia calls (24h)', stats.get('pythia_entries_24h'))}"
+        f"{_stat('Pythia calls (all)', stats.get('pythia_entries_total'))}"
         f"</div>"
         f"<h2>Endpoints</h2>"
         f"<div class='cards'>{cards}</div>"
@@ -8599,7 +8657,7 @@ def _serve_render_endpoint(endpoint: str, cfg: dict, workspace: Path, query: dic
                 limit = int(query.get("limit", "20"))
             except (TypeError, ValueError):
                 limit = 20
-            entries = _read_all_oracle_entries()[-limit:][::-1]
+            entries = _read_all_pythia_entries()[-limit:][::-1]
             body = json.dumps(entries, ensure_ascii=False, indent=2)
             body, _ = redact_text(body, cfg)
             return (200, "application/json; charset=utf-8", body)
@@ -9008,7 +9066,7 @@ def cmd_serve(args, cfg):
             sys.stderr.write(
                 f"perseus serve: refusing to bind {host}:{port} — non-loopback hosts expose\n"
                 "  ALL of: rendered context, narrative, health, agora, latest checkpoint,\n"
-                "  AND oracle log (which may contain prompts/responses from other workspaces).\n"
+                "  AND Pythia log (which may contain prompts/responses from other workspaces).\n"
                 "  No authentication is enforced. Pass --i-understand-no-auth to proceed.\n"
             )
             return 2
@@ -9291,14 +9349,14 @@ def main():
     p_agora_complete.add_argument("task_id", help="Task ID to complete")
 
     # suggest
-    p_suggest = sub.add_parser("suggest", help="Oracle: ranked tool recommendations")
+    p_suggest = sub.add_parser("suggest", help="Pythia: ranked tool recommendations")
     p_suggest.add_argument("task", help="Task description")
     p_suggest.add_argument("--quick", action="store_true", help="Top recommendation only")
     p_suggest.add_argument("--category", default=None, help="Limit skill search to category")
     p_suggest.add_argument("--no-services", action="store_true", dest="no_services",
                            help="Skip live service health checks")
     p_suggest.add_argument("--llm", default=None,
-                           help="Optionally run the oracle prompt through a local model provider (ollama, llamacpp, openai-compat)")
+                           help="Optionally run the Pythia prompt through a local model provider (ollama, llamacpp, openai-compat)")
     p_suggest.add_argument("--model", default=None,
                            help="Override the configured LLM model name")
     p_suggest.add_argument("--model-url", default=None,
@@ -9444,15 +9502,15 @@ def main():
     p_trust.add_argument("--json", action="store_true", help="Output machine-readable JSON")
 
     # oracle (Daedalus dataset / labeling)
-    p_oracle = sub.add_parser("oracle", help="Oracle log labeling and dataset export")
+    p_oracle = sub.add_parser("oracle", help="Pythia log labeling and dataset export")
     oracle_sub = p_oracle.add_subparsers(dest="oracle_command", required=True)
-    p_oracle_accept = oracle_sub.add_parser("accept", help="Mark an oracle log entry as accepted")
+    p_oracle_accept = oracle_sub.add_parser("accept", help="Mark a Pythia log entry as accepted")
     p_oracle_accept.add_argument("log_id", help="Entry id (timestamp) or 'latest'")
-    p_oracle_reject = oracle_sub.add_parser("reject", help="Mark an oracle log entry as rejected")
+    p_oracle_reject = oracle_sub.add_parser("reject", help="Mark a Pythia log entry as rejected")
     p_oracle_reject.add_argument("log_id", help="Entry id (timestamp) or 'latest'")
-    p_oracle_log = oracle_sub.add_parser("log", help="List recent oracle log entries")
-    p_oracle_log.add_argument("--limit", type=int, default=20, help="Max entries to show")
-    p_oracle_log.add_argument("--unlabeled", action="store_true", help="Only show unlabeled entries")
+    p_pythia_log = oracle_sub.add_parser("log", help="List recent Pythia log entries")
+    p_pythia_log.add_argument("--limit", type=int, default=20, help="Max entries to show")
+    p_pythia_log.add_argument("--unlabeled", action="store_true", help="Only show unlabeled entries")
     p_oracle_export = oracle_sub.add_parser("export", help="Export accepted entries as fine-tuning dataset")
     p_oracle_export.add_argument("--output", default=None, help="Output path (default: ~/.perseus/daedalus_dataset.jsonl)")
     p_oracle_export.add_argument("--format", default="jsonl", choices=["jsonl", "alpaca", "daedalus-patterns"], help="Output format (daedalus-patterns: task-21 pattern training set)")
@@ -9460,20 +9518,20 @@ def main():
 
     # Phase 9.1 — task-20: implicit accept/reject inference
     p_oracle_infer = oracle_sub.add_parser("infer-labels", help="Apply implicit accept/reject labels from checkpoint correlation")
-    p_oracle_infer.add_argument("--window-days", type=int, default=None, help="Override oracle.inferred_label_window_days")
-    p_oracle_infer.add_argument("--window-checkpoints", type=int, default=None, help="Override oracle.inferred_label_window_checkpoints")
+    p_oracle_infer.add_argument("--window-days", type=int, default=None, help="Override pythia.inferred_label_window_days")
+    p_oracle_infer.add_argument("--window-checkpoints", type=int, default=None, help="Override pythia.inferred_label_window_checkpoints")
     p_oracle_infer.add_argument("--dry-run", action="store_true", help="Print what would change without writing")
     p_oracle_infer.add_argument("--json", action="store_true", help="Machine-readable JSON output")
 
     # Phase 14A — task-36: reinforcement outcome collection
     p_oracle_outcomes = oracle_sub.add_parser("outcomes", help="Collect completion/error/time outcome signals")
-    p_oracle_outcomes.add_argument("--window-days", type=int, default=None, help="Override oracle.outcome_window_days")
-    p_oracle_outcomes.add_argument("--window-checkpoints", type=int, default=None, help="Override oracle.outcome_window_checkpoints")
+    p_oracle_outcomes.add_argument("--window-days", type=int, default=None, help="Override pythia.outcome_window_days")
+    p_oracle_outcomes.add_argument("--window-checkpoints", type=int, default=None, help="Override pythia.outcome_window_checkpoints")
     p_oracle_outcomes.add_argument("--dry-run", action="store_true", help="Print what would change without writing")
     p_oracle_outcomes.add_argument("--json", action="store_true", help="Machine-readable JSON output")
 
     # Phase 9.3 — task-22: drift detection
-    p_oracle_drift = oracle_sub.add_parser("drift", help="Report drift in recent oracle behavior vs baseline")
+    p_oracle_drift = oracle_sub.add_parser("drift", help="Report drift in recent Pythia behavior vs baseline")
     p_oracle_drift.add_argument("--json", action="store_true", help="Machine-readable JSON output")
 
     # `perseus llm ping` — verify the configured LLM provider is reachable.

@@ -14,7 +14,7 @@ Provider-agnostic defaults now use `PERSEUS_SKILLS_DIR` and `PERSEUS_SESSIONS_DI
 
 Perseus dogfoods itself: `ROADMAP.md` is a live `@perseus` source — the project's own documentation resolves its git state, CLI version, recent sessions, and last checkpoint at render time.
 
-**Status: Alpha v0.8.1 — Phases 1-14, Phase 15A, and Phase 16 complete. Phase 16 adds the v1 product contract, context pack manifests, and profile-based init. 42 tasks closed. 322 tests passing, 1 sandbox-skipped TCP smoke.**
+**Status: Alpha v0.9.0 — Phases 1-14, Phase 15A, Phase 16, Phase 17, and Phase 18A complete. Task 63 completes the Oracle → Pythia internal rename while preserving the `perseus oracle` CLI. 49 tasks closed/completed, 14 open. 394 tests passing, 1 sandbox-skipped TCP smoke.**
 
 ---
 
@@ -128,7 +128,7 @@ The Medusa of tool selection is the paralysis of facing too many options directl
 $ perseus suggest "deploy the staging container" --category devops
 ```
 
-Emits a structured oracle prompt with a live environment snapshot — skills table with freshness, service health, recent checkpoint, session digest — which the assistant reads and answers with ranked recommendations. No extra model required. No separate API call. The loop closes in the same context window.
+Emits a structured Pythia prompt with a live environment snapshot — skills table with freshness, service health, recent checkpoint, session digest — which the assistant reads and answers with ranked recommendations. No extra model required. No separate API call. The loop closes in the same context window.
 
 ---
 
@@ -260,7 +260,7 @@ chmod +x ~/.local/bin/perseus
 # Configure (absolute paths required — ~ won't resolve in all environments)
 mkdir -p ~/.perseus
 cat > ~/.perseus/config.yaml << 'EOF'
-oracle:
+pythia:
   skill_dir: /home/you/.hermes/skills
 assistant:                              # path to your agent's sessions dir; used by @session
   sessions_dir: /home/you/.hermes/sessions
@@ -325,8 +325,8 @@ Run `perseus <command> --help` for full flags. Summary of the surface:
 | `perseus suggest <prompt> [--llm provider]` | Pythia tool oracle — ranks skills against a prompt, with transparent outcome-weight hints when data exists. |
 | `perseus memory {update,compact,show,status,query,federation}` | Mnēmē narrative project memory + cross-workspace federation. |
 | `perseus inbox {send,list,read,unread,mark-read}` | Point-to-point messages between agents (task-16). |
-| `perseus health` | Maintenance report — stale skills, large narrative, oracle log volume. |
-| `perseus oracle {accept,reject,log,export,infer-labels,outcomes,drift}` | Daedalus oracle log management, inferred labels, outcome signals, and drift checks. |
+| `perseus health` | Maintenance report — stale skills, large narrative, Pythia log volume. |
+| `perseus oracle {accept,reject,log,export,infer-labels,outcomes,drift}` | Daedalus Pythia log management, inferred labels, outcome signals, and drift checks. |
 | `perseus llm ping [--provider hermes\|ollama\|...]` | Verify the configured LLM provider is reachable. |
 | `perseus init [--template name | --profile name] <workspace>` | Scaffold `.perseus/context.md`; profiles also write `.perseus/pack.yaml`. |
 | `perseus serve [--port N] [--host H]` | Read-only HTTP view of workspace state on `http://127.0.0.1:7991/`. |
@@ -429,10 +429,10 @@ perseus launchd .perseus/context.md --output .hermes.md
 This writes a LaunchAgent plist that periodically renders the source document to the output path.
 
 
-Oracle config options:
+Pythia config options:
 
 ```yaml
-oracle:
+pythia:
   llm_provider: ollama
   ollama_model: llama3.1
   llm_timeout_s: 30
@@ -448,7 +448,7 @@ oracle:
 | **Phase 3** | `@cache session/ttl=N` · smart `recover --workspace` · `@constraint` | ✅ Complete |
 | **Phase 4** | `@services command:` · `perseus init` · `--version` · ROADMAP.md goes live | ✅ Complete |
 | **Hardening Pass** | parser fixes · trust gates · workspace safety · launchd scaffolding · focused tests | ✅ Complete |
-| **Phase 5A** | `suggest --llm` · oracle log · multi-workspace checkpoint namespacing | ✅ Complete |
+| **Phase 5A** | `suggest --llm` · Pythia log · multi-workspace checkpoint namespacing | ✅ Complete |
 | **Phase 5B** | `perseus diff` field-level checkpoint comparison | ✅ Complete |
 | **Phase 5C** | Agora task coordination · `perseus agora` · `@agora` directive | ✅ Complete |
 | **Phase 5D** | `@cache persist` / `@cache mock` · `@list` / `@tree` · suggest UX flags · systemd | ✅ Complete |
@@ -465,8 +465,8 @@ oracle:
 | **Phase 15A** | Cited synthesis contract — `perseus synthesize`, opt-in generation, exact quote citation gate | ✅ Complete |
 | **Phase 15B-C** | Cross-source consistency synthesis and optional curated render surface | 🌅 Planned |
 | **Phase 16** | Product contract, context pack manifest, and init/profile workflow | ✅ Complete |
-| **Phase 17** | Trust, privacy, permission profiles, redaction, and audit reporting | 🌅 Planned |
-| **Phase 18** | Installer, release artifacts, versioning, and scheduler parity | 🌅 Planned |
+| **Phase 17** | Trust, privacy, permission profiles, redaction, and audit reporting | ✅ Complete |
+| **Phase 18** | Installer, release artifacts, versioning, and scheduler parity | 🚧 18A complete; 18B-C queued |
 | **Phase 19** | Assistant adapter conformance and profile gallery | 🌅 Planned |
 | **Phase 20** | Managed runtime: authenticated serve, container, and watch mode | 🌅 Planned |
 | **Phase 21** | Golden evals, performance budgets, and compatibility gates | 🌅 Planned |

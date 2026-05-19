@@ -64,7 +64,7 @@ should treat only `claims` as accepted generated context.
 
 ## `perseus oracle infer-labels --json`
 
-Summarizes inferred oracle labels and whether the run wrote changes.
+Summarizes inferred Pythia labels and whether the run wrote changes.
 
 ```json
 {
@@ -137,15 +137,15 @@ When a narrative exists:
   "updated": "2026-05-18T12:00:00",
   "checkpoints_processed": 5,
   "checkpoints_pending": 0,
-  "oracle_entries_processed": 3,
-  "oracle_entries_pending": 0,
+  "pythia_entries_processed": 3,
+  "pythia_entries_pending": 0,
   "compaction_count": 1,
   "line_count": 42,
   "mode": "deterministic",
   "frontmatter": {
     "updated": "2026-05-18T12:00:00",
     "checkpoints_processed": 5,
-    "oracle_entries_processed": 3,
+    "pythia_entries_processed": 3,
     "compaction_count": 1
   }
 }

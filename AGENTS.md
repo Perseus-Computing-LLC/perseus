@@ -48,7 +48,7 @@ spec/
   overview.md           ← high-level design; start here
   components.md         ← detailed component specs
   directives.md         ← full directive reference
-  oracle.md             ← Pythia (tool oracle) design
+  pythia.md             ← Pythia (tool oracle) design
   integration.md        ← adapter patterns for wiring Perseus to an AI assistant
   data-model.md         ← config schema, checkpoint schema, directory layout
 ROADMAP.md              ← living roadmap; rendered live by Perseus itself

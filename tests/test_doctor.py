@@ -126,8 +126,8 @@ def test_doctor_mneme_oversized(tmp_path):
 def test_doctor_oracle_log_corrupt(tmp_path, monkeypatch):
     """Doctor errors on corrupt oracle log."""
     monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path)
-    (tmp_path / "oracle_log.jsonl").write_text("{not json}\n")
-    result = perseus._doctor_check_oracle_log(cfg(), tmp_path)
+    (tmp_path / "pythia_log.jsonl").write_text("{not json}\n")
+    result = perseus._doctor_check_pythia_log(cfg(), tmp_path)
     assert result.status == "error"
 
 

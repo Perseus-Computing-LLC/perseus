@@ -16,7 +16,7 @@
     ...
   memory/
     <workspace-hash>.md ← Mnēmē per-workspace narrative file
-  oracle_log.jsonl      ← Pythia recommendation log (append-only)
+  pythia_log.jsonl      ← Pythia recommendation log (append-only)
 
 /workspace/<project>/
   .perseus/
@@ -142,7 +142,7 @@ checkpoints:
   ttl_s: 86400        # stale after 24h; still kept, just not injected as live
   max_keep: 30
 
-oracle:
+pythia:
   skill_dir: ~/.hermes/skills
   stale_skill_days: 30
   llm_provider: ollama
@@ -237,6 +237,10 @@ assistant:                               # task-01 (legacy `hermes:` migrated he
   sessions_dir: ~/.hermes/sessions
 ```
 
+Legacy configs using `oracle:` are still accepted for compatibility. Perseus
+merges those values into `pythia:` and emits a deprecation warning so existing
+workspaces keep working while operators migrate.
+
 Render block also accepts:
 
 - `persist_cache_ttl_s: 3600` (task-09 — TTL for `@cache persist`)
@@ -303,7 +307,7 @@ workspace: /workspace/example
 workspace_hash: a3f9c12b8e44
 updated: 2026-05-18T14:32:00-05:00
 checkpoints_processed: 47
-oracle_entries_processed: 312
+pythia_entries_processed: 312
 compaction_count: 2
 last_compaction_at_update: 2
 last_compact_processed: 47
@@ -312,7 +316,7 @@ last_compact_processed: 47
 # Mnēmē — /workspace/example
 
 > Narrative last updated 2026-05-18 14:32 CT.
-> Source: 47 checkpoints, 312 oracle entries.
+> Source: 47 checkpoints, 312 Pythia entries.
 > Run `perseus memory compact` for a full re-distillation.
 
 ## Project Arc
@@ -340,7 +344,7 @@ last_compact_processed: 47
 | `workspace_hash` | str | 12-char sha256 hex of workspace |
 | `updated` | ISO ts | Last write timestamp |
 | `checkpoints_processed` | int | High-water mark (count of checkpoints) |
-| `oracle_entries_processed` | int | High-water mark (count of oracle log entries) |
+| `pythia_entries_processed` | int | High-water mark (count of Pythia log entries) |
 | `compaction_count` | int | Number of full re-distillations |
 | `last_compact_processed` | int | Checkpoints processed at last compact (used for advisory) |
 

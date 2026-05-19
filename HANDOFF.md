@@ -2,8 +2,8 @@
 
 **For:** Principal developer continuing productization
 **Repo:** https://github.com/tcconnally/perseus  
-**Baseline:** Phase 18A shipped, 393 tests passing, 0 skipped
-**State:** Phases 11, 12, 13, 14, 15A, 16, 17A, 17B, 17C, **18A** complete; Phases 18B-22 remain queued in Agora as the deployable-product path
+**Baseline:** Phase 18A shipped plus task-63 Pythia rename, 394 tests passing, 1 sandbox-skipped TCP smoke
+**State:** Phases 11, 12, 13, 14, 15A, 16, 17A, 17B, 17C, **18A**, and task-63 complete; Phases 18B-22 remain queued in Agora as the deployable-product path
 
 ---
 
@@ -34,7 +34,7 @@
 | **Decision brief** resolver vs generator | decision-brief batch | complete | recommends resolver boundary through Phase 14; Phase 15 generation must be opt-in |
 | **task-36** reinforcement signal collection | task-36 batch | complete | `perseus oracle outcomes`, deterministic checkpoint-correlated outcome signals |
 | **task-37** online scoring adjustment | task-37 batch | complete | outcome-weighted prompt hints for `perseus suggest` |
-| **task-38** A/B recommendation testing | task-38 batch | complete | opt-in primary/alternate exploration with oracle log attribution |
+| **task-38** A/B recommendation testing | task-38 batch | complete | opt-in primary/alternate exploration with Pythia log attribution |
 | **task-39** cited synthesis contract | task-39 batch | complete | `perseus synthesize`, opt-in LLM drafting, exact quote citation gate |
 | **tasks 40-62** productization roadmap | productization-roadmap batch | queued | Phase 15B through v1 release candidate path added to Agora |
 | **task-42** product contract | Phase 16 batch | complete | `docs/PRODUCT_CONTRACT.md` defines v1 promise, surfaces, modes, and non-goals |
@@ -44,6 +44,7 @@
 | **task-46** secrets redaction | Phase 17B | complete | `DEFAULT_REDACTION_RULES`, `redact_text()`, applied to render/synthesize/serve trust boundaries; source files never mutated; counts-only report (no secret values) |
 | **task-47** audit log + trust report | Phase 17C | complete | `audit_event()` JSONL writer w/ rotation; emitters at 5 trust boundaries; `perseus trust audit [--tail N] [--json]`; default `trust` shows audit posture; secret values never persisted |
 | **task-48** installer bootstrap | Phase 18A | complete | `scripts/install.sh` + `INSTALL.md`; preserves single-file runtime; verifies Python 3.10+, pyyaml; idempotent upgrade; clean uninstall; shim verifies via `perseus --version` |
+| **task-63** Oracle → Pythia rename | housekeeping | complete | Internal config/log/state now use `pythia`; legacy `oracle:` config warns; `oracle_log.jsonl` auto-migrates to `pythia_log.jsonl`; public `perseus oracle` CLI remains |
 
 Phase 11 was already complete in the prior handoff: baseline repairs, `DIRECTIVE_REGISTRY`, `perseus doctor`, JSON agent surfaces, LSP integration tests, and the split test suite are all on `main`.
 
@@ -60,10 +61,10 @@ python -m pytest tests/ -q
 Latest local result:
 
 ```text
-393 passed, 0 skipped
+394 passed, 1 skipped
 ```
 
-The previously sandbox-skipped TCP LSP smoke no longer reports as skipped in the current environment.
+The skipped test is the TCP LSP smoke when sockets are unavailable in the sandbox.
 
 Subsystem layout:
 
@@ -116,7 +117,7 @@ Phase 13 and Phase 14 are complete:
    - Reuse existing cache machinery; no daemon.
 
 3. **13C Daedalus-Powered Adaptive Pre-Fetch**
-   - Optional scoring layer using existing oracle/Mnēmē patterns.
+   - Optional scoring layer using existing Pythia/Mnēmē patterns.
    - Keep deterministic fallback and no required model dependency.
    - Preserve the Phase 14 resolver-vs-generator decision gate.
 
@@ -146,7 +147,7 @@ The remaining deployable-product path is queued through task-62:
 
 - **Phase 15B-C:** finish cited synthesis only where it adds cross-source value.
 - **Phase 17:** permission profiles, redaction, audit log, trust report.
-- **Phase 18:** installer, release artifacts, versioning, scheduler parity.
+- **Phase 18:** installer bootstrap complete; release artifacts, versioning, and scheduler parity remain.
 - **Phase 19:** adapter conformance, assistant profiles, VSCode release polish.
 - **Phase 20:** authenticated serve, container sidecar, headless watch mode.
 - **Phase 21:** golden eval corpus, performance budgets, compatibility suite.

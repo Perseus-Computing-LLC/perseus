@@ -91,6 +91,9 @@ def test_installer_reports_missing_pyyaml(tmp_path, monkeypatch):
     """
     if shutil.which("bash") is None:
         pytest.skip("bash not available")
+    real_python = shutil.which("python3")
+    if real_python is None:
+        pytest.skip("python3 not available")
 
     fake_bin = tmp_path / "fakebin"
     fake_bin.mkdir()
@@ -98,7 +101,7 @@ def test_installer_reports_missing_pyyaml(tmp_path, monkeypatch):
     fake_py.write_text(
         "#!/usr/bin/env bash\n"
         "# Fail iff invoked with `-c 'import yaml'`, otherwise delegate to real python3.\n"
-        f"REAL=$(PATH={os.environ.get('PATH','')} command -v python3)\n"
+        f"REAL={real_python!r}\n"
         "for a in \"$@\"; do\n"
         "  case \"$a\" in *'import yaml'*) echo 'ModuleNotFoundError' >&2; exit 1 ;; esac\n"
         "done\n"
