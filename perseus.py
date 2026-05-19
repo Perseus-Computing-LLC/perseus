@@ -3531,19 +3531,35 @@ def run_llm(provider: str, prompt: str, cfg: dict, model: str | None = None, mod
         }
         # share the ollama response-parsing branch below
         provider = "ollama"
-    elif provider in {"llamacpp", "openai-compat"}:
-        base = (model_url or str(llm_cfg.get("url", "http://localhost:11434"))).rstrip("/")
+    elif provider in {"llamacpp", "openai-compat", "hermes"}:
+        # `hermes` is an alias for `openai-compat` because Hermes Agent
+        # (NousResearch) exposes an OpenAI-compatible /v1/chat/completions
+        # server. Using the alias makes config read naturally
+        # (`llm.provider: hermes`) and reserves the name for a future
+        # Hermes-specific provider (auth headers, model picker, etc.).
+        # When the alias is used we look at llm.hermes_url and
+        # llm.hermes_model first so users can keep hermes settings
+        # independent of any other openai-compat endpoint they configure.
+        if provider == "hermes":
+            base_default = str(llm_cfg.get("hermes_url", llm_cfg.get("url", "http://localhost:8080"))).rstrip("/")
+            model_default = str(llm_cfg.get("hermes_model", llm_cfg.get("model", "default")))
+        else:
+            base_default = str(llm_cfg.get("url", "http://localhost:11434")).rstrip("/")
+            model_default = str(llm_cfg.get("model", "mistral"))
+        base = (model_url or base_default).rstrip("/")
         url = base + "/v1/chat/completions"
         payload = {
-            "model": model or str(llm_cfg.get("model", "mistral")),
+            "model": model or model_default,
             "messages": [
                 {"role": "system", "content": "You are the Perseus Tool Oracle."},
                 {"role": "user", "content": prompt},
             ],
             "stream": False,
         }
+        # share the openai-compat response-parsing branch below
+        provider = "openai-compat"
     else:
-        return (f"> ⚠ Unsupported llm provider: {provider}. Currently supported: ollama, llamacpp, openai-compat, daedalus", 2)
+        return (f"> ⚠ Unsupported llm provider: {provider}. Currently supported: ollama, llamacpp, openai-compat, hermes, daedalus", 2)
 
     req = urllib.request.Request(
         url,
@@ -3563,6 +3579,61 @@ def run_llm(provider: str, prompt: str, cfg: dict, model: str | None = None, mod
         return (f"> ⚠ LLM request failed: {exc}", 2)
     except Exception as exc:
         return (f"> ⚠ LLM error: {exc}", 2)
+
+
+def cmd_llm(args, cfg) -> int:
+    """`perseus llm ping` — verify the configured LLM provider is reachable.
+
+    Sends a tiny no-op prompt through ``run_llm`` and prints either a
+    pass line (provider, model, base URL, elapsed ms, response preview)
+    or an explicit error line. Exit codes:
+
+    - ``0`` on success
+    - ``2`` on transport or provider error
+    - ``3`` on unknown subcommand
+
+    Used by humans to confirm a fresh install ("does Perseus see Hermes
+    on this box?") and by future Daedalus drift detection to bail out
+    early when the inference path is broken.
+    """
+    sub = getattr(args, "llm_sub", None)
+    if sub != "ping":
+        print(f"unknown llm subcommand: {sub}", file=sys.stderr)
+        return 3
+
+    llm_cfg = cfg.get("llm", {})
+    provider = (args.provider or llm_cfg.get("provider") or "ollama").strip().lower()
+    model = args.model or None
+    model_url = args.url or None
+
+    # Build a base URL string for the report — mirror run_llm's resolution
+    if provider == "ollama":
+        base = (model_url or str(llm_cfg.get("url", "http://localhost:11434"))).rstrip("/")
+        resolved_model = model or str(llm_cfg.get("model", "mistral"))
+    elif provider == "daedalus":
+        base = (model_url or str(llm_cfg.get("daedalus_url", "http://localhost:11434"))).rstrip("/")
+        resolved_model = model or str(llm_cfg.get("daedalus_model", "perseus-daedalus"))
+    elif provider == "hermes":
+        base = (model_url or str(llm_cfg.get("hermes_url", llm_cfg.get("url", "http://localhost:8080")))).rstrip("/")
+        resolved_model = model or str(llm_cfg.get("hermes_model", llm_cfg.get("model", "default")))
+    elif provider in {"llamacpp", "openai-compat"}:
+        base = (model_url or str(llm_cfg.get("url", "http://localhost:11434"))).rstrip("/")
+        resolved_model = model or str(llm_cfg.get("model", "mistral"))
+    else:
+        print(f"✗ unsupported provider: {provider}", file=sys.stderr)
+        return 2
+
+    start = time.time()
+    text, code = run_llm(provider, "Reply with the single word: pong.", cfg, model=model, model_url=model_url)
+    elapsed_ms = int((time.time() - start) * 1000)
+
+    if code != 0:
+        print(f"✗ {provider} · {base} · {elapsed_ms} ms · {text}")
+        return 2
+
+    preview = text.replace("\n", " ")[:60]
+    print(f"✓ {provider} · model={resolved_model} · {base} · {elapsed_ms} ms · {preview!r}")
+    return 0
 
 
 def build_oracle_snapshot(cfg: dict, category: str | None = None, no_services: bool = False, quick: bool = False) -> dict:
@@ -4852,6 +4923,14 @@ def main():
     p_oracle_export.add_argument("--output", default=None, help="Output path (default: ~/.perseus/daedalus_dataset.jsonl)")
     p_oracle_export.add_argument("--format", default="jsonl", choices=["jsonl", "alpaca"], help="Output format")
 
+    # `perseus llm ping` — verify the configured LLM provider is reachable.
+    p_llm = sub.add_parser("llm", help="LLM provider utilities (ping)")
+    llm_sub = p_llm.add_subparsers(dest="llm_sub")
+    p_llm_ping = llm_sub.add_parser("ping", help="Send a no-op prompt to verify reachability")
+    p_llm_ping.add_argument("--provider", default=None, help="Override llm.provider (ollama, openai-compat, hermes, llamacpp, daedalus)")
+    p_llm_ping.add_argument("--model", default=None, help="Override llm.model")
+    p_llm_ping.add_argument("--url", default=None, help="Override llm.url (base URL, no trailing /v1)")
+
     args = parser.parse_args()
     cfg = load_config()
 
@@ -4881,6 +4960,8 @@ def main():
         cmd_health(args, cfg)
     elif args.command == "oracle":
         cmd_oracle(args, cfg)
+    elif args.command == "llm":
+        return cmd_llm(args, cfg)
     elif args.command == "init":
         cmd_init(args, cfg)
     elif args.command == "launchd":
@@ -4888,4 +4969,6 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    rc = main()
+    if isinstance(rc, int):
+        sys.exit(rc)
