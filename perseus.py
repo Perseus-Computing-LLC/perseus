@@ -255,6 +255,15 @@ DEFAULT_CONFIG = {
         # DEFAULT_REDACTION_RULES for the shape of the default set.
         "patterns": [],
     },
+    "audit": {                        # Phase 17C — task-47
+        # Append-only JSONL log of sensitive operations and policy denials.
+        # File is rotated when it exceeds max_log_bytes (one rotation kept,
+        # suffix .1). Errors during logging are reported to stderr but never
+        # break render (AC #4).
+        "enabled": True,
+        "log_path": str(PERSEUS_HOME / "audit_log.jsonl"),
+        "max_log_bytes": 1_048_576,   # 1 MiB
+    },
 }
 
 
@@ -460,6 +469,117 @@ def redact_text(text: str, cfg: dict) -> tuple[str, dict]:
         "total": sum(counts.values()),
         "counts": counts,
         "rules_active": len(rules),
+    }
+
+
+# ───── Phase 17C — audit log (task-47) ────────────────────────────────────────
+
+
+def _audit_log_path(cfg: dict) -> Path:
+    """Resolve the audit log path, expanding ~ and falling back to PERSEUS_HOME."""
+    raw = (cfg.get("audit") or {}).get("log_path") or str(PERSEUS_HOME / "audit_log.jsonl")
+    return Path(str(raw)).expanduser()
+
+
+def _audit_rotate_if_needed(path: Path, max_bytes: int) -> None:
+    """Rotate the audit log once it exceeds max_bytes. Keep a single .1 backup.
+
+    Best-effort: any failure is swallowed so a rotation glitch can't break a
+    render. The next audit write will simply continue appending to the
+    oversized file."""
+    try:
+        if not path.exists() or max_bytes <= 0:
+            return
+        if path.stat().st_size <= max_bytes:
+            return
+        backup = path.with_suffix(path.suffix + ".1")
+        if backup.exists():
+            backup.unlink()
+        path.rename(backup)
+    except Exception:
+        return
+
+
+def audit_event(cfg: dict, event_type: str, **fields) -> None:
+    """Append a structured audit event to the configured JSONL log.
+
+    AC #1: sensitive operations emit structured events.
+    AC #4: logging failures warn but do not break normal render.
+    AC #5: callers can disable via `audit.enabled = false`.
+
+    Caller passes any JSON-serializable fields. We always stamp:
+        ts        — UTC ISO-8601
+        event     — event_type
+        version   — perseus version
+        pid       — current process id (helps correlate concurrent agents)
+    """
+    audit_cfg = cfg.get("audit") or {}
+    if not audit_cfg.get("enabled", True):
+        return
+    record = {
+        "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "event_type": event_type,
+        "perseus_version": _PERSEUS_VERSION,
+        "pid": os.getpid(),
+    }
+    for k, v in fields.items():
+        # Defensive: stringify any non-JSON-safe value rather than crashing.
+        try:
+            json.dumps(v)
+            record[k] = v
+        except Exception:
+            record[k] = repr(v)
+    try:
+        path = _audit_log_path(cfg)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _audit_rotate_if_needed(path, int(audit_cfg.get("max_log_bytes", 1_048_576)))
+        with path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except Exception as exc:
+        # AC #4: warn but do not raise.
+        sys.stderr.write(f"perseus audit: write failed ({exc!r})\n")
+
+
+def _read_audit_entries(cfg: dict, limit: int | None = None) -> list[dict]:
+    """Read audit entries (most recent last). Limit is applied from the tail."""
+    path = _audit_log_path(cfg)
+    if not path.exists():
+        return []
+    entries: list[dict] = []
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            for raw in f:
+                line = raw.strip()
+                if not line:
+                    continue
+                try:
+                    entries.append(json.loads(line))
+                except Exception:
+                    continue
+    except Exception:
+        return []
+    if limit is not None and limit > 0:
+        return entries[-limit:]
+    return entries
+
+
+def _audit_summary(cfg: dict) -> dict:
+    """Aggregate audit-log state for `perseus trust` and `perseus trust audit`."""
+    audit_cfg = cfg.get("audit") or {}
+    entries = _read_audit_entries(cfg)
+    counts: dict[str, int] = {}
+    for e in entries:
+        t = str(e.get("event_type") or e.get("event") or "?")
+        counts[t] = counts.get(t, 0) + 1
+    last_ts = entries[-1].get("ts") if entries else None
+    log_path = _audit_log_path(cfg)
+    return {
+        "enabled": bool(audit_cfg.get("enabled", False)),
+        "log_path": str(log_path),
+        "exists": log_path.exists(),
+        "total_events": len(entries),
+        "counts_by_type": counts,
+        "last_event_ts": last_ts,
     }
 
 
@@ -1233,6 +1353,10 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
     """
     shell = cfg["render"].get("shell", "/bin/bash")
     if not cfg["render"].get("allow_query_shell", True):
+        audit_event(cfg, "policy_denied",
+                    directive="@query",
+                    reason="render.allow_query_shell=false",
+                    args=args_str[:200])
         return "> ⚠ @query is disabled by config (`render.allow_query_shell=false`)."
 
     # Strip @cache modifier first, then extract the command string.
@@ -1272,6 +1396,12 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
 
     # Detect language hint for syntax highlighting (best-effort)
     lang = _guess_lang(cmd)
+
+    # task-47: audit the shell-execution decision crossing the trust boundary.
+    audit_event(cfg, "shell_exec",
+                directive="@query",
+                command=cmd[:500],
+                shell=shell)
 
     try:
         result = subprocess.run(
@@ -1355,6 +1485,10 @@ def resolve_agent(args_str: str, cfg: dict, workspace: Path | None = None) -> st
     """
     render_cfg = cfg.get("render", {})
     if not render_cfg.get("allow_agent_shell", True):
+        audit_event(cfg, "policy_denied",
+                    directive="@agent",
+                    reason="render.allow_agent_shell=false",
+                    args=args_str[:200])
         return "> ⚠ @agent is disabled by config (`render.allow_agent_shell=false`)."
 
     raw = args_str.strip()
@@ -1380,6 +1514,13 @@ def resolve_agent(args_str: str, cfg: dict, workspace: Path | None = None) -> st
     fallback = mods.get("fallback")
 
     shell = render_cfg.get("shell", "/bin/bash")
+
+    # task-47: audit @agent shell execution crossing the trust boundary.
+    audit_event(cfg, "shell_exec",
+                directive="@agent",
+                command=cmd[:500],
+                shell=shell,
+                timeout=timeout)
 
     try:
         result = subprocess.run(
@@ -2160,10 +2301,20 @@ def resolve_services(block_content: str, cfg: dict) -> str:
             rows.append(f"| {name} | {status} | — |")
         elif command := str(svc.get("command") or ""):
             if not cfg["render"].get("allow_services_command", False):
+                audit_event(cfg, "policy_denied",
+                            directive="@services",
+                            reason="render.allow_services_command=false",
+                            service=name,
+                            command=command[:300])
                 status = "⚠ command checks disabled by config"
                 rows.append(f"| {name} | {status} | — |")
                 continue
             # Run arbitrary shell command; success = exit 0
+            audit_event(cfg, "shell_exec",
+                        directive="@services",
+                        service=name,
+                        command=command[:500],
+                        shell=cfg["render"].get("shell", "/bin/bash"))
             try:
                 result = subprocess.run(
                     command,
@@ -5208,6 +5359,12 @@ def cmd_render(args, cfg):
     # (file write, stdout, or downstream pipe). Source file on disk is
     # never modified.
     rendered, _report = redact_text(rendered, cfg)
+    # task-47: audit redaction crossing the rendered-output trust boundary.
+    if _report.get("total", 0) > 0:
+        audit_event(cfg, "redaction",
+                    surface="render",
+                    total=int(_report.get("total", 0)),
+                    counts=_report.get("counts", {}))
 
     output = getattr(args, "output", None)
     if output:
@@ -5571,6 +5728,10 @@ def synthesize_question(
         return result, 0
 
     if not (enable_generation or bool(generation_cfg.get("enabled", False))):
+        audit_event(cfg, "policy_denied",
+                    directive="@synthesize",
+                    reason="generation.enabled=false",
+                    question=str(question)[:200])
         result["error"] = "generation is disabled; set generation.enabled=true or pass --enable-generation"
         return result, 2
 
@@ -5578,6 +5739,12 @@ def synthesize_question(
     if ":" in provider_used and not model:
         provider_used, _, model = provider_used.partition(":")
     model_used = model or generation_cfg.get("model") or cfg.get("llm", {}).get("model")
+    # task-47: audit the model call before it crosses the LLM trust boundary.
+    audit_event(cfg, "model_call",
+                provider=provider_used,
+                model=model_used,
+                prompt_chars=len(prompt or ""),
+                question=str(question)[:200])
     response_text, exit_code = run_llm(provider_used, prompt, cfg, model=model_used or None, model_url=model_url)
     result["generated"] = exit_code == 0
     result["model"] = {"provider": provider_used, "model": model_used}
@@ -7917,13 +8084,44 @@ def _effective_profile_summary(cfg: dict) -> dict:
 
 
 def cmd_trust(args, cfg) -> int:
-    """`perseus trust` — show the effective permission profile (task-45).
-
-    Phase 17C (task-47) will extend this command with audit-log summaries.
-    For task-45 it returns the effective permissions in human or JSON form.
-    """
+    """`perseus trust` — show effective permissions and audit posture (task-45, task-47)."""
     sub = getattr(args, "trust_command", None) or "profile"
     summary = _effective_profile_summary(cfg)
+    audit_summary = _audit_summary(cfg)
+    summary["audit"] = audit_summary
+
+    if sub == "audit":
+        entries = _read_audit_entries(cfg, limit=int(getattr(args, "tail", 10) or 10))
+        if getattr(args, "json", False):
+            print(json.dumps({
+                "summary": audit_summary,
+                "entries": entries,
+            }, indent=2, sort_keys=True))
+            return 0
+        print(f"perseus trust audit — Perseus alpha v{_PERSEUS_VERSION}")
+        print(f"  enabled:           {audit_summary.get('enabled')}")
+        print(f"  log_path:          {audit_summary.get('log_path')}")
+        print(f"  total_events:      {audit_summary.get('total_events', 0)}")
+        last = audit_summary.get("last_event_ts")
+        print(f"  last_event_ts:     {last or '(none)'}")
+        counts = audit_summary.get("counts_by_type", {}) or {}
+        if counts:
+            print("  counts_by_type:")
+            for k in sorted(counts):
+                print(f"    {k}: {counts[k]}")
+        print("")
+        if not entries:
+            print("(no audit entries)")
+            return 0
+        print(f"Recent entries (most recent last, up to {len(entries)}):")
+        for e in entries:
+            ts = e.get("ts", "?")
+            et = e.get("event_type", "?")
+            extras = {k: v for k, v in e.items()
+                      if k not in {"ts", "event_type", "perseus_version", "pid"}}
+            extras_s = " ".join(f"{k}={v!r}" for k, v in sorted(extras.items()))
+            print(f"  {ts}  {et}  {extras_s}")
+        return 0
 
     if getattr(args, "json", False):
         print(json.dumps(summary, indent=2, sort_keys=True))
@@ -7959,6 +8157,14 @@ def cmd_trust(args, cfg) -> int:
             f"(rules active: {red.get('rules_active', 0)}, "
             f"custom: {red.get('custom_patterns', 0)})"
         )
+        print("")
+        print("Audit log (task-47):")
+        print(f"  audit.enabled:                  {audit_summary.get('enabled')}")
+        print(f"  audit.log_path:                 {audit_summary.get('log_path')}")
+        print(f"  audit.total_events:             {audit_summary.get('total_events', 0)}")
+        last = audit_summary.get("last_event_ts")
+        if last:
+            print(f"  audit.last_event_ts:            {last}")
         return 0
 
     sys.stderr.write(f"perseus trust: unknown subcommand {sub!r}\n")
@@ -8339,6 +8545,8 @@ def _serve_render_endpoint(endpoint: str, cfg: dict, workspace: Path, query: dic
 
     Pure function — separated from the HTTP layer for testing.
     """
+    # task-47: audit each serve request crossing the network trust boundary.
+    audit_event(cfg, "serve_request", endpoint=endpoint, query_keys=sorted(query.keys()))
     try:
         if endpoint == "/":
             stats = _serve_collect_stats(cfg, workspace)
@@ -9230,6 +9438,9 @@ def main():
     trust_sub = p_trust.add_subparsers(dest="trust_command", required=False)
     p_trust_profile = trust_sub.add_parser("profile", help="Show effective permission profile (default)")
     p_trust_profile.add_argument("--json", action="store_true", help="Output machine-readable JSON")
+    p_trust_audit = trust_sub.add_parser("audit", help="Show recent audit-log entries (task-47)")
+    p_trust_audit.add_argument("--tail", type=int, default=10, help="Number of recent entries to show (default: 10)")
+    p_trust_audit.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     p_trust.add_argument("--json", action="store_true", help="Output machine-readable JSON")
 
     # oracle (Daedalus dataset / labeling)
