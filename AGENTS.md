@@ -1,3 +1,5 @@
+@perseus v0.8
+
 # Perseus — Agent Contributor Guide
 
 This file is read by AI coding assistants (Rovo Dev, Claude Code, Codex, Cursor, etc.) at
@@ -13,13 +15,16 @@ of burning the first N turns of a session on orientation ("what's running? what 
 Perseus resolves environment state *before* it enters the context window. The assistant receives
 facts, not instructions to go find facts.
 
-Three components:
+Core surfaces:
 
 | Component | CLI command | What it does |
 |---|---|---|
 | **Renderer** | `perseus render <file.md>` | Resolves `@directive` blocks → plain markdown |
 | **Checkpoints** | `perseus checkpoint / recover` | Lightweight session recovery snapshots |
 | **Pythia** | `perseus suggest "<task>"` | Ranks tool/skill/approach options given live env state |
+| **Agora** | `perseus agora ...` / `@agora` | Task board and scoped agent coordination |
+| **Mnēmē** | `perseus memory ...` / `@memory` | Narrative project memory and federation |
+| **Prefetch** | `perseus graph` / `perseus prefetch` | Static directive graphing and opt-in cache warming |
 
 **Design philosophy:** Perseus is assistant-agnostic. It was built alongside Hermes Agent but
 is not tied to it. The renderer output is plain markdown. The checkpoint store is plain YAML.
@@ -89,7 +94,7 @@ Add a `## Blocked` section to the task file explaining the conflict and wait for
    Run: `python -m pytest tests/ -q`
 4. **Spec and code must agree.** When you change behavior, update the relevant `spec/*.md`
    file. The spec is documentation, not a contract — the code is the truth.
-5. **Keep the mythology.** Perseus, Pythia, Medusa problem. Don't rename core concepts.
+5. **Keep the mythology.** Perseus, Pythia, Agora, Daedalus, Mnēmē, and the Medusa problem. Don't rename core concepts.
 6. **Backward compatibility.** Existing `@directive` syntax and config keys must not break.
    New behavior is additive or behind config flags.
 
@@ -111,8 +116,6 @@ Do not start a task that is already marked Completed or In Progress.
 
 ## Active Tasks (live Agora board)
 
-@perseus
-
 @agora status=open
 
 @agora status=in_progress
@@ -124,8 +127,6 @@ Do not start a task that is already marked Completed or In Progress.
 > `status: open` and claim it via `perseus agora claim <task-id> --agent <name>`.
 
 ## Maintenance Snapshot
-
-@perseus
 
 @health
 
