@@ -273,6 +273,8 @@ Run `perseus <command> --help` for full flags. Summary of the surface:
 | `perseus systemd [install\|uninstall] --interval 5m` | Linux-only systemd `--user` service + timer scaffolder. |
 | `perseus launchd {install,uninstall}` | macOS-only LaunchAgent scaffolder. |
 
+Agent-readable `--json` contracts for oracle, memory, federation, drift, and LLM health commands are documented in [Agent JSON Surfaces](./docs/AGENT_SURFACES.md).
+
 ---
 
 ## Editor integration

@@ -1,12 +1,12 @@
 ---
 id: task-28
 title: Agent-readable JSON output for oracle/memory/drift/federation commands
-status: open
+status: completed
 priority: medium
 scope: medium
 claimed_by:
 created: 2026-05-18
-closed:
+closed: 2026-05-19
 phase: 11
 theme: "A \u2014 Agent surface"
 depends_on:
@@ -112,3 +112,12 @@ Add `--json` to:
 2. Repeat for the other five.
 3. Create `docs/AGENT_SURFACES.md` with the schemas as a single reference.
 4. Add a row to README CLI Reference for the `--json` capability column.
+
+## Completed
+
+- Added `--json` output for oracle infer-labels, oracle drift, memory status,
+  memory federation list/pull, and llm ping.
+- Documented the six contracts in `docs/AGENT_SURFACES.md` and linked them
+  from the README CLI reference.
+- Added JSON/prose regression tests, including empty-log, no-narrative, and
+  insufficient-data cases.

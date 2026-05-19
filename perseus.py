@@ -2731,9 +2731,14 @@ def cmd_memory(args, cfg):
 
     if sub == "status":
         mp = _mneme_path(workspace, cfg)
+        use_json = getattr(args, "json", False)
         if not mp.exists():
-            print(f"Mnēmē — {workspace}")
-            print("  No narrative file yet. Run `perseus memory update` to initialize.")
+            if use_json:
+                import json as _json
+                print(_json.dumps({"workspace": str(workspace), "exists": False}, indent=2))
+            else:
+                print(f"Mnēmē — {workspace}")
+                print("  No narrative file yet. Run `perseus memory update` to initialize.")
             return
         fm, body = _load_narrative(mp)
         all_cp = _list_checkpoint_files(cfg)
@@ -2746,14 +2751,31 @@ def cmd_memory(args, cfg):
         mode = "LLM (" + str(cfg.get("memory", {}).get("llm_provider")) + ")" if cfg.get("memory", {}).get("llm_provider") else "deterministic"
         updated = fm.get("updated", "(unknown)")
         age = _human_age(updated) if isinstance(updated, str) else "(unknown)"
-        print(f"Mnēmē — {workspace}")
-        print(f"  Updated:     {updated} ({age})")
-        print(f"  Checkpoints: {cp_hwm} processed ({cp_pending} pending)")
-        print(f"  Oracle log:  {or_hwm} entries processed ({or_pending} pending)")
-        print(f"  Compactions: {fm.get('compaction_count', 0)}")
-        print(f"  Size:        {line_count} lines")
-        print(f"  Mode:        {mode}")
-        if mode == "deterministic":
+        if use_json:
+            import json as _json
+            output = {
+                "workspace": str(workspace),
+                "exists": True,
+                "updated": str(updated),
+                "checkpoints_processed": cp_hwm,
+                "checkpoints_pending": cp_pending,
+                "oracle_entries_processed": or_hwm,
+                "oracle_entries_pending": or_pending,
+                "compaction_count": int(fm.get("compaction_count", 0)),
+                "line_count": line_count,
+                "mode": mode,
+                "frontmatter": {k: str(v) if not isinstance(v, (int, float, bool, type(None))) else v for k, v in fm.items()},
+            }
+            print(_json.dumps(output, indent=2))
+        else:
+            print(f"Mnēmē — {workspace}")
+            print(f"  Updated:     {updated} ({age})")
+            print(f"  Checkpoints: {cp_hwm} processed ({cp_pending} pending)")
+            print(f"  Oracle log:  {or_hwm} entries processed ({or_pending} pending)")
+            print(f"  Compactions: {fm.get('compaction_count', 0)}")
+            print(f"  Size:        {line_count} lines")
+            print(f"  Mode:        {mode}")
+        if not use_json and mode == "deterministic":
             print("               (set memory.llm_provider to enable LLM distillation)")
         return
 
@@ -3086,34 +3108,61 @@ def cmd_memory_federation(args, cfg) -> None:
     subs = manifest.get("subscriptions", [])
 
     if sub == "list":
+        use_json = getattr(args, "json", False)
         if not subs:
-            print(f"No federation subscriptions configured.")
-            print(f"Manifest: {_federation_manifest_path(cfg)}")
+            if use_json:
+                import json as _json
+                print(_json.dumps([], indent=2))
+            else:
+                print(f"No federation subscriptions configured.")
+                print(f"Manifest: {_federation_manifest_path(cfg)}")
             return
-        print(f"Federation manifest: {_federation_manifest_path(cfg)}")
-        print()
-        print(f"{'alias':<20} {'enabled':<8} {'status':<25} path")
-        print("-" * 80)
+        results = []
         for entry in subs:
             alias = entry.get("alias", "?")
-            enabled = "yes" if entry.get("enabled", True) else "no"
+            enabled = entry.get("enabled", True)
             narrative, err = _resolve_subscription_narrative(entry, cfg)
+            rec = {"alias": alias, "path": entry.get("path", "?"), "enabled": enabled}
             if err:
-                status = "⚠ " + err[:23]
+                rec["status"] = "error"
+                rec["error"] = err
+                rec["line_count"] = None
+                rec["mtime"] = None
             else:
                 ttl_s = int(cfg.get("checkpoints", {}).get("ttl_s", 86400))
                 try:
-                    fm, _ = _load_narrative(narrative)
+                    fm, body = _load_narrative(narrative)
                     upd = str(fm.get("updated", ""))
+                    line_count = body.count("\n") + (1 if body and not body.endswith("\n") else 0)
+                    mt = datetime.fromtimestamp(narrative.stat().st_mtime).isoformat(timespec="seconds")
                     if upd:
                         dt = datetime.fromisoformat(upd)
                         age_s = (datetime.now(dt.tzinfo) - dt).total_seconds()
                         status = "stale" if age_s > ttl_s else "ok"
                     else:
-                        status = "ok (no timestamp)"
+                        status = "ok"
+                    rec["status"] = status
+                    rec["error"] = None
+                    rec["line_count"] = line_count
+                    rec["mtime"] = mt
                 except Exception as e:
-                    status = f"⚠ {str(e)[:23]}"
-            print(f"{alias:<20} {enabled:<8} {status:<25} {entry.get('path', '?')}")
+                    rec["status"] = "error"
+                    rec["error"] = str(e)
+                    rec["line_count"] = None
+                    rec["mtime"] = None
+            results.append(rec)
+        if use_json:
+            import json as _json
+            print(_json.dumps(results, indent=2))
+        else:
+            print(f"Federation manifest: {_federation_manifest_path(cfg)}")
+            print()
+            print(f"{'alias':<20} {'enabled':<8} {'status':<25} path")
+            print("-" * 80)
+            for rec in results:
+                en_str = "yes" if rec["enabled"] else "no"
+                st = rec["status"] if rec["status"] != "error" else f"⚠ {(rec.get('error') or '')[:23]}"
+                print(f"{rec['alias']:<20} {en_str:<8} {st:<25} {rec['path']}")
         return
 
     if sub == "subscribe":
@@ -3173,19 +3222,39 @@ def cmd_memory_federation(args, cfg) -> None:
 
     if sub == "pull":
         # Manual side-effect-free re-read — useful for debugging/CI
+        use_json = getattr(args, "json", False)
         if not subs:
-            print("No subscriptions to pull.")
+            if use_json:
+                import json as _json
+                print(_json.dumps([], indent=2))
+            else:
+                print("No subscriptions to pull.")
             return
-        print(f"Pulling {len(subs)} federated narrative(s) (read-only):")
+        results = []
+        if not use_json:
+            print(f"Pulling {len(subs)} federated narrative(s) (read-only):")
         for entry in subs:
             alias = entry.get("alias", "?")
             narrative, err = _resolve_subscription_narrative(entry, cfg)
             if err:
-                print(f"  ⚠ {alias}: {err}")
-                continue
-            lines = narrative.read_text(errors="replace").count("\n")
-            mt = datetime.fromtimestamp(narrative.stat().st_mtime).isoformat(timespec="seconds")
-            print(f"  ✅ {alias}: {lines} lines, modified {mt}")
+                rec = {"alias": alias, "path": entry.get("path", "?"),
+                       "status": "error", "error": err,
+                       "line_count": None, "mtime": None, "bytes": None}
+                if not use_json:
+                    print(f"  ⚠ {alias}: {err}")
+            else:
+                stat = narrative.stat()
+                lines = narrative.read_text(errors="replace").count("\n")
+                mt = datetime.fromtimestamp(stat.st_mtime).isoformat(timespec="seconds")
+                rec = {"alias": alias, "path": str(narrative),
+                       "status": "ok", "error": None,
+                       "line_count": lines, "mtime": mt, "bytes": stat.st_size}
+                if not use_json:
+                    print(f"  ✅ {alias}: {lines} lines, modified {mt}")
+            results.append(rec)
+        if use_json:
+            import json as _json
+            print(_json.dumps(results, indent=2))
         return
 
     print(f"Unknown memory federation subcommand: {sub}", file=sys.stderr)
@@ -3935,11 +4004,21 @@ def cmd_llm(args, cfg) -> int:
     elapsed_ms = int((time.time() - start) * 1000)
 
     if code != 0:
-        print(f"✗ {provider} · {base} · {elapsed_ms} ms · {text}")
+        if getattr(args, "json", False):
+            import json as _json
+            print(_json.dumps({"provider": provider, "model": resolved_model, "url": base,
+                                "latency_ms": elapsed_ms, "status": "error", "error": text}, indent=2))
+        else:
+            print(f"✗ {provider} · {base} · {elapsed_ms} ms · {text}")
         return 2
 
     preview = text.replace("\n", " ")[:60]
-    print(f"✓ {provider} · model={resolved_model} · {base} · {elapsed_ms} ms · {preview!r}")
+    if getattr(args, "json", False):
+        import json as _json
+        print(_json.dumps({"provider": provider, "model": resolved_model, "url": base,
+                            "latency_ms": elapsed_ms, "status": "ok", "error": None}, indent=2))
+    else:
+        print(f"✓ {provider} · model={resolved_model} · {base} · {elapsed_ms} ms · {preview!r}")
     return 0
 
 
@@ -4699,7 +4778,18 @@ def cmd_oracle_infer_labels(args, cfg) -> int:
 
     entries = _oracle_log_entries()
     if not entries:
-        print("(no oracle log entries)")
+        use_json = getattr(args, "json", False)
+        if use_json:
+            import json as _json
+            print(_json.dumps({
+                "scanned": 0, "explicit_skipped": 0, "inferred_accept": 0,
+                "inferred_reject": 0, "inferred_none": 0, "unchanged": 0,
+                "written": 0, "dry_run": dry_run,
+                "window_days": window_days, "window_checkpoints": window_cps,
+                "floor": floor,
+            }, indent=2))
+        else:
+            print("(no oracle log entries)")
         return 0
 
     indexed_cps = _load_indexed_checkpoints(cfg)
@@ -4740,13 +4830,31 @@ def cmd_oracle_infer_labels(args, cfg) -> int:
     if not dry_run:
         _rewrite_oracle_log(entries)
 
-    prefix = "(dry-run) " if dry_run else ""
-    print(f"{prefix}Inferred labels (window: {window_days}d / {window_cps} checkpoints, floor: {floor}):")
-    print(f"  ✓ inferred_accept: {changes['inferred_accept']}")
-    print(f"  ✗ inferred_reject: {changes['inferred_reject']}")
-    print(f"  · inferred_none:   {changes['inferred_none']}")
-    print(f"  = unchanged:       {changes['unchanged']}")
-    print(f"  ⏭ explicit-label entries skipped: {changes['explicit_skipped']}")
+    use_json = getattr(args, "json", False)
+    if use_json:
+        import json as _json
+        output = {
+            "scanned": len(entries),
+            "explicit_skipped": changes["explicit_skipped"],
+            "inferred_accept": changes["inferred_accept"],
+            "inferred_reject": changes["inferred_reject"],
+            "inferred_none": changes["inferred_none"],
+            "unchanged": changes["unchanged"],
+            "written": changes["inferred_accept"] + changes["inferred_reject"],
+            "dry_run": dry_run,
+            "window_days": window_days,
+            "window_checkpoints": window_cps,
+            "floor": floor,
+        }
+        print(_json.dumps(output, indent=2))
+    else:
+        prefix = "(dry-run) " if dry_run else ""
+        print(f"{prefix}Inferred labels (window: {window_days}d / {window_cps} checkpoints, floor: {floor}):")
+        print(f"  ✓ inferred_accept: {changes['inferred_accept']}")
+        print(f"  ✗ inferred_reject: {changes['inferred_reject']}")
+        print(f"  · inferred_none:   {changes['inferred_none']}")
+        print(f"  = unchanged:       {changes['unchanged']}")
+        print(f"  ⏭ explicit-label entries skipped: {changes['explicit_skipped']}")
     return 0
 
 
@@ -4842,7 +4950,59 @@ def _compute_drift(cfg: dict, now_epoch: float | None = None) -> dict:
 
 def cmd_oracle_drift(args, cfg) -> int:
     report = _compute_drift(cfg)
-    print(f"Drift report (recent 7d vs baseline {report['window_days']}d):")
+    use_json = getattr(args, "json", False)
+    min_samples = int(cfg.get("oracle", {}).get("drift_min_samples", 10))
+    o_cfg = cfg.get("oracle", {})
+    recent_days = int(o_cfg.get("drift_recent_window_days", 7))
+
+    if use_json:
+        import json as _json
+        # Determine verdict
+        warnings = []
+        if report["recent_count"] < min_samples:
+            warnings.append(f"recent window has only {report['recent_count']} samples (min {min_samples})")
+        if report["baseline_count"] < min_samples:
+            warnings.append(f"baseline has only {report['baseline_count']} samples (min {min_samples})")
+        if warnings:
+            verdict = "insufficient_data"
+        elif report["findings"]:
+            verdict = "drift_detected"
+        else:
+            verdict = "no_drift"
+
+        output = {
+            "samples": {"recent": report["recent_count"], "baseline": report["baseline_count"]},
+            "metrics": {
+                "acceptance_rate": {
+                    "recent": round(report["recent_accept_rate"], 4),
+                    "baseline": round(report["baseline_accept_rate"], 4),
+                    "delta": round(report["recent_accept_rate"] - report["baseline_accept_rate"], 4),
+                },
+                "jaccard": {
+                    "value": round(report["jaccard"], 4),
+                    "floor": float(o_cfg.get("drift_jaccard_floor", 0.30)),
+                },
+                "confidence_proxy": {
+                    "recent": round(report["recent_avg_len"], 1),
+                    "baseline": round(report["baseline_avg_len"], 1),
+                    "delta": round(report["recent_avg_len"] - report["baseline_avg_len"], 1),
+                    "note": "average response length — proxy for confidence",
+                },
+            },
+            "thresholds": {
+                "drift_acceptance_drop": float(o_cfg.get("drift_acceptance_drop", 0.20)),
+                "drift_jaccard_floor": float(o_cfg.get("drift_jaccard_floor", 0.30)),
+                "drift_confidence_drop": float(o_cfg.get("drift_confidence_drop", 0.15)),
+                "drift_window_days": report["window_days"],
+                "drift_recent_window_days": recent_days,
+            },
+            "verdict": verdict,
+            "warnings": warnings,
+        }
+        print(_json.dumps(output, indent=2))
+        return 0
+
+    print(f"Drift report (recent {recent_days}d vs baseline {report['window_days']}d):")
     print(f"  Sample size: recent={report['recent_count']} · baseline={report['baseline_count']}")
     print(f"  Acceptance rate: recent={report['recent_accept_rate']:.0%} · baseline={report['baseline_accept_rate']:.0%}")
     print(f"  Jaccard: {report['jaccard']:.2f}")
@@ -6143,6 +6303,7 @@ def main():
     p_mem_show.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
     p_mem_status = mem_sub.add_parser("status", help="Summarize narrative state")
     p_mem_status.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
+    p_mem_status.add_argument("--json", action="store_true", help="Machine-readable JSON output")
     p_mem_query = mem_sub.add_parser("query", help="Query narrative (grep or LLM)")
     p_mem_query.add_argument("question", help="Question or search terms")
     p_mem_query.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
@@ -6154,13 +6315,15 @@ def main():
         help="Cross-workspace narrative federation — manage manifest of subscribed workspaces",
     )
     fed_sub = p_mem_fed.add_subparsers(dest="federation_command", required=True)
-    fed_sub.add_parser("list", help="List subscribed narratives + status")
+    p_fed_list = fed_sub.add_parser("list", help="List subscribed narratives + status")
+    p_fed_list.add_argument("--json", action="store_true", help="Machine-readable JSON output")
     p_fed_sub = fed_sub.add_parser("subscribe", help="Add a subscription")
     p_fed_sub.add_argument("alias", help="User-chosen alias [a-zA-Z0-9_-]+")
     p_fed_sub.add_argument("path", help="Workspace path to subscribe to")
     p_fed_unsub = fed_sub.add_parser("unsubscribe", help="Remove a subscription by alias")
     p_fed_unsub.add_argument("alias", help="Alias to remove")
-    fed_sub.add_parser("pull", help="Re-read all subscribed narratives (read-only, manual)")
+    p_fed_pull = fed_sub.add_parser("pull", help="Re-read all subscribed narratives (read-only, manual)")
+    p_fed_pull.add_argument("--json", action="store_true", help="Machine-readable JSON output")
 
     # init
     p_init = sub.add_parser("init", help="Scaffold .perseus/context.md for a new workspace")
@@ -6244,9 +6407,11 @@ def main():
     p_oracle_infer.add_argument("--window-days", type=int, default=None, help="Override oracle.inferred_label_window_days")
     p_oracle_infer.add_argument("--window-checkpoints", type=int, default=None, help="Override oracle.inferred_label_window_checkpoints")
     p_oracle_infer.add_argument("--dry-run", action="store_true", help="Print what would change without writing")
+    p_oracle_infer.add_argument("--json", action="store_true", help="Machine-readable JSON output")
 
     # Phase 9.3 — task-22: drift detection
     p_oracle_drift = oracle_sub.add_parser("drift", help="Report drift in recent oracle behavior vs baseline")
+    p_oracle_drift.add_argument("--json", action="store_true", help="Machine-readable JSON output")
 
     # `perseus llm ping` — verify the configured LLM provider is reachable.
     p_llm = sub.add_parser("llm", help="LLM provider utilities (ping)")
@@ -6255,6 +6420,7 @@ def main():
     p_llm_ping.add_argument("--provider", default=None, help="Override llm.provider (ollama, openai-compat, hermes, llamacpp, daedalus)")
     p_llm_ping.add_argument("--model", default=None, help="Override llm.model")
     p_llm_ping.add_argument("--url", default=None, help="Override llm.url (base URL, no trailing /v1)")
+    p_llm_ping.add_argument("--json", action="store_true", help="Machine-readable JSON output")
 
     args = parser.parse_args()
     cfg = load_config()

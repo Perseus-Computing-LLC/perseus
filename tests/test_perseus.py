@@ -2228,6 +2228,26 @@ def test_cmd_llm_ping_success(monkeypatch, capsys):
     assert "hermes" in out
 
 
+def test_cmd_llm_ping_json_success(monkeypatch):
+    monkeypatch.setattr(perseus, "run_llm", lambda *a, **k: ("pong", 0))
+    args = argparse.Namespace(llm_sub="ping", provider="hermes", model=None, url=None, json=True)
+    out, rc = _capture_json(monkeypatch, perseus.cmd_llm, args, cfg())
+    assert rc == 0
+    assert out["provider"] == "hermes"
+    assert out["status"] == "ok"
+    assert out["error"] is None
+    assert isinstance(out["latency_ms"], int)
+
+
+def test_cmd_llm_ping_json_failure(monkeypatch):
+    monkeypatch.setattr(perseus, "run_llm", lambda *a, **k: ("> ⚠ LLM request failed: connection refused", 2))
+    args = argparse.Namespace(llm_sub="ping", provider="hermes", model=None, url="http://localhost:8080", json=True)
+    out, rc = _capture_json(monkeypatch, perseus.cmd_llm, args, cfg())
+    assert rc == 2
+    assert out["status"] == "error"
+    assert "connection refused" in out["error"]
+
+
 def test_cmd_llm_ping_failure_returns_2(monkeypatch, capsys):
     monkeypatch.setattr(perseus, "run_llm", lambda *a, **k: ("> ⚠ LLM request failed: connection refused", 2))
     args = argparse.Namespace(llm_sub="ping", provider="hermes", model=None, url="http://localhost:8080")
@@ -2901,3 +2921,125 @@ def test_doctor_error_exits_1(tmp_path, monkeypatch):
     monkeypatch.setattr("builtins.print", lambda *a, **k: captured.append(" ".join(str(x) for x in a)))
     rc = perseus.cmd_doctor(ns, cfg())
     assert rc == 1
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Task-28: --json agent surface tests
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _capture_json(monkeypatch, fn, *a, **kw):
+    """Call fn, capture print output, parse as JSON."""
+    captured = []
+    monkeypatch.setattr("builtins.print", lambda *a, **k: captured.append(" ".join(str(x) for x in a)))
+    rc = fn(*a, **kw)
+    text = "\n".join(captured)
+    return json.loads(text), rc
+
+
+def test_infer_labels_json_schema(tmp_path, monkeypatch):
+    """oracle infer-labels --json emits correct schema."""
+    monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path)
+    ns = argparse.Namespace(window_days=7, window_checkpoints=5, dry_run=False, json=True)
+    out, rc = _capture_json(monkeypatch, perseus.cmd_oracle_infer_labels, ns, cfg())
+    assert rc == 0
+    for key in ("scanned", "explicit_skipped", "inferred_accept", "inferred_reject",
+                "inferred_none", "unchanged", "written", "dry_run", "window_days",
+                "window_checkpoints", "floor"):
+        assert key in out, f"Missing key: {key}"
+
+
+def test_infer_labels_prose_unchanged(tmp_path, monkeypatch):
+    """oracle infer-labels without --json still emits prose."""
+    monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path)
+    captured = []
+    monkeypatch.setattr("builtins.print", lambda *a, **k: captured.append(" ".join(str(x) for x in a)))
+    ns = argparse.Namespace(window_days=7, window_checkpoints=5, dry_run=False, json=False)
+    perseus.cmd_oracle_infer_labels(ns, cfg())
+    text = "\n".join(captured)
+    assert "(no oracle log entries)" in text
+
+
+def test_drift_json_schema(tmp_path, monkeypatch):
+    """oracle drift --json emits correct schema with verdict."""
+    monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path)
+    ns = argparse.Namespace(json=True)
+    out, rc = _capture_json(monkeypatch, perseus.cmd_oracle_drift, ns, cfg())
+    assert rc == 0
+    assert out["verdict"] in ("no_drift", "drift_detected", "insufficient_data")
+    assert "samples" in out
+    assert "metrics" in out
+    assert "thresholds" in out
+    assert "warnings" in out
+    assert "acceptance_rate" in out["metrics"]
+    assert "jaccard" in out["metrics"]
+    assert "confidence_proxy" in out["metrics"]
+
+
+def test_drift_json_insufficient_data(tmp_path, monkeypatch):
+    """Drift verdict is insufficient_data with no samples."""
+    monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path)
+    ns = argparse.Namespace(json=True)
+    out, rc = _capture_json(monkeypatch, perseus.cmd_oracle_drift, ns, cfg())
+    assert out["verdict"] == "insufficient_data"
+    assert len(out["warnings"]) > 0
+
+
+def test_drift_prose_unchanged(tmp_path, monkeypatch):
+    """oracle drift without --json still emits prose."""
+    monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path)
+    captured = []
+    monkeypatch.setattr("builtins.print", lambda *a, **k: captured.append(" ".join(str(x) for x in a)))
+    ns = argparse.Namespace(json=False)
+    perseus.cmd_oracle_drift(ns, cfg())
+    text = "\n".join(captured)
+    assert "Drift report" in text
+
+
+def test_memory_status_json_no_narrative(tmp_path, monkeypatch):
+    """memory status --json when no narrative exists."""
+    monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path)
+    c = cfg()
+    c["memory"]["store"] = str(tmp_path / "memories")
+    ns = argparse.Namespace(workspace=str(tmp_path), memory_command="status", json=True, llm=None)
+    out, rc = _capture_json(monkeypatch, perseus.cmd_memory, ns, c)
+    assert out["exists"] is False
+    assert "workspace" in out
+
+
+def test_memory_status_json_with_narrative(tmp_path, monkeypatch):
+    """memory status --json with a narrative present."""
+    monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path)
+    c = cfg()
+    c["memory"]["store"] = str(tmp_path / "memories")
+    narrative = perseus._mneme_path(tmp_path, c)
+    narrative.parent.mkdir(parents=True)
+    narrative.write_text("---\nupdated: '2026-05-18T12:00:00'\ncheckpoints_processed: 5\noracle_entries_processed: 3\ncompaction_count: 1\n---\nSome narrative content.\n")
+    ns = argparse.Namespace(workspace=str(tmp_path), memory_command="status", json=True, llm=None)
+    out, rc = _capture_json(monkeypatch, perseus.cmd_memory, ns, c)
+    assert out["exists"] is True
+    for key in ("updated", "checkpoints_processed", "checkpoints_pending",
+                "oracle_entries_processed", "oracle_entries_pending",
+                "compaction_count", "line_count", "mode", "frontmatter"):
+        assert key in out, f"Missing key: {key}"
+
+
+def test_federation_list_json_empty(tmp_path, monkeypatch):
+    """federation list --json with no subscriptions."""
+    monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path)
+    c = cfg()
+    c["memory"]["federation_manifest"] = str(tmp_path / "federation.yaml")
+    ns = argparse.Namespace(workspace=str(tmp_path), memory_command="federation",
+                            federation_command="list", json=True, llm=None)
+    out, rc = _capture_json(monkeypatch, perseus.cmd_memory, ns, c)
+    assert out == []
+
+
+def test_federation_pull_json_empty(tmp_path, monkeypatch):
+    """federation pull --json with no subscriptions."""
+    monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path)
+    c = cfg()
+    c["memory"]["federation_manifest"] = str(tmp_path / "federation.yaml")
+    ns = argparse.Namespace(workspace=str(tmp_path), memory_command="federation",
+                            federation_command="pull", json=True, llm=None)
+    out, rc = _capture_json(monkeypatch, perseus.cmd_memory, ns, c)
+    assert out == []
