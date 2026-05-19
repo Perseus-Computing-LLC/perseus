@@ -414,35 +414,267 @@ Phase 8.2 (done): task-19 Mnēmē federation — manifest, 4 CLI subcommands, @m
 Phase 8.3 (done): Hermes integration — `hermes` provider alias, `perseus llm ping`, docs/HERMES_INTEGRATION.md
 Phase 9 (done):   task-20/21/22 — `perseus oracle infer-labels`, `memory.pattern_extractor: daedalus`, `perseus oracle drift` + `@drift`
 Phase 10 (done):  task-23/24 — LSP server (`perseus serve --lsp`), VSCode extension (`editors/vscode/`)
-Phase 11+:        Future Development — see "Future development" at the bottom of [ROADMAP.md](./ROADMAP.md) | 🌅 Open canvas |
+Phase 11 (active): Internal hardening — DIRECTIVE_REGISTRY (task-25 ✅), doctor (task-26 ✅),
+                  --json surfaces (task-28 🔧), LSP integration tests (task-27), split tests (task-29)
+Phase 12:         Schema Validation Engine — formalized context quality assurance
+Phase 13:         Predictive Pre-fetching — anticipate next-needed context from patterns
+Phase 14:         Adaptive Self-Optimizing Oracle — RL-driven Pythia scoring
+              ════════════════════════════════════════════════════════
+              STOP: Product identity decision — resolver vs generator
+              ════════════════════════════════════════════════════════
+Phase 15:         Generative Context Enhancement (if decided yes)
 ```
-
 
 ---
 
-## Future Directions: Enhancing Uniqueness & IP
+## Phase 11 — Internal Hardening (Active)
 
-These ideas focus on deepening Perseus's core strengths and exploring advanced capabilities to further distinguish it from other applications and increase its intellectual property value. They are aspirational concepts for future phases.
+**Goal:** Make Perseus safe to extend rapidly. No user-facing behavior changes.
 
-1.  **Proactive Context Discovery & Predictive Pre-fetching:**
-    *   **Concept:** Develop a system where Perseus not only resolves current context but also *predictively identifies* and pre-fetches context that the AI is likely to need *next*, based on the task at hand, historical patterns, and common workflow sequences.
-    *   **Uniqueness:** Minimizes latency and further reduces "pre-flight tax" by anticipating future context requirements, offering a truly proactive context delivery mechanism.
+### 11A: DIRECTIVE_REGISTRY (task-25) ✅
 
-2.  **Adaptive & Self-Optimizing Tool Oracle with Real-time Feedback:**
-    *   **Concept:** Implement a sophisticated, **reinforcement learning-based feedback loop** for the Tool Oracle. The system would actively learn from the *success or failure* (e.g., task completion, error rates, user satisfaction signals) of the chosen tools in real-time.
-    *   **Uniqueness:** Continuously refines the oracle's ranking algorithms, making it truly self-optimizing and uniquely tuned to the specific environment and user preferences over time, evolving beyond static scoring rules.
+Single `DirectiveSpec` NamedTuple + `DIRECTIVE_REGISTRY` dict as the canonical
+source of truth for all directive metadata. The regex, dispatch chain, LSP
+completion tables, and hover safety checks all derive from the registry.
 
-3.  **Formalized Context Schemas & Semantic Validation Engine:**
-    *   **Concept:** Introduce a declarative language or schema (e.g., a custom DSL or extended JSON Schema) for defining the *structure and semantics* of expected context. Perseus would then not only resolve context but actively **validate it against these schemas**.
-    *   **Uniqueness:** Ensures that the AI receives context that is not just live, but also well-formed, complete, and semantically consistent (e.g., verifying data types, existence of entities). This adds a critical layer of "context quality assurance."
+**Why it came first:** Every future directive (schema validation, pre-fetch hooks,
+generative context) would have to be added in 5-7 places without this. With it,
+one registry entry + one resolver function.
 
-4.  **Generative Context Enhancement with Verified Guardrails:**
-    *   **Concept:** Implement a capability for Perseus to *generatively elaborate* on sparse or ambiguous context using an internal LLM, but with **strict, verifiable guardrails**.
-    *   **Uniqueness:** Moves beyond simple summarization to intelligent, hallucination-resistant context enrichment, where generated information is independently verified against live data or trusted internal knowledge bases before injection.
+### 11B: `perseus doctor` (task-26) ✅
 
-5.  **Decentralized Context Federation with Dynamic Access Control:**
-    *   **Concept:** Deepen the **federation capabilities** of Perseus to securely and dynamically share context across *decentralized* workspaces or even different organizations. This would involve sophisticated mechanisms for conflict resolution, dynamic access control, and provable data lineage.
-    *   **Uniqueness:** Enables a distributed "global context graph" where multiple Perseus instances can seamlessly and securely exchange verified context segments without a central authority.
+Readiness probe command with 10 checks (config, context file, render settings,
+checkpoint age, Mnēmē narrative, federation, oracle log, serve loopback,
+directive registry). Supports `--json` for CI/agent consumption.
+
+### 11C: `--json` Agent Surfaces (task-28) 🔧
+
+Add `--json` flag to 6 commands: `oracle infer-labels`, `oracle drift`,
+`llm ping`, `memory status`, `memory federation list`, `memory federation pull`.
+Stable JSON contracts for agent consumption. Branch: `feat/task-28-json-surfaces`.
+
+**Status:** All 6 handlers wired, 2 test fixes remaining.
+
+### 11D: LSP Integration Tests (task-27)
+
+Real JSON-RPC subprocess tests: spawn `perseus serve --lsp --stdio`, send
+`initialize`, `textDocument/didOpen`, verify `publishDiagnostics`, test
+completion and hover responses against the DIRECTIVE_REGISTRY.
+
+**Blocked by:** 11A (task-25) ✅ — now unblocked.
+
+### 11E: Split Tests by Subsystem (task-29)
+
+Split `test_perseus.py` (~260 tests, ~3000 lines) into ~5 files:
+- `test_renderer.py` — directive resolution, caching, conditional blocks
+- `test_checkpoints.py` — checkpoint/recover/diff
+- `test_oracle.py` — suggest, oracle log, drift, infer-labels
+- `test_memory.py` — Mnēmē narrative, federation
+- `test_lsp.py` — LSP helpers, framing, diagnostics
+
+No code changes to `perseus.py`. Mechanical file splitting + `conftest.py`
+for shared fixtures. Do this last so all new tests land first.
+
+---
+
+## Phase 12 — Schema Validation Engine
+
+**Goal:** Formalized context quality assurance — Perseus validates that resolved
+context is well-formed before injection.
+
+**Why this is next:** It's the most concrete future direction, the proof-of-concept
+`@query schema=` modifier already exists, and it directly strengthens the
+"resolve-before-context" thesis. If context is resolved but *wrong*, you've
+traded the pre-flight tax for a garbage-in problem. Schema validation closes
+that gap.
+
+### 12A: Schema DSL & validation engine
+
+- Define a YAML-based schema language for context blocks
+- Validate `@query`, `@read`, `@env` outputs against declared schemas
+- Schema files live in `.perseus/schemas/` per workspace
+- New directive: `@validate schema="path" ...@end` wrapping a block
+
+**⚠️ DECISION POINT:** The proof-of-concept added `pykwalify` which violates
+constraint #2 ("pyyaml is the only dependency"). Options:
+
+  **A:** Get explicit owner approval for pykwalify as a second dependency
+  **B:** Implement a minimal schema validator in pure Python (type checks,
+  required fields, basic patterns — no full JSON Schema)
+  **C:** Make pykwalify an optional soft dependency — `try: import pykwalify`
+  with graceful fallback to a minimal built-in validator
+
+This decision affects the entire validation engine architecture.
+
+### 12B: Directive-level schema annotations
+
+Once the registry exists (✅ done), add an optional `output_schema` field to
+`DirectiveSpec`. Directives that declare a schema get automatic validation
+on every render — no per-invocation `schema=` modifier needed.
+
+### 12C: `perseus validate` CLI command
+
+Standalone validation: run schemas against a rendered document or a specific
+directive's output without a full render pass. Useful for CI gates.
+
+---
+
+## Phase 13 — Predictive Pre-fetching
+
+**Goal:** Perseus anticipates what context the AI will need *next* and pre-fetches
+it, reducing even the render-time latency.
+
+### 13A: Directive dependency graph
+
+The registry declares what each directive reads and produces. Build a static
+dependency graph: if `@query "git status"` is in the doc, and the oracle log
+shows it's almost always followed by `git diff`, pre-cache the diff output.
+
+### 13B: Pattern-based pre-fetch rules
+
+Use the oracle log + Mnēmē narrative patterns to identify recurring directive
+sequences. Configurable pre-fetch rules in `config.yaml`:
+
+```yaml
+prefetch:
+  rules:
+    - trigger: "@query \"git status\""
+      prefetch: "@query \"git diff --stat\""
+    - trigger: "@agora status=open"
+      prefetch: "@memory focus=decisions"
+```
+
+### 13C: Daedalus-powered adaptive pre-fetch
+
+When a fine-tuned Daedalus model exists, it scores which pre-fetch rules to
+activate based on the current task context. This is where Daedalus transitions
+from "label UI + export" to an active runtime component.
+
+---
+
+## Phase 14 — Adaptive Self-Optimizing Oracle
+
+**Goal:** Pythia's recommendations improve autonomously from real usage signals.
+
+### 14A: Reinforcement signal collection
+
+The oracle log already captures accept/reject. Extend it with:
+- Task completion signal (did the accepted recommendation lead to a completed
+  checkpoint?)
+- Error rate (did the session hit errors after following the recommendation?)
+- Time-to-completion
+
+### 14B: Online scoring adjustment
+
+Daedalus updates its scoring weights incrementally as new labeled data arrives.
+No full retrain needed — moving average over recent accept/reject ratios per
+tool/skill path.
+
+### 14C: A/B recommendation testing
+
+Occasionally present alternative recommendations alongside the primary one.
+Track which the user follows. Exploration/exploitation tradeoff for the oracle.
+
+---
+
+## ═══════════════════════════════════════════
+## DECISION GATE — Resolver vs Generator
+## ═══════════════════════════════════════════
+
+**Phases 11–14 keep Perseus as a *resolver* — it takes live environment state
+and presents it faithfully. The value proposition is trust: what Perseus gives
+you is true.**
+
+Phase 15 makes Perseus a *generator*. It starts putting words in the context
+window that didn't come directly from the environment. Even with guardrails,
+this is a philosophical shift:
+
+- **Resolver Perseus:** "Here are the facts."
+- **Generator Perseus:** "Here are the facts, and here's what I think they mean."
+
+This changes the trust model, the error surface, the testing requirements, and
+the competitive positioning. It might be the right move — but it's not a
+technical decision, it's a product decision.
+
+**Questions to answer before proceeding past Phase 14:**
+
+1. Does Perseus's competitive advantage come from being a *trustworthy resolver*
+   or an *intelligent context curator*? These are different products.
+2. If Perseus generates context, who is liable when generated context causes
+   the AI to make a bad decision? This matters for adoption.
+3. Is the generative capability better as a Perseus feature or as something the
+   consuming AI does itself with Perseus's resolved context as input?
+
+---
+
+## Phase 15 — Generative Context Enhancement (Contingent)
+
+**Goal:** Perseus can *elaborate* sparse context using an LLM, with strict
+verification guardrails. **Only proceed if the decision gate above is resolved.**
+
+### 15A: Verified elaboration for `@read`
+
+When `@read` pulls a config value, Perseus can optionally explain *what it
+means* by cross-referencing the project's docs or README. The elaboration is
+verified against the raw value — if it contradicts the source, it's dropped.
+
+### 15B: Guardrail framework
+
+Every generated elaboration must pass:
+1. Source citation (which raw context was the basis?)
+2. Contradiction check (does the elaboration contradict any resolved directive?)
+3. Confidence threshold (below threshold → omit, don't guess)
+
+---
+
+## Future Direction: Decentralized Federation
+
+Deepen federation to securely share context across decentralized workspaces or
+organizations. Dynamic access control, conflict resolution, provable data lineage.
+This changes the deployment model from single-node to distributed — an
+infrastructure and trust boundary question separate from the resolver/generator
+decision above.
+
+---
+
+## Execution Order
+
+```
+Phase 11A ─── DIRECTIVE_REGISTRY (task-25) ✅ ──────────┐
+              │                                          │
+Phase 11B ─── doctor (task-26) ✅ ───────────────────────┤
+              │                                          │
+Phase 11C ─── --json surfaces (task-28) 🔧 ─────────────┤
+              │                                          │
+Phase 11D ─── LSP integration tests (task-27) ──────────┤
+              │                                          │
+Phase 11E ─── Split tests (task-29) ────────────────────┤
+              │                                          │
+              └── Phase 12A: Schema validation ──────────┤
+                  ⚠️ DEPENDENCY DECISION                 │
+                  (pykwalify vs pure Python)              │
+                                                         │
+Phase 12B ─── Directive-level schema annotations ────────┤
+Phase 12C ─── `perseus validate` CLI ────────────────────┤
+                                                         │
+Phase 13A ─── Directive dependency graph ────────────────┤
+Phase 13B ─── Pattern-based pre-fetch rules ─────────────┤
+Phase 13C ─── Daedalus-powered adaptive pre-fetch ───────┤
+                                                         │
+Phase 14A ─── RL signal collection ──────────────────────┤
+Phase 14B ─── Online scoring adjustment ─────────────────┤
+Phase 14C ─── A/B recommendation testing ────────────────┤
+                                                         │
+              ══════════════════════════════════          │
+              STOP: Product identity decision             │
+              ══════════════════════════════════          │
+                                                         │
+Phase 15  ─── Generative Context (if decided yes) ───────┘
+```
+
+**Estimated scope:** Phase 11 remaining tasks are 1-2 focused sessions. Phase 12
+is 2-3 sessions. Phase 13 is 2 sessions. Phase 14 is 2-3 sessions. Then the
+decision gate.
 
 ---
 
