@@ -53,6 +53,84 @@ def test_load_config_prefers_perseus_env_vars(monkeypatch):
     spec.loader.exec_module(mod)
     assert str(mod.SKILLS_DIR) == '/tmp/perseus-skills'
     assert str(mod.SESSIONS_DIR) == '/tmp/perseus-sessions'
+
+
+def test_validate_cli_valid_payload(tmp_path, capsys):
+    schema = tmp_path / "service.schema.yaml"
+    schema.write_text("""
+type: map
+mapping:
+  service:
+    type: map
+    required: true
+    mapping:
+      port:
+        type: int
+        required: true
+""")
+    payload = tmp_path / "service.yaml"
+    payload.write_text("service:\n  port: 3000\n")
+    args = argparse.Namespace(schema=str(schema), payload=str(payload), workspace=str(tmp_path), json=False)
+
+    rc = perseus.cmd_validate(args, cfg())
+
+    assert rc == 0
+    assert "Valid:" in capsys.readouterr().out
+
+
+def test_validate_cli_invalid_payload_returns_1(tmp_path, capsys):
+    schema = tmp_path / "service.schema.yaml"
+    schema.write_text("""
+type: map
+mapping:
+  service:
+    type: map
+    required: true
+    mapping:
+      port:
+        type: int
+        required: true
+""")
+    payload = tmp_path / "service.yaml"
+    payload.write_text("service:\n  port: nope\n")
+    args = argparse.Namespace(schema=str(schema), payload=str(payload), workspace=str(tmp_path), json=False)
+
+    rc = perseus.cmd_validate(args, cfg())
+
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "Invalid:" in out
+    assert "service.port: expected int" in out
+
+
+def test_validate_cli_json_output(tmp_path, capsys):
+    schema = tmp_path / "service.schema.yaml"
+    schema.write_text("type: map\nmapping:\n  name:\n    type: str\n    required: true\n")
+    payload = tmp_path / "service.yaml"
+    payload.write_text("version: 1\n")
+    args = argparse.Namespace(schema=str(schema), payload=str(payload), workspace=str(tmp_path), json=True)
+
+    rc = perseus.cmd_validate(args, cfg())
+
+    data = json.loads(capsys.readouterr().out)
+    assert rc == 1
+    assert data["ok"] is False
+    assert data["errors"] == ["name: required key missing"]
+
+
+def test_validate_cli_reads_stdin(monkeypatch, tmp_path, capsys):
+    schemas_dir = tmp_path / ".perseus" / "schemas"
+    schemas_dir.mkdir(parents=True)
+    (schemas_dir / "service.yaml").write_text("type: map\nmapping:\n  name:\n    type: str\n    required: true\n")
+    monkeypatch.setattr(perseus.sys, "stdin", io.StringIO("name: demo\n"))
+    args = argparse.Namespace(schema="service", payload="-", workspace=str(tmp_path), json=False)
+
+    rc = perseus.cmd_validate(args, cfg())
+
+    assert rc == 0
+    assert "<stdin>" in capsys.readouterr().out
+
+
 def test_parse_systemd_interval_variants():
     assert perseus._parse_systemd_interval("5m") == "5min"
     assert perseus._parse_systemd_interval("2h") == "2h"

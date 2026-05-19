@@ -75,6 +75,22 @@ Per-invocation `schema="..."` remains stronger. When a directive call provides
 the registry-level output schema for that invocation. Use per-invocation schemas
 for local data contracts; use `output_schema` for global directive contracts.
 
+### Standalone Validation
+
+`perseus validate --schema SCHEMA [payload|-]` validates a payload without
+rendering a context file. Payloads are parsed as YAML/JSON, single fenced blocks
+are unfenced before parsing, and `.toml` files use Python's TOML parser when
+available. Omitting the payload or passing `-` reads stdin.
+
+Human output is concise and returns:
+
+- `0` when the payload matches the schema.
+- `1` when schema validation fails.
+- `2` when the schema or input cannot be read or parsed.
+
+`--json` emits `{ok, schema, input, errors}` and includes `error` for read/parse
+failures.
+
 ---
 
 ## Checkpoint Schema

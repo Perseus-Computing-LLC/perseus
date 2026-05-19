@@ -62,6 +62,7 @@ checkpoints feed it.
 | Command | What it does |
 |---|---|
 | `perseus render <file.md>` | Resolves `@perseus` source doc → plain markdown |
+| `perseus validate --schema SCHEMA [payload|-]` | Validates a payload against a Perseus schema; `--json` for CI/agents |
 | `perseus checkpoint --task "..."` | Writes timestamped YAML to `~/.perseus/checkpoints/` |
 | `perseus recover` | Prints latest checkpoint (workspace + TTL aware) |
 | `perseus diff` | Shows what changed between last two checkpoints |
@@ -525,10 +526,15 @@ so local data contracts can override broad directive invariants.
 
 **Status:** Complete.
 
-### 12C: `perseus validate` CLI command
+### 12C: `perseus validate` CLI command (task-32) ✅
 
 Standalone validation: run schemas against a rendered document or a specific
 directive's output without a full render pass. Useful for CI gates.
+
+Supports file input or stdin, human output or `--json`, and returns non-zero for
+validation failures.
+
+**Status:** Complete.
 
 ---
 
@@ -668,7 +674,7 @@ Phase 11E ─── Split tests (task-29) ✅ ───────────�
                   (pyyaml remains the only dependency)    │
                                                          │
 Phase 12B ─── Directive-level schema annotations ✅ ─────┤
-Phase 12C ─── `perseus validate` CLI ────────────────────┤
+Phase 12C ─── `perseus validate` CLI ✅ ─────────────────┤
                                                          │
 Phase 13A ─── Directive dependency graph ────────────────┤
 Phase 13B ─── Pattern-based pre-fetch rules ─────────────┤
@@ -685,9 +691,8 @@ Phase 14C ─── A/B recommendation testing ───────────
 Phase 15  ─── Generative Context (if decided yes) ───────┘
 ```
 
-**Estimated scope:** Phase 11 is complete. Phase 12A/12B are complete; Phase
-12C remains. Phase 13 is 2 sessions. Phase 14 is 2-3 sessions. Then the
-decision gate.
+**Estimated scope:** Phase 11 and Phase 12 are complete. Phase 13 is 2 sessions.
+Phase 14 is 2-3 sessions. Then the decision gate.
 
 ---
 

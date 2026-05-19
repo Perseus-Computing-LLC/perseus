@@ -516,6 +516,21 @@ def _parse_validation_payload(text: str) -> object:
         return payload
 
 
+def _parse_validation_payload_by_source(text: str, source_name: str = "") -> object:
+    """Parse validation payload text, using TOML parser for .toml inputs."""
+    if Path(source_name).suffix.lower() == ".toml":
+        try:
+            import tomllib  # Python 3.11+
+            return tomllib.loads(text)
+        except ImportError:
+            try:
+                import tomli
+                return tomli.loads(text)  # type: ignore[import]
+            except ImportError as exc:
+                raise RuntimeError("TOML support requires `tomllib` (Python 3.11+) or `pip install tomli`") from exc
+    return _parse_validation_payload(text)
+
+
 def _validate_basic_schema(data: object, schema: object, prefix: str = "") -> list[str]:
     """Validate the minimal YAML schema subset Perseus documents today.
 
@@ -4075,6 +4090,69 @@ def cmd_render(args, cfg):
         print(rendered)
 
 
+# ───────────────────────────── Schema validation CLI ─────────────────────────
+
+def _validate_cli_payload(args) -> tuple[object | None, str, str | None]:
+    """Load and parse a validate command payload."""
+    payload_ref = getattr(args, "payload", "-") or "-"
+    if payload_ref == "-":
+        text = sys.stdin.read()
+        try:
+            return _parse_validation_payload_by_source(text, "<stdin>"), "<stdin>", None
+        except Exception as exc:
+            return None, "<stdin>", str(exc)
+
+    payload_path = Path(payload_ref).expanduser()
+    try:
+        text = payload_path.read_text(errors="replace")
+    except Exception as exc:
+        return None, str(payload_path), str(exc)
+    try:
+        return _parse_validation_payload_by_source(text, str(payload_path)), str(payload_path), None
+    except Exception as exc:
+        return None, str(payload_path), str(exc)
+
+
+def cmd_validate(args, cfg) -> int:
+    """Validate a payload against a Perseus schema."""
+    workspace = Path(args.workspace).expanduser().resolve() if getattr(args, "workspace", None) else Path.cwd().resolve()
+    schema_ref = args.schema
+    schema_path, schema_data, schema_error = _load_schema(schema_ref, workspace)
+    schema_label = str(schema_path or schema_ref)
+
+    data, input_label, input_error = _validate_cli_payload(args)
+    if schema_error or input_error:
+        payload = {
+            "ok": False,
+            "schema": schema_label,
+            "input": input_label,
+            "errors": [],
+            "error": schema_error or input_error,
+        }
+        if getattr(args, "json", False):
+            print(json.dumps(payload, indent=2))
+        else:
+            print(f"Error: {payload['error']}")
+        return 2
+
+    errors = _validate_basic_schema(data, schema_data)
+    payload = {
+        "ok": not errors,
+        "schema": schema_label,
+        "input": input_label,
+        "errors": errors,
+    }
+    if getattr(args, "json", False):
+        print(json.dumps(payload, indent=2))
+    elif errors:
+        print(f"Invalid: {input_label} does not match {schema_label}")
+        for err in errors:
+            print(f"- {err}")
+    else:
+        print(f"Valid: {input_label} matches {schema_label}")
+    return 0 if not errors else 1
+
+
 # ──────────────────────────────── Suggest ─────────────────────────────────────
 
 def append_oracle_log(entry: dict, cfg: dict) -> None:
@@ -6496,6 +6574,13 @@ def main():
         help="Write rendered output to FILE instead of stdout",
     )
 
+    # validate (Phase 12C)
+    p_validate = sub.add_parser("validate", help="Validate a payload against a Perseus schema")
+    p_validate.add_argument("payload", nargs="?", default="-", help="Payload file path, or '-' / omitted for stdin")
+    p_validate.add_argument("--schema", required=True, help="Schema path or name from .perseus/schemas/")
+    p_validate.add_argument("--workspace", default=None, help="Workspace for resolving .perseus/schemas (default: cwd)")
+    p_validate.add_argument("--json", action="store_true", help="Output machine-readable JSON")
+
     # checkpoint
     p_cp = sub.add_parser("checkpoint", help="Write a session checkpoint")
     p_cp.add_argument("--task", required=True, help="What is being worked on")
@@ -6703,6 +6788,8 @@ def main():
 
     if args.command == "render":
         cmd_render(args, cfg)
+    elif args.command == "validate":
+        return cmd_validate(args, cfg)
     elif args.command == "checkpoint":
         cmd_checkpoint(args, cfg)
     elif args.command == "recover":

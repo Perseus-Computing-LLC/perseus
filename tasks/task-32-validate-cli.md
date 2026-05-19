@@ -1,12 +1,12 @@
 ---
 id: task-32
 title: Phase 12C perseus validate CLI
-status: open
+status: completed
 priority: medium
 scope: medium
-claimed_by:
+claimed_by: codex
 created: 2026-05-19
-closed:
+closed: 2026-05-19
 phase: 12
 theme: "Schema Validation Engine"
 depends_on:
@@ -41,3 +41,13 @@ command makes schema checks scriptable.
 
 - Do not add a new test runner or CI framework.
 - Do not implement full JSON Schema.
+
+## Completed
+
+Added `perseus validate --schema SCHEMA [payload|-] [--json]`, reusing the
+Phase 12 schema loader and validator. The command supports file input, stdin,
+human output, JSON output, and exit codes for valid, invalid, and read/parse
+error states.
+
+Updated README/spec/roadmap docs and added tests for valid payloads, validation
+failures, JSON output, and stdin input.

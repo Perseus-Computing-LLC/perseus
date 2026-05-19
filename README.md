@@ -269,6 +269,7 @@ Run `perseus <command> --help` for full flags. Summary of the surface:
 | Command | What it does |
 |---|---|
 | `perseus render <file>` | Resolve all directives in a source document and print rendered output. Add `--output <path>` to write to disk. |
+| `perseus validate --schema SCHEMA [payload|-] [--json]` | Validate YAML/JSON payloads against Perseus schemas; omit payload or pass `-` to read stdin. |
 | `perseus checkpoint --task ... --status ... --next ...` | Write a YAML waypoint to `~/.perseus/checkpoints/`. Auto-updates Mnēmē narrative. |
 | `perseus diff [--from FILE] [--to FILE]` | Show diff between two checkpoints (default: latest two). |
 | `perseus recover [--workspace PATH]` | Print the latest checkpoint for the workspace. |
@@ -409,7 +410,9 @@ oracle:
 | **Phase 8** | `@agent` · `@inbox` · template gallery (`perseus init --template`) · `perseus serve` (read-only HTTP view) · cross-platform `perseus cron` scaffolder · Mnēmē federation (`@memory federation` + manifest + 4 CLI subcommands) | ✅ Complete |
 | **Phase 9** | Daedalus v2: closed-loop autonomy — `perseus oracle infer-labels` (self-rating), `memory.pattern_extractor: daedalus` (trained extraction), `perseus oracle drift` + `@drift` (drift detection) | ✅ Complete |
 | **Phase 10** | Editor integration — Perseus LSP server (`perseus serve --lsp --stdio\|--tcp`) + VSCode extension (`editors/vscode/`) | ✅ Complete |
-| **Phase 11+** | See "Future development" at the bottom of [ROADMAP.md](./ROADMAP.md) | 🌅 Open canvas |
+| **Phase 11** | Internal hardening — registry, doctor, JSON surfaces, LSP integration tests, split suite | ✅ Complete |
+| **Phase 12** | Schema validation engine — `schema=`, `@validate`, `output_schema`, `perseus validate` | ✅ Complete |
+| **Phase 13+** | See "Future development" at the bottom of [ROADMAP.md](./ROADMAP.md) | 🌅 Open canvas |
 
 Full detail: [ROADMAP.md](./ROADMAP.md)
 
