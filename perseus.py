@@ -87,6 +87,7 @@ def _bind_registry() -> None:
         DirectiveSpec("@prompt",    resolve_prompt_block, [],                      "block",   "block", summary="System prompt block"),
         DirectiveSpec("@constraint", None,             [],                         "block",   "block", summary="Constraint block for validation"),
         DirectiveSpec("@validate",  resolve_validate_block, ["schema="],           "block",   "block", reads_files=True, summary="Validate a rendered block against a schema"),
+        DirectiveSpec("@synthesize", None,                  ["question=", "source=", "label=", "consistency_mode"], "block", "block", reads_files=True, safe_for_hover=False, summary="Optional curated synthesis section (generation.enabled required)"),
         # Control directives — structural, no resolver
         DirectiveSpec("@if",        None,              [],                         "control", "block", summary="Conditional block start"),
         DirectiveSpec("@else",      None,              [],                         "control", "block", summary="Conditional block else"),
@@ -2163,6 +2164,7 @@ ELSE_RE = re.compile(r'^@else\s*$', re.IGNORECASE)
 ENDIF_RE = re.compile(r'^@endif\s*$', re.IGNORECASE)
 CONSTRAINT_RE = re.compile(r'^@constraint\s+(.+)$', re.IGNORECASE)
 CONSTRAINT_END_RE = re.compile(r'^@end\s*$', re.IGNORECASE)
+SYNTHESIZE_BLOCK_RE = re.compile(r'^@synthesize\s*(.*)$', re.IGNORECASE)
 
 # INLINE_DIRECTIVE_RE — built from DIRECTIVE_REGISTRY after all resolvers are
 # defined.  See _bind_registry() + _build_inline_directive_re() call below
@@ -2279,6 +2281,99 @@ def _render_lines(
 
             rendered_block = _render_lines(block_lines, cfg, workspace, _constraint_rows)
             output.append(resolve_validate_block(rendered_block, schema_ref, cfg, workspace))
+            continue
+
+        # ── @synthesize block (Phase 15C) ──
+        m_syn = SYNTHESIZE_BLOCK_RE.match(line)
+        if m_syn:
+            attrs_str = m_syn.group(1).strip()
+            attrs = _parse_kv_modifiers(attrs_str)
+            # Parse attrs: question="...", source="path1,path2", label="...", consistency_mode
+            question = attrs.get("question", "What is the current project status and next action?")
+            source_attr = attrs.get("source", "")
+            sources_list = [s.strip() for s in source_attr.split(",") if s.strip()] if source_attr else []
+            label = attrs.get("label", "Generated synthesis")
+            consistency_mode = "consistency_mode" in attrs_str.lower().replace("-", "_")
+
+            # Collect body lines until @end (body may also specify question/sources as YAML-like lines)
+            body_lines = []
+            i += 1
+            while i < len(lines) and not PROMPT_END_RE.match(lines[i]):
+                body_lines.append(lines[i])
+                i += 1
+            i += 1  # skip @end
+
+            # Body lines can add sources: one bare path per line
+            for bline in body_lines:
+                stripped = bline.strip()
+                if stripped and not stripped.startswith("#"):
+                    sources_list.append(stripped)
+
+            generation_cfg = cfg.get("generation", {})
+            if not bool(generation_cfg.get("enabled", False)):
+                # Generation disabled — silently emit nothing (resolved render unaffected)
+                continue
+
+            if not sources_list:
+                output.append("> ⚠ @synthesize: no sources specified")
+                continue
+
+            if workspace is None:
+                output.append("> ⚠ @synthesize: workspace not available")
+                continue
+
+            try:
+                synth_result, _code = synthesize_question(
+                    question,
+                    sources_list,
+                    cfg,
+                    workspace,
+                    llm=cfg.get("llm", {}).get("provider") or cfg.get("generation", {}).get("provider"),
+                    model=cfg.get("generation", {}).get("model") or cfg.get("llm", {}).get("model"),
+                    enable_generation=True,
+                    consistency_mode=consistency_mode,
+                )
+            except Exception as exc:
+                # Failure must never affect the resolved render
+                output.append(f"> ⚠ @synthesize: generation error: {exc}")
+                continue
+
+            if synth_result.get("source_errors") or not synth_result.get("generated"):
+                # Model not configured, sources missing, or generation disabled — skip silently
+                err = synth_result.get("error", "")
+                if err and "generation is disabled" not in err:
+                    output.append(f"> ⚠ @synthesize: {err}")
+                continue
+
+            # Render the curated section — plainly labeled, clearly separated from resolved content
+            output.append(f"\n> **{label}** _(generated — not resolver output)_\n")
+            claims = synth_result.get("claims", [])
+            conflicts = synth_result.get("conflicts", [])
+            if not claims and not conflicts:
+                output.append("> _No cited claims survived citation validation._")
+            for idx, claim in enumerate(claims, start=1):
+                output.append(f"> {idx}. {claim['text']}")
+                for citation in claim["citations"]:
+                    label_c = citation["label"]
+                    s = citation["line_start"]
+                    e = citation["line_end"]
+                    ref = f"{s}" if s == e else f"{s}-{e}"
+                    output.append(f">    - {label_c}:{ref} `{citation['quote']}`")
+            if conflicts:
+                output.append("> \n> **Source disagreements:**")
+                for idx, conflict in enumerate(conflicts, start=1):
+                    output.append(f"> {idx}. ⚠ {conflict['description']}")
+                    for ref in conflict["sources"]:
+                        label_c = ref["label"]
+                        s = ref["line_start"]
+                        e = ref["line_end"]
+                        lref = f"{s}" if s == e else f"{s}-{e}"
+                        output.append(f">    - {label_c}:{lref} `{ref['quote']}`")
+            dropped = synth_result.get("dropped_claims", [])
+            dropped_c = synth_result.get("dropped_conflicts", [])
+            if dropped or dropped_c:
+                total = len(dropped) + len(dropped_c)
+                output.append(f"> \n> _{total} uncited item(s) dropped by citation gate._")
             continue
 
         # ── @services block ──
@@ -5026,6 +5121,88 @@ def _citation_window(source: dict, start: int, end: int) -> str | None:
     return "\n".join(lines[start - 1:end])
 
 
+def build_consistency_prompt(sources: list[dict], max_claims: int) -> str:
+    """Build a prompt focused on detecting cross-source disagreements."""
+    source_blocks = "\n\n".join(_numbered_source_excerpt(source) for source in sources)
+    return "\n".join([
+        "You are auditing cross-source consistency for a software project.",
+        "Perseus is a resolver first. You are a drafter, not an authority.",
+        "",
+        "Rules:",
+        "- Return JSON only.",
+        "- Do not include uncited claims.",
+        "- Every claim must cite at least one exact quote from the source lines.",
+        "- Report disagreements, drift, and contradictions between sources.",
+        "- Flag: current phase/status inconsistencies, version mismatches, doc/code contradictions,",
+        "  task-file status that conflicts with roadmap or handoff, outdated README claims.",
+        "- If all sources are consistent on a topic, do not generate claims about it.",
+        "- Use 'conflicts' for disagreements between sources; use 'claims' for synthesized findings.",
+        f"- Return at most {max_claims} items across both arrays.",
+        "",
+        "JSON shape:",
+        '{"claims":[{"text":"...","citations":[{"source_id":"src1","line_start":1,"line_end":3,"quote":"exact source quote"}]}],'
+        '"conflicts":[{"description":"...","sources":[{"source_id":"src1","line_start":1,"line_end":2,"quote":"..."},'
+        '{"source_id":"src2","line_start":5,"line_end":5,"quote":"..."}]}]}',
+        "",
+        "Sources:",
+        source_blocks,
+    ])
+
+
+def _validate_consistency_conflicts(raw: object, sources: list[dict], max_items: int) -> tuple[list[dict], list[dict]]:
+    """Validate the 'conflicts' array from a consistency-mode response."""
+    source_by_id = {source["id"]: source for source in sources}
+    conflicts_raw = raw.get("conflicts", []) if isinstance(raw, dict) else []
+    if not isinstance(conflicts_raw, list):
+        return [], [{"description": "", "reason": "conflicts must be a list"}]
+
+    accepted: list[dict] = []
+    dropped: list[dict] = []
+    for entry in conflicts_raw[:max_items]:
+        if not isinstance(entry, dict):
+            dropped.append({"description": "", "reason": "conflict entry must be an object"})
+            continue
+        description = str(entry.get("description", "")).strip()
+        sources_raw = entry.get("sources", [])
+        valid_sources: list[dict] = []
+        if isinstance(sources_raw, list):
+            for ref in sources_raw:
+                if not isinstance(ref, dict):
+                    continue
+                source_id = str(ref.get("source_id", "")).strip()
+                source = source_by_id.get(source_id)
+                quote = str(ref.get("quote", "")).strip()
+                try:
+                    line_start = int(ref.get("line_start"))
+                    line_end = int(ref.get("line_end", line_start))
+                except (TypeError, ValueError):
+                    continue
+                if not source or not quote:
+                    continue
+                window = _citation_window(source, line_start, line_end)
+                if window is None or quote not in window:
+                    continue
+                valid_sources.append({
+                    "source_id": source_id,
+                    "path": source["path"],
+                    "label": source["label"],
+                    "line_start": line_start,
+                    "line_end": line_end,
+                    "quote": quote,
+                })
+        if description and len(valid_sources) >= 2:
+            accepted.append({"description": description, "sources": valid_sources})
+        elif description and len(valid_sources) == 1:
+            # Accept single-source conflict reports (e.g. internal inconsistency flagged with one cite)
+            accepted.append({"description": description, "sources": valid_sources})
+        else:
+            dropped.append({
+                "description": description,
+                "reason": "no valid cited sources" if description else "empty description",
+            })
+    return accepted, dropped
+
+
 def _validate_synthesis_claims(raw: object, sources: list[dict], max_claims: int) -> tuple[list[dict], list[dict]]:
     source_by_id = {source["id"]: source for source in sources}
     claims_raw = raw.get("claims", []) if isinstance(raw, dict) else []
@@ -5086,6 +5263,7 @@ def synthesize_question(
     model: str | None = None,
     model_url: str | None = None,
     enable_generation: bool = False,
+    consistency_mode: bool = False,
 ) -> tuple[dict, int]:
     sources, source_errors = _load_synthesis_sources(source_refs, workspace, cfg)
     generation_cfg = cfg.get("generation", {})
@@ -5100,12 +5278,15 @@ def synthesize_question(
         }
         for source in sources
     ]
-    result = {
-        "version": "phase15a-cited-synthesis-v1",
+    result: dict = {
+        "version": "phase15b-cited-synthesis-v2" if consistency_mode else "phase15a-cited-synthesis-v1",
         "question": question,
+        "consistency_mode": consistency_mode,
         "generated": False,
         "claims": [],
         "dropped_claims": [],
+        "conflicts": [],
+        "dropped_conflicts": [],
         "source_errors": source_errors,
         "sources": source_summary,
         "guardrails": {
@@ -5120,7 +5301,10 @@ def synthesize_question(
     if source_errors or not sources:
         return result, 1
 
-    prompt = build_synthesis_prompt(question, sources, max_claims)
+    if consistency_mode:
+        prompt = build_consistency_prompt(sources, max_claims)
+    else:
+        prompt = build_synthesis_prompt(question, sources, max_claims)
     result["prompt"] = prompt
     if not llm:
         return result, 0
@@ -5147,11 +5331,17 @@ def synthesize_question(
     claims, dropped = _validate_synthesis_claims(parsed, sources, max_claims)
     result["claims"] = claims
     result["dropped_claims"] = dropped
+    if consistency_mode:
+        conflicts, dropped_conflicts = _validate_consistency_conflicts(parsed, sources, max_claims)
+        result["conflicts"] = conflicts
+        result["dropped_conflicts"] = dropped_conflicts
     return result, 0
 
 
 def format_synthesis_human(result: dict) -> str:
     lines = [f"Cited synthesis: {result['question']}"]
+    if result.get("consistency_mode"):
+        lines[0] = "Cross-source consistency report"
     if result.get("source_errors"):
         lines.append("")
         lines.append("Source errors:")
@@ -5173,8 +5363,8 @@ def format_synthesis_human(result: dict) -> str:
         return "\n".join(lines)
 
     lines.append("")
-    if not result.get("claims"):
-        lines.append("_No cited claims survived validation._")
+    if not result.get("claims") and not result.get("conflicts"):
+        lines.append("_No cited claims or conflicts survived validation._")
     for idx, claim in enumerate(result.get("claims", []), start=1):
         lines.append(f"{idx}. {claim['text']}")
         for citation in claim["citations"]:
@@ -5183,10 +5373,25 @@ def format_synthesis_human(result: dict) -> str:
             end = citation["line_end"]
             line_ref = f"{start}" if start == end else f"{start}-{end}"
             lines.append(f"   - {label}:{line_ref} `{citation['quote']}`")
+    conflicts = result.get("conflicts", [])
+    if conflicts:
+        lines.append("")
+        lines.append("Source disagreements:")
+        for idx, conflict in enumerate(conflicts, start=1):
+            lines.append(f"{idx}. ⚠ {conflict['description']}")
+            for ref in conflict["sources"]:
+                label = ref["label"]
+                start = ref["line_start"]
+                end = ref["line_end"]
+                line_ref = f"{start}" if start == end else f"{start}-{end}"
+                lines.append(f"   - {label}:{line_ref} `{ref['quote']}`")
     dropped = result.get("dropped_claims", [])
+    dropped_conflicts = result.get("dropped_conflicts", [])
     if dropped:
         lines.append("")
         lines.append(f"Dropped uncited/invalid claims: {len(dropped)}")
+    if dropped_conflicts:
+        lines.append(f"Dropped uncited/invalid conflicts: {len(dropped_conflicts)}")
     return "\n".join(lines)
 
 
@@ -5202,6 +5407,7 @@ def cmd_synthesize(args, cfg) -> int:
         model=getattr(args, "model", None),
         model_url=getattr(args, "model_url", None),
         enable_generation=getattr(args, "enable_generation", False),
+        consistency_mode=getattr(args, "consistency_mode", False),
     )
     if getattr(args, "json", False):
         print(json.dumps(result, indent=2))
@@ -8408,7 +8614,7 @@ def main():
     p_prefetch.add_argument("--workspace", default=None, help="Workspace path for config/resource resolution")
     p_prefetch.add_argument("--json", action="store_true", help="Output machine-readable JSON")
 
-    # synthesize (Phase 15A)
+    # synthesize (Phase 15A/15B)
     p_synthesize = sub.add_parser("synthesize", help="Draft cited synthesis claims from source files")
     p_synthesize.add_argument("question", help="Question or synthesis goal")
     p_synthesize.add_argument("--source", action="append", required=True, help="Source file to cite; repeatable")
@@ -8417,6 +8623,7 @@ def main():
     p_synthesize.add_argument("--model", default=None, help="Override generation/LLM model")
     p_synthesize.add_argument("--model-url", default=None, help="Override LLM provider URL")
     p_synthesize.add_argument("--enable-generation", action="store_true", help="Explicitly opt into generation for this run")
+    p_synthesize.add_argument("--consistency-mode", action="store_true", help="Report cross-source disagreements instead of answering a question")
     p_synthesize.add_argument("--json", action="store_true", help="Output machine-readable JSON")
 
     # pack (Phase 16B)

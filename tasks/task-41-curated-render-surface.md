@@ -1,12 +1,12 @@
 ---
 id: task-41
 title: Phase 15C optional curated render surface
-status: open
+status: closed
 priority: medium
 scope: large
-claimed_by: null
+claimed_by: hermes
 created: 2026-05-19
-closed: null
+closed: '2026-05-19'
 phase: 15
 theme: "Cited Synthesis Under Scarcity"
 depends_on:

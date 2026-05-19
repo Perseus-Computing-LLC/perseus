@@ -141,6 +141,7 @@ def test_cmd_synthesize_outputs_prompt_without_generation(capsys, tmp_path, monk
         model=None,
         model_url=None,
         enable_generation=False,
+        consistency_mode=False,
         json=False,
     )
 
@@ -150,3 +151,329 @@ def test_cmd_synthesize_outputs_prompt_without_generation(capsys, tmp_path, monk
     assert code == 0
     assert "Generation was not run. Prompt:" in captured.out
     assert "Do not include uncited claims" in captured.out
+
+
+# ── Task 40: consistency mode ──────────────────────────────────────────────────
+
+
+def test_consistency_mode_uses_consistency_prompt(tmp_path):
+    source_path = tmp_path / "ROADMAP.md"
+    source_path.write_text("Phase 14 is complete.\n")
+
+    result, code = perseus.synthesize_question(
+        "Check consistency",
+        [str(source_path)],
+        cfg(),
+        tmp_path,
+        consistency_mode=True,
+    )
+
+    assert code == 0
+    assert result["consistency_mode"] is True
+    assert "auditing cross-source consistency" in result["prompt"]
+    assert "conflicts" in result
+
+
+def test_consistency_mode_version_is_v2(tmp_path):
+    source_path = tmp_path / "ROADMAP.md"
+    source_path.write_text("Phase 14 is complete.\n")
+
+    result, _code = perseus.synthesize_question(
+        "Check consistency",
+        [str(source_path)],
+        cfg(),
+        tmp_path,
+        consistency_mode=True,
+    )
+
+    assert result["version"] == "phase15b-cited-synthesis-v2"
+
+
+def test_consistency_mode_validates_conflicts(tmp_path):
+    src_a = tmp_path / "ROADMAP.md"
+    src_b = tmp_path / "README.md"
+    src_a.write_text("Phase 14 is the current phase.\n")
+    src_b.write_text("Phase 12 is the current phase.\n")
+    source_a = {
+        "id": "src1", "path": str(src_a), "label": "ROADMAP.md",
+        "text": src_a.read_text(), "lines": ["Phase 14 is the current phase."],
+        "line_count": 1, "truncated": False,
+    }
+    source_b = {
+        "id": "src2", "path": str(src_b), "label": "README.md",
+        "text": src_b.read_text(), "lines": ["Phase 12 is the current phase."],
+        "line_count": 1, "truncated": False,
+    }
+    raw = {
+        "claims": [],
+        "conflicts": [{
+            "description": "Phase number disagrees between ROADMAP and README.",
+            "sources": [
+                {"source_id": "src1", "line_start": 1, "line_end": 1, "quote": "Phase 14 is the current phase."},
+                {"source_id": "src2", "line_start": 1, "line_end": 1, "quote": "Phase 12 is the current phase."},
+            ],
+        }],
+    }
+
+    conflicts, dropped = perseus._validate_consistency_conflicts(raw, [source_a, source_b], 5)
+
+    assert len(conflicts) == 1
+    assert len(dropped) == 0
+    assert "Phase number" in conflicts[0]["description"]
+    assert len(conflicts[0]["sources"]) == 2
+
+
+def test_consistency_mode_drops_uncited_conflicts(tmp_path):
+    src = tmp_path / "ROADMAP.md"
+    src.write_text("Phase 14 is complete.\n")
+    source = {
+        "id": "src1", "path": str(src), "label": "ROADMAP.md",
+        "text": src.read_text(), "lines": ["Phase 14 is complete."],
+        "line_count": 1, "truncated": False,
+    }
+    raw = {
+        "claims": [],
+        "conflicts": [{
+            "description": "Invented conflict with no real citations.",
+            "sources": [
+                {"source_id": "src1", "line_start": 1, "line_end": 1, "quote": "this text is not in source"},
+            ],
+        }],
+    }
+
+    conflicts, dropped = perseus._validate_consistency_conflicts(raw, [source], 5)
+
+    assert conflicts == []
+    assert len(dropped) == 1
+
+
+def test_consistency_mode_full_pipeline_with_mock_llm(monkeypatch, tmp_path):
+    src_a = tmp_path / "ROADMAP.md"
+    src_b = tmp_path / "README.md"
+    src_a.write_text("Phase 14 is the current phase.\n")
+    src_b.write_text("Phase 12 is the current phase.\n")
+    local = cfg()
+    local["generation"]["enabled"] = True
+
+    response = {
+        "claims": [],
+        "conflicts": [{
+            "description": "Phase number disagrees between ROADMAP and README.",
+            "sources": [
+                {"source_id": "src1", "line_start": 1, "line_end": 1, "quote": "Phase 14 is the current phase."},
+                {"source_id": "src2", "line_start": 1, "line_end": 1, "quote": "Phase 12 is the current phase."},
+            ],
+        }],
+    }
+    monkeypatch.setattr(perseus, "run_llm", lambda *a, **k: (json.dumps(response), 0))
+
+    result, code = perseus.synthesize_question(
+        "Check consistency",
+        [str(src_a), str(src_b)],
+        local,
+        tmp_path,
+        llm="ollama",
+        consistency_mode=True,
+    )
+
+    assert code == 0
+    assert result["generated"] is True
+    assert len(result["conflicts"]) == 1
+    assert result["conflicts"][0]["description"] == "Phase number disagrees between ROADMAP and README."
+
+
+def test_consistency_mode_consistent_sources_produce_no_conflicts(monkeypatch, tmp_path):
+    src_a = tmp_path / "ROADMAP.md"
+    src_b = tmp_path / "README.md"
+    src_a.write_text("Phase 14 is complete.\n")
+    src_b.write_text("Phase 14 is complete.\n")
+    local = cfg()
+    local["generation"]["enabled"] = True
+
+    # Model returns no conflicts when sources agree
+    response = {"claims": [], "conflicts": []}
+    monkeypatch.setattr(perseus, "run_llm", lambda *a, **k: (json.dumps(response), 0))
+
+    result, code = perseus.synthesize_question(
+        "Check consistency",
+        [str(src_a), str(src_b)],
+        local,
+        tmp_path,
+        llm="ollama",
+        consistency_mode=True,
+    )
+
+    assert code == 0
+    assert result["conflicts"] == []
+
+
+def test_cmd_synthesize_consistency_mode_flag(capsys, tmp_path, monkeypatch):
+    source_path = tmp_path / "ROADMAP.md"
+    source_path.write_text("Phase 14 is complete.\n")
+    monkeypatch.chdir(tmp_path)
+    args = argparse.Namespace(
+        question="Check consistency",
+        source=[str(source_path)],
+        workspace=str(tmp_path),
+        llm=None,
+        model=None,
+        model_url=None,
+        enable_generation=False,
+        consistency_mode=True,
+        json=False,
+    )
+
+    code = perseus.cmd_synthesize(args, cfg())
+    captured = capsys.readouterr()
+
+    assert code == 0
+    assert "Cross-source consistency report" in captured.out
+
+
+# ── Task 41: @synthesize render directive ─────────────────────────────────────
+
+
+def _render(text: str, config=None, workspace=None) -> str:
+    c = config or cfg()
+    ws = workspace or Path("/tmp")
+    return perseus.render_source(text, c, ws)
+
+
+def test_synthesize_directive_disabled_by_default(tmp_path):
+    src = tmp_path / "ROADMAP.md"
+    src.write_text("Phase 14 is complete.\n")
+    doc = f"@perseus v0.4\n# Header\n@synthesize question=\"What is next?\" source=\"{src}\"\n@end\nFooter\n"
+
+    rendered = _render(doc, workspace=tmp_path)
+
+    # Disabled by default — directive produces nothing, surrounding content unaffected
+    assert "Header" in rendered
+    assert "Footer" in rendered
+    assert "generated" not in rendered.lower()
+
+
+def test_synthesize_directive_silent_when_no_llm(monkeypatch, tmp_path):
+    """When generation.enabled but no LLM configured, synthesize is silent."""
+    src = tmp_path / "ROADMAP.md"
+    src.write_text("Phase 14 is complete.\n")
+    local = cfg()
+    local["generation"]["enabled"] = True
+    # No llm provider configured in local config
+
+    doc = f"@perseus v0.4\n# Header\n@synthesize question=\"What is next?\" source=\"{src}\"\n@end\nFooter\n"
+
+    monkeypatch.setattr(perseus, "run_llm", lambda *a, **k: ("", 1))
+    rendered = _render(doc, config=local, workspace=tmp_path)
+
+    assert "Header" in rendered
+    assert "Footer" in rendered
+
+
+def test_synthesize_directive_renders_curated_section(monkeypatch, tmp_path):
+    src = tmp_path / "ROADMAP.md"
+    src.write_text("Phase 14 is complete.\n")
+    local = cfg()
+    local["generation"]["enabled"] = True
+    local["llm"] = {"provider": "ollama", "model": "llama3"}
+
+    response = {
+        "claims": [{
+            "text": "Phase 14 is complete and the next phase can begin.",
+            "citations": [{"source_id": "src1", "line_start": 1, "line_end": 1, "quote": "Phase 14 is complete."}],
+        }],
+        "conflicts": [],
+    }
+    monkeypatch.setattr(perseus, "run_llm", lambda *a, **k: (json.dumps(response), 0))
+
+    doc = f"@perseus v0.4\n# Header\n@synthesize question=\"What is next?\" source=\"{src}\"\n@end\nFooter\n"
+    rendered = _render(doc, config=local, workspace=tmp_path)
+
+    assert "Header" in rendered
+    assert "Footer" in rendered
+    assert "Generated synthesis" in rendered
+    assert "generated — not resolver output" in rendered
+    assert "Phase 14 is complete and the next phase can begin." in rendered
+    assert "Phase 14 is complete." in rendered  # citation quote
+
+
+def test_synthesize_directive_never_replaces_resolved_content(monkeypatch, tmp_path):
+    """The resolved section before @synthesize must be unchanged even if generation runs."""
+    src = tmp_path / "ROADMAP.md"
+    src.write_text("Phase 14 is complete.\n")
+    local = cfg()
+    local["generation"]["enabled"] = True
+    local["llm"] = {"provider": "ollama", "model": "llama3"}
+
+    monkeypatch.setattr(perseus, "run_llm", lambda *a, **k: (json.dumps({"claims": [], "conflicts": []}), 0))
+
+    doc = "@perseus v0.4\nResolved content here.\n@synthesize\n@end\nMore resolved content.\n"
+    rendered = _render(doc, config=local, workspace=tmp_path)
+
+    assert "Resolved content here." in rendered
+    assert "More resolved content." in rendered
+
+
+def test_synthesize_directive_model_failure_leaves_render_unchanged(monkeypatch, tmp_path):
+    src = tmp_path / "ROADMAP.md"
+    src.write_text("Phase 14 is complete.\n")
+    local = cfg()
+    local["generation"]["enabled"] = True
+    local["llm"] = {"provider": "ollama", "model": "llama3"}
+
+    monkeypatch.setattr(perseus, "run_llm", lambda *a, **k: ("", 1))
+
+    doc = f"@perseus v0.4\nBefore.\n@synthesize question=\"What is next?\" source=\"{src}\"\n@end\nAfter.\n"
+    rendered = _render(doc, config=local, workspace=tmp_path)
+
+    assert "Before." in rendered
+    assert "After." in rendered
+    # No crash; partial or failed generation doesn't inject garbage
+
+
+def test_synthesize_directive_drops_uncited_generated_claims(monkeypatch, tmp_path):
+    src = tmp_path / "ROADMAP.md"
+    src.write_text("Phase 14 is complete.\n")
+    local = cfg()
+    local["generation"]["enabled"] = True
+    local["llm"] = {"provider": "ollama", "model": "llama3"}
+
+    response = {
+        "claims": [
+            # Valid cited claim
+            {"text": "Cited claim.", "citations": [{"source_id": "src1", "line_start": 1, "line_end": 1, "quote": "Phase 14 is complete."}]},
+            # Uncited — must be dropped
+            {"text": "Uncited hallucination.", "citations": []},
+        ],
+        "conflicts": [],
+    }
+    monkeypatch.setattr(perseus, "run_llm", lambda *a, **k: (json.dumps(response), 0))
+
+    doc = f"@perseus v0.4\n@synthesize question=\"What?\" source=\"{src}\"\n@end\n"
+    rendered = _render(doc, config=local, workspace=tmp_path)
+
+    assert "Cited claim." in rendered
+    assert "Uncited hallucination." not in rendered
+    assert "dropped by citation gate" in rendered
+
+
+def test_synthesize_directive_body_sources_are_added(monkeypatch, tmp_path):
+    """Sources listed in the block body (one per line) are included."""
+    src = tmp_path / "ROADMAP.md"
+    src.write_text("Phase 14 is complete.\n")
+    local = cfg()
+    local["generation"]["enabled"] = True
+    local["llm"] = {"provider": "ollama", "model": "llama3"}
+
+    response = {"claims": [], "conflicts": []}
+    calls = []
+    def fake_llm(*a, **k):
+        calls.append(a)
+        return (json.dumps(response), 0)
+    monkeypatch.setattr(perseus, "run_llm", fake_llm)
+
+    doc = f"@perseus v0.4\n@synthesize question=\"What?\"\n{src}\n@end\n"
+    _render(doc, config=local, workspace=tmp_path)
+
+    # run_llm was called (generation enabled + body source found)
+    assert len(calls) == 1
+

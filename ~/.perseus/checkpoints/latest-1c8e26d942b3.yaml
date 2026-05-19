@@ -1,0 +1,7 @@
+next: Verify diff output
+stale_after: '2026-05-19T22:21:48.175603-05:00'
+status: Second checkpoint for diff test
+task: Testing Perseus build
+version: 1
+workspace: /workspace/perseus
+written: '2026-05-18T22:21:48.175603-05:00'
