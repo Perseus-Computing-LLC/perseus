@@ -235,14 +235,129 @@ DEFAULT_CONFIG = {
         "max_source_bytes": 12000,
         "max_claims": 6,
     },
+    "serve": {                        # Phase 17A: surface serve bind for permission profiles
+        "bind": "127.0.0.1",
+    },
+    "permissions": {                  # Phase 17A — task-45
+        # profile: null | "strict" | "balanced" | "power-user"
+        # null preserves existing behavior (no profile applied). Named profiles
+        # set defaults across render/agent/serve/generation; any explicit config
+        # value in the same key wins (overrides take precedence over profiles).
+        "profile": None,
+    },
 }
 
 
+# Phase 17A — Permission Profiles (task-45)
+#
+# Profiles are *named bundles of defaults* applied AFTER DEFAULT_CONFIG and
+# BEFORE user-provided config values, so explicit overrides win. Existing
+# configs without a profile keep current behavior — the default `profile: None`
+# is a no-op.
+#
+# Discipline:
+# - These are SETTINGS, not behavior. The code paths that gate on
+#   `allow_query_shell`, `generation.enabled`, etc. are unchanged. A profile
+#   simply seeds those gates with safer defaults.
+# - Strict locks down every shell/network/generation surface Perseus exposes.
+# - Balanced mirrors today's defaults — useful for users who want to pin
+#   current behavior explicitly so a future default change doesn't surprise
+#   them.
+# - Power-user enables the riskier opt-in surfaces (`@services command:`)
+#   while still keeping LLM generation opt-in (`generation.enabled: false`)
+#   because uncited generation is a separate trust boundary (see PRODUCT_CONTRACT).
+PERMISSION_PROFILES: dict[str, dict[str, dict[str, object]]] = {
+    "strict": {
+        "render": {
+            "allow_query_shell": False,
+            "allow_agent_shell": False,
+            "allow_services_command": False,
+            "allow_outside_workspace": False,
+        },
+        "generation": {"enabled": False},
+        "serve": {"bind": "127.0.0.1"},
+    },
+    "balanced": {
+        "render": {
+            "allow_query_shell": True,
+            "allow_agent_shell": True,
+            "allow_services_command": False,
+            "allow_outside_workspace": False,
+        },
+        "generation": {"enabled": False},
+        "serve": {"bind": "127.0.0.1"},
+    },
+    "power-user": {
+        "render": {
+            "allow_query_shell": True,
+            "allow_agent_shell": True,
+            "allow_services_command": True,
+            "allow_outside_workspace": False,  # still off — workspace boundary is a hard wall
+        },
+        "generation": {"enabled": False},      # generation stays opt-in even for power-user
+        "serve": {"bind": "127.0.0.1"},
+    },
+}
+
+
+def _apply_permission_profile(cfg: dict, profile_name: object) -> str | None:
+    """Apply a permission profile to cfg in place.
+
+    Returns the canonical profile name applied, or None if profile_name is
+    falsy or unknown. Unknown profile names are silently ignored so a config
+    typo cannot brick the renderer — but `perseus trust` surfaces the
+    canonical applied profile so the operator can spot the mismatch.
+    """
+    if not profile_name:
+        return None
+    name = str(profile_name).strip().lower()
+    profile = PERMISSION_PROFILES.get(name)
+    if not profile:
+        return None
+    for section, vals in profile.items():
+        if section not in cfg or not isinstance(cfg[section], dict):
+            cfg[section] = {}
+        cfg[section].update(vals)
+    return name
+
+
 def load_config(workspace: Path | None = None) -> dict:
-    """Merge global config with optional workspace-local config."""
+    """Merge global config with optional workspace-local config.
+
+    Layering (lowest → highest priority):
+        1. DEFAULT_CONFIG hardcoded values
+        2. Permission profile (if any source sets `permissions.profile`)
+        3. Global ~/.perseus/config.yaml
+        4. Workspace .perseus/config.yaml
+
+    The profile is sandwiched between the hardcoded defaults and user values
+    so explicit config keys always win — see task-45 AC #3.
+    """
     cfg = dict(DEFAULT_CONFIG)
     for section, vals in DEFAULT_CONFIG.items():
         cfg[section] = dict(vals)
+
+    # Pre-scan the user-supplied sources to discover whether any of them
+    # sets a permission profile. The effective profile is the highest-
+    # priority value (workspace > global), matching final-merge precedence.
+    loaded_sources: list[dict] = []
+    global_cfg = PERSEUS_HOME / "config.yaml"
+    if global_cfg.exists():
+        with open(global_cfg) as f:
+            loaded_sources.append(yaml.safe_load(f) or {})
+    if workspace:
+        local_cfg = workspace / ".perseus" / "config.yaml"
+        if local_cfg.exists():
+            with open(local_cfg) as f:
+                loaded_sources.append(yaml.safe_load(f) or {})
+
+    effective_profile: object = None
+    for src in loaded_sources:
+        perms = (src or {}).get("permissions") if isinstance(src, dict) else None
+        if isinstance(perms, dict) and "profile" in perms:
+            effective_profile = perms.get("profile")
+    if effective_profile:
+        _apply_permission_profile(cfg, effective_profile)
 
     def merge_loaded(loaded: dict) -> None:
         loaded = dict(loaded or {})
@@ -257,6 +372,7 @@ def load_config(workspace: Path | None = None) -> dict:
             else:
                 cfg[section] = vals
 
+
     global_cfg = PERSEUS_HOME / "config.yaml"
     if global_cfg.exists():
         with open(global_cfg) as f:
@@ -269,7 +385,6 @@ def load_config(workspace: Path | None = None) -> dict:
                 merge_loaded(yaml.safe_load(f) or {})
 
     return cfg
-
 
 def _infer_workspace(source_path: Path) -> Path:
     """Infer workspace from a source path without assuming .perseus/context.md."""
@@ -7361,7 +7476,7 @@ for _spec in DIRECTIVE_REGISTRY.values():
 
 # ───── Task-26: perseus doctor ───────────────────────────────────────────────
 
-_PERSEUS_VERSION = "0.8.1"
+_PERSEUS_VERSION = "0.9.0"
 
 
 class DoctorResult(NamedTuple):
@@ -7568,6 +7683,93 @@ _DOCTOR_CHECKS = [
     _doctor_check_serve_loopback,
     _doctor_check_registry,
 ]
+
+
+def _effective_profile_summary(cfg: dict) -> dict:
+    """Build the structured trust summary used by `perseus trust` (task-45).
+
+    Returns a dict suitable for both human rendering and `--json` output.
+    Reflects the *effective* config after profile + user overrides have been
+    merged — so the human report shows what's actually in force, not the
+    profile's nominal defaults.
+    """
+    perms_cfg = cfg.get("permissions", {}) or {}
+    render_cfg = cfg.get("render", {}) or {}
+    gen_cfg = cfg.get("generation", {}) or {}
+    serve_cfg = cfg.get("serve", {}) or {}
+
+    configured = perms_cfg.get("profile")
+    canonical = None
+    if configured:
+        name = str(configured).strip().lower()
+        if name in PERMISSION_PROFILES:
+            canonical = name
+
+    return {
+        "version": _PERSEUS_VERSION,
+        "permissions": {
+            "configured_profile": configured,
+            "applied_profile": canonical,
+            "available_profiles": sorted(PERMISSION_PROFILES.keys()),
+        },
+        "effective": {
+            "render": {
+                "allow_query_shell": bool(render_cfg.get("allow_query_shell", True)),
+                "allow_agent_shell": bool(render_cfg.get("allow_agent_shell", True)),
+                "allow_services_command": bool(render_cfg.get("allow_services_command", False)),
+                "allow_outside_workspace": bool(render_cfg.get("allow_outside_workspace", False)),
+            },
+            "generation": {
+                "enabled": bool(gen_cfg.get("enabled", False)),
+            },
+            "serve": {
+                "bind": serve_cfg.get("bind", "127.0.0.1"),
+            },
+        },
+    }
+
+
+def cmd_trust(args, cfg) -> int:
+    """`perseus trust` — show the effective permission profile (task-45).
+
+    Phase 17C (task-47) will extend this command with audit-log summaries.
+    For task-45 it returns the effective permissions in human or JSON form.
+    """
+    sub = getattr(args, "trust_command", None) or "profile"
+    summary = _effective_profile_summary(cfg)
+
+    if getattr(args, "json", False):
+        print(json.dumps(summary, indent=2, sort_keys=True))
+        return 0
+
+    if sub in ("profile", None):
+        perms = summary["permissions"]
+        eff = summary["effective"]
+        print(f"perseus trust — Perseus alpha v{_PERSEUS_VERSION}")
+        configured = perms["configured_profile"]
+        applied = perms["applied_profile"]
+        if configured is None:
+            print("  profile:           (none — using DEFAULT_CONFIG values)")
+        elif applied is None:
+            print(f"  profile:           {configured!r} ⚠ unknown — ignored. "
+                  f"Available: {', '.join(perms['available_profiles'])}")
+        elif applied != str(configured).strip().lower():
+            print(f"  profile:           {applied} (configured as {configured!r})")
+        else:
+            print(f"  profile:           {applied}")
+        print(f"  available:         {', '.join(perms['available_profiles'])}")
+        print("")
+        print("Effective permissions (profile + explicit overrides):")
+        print(f"  render.allow_query_shell:       {eff['render']['allow_query_shell']}")
+        print(f"  render.allow_agent_shell:       {eff['render']['allow_agent_shell']}")
+        print(f"  render.allow_services_command:  {eff['render']['allow_services_command']}")
+        print(f"  render.allow_outside_workspace: {eff['render']['allow_outside_workspace']}")
+        print(f"  generation.enabled:             {eff['generation']['enabled']}")
+        print(f"  serve.bind:                     {eff['serve']['bind']}")
+        return 0
+
+    sys.stderr.write(f"perseus trust: unknown subcommand {sub!r}\n")
+    return 2
 
 
 def cmd_doctor(args, cfg) -> int:
@@ -8822,6 +9024,13 @@ def main():
     p_doctor.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
     p_doctor.add_argument("--json", action="store_true", help="Output machine-readable JSON")
 
+    # trust (Phase 17A — task-45 permission profile inspector; expands in task-47)
+    p_trust = sub.add_parser("trust", help="Show effective permission profile and trust posture")
+    trust_sub = p_trust.add_subparsers(dest="trust_command", required=False)
+    p_trust_profile = trust_sub.add_parser("profile", help="Show effective permission profile (default)")
+    p_trust_profile.add_argument("--json", action="store_true", help="Output machine-readable JSON")
+    p_trust.add_argument("--json", action="store_true", help="Output machine-readable JSON")
+
     # oracle (Daedalus dataset / labeling)
     p_oracle = sub.add_parser("oracle", help="Oracle log labeling and dataset export")
     oracle_sub = p_oracle.add_subparsers(dest="oracle_command", required=True)
@@ -8905,6 +9114,8 @@ def main():
         cmd_health(args, cfg)
     elif args.command == "doctor":
         return cmd_doctor(args, cfg)
+    elif args.command == "trust":
+        return cmd_trust(args, cfg)
     elif args.command == "oracle":
         rc = cmd_oracle(args, cfg)
         if isinstance(rc, int):
