@@ -116,9 +116,7 @@ Do not start a task that is already marked Completed or In Progress.
 
 ## Active Tasks (live Agora board)
 
-@agora status=open
-
-@agora status=in_progress
+@agora status=open,in_progress
 
 > ↑ This block is rendered live by Perseus itself. When viewing this file via
 > `perseus render AGENTS.md`, the `@agora` directives are expanded to a markdown

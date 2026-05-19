@@ -3,7 +3,7 @@
 **For:** Principal developer preparing Phase 14
 **Repo:** https://github.com/tcconnally/perseus  
 **Baseline:** task-35 batch, 297 tests passing, 1 sandbox-skipped TCP smoke
-**State:** Phases 11, 12, and 13 complete; write the resolver-vs-generator decision brief before Phase 14 planning
+**State:** Phases 11, 12, and 13 complete; resolver-vs-generator brief is written; Phase 14 planning can begin
 
 ---
 
@@ -13,6 +13,7 @@
 2. `AGENTS.md` — contributor constraints and task workflow
 3. `tasks/README.md` — Agora workflow
 4. `spec/data-model.md` — current schema validation DSL and `perseus validate` contract
+5. `docs/RESOLVER_VS_GENERATOR.md` — decision brief for the Phase 14/15 boundary
 
 ---
 
@@ -26,6 +27,7 @@
 | **task-33** directive dependency graph | task-33 batch | complete | `perseus graph`, JSON graph, static resource hints |
 | **task-34** pattern prefetch rules | task-34 batch | complete | `prefetch.rules`, `perseus prefetch`, cache warming with trust gates |
 | **task-35** adaptive prefetch scoring | task-35 batch | complete | deterministic/Daedalus scoring over predeclared candidates with fallback |
+| **Decision brief** resolver vs generator | decision-brief batch | complete | recommends resolver boundary through Phase 14; Phase 15 generation must be opt-in |
 
 Phase 11 was already complete in the prior handoff: baseline repairs, `DIRECTIVE_REGISTRY`, `perseus doctor`, JSON agent surfaces, LSP integration tests, and the split test suite are all on `main`.
 
@@ -82,7 +84,7 @@ tests/
 
 ---
 
-## Next: Resolver-vs-Generator Decision Brief
+## Next: Phase 14 Planning
 
 Phase 13 is complete:
 
@@ -101,7 +103,10 @@ Phase 13 is complete:
    - Keep deterministic fallback and no required model dependency.
    - Preserve the Phase 14 resolver-vs-generator decision gate.
 
-Before Phase 14 planning, write the resolver-vs-generator decision brief called out in `ROADMAP.md`.
+The resolver-vs-generator decision brief now lives at
+`docs/RESOLVER_VS_GENERATOR.md`. It recommends keeping Phase 14 inside the
+resolver boundary and treating Phase 15 generation as an explicit opt-in product
+pivot.
 
 ---
 

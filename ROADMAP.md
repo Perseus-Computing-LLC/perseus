@@ -643,6 +643,10 @@ technical decision, it's a product decision.
 3. Is the generative capability better as a Perseus feature or as something the
    consuming AI does itself with Perseus's resolved context as input?
 
+**Decision brief:** [`docs/RESOLVER_VS_GENERATOR.md`](docs/RESOLVER_VS_GENERATOR.md)
+recommends keeping Phase 14 inside the resolver boundary and treating Phase 15
+generation as an explicit opt-in product pivot.
+
 ---
 
 ## Phase 15 — Generative Context Enhancement (Contingent)
