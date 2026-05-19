@@ -512,6 +512,30 @@ command palette entries. All real logic stays in the LSP.
 
 ---
 
+### Phase 11 — Code review remediation ← ACTIVE
+
+The 2026-05-18 principal code review produced one urgent fix-batch
+(v0.8.1, all in `main`) and five follow-up tasks. The remaining tasks are
+spec-complete and waiting for an executor.
+
+| Task | Scope | Open? | Source |
+|---|---|---|---|
+| [task-25](tasks/task-25-directive-registry.md) — `DIRECTIVE_REGISTRY` single source of truth | medium | 🔲 | Review: "no authoritative directive registry" |
+| [task-26](tasks/task-26-perseus-doctor.md) — `perseus doctor` contract stabilizer | small | 🔲 | Review: "next priority — perseus doctor" |
+| [task-27](tasks/task-27-lsp-integration-tests.md) — LSP JSON-RPC integration test harness | medium | 🔲 | Review: "tests do not adequately test the actual LSP event loop" |
+| [task-28](tasks/task-28-agent-json-surfaces.md) — `--json` for oracle/drift/memory/federation/llm | medium | 🔲 | Review: "agents have to scrape prose" |
+| [task-29](tasks/task-29-split-tests-by-subsystem.md) — split test file into 5 subsystem files | small | 🔲 | Review: "discoverability problem at the edge" |
+
+Already shipped in v0.8.1 (no task file — direct fixes per review):
+
+- `_serve_collect_stats` inbox arg-order bug + regression test
+- LSP hover sandboxed; `@agent` / `@query` / `@services` return labelled stub instead of executing
+- `serve --host <non-loopback>` requires explicit `--i-understand-no-auth` flag
+- `cmd_memory` status: removed dead `* 0` legacy slot, documented the field semantics
+- `cmd_oracle infer-labels`: `inferred_none` counter now actually counts (was always 0)
+
+---
+
 ## Future Development (Phase 11+)
 
 All originally-scoped phases (1-10) are now complete. Perseus v0.8 is

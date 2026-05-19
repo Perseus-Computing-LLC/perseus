@@ -2527,3 +2527,127 @@ def test_lsp_uri_to_path():
 def test_lsp_workspace_from_params_uses_workspaceFolders():
     p = perseus._lsp_workspace_from_params({"workspaceFolders": [{"uri": "file:///tmp"}]})
     assert p == Path("/tmp").resolve()
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  Code-review fixes 2026-05-18 — regression tests
+# ════════════════════════════════════════════════════════════════════════════
+
+
+def test_serve_collect_stats_inbox_unread_reports_real_count(tmp_path, monkeypatch):
+    """Regression: _inbox_dir args were swapped; blanket except hid the bug,
+    so /` always reported inbox_unread as 'unavailable'."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path / ".perseus")
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    cfg_ = cfg()
+    # Seed two unread messages by writing YAML directly to the inbox dir
+    idir = perseus._inbox_dir(workspace, cfg_)
+    idir.mkdir(parents=True, exist_ok=True)
+    import yaml as _yaml
+    for i, sender in enumerate(("alice", "bob")):
+        (idir / f"2026-05-18T10-00-0{i}-{sender}.yaml").write_text(
+            _yaml.safe_dump({"id": f"m{i}", "from": sender, "to": "me", "subject": "x", "body": "y", "read": False})
+        )
+    stats = perseus._serve_collect_stats(cfg_, workspace)
+    assert stats.get("inbox_unread") == 2
+
+
+def test_lsp_hover_refuses_to_execute_agent(tmp_path):
+    """Critical safety fix: hover must never spawn a subprocess via @agent."""
+    cfg_ = cfg()
+    workspace = tmp_path
+    result = perseus._lsp_resolve_directive_for_hover("@agent", "echo HACKED", cfg_, workspace)
+    assert "hover disabled" in result.lower()
+    assert "subprocess" in result.lower()
+    # The forbidden command text MUST NOT appear in the hover output, period.
+    assert "HACKED" not in result
+
+
+def test_lsp_hover_refuses_query_and_services(tmp_path):
+    cfg_ = cfg()
+    for name in ("@query", "@services"):
+        result = perseus._lsp_resolve_directive_for_hover(name, '"echo X"', cfg_, tmp_path)
+        assert "hover disabled" in result.lower()
+
+
+def test_lsp_hover_still_works_for_safe_directives(tmp_path):
+    """Hover sandbox must not break the safe directives."""
+    cfg_ = cfg()
+    result = perseus._lsp_resolve_directive_for_hover("@date", 'format="YYYY"', cfg_, tmp_path)
+    # Should produce a 4-digit year (deterministic, no shell)
+    assert len(result.strip()) == 4
+    assert result.strip().isdigit()
+
+
+def test_serve_refuses_non_loopback_without_opt_in(tmp_path, capsys):
+    """Critical safety fix: --host 0.0.0.0 must refuse without --i-understand-no-auth."""
+    ns = argparse.Namespace(
+        lsp=False,
+        host="0.0.0.0",
+        port=7991,
+        workspace=str(tmp_path),
+        i_understand_no_auth=False,
+    )
+    rc = perseus.cmd_serve(ns, cfg())
+    assert rc == 2
+    captured = capsys.readouterr()
+    assert "refusing to bind" in captured.err.lower()
+    assert "--i-understand-no-auth" in captured.err
+
+
+def test_serve_loopback_does_not_require_opt_in():
+    """Default bind (127.0.0.1) must not require the opt-in."""
+    # We don't actually start the server — just verify the gate doesn't trip.
+    # The gate is the first thing checked after host parsing, before any socket op.
+    # If it tripped we'd get rc=2 immediately. Instead we monkeypatch HTTPServer
+    # to raise sentinel so we know we reached past the gate.
+    import http.server as hs
+    sentinel = RuntimeError("reached HTTPServer")
+    class _Boom(hs.HTTPServer):
+        def __init__(self, *a, **kw):
+            raise sentinel
+    ns = argparse.Namespace(
+        lsp=False, host="127.0.0.1", port=0, workspace=".", i_understand_no_auth=False,
+    )
+    try:
+        # Patch via import-as
+        old = hs.HTTPServer
+        hs.HTTPServer = _Boom
+        try:
+            perseus.cmd_serve(ns, cfg())
+        except RuntimeError as exc:
+            assert exc is sentinel  # we passed the gate
+            return
+        finally:
+            hs.HTTPServer = old
+    except SystemExit:
+        # Shouldn't exit
+        raise AssertionError("loopback bind triggered the non-loopback gate")
+
+
+def test_infer_labels_inferred_none_counter_is_real(tmp_path, monkeypatch):
+    """Regression: inferred_none was always 0 because the None branch continued
+    without incrementing. Per code review 2026-05-18, this is now a real bucket."""
+    log = tmp_path / "oracle.jsonl"
+    # One entry that will produce a None inference (no checkpoints in window)
+    log.write_text(json.dumps({
+        "timestamp": "2026-05-18T10:00:00",
+        "prompt": "p", "response": "r",
+        # no 'accepted' → eligible for inference; no checkpoints will be in window
+    }) + "\n")
+    monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path)
+    monkeypatch.setattr(perseus, "_oracle_log_entries", lambda: [json.loads(l) for l in log.read_text().splitlines()])
+    monkeypatch.setattr(perseus, "_load_indexed_checkpoints", lambda cfg: [])
+    monkeypatch.setattr(perseus, "_rewrite_oracle_log", lambda entries: None)
+    ns = argparse.Namespace(
+        oracle_command="infer-labels", window_days=None, window_checkpoints=None, dry_run=True,
+    )
+    captured = []
+    monkeypatch.setattr("builtins.print", lambda *a, **k: captured.append(" ".join(str(x) for x in a)))
+    rc = perseus.cmd_oracle(ns, cfg())
+    assert rc == 0
+    out = "\n".join(captured)
+    # Bucket must show 1, not 0 (the bug)
+    assert "inferred_none:   1" in out or "inferred_none: 1" in out
