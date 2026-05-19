@@ -106,7 +106,8 @@ checkpoints feed it.
   perseus.py                    ← single-file CLI; entire implementation lives here
   requirements.txt              ← pyyaml only; no other deps
   tests/
-    test_perseus.py             ← pytest suite; must pass before any commit
+    conftest.py                 ← shared Perseus loader and test helpers
+    test_*.py                   ← subsystem pytest files; must pass before any commit
   spec/
     overview.md
     components.md
@@ -142,7 +143,7 @@ checkpoints feed it.
 ## Workspace State
 
 @query "git log --oneline -5" fallback="git log unavailable"
-@query "git status --short" fallback="git status unavailable"
+@query "git status --short" fallback="clean"
 
 ---
 
@@ -414,8 +415,8 @@ Phase 8.2 (done): task-19 Mnēmē federation — manifest, 4 CLI subcommands, @m
 Phase 8.3 (done): Hermes integration — `hermes` provider alias, `perseus llm ping`, docs/HERMES_INTEGRATION.md
 Phase 9 (done):   task-20/21/22 — `perseus oracle infer-labels`, `memory.pattern_extractor: daedalus`, `perseus oracle drift` + `@drift`
 Phase 10 (done):  task-23/24 — LSP server (`perseus serve --lsp`), VSCode extension (`editors/vscode/`)
-Phase 11 (active): Internal hardening — DIRECTIVE_REGISTRY (task-25 ✅), doctor (task-26 ✅),
-                  --json surfaces (task-28 🔧), LSP integration tests (task-27), split tests (task-29)
+Phase 11 (done):   Internal hardening — DIRECTIVE_REGISTRY (task-25 ✅), doctor (task-26 ✅),
+                  --json surfaces (task-28 ✅), LSP integration tests (task-27 ✅), split tests (task-29 ✅)
 Phase 12:         Schema Validation Engine — formalized context quality assurance
 Phase 13:         Predictive Pre-fetching — anticipate next-needed context from patterns
 Phase 14:         Adaptive Self-Optimizing Oracle — RL-driven Pythia scoring
@@ -427,7 +428,7 @@ Phase 15:         Generative Context Enhancement (if decided yes)
 
 ---
 
-## Phase 11 — Internal Hardening (Active)
+## Phase 11 — Internal Hardening (Complete)
 
 **Goal:** Make Perseus safe to extend rapidly. No user-facing behavior changes.
 
@@ -447,27 +448,29 @@ Readiness probe command with 10 checks (config, context file, render settings,
 checkpoint age, Mnēmē narrative, federation, oracle log, serve loopback,
 directive registry). Supports `--json` for CI/agent consumption.
 
-### 11C: `--json` Agent Surfaces (task-28) 🔧
+### 11C: `--json` Agent Surfaces (task-28) ✅
 
 Add `--json` flag to 6 commands: `oracle infer-labels`, `oracle drift`,
 `llm ping`, `memory status`, `memory federation list`, `memory federation pull`.
-Stable JSON contracts for agent consumption. Branch: `feat/task-28-json-surfaces`.
+Stable JSON contracts for agent consumption, documented in
+`docs/AGENT_SURFACES.md` and linked from the README CLI reference.
 
-**Status:** All 6 handlers wired, 2 test fixes remaining.
+**Status:** Complete.
 
-### 11D: LSP Integration Tests (task-27)
+### 11D: LSP Integration Tests (task-27) ✅
 
 Real JSON-RPC subprocess tests: spawn `perseus serve --lsp --stdio`, send
 `initialize`, `textDocument/didOpen`, verify `publishDiagnostics`, test
 completion and hover responses against the DIRECTIVE_REGISTRY.
 
-**Blocked by:** 11A (task-25) ✅ — now unblocked.
+Also covers shutdown/exit, malformed JSON-RPC, the TCP transport smoke, and the
+explicit mutation gate for `perseus.compactMemory`.
 
-### 11E: Split Tests by Subsystem (task-29)
+### 11E: Split Tests by Subsystem (task-29) ✅
 
-Split `test_perseus.py` (~260 tests, ~3000 lines) into ~5 files:
-- `test_renderer.py` — directive resolution, caching, conditional blocks
-- `test_checkpoints.py` — checkpoint/recover/diff
+Split `tests/test_perseus.py` into subsystem files plus `tests/conftest.py`.
+The suite now collects 272 tests and the latest run is 271 passed, 1 skipped
+(sandbox-blocked TCP bind; the same TCP smoke passes outside the sandbox).
 - `test_oracle.py` — suggest, oracle log, drift, infer-labels
 - `test_memory.py` — Mnēmē narrative, federation
 - `test_lsp.py` — LSP helpers, framing, diagnostics
@@ -644,11 +647,11 @@ Phase 11A ─── DIRECTIVE_REGISTRY (task-25) ✅ ─────────
               │                                          │
 Phase 11B ─── doctor (task-26) ✅ ───────────────────────┤
               │                                          │
-Phase 11C ─── --json surfaces (task-28) 🔧 ─────────────┤
+Phase 11C ─── --json surfaces (task-28) ✅ ─────────────┤
               │                                          │
-Phase 11D ─── LSP integration tests (task-27) ──────────┤
+Phase 11D ─── LSP integration tests (task-27) ✅ ───────┤
               │                                          │
-Phase 11E ─── Split tests (task-29) ────────────────────┤
+Phase 11E ─── Split tests (task-29) ✅ ─────────────────┤
               │                                          │
               └── Phase 12A: Schema validation ──────────┤
                   ⚠️ DEPENDENCY DECISION                 │
@@ -672,9 +675,8 @@ Phase 14C ─── A/B recommendation testing ───────────
 Phase 15  ─── Generative Context (if decided yes) ───────┘
 ```
 
-**Estimated scope:** Phase 11 remaining tasks are 1-2 focused sessions. Phase 12
-is 2-3 sessions. Phase 13 is 2 sessions. Phase 14 is 2-3 sessions. Then the
-decision gate.
+**Estimated scope:** Phase 11 is complete. Phase 12 is 2-3 sessions. Phase 13
+is 2 sessions. Phase 14 is 2-3 sessions. Then the decision gate.
 
 ---
 

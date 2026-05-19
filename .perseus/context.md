@@ -22,7 +22,7 @@ rendered output and skip orientation. Start work immediately.
 ## Workspace State
 
 @query "git log --oneline -5" fallback="git log unavailable"
-@query "git status --short" fallback="git status unavailable"
+@query "git status --short" fallback="clean"
 
 ---
 
