@@ -249,6 +249,18 @@ perseus suggest "best way to search for a pattern across a large Python codebase
 
 ---
 
+## Development
+
+Run the Python suite with:
+
+```bash
+python -m pytest tests/ -q
+```
+
+Tests are split by subsystem under `tests/`; shared test loader/helpers live in `tests/conftest.py`.
+
+---
+
 ## CLI Reference
 
 Run `perseus <command> --help` for full flags. Summary of the surface:

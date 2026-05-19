@@ -1,12 +1,12 @@
 ---
 id: task-29
-title: Split tests/test_perseus.py into 5 subsystem files
-status: open
+title: Split tests/test_perseus.py by subsystem
+status: completed
 priority: low
 scope: small
 claimed_by: null
 created: 2026-05-18
-closed: null
+closed: 2026-05-19
 phase: 11
 theme: "E \u2014 Quality of life"
 depends_on: []
@@ -23,7 +23,7 @@ Per the 2026-05-18 review:
 > not violate the single-file runtime constraint and would make coverage
 > gaps easier to see."
 
-`tests/test_perseus.py` is now 231 tests, ~2,700 lines. Finding tests for a
+`tests/test_perseus.py` grew to 272 tests, ~3,300 lines. Finding tests for a
 specific subsystem is grep-driven. New contributors don't know where to add
 a Mnēmē test vs a renderer test.
 
@@ -88,3 +88,13 @@ none of the others.
    it should be split further (probably yes for renderer + memory).
 7. Delete the empty `tests/test_perseus.py` only after the count is
    provably unchanged.
+
+## Completed
+
+- Replaced the monolithic `tests/test_perseus.py` with subsystem files:
+  renderer, checkpoint/agora/health, platform/init/cron, LLM, oracle,
+  memory, federation, LSP, serve, doctor, and agent/inbox tests.
+- Added `tests/conftest.py` for the shared Perseus loader, `cfg()`,
+  `_seed_oracle_log`, and `_capture_json`.
+- Preserved the pre-split count: 272 collected tests; latest run is
+  271 passed, 1 skipped.
