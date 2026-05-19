@@ -430,6 +430,13 @@ Phase 14:         Adaptive Self-Optimizing Oracle — RL-driven Pythia scoring
               STOP: Product identity decision — resolver vs generator
               ════════════════════════════════════════════════════════
 Phase 15:         Cited Synthesis Under Scarcity (bounded curator layer)
+Phase 16:         Product Contract and Context Packs
+Phase 17:         Trust, Privacy, and Local Policy
+Phase 18:         Distribution and Installation
+Phase 19:         Assistant Adapter Ecosystem
+Phase 20:         Managed Runtime and Deployment Modes
+Phase 21:         Evaluation, Performance, and Compatibility Gates
+Phase 22:         v1 Release Candidate
 ```
 
 ---
@@ -709,6 +716,112 @@ leave ordinary render output unchanged.
 
 ---
 
+## Deployable Product Roadmap
+
+The phases below carry Perseus from a powerful local research tool to a
+deployable product that can be installed, configured, audited, integrated, and
+operated across common assistant/workspace environments. The product line stays
+resolver-first: generation is optional, cited, and never allowed to replace
+resolved facts.
+
+### Phase 16 — Product Contract and Context Packs
+
+**Goal:** Turn the current feature set into a clear product surface. A new user
+should understand what Perseus promises, initialize a workspace profile, and
+produce a portable context pack without reading the whole roadmap.
+
+- **16A Product contract (task-42):** Define the v1 promise, non-goals, trust
+  boundaries, supported platforms, and stable CLI surfaces.
+- **16B Context pack manifest (task-43):** Add a workspace manifest that names
+  source files, assistant targets, render outputs, trust profile, and synthesis
+  packs.
+- **16C Init/profile workflow (task-44):** Extend onboarding so `perseus init`
+  can create usable profiles for common assistants and product modes.
+
+### Phase 17 — Trust, Privacy, and Local Policy
+
+**Goal:** Make Perseus safe enough for broader deployment. A product user should
+be able to see what can execute, what can leave the workspace, what was read,
+and what was redacted.
+
+- **17A Permission profiles (task-45):** Provide named trust profiles such as
+  `strict`, `balanced`, and `power-user` over shell, file, serve, agent, and
+  generation behavior.
+- **17B Secrets and redaction (task-46):** Add deterministic redaction for
+  rendered output, synthesis prompts, logs, and serve endpoints.
+- **17C Audit log and trust report (task-47):** Record local file/shell/model
+  access decisions and expose a human/JSON `perseus trust` report.
+
+### Phase 18 — Distribution and Installation
+
+**Goal:** Make Perseus installable without cloning the repo manually. Preserve
+the single-file implementation while adding real release artifacts and platform
+smoke checks.
+
+- **18A Installer bootstrap (task-48):** Add a single-file install/update path
+  that places Perseus on PATH and verifies `pyyaml`.
+- **18B Release artifacts and versioning (task-49):** Define version bump,
+  changelog, checksum, and signed/hashed release artifact workflow.
+- **18C Cross-platform scheduler parity (task-50):** Close scheduling gaps,
+  especially Windows/Task Scheduler, and document cron/launchd/systemd/Windows
+  parity.
+
+### Phase 19 — Assistant Adapter Ecosystem
+
+**Goal:** Prove Perseus works with multiple downstream assistants through
+repeatable adapter contracts instead of one-off docs.
+
+- **19A Adapter conformance harness (task-51):** Test rendered context outputs
+  against expected files and invocation patterns for each supported assistant.
+- **19B Assistant profile gallery (task-52):** Ship maintained profiles for
+  Hermes, Codex, Claude Code, Cursor, Rovo Dev, and generic stdin/file flows.
+- **19C VSCode extension release polish (task-53):** Package, document, and
+  smoke-test the editor integration as a user-facing adapter.
+
+### Phase 20 — Managed Runtime and Deployment Modes
+
+**Goal:** Let Perseus run as a local service or containerized helper when a team
+needs a persistent context endpoint rather than ad hoc CLI execution.
+
+- **20A Authenticated serve mode (task-54):** Add optional local auth/token gates
+  and safe bind defaults for `perseus serve`.
+- **20B Container image and compose example (task-55):** Provide a minimal
+  containerized deployment that mounts a workspace and Perseus home.
+- **20C Headless watch mode (task-56):** Add a portable watch/daemon mode that
+  refreshes render outputs without depending on platform schedulers.
+
+### Phase 21 — Evaluation, Performance, and Compatibility Gates
+
+**Goal:** Make releases trustworthy. Product work should have repeatable
+fixtures, performance budgets, and migration checks before v1.
+
+- **21A Golden eval corpus (task-57):** Build representative fixture workspaces
+  for render, synthesis, trust, memory, serve, and adapter behavior.
+- **21B Performance budgets (task-58):** Track render, graph, prefetch,
+  synthesize, serve, and LSP latency against documented budgets.
+- **21C Compatibility and migration suite (task-59):** Verify old configs,
+  checkpoints, cache files, oracle logs, and memory narratives still work.
+
+### Phase 22 — v1 Release Candidate
+
+**Goal:** Produce a deployable v1 candidate with docs, examples, artifacts,
+release gates, and a clear support envelope.
+
+- **22A Documentation site and quickstart (task-60):** Create user-facing docs
+  organized around installation, first context pack, trust settings, adapters,
+  and operations.
+- **22B Example workspace/demo pack (task-61):** Ship realistic demo workspaces
+  that show local-only, assistant-profile, and managed-runtime deployments.
+- **22C Release candidate checklist (task-62):** Freeze v1 criteria, run the
+  full validation matrix, and cut the first release candidate.
+
+At the end of Phase 22, Perseus should be a working product: installable from a
+release artifact, configurable through profiles/manifests, safe by default,
+integrated with major assistant workflows, operable as CLI/service/container,
+and validated by repeatable release gates.
+
+---
+
 ## Future Direction: Decentralized Federation
 
 Deepen federation to securely share context across decentralized workspaces or
@@ -753,12 +866,40 @@ Phase 14C ─── A/B recommendation testing ✅ ─────────�
                                                          │
 Phase 15A ─── Cited synthesis contract ✅ ────────────────┤
 Phase 15B ─── Cross-source consistency synthesis ─────────┤
-Phase 15C ─── Optional curated render surface ────────────┘
+Phase 15C ─── Optional curated render surface ────────────┤
+                                                         │
+Phase 16A ─── Product contract ──────────────────────────┤
+Phase 16B ─── Context pack manifest ─────────────────────┤
+Phase 16C ─── Init/profile workflow ─────────────────────┤
+                                                         │
+Phase 17A ─── Permission profiles ───────────────────────┤
+Phase 17B ─── Secrets and redaction ─────────────────────┤
+Phase 17C ─── Audit log and trust report ────────────────┤
+                                                         │
+Phase 18A ─── Installer bootstrap ───────────────────────┤
+Phase 18B ─── Release artifacts/versioning ──────────────┤
+Phase 18C ─── Scheduler parity ──────────────────────────┤
+                                                         │
+Phase 19A ─── Adapter conformance harness ───────────────┤
+Phase 19B ─── Assistant profile gallery ─────────────────┤
+Phase 19C ─── VSCode extension release polish ───────────┤
+                                                         │
+Phase 20A ─── Authenticated serve mode ──────────────────┤
+Phase 20B ─── Container image and compose example ───────┤
+Phase 20C ─── Headless watch mode ───────────────────────┤
+                                                         │
+Phase 21A ─── Golden eval corpus ────────────────────────┤
+Phase 21B ─── Performance budgets ───────────────────────┤
+Phase 21C ─── Compatibility/migration suite ─────────────┤
+                                                         │
+Phase 22A ─── Documentation site and quickstart ─────────┤
+Phase 22B ─── Example workspace/demo pack ───────────────┤
+Phase 22C ─── v1 release candidate checklist ────────────┘
 ```
 
 **Estimated scope:** Phase 11, Phase 12, Phase 13, Phase 14, and Phase 15A are
-complete. The next Phase 15 work is cross-source consistency synthesis using the
-citation gate from task-39.
+complete. Phases 15B through 22C are now queued in Agora as the productization
+path to a deployable v1.
 
 ---
 
