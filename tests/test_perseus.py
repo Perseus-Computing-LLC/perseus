@@ -106,6 +106,34 @@ def test_query_can_be_disabled_by_config():
     assert "@query is disabled by config" in out
 
 
+def test_query_with_schema_validation(tmp_path):
+    workspace = tmp_path
+    schemas_dir = workspace / "schemas"
+    schemas_dir.mkdir()
+    schema_file = schemas_dir / "test_schema.yaml"
+    schema_file.write_text("""
+type: map
+mapping:
+  "name":
+    type: str
+    required: true
+  "version":
+    type: str
+    required: true
+""")
+    
+    # Test with valid data
+    valid_yaml = "{name: my-package, version: 1.0.0}"
+    out = perseus.resolve_query(f'"echo \'{valid_yaml}\'" schema="{schema_file}"', cfg(), workspace)
+    assert "my-package" in out
+    
+    # Test with invalid data
+    invalid_yaml = "{name: my-package}"
+    out = perseus.resolve_query(f'"echo \'{invalid_yaml}\'" schema="{schema_file}"', cfg(), workspace)
+    assert "Validation Error" in out
+
+
+
 def test_skills_frontmatter_parses_structurally(tmp_path):
     skill_dir = tmp_path / "skills" / "cat" / "demo"
     skill_dir.mkdir(parents=True)

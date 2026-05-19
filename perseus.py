@@ -585,9 +585,9 @@ def cache_set(key: str, value: str, mode: str, ttl: int | None, cfg: dict) -> No
 
 # ──────────────────────────────── @query ──────────────────────────────────────
 
-def resolve_query(args_str: str, cfg: dict) -> str:
+def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> str:
     """
-    @query "shell command" [fallback="text"] [@cache session|ttl=N]
+    @query "shell command" [fallback="text"] [schema="path/to/schema.yaml"] [@cache session|ttl=N]
 
     Runs the shell command and returns its stdout as a fenced code block.
     Cache modifiers are handled by the renderer before this resolver is called.
@@ -600,6 +600,10 @@ def resolve_query(args_str: str, cfg: dict) -> str:
     but produces no stdout. Use this to make `@query` graceful for "best effort"
     contextual data (git status when not in a git repo, optional service
     health checks, etc.).
+
+    schema="path": if provided, the stdout is parsed as YAML and validated
+    against the given schema file using pykwalify (if installed). Validation
+    errors are returned as a warning block instead of the output.
     """
     shell = cfg["render"].get("shell", "/bin/bash")
     if not cfg["render"].get("allow_query_shell", True):
@@ -611,15 +615,22 @@ def resolve_query(args_str: str, cfg: dict) -> str:
     # are parsed correctly.
     raw = re.sub(r'\s+@cache\s.*$', '', args_str.strip())
 
+    # Extract schema="..." modifier before command parsing.
+    schema_path = None
+    schema_match = re.search(r'\s+schema=(?:"((?:[^"\\]|\\.)*)"|\'((?:[^\'\\]|\\.)*)\')(\s|$)', raw)
+    if schema_match:
+        schema_path = schema_match.group(1) if schema_match.group(1) is not None else schema_match.group(2)
+        raw = (raw[:schema_match.start()] + raw[schema_match.end():]).rstrip()
+
     # task-14: extract fallback="..." (or fallback='...') BEFORE command parsing,
     # so a command containing the literal substring `fallback=` is not mis-parsed.
     fallback = None
-    fb_match = re.search(r'\s+fallback=(?:"((?:[^"\\]|\\.)*)"|\'((?:[^\'\\]|\\.)*)\')\s*$', raw)
+    fb_match = re.search(r'\s+fallback=(?:"((?:[^"\\]|\\.)*)"|\'((?:[^\'\\]|\\.)*)\')(\s|$)', raw)
     if fb_match:
         fallback = fb_match.group(1) if fb_match.group(1) is not None else fb_match.group(2)
         # Unescape backslash-escapes inside the captured text
         fallback = fallback.encode("utf-8").decode("unicode_escape", errors="replace")
-        raw = raw[:fb_match.start()].rstrip()
+        raw = (raw[:fb_match.start()] + raw[fb_match.end():]).rstrip()
 
     cmd_match = re.match(r'^"((?:[^"\\]|\\.)*)"', raw)   # double-quoted
     if not cmd_match:
@@ -660,6 +671,27 @@ def resolve_query(args_str: str, cfg: dict) -> str:
             if fallback is not None:
                 return fallback
             return f"> (no output from `{cmd}`)"
+
+        # schema validation (optional, requires pykwalify)
+        if schema_path:
+            try:
+                import yaml as _yaml
+                data = _yaml.safe_load(stdout)
+            except Exception:
+                return f"> ⚠ `@query` schema validation: stdout is not valid YAML.\n\n```{lang}\n{stdout}\n```"
+            try:
+                from pykwalify.core import Core as _Core
+                from pykwalify.errors import SchemaError as _SchemaError
+                import logging as _logging
+                _logging.getLogger("pykwalify").setLevel(_logging.CRITICAL)
+                c = _Core(source_data=data, schema_files=[str(schema_path)])
+                c.validate(raise_exception=True)
+            except ImportError:
+                pass  # pykwalify not installed — skip validation silently
+            except _SchemaError as e:
+                return f"> ⚠ `@query` Validation Error against `{schema_path}`:\n\n```\n{e}\n```"
+            except Exception as e:
+                return f"> ⚠ `@query` schema error: {e}"
 
         return f"```{lang}\n{stdout}\n```"
 
