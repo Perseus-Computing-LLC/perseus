@@ -162,6 +162,7 @@ generation:                              # task-39 / Phase 15A
   enabled: false                         # LLM drafting stays opt-in
   model: null                            # optional model override for synthesis
   max_source_bytes: 12000
+  max_claims: 6
 
 serve:                                   # task-45 / Phase 17A
   bind: 127.0.0.1                        # serve binds loopback by default
@@ -182,7 +183,20 @@ permissions:                             # task-45 / Phase 17A
   # are ignored (defaults stay in force); `perseus trust` surfaces the
   # mismatch so the operator can catch typos.
   profile: null
-  max_claims: 6
+
+redaction:                               # task-46 / Phase 17B
+  # Redact common secret shapes from output that leaves Perseus's trust
+  # boundary (render output, synthesize answer/prompt, serve responses).
+  # Source files on disk are NEVER mutated.
+  enabled: true
+  include_defaults: true
+  # Workspace-specific extra rules. Each rule: {name, pattern, replacement?}.
+  # Replacement defaults to "[REDACTED:<name>]". Invalid regexes are
+  # silently skipped so a typo cannot break rendering.
+  patterns:
+    # - name: internal_ticket
+    #   pattern: "TICKET-\\d+"
+    #   replacement: "[ticket]"
 
 agora:                                   # task-04
   tasks_dir: tasks                       # default; can be absolute
