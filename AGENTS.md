@@ -52,7 +52,6 @@ spec/
   integration.md        ← adapter patterns for wiring Perseus to an AI assistant
   data-model.md         ← config schema, checkpoint schema, directory layout
 ROADMAP.md              ← living roadmap; rendered live by Perseus itself
-PATCH_PLAN.md           ← most recent hardening plan (historical reference)
 tasks/
   README.md             ← how the task workflow works
   *.md                  ← individual task specs; pick one up and work it
