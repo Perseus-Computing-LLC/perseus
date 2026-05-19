@@ -14,7 +14,7 @@ Provider-agnostic defaults now use `PERSEUS_SKILLS_DIR` and `PERSEUS_SESSIONS_DI
 
 Perseus dogfoods itself: `ROADMAP.md` is a live `@perseus` source — the project's own documentation resolves its git state, CLI version, recent sessions, and last checkpoint at render time.
 
-**Status: Alpha v0.8.1 — Phases 1-14 and Phase 15A complete. Phase 15A adds opt-in cited synthesis with exact quote validation; uncited LLM claims are dropped. 39 tasks closed. 314 tests passing, 1 sandbox-skipped TCP smoke.**
+**Status: Alpha v0.8.1 — Phases 1-14, Phase 15A, and Phase 16 complete. Phase 16 adds the v1 product contract, context pack manifests, and profile-based init. 42 tasks closed. 322 tests passing, 1 sandbox-skipped TCP smoke.**
 
 ---
 
@@ -268,8 +268,12 @@ assistant:                              # path to your agent's sessions dir; use
 # `assistant:` and is auto-migrated on load (see load_config in perseus.py).
 EOF
 
-# Scaffold a source document for your workspace (v0.4+)
+# Scaffold a source document for your workspace
 perseus init /workspace/myproject
+
+# Or scaffold a product profile + context pack
+perseus init --profile generic /workspace/myproject
+perseus pack validate --workspace /workspace/myproject
 
 # Edit to taste, then render
 perseus render /workspace/myproject/.perseus/context.md
@@ -312,6 +316,7 @@ Run `perseus <command> --help` for full flags. Summary of the surface:
 | `perseus graph <file> [--json]` | Build a static directive graph without executing directives; foundation for predictive prefetching. |
 | `perseus prefetch <file> [--json]` | Apply configured `prefetch.rules` to the static graph and warm directive caches. |
 | `perseus synthesize <question> --source FILE [--json]` | Build a cited-synthesis prompt, or explicitly run an LLM drafter with citation validation. Uncited claims are dropped. |
+| `perseus pack {validate,show} [--json]` | Inspect and validate `.perseus/pack.yaml` context pack manifests. |
 | `perseus validate --schema SCHEMA [payload|-] [--json]` | Validate YAML/JSON payloads against Perseus schemas; omit payload or pass `-` to read stdin. |
 | `perseus checkpoint --task ... --status ... --next ...` | Write a YAML waypoint to `~/.perseus/checkpoints/`. Auto-updates Mnēmē narrative. |
 | `perseus diff [--from FILE] [--to FILE]` | Show diff between two checkpoints (default: latest two). |
@@ -323,7 +328,7 @@ Run `perseus <command> --help` for full flags. Summary of the surface:
 | `perseus health` | Maintenance report — stale skills, large narrative, oracle log volume. |
 | `perseus oracle {accept,reject,log,export,infer-labels,outcomes,drift}` | Daedalus oracle log management, inferred labels, outcome signals, and drift checks. |
 | `perseus llm ping [--provider hermes\|ollama\|...]` | Verify the configured LLM provider is reachable. |
-| `perseus init [--template name] <workspace>` | Scaffold a `.perseus/context.md` and `~/.perseus/config.yaml`. |
+| `perseus init [--template name | --profile name] <workspace>` | Scaffold `.perseus/context.md`; profiles also write `.perseus/pack.yaml`. |
 | `perseus serve [--port N] [--host H]` | Read-only HTTP view of workspace state on `http://127.0.0.1:7991/`. |
 | `perseus serve --lsp --stdio\|--tcp PORT [--allow-lsp-mutations]` | Run as a Language Server Protocol server for editor integration (Phase 10.1). Mutation commands are opt-in. |
 | `perseus cron [setup\|disable] --interval 5m` | Cross-platform scheduler scaffolder (cron/launchd/Task Scheduler). |
@@ -459,7 +464,7 @@ oracle:
 | **Phase 14** | Adaptive self-optimizing oracle — outcome signals, online scoring, and opt-in A/B exploration | ✅ Complete |
 | **Phase 15A** | Cited synthesis contract — `perseus synthesize`, opt-in generation, exact quote citation gate | ✅ Complete |
 | **Phase 15B-C** | Cross-source consistency synthesis and optional curated render surface | 🌅 Planned |
-| **Phase 16** | Product contract, context pack manifest, and init/profile workflow | 🌅 Planned |
+| **Phase 16** | Product contract, context pack manifest, and init/profile workflow | ✅ Complete |
 | **Phase 17** | Trust, privacy, permission profiles, redaction, and audit reporting | 🌅 Planned |
 | **Phase 18** | Installer, release artifacts, versioning, and scheduler parity | 🌅 Planned |
 | **Phase 19** | Assistant adapter conformance and profile gallery | 🌅 Planned |
@@ -467,7 +472,9 @@ oracle:
 | **Phase 21** | Golden evals, performance budgets, and compatibility gates | 🌅 Planned |
 | **Phase 22** | v1 release candidate docs, demos, and release checklist | 🌅 Planned |
 
-Full detail: [ROADMAP.md](./ROADMAP.md). Productization summary:
+Full detail: [ROADMAP.md](./ROADMAP.md). Product references:
+[Product Contract](./docs/PRODUCT_CONTRACT.md),
+[Context Packs](./docs/CONTEXT_PACKS.md), and
 [Perseus Product Report](./docs/PERSEUS_PRODUCT_REPORT.md).
 
 ---

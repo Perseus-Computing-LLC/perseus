@@ -5210,6 +5210,291 @@ def cmd_synthesize(args, cfg) -> int:
     return code
 
 
+# ───────────────────────────── Context packs ────────────────────────────────
+
+PACK_VERSION = 1
+TRUST_PROFILES = {"strict", "balanced", "power-user"}
+
+PRODUCT_PROFILES: dict[str, dict] = {
+    "generic": {
+        "label": "Generic markdown",
+        "assistant": "generic",
+        "output": "live-context.md",
+        "trust_profile": "balanced",
+        "description": "Plain markdown output for any assistant or stdin/file flow.",
+    },
+    "hermes": {
+        "label": "Hermes Agent",
+        "assistant": "hermes",
+        "output": ".hermes.md",
+        "trust_profile": "balanced",
+        "description": "Hermes Agent reads .hermes.md at session start.",
+    },
+    "codex": {
+        "label": "Codex / AGENTS.md",
+        "assistant": "codex",
+        "output": "AGENTS.md",
+        "trust_profile": "balanced",
+        "description": "Codex-compatible repository guidance file.",
+    },
+    "claude-code": {
+        "label": "Claude Code",
+        "assistant": "claude-code",
+        "output": "CLAUDE.md",
+        "trust_profile": "balanced",
+        "description": "Claude Code project knowledge file.",
+    },
+    "cursor": {
+        "label": "Cursor",
+        "assistant": "cursor",
+        "output": ".cursorrules",
+        "trust_profile": "balanced",
+        "description": "Cursor rules/context file.",
+    },
+    "rovodev": {
+        "label": "Rovo Dev",
+        "assistant": "rovodev",
+        "output": "AGENTS.md",
+        "trust_profile": "balanced",
+        "description": "Rovo Dev AGENTS.md flow.",
+    },
+}
+
+
+def _profile_context_template(profile_name: str, profile: dict) -> str:
+    label = profile["label"]
+    return f"""@perseus v0.4
+
+@prompt
+This document was rendered live by Perseus for the {label} profile. Treat the
+resolved content below as current workspace context. Do not spend initial turns
+re-discovering the same facts unless the user asks you to verify them.
+@end
+
+# Workspace Context — @date format="YYYY-MM-DD HH:mm z"
+
+**Profile:** {profile_name}
+
+---
+
+## Last Checkpoint
+@waypoint ttl=86400
+
+---
+
+## Workspace State
+
+@query "git log --oneline -5 2>/dev/null || echo '(no git repo)'" fallback="git log unavailable"
+@query "git status --short 2>/dev/null || true" fallback="clean"
+
+---
+
+## Task Board
+@agora status=open,in_progress
+
+---
+
+## Project Memory
+@memory focus=recent ttl=300
+"""
+
+
+def _context_pack_manifest(profile_name: str, profile: dict, output: str | None = None, trust_profile: str | None = None) -> dict:
+    output_path = output or profile["output"]
+    trust = trust_profile or profile.get("trust_profile", "balanced")
+    return {
+        "version": PACK_VERSION,
+        "name": f"{profile_name}-context",
+        "profile": profile_name,
+        "trust_profile": trust,
+        "renders": [
+            {
+                "name": "default",
+                "source": ".perseus/context.md",
+                "output": output_path,
+                "assistant": profile["assistant"],
+            }
+        ],
+        "synthesis": [
+            {
+                "name": "project-status",
+                "question": "What is the current project status and next allowable action?",
+                "sources": ["ROADMAP.md", "HANDOFF.md", "README.md"],
+                "enabled": False,
+            }
+        ],
+    }
+
+
+def _pack_manifest_path(workspace: Path, manifest: str | None = None) -> Path:
+    if manifest:
+        raw = Path(manifest).expanduser()
+        return raw.resolve() if raw.is_absolute() else (workspace / raw).resolve()
+    return workspace / ".perseus" / "pack.yaml"
+
+
+def _load_pack_manifest(workspace: Path, manifest: str | None = None) -> tuple[dict | None, Path, list[str]]:
+    path = _pack_manifest_path(workspace, manifest)
+    if not path.exists():
+        return None, path, [f"manifest not found: {path}"]
+    try:
+        data = yaml.safe_load(path.read_text()) or {}
+    except Exception as exc:
+        return None, path, [f"could not parse manifest: {exc}"]
+    if not isinstance(data, dict):
+        return None, path, ["manifest must be a YAML mapping"]
+    return data, path, []
+
+
+def _pack_rel(path: Path, workspace: Path) -> str:
+    try:
+        return str(path.relative_to(workspace))
+    except ValueError:
+        return str(path)
+
+
+def validate_context_pack(workspace: Path, manifest: str | None = None) -> dict:
+    workspace = workspace.expanduser().resolve()
+    data, path, load_errors = _load_pack_manifest(workspace, manifest)
+    errors = list(load_errors)
+    warnings: list[str] = []
+    renders: list[dict] = []
+    synthesis: list[dict] = []
+    profile = None
+    trust_profile = None
+
+    if data is not None:
+        version = data.get("version")
+        if version != PACK_VERSION:
+            errors.append(f"version must be {PACK_VERSION}")
+
+        profile = data.get("profile")
+        if profile is not None and profile not in PRODUCT_PROFILES:
+            errors.append(f"unknown profile: {profile}")
+
+        trust_profile = data.get("trust_profile", "balanced")
+        if trust_profile not in TRUST_PROFILES:
+            errors.append(f"unknown trust_profile: {trust_profile}")
+
+        raw_renders = data.get("renders")
+        if not isinstance(raw_renders, list) or not raw_renders:
+            errors.append("renders must be a non-empty list")
+        else:
+            for idx, item in enumerate(raw_renders, start=1):
+                if not isinstance(item, dict):
+                    errors.append(f"renders[{idx}] must be a mapping")
+                    continue
+                name = str(item.get("name", f"render-{idx}"))
+                source = item.get("source")
+                output = item.get("output")
+                assistant = item.get("assistant", profile or "generic")
+                if not isinstance(source, str) or not source:
+                    errors.append(f"renders[{idx}].source is required")
+                    source_path = None
+                else:
+                    source_path = (workspace / source).resolve()
+                    if not source_path.exists():
+                        errors.append(f"renders[{idx}].source not found: {source}")
+                if not isinstance(output, str) or not output:
+                    errors.append(f"renders[{idx}].output is required")
+                renders.append({
+                    "name": name,
+                    "source": source,
+                    "output": output,
+                    "assistant": assistant,
+                    "source_exists": bool(source_path and source_path.exists()),
+                })
+
+        raw_synthesis = data.get("synthesis", [])
+        if raw_synthesis is None:
+            raw_synthesis = []
+        if not isinstance(raw_synthesis, list):
+            errors.append("synthesis must be a list when present")
+        else:
+            for idx, item in enumerate(raw_synthesis, start=1):
+                if not isinstance(item, dict):
+                    errors.append(f"synthesis[{idx}] must be a mapping")
+                    continue
+                name = str(item.get("name", f"synthesis-{idx}"))
+                question = item.get("question")
+                sources = item.get("sources")
+                if not isinstance(question, str) or not question:
+                    errors.append(f"synthesis[{idx}].question is required")
+                if not isinstance(sources, list) or not sources:
+                    errors.append(f"synthesis[{idx}].sources must be a non-empty list")
+                    source_records = []
+                else:
+                    source_records = []
+                    for source_ref in sources:
+                        if not isinstance(source_ref, str) or not source_ref:
+                            errors.append(f"synthesis[{idx}].sources entries must be strings")
+                            continue
+                        source_path = (workspace / source_ref).resolve()
+                        exists = source_path.exists()
+                        if not exists:
+                            warnings.append(f"synthesis[{idx}] source not found yet: {source_ref}")
+                        source_records.append({"path": source_ref, "exists": exists})
+                synthesis.append({
+                    "name": name,
+                    "question": question,
+                    "sources": source_records,
+                    "enabled": bool(item.get("enabled", False)),
+                })
+
+    return {
+        "version": PACK_VERSION,
+        "workspace": str(workspace),
+        "path": str(path),
+        "exists": data is not None,
+        "valid": not errors,
+        "errors": errors,
+        "warnings": warnings,
+        "profile": profile,
+        "trust_profile": trust_profile,
+        "renders": renders,
+        "synthesis": synthesis,
+    }
+
+
+def format_pack_validation(result: dict) -> str:
+    lines = [f"Context pack: {_pack_rel(Path(result['path']), Path(result['workspace']))}"]
+    if not result["exists"]:
+        lines.append("Status: missing")
+    else:
+        lines.append(f"Status: {'valid' if result['valid'] else 'invalid'}")
+    if result.get("profile"):
+        lines.append(f"Profile: {result['profile']}")
+    if result.get("trust_profile"):
+        lines.append(f"Trust profile: {result['trust_profile']}")
+    if result.get("renders"):
+        lines.append("Renders:")
+        for render in result["renders"]:
+            status = "ok" if render["source_exists"] else "missing source"
+            lines.append(f"- {render['name']}: {render['source']} -> {render['output']} ({render['assistant']}, {status})")
+    if result.get("synthesis"):
+        lines.append("Synthesis packs:")
+        for item in result["synthesis"]:
+            enabled = "enabled" if item["enabled"] else "disabled"
+            lines.append(f"- {item['name']}: {enabled}, {len(item['sources'])} sources")
+    if result["errors"]:
+        lines.append("Errors:")
+        lines.extend(f"- {err}" for err in result["errors"])
+    if result["warnings"]:
+        lines.append("Warnings:")
+        lines.extend(f"- {warning}" for warning in result["warnings"])
+    return "\n".join(lines)
+
+
+def cmd_pack(args, cfg) -> int:
+    workspace = Path(args.workspace).expanduser().resolve() if getattr(args, "workspace", None) else Path.cwd().resolve()
+    result = validate_context_pack(workspace, getattr(args, "manifest", None))
+    if getattr(args, "json", False):
+        print(json.dumps(result, indent=2))
+    else:
+        print(format_pack_validation(result))
+    return 0 if result["valid"] else 1
+
+
 # ───────────────────────────── Schema validation CLI ─────────────────────────
 
 def _validate_cli_payload(args) -> tuple[object | None, str, str | None]:
@@ -7995,17 +8280,47 @@ def cmd_init(args, cfg):
             print(f"  - {t}")
         return
 
+    if getattr(args, "list_profiles", False):
+        print("Available profiles:")
+        for name, profile in PRODUCT_PROFILES.items():
+            print(f"  - {name}: {profile['label']} -> {profile['output']}")
+        return
+
     workspace = Path(args.workspace).resolve() if args.workspace else Path.cwd().resolve()
     perseus_dir = workspace / ".perseus"
     context_file = perseus_dir / "context.md"
+    pack_file = perseus_dir / "pack.yaml"
 
     if context_file.exists() and not args.force:
         print(f"⚠ {context_file} already exists. Use --force to overwrite.", file=sys.stderr)
         sys.exit(1)
 
-    perseus_dir.mkdir(parents=True, exist_ok=True)
+    profile_name = getattr(args, "profile", None)
     template_name = getattr(args, "template", None)
-    if template_name:
+    if profile_name and template_name:
+        print("⚠ Choose either --profile or --template, not both.", file=sys.stderr)
+        sys.exit(1)
+    if profile_name and profile_name not in PRODUCT_PROFILES:
+        print(
+            f"⚠ Unknown profile: {profile_name!r}\n"
+            f"  Available: {', '.join(PRODUCT_PROFILES)}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    if profile_name and pack_file.exists() and not args.force and not getattr(args, "no_pack", False):
+        print(f"⚠ {pack_file} already exists. Use --force to overwrite.", file=sys.stderr)
+        sys.exit(1)
+
+    perseus_dir.mkdir(parents=True, exist_ok=True)
+    output_path = getattr(args, "output", None)
+    trust_profile = getattr(args, "trust_profile", None)
+    if profile_name:
+        profile = PRODUCT_PROFILES[profile_name]
+        if trust_profile and trust_profile not in TRUST_PROFILES:
+            print(f"⚠ Unknown trust profile: {trust_profile!r}", file=sys.stderr)
+            sys.exit(1)
+        content = _profile_context_template(profile_name, profile)
+    elif template_name:
         tpl = _load_template(template_name)
         if tpl is None:
             available = _list_templates()
@@ -8020,9 +8335,20 @@ def cmd_init(args, cfg):
         content = INIT_CONTEXT_TEMPLATE.format(workspace=str(workspace))
     context_file.write_text(content)
 
+    manifest = None
+    if profile_name and not getattr(args, "no_pack", False):
+        profile = PRODUCT_PROFILES[profile_name]
+        manifest = _context_pack_manifest(profile_name, profile, output=output_path, trust_profile=trust_profile)
+        pack_file.write_text(yaml.safe_dump(manifest, sort_keys=False))
+
     # Also add .hermes.md to .gitignore if there's a git repo here
     gitignore = workspace / ".gitignore"
     gitignore_entries = [".hermes.md", ".perseus/cache/"]
+    if manifest:
+        for render in manifest.get("renders", []):
+            output = render.get("output")
+            if output and output not in {"AGENTS.md", "CLAUDE.md"}:
+                gitignore_entries.append(output)
     if gitignore.exists():
         existing = gitignore.read_text()
         additions = [e for e in gitignore_entries if e not in existing]
@@ -8037,11 +8363,19 @@ def cmd_init(args, cfg):
         print(f"✔ Created {gitignore}")
 
     print(f"✔ Scaffolded {context_file}")
+    if manifest:
+        print(f"✔ Wrote {pack_file}")
     print()
     print("Next steps:")
-    print(f"  1. Edit {context_file} to add project-specific @services and @query blocks")
-    print(f"  2. Run: perseus render {context_file}")
-    print(f"  3. Add to cron watchdog: add '{workspace}' to WORKSPACES in perseus-render-workspace.sh")
+    if manifest:
+        render = manifest["renders"][0]
+        print(f"  1. Review {pack_file}")
+        print(f"  2. Run: perseus pack validate --workspace {workspace}")
+        print(f"  3. Run: perseus render {render['source']} --output {render['output']}")
+    else:
+        print(f"  1. Edit {context_file} to add project-specific @services and @query blocks")
+        print(f"  2. Run: perseus render {context_file}")
+        print(f"  3. Add to cron watchdog: add '{workspace}' to WORKSPACES in perseus-render-workspace.sh")
 
 
 # ──────────────────────────────── Main ────────────────────────────────────────
@@ -8084,6 +8418,18 @@ def main():
     p_synthesize.add_argument("--model-url", default=None, help="Override LLM provider URL")
     p_synthesize.add_argument("--enable-generation", action="store_true", help="Explicitly opt into generation for this run")
     p_synthesize.add_argument("--json", action="store_true", help="Output machine-readable JSON")
+
+    # pack (Phase 16B)
+    p_pack = sub.add_parser("pack", help="Inspect and validate a .perseus/pack.yaml context pack")
+    pack_sub = p_pack.add_subparsers(dest="pack_command", required=True)
+    p_pack_validate = pack_sub.add_parser("validate", help="Validate a context pack manifest")
+    p_pack_validate.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
+    p_pack_validate.add_argument("--manifest", default=None, help="Manifest path (default: .perseus/pack.yaml)")
+    p_pack_validate.add_argument("--json", action="store_true", help="Output machine-readable JSON")
+    p_pack_show = pack_sub.add_parser("show", help="Show a context pack manifest summary")
+    p_pack_show.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
+    p_pack_show.add_argument("--manifest", default=None, help="Manifest path (default: .perseus/pack.yaml)")
+    p_pack_show.add_argument("--json", action="store_true", help="Output machine-readable JSON")
 
     # validate (Phase 12C)
     p_validate = sub.add_parser("validate", help="Validate a payload against a Perseus schema")
@@ -8206,6 +8552,16 @@ def main():
                         help="Template name (see `perseus init --list-templates`)")
     p_init.add_argument("--list-templates", dest="list_templates", action="store_true",
                         help="List available templates and exit")
+    p_init.add_argument("--profile", default=None,
+                        help="Product profile (see `perseus init --list-profiles`)")
+    p_init.add_argument("--list-profiles", dest="list_profiles", action="store_true",
+                        help="List product profiles and exit")
+    p_init.add_argument("--output", default=None,
+                        help="Override the profile render output path in .perseus/pack.yaml")
+    p_init.add_argument("--trust-profile", default=None,
+                        help="Override the profile trust profile in .perseus/pack.yaml")
+    p_init.add_argument("--no-pack", action="store_true",
+                        help="When using --profile, do not write .perseus/pack.yaml")
 
     # serve (read-only HTTP view)
     p_serve = sub.add_parser("serve", help="Start a read-only HTTP view of workspace state, or an LSP server")
@@ -8312,6 +8668,8 @@ def main():
         return cmd_prefetch(args, cfg)
     elif args.command == "synthesize":
         return cmd_synthesize(args, cfg)
+    elif args.command == "pack":
+        return cmd_pack(args, cfg)
     elif args.command == "validate":
         return cmd_validate(args, cfg)
     elif args.command == "checkpoint":

@@ -1,8 +1,8 @@
 # Perseus Product Report
 
 **Date:** 2026-05-19  
-**Status:** Phases 1-14 and 15A complete; Phases 15B-22C queued in Agora  
-**Current baseline:** 314 tests passing, 1 sandbox-skipped TCP smoke
+**Status:** Phases 1-14, 15A, and 16 complete; Phases 15B-C and 17-22C queued in Agora
+**Current baseline:** 322 tests passing, 1 sandbox-skipped TCP smoke
 
 ---
 
@@ -20,8 +20,8 @@ signals, and the first bounded Phase 15 synthesis surface.
 The next product challenge is not "more intelligence." It is packaging the
 existing power into a deployable, understandable, safe product:
 
-- clear product contract
-- portable context pack manifest
+- clear product contract ✅
+- portable context pack manifest ✅
 - trust and redaction controls
 - install/release artifacts
 - assistant adapter conformance
@@ -66,7 +66,7 @@ Claude Code, Cursor, Rovo Dev, or any assistant that can read a file or stdin.
 | Daedalus path | complete on Perseus side | Label/export/routing; model training is user-owned |
 | Mneme | complete | Narrative project memory and query |
 | Federation | complete | Cross-workspace narrative subscriptions |
-| Templates/init | complete, needs product profiles | Starter scaffolds exist |
+| Templates/init | Phase 16 complete | Starter scaffolds and product profiles exist |
 | Serve | complete read-only, needs auth for product | Loopback-first HTTP view |
 | Inbox | complete | Point-to-point agent messages |
 | Cron/schedulers | partial product story | cron/launchd/systemd exist; Windows parity undecided |
@@ -122,7 +122,7 @@ The new Agora roadmap runs through Phase 22:
 | Phase | Outcome |
 |---|---|
 | 15B-C | Finish cited synthesis with cross-source consistency and optional curated render sections |
-| 16 | Define product contract, context pack manifest, and profile-based init |
+| 16 | Define product contract, context pack manifest, and profile-based init ✅ |
 | 17 | Add trust profiles, redaction, audit logs, and trust reports |
 | 18 | Make installation, versioning, release artifacts, and scheduler parity real |
 | 19 | Prove adapter compatibility with profiles and conformance tests |
@@ -145,16 +145,14 @@ This path aims at a product that can be deployed as:
 
 1. Finish task-40 and task-41 only if cited synthesis proves useful in
    cross-source consistency mode.
-2. Complete Phase 16 before heavy implementation: the product contract and pack
-   manifest become the spine for all deployment work.
-3. Do Phase 17 before remote/container exposure. Trust profiles, redaction, and
+2. Do Phase 17 before remote/container exposure. Trust profiles, redaction, and
    audit logs should precede wider serve/deploy modes.
-4. Do installer/release work before adapter polish, so profiles point at a real
+3. Do installer/release work before adapter polish, so profiles point at a real
    install path.
-5. Do adapter conformance before v1 docs, so docs describe verified flows.
-6. Do managed runtime after auth/trust and installer basics.
-7. Treat Phase 21 as the release safety net.
-8. Freeze features for Phase 22.
+4. Do adapter conformance before v1 docs, so docs describe verified flows.
+5. Do managed runtime after auth/trust and installer basics.
+6. Treat Phase 21 as the release safety net.
+7. Freeze features for Phase 22.
 
 ---
 

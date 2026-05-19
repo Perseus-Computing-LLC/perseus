@@ -1,16 +1,16 @@
 ---
 id: task-42
 title: Phase 16A product contract
-status: open
+status: completed
 priority: high
 scope: medium
-claimed_by: null
+claimed_by: codex
 created: 2026-05-19
-closed: null
+closed: 2026-05-19
 phase: 16
 theme: "Product Contract and Context Packs"
 depends_on:
-- task-41
+- task-39
 blocks:
 - task-43
 - task-45
@@ -46,3 +46,10 @@ what is intentionally out of scope, and where the trust boundary sits.
 - Do not change runtime behavior.
 - Do not add packaging or installer code.
 - Do not weaken the single-file or `pyyaml` constraints.
+
+## Completed
+
+- Added `docs/PRODUCT_CONTRACT.md` with the v1 promise, stable workflow
+  surfaces, deployment modes, trust boundary, files/state, and non-goals.
+- Linked the product contract from README and HANDOFF.
+- Updated ROADMAP to mark Phase 16A complete.
