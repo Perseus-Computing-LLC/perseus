@@ -1,12 +1,12 @@
 ---
 id: task-48
 title: Phase 18A installer bootstrap
-status: open
+status: closed
 priority: high
 scope: medium
-claimed_by: null
+claimed_by: hermes
 created: 2026-05-19
-closed: null
+closed: 2026-05-19
 phase: 18
 theme: "Distribution and Installation"
 depends_on:
@@ -16,6 +16,20 @@ blocks:
 - task-55
 opened: '2026-05-19'
 ---
+
+## Completion note (2026-05-19)
+
+Shipped `scripts/install.sh` + `INSTALL.md`. Installer:
+
+- Preserves the single-file runtime — no split, no dep manager.
+- Default prefix `~/.local`; `--prefix` and `PERSEUS_PREFIX` override.
+- Verifies Python 3.10+ and importable `pyyaml`; clear error on either miss.
+- Generates shim `<prefix>/bin/perseus` invoking
+  `<prefix>/share/perseus/perseus.py`.
+- Re-runnable for in-place upgrade; `--uninstall` is clean.
+- Verifies via `perseus --version` after install (AC #2).
+- Source-checkout workflow (`python perseus.py …`) unchanged (AC #3).
+- 6 tests in `tests/test_installer.py` (smoke + missing-pyyaml simulation).
 
 ## Why
 
