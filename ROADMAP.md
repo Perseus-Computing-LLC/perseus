@@ -411,6 +411,8 @@ Phase 6 (done):   task-06 Daedalus — dataset curation (oracle accept/reject/lo
 Phase 7 (done):   task-12 Mnēmē — narrative project memory, @memory directive, auto-update on checkpoint
 Phase 8 (done):   task-15/16/17/18 — @agent, @inbox, template gallery, perseus serve, perseus cron
 Phase 8.2 (done): task-19 Mnēmē federation — manifest, 4 CLI subcommands, @memory federation directive
+Phase 9 (scoped): task-20/21/22 — Daedalus self-rating, trained pattern extraction, drift detection
+Phase 10 (scoped): task-23/24 — LSP server, VSCode extension
 ```
 
 ---
@@ -453,33 +455,75 @@ portability matters. `--install` mutates the user's crontab via
 
 ---
 
-### Phase 9 — Daedalus v2: Closed-loop autonomy ← FUTURE
+### Phase 9 — Daedalus v2: Closed-loop autonomy ← SCOPED
 
-Once Daedalus has accumulated enough labeled training data to be useful:
+Three task files scoped 2026-05-18. All open. Sequential dependency:
+P9.1 produces inferred labels, P9.2 consumes them for trained pattern
+extraction, P9.3 monitors drift across both.
 
-**P9.1 — Self-rating loop**  
-After Pythia recommends X and the user picks X (or a tool that overlaps with
-X), automatically increment a confidence signal in the oracle log. Manual
-accept/reject becomes the exception, not the rule.
+| Sub-phase | Task | Scope | Open? |
+|---|---|---|---|
+| **P9.1** — Self-rating loop | [task-20](tasks/task-20-daedalus-self-rating.md) | medium | 🔲 |
+| **P9.2** — Trained pattern extraction in Mnēmē | [task-21](tasks/task-21-trained-pattern-extraction.md) | large | 🔲 |
+| **P9.3** — Drift detection | [task-22](tasks/task-22-drift-detection.md) | medium | 🔲 |
 
-**P9.2 — Trained pattern extraction in Mnēmē**  
-Replace the rule-based pattern-extractor in Mnēmē's "Patterns & Anti-patterns"
-section with a Daedalus inference call. Better signal-to-noise for projects
-with hundreds of oracle log entries.
+**P9.1 — Self-rating loop**
+After Pythia recommends X and the user's next checkpoint mentions a tool
+overlapping with X, automatically increment a confidence signal in the
+oracle log. Inferred labels never override explicit accept/reject. New
+CLI: `perseus oracle infer-labels`.
 
-**P9.3 — Drift detection**  
-When Daedalus's confidence on recent recommendations starts diverging from
-historical confidence, surface a notice: "Recent recommendations have low
-confidence — Daedalus may benefit from re-training on the most recent dataset
-export."
+**P9.2 — Trained pattern extraction in Mnēmē**
+Replace rule-based pattern extraction in Mnēmē's "Patterns & Anti-patterns"
+section with a Daedalus inference call when `memory.pattern_extractor:
+daedalus` is configured. Graceful fallback to deterministic on any
+failure. Bundles a `--format daedalus-patterns` export for training-data
+curation.
+
+**P9.3 — Drift detection**
+Three drift metrics (acceptance rate, skill recommendation Jaccard,
+Daedalus confidence) surfaced via `perseus oracle drift` and a new
+`@drift` directive. All thresholds config-driven.
 
 ---
 
-### Phase 10 — Editor integration ← FUTURE
+### Phase 10 — Editor integration ← SCOPED
 
-A minimal LSP/extension that surfaces Perseus directives in editor (hover to
-preview rendered output, jump to source, run `perseus render` on save).
-Probably starts as a VSCode extension because that's where most users live.
+Two task files scoped 2026-05-18. Sequential dependency: LSP first, then
+the editor-specific wrapper.
+
+| Sub-phase | Task | Scope | Open? |
+|---|---|---|---|
+| **P10.1** — Perseus LSP server | [task-23](tasks/task-23-lsp-server.md) | large | 🔲 |
+| **P10.2** — VSCode extension | [task-24](tasks/task-24-vscode-extension.md) | medium | 🔲 |
+
+**P10.1 — Perseus LSP server**
+`perseus serve --lsp --stdio|--tcp PORT` ships an LSP 3.17 subset:
+diagnostics (unknown directives, malformed args, stale waypoints),
+hover (live-resolved directive output), completion (directive names +
+arg keys), codeLens ("▶ Render"), and `workspace/executeCommand`
+(render, openCheckpoint, compactMemory). Hand-rolled JSON-RPC — no
+`pygls` (single-file constraint preserved).
+
+**P10.2 — VSCode extension**
+First and only deliverable outside `perseus.py` (mechanically required
+by VSCode's `.vsix` packaging). Lives at `editors/vscode/`. Thin
+TypeScript wrapper: launches the LSP, adds tree view + status bar +
+command palette entries. All real logic stays in the LSP.
+
+---
+
+### Beyond Phase 10
+
+Open canvas. Candidates not yet scoped:
+
+- **Phase 11** — Multi-agent inbox routing (route messages based on content
+  to specific agents in a federation)
+- **Phase 12** — Pattern-aware code actions in the LSP (refactor hints
+  driven by Mnēmē patterns)
+- **Phase 13** — JetBrains plugin, Helix LSP polish, Neovim plugin
+- **Phase 14** — Team/server mode (multi-user federation with real
+  publisher-side access control)
 
 ---
 
