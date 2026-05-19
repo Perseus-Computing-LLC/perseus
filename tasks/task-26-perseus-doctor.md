@@ -1,7 +1,7 @@
 ---
 id: task-26
 title: "perseus doctor — single contract-stable readiness check"
-status: open
+status: completed
 priority: high
 scope: small
 claimed_by:
