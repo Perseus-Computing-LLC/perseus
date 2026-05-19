@@ -2,8 +2,8 @@
 
 **For:** Principal developer continuing productization
 **Repo:** https://github.com/tcconnally/perseus  
-**Baseline:** Phase 17A-B batch, 374 tests passing, 0 skipped
-**State:** Phases 11, 12, 13, 14, 15A, 16, **17A, 17B** complete; Phases 17C-22C remain queued in Agora as the deployable-product path
+**Baseline:** Phase 17 complete (17A/17B/17C), 387 tests passing, 0 skipped
+**State:** Phases 11, 12, 13, 14, 15A, 16, **17A, 17B, 17C** complete; Phases 18-22 remain queued in Agora as the deployable-product path
 
 ---
 
@@ -42,6 +42,7 @@
 | **task-44** init profile workflow | Phase 16 batch | complete | `perseus init --profile` for generic/hermes/codex/claude-code/cursor/rovodev |
 | **task-45** permission profiles | Phase 17A | complete | `permissions.profile` (strict/balanced/power-user), `perseus trust [--json]`, `serve.bind` promoted to config, version bump to 0.9.0 |
 | **task-46** secrets redaction | Phase 17B | complete | `DEFAULT_REDACTION_RULES`, `redact_text()`, applied to render/synthesize/serve trust boundaries; source files never mutated; counts-only report (no secret values) |
+| **task-47** audit log + trust report | Phase 17C | complete | `audit_event()` JSONL writer w/ rotation; emitters at 5 trust boundaries; `perseus trust audit [--tail N] [--json]`; default `trust` shows audit posture; secret values never persisted |
 
 Phase 11 was already complete in the prior handoff: baseline repairs, `DIRECTIVE_REGISTRY`, `perseus doctor`, JSON agent surfaces, LSP integration tests, and the split test suite are all on `main`.
 
@@ -58,7 +59,7 @@ python -m pytest tests/ -q
 Latest local result:
 
 ```text
-374 passed, 0 skipped
+387 passed, 0 skipped
 ```
 
 The previously sandbox-skipped TCP LSP smoke no longer reports as skipped in the current environment.

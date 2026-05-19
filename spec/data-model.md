@@ -198,6 +198,17 @@ redaction:                               # task-46 / Phase 17B
     #   pattern: "TICKET-\\d+"
     #   replacement: "[ticket]"
 
+audit:                                   # task-47 / Phase 17C
+  # Append-only JSONL audit log of sensitive operations and policy denials.
+  # Rotated when size exceeds max_log_bytes (single `.1` backup kept).
+  # Write failures warn to stderr but never break render (AC #4).
+  # Secret values are NEVER written — only counts and rule names (AC #5).
+  enabled: true
+  log_path: ~/.perseus/audit_log.jsonl
+  max_log_bytes: 1048576                 # 1 MiB
+# Event types: shell_exec, policy_denied, model_call, redaction, serve_request.
+# Inspect with `perseus trust audit [--tail N] [--json]`.
+
 agora:                                   # task-04
   tasks_dir: tasks                       # default; can be absolute
 
