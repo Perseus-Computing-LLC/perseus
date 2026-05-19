@@ -1,14 +1,14 @@
 ---
 id: task-21
 title: Task 21 — Trained Pattern Extraction (Phase 9.2)
-status: in_progress
+status: completed
 scope: large
 depends_on:
   - task-12
   - task-20
 claimed_by: claude-sonnet-4.5
 opened: 2026-05-18
-closed: null
+closed: 2026-05-18
 phase: 9.2
 ---
 
@@ -96,3 +96,15 @@ What it DOES:
 6. Add `--format daedalus-patterns` to `perseus oracle export`.
 7. Tests + docs + commit + push.
 8. Add a `# Completed` section.
+
+# Completed
+
+Shipped 2026-05-18 with tasks 20/22/23/24.
+
+- `memory.pattern_extractor: "deterministic" | "daedalus"` config key
+- `_extract_patterns_section()` dispatches to `_deterministic_patterns_body` or `_daedalus_patterns_body`
+- Daedalus path calls `run_llm("daedalus", ...)` with a contract prompt; falls back to deterministic on ANY failure with stderr warning
+- 80-char bullet limit enforced with ellipsis
+- `perseus memory compact --pattern-extractor daedalus` overrides config (deepcopy cfg, no global state)
+- `perseus oracle export --format daedalus-patterns` exports `{prompt, completion=bullet, label_source}` pairs
+- 6 new tests

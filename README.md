@@ -14,7 +14,7 @@ Provider-agnostic defaults now use `PERSEUS_SKILLS_DIR` and `PERSEUS_SESSIONS_DI
 
 Perseus dogfoods itself: `ROADMAP.md` is a live `@perseus` source — the project's own documentation resolves its git state, CLI version, recent sessions, and last checkpoint at render time.
 
-**Status: Alpha v0.7 — Phases 1–8 all complete including Mnēmē federation (P8.2). Every directive, every CLI command, every config block in the spec is implemented. All 19 tasks closed. 179 tests passing.**
+**Status: Alpha v0.8 — All ten phases complete. Phases 9 (Daedalus v2: self-rating, trained pattern extraction, drift detection) and 10 (LSP server + VSCode extension) shipped 2026-05-18. The entire originally-scoped spec is implemented. 24 tasks closed. 224 tests passing.**
 
 ---
 
@@ -157,6 +157,7 @@ Emits a structured oracle prompt with a live environment snapshot — skills tab
 | `@inbox [unread=true] [limit=N]` | Render pending point-to-point messages from `perseus inbox send` |
 | `@memory federation [alias=name]` | Render digest of subscribed cross-workspace narratives (see `perseus memory federation`) |
 | `@memory include_federation=true` | Local narrative + appended `## Federated Context` digest |
+| `@drift` | Daedalus drift report — acceptance rate, recommendation Jaccard, confidence proxy (see `perseus oracle drift`) |
 
 Any directive accepts a `@cache` modifier:
 
@@ -228,6 +229,30 @@ perseus recover --workspace /workspace/myproject
 # Get Pythia's recommendations
 perseus suggest "best way to search for a pattern across a large Python codebase"
 ```
+
+---
+
+## Editor integration
+
+Perseus ships a Language Server Protocol server. Any editor that speaks LSP
+gets live diagnostics, hover previews of rendered directives, completion,
+and a "▶ Render" code lens — without re-implementing the directive system.
+
+```bash
+perseus serve --lsp --stdio       # for editor stdin/stdout integration
+perseus serve --lsp --tcp 7992    # for editor TCP connection
+```
+
+| Editor | Setup |
+|---|---|
+| **VSCode** | Install the bundled extension from `editors/vscode/` (see its [README](editors/vscode/README.md)). |
+| **Helix** | Add to `languages.toml`: `[[language]] name = "markdown"` and `language-servers = ["perseus"]` with `[language-server.perseus] command = "perseus" args = ["serve", "--lsp", "--stdio"]`. |
+| **Neovim** | Use `nvim-lspconfig`'s generic config: `vim.lsp.start({name = 'perseus', cmd = {'perseus', 'serve', '--lsp', '--stdio'}})`. |
+| **Zed / JetBrains / others** | Any LSP-capable editor — point it at `perseus serve --lsp --stdio`. |
+
+The server implements an LSP 3.17 subset: diagnostics, hover, completion,
+codeLens, and `workspace/executeCommand` (render, openCheckpoint, compactMemory).
+Hand-rolled JSON-RPC — no `pygls` dependency.
 
 ---
 
@@ -324,8 +349,9 @@ oracle:
 | **Phase 6** | Daedalus — oracle labeling/export CLI + `--llm daedalus` provider routing | ✅ Complete |
 | **Phase 7** | Mnēmē — narrative project memory + `@memory` directive | ✅ Complete |
 | **Phase 8** | `@agent` · `@inbox` · template gallery (`perseus init --template`) · `perseus serve` (read-only HTTP view) · cross-platform `perseus cron` scaffolder · Mnēmē federation (`@memory federation` + manifest + 4 CLI subcommands) | ✅ Complete |
-| **Phase 9 (planned)** | Daedalus v2: closed-loop autonomy (self-rating, trained pattern extraction, drift detection) | 🔲 Planned |
-| **Phase 10 (planned)** | Editor integration (LSP / VSCode) | 🔲 Planned |
+| **Phase 9** | Daedalus v2: closed-loop autonomy — `perseus oracle infer-labels` (self-rating), `memory.pattern_extractor: daedalus` (trained extraction), `perseus oracle drift` + `@drift` (drift detection) | ✅ Complete |
+| **Phase 10** | Editor integration — Perseus LSP server (`perseus serve --lsp --stdio\|--tcp`) + VSCode extension (`editors/vscode/`) | ✅ Complete |
+| **Phase 11+** | See "Future development" at the bottom of [ROADMAP.md](./ROADMAP.md) | 🌅 Open canvas |
 
 Full detail: [ROADMAP.md](./ROADMAP.md)
 

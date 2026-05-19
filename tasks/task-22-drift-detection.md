@@ -1,7 +1,7 @@
 ---
 id: task-22
 title: Task 22 — Drift Detection (Phase 9.3)
-status: in_progress
+status: completed
 scope: medium
 depends_on:
   - task-02
@@ -9,7 +9,7 @@ depends_on:
   - task-20
 claimed_by: claude-sonnet-4.5
 opened: 2026-05-18
-closed: null
+closed: 2026-05-18
 phase: 9.3
 ---
 
@@ -132,3 +132,14 @@ Overall: drift detected in 1 of 3 metrics.
 6. Implement `resolve_drift` and wire into INLINE_DIRECTIVE_RE + dispatch.
 7. Tests + docs + commit + push.
 8. Add a `# Completed` section.
+
+# Completed
+
+Shipped 2026-05-18 with tasks 20/21/23/24.
+
+- `oracle.drift_window_days` (30), `drift_acceptance_drop` (0.20), `drift_jaccard_floor` (0.30), `drift_confidence_drop` (0.15)
+- `_jaccard`, `_compute_drift` pure helpers
+- Three metrics: acceptance rate, recommendation token Jaccard, avg response length (confidence proxy)
+- `perseus oracle drift` CLI
+- `@drift` directive renders the same report inline; registered in `INLINE_DIRECTIVE_RE` and the renderer dispatch
+- 7 new tests (Jaccard math, acceptance drop, Jaccard drop, no-drift, directive)
