@@ -1,7 +1,0 @@
-next: Run another checkpoint
-stale_after: '2026-05-19T22:21:44.699264-05:00'
-status: Initial checkpoint for test
-task: Testing Perseus build
-version: 1
-workspace: /workspace/perseus
-written: '2026-05-18T22:21:44.699264-05:00'
