@@ -2411,6 +2411,140 @@ def render_source(
     return _render_lines(lines[1:], cfg, workspace)  # skip @perseus header line
 
 
+# ───────────────────────── Directive dependency graph ────────────────────────
+
+def _graph_first_token_path(args_str: str) -> tuple[str | None, str]:
+    """Extract a directive's leading path-like token without resolving it."""
+    path_str, remaining = _extract_quoted_token(args_str.strip())
+    if path_str is not None:
+        return path_str, remaining
+    parts = args_str.strip().split(None, 1)
+    if not parts:
+        return None, ""
+    return parts[0], parts[1] if len(parts) > 1 else ""
+
+
+def _directive_resource_hints(directive: str, args_str: str) -> list[dict]:
+    """Return static resource hints for graphing without touching the resource."""
+    resources: list[dict] = []
+    if directive in {"@read", "@include", "@list", "@tree"}:
+        path_str, remaining = _graph_first_token_path(args_str)
+        if path_str:
+            kind = "directory" if directive in {"@list", "@tree"} else "file"
+            resources.append({"kind": kind, "value": path_str})
+            modifiers = _parse_kv_modifiers(remaining)
+            for key in ("path", "key", "schema"):
+                if key in modifiers:
+                    resources.append({"kind": key, "value": modifiers[key]})
+        return resources
+
+    if directive == "@env":
+        parts = args_str.strip().split(maxsplit=1)
+        if parts:
+            resources.append({"kind": "env", "value": parts[0]})
+            modifiers = _parse_kv_modifiers(parts[1] if len(parts) > 1 else "")
+            if "schema" in modifiers:
+                resources.append({"kind": "schema", "value": modifiers["schema"]})
+        return resources
+
+    if directive == "@query":
+        cmd, _ = _extract_quoted_token(args_str.strip())
+        if cmd is None:
+            cmd = args_str.strip()
+        if cmd:
+            resources.append({"kind": "shell", "value": cmd})
+    return resources
+
+
+def _directive_graph_node(directive: str, args_str: str, line_no: int, ordinal: int) -> dict | None:
+    spec = DIRECTIVE_REGISTRY.get(directive)
+    if spec is None:
+        return None
+    clean_args, cache_mode, cache_ttl, cache_mock = _parse_cache_modifier(args_str)
+    return {
+        "id": f"n{ordinal}",
+        "directive": directive,
+        "line": line_no,
+        "kind": spec.kind,
+        "args": clean_args,
+        "cache": {"mode": cache_mode, "ttl": cache_ttl, "mock": cache_mock},
+        "metadata": {
+            "executes_shell": spec.executes_shell,
+            "reads_files": spec.reads_files,
+            "mutates_state": spec.mutates_state,
+            "safe_for_hover": spec.safe_for_hover,
+            "cacheable": spec.cacheable,
+            "summary": spec.summary,
+        },
+        "resources": _directive_resource_hints(directive, clean_args),
+    }
+
+
+def directive_dependency_graph(
+    source_text: str,
+    source_name: str = "<memory>",
+    workspace: Path | None = None,
+) -> dict:
+    """Build a static directive graph without executing any directive."""
+    lines = source_text.splitlines()
+    nodes: list[dict] = []
+    edges: list[dict] = []
+    in_fence = False
+    fence_char = ""
+    fence_len = 0
+
+    for line_no, line in enumerate(lines, start=1):
+        fence_match = re.match(r'^\s*(`{3,}|~{3,})(.*)$', line)
+        if in_fence:
+            if re.match(rf'^\s*{re.escape(fence_char)}{{{fence_len},}}\s*$', line):
+                in_fence = False
+                fence_char = ""
+                fence_len = 0
+            continue
+        if fence_match:
+            marker = fence_match.group(1)
+            in_fence = True
+            fence_char = marker[0]
+            fence_len = len(marker)
+            continue
+
+        stripped = line.strip()
+        if not stripped or PERCY_HEADER_RE.match(stripped):
+            continue
+
+        directive = ""
+        args_str = ""
+        m_inline = INLINE_DIRECTIVE_RE.match(stripped) if INLINE_DIRECTIVE_RE else None
+        if m_inline:
+            directive = m_inline.group(1).lower()
+            args_str = (m_inline.group(2) or "").strip()
+        elif stripped.startswith("@"):
+            token, _, rest = stripped.partition(" ")
+            directive = token.lower()
+            args_str = rest.strip()
+
+        if not directive:
+            continue
+        node = _directive_graph_node(directive, args_str, line_no, len(nodes) + 1)
+        if node is None:
+            continue
+        if nodes:
+            edges.append({"from": nodes[-1]["id"], "to": node["id"], "type": "order"})
+        nodes.append(node)
+
+    return {
+        "source": source_name,
+        "workspace": str(workspace) if workspace else None,
+        "nodes": nodes,
+        "edges": edges,
+        "summary": {
+            "node_count": len(nodes),
+            "edge_count": len(edges),
+            "directives": sorted({node["directive"] for node in nodes}),
+        },
+    }
+
+
 # ─────────────────────────────── Mnēmē Memory ────────────────────────────────
 #
 # Mnēmē — narrative project memory. Distills checkpoints + oracle log into a
@@ -4088,6 +4222,42 @@ def cmd_render(args, cfg):
         out_path.write_text(rendered)
     else:
         print(rendered)
+
+
+def cmd_graph(args, cfg) -> int:
+    """Print a static directive dependency graph."""
+    source_path = Path(args.source).expanduser().resolve()
+    if not source_path.exists():
+        print(f"Error: file not found: {source_path}", file=sys.stderr)
+        return 1
+    workspace = Path(args.workspace).expanduser().resolve() if getattr(args, "workspace", None) else _infer_workspace(source_path)
+    graph = directive_dependency_graph(
+        source_path.read_text(errors="replace"),
+        source_name=str(source_path),
+        workspace=workspace,
+    )
+    if getattr(args, "json", False):
+        print(json.dumps(graph, indent=2))
+        return 0
+
+    print(f"Directive graph: {source_path}")
+    print(f"Nodes: {graph['summary']['node_count']}  Edges: {graph['summary']['edge_count']}")
+    for node in graph["nodes"]:
+        flags = []
+        meta = node["metadata"]
+        if meta["executes_shell"]:
+            flags.append("shell")
+        if meta["reads_files"]:
+            flags.append("files")
+        if meta["mutates_state"]:
+            flags.append("mutates")
+        if meta["cacheable"]:
+            flags.append("cacheable")
+        flag_text = f" [{' '.join(flags)}]" if flags else ""
+        resources = ", ".join(f"{r['kind']}={r['value']}" for r in node["resources"])
+        resource_text = f" -> {resources}" if resources else ""
+        print(f"- {node['id']} line {node['line']}: {node['directive']} ({node['kind']}){flag_text}{resource_text}")
+    return 0
 
 
 # ───────────────────────────── Schema validation CLI ─────────────────────────
@@ -6574,6 +6744,12 @@ def main():
         help="Write rendered output to FILE instead of stdout",
     )
 
+    # graph (Phase 13A)
+    p_graph = sub.add_parser("graph", help="Build a static directive graph without rendering")
+    p_graph.add_argument("source", help="Path to .md file with @perseus header")
+    p_graph.add_argument("--workspace", default=None, help="Workspace path for graph metadata (default: inferred)")
+    p_graph.add_argument("--json", action="store_true", help="Output machine-readable JSON")
+
     # validate (Phase 12C)
     p_validate = sub.add_parser("validate", help="Validate a payload against a Perseus schema")
     p_validate.add_argument("payload", nargs="?", default="-", help="Payload file path, or '-' / omitted for stdin")
@@ -6788,6 +6964,8 @@ def main():
 
     if args.command == "render":
         cmd_render(args, cfg)
+    elif args.command == "graph":
+        return cmd_graph(args, cfg)
     elif args.command == "validate":
         return cmd_validate(args, cfg)
     elif args.command == "checkpoint":

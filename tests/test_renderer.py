@@ -279,6 +279,55 @@ def test_explicit_schema_takes_precedence_over_registry_output_schema(monkeypatc
     assert out == "3000"
 
 
+def test_directive_graph_skips_fenced_code_and_uses_registry_metadata(tmp_path):
+    source = """@perseus
+```markdown
+@query "exit 99"
+```
+@read config.yaml path="service.port"
+@env DEPLOY_ENV
+"""
+    graph = perseus.directive_dependency_graph(source, source_name="ctx.md", workspace=tmp_path)
+
+    directives = [node["directive"] for node in graph["nodes"]]
+    assert directives == ["@read", "@env"]
+    assert graph["nodes"][0]["metadata"]["reads_files"] is True
+    assert graph["nodes"][1]["metadata"]["cacheable"] is False
+
+
+def test_directive_graph_reports_static_resource_hints(tmp_path):
+    source = """@perseus
+@read config.yaml path="service.port" schema="port"
+@include docs/setup.md
+@list packages type="dirs"
+@tree src depth=2
+@env DEPLOY_ENV schema="env"
+"""
+    graph = perseus.directive_dependency_graph(source, workspace=tmp_path)
+
+    resources = {
+        node["directive"]: {(item["kind"], item["value"]) for item in node["resources"]}
+        for node in graph["nodes"]
+    }
+    assert ("file", "config.yaml") in resources["@read"]
+    assert ("path", "service.port") in resources["@read"]
+    assert ("schema", "port") in resources["@read"]
+    assert ("file", "docs/setup.md") in resources["@include"]
+    assert ("directory", "packages") in resources["@list"]
+    assert ("directory", "src") in resources["@tree"]
+    assert ("env", "DEPLOY_ENV") in resources["@env"]
+    assert ("schema", "env") in resources["@env"]
+
+
+def test_directive_graph_does_not_execute_shell_directives(tmp_path):
+    graph = perseus.directive_dependency_graph('@perseus\n@query "exit 99"', workspace=tmp_path)
+
+    assert graph["summary"]["node_count"] == 1
+    assert graph["nodes"][0]["directive"] == "@query"
+    assert graph["nodes"][0]["metadata"]["executes_shell"] is True
+    assert graph["nodes"][0]["resources"] == [{"kind": "shell", "value": "exit 99"}]
+
+
 
 def test_skills_frontmatter_parses_structurally(tmp_path):
     skill_dir = tmp_path / "skills" / "cat" / "demo"

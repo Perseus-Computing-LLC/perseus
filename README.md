@@ -14,7 +14,7 @@ Provider-agnostic defaults now use `PERSEUS_SKILLS_DIR` and `PERSEUS_SESSIONS_DI
 
 Perseus dogfoods itself: `ROADMAP.md` is a live `@perseus` source — the project's own documentation resolves its git state, CLI version, recent sessions, and last checkpoint at render time.
 
-**Status: Alpha v0.8.1 — Phases 1-12 complete. Phase 11 stabilization and Phase 12 schema validation are done, including JSON agent surfaces, LSP integration coverage, the split test suite, `schema=`, `@validate`, registry `output_schema`, and `perseus validate`. 32 tasks closed, 0 open. 283 tests passing, 1 sandbox-skipped TCP smoke.**
+**Status: Alpha v0.8.1 — Phases 1-12 complete and Phase 13A landed. Phase 11 stabilization and Phase 12 schema validation are done, and `perseus graph` now provides the static directive graph substrate for predictive prefetching. 33 tasks closed, 2 Phase 13 tasks open. 287 tests passing, 1 sandbox-skipped TCP smoke.**
 
 ---
 
@@ -269,6 +269,7 @@ Run `perseus <command> --help` for full flags. Summary of the surface:
 | Command | What it does |
 |---|---|
 | `perseus render <file>` | Resolve all directives in a source document and print rendered output. Add `--output <path>` to write to disk. |
+| `perseus graph <file> [--json]` | Build a static directive graph without executing directives; foundation for predictive prefetching. |
 | `perseus validate --schema SCHEMA [payload|-] [--json]` | Validate YAML/JSON payloads against Perseus schemas; omit payload or pass `-` to read stdin. |
 | `perseus checkpoint --task ... --status ... --next ...` | Write a YAML waypoint to `~/.perseus/checkpoints/`. Auto-updates Mnēmē narrative. |
 | `perseus diff [--from FILE] [--to FILE]` | Show diff between two checkpoints (default: latest two). |

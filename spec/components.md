@@ -466,7 +466,29 @@ schema/input read or parse errors.
 
 ---
 
-## 14. Cron (`perseus cron`) — Cross-platform Scheduling
+## 14. Directive Graph (`perseus graph`) — Static Dependency Substrate
+
+`perseus graph` scans a source document without rendering it and emits the
+directives it contains. It is the Phase 13 read-only substrate for predictive
+pre-fetching.
+
+### CLI
+
+```bash
+perseus graph .perseus/context.md
+perseus graph .perseus/context.md --json
+```
+
+The graph skips fenced code blocks and derives directive metadata from
+`DIRECTIVE_REGISTRY`: directive kind, safety flags, cacheability, and summary.
+It also includes static resource hints for file/path/env-style directives such
+as `@read`, `@include`, `@list`, `@tree`, and `@env`.
+
+The command never executes shell-backed directives.
+
+---
+
+## 15. Cron (`perseus cron`) — Cross-platform Scheduling
 
 Generates a crontab entry for periodic rendering. Works on macOS, Linux, BSD.
 Recommended over `perseus launchd` / `perseus systemd` when portability matters.
@@ -488,7 +510,7 @@ easy lookup.
 
 ---
 
-## 15. Mnēmē Federation (task-19, Phase 8.2)
+## 16. Mnēmē Federation (task-19, Phase 8.2)
 
 Cross-workspace narrative aggregation. Lets one workspace subscribe to
 another workspace's Mnēmē narrative so curated project memory flows across

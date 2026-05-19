@@ -131,6 +131,21 @@ def test_validate_cli_reads_stdin(monkeypatch, tmp_path, capsys):
     assert "<stdin>" in capsys.readouterr().out
 
 
+def test_graph_cli_json_output(tmp_path, capsys):
+    source = tmp_path / ".perseus" / "context.md"
+    source.parent.mkdir(parents=True)
+    source.write_text('@perseus\n@read config.yaml path="service.port"\n')
+    args = argparse.Namespace(source=str(source), workspace=str(tmp_path), json=True)
+
+    rc = perseus.cmd_graph(args, cfg())
+
+    data = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    assert data["summary"]["node_count"] == 1
+    assert data["nodes"][0]["directive"] == "@read"
+    assert data["nodes"][0]["resources"][0] == {"kind": "file", "value": "config.yaml"}
+
+
 def test_parse_systemd_interval_variants():
     assert perseus._parse_systemd_interval("5m") == "5min"
     assert perseus._parse_systemd_interval("2h") == "2h"

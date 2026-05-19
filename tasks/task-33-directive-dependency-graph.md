@@ -1,12 +1,12 @@
 ---
 id: task-33
 title: Phase 13A directive dependency graph
-status: in_progress
+status: completed
 priority: high
 scope: medium
 claimed_by: codex
 created: 2026-05-19
-closed:
+closed: 2026-05-19
 phase: 13
 theme: "Predictive Pre-Fetching"
 depends_on:
@@ -50,3 +50,13 @@ The graph is the read-only substrate for later prefetch rules.
 - Do not run prefetches in this task.
 - Do not add a daemon or scheduler.
 - Do not infer patterns from oracle/Mnēmē history yet; that is task-34/task-35.
+
+## Completed
+
+Added `directive_dependency_graph()` and `perseus graph <source> [--json]`.
+The graph builder scans source documents without executing directives, skips
+fenced code blocks, derives metadata from `DIRECTIVE_REGISTRY`, records source
+order edges, and reports static resource hints for file/path/env directives.
+
+Updated README/spec/roadmap docs and added tests for extraction, fenced-code
+skipping, no-execution shell directives, resource hints, and JSON CLI output.

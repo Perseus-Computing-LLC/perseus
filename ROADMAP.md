@@ -62,6 +62,7 @@ checkpoints feed it.
 | Command | What it does |
 |---|---|
 | `perseus render <file.md>` | Resolves `@perseus` source doc → plain markdown |
+| `perseus graph <file.md> [--json]` | Builds a static directive graph without executing directives |
 | `perseus validate --schema SCHEMA [payload|-]` | Validates a payload against a Perseus schema; `--json` for CI/agents |
 | `perseus checkpoint --task "..."` | Writes timestamped YAML to `~/.perseus/checkpoints/` |
 | `perseus recover` | Prints latest checkpoint (workspace + TTL aware) |
@@ -544,11 +545,15 @@ validation failures.
 **Goal:** Perseus anticipates what context the AI will need *next* and pre-fetches
 it, reducing even the render-time latency.
 
-### 13A: Directive dependency graph
+### 13A: Directive dependency graph (task-33) ✅
 
 The registry declares what each directive reads and produces. Build a static
 dependency graph: if `@query "git status"` is in the doc, and the oracle log
 shows it's almost always followed by `git diff`, pre-cache the diff output.
+
+**Status:** Complete. `perseus graph <source> [--json]` scans a source document
+without executing directives, skips fenced code blocks, and reports registry
+metadata plus static resource hints.
 
 ### 13B: Pattern-based pre-fetch rules
 
@@ -677,7 +682,7 @@ Phase 11E ─── Split tests (task-29) ✅ ───────────�
 Phase 12B ─── Directive-level schema annotations ✅ ─────┤
 Phase 12C ─── `perseus validate` CLI ✅ ─────────────────┤
                                                          │
-Phase 13A ─── Directive dependency graph ────────────────┤
+Phase 13A ─── Directive dependency graph ✅ ─────────────┤
 Phase 13B ─── Pattern-based pre-fetch rules ─────────────┤
 Phase 13C ─── Daedalus-powered adaptive pre-fetch ───────┤
                                                          │
@@ -692,8 +697,8 @@ Phase 14C ─── A/B recommendation testing ───────────
 Phase 15  ─── Generative Context (if decided yes) ───────┘
 ```
 
-**Estimated scope:** Phase 11 and Phase 12 are complete. Phase 13 is 2 sessions.
-Phase 14 is 2-3 sessions. Then the decision gate.
+**Estimated scope:** Phase 11 and Phase 12 are complete. Phase 13A is complete;
+Phase 13B/13C remain. Phase 14 is 2-3 sessions. Then the decision gate.
 
 ---
 
