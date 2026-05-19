@@ -259,6 +259,37 @@ warning.
 See `spec/components.md` § 4 (Mnēmē) for the CLI surface that produces the
 narrative file.
 
+### `@memory federation` (task-19, Phase 8.2)
+
+Render a digest of subscribed cross-workspace narratives. Subscriptions are
+defined in `~/.perseus/memory/federation.yaml` and managed via the
+`perseus memory federation` CLI.
+
+```
+@memory federation                  ← all enabled subscriptions
+@memory federation alias=hermes     ← single subscription (even if disabled)
+@memory include_federation=true     ← local narrative + appended digest
+```
+
+**Hard guarantee:** plain `@memory` is local-only forever — federated content
+never silently appears in plain `@memory` output even when subscriptions are
+configured. Use one of the two forms above to opt in (Q3 decision).
+
+**Failure semantics (Q5):**
+
+| Condition | Behavior |
+|---|---|
+| Workspace path missing | Inline warning block per alias, render continues |
+| Narrative file missing | Inline warning block per alias, render continues |
+| Narrative YAML malformed | Inline warning block per alias, render continues |
+| Narrative stale (> `checkpoints.ttl_s`) | Body included WITH stale warning |
+| Manifest file malformed | Empty digest + stderr warning, no exception |
+
+**Privacy posture (Q6):** subscriber-side only. If workspace A can read
+workspace B's narrative file, Perseus cannot meaningfully enforce
+publisher-side access control on a shared filesystem. Documented; not
+defended.
+
 ---
 
 ## Maintenance

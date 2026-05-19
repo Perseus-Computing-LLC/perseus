@@ -403,3 +403,57 @@ appropriate `* * * * *` / `0 * * * *` / `0 */N * * *` schedule.
 `crontab -l` → edit → `crontab -`. Entries are tagged `# perseus-render` for
 easy lookup.
 
+
+---
+
+## 12. Mnēmē Federation (task-19, Phase 8.2)
+
+Cross-workspace narrative aggregation. Lets one workspace subscribe to
+another workspace's Mnēmē narrative so curated project memory flows across
+related projects on the same filesystem.
+
+**Storage:** `~/.perseus/memory/federation.yaml` (path configurable via
+`memory.federation_manifest`). Schema:
+
+```yaml
+version: 1
+subscriptions:
+  - alias: support
+    path: /workspace/support-agent
+    enabled: true
+  - alias: hermes
+    path: /workspace/hermes
+    enabled: true
+    notes: primary mentor agent      # reserved field — preserved on round-trip
+```
+
+The list-of-objects shape is intentional (per Q1) so v2 fields like
+`share:`, `stale_after:`, `include_sections:` can be added without
+migrating existing manifests.
+
+**CLI:**
+
+| Command | Effect |
+|---|---|
+| `perseus memory federation list` | Table of aliases + status (ok / stale / ⚠ unavailable) + paths |
+| `perseus memory federation subscribe <alias> <path>` | Add a subscription. Validates alias against `[a-zA-Z0-9_-]+`; warns (does not refuse) on missing path or duplicate resolved path |
+| `perseus memory federation unsubscribe <alias>` | Remove a subscription. Exits 1 if alias not found |
+| `perseus memory federation pull` | Re-read all narratives — diagnostic only, never mutates the manifest |
+
+**Directive:** see `spec/directives.md` § `@memory federation`.
+
+**Scope (per Q2):** federation reads `~/.perseus/memory/<hash>.md` only.
+Checkpoints, oracle logs, inboxes, task files, health reports, and
+rendered full context are **out of scope** for v1.
+
+**Synchronisation (Q4):** the directive re-reads narratives on every render.
+There is no cache and no daemon. The CLI is side-effect-free except for
+`subscribe` and `unsubscribe`, which mutate the manifest atomically (tmp file
++ `os.replace`).
+
+**Failure modes (Q5):** missing/unreadable narratives produce inline
+warning blocks; render never silently skips and never hard-fails.
+
+**Privacy (Q6):** subscriber-side only. No publisher-side ACLs. Any
+filesystem-trust assumption the user already makes between two workspaces
+is the trust assumption federation inherits.

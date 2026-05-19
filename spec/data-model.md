@@ -107,6 +107,7 @@ memory:                                  # task-12 (Mnēmē)
   llm_provider: null
   llm_model: null
   max_narrative_lines: 300
+  federation_manifest: ~/.perseus/memory/federation.yaml   # task-19 (P8.2)
 
 inbox:                           # task-16 (Phase 8)
   store: ~/.perseus/inbox

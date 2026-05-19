@@ -1,13 +1,13 @@
 ---
 id: task-19
 title: Task 19 — Mnēmē Federation (cross-workspace narrative aggregation)
-status: in_progress
+status: completed
 scope: large
 depends_on:
   - task-12
 claimed_by: claude-sonnet-4.5
 opened: 2026-05-18
-closed: null
+closed: '2026-05-18'
 phase: 8.2
 ---
 
