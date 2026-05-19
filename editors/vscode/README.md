@@ -34,16 +34,39 @@ specific niceties.
 
 ## Development
 
+The extension is plain TypeScript and must be compiled before the Extension
+Host can load it (the entry point in `package.json` is `./out/extension.js`,
+not the `.ts` source). The order matters — skip `npm run compile` and
+VSCode will fail to activate with `Cannot find module`.
+
 ```bash
 cd editors/vscode
-npm install
-npm run compile         # tsc → out/extension.js
+npm install             # one-time: pulls vscode-languageclient + @types/vscode
+npm run compile         # tsc → out/extension.js  ← REQUIRED before launch
 code --extensionDevelopmentPath="$PWD"   # spawn an Extension Host window
 ```
+
+For iterative development, run `npm run watch` in a second terminal so the
+TypeScript compiler picks up changes automatically; reload the Extension
+Host window (`Cmd-R` / `Ctrl-R`) to pick up the new build.
 
 Open any `.md` file (or `AGENTS.md`, `.perseus/context.md`) and type
 `@` to see completion fire. Hover over `@waypoint ttl=86400` to see the
 last checkpoint's rendered summary.
+
+## Known issues / pre-publication checklist
+
+- **`publisher: perseus` in `package.json` is a placeholder.** Before
+  submitting to the VSCode Marketplace it must be changed to a real
+  publisher ID matching a verified Azure DevOps account
+  (`vsce create-publisher <name>` if you don't have one). Beta testing
+  via `vsce package` + sideload `.vsix` works fine with the placeholder.
+- **No `npm run lint`, no tests yet.** This is a thin launcher; the real
+  test surface is the LSP server tested in `tests/test_perseus.py`. If the
+  extension grows non-trivial logic that's worth covering, add
+  `@vscode/test-electron` and a `test/` directory.
+
+---
 
 ## Packaging
 

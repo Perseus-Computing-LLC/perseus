@@ -165,6 +165,9 @@ Any directive accepts a `@cache` modifier:
 @query "git log --oneline -5" @cache session      ← run once per render, reuse after
 @services @cache mock="(stubbed in CI)"           ← bypass execution entirely
 @skills flag_stale=true @cache persist             ← survives across processes
+```
+
+---
 
 ## Safety & Trust Model
 
@@ -181,6 +184,9 @@ render:
 - `allow_services_command`: enables or disables `command:` checks inside `@services`
 - `allow_outside_workspace`: controls whether `@read` / `@include` may escape the workspace
 
+Disk-cached results survive across processes for as long as their TTL allows:
+
+```markdown
 @skills flag_stale=true @cache ttl=3600           ← cache to disk for 1 hour
 ```
 
@@ -206,8 +212,10 @@ mkdir -p ~/.perseus
 cat > ~/.perseus/config.yaml << 'EOF'
 oracle:
   skill_dir: /home/you/.hermes/skills
-hermes:
+assistant:                              # path to your agent's sessions dir; used by @session
   sessions_dir: /home/you/.hermes/sessions
+# Note: the legacy key `hermes:` is still accepted as an alias for
+# `assistant:` and is auto-migrated on load (see load_config in perseus.py).
 EOF
 
 # Scaffold a source document for your workspace (v0.4+)
@@ -229,6 +237,32 @@ perseus recover --workspace /workspace/myproject
 # Get Pythia's recommendations
 perseus suggest "best way to search for a pattern across a large Python codebase"
 ```
+
+---
+
+## CLI Reference
+
+Run `perseus <command> --help` for full flags. Summary of the surface:
+
+| Command | What it does |
+|---|---|
+| `perseus render <file>` | Resolve all directives in a source document and print rendered output. Add `--output <path>` to write to disk. |
+| `perseus checkpoint --task ... --status ... --next ...` | Write a YAML waypoint to `~/.perseus/checkpoints/`. Auto-updates Mnēmē narrative. |
+| `perseus diff [--from FILE] [--to FILE]` | Show diff between two checkpoints (default: latest two). |
+| `perseus recover [--workspace PATH]` | Print the latest checkpoint for the workspace. |
+| `perseus agora [--status open\|in_progress\|completed]` | Live task board from `tasks/*.md`. |
+| `perseus suggest <prompt> [--llm provider]` | Pythia tool oracle — ranks skills against a prompt. |
+| `perseus memory {update,compact,show,status,query,federation}` | Mnēmē narrative project memory + cross-workspace federation. |
+| `perseus inbox {send,list,read,unread,mark-read}` | Point-to-point messages between agents (task-16). |
+| `perseus health` | Maintenance report — stale skills, large narrative, oracle log volume. |
+| `perseus oracle {accept,reject,log,export,infer-labels,drift}` | Daedalus oracle log management (Phase 9). |
+| `perseus llm ping [--provider hermes\|ollama\|...]` | Verify the configured LLM provider is reachable. |
+| `perseus init [--template name] <workspace>` | Scaffold a `.perseus/context.md` and `~/.perseus/config.yaml`. |
+| `perseus serve [--port N] [--host H]` | Read-only HTTP view of workspace state on `http://127.0.0.1:7991/`. |
+| `perseus serve --lsp --stdio\|--tcp PORT` | Run as a Language Server Protocol server for editor integration (Phase 10.1). |
+| `perseus cron [setup\|disable] --interval 5m` | Cross-platform scheduler scaffolder (cron/launchd/Task Scheduler). |
+| `perseus systemd [install\|uninstall] --interval 5m` | Linux-only systemd `--user` service + timer scaffolder. |
+| `perseus launchd {install,uninstall}` | macOS-only LaunchAgent scaffolder. |
 
 ---
 

@@ -253,3 +253,41 @@ session.
 4. Tests + docs + commit + push.
 5. Add a `# Completed` section summarising what shipped (including any Q
    decisions that changed during implementation and why).
+
+---
+
+# Completed (2026-05-18)
+
+Shipped per Thomas's 7 design decisions, with the slight strengthening of structured manifest entries.
+
+**Code (perseus.py only):**
+- `memory.federation_manifest` config key — default `~/.perseus/memory/federation.yaml`
+- `_federation_manifest_path` / `_load_federation_manifest` / `_save_federation_manifest` — YAML round-trip with reserved-field preservation
+- `_validate_alias` — enforces `[a-zA-Z0-9_-]+`, uniqueness, safe display
+- `_resolve_subscription_narrative` — narrative-only reads (Q2); never touches checkpoints, oracle log, inbox, tasks
+- `cmd_memory_federation` — 4 subcommands (`list`, `subscribe`, `unsubscribe`, `pull`)
+- `resolve_memory_federation` — render-time handler for `@memory federation [alias=name]`
+- Extended `resolve_memory` to honor `include_federation=true` and append `## Federated Context` digest
+- Plain `@memory` confirmed local-only (Q3 invariant — hard-guaranteed by tests)
+
+**Manifest schema (Q1, structured form):**
+```yaml
+version: 1
+subscriptions:
+  - alias: sam
+    path: /Users/tconnally/sam
+    enabled: true
+```
+Reserved fields (`stale_after`, `include_sections`, `exclude_sections`, `notes`, `share`) preserved on round-trip for v2.
+
+**Failure mode (Q5):**
+Missing / unreadable / stale subscribed narratives render as `> ⚠ Federated memory \`<alias>\` unavailable: ...` warning blocks. No silent skip, no hard fail.
+
+**Tests:** 21 new tests covering manifest CRUD, alias validation, narrative resolution, all directive forms, the Q3 local-only invariant, warning-block failure mode, federation digest appending in `include_federation=true`, and the structured-manifest reserved-field preservation.
+
+**Docs:**
+- Federation section appended to `spec/components.md` and `spec/directives.md`
+- `memory.federation_manifest` added to `spec/data-model.md` config schema
+- README + ROADMAP updated
+
+**Smoke-tested 2026-05-18** against real workspaces `~/sam` and `~/rovodev` — all 6 surfaces verified working end-to-end.
