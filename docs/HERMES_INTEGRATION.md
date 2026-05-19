@@ -79,7 +79,7 @@ Most of Perseus is deterministic and doesn't need an LLM at all. The LLM-augment
 | **Mnēmē compact** | `perseus memory compact --llm hermes` | Rewrites the narrative into tighter prose (deterministic falls back if LLM unavailable) |
 | **Mnēmē update** | `perseus memory update --llm hermes` | Optional polish over the deterministic distillation |
 | **Mnēmē query** | `perseus memory query "<question>" --llm hermes` | Answers questions over the narrative (deterministic grep fallback otherwise) |
-| **Daedalus drift** (Phase 9) | `perseus oracle drift --llm hermes` | Scoped, not yet implemented (task-22) |
+| **Daedalus drift** (Phase 9) | `perseus oracle drift --llm hermes` | Reserved for future LLM explanation; current drift reporting is deterministic/JSON-first |
 
 Everything else — rendering, checkpoints, federation, health, inbox, serve, agora — runs without ever touching an LLM. You can use Perseus end-to-end with no LLM configured at all.
 
@@ -148,7 +148,7 @@ The SSH-tunnel option is the simplest secure default — Hermes stays bound to l
 
 ## Federation + Hermes
 
-`@memory federation` and `perseus memory federation *` are **LLM-free**. Subscriptions read narrative files directly from disk; no model is invoked. If you want LLM-summarized federation digests (Phase 11+ territory), file an issue tagged `federation-llm-digest`.
+`@memory federation` and `perseus memory federation *` are **LLM-free**. Subscriptions read narrative files directly from disk; no model is invoked. If you want LLM-summarized federation digests (future Phase 13+ territory), file an issue tagged `federation-llm-digest`.
 
 ---
 
@@ -175,8 +175,8 @@ The SSH-tunnel option is the simplest secure default — Hermes stays bound to l
 
 ## Roadmap touchpoints
 
-- **Phase 9 (Daedalus v2)** — `perseus oracle drift` will use `perseus llm ping` internally as a precondition. If the configured LLM is unreachable, drift detection short-circuits with a clear error rather than logging a misleading "drift detected" alert.
-- **Phase 10 (LSP)** — the LSP server (`perseus serve --lsp`) will surface `llm.provider` and the most recent ping result in `workspace/configuration` so editors can show a "Perseus: Hermes connected" status bar item.
+- **Phase 9 (Daedalus v2)** — `perseus oracle drift` is implemented as a deterministic/JSON-first surface. Future LLM explanations can use `perseus llm ping` as a precondition.
+- **Phase 10 (LSP)** — the LSP server (`perseus serve --lsp`) is implemented. Surfacing `llm.provider` and recent ping state in editor UI remains an optional editor enhancement.
 - **Phase 14+ (Team mode)** — if/when Perseus grows a server mode for shared federation, Hermes will likely be one of the first inference paths supported via the same alias, with auth headers added.
 
 ---

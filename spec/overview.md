@@ -1,13 +1,13 @@
 # Perseus — Specification Overview
 
-**Status:** Draft v0.1  
-**Last updated:** 2026-05-18
+**Status:** Alpha v0.8.1 / Phase 12 complete
+**Last updated:** 2026-05-19
 
 ---
 
 ## Purpose
 
-Perseus is a live context engine for AI assistants. It eliminates the cold-start orientation tax by resolving environment state **before** it enters the assistant's context window, writing session **waypoints** for mid-task recovery, and providing a **tool oracle** for confident tool/skill selection.
+Perseus is a live context engine for AI assistants. It eliminates the cold-start orientation tax by resolving environment state **before** it enters the assistant's context window, writing session **waypoints** for mid-task recovery, providing a **tool oracle** for confident tool/skill selection, and validating resolved context before injection.
 
 It is the mirror Perseus used against Medusa — the assistant faces complexity through an accurate, live reflection rather than being paralyzed by it directly.
 
@@ -21,6 +21,7 @@ It is the mirror Perseus used against Medusa — the assistant faces complexity 
 | Stale markdown | AGENTS.md says "check X" — assistant has to go verify | Directives resolve at render time; assistant receives facts |
 | Interrupted sessions | Service restart / timeout drops connection mid-task | `checkpoint` — waypoint written continuously; `recover` resumes |
 | Tool selection paralysis | N ways to do a thing; wrong pick wastes turns | `suggest` — ranked tool paths given task + live env state |
+| Silent bad context | Resolved data has the wrong shape | `schema=`, `@validate`, and `perseus validate` catch malformed context before injection |
 
 ---
 
@@ -28,7 +29,7 @@ It is the mirror Perseus used against Medusa — the assistant faces complexity 
 
 - [`components.md`](components.md) — detailed spec for each component
 - [`directives.md`](directives.md) — full directive reference for the renderer
-- [`integration.md`](integration.md) — Hermes Agent wiring (AGENTS.md, workdir, cron)
+- [`integration.md`](integration.md) — assistant integration wiring (AGENTS.md, workdir, cron)
 - [`oracle.md`](oracle.md) — tool oracle design and scoring model **(MVP)**
 - [`data-model.md`](data-model.md) — file layout, schemas, state storage
 

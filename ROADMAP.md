@@ -419,7 +419,7 @@ Phase 9 (done):   task-20/21/22 — `perseus oracle infer-labels`, `memory.patte
 Phase 10 (done):  task-23/24 — LSP server (`perseus serve --lsp`), VSCode extension (`editors/vscode/`)
 Phase 11 (done):   Internal hardening — DIRECTIVE_REGISTRY (task-25 ✅), doctor (task-26 ✅),
                   --json surfaces (task-28 ✅), LSP integration tests (task-27 ✅), split tests (task-29 ✅)
-Phase 12:         Schema Validation Engine — formalized context quality assurance
+Phase 12 (done):  Schema Validation Engine — schema=, @validate, output_schema, validate CLI
 Phase 13:         Predictive Pre-fetching — anticipate next-needed context from patterns
 Phase 14:         Adaptive Self-Optimizing Oracle — RL-driven Pythia scoring
               ════════════════════════════════════════════════════════
@@ -471,8 +471,9 @@ explicit mutation gate for `perseus.compactMemory`.
 ### 11E: Split Tests by Subsystem (task-29) ✅
 
 Split `tests/test_perseus.py` into subsystem files plus `tests/conftest.py`.
-The suite now collects 272 tests and the latest run is 271 passed, 1 skipped
-(sandbox-blocked TCP bind; the same TCP smoke passes outside the sandbox).
+At Phase 11 close the suite collected 272 tests. After Phase 12, the current
+suite is 283 passed, 1 skipped (sandbox-blocked TCP bind; the same TCP smoke
+passes outside the sandbox).
 - `test_oracle.py` — suggest, oracle log, drift, infer-labels
 - `test_memory.py` — Mnēmē narrative, federation
 - `test_lsp.py` — LSP helpers, framing, diagnostics

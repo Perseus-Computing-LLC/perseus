@@ -14,7 +14,7 @@ Provider-agnostic defaults now use `PERSEUS_SKILLS_DIR` and `PERSEUS_SESSIONS_DI
 
 Perseus dogfoods itself: `ROADMAP.md` is a live `@perseus` source — the project's own documentation resolves its git state, CLI version, recent sessions, and last checkpoint at render time.
 
-**Status: Alpha v0.8.1 — All ten originally-scoped phases complete. Phase 11 stabilization complete: baseline repair, task-28 JSON surfaces, task-27 LSP integration coverage, and task-29 test split are done. 29 tasks closed, 0 open. 271 tests passing, 1 sandbox-skipped TCP smoke.**
+**Status: Alpha v0.8.1 — Phases 1-12 complete. Phase 11 stabilization and Phase 12 schema validation are done, including JSON agent surfaces, LSP integration coverage, the split test suite, `schema=`, `@validate`, registry `output_schema`, and `perseus validate`. 32 tasks closed, 0 open. 283 tests passing, 1 sandbox-skipped TCP smoke.**
 
 ---
 

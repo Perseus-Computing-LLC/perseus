@@ -1,239 +1,146 @@
 # Developer Handoff — 2026-05-19
 
-**From:** Hermes session (post-Phase-11 validation)  
-**For:** Principal developer continuing Phase 12  
+**For:** Principal developer continuing Phase 13
 **Repo:** https://github.com/tcconnally/perseus  
-**Baseline:** `main` @ `a413566`, 272 tests passing, `perseus.py` ~6,840 lines
+**Baseline:** `main` @ `5e105b6`, 283 tests passing, 1 sandbox-skipped TCP smoke
+**State:** Phases 11 and 12 complete; Phase 13 task files authored; task-33 in progress
 
 ---
 
 ## Read These First
 
-1. `ROADMAP.md` — complete future plan through Phase 15 with decision gates
-2. `AGENTS.md` — repo conventions, constraints, task workflow
-3. `tasks/README.md` — Agora workflow (how to claim/complete tasks)
-
-Then come back here for the tactical details.
+1. `ROADMAP.md` — canonical future plan through Phase 15 and the resolver/generator decision gate
+2. `AGENTS.md` — contributor constraints and task workflow
+3. `tasks/README.md` — Agora workflow
+4. `spec/data-model.md` — current schema validation DSL and `perseus validate` contract
 
 ---
 
-## What Shipped (Phase 11 — Complete)
+## What Shipped Since The Previous Handoff
 
-| Task | Commit | Status | Tests Added |
+| Task | Commit | Status | Notes |
 |---|---|---|---|
-| **task-25** DIRECTIVE_REGISTRY | `8ac4d38` | ✅ on main | 5 invariant tests |
-| **task-26** `perseus doctor` | `1b8d636` | ✅ on main | 13 doctor tests |
-| **task-28** `--json` agent surfaces | `99f80cf` | ✅ on main | ~10 JSON schema tests |
-| **task-27** LSP integration tests | `195e16f` | ✅ on main | ~30 LSP subprocess tests |
-| **task-29** split tests by subsystem | `4f21170` | ✅ on main | 0 new (mechanical split) |
-| **baseline repairs** fenced-block safety, diff, doctor paths, schema fallback | `cb545bc` | ✅ on main | — |
+| **task-30** Phase 12A schema validation engine | `5f083a8` | complete | `schema=` for `@query`, `@read`, `@env`; `.perseus/schemas/`; `@validate` |
+| **task-31** directive output schema annotations | `2453fba` | complete | `DirectiveSpec.output_schema`; automatic render-time validation; explicit `schema=` precedence |
+| **task-32** `perseus validate` CLI | `5e105b6` | complete | file/stdin input, human and JSON output, non-zero invalid/error exits |
 
-All 29 tasks closed. No open tasks. One skipped test: TCP LSP smoke (sandbox-blocked port bind; passes outside sandbox).
+Phase 11 was already complete in the prior handoff: baseline repairs, `DIRECTIVE_REGISTRY`, `perseus doctor`, JSON agent surfaces, LSP integration tests, and the split test suite are all on `main`.
 
 ---
 
-## Current State
+## Current Test Suite
 
-```
-main (a413566) — clean, pushed
-  a413566  chore: bump context.md to @perseus v0.4, v0.8.1
-  4aa79c0  docs: refresh phase 11 status
-  4f21170  test(task-29): split suite by subsystem
-  195e16f  test(task-27): exercise lsp server loop
-  99f80cf  feat(task-28): add agent json surfaces
-  cb545bc  fix(phase-11): stabilize baseline contracts
+Run:
+
+```bash
+python -m pytest tests/ -q
 ```
 
-No open branches. No stashed work.
+Latest local result:
 
----
-
-## Test Suite Layout
-
-272 tests across 13 subsystem files:
-
+```text
+283 passed, 1 skipped
 ```
+
+The skipped test is the TCP LSP smoke when sandboxed; it has passed outside the sandbox.
+
+Subsystem layout:
+
+```text
 tests/
-  conftest.py                   ← shared fixtures (cfg, tmp_path wiring, _capture_json)
-  test_renderer.py              ← directive resolution, @if, caching, @include, @read
-  test_checkpoint_agora_health.py ← checkpoint, recover, diff, agora, health
-  test_oracle.py                ← suggest, oracle log, drift, infer-labels
-  test_memory.py                ← Mnēmē narrative, compaction, query
-  test_memory_federation.py     ← federation manifest, CLI subcommands, @memory federation
-  test_lsp.py                   ← LSP JSON-RPC subprocess tests, TCP smoke, mutation gate
-  test_doctor.py                ← doctor checks, exit codes, --json
-  test_agent_inbox_template.py  ← @inbox, @agent, template gallery
-  test_llm.py                   ← --llm flag, llm ping, provider routing
-  test_platform_misc.py         ← launchd, systemd, cron, serve, init
-  test_serve.py                 ← perseus serve HTTP
-  test_perseus.py               ← deleted (was the monolith; now split)
-```
-
-Run the suite:
-
-```bash
-python -m pytest tests/ -q             # fast summary
-python -m pytest tests/ -v --tb=short  # verbose with tracebacks
-python -m pytest tests/ -k "doctor"    # filter by name
+  conftest.py
+  test_renderer.py
+  test_checkpoint_agora_health.py
+  test_oracle.py
+  test_memory.py
+  test_memory_federation.py
+  test_lsp.py
+  test_doctor.py
+  test_agent_inbox_template.py
+  test_llm.py
+  test_platform_misc.py
+  test_serve.py
 ```
 
 ---
 
-## What's Next: Phase 12 — Schema Validation Engine
+## Phase 12 Contracts Now In Force
 
-**Goal:** Formalized context quality assurance — Perseus validates that resolved
-context is well-formed before injection.
-
-**Spec:** `ROADMAP.md` § Phase 12
-
-### Open Decision: pykwalify vs pure Python
-
-The `@query schema=` modifier already exists as a proof-of-concept and currently
-soft-imports `pykwalify`. This violates constraint #2 (pyyaml only). Three options
-are documented in `ROADMAP.md § 12A`:
-
-- **A:** Get explicit owner approval for pykwalify as second dependency
-- **B:** Minimal built-in schema validator (type checks, required fields, patterns)
-- **C:** pykwalify as optional soft-dep with graceful fallback
-
-**Phase 11 baseline repairs chose option B** for the `@query schema=` subset already
-implemented. Unless you have a reason to revisit, stay on option B for the full
-Phase 12 engine.
-
-### Phase 12 task order
-
-1. **12A** — Schema DSL & validation engine: YAML-based schema language,
-   validate `@query`/`@read`/`@env` outputs, schemas in `.perseus/schemas/`
-2. **12B** — Directive-level schema annotations: optional `output_schema` field
-   in `DirectiveSpec`, automatic validation on render
-3. **12C** — `perseus validate` CLI: standalone validation without full render,
-   useful for CI gates
-
-No task files written yet for Phase 12. Write them before starting (follow the
-frontmatter schema in `tasks/README.md`).
+- Required dependencies remain unchanged: `pyyaml` only.
+- Schema files resolve from `<workspace>/.perseus/schemas/` first, then workspace root, then cwd.
+- Supported DSL subset: primitive `type`, `mapping`/`properties`, `required`, `sequence`/`items`, `pattern`, and `enum`.
+- `@query schema=`, `@read schema=`, `@env schema=`, and `@validate schema=... @end` are live.
+- `DirectiveSpec.output_schema` validates rendered directive output automatically.
+- Per-invocation `schema=` takes precedence over registry-level `output_schema`.
+- `perseus validate --schema SCHEMA [payload|-] [--json]` returns:
+  - `0` valid
+  - `1` schema validation failed
+  - `2` schema/input read or parse error
 
 ---
 
-## Architecture Reference
+## Next: Phase 13 — Predictive Pre-Fetching
 
-### DIRECTIVE_REGISTRY
+Task files now exist:
 
-Single source of truth for all directive metadata. Adding a new directive:
+1. **13A Directive Dependency Graph**
+   - Build a static graph over directives found in a source document.
+   - Use `DIRECTIVE_REGISTRY` metadata rather than hardcoded directive lists.
+   - Keep it read-only and deterministic.
 
-1. Write `resolve_mynewdirective(args, cfg, workspace)` function
-2. Add one `DirectiveSpec` entry to `DIRECTIVE_REGISTRY`
-3. Regex, dispatch, LSP completion, hover safety all derive automatically
+2. **13B Pattern-Based Pre-Fetch Rules**
+   - Add `prefetch.rules` config.
+   - Trigger prefetches from directive patterns.
+   - Reuse existing cache machinery; no daemon.
 
-```python
-DirectiveSpec = NamedTuple('DirectiveSpec', [
-    ('name', str),            # "@query"
-    ('kind', str),            # "inline" | "block" | "control"
-    ('resolver', Callable),   # the resolve_ function, or None for control
-    ('call_convention', str), # "acw" | "ac" | "a" | "awc" — see below
-    ('args', list),           # ["fallback=", "schema="] — for LSP completion
-    ('safe_for_hover', bool), # False = LSP hover returns stub, never executes
-    ('description', str),     # one-liner for LSP hover tooltip
-])
-```
+3. **13C Daedalus-Powered Adaptive Pre-Fetch**
+   - Optional scoring layer using existing oracle/Mnēmē patterns.
+   - Keep deterministic fallback and no required model dependency.
 
-Call convention codes for `_resolve_via_registry()`:
-
-| Code | Signature |
-|---|---|
-| `"acw"` | `resolver(args, cfg, workspace)` — most resolvers |
-| `"ac"` | `resolver(args, cfg)` — skills, session, waypoint, drift |
-| `"a"` | `resolver(args)` — env, date |
-| `"awc"` | `resolver(args, workspace, cfg)` — include (reversed; historical) |
-
-### `_mneme_path(workspace, cfg)`
-
-The narrative file is NOT at `memories/narrative.md`. It lives at:
-
-```
-{cfg["memory"]["workspace_memories_dir"]} / {md5(str(workspace))[:8]}_narrative.md
-```
-
-Always call `_mneme_path(workspace, cfg)` to resolve this in tests.
-
-### `perseus doctor` check structure
-
-```python
-class DoctorResult(NamedTuple):
-    status: str   # "ok" | "warn" | "error"
-    name: str     # display name
-    detail: str   # one-line explanation
-```
-
-Each check is a `Callable[[argparse.Namespace, dict], DoctorResult]` in the
-`_DOCTOR_CHECKS` list.
-
-### Agent JSON surfaces (`docs/AGENT_SURFACES.md`)
-
-Six commands expose stable `--json` contracts:
-
-| Command | Key fields |
-|---|---|
-| `oracle infer-labels --json` | `scanned, inferred_accept, inferred_reject, written, dry_run` |
-| `oracle drift --json` | `verdict, samples, metrics, thresholds, warnings` |
-| `llm ping --json` | `provider, model, url, latency_ms, status, error` |
-| `memory status --json` | `workspace, exists, updated, checkpoints_processed, line_count, mode` |
-| `memory federation list --json` | array of `{alias, path, enabled, status, line_count, mtime}` |
-| `memory federation pull --json` | array of `{alias, path, status, line_count, bytes}` |
-
-Full contracts in `docs/AGENT_SURFACES.md`.
+Before Phase 14 planning, write the resolver-vs-generator decision brief called out in `ROADMAP.md`.
 
 ---
 
-## Working with This Codebase
+## Architecture Reminders
 
-### Always patch `perseus.py` — never overwrite it
+### `DIRECTIVE_REGISTRY`
 
-`perseus.py` is ~6,840 lines. Use targeted `old_string` → `new_string` patch edits
-only. Section headers are anchor points:
+Single source of truth for directive metadata. Completion, hover safety, inline dispatch, and output schema validation all derive from it.
+
+Current shape:
 
 ```python
-# ─────────────────────────────── Section Name ────────────────────────────────
+class DirectiveSpec(NamedTuple):
+    name: str
+    resolver: Callable | None
+    args: list[str]
+    kind: str                 # inline | block | control
+    call_sig: str             # acw | ac | a | awc | block
+    executes_shell: bool = False
+    reads_files: bool = False
+    mutates_state: bool = False
+    safe_for_hover: bool = True
+    cacheable: bool = False
+    summary: str = ""
+    output_schema: object | None = None
 ```
 
-### Fenced code blocks are literal
+### Mnēmē Path
 
-The renderer now skips directive execution inside fenced code blocks. Docs can
-safely contain `@query` examples without triggering them.
+Always resolve the narrative with `_mneme_path(workspace, cfg)`. Do not guess a path.
 
-### The `~/` directory in git status
+### Git Hygiene
 
-A literal directory named `~/` exists at the repo root (created by an unexpanded
-`~` in a tool call). It's untracked and ignored. Harmless — ignore it, or
-`rm -rf '~/'` if it bothers you.
-
-### Claiming a task before starting
-
-```bash
-python perseus.py agora claim task-XX --agent "<your name>"
-```
+Work from `main`, use focused commits, and push after green tests. There are no active feature branches.
 
 ---
 
 ## Non-Negotiable Constraints
 
-1. **Single file.** `perseus.py` stays one file. No package structure.
-2. **`pyyaml` is the only required dependency.** No new deps without owner approval.
-3. **Tests before commit.** All existing tests must pass. New behavior needs new tests.
-4. **Spec follows code.** When behavior changes, update `spec/*.md`.
-5. **Keep the mythology.** Perseus, Pythia, Agora, Daedalus, Mnēmē. Don't rename.
-6. **Backward compatibility.** `@directive` syntax and config keys must not break.
-7. **Executors, not architects.** If a task conflicts with a constraint, mark it
-   Blocked — do not resolve it unilaterally.
-
----
-
-## Test Count History
-
-| Milestone | Tests |
-|---|---|
-| Start of Phase 11 session | 250 |
-| After task-25 (DIRECTIVE_REGISTRY) | 255 |
-| After task-26 (doctor) | 259 |
-| After task-28 (--json surfaces) | ~269 |
-| After task-27 (LSP integration tests) | ~272 |
-| After task-29 (test split, no new tests) | **272** |
+1. `perseus.py` stays single-file.
+2. `pyyaml` is the only required dependency.
+3. Tests before commit.
+4. Spec follows code.
+5. Keep the mythology and public names.
+6. Preserve backward compatibility.
+7. Agents execute scoped tasks; if a task conflicts with constraints, mark it blocked.

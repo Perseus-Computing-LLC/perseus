@@ -384,7 +384,89 @@ POST returns 405. No auth — bind to localhost by default.
 
 ---
 
-## 11. Cron (`perseus cron`) — Cross-platform Scheduling
+## 11. LSP (`perseus serve --lsp`) — Editor Integration
+
+The same `serve` command can run a Language Server Protocol server over stdio
+or a loopback TCP port. The LSP surface is read-only by default and derives
+directive names, completions, and hover safety from `DIRECTIVE_REGISTRY`.
+
+### CLI
+
+```bash
+perseus serve --lsp --stdio
+perseus serve --lsp --tcp 7992
+perseus serve --lsp --stdio --allow-lsp-mutations
+```
+
+### Supported LSP Features
+
+- `initialize`, `shutdown`, and `exit`
+- full-document sync via `didOpen` / `didChange` / `didClose`
+- diagnostics for unknown directives, malformed cache TTLs, unclosed blocks,
+  and unsubscribed federation aliases
+- completion for directive names and registered directive arguments
+- hover previews only for directives marked safe for hover
+- `workspace/executeCommand` for render/openCheckpoint, with mutation commands
+  gated behind `--allow-lsp-mutations`
+
+---
+
+## 12. Doctor (`perseus doctor`) — Readiness Probe
+
+`perseus doctor` reports whether the workspace and global state are ready for a
+healthy render/session. It is intentionally read-only and supports JSON output
+for CI or agent callers.
+
+### CLI
+
+```bash
+perseus doctor [--workspace <path>] [--json]
+```
+
+### Checks
+
+- config parseability
+- workspace context file presence
+- render trust gates
+- latest checkpoint age
+- Mnēmē narrative health
+- federation manifest/subscription health
+- oracle log readability
+- serve loopback default
+- directive registry invariants
+
+---
+
+## 13. Schema Validation (`schema=`, `@validate`, `perseus validate`)
+
+Phase 12 adds a pure-Python schema validation engine. `pyyaml` remains the only
+required dependency; the schema subset is documented in `spec/data-model.md`.
+
+### Render-Time Validation
+
+- `@query ... schema="name"` validates YAML stdout before injecting it.
+- `@read ... schema="name"` validates a full file, extracted `path=`, `.env`
+  `key=`, or fallback.
+- `@env ... schema="name"` validates environment values and fallbacks.
+- `@validate schema="name" ... @end` renders a block, parses the payload, and
+  emits a visible warning instead of invalid context.
+- `DirectiveSpec.output_schema` can declare directive-wide rendered-output
+  invariants. Per-invocation `schema=` takes precedence.
+
+### CLI
+
+```bash
+perseus validate --schema service payload.yaml
+perseus validate --schema service --json payload.yaml
+cat payload.yaml | perseus validate --schema service -
+```
+
+Exit codes are `0` for valid payloads, `1` for validation failures, and `2` for
+schema/input read or parse errors.
+
+---
+
+## 14. Cron (`perseus cron`) — Cross-platform Scheduling
 
 Generates a crontab entry for periodic rendering. Works on macOS, Linux, BSD.
 Recommended over `perseus launchd` / `perseus systemd` when portability matters.
@@ -406,7 +488,7 @@ easy lookup.
 
 ---
 
-## 12. Mnēmē Federation (task-19, Phase 8.2)
+## 15. Mnēmē Federation (task-19, Phase 8.2)
 
 Cross-workspace narrative aggregation. Lets one workspace subscribe to
 another workspace's Mnēmē narrative so curated project memory flows across
