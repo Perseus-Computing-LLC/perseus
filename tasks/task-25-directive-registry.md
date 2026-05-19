@@ -1,7 +1,7 @@
 ---
 id: task-25
 title: "Internal DIRECTIVE_REGISTRY \u2014 single source of truth for directive metadata"
-status: open
+status: completed
 priority: high
 scope: medium
 claimed_by: null
