@@ -25,7 +25,7 @@
 | Docs hub + quickstart | ✅ | `docs/index.md`, `docs/quickstart.md`, `docs/CONTRIBUTING.md` |
 | Example workspaces | ✅ | `examples/local-cli/`, `examples/assistant-profile/`, `examples/container/` — smoke tests pass |
 | README / CHANGELOG / ROADMAP aligned | ✅ | All reference v1.0.0-rc.1; CHANGELOG entries for tasks 56–62 |
-| IP portfolio | ✅ | Trademark Serial 99833510 filed; Provisional patent US REDACTED filed 2026-05-19 |
+| IP portfolio | ✅ | Trademark filed; Provisional patent filed 2026-05-19 |
 | No open Agora tasks | ✅ | Tasks 60–62 closed; 0 open |
 
 ---
@@ -73,7 +73,7 @@ Before cutting the `v1.0.0` tag, the project owner should confirm:
 
 - [ ] Review this checklist and sign off
 - [ ] Confirm Known Limitations are acceptable or explicitly deferred
-- [ ] Confirm IP status (trademark, provisional patent) is correctly recorded
+- [ ] Confirm IP status is correctly recorded
 - [ ] Run `bash scripts/release.sh --check` on a clean checkout
 - [ ] Push the version commit to `main`
 - [ ] `git tag -a v1.0.0-rc.1 -m "Perseus v1 Release Candidate"` + `git push origin v1.0.0-rc.1`
