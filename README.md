@@ -14,7 +14,7 @@ Provider-agnostic defaults now use `PERSEUS_SKILLS_DIR` and `PERSEUS_SESSIONS_DI
 
 Perseus dogfoods itself: `ROADMAP.md` is a live `@perseus` source — the project's own documentation resolves its git state, CLI version, recent sessions, and last checkpoint at render time.
 
-**Status: Alpha v0.9.0 — Phases 1-14, Phase 15A, Phase 16, Phase 17, Phase 18, and Phase 19A complete. Adapter conformance now covers generic, Hermes, Codex, Claude Code, Cursor, and Rovo Dev fixtures. 52 tasks closed/completed, 11 open. 433 tests passing, 1 sandbox-skipped TCP smoke.**
+**Status: Alpha v0.9.0 — Phases 1-14, Phase 15A, Phase 16, Phase 17, Phase 18, and Phase 19A-B complete. Adapter conformance and the profile gallery cover generic, Hermes, Codex, Claude Code, Cursor, and Rovo Dev. 53 tasks closed/completed, 10 open. 439 tests passing, 1 sandbox-skipped TCP smoke.**
 
 ---
 
@@ -272,6 +272,7 @@ EOF
 perseus init /workspace/myproject
 
 # Or scaffold a product profile + context pack
+perseus init --list-profiles
 perseus init --profile generic /workspace/myproject
 perseus pack validate --workspace /workspace/myproject
 
@@ -291,6 +292,9 @@ perseus recover --workspace /workspace/myproject
 # Get Pythia's recommendations
 perseus suggest "best way to search for a pattern across a large Python codebase"
 ```
+
+Profile outputs and refresh guidance are documented in the
+[Context Pack Profile Gallery](./docs/CONTEXT_PACKS.md#profile-gallery).
 
 ---
 
@@ -485,7 +489,7 @@ pythia:
 | **Phase 16** | Product contract, context pack manifest, and init/profile workflow | ✅ Complete |
 | **Phase 17** | Trust, privacy, permission profiles, redaction, and audit reporting | ✅ Complete |
 | **Phase 18** | Installer, release artifacts, versioning, and scheduler parity | ✅ Complete |
-| **Phase 19** | Assistant adapter conformance and profile gallery | 🚧 19A complete; 19B-C queued |
+| **Phase 19** | Assistant adapter conformance and profile gallery | 🚧 19A-B complete; 19C queued |
 | **Phase 20** | Managed runtime: authenticated serve, container, and watch mode | 🌅 Planned |
 | **Phase 21** | Golden evals, performance budgets, and compatibility gates | 🌅 Planned |
 | **Phase 22** | v1 release candidate docs, demos, and release checklist | 🌅 Planned |

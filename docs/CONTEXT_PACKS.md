@@ -28,6 +28,24 @@ Available Phase 16 profiles:
 perseus init --list-profiles
 ```
 
+## Profile Gallery
+
+Profiles are maintained product presets. Each one writes `.perseus/context.md`
+and `.perseus/pack.yaml` with relative paths only.
+
+| Profile | Assistant target | Output | Trust | Refresh guidance |
+|---|---|---|---|---|
+| `generic` | Generic markdown / stdin-file flow | `live-context.md` | `balanced` | Render on demand or from any scheduler. |
+| `hermes` | Hermes Agent | `.hermes.md` | `balanced` | Keep fresh before session start via cron, launchd, systemd, or watch. |
+| `codex` | Codex | `AGENTS.md` | `balanced` | Render before starting Codex or through workspace scheduler/watch refresh. |
+| `claude-code` | Claude Code | `CLAUDE.md` | `balanced` | Render before starting Claude Code or through scheduler/watch refresh. |
+| `cursor` | Cursor | `.cursorrules` | `balanced` | Render when project context changes; use watch for continuous refresh. |
+| `rovodev` | Rovo Dev | `AGENTS.md` | `balanced` | Render before Rovo Dev sessions or through scheduler/watch refresh. |
+
+The adapter conformance fixtures for these profiles live under
+`tests/fixtures/adapters/` and are summarized in
+[`spec/integration.md`](../spec/integration.md#adapter-conformance-matrix).
+
 ---
 
 ## Example
