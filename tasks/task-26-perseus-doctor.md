@@ -41,7 +41,7 @@ Exit codes:
 Default (human) output is a tidy table:
 
 ```
-perseus doctor — workspace: /Users/tconnally/perseus
+perseus doctor — workspace: /home/user/myproject
 ✓ config parses                       ~/.perseus/config.yaml
 ✓ workspace context file              .perseus/context.md
 ✓ render: shell execution disabled    allow_query_shell=false
@@ -60,7 +60,7 @@ perseus doctor — workspace: /Users/tconnally/perseus
 ```json
 {
   "perseus_version": "0.8.1",
-  "workspace": "/Users/tconnally/perseus",
+  "workspace": "/home/user/myproject",
   "checks": [
     {"id": "config_parses", "status": "ok", "value": "~/.perseus/config.yaml"},
     {"id": "render_shell_disabled", "status": "ok", "value": "allow_query_shell=false"},
