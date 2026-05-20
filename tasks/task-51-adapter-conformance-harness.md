@@ -1,14 +1,14 @@
 ---
 id: task-51
 title: Phase 19A adapter conformance harness
-status: open
+status: completed
 priority: high
 scope: large
-claimed_by: null
+claimed_by: Codex
 created: 2026-05-19
-closed: null
+closed: 2026-05-20
 phase: 19
-theme: "Assistant Adapter Ecosystem"
+theme: Assistant Adapter Ecosystem
 depends_on:
 - task-42
 blocks:
@@ -16,7 +16,6 @@ blocks:
 - task-53
 opened: '2026-05-19'
 ---
-
 ## Why
 
 Perseus is assistant-agnostic, but product confidence requires repeatable checks
@@ -43,6 +42,18 @@ Codex/generic file flows, Claude Code, Cursor, Rovo Dev, and editor/LSP use.
 - Do not automate proprietary assistant UIs.
 - Do not require network access.
 - Do not make adapter profiles mandatory for generic use.
+
+## Completed
+
+- Added offline conformance fixtures for `generic`, `hermes`, `codex`,
+  `claude-code`, `cursor`, and `rovodev` under `tests/fixtures/adapters/`.
+- Added `tests/test_adapter_conformance.py`, which checks fixture coverage,
+  product profile alignment, context pack validation, rendered output paths,
+  and integration-doc matrix references.
+- Updated `spec/integration.md` with the Adapter Conformance Matrix and linked
+  it from the README auto-injection section.
+- Kept the harness deterministic and offline; no proprietary assistant UI or
+  network automation is required.
 
 ## Implementation Notes
 

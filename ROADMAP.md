@@ -489,8 +489,9 @@ Phase 14A it reached 300 passed, 1 skipped; after Phase 14B it reached
 304 passed, 1 skipped; after Phase 14C it reached 308 passed, 1 skipped; after
 Phase 15A it reached 314 passed, 1 skipped; after Phase 16 it reached
 322 passed, 1 skipped; after Phase 17/18A plus task-63 it reached
-394 passed, 1 skipped; after Phase 18B-C it reached 413 passed, 1 skipped
-(sandbox-blocked TCP bind; the same TCP smoke passes outside the sandbox).
+394 passed, 1 skipped; after Phase 18B-C it reached 413 passed, 1 skipped;
+after Phase 19A it reached 433 passed, 1 skipped (sandbox-blocked TCP bind;
+the same TCP smoke passes outside the sandbox).
 - `test_oracle.py` — suggest, Pythia log, drift, infer-labels
 - `test_memory.py` — Mnēmē narrative, federation
 - `test_lsp.py` — LSP helpers, framing, diagnostics
@@ -789,7 +790,7 @@ explicitly deferred; platform-agnostic render flows remain available everywhere.
 **Goal:** Prove Perseus works with multiple downstream assistants through
 repeatable adapter contracts instead of one-off docs.
 
-- **19A Adapter conformance harness (task-51):** Test rendered context outputs
+- **19A Adapter conformance harness (task-51) ✅:** Test rendered context outputs
   against expected files and invocation patterns for each supported assistant.
 - **19B Assistant profile gallery (task-52):** Ship maintained profiles for
   Hermes, Codex, Claude Code, Cursor, Rovo Dev, and generic stdin/file flows.
@@ -898,7 +899,7 @@ Phase 18A ─── Installer bootstrap ✅ ────────────
 Phase 18B ─── Release artifacts/versioning ✅ ───────────┤
 Phase 18C ─── Scheduler parity ✅ ───────────────────────┤
                                                          │
-Phase 19A ─── Adapter conformance harness ───────────────┤
+Phase 19A ─── Adapter conformance harness ✅ ────────────┤
 Phase 19B ─── Assistant profile gallery ─────────────────┤
 Phase 19C ─── VSCode extension release polish ───────────┤
                                                          │

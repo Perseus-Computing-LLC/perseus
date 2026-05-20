@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-19  
 **Status:** Phases 1-14, 15A, 16, 17, and 18 complete; task-63 Pythia rename complete; Phases 15B-C and 19-22C queued in Agora
-**Current baseline:** 413 tests passing, 1 sandbox-skipped TCP smoke
+**Current baseline:** 433 tests passing, 1 sandbox-skipped TCP smoke
 
 ---
 
@@ -26,7 +26,7 @@ existing power into a deployable, understandable, safe product:
 - installer bootstrap ✅
 - release artifacts ✅
 - scheduler parity ✅
-- assistant adapter conformance
+- assistant adapter conformance ✅
 - service/container deployment modes
 - eval and compatibility gates
 - v1 release candidate discipline
@@ -73,6 +73,7 @@ Claude Code, Cursor, Rovo Dev, or any assistant that can read a file or stdin.
 | Inbox | complete | Point-to-point agent messages |
 | Cron/schedulers | Phase 18 complete | Host-neutral cron text generation, POSIX crontab install, macOS launchd, and Linux systemd are documented/tested; native Windows Task Scheduler is deferred |
 | LSP/editor | complete baseline | Needs release polish |
+| Adapter conformance | Phase 19A complete | Offline fixtures cover generic, Hermes, Codex, Claude Code, Cursor, and Rovo Dev |
 | Schema validation | complete | Built-in validator, no new dependency |
 | Graph/prefetch | complete | Static graph, rules, adaptive scoring |
 | Pythia learning | complete | Outcomes, online hints, opt-in A/B exploration |
@@ -149,7 +150,8 @@ This path aims at a product that can be deployed as:
 
 1. Finish task-40 and task-41 only if cited synthesis proves useful in
    cross-source consistency mode.
-2. Do adapter conformance before v1 docs, so docs describe verified flows.
+2. Finish the profile gallery and VSCode release polish so the adapter ecosystem
+   becomes a user-facing surface, not just a test matrix.
 3. Do managed runtime after auth/trust and installer basics.
 4. Treat Phase 21 as the release safety net.
 5. Freeze features for Phase 22.

@@ -142,6 +142,28 @@ perseus render .perseus/context.md --output live-context.md
 
 ---
 
+## Adapter Conformance Matrix
+
+The Phase 19A harness keeps adapter docs, product profiles, context packs, and
+render outputs aligned. Each fixture is offline and deterministic.
+
+| Adapter | Expected output | Trust profile | Fixture |
+|---|---|---|---|
+| generic | `live-context.md` | `balanced` | `tests/fixtures/adapters/generic/` |
+| hermes | `.hermes.md` | `balanced` | `tests/fixtures/adapters/hermes/` |
+| codex | `AGENTS.md` | `balanced` | `tests/fixtures/adapters/codex/` |
+| claude-code | `CLAUDE.md` | `balanced` | `tests/fixtures/adapters/claude-code/` |
+| cursor | `.cursorrules` | `balanced` | `tests/fixtures/adapters/cursor/` |
+| rovodev | `AGENTS.md` | `balanced` | `tests/fixtures/adapters/rovodev/` |
+
+Run the conformance harness with:
+
+```bash
+python -m pytest tests/test_adapter_conformance.py -q
+```
+
+---
+
 ## Workspace-Local Integration
 
 A workspace can carry its own context source and config:
