@@ -447,6 +447,58 @@ def test_init_list_profiles_lists_known(tmp_path, capsys):
     assert "generic" in out
     assert "hermes" in out
     assert "claude-code" in out
+    for name, profile in perseus.PRODUCT_PROFILES.items():
+        assert name in out
+        assert profile["output"] in out
+        assert f"trust={profile['trust_profile']}" in out
+        assert profile["description"] in out
+        assert profile["refresh"] in out
+
+
+@pytest.mark.parametrize("profile_name", sorted(perseus.PRODUCT_PROFILES) if perseus else [])
+def test_init_profile_gallery_generates_relative_pack_for_each_profile(tmp_path, capsys, profile_name):
+    workspace = tmp_path / profile_name
+    profile = perseus.PRODUCT_PROFILES[profile_name]
+    args = argparse.Namespace(
+        workspace=str(workspace),
+        force=False,
+        template=None,
+        list_templates=False,
+        profile=profile_name,
+        list_profiles=False,
+        output=None,
+        trust_profile=None,
+        no_pack=False,
+    )
+
+    perseus.cmd_init(args, cfg())
+    capsys.readouterr()
+
+    context = workspace / ".perseus" / "context.md"
+    pack = workspace / ".perseus" / "pack.yaml"
+    assert context.exists()
+    assert pack.exists()
+    context_text = context.read_text()
+    pack_text = pack.read_text()
+    manifest = yaml.safe_load(pack_text)
+    assert manifest["profile"] == profile_name
+    assert manifest["trust_profile"] == profile["trust_profile"]
+    assert manifest["renders"][0]["assistant"] == profile["assistant"]
+    assert manifest["renders"][0]["output"] == profile["output"]
+
+    forbidden_paths = {
+        str(workspace),
+        str(tmp_path),
+        str(Path(__file__).resolve().parents[1]),
+        "/workspace/perseus",
+    }
+    combined = context_text + "\n" + pack_text
+    for forbidden in forbidden_paths:
+        assert forbidden not in combined
+
+    result = perseus.validate_context_pack(workspace)
+    assert result["valid"] is True
+    assert result["renders"][0]["source_exists"] is True
 
 
 def test_init_without_profile_does_not_require_pack(tmp_path, capsys):

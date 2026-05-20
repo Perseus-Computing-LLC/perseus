@@ -1,14 +1,14 @@
 ---
 id: task-52
 title: Phase 19B assistant profile gallery
-status: open
+status: completed
 priority: high
 scope: medium
-claimed_by: null
+claimed_by: Codex
 created: 2026-05-19
-closed: null
+closed: 2026-05-20
 phase: 19
-theme: "Assistant Adapter Ecosystem"
+theme: Assistant Adapter Ecosystem
 depends_on:
 - task-44
 - task-51
@@ -16,7 +16,6 @@ blocks:
 - task-61
 opened: '2026-05-19'
 ---
-
 ## Why
 
 Profiles are how users experience assistant-agnostic support. They should be
@@ -43,3 +42,16 @@ maintained artifacts, not scattered examples.
 - Do not install third-party assistants.
 - Do not depend on assistant-specific cloud APIs.
 - Do not change the plain markdown output contract.
+
+## Completed
+
+- Enriched `perseus init --list-profiles` so each profile displays output path,
+  trust default, description, and refresh guidance.
+- Added refresh guidance metadata to all six product profiles: `generic`,
+  `hermes`, `codex`, `claude-code`, `cursor`, and `rovodev`.
+- Added the Context Pack Profile Gallery docs and linked them from README.
+- Added tests that generate every profile non-interactively, validate each
+  generated pack, check output/trust/assistant fields, and guard against
+  hardcoded repo-local paths.
+- Re-ran the adapter conformance harness to verify every profile still has a
+  matching fixture.

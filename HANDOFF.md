@@ -234,7 +234,23 @@ when you finish — update it with a completion summary at the end.
 - Adapter conformance suite: `20 passed`
 - Full suite after task-51: `433 passed, 1 skipped`
 
+### Additional Progress
+
+- **task-52 / Phase 19B assistant profile gallery** is complete.
+- `perseus init --list-profiles` now shows each profile's output path, trust
+  default, description, and refresh guidance.
+- The Context Pack Profile Gallery documents all six supported profiles and
+  links back to the adapter conformance matrix.
+- Tests now generate every profile non-interactively, validate generated packs,
+  confirm output/trust/assistant fields, and guard against hardcoded repo-local
+  paths.
+
+### Current validation
+
+- Profile + adapter focused suite: `61 passed`
+- Full suite after task-52: `439 passed, 1 skipped`
+
 ### Next Entry Point
 
-Continue with **task-52 / Phase 19B assistant profile gallery**. Do not start
-Phase 22 tasks 60-62.
+Continue with **task-53 / Phase 19C VSCode extension release polish**. Do not
+start Phase 22 tasks 60-62.

@@ -5948,6 +5948,7 @@ PRODUCT_PROFILES: dict[str, dict] = {
         "output": "live-context.md",
         "trust_profile": "balanced",
         "description": "Plain markdown output for any assistant or stdin/file flow.",
+        "refresh": "Render on demand or from any scheduler into live-context.md.",
     },
     "hermes": {
         "label": "Hermes Agent",
@@ -5955,6 +5956,7 @@ PRODUCT_PROFILES: dict[str, dict] = {
         "output": ".hermes.md",
         "trust_profile": "balanced",
         "description": "Hermes Agent reads .hermes.md at session start.",
+        "refresh": "Keep .hermes.md fresh before session start via cron, launchd, systemd, or watch.",
     },
     "codex": {
         "label": "Codex / AGENTS.md",
@@ -5962,6 +5964,7 @@ PRODUCT_PROFILES: dict[str, dict] = {
         "output": "AGENTS.md",
         "trust_profile": "balanced",
         "description": "Codex-compatible repository guidance file.",
+        "refresh": "Render AGENTS.md before starting Codex or through a workspace scheduler/watch flow.",
     },
     "claude-code": {
         "label": "Claude Code",
@@ -5969,6 +5972,7 @@ PRODUCT_PROFILES: dict[str, dict] = {
         "output": "CLAUDE.md",
         "trust_profile": "balanced",
         "description": "Claude Code project knowledge file.",
+        "refresh": "Render CLAUDE.md before starting Claude Code or through scheduler/watch refresh.",
     },
     "cursor": {
         "label": "Cursor",
@@ -5976,6 +5980,7 @@ PRODUCT_PROFILES: dict[str, dict] = {
         "output": ".cursorrules",
         "trust_profile": "balanced",
         "description": "Cursor rules/context file.",
+        "refresh": "Render .cursorrules when project context changes; use watch when continuous refresh is desired.",
     },
     "rovodev": {
         "label": "Rovo Dev",
@@ -5983,6 +5988,7 @@ PRODUCT_PROFILES: dict[str, dict] = {
         "output": "AGENTS.md",
         "trust_profile": "balanced",
         "description": "Rovo Dev AGENTS.md flow.",
+        "refresh": "Render AGENTS.md before Rovo Dev sessions or through scheduler/watch refresh.",
     },
 }
 
@@ -9160,7 +9166,9 @@ def cmd_init(args, cfg):
     if getattr(args, "list_profiles", False):
         print("Available profiles:")
         for name, profile in PRODUCT_PROFILES.items():
-            print(f"  - {name}: {profile['label']} -> {profile['output']}")
+            print(f"  - {name}: {profile['label']} -> {profile['output']} (trust={profile['trust_profile']})")
+            print(f"    {profile['description']}")
+            print(f"    refresh: {profile['refresh']}")
         return
 
     workspace = Path(args.workspace).resolve() if args.workspace else Path.cwd().resolve()
