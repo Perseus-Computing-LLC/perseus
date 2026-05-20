@@ -1,14 +1,14 @@
 ---
 id: task-62
 title: Phase 22C v1 release candidate checklist
-status: open
+status: completed
 priority: high
 scope: large
-claimed_by: null
+claimed_by: hermes
 created: 2026-05-19
-closed: null
+closed: '2026-05-20'
 phase: 22
-theme: "v1 Release Candidate"
+theme: v1 Release Candidate
 depends_on:
 - task-49
 - task-53
@@ -19,7 +19,6 @@ depends_on:
 blocks: []
 opened: '2026-05-19'
 ---
-
 ## Why
 
 v1 should be a release candidate, not a vibe. The project needs one checklist
@@ -47,3 +46,15 @@ that freezes the acceptance bar for a deployable product.
 - Do not add new feature work during RC.
 - Do not hide failing gates.
 - Do not cut v1 until the owner approves the release candidate.
+
+## Completed
+
+- Full validation matrix green: 493 tests passing, 1 skipped (TCP LSP smoke, expected).
+- `py_compile` syntax check: clean.
+- Release artifacts built: `dist/perseus-1.0.0-rc.1.tar.gz` + `SHA256SUMS`. Checksums verified.
+- Version bumped to `1.0.0-rc.1` in `_PERSEUS_VERSION`, `--version` output, `VERSION`, and description string.
+- Hardcoded `"perseus alpha v"` test assertions updated to `"perseus v"` in `test_installer.py` and `test_container.py`.
+- CHANGELOG updated with entries for tasks 56–62 and `[1.0.0-rc.1]` release section.
+- README status line updated: 63 tasks, 493 tests, v1.0.0-rc.1.
+- `docs/RC_CHECKLIST.md` written: full validation matrix, known limitations, support envelope, pre-tag owner checklist.
+- All three Phase 22 tasks (60, 61, 62) closed. Agora: 0 open tasks.

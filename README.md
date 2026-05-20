@@ -14,7 +14,7 @@ Provider-agnostic defaults now use `PERSEUS_SKILLS_DIR` and `PERSEUS_SESSIONS_DI
 
 Perseus dogfoods itself: `ROADMAP.md` is a live `@perseus` source — the project's own documentation resolves its git state, CLI version, recent sessions, and last checkpoint at render time.
 
-**Status: Alpha v0.9.0 — Phases 1-14, Phase 15A, Phase 16, Phase 17, Phase 18, Phase 19, and Phase 20 complete. Authenticated serve, container deployment examples, and portable watch mode are in place. 57 tasks closed/completed, 6 open. 466 tests passing, 2 skipped TCP/Docker smokes.**
+**Status: Alpha v0.9.0 → v1.0.0-rc.1 — All Phase 1–22 tasks complete. Documentation hub, quickstart, example workspaces, full adapter conformance, golden corpus, performance budgets, compatibility suite, authenticated serve, container deployment, and headless watch mode all ship. 63 tasks closed/completed, 0 open. 493 tests passing, 1 skipped TCP/Docker smoke.**
 
 ---
 

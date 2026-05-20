@@ -8162,7 +8162,7 @@ for _spec in DIRECTIVE_REGISTRY.values():
 
 # ───── Task-26: perseus doctor ───────────────────────────────────────────────
 
-_PERSEUS_VERSION = "0.9.0"
+_PERSEUS_VERSION = "1.0.0-rc.1"
 
 
 class DoctorResult(NamedTuple):
@@ -8443,7 +8443,7 @@ def cmd_trust(args, cfg) -> int:
                 "entries": entries,
             }, indent=2, sort_keys=True))
             return 0
-        print(f"perseus trust audit — Perseus alpha v{_PERSEUS_VERSION}")
+        print(f"perseus trust audit — Perseus v{_PERSEUS_VERSION}")
         print(f"  enabled:           {audit_summary.get('enabled')}")
         print(f"  log_path:          {audit_summary.get('log_path')}")
         print(f"  total_events:      {audit_summary.get('total_events', 0)}")
@@ -8475,7 +8475,7 @@ def cmd_trust(args, cfg) -> int:
     if sub in ("profile", None):
         perms = summary["permissions"]
         eff = summary["effective"]
-        print(f"perseus trust — Perseus alpha v{_PERSEUS_VERSION}")
+        print(f"perseus trust — Perseus v{_PERSEUS_VERSION}")
         configured = perms["configured_profile"]
         applied = perms["applied_profile"]
         if configured is None:
@@ -9627,9 +9627,9 @@ def cmd_init(args, cfg):
 def main():
     parser = argparse.ArgumentParser(
         prog="perseus",
-        description="Perseus — Live Context Engine for AI Assistants (alpha v0.9.0)",
+        description="Perseus — Live Context Engine for AI Assistants (v1.0.0-rc.1)",
     )
-    parser.add_argument("--version", action="version", version="perseus alpha v0.9.0")
+    parser.add_argument("--version", action="version", version=f"perseus v{_PERSEUS_VERSION}")
     sub = parser.add_subparsers(dest="command", required=True)
 
     # render
