@@ -100,7 +100,7 @@ Task files have YAML frontmatter with `status`, `depends_on`, and `blocks`. Resp
 
 ## AI Contributor Notes
 
-Perseus is built with AI coding assistants (Codex, Claude Code) as first-class contributors. The `AGENTS.md` file orients any AI agent at session start. Key rules for AI contributors:
+Perseus is built with AI coding assistants as first-class contributors. The `AGENTS.md` file orients any AI agent at session start. Key rules for AI contributors:
 
 - **Executor, not architect.** Implement the spec, don't propose changes to it.
 - **No unsolicited new tasks.** If you spot something worth doing, note it in your completion summary — the owner decides.
