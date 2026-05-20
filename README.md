@@ -253,11 +253,7 @@ prefetch:
 
 ## Cited Synthesis
 
-`perseus synthesize` is the first Phase 15 surface. It keeps generation outside
-ordinary render output and treats any LLM as a drafter, not an authority. The
-command builds a line-numbered source bundle; when generation is explicitly
-enabled, only claims with exact source quotes and line citations survive.
-Uncited claims are dropped. See [Cited Synthesis](./docs/CITED_SYNTHESIS.md).
+`perseus synthesize` keeps generation outside ordinary render output and treats any LLM as a drafter, not an authority. The command builds a line-numbered source bundle; when generation is explicitly enabled, only claims with exact source quotes and line citations survive. Uncited claims are dropped. See [Cited Synthesis](./docs/CITED_SYNTHESIS.md).
 
 ```bash
 perseus synthesize "What is the next allowable action?" \
@@ -407,13 +403,13 @@ Run `perseus <command> --help` for full flags. Summary of the surface:
 | `perseus agora [--status open\|in_progress\|completed]` | Live task board from `tasks/*.md`. |
 | `perseus suggest <prompt> [--llm provider]` | Pythia tool oracle — ranks skills against a prompt, with transparent outcome-weight hints when data exists. |
 | `perseus memory {update,compact,show,status,query,federation}` | Mnēmē narrative project memory + cross-workspace federation. |
-| `perseus inbox {send,list,read,unread,mark-read}` | Point-to-point messages between agents (task-16). |
+| `perseus inbox {send,list,read,unread,mark-read}` | Point-to-point messages between agents. |
 | `perseus health` | Maintenance report — stale skills, large narrative, Pythia log volume. |
 | `perseus oracle {accept,reject,log,export,infer-labels,outcomes,drift}` | Daedalus Pythia log management, inferred labels, outcome signals, and drift checks. |
 | `perseus llm ping [--provider hermes\|ollama\|...]` | Verify the configured LLM provider is reachable. |
 | `perseus init [--template name | --profile name] <workspace>` | Scaffold `.perseus/context.md`; profiles also write `.perseus/pack.yaml`. |
 | `perseus serve [--port N] [--host H] [--generate-token]` | Read-only HTTP view of workspace state on `http://127.0.0.1:7991/`; optional static bearer auth via `serve.auth_token`. |
-| `perseus serve --lsp --stdio\|--tcp PORT [--allow-lsp-mutations]` | Run as a Language Server Protocol server for editor integration (Phase 10.1). Mutation commands are opt-in. |
+| `perseus serve --lsp --stdio\|--tcp PORT [--allow-lsp-mutations]` | Run as a Language Server Protocol server for editor integration. Mutation commands are opt-in. |
 | `perseus cron SOURCE --output FILE [--every N] [--install]` | POSIX crontab entry generator/installer for macOS, Linux, and BSD cron. |
 | `perseus systemd SOURCE --output FILE [--interval 5m] [--install] [--enable]` | Linux-only systemd `--user` service + timer scaffolder. |
 | `perseus launchd SOURCE --output FILE [--interval 300] [--label LABEL] [--force]` | macOS-only LaunchAgent plist scaffolder. |
@@ -458,7 +454,7 @@ provider you prefer:
 | **`hermes`** | [NousResearch Hermes Agent](https://github.com/NousResearch/hermes-agent) — autonomous agent with built-in provider routing (Claude/GPT/Grok/local). See [`docs/HERMES_INTEGRATION.md`](docs/HERMES_INTEGRATION.md). |
 | **`ollama`** | Local models via Ollama (default; no config needed for `mistral`). |
 | **`openai-compat`** / **`llamacpp`** | Any server speaking OpenAI's `/v1/chat/completions` (vLLM, llama.cpp, LocalAI, LiteLLM, etc.). |
-| **`daedalus`** | Perseus's own fine-tuned local model (task-06 / Phase 9). |
+| **`daedalus`** | Perseus's own fine-tuned local model for oracle scoring. |
 
 **Verify your setup with one command:**
 
@@ -624,14 +620,14 @@ pythia:
 | **Phase 13** | Predictive prefetching — static graph, rule-based cache warming, adaptive deterministic/Daedalus scoring | ✅ Complete |
 | **Phase 14** | Adaptive self-optimizing oracle — outcome signals, online scoring, and opt-in A/B exploration | ✅ Complete |
 | **Phase 15A** | Cited synthesis contract — `perseus synthesize`, opt-in generation, exact quote citation gate | ✅ Complete |
-| **Phase 15B-C** | Cross-source consistency synthesis and optional curated render surface | 🌅 Planned |
+| **Phase 15B-C** | Cross-source consistency synthesis and `@synthesize` render directive | ✅ Complete |
 | **Phase 16** | Product contract, context pack manifest, and init/profile workflow | ✅ Complete |
 | **Phase 17** | Trust, privacy, permission profiles, redaction, and audit reporting | ✅ Complete |
 | **Phase 18** | Installer, release artifacts, versioning, and scheduler parity | ✅ Complete |
 | **Phase 19** | Assistant adapter conformance and profile gallery | ✅ Complete |
 | **Phase 20** | Managed runtime: authenticated serve, container, and watch mode | ✅ Complete |
-| **Phase 21** | Golden evals, performance budgets, and compatibility gates | 🌅 Planned |
-| **Phase 22** | v1 release candidate docs, demos, and release checklist | 🌅 Planned |
+| **Phase 21** | Golden evals, performance budgets, and compatibility gates | ✅ Complete |
+| **Phase 22** | Example workspaces, docs hub, contributing guide, and v1.0.0 release | ✅ Complete |
 
 Full detail: [ROADMAP.md](./ROADMAP.md). Product references:
 [Product Contract](./docs/PRODUCT_CONTRACT.md),
