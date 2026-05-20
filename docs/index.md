@@ -40,7 +40,7 @@ docs/
   CONTRIBUTING.md       ← How to contribute
   use-cases.md          ← Use cases by audience
   PRODUCT_CONTRACT.md   ← Product owner contract and workflows
-  ip/                   ← IP portfolio (trademark, patent)
+  ip/                   ← IP portfolio
 
 spec/                   ← Normative design specifications
   overview.md           ← Architecture overview
