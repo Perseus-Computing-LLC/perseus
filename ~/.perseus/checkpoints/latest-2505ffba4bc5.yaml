@@ -1,0 +1,7 @@
+next: verify recover
+stale_after: '2026-05-21T11:58:22.216537-05:00'
+status: running
+task: Perseus local-cli smoke test
+version: 1
+workspace: /workspace/perseus/examples/local-cli
+written: '2026-05-20T11:58:22.216537-05:00'
