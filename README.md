@@ -234,8 +234,19 @@ perseus synthesize "What is the next allowable action?" \
 ---
 
 ## Real-World Examples
+## Documentation
 
-See how Perseus is used in practice:
+Full documentation lives in [`docs/`](./docs/index.md):
+
+- **[Quickstart](./docs/quickstart.md)** — Install, configure, and render your first context in 5 minutes.
+- [Integration guide](./docs/HERMES_INTEGRATION.md) — Wire Perseus to Hermes, Codex, Claude Code, Cursor, or Rovo Dev.
+- [Context Packs & Profiles](./docs/CONTEXT_PACKS.md) — Portable workspace context with assistant-specific presets.
+- [Container deployment](./docs/CONTAINER.md) — Docker and compose examples.
+- [Cited Synthesis](./docs/CITED_SYNTHESIS.md) — `@synthesize` and the citation gate.
+- [Contributing](./docs/CONTRIBUTING.md) — How to contribute code, directives, and tests.
+
+## Real-World Examples
+
 - [Subagent Handover](./docs/EXAMPLES.md#subagent-handover-zero-tax-orientation) — Zero-tax orientation for fresh agents.
 - [Automated Verification](./docs/EXAMPLES.md#automated-environment-verification) — Ensuring context health.
 - [Renderer Dogfooding](./docs/EXAMPLES.md#renderer-dogfooding-self-documenting-roadmap) — Live roadmaps and docs.
