@@ -218,7 +218,23 @@ when you finish — update it with a completion summary at the end.
 - Focused release/platform suite: `51 passed`
 - Full suite target after task-50: `413 passed, 1 skipped`
 
+### Additional Progress
+
+- **task-51 / Phase 19A adapter conformance harness** is complete.
+- Added offline fixtures for `generic`, `hermes`, `codex`, `claude-code`,
+  `cursor`, and `rovodev`.
+- Added `tests/test_adapter_conformance.py`, covering fixture completeness,
+  product profile alignment, context pack validation, actual render output
+  paths, and integration-doc matrix references.
+- Added the Adapter Conformance Matrix to `spec/integration.md` and linked it
+  from README.
+
+### Current validation
+
+- Adapter conformance suite: `20 passed`
+- Full suite after task-51: `433 passed, 1 skipped`
+
 ### Next Entry Point
 
-Continue with **task-51 / Phase 19A adapter conformance harness**. Do not start
+Continue with **task-52 / Phase 19B assistant profile gallery**. Do not start
 Phase 22 tasks 60-62.

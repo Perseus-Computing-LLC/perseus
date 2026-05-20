@@ -1,0 +1,10 @@
+version: 1
+name: claude-code-adapter-conformance
+profile: claude-code
+trust_profile: balanced
+renders:
+  - name: default
+    source: context.md
+    output: CLAUDE.md
+    assistant: claude-code
+synthesis: []

@@ -1,0 +1,10 @@
+version: 1
+name: hermes-adapter-conformance
+profile: hermes
+trust_profile: balanced
+renders:
+  - name: default
+    source: context.md
+    output: .hermes.md
+    assistant: hermes
+synthesis: []

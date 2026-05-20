@@ -14,7 +14,7 @@ Provider-agnostic defaults now use `PERSEUS_SKILLS_DIR` and `PERSEUS_SESSIONS_DI
 
 Perseus dogfoods itself: `ROADMAP.md` is a live `@perseus` source — the project's own documentation resolves its git state, CLI version, recent sessions, and last checkpoint at render time.
 
-**Status: Alpha v0.9.0 — Phases 1-14, Phase 15A, Phase 16, Phase 17, and Phase 18 complete. Scheduler parity covers POSIX cron, macOS launchd, Linux systemd, and explicitly defers native Windows Task Scheduler. 51 tasks closed/completed, 12 open. 413 tests passing, 1 sandbox-skipped TCP smoke.**
+**Status: Alpha v0.9.0 — Phases 1-14, Phase 15A, Phase 16, Phase 17, Phase 18, and Phase 19A complete. Adapter conformance now covers generic, Hermes, Codex, Claude Code, Cursor, and Rovo Dev fixtures. 52 tasks closed/completed, 11 open. 433 tests passing, 1 sandbox-skipped TCP smoke.**
 
 ---
 
@@ -397,6 +397,7 @@ perseus render .perseus/context.md --output <assistant-specific-file>
 ```
 
 The output is plain markdown, so the only assistant-specific detail is the filename you choose. Hermes is just one example.
+The verified adapter outputs are tracked in the [Adapter Conformance Matrix](./spec/integration.md#adapter-conformance-matrix).
 
 
 Perseus keeps `.hermes.md` fresh via a `no_agent` cron watchdog (no model tokens, no noise):
@@ -484,7 +485,7 @@ pythia:
 | **Phase 16** | Product contract, context pack manifest, and init/profile workflow | ✅ Complete |
 | **Phase 17** | Trust, privacy, permission profiles, redaction, and audit reporting | ✅ Complete |
 | **Phase 18** | Installer, release artifacts, versioning, and scheduler parity | ✅ Complete |
-| **Phase 19** | Assistant adapter conformance and profile gallery | 🌅 Planned |
+| **Phase 19** | Assistant adapter conformance and profile gallery | 🚧 19A complete; 19B-C queued |
 | **Phase 20** | Managed runtime: authenticated serve, container, and watch mode | 🌅 Planned |
 | **Phase 21** | Golden evals, performance budgets, and compatibility gates | 🌅 Planned |
 | **Phase 22** | v1 release candidate docs, demos, and release checklist | 🌅 Planned |

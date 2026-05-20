@@ -1,0 +1,10 @@
+version: 1
+name: cursor-adapter-conformance
+profile: cursor
+trust_profile: balanced
+renders:
+  - name: default
+    source: context.md
+    output: .cursorrules
+    assistant: cursor
+synthesis: []
