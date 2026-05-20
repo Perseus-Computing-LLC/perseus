@@ -121,6 +121,27 @@ breaking changes in `docs/MIGRATION.md`.
 
 ---
 
+## Highest-Risk Tasks
+
+**task-54 and task-56 are the two highest-risk tasks in this run.**
+
+- **task-54 (auth serve):** The token check must be wired at all 5 trust-boundary
+  sites. Missing any one of them gives a security property that holds in unit tests
+  but silently fails in production. Before committing, grep:
+  `grep -n "def cmd_render\|def cmd_synthesize\|def _serve_handle_request\|resolve_query\|resolve_agent\|services_command" perseus.py`
+  and verify the auth check touches each surface.
+
+- **task-56 (watch mode):** Adds a polling loop to the 6,000+ line file. Use `patch`
+  for every edit — do not reconstruct or rewrite `perseus.py` wholesale. If a patch
+  fails, use `git checkout HEAD -- perseus.py` and try a narrower patch. Verify after
+  every edit: `wc -l perseus.py` (should stay above 5,800).
+
+Both tasks need the full `--json` early-return audit on any new `cmd_*` functions:
+search every `return` statement and confirm each one checks `args.json` if the
+command supports it.
+
+---
+
 ## Things to Watch Out For
 
 - **Ghost completions.** If you think a task is already done, grep `perseus.py` for the
