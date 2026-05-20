@@ -124,6 +124,10 @@ class LSPHarness:
     def start(self):
         script = Path(__file__).resolve().parents[1] / "perseus.py"
         cmd = [sys.executable, str(script), "serve", "--lsp"]
+        perseus_home = self.workspace / ".perseus-home"
+        perseus_home.mkdir(parents=True, exist_ok=True)
+        env = os.environ.copy()
+        env["PERSEUS_HOME"] = str(perseus_home)
         if self.allow_mutations:
             cmd.append("--allow-lsp-mutations")
         if self.tcp:
@@ -135,6 +139,7 @@ class LSPHarness:
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
+                env=env,
             )
             deadline = time.time() + 5
             last_error = None
@@ -159,6 +164,7 @@ class LSPHarness:
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
+                env=env,
             )
             self.reader = self.proc.stdout
             self.writer = self.proc.stdin
@@ -296,6 +302,12 @@ def lsp_harness(tmp_path):
 
 
 @pytest.fixture
+def lsp_harness_mutating(tmp_path):
+    with LSPHarness(tmp_path, allow_mutations=True) as harness:
+        yield harness
+
+
+@pytest.fixture
 def lsp_harness_tcp(tmp_path):
     with LSPHarness(tmp_path, tcp=True) as harness:
         yield harness
@@ -371,6 +383,46 @@ def test_lsp_executecommand_compact_memory_requires_mutation_gate(lsp_harness):
     })
     assert rsp["error"]["code"] == -32000
     assert "Mutation command disabled" in rsp["error"]["message"]
+
+
+def test_lsp_executecommand_render_is_read_only(lsp_harness, tmp_path):
+    lsp_harness.initialize()
+    (tmp_path / "data.yaml").write_text("name: demo\n")
+    uri = (tmp_path / "context.md").as_uri()
+    lsp_harness.notify("textDocument/didOpen", _lsp_doc(uri, '@read data.yaml path="name"\n'))
+    lsp_harness.expect_notification("textDocument/publishDiagnostics")
+
+    rsp = lsp_harness.request("workspace/executeCommand", {
+        "command": "perseus.render",
+        "arguments": [uri],
+    })
+
+    assert rsp["result"]["rendered"].strip() == "demo"
+
+
+def test_lsp_executecommand_open_checkpoint_returns_latest_uri(lsp_harness, tmp_path):
+    lsp_harness.initialize()
+    checkpoint_store = tmp_path / ".perseus-home" / "checkpoints"
+    checkpoint_store.mkdir(parents=True, exist_ok=True)
+    latest = checkpoint_store / "latest.yaml"
+    latest.write_text("task: demo\n")
+
+    rsp = lsp_harness.request("workspace/executeCommand", {
+        "command": "perseus.openCheckpoint",
+        "arguments": [],
+    })
+
+    assert rsp["result"]["uri"] == latest.as_uri()
+
+
+def test_lsp_executecommand_compact_memory_with_mutation_gate(lsp_harness_mutating):
+    lsp_harness_mutating.initialize()
+    rsp = lsp_harness_mutating.request("workspace/executeCommand", {
+        "command": "perseus.compactMemory",
+        "arguments": [],
+    })
+
+    assert "Compacted" in rsp["result"]["message"]
 
 
 def test_lsp_shutdown_exit_reaps_process(lsp_harness):

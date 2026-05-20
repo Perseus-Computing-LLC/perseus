@@ -62,23 +62,28 @@ last checkpoint's rendered summary.
   publisher ID matching a verified Azure DevOps account
   (`vsce create-publisher <name>` if you don't have one). Beta testing
   via `vsce package` + sideload `.vsix` works fine with the placeholder.
-- **No `npm run lint`, no tests yet.** This is a thin launcher; the real
-  test surface is the LSP server tested in `tests/test_perseus.py`. If the
-  extension grows non-trivial logic that's worth covering, add
-  `@vscode/test-electron` and a `test/` directory.
+- **No marketplace publish in this task.** Package and sideload only.
+- **No Electron extension-host tests yet.** This is a thin launcher; the real
+  protocol surface is the LSP server tested in `tests/test_lsp.py`, including
+  diagnostics, completion, hover safety, render, checkpoint, and mutation-gate
+  executeCommand behavior. If the extension grows non-trivial client logic,
+  add `@vscode/test-electron` and a `test/` directory.
 
 ---
 
 ## Packaging
 
 ```bash
-npm install -g @vscode/vsce
-vsce package
+npm install
+npm run compile
+npm run package
 # → produces perseus-vscode-0.1.0.vsix
 ```
 
 Install the resulting `.vsix` via the VSCode command palette:
 `Extensions: Install from VSIX...`
+
+Detailed release steps and smoke checks are in [RELEASE.md](./RELEASE.md).
 
 ## Why this lives outside `perseus.py`
 
