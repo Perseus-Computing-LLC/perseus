@@ -10,7 +10,7 @@ rendered output and skip orientation. Start work immediately.
 
 **Workspace:** current repo checkout  
 **Repo:** https://github.com/tcconnally/perseus  
-**Project:** Perseus — Live Context Engine for AI Assistants (alpha v0.9.0)
+**Project:** Perseus — Live Context Engine for AI Assistants (v1.0.0)
 
 ---
 
@@ -39,6 +39,9 @@ rendered output and skip orientation. Start work immediately.
     url: http://localhost:8080/v1/health
   - name: Portainer
     url: https://localhost:9443/api/status
+  - name: Perseus CLI
+    command: "python3 /workspace/perseus/perseus.py --version"
+@end
 
 ---
 
