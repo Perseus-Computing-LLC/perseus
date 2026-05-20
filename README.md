@@ -14,7 +14,7 @@ Provider-agnostic defaults now use `PERSEUS_SKILLS_DIR` and `PERSEUS_SESSIONS_DI
 
 Perseus dogfoods itself: `ROADMAP.md` is a live `@perseus` source — the project's own documentation resolves its git state, CLI version, recent sessions, and last checkpoint at render time.
 
-**Status: Alpha v0.9.0 — Phases 1-14, Phase 15A, Phase 16, Phase 17, Phase 18, Phase 19, and Phase 20A complete. Authenticated serve mode adds optional bearer auth while preserving loopback defaults. 55 tasks closed/completed, 8 open. 453 tests passing, 1 sandbox-skipped TCP smoke.**
+**Status: Alpha v0.9.0 — Phases 1-14, Phase 15A, Phase 16, Phase 17, Phase 18, Phase 19, and Phase 20A-B complete. Authenticated serve and container deployment examples are in place while preserving loopback-first defaults. 56 tasks closed/completed, 7 open. 458 tests passing, 2 skipped TCP/Docker smokes.**
 
 ---
 
@@ -475,6 +475,23 @@ Unauthenticated non-loopback serve is refused unless
 `serve.allow_insecure_remote: true` or `--i-understand-no-auth` is explicitly
 set.
 
+## Container Runtime
+
+Perseus can also run as a local OCI-style image without changing the runtime
+contract: the container copies `perseus.py` directly, installs only
+`requirements.txt`, and exposes the same `perseus` CLI.
+
+```bash
+docker build -t perseus:local .
+docker compose run --rm render
+docker compose --profile serve up serve
+```
+
+The compose example mounts the workspace read-only, keeps Perseus state under
+`/perseus-home`, and publishes serve mode only to host loopback. Replace the
+placeholder token in `examples/container/config.yaml` before using the serve
+profile. Full guide: [Container Runtime](./docs/CONTAINER.md).
+
 
 Pythia config options:
 
@@ -515,13 +532,14 @@ pythia:
 | **Phase 17** | Trust, privacy, permission profiles, redaction, and audit reporting | ✅ Complete |
 | **Phase 18** | Installer, release artifacts, versioning, and scheduler parity | ✅ Complete |
 | **Phase 19** | Assistant adapter conformance and profile gallery | ✅ Complete |
-| **Phase 20** | Managed runtime: authenticated serve, container, and watch mode | 🚧 20A complete; 20B-C queued |
+| **Phase 20** | Managed runtime: authenticated serve, container, and watch mode | 🚧 20A-B complete; 20C queued |
 | **Phase 21** | Golden evals, performance budgets, and compatibility gates | 🌅 Planned |
 | **Phase 22** | v1 release candidate docs, demos, and release checklist | 🌅 Planned |
 
 Full detail: [ROADMAP.md](./ROADMAP.md). Product references:
 [Product Contract](./docs/PRODUCT_CONTRACT.md),
-[Context Packs](./docs/CONTEXT_PACKS.md), and
+[Context Packs](./docs/CONTEXT_PACKS.md),
+[Container Runtime](./docs/CONTAINER.md), and
 [Perseus Product Report](./docs/PERSEUS_PRODUCT_REPORT.md).
 
 ---

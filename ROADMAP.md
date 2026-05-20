@@ -806,7 +806,7 @@ needs a persistent context endpoint rather than ad hoc CLI execution.
 
 - **20A Authenticated serve mode (task-54) ✅:** Add optional local auth/token gates
   and safe bind defaults for `perseus serve`.
-- **20B Container image and compose example (task-55):** Provide a minimal
+- **20B Container image and compose example (task-55) ✅:** Provide a minimal
   containerized deployment that mounts a workspace and Perseus home.
 - **20C Headless watch mode (task-56):** Add a portable watch/daemon mode that
   refreshes render outputs without depending on platform schedulers.
