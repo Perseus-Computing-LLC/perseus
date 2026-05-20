@@ -4,6 +4,9 @@
 # Hermes agent working directory — local tooling only, not project source
 .hermes/
 
+# Private legal documents — never commit to public repo
+docs/ip/
+
 # Python
 __pycache__/
 *.py[cod]
