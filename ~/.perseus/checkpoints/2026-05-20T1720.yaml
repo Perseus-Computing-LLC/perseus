@@ -1,0 +1,10 @@
+next: 'Execute Task 1: pyproject.toml + PyPI packaging'
+notes: 'Package name: perseus-ctx (available). perseus on PyPI is dead 2019 package.
+  main() entry point needs verification before pyproject.toml commit. 4 tasks: packaging,
+  README lede, non-Hermes integration section, PyPI publish.'
+stale_after: '2026-05-21T17:20:28.206833-05:00'
+status: Plan written, saved to .hermes/plans/2026-05-20-distribution-and-readme.md
+task: Distribution strategy + README rewrite — planning phase
+version: 1
+workspace: /workspace/perseus
+written: '2026-05-20T17:20:28.206833-05:00'
