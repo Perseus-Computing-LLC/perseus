@@ -1,8 +1,8 @@
 # Perseus Product Report
 
 **Date:** 2026-05-19  
-**Status:** Phases 1-14, 15A, 16, 17, 18, 19, and 20A complete; task-63 Pythia rename complete; Phases 20B-22C queued in Agora
-**Current baseline:** 453 tests passing, 1 sandbox-skipped TCP smoke
+**Status:** Phases 1-14, 15A, 16, 17, 18, 19, and 20A-B complete; task-63 Pythia rename complete; Phases 20C-22C queued in Agora
+**Current baseline:** 458 tests passing, 2 skipped TCP/Docker smokes
 
 ---
 
@@ -28,7 +28,8 @@ existing power into a deployable, understandable, safe product:
 - scheduler parity ✅
 - assistant adapter conformance ✅
 - editor adapter release polish ✅
-- service/container deployment modes
+- service deployment mode ✅
+- container deployment examples ✅
 - authenticated serve ✅
 - eval and compatibility gates
 - v1 release candidate discipline
@@ -133,7 +134,7 @@ The new Agora roadmap runs through Phase 22:
 | 17 | Add trust profiles, redaction, audit logs, and trust reports ✅ |
 | 18 | Make installation, versioning, release artifacts, and scheduler parity real ✅ |
 | 19 | Prove adapter compatibility with profiles and conformance tests ✅ |
-| 20 | Support managed runtime through authenticated serve ✅, container, and watch mode |
+| 20 | Support managed runtime through authenticated serve ✅, container deployment ✅, and watch mode |
 | 21 | Add golden evals, performance budgets, and migration/compatibility checks |
 | 22 | Cut a v1 release candidate with docs, demos, artifacts, and gates |
 

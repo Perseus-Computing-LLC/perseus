@@ -1,0 +1,5 @@
+# Example global config mounted by docker-compose.yaml for authenticated serve.
+# Replace this token before exposing the service beyond your own machine.
+serve:
+  bind_host: 0.0.0.0
+  auth_token: change-me-before-serving

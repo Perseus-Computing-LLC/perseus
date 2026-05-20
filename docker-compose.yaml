@@ -1,0 +1,47 @@
+name: perseus
+
+x-perseus-base: &perseus-base
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: perseus:local
+  working_dir: /workspace
+  environment:
+    PERSEUS_HOME: /perseus-home
+  read_only: true
+  tmpfs:
+    - /tmp
+
+services:
+  render:
+    <<: *perseus-base
+    volumes:
+      - ./:/workspace:ro
+      - perseus-home:/perseus-home
+    command:
+      - render
+      - /workspace/.perseus/context.md
+      - --output
+      - /perseus-home/rendered-context.md
+
+  serve:
+    <<: *perseus-base
+    profiles:
+      - serve
+    ports:
+      - 127.0.0.1:7991:7991
+    volumes:
+      - ./:/workspace:ro
+      - perseus-home:/perseus-home
+      - ./examples/container/config.yaml:/perseus-home/config.yaml:ro
+    command:
+      - serve
+      - --host
+      - 0.0.0.0
+      - --port
+      - "7991"
+      - --workspace
+      - /workspace
+
+volumes:
+  perseus-home: {}

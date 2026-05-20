@@ -283,7 +283,26 @@ when you finish — update it with a completion summary at the end.
 - Serve/trust focused suite: `58 passed`
 - Full suite after task-54: `453 passed, 1 skipped`
 
+### Additional Progress
+
+- **task-55 / Phase 20B container image and compose example** is complete.
+- Added a minimal `Dockerfile` that copies the single-file `perseus.py`
+  runtime directly into an OCI-style image and installs only `requirements.txt`.
+- Added `docker-compose.yaml` with a render service and an authenticated serve
+  profile that mounts the workspace read-only, keeps state under
+  `/perseus-home`, and publishes only to host loopback.
+- Added `docs/CONTAINER.md` and `examples/container/config.yaml` documenting
+  token replacement, workspace/home mount risks, read-only filesystem posture,
+  and Docker/OCI-compatible usage.
+- Added container smoke coverage, with Docker command execution skipped clearly
+  when the Docker CLI or daemon is unavailable.
+
+### Current validation
+
+- Container focused suite: `5 passed, 1 skipped`
+- Full suite after task-55: `458 passed, 2 skipped`
+
 ### Next Entry Point
 
-Continue with **task-55 / Phase 20B container image and compose example**. Do
+Continue with **task-56 / Phase 20C headless watch mode**. Do
 not start Phase 22 tasks 60-62.
