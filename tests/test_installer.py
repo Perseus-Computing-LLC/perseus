@@ -38,13 +38,13 @@ def test_source_checkout_version_still_works():
     """AC #3: cloning the repo and running `python perseus.py` keeps working."""
     out = _run([sys.executable, str(PERSEUS_PY), "--version"])
     assert out.returncode == 0
-    assert out.stdout.startswith("perseus alpha v")
+    assert out.stdout.startswith("perseus v")
 
 
 def test_installer_version_dry_run():
     out = _run(["bash", str(INSTALLER), "--version"])
     assert out.returncode == 0, out.stderr
-    assert out.stdout.startswith("perseus alpha v")
+    assert out.stdout.startswith("perseus v")
 
 
 def test_installer_full_install_and_uninstall(tmp_path):

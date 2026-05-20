@@ -98,6 +98,6 @@ def test_docker_image_reports_version_when_docker_is_available():
     try:
         out = _run([docker, "run", "--rm", tag, "--version"], timeout=30)
         assert out.returncode == 0, f"docker run failed:\n{out.stdout}\n{out.stderr}"
-        assert out.stdout.startswith("perseus alpha v")
+        assert out.stdout.startswith("perseus v")
     finally:
         _run([docker, "image", "rm", "-f", tag], timeout=30)
