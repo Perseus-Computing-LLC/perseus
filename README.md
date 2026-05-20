@@ -16,6 +16,21 @@ Perseus dogfoods itself: `ROADMAP.md` is a live `@perseus` source — the projec
 
 **Status: v1.0.0 — All Phase 1–22 tasks complete. 63 tasks shipped. 493 tests passing. The first stable release.**
 
+![Perseus demo — before/after cold-start](demo.gif)
+
+---
+
+## TL;DR
+
+```bash
+pip install pyyaml
+cp perseus.py ~/.local/bin/perseus && chmod +x ~/.local/bin/perseus
+perseus init /workspace/myproject
+perseus render /workspace/myproject/.perseus/context.md --output /workspace/myproject/.hermes.md
+```
+
+Your AI assistant now opens every session with a complete, live picture of your workspace — services running, last checkpoint, recent git log, available tools — **without burning a single turn on orientation.**
+
 ---
 
 ## The Problem
@@ -233,7 +248,6 @@ perseus synthesize "What is the next allowable action?" \
 
 ---
 
-## Real-World Examples
 ## Documentation
 
 Full documentation lives in [`docs/`](./docs/index.md):
@@ -620,4 +634,4 @@ Source document (.perseus/context.md)
 
 ## License
 
-MIT
+MIT — see [LICENSE](./LICENSE).
