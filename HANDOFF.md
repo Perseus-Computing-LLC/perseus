@@ -329,3 +329,20 @@ when you finish — update it with a completion summary at the end.
 
 Continue with **task-57 / Phase 21A golden eval corpus**. Do
 not start Phase 22 tasks 60-62.
+
+### Additional Progress
+
+- **task-57 / Phase 21A golden eval corpus** is complete.
+- Added `tests/golden/` with seven offline scenarios covering resolver-only render, cited synthesis with generation disabled, strict trust denials, power-user shell execution, Hermes/Codex adapter output targets, and context pack manifest validation.
+- Added `tests/test_golden.py`, plus a shared `--update-golden` pytest option and `normalize_golden()` helper in `tests/conftest.py`, so intentional snapshot refreshes are explicit and reviewable.
+- Added `tests/golden/README.md` documenting fixture shape, update command, and volatile-line normalization.
+
+### Current validation
+
+- Golden corpus suite: `11 passed`
+- Full suite after task-56/doc fix before task-57: `467 passed, 1 skipped`
+- Full suite after task-57: `478 passed, 1 skipped`
+
+### Next Entry Point
+
+Continue with **task-58 / Phase 21B performance budgets**. Do not start Phase 22 tasks 60-62.

@@ -33,3 +33,24 @@ def _capture_json(monkeypatch, fn, *a, **kw):
     rc = fn(*a, **kw)
     text = "\n".join(captured)
     return json.loads(text), rc
+
+
+def pytest_addoption(parser):
+    parser.addoption(
+        "--update-golden",
+        action="store_true",
+        default=False,
+        help="Regenerate tests/golden/*/expected.md snapshots from current render output.",
+    )
+
+
+def normalize_golden(text: str) -> str:
+    """Normalize golden output before comparison."""
+    lines = []
+    for line in text.replace("\r\n", "\n").splitlines():
+        if "# VOLATILE" in line:
+            continue
+        lines.append(line.rstrip())
+    while lines and lines[-1] == "":
+        lines.pop()
+    return "\n".join(lines) + "\n"

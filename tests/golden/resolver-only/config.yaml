@@ -1,0 +1,5 @@
+permissions:
+  profile: strict
+render:
+  allow_query_shell: false
+  allow_agent_shell: false
