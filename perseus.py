@@ -8162,7 +8162,7 @@ for _spec in DIRECTIVE_REGISTRY.values():
 
 # ───── Task-26: perseus doctor ───────────────────────────────────────────────
 
-_PERSEUS_VERSION = "1.0.0-rc.1"
+_PERSEUS_VERSION = "1.0.0"
 
 
 class DoctorResult(NamedTuple):
@@ -9627,7 +9627,7 @@ def cmd_init(args, cfg):
 def main():
     parser = argparse.ArgumentParser(
         prog="perseus",
-        description="Perseus — Live Context Engine for AI Assistants (v1.0.0-rc.1)",
+        description="Perseus — Live Context Engine for AI Assistants (v1.0.0)",
     )
     parser.add_argument("--version", action="version", version=f"perseus v{_PERSEUS_VERSION}")
     sub = parser.add_subparsers(dest="command", required=True)
