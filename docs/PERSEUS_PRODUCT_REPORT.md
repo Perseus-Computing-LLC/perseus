@@ -1,8 +1,8 @@
 # Perseus Product Report
 
 **Date:** 2026-05-19  
-**Status:** Phases 1-14, 15A, 16, 17, 18, and 19 complete; task-63 Pythia rename complete; Phases 20-22C queued in Agora
-**Current baseline:** 446 tests passing, 1 sandbox-skipped TCP smoke
+**Status:** Phases 1-14, 15A, 16, 17, 18, 19, and 20A complete; task-63 Pythia rename complete; Phases 20B-22C queued in Agora
+**Current baseline:** 453 tests passing, 1 sandbox-skipped TCP smoke
 
 ---
 
@@ -29,6 +29,7 @@ existing power into a deployable, understandable, safe product:
 - assistant adapter conformance ✅
 - editor adapter release polish ✅
 - service/container deployment modes
+- authenticated serve ✅
 - eval and compatibility gates
 - v1 release candidate discipline
 
@@ -70,7 +71,7 @@ Claude Code, Cursor, Rovo Dev, or any assistant that can read a file or stdin.
 | Mneme | complete | Narrative project memory and query |
 | Federation | complete | Cross-workspace narrative subscriptions |
 | Templates/init | Phase 19B complete | Starter scaffolds plus documented, tested product profiles exist |
-| Serve | complete read-only, needs auth for product | Loopback-first HTTP view |
+| Serve | Phase 20A complete | Loopback-first read-only HTTP view with optional bearer auth |
 | Inbox | complete | Point-to-point agent messages |
 | Cron/schedulers | Phase 18 complete | Host-neutral cron text generation, POSIX crontab install, macOS launchd, and Linux systemd are documented/tested; native Windows Task Scheduler is deferred |
 | LSP/editor | Phase 19C complete | LSP baseline plus VSCode packaging docs and smoke checks |
@@ -132,7 +133,7 @@ The new Agora roadmap runs through Phase 22:
 | 17 | Add trust profiles, redaction, audit logs, and trust reports ✅ |
 | 18 | Make installation, versioning, release artifacts, and scheduler parity real ✅ |
 | 19 | Prove adapter compatibility with profiles and conformance tests ✅ |
-| 20 | Support managed runtime through authenticated serve, container, and watch mode |
+| 20 | Support managed runtime through authenticated serve ✅, container, and watch mode |
 | 21 | Add golden evals, performance budgets, and migration/compatibility checks |
 | 22 | Cut a v1 release candidate with docs, demos, artifacts, and gates |
 

@@ -164,8 +164,11 @@ generation:                              # task-39 / Phase 15A
   max_source_bytes: 12000
   max_claims: 6
 
-serve:                                   # task-45 / Phase 17A
-  bind: 127.0.0.1                        # serve binds loopback by default
+serve:                                   # task-54 / Phase 20A
+  bind: 127.0.0.1                        # legacy alias for bind_host
+  bind_host: 127.0.0.1                   # serve binds loopback by default
+  auth_token: null                       # optional static bearer token
+  allow_insecure_remote: false           # explicit unauthenticated remote opt-in
 
 permissions:                             # task-45 / Phase 17A
   # profile: null | strict | balanced | power-user

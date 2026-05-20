@@ -100,6 +100,50 @@ def test_serve_endpoint_oracle_log_returns_json(tmp_path, monkeypatch):
     data = json.loads(body)
     assert isinstance(data, list)
     assert data[0]["task"] == "a"
+
+
+def test_serve_handle_request_no_auth_loopback_legacy_mode(tmp_path):
+    status, ctype, body = perseus._serve_handle_request("/", cfg(), tmp_path, {}, headers={})
+    assert status == 200
+    assert "text/html" in ctype
+    assert "Perseus" in body
+
+
+def test_serve_handle_request_rejects_missing_bearer_token(tmp_path):
+    local = cfg()
+    local["serve"]["auth_token"] = "secret"
+
+    status, ctype, body = perseus._serve_handle_request("/", local, tmp_path, {}, headers={})
+
+    assert status == 401
+    assert "application/json" in ctype
+    assert json.loads(body) == {"error": "unauthorized"}
+
+
+def test_serve_handle_request_rejects_wrong_bearer_token(tmp_path):
+    local = cfg()
+    local["serve"]["auth_token"] = "secret"
+
+    status, ctype, body = perseus._serve_handle_request(
+        "/", local, tmp_path, {}, headers={"Authorization": "Bearer nope"}
+    )
+
+    assert status == 401
+    assert "application/json" in ctype
+    assert json.loads(body) == {"error": "unauthorized"}
+
+
+def test_serve_handle_request_accepts_valid_bearer_token(tmp_path):
+    local = cfg()
+    local["serve"]["auth_token"] = "secret"
+
+    status, ctype, body = perseus._serve_handle_request(
+        "/", local, tmp_path, {}, headers={"Authorization": "Bearer secret"}
+    )
+
+    assert status == 200
+    assert "text/html" in ctype
+    assert "Perseus" in body
 # ─────────────────────────────────────────────────────────────────────────────
 # perseus serve — HTML index helpers (polish pass)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -245,6 +289,61 @@ def test_serve_refuses_non_loopback_without_opt_in(tmp_path, capsys):
     captured = capsys.readouterr()
     assert "refusing to bind" in captured.err.lower()
     assert "--i-understand-no-auth" in captured.err
+    assert "serve.auth_token" in captured.err
+
+
+def test_serve_non_loopback_with_token_reaches_http_server(tmp_path, capsys):
+    import http.server as hs
+    sentinel = RuntimeError("reached HTTPServer")
+    class _Boom(hs.HTTPServer):
+        def __init__(self, *a, **kw):
+            raise sentinel
+
+    ns = argparse.Namespace(
+        lsp=False,
+        host="0.0.0.0",
+        port=7991,
+        workspace=str(tmp_path),
+        i_understand_no_auth=False,
+        generate_token=False,
+    )
+    local = cfg()
+    local["serve"]["auth_token"] = "secret"
+    old = hs.HTTPServer
+    hs.HTTPServer = _Boom
+    try:
+        with pytest.raises(RuntimeError) as exc:
+            perseus.cmd_serve(ns, local)
+        assert exc.value is sentinel
+    finally:
+        hs.HTTPServer = old
+    assert "bearer auth enabled" in capsys.readouterr().err
+
+
+def test_serve_generate_token_outputs_token(capsys):
+    ns = argparse.Namespace(lsp=False, generate_token=True)
+    rc = perseus.cmd_serve(ns, cfg())
+    token = capsys.readouterr().out.strip()
+    assert rc == 0
+    assert len(token) >= 32
+    assert " " not in token
+
+
+def test_trust_report_includes_serve_auth_state(tmp_path, capsys):
+    local = cfg()
+    local["serve"]["bind_host"] = "0.0.0.0"
+    local["serve"]["auth_token"] = "secret"
+    local["serve"]["allow_insecure_remote"] = False
+    args = argparse.Namespace(trust_command="profile", json=True)
+
+    rc = perseus.cmd_trust(args, local)
+    payload = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert payload["serve"]["bind_host"] == "0.0.0.0"
+    assert payload["serve"]["auth_token_set"] is True
+    assert payload["serve"]["loopback_only"] is False
+    assert payload["serve"]["allow_insecure_remote"] is False
 
 
 def test_serve_loopback_does_not_require_opt_in():

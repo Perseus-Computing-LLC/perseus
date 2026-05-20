@@ -14,7 +14,7 @@ Provider-agnostic defaults now use `PERSEUS_SKILLS_DIR` and `PERSEUS_SESSIONS_DI
 
 Perseus dogfoods itself: `ROADMAP.md` is a live `@perseus` source — the project's own documentation resolves its git state, CLI version, recent sessions, and last checkpoint at render time.
 
-**Status: Alpha v0.9.0 — Phases 1-14, Phase 15A, Phase 16, Phase 17, Phase 18, and Phase 19 complete. Adapter conformance, the profile gallery, and VSCode release polish cover generic, Hermes, Codex, Claude Code, Cursor, and Rovo Dev. 54 tasks closed/completed, 9 open. 446 tests passing, 1 sandbox-skipped TCP smoke.**
+**Status: Alpha v0.9.0 — Phases 1-14, Phase 15A, Phase 16, Phase 17, Phase 18, Phase 19, and Phase 20A complete. Authenticated serve mode adds optional bearer auth while preserving loopback defaults. 55 tasks closed/completed, 8 open. 453 tests passing, 1 sandbox-skipped TCP smoke.**
 
 ---
 
@@ -333,7 +333,7 @@ Run `perseus <command> --help` for full flags. Summary of the surface:
 | `perseus oracle {accept,reject,log,export,infer-labels,outcomes,drift}` | Daedalus Pythia log management, inferred labels, outcome signals, and drift checks. |
 | `perseus llm ping [--provider hermes\|ollama\|...]` | Verify the configured LLM provider is reachable. |
 | `perseus init [--template name | --profile name] <workspace>` | Scaffold `.perseus/context.md`; profiles also write `.perseus/pack.yaml`. |
-| `perseus serve [--port N] [--host H]` | Read-only HTTP view of workspace state on `http://127.0.0.1:7991/`. |
+| `perseus serve [--port N] [--host H] [--generate-token]` | Read-only HTTP view of workspace state on `http://127.0.0.1:7991/`; optional static bearer auth via `serve.auth_token`. |
 | `perseus serve --lsp --stdio\|--tcp PORT [--allow-lsp-mutations]` | Run as a Language Server Protocol server for editor integration (Phase 10.1). Mutation commands are opt-in. |
 | `perseus cron SOURCE --output FILE [--every N] [--install]` | POSIX crontab entry generator/installer for macOS, Linux, and BSD cron. |
 | `perseus systemd SOURCE --output FILE [--interval 5m] [--install] [--enable]` | Linux-only systemd `--user` service + timer scaffolder. |
@@ -450,6 +450,31 @@ perseus launchd .perseus/context.md --output .hermes.md
 This writes a LaunchAgent plist that periodically renders the source document
 to the output path.
 
+## Authenticated Serve
+
+`perseus serve` remains loopback-first and read-only. To expose it beyond
+localhost, set a static bearer token and then bind explicitly:
+
+```bash
+perseus serve --generate-token
+```
+
+```yaml
+serve:
+  bind_host: 0.0.0.0
+  auth_token: paste-generated-token-here
+```
+
+Clients must send:
+
+```text
+Authorization: Bearer paste-generated-token-here
+```
+
+Unauthenticated non-loopback serve is refused unless
+`serve.allow_insecure_remote: true` or `--i-understand-no-auth` is explicitly
+set.
+
 
 Pythia config options:
 
@@ -490,7 +515,7 @@ pythia:
 | **Phase 17** | Trust, privacy, permission profiles, redaction, and audit reporting | ✅ Complete |
 | **Phase 18** | Installer, release artifacts, versioning, and scheduler parity | ✅ Complete |
 | **Phase 19** | Assistant adapter conformance and profile gallery | ✅ Complete |
-| **Phase 20** | Managed runtime: authenticated serve, container, and watch mode | 🌅 Planned |
+| **Phase 20** | Managed runtime: authenticated serve, container, and watch mode | 🚧 20A complete; 20B-C queued |
 | **Phase 21** | Golden evals, performance budgets, and compatibility gates | 🌅 Planned |
 | **Phase 22** | v1 release candidate docs, demos, and release checklist | 🌅 Planned |
 

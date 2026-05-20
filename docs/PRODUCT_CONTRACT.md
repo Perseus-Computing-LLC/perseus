@@ -66,8 +66,9 @@ Supported Phase 16 profiles:
 ### Managed Runtime
 
 `perseus serve` and future watch/container modes expose the same local context
-model through a persistent process. Managed runtime work must preserve safe
-loopback defaults and add authentication before broader exposure.
+model through a persistent process. `perseus serve` stays read-only and
+loopback-first; remote binds require either `serve.auth_token` bearer auth or an
+explicit insecure opt-in.
 
 ---
 

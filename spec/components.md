@@ -428,6 +428,7 @@ Stdlib HTTP server for browsing rendered workspace state.
 
 ```bash
 perseus serve [--port 7991] [--host 127.0.0.1] [--workspace .]
+perseus serve --generate-token
 ```
 
 ### Endpoints
@@ -442,7 +443,16 @@ perseus serve [--port 7991] [--host 127.0.0.1] [--workspace .]
 | `/checkpoint/latest` | `text/yaml` — workspace pointer or global latest |
 | `/oracle/log?limit=N` | `application/json` — recent Pythia log entries |
 
-POST returns 405. No auth — bind to localhost by default.
+POST returns 405. By default, serve binds to localhost and requires no auth for
+backward compatibility. If `serve.auth_token` is set, every HTTP endpoint
+requires `Authorization: Bearer <token>` and unauthorized requests return:
+
+```json
+{"error": "unauthorized"}
+```
+
+Non-loopback binds require either `serve.auth_token` or an explicit insecure
+opt-in via `serve.allow_insecure_remote: true` / `--i-understand-no-auth`.
 
 ---
 

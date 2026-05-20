@@ -491,8 +491,9 @@ Phase 15A it reached 314 passed, 1 skipped; after Phase 16 it reached
 322 passed, 1 skipped; after Phase 17/18A plus task-63 it reached
 394 passed, 1 skipped; after Phase 18B-C it reached 413 passed, 1 skipped;
 after Phase 19A it reached 433 passed, 1 skipped; after Phase 19B it reached
-439 passed, 1 skipped; after Phase 19C it reached 446 passed, 1 skipped
-(sandbox-blocked TCP bind; the same TCP smoke passes outside the sandbox).
+439 passed, 1 skipped; after Phase 19C it reached 446 passed, 1 skipped; after
+Phase 20A it reached 453 passed, 1 skipped (sandbox-blocked TCP bind; the same
+TCP smoke passes outside the sandbox).
 - `test_oracle.py` — suggest, Pythia log, drift, infer-labels
 - `test_memory.py` — Mnēmē narrative, federation
 - `test_lsp.py` — LSP helpers, framing, diagnostics
@@ -803,7 +804,7 @@ repeatable adapter contracts instead of one-off docs.
 **Goal:** Let Perseus run as a local service or containerized helper when a team
 needs a persistent context endpoint rather than ad hoc CLI execution.
 
-- **20A Authenticated serve mode (task-54):** Add optional local auth/token gates
+- **20A Authenticated serve mode (task-54) ✅:** Add optional local auth/token gates
   and safe bind defaults for `perseus serve`.
 - **20B Container image and compose example (task-55):** Provide a minimal
   containerized deployment that mounts a workspace and Perseus home.
@@ -904,7 +905,7 @@ Phase 19A ─── Adapter conformance harness ✅ ─────────�
 Phase 19B ─── Assistant profile gallery ✅ ──────────────┤
 Phase 19C ─── VSCode extension release polish ✅ ────────┤
                                                          │
-Phase 20A ─── Authenticated serve mode ──────────────────┤
+Phase 20A ─── Authenticated serve mode ✅ ───────────────┤
 Phase 20B ─── Container image and compose example ───────┤
 Phase 20C ─── Headless watch mode ───────────────────────┤
                                                          │
