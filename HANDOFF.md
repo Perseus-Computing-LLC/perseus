@@ -346,3 +346,19 @@ not start Phase 22 tasks 60-62.
 ### Next Entry Point
 
 Continue with **task-58 / Phase 21B performance budgets**. Do not start Phase 22 tasks 60-62.
+
+### Additional Progress
+
+- **task-58 / Phase 21B performance budgets** is complete.
+- Added dependency-free advisory performance checks in `tests/test_perf_budgets.py` for render, graph, prefetch, synthesize, serve first response, LSP initialize, and watch first render.
+- Added `--enforce-budgets` in `tests/conftest.py`; by default budget overruns emit concise `PytestWarning`s, while enforced runs convert them to failures that name the command and exceeded budget.
+- Registered the `slow` pytest marker and documented budget interpretation in `docs/PERFORMANCE.md`.
+
+### Current validation
+
+- Performance budget suite: `7 passed, 2 warnings` (advisory graph/watch timing warnings on this machine)
+- Full suite after task-58: `485 passed, 1 skipped, 2 warnings`
+
+### Next Entry Point
+
+Continue with **task-59 / Phase 21C compatibility and migration suite**. Do not start Phase 22 tasks 60-62.
