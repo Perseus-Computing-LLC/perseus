@@ -1,12 +1,12 @@
 ---
 id: task-58
 title: Phase 21B performance budgets
-status: open
+status: completed
 priority: medium
 scope: medium
-claimed_by: null
+claimed_by: Rovo Dev
 created: 2026-05-19
-closed: null
+closed: '2026-05-20'
 phase: 21
 theme: "Evaluation, Performance, and Compatibility Gates"
 depends_on:
@@ -74,3 +74,14 @@ This keeps CI green on slow machines while still surfacing regressions.
 **Docs:** Add `docs/PERFORMANCE.md` with the budget table, how to run
 (`python -m pytest tests/test_perf_budgets.py -m slow`), and how to interpret
 the advisory vs blocking distinction.
+
+## Completed
+
+- Added `tests/test_perf_budgets.py` with advisory slow performance checks for render, graph, prefetch, synthesize, serve startup, LSP initialize, and watch first render.
+- Added `--enforce-budgets` to convert advisory budget warnings into hard pytest failures.
+- Registered the `slow` marker and kept the checks dependency-free with `time.perf_counter()` and stdlib subprocess/socket/urllib primitives.
+- Added `docs/PERFORMANCE.md` with budgets, run commands, advisory-vs-blocking guidance, and cold/warm timing interpretation.
+
+Validation:
+
+- `python3 -m pytest tests/test_perf_budgets.py -m slow -q` → `7 passed, 2 warnings` (warnings are advisory budget signals for graph/watch on this machine)

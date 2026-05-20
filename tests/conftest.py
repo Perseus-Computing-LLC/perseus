@@ -35,12 +35,22 @@ def _capture_json(monkeypatch, fn, *a, **kw):
     return json.loads(text), rc
 
 
+def pytest_configure(config):
+    config.addinivalue_line("markers", "slow: advisory slow/performance checks")
+
+
 def pytest_addoption(parser):
     parser.addoption(
         "--update-golden",
         action="store_true",
         default=False,
         help="Regenerate tests/golden/*/expected.md snapshots from current render output.",
+    )
+    parser.addoption(
+        "--enforce-budgets",
+        action="store_true",
+        default=False,
+        help="Turn advisory performance budget warnings into hard test failures.",
     )
 
 
