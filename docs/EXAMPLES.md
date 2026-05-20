@@ -1,80 +1,94 @@
-# Perseus Real-World Examples 📖
+# Perseus Examples
 
-This document tracks practical, real-world usage patterns for Perseus as they are discovered in the field.
+This page provides practical examples of how Perseus is used today, plus scenario sketches for different teams evaluating adoption.
 
----
-
-## 🤝 Subagent Handover (Zero-Tax Orientation)
-
-**Scenario:** You are working on a complex feature and need to delegate a specific sub-task to a fresh agent (like a `delegate_task` child). Instead of writing a long prompt explaining the current state, use a checkpoint.
-
-**1. Parent Agent writes the checkpoint:**
-```bash
-perseus checkpoint \
-  --task "Phase 11: Code Review Remediation" \
-  --status "Testing automated recovery via subagent delegation" \
-  --next "Final report to user" \
-  --workspace "$PWD" \
-  --notes "The goal is to verify the hand-off loop works."
-```
-
-**2. Child Agent recovers the checkpoint:**
-The child agent only needs one instruction: "Orient yourself using Perseus in the current repo checkout."
-
-```bash
-./perseus.py recover --workspace "$PWD"
-```
-
-**Result:** The child agent immediately has the task name, the status, and the specific notes needed to start work without reading through the parent's conversation history.
+**See also:** [Perseus Use Cases](./use-cases.md) for deeper, team-by-team narratives.
 
 ---
 
-## 🛠️ Automated Environment Verification
+## Subagent Handover (Zero‑Tax Orientation)
 
-**Scenario:** You've just cloned a repo or deployed a new version and want to ensure the context engine is healthy before starting work.
+**Goal:** Let a fresh agent or teammate pick up work without spending the first 10–15 turns reconstructing context.
 
-**Example: `verify_perseus.py` script**
-A simple Python script that exercises the three pillars:
+**How it works:**
+- A project keeps a live `.perseus/context.md` (or similar) with `@query`, `@services`, `@waypoint`, and `@memory` blocks.
+- Before a new agent starts, a renderer pass produces an up‑to‑date snapshot.
+- The new agent receives a concise, verified context instead of a stale summary.
 
-```python
-# 1. Render check (Renderer)
-./perseus.py render ROADMAP.md
-
-# 2. Waypoint check (Checkpoints)
-./perseus.py checkpoint --task "TEST" --status "Checking..."
-./perseus.py recover --workspace "$PWD"
-
-# 3. Oracle check (Pythia)
-./perseus.py suggest "How do I fix a broken test?" --quick
-```
-
-**Result:** Confirms the tool is talking to Git, the filesystem, and the assistant correctly.
+**Outcome:** Faster ramp‑up, fewer back‑and‑forth clarification cycles, and less “cold start” burn.
 
 ---
 
-## 🪞 Renderer Dogfooding (Self-Documenting Roadmap)
+## Automated Environment Verification
 
-**Scenario:** You want your project's roadmap to always reflect the actual state of the repository (last commits, active tasks, version).
+**Goal:** Ensure the assistant’s context is grounded in real system state (services, version, tests, recent activity).
 
-**Source: `ROADMAP.md`**
-```markdown
-@perseus v0.3
+**How it works:**
+- `@query` blocks verify git state, branch, test status, or recently modified files.
+- `@services` checks local URLs or docker containers for health.
+- `@health` and `@drift` provide quick health signals for context freshness.
 
-# Project Roadmap
+**Outcome:** The assistant’s first response is based on verified facts, not assumptions.
 
-## Current Version
-@query "python3 perseus.py --version"
+---
 
-## Git State
-@query "git log --oneline -5"
+## Renderer Dogfooding (Self‑Documenting Roadmap)
 
-## Active Tasks
-@agora status=open
-```
+**Goal:** Keep documentation truthful by rendering it live.
 
-**Execution:**
-```bash
-./perseus.py render ROADMAP.md
-```
+**How it works:**
+- `ROADMAP.md` includes `@query` blocks for git status and task counts.
+- Rendering produces a road map that always reflects current repo state.
 
-**Result:** The document is resolved into a clean Markdown file with live data, which can then be saved as the official `ROADMAP.md` or used as a context injection for the assistant.
+**Outcome:** “Docs rot” is minimized; the roadmap stays aligned with the codebase.
+
+---
+
+# Team‑Level Use Cases
+
+## Support Team
+
+**Example:** A support escalation playbook that pre‑loads live incident state before an agent opens the case.
+
+**How Perseus helps:**
+- Pulls live system health and recent incident notes into a single context snapshot.
+- Prevents duplicative questions to the customer.
+
+**Benefit:** Faster resolution and consistent incident awareness across shifts.
+
+## Development Team
+
+**Example:** A new engineer joins mid‑sprint and needs to understand current work, blockers, and tests.
+
+**How Perseus helps:**
+- Checkpoints + memory reconstruct the arc of work without manual status dumps.
+- `@query` verifies test status and branch state.
+
+**Benefit:** Faster onboarding and fewer missed changes.
+
+## Marketing Team
+
+**Example:** Preparing a launch plan that depends on live product readiness signals.
+
+**How Perseus helps:**
+- Pulls release notes, build status, and known issue lists into a single verified context.
+
+**Benefit:** Reduced risk of messaging outdated or inaccurate launch details.
+
+## Sales Team
+
+**Example:** Preparing for a call with a strategic account.
+
+**How Perseus helps:**
+- Aggregates CRM notes, active support issues, and recent customer sentiment into one context package.
+
+**Benefit:** Better‑informed sales conversations and smoother handoffs.
+
+## Executive / Management
+
+**Example:** Weekly operational review.
+
+**How Perseus helps:**
+- Generates a verified summary of ongoing projects, system health, and key risks.
+
+**Benefit:** Leadership gets accurate, live context without manual report prep.
