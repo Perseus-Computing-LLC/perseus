@@ -1,6 +1,6 @@
 # Perseus Task Queue
 
-This directory is how work gets coordinated across AI contributors (Rovo Dev, Claude Code,
+This directory is how work gets coordinated across AI contributors (Claude Code,
 Hermes Agent, etc.) without a synchronous handoff.
 
 ## Workflow
