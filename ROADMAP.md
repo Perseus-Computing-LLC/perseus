@@ -808,7 +808,7 @@ needs a persistent context endpoint rather than ad hoc CLI execution.
   and safe bind defaults for `perseus serve`.
 - **20B Container image and compose example (task-55) ✅:** Provide a minimal
   containerized deployment that mounts a workspace and Perseus home.
-- **20C Headless watch mode (task-56):** Add a portable watch/daemon mode that
+- **20C Headless watch mode (task-56) ✅:** Add a portable watch/daemon mode that
   refreshes render outputs without depending on platform schedulers.
 
 ### Phase 21 — Evaluation, Performance, and Compatibility Gates

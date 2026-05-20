@@ -1,14 +1,14 @@
 ---
 id: task-56
 title: Phase 20C headless watch mode
-status: open
+status: completed
 priority: medium
 scope: large
-claimed_by: null
+claimed_by: Codex
 created: 2026-05-19
-closed: null
+closed: '2026-05-20'
 phase: 20
-theme: "Managed Runtime and Deployment Modes"
+theme: Managed Runtime and Deployment Modes
 depends_on:
 - task-43
 - task-50
@@ -16,7 +16,6 @@ blocks:
 - task-58
 opened: '2026-05-19'
 ---
-
 ## Why
 
 Schedulers are platform-specific. A portable watch mode gives users a simple
@@ -70,3 +69,29 @@ files from the pack's `sources:` list rather than a single `--source` file.
 creating real file watchers or sleeping. Cover: initial render on startup, re-render
 on mtime change, no re-render when mtime unchanged, error handling with continue,
 SIGINT exit path (mock with KeyboardInterrupt).
+
+## Completed
+
+- Added `perseus watch` with `--source`, `--output`, `--workspace`,
+  `--manifest`, `--interval`, `--exit-on-error`, and
+  `--allow-outside-workspace`.
+- Added `watch.poll_interval_s` config with a default of 5 seconds.
+- Implemented a dependency-free polling loop around `cmd_render`; it refreshes
+  either a single source/output pair or every `renders:` target in
+  `.perseus/pack.yaml` when no single-target override is provided.
+- Implemented deterministic debounce by requiring changed source mtimes to stay
+  stable for one additional poll cycle before rendering.
+- Render failures log to stderr and continue by default; `--exit-on-error`
+  returns non-zero after the first failure.
+- SIGINT/SIGTERM request clean shutdown and emit `[watch] stopped`.
+- Updated README, component spec, data model spec, container docs, product
+  contract, roadmap, changelog, and product report.
+- Added `tests/test_watch.py` covering default and pack targets, debounce,
+  unchanged mtimes, failure behavior, keyboard interrupt shutdown, and
+  outside-workspace gating.
+
+Validation:
+
+- `python3 -m pytest tests/test_watch.py -q` → `8 passed`
+- `python3 -m pytest tests/test_watch.py tests/test_container.py tests/test_platform_misc.py -q` → `54 passed, 1 skipped`
+- `python3 -m pytest tests/ -q` → `466 passed, 2 skipped`

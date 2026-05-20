@@ -23,6 +23,7 @@ import hashlib
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -245,6 +246,9 @@ DEFAULT_CONFIG = {
         "bind_host": "127.0.0.1",
         "auth_token": None,
         "allow_insecure_remote": False,
+    },
+    "watch": {
+        "poll_interval_s": 5,
     },
     "permissions": {                  # Phase 17A — task-45
         # profile: null | "strict" | "balanced" | "power-user"
@@ -5436,6 +5440,272 @@ def cmd_render(args, cfg):
         print(rendered)
 
 
+class WatchTarget(NamedTuple):
+    """One watched source/output render pair."""
+    name: str
+    source: Path
+    output: Path
+
+
+def _watch_rel(path: Path, workspace: Path) -> str:
+    try:
+        return str(path.relative_to(workspace))
+    except ValueError:
+        return str(path)
+
+
+def _watch_target_key(target: WatchTarget) -> tuple[str, str]:
+    return (str(target.source), str(target.output))
+
+
+def _watch_interval_s(args, cfg) -> tuple[float | None, str | None]:
+    raw = getattr(args, "interval", None)
+    if raw is None:
+        raw = (cfg.get("watch") or {}).get("poll_interval_s", 5)
+    try:
+        interval = float(raw)
+    except (TypeError, ValueError):
+        return None, f"watch interval must be a number, got {raw!r}"
+    if interval <= 0:
+        return None, "watch interval must be greater than zero"
+    return interval, None
+
+
+def _watch_resolve_ref(ref: str, workspace: Path, cfg: dict, allow_arg: bool) -> tuple[Path, str | None]:
+    allow = allow_arg or bool(cfg.get("render", {}).get("allow_outside_workspace", False))
+    path, warning = _resolve_path(ref, workspace, allow_outside_workspace=allow)
+    if warning:
+        return path, warning.replace("> ⚠ ", "")
+    return path, None
+
+
+def _watch_target_from_refs(
+    name: str,
+    source_ref: str,
+    output_ref: str,
+    workspace: Path,
+    cfg: dict,
+    allow_arg: bool,
+) -> tuple[WatchTarget | None, list[str]]:
+    errors: list[str] = []
+    source, source_error = _watch_resolve_ref(source_ref, workspace, cfg, allow_arg)
+    output, output_error = _watch_resolve_ref(output_ref, workspace, cfg, allow_arg)
+    if source_error:
+        errors.append(f"{name}: source {source_error}")
+    if output_error:
+        errors.append(f"{name}: output {output_error}")
+    if errors:
+        return None, errors
+    return WatchTarget(name=name, source=source, output=output), []
+
+
+def _watch_targets_from_pack(
+    workspace: Path,
+    manifest: str | None,
+    cfg: dict,
+    allow_arg: bool,
+) -> tuple[list[WatchTarget], list[str]]:
+    result = validate_context_pack(workspace, manifest)
+    if not result.get("valid", False):
+        errors = result.get("errors") or ["context pack is invalid"]
+        return [], [f"context pack {err}" for err in errors]
+    targets: list[WatchTarget] = []
+    errors: list[str] = []
+    for idx, render in enumerate(result.get("renders", []), start=1):
+        name = str(render.get("name") or f"render-{idx}")
+        source_ref = render.get("source")
+        output_ref = render.get("output")
+        if not isinstance(source_ref, str) or not source_ref:
+            errors.append(f"{name}: source is required")
+            continue
+        if not isinstance(output_ref, str) or not output_ref:
+            errors.append(f"{name}: output is required")
+            continue
+        target, target_errors = _watch_target_from_refs(name, source_ref, output_ref, workspace, cfg, allow_arg)
+        if target:
+            targets.append(target)
+        errors.extend(target_errors)
+    if not targets and not errors:
+        errors.append("context pack has no render targets")
+    return targets, errors
+
+
+def _watch_targets_from_args(args, cfg, workspace: Path) -> tuple[list[WatchTarget], list[str]]:
+    allow_arg = bool(getattr(args, "allow_outside_workspace", False))
+    source_arg = getattr(args, "source", None)
+    output_arg = getattr(args, "output", None)
+    manifest_arg = getattr(args, "manifest", None)
+    explicit_single = bool(source_arg or output_arg)
+    pack_path = _pack_manifest_path(workspace, manifest_arg)
+    if not explicit_single and (manifest_arg or pack_path.exists()):
+        return _watch_targets_from_pack(workspace, manifest_arg, cfg, allow_arg)
+
+    source_ref = source_arg or ".perseus/context.md"
+    output_ref = output_arg or ".hermes.md"
+    target, errors = _watch_target_from_refs("default", source_ref, output_ref, workspace, cfg, allow_arg)
+    return ([target] if target else []), errors
+
+
+def _watch_target_mtime(target: WatchTarget, getmtime: Callable[[Path], float]) -> float | None:
+    try:
+        return float(getmtime(target.source))
+    except OSError:
+        return None
+
+
+def _watch_render_target(target: WatchTarget, cfg: dict, render_fn: Callable) -> None:
+    render_args = argparse.Namespace(source=str(target.source), output=str(target.output))
+    try:
+        render_fn(render_args, cfg)
+    except SystemExit as exc:
+        code = exc.code if isinstance(exc.code, int) else 1
+        raise RuntimeError(f"render exited with status {code}") from None
+
+
+def _watch_render_and_record(
+    target: WatchTarget,
+    cfg: dict,
+    workspace: Path,
+    last_rendered: dict[tuple[str, str], float | None],
+    pending: dict[tuple[str, str], float | None],
+    getmtime: Callable[[Path], float],
+    render_fn: Callable,
+    log_stream,
+    exit_on_error: bool,
+) -> bool:
+    key = _watch_target_key(target)
+    try:
+        _watch_render_target(target, cfg, render_fn)
+    except Exception as exc:
+        print(f"[watch] render error: {exc}", file=log_stream)
+        last_rendered[key] = _watch_target_mtime(target, getmtime)
+        pending.pop(key, None)
+        return not exit_on_error
+
+    last_rendered[key] = _watch_target_mtime(target, getmtime)
+    pending.pop(key, None)
+    print(
+        f"[watch] rendered -> {_watch_rel(target.output, workspace)} "
+        f"(changed: {_watch_rel(target.source, workspace)})",
+        file=log_stream,
+    )
+    return True
+
+
+def _watch_loop(
+    targets: list[WatchTarget],
+    cfg: dict,
+    workspace: Path,
+    interval_s: float,
+    *,
+    exit_on_error: bool = False,
+    getmtime: Callable[[Path], float] = os.path.getmtime,
+    sleep: Callable[[float], None] = time.sleep,
+    render_fn: Callable = cmd_render,
+    should_stop: Callable[[], bool] | None = None,
+    log_stream=None,
+    max_cycles: int | None = None,
+) -> int:
+    log_stream = log_stream or sys.stderr
+    should_stop = should_stop or (lambda: False)
+    last_rendered: dict[tuple[str, str], float | None] = {}
+    pending: dict[tuple[str, str], float | None] = {}
+
+    try:
+        for target in targets:
+            ok = _watch_render_and_record(
+                target, cfg, workspace, last_rendered, pending,
+                getmtime, render_fn, log_stream, exit_on_error,
+            )
+            if not ok:
+                return 1
+
+        cycles = 0
+        while True:
+            if should_stop():
+                print("[watch] stopped", file=log_stream)
+                return 0
+            if max_cycles is not None and cycles >= max_cycles:
+                return 0
+            sleep(interval_s)
+            cycles += 1
+            if should_stop():
+                print("[watch] stopped", file=log_stream)
+                return 0
+
+            for target in targets:
+                key = _watch_target_key(target)
+                current = _watch_target_mtime(target, getmtime)
+                if current == last_rendered.get(key):
+                    pending.pop(key, None)
+                    continue
+                if key in pending and pending[key] == current:
+                    ok = _watch_render_and_record(
+                        target, cfg, workspace, last_rendered, pending,
+                        getmtime, render_fn, log_stream, exit_on_error,
+                    )
+                    if not ok:
+                        return 1
+                else:
+                    pending[key] = current
+    except KeyboardInterrupt:
+        print("[watch] stopped", file=log_stream)
+        return 0
+
+
+def _watch_install_signal_handlers() -> tuple[dict, dict]:
+    state = {"stop": False, "signal": None}
+    previous = {}
+
+    def _handler(signum, _frame):
+        state["stop"] = True
+        try:
+            state["signal"] = signal.Signals(signum).name
+        except Exception:
+            state["signal"] = str(signum)
+
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        previous[sig] = signal.getsignal(sig)
+        signal.signal(sig, _handler)
+    return state, previous
+
+
+def _watch_restore_signal_handlers(previous: dict) -> None:
+    for sig, handler in previous.items():
+        signal.signal(sig, handler)
+
+
+def cmd_watch(args, cfg) -> int:
+    workspace = Path(args.workspace).expanduser().resolve() if getattr(args, "workspace", None) else Path.cwd().resolve()
+    cfg = load_config(workspace)
+    interval_s, interval_error = _watch_interval_s(args, cfg)
+    if interval_error:
+        print(f"perseus watch: {interval_error}", file=sys.stderr)
+        return 1
+
+    targets, errors = _watch_targets_from_args(args, cfg, workspace)
+    if errors:
+        for err in errors:
+            print(f"perseus watch: {err}", file=sys.stderr)
+        return 1
+    if not targets:
+        print("perseus watch: no render targets", file=sys.stderr)
+        return 1
+
+    signal_state, previous_handlers = _watch_install_signal_handlers()
+    try:
+        return _watch_loop(
+            targets,
+            cfg,
+            workspace,
+            interval_s or 5,
+            exit_on_error=bool(getattr(args, "exit_on_error", False)),
+            should_stop=lambda: bool(signal_state["stop"]),
+        )
+    finally:
+        _watch_restore_signal_handlers(previous_handlers)
+
+
 def cmd_graph(args, cfg) -> int:
     """Print a static directive dependency graph."""
     source_path = Path(args.source).expanduser().resolve()
@@ -9370,6 +9640,16 @@ def main():
         help="Write rendered output to FILE instead of stdout",
     )
 
+    # watch (Phase 20C)
+    p_watch = sub.add_parser("watch", help="Poll and refresh render outputs when context sources change")
+    p_watch.add_argument("--source", default=None, help="Source file (default: .perseus/context.md, unless a context pack is present)")
+    p_watch.add_argument("--output", "-o", default=None, help="Rendered output file (default: .hermes.md)")
+    p_watch.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
+    p_watch.add_argument("--manifest", default=None, help="Context pack manifest path (default: .perseus/pack.yaml)")
+    p_watch.add_argument("--interval", type=float, default=None, help="Polling interval in seconds (default: watch.poll_interval_s / 5)")
+    p_watch.add_argument("--exit-on-error", action="store_true", help="Exit after the first render failure instead of continuing")
+    p_watch.add_argument("--allow-outside-workspace", action="store_true", help="Allow watched sources/outputs outside the workspace")
+
     # graph (Phase 13A)
     p_graph = sub.add_parser("graph", help="Build a static directive graph without rendering")
     p_graph.add_argument("source", help="Path to .md file with @perseus header")
@@ -9648,6 +9928,8 @@ def main():
 
     if args.command == "render":
         cmd_render(args, cfg)
+    elif args.command == "watch":
+        return cmd_watch(args, cfg)
     elif args.command == "graph":
         return cmd_graph(args, cfg)
     elif args.command == "prefetch":
