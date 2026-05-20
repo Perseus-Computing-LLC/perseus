@@ -1,200 +1,170 @@
-# Developer Handoff — 2026-05-19
+# Perseus — Agent Handoff
 
-**For:** Principal developer continuing productization
-**Repo:** https://github.com/tcconnally/perseus  
-**Baseline:** Phase 18A shipped plus task-63 Pythia rename, 394 tests passing, 1 sandbox-skipped TCP smoke
-**State:** Phases 11, 12, 13, 14, 15A, 16, 17A, 17B, 17C, **18A**, and task-63 complete; Phases 18B-22 remain queued in Agora as the deployable-product path
-
----
-
-## Read These First
-
-1. `ROADMAP.md` — canonical future plan through Phase 15 cited synthesis
-2. `AGENTS.md` — contributor constraints and task workflow
-3. `tasks/README.md` — Agora workflow
-4. `spec/data-model.md` — current schema validation DSL and `perseus validate` contract
-5. `docs/RESOLVER_VS_GENERATOR.md` — decision brief for the Phase 14/15 boundary
-6. `docs/CITED_SYNTHESIS.md` — Phase 15A citation contract and command surface
-7. `docs/PRODUCT_CONTRACT.md` — v1 product promise, deployment modes, trust boundary
-8. `docs/CONTEXT_PACKS.md` — `.perseus/pack.yaml` manifest reference
-9. `docs/PERSEUS_PRODUCT_REPORT.md` — full project/productization report
+**Date:** 2026-05-19  
+**From:** Hermes (project owner's assistant)  
+**To:** Distinguished Engineer (Rovo Dev or equivalent)  
+**Branch:** `main` — commit to main directly, no feature branches needed  
+**Scope:** Phases 18C through 21 (tasks 50–59)
 
 ---
 
-## What Shipped Since The Previous Handoff
+## State at Handoff
 
-| Task | Commit | Status | Notes |
-|---|---|---|---|
-| **task-30** Phase 12A schema validation engine | `5f083a8` | complete | `schema=` for `@query`, `@read`, `@env`; `.perseus/schemas/`; `@validate` |
-| **task-31** directive output schema annotations | `2453fba` | complete | `DirectiveSpec.output_schema`; automatic render-time validation; explicit `schema=` precedence |
-| **task-32** `perseus validate` CLI | `5e105b6` | complete | file/stdin input, human and JSON output, non-zero invalid/error exits |
-| **task-33** directive dependency graph | task-33 batch | complete | `perseus graph`, JSON graph, static resource hints |
-| **task-34** pattern prefetch rules | task-34 batch | complete | `prefetch.rules`, `perseus prefetch`, cache warming with trust gates |
-| **task-35** adaptive prefetch scoring | task-35 batch | complete | deterministic/Daedalus scoring over predeclared candidates with fallback |
-| **Decision brief** resolver vs generator | decision-brief batch | complete | recommends resolver boundary through Phase 14; Phase 15 generation must be opt-in |
-| **task-36** reinforcement signal collection | task-36 batch | complete | `perseus oracle outcomes`, deterministic checkpoint-correlated outcome signals |
-| **task-37** online scoring adjustment | task-37 batch | complete | outcome-weighted prompt hints for `perseus suggest` |
-| **task-38** A/B recommendation testing | task-38 batch | complete | opt-in primary/alternate exploration with Pythia log attribution |
-| **task-39** cited synthesis contract | task-39 batch | complete | `perseus synthesize`, opt-in LLM drafting, exact quote citation gate |
-| **tasks 40-62** productization roadmap | productization-roadmap batch | queued | Phase 15B through v1 release candidate path added to Agora |
-| **task-42** product contract | Phase 16 batch | complete | `docs/PRODUCT_CONTRACT.md` defines v1 promise, surfaces, modes, and non-goals |
-| **task-43** context pack manifest | Phase 16 batch | complete | `perseus pack validate/show` for optional `.perseus/pack.yaml` |
-| **task-44** init profile workflow | Phase 16 batch | complete | `perseus init --profile` for generic/hermes/codex/claude-code/cursor/rovodev |
-| **task-45** permission profiles | Phase 17A | complete | `permissions.profile` (strict/balanced/power-user), `perseus trust [--json]`, `serve.bind` promoted to config, version bump to 0.9.0 |
-| **task-46** secrets redaction | Phase 17B | complete | `DEFAULT_REDACTION_RULES`, `redact_text()`, applied to render/synthesize/serve trust boundaries; source files never mutated; counts-only report (no secret values) |
-| **task-47** audit log + trust report | Phase 17C | complete | `audit_event()` JSONL writer w/ rotation; emitters at 5 trust boundaries; `perseus trust audit [--tail N] [--json]`; default `trust` shows audit posture; secret values never persisted |
-| **task-48** installer bootstrap | Phase 18A | complete | `scripts/install.sh` + `INSTALL.md`; preserves single-file runtime; verifies Python 3.10+, pyyaml; idempotent upgrade; clean uninstall; shim verifies via `perseus --version` |
-| **task-63** Oracle → Pythia rename | housekeeping | complete | Internal config/log/state now use `pythia`; legacy `oracle:` config warns; `oracle_log.jsonl` auto-migrates to `pythia_log.jsonl`; public `perseus oracle` CLI remains |
+```
+411 tests passing (0 failing, 1 skipped — TCP LSP smoke, expected in sandbox)
+Version: alpha v0.9.0
+Last commit: cfd7016
+```
 
-Phase 11 was already complete in the prior handoff: baseline repairs, `DIRECTIVE_REGISTRY`, `perseus doctor`, JSON agent surfaces, LSP integration tests, and the split test suite are all on `main`.
+Phase 18B is complete (task-49 ✅). The release artifact machinery
+(`scripts/release.sh`, `dist/`, `SHA256SUMS`) is built and tested.
 
 ---
 
-## Current Test Suite
+## Your Scope
 
-Run:
+You own **tasks 50–59 in sequence**. Do not touch Phase 22 (tasks 60–62) — those
+are reserved for the project owner.
+
+| Task | Phase | Title | Priority | Scope |
+|---|---|---|---|---|
+| task-50 | 18C | Scheduler parity | medium | medium |
+| task-51 | 19A | Adapter conformance harness | high | large |
+| task-52 | 19B | Assistant profile gallery | high | medium |
+| task-53 | 19C | VSCode extension release polish | medium | medium |
+| task-54 | 20A | Authenticated serve mode | high | large |
+| task-55 | 20B | Container image and compose | medium | medium |
+| task-56 | 20C | Headless watch mode | medium | large |
+| task-57 | 21A | Golden eval corpus | high | large |
+| task-58 | 21B | Performance budgets | medium | medium |
+| task-59 | 21C | Compatibility and migration suite | high | medium |
+
+Work them in order. Each task has `depends_on:` in its frontmatter — respect the
+dependency graph. The critical path is: **50 → 56 → 58** and **51 → 52 → 57 → 59**.
+
+---
+
+## Critical Rules (non-negotiable)
+
+1. **`perseus.py` stays a single file.** Do not split it. `patch` not `write_file`.
+2. **`pyyaml` is the only runtime dependency.** No new deps.
+3. **All tests must pass before committing.** Run `python -m pytest tests/ -q`.
+4. **Spec follows code.** Update `spec/*.md` when behavior changes.
+5. **No `write_file` on `perseus.py`** — the file is ~6,000+ lines and `write_file`
+   will silently truncate it. Use `patch`. If you need to verify line count:
+   `wc -l perseus.py` (should be 5,800+). Recovery: `git checkout HEAD -- perseus.py`.
+6. **Claim tasks via `perseus agora claim <id> --agent <name>` before starting.**
+   Mark complete by adding `## Completed` section to the task file.
+
+---
+
+## Key Implementation Notes per Task
+
+All tasks now have `## Implementation Notes` sections with concrete patterns, config
+keys, command signatures, and test approaches. Read the full task file before starting.
+
+### task-50 (scheduler parity)
+Audit `perseus cron`, `perseus launchd`, `perseus systemd` outputs against actual
+platform schedulers. Windows: document as deferred (not implementing Task Scheduler).
+Update README scheduler section to match. Add smoke tests for generated scheduler output.
+
+### task-51 (adapter conformance harness)
+Create `tests/fixtures/adapters/<name>/` with `context.md`, `pack.yaml`, expected output
+filename for: hermes, codex, claude-code, cursor, rovodev, generic. Add
+`tests/test_adapter_conformance.py` parametrized over fixture dirs. Update
+`spec/integration.md` with a conformance matrix table. CLI hook optional.
+
+### task-52 (profile gallery)
+Profiles already exist via `perseus init --profile`. This task ensures each has a
+conformance fixture (from task-51), is discoverable via `--list-profiles`, and that
+profile-generated files contain no hardcoded repo-local paths. Tests cover listing
+and generation for all 6 profiles.
+
+### task-53 (VSCode extension polish)
+Extension is at `editors/vscode/`. Audit `package.json` commands against current LSP
+command set (render, checkpoint, suggest, mutation gate). Add packaging doc
+(`editors/vscode/RELEASE.md`). Smoke tests for diagnostics, completion, hover
+round-trips via the existing LSP subprocess test harness in `tests/test_lsp.py`.
+Do not publish to marketplace.
+
+### task-54 (authenticated serve)
+Static bearer token via `serve.auth_token` config. Non-loopback binds require
+explicit override or token. `--generate-token` helper. Trust report `[serve]` section.
+HTTP 401 for unauthorized requests. Full implementation notes in task file.
+
+### task-55 (container image)
+Minimal `Dockerfile` using the single-file runtime. `docker-compose.yaml` example
+mounting workspace and Perseus home. `docs/CONTAINER.md` with trust implications.
+Smoke tests skip if Docker not available (follow `test_installer.py` skip pattern).
+
+### task-56 (headless watch mode)
+`perseus watch` as polling loop — no filesystem watcher deps. `watch.poll_interval_s`
+config (default 5). Debounce via mtime tracking, not wall-clock timers (keeps tests
+deterministic). SIGINT exits cleanly. Context pack support. Full spec in task file.
+
+### task-57 (golden eval corpus)
+`tests/golden/<scenario>/` — 7 minimum scenarios documented in task file.
+`tests/test_golden.py` parametrized over scenario dirs. `normalize_golden()` strips
+volatile lines. `--update-golden` pytest flag to regenerate. Do not commit updated
+goldens without reviewing the diff.
+
+### task-58 (performance budgets)
+`tests/test_perf_budgets.py` — all tests `@pytest.mark.slow`. Advisory by default
+(warnings, not failures). `--enforce-budgets` flag for hard failures. Budget table
+and `docs/PERFORMANCE.md`. watch command budget uses task-56 completion.
+
+### task-59 (compatibility suite)
+Fixtures for old `hermes:` config key (legacy migration), old checkpoint format,
+old oracle log format, old Mnēmē narrative format, old federation manifest. Verify
+current commands read them or produce clean migration errors. Document any intentional
+breaking changes in `docs/MIGRATION.md`.
+
+---
+
+## Things to Watch Out For
+
+- **Ghost completions.** If you think a task is already done, grep `perseus.py` for the
+  key function/command before marking complete. Past AI contributors marked tasks done
+  without writing code.
+- **`--json` early-return audit.** Any command that gets a `--json` flag must check
+  `args.json` on **every** return path, not just the happy path. Failure to do this
+  is the most common class of bug in Perseus.
+- **`_apply_permission_profile` precedence.** Profile applies BEFORE user config keys.
+  Explicit user config always wins.
+- **Test the `cmd_*` signature.** Every handler is `cmd_<name>(args, cfg)` — two args.
+  `load_config(workspace=...)` has no path overload.
+- **LSP hover safety.** Shell-executing directives (`@query`, `@agent`, `@services
+  command:`) must not execute during LSP hover. They are in the `safe_for_hover=False`
+  registry entries. Do not change this.
+
+---
+
+## How to Orient
 
 ```bash
+# Check current state
+python perseus.py --version
 python -m pytest tests/ -q
-```
 
-Latest local result:
+# See open tasks
+python perseus.py agora list
 
-```text
-394 passed, 1 skipped
-```
+# Read a task
+cat tasks/task-50-scheduler-parity.md
 
-The skipped test is the TCP LSP smoke when sockets are unavailable in the sandbox.
+# Claim it
+python perseus.py agora claim task-50 --agent "Rovo Dev"
 
-Subsystem layout:
-
-```text
-tests/
-  conftest.py
-  test_renderer.py
-  test_checkpoint_agora_health.py
-  test_oracle.py
-  test_memory.py
-  test_memory_federation.py
-  test_lsp.py
-  test_doctor.py
-  test_synthesis.py
-  test_agent_inbox_template.py
-  test_llm.py
-  test_platform_misc.py
-  test_serve.py
+# Work it, then mark complete
+# Add ## Completed section to the task file, commit with:
+# git commit -m "feat(task-50): scheduler parity — phase 18C complete"
 ```
 
 ---
 
-## Phase 12 Contracts Now In Force
+## Stop Condition
 
-- Required dependencies remain unchanged: `pyyaml` only.
-- Schema files resolve from `<workspace>/.perseus/schemas/` first, then workspace root, then cwd.
-- Supported DSL subset: primitive `type`, `mapping`/`properties`, `required`, `sequence`/`items`, `pattern`, and `enum`.
-- `@query schema=`, `@read schema=`, `@env schema=`, and `@validate schema=... @end` are live.
-- `DirectiveSpec.output_schema` validates rendered directive output automatically.
-- Per-invocation `schema=` takes precedence over registry-level `output_schema`.
-- `perseus validate --schema SCHEMA [payload|-] [--json]` returns:
-  - `0` valid
-  - `1` schema validation failed
-  - `2` schema/input read or parse error
-
----
-
-## Next: Productization Roadmap
-
-Phase 13 and Phase 14 are complete:
-
-1. **13A Directive Dependency Graph**
-   - Build a static graph over directives found in a source document.
-   - Use `DIRECTIVE_REGISTRY` metadata rather than hardcoded directive lists.
-   - Keep it read-only and deterministic.
-
-2. **13B Pattern-Based Pre-Fetch Rules**
-   - Add `prefetch.rules` config.
-   - Trigger prefetches from directive patterns.
-   - Reuse existing cache machinery; no daemon.
-
-3. **13C Daedalus-Powered Adaptive Pre-Fetch**
-   - Optional scoring layer using existing Pythia/Mnēmē patterns.
-   - Keep deterministic fallback and no required model dependency.
-   - Preserve the Phase 14 resolver-vs-generator decision gate.
-
-The resolver-vs-generator decision resolved toward a bounded curator layer, not
-a full generator. Phase 15A implements the guardrail foundation:
-
-- `perseus synthesize` builds a line-numbered source bundle.
-- LLM drafting is off by default and requires `generation.enabled: true` or
-  `--enable-generation`.
-- Every surviving claim must cite an exact source quote and line range.
-- Uncited or invalid claims are dropped.
-- Normal `perseus render` output is unchanged.
-
-Next work starts with task-40: use the cited-claim contract for cross-source
-consistency synthesis. Do not add a render-time generated section until task-40
-proves the command surface is useful.
-
-Phase 16 is complete:
-
-- `docs/PRODUCT_CONTRACT.md` defines the v1 promise and deployment modes.
-- `docs/CONTEXT_PACKS.md` documents `.perseus/pack.yaml`.
-- `perseus pack validate/show` validates optional context packs.
-- `perseus init --profile ...` creates portable profile contexts and pack
-  manifests.
-
-The remaining deployable-product path is queued through task-62:
-
-- **Phase 15B-C:** finish cited synthesis only where it adds cross-source value.
-- **Phase 17:** permission profiles, redaction, audit log, trust report.
-- **Phase 18:** installer bootstrap complete; release artifacts, versioning, and scheduler parity remain.
-- **Phase 19:** adapter conformance, assistant profiles, VSCode release polish.
-- **Phase 20:** authenticated serve, container sidecar, headless watch mode.
-- **Phase 21:** golden eval corpus, performance budgets, compatibility suite.
-- **Phase 22:** v1 docs, demo workspaces, release candidate checklist.
-
----
-
-## Architecture Reminders
-
-### `DIRECTIVE_REGISTRY`
-
-Single source of truth for directive metadata. Completion, hover safety, inline dispatch, and output schema validation all derive from it.
-
-Current shape:
-
-```python
-class DirectiveSpec(NamedTuple):
-    name: str
-    resolver: Callable | None
-    args: list[str]
-    kind: str                 # inline | block | control
-    call_sig: str             # acw | ac | a | awc | block
-    executes_shell: bool = False
-    reads_files: bool = False
-    mutates_state: bool = False
-    safe_for_hover: bool = True
-    cacheable: bool = False
-    summary: str = ""
-    output_schema: object | None = None
-```
-
-### Mnēmē Path
-
-Always resolve the narrative with `_mneme_path(workspace, cfg)`. Do not guess a path.
-
-### Git Hygiene
-
-Work from `main`, use focused commits, and push after green tests. There are no active feature branches.
-
----
-
-## Non-Negotiable Constraints
-
-1. `perseus.py` stays single-file.
-2. `pyyaml` is the only required dependency.
-3. Tests before commit.
-4. Spec follows code.
-5. Keep the mythology and public names.
-6. Preserve backward compatibility.
-7. Agents execute scoped tasks; if a task conflicts with constraints, mark it blocked.
+**Stop after task-59.** Do not start task-60, task-61, or task-62.
+Phase 22 (v1 release candidate, docs site, demo packs) is reserved for the
+project owner to complete with their assistant. Leave `HANDOFF.md` in place
+when you finish — update it with a completion summary at the end.
