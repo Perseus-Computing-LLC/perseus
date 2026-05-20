@@ -2,7 +2,7 @@
 
 # Perseus — Agent Contributor Guide
 
-This file is read by AI coding assistants (Rovo Dev, Claude Code, Codex, Cursor, etc.) at
+This file is read by AI coding assistants (Claude Code, Codex, Cursor, etc.) at
 session start. It tells you what Perseus is, how the repo is organized, and how to pick up
 work.
 

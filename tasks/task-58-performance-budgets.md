@@ -4,7 +4,7 @@ title: Phase 21B performance budgets
 status: completed
 priority: medium
 scope: medium
-claimed_by: Rovo Dev
+claimed_by: Hermes Agent
 created: 2026-05-19
 closed: '2026-05-20'
 phase: 21

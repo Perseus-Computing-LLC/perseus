@@ -24,7 +24,7 @@ file. That works for a developer with one or two projects. It breaks down
 in three real situations:
 
 1. **Same human, many workspaces.** A SAM-team developer has work spread across
-   `~/perseus`, `~/sam`, `~/rovodev`, `~/support_data_agent`. Decisions made in
+   `~/perseus`, `~/sam`, `~/assistant`, `~/support_data_agent`. Decisions made in
    one repo (e.g. "we standardised on `_workspace_hash` for keying") apply to
    the others, but the narratives don't know that.
 2. **Same team, many workspaces.** Multiple developers each have their own
@@ -290,4 +290,4 @@ Missing / unreadable / stale subscribed narratives render as `> ⚠ Federated me
 - `memory.federation_manifest` added to `spec/data-model.md` config schema
 - README + ROADMAP updated
 
-**Smoke-tested 2026-05-18** against real workspaces `~/sam` and `~/rovodev` — all 6 surfaces verified working end-to-end.
+**Smoke-tested 2026-05-18** against real workspaces `~/sam` and `~/assistant` — all 6 surfaces verified working end-to-end.

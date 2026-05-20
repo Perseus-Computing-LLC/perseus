@@ -4,7 +4,7 @@ title: Phase 21C compatibility and migration suite
 status: completed
 priority: high
 scope: medium
-claimed_by: Rovo Dev
+claimed_by: Hermes Agent
 created: 2026-05-19
 closed: '2026-05-20'
 phase: 21
