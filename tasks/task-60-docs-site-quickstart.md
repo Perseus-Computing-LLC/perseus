@@ -1,14 +1,14 @@
 ---
 id: task-60
 title: Phase 22A documentation site and quickstart
-status: open
+status: completed
 priority: high
 scope: medium
-claimed_by: null
+claimed_by: hermes
 created: 2026-05-19
-closed: null
+closed: '2026-05-20'
 phase: 22
-theme: "v1 Release Candidate"
+theme: v1 Release Candidate
 depends_on:
 - task-52
 - task-55
@@ -16,7 +16,6 @@ blocks:
 - task-62
 opened: '2026-05-19'
 ---
-
 ## Why
 
 The repo docs are rich but dense. A deployable product needs a user-facing
@@ -43,3 +42,11 @@ and operations.
 - Do not create a separate website build system unless approved.
 - Do not remove existing detailed docs.
 - Do not publish external docs in this task.
+
+## Completed
+
+- Created `docs/index.md` — documentation hub with full navigation map, key concepts glossary, and version line.
+- Created `docs/quickstart.md` — 10-step guide from install to live render, covering profiles, watch/cron/systemd refresh, checkpoints, Pythia, and doctor. Links to all advanced topics.
+- Created `docs/CONTRIBUTING.md` — contributor guide covering single-file constraint, development setup, directive authoring (4-touch pattern), test conventions, Agora workflow, and AI contributor notes.
+- Updated `README.md` — added `## Documentation` section above `## Real-World Examples` pointing to quickstart, integration guide, context packs, container, synthesis, and contributing docs.
+- All existing docs preserved; no build tooling added.
