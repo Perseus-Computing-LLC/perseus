@@ -31,7 +31,43 @@ def test_launchd_subcommand_scaffolds_plist_on_macos(tmp_path, monkeypatch):
     perseus.cmd_launchd(args, cfg())
     plist = fake_home / "Library" / "LaunchAgents" / "com.test.perseus.plist"
     assert plist.exists()
-    assert "<string>render</string>" in plist.read_text()
+    plist_body = plist.read_text()
+    assert "<string>render</string>" in plist_body
+    assert "<key>StartInterval</key>" in plist_body
+    assert "<integer>300</integer>" in plist_body
+    assert "com.test.perseus" in plist_body
+
+
+def test_cron_subcommand_prints_posix_crontab_entry(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(perseus.sys, "platform", "linux")
+    source = tmp_path / ".perseus" / "context.md"
+    source.parent.mkdir(parents=True)
+    source.write_text("@perseus\n")
+    output = tmp_path / "AGENTS.md"
+    args = argparse.Namespace(source=str(source), output=str(output), every="5", install=False)
+
+    perseus.cmd_cron(args, cfg())
+
+    out = capsys.readouterr().out
+    assert "*/5 * * * *" in out
+    assert " render " in out
+    assert str(source.resolve()) in out
+    assert f"--output {output.resolve()}" in out
+    assert "# perseus-render" in out
+    assert "crontab -e" in out
+
+
+def test_cron_subcommand_prints_on_native_windows_for_wsl_or_remote_use(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(perseus.sys, "platform", "win32")
+    source = tmp_path / "context.md"
+    source.write_text("@perseus\n")
+    args = argparse.Namespace(source=str(source), output=str(tmp_path / "out.md"), every="5", install=False)
+
+    perseus.cmd_cron(args, cfg())
+
+    out = capsys.readouterr().out
+    assert "*/5 * * * *" in out
+    assert "# perseus-render" in out
 
 
 def test_load_config_migrates_legacy_hermes_section(tmp_path, monkeypatch):
@@ -208,6 +244,23 @@ def test_cmd_systemd_prints_units_on_linux(tmp_path, monkeypatch, capsys):
     assert "10min" in out
     assert "perseus-render.service" in out
     assert "perseus-render.timer" in out
+
+
+def test_cmd_systemd_rejects_native_windows(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(perseus.sys, "platform", "win32")
+    src = tmp_path / "ctx.md"
+    src.write_text("@perseus\n")
+    args = argparse.Namespace(source=str(src), output=str(tmp_path / "out.md"),
+                              interval="5m", install=False, enable=False)
+
+    with pytest.raises(SystemExit) as exc:
+        perseus.cmd_systemd(args, cfg())
+
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert "only supported on Linux" in err
+    assert "Task Scheduler" in err
+    assert "deferred" in err
 # ── task-17: template gallery ────────────────────────────────────────────────
 
 def test_list_templates_returns_known_names():

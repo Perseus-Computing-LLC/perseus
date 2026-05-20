@@ -630,10 +630,14 @@ Claims without validated citations are dropped. JSON output keeps accepted
 `claims`, `dropped_claims`, `sources`, model metadata, and guardrail metadata
 separate so downstream agents can inspect what survived validation.
 
-## 17. Cron (`perseus cron`) — Cross-platform Scheduling
+## 17. Cron (`perseus cron`) — POSIX Scheduling
 
-Generates a crontab entry for periodic rendering. Works on macOS, Linux, BSD.
+Generates a crontab entry for periodic rendering. The print path is host-neutral;
+`--install` works where `crontab` is available, including macOS, Linux, BSD, and
+WSL.
 Recommended over `perseus launchd` / `perseus systemd` when portability matters.
+Native Windows Task Scheduler integration is deferred; use WSL cron, the printed
+render command, or invoke `perseus render` from a Windows scheduler manually.
 
 ### CLI
 

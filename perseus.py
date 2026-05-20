@@ -6934,7 +6934,7 @@ def cmd_launchd(args, cfg):
 def cmd_cron(args, cfg):
     """Generate a crontab entry for periodic rendering.
 
-    Cross-platform: works on any POSIX system with cron (macOS, Linux, BSD).
+    POSIX-oriented: works on systems with crontab (macOS, Linux, BSD).
     Recommended over launchd/systemd when portability matters.
     """
     try:
@@ -7055,8 +7055,10 @@ def cmd_systemd(args, cfg):
     if sys.platform == "darwin":
         print("Use `perseus launchd` on macOS.", file=sys.stderr)
         sys.exit(1)
-    if sys.platform != "linux" and getattr(args, "install", False):
-        print(f"Warning: --install is only supported on Linux (detected {sys.platform}).", file=sys.stderr)
+    if sys.platform != "linux":
+        suffix = " Native Windows Task Scheduler support is deferred." if sys.platform == "win32" else ""
+        print(f"Error: `perseus systemd` is only supported on Linux.{suffix}", file=sys.stderr)
+        sys.exit(1)
 
     source_path = Path(args.source).expanduser().resolve()
     output_path = Path(args.output).expanduser().resolve()
@@ -9451,8 +9453,8 @@ def main():
     p_serve.add_argument("--tcp", type=int, default=None, help="LSP transport: listen on TCP port instead of stdio")
     p_serve.add_argument("--allow-lsp-mutations", action="store_true", dest="allow_lsp_mutations", help="Allow LSP executeCommand handlers that mutate Perseus state")
 
-    # cron (cross-platform scheduling)
-    p_cron = sub.add_parser("cron", help="Generate a crontab entry for periodic rendering (cross-platform)")
+    # cron (POSIX scheduling)
+    p_cron = sub.add_parser("cron", help="Generate a POSIX crontab entry for periodic rendering")
     p_cron.add_argument("source", help="Path to Perseus source file")
     p_cron.add_argument("--output", "-o", required=True, help="Rendered output path")
     p_cron.add_argument("--every", default="5",

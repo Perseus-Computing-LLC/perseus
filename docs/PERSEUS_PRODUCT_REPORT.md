@@ -1,8 +1,8 @@
 # Perseus Product Report
 
 **Date:** 2026-05-19  
-**Status:** Phases 1-14, 15A, 16, 17, and 18A complete; task-63 Pythia rename complete; Phases 15B-C and 18B-22C queued in Agora
-**Current baseline:** 394 tests passing, 1 sandbox-skipped TCP smoke
+**Status:** Phases 1-14, 15A, 16, 17, and 18 complete; task-63 Pythia rename complete; Phases 15B-C and 19-22C queued in Agora
+**Current baseline:** 413 tests passing, 1 sandbox-skipped TCP smoke
 
 ---
 
@@ -24,7 +24,8 @@ existing power into a deployable, understandable, safe product:
 - portable context pack manifest ✅
 - trust and redaction controls ✅
 - installer bootstrap ✅
-- release artifacts
+- release artifacts ✅
+- scheduler parity ✅
 - assistant adapter conformance
 - service/container deployment modes
 - eval and compatibility gates
@@ -70,14 +71,14 @@ Claude Code, Cursor, Rovo Dev, or any assistant that can read a file or stdin.
 | Templates/init | Phase 16 complete | Starter scaffolds and product profiles exist |
 | Serve | complete read-only, needs auth for product | Loopback-first HTTP view |
 | Inbox | complete | Point-to-point agent messages |
-| Cron/schedulers | partial product story | cron/launchd/systemd exist; Windows parity undecided |
+| Cron/schedulers | Phase 18 complete | Host-neutral cron text generation, POSIX crontab install, macOS launchd, and Linux systemd are documented/tested; native Windows Task Scheduler is deferred |
 | LSP/editor | complete baseline | Needs release polish |
 | Schema validation | complete | Built-in validator, no new dependency |
 | Graph/prefetch | complete | Static graph, rules, adaptive scoring |
 | Pythia learning | complete | Outcomes, online hints, opt-in A/B exploration |
 | Cited synthesis | Phase 15A complete | Command surface and citation gate exist |
 | Trust/redaction/audit | Phase 17 complete | Profiles, redaction, and audit report are live |
-| Installer | Phase 18A complete | `scripts/install.sh` and `INSTALL.md` are live |
+| Installer/release | Phase 18 complete | Installer, release artifacts, checksums, and scheduler parity are live |
 
 ---
 
@@ -105,14 +106,14 @@ Claude Code, Cursor, Rovo Dev, or any assistant that can read a file or stdin.
    organize them into profiles and workflows, not just expose a long CLI list.
 2. **Trust exposure.** Shell, file reads, agent subprocesses, model prompts, and
    HTTP serve need a unified permission/redaction/audit story.
-3. **Distribution gap.** A repo checkout is not a product install. Users need a
-   repeatable installer, versioning, checksums, and release notes.
+3. **Distribution gap.** A repo checkout is no longer required for basic install,
+   but release discipline still needs v1 hardening and publishing practice.
 4. **Adapter drift.** Assistant-specific docs can go stale unless profiles and
    conformance fixtures keep them honest.
 5. **Generated-context creep.** Phase 15 must stay bounded. Uncited generated
    prose would damage the main trust promise.
-6. **Platform parity.** macOS/Linux/BSD are strong; Windows scheduling and
-   managed runtime behavior need a clear decision.
+6. **Platform parity.** macOS/Linux/BSD are strong; native Windows scheduling is
+   explicitly deferred, and managed runtime behavior still needs hardening.
 7. **No v1 release gate yet.** The project has tests, but not a full release
    matrix covering install, adapters, examples, performance, and compatibility.
 
@@ -127,7 +128,7 @@ The new Agora roadmap runs through Phase 22:
 | 15B-C | Finish cited synthesis with cross-source consistency and optional curated render sections |
 | 16 | Define product contract, context pack manifest, and profile-based init ✅ |
 | 17 | Add trust profiles, redaction, audit logs, and trust reports ✅ |
-| 18 | Make installation, versioning, release artifacts, and scheduler parity real; 18A complete |
+| 18 | Make installation, versioning, release artifacts, and scheduler parity real ✅ |
 | 19 | Prove adapter compatibility with profiles and conformance tests |
 | 20 | Support managed runtime through authenticated serve, container, and watch mode |
 | 21 | Add golden evals, performance budgets, and migration/compatibility checks |
@@ -148,12 +149,10 @@ This path aims at a product that can be deployed as:
 
 1. Finish task-40 and task-41 only if cited synthesis proves useful in
    cross-source consistency mode.
-2. Finish Phase 18B-C before adapter polish, so profiles point at a versioned
-   install and scheduler story.
-3. Do adapter conformance before v1 docs, so docs describe verified flows.
-4. Do managed runtime after auth/trust and installer basics.
-5. Treat Phase 21 as the release safety net.
-7. Freeze features for Phase 22.
+2. Do adapter conformance before v1 docs, so docs describe verified flows.
+3. Do managed runtime after auth/trust and installer basics.
+4. Treat Phase 21 as the release safety net.
+5. Freeze features for Phase 22.
 
 ---
 
