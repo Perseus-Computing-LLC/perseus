@@ -1,12 +1,12 @@
 ---
 id: task-59
 title: Phase 21C compatibility and migration suite
-status: open
+status: completed
 priority: high
 scope: medium
-claimed_by: null
+claimed_by: Rovo Dev
 created: 2026-05-19
-closed: null
+closed: '2026-05-20'
 phase: 21
 theme: "Evaluation, Performance, and Compatibility Gates"
 depends_on:
@@ -42,3 +42,13 @@ workspaces.
 - Do not support every historical bug forever.
 - Do not silently rewrite user state unless explicitly requested.
 - Do not add a database.
+
+## Completed
+
+- Added `tests/test_compat_migration.py` to pin v1 compatibility behavior for legacy config, state, and manifest shapes.
+- Covered `hermes:` → `assistant:` migration, `oracle:` → `pythia:` migration/deprecation warnings, one-time `oracle_log.jsonl` → `pythia_log.jsonl` migration, old checkpoint recovery/diff behavior, legacy/body-only Mnēmē narratives, future Mnēmē frontmatter preservation, federation manifest future-field tolerance, and context pack future-field tolerance.
+- Added compatibility and migration guidance to `spec/data-model.md`, including intentional breaking/validation boundaries.
+
+Validation:
+
+- `python3 -m pytest tests/test_compat_migration.py -q` → `8 passed`
