@@ -14,7 +14,7 @@ Provider-agnostic defaults now use `PERSEUS_SKILLS_DIR` and `PERSEUS_SESSIONS_DI
 
 Perseus dogfoods itself: `ROADMAP.md` is a live `@perseus` source — the project's own documentation resolves its git state, CLI version, recent sessions, and last checkpoint at render time.
 
-**Status: Alpha v0.9.0 — Phases 1-14, Phase 15A, Phase 16, Phase 17, and Phase 18A complete. Task 63 completes the Oracle → Pythia internal rename while preserving the `perseus oracle` CLI. 49 tasks closed/completed, 14 open. 394 tests passing, 1 sandbox-skipped TCP smoke.**
+**Status: Alpha v0.9.0 — Phases 1-14, Phase 15A, Phase 16, Phase 17, and Phase 18 complete. Scheduler parity covers POSIX cron, macOS launchd, Linux systemd, and explicitly defers native Windows Task Scheduler. 51 tasks closed/completed, 12 open. 413 tests passing, 1 sandbox-skipped TCP smoke.**
 
 ---
 
@@ -331,9 +331,9 @@ Run `perseus <command> --help` for full flags. Summary of the surface:
 | `perseus init [--template name | --profile name] <workspace>` | Scaffold `.perseus/context.md`; profiles also write `.perseus/pack.yaml`. |
 | `perseus serve [--port N] [--host H]` | Read-only HTTP view of workspace state on `http://127.0.0.1:7991/`. |
 | `perseus serve --lsp --stdio\|--tcp PORT [--allow-lsp-mutations]` | Run as a Language Server Protocol server for editor integration (Phase 10.1). Mutation commands are opt-in. |
-| `perseus cron [setup\|disable] --interval 5m` | Cross-platform scheduler scaffolder (cron/launchd/Task Scheduler). |
-| `perseus systemd [install\|uninstall] --interval 5m` | Linux-only systemd `--user` service + timer scaffolder. |
-| `perseus launchd {install,uninstall}` | macOS-only LaunchAgent scaffolder. |
+| `perseus cron SOURCE --output FILE [--every N] [--install]` | POSIX crontab entry generator/installer for macOS, Linux, and BSD cron. |
+| `perseus systemd SOURCE --output FILE [--interval 5m] [--install] [--enable]` | Linux-only systemd `--user` service + timer scaffolder. |
+| `perseus launchd SOURCE --output FILE [--interval 300] [--label LABEL] [--force]` | macOS-only LaunchAgent plist scaffolder. |
 
 Agent-readable `--json` contracts for synthesis, oracle, memory, federation, drift, and LLM health commands are documented in [Agent JSON Surfaces](./docs/AGENT_SURFACES.md).
 
@@ -418,15 +418,32 @@ Hermes reads `.hermes.md` at session start with higher priority than `AGENTS.md`
 ---
 
 
-## macOS launchd
+## Scheduled Rendering
 
-Perseus now includes a `launchd` scaffolding command for macOS users:
+Perseus supports the scheduler primitives that already exist on common POSIX
+developer machines:
+
+| Platform | Command | Behavior |
+|---|---|---|
+| POSIX cron | `perseus cron SOURCE --output FILE --every 5` | Prints a crontab line on any host; add `--install` where `crontab` is available. |
+| macOS launchd | `perseus launchd SOURCE --output FILE --interval 300` | Writes a LaunchAgent plist under `~/Library/LaunchAgents/`. |
+| Linux systemd | `perseus systemd SOURCE --output FILE --interval 5m` | Prints user `.service` / `.timer` units; add `--install` to write them and `--enable` to run `systemctl --user`. |
+| Native Windows | Deferred native adapter | No Task Scheduler integration yet. Use WSL cron, the printed `perseus render` command, or invoke `perseus render` from your own scheduler. |
+
+The portable baseline is plain render:
+
+```bash
+perseus render .perseus/context.md --output .hermes.md
+```
+
+For macOS users, the LaunchAgent helper looks like:
 
 ```bash
 perseus launchd .perseus/context.md --output .hermes.md
 ```
 
-This writes a LaunchAgent plist that periodically renders the source document to the output path.
+This writes a LaunchAgent plist that periodically renders the source document
+to the output path.
 
 
 Pythia config options:
@@ -455,7 +472,7 @@ pythia:
 | **Phase 5E** | Context health: `perseus health` + `@health` (deterministic maintenance heuristics) | ✅ Complete |
 | **Phase 6** | Daedalus — oracle labeling/export CLI + `--llm daedalus` provider routing | ✅ Complete |
 | **Phase 7** | Mnēmē — narrative project memory + `@memory` directive | ✅ Complete |
-| **Phase 8** | `@agent` · `@inbox` · template gallery (`perseus init --template`) · `perseus serve` (read-only HTTP view) · cross-platform `perseus cron` scaffolder · Mnēmē federation (`@memory federation` + manifest + 4 CLI subcommands) | ✅ Complete |
+| **Phase 8** | `@agent` · `@inbox` · template gallery (`perseus init --template`) · `perseus serve` (read-only HTTP view) · POSIX `perseus cron` scaffolder · Mnēmē federation (`@memory federation` + manifest + 4 CLI subcommands) | ✅ Complete |
 | **Phase 9** | Daedalus v2: closed-loop autonomy — `perseus oracle infer-labels` (self-rating), `memory.pattern_extractor: daedalus` (trained extraction), `perseus oracle drift` + `@drift` (drift detection) | ✅ Complete |
 | **Phase 10** | Editor integration — Perseus LSP server (`perseus serve --lsp --stdio\|--tcp`) + VSCode extension (`editors/vscode/`) | ✅ Complete |
 | **Phase 11** | Internal hardening — registry, doctor, JSON surfaces, LSP integration tests, split suite | ✅ Complete |
@@ -466,7 +483,7 @@ pythia:
 | **Phase 15B-C** | Cross-source consistency synthesis and optional curated render surface | 🌅 Planned |
 | **Phase 16** | Product contract, context pack manifest, and init/profile workflow | ✅ Complete |
 | **Phase 17** | Trust, privacy, permission profiles, redaction, and audit reporting | ✅ Complete |
-| **Phase 18** | Installer, release artifacts, versioning, and scheduler parity | 🚧 18A complete; 18B-C queued |
+| **Phase 18** | Installer, release artifacts, versioning, and scheduler parity | ✅ Complete |
 | **Phase 19** | Assistant adapter conformance and profile gallery | 🌅 Planned |
 | **Phase 20** | Managed runtime: authenticated serve, container, and watch mode | 🌅 Planned |
 | **Phase 21** | Golden evals, performance budgets, and compatibility gates | 🌅 Planned |

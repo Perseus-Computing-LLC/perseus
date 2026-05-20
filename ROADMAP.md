@@ -489,8 +489,8 @@ Phase 14A it reached 300 passed, 1 skipped; after Phase 14B it reached
 304 passed, 1 skipped; after Phase 14C it reached 308 passed, 1 skipped; after
 Phase 15A it reached 314 passed, 1 skipped; after Phase 16 it reached
 322 passed, 1 skipped; after Phase 17/18A plus task-63 it reached
-394 passed, 1 skipped (sandbox-blocked TCP bind; the same TCP smoke passes
-outside the sandbox).
+394 passed, 1 skipped; after Phase 18B-C it reached 413 passed, 1 skipped
+(sandbox-blocked TCP bind; the same TCP smoke passes outside the sandbox).
 - `test_oracle.py` — suggest, Pythia log, drift, infer-labels
 - `test_memory.py` — Mnēmē narrative, federation
 - `test_lsp.py` — LSP helpers, framing, diagnostics
@@ -772,16 +772,17 @@ redaction, audit logging, and `perseus trust audit` are live.
 the single-file implementation while adding real release artifacts and platform
 smoke checks.
 
-**Status:** 18A complete. Release artifacts/versioning and scheduler parity
-remain queued as task-49 and task-50.
+**Status:** Complete. Installer bootstrap, release artifacts/versioning, and
+scheduler parity are all live. Native Windows Task Scheduler support is
+explicitly deferred; platform-agnostic render flows remain available everywhere.
 
 - **18A Installer bootstrap (task-48) ✅:** Add a single-file install/update path
   that places Perseus on PATH and verifies `pyyaml`.
-- **18B Release artifacts and versioning (task-49):** Define version bump,
+- **18B Release artifacts and versioning (task-49) ✅:** Define version bump,
   changelog, checksum, and signed/hashed release artifact workflow.
-- **18C Cross-platform scheduler parity (task-50):** Close scheduling gaps,
-  especially Windows/Task Scheduler, and document cron/launchd/systemd/Windows
-  parity.
+- **18C Cross-platform scheduler parity (task-50) ✅:** Close scheduling gaps,
+  document cron/launchd/systemd/Windows parity, and defer native Task Scheduler
+  while preserving platform-neutral render/cron text generation.
 
 ### Phase 19 — Assistant Adapter Ecosystem
 
@@ -894,8 +895,8 @@ Phase 17B ─── Secrets and redaction ✅ ───────────�
 Phase 17C ─── Audit log and trust report ✅ ─────────────┤
                                                          │
 Phase 18A ─── Installer bootstrap ✅ ────────────────────┤
-Phase 18B ─── Release artifacts/versioning ──────────────┤
-Phase 18C ─── Scheduler parity ──────────────────────────┤
+Phase 18B ─── Release artifacts/versioning ✅ ───────────┤
+Phase 18C ─── Scheduler parity ✅ ───────────────────────┤
                                                          │
 Phase 19A ─── Adapter conformance harness ───────────────┤
 Phase 19B ─── Assistant profile gallery ─────────────────┤
@@ -915,8 +916,8 @@ Phase 22C ─── v1 release candidate checklist ─────────�
 ```
 
 **Estimated scope:** Phase 11, Phase 12, Phase 13, Phase 14, Phase 15A,
-Phase 16, Phase 17, and Phase 18A are complete. Phases 15B-C and 18B through
-22C remain queued in Agora as the productization path to a deployable v1.
+Phase 16, Phase 17, and Phase 18 are complete. Phases 19 through 22C remain
+queued in Agora as the productization path to a deployable v1.
 
 ---
 

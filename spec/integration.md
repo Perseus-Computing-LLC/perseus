@@ -44,13 +44,19 @@ flows remain supported.
 ## Auto-Injection Approaches
 
 ### Cron / scheduled render
-Works anywhere a scheduler is available.
+Prints a POSIX crontab entry on any host and can install it where `crontab` is
+available (macOS, Linux, BSD, WSL).
 
 ```bash
 perseus render .perseus/context.md --output AGENTS.md
+perseus cron .perseus/context.md --output AGENTS.md --every 5
+perseus cron .perseus/context.md --output AGENTS.md --every 5 --install
 ```
 
-Use this when you want periodic refresh regardless of assistant.
+Use this when you want periodic refresh regardless of assistant. Native
+Windows Task Scheduler support is explicitly deferred; Windows users should use
+WSL cron, the printed `perseus render` command, or invoke `perseus render` from
+their own scheduler.
 
 ### macOS LaunchAgent / launchd
 Perseus provides a helper for Mac users:
@@ -78,6 +84,15 @@ perseus systemd .perseus/context.md --output AGENTS.md --install --enable
 
 Interval accepts `Nm` / `Nh` / `Ns` shorthand or any systemd time spec.
 Falls back to a clear redirect message on macOS (use `perseus launchd` instead).
+
+### Scheduler parity
+
+| Platform | Perseus command | Support level |
+|---|---|---|
+| POSIX cron | `perseus cron SOURCE --output FILE [--every N] [--install]` | Prints a crontab line on any host; `--install` requires `crontab`. |
+| macOS launchd | `perseus launchd SOURCE --output FILE [--interval N]` | Supported on macOS; writes a LaunchAgent plist. |
+| Linux systemd | `perseus systemd SOURCE --output FILE [--interval 5m] [--install] [--enable]` | Supported on Linux; writes/starts user service + timer units. |
+| Native Windows Task Scheduler | none | Deferred; use WSL cron, the printed render command, or a manual `perseus render` invocation. |
 
 ### Git hook
 A pre-commit or post-checkout hook can refresh rendered context for local workflows.

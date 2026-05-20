@@ -189,3 +189,36 @@ python perseus.py agora claim task-50 --agent "Rovo Dev"
 Phase 22 (v1 release candidate, docs site, demo packs) is reserved for the
 project owner to complete with their assistant. Leave `HANDOFF.md` in place
 when you finish — update it with a completion summary at the end.
+
+---
+
+## Progress Update — 2026-05-20
+
+### Completed in this pass
+
+- **task-50 / Phase 18C scheduler parity** is complete.
+- Scheduler docs and command help now distinguish the platform-agnostic core
+  from platform-specific adapters:
+  - `perseus render` remains the universal portable baseline.
+  - `perseus cron` prints POSIX crontab entries on any host and installs only
+    where `crontab` is available.
+  - `perseus launchd` remains macOS-only.
+  - `perseus systemd` remains Linux-only.
+  - Native Windows Task Scheduler support is explicitly deferred; Windows users
+    can use WSL cron, the printed render command, or their own scheduler.
+- Added scheduler smoke coverage for cron output, launchd plist content,
+  systemd units, and Windows-native deferral.
+- Repaired the Phase 18B release script baseline on macOS/BSD shells:
+  `_PERSEUS_VERSION` parsing no longer uses a fragile heredoc command
+  substitution, and release tarballs use a GNU tar path when available with a
+  portable BSD tar + `gzip -n` fallback.
+
+### Current validation
+
+- Focused release/platform suite: `51 passed`
+- Full suite target after task-50: `413 passed, 1 skipped`
+
+### Next Entry Point
+
+Continue with **task-51 / Phase 19A adapter conformance harness**. Do not start
+Phase 22 tasks 60-62.

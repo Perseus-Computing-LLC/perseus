@@ -44,13 +44,7 @@ VERSION=$(tr -d '[:space:]' < "$REPO_ROOT/VERSION")
 [ -n "$VERSION" ] || die "VERSION file is empty"
 
 # perseus.py
-PY_VERSION=$(python3 - "$REPO_ROOT/perseus.py" <<'PYEOF'
-import re, sys, pathlib
-src = pathlib.Path(sys.argv[1]).read_text()
-m = re.search(r'^_PERSEUS_VERSION\s*=\s*["\']([^"\']+)["\']', src, re.MULTILINE)
-print(m.group(1) if m else "")
-PYEOF
-)
+PY_VERSION=$(python3 -c 'import ast, pathlib, sys; tree = ast.parse(pathlib.Path(sys.argv[1]).read_text()); print(next(ast.literal_eval(n.value) for n in tree.body if isinstance(n, ast.Assign) for t in n.targets if isinstance(t, ast.Name) and t.id == "_PERSEUS_VERSION"))' "$REPO_ROOT/perseus.py")
 [ -n "$PY_VERSION" ] || die "could not parse _PERSEUS_VERSION from perseus.py"
 [ "$PY_VERSION" = "$VERSION" ] || die "VERSION ($VERSION) != _PERSEUS_VERSION ($PY_VERSION) in perseus.py"
 
@@ -96,14 +90,23 @@ chmod +x "$PKG_DIR/scripts/install.sh"
 find "$PKG_DIR" -exec touch -d "1970-01-01T00:00:00Z" {} +
 
 TAR="$DIST_DIR/$PKG.tar.gz"
+TAR_RAW="$DIST_DIR/$PKG.tar"
 ZIP="$DIST_DIR/$PKG.zip"
 
-# Reproducible tar: GNU tar flags strip uid/gid, sort entries, fixed mtime.
-(cd "$STAGE" && tar \
-    --sort=name \
-    --owner=0 --group=0 --numeric-owner \
-    --mtime='1970-01-01 00:00:00 UTC' \
-    -czf "$TAR" "$PKG")
+# Reproducible tar: prefer GNU tar's metadata controls, fall back to a sorted
+# file list for BSD tar on macOS.
+rm -f "$TAR_RAW" "$TAR"
+if tar --version 2>/dev/null | grep -qi 'gnu tar'; then
+    (cd "$STAGE" && tar \
+        --sort=name \
+        --owner=0 --group=0 --numeric-owner \
+        --mtime='1970-01-01 00:00:00 UTC' \
+        -cf "$TAR_RAW" "$PKG")
+else
+    (cd "$STAGE" && find "$PKG" -print | LC_ALL=C sort | tar -cf "$TAR_RAW" -T -)
+fi
+gzip -n -c "$TAR_RAW" > "$TAR"
+rm -f "$TAR_RAW"
 
 # Reproducible zip: sort, strip extras. Best-effort — skip if `zip` is missing.
 if command -v zip >/dev/null 2>&1; then
