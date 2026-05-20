@@ -23,8 +23,8 @@ Mnēmē today is rigorously **single-workspace**: every narrative lives at
 file. That works for a developer with one or two projects. It breaks down
 in three real situations:
 
-1. **Same human, many workspaces.** A SAM-team developer has work spread across
-   `~/perseus`, `~/sam`, `~/assistant`, `~/support_data_agent`. Decisions made in
+1. **Same person, many workspaces.** A developer has work spread across
+   `~/perseus`, `~/api-server`, `~/assistant`, `~/data-pipeline`. Decisions made in
    one repo (e.g. "we standardised on `_workspace_hash` for keying") apply to
    the others, but the narratives don't know that.
 2. **Same team, many workspaces.** Multiple developers each have their own
@@ -258,7 +258,7 @@ session.
 
 # Completed (2026-05-18)
 
-Shipped per Thomas's 7 design decisions, with the slight strengthening of structured manifest entries.
+Shipped per the 7 design decisions above, with the slight strengthening of structured manifest entries.
 
 **Code (perseus.py only):**
 - `memory.federation_manifest` config key — default `~/.perseus/memory/federation.yaml`
@@ -275,7 +275,7 @@ Shipped per Thomas's 7 design decisions, with the slight strengthening of struct
 version: 1
 subscriptions:
   - alias: sam
-    path: /Users/tconnally/sam
+    path: /home/user/sam
     enabled: true
 ```
 Reserved fields (`stale_after`, `include_sections`, `exclude_sections`, `notes`, `share`) preserved on round-trip for v2.
@@ -290,4 +290,4 @@ Missing / unreadable / stale subscribed narratives render as `> ⚠ Federated me
 - `memory.federation_manifest` added to `spec/data-model.md` config schema
 - README + ROADMAP updated
 
-**Smoke-tested 2026-05-18** against real workspaces `~/sam` and `~/assistant` — all 6 surfaces verified working end-to-end.
+**Smoke-tested 2026-05-18** against real federated workspaces — all 6 surfaces verified working end-to-end.
