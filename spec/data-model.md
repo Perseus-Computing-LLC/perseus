@@ -170,6 +170,9 @@ serve:                                   # task-54 / Phase 20A
   auth_token: null                       # optional static bearer token
   allow_insecure_remote: false           # explicit unauthenticated remote opt-in
 
+watch:                                   # task-56 / Phase 20C
+  poll_interval_s: 5                     # portable polling interval
+
 permissions:                             # task-45 / Phase 17A
   # profile: null | strict | balanced | power-user
   # null  → no profile applied; DEFAULT_CONFIG values are used as-is

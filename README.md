@@ -14,7 +14,7 @@ Provider-agnostic defaults now use `PERSEUS_SKILLS_DIR` and `PERSEUS_SESSIONS_DI
 
 Perseus dogfoods itself: `ROADMAP.md` is a live `@perseus` source — the project's own documentation resolves its git state, CLI version, recent sessions, and last checkpoint at render time.
 
-**Status: Alpha v0.9.0 — Phases 1-14, Phase 15A, Phase 16, Phase 17, Phase 18, Phase 19, and Phase 20A-B complete. Authenticated serve and container deployment examples are in place while preserving loopback-first defaults. 56 tasks closed/completed, 7 open. 458 tests passing, 2 skipped TCP/Docker smokes.**
+**Status: Alpha v0.9.0 — Phases 1-14, Phase 15A, Phase 16, Phase 17, Phase 18, Phase 19, and Phase 20 complete. Authenticated serve, container deployment examples, and portable watch mode are in place. 57 tasks closed/completed, 6 open. 466 tests passing, 2 skipped TCP/Docker smokes.**
 
 ---
 
@@ -321,6 +321,7 @@ Run `perseus <command> --help` for full flags. Summary of the surface:
 | `perseus prefetch <file> [--json]` | Apply configured `prefetch.rules` to the static graph and warm directive caches. |
 | `perseus synthesize <question> --source FILE [--json]` | Build a cited-synthesis prompt, or explicitly run an LLM drafter with citation validation. Uncited claims are dropped. |
 | `perseus pack {validate,show} [--json]` | Inspect and validate `.perseus/pack.yaml` context pack manifests. |
+| `perseus watch [--source FILE] [--output FILE] [--interval N]` | Poll context sources and refresh render outputs without platform scheduler dependencies. |
 | `perseus validate --schema SCHEMA [payload|-] [--json]` | Validate YAML/JSON payloads against Perseus schemas; omit payload or pass `-` to read stdin. |
 | `perseus checkpoint --task ... --status ... --next ...` | Write a YAML waypoint to `~/.perseus/checkpoints/`. Auto-updates Mnēmē narrative. |
 | `perseus diff [--from FILE] [--to FILE]` | Show diff between two checkpoints (default: latest two). |
@@ -450,6 +451,24 @@ perseus launchd .perseus/context.md --output .hermes.md
 This writes a LaunchAgent plist that periodically renders the source document
 to the output path.
 
+## Watch Mode
+
+`perseus watch` is the portable polling option for local development,
+containers, and CI-like shells where platform scheduler setup is awkward:
+
+```bash
+perseus watch --source .perseus/context.md --output .hermes.md
+```
+
+If `.perseus/pack.yaml` exists, watch mode refreshes every configured
+`renders:` target unless `--source` or `--output` is supplied. It debounces
+changes by waiting one additional poll interval before rendering, logs render
+failures to stderr, and keeps running unless `--exit-on-error` is set.
+
+Use `perseus render` for one-shot portability, `perseus watch` for a foreground
+portable loop, and cron/launchd/systemd when the host scheduler should own the
+process lifecycle.
+
 ## Authenticated Serve
 
 `perseus serve` remains loopback-first and read-only. To expose it beyond
@@ -532,7 +551,7 @@ pythia:
 | **Phase 17** | Trust, privacy, permission profiles, redaction, and audit reporting | ✅ Complete |
 | **Phase 18** | Installer, release artifacts, versioning, and scheduler parity | ✅ Complete |
 | **Phase 19** | Assistant adapter conformance and profile gallery | ✅ Complete |
-| **Phase 20** | Managed runtime: authenticated serve, container, and watch mode | 🚧 20A-B complete; 20C queued |
+| **Phase 20** | Managed runtime: authenticated serve, container, and watch mode | ✅ Complete |
 | **Phase 21** | Golden evals, performance budgets, and compatibility gates | 🌅 Planned |
 | **Phase 22** | v1 release candidate docs, demos, and release checklist | 🌅 Planned |
 

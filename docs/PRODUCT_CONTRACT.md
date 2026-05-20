@@ -65,12 +65,15 @@ Supported Phase 16 profiles:
 
 ### Managed Runtime
 
-`perseus serve`, container mode, and future watch mode expose the same local
-context model through a persistent process or isolated runtime wrapper.
+`perseus serve`, container mode, and `perseus watch` expose the same local
+context model through a persistent process, foreground polling loop, or isolated
+runtime wrapper.
 `perseus serve` stays read-only and loopback-first; remote binds require either
 `serve.auth_token` bearer auth or an explicit insecure opt-in. The container
 image preserves the single-file runtime contract and mounts workspace state
-explicitly instead of introducing a server-side project store.
+explicitly instead of introducing a server-side project store. Watch mode is the
+platform-agnostic refresh path when the host scheduler should not own process
+lifecycle.
 
 ---
 

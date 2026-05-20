@@ -302,7 +302,30 @@ when you finish — update it with a completion summary at the end.
 - Container focused suite: `5 passed, 1 skipped`
 - Full suite after task-55: `458 passed, 2 skipped`
 
+### Additional Progress
+
+- **task-56 / Phase 20C headless watch mode** is complete.
+- Added `perseus watch` as a dependency-free polling loop with
+  `watch.poll_interval_s`, `--interval`, `--exit-on-error`, clean SIGINT/SIGTERM
+  shutdown, and explicit outside-workspace gating.
+- Watch mode refreshes either a single `--source`/`--output` pair or every
+  `renders:` target in `.perseus/pack.yaml` when no single-target override is
+  supplied.
+- Debounce is deterministic: a changed mtime must remain stable for one
+  additional poll cycle before rendering.
+- Docs now compare `watch` to one-shot render and host-owned cron/launchd/systemd
+  scheduling, and container docs include a foreground watch sidecar example.
+- Added `tests/test_watch.py` covering default targets, context-pack targets,
+  debounce behavior, unchanged mtimes, render failure continue/exit behavior,
+  keyboard interrupt shutdown, and outside-workspace gating.
+
+### Current validation
+
+- Watch focused suite: `8 passed`
+- Watch/container/platform focused suite: `54 passed, 1 skipped`
+- Full suite after task-56: `466 passed, 2 skipped`
+
 ### Next Entry Point
 
-Continue with **task-56 / Phase 20C headless watch mode**. Do
+Continue with **task-57 / Phase 21A golden eval corpus**. Do
 not start Phase 22 tasks 60-62.

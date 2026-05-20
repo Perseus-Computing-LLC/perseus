@@ -64,6 +64,24 @@ Clients must send:
 Authorization: Bearer change-me-before-serving
 ```
 
+## Watch In A Container
+
+For a foreground sidecar that keeps render outputs fresh without host scheduler
+setup, run the same image with `perseus watch`:
+
+```bash
+docker run --rm \
+  --mount type=bind,source="$PWD",target=/workspace,readonly \
+  --mount type=volume,source=perseus-home,target=/perseus-home \
+  -e PERSEUS_HOME=/perseus-home \
+  perseus:local watch --source /workspace/.perseus/context.md \
+    --output /perseus-home/rendered-context.md \
+    --allow-outside-workspace
+```
+
+If the mounted workspace contains `.perseus/pack.yaml`, omit `--source` and
+`--output` to refresh the pack's `renders:` targets.
+
 ## Trust Notes
 
 - Mount workspaces read-only unless Perseus is intentionally writing rendered

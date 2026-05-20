@@ -456,7 +456,40 @@ opt-in via `serve.allow_insecure_remote: true` / `--i-understand-no-auth`.
 
 ---
 
-## 11. LSP (`perseus serve --lsp`) — Editor Integration
+## 11. Watch (`perseus watch`) — Portable Headless Refresh
+
+`perseus watch` runs a foreground polling loop that refreshes rendered context
+outputs without cron, launchd, systemd, or filesystem watcher dependencies.
+
+### CLI
+
+```bash
+perseus watch
+perseus watch --source .perseus/context.md --output .hermes.md
+perseus watch --workspace /path/to/workspace --interval 2
+perseus watch --manifest .perseus/pack.yaml
+```
+
+### Behavior
+
+- Defaults to `.perseus/context.md` -> `.hermes.md` in the current workspace.
+- If `.perseus/pack.yaml` exists and no single source/output override is
+  supplied, every `renders:` entry becomes a watch target.
+- Polling defaults to `watch.poll_interval_s: 5`.
+- Detected changes are debounced by one additional poll interval before render.
+- Render failures are logged and the loop continues unless `--exit-on-error`
+  is set.
+- Watched sources and outputs must remain inside the workspace unless
+  `--allow-outside-workspace` or `render.allow_outside_workspace` is set.
+- SIGINT and SIGTERM request a clean shutdown and emit a final `[watch] stopped`
+  log line.
+
+Watch mode is the platform-agnostic foreground alternative to scheduler-owned
+cron/launchd/systemd refresh.
+
+---
+
+## 12. LSP (`perseus serve --lsp`) — Editor Integration
 
 The same `serve` command can run a Language Server Protocol server over stdio
 or a loopback TCP port. The LSP surface is read-only by default and derives
