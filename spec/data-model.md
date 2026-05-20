@@ -283,6 +283,57 @@ only a source-pack declaration; it does not run generation by itself.
 
 ---
 
+## Compatibility and Migration Guidance
+
+Perseus v1 keeps existing workspaces readable. Compatibility support is additive:
+Perseus reads legacy shapes or emits a clear warning/error, but it does not
+silently rewrite user state unless a migration is explicitly documented.
+
+### Legacy Config Keys
+
+- `hermes:` remains accepted as a legacy alias for `assistant:`. Values are
+  merged into `assistant:` at load time. If both sections are present, explicit
+  `assistant:` values take precedence except for legacy-only keys.
+- `oracle:` remains accepted as a legacy alias for `pythia:`. Perseus emits a
+  deprecation warning to stderr and normalizes old `provider` / `model` fields
+  to `llm_provider` / `ollama_model`.
+- Unknown top-level config sections and future fields inside known sections are
+  preserved in the loaded config unless a command explicitly validates that
+  section.
+
+Migration example:
+
+```yaml
+# legacy
+hermes:
+  context_file: AGENTS.md
+oracle:
+  provider: ollama
+  model: llama3
+
+# preferred
+assistant:
+  context_file: AGENTS.md
+pythia:
+  llm_provider: ollama
+  ollama_model: llama3
+```
+
+### Legacy State Files
+
+- `oracle_log.jsonl` is migrated once to `pythia_log.jsonl` when the Pythia log
+  path is first resolved and the new file does not already exist.
+- Checkpoints without an explicit `version` field remain readable. Future
+  checkpoint fields are ignored by recovery and shown by diff output when they
+  change.
+- Mnēmē narratives without YAML frontmatter are treated as body-only legacy
+  narratives. Narratives with future frontmatter keys preserve those keys during
+  deterministic updates.
+- Federation manifests ignore unknown top-level manifest fields and preserve
+  unknown per-subscription metadata, while skipping malformed subscription rows.
+- Context pack manifests ignore unknown future fields where safe; incompatible
+  manifest versions still produce explicit validation errors.
+
 ## Checkpoint Diff Output
 
 `perseus diff` renders a simple field-level markdown table showing changed keys between an older and newer checkpoint. Unchanged fields are omitted.

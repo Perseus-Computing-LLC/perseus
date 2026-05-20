@@ -362,3 +362,18 @@ Continue with **task-58 / Phase 21B performance budgets**. Do not start Phase 22
 ### Next Entry Point
 
 Continue with **task-59 / Phase 21C compatibility and migration suite**. Do not start Phase 22 tasks 60-62.
+
+### Additional Progress
+
+- **task-59 / Phase 21C compatibility and migration suite** is complete.
+- Added `tests/test_compat_migration.py` with focused fixtures for legacy config/state shapes: `hermes:` config migration, `oracle:` config migration/deprecation warnings, `oracle_log.jsonl` migration, old checkpoint recovery/diff behavior, body-only Mnēmē narratives, preservation of future Mnēmē frontmatter fields, federation manifest future-field tolerance, and context pack future-field tolerance.
+- Added migration guidance to `spec/data-model.md`, documenting accepted legacy keys, one-time log migration, future-field behavior, and explicit validation boundaries.
+
+### Current validation
+
+- Compatibility suite: `8 passed`
+- Full suite after task-59: `493 passed, 1 skipped, 1 warning`
+
+### Handoff Point
+
+Tasks **57, 58, and 59** complete Phase 21's evaluation/performance/compatibility gates. Hand back to Thomas here before starting Phase 22 / task-60+.
