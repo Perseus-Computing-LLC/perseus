@@ -1,35 +1,54 @@
 # Perseus™ 🪞
 
+**Perseus** is a live context engine for AI assistants. It solves the cold-start problem: every new session begins with an assistant that has no idea what's running, what you were working on, or which tools are available. Perseus resolves that state **before it reaches the context window** — so the assistant opens with verified, live facts instead of burning turns on orientation.
+
+Works with any AI assistant that reads a file: **Claude Code, Cursor, Codex, Hermes, Rovo Dev.** Drop in alongside `CLAUDE.md`, `AGENTS.md`, or `.cursorrules` — no migration required.
+
+![Perseus demo — before/after cold-start](demo.gif)
+
+---
+
 > *Athena didn't tell Perseus to fight Medusa. She handed him a shield — polished to a mirror — and let him see the monster clearly without meeting her gaze. The trick was never strength. It was reflection.*
 
 ![Perseus with the Head of Medusa — Benvenuto Cellini, 1545. Piazza della Signoria, Florence.](https://upload.wikimedia.org/wikipedia/commons/thumb/c/c0/Perseus_Cellini_Loggia_dei_Lanzi_2005_09_13.jpg/500px-Perseus_Cellini_Loggia_dei_Lanzi_2005_09_13.jpg)
 
 *Perseus with the Head of Medusa — Benvenuto Cellini, 1545. Loggia dei Lanzi, Florence. ([Jastrow](https://commons.wikimedia.org/wiki/File:Perseus_Cellini_Loggia_dei_Lanzi_2005_09_13.jpg), CC BY-SA 4.0)*
 
-**Perseus™** is a live context engine for AI assistants. It solves the cold-start problem: every new session begins with an assistant that has no idea what's running, what you were working on, which tools are available, or where things broke. Perseus resolves that state **before it ever reaches the context window** — so the assistant starts with a complete, accurate picture instead of burning turns on orientation.
-
-Built as a companion to [Hermes Agent](https://hermes-agent.nousresearch.com). Designed to be assistant-agnostic.
-
-Provider-agnostic defaults now use `PERSEUS_SKILLS_DIR` and `PERSEUS_SESSIONS_DIR`, with legacy `HERMES_*` environment variables preserved as fallback for backward compatibility.
-
-Perseus dogfoods itself: `ROADMAP.md` is a live `@perseus` source — the project's own documentation resolves its git state, CLI version, recent sessions, and last checkpoint at render time.
-
 **Status: v1.0.0 — All Phase 1–22 tasks complete. 63 tasks shipped. 493 tests passing. The first stable release.**
-
-![Perseus demo — before/after cold-start](demo.gif)
 
 ---
 
 ## TL;DR
 
 ```bash
-pip install pyyaml
-cp perseus.py ~/.local/bin/perseus && chmod +x ~/.local/bin/perseus
+pip install perseus-ctx
 perseus init /workspace/myproject
-perseus render /workspace/myproject/.perseus/context.md --output /workspace/myproject/.hermes.md
+perseus render /workspace/myproject/.perseus/context.md --output /workspace/myproject/CLAUDE.md
 ```
 
 Your AI assistant now opens every session with a complete, live picture of your workspace — services running, last checkpoint, recent git log, available tools — **without burning a single turn on orientation.**
+
+No pip? One-liner install:
+```bash
+curl -fsSL https://raw.githubusercontent.com/tcconnally/perseus/main/perseus.py \
+  -o ~/.local/bin/perseus && chmod +x ~/.local/bin/perseus
+```
+
+---
+
+## Why Not Just Use `.cursorrules` or `CLAUDE.md`?
+
+Static markdown files work when they're fresh. They rot immediately. The port you wrote down has changed, the test suite has grown, the container that was "always running" hasn't started since Tuesday. The assistant either trusts the stale data or burns turns verifying it.
+
+**Perseus's answer is resolve-before-context.** Directives in your `.perseus/context.md` are evaluated at render time — shell commands run, files are read, service health is checked — and the result is a finished, verified document. The AI never sees directive syntax. It sees facts.
+
+```
+@query "git log --oneline -5"      →  actual git log, live
+@services                          →  which containers are up right now
+@waypoint                          →  last checkpoint from the previous session
+```
+
+This isn't a replacement for those files — it's a pre-processor you bolt onto any of them. Add `@perseus` to line 1 of any `.md` file and it becomes live. Perseus produces plain markdown output. Any assistant that reads a file benefits.
 
 ---
 
@@ -269,42 +288,76 @@ Full documentation lives in [`docs/`](./docs/index.md):
 
 ## Quick Start
 
-**Requirements:** Python 3.10+ and `pyyaml`.
-
-Install runtime dependency:
+**Requirements:** Python 3.9+ and one dependency (`pyyaml`).
 
 ```bash
-pip install -r requirements.txt
+pip install perseus-ctx
 ```
 
-```bash
-# Install
-cp perseus.py ~/.local/bin/perseus
-chmod +x ~/.local/bin/perseus
+#### Claude Code
 
-# Configure (absolute paths required — ~ won't resolve in all environments)
+```bash
+perseus init /workspace/myproject
+# Edit .perseus/context.md to your liking, then:
+perseus render /workspace/myproject/.perseus/context.md --output /workspace/myproject/CLAUDE.md
+```
+
+Claude Code reads `CLAUDE.md` at session start. To keep it auto-refreshed (max 5-minute staleness):
+
+```bash
+# Add to crontab:
+*/5 * * * * cd /workspace/myproject && perseus render .perseus/context.md --output CLAUDE.md
+```
+
+#### Cursor
+
+Same pattern — output to `.cursor/context.md` or `.cursorrules`:
+
+```bash
+perseus render /workspace/myproject/.perseus/context.md --output /workspace/myproject/.cursorrules
+```
+
+#### Hermes Agent
+
+Output to `.hermes.md` — highest priority in Hermes's context file scan:
+
+```bash
+perseus render /workspace/myproject/.perseus/context.md --output /workspace/myproject/.hermes.md
+```
+
+The [`Auto-Injection`](#auto-injection) section below covers the cron watchdog pattern that keeps `.hermes.md` fresh without manual runs.
+
+#### Any other assistant
+
+Perseus outputs plain markdown. Point `--output` at whatever file your assistant reads at session start.
+
+---
+
+**Configure** (optional — only needed for `@skills` and `@session` directives):
+
+```bash
 mkdir -p ~/.perseus
 cat > ~/.perseus/config.yaml << 'EOF'
 pythia:
   skill_dir: /home/you/.hermes/skills
-assistant:                              # path to your agent's sessions dir; used by @session
+assistant:
   sessions_dir: /home/you/.hermes/sessions
-# Note: the legacy key `hermes:` is still accepted as an alias for
-# `assistant:` and is auto-migrated on load (see load_config in perseus.py).
 EOF
+```
 
+**Scaffold and render:**
+
+```bash
 # Scaffold a source document for your workspace
 perseus init /workspace/myproject
 
-# Or scaffold a product profile + context pack
-perseus init --list-profiles
-perseus init --profile generic /workspace/myproject
-perseus pack validate --workspace /workspace/myproject
+# Or use a built-in profile (generic, claude-code, cursor, codex, hermes, rovodev)
+perseus init --profile claude-code /workspace/myproject
 
-# Edit to taste, then render
-perseus render /workspace/myproject/.perseus/context.md
+# Edit .perseus/context.md to taste, then render
+perseus render /workspace/myproject/.perseus/context.md --output /workspace/myproject/CLAUDE.md
 
-# Write a waypoint
+# Write a session waypoint
 perseus checkpoint \
   --task "Adding @query directive" \
   --status "resolver written, tests pending" \
@@ -314,7 +367,7 @@ perseus checkpoint \
 # Recover — workspace-aware
 perseus recover --workspace /workspace/myproject
 
-# Get Pythia's recommendations
+# Get Pythia's ranked recommendations for a task
 perseus suggest "best way to search for a pattern across a large Python codebase"
 ```
 
