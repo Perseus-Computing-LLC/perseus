@@ -1,0 +1,1 @@
+Output target: AGENTS.md

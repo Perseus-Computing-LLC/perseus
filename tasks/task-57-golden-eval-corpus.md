@@ -1,12 +1,12 @@
 ---
 id: task-57
 title: Phase 21A golden eval corpus
-status: open
+status: completed
 priority: high
 scope: large
-claimed_by: null
+claimed_by: Rovo Dev
 created: 2026-05-19
-closed: null
+closed: '2026-05-20'
 phase: 21
 theme: "Evaluation, Performance, and Compatibility Gates"
 depends_on:
@@ -75,3 +75,13 @@ For each: load `config.yaml` via monkeypatch, render `context.md`, call
 output, run `python -m pytest tests/test_golden.py --update-golden`. Add a
 `--update-golden` pytest flag that writes `expected.md` from actual output instead of
 asserting. Never commit updated goldens without verifying the change is intentional.
+
+## Completed
+
+- Added an offline golden eval corpus under `tests/golden/` with seven scenarios: resolver-only, synthesis-cited, trust-strict, trust-power, adapter-hermes, adapter-codex, and pack-manifest.
+- Added `tests/test_golden.py` to snapshot rendered output, validate synthesis citation guardrails without a live model, validate pack manifests, and verify adapter output files.
+- Added a shared `--update-golden` pytest flag and `normalize_golden()` helper in `tests/conftest.py`; corpus README documents intentional snapshot refresh workflow.
+
+Validation:
+
+- `python3 -m pytest tests/test_golden.py -q` → `11 passed`
