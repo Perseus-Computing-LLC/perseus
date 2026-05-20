@@ -19,3 +19,4 @@ __pycache__/
 *.swp
 *.swo
 dist/
+*.egg-info/

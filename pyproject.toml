@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "perseus-ctx"
+version = "1.0.0"
+description = "Live context engine for AI assistants — resolve before context, zero cold-start tax."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Thomas Connally" }]
+keywords = ["ai", "context", "assistant", "cli", "hermes", "claude", "cursor", "codex"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+    "Topic :: Utilities",
+]
+requires-python = ">=3.9"
+dependencies = ["pyyaml"]
+
+[project.urls]
+Homepage = "https://github.com/tcconnally/perseus"
+Documentation = "https://github.com/tcconnally/perseus/blob/main/docs/index.md"
+Repository = "https://github.com/tcconnally/perseus"
+"Bug Tracker" = "https://github.com/tcconnally/perseus/issues"
+
+[project.scripts]
+perseus = "perseus:main"
+
+[tool.setuptools]
+py-modules = ["perseus"]
