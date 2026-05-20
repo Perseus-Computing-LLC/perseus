@@ -1,8 +1,8 @@
 # Perseus Product Report
 
 **Date:** 2026-05-19  
-**Status:** Phases 1-14, 15A, 16, 17, and 18 complete; task-63 Pythia rename complete; Phases 15B-C and 19-22C queued in Agora
-**Current baseline:** 439 tests passing, 1 sandbox-skipped TCP smoke
+**Status:** Phases 1-14, 15A, 16, 17, 18, and 19 complete; task-63 Pythia rename complete; Phases 20-22C queued in Agora
+**Current baseline:** 446 tests passing, 1 sandbox-skipped TCP smoke
 
 ---
 
@@ -27,6 +27,7 @@ existing power into a deployable, understandable, safe product:
 - release artifacts ✅
 - scheduler parity ✅
 - assistant adapter conformance ✅
+- editor adapter release polish ✅
 - service/container deployment modes
 - eval and compatibility gates
 - v1 release candidate discipline
@@ -72,7 +73,7 @@ Claude Code, Cursor, Rovo Dev, or any assistant that can read a file or stdin.
 | Serve | complete read-only, needs auth for product | Loopback-first HTTP view |
 | Inbox | complete | Point-to-point agent messages |
 | Cron/schedulers | Phase 18 complete | Host-neutral cron text generation, POSIX crontab install, macOS launchd, and Linux systemd are documented/tested; native Windows Task Scheduler is deferred |
-| LSP/editor | complete baseline | Needs release polish |
+| LSP/editor | Phase 19C complete | LSP baseline plus VSCode packaging docs and smoke checks |
 | Adapter conformance/profile gallery | Phase 19A-B complete | Offline fixtures and profile generation cover generic, Hermes, Codex, Claude Code, Cursor, and Rovo Dev |
 | Schema validation | complete | Built-in validator, no new dependency |
 | Graph/prefetch | complete | Static graph, rules, adaptive scoring |
@@ -130,7 +131,7 @@ The new Agora roadmap runs through Phase 22:
 | 16 | Define product contract, context pack manifest, and profile-based init ✅ |
 | 17 | Add trust profiles, redaction, audit logs, and trust reports ✅ |
 | 18 | Make installation, versioning, release artifacts, and scheduler parity real ✅ |
-| 19 | Prove adapter compatibility with profiles and conformance tests |
+| 19 | Prove adapter compatibility with profiles and conformance tests ✅ |
 | 20 | Support managed runtime through authenticated serve, container, and watch mode |
 | 21 | Add golden evals, performance budgets, and migration/compatibility checks |
 | 22 | Cut a v1 release candidate with docs, demos, artifacts, and gates |
@@ -150,11 +151,9 @@ This path aims at a product that can be deployed as:
 
 1. Finish task-40 and task-41 only if cited synthesis proves useful in
    cross-source consistency mode.
-2. Finish VSCode release polish so the adapter ecosystem becomes a packaged
-   user-facing surface, not just CLI profiles and a test matrix.
-3. Do managed runtime after auth/trust and installer basics.
-4. Treat Phase 21 as the release safety net.
-5. Freeze features for Phase 22.
+2. Do managed runtime after auth/trust and installer basics.
+3. Treat Phase 21 as the release safety net.
+4. Freeze features for Phase 22.
 
 ---
 

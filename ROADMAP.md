@@ -491,8 +491,8 @@ Phase 15A it reached 314 passed, 1 skipped; after Phase 16 it reached
 322 passed, 1 skipped; after Phase 17/18A plus task-63 it reached
 394 passed, 1 skipped; after Phase 18B-C it reached 413 passed, 1 skipped;
 after Phase 19A it reached 433 passed, 1 skipped; after Phase 19B it reached
-439 passed, 1 skipped (sandbox-blocked TCP bind; the same TCP smoke passes
-outside the sandbox).
+439 passed, 1 skipped; after Phase 19C it reached 446 passed, 1 skipped
+(sandbox-blocked TCP bind; the same TCP smoke passes outside the sandbox).
 - `test_oracle.py` — suggest, Pythia log, drift, infer-labels
 - `test_memory.py` — Mnēmē narrative, federation
 - `test_lsp.py` — LSP helpers, framing, diagnostics
@@ -795,7 +795,7 @@ repeatable adapter contracts instead of one-off docs.
   against expected files and invocation patterns for each supported assistant.
 - **19B Assistant profile gallery (task-52) ✅:** Ship maintained profiles for
   Hermes, Codex, Claude Code, Cursor, Rovo Dev, and generic stdin/file flows.
-- **19C VSCode extension release polish (task-53):** Package, document, and
+- **19C VSCode extension release polish (task-53) ✅:** Package, document, and
   smoke-test the editor integration as a user-facing adapter.
 
 ### Phase 20 — Managed Runtime and Deployment Modes
@@ -902,7 +902,7 @@ Phase 18C ─── Scheduler parity ✅ ─────────────
                                                          │
 Phase 19A ─── Adapter conformance harness ✅ ────────────┤
 Phase 19B ─── Assistant profile gallery ✅ ──────────────┤
-Phase 19C ─── VSCode extension release polish ───────────┤
+Phase 19C ─── VSCode extension release polish ✅ ────────┤
                                                          │
 Phase 20A ─── Authenticated serve mode ──────────────────┤
 Phase 20B ─── Container image and compose example ───────┤
@@ -918,8 +918,8 @@ Phase 22C ─── v1 release candidate checklist ─────────�
 ```
 
 **Estimated scope:** Phase 11, Phase 12, Phase 13, Phase 14, Phase 15A,
-Phase 16, Phase 17, and Phase 18 are complete. Phases 19 through 22C remain
-queued in Agora as the productization path to a deployable v1.
+Phase 16, Phase 17, Phase 18, and Phase 19 are complete. Phases 20 through
+22C remain queued in Agora as the productization path to a deployable v1.
 
 ---
 

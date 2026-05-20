@@ -250,7 +250,23 @@ when you finish — update it with a completion summary at the end.
 - Profile + adapter focused suite: `61 passed`
 - Full suite after task-52: `439 passed, 1 skipped`
 
+### Additional Progress
+
+- **task-53 / Phase 19C VSCode extension release polish** is complete.
+- Added `editors/vscode/RELEASE.md` with packaging, sideload, smoke-test, and
+  mutation-gate guidance.
+- Added package scripts for compile/prepublish/package without changing the
+  `perseus.py` runtime packaging model.
+- Added LSP subprocess smoke checks for render, latest checkpoint opening, and
+  opt-in mutation compaction.
+- Added static VSCode manifest/release-doc tests.
+
+### Current validation
+
+- LSP + VSCode focused suite: `29 passed, 1 skipped`
+- Full suite after task-53: `446 passed, 1 skipped`
+
 ### Next Entry Point
 
-Continue with **task-53 / Phase 19C VSCode extension release polish**. Do not
-start Phase 22 tasks 60-62.
+Continue with **task-54 / Phase 20A authenticated serve mode**. Do not start
+Phase 22 tasks 60-62.
