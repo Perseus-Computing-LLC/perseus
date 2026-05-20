@@ -43,3 +43,34 @@ too slow.
 - Do not overfit to one developer machine.
 - Do not make regular unit tests flaky.
 - Do not add benchmarking dependencies.
+
+## Implementation Notes
+
+**No benchmarking deps.** Use `time.perf_counter()` + `subprocess` timing in stdlib.
+Add `tests/test_perf_budgets.py`. Mark all tests `@pytest.mark.slow` so they can be
+skipped in normal CI with `-m "not slow"`.
+
+**Budgets (advisory by default — fail the test if exceeded by >2×):**
+| Command | Budget (cold cache) | Budget (warm cache) |
+|---|---|---|
+| `perseus render` (minimal doc, 3 directives, no shell) | 200ms | 100ms |
+| `perseus graph` (same doc) | 100ms | 50ms |
+| `perseus prefetch` (same doc, no shell directives) | 200ms | 100ms |
+| `perseus synthesize` (generation disabled) | 300ms | 150ms |
+| `perseus serve` startup (first response on loopback) | 500ms | 500ms |
+| LSP `initialize` round-trip (stdio transport) | 500ms | 300ms |
+| `perseus watch` first render (from cold start) | 300ms | 150ms |
+
+**Test pattern:** Use subprocess timing with `time.perf_counter()` around
+`subprocess.run([sys.executable, PERSEUS_PY, ...])`. Run each command twice:
+first for cold baseline, second for warm (cache already populated). Assert
+warm ≤ cold (sanity check). Fail if either exceeds 2× the budget.
+
+**Advisory vs blocking:** By default, budget violations emit a pytest warning
+(`warnings.warn`) rather than raising `AssertionError`. A `--enforce-budgets`
+pytest flag (added via `conftest.py`) switches violations to hard failures.
+This keeps CI green on slow machines while still surfacing regressions.
+
+**Docs:** Add `docs/PERFORMANCE.md` with the budget table, how to run
+(`python -m pytest tests/test_perf_budgets.py -m slow`), and how to interpret
+the advisory vs blocking distinction.

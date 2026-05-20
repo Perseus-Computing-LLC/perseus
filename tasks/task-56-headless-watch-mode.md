@@ -43,3 +43,30 @@ environments.
 - Do not replace authenticated serve.
 - Do not add filesystem watcher dependencies.
 - Do not watch outside the workspace unless explicitly allowed.
+
+## Implementation Notes
+
+**No filesystem watcher deps.** Constraint #2 (pyyaml only). Implement as a polling loop:
+check source file mtimes on a configurable interval (default 5s, config key
+`watch.poll_interval_s`). Track mtime per source file; re-render on change.
+
+**Command:** `perseus watch [--source FILE] [--output FILE] [--interval N]`
+- `--source` defaults to `.perseus/context.md` in cwd (same as render default)
+- `--output` defaults to `.hermes.md` (mirrors `render --output` default)
+- Logs to stderr: `[watch] rendered → <output> (changed: <source>)` on each render
+- Logs to stderr: `[watch] render error: <msg>` on failure; keeps watching unless
+  `--exit-on-error` is passed
+- SIGINT/SIGTERM exits cleanly with a final log line
+
+**Debounce:** After a detected change, wait one additional poll interval before
+rendering to avoid rapid successive renders when editors write multiple times.
+Track the last-rendered mtime rather than using wall-clock timers to keep tests
+deterministic (monkeypatch mtime, no `time.sleep` in tests).
+
+**Context pack support:** If a `pack.yaml` exists in the workspace, resolve source
+files from the pack's `sources:` list rather than a single `--source` file.
+
+**Test approach:** Monkeypatch `os.path.getmtime` and `cmd_render` rather than
+creating real file watchers or sleeping. Cover: initial render on startup, re-render
+on mtime change, no re-render when mtime unchanged, error handling with continue,
+SIGINT exit path (mock with KeyboardInterrupt).
