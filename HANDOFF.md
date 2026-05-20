@@ -266,7 +266,24 @@ when you finish — update it with a completion summary at the end.
 - LSP + VSCode focused suite: `29 passed, 1 skipped`
 - Full suite after task-53: `446 passed, 1 skipped`
 
+### Additional Progress
+
+- **task-54 / Phase 20A authenticated serve mode** is complete.
+- `perseus serve` now supports optional static bearer auth via
+  `serve.auth_token`; loopback no-auth behavior remains backward-compatible.
+- Added `perseus serve --generate-token`.
+- Non-loopback binds require bearer auth or an explicit insecure opt-in through
+  `serve.allow_insecure_remote: true` / `--i-understand-no-auth`.
+- `perseus trust` now reports serve bind/auth state without exposing the token.
+- Added tests for auth success/failure, legacy loopback mode, token generation,
+  non-loopback auth gates, and trust JSON serve fields.
+
+### Current validation
+
+- Serve/trust focused suite: `58 passed`
+- Full suite after task-54: `453 passed, 1 skipped`
+
 ### Next Entry Point
 
-Continue with **task-54 / Phase 20A authenticated serve mode**. Do not start
-Phase 22 tasks 60-62.
+Continue with **task-55 / Phase 20B container image and compose example**. Do
+not start Phase 22 tasks 60-62.

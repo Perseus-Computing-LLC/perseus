@@ -242,6 +242,9 @@ DEFAULT_CONFIG = {
     },
     "serve": {                        # Phase 17A: surface serve bind for permission profiles
         "bind": "127.0.0.1",
+        "bind_host": "127.0.0.1",
+        "auth_token": None,
+        "allow_insecure_remote": False,
     },
     "permissions": {                  # Phase 17A — task-45
         # profile: null | "strict" | "balanced" | "power-user"
@@ -299,7 +302,7 @@ PERMISSION_PROFILES: dict[str, dict[str, dict[str, object]]] = {
             "allow_outside_workspace": False,
         },
         "generation": {"enabled": False},
-        "serve": {"bind": "127.0.0.1"},
+        "serve": {"bind": "127.0.0.1", "bind_host": "127.0.0.1"},
     },
     "balanced": {
         "render": {
@@ -309,7 +312,7 @@ PERMISSION_PROFILES: dict[str, dict[str, dict[str, object]]] = {
             "allow_outside_workspace": False,
         },
         "generation": {"enabled": False},
-        "serve": {"bind": "127.0.0.1"},
+        "serve": {"bind": "127.0.0.1", "bind_host": "127.0.0.1"},
     },
     "power-user": {
         "render": {
@@ -319,7 +322,7 @@ PERMISSION_PROFILES: dict[str, dict[str, dict[str, object]]] = {
             "allow_outside_workspace": False,  # still off — workspace boundary is a hard wall
         },
         "generation": {"enabled": False},      # generation stays opt-in even for power-user
-        "serve": {"bind": "127.0.0.1"},
+        "serve": {"bind": "127.0.0.1", "bind_host": "127.0.0.1"},
     },
 }
 
@@ -8059,13 +8062,13 @@ def _doctor_check_pythia_log(cfg: dict, workspace: Path) -> DoctorResult:
 
 def _doctor_check_serve_loopback(cfg: dict, workspace: Path) -> DoctorResult:
     """Informational: confirm serve defaults to loopback."""
-    bind = cfg.get("serve", {}).get("bind", "127.0.0.1")
-    if bind in ("127.0.0.1", "localhost", "::1"):
+    bind = _serve_bind_host(cfg)
+    if _serve_is_loopback(bind):
         return DoctorResult("serve_loopback_only", "ok", "serve loopback default",
                             bind, "")
     return DoctorResult("serve_loopback_only", "warn", "serve loopback default",
                         f"bind={bind} (not loopback)",
-                        "Set serve.bind to 127.0.0.1 unless intentional")
+                        "Set serve.bind_host to 127.0.0.1 unless intentional")
 
 
 def _doctor_check_registry(cfg: dict, workspace: Path) -> DoctorResult:
@@ -8118,9 +8121,11 @@ def _effective_profile_summary(cfg: dict) -> dict:
         name = str(configured).strip().lower()
         if name in PERMISSION_PROFILES:
             canonical = name
+    serve_summary = _serve_trust_summary(cfg)
 
     return {
         "version": _PERSEUS_VERSION,
+        "serve": serve_summary,
         "permissions": {
             "configured_profile": configured,
             "applied_profile": canonical,
@@ -8137,7 +8142,11 @@ def _effective_profile_summary(cfg: dict) -> dict:
                 "enabled": bool(gen_cfg.get("enabled", False)),
             },
             "serve": {
-                "bind": serve_cfg.get("bind", "127.0.0.1"),
+                "bind": serve_summary["bind_host"],
+                "bind_host": serve_summary["bind_host"],
+                "auth_token_set": serve_summary["auth_token_set"],
+                "loopback_only": serve_summary["loopback_only"],
+                "allow_insecure_remote": serve_summary["allow_insecure_remote"],
             },
             "redaction": {
                 "enabled": bool(red_cfg.get("enabled", True)),
@@ -8216,7 +8225,10 @@ def cmd_trust(args, cfg) -> int:
         print(f"  render.allow_services_command:  {eff['render']['allow_services_command']}")
         print(f"  render.allow_outside_workspace: {eff['render']['allow_outside_workspace']}")
         print(f"  generation.enabled:             {eff['generation']['enabled']}")
-        print(f"  serve.bind:                     {eff['serve']['bind']}")
+        print(f"  serve.bind_host:                {eff['serve']['bind_host']}")
+        print(f"  serve.auth_token_set:           {eff['serve']['auth_token_set']}")
+        print(f"  serve.loopback_only:            {eff['serve']['loopback_only']}")
+        print(f"  serve.allow_insecure_remote:    {eff['serve']['allow_insecure_remote']}")
         red = eff.get("redaction", {})
         print(
             f"  redaction.enabled:              {red.get('enabled', True)} "
@@ -8604,6 +8616,65 @@ def _serve_render_index(workspace: Path, stats: dict) -> str:
         f"<a href='https://github.com/tcconnally/perseus'>github.com/tcconnally/perseus</a></div>"
         f"</div></body></html>"
     )
+
+
+def _serve_bind_host(cfg: dict) -> str:
+    serve_cfg = cfg.get("serve", {}) or {}
+    return str(serve_cfg.get("bind_host") or serve_cfg.get("bind") or "127.0.0.1")
+
+
+def _serve_auth_token(cfg: dict) -> str | None:
+    token = (cfg.get("serve", {}) or {}).get("auth_token")
+    if token is None:
+        return None
+    token_s = str(token).strip()
+    return token_s or None
+
+
+def _serve_is_loopback(host: str) -> bool:
+    return host in ("127.0.0.1", "localhost", "::1")
+
+
+def _serve_trust_summary(cfg: dict) -> dict:
+    host = _serve_bind_host(cfg)
+    token = _serve_auth_token(cfg)
+    serve_cfg = cfg.get("serve", {}) or {}
+    return {
+        "bind_host": host,
+        "bind": host,
+        "loopback_only": _serve_is_loopback(host),
+        "auth_token_set": bool(token),
+        "allow_insecure_remote": bool(serve_cfg.get("allow_insecure_remote", False)),
+    }
+
+
+def _serve_authorized(headers, token: str | None) -> bool:
+    if not token:
+        return True
+    import hmac
+
+    auth = ""
+    if headers is not None:
+        try:
+            auth = headers.get("Authorization", "") or ""
+        except AttributeError:
+            auth = headers.get("authorization", "") if isinstance(headers, dict) else ""
+    prefix = "Bearer "
+    if not auth.startswith(prefix):
+        return False
+    return hmac.compare_digest(auth[len(prefix):].strip(), token)
+
+
+def _serve_unauthorized() -> tuple[int, str, str]:
+    return (401, "application/json; charset=utf-8", '{"error": "unauthorized"}')
+
+
+def _serve_handle_request(endpoint: str, cfg: dict, workspace: Path, query: dict[str, str], headers=None) -> tuple[int, str, str]:
+    token = _serve_auth_token(cfg)
+    if not _serve_authorized(headers, token):
+        audit_event(cfg, "serve_auth_denied", endpoint=endpoint, auth_enabled=True)
+        return _serve_unauthorized()
+    return _serve_render_endpoint(endpoint, cfg, workspace, query)
 
 
 def _serve_render_endpoint(endpoint: str, cfg: dict, workspace: Path, query: dict[str, str]) -> tuple[int, str, str]:
@@ -9053,35 +9124,53 @@ def cmd_serve(args, cfg):
     """
     if getattr(args, "lsp", False):
         return _run_lsp_server(args, cfg)
+    if getattr(args, "generate_token", False):
+        import secrets
+        print(secrets.token_urlsafe(32))
+        return 0
     from http.server import BaseHTTPRequestHandler, HTTPServer
     from urllib.parse import urlsplit, parse_qsl
 
     ws_raw = getattr(args, "workspace", None) or os.getcwd()
     workspace = Path(ws_raw).expanduser().resolve()
-    host = getattr(args, "host", "127.0.0.1") or "127.0.0.1"
+    host = getattr(args, "host", None) or _serve_bind_host(cfg)
     try:
         port = int(getattr(args, "port", 7991))
     except (TypeError, ValueError):
         port = 7991
 
-    # Per code review 2026-05-18: any non-loopback bind is a deliberate, irreversible
-    # security decision. A warning was previously printed but the bind proceeded,
-    # which is exactly the surprise an operator in a container/Docker/Portainer
-    # context cannot recover from. Now: refuse unless the operator opts in.
-    is_loopback = host in ("127.0.0.1", "localhost", "::1")
+    serve_cfg = cfg.get("serve", {}) or {}
+    auth_token = _serve_auth_token(cfg)
+    # Per code review 2026-05-18 and task-54: any non-loopback bind is a
+    # deliberate security decision. Authenticated remote binds are allowed;
+    # unauthenticated remote binds require an explicit escape hatch.
+    is_loopback = _serve_is_loopback(host)
     if not is_loopback:
-        if not getattr(args, "i_understand_no_auth", False):
+        audit_event(
+            cfg,
+            "serve_bind",
+            host=host,
+            port=port,
+            loopback=False,
+            auth_enabled=bool(auth_token),
+            allow_insecure_remote=bool(serve_cfg.get("allow_insecure_remote", False)),
+        )
+        if auth_token:
+            sys.stderr.write(f"[serve] WARNING: binding to {host}:{port} with bearer auth enabled\n")
+        elif not (getattr(args, "i_understand_no_auth", False) or bool(serve_cfg.get("allow_insecure_remote", False))):
             sys.stderr.write(
                 f"perseus serve: refusing to bind {host}:{port} — non-loopback hosts expose\n"
                 "  ALL of: rendered context, narrative, health, agora, latest checkpoint,\n"
                 "  AND Pythia log (which may contain prompts/responses from other workspaces).\n"
-                "  No authentication is enforced. Pass --i-understand-no-auth to proceed.\n"
+                "  Set serve.auth_token to protect endpoints, or set serve.allow_insecure_remote: true\n"
+                "  / pass --i-understand-no-auth to proceed without auth.\n"
             )
             return 2
-        sys.stderr.write(
-            f"> ⚠ Binding to {host}:{port} — Perseus serve has NO authentication.\n"
-            "  Exposed endpoints: /, /context, /narrative, /health, /agora, /checkpoint/latest, /oracle/log\n"
-        )
+        else:
+            sys.stderr.write(
+                f"[serve] WARNING: binding to {host}:{port} — set serve.auth_token to protect endpoints\n"
+                "  Exposed endpoints: /, /context, /narrative, /health, /agora, /checkpoint/latest, /oracle/log\n"
+            )
 
     class PerseusHandler(BaseHTTPRequestHandler):
         def _respond(self, status: int, content_type: str, body: str) -> None:
@@ -9096,7 +9185,7 @@ def cmd_serve(args, cfg):
             parsed = urlsplit(self.path)
             endpoint = parsed.path or "/"
             qs = dict(parse_qsl(parsed.query))
-            status, ctype, body = _serve_render_endpoint(endpoint, cfg, workspace, qs)
+            status, ctype, body = _serve_handle_request(endpoint, cfg, workspace, qs, self.headers)
             self._respond(status, ctype, body)
 
         def do_POST(self):  # noqa: N802
@@ -9452,9 +9541,10 @@ def main():
     # serve (read-only HTTP view)
     p_serve = sub.add_parser("serve", help="Start a read-only HTTP view of workspace state, or an LSP server")
     p_serve.add_argument("--port", type=int, default=7991, help="HTTP port (default: 7991)")
-    p_serve.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1; non-loopback requires --i-understand-no-auth)")
-    p_serve.add_argument("--i-understand-no-auth", action="store_true", dest="i_understand_no_auth", help="Opt-in to non-loopback bind. Required for --host other than 127.0.0.1/localhost/::1. Exposes all read-only endpoints with no auth.")
+    p_serve.add_argument("--host", default=None, help="Bind host (default: serve.bind_host / 127.0.0.1; non-loopback requires auth or explicit insecure opt-in)")
+    p_serve.add_argument("--i-understand-no-auth", action="store_true", dest="i_understand_no_auth", help="Opt-in to unauthenticated non-loopback bind. Prefer serve.auth_token.")
     p_serve.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
+    p_serve.add_argument("--generate-token", action="store_true", help="Print a random bearer token for serve.auth_token and exit")
     # task-23 (Phase 10.1) — LSP transport
     p_serve.add_argument("--lsp", action="store_true", help="Run as a Language Server Protocol server instead of HTTP")
     p_serve.add_argument("--stdio", action="store_true", help="LSP transport: stdin/stdout (default for --lsp)")

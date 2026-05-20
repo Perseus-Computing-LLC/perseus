@@ -57,6 +57,9 @@ def test_default_config_has_serve_section():
     # code paths read `cfg["serve"]["bind"]` via .get(); explicit default
     # keeps trust output deterministic.
     assert perseus.DEFAULT_CONFIG["serve"]["bind"] == "127.0.0.1"
+    assert perseus.DEFAULT_CONFIG["serve"]["bind_host"] == "127.0.0.1"
+    assert perseus.DEFAULT_CONFIG["serve"]["auth_token"] is None
+    assert perseus.DEFAULT_CONFIG["serve"]["allow_insecure_remote"] is False
 
 
 def test_known_profiles_registered():

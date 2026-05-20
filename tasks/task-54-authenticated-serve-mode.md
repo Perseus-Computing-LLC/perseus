@@ -1,12 +1,12 @@
 ---
 id: task-54
 title: Phase 20A authenticated serve mode
-status: open
+status: completed
 priority: high
 scope: large
-claimed_by: null
+claimed_by: Codex
 created: 2026-05-19
-closed: null
+closed: 2026-05-20
 phase: 20
 theme: "Managed Runtime and Deployment Modes"
 depends_on:
@@ -42,6 +42,17 @@ teams bind beyond localhost.
 - Do not build multi-user auth.
 - Do not expose mutating HTTP endpoints.
 - Do not default to remote binds.
+
+## Completed
+
+- Added optional static bearer-token authentication via `serve.auth_token`.
+- Added `perseus serve --generate-token` for generating user-managed tokens.
+- Preserved unauthenticated loopback behavior for backward compatibility.
+- Required non-loopback binds to use `serve.auth_token` or an explicit insecure
+  opt-in through `serve.allow_insecure_remote: true` / `--i-understand-no-auth`.
+- Added serve auth state to `perseus trust --json` and the human trust report.
+- Added tests for legacy no-auth loopback, missing/wrong/valid bearer tokens,
+  non-loopback auth behavior, token generation, and trust report serve fields.
 
 ## Implementation Notes
 
