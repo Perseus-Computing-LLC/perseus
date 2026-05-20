@@ -1,5 +1,7 @@
 # Perseus Use Cases
 
+**See also:** [Perseus Examples](./EXAMPLES.md) for concrete scenarios and walkthroughs.
+
 ## Sales Team
 
 Perseus, with its live context engine, session recovery, and narrative memory capabilities, could be highly valuable for a sales team by transforming how they access information and manage their sales processes.
