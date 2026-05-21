@@ -2,7 +2,6 @@
 # ──────────────────────────────── Main ────────────────────────────────────────
 
 def main():
-    _bind_registry()  # bind directive registry before dispatch
     parser = argparse.ArgumentParser(
         prog="perseus",
         description="Perseus — Live Context Engine for AI Assistants (v1.0.0)",
@@ -357,6 +356,24 @@ def main():
     elif args.command == "launchd":
         cmd_launchd(args, cfg)
 
+
+# Module-level call: runs at import time so render_source() and other
+# functions work correctly when called without going through main().
+# Restore the full bind sequence originally at lines 8146-8162 of perseus.py:
+#   1. populate DIRECTIVE_REGISTRY
+#   2. build and assign INLINE_DIRECTIVE_RE
+#   3. validate registry invariants
+_bind_registry()
+INLINE_DIRECTIVE_RE = _build_inline_directive_re()
+
+# Validate invariant: shell-executing or state-mutating directives must NOT be
+# safe for hover preview.
+for _spec in DIRECTIVE_REGISTRY.values():
+    if (_spec.executes_shell or _spec.mutates_state) and _spec.safe_for_hover:
+        raise AssertionError(
+            f"Registry invariant violation: {_spec.name} executes_shell={_spec.executes_shell} "
+            f"mutates_state={_spec.mutates_state} but safe_for_hover=True"
+        )
 
 if __name__ == "__main__":
     rc = main()

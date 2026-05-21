@@ -1,3 +1,8 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# perseus.py — GENERATED FILE. Do not edit directly.
+# Edit src/perseus/ modules and run:  python scripts/build.py
+# Perseus builds Perseus.
+# ═══════════════════════════════════════════════════════════════════════════
 #!/usr/bin/env python3
 """
 Perseus — Live Context Engine for AI Assistants
@@ -34,97 +39,6 @@ from pathlib import Path
 
 import yaml  # pyyaml
 from typing import NamedTuple, Callable
-
-# ─────────────────────────────── Directive Registry ───────────────────────────
-#
-# Single source of truth for every directive (task-25).  Adding a new directive
-# requires one entry here plus the resolver function itself — no regex edits,
-# no dispatch chain changes, no LSP table changes.
-
-
-class DirectiveSpec(NamedTuple):
-    """Metadata for a single Perseus directive."""
-    name: str                           # canonical name, e.g. "@query"
-    resolver: "Callable | None"         # resolve_* function (None for control)
-    args: list[str]                     # LSP completion args, e.g. ["fallback="]
-    kind: str                           # "inline" | "block" | "control"
-    call_sig: str                       # "acw" | "ac" | "a" | "awc" | "block"
-    executes_shell: bool = False
-    reads_files: bool = False
-    mutates_state: bool = False
-    safe_for_hover: bool = True
-    cacheable: bool = False
-    summary: str = ""
-    output_schema: object | None = None  # Optional registry-level rendered output schema
-
-
-# NOTE: resolver references are forward-declared as strings and bound after
-# all resolve_* functions are defined.  See _bind_registry() below.
-DIRECTIVE_REGISTRY: dict[str, DirectiveSpec] = {}
-
-
-def _bind_registry() -> None:
-    """Populate DIRECTIVE_REGISTRY. Called once after all resolvers are defined."""
-    # fmt: off
-    _entries: list[DirectiveSpec] = [
-        DirectiveSpec("@query",     resolve_query,     ["fallback=", "schema="],   "inline",  "acw", executes_shell=True,  safe_for_hover=False, cacheable=True,  summary="Run a shell command and embed stdout"),
-        DirectiveSpec("@skills",    resolve_skills,    ["flag_stale=", "category=", "limit="], "inline", "ac", reads_files=True, cacheable=True, summary="List available skills"),
-        DirectiveSpec("@session",   resolve_session,   ["count="],                 "inline",  "ac",  reads_files=True, cacheable=True, summary="Recent session digests"),
-        DirectiveSpec("@date",      resolve_date,      ["format="],                "inline",  "a",   cacheable=False, summary="Current date/time", output_schema={"type": "str", "pattern": ".+"}),
-        DirectiveSpec("@waypoint",  resolve_waypoint,  ["ttl="],                   "inline",  "ac",  reads_files=True, cacheable=True, summary="Latest checkpoint summary"),
-        DirectiveSpec("@read",      resolve_read,      ["path=", "key=", "fallback=", "schema="], "inline", "acw", reads_files=True, cacheable=True, summary="Embed file contents"),
-        DirectiveSpec("@env",       resolve_env,       ["required=", "fallback=", "schema="], "inline", "acw", cacheable=False, summary="Embed environment variable"),
-        DirectiveSpec("@include",   resolve_include,   [],                         "inline",  "awc", reads_files=True, cacheable=True, summary="Include and render another file"),
-        DirectiveSpec("@agora",     resolve_agora,     ["status="],                "inline",  "acw", reads_files=True, cacheable=True, summary="Task board from tasks/*.md"),
-        DirectiveSpec("@memory",    resolve_memory,    ["focus=", "federation", "include_federation=", "alias="], "inline", "acw", reads_files=True, cacheable=True, summary="Mnēmē narrative memory"),
-        DirectiveSpec("@list",      resolve_list,      ["limit=", "sort="],        "inline",  "acw", reads_files=True, cacheable=True, summary="List directory or structured data"),
-        DirectiveSpec("@tree",      resolve_tree,      ["depth="],                 "inline",  "acw", reads_files=True, cacheable=True, summary="Tree view of directory"),
-        DirectiveSpec("@health",    resolve_health,    [],                         "inline",  "acw", reads_files=True, summary="Context maintenance report"),
-        DirectiveSpec("@agent",     resolve_agent,     [],                         "inline",  "acw", executes_shell=True, safe_for_hover=False, summary="Execute local agent subprocess"),
-        DirectiveSpec("@inbox",     resolve_inbox,     ["unread=", "limit="],      "inline",  "acw", reads_files=True, cacheable=True, summary="Agent message inbox"),
-        DirectiveSpec("@drift",     resolve_drift,     [],                         "inline",  "ac",  reads_files=True, summary="Oracle drift report"),
-        # Block directives — resolved via special block-parsing logic, not the inline dispatch
-        DirectiveSpec("@services",  resolve_services,  [],                         "block",   "block", executes_shell=True, safe_for_hover=False, summary="Health-check listed services"),
-        DirectiveSpec("@prompt",    resolve_prompt_block, [],                      "block",   "block", summary="System prompt block"),
-        DirectiveSpec("@constraint", None,             [],                         "block",   "block", summary="Constraint block for validation"),
-        DirectiveSpec("@validate",  resolve_validate_block, ["schema="],           "block",   "block", reads_files=True, summary="Validate a rendered block against a schema"),
-        DirectiveSpec("@synthesize", None,                  ["question=", "source=", "label=", "consistency_mode"], "block", "block", reads_files=True, safe_for_hover=False, summary="Optional curated synthesis section (generation.enabled required)"),
-        # Control directives — structural, no resolver
-        DirectiveSpec("@if",        None,              [],                         "control", "block", summary="Conditional block start"),
-        DirectiveSpec("@else",      None,              [],                         "control", "block", summary="Conditional block else"),
-        DirectiveSpec("@endif",     None,              [],                         "control", "block", summary="Conditional block end"),
-        DirectiveSpec("@end",       None,              [],                         "control", "block", summary="Block directive end"),
-    ]
-    # fmt: on
-    for spec in _entries:
-        DIRECTIVE_REGISTRY[spec.name] = spec
-
-
-def _call_resolver(spec: DirectiveSpec, args_str: str, cfg: dict, workspace: "Path | None") -> str:
-    """Adapt resolver call to match its actual signature via call_sig."""
-    sig = spec.call_sig
-    if sig == "acw":
-        return spec.resolver(args_str, cfg, workspace)
-    elif sig == "ac":
-        return spec.resolver(args_str, cfg)
-    elif sig == "a":
-        return spec.resolver(args_str)
-    elif sig == "awc":
-        return spec.resolver(args_str, workspace, cfg)
-    else:
-        raise ValueError(f"Unknown call_sig {sig!r} for {spec.name}")
-
-
-# Built at import time from the registry (after _bind_registry is called).
-def _build_inline_directive_re():
-    """Build INLINE_DIRECTIVE_RE from the registry. Inline directives only."""
-    names = sorted(
-        (s.name for s in DIRECTIVE_REGISTRY.values() if s.kind == "inline"),
-        key=lambda n: -len(n),  # longest first to avoid prefix shadowing
-    )
-    pattern = r'^(' + '|'.join(re.escape(n) for n in names) + r')(\s+.*)?$'
-    return re.compile(pattern, re.IGNORECASE)
-
 
 # ─────────────────────────────── Paths & Config ───────────────────────────────
 
@@ -350,6 +264,97 @@ def _apply_permission_profile(cfg: dict, profile_name: object) -> str | None:
             cfg[section] = {}
         cfg[section].update(vals)
     return name
+
+
+# ─────────────────────────────── Directive Registry ───────────────────────────
+#
+# Single source of truth for every directive (task-25).  Adding a new directive
+# requires one entry here plus the resolver function itself — no regex edits,
+# no dispatch chain changes, no LSP table changes.
+
+
+class DirectiveSpec(NamedTuple):
+    """Metadata for a single Perseus directive."""
+    name: str                           # canonical name, e.g. "@query"
+    resolver: "Callable | None"         # resolve_* function (None for control)
+    args: list[str]                     # LSP completion args, e.g. ["fallback="]
+    kind: str                           # "inline" | "block" | "control"
+    call_sig: str                       # "acw" | "ac" | "a" | "awc" | "block"
+    executes_shell: bool = False
+    reads_files: bool = False
+    mutates_state: bool = False
+    safe_for_hover: bool = True
+    cacheable: bool = False
+    summary: str = ""
+    output_schema: object | None = None  # Optional registry-level rendered output schema
+
+
+# NOTE: resolver references are forward-declared as strings and bound after
+# all resolve_* functions are defined.  See _bind_registry() below.
+DIRECTIVE_REGISTRY: dict[str, DirectiveSpec] = {}
+
+
+def _bind_registry() -> None:
+    """Populate DIRECTIVE_REGISTRY. Called once after all resolvers are defined."""
+    # fmt: off
+    _entries: list[DirectiveSpec] = [
+        DirectiveSpec("@query",     resolve_query,     ["fallback=", "schema="],   "inline",  "acw", executes_shell=True,  safe_for_hover=False, cacheable=True,  summary="Run a shell command and embed stdout"),
+        DirectiveSpec("@skills",    resolve_skills,    ["flag_stale=", "category=", "limit="], "inline", "ac", reads_files=True, cacheable=True, summary="List available skills"),
+        DirectiveSpec("@session",   resolve_session,   ["count="],                 "inline",  "ac",  reads_files=True, cacheable=True, summary="Recent session digests"),
+        DirectiveSpec("@date",      resolve_date,      ["format="],                "inline",  "a",   cacheable=False, summary="Current date/time", output_schema={"type": "str", "pattern": ".+"}),
+        DirectiveSpec("@waypoint",  resolve_waypoint,  ["ttl="],                   "inline",  "ac",  reads_files=True, cacheable=True, summary="Latest checkpoint summary"),
+        DirectiveSpec("@read",      resolve_read,      ["path=", "key=", "fallback=", "schema="], "inline", "acw", reads_files=True, cacheable=True, summary="Embed file contents"),
+        DirectiveSpec("@env",       resolve_env,       ["required=", "fallback=", "schema="], "inline", "acw", cacheable=False, summary="Embed environment variable"),
+        DirectiveSpec("@include",   resolve_include,   [],                         "inline",  "awc", reads_files=True, cacheable=True, summary="Include and render another file"),
+        DirectiveSpec("@agora",     resolve_agora,     ["status="],                "inline",  "acw", reads_files=True, cacheable=True, summary="Task board from tasks/*.md"),
+        DirectiveSpec("@memory",    resolve_memory,    ["focus=", "federation", "include_federation=", "alias="], "inline", "acw", reads_files=True, cacheable=True, summary="Mnēmē narrative memory"),
+        DirectiveSpec("@list",      resolve_list,      ["limit=", "sort="],        "inline",  "acw", reads_files=True, cacheable=True, summary="List directory or structured data"),
+        DirectiveSpec("@tree",      resolve_tree,      ["depth="],                 "inline",  "acw", reads_files=True, cacheable=True, summary="Tree view of directory"),
+        DirectiveSpec("@health",    resolve_health,    [],                         "inline",  "acw", reads_files=True, summary="Context maintenance report"),
+        DirectiveSpec("@agent",     resolve_agent,     [],                         "inline",  "acw", executes_shell=True, safe_for_hover=False, summary="Execute local agent subprocess"),
+        DirectiveSpec("@inbox",     resolve_inbox,     ["unread=", "limit="],      "inline",  "acw", reads_files=True, cacheable=True, summary="Agent message inbox"),
+        DirectiveSpec("@drift",     resolve_drift,     [],                         "inline",  "ac",  reads_files=True, summary="Oracle drift report"),
+        # Block directives — resolved via special block-parsing logic, not the inline dispatch
+        DirectiveSpec("@services",  resolve_services,  [],                         "block",   "block", executes_shell=True, safe_for_hover=False, summary="Health-check listed services"),
+        DirectiveSpec("@prompt",    resolve_prompt_block, [],                      "block",   "block", summary="System prompt block"),
+        DirectiveSpec("@constraint", None,             [],                         "block",   "block", summary="Constraint block for validation"),
+        DirectiveSpec("@validate",  resolve_validate_block, ["schema="],           "block",   "block", reads_files=True, summary="Validate a rendered block against a schema"),
+        DirectiveSpec("@synthesize", None,                  ["question=", "source=", "label=", "consistency_mode"], "block", "block", reads_files=True, safe_for_hover=False, summary="Optional curated synthesis section (generation.enabled required)"),
+        # Control directives — structural, no resolver
+        DirectiveSpec("@if",        None,              [],                         "control", "block", summary="Conditional block start"),
+        DirectiveSpec("@else",      None,              [],                         "control", "block", summary="Conditional block else"),
+        DirectiveSpec("@endif",     None,              [],                         "control", "block", summary="Conditional block end"),
+        DirectiveSpec("@end",       None,              [],                         "control", "block", summary="Block directive end"),
+    ]
+    # fmt: on
+    for spec in _entries:
+        DIRECTIVE_REGISTRY[spec.name] = spec
+
+
+def _call_resolver(spec: DirectiveSpec, args_str: str, cfg: dict, workspace: "Path | None") -> str:
+    """Adapt resolver call to match its actual signature via call_sig."""
+    sig = spec.call_sig
+    if sig == "acw":
+        return spec.resolver(args_str, cfg, workspace)
+    elif sig == "ac":
+        return spec.resolver(args_str, cfg)
+    elif sig == "a":
+        return spec.resolver(args_str)
+    elif sig == "awc":
+        return spec.resolver(args_str, workspace, cfg)
+    else:
+        raise ValueError(f"Unknown call_sig {sig!r} for {spec.name}")
+
+
+# Built at import time from the registry (after _bind_registry is called).
+def _build_inline_directive_re():
+    """Build INLINE_DIRECTIVE_RE from the registry. Inline directives only."""
+    names = sorted(
+        (s.name for s in DIRECTIVE_REGISTRY.values() if s.kind == "inline"),
+        key=lambda n: -len(n),  # longest first to avoid prefix shadowing
+    )
+    pattern = r'^(' + '|'.join(re.escape(n) for n in names) + r')(\s+.*)?$'
+    return re.compile(pattern, re.IGNORECASE)
 
 
 # ─────────────────────────── Phase 17B redaction (task-46) ───────────────────
@@ -1254,362 +1259,95 @@ class ConditionParseError(ValueError):
     pass
 
 
-# ─────────────────────────────── Cache Layer ──────────────────────────────────
-#
-# Two-level cache:
-#   1. In-memory (session): populated on first resolve, reused for subsequent
-#      renders within the same process.  Key: SHA256(directive_line).
-#   2. Disk (ttl=N): JSON files in ~/.perseus/cache/ named <sha256>.json.
-#      Each entry has 'expires' (unix epoch) and 'value' (string output).
-#
-# @cache modifiers:
-#   @cache session          → in-memory only (never written to disk)
-#   @cache ttl=N            → disk-backed, expires after N seconds
-#   (no modifier)           → always re-run (current default for all directives)
-#
-# cache_key(directive_line) — stable SHA256 hash of the full directive line
-#                              (command + args, whitespace-normalised)
+# ──────────────────────────────── @env ────────────────────────────────────────
 
-_SESSION_CACHE: dict[str, str] = {}  # in-memory store for @cache session
-
-
-def _cache_key(directive_line: str) -> str:
-    """Stable SHA256 hash for a directive line (whitespace-normalised)."""
-    normalised = " ".join(directive_line.strip().split())
-    return hashlib.sha256(normalised.encode()).hexdigest()
-
-
-def _parse_cache_modifier(line: str) -> tuple[str, str, int | None, str | None]:
+def resolve_env(args_str: str, cfg: dict | None = None, workspace: Path | None = None) -> str:
     """
-    Strip any @cache modifier from a directive line and return:
-      (clean_line, cache_mode, ttl_seconds, mock_value)
-    cache_mode: "" | "session" | "ttl" | "persist" | "mock"
-    ttl_seconds: set when cache_mode == "ttl", else None (persist uses cfg)
-    mock_value: set when cache_mode == "mock"; literal substitution string
+    @env VAR [required=true] [fallback="default"] [schema="name.yaml"]
+
+    Reads an environment variable. Supports:
+    - required=true  : emit a warning block if the variable is not set
+    - fallback="val" : return this value when the variable is unset
+    - schema=        : validate the resolved value or fallback
+    Without either modifier, emits a warning if the variable is unset.
     """
-    # @cache ttl=N
-    m = re.search(r'\s*@cache\s+ttl=(\d+)', line, re.IGNORECASE)
-    if m:
-        ttl = int(m.group(1))
-        clean = line[:m.start()] + line[m.end():]
-        return clean.rstrip(), "ttl", ttl, None
+    parts = args_str.strip().split(maxsplit=1)
+    if not parts:
+        return "> ⚠ @env: no variable name specified."
 
-    # @cache session
-    m = re.search(r'\s*@cache\s+session', line, re.IGNORECASE)
-    if m:
-        clean = line[:m.start()] + line[m.end():]
-        return clean.rstrip(), "session", None, None
+    var_name = parts[0]
+    remaining = parts[1] if len(parts) > 1 else ""
+    modifiers = _parse_kv_modifiers(remaining)
+    required = _schema_required(modifiers.get("required", False))
+    fallback = modifiers.get("fallback")
+    schema_ref = modifiers.get("schema")
 
-    # @cache persist
-    m = re.search(r'\s*@cache\s+persist\b', line, re.IGNORECASE)
-    if m:
-        clean = line[:m.start()] + line[m.end():]
-        return clean.rstrip(), "persist", None, None
+    value = os.environ.get(var_name)
 
-    # @cache mock="..." (with value)
-    m = re.search(r'\s*@cache\s+mock=(".*?"|\'.*?\'|\S+)', line, re.IGNORECASE)
-    if m:
-        raw = m.group(1)
-        if (raw.startswith('"') and raw.endswith('"')) or (raw.startswith("'") and raw.endswith("'")):
-            raw = raw[1:-1]
-        clean = line[:m.start()] + line[m.end():]
-        return clean.rstrip(), "mock", None, raw
+    if value is None:
+        if required:
+            return f"> ⚠ **`{var_name}` is required but not set.**"
+        if fallback is not None:
+            warning = _validate_against_schema_ref(fallback, schema_ref, workspace, "@env")
+            if warning:
+                return warning
+            return fallback
+        return f"> ⚠ `{var_name}` is not set (no fallback)"
 
-    # @cache mock (bare)
-    m = re.search(r'\s*@cache\s+mock\b', line, re.IGNORECASE)
-    if m:
-        clean = line[:m.start()] + line[m.end():]
-        return clean.rstrip(), "mock", None, "(mock — directive skipped)"
-
-    return line, "", None, None
+    warning = _validate_against_schema_ref(value, schema_ref, workspace, "@env")
+    if warning:
+        return warning
+    return value
 
 
-def cache_get(key: str, mode: str, ttl: int | None, cfg: dict) -> str | None:
-    """Return cached value or None (miss/expired).
+# ──────────────────────────────── @include ────────────────────────────────────
 
-    Modes:
-      - "session" → in-memory (this process only)
-      - "ttl"     → disk cache with explicit ttl seconds
-      - "persist" → disk cache with ttl from cfg["render"]["persist_cache_ttl_s"]
-      - "mock"    → never returns a cached value (handled by caller)
+def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | None = None) -> str:
     """
-    if mode == "session":
-        return _SESSION_CACHE.get(key)
+    @include <file>
 
-    if mode in {"ttl", "persist"}:
-        effective_ttl = ttl
-        if mode == "persist":
-            effective_ttl = int(cfg.get("render", {}).get("persist_cache_ttl_s", 3600))
-        if effective_ttl is None:
-            return None
-        cache_dir = Path(cfg["render"].get("cache_dir", str(PERSEUS_HOME / "cache")))
-        entry_file = cache_dir / f"{key}.json"
-        if entry_file.exists():
-            try:
-                entry = json.loads(entry_file.read_text())
-                if time.time() < entry.get("expires", 0):
-                    return entry["value"]
-                # expired — remove
-                entry_file.unlink(missing_ok=True)
-            except Exception:
-                pass
-
-    return None
-
-
-def cache_set(key: str, value: str, mode: str, ttl: int | None, cfg: dict) -> None:
-    """Store value in the appropriate cache tier.
-
-    "mock" mode never writes — by design, mock values bypass execution entirely.
-    "persist" writes to the disk cache using cfg["render"]["persist_cache_ttl_s"].
+    Embeds the contents of a file inline. Markdown files are embedded as-is;
+    structured files (.yaml, .yml, .json, .toml) are wrapped in a fenced block.
     """
-    if mode == "session":
-        _SESSION_CACHE[key] = value
-        return
+    file_path_str, remaining = _extract_quoted_token(args_str.strip())
+    if not file_path_str:
+        return "> ⚠ @include: no file specified."
+    if remaining.strip():
+        return f"> ⚠ @include: unexpected trailing input: `{remaining.strip()}`"
 
-    if mode in {"ttl", "persist"}:
-        effective_ttl = ttl
-        if mode == "persist":
-            effective_ttl = int(cfg.get("render", {}).get("persist_cache_ttl_s", 3600))
-        if effective_ttl is None:
-            return
-        cache_dir = Path(cfg["render"].get("cache_dir", str(PERSEUS_HOME / "cache")))
-        try:
-            cache_dir.mkdir(parents=True, exist_ok=True)
-            entry = {"expires": time.time() + effective_ttl, "value": value}
-            (cache_dir / f"{key}.json").write_text(json.dumps(entry))
-        except Exception:
-            pass  # cache write failure is non-fatal
+    render_cfg = (cfg or DEFAULT_CONFIG).get("render", {})
+    base = workspace or Path.cwd()
+    fp, path_warning = _resolve_path(
+        file_path_str,
+        base,
+        allow_outside_workspace=bool(render_cfg.get("allow_outside_workspace", False)),
+    )
+    if path_warning:
+        return path_warning
 
+    if not fp.exists():
+        return f"> ⚠ @include: file not found: `{file_path_str}`"
 
-# ──────────────────────────────── @query ──────────────────────────────────────
+    try:
+        content = fp.read_text(errors="replace").rstrip()
+    except Exception as e:
+        return f"> ⚠ @include: could not read `{file_path_str}`: {e}"
 
-def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> str:
-    """
-    @query "shell command" [fallback="text"] [schema="path/to/schema.yaml"] [@cache session|ttl=N]
-
-    Runs the shell command and returns its stdout as a fenced code block.
-    Cache modifiers are handled by the renderer before this resolver is called.
-
-    If the command fails (non-zero exit) the block includes a warning header
-    but still shows whatever output was produced.
-
-    task-14: ``fallback="text"`` modifier returns the literal text (no fence,
-    no warning header) when the command fails with a non-zero exit OR succeeds
-    but produces no stdout. Use this to make `@query` graceful for "best effort"
-    contextual data (git status when not in a git repo, optional service
-    health checks, etc.).
-
-    schema="path": if provided, the stdout is parsed as YAML and validated
-    against the given schema file. Relative schema paths prefer
-    <workspace>/.perseus/schemas/ before the workspace root. Validation errors
-    are returned as a warning block instead of the output.
-    """
-    shell = cfg["render"].get("shell", "/bin/bash")
-    if not cfg["render"].get("allow_query_shell", True):
-        audit_event(cfg, "policy_denied",
-                    directive="@query",
-                    reason="render.allow_query_shell=false",
-                    args=args_str[:200])
-        return "> ⚠ @query is disabled by config (`render.allow_query_shell=false`)."
-
-    # Strip @cache modifier first, then extract the command string.
-    # Use the opening quote character to find the correct closing quote,
-    # so commands containing the other quote type (e.g. "bash -c 'foo'")
-    # are parsed correctly.
-    raw = re.sub(r'\s+@cache\s.*$', '', args_str.strip())
-
-    # Extract schema="..." modifier before command parsing.
-    schema_path = None
-    schema_match = re.search(r'\s+schema=(?:"((?:[^"\\]|\\.)*)"|\'((?:[^\'\\]|\\.)*)\')(\s|$)', raw)
-    if schema_match:
-        schema_path = schema_match.group(1) if schema_match.group(1) is not None else schema_match.group(2)
-        raw = (raw[:schema_match.start()] + raw[schema_match.end():]).rstrip()
-
-    # task-14: extract fallback="..." (or fallback='...') BEFORE command parsing,
-    # so a command containing the literal substring `fallback=` is not mis-parsed.
-    fallback = None
-    fb_match = re.search(r'\s+fallback=(?:"((?:[^"\\]|\\.)*)"|\'((?:[^\'\\]|\\.)*)\')(\s|$)', raw)
-    if fb_match:
-        fallback = fb_match.group(1) if fb_match.group(1) is not None else fb_match.group(2)
-        # Unescape backslash-escapes inside the captured text
-        fallback = fallback.encode("utf-8").decode("unicode_escape", errors="replace")
-        raw = (raw[:fb_match.start()] + raw[fb_match.end():]).rstrip()
-
-    cmd_match = re.match(r'^"((?:[^"\\]|\\.)*)"', raw)   # double-quoted
-    if not cmd_match:
-        cmd_match = re.match(r"^'((?:[^'\\]|\\.)*)'", raw)  # single-quoted
-    if not cmd_match:
-        # Unquoted — everything remaining
-        cmd_raw = raw.strip()
-        if not cmd_raw:
-            return "> ⚠ @query: no command specified."
-        cmd = cmd_raw
+    ext = fp.suffix.lower()
+    if ext == ".md":
+        return content  # embed raw markdown
+    elif ext in (".yaml", ".yml"):
+        return f"```yaml\n{content}\n```"
+    elif ext == ".json":
+        return f"```json\n{content}\n```"
+    elif ext == ".toml":
+        return f"```toml\n{content}\n```"
+    elif ext in (".sh", ".bash"):
+        return f"```bash\n{content}\n```"
+    elif ext == ".py":
+        return f"```python\n{content}\n```"
     else:
-        cmd = cmd_match.group(1)
-
-    # Detect language hint for syntax highlighting (best-effort)
-    lang = _guess_lang(cmd)
-
-    # task-47: audit the shell-execution decision crossing the trust boundary.
-    audit_event(cfg, "shell_exec",
-                directive="@query",
-                command=cmd[:500],
-                shell=shell)
-
-    try:
-        result = subprocess.run(
-            cmd,
-            shell=True,
-            executable=shell,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        stdout = result.stdout.rstrip("\n")
-        stderr = result.stderr.strip()
-        exit_code = result.returncode
-
-        if exit_code != 0:
-            if fallback is not None:
-                return fallback
-            header = f"> ⚠ `@query` exited {exit_code}: `{cmd}`\n\n"
-            body = stdout or stderr or "(no output)"
-            return header + f"```{lang}\n{body}\n```"
-
-        if not stdout:
-            if fallback is not None:
-                return fallback
-            return f"> (no output from `{cmd}`)"
-
-        # schema validation: pure-Python Phase 12 subset, with schema refs
-        # resolved via <workspace>/.perseus/schemas/ before workspace root.
-        if schema_path:
-            try:
-                data = yaml.safe_load(stdout)
-            except Exception:
-                return f"> ⚠ `@query` schema validation: stdout is not valid YAML.\n\n```{lang}\n{stdout}\n```"
-            schema_file, schema_data, schema_error = _load_schema(schema_path, workspace)
-            schema_label = str(schema_file or schema_path)
-            if schema_error:
-                return f"> ⚠ `@query` schema error: {schema_error}"
-            validation_errors = _validate_basic_schema(data, schema_data)
-            if validation_errors:
-                return _schema_validation_error("@query", schema_label, validation_errors)
-
-        return f"```{lang}\n{stdout}\n```"
-
-    except subprocess.TimeoutExpired:
-        if fallback is not None:
-            return fallback
-        return f"> ⚠ `@query` timed out (30s): `{cmd}`"
-    except Exception as exc:
-        if fallback is not None:
-            return fallback
-        return f"> ⚠ `@query` error: {exc}"
-
-
-def _guess_lang(cmd: str) -> str:
-    """Heuristic language hint for fenced code blocks."""
-    cmd_lower = cmd.lower().strip()
-    if cmd_lower.startswith(("git ", "docker ", "kubectl ")):
-        return "text"
-    if cmd_lower.startswith(("python", "python3")):
-        return "python"
-    if cmd_lower.startswith(("cat ", "ls ", "find ", "grep ")):
-        return "text"
-    if cmd_lower.startswith(("jq", "yq")):
-        return "json"
-    return "text"
-
-
-# ──────────────────────────────── @agent ──────────────────────────────────────
-
-def resolve_agent(args_str: str, cfg: dict, workspace: Path | None = None) -> str:
-    """
-    @agent "command" [timeout=N] [strip=true|false] [fallback="text"]
-
-    Run a local subprocess and embed its stdout verbatim. Stderr is discarded
-    on success; on failure (non-zero exit code) the warning surfaces it.
-
-    Differs from @query in three ways:
-      - Output is substituted INLINE (no fenced code block by default)
-      - Failure with fallback= silently substitutes the fallback text
-      - Gated by render.allow_agent_shell (default true)
-    """
-    render_cfg = cfg.get("render", {})
-    if not render_cfg.get("allow_agent_shell", True):
-        audit_event(cfg, "policy_denied",
-                    directive="@agent",
-                    reason="render.allow_agent_shell=false",
-                    args=args_str[:200])
-        return "> ⚠ @agent is disabled by config (`render.allow_agent_shell=false`)."
-
-    raw = args_str.strip()
-    # Extract command (double or single quoted, else first whitespace-delimited token)
-    cmd_match = re.match(r'^"((?:[^"\\]|\\.)*)"', raw)
-    if cmd_match:
-        cmd = cmd_match.group(1)
-        rest = raw[cmd_match.end():].strip()
-    else:
-        cmd_match = re.match(r"^'((?:[^'\\]|\\.)*)'", raw)
-        if cmd_match:
-            cmd = cmd_match.group(1)
-            rest = raw[cmd_match.end():].strip()
-        else:
-            return "> ⚠ @agent: command must be quoted."
-
-    mods = _parse_kv_modifiers(rest)
-    try:
-        timeout = int(mods.get("timeout", "10"))
-    except (TypeError, ValueError):
-        timeout = 10
-    strip_output = str(mods.get("strip", "true")).strip().lower() != "false"
-    fallback = mods.get("fallback")
-
-    shell = render_cfg.get("shell", "/bin/bash")
-
-    # task-47: audit @agent shell execution crossing the trust boundary.
-    audit_event(cfg, "shell_exec",
-                directive="@agent",
-                command=cmd[:500],
-                shell=shell,
-                timeout=timeout)
-
-    try:
-        result = subprocess.run(
-            cmd,
-            shell=True,
-            executable=shell,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            cwd=str(workspace) if workspace else None,
-        )
-    except subprocess.TimeoutExpired:
-        if fallback is not None:
-            return fallback
-        return f"> ⚠ @agent: timed out after {timeout}s: `{cmd}`"
-    except Exception as exc:
-        if fallback is not None:
-            return fallback
-        return f"> ⚠ @agent: error: {exc}"
-
-    if result.returncode != 0:
-        if fallback is not None:
-            return fallback
-        stderr = (result.stderr or "").strip()
-        body = result.stdout or stderr or "(no output)"
-        return f"> ⚠ @agent: command exited {result.returncode}: `{cmd}`\n\n```\n{body}\n```"
-
-    output = result.stdout or ""
-    if strip_output:
-        output = output.strip()
-    if not output:
-        if fallback is not None:
-            return fallback
-        return f"> (no output from `{cmd}`)"
-    return output
+        return f"```text\n{content}\n```"
 
 
 # ──────────────────────────────── @read ───────────────────────────────────────
@@ -1778,1217 +1516,145 @@ def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str
     return content.rstrip()
 
 
-# ──────────────────────────────── @env ────────────────────────────────────────
+# ──────────────────────────────── @query ──────────────────────────────────────
 
-def resolve_env(args_str: str, cfg: dict | None = None, workspace: Path | None = None) -> str:
+def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> str:
     """
-    @env VAR [required=true] [fallback="default"] [schema="name.yaml"]
+    @query "shell command" [fallback="text"] [schema="path/to/schema.yaml"] [@cache session|ttl=N]
 
-    Reads an environment variable. Supports:
-    - required=true  : emit a warning block if the variable is not set
-    - fallback="val" : return this value when the variable is unset
-    - schema=        : validate the resolved value or fallback
-    Without either modifier, emits a warning if the variable is unset.
+    Runs the shell command and returns its stdout as a fenced code block.
+    Cache modifiers are handled by the renderer before this resolver is called.
+
+    If the command fails (non-zero exit) the block includes a warning header
+    but still shows whatever output was produced.
+
+    task-14: ``fallback="text"`` modifier returns the literal text (no fence,
+    no warning header) when the command fails with a non-zero exit OR succeeds
+    but produces no stdout. Use this to make `@query` graceful for "best effort"
+    contextual data (git status when not in a git repo, optional service
+    health checks, etc.).
+
+    schema="path": if provided, the stdout is parsed as YAML and validated
+    against the given schema file. Relative schema paths prefer
+    <workspace>/.perseus/schemas/ before the workspace root. Validation errors
+    are returned as a warning block instead of the output.
     """
-    parts = args_str.strip().split(maxsplit=1)
-    if not parts:
-        return "> ⚠ @env: no variable name specified."
+    shell = cfg["render"].get("shell", "/bin/bash")
+    if not cfg["render"].get("allow_query_shell", True):
+        audit_event(cfg, "policy_denied",
+                    directive="@query",
+                    reason="render.allow_query_shell=false",
+                    args=args_str[:200])
+        return "> ⚠ @query is disabled by config (`render.allow_query_shell=false`)."
 
-    var_name = parts[0]
-    remaining = parts[1] if len(parts) > 1 else ""
-    modifiers = _parse_kv_modifiers(remaining)
-    required = _schema_required(modifiers.get("required", False))
-    fallback = modifiers.get("fallback")
-    schema_ref = modifiers.get("schema")
+    # Strip @cache modifier first, then extract the command string.
+    # Use the opening quote character to find the correct closing quote,
+    # so commands containing the other quote type (e.g. "bash -c 'foo'")
+    # are parsed correctly.
+    raw = re.sub(r'\s+@cache\s.*$', '', args_str.strip())
 
-    value = os.environ.get(var_name)
+    # Extract schema="..." modifier before command parsing.
+    schema_path = None
+    schema_match = re.search(r'\s+schema=(?:"((?:[^"\\]|\\.)*)"|\'((?:[^\'\\]|\\.)*)\')(\s|$)', raw)
+    if schema_match:
+        schema_path = schema_match.group(1) if schema_match.group(1) is not None else schema_match.group(2)
+        raw = (raw[:schema_match.start()] + raw[schema_match.end():]).rstrip()
 
-    if value is None:
-        if required:
-            return f"> ⚠ **`{var_name}` is required but not set.**"
+    # task-14: extract fallback="..." (or fallback='...') BEFORE command parsing,
+    # so a command containing the literal substring `fallback=` is not mis-parsed.
+    fallback = None
+    fb_match = re.search(r'\s+fallback=(?:"((?:[^"\\]|\\.)*)"|\'((?:[^\'\\]|\\.)*)\')(\s|$)', raw)
+    if fb_match:
+        fallback = fb_match.group(1) if fb_match.group(1) is not None else fb_match.group(2)
+        # Unescape backslash-escapes inside the captured text
+        fallback = fallback.encode("utf-8").decode("unicode_escape", errors="replace")
+        raw = (raw[:fb_match.start()] + raw[fb_match.end():]).rstrip()
+
+    cmd_match = re.match(r'^"((?:[^"\\]|\\.)*)"', raw)   # double-quoted
+    if not cmd_match:
+        cmd_match = re.match(r"^'((?:[^'\\]|\\.)*)'", raw)  # single-quoted
+    if not cmd_match:
+        # Unquoted — everything remaining
+        cmd_raw = raw.strip()
+        if not cmd_raw:
+            return "> ⚠ @query: no command specified."
+        cmd = cmd_raw
+    else:
+        cmd = cmd_match.group(1)
+
+    # Detect language hint for syntax highlighting (best-effort)
+    lang = _guess_lang(cmd)
+
+    # task-47: audit the shell-execution decision crossing the trust boundary.
+    audit_event(cfg, "shell_exec",
+                directive="@query",
+                command=cmd[:500],
+                shell=shell)
+
+    try:
+        result = subprocess.run(
+            cmd,
+            shell=True,
+            executable=shell,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        stdout = result.stdout.rstrip("\n")
+        stderr = result.stderr.strip()
+        exit_code = result.returncode
+
+        if exit_code != 0:
+            if fallback is not None:
+                return fallback
+            header = f"> ⚠ `@query` exited {exit_code}: `{cmd}`\n\n"
+            body = stdout or stderr or "(no output)"
+            return header + f"```{lang}\n{body}\n```"
+
+        if not stdout:
+            if fallback is not None:
+                return fallback
+            return f"> (no output from `{cmd}`)"
+
+        # schema validation: pure-Python Phase 12 subset, with schema refs
+        # resolved via <workspace>/.perseus/schemas/ before workspace root.
+        if schema_path:
+            try:
+                data = yaml.safe_load(stdout)
+            except Exception:
+                return f"> ⚠ `@query` schema validation: stdout is not valid YAML.\n\n```{lang}\n{stdout}\n```"
+            schema_file, schema_data, schema_error = _load_schema(schema_path, workspace)
+            schema_label = str(schema_file or schema_path)
+            if schema_error:
+                return f"> ⚠ `@query` schema error: {schema_error}"
+            validation_errors = _validate_basic_schema(data, schema_data)
+            if validation_errors:
+                return _schema_validation_error("@query", schema_label, validation_errors)
+
+        return f"```{lang}\n{stdout}\n```"
+
+    except subprocess.TimeoutExpired:
         if fallback is not None:
-            warning = _validate_against_schema_ref(fallback, schema_ref, workspace, "@env")
-            if warning:
-                return warning
             return fallback
-        return f"> ⚠ `{var_name}` is not set (no fallback)"
-
-    warning = _validate_against_schema_ref(value, schema_ref, workspace, "@env")
-    if warning:
-        return warning
-    return value
-
-
-# ──────────────────────────────── @include ────────────────────────────────────
-
-def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | None = None) -> str:
-    """
-    @include <file>
-
-    Embeds the contents of a file inline. Markdown files are embedded as-is;
-    structured files (.yaml, .yml, .json, .toml) are wrapped in a fenced block.
-    """
-    file_path_str, remaining = _extract_quoted_token(args_str.strip())
-    if not file_path_str:
-        return "> ⚠ @include: no file specified."
-    if remaining.strip():
-        return f"> ⚠ @include: unexpected trailing input: `{remaining.strip()}`"
-
-    render_cfg = (cfg or DEFAULT_CONFIG).get("render", {})
-    base = workspace or Path.cwd()
-    fp, path_warning = _resolve_path(
-        file_path_str,
-        base,
-        allow_outside_workspace=bool(render_cfg.get("allow_outside_workspace", False)),
-    )
-    if path_warning:
-        return path_warning
-
-    if not fp.exists():
-        return f"> ⚠ @include: file not found: `{file_path_str}`"
-
-    try:
-        content = fp.read_text(errors="replace").rstrip()
-    except Exception as e:
-        return f"> ⚠ @include: could not read `{file_path_str}`: {e}"
-
-    ext = fp.suffix.lower()
-    if ext == ".md":
-        return content  # embed raw markdown
-    elif ext in (".yaml", ".yml"):
-        return f"```yaml\n{content}\n```"
-    elif ext == ".json":
-        return f"```json\n{content}\n```"
-    elif ext == ".toml":
-        return f"```toml\n{content}\n```"
-    elif ext in (".sh", ".bash"):
-        return f"```bash\n{content}\n```"
-    elif ext == ".py":
-        return f"```python\n{content}\n```"
-    else:
-        return f"```text\n{content}\n```"
-
-
-# ──────────────────────────────── @if condition ───────────────────────────────
-
-def evaluate_condition(condition: str, workspace: Path | None = None, cfg: dict | None = None) -> bool:
-    """
-    Evaluate a Perseus @if condition expression. Supported forms:
-
-      file.exists "path"        — true if file exists
-      file.missing "path"       — true if file does NOT exist
-      env.set VAR               — true if env var is set (non-empty)
-      env.unset VAR             — true if env var is unset or empty
-      env.eq VAR "value"        — true if env var equals value
-      env.neq VAR "value"       — true if env var does not equal value
-    """
-    condition = condition.strip()
-    render_cfg = (cfg or DEFAULT_CONFIG).get("render", {})
-
-    # file.exists "path"
-    m = re.match(r'file\.exists\s+(.+)$', condition)
-    if m:
-        token, trailing = _extract_quoted_token(m.group(1).strip())
-        if token is None or trailing.strip():
-            raise ConditionParseError(f"invalid file.exists syntax: {condition}")
-        fp, path_warning = _resolve_path(
-            token,
-            workspace,
-            allow_outside_workspace=bool(render_cfg.get("allow_outside_workspace", False)),
-        )
-        if path_warning:
-            raise ConditionParseError(path_warning[4:])
-        return fp.exists()
-
-    # file.missing "path"
-    m = re.match(r'file\.missing\s+(.+)$', condition)
-    if m:
-        token, trailing = _extract_quoted_token(m.group(1).strip())
-        if token is None or trailing.strip():
-            raise ConditionParseError(f"invalid file.missing syntax: {condition}")
-        fp, path_warning = _resolve_path(
-            token,
-            workspace,
-            allow_outside_workspace=bool(render_cfg.get("allow_outside_workspace", False)),
-        )
-        if path_warning:
-            raise ConditionParseError(path_warning[4:])
-        return not fp.exists()
-
-    # env.set VAR
-    m = re.match(r'env\.set\s+(\S+)', condition)
-    if m:
-        val = os.environ.get(m.group(1))
-        return val is not None and val != ""
-
-    # env.unset VAR
-    m = re.match(r'env\.unset\s+(\S+)', condition)
-    if m:
-        val = os.environ.get(m.group(1))
-        return val is None or val == ""
-
-    # env.eq VAR "value"
-    m = re.match(r'env\.eq\s+(\S+)\s+(.+)$', condition)
-    if m:
-        token, trailing = _extract_quoted_token(m.group(2).strip())
-        if token is None or trailing.strip():
-            raise ConditionParseError(f"invalid env.eq syntax: {condition}")
-        return os.environ.get(m.group(1)) == token
-
-    # env.neq VAR "value"
-    m = re.match(r'env\.neq\s+(\S+)\s+(.+)$', condition)
-    if m:
-        token, trailing = _extract_quoted_token(m.group(2).strip())
-        if token is None or trailing.strip():
-            raise ConditionParseError(f"invalid env.neq syntax: {condition}")
-        return os.environ.get(m.group(1)) != token
-
-    # task-13: query("shell command") [not] matches /regex/[flags]
-    # `flags` is the optional suffix `i` for IGNORECASE — kept tiny on purpose.
-    m = re.match(
-        r'query\s*\(\s*(?:"((?:[^"\\]|\\.)*)"|\'((?:[^\'\\]|\\.)*)\')\s*\)'
-        r'\s+(not\s+)?matches\s+/((?:[^/\\]|\\.)*)/([i]*)\s*$',
-        condition,
-    )
-    if m:
-        cmd = m.group(1) if m.group(1) is not None else m.group(2)
-        negated = bool(m.group(3))
-        pattern_src = m.group(4)
-        flag_str = m.group(5) or ""
-        re_flags = re.IGNORECASE if "i" in flag_str else 0
-        try:
-            pattern = re.compile(pattern_src, re_flags)
-        except re.error as e:
-            raise ConditionParseError(f"invalid @if query regex /{pattern_src}/: {e}")
-
-        if not render_cfg.get("allow_query_shell", True):
-            print(
-                "⚠ @if query(...) skipped: `render.allow_query_shell=false`. "
-                f"Condition evaluates to False.",
-                file=sys.stderr,
-            )
-            return False
-
-        shell = render_cfg.get("shell", "/bin/bash")
-        try:
-            result = subprocess.run(
-                cmd,
-                shell=True,
-                executable=shell,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            stdout = result.stdout or ""
-        except subprocess.TimeoutExpired:
-            print(f"⚠ @if query(...) timed out (30s): `{cmd}` → False", file=sys.stderr)
-            return False
-        except Exception as exc:
-            print(f"⚠ @if query(...) failed for `{cmd}`: {exc} → False", file=sys.stderr)
-            return False
-
-        found = bool(pattern.search(stdout))
-        return (not found) if negated else found
-
-    raise ConditionParseError(f"unknown @if condition: {condition}")
-
-
-# ───────────────────────────── @list / @tree ─────────────────────────────────
-
-def _list_emit_warning(msg: str) -> str:
-    return f"> ⚠ {msg}"
-
-
-def _structured_load(fp: Path) -> object:
-    """Load JSON or YAML based on extension. Returns the parsed object or None on failure."""
-    suffix = fp.suffix.lower()
-    try:
-        text = fp.read_text(errors="replace")
-    except Exception:
-        return None
-    if suffix == ".json":
-        try:
-            return json.loads(text)
-        except Exception:
-            return None
-    if suffix in {".yaml", ".yml"}:
-        try:
-            return yaml.safe_load(text)
-        except Exception:
-            return None
-    return None
-
-
-def _walk_dot_path(obj: object, dot: str) -> object:
-    cur = obj
-    if not dot:
-        return cur
-    for part in dot.split("."):
-        if isinstance(cur, dict) and part in cur:
-            cur = cur[part]
-        else:
-            return None
-    return cur
-
-
-def _render_struct_as_table(value: object, columns: str | None) -> str:
-    """Render a dict-of-scalars or list-of-dicts as a markdown table."""
-    # Parse columns="key:Label,value:Label"
-    col_pairs: list[tuple[str, str]] = []
-    if columns:
-        for item in columns.split(","):
-            if ":" in item:
-                k, _, lbl = item.partition(":")
-                col_pairs.append((k.strip(), lbl.strip()))
-            else:
-                col_pairs.append((item.strip(), item.strip()))
-
-    # dict-of-scalars → two-column table
-    if isinstance(value, dict):
-        if not col_pairs:
-            col_pairs = [("key", "Key"), ("value", "Value")]
-        labels = [lbl for _, lbl in col_pairs[:2]] or ["Key", "Value"]
-        rows = ["| " + " | ".join(labels) + " |", "|" + "|".join(["---"] * len(labels)) + "|"]
-        for k, v in value.items():
-            rows.append(f"| {k} | {v} |")
-        return "\n".join(rows)
-
-    # list-of-dicts
-    if isinstance(value, list) and value and isinstance(value[0], dict):
-        if not col_pairs:
-            col_pairs = [(k, k) for k in value[0].keys()]
-        keys = [k for k, _ in col_pairs]
-        labels = [lbl for _, lbl in col_pairs]
-        rows = ["| " + " | ".join(labels) + " |", "|" + "|".join(["---"] * len(labels)) + "|"]
-        for item in value:
-            rows.append("| " + " | ".join(str(item.get(k, "")) for k in keys) + " |")
-        return "\n".join(rows)
-
-    # scalar / list-of-scalars fallback
-    if isinstance(value, list):
-        return "\n".join(f"- {v}" for v in value)
-    return str(value)
-
-
-def _render_struct_as_list(value: object) -> str:
-    if isinstance(value, dict):
-        return "\n".join(f"- **{k}**: {v}" for k, v in value.items())
-    if isinstance(value, list):
-        return "\n".join(f"- {v}" for v in value)
-    return str(value)
-
-
-def resolve_list(args_str: str, cfg: dict, workspace: Path | None = None) -> str:
-    """
-    @list <path> [type=dirs|files|all] [depth=N] [match=glob]
-                 [path="dot.key"] [columns="key:Label,value:Label"] [as=list|table]
-
-    For directories: lists contents per type/depth/match.
-    For structured files (json/yaml): extracts path= and renders as list or table.
-    """
-    path_str, remaining = _extract_quoted_token(args_str.strip())
-    if path_str is None:
-        # try bare first-token
-        toks = args_str.strip().split(None, 1)
-        if not toks:
-            return _list_emit_warning("@list: no path specified.")
-        path_str = toks[0]
-        remaining = toks[1] if len(toks) > 1 else ""
-
-    mods = _parse_kv_modifiers(remaining)
-    as_mode = (mods.get("as") or "list").strip().lower()
-    list_type = (mods.get("type") or "all").strip().lower()
-    try:
-        depth = int(mods.get("depth", "1"))
-    except (TypeError, ValueError):
-        depth = 1
-    if depth < 1:
-        warn = f"> ⚠ @list: depth={depth} treated as 1.\n"
-        depth = 1
-    else:
-        warn = ""
-    match_pat = mods.get("match")
-    dot_path = mods.get("path")
-    columns = mods.get("columns")
-
-    render_cfg = (cfg or {}).get("render", {})
-    fp, path_warning = _resolve_path(
-        path_str,
-        workspace,
-        allow_outside_workspace=bool(render_cfg.get("allow_outside_workspace", False)),
-    )
-    if path_warning:
-        return path_warning
-
-    if not fp.exists():
-        return _list_emit_warning(f"@list: path not found: `{path_str}`")
-
-    # Structured file path
-    if fp.is_file():
-        value = _structured_load(fp)
-        if value is None:
-            return _list_emit_warning(f"@list: cannot extract structured data from `{path_str}` (unsupported file type)")
-        extracted = _walk_dot_path(value, dot_path) if dot_path else value
-        if extracted is None:
-            return _list_emit_warning(f"@list: path `{dot_path}` not found in `{path_str}`")
-        if as_mode == "table":
-            return warn + _render_struct_as_table(extracted, columns)
-        return warn + _render_struct_as_list(extracted)
-
-    # Directory listing
-    base = fp
-    entries: list[tuple[Path, int]] = []  # (path, relative depth)
-    for root, dirs, files in os.walk(base):
-        root_p = Path(root)
-        try:
-            cur_depth = len(root_p.relative_to(base).parts)
-        except ValueError:
-            continue
-        if cur_depth >= depth:
-            dirs[:] = []
-        if list_type in {"dirs", "all"}:
-            for d in sorted(dirs):
-                entries.append((root_p / d, cur_depth + 1))
-        if list_type in {"files", "all"}:
-            for f in sorted(files):
-                if match_pat and not fnmatch.fnmatch(f, match_pat):
-                    continue
-                entries.append((root_p / f, cur_depth + 1))
-
-    if not entries:
-        return warn + _list_emit_warning(f"@list: no matching entries under `{path_str}`")
-
-    lines: list[str] = []
-    for p, d in entries:
-        indent = "  " * (d - 1)
-        name = p.name + ("/" if p.is_dir() else "")
-        lines.append(f"{indent}- {name}")
-    return warn + "\n".join(lines)
-
-
-def resolve_tree(args_str: str, cfg: dict, workspace: Path | None = None) -> str:
-    """
-    @tree <path> [depth=N] [match=glob] [exclude=glob]
-    """
-    path_str, remaining = _extract_quoted_token(args_str.strip())
-    if path_str is None:
-        toks = args_str.strip().split(None, 1)
-        if not toks:
-            return _list_emit_warning("@tree: no path specified.")
-        path_str = toks[0]
-        remaining = toks[1] if len(toks) > 1 else ""
-
-    mods = _parse_kv_modifiers(remaining)
-    try:
-        depth = int(mods.get("depth", "3"))
-    except (TypeError, ValueError):
-        depth = 3
-    if depth < 1:
-        warn = f"> ⚠ @tree: depth={depth} treated as 1.\n"
-        depth = 1
-    else:
-        warn = ""
-    match_pat = mods.get("match")
-    exclude_pat = mods.get("exclude")
-
-    render_cfg = (cfg or {}).get("render", {})
-    fp, path_warning = _resolve_path(
-        path_str,
-        workspace,
-        allow_outside_workspace=bool(render_cfg.get("allow_outside_workspace", False)),
-    )
-    if path_warning:
-        return path_warning
-
-    if not fp.exists():
-        return _list_emit_warning(f"@tree: path not found: `{path_str}`")
-    if not fp.is_dir():
-        return _list_emit_warning(f"@tree: not a directory: `{path_str}`")
-
-    def is_excluded(name: str) -> bool:
-        return bool(exclude_pat and fnmatch.fnmatch(name, exclude_pat))
-
-    def matches_file(name: str) -> bool:
-        return not match_pat or fnmatch.fnmatch(name, match_pat)
-
-    out_lines = [f"{fp.name}/"]
-
-    def walk(dirp: Path, cur_depth: int):
-        if cur_depth > depth:
-            return
-        try:
-            children = sorted(dirp.iterdir(), key=lambda c: (not c.is_dir(), c.name.lower()))
-        except Exception:
-            return
-        for child in children:
-            if is_excluded(child.name):
-                continue
-            indent = "  " * cur_depth
-            if child.is_dir():
-                out_lines.append(f"{indent}{child.name}/")
-                walk(child, cur_depth + 1)
-            else:
-                if matches_file(child.name):
-                    out_lines.append(f"{indent}{child.name}")
-
-    walk(fp, 1)
-
-    return warn + "```\n" + "\n".join(out_lines) + "\n```"
-
-
-# ──────────────────────────────── @skills ─────────────────────────────────────
-
-def resolve_skills(args_str: str, cfg: dict) -> str:
-    """Scan the configured skills directory and emit a markdown summary."""
-    skill_dir = Path(cfg["pythia"]["skill_dir"])
-    stale_days = int(cfg["pythia"].get("stale_skill_days", 30))
-    flag_stale = "flag_stale=true" in args_str
-    category_filter = None
-    m = re.search(r'category=["\'"]?([^"\'">\\s]+)["\'"]?', args_str)
-    if m:
-        category_filter = m.group(1).lower()
-
-    stale_threshold = time.time() - stale_days * 86400
-    skills = []
-
-    if not skill_dir.exists():
-        return f"> ⚠ Skills directory not found: `{skill_dir}`"
-
-    for skill_md in sorted(skill_dir.rglob("SKILL.md")):
-        rel = skill_md.relative_to(skill_dir)
-        parts = list(rel.parts)
-        # category = first dir component; name = second (or same if flat)
-        if len(parts) >= 2:
-            category = parts[0]
-            name = parts[1]
-        else:
-            category = ""
-            name = parts[0]
-
-        if category_filter and category.lower() != category_filter:
-            continue
-
-        mtime = skill_md.stat().st_mtime
-        age_days = int((time.time() - mtime) / 86400)
-        stale = flag_stale and mtime < stale_threshold
-
-        # Parse description from frontmatter
-        description = ""
-        try:
-            text = skill_md.read_text(errors="replace")
-            fm, _body = _parse_frontmatter(text)
-            description = str((fm or {}).get("description", ""))
-            name = str((fm or {}).get("name", name))
-        except Exception:
-            pass
-
-        stale_marker = " ⚠ stale" if stale else ""
-        skills.append(f"| `{category}/{name}` | {description[:60]} | {age_days}d ago{stale_marker} |")
-
-    if not skills:
-        return "> No skills found."
-
-    header = "| Skill | Description | Last updated |\n|---|---|---|"
-    return header + "\n" + "\n".join(skills)
-
-
-# ──────────────────────────────── @services ───────────────────────────────────
-
-def health_check_url(url: str, timeout: float) -> tuple[str, float | None]:
-    """Returns (status_emoji, latency_ms | None)."""
-    start = time.monotonic()
-    try:
-        req = urllib.request.urlopen(url, timeout=timeout)  # noqa: S310
-        latency = (time.monotonic() - start) * 1000
-        if req.status < 400:
-            return "✅", latency
-        return f"❌ HTTP {req.status}", latency
-    except urllib.error.HTTPError as e:
-        latency = (time.monotonic() - start) * 1000
-        # Some health endpoints return non-200 but are "up enough"
-        if e.code < 500:
-            return f"⚠ HTTP {e.code}", latency
-        return f"❌ HTTP {e.code}", latency
+        return f"> ⚠ `@query` timed out (30s): `{cmd}`"
     except Exception as exc:
-        return f"❌ {type(exc).__name__}", None
-
-
-def resolve_services(block_content: str, cfg: dict) -> str:
-    """Parse YAML service list from block and health-check each."""
-    timeout = float(cfg["render"].get("services_timeout_s", 3))
-    try:
-        services = yaml.safe_load(block_content) or []
-    except yaml.YAMLError as e:
-        return f"> ⚠ Invalid @services YAML: {e}"
-
-    if not services:
-        return "> No services configured."
-
-    rows = ["| Service | Status | Latency |", "|---|---|---|"]
-    for svc in services:
-        if not isinstance(svc, dict):
-            rows.append("| (invalid) | ⚠ service entry must be a mapping | — |")
-            continue
-        name = svc.get("name", "(unnamed)")
-        url = svc.get("url", "")
-        docker = svc.get("docker", "")
-
-        if url:
-            status, latency = health_check_url(url, timeout)
-            lat_str = f"{latency:.0f}ms" if latency is not None else "—"
-            rows.append(f"| {name} | {status} | {lat_str} |")
-        elif docker:
-            # Try docker ps via subprocess
-            try:
-                out = subprocess.check_output(
-                    ["docker", "ps", "--filter", f"name={docker}", "--format", "{{.Status}}"],
-                    timeout=timeout,
-                    stderr=subprocess.DEVNULL,
-                    text=True,
-                ).strip()
-                if out:
-                    status = f"✅ {out}"
-                else:
-                    status = "❌ not running"
-            except Exception:
-                status = "⚠ docker unavailable"
-            rows.append(f"| {name} | {status} | — |")
-        elif command := str(svc.get("command") or ""):
-            if not cfg["render"].get("allow_services_command", False):
-                audit_event(cfg, "policy_denied",
-                            directive="@services",
-                            reason="render.allow_services_command=false",
-                            service=name,
-                            command=command[:300])
-                status = "⚠ command checks disabled by config"
-                rows.append(f"| {name} | {status} | — |")
-                continue
-            # Run arbitrary shell command; success = exit 0
-            audit_event(cfg, "shell_exec",
-                        directive="@services",
-                        service=name,
-                        command=command[:500],
-                        shell=cfg["render"].get("shell", "/bin/bash"))
-            try:
-                result = subprocess.run(
-                    command,
-                    shell=True,
-                    executable=cfg["render"].get("shell", "/bin/bash"),
-                    capture_output=True,
-                    text=True,
-                    timeout=timeout,
-                )
-                out_text = (result.stdout or result.stderr).strip()
-                first_line = out_text.splitlines()[0][:80] if out_text else ""
-                if result.returncode == 0:
-                    status = f"✅ {first_line}" if first_line else "✅ ok"
-                else:
-                    status = f"❌ {first_line}" if first_line else f"❌ exit {result.returncode}"
-            except subprocess.TimeoutExpired:
-                status = "⚠ timeout"
-            except Exception as exc:
-                status = f"⚠ {exc}"
-            rows.append(f"| {name} | {status} | — |")
-        else:
-            rows.append(f"| {name} | ⚠ no url/docker/command | — |")
-
-    return "\n".join(rows)
-
-
-# ──────────────────────────────── @session ────────────────────────────────────
-
-def resolve_session(args_str: str, cfg: dict) -> str:
-    """Read recent assistant sessions from the configured sessions dir and summarize."""
-    count = 5
-    m = re.search(r'count=(\d+)', args_str)
-    if m:
-        count = int(m.group(1))
-
-    topic = None
-    m = re.search(r'topic=["\'"]([^"\']+)["\'"]', args_str)
-    if not m:
-        m = re.search(r"topic='([^']+)'", args_str)
-    if m:
-        topic = m.group(1).lower()
-
-    sessions_dir = Path(cfg["assistant"].get("sessions_dir", SESSIONS_DIR))
-    if not sessions_dir.exists():
-        return "> ⚠ Sessions directory not found."
-
-    # Gather session files sorted by mtime desc
-    session_files = sorted(
-        [f for f in sessions_dir.glob("session_*.json")],
-        key=lambda f: f.stat().st_mtime,
-        reverse=True,
-    )
-
-    results = []
-    for sf in session_files:
-        if len(results) >= count:
-            break
-        try:
-            data = json.loads(sf.read_text(errors="replace"))
-        except Exception:
-            continue
-
-        session_id = data.get("session_id", sf.stem)
-        started = data.get("session_start", "")
-        messages = data.get("messages", [])
-        message_count = data.get("message_count", len(messages))
-
-        # Get first user message as title
-        title = ""
-        for msg in messages:
-            if msg.get("role") == "user":
-                content = msg.get("content", "")
-                if isinstance(content, list):
-                    for chunk in content:
-                        if isinstance(chunk, dict) and chunk.get("type") == "text":
-                            title = chunk["text"]
-                            break
-                else:
-                    title = str(content)
-                # Strip workspace prefix
-                title = re.sub(r'^\[Workspace::v1:[^\]]+\]\s*', '', title)
-                title = title.strip()[:100]
-                break
-
-        if not title:
-            title = "(no title)"
-
-        if topic and topic not in title.lower():
-            # also scan a few more messages for topic keyword
-            found = False
-            for msg in messages[:20]:
-                content = msg.get("content", "")
-                text = ""
-                if isinstance(content, list):
-                    for c in content:
-                        if isinstance(c, dict) and c.get("type") == "text":
-                            text += c["text"]
-                else:
-                    text = str(content)
-                if topic in text.lower():
-                    found = True
-                    break
-            if not found:
-                continue
-
-        # Format timestamp
-        ts = ""
-        if started:
-            try:
-                dt = datetime.fromisoformat(started)
-                ts = dt.strftime("%Y-%m-%d %H:%M")
-            except Exception:
-                ts = started[:16]
-
-        results.append(f"- **{ts}** — {title} `({message_count} msgs)`")
-
-    if not results:
-        return "> No recent sessions found."
-
-    return "\n".join(results)
-
-
-# ──────────────────────────────── @date ───────────────────────────────────────
-
-def resolve_date(args_str: str) -> str:
-    """Resolve @date with optional format."""
-    fmt_match = re.search(r'format=["\'"]([^"\']+)["\'"]', args_str)
-    if not fmt_match:
-        fmt_match = re.search(r"format='([^']+)'", args_str)
-    fmt = fmt_match.group(1) if fmt_match else "YYYY-MM-DD HH:mm z"
-
-    now = datetime.now()
-    # Map common tokens
-    result = fmt
-    result = result.replace("YYYY", now.strftime("%Y"))
-    result = result.replace("MM", now.strftime("%m"))
-    result = result.replace("DD", now.strftime("%d"))
-    result = result.replace("HH", now.strftime("%H"))
-    result = result.replace("mm", now.strftime("%M"))
-    result = result.replace("ss", now.strftime("%S"))
-    result = result.replace("z", now.astimezone().strftime("%Z"))
-    return result
-
-
-# ──────────────────────────────── @waypoint ───────────────────────────────────
-
-def load_latest_checkpoint(cfg: dict) -> dict | None:
-    store = Path(cfg["checkpoints"]["store"])
-    if not store.exists():
-        return None
-    latest = store / "latest.yaml"
-    if latest.exists():
-        try:
-            return yaml.safe_load(latest.read_text()) or {}
-        except Exception:
-            pass
-    # Fall back to most recent timestamped file
-    checkpoints = sorted(store.glob("*.yaml"), key=lambda f: f.stat().st_mtime, reverse=True)
-    for cp in checkpoints:
-        if cp.name == "latest.yaml":
-            continue
-        try:
-            return yaml.safe_load(cp.read_text()) or {}
-        except Exception:
-            continue
-    return None
-
-
-def resolve_waypoint(args_str: str, cfg: dict) -> str:
-    """Render the most recent checkpoint."""
-    ttl = None
-    m = re.search(r'ttl=(\d+)', args_str)
-    if m:
-        ttl = int(m.group(1))
-
-    cp = load_latest_checkpoint(cfg)
-    if not cp:
-        return "> No checkpoint found."
-
-    written = cp.get("written", "")
-    if ttl and written:
-        try:
-            dt = datetime.fromisoformat(str(written))
-            age = (datetime.now(dt.tzinfo) - dt).total_seconds()
-            if age > ttl:
-                return "> No recent checkpoint (outside TTL)."
-        except Exception:
-            pass
-
-    lines = [f"**Checkpoint written:** {written}"]
-    for field in ("task", "status", "next", "workspace", "notes"):
-        val = cp.get(field, "")
-        if val:
-            lines.append(f"**{field.capitalize()}:** {val}")
-    return "\n".join(lines)
-
-
-# ─────────────────────────────── @prompt block ────────────────────────────────
-
-def resolve_prompt_block(content: str) -> str:
-    """@prompt...@end blocks are included as an AI instruction callout."""
-    return f"> 📌 **Perseus prompt:** {content.strip()}"
-
-
-def resolve_validate_block(
-    content: str,
-    schema_ref: str,
-    cfg: dict | None = None,
-    workspace: Path | None = None,
-) -> str:
-    """Validate a rendered block and return either the content or a warning."""
-    data = _parse_validation_payload(content)
-    warning = _validate_against_schema_ref(data, schema_ref, workspace, "@validate")
-    return warning or content
-
-
-def _replace_inline_date_outside_code(line: str, workspace: Path | None = None) -> str:
-    """Resolve @date in prose while preserving inline code spans."""
-    if "@date" not in line:
-        return line
-
-    def resolve_inline_date(match: re.Match) -> str:
-        args = f'format="{match.group(1)}"' if match.group(1) else ""
-        result = resolve_date(args)
-        spec = DIRECTIVE_REGISTRY.get("@date")
-        if spec:
-            result = _apply_output_schema_validation(spec, args, result, workspace)
-        return result
-
-    def repl(segment: str) -> str:
-        return re.sub(
-            r'@date(?:\s+format=["\'"]([^"\']+)["\'"])?',
-            resolve_inline_date,
-            segment,
-        )
-
-    if "`" not in line:
-        return repl(line)
-
-    parts = line.split("`")
-    for idx in range(0, len(parts), 2):
-        parts[idx] = repl(parts[idx])
-    return "`".join(parts)
-
-
-# ──────────────────────────────── Renderer ────────────────────────────────────
-
-PROMPT_BLOCK_RE = re.compile(r'^@prompt\s*$', re.IGNORECASE)
-PROMPT_END_RE = re.compile(r'^@end\s*$', re.IGNORECASE)
-SERVICES_RE = re.compile(r'^@services\s*$', re.IGNORECASE)
-VALIDATE_RE = re.compile(r'^@validate\s+(.+)$', re.IGNORECASE)
-PERCY_HEADER_RE = re.compile(r'^@perseus(?:\s+.*)?$', re.IGNORECASE)
-IF_RE = re.compile(r'^@if\s+(.+)$', re.IGNORECASE)
-ELSE_RE = re.compile(r'^@else\s*$', re.IGNORECASE)
-ENDIF_RE = re.compile(r'^@endif\s*$', re.IGNORECASE)
-CONSTRAINT_RE = re.compile(r'^@constraint\s+(.+)$', re.IGNORECASE)
-CONSTRAINT_END_RE = re.compile(r'^@end\s*$', re.IGNORECASE)
-SYNTHESIZE_BLOCK_RE = re.compile(r'^@synthesize\s*(.*)$', re.IGNORECASE)
-
-# INLINE_DIRECTIVE_RE — built from DIRECTIVE_REGISTRY after all resolvers are
-# defined.  See _bind_registry() + _build_inline_directive_re() call below
-# resolve_drift (the last resolver in the file).
-# Placeholder; actual value set at module-load time.
-INLINE_DIRECTIVE_RE: "re.Pattern[str] | None" = None
-
-
-def _render_lines(
-    lines: list[str],
-    cfg: dict,
-    workspace: Path | None = None,
-    _constraint_rows: list[str] | None = None,
-) -> str:
-    """
-    Core rendering loop. Processes a list of lines (already stripped of the
-    @perseus header) and returns the resolved markdown string.
-
-    This function is called recursively for @if/@else branches.
-
-    _constraint_rows: shared mutable list used to accumulate @constraint rows
-    across the full document so a single table is emitted at the end.
-    """
-    # Top-level call owns the constraint rows list and decides when to flush it
-    top_level = _constraint_rows is None
-    if top_level:
-        _constraint_rows = []
-
-    output = []
-    i = 0
-    in_fence = False
-    fence_char = ""
-    fence_len = 0
-
-    while i < len(lines):
-        line = lines[i]
-
-        fence_match = re.match(r'^\s*(`{3,}|~{3,})(.*)$', line)
-        if in_fence:
-            output.append(line)
-            if re.match(rf'^\s*{re.escape(fence_char)}{{{fence_len},}}\s*$', line):
-                in_fence = False
-                fence_char = ""
-                fence_len = 0
-            i += 1
-            continue
-        if fence_match:
-            marker = fence_match.group(1)
-            in_fence = True
-            fence_char = marker[0]
-            fence_len = len(marker)
-            output.append(line)
-            i += 1
-            continue
-
-        # ── @prompt...@end block ──
-        if PROMPT_BLOCK_RE.match(line):
-            block_lines = []
-            i += 1
-            while i < len(lines) and not PROMPT_END_RE.match(lines[i]):
-                block_lines.append(lines[i])
-                i += 1
-            i += 1  # skip @end
-            output.append(resolve_prompt_block("\n".join(block_lines)))
-            continue
-
-        # ── @constraint id="..." severity="..." block ──
-        m_con = CONSTRAINT_RE.match(line)
-        if m_con:
-            attrs_str = m_con.group(1)
-            con_id = ""
-            con_sev = "info"
-            mid = re.search(r'id=["\']([^"\']+)["\']', attrs_str)
-            if mid:
-                con_id = mid.group(1)
-            msev = re.search(r'severity=["\']([^"\']+)["\']', attrs_str)
-            if msev:
-                con_sev = msev.group(1).upper()
-            # Gather body lines until @end
-            body_lines = []
-            i += 1
-            while i < len(lines) and not CONSTRAINT_END_RE.match(lines[i]):
-                body_lines.append(lines[i].strip())
-                i += 1
-            i += 1  # skip @end
-            rule_text = " ".join(body_lines).strip()
-            _constraint_rows.append(f"| {con_id} | {con_sev} | {rule_text} |")
-            continue
-
-        # ── @validate schema="..." block ──
-        m_validate = VALIDATE_RE.match(line)
-        if m_validate:
-            attrs = _parse_kv_modifiers(m_validate.group(1))
-            schema_ref = attrs.get("schema")
-            if not schema_ref:
-                output.append('> ⚠ @validate: missing schema="..."')
-                i += 1
-                continue
-
-            block_lines = []
-            i += 1
-            explicit_end = False
-            while i < len(lines):
-                if PROMPT_END_RE.match(lines[i]):
-                    explicit_end = True
-                    i += 1
-                    break
-                block_lines.append(lines[i])
-                i += 1
-
-            if not explicit_end:
-                output.append(f"> ⚠ unmatched @validate: missing @end for schema `{schema_ref}`")
-                break
-
-            rendered_block = _render_lines(block_lines, cfg, workspace, _constraint_rows)
-            output.append(resolve_validate_block(rendered_block, schema_ref, cfg, workspace))
-            continue
-
-        # ── @synthesize block (Phase 15C) ──
-        m_syn = SYNTHESIZE_BLOCK_RE.match(line)
-        if m_syn:
-            attrs_str = m_syn.group(1).strip()
-            attrs = _parse_kv_modifiers(attrs_str)
-            # Parse attrs: question="...", source="path1,path2", label="...", consistency_mode
-            question = attrs.get("question", "What is the current project status and next action?")
-            source_attr = attrs.get("source", "")
-            sources_list = [s.strip() for s in source_attr.split(",") if s.strip()] if source_attr else []
-            label = attrs.get("label", "Generated synthesis")
-            consistency_mode = "consistency_mode" in attrs_str.lower().replace("-", "_")
-
-            # Collect body lines until @end (body may also specify question/sources as YAML-like lines)
-            body_lines = []
-            i += 1
-            while i < len(lines) and not PROMPT_END_RE.match(lines[i]):
-                body_lines.append(lines[i])
-                i += 1
-            i += 1  # skip @end
-
-            # Body lines can add sources: one bare path per line
-            for bline in body_lines:
-                stripped = bline.strip()
-                if stripped and not stripped.startswith("#"):
-                    sources_list.append(stripped)
-
-            generation_cfg = cfg.get("generation", {})
-            if not bool(generation_cfg.get("enabled", False)):
-                # Generation disabled — silently emit nothing (resolved render unaffected)
-                continue
-
-            if not sources_list:
-                output.append("> ⚠ @synthesize: no sources specified")
-                continue
-
-            if workspace is None:
-                output.append("> ⚠ @synthesize: workspace not available")
-                continue
-
-            try:
-                synth_result, _code = synthesize_question(
-                    question,
-                    sources_list,
-                    cfg,
-                    workspace,
-                    llm=cfg.get("llm", {}).get("provider") or cfg.get("generation", {}).get("provider"),
-                    model=cfg.get("generation", {}).get("model") or cfg.get("llm", {}).get("model"),
-                    enable_generation=True,
-                    consistency_mode=consistency_mode,
-                )
-            except Exception as exc:
-                # Failure must never affect the resolved render
-                output.append(f"> ⚠ @synthesize: generation error: {exc}")
-                continue
-
-            if synth_result.get("source_errors") or not synth_result.get("generated"):
-                # Model not configured, sources missing, or generation disabled — skip silently
-                err = synth_result.get("error", "")
-                if err and "generation is disabled" not in err:
-                    output.append(f"> ⚠ @synthesize: {err}")
-                continue
-
-            # Render the curated section — plainly labeled, clearly separated from resolved content
-            output.append(f"\n> **{label}** _(generated — not resolver output)_\n")
-            claims = synth_result.get("claims", [])
-            conflicts = synth_result.get("conflicts", [])
-            if not claims and not conflicts:
-                output.append("> _No cited claims survived citation validation._")
-            for idx, claim in enumerate(claims, start=1):
-                output.append(f"> {idx}. {claim['text']}")
-                for citation in claim["citations"]:
-                    label_c = citation["label"]
-                    s = citation["line_start"]
-                    e = citation["line_end"]
-                    ref = f"{s}" if s == e else f"{s}-{e}"
-                    output.append(f">    - {label_c}:{ref} `{citation['quote']}`")
-            if conflicts:
-                output.append("> \n> **Source disagreements:**")
-                for idx, conflict in enumerate(conflicts, start=1):
-                    output.append(f"> {idx}. ⚠ {conflict['description']}")
-                    for ref in conflict["sources"]:
-                        label_c = ref["label"]
-                        s = ref["line_start"]
-                        e = ref["line_end"]
-                        lref = f"{s}" if s == e else f"{s}-{e}"
-                        output.append(f">    - {label_c}:{lref} `{ref['quote']}`")
-            dropped = synth_result.get("dropped_claims", [])
-            dropped_c = synth_result.get("dropped_conflicts", [])
-            if dropped or dropped_c:
-                total = len(dropped) + len(dropped_c)
-                output.append(f"> \n> _{total} uncited item(s) dropped by citation gate._")
-            continue
-
-        # ── @services block ──
-        if SERVICES_RE.match(line):
-            block_lines = []
-            i += 1
-            explicit_end = False
-            while i < len(lines):
-                next_line = lines[i]
-                if PROMPT_END_RE.match(next_line):
-                    explicit_end = True
-                    i += 1
-                    break
-                if next_line.startswith("@") and next_line.strip() != "@":
-                    if block_lines:
-                        break
-                    output.append("> ⚠ @services: empty block")
-                    break
-                block_lines.append(next_line)
-                i += 1
-
-            while block_lines and block_lines[-1].strip() == "":
-                block_lines.pop()
-
-            block_content = "\n".join(block_lines)
-            if not block_content.strip() and explicit_end:
-                output.append("> ⚠ @services: empty block")
-            else:
-                output.append(resolve_services(block_content, cfg))
-            continue
-
-        # ── @if/@else/@endif block ──
-        m_if = IF_RE.match(line)
-        if m_if:
-            condition_str = m_if.group(1).strip()
-            true_lines: list[str] = []
-            false_lines: list[str] = []
-            in_else = False
-            i += 1
-            depth = 1  # track nested @if depth
-            while i < len(lines):
-                inner = lines[i]
-                if IF_RE.match(inner):
-                    depth += 1
-                elif ENDIF_RE.match(inner):
-                    depth -= 1
-                    if depth == 0:
-                        i += 1  # skip @endif
-                        break
-                elif ELSE_RE.match(inner) and depth == 1:
-                    in_else = True
-                    i += 1
-                    continue
-                if in_else:
-                    false_lines.append(inner)
-                else:
-                    true_lines.append(inner)
-                i += 1
-
-            if depth != 0:
-                output.append(f"> ⚠ unmatched @if: missing @endif for `{condition_str}`")
-                break
-
-            # Evaluate condition and render the correct branch
-            try:
-                branch = true_lines if evaluate_condition(condition_str, workspace, cfg) else false_lines
-            except ConditionParseError as exc:
-                output.append(f"> ⚠ @if error: {exc}")
-                continue
-            if branch:
-                output.append(_render_lines(branch, cfg, workspace, _constraint_rows))
-            continue
-
-        # ── inline directives (with optional @cache modifier) ──
-        m = INLINE_DIRECTIVE_RE.match(line)
-        if m:
-            directive = m.group(1).lower()
-            raw_args = (m.group(2) or "").strip()
-
-            # @memory ttl=N → syntactic sugar for @cache ttl=N
-            if directive == "@memory" and "@cache" not in raw_args.lower():
-                m_ttl = re.search(r'\bttl=(\d+)\b', raw_args, re.IGNORECASE)
-                if m_ttl:
-                    raw_args = (raw_args[:m_ttl.start()] + raw_args[m_ttl.end():]).strip()
-                    raw_args = f"{raw_args} @cache ttl={m_ttl.group(1)}".strip()
-
-            # Strip @cache modifier from args; determine cache mode
-            clean_args, cache_mode, cache_ttl, cache_mock = _parse_cache_modifier(raw_args)
-
-            # Build stable cache key from directive + clean args
-            cache_key = _cache_key(f"{directive} {clean_args}")
-
-            # @cache mock — substitute the mock value, bypass execution entirely
-            if cache_mode == "mock":
-                output.append(cache_mock or "(mock — directive skipped)")
-                i += 1
-                continue
-
-            # Check cache first
-            spec = DIRECTIVE_REGISTRY.get(directive)
-            cached = cache_get(cache_key, cache_mode, cache_ttl, cfg)
-            if cached is not None:
-                if spec and spec.kind == "inline":
-                    cached = _apply_output_schema_validation(spec, clean_args, cached, workspace)
-                output.append(cached)
-                i += 1
-                continue
-
-            # Resolve the directive via registry (task-25)
-            if spec and spec.resolver and spec.kind == "inline":
-                result = _call_resolver(spec, clean_args, cfg, workspace)
-                result = _apply_output_schema_validation(spec, clean_args, result, workspace)
-            else:
-                result = line
-
-            # Store in cache if a modifier was specified
-            if cache_mode:
-                cache_set(cache_key, result, cache_mode, cache_ttl, cfg)
-
-            output.append(result)
-            i += 1
-            continue
-
-        # Inline @date substitution within any line
-        if "@date" in line:
-            line = _replace_inline_date_outside_code(line, workspace)
-        output.append(line)
-        i += 1
-
-    # ── Flush constraint table at top-level only ──
-    if top_level and _constraint_rows:
-        header = "| ID | Severity | Rule |\n|---|---|---|"
-        output.append(header + "\n" + "\n".join(_constraint_rows))
-
-    return "\n".join(output)
-
-
-def render_source(
-    source_text: str,
-    cfg: dict,
-    workspace: Path | None = None,
-) -> str:
-    """
-    Parse and resolve a @perseus source document.
-    Returns plain rendered markdown.
-    """
-    lines = source_text.splitlines()
-
-    # Must start with @perseus
-    if not lines or not PERCY_HEADER_RE.match(lines[0]):
-        return source_text  # not a perseus doc; pass through unchanged
-
-    return _render_lines(lines[1:], cfg, workspace)  # skip @perseus header line
+        if fallback is not None:
+            return fallback
+        return f"> ⚠ `@query` error: {exc}"
+
+
+def _guess_lang(cmd: str) -> str:
+    """Heuristic language hint for fenced code blocks."""
+    cmd_lower = cmd.lower().strip()
+    if cmd_lower.startswith(("git ", "docker ", "kubectl ")):
+        return "text"
+    if cmd_lower.startswith(("python", "python3")):
+        return "python"
+    if cmd_lower.startswith(("cat ", "ls ", "find ", "grep ")):
+        return "text"
+    if cmd_lower.startswith(("jq", "yq")):
+        return "json"
+    return "text"
 
 
 # ───────────────────────── Directive dependency graph ────────────────────────
@@ -3740,6 +2406,1678 @@ def format_prefetch_human(result: dict) -> str:
     return "\n".join(lines)
 
 
+# ──────────────────────────────── @agent ──────────────────────────────────────
+
+def resolve_agent(args_str: str, cfg: dict, workspace: Path | None = None) -> str:
+    """
+    @agent "command" [timeout=N] [strip=true|false] [fallback="text"]
+
+    Run a local subprocess and embed its stdout verbatim. Stderr is discarded
+    on success; on failure (non-zero exit code) the warning surfaces it.
+
+    Differs from @query in three ways:
+      - Output is substituted INLINE (no fenced code block by default)
+      - Failure with fallback= silently substitutes the fallback text
+      - Gated by render.allow_agent_shell (default true)
+    """
+    render_cfg = cfg.get("render", {})
+    if not render_cfg.get("allow_agent_shell", True):
+        audit_event(cfg, "policy_denied",
+                    directive="@agent",
+                    reason="render.allow_agent_shell=false",
+                    args=args_str[:200])
+        return "> ⚠ @agent is disabled by config (`render.allow_agent_shell=false`)."
+
+    raw = args_str.strip()
+    # Extract command (double or single quoted, else first whitespace-delimited token)
+    cmd_match = re.match(r'^"((?:[^"\\]|\\.)*)"', raw)
+    if cmd_match:
+        cmd = cmd_match.group(1)
+        rest = raw[cmd_match.end():].strip()
+    else:
+        cmd_match = re.match(r"^'((?:[^'\\]|\\.)*)'", raw)
+        if cmd_match:
+            cmd = cmd_match.group(1)
+            rest = raw[cmd_match.end():].strip()
+        else:
+            return "> ⚠ @agent: command must be quoted."
+
+    mods = _parse_kv_modifiers(rest)
+    try:
+        timeout = int(mods.get("timeout", "10"))
+    except (TypeError, ValueError):
+        timeout = 10
+    strip_output = str(mods.get("strip", "true")).strip().lower() != "false"
+    fallback = mods.get("fallback")
+
+    shell = render_cfg.get("shell", "/bin/bash")
+
+    # task-47: audit @agent shell execution crossing the trust boundary.
+    audit_event(cfg, "shell_exec",
+                directive="@agent",
+                command=cmd[:500],
+                shell=shell,
+                timeout=timeout)
+
+    try:
+        result = subprocess.run(
+            cmd,
+            shell=True,
+            executable=shell,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            cwd=str(workspace) if workspace else None,
+        )
+    except subprocess.TimeoutExpired:
+        if fallback is not None:
+            return fallback
+        return f"> ⚠ @agent: timed out after {timeout}s: `{cmd}`"
+    except Exception as exc:
+        if fallback is not None:
+            return fallback
+        return f"> ⚠ @agent: error: {exc}"
+
+    if result.returncode != 0:
+        if fallback is not None:
+            return fallback
+        stderr = (result.stderr or "").strip()
+        body = result.stdout or stderr or "(no output)"
+        return f"> ⚠ @agent: command exited {result.returncode}: `{cmd}`\n\n```\n{body}\n```"
+
+    output = result.stdout or ""
+    if strip_output:
+        output = output.strip()
+    if not output:
+        if fallback is not None:
+            return fallback
+        return f"> (no output from `{cmd}`)"
+    return output
+
+
+# ──────────────────────────────── @skills ─────────────────────────────────────
+
+def resolve_skills(args_str: str, cfg: dict) -> str:
+    """Scan the configured skills directory and emit a markdown summary."""
+    skill_dir = Path(cfg["pythia"]["skill_dir"])
+    stale_days = int(cfg["pythia"].get("stale_skill_days", 30))
+    flag_stale = "flag_stale=true" in args_str
+    category_filter = None
+    m = re.search(r'category=["\'"]?([^"\'">\\s]+)["\'"]?', args_str)
+    if m:
+        category_filter = m.group(1).lower()
+
+    stale_threshold = time.time() - stale_days * 86400
+    skills = []
+
+    if not skill_dir.exists():
+        return f"> ⚠ Skills directory not found: `{skill_dir}`"
+
+    for skill_md in sorted(skill_dir.rglob("SKILL.md")):
+        rel = skill_md.relative_to(skill_dir)
+        parts = list(rel.parts)
+        # category = first dir component; name = second (or same if flat)
+        if len(parts) >= 2:
+            category = parts[0]
+            name = parts[1]
+        else:
+            category = ""
+            name = parts[0]
+
+        if category_filter and category.lower() != category_filter:
+            continue
+
+        mtime = skill_md.stat().st_mtime
+        age_days = int((time.time() - mtime) / 86400)
+        stale = flag_stale and mtime < stale_threshold
+
+        # Parse description from frontmatter
+        description = ""
+        try:
+            text = skill_md.read_text(errors="replace")
+            fm, _body = _parse_frontmatter(text)
+            description = str((fm or {}).get("description", ""))
+            name = str((fm or {}).get("name", name))
+        except Exception:
+            pass
+
+        stale_marker = " ⚠ stale" if stale else ""
+        skills.append(f"| `{category}/{name}` | {description[:60]} | {age_days}d ago{stale_marker} |")
+
+    if not skills:
+        return "> No skills found."
+
+    header = "| Skill | Description | Last updated |\n|---|---|---|"
+    return header + "\n" + "\n".join(skills)
+
+
+# ──────────────────────────────── @waypoint ───────────────────────────────────
+
+def load_latest_checkpoint(cfg: dict) -> dict | None:
+    store = Path(cfg["checkpoints"]["store"])
+    if not store.exists():
+        return None
+    latest = store / "latest.yaml"
+    if latest.exists():
+        try:
+            return yaml.safe_load(latest.read_text()) or {}
+        except Exception:
+            pass
+    # Fall back to most recent timestamped file
+    checkpoints = sorted(store.glob("*.yaml"), key=lambda f: f.stat().st_mtime, reverse=True)
+    for cp in checkpoints:
+        if cp.name == "latest.yaml":
+            continue
+        try:
+            return yaml.safe_load(cp.read_text()) or {}
+        except Exception:
+            continue
+    return None
+
+
+def resolve_waypoint(args_str: str, cfg: dict) -> str:
+    """Render the most recent checkpoint."""
+    ttl = None
+    m = re.search(r'ttl=(\d+)', args_str)
+    if m:
+        ttl = int(m.group(1))
+
+    cp = load_latest_checkpoint(cfg)
+    if not cp:
+        return "> No checkpoint found."
+
+    written = cp.get("written", "")
+    if ttl and written:
+        try:
+            dt = datetime.fromisoformat(str(written))
+            age = (datetime.now(dt.tzinfo) - dt).total_seconds()
+            if age > ttl:
+                return "> No recent checkpoint (outside TTL)."
+        except Exception:
+            pass
+
+    lines = [f"**Checkpoint written:** {written}"]
+    for field in ("task", "status", "next", "workspace", "notes"):
+        val = cp.get(field, "")
+        if val:
+            lines.append(f"**{field.capitalize()}:** {val}")
+    return "\n".join(lines)
+
+
+# ──────────────────────────────── @if condition ───────────────────────────────
+
+def evaluate_condition(condition: str, workspace: Path | None = None, cfg: dict | None = None) -> bool:
+    """
+    Evaluate a Perseus @if condition expression. Supported forms:
+
+      file.exists "path"        — true if file exists
+      file.missing "path"       — true if file does NOT exist
+      env.set VAR               — true if env var is set (non-empty)
+      env.unset VAR             — true if env var is unset or empty
+      env.eq VAR "value"        — true if env var equals value
+      env.neq VAR "value"       — true if env var does not equal value
+    """
+    condition = condition.strip()
+    render_cfg = (cfg or DEFAULT_CONFIG).get("render", {})
+
+    # file.exists "path"
+    m = re.match(r'file\.exists\s+(.+)$', condition)
+    if m:
+        token, trailing = _extract_quoted_token(m.group(1).strip())
+        if token is None or trailing.strip():
+            raise ConditionParseError(f"invalid file.exists syntax: {condition}")
+        fp, path_warning = _resolve_path(
+            token,
+            workspace,
+            allow_outside_workspace=bool(render_cfg.get("allow_outside_workspace", False)),
+        )
+        if path_warning:
+            raise ConditionParseError(path_warning[4:])
+        return fp.exists()
+
+    # file.missing "path"
+    m = re.match(r'file\.missing\s+(.+)$', condition)
+    if m:
+        token, trailing = _extract_quoted_token(m.group(1).strip())
+        if token is None or trailing.strip():
+            raise ConditionParseError(f"invalid file.missing syntax: {condition}")
+        fp, path_warning = _resolve_path(
+            token,
+            workspace,
+            allow_outside_workspace=bool(render_cfg.get("allow_outside_workspace", False)),
+        )
+        if path_warning:
+            raise ConditionParseError(path_warning[4:])
+        return not fp.exists()
+
+    # env.set VAR
+    m = re.match(r'env\.set\s+(\S+)', condition)
+    if m:
+        val = os.environ.get(m.group(1))
+        return val is not None and val != ""
+
+    # env.unset VAR
+    m = re.match(r'env\.unset\s+(\S+)', condition)
+    if m:
+        val = os.environ.get(m.group(1))
+        return val is None or val == ""
+
+    # env.eq VAR "value"
+    m = re.match(r'env\.eq\s+(\S+)\s+(.+)$', condition)
+    if m:
+        token, trailing = _extract_quoted_token(m.group(2).strip())
+        if token is None or trailing.strip():
+            raise ConditionParseError(f"invalid env.eq syntax: {condition}")
+        return os.environ.get(m.group(1)) == token
+
+    # env.neq VAR "value"
+    m = re.match(r'env\.neq\s+(\S+)\s+(.+)$', condition)
+    if m:
+        token, trailing = _extract_quoted_token(m.group(2).strip())
+        if token is None or trailing.strip():
+            raise ConditionParseError(f"invalid env.neq syntax: {condition}")
+        return os.environ.get(m.group(1)) != token
+
+    # task-13: query("shell command") [not] matches /regex/[flags]
+    # `flags` is the optional suffix `i` for IGNORECASE — kept tiny on purpose.
+    m = re.match(
+        r'query\s*\(\s*(?:"((?:[^"\\]|\\.)*)"|\'((?:[^\'\\]|\\.)*)\')\s*\)'
+        r'\s+(not\s+)?matches\s+/((?:[^/\\]|\\.)*)/([i]*)\s*$',
+        condition,
+    )
+    if m:
+        cmd = m.group(1) if m.group(1) is not None else m.group(2)
+        negated = bool(m.group(3))
+        pattern_src = m.group(4)
+        flag_str = m.group(5) or ""
+        re_flags = re.IGNORECASE if "i" in flag_str else 0
+        try:
+            pattern = re.compile(pattern_src, re_flags)
+        except re.error as e:
+            raise ConditionParseError(f"invalid @if query regex /{pattern_src}/: {e}")
+
+        if not render_cfg.get("allow_query_shell", True):
+            print(
+                "⚠ @if query(...) skipped: `render.allow_query_shell=false`. "
+                f"Condition evaluates to False.",
+                file=sys.stderr,
+            )
+            return False
+
+        shell = render_cfg.get("shell", "/bin/bash")
+        try:
+            result = subprocess.run(
+                cmd,
+                shell=True,
+                executable=shell,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            stdout = result.stdout or ""
+        except subprocess.TimeoutExpired:
+            print(f"⚠ @if query(...) timed out (30s): `{cmd}` → False", file=sys.stderr)
+            return False
+        except Exception as exc:
+            print(f"⚠ @if query(...) failed for `{cmd}`: {exc} → False", file=sys.stderr)
+            return False
+
+        found = bool(pattern.search(stdout))
+        return (not found) if negated else found
+
+    raise ConditionParseError(f"unknown @if condition: {condition}")
+
+
+# ──────────────────────────────── @session ────────────────────────────────────
+
+def resolve_session(args_str: str, cfg: dict) -> str:
+    """Read recent assistant sessions from the configured sessions dir and summarize."""
+    count = 5
+    m = re.search(r'count=(\d+)', args_str)
+    if m:
+        count = int(m.group(1))
+
+    topic = None
+    m = re.search(r'topic=["\'"]([^"\']+)["\'"]', args_str)
+    if not m:
+        m = re.search(r"topic='([^']+)'", args_str)
+    if m:
+        topic = m.group(1).lower()
+
+    sessions_dir = Path(cfg["assistant"].get("sessions_dir", SESSIONS_DIR))
+    if not sessions_dir.exists():
+        return "> ⚠ Sessions directory not found."
+
+    # Gather session files sorted by mtime desc
+    session_files = sorted(
+        [f for f in sessions_dir.glob("session_*.json")],
+        key=lambda f: f.stat().st_mtime,
+        reverse=True,
+    )
+
+    results = []
+    for sf in session_files:
+        if len(results) >= count:
+            break
+        try:
+            data = json.loads(sf.read_text(errors="replace"))
+        except Exception:
+            continue
+
+        session_id = data.get("session_id", sf.stem)
+        started = data.get("session_start", "")
+        messages = data.get("messages", [])
+        message_count = data.get("message_count", len(messages))
+
+        # Get first user message as title
+        title = ""
+        for msg in messages:
+            if msg.get("role") == "user":
+                content = msg.get("content", "")
+                if isinstance(content, list):
+                    for chunk in content:
+                        if isinstance(chunk, dict) and chunk.get("type") == "text":
+                            title = chunk["text"]
+                            break
+                else:
+                    title = str(content)
+                # Strip workspace prefix
+                title = re.sub(r'^\[Workspace::v1:[^\]]+\]\s*', '', title)
+                title = title.strip()[:100]
+                break
+
+        if not title:
+            title = "(no title)"
+
+        if topic and topic not in title.lower():
+            # also scan a few more messages for topic keyword
+            found = False
+            for msg in messages[:20]:
+                content = msg.get("content", "")
+                text = ""
+                if isinstance(content, list):
+                    for c in content:
+                        if isinstance(c, dict) and c.get("type") == "text":
+                            text += c["text"]
+                else:
+                    text = str(content)
+                if topic in text.lower():
+                    found = True
+                    break
+            if not found:
+                continue
+
+        # Format timestamp
+        ts = ""
+        if started:
+            try:
+                dt = datetime.fromisoformat(started)
+                ts = dt.strftime("%Y-%m-%d %H:%M")
+            except Exception:
+                ts = started[:16]
+
+        results.append(f"- **{ts}** — {title} `({message_count} msgs)`")
+
+    if not results:
+        return "> No recent sessions found."
+
+    return "\n".join(results)
+
+
+# ──────────────────────────────── @services ───────────────────────────────────
+
+def health_check_url(url: str, timeout: float) -> tuple[str, float | None]:
+    """Returns (status_emoji, latency_ms | None)."""
+    start = time.monotonic()
+    try:
+        req = urllib.request.urlopen(url, timeout=timeout)  # noqa: S310
+        latency = (time.monotonic() - start) * 1000
+        if req.status < 400:
+            return "✅", latency
+        return f"❌ HTTP {req.status}", latency
+    except urllib.error.HTTPError as e:
+        latency = (time.monotonic() - start) * 1000
+        # Some health endpoints return non-200 but are "up enough"
+        if e.code < 500:
+            return f"⚠ HTTP {e.code}", latency
+        return f"❌ HTTP {e.code}", latency
+    except Exception as exc:
+        return f"❌ {type(exc).__name__}", None
+
+
+def resolve_services(block_content: str, cfg: dict) -> str:
+    """Parse YAML service list from block and health-check each."""
+    timeout = float(cfg["render"].get("services_timeout_s", 3))
+    try:
+        services = yaml.safe_load(block_content) or []
+    except yaml.YAMLError as e:
+        return f"> ⚠ Invalid @services YAML: {e}"
+
+    if not services:
+        return "> No services configured."
+
+    rows = ["| Service | Status | Latency |", "|---|---|---|"]
+    for svc in services:
+        if not isinstance(svc, dict):
+            rows.append("| (invalid) | ⚠ service entry must be a mapping | — |")
+            continue
+        name = svc.get("name", "(unnamed)")
+        url = svc.get("url", "")
+        docker = svc.get("docker", "")
+
+        if url:
+            status, latency = health_check_url(url, timeout)
+            lat_str = f"{latency:.0f}ms" if latency is not None else "—"
+            rows.append(f"| {name} | {status} | {lat_str} |")
+        elif docker:
+            # Try docker ps via subprocess
+            try:
+                out = subprocess.check_output(
+                    ["docker", "ps", "--filter", f"name={docker}", "--format", "{{.Status}}"],
+                    timeout=timeout,
+                    stderr=subprocess.DEVNULL,
+                    text=True,
+                ).strip()
+                if out:
+                    status = f"✅ {out}"
+                else:
+                    status = "❌ not running"
+            except Exception:
+                status = "⚠ docker unavailable"
+            rows.append(f"| {name} | {status} | — |")
+        elif command := str(svc.get("command") or ""):
+            if not cfg["render"].get("allow_services_command", False):
+                audit_event(cfg, "policy_denied",
+                            directive="@services",
+                            reason="render.allow_services_command=false",
+                            service=name,
+                            command=command[:300])
+                status = "⚠ command checks disabled by config"
+                rows.append(f"| {name} | {status} | — |")
+                continue
+            # Run arbitrary shell command; success = exit 0
+            audit_event(cfg, "shell_exec",
+                        directive="@services",
+                        service=name,
+                        command=command[:500],
+                        shell=cfg["render"].get("shell", "/bin/bash"))
+            try:
+                result = subprocess.run(
+                    command,
+                    shell=True,
+                    executable=cfg["render"].get("shell", "/bin/bash"),
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                )
+                out_text = (result.stdout or result.stderr).strip()
+                first_line = out_text.splitlines()[0][:80] if out_text else ""
+                if result.returncode == 0:
+                    status = f"✅ {first_line}" if first_line else "✅ ok"
+                else:
+                    status = f"❌ {first_line}" if first_line else f"❌ exit {result.returncode}"
+            except subprocess.TimeoutExpired:
+                status = "⚠ timeout"
+            except Exception as exc:
+                status = f"⚠ {exc}"
+            rows.append(f"| {name} | {status} | — |")
+        else:
+            rows.append(f"| {name} | ⚠ no url/docker/command | — |")
+
+    return "\n".join(rows)
+
+
+# ───────────────────────────── @list / @tree ─────────────────────────────────
+
+def _list_emit_warning(msg: str) -> str:
+    return f"> ⚠ {msg}"
+
+
+def _structured_load(fp: Path) -> object:
+    """Load JSON or YAML based on extension. Returns the parsed object or None on failure."""
+    suffix = fp.suffix.lower()
+    try:
+        text = fp.read_text(errors="replace")
+    except Exception:
+        return None
+    if suffix == ".json":
+        try:
+            return json.loads(text)
+        except Exception:
+            return None
+    if suffix in {".yaml", ".yml"}:
+        try:
+            return yaml.safe_load(text)
+        except Exception:
+            return None
+    return None
+
+
+def _walk_dot_path(obj: object, dot: str) -> object:
+    cur = obj
+    if not dot:
+        return cur
+    for part in dot.split("."):
+        if isinstance(cur, dict) and part in cur:
+            cur = cur[part]
+        else:
+            return None
+    return cur
+
+
+def _render_struct_as_table(value: object, columns: str | None) -> str:
+    """Render a dict-of-scalars or list-of-dicts as a markdown table."""
+    # Parse columns="key:Label,value:Label"
+    col_pairs: list[tuple[str, str]] = []
+    if columns:
+        for item in columns.split(","):
+            if ":" in item:
+                k, _, lbl = item.partition(":")
+                col_pairs.append((k.strip(), lbl.strip()))
+            else:
+                col_pairs.append((item.strip(), item.strip()))
+
+    # dict-of-scalars → two-column table
+    if isinstance(value, dict):
+        if not col_pairs:
+            col_pairs = [("key", "Key"), ("value", "Value")]
+        labels = [lbl for _, lbl in col_pairs[:2]] or ["Key", "Value"]
+        rows = ["| " + " | ".join(labels) + " |", "|" + "|".join(["---"] * len(labels)) + "|"]
+        for k, v in value.items():
+            rows.append(f"| {k} | {v} |")
+        return "\n".join(rows)
+
+    # list-of-dicts
+    if isinstance(value, list) and value and isinstance(value[0], dict):
+        if not col_pairs:
+            col_pairs = [(k, k) for k in value[0].keys()]
+        keys = [k for k, _ in col_pairs]
+        labels = [lbl for _, lbl in col_pairs]
+        rows = ["| " + " | ".join(labels) + " |", "|" + "|".join(["---"] * len(labels)) + "|"]
+        for item in value:
+            rows.append("| " + " | ".join(str(item.get(k, "")) for k in keys) + " |")
+        return "\n".join(rows)
+
+    # scalar / list-of-scalars fallback
+    if isinstance(value, list):
+        return "\n".join(f"- {v}" for v in value)
+    return str(value)
+
+
+def _render_struct_as_list(value: object) -> str:
+    if isinstance(value, dict):
+        return "\n".join(f"- **{k}**: {v}" for k, v in value.items())
+    if isinstance(value, list):
+        return "\n".join(f"- {v}" for v in value)
+    return str(value)
+
+
+def resolve_list(args_str: str, cfg: dict, workspace: Path | None = None) -> str:
+    """
+    @list <path> [type=dirs|files|all] [depth=N] [match=glob]
+                 [path="dot.key"] [columns="key:Label,value:Label"] [as=list|table]
+
+    For directories: lists contents per type/depth/match.
+    For structured files (json/yaml): extracts path= and renders as list or table.
+    """
+    path_str, remaining = _extract_quoted_token(args_str.strip())
+    if path_str is None:
+        # try bare first-token
+        toks = args_str.strip().split(None, 1)
+        if not toks:
+            return _list_emit_warning("@list: no path specified.")
+        path_str = toks[0]
+        remaining = toks[1] if len(toks) > 1 else ""
+
+    mods = _parse_kv_modifiers(remaining)
+    as_mode = (mods.get("as") or "list").strip().lower()
+    list_type = (mods.get("type") or "all").strip().lower()
+    try:
+        depth = int(mods.get("depth", "1"))
+    except (TypeError, ValueError):
+        depth = 1
+    if depth < 1:
+        warn = f"> ⚠ @list: depth={depth} treated as 1.\n"
+        depth = 1
+    else:
+        warn = ""
+    match_pat = mods.get("match")
+    dot_path = mods.get("path")
+    columns = mods.get("columns")
+
+    render_cfg = (cfg or {}).get("render", {})
+    fp, path_warning = _resolve_path(
+        path_str,
+        workspace,
+        allow_outside_workspace=bool(render_cfg.get("allow_outside_workspace", False)),
+    )
+    if path_warning:
+        return path_warning
+
+    if not fp.exists():
+        return _list_emit_warning(f"@list: path not found: `{path_str}`")
+
+    # Structured file path
+    if fp.is_file():
+        value = _structured_load(fp)
+        if value is None:
+            return _list_emit_warning(f"@list: cannot extract structured data from `{path_str}` (unsupported file type)")
+        extracted = _walk_dot_path(value, dot_path) if dot_path else value
+        if extracted is None:
+            return _list_emit_warning(f"@list: path `{dot_path}` not found in `{path_str}`")
+        if as_mode == "table":
+            return warn + _render_struct_as_table(extracted, columns)
+        return warn + _render_struct_as_list(extracted)
+
+    # Directory listing
+    base = fp
+    entries: list[tuple[Path, int]] = []  # (path, relative depth)
+    for root, dirs, files in os.walk(base):
+        root_p = Path(root)
+        try:
+            cur_depth = len(root_p.relative_to(base).parts)
+        except ValueError:
+            continue
+        if cur_depth >= depth:
+            dirs[:] = []
+        if list_type in {"dirs", "all"}:
+            for d in sorted(dirs):
+                entries.append((root_p / d, cur_depth + 1))
+        if list_type in {"files", "all"}:
+            for f in sorted(files):
+                if match_pat and not fnmatch.fnmatch(f, match_pat):
+                    continue
+                entries.append((root_p / f, cur_depth + 1))
+
+    if not entries:
+        return warn + _list_emit_warning(f"@list: no matching entries under `{path_str}`")
+
+    lines: list[str] = []
+    for p, d in entries:
+        indent = "  " * (d - 1)
+        name = p.name + ("/" if p.is_dir() else "")
+        lines.append(f"{indent}- {name}")
+    return warn + "\n".join(lines)
+
+
+def resolve_tree(args_str: str, cfg: dict, workspace: Path | None = None) -> str:
+    """
+    @tree <path> [depth=N] [match=glob] [exclude=glob]
+    """
+    path_str, remaining = _extract_quoted_token(args_str.strip())
+    if path_str is None:
+        toks = args_str.strip().split(None, 1)
+        if not toks:
+            return _list_emit_warning("@tree: no path specified.")
+        path_str = toks[0]
+        remaining = toks[1] if len(toks) > 1 else ""
+
+    mods = _parse_kv_modifiers(remaining)
+    try:
+        depth = int(mods.get("depth", "3"))
+    except (TypeError, ValueError):
+        depth = 3
+    if depth < 1:
+        warn = f"> ⚠ @tree: depth={depth} treated as 1.\n"
+        depth = 1
+    else:
+        warn = ""
+    match_pat = mods.get("match")
+    exclude_pat = mods.get("exclude")
+
+    render_cfg = (cfg or {}).get("render", {})
+    fp, path_warning = _resolve_path(
+        path_str,
+        workspace,
+        allow_outside_workspace=bool(render_cfg.get("allow_outside_workspace", False)),
+    )
+    if path_warning:
+        return path_warning
+
+    if not fp.exists():
+        return _list_emit_warning(f"@tree: path not found: `{path_str}`")
+    if not fp.is_dir():
+        return _list_emit_warning(f"@tree: not a directory: `{path_str}`")
+
+    def is_excluded(name: str) -> bool:
+        return bool(exclude_pat and fnmatch.fnmatch(name, exclude_pat))
+
+    def matches_file(name: str) -> bool:
+        return not match_pat or fnmatch.fnmatch(name, match_pat)
+
+    out_lines = [f"{fp.name}/"]
+
+    def walk(dirp: Path, cur_depth: int):
+        if cur_depth > depth:
+            return
+        try:
+            children = sorted(dirp.iterdir(), key=lambda c: (not c.is_dir(), c.name.lower()))
+        except Exception:
+            return
+        for child in children:
+            if is_excluded(child.name):
+                continue
+            indent = "  " * cur_depth
+            if child.is_dir():
+                out_lines.append(f"{indent}{child.name}/")
+                walk(child, cur_depth + 1)
+            else:
+                if matches_file(child.name):
+                    out_lines.append(f"{indent}{child.name}")
+
+    walk(fp, 1)
+
+    return warn + "```\n" + "\n".join(out_lines) + "\n```"
+
+
+# ──────────────────────────────── @date ───────────────────────────────────────
+
+def resolve_date(args_str: str) -> str:
+    """Resolve @date with optional format."""
+    fmt_match = re.search(r'format=["\'"]([^"\']+)["\'"]', args_str)
+    if not fmt_match:
+        fmt_match = re.search(r"format='([^']+)'", args_str)
+    fmt = fmt_match.group(1) if fmt_match else "YYYY-MM-DD HH:mm z"
+
+    now = datetime.now()
+    # Map common tokens
+    result = fmt
+    result = result.replace("YYYY", now.strftime("%Y"))
+    result = result.replace("MM", now.strftime("%m"))
+    result = result.replace("DD", now.strftime("%d"))
+    result = result.replace("HH", now.strftime("%H"))
+    result = result.replace("mm", now.strftime("%M"))
+    result = result.replace("ss", now.strftime("%S"))
+    result = result.replace("z", now.astimezone().strftime("%Z"))
+    return result
+
+
+# ─────────────────────────────── @prompt block ────────────────────────────────
+
+def resolve_prompt_block(content: str) -> str:
+    """@prompt...@end blocks are included as an AI instruction callout."""
+    return f"> 📌 **Perseus prompt:** {content.strip()}"
+
+
+def resolve_validate_block(
+    content: str,
+    schema_ref: str,
+    cfg: dict | None = None,
+    workspace: Path | None = None,
+) -> str:
+    """Validate a rendered block and return either the content or a warning."""
+    data = _parse_validation_payload(content)
+    warning = _validate_against_schema_ref(data, schema_ref, workspace, "@validate")
+    return warning or content
+
+
+def _replace_inline_date_outside_code(line: str, workspace: Path | None = None) -> str:
+    """Resolve @date in prose while preserving inline code spans."""
+    if "@date" not in line:
+        return line
+
+    def resolve_inline_date(match: re.Match) -> str:
+        args = f'format="{match.group(1)}"' if match.group(1) else ""
+        result = resolve_date(args)
+        spec = DIRECTIVE_REGISTRY.get("@date")
+        if spec:
+            result = _apply_output_schema_validation(spec, args, result, workspace)
+        return result
+
+    def repl(segment: str) -> str:
+        return re.sub(
+            r'@date(?:\s+format=["\'"]([^"\']+)["\'"])?',
+            resolve_inline_date,
+            segment,
+        )
+
+    if "`" not in line:
+        return repl(line)
+
+    parts = line.split("`")
+    for idx in range(0, len(parts), 2):
+        parts[idx] = repl(parts[idx])
+    return "`".join(parts)
+
+
+# src/perseus/directives/health.py — stub (populated in Task 2)
+# src/perseus/directives/memory.py — stub (populated in Task 2)
+# src/perseus/directives/synthesis.py — stub (populated in Task 2)
+# ─────────────────────────────── Cache Layer ──────────────────────────────────
+#
+# Two-level cache:
+#   1. In-memory (session): populated on first resolve, reused for subsequent
+#      renders within the same process.  Key: SHA256(directive_line).
+#   2. Disk (ttl=N): JSON files in ~/.perseus/cache/ named <sha256>.json.
+#      Each entry has 'expires' (unix epoch) and 'value' (string output).
+#
+# @cache modifiers:
+#   @cache session          → in-memory only (never written to disk)
+#   @cache ttl=N            → disk-backed, expires after N seconds
+#   (no modifier)           → always re-run (current default for all directives)
+#
+# cache_key(directive_line) — stable SHA256 hash of the full directive line
+#                              (command + args, whitespace-normalised)
+
+_SESSION_CACHE: dict[str, str] = {}  # in-memory store for @cache session
+
+
+def _cache_key(directive_line: str) -> str:
+    """Stable SHA256 hash for a directive line (whitespace-normalised)."""
+    normalised = " ".join(directive_line.strip().split())
+    return hashlib.sha256(normalised.encode()).hexdigest()
+
+
+def _parse_cache_modifier(line: str) -> tuple[str, str, int | None, str | None]:
+    """
+    Strip any @cache modifier from a directive line and return:
+      (clean_line, cache_mode, ttl_seconds, mock_value)
+    cache_mode: "" | "session" | "ttl" | "persist" | "mock"
+    ttl_seconds: set when cache_mode == "ttl", else None (persist uses cfg)
+    mock_value: set when cache_mode == "mock"; literal substitution string
+    """
+    # @cache ttl=N
+    m = re.search(r'\s*@cache\s+ttl=(\d+)', line, re.IGNORECASE)
+    if m:
+        ttl = int(m.group(1))
+        clean = line[:m.start()] + line[m.end():]
+        return clean.rstrip(), "ttl", ttl, None
+
+    # @cache session
+    m = re.search(r'\s*@cache\s+session', line, re.IGNORECASE)
+    if m:
+        clean = line[:m.start()] + line[m.end():]
+        return clean.rstrip(), "session", None, None
+
+    # @cache persist
+    m = re.search(r'\s*@cache\s+persist\b', line, re.IGNORECASE)
+    if m:
+        clean = line[:m.start()] + line[m.end():]
+        return clean.rstrip(), "persist", None, None
+
+    # @cache mock="..." (with value)
+    m = re.search(r'\s*@cache\s+mock=(".*?"|\'.*?\'|\S+)', line, re.IGNORECASE)
+    if m:
+        raw = m.group(1)
+        if (raw.startswith('"') and raw.endswith('"')) or (raw.startswith("'") and raw.endswith("'")):
+            raw = raw[1:-1]
+        clean = line[:m.start()] + line[m.end():]
+        return clean.rstrip(), "mock", None, raw
+
+    # @cache mock (bare)
+    m = re.search(r'\s*@cache\s+mock\b', line, re.IGNORECASE)
+    if m:
+        clean = line[:m.start()] + line[m.end():]
+        return clean.rstrip(), "mock", None, "(mock — directive skipped)"
+
+    return line, "", None, None
+
+
+def cache_get(key: str, mode: str, ttl: int | None, cfg: dict) -> str | None:
+    """Return cached value or None (miss/expired).
+
+    Modes:
+      - "session" → in-memory (this process only)
+      - "ttl"     → disk cache with explicit ttl seconds
+      - "persist" → disk cache with ttl from cfg["render"]["persist_cache_ttl_s"]
+      - "mock"    → never returns a cached value (handled by caller)
+    """
+    if mode == "session":
+        return _SESSION_CACHE.get(key)
+
+    if mode in {"ttl", "persist"}:
+        effective_ttl = ttl
+        if mode == "persist":
+            effective_ttl = int(cfg.get("render", {}).get("persist_cache_ttl_s", 3600))
+        if effective_ttl is None:
+            return None
+        cache_dir = Path(cfg["render"].get("cache_dir", str(PERSEUS_HOME / "cache")))
+        entry_file = cache_dir / f"{key}.json"
+        if entry_file.exists():
+            try:
+                entry = json.loads(entry_file.read_text())
+                if time.time() < entry.get("expires", 0):
+                    return entry["value"]
+                # expired — remove
+                entry_file.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+    return None
+
+
+def cache_set(key: str, value: str, mode: str, ttl: int | None, cfg: dict) -> None:
+    """Store value in the appropriate cache tier.
+
+    "mock" mode never writes — by design, mock values bypass execution entirely.
+    "persist" writes to the disk cache using cfg["render"]["persist_cache_ttl_s"].
+    """
+    if mode == "session":
+        _SESSION_CACHE[key] = value
+        return
+
+    if mode in {"ttl", "persist"}:
+        effective_ttl = ttl
+        if mode == "persist":
+            effective_ttl = int(cfg.get("render", {}).get("persist_cache_ttl_s", 3600))
+        if effective_ttl is None:
+            return
+        cache_dir = Path(cfg["render"].get("cache_dir", str(PERSEUS_HOME / "cache")))
+        try:
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            entry = {"expires": time.time() + effective_ttl, "value": value}
+            (cache_dir / f"{key}.json").write_text(json.dumps(entry))
+        except Exception:
+            pass  # cache write failure is non-fatal
+
+
+# ──────────────────────────────── Renderer ────────────────────────────────────
+
+PROMPT_BLOCK_RE = re.compile(r'^@prompt\s*$', re.IGNORECASE)
+PROMPT_END_RE = re.compile(r'^@end\s*$', re.IGNORECASE)
+SERVICES_RE = re.compile(r'^@services\s*$', re.IGNORECASE)
+VALIDATE_RE = re.compile(r'^@validate\s+(.+)$', re.IGNORECASE)
+PERCY_HEADER_RE = re.compile(r'^@perseus(?:\s+.*)?$', re.IGNORECASE)
+IF_RE = re.compile(r'^@if\s+(.+)$', re.IGNORECASE)
+ELSE_RE = re.compile(r'^@else\s*$', re.IGNORECASE)
+ENDIF_RE = re.compile(r'^@endif\s*$', re.IGNORECASE)
+CONSTRAINT_RE = re.compile(r'^@constraint\s+(.+)$', re.IGNORECASE)
+CONSTRAINT_END_RE = re.compile(r'^@end\s*$', re.IGNORECASE)
+SYNTHESIZE_BLOCK_RE = re.compile(r'^@synthesize\s*(.*)$', re.IGNORECASE)
+
+# INLINE_DIRECTIVE_RE — built from DIRECTIVE_REGISTRY after all resolvers are
+# defined.  See _bind_registry() + _build_inline_directive_re() call below
+# resolve_drift (the last resolver in the file).
+# Placeholder; actual value set at module-load time.
+INLINE_DIRECTIVE_RE: "re.Pattern[str] | None" = None
+
+
+def _render_lines(
+    lines: list[str],
+    cfg: dict,
+    workspace: Path | None = None,
+    _constraint_rows: list[str] | None = None,
+) -> str:
+    """
+    Core rendering loop. Processes a list of lines (already stripped of the
+    @perseus header) and returns the resolved markdown string.
+
+    This function is called recursively for @if/@else branches.
+
+    _constraint_rows: shared mutable list used to accumulate @constraint rows
+    across the full document so a single table is emitted at the end.
+    """
+    # Top-level call owns the constraint rows list and decides when to flush it
+    top_level = _constraint_rows is None
+    if top_level:
+        _constraint_rows = []
+
+    output = []
+    i = 0
+    in_fence = False
+    fence_char = ""
+    fence_len = 0
+
+    while i < len(lines):
+        line = lines[i]
+
+        fence_match = re.match(r'^\s*(`{3,}|~{3,})(.*)$', line)
+        if in_fence:
+            output.append(line)
+            if re.match(rf'^\s*{re.escape(fence_char)}{{{fence_len},}}\s*$', line):
+                in_fence = False
+                fence_char = ""
+                fence_len = 0
+            i += 1
+            continue
+        if fence_match:
+            marker = fence_match.group(1)
+            in_fence = True
+            fence_char = marker[0]
+            fence_len = len(marker)
+            output.append(line)
+            i += 1
+            continue
+
+        # ── @prompt...@end block ──
+        if PROMPT_BLOCK_RE.match(line):
+            block_lines = []
+            i += 1
+            while i < len(lines) and not PROMPT_END_RE.match(lines[i]):
+                block_lines.append(lines[i])
+                i += 1
+            i += 1  # skip @end
+            output.append(resolve_prompt_block("\n".join(block_lines)))
+            continue
+
+        # ── @constraint id="..." severity="..." block ──
+        m_con = CONSTRAINT_RE.match(line)
+        if m_con:
+            attrs_str = m_con.group(1)
+            con_id = ""
+            con_sev = "info"
+            mid = re.search(r'id=["\']([^"\']+)["\']', attrs_str)
+            if mid:
+                con_id = mid.group(1)
+            msev = re.search(r'severity=["\']([^"\']+)["\']', attrs_str)
+            if msev:
+                con_sev = msev.group(1).upper()
+            # Gather body lines until @end
+            body_lines = []
+            i += 1
+            while i < len(lines) and not CONSTRAINT_END_RE.match(lines[i]):
+                body_lines.append(lines[i].strip())
+                i += 1
+            i += 1  # skip @end
+            rule_text = " ".join(body_lines).strip()
+            _constraint_rows.append(f"| {con_id} | {con_sev} | {rule_text} |")
+            continue
+
+        # ── @validate schema="..." block ──
+        m_validate = VALIDATE_RE.match(line)
+        if m_validate:
+            attrs = _parse_kv_modifiers(m_validate.group(1))
+            schema_ref = attrs.get("schema")
+            if not schema_ref:
+                output.append('> ⚠ @validate: missing schema="..."')
+                i += 1
+                continue
+
+            block_lines = []
+            i += 1
+            explicit_end = False
+            while i < len(lines):
+                if PROMPT_END_RE.match(lines[i]):
+                    explicit_end = True
+                    i += 1
+                    break
+                block_lines.append(lines[i])
+                i += 1
+
+            if not explicit_end:
+                output.append(f"> ⚠ unmatched @validate: missing @end for schema `{schema_ref}`")
+                break
+
+            rendered_block = _render_lines(block_lines, cfg, workspace, _constraint_rows)
+            output.append(resolve_validate_block(rendered_block, schema_ref, cfg, workspace))
+            continue
+
+        # ── @synthesize block (Phase 15C) ──
+        m_syn = SYNTHESIZE_BLOCK_RE.match(line)
+        if m_syn:
+            attrs_str = m_syn.group(1).strip()
+            attrs = _parse_kv_modifiers(attrs_str)
+            # Parse attrs: question="...", source="path1,path2", label="...", consistency_mode
+            question = attrs.get("question", "What is the current project status and next action?")
+            source_attr = attrs.get("source", "")
+            sources_list = [s.strip() for s in source_attr.split(",") if s.strip()] if source_attr else []
+            label = attrs.get("label", "Generated synthesis")
+            consistency_mode = "consistency_mode" in attrs_str.lower().replace("-", "_")
+
+            # Collect body lines until @end (body may also specify question/sources as YAML-like lines)
+            body_lines = []
+            i += 1
+            while i < len(lines) and not PROMPT_END_RE.match(lines[i]):
+                body_lines.append(lines[i])
+                i += 1
+            i += 1  # skip @end
+
+            # Body lines can add sources: one bare path per line
+            for bline in body_lines:
+                stripped = bline.strip()
+                if stripped and not stripped.startswith("#"):
+                    sources_list.append(stripped)
+
+            generation_cfg = cfg.get("generation", {})
+            if not bool(generation_cfg.get("enabled", False)):
+                # Generation disabled — silently emit nothing (resolved render unaffected)
+                continue
+
+            if not sources_list:
+                output.append("> ⚠ @synthesize: no sources specified")
+                continue
+
+            if workspace is None:
+                output.append("> ⚠ @synthesize: workspace not available")
+                continue
+
+            try:
+                synth_result, _code = synthesize_question(
+                    question,
+                    sources_list,
+                    cfg,
+                    workspace,
+                    llm=cfg.get("llm", {}).get("provider") or cfg.get("generation", {}).get("provider"),
+                    model=cfg.get("generation", {}).get("model") or cfg.get("llm", {}).get("model"),
+                    enable_generation=True,
+                    consistency_mode=consistency_mode,
+                )
+            except Exception as exc:
+                # Failure must never affect the resolved render
+                output.append(f"> ⚠ @synthesize: generation error: {exc}")
+                continue
+
+            if synth_result.get("source_errors") or not synth_result.get("generated"):
+                # Model not configured, sources missing, or generation disabled — skip silently
+                err = synth_result.get("error", "")
+                if err and "generation is disabled" not in err:
+                    output.append(f"> ⚠ @synthesize: {err}")
+                continue
+
+            # Render the curated section — plainly labeled, clearly separated from resolved content
+            output.append(f"\n> **{label}** _(generated — not resolver output)_\n")
+            claims = synth_result.get("claims", [])
+            conflicts = synth_result.get("conflicts", [])
+            if not claims and not conflicts:
+                output.append("> _No cited claims survived citation validation._")
+            for idx, claim in enumerate(claims, start=1):
+                output.append(f"> {idx}. {claim['text']}")
+                for citation in claim["citations"]:
+                    label_c = citation["label"]
+                    s = citation["line_start"]
+                    e = citation["line_end"]
+                    ref = f"{s}" if s == e else f"{s}-{e}"
+                    output.append(f">    - {label_c}:{ref} `{citation['quote']}`")
+            if conflicts:
+                output.append("> \n> **Source disagreements:**")
+                for idx, conflict in enumerate(conflicts, start=1):
+                    output.append(f"> {idx}. ⚠ {conflict['description']}")
+                    for ref in conflict["sources"]:
+                        label_c = ref["label"]
+                        s = ref["line_start"]
+                        e = ref["line_end"]
+                        lref = f"{s}" if s == e else f"{s}-{e}"
+                        output.append(f">    - {label_c}:{lref} `{ref['quote']}`")
+            dropped = synth_result.get("dropped_claims", [])
+            dropped_c = synth_result.get("dropped_conflicts", [])
+            if dropped or dropped_c:
+                total = len(dropped) + len(dropped_c)
+                output.append(f"> \n> _{total} uncited item(s) dropped by citation gate._")
+            continue
+
+        # ── @services block ──
+        if SERVICES_RE.match(line):
+            block_lines = []
+            i += 1
+            explicit_end = False
+            while i < len(lines):
+                next_line = lines[i]
+                if PROMPT_END_RE.match(next_line):
+                    explicit_end = True
+                    i += 1
+                    break
+                if next_line.startswith("@") and next_line.strip() != "@":
+                    if block_lines:
+                        break
+                    output.append("> ⚠ @services: empty block")
+                    break
+                block_lines.append(next_line)
+                i += 1
+
+            while block_lines and block_lines[-1].strip() == "":
+                block_lines.pop()
+
+            block_content = "\n".join(block_lines)
+            if not block_content.strip() and explicit_end:
+                output.append("> ⚠ @services: empty block")
+            else:
+                output.append(resolve_services(block_content, cfg))
+            continue
+
+        # ── @if/@else/@endif block ──
+        m_if = IF_RE.match(line)
+        if m_if:
+            condition_str = m_if.group(1).strip()
+            true_lines: list[str] = []
+            false_lines: list[str] = []
+            in_else = False
+            i += 1
+            depth = 1  # track nested @if depth
+            while i < len(lines):
+                inner = lines[i]
+                if IF_RE.match(inner):
+                    depth += 1
+                elif ENDIF_RE.match(inner):
+                    depth -= 1
+                    if depth == 0:
+                        i += 1  # skip @endif
+                        break
+                elif ELSE_RE.match(inner) and depth == 1:
+                    in_else = True
+                    i += 1
+                    continue
+                if in_else:
+                    false_lines.append(inner)
+                else:
+                    true_lines.append(inner)
+                i += 1
+
+            if depth != 0:
+                output.append(f"> ⚠ unmatched @if: missing @endif for `{condition_str}`")
+                break
+
+            # Evaluate condition and render the correct branch
+            try:
+                branch = true_lines if evaluate_condition(condition_str, workspace, cfg) else false_lines
+            except ConditionParseError as exc:
+                output.append(f"> ⚠ @if error: {exc}")
+                continue
+            if branch:
+                output.append(_render_lines(branch, cfg, workspace, _constraint_rows))
+            continue
+
+        # ── inline directives (with optional @cache modifier) ──
+        m = INLINE_DIRECTIVE_RE.match(line)
+        if m:
+            directive = m.group(1).lower()
+            raw_args = (m.group(2) or "").strip()
+
+            # @memory ttl=N → syntactic sugar for @cache ttl=N
+            if directive == "@memory" and "@cache" not in raw_args.lower():
+                m_ttl = re.search(r'\bttl=(\d+)\b', raw_args, re.IGNORECASE)
+                if m_ttl:
+                    raw_args = (raw_args[:m_ttl.start()] + raw_args[m_ttl.end():]).strip()
+                    raw_args = f"{raw_args} @cache ttl={m_ttl.group(1)}".strip()
+
+            # Strip @cache modifier from args; determine cache mode
+            clean_args, cache_mode, cache_ttl, cache_mock = _parse_cache_modifier(raw_args)
+
+            # Build stable cache key from directive + clean args
+            cache_key = _cache_key(f"{directive} {clean_args}")
+
+            # @cache mock — substitute the mock value, bypass execution entirely
+            if cache_mode == "mock":
+                output.append(cache_mock or "(mock — directive skipped)")
+                i += 1
+                continue
+
+            # Check cache first
+            spec = DIRECTIVE_REGISTRY.get(directive)
+            cached = cache_get(cache_key, cache_mode, cache_ttl, cfg)
+            if cached is not None:
+                if spec and spec.kind == "inline":
+                    cached = _apply_output_schema_validation(spec, clean_args, cached, workspace)
+                output.append(cached)
+                i += 1
+                continue
+
+            # Resolve the directive via registry (task-25)
+            if spec and spec.resolver and spec.kind == "inline":
+                result = _call_resolver(spec, clean_args, cfg, workspace)
+                result = _apply_output_schema_validation(spec, clean_args, result, workspace)
+            else:
+                result = line
+
+            # Store in cache if a modifier was specified
+            if cache_mode:
+                cache_set(cache_key, result, cache_mode, cache_ttl, cfg)
+
+            output.append(result)
+            i += 1
+            continue
+
+        # Inline @date substitution within any line
+        if "@date" in line:
+            line = _replace_inline_date_outside_code(line, workspace)
+        output.append(line)
+        i += 1
+
+    # ── Flush constraint table at top-level only ──
+    if top_level and _constraint_rows:
+        header = "| ID | Severity | Rule |\n|---|---|---|"
+        output.append(header + "\n" + "\n".join(_constraint_rows))
+
+    return "\n".join(output)
+
+
+def render_source(
+    source_text: str,
+    cfg: dict,
+    workspace: Path | None = None,
+) -> str:
+    """
+    Parse and resolve a @perseus source document.
+    Returns plain rendered markdown.
+    """
+    lines = source_text.splitlines()
+
+    # Must start with @perseus
+    if not lines or not PERCY_HEADER_RE.match(lines[0]):
+        return source_text  # not a perseus doc; pass through unchanged
+
+    return _render_lines(lines[1:], cfg, workspace)  # skip @perseus header line
+
+
+# ──────────────────────────────── Checkpoint ──────────────────────────────────
+
+def cmd_checkpoint(args, cfg):
+    store = Path(cfg["checkpoints"]["store"])
+    store.mkdir(parents=True, exist_ok=True)
+    max_keep = int(cfg["checkpoints"].get("max_keep", 30))
+    ttl_s = int(cfg["checkpoints"].get("ttl_s", 86400))
+
+    now = datetime.now().astimezone()
+    ts = now.strftime("%Y-%m-%dT%H%M")
+    stale_after = datetime.fromtimestamp(now.timestamp() + ttl_s).astimezone().isoformat()
+
+    cp = {
+        "version": 1,
+        "written": now.isoformat(),
+        "task": args.task,
+        "stale_after": stale_after,
+    }
+    for field in ("status", "next", "workspace", "notes"):
+        val = getattr(args, field, None)
+        if val:
+            cp[field] = val
+
+    outfile = store / f"{ts}.yaml"
+    # avoid collision
+    suffix = 0
+    while outfile.exists():
+        suffix += 1
+        outfile = store / f"{ts}_{suffix}.yaml"
+
+    with open(outfile, "w") as f:
+        yaml.dump(cp, f, default_flow_style=False, allow_unicode=True)
+
+    # Update latest pointer (global)
+    latest = store / "latest.yaml"
+    _update_latest_checkpoint_pointer(latest, outfile)
+
+    # Update per-workspace pointer (task-07)
+    if cp.get("workspace"):
+        try:
+            ws_path = Path(str(cp["workspace"])).expanduser().resolve()
+            ws_hash = _workspace_hash(ws_path)
+            ws_pointer = store / f"latest-{ws_hash}.yaml"
+            # Pointer is always a plain copy (not a symlink) — safer across FS
+            ws_pointer.write_text(outfile.read_text())
+        except Exception as exc:
+            print(f"> ⚠ Could not write per-workspace pointer: {exc}")
+
+    # Prune old checkpoints (filename-based, deterministic — exclude pointer files)
+    all_cps = sorted(
+        [f for f in store.glob("*.yaml")
+         if f.name != "latest.yaml" and not f.name.startswith("latest-")],
+        key=lambda f: f.name,
+        reverse=True,
+    )
+    pruned = set()
+    for old in all_cps[max_keep:]:
+        pruned.add(old.name)
+        old.unlink(missing_ok=True)
+
+    # Clean up workspace pointers that now point to deleted checkpoints (task-07)
+    if pruned:
+        for ptr in store.glob("latest-*.yaml"):
+            try:
+                ptr_cp = yaml.safe_load(ptr.read_text()) or {}
+                ptr_written = str(ptr_cp.get("written", ""))
+                ptr_ws = str(ptr_cp.get("workspace", ""))
+                # If pointer's checkpoint no longer exists, re-point to most recent for that ws
+                surviving = []
+                for f in all_cps[:max_keep]:
+                    f_cp = _load_checkpoint_file(f) or {}
+                    if str(f_cp.get("workspace", "")) == ptr_ws:
+                        surviving.append((f, f_cp.get("written", "")))
+                if surviving:
+                    # Pick most recent (filename-sorted desc, so first survivor wins)
+                    surviving.sort(key=lambda x: x[1], reverse=True)
+                    ptr.write_text(surviving[0][0].read_text())
+                else:
+                    ptr.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+    print(f"✅ Checkpoint written: {outfile}")
+    print(f"   Task:   {cp['task']}")
+    if cp.get("status"):
+        print(f"   Status: {cp['status']}")
+    if cp.get("next"):
+        print(f"   Next:   {cp['next']}")
+
+    # ── Mnēmē auto-update (silent side-effect) ──
+    if bool(cfg.get("memory", {}).get("auto_update", True)):
+        ws_arg = getattr(args, "workspace", "") or ""
+        ws = Path(ws_arg).expanduser().resolve() if ws_arg else Path.cwd().resolve()
+        cmd_memory_update_silent(ws, cfg)
+
+
+def _load_checkpoint_file(fp: Path) -> dict | None:
+    try:
+        return yaml.safe_load(fp.read_text()) or {}
+    except Exception:
+        return None
+
+
+def _list_checkpoint_files(cfg: dict) -> list[Path]:
+    store = Path(cfg["checkpoints"]["store"])
+    if not store.exists():
+        return []
+    return sorted(
+        [f for f in store.glob("*.yaml") if f.name != "latest.yaml" and not f.name.startswith("latest-")],
+        key=lambda f: f.name,
+        reverse=True,
+    )
+
+
+def _normalize_checkpoint(cp: dict) -> dict:
+    out = dict(cp or {})
+    if out.get("workspace"):
+        try:
+            out["workspace"] = str(Path(str(out["workspace"])).resolve())
+        except Exception:
+            pass
+    return out
+
+
+def _human_age(iso_ts: str) -> str:
+    try:
+        dt = datetime.fromisoformat(str(iso_ts))
+        total = int((datetime.now(dt.tzinfo) - dt).total_seconds())
+        hours, rem = divmod(max(total, 0), 3600)
+        minutes, _ = divmod(rem, 60)
+        if hours:
+            return f"{hours}h {minutes}m ago"
+        return f"{minutes}m ago"
+    except Exception:
+        return str(iso_ts)
+
+
+def _resolve_checkpoint_selector(selector: str, files: list[Path]) -> Path | None:
+    if selector.isdigit():
+        idx = int(selector)
+        return files[idx] if 0 <= idx < len(files) else None
+    for fp in files:
+        if fp.name == selector:
+            return fp
+    candidate = Path(selector).expanduser().resolve()
+    return candidate if candidate.exists() else None
+
+
+def diff_checkpoints(old_cp: dict, new_cp: dict) -> str:
+    """Render a human-readable diff between two checkpoints."""
+    old_cp = _normalize_checkpoint(old_cp)
+    new_cp = _normalize_checkpoint(new_cp)
+    changed = []
+    for key in ["task", "status", "next", "workspace"]:
+        if old_cp.get(key, "") != new_cp.get(key, ""):
+            changed.append(f"  {key}:       \"{old_cp.get(key, '')}\"  →  \"{new_cp.get(key, '')}\"")
+
+    old_age = _human_age(old_cp.get("written", "unknown"))
+    new_age = _human_age(new_cp.get("written", "unknown"))
+    if old_cp.get("written") != new_cp.get("written"):
+        changed.append(f"  age:        {old_age}  →  {new_age}")
+
+    notes_old = str(old_cp.get("notes", "")).strip()
+    notes_new = str(new_cp.get("notes", "")).strip()
+    if notes_old != notes_new:
+        changed.append("")
+        changed.append("  notes:")
+        changed.append(f"  - BEFORE: {notes_old or '(empty)'}")
+        changed.append(f"  + AFTER:  {notes_new or '(empty)'}")
+
+    if not changed:
+        return "No changes between checkpoints."
+
+    if old_cp.get("workspace") and old_cp.get("workspace") == new_cp.get("workspace"):
+        workspace_line = f"Workspace: {old_cp.get('workspace')} (matched both)"
+    elif old_cp.get("workspace") or new_cp.get("workspace"):
+        workspace_line = f"Workspace: {old_cp.get('workspace', '(none)')} → {new_cp.get('workspace', '(none)')}"
+    else:
+        workspace_line = "Workspace: (none)"
+
+    return (
+        f"Checkpoint diff: {old_cp.get('written', '(unknown)')} → {new_cp.get('written', '(unknown)')}\n"
+        f"{workspace_line}\n\n"
+        + "\n".join(changed)
+    )
+
+
+def cmd_diff(args, cfg):
+    """Compare two checkpoints or the most recent pair."""
+    a_sel = getattr(args, "a", None)
+    b_sel = getattr(args, "b", None)
+    old_arg = getattr(args, "old", None)
+    new_arg = getattr(args, "new", None)
+
+    if old_arg and new_arg:
+        old_fp = Path(old_arg).expanduser().resolve()
+        new_fp = Path(new_arg).expanduser().resolve()
+    else:
+        store = Path(cfg["checkpoints"]["store"])
+        if not store.exists():
+            print("No checkpoint store found.")
+            return
+
+        files = _list_checkpoint_files(cfg)
+        target_ws = getattr(args, "workspace", None)
+        if target_ws:
+            target_ws = str(Path(target_ws).resolve())
+            filtered = []
+            for fp in files:
+                cp = _load_checkpoint_file(fp)
+                cp_ws = str(Path(cp.get("workspace", "")).resolve()) if cp and cp.get("workspace") else ""
+                if cp_ws == target_ws:
+                    filtered.append(fp)
+            files = filtered
+
+        if a_sel is not None and b_sel is not None:
+            old_fp = _resolve_checkpoint_selector(str(a_sel), files)
+            new_fp = _resolve_checkpoint_selector(str(b_sel), files)
+        else:
+            if len(files) < 2:
+                print("Need at least two checkpoints to diff.")
+                return
+            new_fp = files[0]
+            old_fp = files[1]
+
+    if not old_fp or not new_fp:
+        print("Could not resolve one or both checkpoints for diff.")
+        return
+
+    old_cp = _load_checkpoint_file(old_fp)
+    new_cp = _load_checkpoint_file(new_fp)
+    if not old_cp or not new_cp:
+        print("Could not load one or both checkpoints for diff.")
+        return
+
+    print(diff_checkpoints(old_cp, new_cp))
+
+
+def cmd_recover(args, cfg):
+    """
+    Smart recover: if --workspace is given, prefer checkpoints whose
+    'workspace' field matches and are within TTL. Falls back to the most
+    recent checkpoint with a workspace-match warning, then to any checkpoint.
+
+    Fast path (task-07): when --workspace is supplied and a
+    ``latest-<workspace-hash>.yaml`` pointer exists, load it directly
+    instead of scanning the entire store.
+    """
+    store = Path(cfg["checkpoints"]["store"])
+    ttl_s = int(cfg["checkpoints"].get("ttl_s", 86400))
+    target_ws = getattr(args, "workspace", None) or os.getcwd()
+    target_ws_path = Path(target_ws).expanduser().resolve()
+    target_ws = str(target_ws_path)
+
+    if not store.exists():
+        print(f"No checkpoint store found at {store}. Run `perseus checkpoint` first.")
+        return
+
+    # Fast path — per-workspace pointer
+    ws_hash = _workspace_hash(target_ws_path)
+    ws_pointer = store / f"latest-{ws_hash}.yaml"
+    if ws_pointer.exists():
+        cp = _load_checkpoint_file(ws_pointer)
+        if cp:
+            written = cp.get("written", "")
+            try:
+                dt = datetime.fromisoformat(str(written))
+                age = int((datetime.now(dt.tzinfo) - dt).total_seconds())
+            except Exception:
+                age = None
+            fresh = age is not None and age <= ttl_s
+            label = (
+                f"workspace pointer, {age}s ago" if fresh
+                else f"workspace pointer, outside TTL — written {written}"
+            )
+            print(f"# Checkpoint ({label})\n")
+            print(yaml.dump(cp, default_flow_style=False, allow_unicode=True))
+            return
+
+    all_files = _list_checkpoint_files(cfg)
+
+    # Phase 1: workspace match + within TTL
+    for fp in all_files:
+        cp = _load_checkpoint_file(fp)
+        if not cp:
+            continue
+        cp_ws = str(Path(cp.get("workspace", "")).resolve()) if cp.get("workspace") else ""
+        if cp_ws != target_ws:
+            continue
+        written = cp.get("written", "")
+        stale_after = cp.get("stale_after", "")
+        if written:
+            try:
+                dt = datetime.fromisoformat(str(written))
+                age = (datetime.now(dt.tzinfo) - dt).total_seconds()
+                fresh = age <= ttl_s
+                if stale_after:
+                    try:
+                        fresh = datetime.now().astimezone() <= datetime.fromisoformat(str(stale_after))
+                    except Exception:
+                        pass
+                if fresh:
+                    print(f"# Checkpoint (workspace match, {int(age)}s ago)\n")
+                    print(yaml.dump(cp, default_flow_style=False, allow_unicode=True))
+                    return
+            except Exception:
+                pass
+
+    # Phase 2: workspace match (any age)
+    for fp in all_files:
+        cp = _load_checkpoint_file(fp)
+        if not cp:
+            continue
+        cp_ws = str(Path(cp.get("workspace", "")).resolve()) if cp.get("workspace") else ""
+        if cp_ws == target_ws:
+            written = cp.get("written", "unknown")
+            print(f"# Checkpoint (workspace match, outside TTL — written {written})\n")
+            print(yaml.dump(cp, default_flow_style=False, allow_unicode=True))
+            return
+
+    # Phase 3: most recent checkpoint regardless of workspace
+    cp = load_latest_checkpoint(cfg)
+    if not cp:
+        print("No checkpoint found.")
+        return
+    cp_ws = cp.get("workspace", "(no workspace recorded)")
+    print(f"# Checkpoint (no workspace match — checkpoint workspace: {cp_ws})\n")
+    print(yaml.dump(cp, default_flow_style=False, allow_unicode=True))
+
+
 # ─────────────────────────────── Mnēmē Memory ────────────────────────────────
 #
 # Mnēmē — narrative project memory. Distills checkpoints + Pythia log into a
@@ -4090,431 +4428,6 @@ def _deterministic_narrative(
         patterns_section,
         recent_section,
     ]).rstrip() + "\n"
-
-
-# ── LLM-assisted paths (opt-in) ───────────────────────────────────────────────
-
-def _truncate_pythia_for_llm(entries: list[dict]) -> list[dict]:
-    return [
-        {"task": e.get("task"), "accepted": e.get("accepted"), "timestamp": e.get("timestamp")}
-        for e in entries
-    ]
-
-
-def _mneme_update_llm(
-    existing_body: str,
-    frontmatter: dict,
-    new_checkpoints: list[dict],
-    new_pythia_entries: list[dict],
-    cfg: dict,
-    provider: str,
-) -> str:
-    """LLM-assisted incremental update. Returns updated narrative body."""
-    recent_keep = int(cfg.get("memory", {}).get("recent_keep", 5))
-    truncated = _truncate_pythia_for_llm(new_pythia_entries)
-    cp_yaml = yaml.safe_dump(new_checkpoints, default_flow_style=False, allow_unicode=True, sort_keys=False)
-    oc_json = json.dumps(truncated, ensure_ascii=False, indent=2)
-    body_block = existing_body if existing_body.strip() else "(none — initialize from scratch)"
-    prompt = (
-        "You are Mnēmē, the keeper of project narrative for an AI development workflow.\n\n"
-        "Your job: update a structured project narrative by incorporating new activity.\n"
-        "Preserve all existing content unless it directly contradicts new information.\n"
-        "Do not invent content. Do not pad. Be terse and factual.\n\n"
-        f"EXISTING NARRATIVE:\n{body_block}\n\n"
-        f"NEW CHECKPOINTS ({len(new_checkpoints)} since last update):\n{cp_yaml}\n\n"
-        f"NEW PYTHIA LOG ENTRIES ({len(new_pythia_entries)} since last update):\n{oc_json}\n\n"
-        "INSTRUCTIONS:\n"
-        "- Update the \"Project Arc\" section if the recent work represents a significant milestone\n"
-        "- Add new entries to \"Key Decisions\" if checkpoint notes contain decision language\n"
-        "- Update \"Task History\" table with any newly completed tasks\n"
-        "- Update \"Patterns & Anti-patterns\" based on accepted Pythia entries\n"
-        f"- Rewrite \"Recent Activity\" with the {recent_keep} most recent checkpoints\n"
-        "- Return ONLY the updated markdown body. No preamble. No commentary. Start with \"## Project Arc\".\n"
-    )
-    model = cfg.get("memory", {}).get("llm_model") or cfg.get("llm", {}).get("model")
-    text, code = run_llm(provider, prompt, cfg, model=model)
-    if code != 0:
-        raise RuntimeError(text)
-    return text
-
-
-def _mneme_compact_llm(
-    all_checkpoints: list[dict],
-    all_pythia_entries: list[dict],
-    workspace: Path,
-    cfg: dict,
-    provider: str,
-) -> str:
-    """LLM-assisted full compaction. Returns rebuilt narrative body."""
-    recent_keep = int(cfg.get("memory", {}).get("recent_keep", 5))
-    truncated = _truncate_pythia_for_llm(all_pythia_entries)
-    cp_yaml = yaml.safe_dump(all_checkpoints, default_flow_style=False, allow_unicode=True, sort_keys=False)
-    oc_json = json.dumps(truncated, ensure_ascii=False, indent=2)
-    prompt = (
-        "You are Mnēmē, the keeper of project narrative for an AI development workflow.\n\n"
-        f"Your job: build a structured project narrative from scratch for workspace {workspace}.\n"
-        "Do not invent content. Do not pad. Be terse and factual.\n\n"
-        f"ALL CHECKPOINTS ({len(all_checkpoints)}):\n{cp_yaml}\n\n"
-        f"ALL PYTHIA LOG ENTRIES ({len(all_pythia_entries)}):\n{oc_json}\n\n"
-        "INSTRUCTIONS:\n"
-        "- Produce the sections: Project Arc, Key Decisions, Task History, "
-        "Patterns & Anti-patterns, Recent Activity\n"
-        f"- Recent Activity should contain the {recent_keep} most recent checkpoints verbatim\n"
-        "- Return ONLY the markdown body. No preamble. No commentary. Start with \"## Project Arc\".\n"
-    )
-    model = cfg.get("memory", {}).get("llm_model") or cfg.get("llm", {}).get("model")
-    text, code = run_llm(provider, prompt, cfg, model=model)
-    if code != 0:
-        raise RuntimeError(text)
-    return text
-
-
-# ── Command dispatch ──────────────────────────────────────────────────────────
-
-def _memory_workspace(args, cfg) -> Path:
-    raw = getattr(args, "workspace", None)
-    if raw:
-        return Path(raw).expanduser().resolve()
-    return Path.cwd().resolve()
-
-
-def _memory_llm_provider(args, cfg) -> str | None:
-    """Resolve effective llm provider for this call. None == deterministic."""
-    flag = getattr(args, "llm", None)
-    if flag:
-        return str(flag).strip().lower() or None
-    cfg_provider = cfg.get("memory", {}).get("llm_provider")
-    if cfg_provider:
-        return str(cfg_provider).strip().lower() or None
-    return None
-
-
-def _memory_do_update(workspace: Path, cfg: dict, provider: str | None) -> tuple[bool, str]:
-    """Core incremental update routine.
-
-    Returns (changed, message). On `changed=False`, message is "Nothing new...".
-    On error, raises.
-    """
-    cp_files = _list_checkpoint_files(cfg)
-    # _list_checkpoint_files returns reverse-chrono; sort filename-asc for hwm
-    cp_files = sorted(cp_files, key=lambda f: f.name)
-    all_checkpoints: list[dict] = []
-    for fp in cp_files:
-        cp = _load_checkpoint_file(fp)
-        if cp:
-            all_checkpoints.append(cp)
-    all_pythia = _read_all_pythia_entries()
-
-    mp = _mneme_path(workspace, cfg)
-    fm, body = _load_narrative(mp)
-    if not fm:
-        fm = _mneme_default_frontmatter(workspace)
-        body = ""
-
-    cp_hwm = int(fm.get("checkpoints_processed", 0))
-    py_hwm = _mneme_pythia_hwm(fm)
-    new_cp = all_checkpoints[cp_hwm:]
-    new_py = all_pythia[py_hwm:]
-
-    # No new data and we already have a body? Nothing to do.
-    if not new_cp and not new_py and body.strip():
-        return (False, "Nothing new since last update.")
-
-    if provider:
-        new_body = _mneme_update_llm(body, fm, new_cp, new_py, cfg, provider)
-    else:
-        new_body = _deterministic_narrative(all_checkpoints, all_pythia, body, workspace, cfg)
-
-    fm["checkpoints_processed"] = len(all_checkpoints)
-    _set_mneme_pythia_hwm(fm, len(all_pythia))
-    fm["updated"] = datetime.now().astimezone().isoformat(timespec="seconds")
-    fm["workspace"] = str(workspace)
-    fm["workspace_hash"] = _workspace_hash(workspace)
-    fm.setdefault("schema", 1)
-    fm.setdefault("compaction_count", 0)
-    fm.setdefault("last_compaction_at_update", 0)
-
-    _save_narrative(mp, fm, new_body)
-    return (True, f"Updated {mp} (+{len(new_cp)} checkpoints, +{len(new_py)} Pythia entries)")
-
-
-def _memory_do_compact(workspace: Path, cfg: dict, provider: str | None) -> str:
-    cp_files = sorted(_list_checkpoint_files(cfg), key=lambda f: f.name)
-    all_checkpoints: list[dict] = []
-    for fp in cp_files:
-        cp = _load_checkpoint_file(fp)
-        if cp:
-            all_checkpoints.append(cp)
-    all_pythia = _read_all_pythia_entries()
-
-    mp = _mneme_path(workspace, cfg)
-    fm, _ = _load_narrative(mp)
-    if not fm:
-        fm = _mneme_default_frontmatter(workspace)
-
-    if provider:
-        new_body = _mneme_compact_llm(all_checkpoints, all_pythia, workspace, cfg, provider)
-    else:
-        new_body = _deterministic_narrative(all_checkpoints, all_pythia, "", workspace, cfg)
-
-    fm["checkpoints_processed"] = len(all_checkpoints)
-    _set_mneme_pythia_hwm(fm, len(all_pythia))
-    fm["compaction_count"] = int(fm.get("compaction_count", 0)) + 1
-    fm["last_compaction_at_update"] = fm["compaction_count"]
-    fm["updated"] = datetime.now().astimezone().isoformat(timespec="seconds")
-    fm["workspace"] = str(workspace)
-    fm["workspace_hash"] = _workspace_hash(workspace)
-    fm.setdefault("schema", 1)
-
-    _save_narrative(mp, fm, new_body)
-    return f"Compacted {mp} ({len(all_checkpoints)} checkpoints, {len(all_pythia)} Pythia entries)"
-
-
-def cmd_memory_update_silent(workspace: Path, cfg: dict) -> None:
-    """Silent side-effect for cmd_checkpoint. Never raises."""
-    try:
-        provider = None
-        cfg_provider = cfg.get("memory", {}).get("llm_provider")
-        if cfg_provider:
-            provider = str(cfg_provider).strip().lower() or None
-        _memory_do_update(workspace, cfg, provider)
-    except Exception as exc:
-        print(f"> ⚠ Mnēmē update failed: {exc}")
-
-
-def cmd_memory(args, cfg):
-    sub = getattr(args, "memory_command", None)
-    workspace = _memory_workspace(args, cfg)
-
-    if sub == "update":
-        provider = _memory_llm_provider(args, cfg)
-        changed, msg = _memory_do_update(workspace, cfg, provider)
-        print(msg)
-        if changed:
-            mp = _mneme_path(workspace, cfg)
-            fm, body = _load_narrative(mp)
-            threshold = int(cfg.get("memory", {}).get("compact_threshold", 20))
-            cp_processed = int(fm.get("checkpoints_processed", 0))
-            # Note: `last_compaction_at_update` tracks the absolute compaction count at
-            # last status check (frontmatter key written by _memory_do_compact). It is
-            # not used here; we measure growth against `last_compact_processed` which is
-            # the per-checkpoint watermark. The dead `* 0` slot was removed 2026-05-18
-            # per code review.
-            updates_since = cp_processed - int(fm.get("last_compact_processed", 0))
-            # Advisory based on uncompacted growth
-            if threshold and updates_since >= threshold:
-                print(
-                    f"> 💡 Narrative has {updates_since} incremental updates since last compaction. "
-                    "Consider running `perseus memory compact`."
-                )
-            max_lines = int(cfg.get("memory", {}).get("max_narrative_lines", 300))
-            line_count = body.count("\n") + (1 if body and not body.endswith("\n") else 0)
-            if max_lines and line_count > max_lines:
-                print(f"> ⚠ Narrative is {line_count} lines (max={max_lines}); compact recommended.")
-        return
-
-    if sub == "compact":
-        provider = _memory_llm_provider(args, cfg)
-        # task-21: per-invocation override for pattern_extractor
-        pe_override = getattr(args, "pattern_extractor", None)
-        if pe_override:
-            cfg = copy.deepcopy(cfg)
-            cfg.setdefault("memory", {})["pattern_extractor"] = pe_override
-        msg = _memory_do_compact(workspace, cfg, provider)
-        # Record last_compact_processed so future advisory math works
-        mp = _mneme_path(workspace, cfg)
-        fm, body = _load_narrative(mp)
-        fm["last_compact_processed"] = int(fm.get("checkpoints_processed", 0))
-        _save_narrative(mp, fm, body)
-        print(msg)
-        return
-
-    if sub == "show":
-        mp = _mneme_path(workspace, cfg)
-        if not mp.exists():
-            print(f"> ⚠ No Mnēmē narrative found for {workspace}.")
-            print("> Run `perseus memory update` to initialize.")
-            return
-        print(mp.read_text(encoding="utf-8"))
-        return
-
-    if sub == "status":
-        mp = _mneme_path(workspace, cfg)
-        use_json = getattr(args, "json", False)
-        if not mp.exists():
-            if use_json:
-                import json as _json
-                print(_json.dumps({"workspace": str(workspace), "exists": False}, indent=2))
-            else:
-                print(f"Mnēmē — {workspace}")
-                print("  No narrative file yet. Run `perseus memory update` to initialize.")
-            return
-        fm, body = _load_narrative(mp)
-        all_cp = _list_checkpoint_files(cfg)
-        all_py = _read_all_pythia_entries()
-        cp_hwm = int(fm.get("checkpoints_processed", 0))
-        py_hwm = _mneme_pythia_hwm(fm)
-        cp_pending = max(0, len(all_cp) - cp_hwm)
-        py_pending = max(0, len(all_py) - py_hwm)
-        line_count = body.count("\n") + (1 if body and not body.endswith("\n") else 0)
-        mode = "LLM (" + str(cfg.get("memory", {}).get("llm_provider")) + ")" if cfg.get("memory", {}).get("llm_provider") else "deterministic"
-        updated = fm.get("updated", "(unknown)")
-        age = _human_age(updated) if isinstance(updated, str) else "(unknown)"
-        if use_json:
-            import json as _json
-            output = {
-                "workspace": str(workspace),
-                "exists": True,
-                "updated": str(updated),
-                "checkpoints_processed": cp_hwm,
-                "checkpoints_pending": cp_pending,
-                "pythia_entries_processed": py_hwm,
-                "pythia_entries_pending": py_pending,
-                "compaction_count": int(fm.get("compaction_count", 0)),
-                "line_count": line_count,
-                "mode": mode,
-                "frontmatter": {k: str(v) if not isinstance(v, (int, float, bool, type(None))) else v for k, v in fm.items()},
-            }
-            print(_json.dumps(output, indent=2))
-        else:
-            print(f"Mnēmē — {workspace}")
-            print(f"  Updated:     {updated} ({age})")
-            print(f"  Checkpoints: {cp_hwm} processed ({cp_pending} pending)")
-            print(f"  Pythia log:  {py_hwm} entries processed ({py_pending} pending)")
-            print(f"  Compactions: {fm.get('compaction_count', 0)}")
-            print(f"  Size:        {line_count} lines")
-            print(f"  Mode:        {mode}")
-        if not use_json and mode == "deterministic":
-            print("               (set memory.llm_provider to enable LLM distillation)")
-        return
-
-    if sub == "query":
-        question = getattr(args, "question", "") or ""
-        mp = _mneme_path(workspace, cfg)
-        if not mp.exists():
-            print(f"> ⚠ No Mnēmē narrative found for {workspace}.")
-            print("> Run `perseus memory update` to initialize.")
-            return
-        fm, body = _load_narrative(mp)
-        provider = _memory_llm_provider(args, cfg)
-        if provider:
-            prompt = (
-                "You are Mnēmē. Answer the user's question about this project, citing "
-                "only the narrative below. If the narrative does not contain the answer, "
-                "say so plainly.\n\n"
-                f"NARRATIVE:\n{body}\n\nQUESTION: {question}\n"
-            )
-            model = cfg.get("memory", {}).get("llm_model") or cfg.get("llm", {}).get("model")
-            text, code = run_llm(provider, prompt, cfg, model=model)
-            print(text if code == 0 else f"> ⚠ Mnēmē query (LLM) failed: {text}")
-            return
-        # Deterministic grep-style search
-        terms = [t for t in re.split(r'\s+', question.strip()) if t]
-        matches: list[str] = []
-        sections = re.split(r'(?m)^(?=##\s+)', body)
-        for sec in sections:
-            sec_lower = sec.lower()
-            if all(t.lower() in sec_lower for t in terms) if terms else True:
-                matches.append(sec.strip())
-        if not matches:
-            print("> No matching sections in narrative.")
-            return
-        for m_text in matches:
-            print(m_text)
-            print()
-        return
-
-    if sub == "federation":
-        cmd_memory_federation(args, cfg)
-        return
-
-    print(f"> ⚠ Unknown memory subcommand: {sub}")
-
-
-def resolve_memory(args_str: str, cfg: dict, workspace: Path | None = None) -> str:
-    """Render the @memory directive.
-
-    Args:
-      focus="decisions|recent|patterns|arc" → emit only the named section
-      ttl=N → sugar for @cache ttl=N (caller handles by pre-rewriting)
-
-    task-19 (Phase 8.2): subcommand `federation` renders the cross-workspace
-    digest instead of (or in addition to, with `include_federation=true`)
-    the local narrative:
-      @memory federation                  → all enabled subs as digest
-      @memory federation alias=hermes     → that single sub only
-      @memory include_federation=true     → local narrative + federated digest
-    Plain `@memory` stays local-only forever (Q3 decision).
-    """
-    ws = workspace or Path.cwd()
-    args_stripped = args_str.strip()
-
-    # task-19: explicit federation subcommand
-    # Match `federation` as a bare leading token (case-insensitive)
-    fed_match = re.match(r'^federation\b\s*(.*)$', args_stripped, re.IGNORECASE)
-    if fed_match:
-        fed_args = fed_match.group(1).strip()
-        fed_mods = _parse_kv_modifiers(fed_args)
-        alias_filter = fed_mods.get("alias")
-        return _render_federation_digest(cfg, alias_filter)
-
-    mods = _parse_kv_modifiers(args_str)
-    focus = (mods.get("focus") or "").strip().lower()
-    include_fed = str(mods.get("include_federation", "")).strip().lower() in {"true", "1", "yes"}
-
-    def _maybe_append_federation(local_text: str) -> str:
-        if not include_fed:
-            return local_text
-        digest = _render_federation_digest(cfg)
-        return f"{local_text}\n\n---\n\n## Federated Context\n\n{digest}"
-
-    mp = _mneme_path(ws, cfg)
-    if not mp.exists():
-        return _maybe_append_federation(
-            "> ⚠ No Mnēmē narrative found for this workspace.\n"
-            "> Run `perseus memory update` to initialize."
-        )
-
-    fm, body = _load_narrative(mp)
-
-    # Staleness check (uses checkpoints.ttl_s as the cadence reference)
-    ttl_s = int(cfg.get("checkpoints", {}).get("ttl_s", 86400))
-    updated = str(fm.get("updated", ""))
-    try:
-        dt = datetime.fromisoformat(updated)
-        age_s = (datetime.now(dt.tzinfo) - dt).total_seconds()
-        if age_s > ttl_s:
-            age_h = _human_age(updated)
-            return _maybe_append_federation(
-                f"> ⚠ Mnēmē narrative is stale (last updated {age_h}).\n"
-                "> Run `perseus memory update` to refresh."
-            )
-    except Exception:
-        pass
-
-    if not focus:
-        return _maybe_append_federation(body.rstrip())
-
-    focus_map = {
-        "decisions": "Key Decisions",
-        "recent": "Recent Activity",
-        "patterns": "Patterns & Anti-patterns",
-        "arc": "Project Arc",
-        "tasks": "Task History",
-        "history": "Task History",
-    }
-    heading = focus_map.get(focus)
-    if not heading:
-        return _maybe_append_federation(
-            f"> ⚠ Unknown @memory focus={focus!r}. Valid: {', '.join(sorted(focus_map.keys()))}"
-        )
-    section = _extract_section(body, heading)
-    if not section.strip():
-        return _maybe_append_federation(
-            f"> ⚠ @memory focus={focus!r}: section not found in narrative."
-        )
-    return _maybe_append_federation(section.rstrip())
-
 
 
 # ───────────────────────── Mnēmē Federation (task-19) ────────────────────────
@@ -5046,334 +4959,1615 @@ def resolve_inbox(args_str: str, cfg: dict, workspace: Path | None = None) -> st
     return "\n".join(lines)
 
 
-# ──────────────────────────────── Checkpoint ──────────────────────────────────
+# ── Command dispatch ──────────────────────────────────────────────────────────
 
-def cmd_checkpoint(args, cfg):
-    store = Path(cfg["checkpoints"]["store"])
-    store.mkdir(parents=True, exist_ok=True)
-    max_keep = int(cfg["checkpoints"].get("max_keep", 30))
-    ttl_s = int(cfg["checkpoints"].get("ttl_s", 86400))
-
-    now = datetime.now().astimezone()
-    ts = now.strftime("%Y-%m-%dT%H%M")
-    stale_after = datetime.fromtimestamp(now.timestamp() + ttl_s).astimezone().isoformat()
-
-    cp = {
-        "version": 1,
-        "written": now.isoformat(),
-        "task": args.task,
-        "stale_after": stale_after,
-    }
-    for field in ("status", "next", "workspace", "notes"):
-        val = getattr(args, field, None)
-        if val:
-            cp[field] = val
-
-    outfile = store / f"{ts}.yaml"
-    # avoid collision
-    suffix = 0
-    while outfile.exists():
-        suffix += 1
-        outfile = store / f"{ts}_{suffix}.yaml"
-
-    with open(outfile, "w") as f:
-        yaml.dump(cp, f, default_flow_style=False, allow_unicode=True)
-
-    # Update latest pointer (global)
-    latest = store / "latest.yaml"
-    _update_latest_checkpoint_pointer(latest, outfile)
-
-    # Update per-workspace pointer (task-07)
-    if cp.get("workspace"):
-        try:
-            ws_path = Path(str(cp["workspace"])).expanduser().resolve()
-            ws_hash = _workspace_hash(ws_path)
-            ws_pointer = store / f"latest-{ws_hash}.yaml"
-            # Pointer is always a plain copy (not a symlink) — safer across FS
-            ws_pointer.write_text(outfile.read_text())
-        except Exception as exc:
-            print(f"> ⚠ Could not write per-workspace pointer: {exc}")
-
-    # Prune old checkpoints (filename-based, deterministic — exclude pointer files)
-    all_cps = sorted(
-        [f for f in store.glob("*.yaml")
-         if f.name != "latest.yaml" and not f.name.startswith("latest-")],
-        key=lambda f: f.name,
-        reverse=True,
-    )
-    pruned = set()
-    for old in all_cps[max_keep:]:
-        pruned.add(old.name)
-        old.unlink(missing_ok=True)
-
-    # Clean up workspace pointers that now point to deleted checkpoints (task-07)
-    if pruned:
-        for ptr in store.glob("latest-*.yaml"):
-            try:
-                ptr_cp = yaml.safe_load(ptr.read_text()) or {}
-                ptr_written = str(ptr_cp.get("written", ""))
-                ptr_ws = str(ptr_cp.get("workspace", ""))
-                # If pointer's checkpoint no longer exists, re-point to most recent for that ws
-                surviving = []
-                for f in all_cps[:max_keep]:
-                    f_cp = _load_checkpoint_file(f) or {}
-                    if str(f_cp.get("workspace", "")) == ptr_ws:
-                        surviving.append((f, f_cp.get("written", "")))
-                if surviving:
-                    # Pick most recent (filename-sorted desc, so first survivor wins)
-                    surviving.sort(key=lambda x: x[1], reverse=True)
-                    ptr.write_text(surviving[0][0].read_text())
-                else:
-                    ptr.unlink(missing_ok=True)
-            except Exception:
-                pass
-
-    print(f"✅ Checkpoint written: {outfile}")
-    print(f"   Task:   {cp['task']}")
-    if cp.get("status"):
-        print(f"   Status: {cp['status']}")
-    if cp.get("next"):
-        print(f"   Next:   {cp['next']}")
-
-    # ── Mnēmē auto-update (silent side-effect) ──
-    if bool(cfg.get("memory", {}).get("auto_update", True)):
-        ws_arg = getattr(args, "workspace", "") or ""
-        ws = Path(ws_arg).expanduser().resolve() if ws_arg else Path.cwd().resolve()
-        cmd_memory_update_silent(ws, cfg)
+def _memory_workspace(args, cfg) -> Path:
+    raw = getattr(args, "workspace", None)
+    if raw:
+        return Path(raw).expanduser().resolve()
+    return Path.cwd().resolve()
 
 
-def _load_checkpoint_file(fp: Path) -> dict | None:
+def _memory_llm_provider(args, cfg) -> str | None:
+    """Resolve effective llm provider for this call. None == deterministic."""
+    flag = getattr(args, "llm", None)
+    if flag:
+        return str(flag).strip().lower() or None
+    cfg_provider = cfg.get("memory", {}).get("llm_provider")
+    if cfg_provider:
+        return str(cfg_provider).strip().lower() or None
+    return None
+
+
+def _memory_do_update(workspace: Path, cfg: dict, provider: str | None) -> tuple[bool, str]:
+    """Core incremental update routine.
+
+    Returns (changed, message). On `changed=False`, message is "Nothing new...".
+    On error, raises.
+    """
+    cp_files = _list_checkpoint_files(cfg)
+    # _list_checkpoint_files returns reverse-chrono; sort filename-asc for hwm
+    cp_files = sorted(cp_files, key=lambda f: f.name)
+    all_checkpoints: list[dict] = []
+    for fp in cp_files:
+        cp = _load_checkpoint_file(fp)
+        if cp:
+            all_checkpoints.append(cp)
+    all_pythia = _read_all_pythia_entries()
+
+    mp = _mneme_path(workspace, cfg)
+    fm, body = _load_narrative(mp)
+    if not fm:
+        fm = _mneme_default_frontmatter(workspace)
+        body = ""
+
+    cp_hwm = int(fm.get("checkpoints_processed", 0))
+    py_hwm = _mneme_pythia_hwm(fm)
+    new_cp = all_checkpoints[cp_hwm:]
+    new_py = all_pythia[py_hwm:]
+
+    # No new data and we already have a body? Nothing to do.
+    if not new_cp and not new_py and body.strip():
+        return (False, "Nothing new since last update.")
+
+    if provider:
+        new_body = _mneme_update_llm(body, fm, new_cp, new_py, cfg, provider)
+    else:
+        new_body = _deterministic_narrative(all_checkpoints, all_pythia, body, workspace, cfg)
+
+    fm["checkpoints_processed"] = len(all_checkpoints)
+    _set_mneme_pythia_hwm(fm, len(all_pythia))
+    fm["updated"] = datetime.now().astimezone().isoformat(timespec="seconds")
+    fm["workspace"] = str(workspace)
+    fm["workspace_hash"] = _workspace_hash(workspace)
+    fm.setdefault("schema", 1)
+    fm.setdefault("compaction_count", 0)
+    fm.setdefault("last_compaction_at_update", 0)
+
+    _save_narrative(mp, fm, new_body)
+    return (True, f"Updated {mp} (+{len(new_cp)} checkpoints, +{len(new_py)} Pythia entries)")
+
+
+def _memory_do_compact(workspace: Path, cfg: dict, provider: str | None) -> str:
+    cp_files = sorted(_list_checkpoint_files(cfg), key=lambda f: f.name)
+    all_checkpoints: list[dict] = []
+    for fp in cp_files:
+        cp = _load_checkpoint_file(fp)
+        if cp:
+            all_checkpoints.append(cp)
+    all_pythia = _read_all_pythia_entries()
+
+    mp = _mneme_path(workspace, cfg)
+    fm, _ = _load_narrative(mp)
+    if not fm:
+        fm = _mneme_default_frontmatter(workspace)
+
+    if provider:
+        new_body = _mneme_compact_llm(all_checkpoints, all_pythia, workspace, cfg, provider)
+    else:
+        new_body = _deterministic_narrative(all_checkpoints, all_pythia, "", workspace, cfg)
+
+    fm["checkpoints_processed"] = len(all_checkpoints)
+    _set_mneme_pythia_hwm(fm, len(all_pythia))
+    fm["compaction_count"] = int(fm.get("compaction_count", 0)) + 1
+    fm["last_compaction_at_update"] = fm["compaction_count"]
+    fm["updated"] = datetime.now().astimezone().isoformat(timespec="seconds")
+    fm["workspace"] = str(workspace)
+    fm["workspace_hash"] = _workspace_hash(workspace)
+    fm.setdefault("schema", 1)
+
+    _save_narrative(mp, fm, new_body)
+    return f"Compacted {mp} ({len(all_checkpoints)} checkpoints, {len(all_pythia)} Pythia entries)"
+
+
+def cmd_memory_update_silent(workspace: Path, cfg: dict) -> None:
+    """Silent side-effect for cmd_checkpoint. Never raises."""
     try:
-        return yaml.safe_load(fp.read_text()) or {}
+        provider = None
+        cfg_provider = cfg.get("memory", {}).get("llm_provider")
+        if cfg_provider:
+            provider = str(cfg_provider).strip().lower() or None
+        _memory_do_update(workspace, cfg, provider)
+    except Exception as exc:
+        print(f"> ⚠ Mnēmē update failed: {exc}")
+
+
+def cmd_memory(args, cfg):
+    sub = getattr(args, "memory_command", None)
+    workspace = _memory_workspace(args, cfg)
+
+    if sub == "update":
+        provider = _memory_llm_provider(args, cfg)
+        changed, msg = _memory_do_update(workspace, cfg, provider)
+        print(msg)
+        if changed:
+            mp = _mneme_path(workspace, cfg)
+            fm, body = _load_narrative(mp)
+            threshold = int(cfg.get("memory", {}).get("compact_threshold", 20))
+            cp_processed = int(fm.get("checkpoints_processed", 0))
+            # Note: `last_compaction_at_update` tracks the absolute compaction count at
+            # last status check (frontmatter key written by _memory_do_compact). It is
+            # not used here; we measure growth against `last_compact_processed` which is
+            # the per-checkpoint watermark. The dead `* 0` slot was removed 2026-05-18
+            # per code review.
+            updates_since = cp_processed - int(fm.get("last_compact_processed", 0))
+            # Advisory based on uncompacted growth
+            if threshold and updates_since >= threshold:
+                print(
+                    f"> 💡 Narrative has {updates_since} incremental updates since last compaction. "
+                    "Consider running `perseus memory compact`."
+                )
+            max_lines = int(cfg.get("memory", {}).get("max_narrative_lines", 300))
+            line_count = body.count("\n") + (1 if body and not body.endswith("\n") else 0)
+            if max_lines and line_count > max_lines:
+                print(f"> ⚠ Narrative is {line_count} lines (max={max_lines}); compact recommended.")
+        return
+
+    if sub == "compact":
+        provider = _memory_llm_provider(args, cfg)
+        # task-21: per-invocation override for pattern_extractor
+        pe_override = getattr(args, "pattern_extractor", None)
+        if pe_override:
+            cfg = copy.deepcopy(cfg)
+            cfg.setdefault("memory", {})["pattern_extractor"] = pe_override
+        msg = _memory_do_compact(workspace, cfg, provider)
+        # Record last_compact_processed so future advisory math works
+        mp = _mneme_path(workspace, cfg)
+        fm, body = _load_narrative(mp)
+        fm["last_compact_processed"] = int(fm.get("checkpoints_processed", 0))
+        _save_narrative(mp, fm, body)
+        print(msg)
+        return
+
+    if sub == "show":
+        mp = _mneme_path(workspace, cfg)
+        if not mp.exists():
+            print(f"> ⚠ No Mnēmē narrative found for {workspace}.")
+            print("> Run `perseus memory update` to initialize.")
+            return
+        print(mp.read_text(encoding="utf-8"))
+        return
+
+    if sub == "status":
+        mp = _mneme_path(workspace, cfg)
+        use_json = getattr(args, "json", False)
+        if not mp.exists():
+            if use_json:
+                import json as _json
+                print(_json.dumps({"workspace": str(workspace), "exists": False}, indent=2))
+            else:
+                print(f"Mnēmē — {workspace}")
+                print("  No narrative file yet. Run `perseus memory update` to initialize.")
+            return
+        fm, body = _load_narrative(mp)
+        all_cp = _list_checkpoint_files(cfg)
+        all_py = _read_all_pythia_entries()
+        cp_hwm = int(fm.get("checkpoints_processed", 0))
+        py_hwm = _mneme_pythia_hwm(fm)
+        cp_pending = max(0, len(all_cp) - cp_hwm)
+        py_pending = max(0, len(all_py) - py_hwm)
+        line_count = body.count("\n") + (1 if body and not body.endswith("\n") else 0)
+        mode = "LLM (" + str(cfg.get("memory", {}).get("llm_provider")) + ")" if cfg.get("memory", {}).get("llm_provider") else "deterministic"
+        updated = fm.get("updated", "(unknown)")
+        age = _human_age(updated) if isinstance(updated, str) else "(unknown)"
+        if use_json:
+            import json as _json
+            output = {
+                "workspace": str(workspace),
+                "exists": True,
+                "updated": str(updated),
+                "checkpoints_processed": cp_hwm,
+                "checkpoints_pending": cp_pending,
+                "pythia_entries_processed": py_hwm,
+                "pythia_entries_pending": py_pending,
+                "compaction_count": int(fm.get("compaction_count", 0)),
+                "line_count": line_count,
+                "mode": mode,
+                "frontmatter": {k: str(v) if not isinstance(v, (int, float, bool, type(None))) else v for k, v in fm.items()},
+            }
+            print(_json.dumps(output, indent=2))
+        else:
+            print(f"Mnēmē — {workspace}")
+            print(f"  Updated:     {updated} ({age})")
+            print(f"  Checkpoints: {cp_hwm} processed ({cp_pending} pending)")
+            print(f"  Pythia log:  {py_hwm} entries processed ({py_pending} pending)")
+            print(f"  Compactions: {fm.get('compaction_count', 0)}")
+            print(f"  Size:        {line_count} lines")
+            print(f"  Mode:        {mode}")
+        if not use_json and mode == "deterministic":
+            print("               (set memory.llm_provider to enable LLM distillation)")
+        return
+
+    if sub == "query":
+        question = getattr(args, "question", "") or ""
+        mp = _mneme_path(workspace, cfg)
+        if not mp.exists():
+            print(f"> ⚠ No Mnēmē narrative found for {workspace}.")
+            print("> Run `perseus memory update` to initialize.")
+            return
+        fm, body = _load_narrative(mp)
+        provider = _memory_llm_provider(args, cfg)
+        if provider:
+            prompt = (
+                "You are Mnēmē. Answer the user's question about this project, citing "
+                "only the narrative below. If the narrative does not contain the answer, "
+                "say so plainly.\n\n"
+                f"NARRATIVE:\n{body}\n\nQUESTION: {question}\n"
+            )
+            model = cfg.get("memory", {}).get("llm_model") or cfg.get("llm", {}).get("model")
+            text, code = run_llm(provider, prompt, cfg, model=model)
+            print(text if code == 0 else f"> ⚠ Mnēmē query (LLM) failed: {text}")
+            return
+        # Deterministic grep-style search
+        terms = [t for t in re.split(r'\s+', question.strip()) if t]
+        matches: list[str] = []
+        sections = re.split(r'(?m)^(?=##\s+)', body)
+        for sec in sections:
+            sec_lower = sec.lower()
+            if all(t.lower() in sec_lower for t in terms) if terms else True:
+                matches.append(sec.strip())
+        if not matches:
+            print("> No matching sections in narrative.")
+            return
+        for m_text in matches:
+            print(m_text)
+            print()
+        return
+
+    if sub == "federation":
+        cmd_memory_federation(args, cfg)
+        return
+
+    print(f"> ⚠ Unknown memory subcommand: {sub}")
+
+
+def resolve_memory(args_str: str, cfg: dict, workspace: Path | None = None) -> str:
+    """Render the @memory directive.
+
+    Args:
+      focus="decisions|recent|patterns|arc" → emit only the named section
+      ttl=N → sugar for @cache ttl=N (caller handles by pre-rewriting)
+
+    task-19 (Phase 8.2): subcommand `federation` renders the cross-workspace
+    digest instead of (or in addition to, with `include_federation=true`)
+    the local narrative:
+      @memory federation                  → all enabled subs as digest
+      @memory federation alias=hermes     → that single sub only
+      @memory include_federation=true     → local narrative + federated digest
+    Plain `@memory` stays local-only forever (Q3 decision).
+    """
+    ws = workspace or Path.cwd()
+    args_stripped = args_str.strip()
+
+    # task-19: explicit federation subcommand
+    # Match `federation` as a bare leading token (case-insensitive)
+    fed_match = re.match(r'^federation\b\s*(.*)$', args_stripped, re.IGNORECASE)
+    if fed_match:
+        fed_args = fed_match.group(1).strip()
+        fed_mods = _parse_kv_modifiers(fed_args)
+        alias_filter = fed_mods.get("alias")
+        return _render_federation_digest(cfg, alias_filter)
+
+    mods = _parse_kv_modifiers(args_str)
+    focus = (mods.get("focus") or "").strip().lower()
+    include_fed = str(mods.get("include_federation", "")).strip().lower() in {"true", "1", "yes"}
+
+    def _maybe_append_federation(local_text: str) -> str:
+        if not include_fed:
+            return local_text
+        digest = _render_federation_digest(cfg)
+        return f"{local_text}\n\n---\n\n## Federated Context\n\n{digest}"
+
+    mp = _mneme_path(ws, cfg)
+    if not mp.exists():
+        return _maybe_append_federation(
+            "> ⚠ No Mnēmē narrative found for this workspace.\n"
+            "> Run `perseus memory update` to initialize."
+        )
+
+    fm, body = _load_narrative(mp)
+
+    # Staleness check (uses checkpoints.ttl_s as the cadence reference)
+    ttl_s = int(cfg.get("checkpoints", {}).get("ttl_s", 86400))
+    updated = str(fm.get("updated", ""))
+    try:
+        dt = datetime.fromisoformat(updated)
+        age_s = (datetime.now(dt.tzinfo) - dt).total_seconds()
+        if age_s > ttl_s:
+            age_h = _human_age(updated)
+            return _maybe_append_federation(
+                f"> ⚠ Mnēmē narrative is stale (last updated {age_h}).\n"
+                "> Run `perseus memory update` to refresh."
+            )
+    except Exception:
+        pass
+
+    if not focus:
+        return _maybe_append_federation(body.rstrip())
+
+    focus_map = {
+        "decisions": "Key Decisions",
+        "recent": "Recent Activity",
+        "patterns": "Patterns & Anti-patterns",
+        "arc": "Project Arc",
+        "tasks": "Task History",
+        "history": "Task History",
+    }
+    heading = focus_map.get(focus)
+    if not heading:
+        return _maybe_append_federation(
+            f"> ⚠ Unknown @memory focus={focus!r}. Valid: {', '.join(sorted(focus_map.keys()))}"
+        )
+    section = _extract_section(body, heading)
+    if not section.strip():
+        return _maybe_append_federation(
+            f"> ⚠ @memory focus={focus!r}: section not found in narrative."
+        )
+    return _maybe_append_federation(section.rstrip())
+
+
+
+# ── LLM-assisted paths (opt-in) ───────────────────────────────────────────────
+
+def _truncate_pythia_for_llm(entries: list[dict]) -> list[dict]:
+    return [
+        {"task": e.get("task"), "accepted": e.get("accepted"), "timestamp": e.get("timestamp")}
+        for e in entries
+    ]
+
+
+def _mneme_update_llm(
+    existing_body: str,
+    frontmatter: dict,
+    new_checkpoints: list[dict],
+    new_pythia_entries: list[dict],
+    cfg: dict,
+    provider: str,
+) -> str:
+    """LLM-assisted incremental update. Returns updated narrative body."""
+    recent_keep = int(cfg.get("memory", {}).get("recent_keep", 5))
+    truncated = _truncate_pythia_for_llm(new_pythia_entries)
+    cp_yaml = yaml.safe_dump(new_checkpoints, default_flow_style=False, allow_unicode=True, sort_keys=False)
+    oc_json = json.dumps(truncated, ensure_ascii=False, indent=2)
+    body_block = existing_body if existing_body.strip() else "(none — initialize from scratch)"
+    prompt = (
+        "You are Mnēmē, the keeper of project narrative for an AI development workflow.\n\n"
+        "Your job: update a structured project narrative by incorporating new activity.\n"
+        "Preserve all existing content unless it directly contradicts new information.\n"
+        "Do not invent content. Do not pad. Be terse and factual.\n\n"
+        f"EXISTING NARRATIVE:\n{body_block}\n\n"
+        f"NEW CHECKPOINTS ({len(new_checkpoints)} since last update):\n{cp_yaml}\n\n"
+        f"NEW PYTHIA LOG ENTRIES ({len(new_pythia_entries)} since last update):\n{oc_json}\n\n"
+        "INSTRUCTIONS:\n"
+        "- Update the \"Project Arc\" section if the recent work represents a significant milestone\n"
+        "- Add new entries to \"Key Decisions\" if checkpoint notes contain decision language\n"
+        "- Update \"Task History\" table with any newly completed tasks\n"
+        "- Update \"Patterns & Anti-patterns\" based on accepted Pythia entries\n"
+        f"- Rewrite \"Recent Activity\" with the {recent_keep} most recent checkpoints\n"
+        "- Return ONLY the updated markdown body. No preamble. No commentary. Start with \"## Project Arc\".\n"
+    )
+    model = cfg.get("memory", {}).get("llm_model") or cfg.get("llm", {}).get("model")
+    text, code = run_llm(provider, prompt, cfg, model=model)
+    if code != 0:
+        raise RuntimeError(text)
+    return text
+
+
+def _mneme_compact_llm(
+    all_checkpoints: list[dict],
+    all_pythia_entries: list[dict],
+    workspace: Path,
+    cfg: dict,
+    provider: str,
+) -> str:
+    """LLM-assisted full compaction. Returns rebuilt narrative body."""
+    recent_keep = int(cfg.get("memory", {}).get("recent_keep", 5))
+    truncated = _truncate_pythia_for_llm(all_pythia_entries)
+    cp_yaml = yaml.safe_dump(all_checkpoints, default_flow_style=False, allow_unicode=True, sort_keys=False)
+    oc_json = json.dumps(truncated, ensure_ascii=False, indent=2)
+    prompt = (
+        "You are Mnēmē, the keeper of project narrative for an AI development workflow.\n\n"
+        f"Your job: build a structured project narrative from scratch for workspace {workspace}.\n"
+        "Do not invent content. Do not pad. Be terse and factual.\n\n"
+        f"ALL CHECKPOINTS ({len(all_checkpoints)}):\n{cp_yaml}\n\n"
+        f"ALL PYTHIA LOG ENTRIES ({len(all_pythia_entries)}):\n{oc_json}\n\n"
+        "INSTRUCTIONS:\n"
+        "- Produce the sections: Project Arc, Key Decisions, Task History, "
+        "Patterns & Anti-patterns, Recent Activity\n"
+        f"- Recent Activity should contain the {recent_keep} most recent checkpoints verbatim\n"
+        "- Return ONLY the markdown body. No preamble. No commentary. Start with \"## Project Arc\".\n"
+    )
+    model = cfg.get("memory", {}).get("llm_model") or cfg.get("llm", {}).get("model")
+    text, code = run_llm(provider, prompt, cfg, model=model)
+    if code != 0:
+        raise RuntimeError(text)
+    return text
+
+
+# ──────────────────────────────── Suggest ─────────────────────────────────────
+
+def append_pythia_log(entry: dict, cfg: dict) -> None:
+    """Append a JSONL Pythia log entry; warn on failure without raising."""
+    log_path = _pythia_log_path()
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with log_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception as exc:
+        print(f"> ⚠ Could not write Pythia log: {exc}")
+
+
+def _checkpoint_age_s(snapshot_checkpoint: str) -> int | None:
+    m = re.search(r'\*\*Checkpoint written:\*\*\s+([^\\n]+)', snapshot_checkpoint or "")
+    if not m:
+        return None
+    try:
+        dt = datetime.fromisoformat(m.group(1).strip())
+        return int((datetime.now(dt.tzinfo) - dt).total_seconds())
     except Exception:
         return None
 
 
-def _list_checkpoint_files(cfg: dict) -> list[Path]:
-    store = Path(cfg["checkpoints"]["store"])
-    if not store.exists():
-        return []
-    return sorted(
-        [f for f in store.glob("*.yaml") if f.name != "latest.yaml" and not f.name.startswith("latest-")],
-        key=lambda f: f.name,
-        reverse=True,
+def build_pythia_log_entry(task: str, snapshot: dict, prompt: str, response: str | None, provider: str | None, model: str | None, flags: list[str] | None = None) -> dict:
+    """Build the append-only Pythia log entry.
+
+    task-10: an optional ``flags`` array records which suggest flags were
+    active for this invocation. Empty list when none. Backward compatible —
+    legacy entries without ``flags`` remain valid.
+    """
+    services_summary = []
+    for line in snapshot.get("services_table", "").splitlines():
+        if not line.startswith("|") or line.startswith("| Service") or line.startswith("|---"):
+            continue
+        parts = [p.strip() for p in line.strip('|').split('|')]
+        if len(parts) >= 2:
+            services_summary.append({"name": parts[0], "status": parts[1]})
+    return {
+        "version": 1,
+        "timestamp": datetime.now().astimezone().isoformat(),
+        "task": task,
+        "env_snapshot": {
+            "skills_count": snapshot.get("skill_count"),
+            "stale_skills_count": None,
+            "services": services_summary,
+            "checkpoint_age_s": _checkpoint_age_s(snapshot.get("checkpoint_summary", "")),
+            "outcome_weights": snapshot.get("outcome_weights", []),
+            "ab_test": snapshot.get("ab_test"),
+        },
+        "prompt": prompt,
+        "response": response,
+        "provider": provider,
+        "model": model,
+        "accepted": None,
+        "flags": list(flags or []),
+    }
+
+
+def run_llm(provider: str, prompt: str, cfg: dict, model: str | None = None, model_url: str | None = None) -> tuple[str, int]:
+    """Run the Pythia prompt through a configured provider and return (text, exit_code)."""
+    provider = provider.strip().lower()
+    llm_cfg = cfg.get("llm", {})
+    timeout = float(llm_cfg.get("timeout_s", 30))
+
+    if provider == "ollama":
+        url = (model_url or str(llm_cfg.get("url", "http://localhost:11434"))).rstrip("/") + "/api/chat"
+        payload = {
+            "model": model or str(llm_cfg.get("model", "mistral")),
+            "messages": [
+                {"role": "system", "content": "You are Perseus Pythia, the Tool Oracle."},
+                {"role": "user", "content": prompt},
+            ],
+            "stream": False,
+        }
+    elif provider == "daedalus":
+        # task-06: routes to a fine-tuned local model via ollama
+        url = (model_url or str(llm_cfg.get("daedalus_url", "http://localhost:11434"))).rstrip("/") + "/api/chat"
+        payload = {
+            "model": model or str(llm_cfg.get("daedalus_model", "perseus-daedalus")),
+            "messages": [
+                {"role": "system", "content": "You are Perseus Pythia, the Tool Oracle (Daedalus)."},
+                {"role": "user", "content": prompt},
+            ],
+            "stream": False,
+        }
+        # share the ollama response-parsing branch below
+        provider = "ollama"
+    elif provider in {"llamacpp", "openai-compat", "hermes"}:
+        # `hermes` is an alias for `openai-compat` because Hermes Agent
+        # (NousResearch) exposes an OpenAI-compatible /v1/chat/completions
+        # server. Using the alias makes config read naturally
+        # (`llm.provider: hermes`) and reserves the name for a future
+        # Hermes-specific provider (auth headers, model picker, etc.).
+        # When the alias is used we look at llm.hermes_url and
+        # llm.hermes_model first so users can keep hermes settings
+        # independent of any other openai-compat endpoint they configure.
+        if provider == "hermes":
+            base_default = str(llm_cfg.get("hermes_url", llm_cfg.get("url", "http://localhost:8080"))).rstrip("/")
+            model_default = str(llm_cfg.get("hermes_model", llm_cfg.get("model", "default")))
+        else:
+            base_default = str(llm_cfg.get("url", "http://localhost:11434")).rstrip("/")
+            model_default = str(llm_cfg.get("model", "mistral"))
+        base = (model_url or base_default).rstrip("/")
+        url = base + "/v1/chat/completions"
+        payload = {
+            "model": model or model_default,
+            "messages": [
+                {"role": "system", "content": "You are Perseus Pythia, the Tool Oracle."},
+                {"role": "user", "content": prompt},
+            ],
+            "stream": False,
+        }
+        # share the openai-compat response-parsing branch below
+        provider = "openai-compat"
+    else:
+        return (f"> ⚠ Unsupported llm provider: {provider}. Currently supported: ollama, llamacpp, openai-compat, hermes, daedalus", 2)
+
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"},
     )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            body = json.loads(resp.read().decode())
+        if provider == "ollama":
+            text = str(body.get("message", {}).get("content", "")).strip()
+        else:
+            choices = body.get("choices", [])
+            text = str(choices[0].get("message", {}).get("content", "")).strip() if choices else ""
+        return (text or "> ⚠ LLM returned no response.", 0)
+    except urllib.error.URLError as exc:
+        return (f"> ⚠ LLM request failed: {exc}", 2)
+    except Exception as exc:
+        return (f"> ⚠ LLM error: {exc}", 2)
 
 
-def _normalize_checkpoint(cp: dict) -> dict:
-    out = dict(cp or {})
-    if out.get("workspace"):
+def cmd_llm(args, cfg) -> int:
+    """`perseus llm ping` — verify the configured LLM provider is reachable.
+
+    Sends a tiny no-op prompt through ``run_llm`` and prints either a
+    pass line (provider, model, base URL, elapsed ms, response preview)
+    or an explicit error line. Exit codes:
+
+    - ``0`` on success
+    - ``2`` on transport or provider error
+    - ``3`` on unknown subcommand
+
+    Used by humans to confirm a fresh install ("does Perseus see Hermes
+    on this box?") and by future Daedalus drift detection to bail out
+    early when the inference path is broken.
+    """
+    sub = getattr(args, "llm_sub", None)
+    if sub != "ping":
+        print(f"unknown llm subcommand: {sub}", file=sys.stderr)
+        return 3
+
+    llm_cfg = cfg.get("llm", {})
+    provider = (args.provider or llm_cfg.get("provider") or "ollama").strip().lower()
+    model = args.model or None
+    model_url = args.url or None
+
+    # Build a base URL string for the report — mirror run_llm's resolution
+    if provider == "ollama":
+        base = (model_url or str(llm_cfg.get("url", "http://localhost:11434"))).rstrip("/")
+        resolved_model = model or str(llm_cfg.get("model", "mistral"))
+    elif provider == "daedalus":
+        base = (model_url or str(llm_cfg.get("daedalus_url", "http://localhost:11434"))).rstrip("/")
+        resolved_model = model or str(llm_cfg.get("daedalus_model", "perseus-daedalus"))
+    elif provider == "hermes":
+        base = (model_url or str(llm_cfg.get("hermes_url", llm_cfg.get("url", "http://localhost:8080")))).rstrip("/")
+        resolved_model = model or str(llm_cfg.get("hermes_model", llm_cfg.get("model", "default")))
+    elif provider in {"llamacpp", "openai-compat"}:
+        base = (model_url or str(llm_cfg.get("url", "http://localhost:11434"))).rstrip("/")
+        resolved_model = model or str(llm_cfg.get("model", "mistral"))
+    else:
+        print(f"✗ unsupported provider: {provider}", file=sys.stderr)
+        return 2
+
+    start = time.time()
+    text, code = run_llm(provider, "Reply with the single word: pong.", cfg, model=model, model_url=model_url)
+    elapsed_ms = int((time.time() - start) * 1000)
+
+    if code != 0:
+        if getattr(args, "json", False):
+            import json as _json
+            print(_json.dumps({"provider": provider, "model": resolved_model, "url": base,
+                                "latency_ms": elapsed_ms, "status": "error", "error": text}, indent=2))
+        else:
+            print(f"✗ {provider} · {base} · {elapsed_ms} ms · {text}")
+        return 2
+
+    preview = text.replace("\n", " ")[:60]
+    if getattr(args, "json", False):
+        import json as _json
+        print(_json.dumps({"provider": provider, "model": resolved_model, "url": base,
+                            "latency_ms": elapsed_ms, "status": "ok", "error": None}, indent=2))
+    else:
+        print(f"✓ {provider} · model={resolved_model} · {base} · {elapsed_ms} ms · {preview!r}")
+    return 0
+
+
+def _outcome_weight_for_entry(entry: dict) -> float | None:
+    outcome = entry.get("outcome")
+    if not isinstance(outcome, dict):
+        return None
+    checkpoints = int(outcome.get("checkpoint_count", 0) or 0)
+    if checkpoints <= 0:
+        return 0.0
+    error_rate = float(outcome.get("error_rate", 0.0) or 0.0)
+    error_rate = max(0.0, min(1.0, error_rate))
+    if outcome.get("completed") is True:
+        return max(-1.0, min(1.0, 1.0 - error_rate))
+    return max(-1.0, min(1.0, -0.5 - (0.5 * error_rate)))
+
+
+def _pythia_online_score_adjustments(entries: list[dict], cfg: dict) -> list[dict]:
+    """Compute transparent outcome-weight hints per recommendation token."""
+    o_cfg = cfg.get("pythia", {})
+    if not bool(o_cfg.get("online_scoring_enabled", True)):
+        return []
+    recent_n = int(o_cfg.get("online_scoring_recent_entries", 50))
+    min_abs = float(o_cfg.get("online_scoring_min_abs_weight", 0.15))
+    buckets: dict[str, dict] = {}
+    for entry in entries[-recent_n:]:
+        if not _pythia_entry_has_positive_label(entry):
+            continue
+        weight = _outcome_weight_for_entry(entry)
+        if weight is None:
+            continue
+        tokens = sorted(_extract_recommendation_tokens(str(entry.get("response", "") or "")))
+        for token in tokens[:12]:
+            bucket = buckets.setdefault(token, {"sum": 0.0, "samples": 0, "completed": 0, "errors": 0})
+            bucket["sum"] += weight
+            bucket["samples"] += 1
+            outcome = entry.get("outcome") or {}
+            if outcome.get("completed") is True:
+                bucket["completed"] += 1
+            if float(outcome.get("error_rate", 0.0) or 0.0) > 0:
+                bucket["errors"] += 1
+
+    adjustments: list[dict] = []
+    for token, bucket in buckets.items():
+        samples = int(bucket["samples"])
+        if samples <= 0:
+            continue
+        weight = round(float(bucket["sum"]) / samples, 3)
+        if abs(weight) < min_abs:
+            continue
+        direction = "boost" if weight > 0 else "lower"
+        adjustments.append({
+            "token": token,
+            "weight": weight,
+            "direction": direction,
+            "samples": samples,
+            "completed": int(bucket["completed"]),
+            "errors": int(bucket["errors"]),
+            "reason": (
+                f"{int(bucket['completed'])}/{samples} completed, "
+                f"{int(bucket['errors'])}/{samples} with errors"
+            ),
+        })
+    adjustments.sort(key=lambda item: (-abs(item["weight"]), item["token"]))
+    return adjustments[:10]
+
+
+def _render_outcome_weight_hints(adjustments: list[dict]) -> str:
+    if not adjustments:
+        return ""
+    lines = [
+        "### Outcome Weight Hints",
+        "Use these deterministic outcome signals as tie-breakers; resolved context still wins.",
+    ]
+    for item in adjustments:
+        sign = "+" if item["weight"] > 0 else ""
+        lines.append(
+            f"- {item['direction']} `{item['token']}` ({sign}{item['weight']}, "
+            f"n={item['samples']}): {item['reason']}"
+        )
+    return "\n".join(lines)
+
+
+def _stable_unit_interval(value: str) -> float:
+    digest = hashlib.sha256(value.encode()).hexdigest()[:12]
+    return int(digest, 16) / float(0xFFFFFFFFFFFF)
+
+
+def _pythia_ab_test_plan(task: str, adjustments: list[dict], cfg: dict) -> dict:
+    o_cfg = cfg.get("pythia", {})
+    enabled = bool(o_cfg.get("ab_testing_enabled", False))
+    plan = {
+        "enabled": enabled,
+        "active": False,
+        "id": None,
+        "primary": None,
+        "alternate": None,
+        "rate": float(o_cfg.get("ab_testing_rate", 0.10)),
+        "bucket": None,
+        "reason": "disabled",
+    }
+    if not enabled:
+        return plan
+    candidates = [item for item in adjustments if item.get("token")]
+    if len(candidates) < 2:
+        plan["reason"] = "insufficient outcome-weight candidates"
+        return plan
+    rate = max(0.0, min(1.0, float(o_cfg.get("ab_testing_rate", 0.10))))
+    bucket = _stable_unit_interval(f"{task}|ab-testing")
+    plan["rate"] = rate
+    plan["bucket"] = round(bucket, 6)
+    if bucket > rate:
+        plan["reason"] = f"bucket {bucket:.3f} above rate {rate:.3f}"
+        return plan
+
+    ranked = sorted(candidates, key=lambda item: (-item["weight"], item["token"]))
+    primary = ranked[0]
+    alternate = sorted(
+        [item for item in candidates if item["token"] != primary["token"]],
+        key=lambda item: (item["weight"], item["token"]),
+    )[0]
+    test_id = hashlib.sha256(f"{task}|{primary['token']}|{alternate['token']}".encode()).hexdigest()[:12]
+    plan.update({
+        "active": True,
+        "id": test_id,
+        "primary": {
+            "token": primary["token"],
+            "weight": primary["weight"],
+            "reason": primary.get("reason", ""),
+        },
+        "alternate": {
+            "token": alternate["token"],
+            "weight": alternate["weight"],
+            "reason": alternate.get("reason", ""),
+        },
+        "reason": "active",
+    })
+    return plan
+
+
+def _render_ab_test_hint(plan: dict) -> str:
+    if not plan or not plan.get("active"):
+        return ""
+    primary = plan["primary"]
+    alternate = plan["alternate"]
+    return "\n".join([
+        "### A/B Recommendation Test",
+        (
+            f"Exploration id `{plan['id']}`: compare primary `{primary['token']}` "
+            f"against alternate `{alternate['token']}`."
+        ),
+        (
+            "Label the final recommendation with "
+            f"`ab_test={plan['id']}` and state whether primary or alternate won."
+        ),
+    ])
+
+
+def build_pythia_snapshot(cfg: dict, category: str | None = None, no_services: bool = False, quick: bool = False, task: str | None = None) -> dict:
+    """Build the environment snapshot used by `perseus suggest`.
+
+    --quick implies --no-services (task-10).
+
+    --category falls back to a full scan with a warning if the category
+    directory does not exist.
+    """
+    now = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z")
+
+    effective_no_services = no_services or quick
+
+    # --category fallback: warn and drop the filter when the directory is absent
+    category_warning = None
+    if category:
+        skill_dir = Path(cfg["pythia"]["skill_dir"])
+        if not (skill_dir / category).exists():
+            category_warning = f"> ⚠ Skills category `{category}` not found in {skill_dir} — falling back to full scan."
+            category = None
+
+    skills_args = "flag_stale=true" + (f" category={category}" if category else "")
+    skills_table = resolve_skills(skills_args, cfg)
+    if category_warning:
+        skills_table = category_warning + "\n\n" + skills_table
+
+    if effective_no_services:
+        services_table = "(service health check skipped — use without --no-services for live status)"
+    else:
+        services_table = "(no services configured in oracle — add @services to .perseus/context.md)"
+
+    if quick:
+        # In --quick mode, do not even attempt to assemble session/checkpoint context
+        session_digest = ""
+        checkpoint_summary = ""
+    else:
+        session_digest = resolve_session("count=3", cfg)
+        checkpoint_summary = resolve_waypoint("", cfg)
+
+    outcome_weights = _pythia_online_score_adjustments(_pythia_log_entries(), cfg)
+    snapshot = {
+        "rendered_at": now,
+        "skills_table": skills_table,
+        "services_table": services_table,
+        "session_digest": session_digest,
+        "checkpoint_summary": checkpoint_summary,
+        "quick": quick,
+        "outcome_weights": outcome_weights,
+        "ab_test": _pythia_ab_test_plan(task or "", outcome_weights, cfg),
+    }
+
+    if quick:
+        skill_dir = Path(cfg["pythia"]["skill_dir"])
+        snapshot["skill_count"] = len(list(skill_dir.rglob("SKILL.md"))) if skill_dir.exists() else 0
+    return snapshot
+
+
+def render_pythia_prompt(task: str, snapshot: dict) -> str:
+    """Render the full Pythia prompt from a task and snapshot.
+
+    In --quick mode (``snapshot["quick"] is True``) the Services and
+    Sessions/Checkpoint sections are omitted entirely (task-10).
+    """
+    divider = "━" * 55
+    outcome_hints = _render_outcome_weight_hints(snapshot.get("outcome_weights", []))
+    ab_hint = _render_ab_test_hint(snapshot.get("ab_test", {}))
+    advisory_parts = [part for part in (outcome_hints, ab_hint) if part]
+    advisory_section = "\n\n" + "\n\n".join(advisory_parts) if advisory_parts else ""
+
+    if snapshot.get("quick"):
+        return f"""You are Perseus Pythia, the Tool Oracle. Given a task and a snapshot of available skills,
+recommend the single best skill/tool/approach.
+
+TASK: {task}
+
+ENVIRONMENT SNAPSHOT (rendered {snapshot['rendered_at']}):
+
+### Available Skills
+{snapshot['skills_table']}
+{advisory_section}
+
+---
+
+Return ONE recommendation, one sentence. No alternatives, no hedging.
+{divider}"""
+
+    return f"""You are Perseus Pythia, the Tool Oracle. Given a task and a live environment snapshot,
+recommend the top 2-3 approaches in ranked order.
+
+TASK: {task}
+
+ENVIRONMENT SNAPSHOT (rendered {snapshot['rendered_at']}):
+
+### Available Skills
+{snapshot['skills_table']}
+
+### Service Health
+{snapshot['services_table']}
+
+### Recent Checkpoint
+{snapshot['checkpoint_summary']}
+
+### Recent Sessions
+{snapshot['session_digest']}
+{advisory_section}
+
+---
+
+For each recommendation:
+- Name the specific skills/tools/integrations to use
+- Explain in one sentence why this ranks where it does
+- Note any dependencies, risks, or conditions
+- Flag if the approach is overkill or underpowered for this task
+
+Format: ranked list, most recommended first. Be direct. No hedging.
+{divider}"""
+
+
+def run_ollama(prompt: str, cfg: dict, model_override: str | None = None) -> str:
+    """Run the Pythia prompt against a local Ollama instance."""
+    host = str(cfg["pythia"].get("ollama_host", "http://127.0.0.1:11434")).rstrip("/")
+    model = model_override or str(cfg["pythia"].get("ollama_model", "llama3.1"))
+    timeout = float(cfg["pythia"].get("llm_timeout_s", 30))
+    body = json.dumps({"model": model, "prompt": prompt, "stream": False}).encode()
+    req = urllib.request.Request(
+        f"{host}/api/generate",
+        data=body,
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            payload = json.loads(resp.read().decode())
+        return str(payload.get("response", "")).strip() or "> ⚠ Ollama returned no response."
+    except urllib.error.URLError as exc:
+        return f"> ⚠ Ollama request failed: {exc}"
+    except Exception as exc:
+        return f"> ⚠ Ollama error: {exc}"
+
+
+def cmd_suggest(args, cfg):
+    """Pythia: build a live snapshot, render a prompt, optionally run a local model, and log the interaction.
+
+    Flag handling (task-10):
+      --quick           shortens the prompt; implies --no-services
+      --no-services     skips live service health checks
+      --category NAME   limits skill scan to ~/.hermes/skills/<NAME>/ (falls back with warning)
+    """
+    task = args.task
+    quick = getattr(args, "quick", False)
+    no_services = getattr(args, "no_services", False)
+    category = getattr(args, "category", None)
+    llm = getattr(args, "llm", None)
+    model = getattr(args, "model", None)
+    model_url = getattr(args, "model_url", None)
+
+    # Build list of active flags for log entry
+    active_flags: list[str] = []
+    if quick:
+        active_flags.append("--quick")
+    if no_services and not quick:  # --quick implies --no-services; don't double-record
+        active_flags.append("--no-services")
+    if category:
+        active_flags.append(f"--category={category}")
+
+    snapshot = build_pythia_snapshot(cfg, category=category, no_services=no_services, quick=quick, task=task)
+
+    prompt = render_pythia_prompt(task, snapshot)
+    response_text = None
+    provider_used = None
+    model_used = None
+    exit_code = 0
+
+    if llm:
+        provider_used = llm.strip().lower()
+        if ":" in provider_used and not model:
+            provider_used, _, model = provider_used.partition(":")
+        response_text, exit_code = run_llm(provider_used, prompt, cfg, model=model or None, model_url=model_url)
+        model_used = model or cfg.get("llm", {}).get("model")
+        print(response_text)
+    else:
+        print(prompt)
+
+    append_pythia_log(
+        build_pythia_log_entry(task, snapshot, prompt, response_text, provider_used, model_used, flags=active_flags),
+        cfg,
+    )
+    if exit_code:
+        raise SystemExit(exit_code)
+
+
+# ────────────────────────── Oracle / Daedalus (task-06) ──────────────────────
+
+def _pythia_log_entries() -> list[dict]:
+    return _read_all_pythia_entries()
+
+
+def _find_pythia_entry(entries: list[dict], log_id: str) -> int | None:
+    if log_id == "latest":
+        return len(entries) - 1 if entries else None
+    for i, e in enumerate(entries):
+        if str(e.get("timestamp", "")) == log_id:
+            return i
+    # match by prefix
+    for i, e in enumerate(entries):
+        if str(e.get("timestamp", "")).startswith(log_id):
+            return i
+    return None
+
+
+def _rewrite_pythia_log(entries: list[dict]) -> None:
+    log_path = _pythia_log_path()
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = "\n".join(json.dumps(e, ensure_ascii=False) for e in entries) + ("\n" if entries else "")
+    tmp = log_path.with_suffix(".jsonl.tmp")
+    tmp.write_text(payload, encoding="utf-8")
+    os.replace(tmp, log_path)
+
+
+def _label_pythia_entry(log_id: str, accepted: bool) -> tuple[bool, str]:
+    entries = _pythia_log_entries()
+    idx = _find_pythia_entry(entries, log_id)
+    if idx is None:
+        return (False, f"No Pythia log entry matched `{log_id}`")
+    entries[idx]["accepted"] = bool(accepted)
+    _rewrite_pythia_log(entries)
+    return (True, f"Entry `{entries[idx].get('timestamp')}` marked accepted={accepted}")
+
+
+# ───── Phase 9.1 — Daedalus self-rating loop (task-20) ───────────────────────
+
+
+_TOKEN_RE = re.compile(r"[a-z0-9][a-z0-9_\-./]+")
+
+
+def _extract_recommendation_tokens(response_text: str) -> set[str]:
+    """Extract candidate tool/skill names from a Pythia recommendation.
+
+    Deterministic: lowercase the response, pull out backtick-wrapped names,
+    skill-style identifiers, and bare-word commands. Stopwords are stripped
+    so we don't match the literal word "you" or "the".
+    """
+    if not response_text:
+        return set()
+    text = response_text.lower()
+    tokens: set[str] = set()
+    # Backtick-wrapped names — highest signal
+    for m in re.findall(r"`([^`]{2,60})`", text):
+        tokens.add(m.strip().lower())
+    # Skill/tool-style identifiers in body
+    for m in _TOKEN_RE.findall(text):
+        if 2 < len(m) < 40 and m not in _RECO_STOPWORDS:
+            tokens.add(m)
+    return tokens
+
+
+_RECO_STOPWORDS = {
+    "the", "and", "for", "you", "use", "with", "this", "that", "your",
+    "from", "into", "have", "has", "was", "are", "but", "any", "all",
+    "tool", "skill", "task", "command", "perseus", "see", "would",
+    "should", "could", "first", "second", "next", "step", "steps",
+    "recommend", "recommended", "consider", "based", "context",
+}
+
+
+def _checkpoint_haystack(checkpoint: dict) -> str:
+    """Concatenate the fields scanned for inferred-accept matches."""
+    parts = []
+    for key in ("task", "status", "next", "notes", "summary", "blockers"):
+        v = checkpoint.get(key)
+        if isinstance(v, list):
+            parts.extend(str(x) for x in v)
+        elif v is not None:
+            parts.append(str(v))
+    return " ".join(parts).lower()
+
+
+def _infer_label_for_entry(entry: dict, checkpoints_in_window: list[dict], min_checkpoints: int = 2) -> str | None:
+    """Compute the inferred label for one Pythia log entry.
+
+    Returns one of: ``inferred_accept``, ``inferred_reject``,
+    ``inferred_none``, or ``None`` if the entry already has an explicit
+    label and shouldn't be touched.
+
+    Pure function — no I/O, no mutation.
+    """
+    if entry.get("accepted") is True:
+        return None  # explicit accept wins
+    if entry.get("accepted") is False:
+        return None  # explicit reject wins
+
+    tokens = _extract_recommendation_tokens(str(entry.get("response", "") or ""))
+    if not tokens:
+        return "inferred_none"
+
+    n = len(checkpoints_in_window)
+    if n == 0:
+        return "inferred_none"
+
+    hits = 0
+    for cp in checkpoints_in_window:
+        hay = _checkpoint_haystack(cp)
+        if any(tok in hay for tok in tokens):
+            hits += 1
+
+    if hits > 0:
+        return "inferred_accept"
+    if n >= min_checkpoints:
+        return "inferred_reject"
+    return "inferred_none"
+
+
+def _parse_iso_ts(ts: str) -> float | None:
+    """Parse Pythia log / checkpoint timestamps into epoch seconds (best-effort)."""
+    if not ts:
+        return None
+    try:
+        # checkpoint timestamps look like "2026-05-18T19:00:00+00:00"
+        return datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
+    except Exception:
         try:
-            out["workspace"] = str(Path(str(out["workspace"])).resolve())
+            return datetime.strptime(ts[:19], "%Y-%m-%dT%H:%M:%S").timestamp()
         except Exception:
-            pass
+            return None
+
+
+def _checkpoints_in_window(entry_ts_epoch: float | None, all_checkpoints: list[tuple[float, dict]], window_days: int, window_checkpoints: int) -> list[dict]:
+    """Return up to ``window_checkpoints`` checkpoints that fall within
+    ``window_days`` after ``entry_ts_epoch``. Inputs assumed sorted ascending."""
+    if entry_ts_epoch is None:
+        return []
+    cutoff = entry_ts_epoch + window_days * 86400
+    window: list[dict] = []
+    for cp_ts, cp in all_checkpoints:
+        if cp_ts <= entry_ts_epoch:
+            continue
+        if cp_ts > cutoff:
+            break
+        window.append(cp)
+        if len(window) >= window_checkpoints:
+            break
+    return window
+
+
+def _load_indexed_checkpoints(cfg: dict) -> list[tuple[float, dict]]:
+    """Load all checkpoints into (epoch_ts, body) tuples sorted ascending."""
+    out: list[tuple[float, dict]] = []
+    for fp in _list_checkpoint_files(cfg):
+        body = _load_checkpoint_file(fp) or {}
+        ts = _parse_iso_ts(str(body.get("written") or body.get("ts") or body.get("timestamp") or ""))
+        if ts is None:
+            # Fall back to file mtime
+            try:
+                ts = fp.stat().st_mtime
+            except Exception:
+                continue
+        out.append((ts, body))
+    out.sort(key=lambda t: t[0])
     return out
 
 
-def _human_age(iso_ts: str) -> str:
-    try:
-        dt = datetime.fromisoformat(str(iso_ts))
-        total = int((datetime.now(dt.tzinfo) - dt).total_seconds())
-        hours, rem = divmod(max(total, 0), 3600)
-        minutes, _ = divmod(rem, 60)
-        if hours:
-            return f"{hours}h {minutes}m ago"
-        return f"{minutes}m ago"
-    except Exception:
-        return str(iso_ts)
+def _indexed_checkpoints_in_window(
+    entry_ts_epoch: float | None,
+    all_checkpoints: list[tuple[float, dict]],
+    window_days: int,
+    window_checkpoints: int,
+) -> list[tuple[float, dict]]:
+    """Return timestamped checkpoints after an Pythia entry within a bounded window."""
+    if entry_ts_epoch is None:
+        return []
+    cutoff = entry_ts_epoch + window_days * 86400
+    window: list[tuple[float, dict]] = []
+    for cp_ts, cp in all_checkpoints:
+        if cp_ts <= entry_ts_epoch:
+            continue
+        if cp_ts > cutoff:
+            break
+        window.append((cp_ts, cp))
+        if len(window) >= window_checkpoints:
+            break
+    return window
 
 
-def _resolve_checkpoint_selector(selector: str, files: list[Path]) -> Path | None:
-    if selector.isdigit():
-        idx = int(selector)
-        return files[idx] if 0 <= idx < len(files) else None
-    for fp in files:
-        if fp.name == selector:
-            return fp
-    candidate = Path(selector).expanduser().resolve()
-    return candidate if candidate.exists() else None
+_OUTCOME_COMPLETE_WORDS = {"complete", "completed", "done", "shipped", "merged", "closed", "resolved"}
+_OUTCOME_ERROR_WORDS = {"error", "errors", "failed", "failure", "exception", "traceback", "blocked", "regression"}
 
 
-def diff_checkpoints(old_cp: dict, new_cp: dict) -> str:
-    """Render a human-readable diff between two checkpoints."""
-    old_cp = _normalize_checkpoint(old_cp)
-    new_cp = _normalize_checkpoint(new_cp)
-    changed = []
-    for key in ["task", "status", "next", "workspace"]:
-        if old_cp.get(key, "") != new_cp.get(key, ""):
-            changed.append(f"  {key}:       \"{old_cp.get(key, '')}\"  →  \"{new_cp.get(key, '')}\"")
+def _pythia_entry_has_positive_label(entry: dict) -> bool:
+    if entry.get("accepted") is True:
+        return True
+    return entry.get("accepted") is None and entry.get("inferred_label") == "inferred_accept"
 
-    old_age = _human_age(old_cp.get("written", "unknown"))
-    new_age = _human_age(new_cp.get("written", "unknown"))
-    if old_cp.get("written") != new_cp.get("written"):
-        changed.append(f"  age:        {old_age}  →  {new_age}")
 
-    notes_old = str(old_cp.get("notes", "")).strip()
-    notes_new = str(new_cp.get("notes", "")).strip()
-    if notes_old != notes_new:
-        changed.append("")
-        changed.append("  notes:")
-        changed.append(f"  - BEFORE: {notes_old or '(empty)'}")
-        changed.append(f"  + AFTER:  {notes_new or '(empty)'}")
+def _outcome_checkpoint_text(checkpoint: dict) -> str:
+    parts: list[str] = []
+    for key in ("task", "status", "next", "notes", "summary", "blockers"):
+        val = checkpoint.get(key)
+        if isinstance(val, list):
+            parts.extend(str(item) for item in val)
+        elif val is not None:
+            parts.append(str(val))
+    return " ".join(parts).lower()
 
-    if not changed:
-        return "No changes between checkpoints."
 
-    if old_cp.get("workspace") and old_cp.get("workspace") == new_cp.get("workspace"):
-        workspace_line = f"Workspace: {old_cp.get('workspace')} (matched both)"
-    elif old_cp.get("workspace") or new_cp.get("workspace"):
-        workspace_line = f"Workspace: {old_cp.get('workspace', '(none)')} → {new_cp.get('workspace', '(none)')}"
+def _checkpoint_completion_signal(checkpoint: dict) -> bool:
+    status = str(checkpoint.get("status", "") or "").strip().lower()
+    if any(word in status for word in _OUTCOME_COMPLETE_WORDS):
+        return True
+    text = _outcome_checkpoint_text(checkpoint)
+    return any(phrase in text for phrase in ("task completed", "work completed", "merged to main", "shipped"))
+
+
+def _checkpoint_error_signal(checkpoint: dict) -> bool:
+    text = _outcome_checkpoint_text(checkpoint)
+    return any(word in text for word in _OUTCOME_ERROR_WORDS)
+
+
+def _pythia_outcome_for_entry(
+    entry: dict,
+    indexed_checkpoints: list[tuple[float, dict]],
+    window_days: int,
+    window_checkpoints: int,
+) -> dict:
+    entry_ts = _parse_iso_ts(str(entry.get("timestamp", "") or ""))
+    window = _indexed_checkpoints_in_window(entry_ts, indexed_checkpoints, window_days, window_checkpoints)
+    checkpoint_count = len(window)
+    error_count = sum(1 for _, cp in window if _checkpoint_error_signal(cp))
+    completion_ts = None
+    for cp_ts, cp in window:
+        if _checkpoint_completion_signal(cp):
+            completion_ts = cp_ts
+            break
+
+    completed = completion_ts is not None
+    if completed:
+        completion_signal = "completed"
+    elif checkpoint_count:
+        completion_signal = "no_completion"
     else:
-        workspace_line = "Workspace: (none)"
+        completion_signal = "no_checkpoints"
 
-    return (
-        f"Checkpoint diff: {old_cp.get('written', '(unknown)')} → {new_cp.get('written', '(unknown)')}\n"
-        f"{workspace_line}\n\n"
-        + "\n".join(changed)
-    )
-
-
-def cmd_diff(args, cfg):
-    """Compare two checkpoints or the most recent pair."""
-    a_sel = getattr(args, "a", None)
-    b_sel = getattr(args, "b", None)
-    old_arg = getattr(args, "old", None)
-    new_arg = getattr(args, "new", None)
-
-    if old_arg and new_arg:
-        old_fp = Path(old_arg).expanduser().resolve()
-        new_fp = Path(new_arg).expanduser().resolve()
-    else:
-        store = Path(cfg["checkpoints"]["store"])
-        if not store.exists():
-            print("No checkpoint store found.")
-            return
-
-        files = _list_checkpoint_files(cfg)
-        target_ws = getattr(args, "workspace", None)
-        if target_ws:
-            target_ws = str(Path(target_ws).resolve())
-            filtered = []
-            for fp in files:
-                cp = _load_checkpoint_file(fp)
-                cp_ws = str(Path(cp.get("workspace", "")).resolve()) if cp and cp.get("workspace") else ""
-                if cp_ws == target_ws:
-                    filtered.append(fp)
-            files = filtered
-
-        if a_sel is not None and b_sel is not None:
-            old_fp = _resolve_checkpoint_selector(str(a_sel), files)
-            new_fp = _resolve_checkpoint_selector(str(b_sel), files)
-        else:
-            if len(files) < 2:
-                print("Need at least two checkpoints to diff.")
-                return
-            new_fp = files[0]
-            old_fp = files[1]
-
-    if not old_fp or not new_fp:
-        print("Could not resolve one or both checkpoints for diff.")
-        return
-
-    old_cp = _load_checkpoint_file(old_fp)
-    new_cp = _load_checkpoint_file(new_fp)
-    if not old_cp or not new_cp:
-        print("Could not load one or both checkpoints for diff.")
-        return
-
-    print(diff_checkpoints(old_cp, new_cp))
+    return {
+        "schema": 1,
+        "source": "checkpoint_correlation",
+        "window_days": window_days,
+        "window_checkpoints": window_checkpoints,
+        "checkpoint_count": checkpoint_count,
+        "completion_signal": completion_signal,
+        "completed": completed,
+        "time_to_completion_s": int(completion_ts - entry_ts) if completed and entry_ts is not None else None,
+        "error_count": error_count,
+        "error_rate": round(error_count / checkpoint_count, 3) if checkpoint_count else 0.0,
+    }
 
 
-def cmd_recover(args, cfg):
-    """
-    Smart recover: if --workspace is given, prefer checkpoints whose
-    'workspace' field matches and are within TTL. Falls back to the most
-    recent checkpoint with a workspace-match warning, then to any checkpoint.
+def collect_pythia_outcomes(entries: list[dict], cfg: dict, dry_run: bool = False) -> dict:
+    """Annotate accepted Pythia entries with deterministic outcome signals."""
+    o_cfg = cfg.get("pythia", {})
+    window_days = int(o_cfg.get("outcome_window_days", 7))
+    window_checkpoints = int(o_cfg.get("outcome_window_checkpoints", 10))
+    indexed = _load_indexed_checkpoints(cfg)
 
-    Fast path (task-07): when --workspace is supplied and a
-    ``latest-<workspace-hash>.yaml`` pointer exists, load it directly
-    instead of scanning the entire store.
-    """
-    store = Path(cfg["checkpoints"]["store"])
-    ttl_s = int(cfg["checkpoints"].get("ttl_s", 86400))
-    target_ws = getattr(args, "workspace", None) or os.getcwd()
-    target_ws_path = Path(target_ws).expanduser().resolve()
-    target_ws = str(target_ws_path)
+    results: list[dict] = []
+    changed = 0
+    eligible = 0
+    skipped = 0
+    for idx, entry in enumerate(entries):
+        ts = str(entry.get("timestamp", ""))
+        task = str(entry.get("task", ""))
+        if not _pythia_entry_has_positive_label(entry):
+            skipped += 1
+            results.append({
+                "index": idx,
+                "timestamp": ts,
+                "task": task,
+                "status": "skipped",
+                "reason": "entry is not accepted or inferred-accepted",
+            })
+            continue
 
-    if not store.exists():
-        print(f"No checkpoint store found at {store}. Run `perseus checkpoint` first.")
-        return
+        eligible += 1
+        outcome = _pythia_outcome_for_entry(entry, indexed, window_days, window_checkpoints)
+        if entry.get("outcome") == outcome:
+            results.append({
+                "index": idx,
+                "timestamp": ts,
+                "task": task,
+                "status": "unchanged",
+                "outcome": outcome,
+            })
+            continue
 
-    # Fast path — per-workspace pointer
-    ws_hash = _workspace_hash(target_ws_path)
-    ws_pointer = store / f"latest-{ws_hash}.yaml"
-    if ws_pointer.exists():
-        cp = _load_checkpoint_file(ws_pointer)
-        if cp:
-            written = cp.get("written", "")
-            try:
-                dt = datetime.fromisoformat(str(written))
-                age = int((datetime.now(dt.tzinfo) - dt).total_seconds())
-            except Exception:
-                age = None
-            fresh = age is not None and age <= ttl_s
-            label = (
-                f"workspace pointer, {age}s ago" if fresh
-                else f"workspace pointer, outside TTL — written {written}"
+        changed += 1
+        if not dry_run:
+            entry["outcome"] = outcome
+        results.append({
+            "index": idx,
+            "timestamp": ts,
+            "task": task,
+            "status": "would_update" if dry_run else "updated",
+            "outcome": outcome,
+        })
+
+    return {
+        "scanned": len(entries),
+        "eligible": eligible,
+        "skipped": skipped,
+        "updated": 0 if dry_run else changed,
+        "would_update": changed if dry_run else 0,
+        "unchanged": sum(1 for item in results if item["status"] == "unchanged"),
+        "dry_run": dry_run,
+        "window_days": window_days,
+        "window_checkpoints": window_checkpoints,
+        "results": results,
+    }
+
+
+def cmd_oracle_outcomes(args, cfg) -> int:
+    """`perseus oracle outcomes` — collect Phase 14A reinforcement signals."""
+    cfg_local = copy.deepcopy(cfg)
+    o_cfg = cfg_local.setdefault("pythia", {})
+    if getattr(args, "window_days", None) is not None:
+        o_cfg["outcome_window_days"] = int(args.window_days)
+    if getattr(args, "window_checkpoints", None) is not None:
+        o_cfg["outcome_window_checkpoints"] = int(args.window_checkpoints)
+
+    dry_run = bool(getattr(args, "dry_run", False))
+    entries = _pythia_log_entries()
+    result = collect_pythia_outcomes(entries, cfg_local, dry_run=dry_run)
+    if not dry_run and result["updated"]:
+        _rewrite_pythia_log(entries)
+
+    if getattr(args, "json", False):
+        print(json.dumps(result, indent=2))
+        return 0
+
+    print("Oracle outcomes")
+    print(f"  scanned:            {result['scanned']}")
+    print(f"  eligible:           {result['eligible']}")
+    print(f"  skipped:            {result['skipped']}")
+    print(f"  updated:            {result['updated']}")
+    print(f"  would_update:       {result['would_update']}")
+    print(f"  unchanged:          {result['unchanged']}")
+    print(f"  dry_run:            {result['dry_run']}")
+    print(f"  window_days:        {result['window_days']}")
+    print(f"  window_checkpoints: {result['window_checkpoints']}")
+    for item in result["results"][:10]:
+        if item["status"] in {"updated", "would_update", "unchanged"}:
+            outcome = item["outcome"]
+            print(
+                f"  {item['status']}: {item['timestamp']} "
+                f"completed={outcome['completed']} errors={outcome['error_count']} "
+                f"time_to_completion_s={outcome['time_to_completion_s']}"
             )
-            print(f"# Checkpoint ({label})\n")
-            print(yaml.dump(cp, default_flow_style=False, allow_unicode=True))
-            return
+        else:
+            print(f"  skipped: {item['timestamp']} ({item['reason']})")
+    if len(result["results"]) > 10:
+        print(f"  ... {len(result['results']) - 10} more")
+    return 0
 
-    all_files = _list_checkpoint_files(cfg)
 
-    # Phase 1: workspace match + within TTL
-    for fp in all_files:
-        cp = _load_checkpoint_file(fp)
-        if not cp:
+def cmd_oracle_infer_labels(args, cfg) -> int:
+    """`perseus oracle infer-labels` — apply implicit accept/reject labels.
+
+    Idempotent: re-running produces the same result. Never overrides an
+    explicit `accepted: true/false`. Writes the Pythia log atomically.
+    """
+    o_cfg = cfg.get("pythia", {})
+    window_days = int(getattr(args, "window_days", None) or o_cfg.get("inferred_label_window_days", 7))
+    window_cps = int(getattr(args, "window_checkpoints", None) or o_cfg.get("inferred_label_window_checkpoints", 5))
+    floor = int(o_cfg.get("inferred_label_min_checkpoints", 2))
+    dry_run = bool(getattr(args, "dry_run", False))
+
+    entries = _pythia_log_entries()
+    if not entries:
+        use_json = getattr(args, "json", False)
+        if use_json:
+            import json as _json
+            print(_json.dumps({
+                "scanned": 0, "explicit_skipped": 0, "inferred_accept": 0,
+                "inferred_reject": 0, "inferred_none": 0, "unchanged": 0,
+                "written": 0, "dry_run": dry_run,
+                "window_days": window_days, "window_checkpoints": window_cps,
+                "floor": floor,
+            }, indent=2))
+        else:
+            print("(no Pythia log entries)")
+        return 0
+
+    indexed_cps = _load_indexed_checkpoints(cfg)
+
+    changes = {"inferred_accept": 0, "inferred_reject": 0, "inferred_none": 0, "unchanged": 0, "explicit_skipped": 0}
+    for entry in entries:
+        if entry.get("accepted") is True or entry.get("accepted") is False:
+            changes["explicit_skipped"] += 1
             continue
-        cp_ws = str(Path(cp.get("workspace", "")).resolve()) if cp.get("workspace") else ""
-        if cp_ws != target_ws:
+        entry_ts = _parse_iso_ts(str(entry.get("timestamp", "") or ""))
+        window = _checkpoints_in_window(entry_ts, indexed_cps, window_days, window_cps)
+        new_label = _infer_label_for_entry(entry, window, min_checkpoints=floor)
+        # _infer_label_for_entry returns:
+        #   - None  → entry already has explicit accept/reject; should not happen
+        #             here since we filtered above, but treat as no-op.
+        #   - "inferred_none" → no signal (empty tokens, no window, or zero hits)
+        #   - "inferred_accept" / "inferred_reject" → real inference
+        if new_label is None:
+            # Defensive — already filtered, but never crash
             continue
-        written = cp.get("written", "")
-        stale_after = cp.get("stale_after", "")
-        if written:
-            try:
-                dt = datetime.fromisoformat(str(written))
-                age = (datetime.now(dt.tzinfo) - dt).total_seconds()
-                fresh = age <= ttl_s
-                if stale_after:
-                    try:
-                        fresh = datetime.now().astimezone() <= datetime.fromisoformat(str(stale_after))
-                    except Exception:
-                        pass
-                if fresh:
-                    print(f"# Checkpoint (workspace match, {int(age)}s ago)\n")
-                    print(yaml.dump(cp, default_flow_style=False, allow_unicode=True))
-                    return
-            except Exception:
-                pass
-
-    # Phase 2: workspace match (any age)
-    for fp in all_files:
-        cp = _load_checkpoint_file(fp)
-        if not cp:
+        if new_label == "inferred_none":
+            # Per code review 2026-05-18: this was previously suppressed (continue
+            # without increment), so the inferred_none bucket was always 0 even
+            # when many entries produced no signal. That was actively misleading.
+            changes["inferred_none"] += 1
             continue
-        cp_ws = str(Path(cp.get("workspace", "")).resolve()) if cp.get("workspace") else ""
-        if cp_ws == target_ws:
-            written = cp.get("written", "unknown")
-            print(f"# Checkpoint (workspace match, outside TTL — written {written})\n")
-            print(yaml.dump(cp, default_flow_style=False, allow_unicode=True))
-            return
+        if new_label not in ("inferred_accept", "inferred_reject"):
+            # Unknown label — refuse to silently grow a new bucket
+            continue
+        old = entry.get("inferred_label")
+        if old == new_label:
+            changes["unchanged"] += 1
+            continue
+        if not dry_run:
+            entry["inferred_label"] = new_label
+        changes[new_label] += 1
 
-    # Phase 3: most recent checkpoint regardless of workspace
-    cp = load_latest_checkpoint(cfg)
-    if not cp:
-        print("No checkpoint found.")
-        return
-    cp_ws = cp.get("workspace", "(no workspace recorded)")
-    print(f"# Checkpoint (no workspace match — checkpoint workspace: {cp_ws})\n")
-    print(yaml.dump(cp, default_flow_style=False, allow_unicode=True))
+    if not dry_run:
+        _rewrite_pythia_log(entries)
+
+    use_json = getattr(args, "json", False)
+    if use_json:
+        import json as _json
+        output = {
+            "scanned": len(entries),
+            "explicit_skipped": changes["explicit_skipped"],
+            "inferred_accept": changes["inferred_accept"],
+            "inferred_reject": changes["inferred_reject"],
+            "inferred_none": changes["inferred_none"],
+            "unchanged": changes["unchanged"],
+            "written": changes["inferred_accept"] + changes["inferred_reject"],
+            "dry_run": dry_run,
+            "window_days": window_days,
+            "window_checkpoints": window_cps,
+            "floor": floor,
+        }
+        print(_json.dumps(output, indent=2))
+    else:
+        prefix = "(dry-run) " if dry_run else ""
+        print(f"{prefix}Inferred labels (window: {window_days}d / {window_cps} checkpoints, floor: {floor}):")
+        print(f"  ✓ inferred_accept: {changes['inferred_accept']}")
+        print(f"  ✗ inferred_reject: {changes['inferred_reject']}")
+        print(f"  · inferred_none:   {changes['inferred_none']}")
+        print(f"  = unchanged:       {changes['unchanged']}")
+        print(f"  ⏭ explicit-label entries skipped: {changes['explicit_skipped']}")
+    return 0
+
+
+# ───── Phase 9.3 — Drift detection (task-22) ────────────────────────────────
+
+
+def _jaccard(a: set, b: set) -> float:
+    if not a and not b:
+        return 1.0
+    if not a or not b:
+        return 0.0
+    return len(a & b) / len(a | b)
+
+
+def _compute_drift(cfg: dict, now_epoch: float | None = None) -> dict:
+    """Three drift metrics over the Pythia log:
+
+    1. **Acceptance rate** — (explicit accepts + inferred accepts) / total
+       compared between the trailing 7-day window and the longer baseline.
+    2. **Skill recommendation Jaccard** — set-similarity of recommended
+       tokens between the recent window and the baseline.
+    3. **Confidence proxy** — average response length (no LLM confidence
+       score exists yet; length is a reasonable surrogate while we wait
+       for the Daedalus inference path to surface a real score).
+    """
+    o = cfg.get("pythia", {})
+    win_days = int(o.get("drift_window_days", 30))
+    # Recent window: trailing N days, default 7. Was hardcoded as 7 in v0.8; made
+    # config-driven 2026-05-18 in response to review (consistency with baseline window).
+    recent_days = int(o.get("drift_recent_window_days", 7))
+    acc_drop = float(o.get("drift_acceptance_drop", 0.20))
+    jac_floor = float(o.get("drift_jaccard_floor", 0.30))
+    conf_drop = float(o.get("drift_confidence_drop", 0.15))
+
+    now = now_epoch if now_epoch is not None else time.time()
+    recent_cutoff = now - recent_days * 86400
+    baseline_cutoff = now - win_days * 86400
+
+    entries = _pythia_log_entries()
+    recent = []
+    baseline = []
+    for e in entries:
+        ts = _parse_iso_ts(str(e.get("timestamp", "") or ""))
+        if ts is None:
+            continue
+        if ts >= recent_cutoff:
+            recent.append(e)
+        elif ts >= baseline_cutoff:
+            baseline.append(e)
+
+    def rate(es: list[dict]) -> float:
+        if not es:
+            return 0.0
+        pos = sum(1 for e in es if e.get("accepted") is True or e.get("inferred_label") == "inferred_accept")
+        return pos / len(es)
+
+    def tokens(es: list[dict]) -> set[str]:
+        out: set[str] = set()
+        for e in es:
+            out |= _extract_recommendation_tokens(str(e.get("response", "") or ""))
+        return out
+
+    def avg_len(es: list[dict]) -> float:
+        if not es:
+            return 0.0
+        return sum(len(str(e.get("response", "") or "")) for e in es) / len(es)
+
+    r_rate, b_rate = rate(recent), rate(baseline)
+    r_toks, b_toks = tokens(recent), tokens(baseline)
+    r_len, b_len = avg_len(recent), avg_len(baseline)
+    jaccard = _jaccard(r_toks, b_toks)
+
+    findings: list[str] = []
+    if b_rate > 0 and (b_rate - r_rate) >= acc_drop:
+        findings.append(f"acceptance rate dropped {int((b_rate-r_rate)*100)}pp (baseline {int(b_rate*100)}% → recent {int(r_rate*100)}%)")
+    if b_toks and jaccard < jac_floor:
+        findings.append(f"recommendation token Jaccard with baseline = {jaccard:.2f} (floor {jac_floor})")
+    if b_len > 0 and (b_len - r_len) / b_len >= conf_drop:
+        findings.append(f"average response length fell {int((b_len-r_len)/b_len*100)}% (baseline {int(b_len)}c → recent {int(r_len)}c)")
+
+    return {
+        "recent_count": len(recent),
+        "baseline_count": len(baseline),
+        "recent_accept_rate": r_rate,
+        "baseline_accept_rate": b_rate,
+        "jaccard": jaccard,
+        "recent_avg_len": r_len,
+        "baseline_avg_len": b_len,
+        "findings": findings,
+        "window_days": win_days,
+    }
+
+
+def cmd_oracle_drift(args, cfg) -> int:
+    report = _compute_drift(cfg)
+    use_json = getattr(args, "json", False)
+    min_samples = int(cfg.get("pythia", {}).get("drift_min_samples", 10))
+    o_cfg = cfg.get("pythia", {})
+    recent_days = int(o_cfg.get("drift_recent_window_days", 7))
+
+    if use_json:
+        import json as _json
+        # Determine verdict
+        warnings = []
+        if report["recent_count"] < min_samples:
+            warnings.append(f"recent window has only {report['recent_count']} samples (min {min_samples})")
+        if report["baseline_count"] < min_samples:
+            warnings.append(f"baseline has only {report['baseline_count']} samples (min {min_samples})")
+        if warnings:
+            verdict = "insufficient_data"
+        elif report["findings"]:
+            verdict = "drift_detected"
+        else:
+            verdict = "no_drift"
+
+        output = {
+            "samples": {"recent": report["recent_count"], "baseline": report["baseline_count"]},
+            "metrics": {
+                "acceptance_rate": {
+                    "recent": round(report["recent_accept_rate"], 4),
+                    "baseline": round(report["baseline_accept_rate"], 4),
+                    "delta": round(report["recent_accept_rate"] - report["baseline_accept_rate"], 4),
+                },
+                "jaccard": {
+                    "value": round(report["jaccard"], 4),
+                    "floor": float(o_cfg.get("drift_jaccard_floor", 0.30)),
+                },
+                "confidence_proxy": {
+                    "recent": round(report["recent_avg_len"], 1),
+                    "baseline": round(report["baseline_avg_len"], 1),
+                    "delta": round(report["recent_avg_len"] - report["baseline_avg_len"], 1),
+                    "note": "average response length — proxy for confidence",
+                },
+            },
+            "thresholds": {
+                "drift_acceptance_drop": float(o_cfg.get("drift_acceptance_drop", 0.20)),
+                "drift_jaccard_floor": float(o_cfg.get("drift_jaccard_floor", 0.30)),
+                "drift_confidence_drop": float(o_cfg.get("drift_confidence_drop", 0.15)),
+                "drift_window_days": report["window_days"],
+                "drift_recent_window_days": recent_days,
+            },
+            "verdict": verdict,
+            "warnings": warnings,
+        }
+        print(_json.dumps(output, indent=2))
+        return 0
+
+    print(f"Drift report (recent {recent_days}d vs baseline {report['window_days']}d):")
+    print(f"  Sample size: recent={report['recent_count']} · baseline={report['baseline_count']}")
+    print(f"  Acceptance rate: recent={report['recent_accept_rate']:.0%} · baseline={report['baseline_accept_rate']:.0%}")
+    print(f"  Jaccard: {report['jaccard']:.2f}")
+    print(f"  Avg response length: recent={int(report['recent_avg_len'])}c · baseline={int(report['baseline_avg_len'])}c")
+    if not report["findings"]:
+        print("  ✓ No drift detected.")
+        return 0
+    print("  ⚠ Drift detected:")
+    for f in report["findings"]:
+        print(f"    - {f}")
+    return 0
+
+
+def resolve_drift(args: str, cfg: dict) -> str:
+    """`@drift` directive — renders drift report inline."""
+    report = _compute_drift(cfg)
+    lines = [
+        f"_Drift report — recent 7d vs baseline {report['window_days']}d_",
+        f"_Sample: recent={report['recent_count']} · baseline={report['baseline_count']}_",
+        "",
+    ]
+    if not report["findings"]:
+        lines.append("✓ No drift detected.")
+    else:
+        lines.append("⚠ **Drift detected:**")
+        for f in report["findings"]:
+            lines.append(f"- {f}")
+    return "\n".join(lines)
 
 
 # ──────────────────────────────── Render ──────────────────────────────────────
@@ -6563,553 +7757,6 @@ def cmd_validate(args, cfg) -> int:
     return 0 if not errors else 1
 
 
-# ──────────────────────────────── Suggest ─────────────────────────────────────
-
-def append_pythia_log(entry: dict, cfg: dict) -> None:
-    """Append a JSONL Pythia log entry; warn on failure without raising."""
-    log_path = _pythia_log_path()
-    try:
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        with log_path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-    except Exception as exc:
-        print(f"> ⚠ Could not write Pythia log: {exc}")
-
-
-def _checkpoint_age_s(snapshot_checkpoint: str) -> int | None:
-    m = re.search(r'\*\*Checkpoint written:\*\*\s+([^\\n]+)', snapshot_checkpoint or "")
-    if not m:
-        return None
-    try:
-        dt = datetime.fromisoformat(m.group(1).strip())
-        return int((datetime.now(dt.tzinfo) - dt).total_seconds())
-    except Exception:
-        return None
-
-
-def build_pythia_log_entry(task: str, snapshot: dict, prompt: str, response: str | None, provider: str | None, model: str | None, flags: list[str] | None = None) -> dict:
-    """Build the append-only Pythia log entry.
-
-    task-10: an optional ``flags`` array records which suggest flags were
-    active for this invocation. Empty list when none. Backward compatible —
-    legacy entries without ``flags`` remain valid.
-    """
-    services_summary = []
-    for line in snapshot.get("services_table", "").splitlines():
-        if not line.startswith("|") or line.startswith("| Service") or line.startswith("|---"):
-            continue
-        parts = [p.strip() for p in line.strip('|').split('|')]
-        if len(parts) >= 2:
-            services_summary.append({"name": parts[0], "status": parts[1]})
-    return {
-        "version": 1,
-        "timestamp": datetime.now().astimezone().isoformat(),
-        "task": task,
-        "env_snapshot": {
-            "skills_count": snapshot.get("skill_count"),
-            "stale_skills_count": None,
-            "services": services_summary,
-            "checkpoint_age_s": _checkpoint_age_s(snapshot.get("checkpoint_summary", "")),
-            "outcome_weights": snapshot.get("outcome_weights", []),
-            "ab_test": snapshot.get("ab_test"),
-        },
-        "prompt": prompt,
-        "response": response,
-        "provider": provider,
-        "model": model,
-        "accepted": None,
-        "flags": list(flags or []),
-    }
-
-
-def run_llm(provider: str, prompt: str, cfg: dict, model: str | None = None, model_url: str | None = None) -> tuple[str, int]:
-    """Run the Pythia prompt through a configured provider and return (text, exit_code)."""
-    provider = provider.strip().lower()
-    llm_cfg = cfg.get("llm", {})
-    timeout = float(llm_cfg.get("timeout_s", 30))
-
-    if provider == "ollama":
-        url = (model_url or str(llm_cfg.get("url", "http://localhost:11434"))).rstrip("/") + "/api/chat"
-        payload = {
-            "model": model or str(llm_cfg.get("model", "mistral")),
-            "messages": [
-                {"role": "system", "content": "You are Perseus Pythia, the Tool Oracle."},
-                {"role": "user", "content": prompt},
-            ],
-            "stream": False,
-        }
-    elif provider == "daedalus":
-        # task-06: routes to a fine-tuned local model via ollama
-        url = (model_url or str(llm_cfg.get("daedalus_url", "http://localhost:11434"))).rstrip("/") + "/api/chat"
-        payload = {
-            "model": model or str(llm_cfg.get("daedalus_model", "perseus-daedalus")),
-            "messages": [
-                {"role": "system", "content": "You are Perseus Pythia, the Tool Oracle (Daedalus)."},
-                {"role": "user", "content": prompt},
-            ],
-            "stream": False,
-        }
-        # share the ollama response-parsing branch below
-        provider = "ollama"
-    elif provider in {"llamacpp", "openai-compat", "hermes"}:
-        # `hermes` is an alias for `openai-compat` because Hermes Agent
-        # (NousResearch) exposes an OpenAI-compatible /v1/chat/completions
-        # server. Using the alias makes config read naturally
-        # (`llm.provider: hermes`) and reserves the name for a future
-        # Hermes-specific provider (auth headers, model picker, etc.).
-        # When the alias is used we look at llm.hermes_url and
-        # llm.hermes_model first so users can keep hermes settings
-        # independent of any other openai-compat endpoint they configure.
-        if provider == "hermes":
-            base_default = str(llm_cfg.get("hermes_url", llm_cfg.get("url", "http://localhost:8080"))).rstrip("/")
-            model_default = str(llm_cfg.get("hermes_model", llm_cfg.get("model", "default")))
-        else:
-            base_default = str(llm_cfg.get("url", "http://localhost:11434")).rstrip("/")
-            model_default = str(llm_cfg.get("model", "mistral"))
-        base = (model_url or base_default).rstrip("/")
-        url = base + "/v1/chat/completions"
-        payload = {
-            "model": model or model_default,
-            "messages": [
-                {"role": "system", "content": "You are Perseus Pythia, the Tool Oracle."},
-                {"role": "user", "content": prompt},
-            ],
-            "stream": False,
-        }
-        # share the openai-compat response-parsing branch below
-        provider = "openai-compat"
-    else:
-        return (f"> ⚠ Unsupported llm provider: {provider}. Currently supported: ollama, llamacpp, openai-compat, hermes, daedalus", 2)
-
-    req = urllib.request.Request(
-        url,
-        data=json.dumps(payload).encode(),
-        headers={"Content-Type": "application/json"},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            body = json.loads(resp.read().decode())
-        if provider == "ollama":
-            text = str(body.get("message", {}).get("content", "")).strip()
-        else:
-            choices = body.get("choices", [])
-            text = str(choices[0].get("message", {}).get("content", "")).strip() if choices else ""
-        return (text or "> ⚠ LLM returned no response.", 0)
-    except urllib.error.URLError as exc:
-        return (f"> ⚠ LLM request failed: {exc}", 2)
-    except Exception as exc:
-        return (f"> ⚠ LLM error: {exc}", 2)
-
-
-def cmd_llm(args, cfg) -> int:
-    """`perseus llm ping` — verify the configured LLM provider is reachable.
-
-    Sends a tiny no-op prompt through ``run_llm`` and prints either a
-    pass line (provider, model, base URL, elapsed ms, response preview)
-    or an explicit error line. Exit codes:
-
-    - ``0`` on success
-    - ``2`` on transport or provider error
-    - ``3`` on unknown subcommand
-
-    Used by humans to confirm a fresh install ("does Perseus see Hermes
-    on this box?") and by future Daedalus drift detection to bail out
-    early when the inference path is broken.
-    """
-    sub = getattr(args, "llm_sub", None)
-    if sub != "ping":
-        print(f"unknown llm subcommand: {sub}", file=sys.stderr)
-        return 3
-
-    llm_cfg = cfg.get("llm", {})
-    provider = (args.provider or llm_cfg.get("provider") or "ollama").strip().lower()
-    model = args.model or None
-    model_url = args.url or None
-
-    # Build a base URL string for the report — mirror run_llm's resolution
-    if provider == "ollama":
-        base = (model_url or str(llm_cfg.get("url", "http://localhost:11434"))).rstrip("/")
-        resolved_model = model or str(llm_cfg.get("model", "mistral"))
-    elif provider == "daedalus":
-        base = (model_url or str(llm_cfg.get("daedalus_url", "http://localhost:11434"))).rstrip("/")
-        resolved_model = model or str(llm_cfg.get("daedalus_model", "perseus-daedalus"))
-    elif provider == "hermes":
-        base = (model_url or str(llm_cfg.get("hermes_url", llm_cfg.get("url", "http://localhost:8080")))).rstrip("/")
-        resolved_model = model or str(llm_cfg.get("hermes_model", llm_cfg.get("model", "default")))
-    elif provider in {"llamacpp", "openai-compat"}:
-        base = (model_url or str(llm_cfg.get("url", "http://localhost:11434"))).rstrip("/")
-        resolved_model = model or str(llm_cfg.get("model", "mistral"))
-    else:
-        print(f"✗ unsupported provider: {provider}", file=sys.stderr)
-        return 2
-
-    start = time.time()
-    text, code = run_llm(provider, "Reply with the single word: pong.", cfg, model=model, model_url=model_url)
-    elapsed_ms = int((time.time() - start) * 1000)
-
-    if code != 0:
-        if getattr(args, "json", False):
-            import json as _json
-            print(_json.dumps({"provider": provider, "model": resolved_model, "url": base,
-                                "latency_ms": elapsed_ms, "status": "error", "error": text}, indent=2))
-        else:
-            print(f"✗ {provider} · {base} · {elapsed_ms} ms · {text}")
-        return 2
-
-    preview = text.replace("\n", " ")[:60]
-    if getattr(args, "json", False):
-        import json as _json
-        print(_json.dumps({"provider": provider, "model": resolved_model, "url": base,
-                            "latency_ms": elapsed_ms, "status": "ok", "error": None}, indent=2))
-    else:
-        print(f"✓ {provider} · model={resolved_model} · {base} · {elapsed_ms} ms · {preview!r}")
-    return 0
-
-
-def _outcome_weight_for_entry(entry: dict) -> float | None:
-    outcome = entry.get("outcome")
-    if not isinstance(outcome, dict):
-        return None
-    checkpoints = int(outcome.get("checkpoint_count", 0) or 0)
-    if checkpoints <= 0:
-        return 0.0
-    error_rate = float(outcome.get("error_rate", 0.0) or 0.0)
-    error_rate = max(0.0, min(1.0, error_rate))
-    if outcome.get("completed") is True:
-        return max(-1.0, min(1.0, 1.0 - error_rate))
-    return max(-1.0, min(1.0, -0.5 - (0.5 * error_rate)))
-
-
-def _pythia_online_score_adjustments(entries: list[dict], cfg: dict) -> list[dict]:
-    """Compute transparent outcome-weight hints per recommendation token."""
-    o_cfg = cfg.get("pythia", {})
-    if not bool(o_cfg.get("online_scoring_enabled", True)):
-        return []
-    recent_n = int(o_cfg.get("online_scoring_recent_entries", 50))
-    min_abs = float(o_cfg.get("online_scoring_min_abs_weight", 0.15))
-    buckets: dict[str, dict] = {}
-    for entry in entries[-recent_n:]:
-        if not _pythia_entry_has_positive_label(entry):
-            continue
-        weight = _outcome_weight_for_entry(entry)
-        if weight is None:
-            continue
-        tokens = sorted(_extract_recommendation_tokens(str(entry.get("response", "") or "")))
-        for token in tokens[:12]:
-            bucket = buckets.setdefault(token, {"sum": 0.0, "samples": 0, "completed": 0, "errors": 0})
-            bucket["sum"] += weight
-            bucket["samples"] += 1
-            outcome = entry.get("outcome") or {}
-            if outcome.get("completed") is True:
-                bucket["completed"] += 1
-            if float(outcome.get("error_rate", 0.0) or 0.0) > 0:
-                bucket["errors"] += 1
-
-    adjustments: list[dict] = []
-    for token, bucket in buckets.items():
-        samples = int(bucket["samples"])
-        if samples <= 0:
-            continue
-        weight = round(float(bucket["sum"]) / samples, 3)
-        if abs(weight) < min_abs:
-            continue
-        direction = "boost" if weight > 0 else "lower"
-        adjustments.append({
-            "token": token,
-            "weight": weight,
-            "direction": direction,
-            "samples": samples,
-            "completed": int(bucket["completed"]),
-            "errors": int(bucket["errors"]),
-            "reason": (
-                f"{int(bucket['completed'])}/{samples} completed, "
-                f"{int(bucket['errors'])}/{samples} with errors"
-            ),
-        })
-    adjustments.sort(key=lambda item: (-abs(item["weight"]), item["token"]))
-    return adjustments[:10]
-
-
-def _render_outcome_weight_hints(adjustments: list[dict]) -> str:
-    if not adjustments:
-        return ""
-    lines = [
-        "### Outcome Weight Hints",
-        "Use these deterministic outcome signals as tie-breakers; resolved context still wins.",
-    ]
-    for item in adjustments:
-        sign = "+" if item["weight"] > 0 else ""
-        lines.append(
-            f"- {item['direction']} `{item['token']}` ({sign}{item['weight']}, "
-            f"n={item['samples']}): {item['reason']}"
-        )
-    return "\n".join(lines)
-
-
-def _stable_unit_interval(value: str) -> float:
-    digest = hashlib.sha256(value.encode()).hexdigest()[:12]
-    return int(digest, 16) / float(0xFFFFFFFFFFFF)
-
-
-def _pythia_ab_test_plan(task: str, adjustments: list[dict], cfg: dict) -> dict:
-    o_cfg = cfg.get("pythia", {})
-    enabled = bool(o_cfg.get("ab_testing_enabled", False))
-    plan = {
-        "enabled": enabled,
-        "active": False,
-        "id": None,
-        "primary": None,
-        "alternate": None,
-        "rate": float(o_cfg.get("ab_testing_rate", 0.10)),
-        "bucket": None,
-        "reason": "disabled",
-    }
-    if not enabled:
-        return plan
-    candidates = [item for item in adjustments if item.get("token")]
-    if len(candidates) < 2:
-        plan["reason"] = "insufficient outcome-weight candidates"
-        return plan
-    rate = max(0.0, min(1.0, float(o_cfg.get("ab_testing_rate", 0.10))))
-    bucket = _stable_unit_interval(f"{task}|ab-testing")
-    plan["rate"] = rate
-    plan["bucket"] = round(bucket, 6)
-    if bucket > rate:
-        plan["reason"] = f"bucket {bucket:.3f} above rate {rate:.3f}"
-        return plan
-
-    ranked = sorted(candidates, key=lambda item: (-item["weight"], item["token"]))
-    primary = ranked[0]
-    alternate = sorted(
-        [item for item in candidates if item["token"] != primary["token"]],
-        key=lambda item: (item["weight"], item["token"]),
-    )[0]
-    test_id = hashlib.sha256(f"{task}|{primary['token']}|{alternate['token']}".encode()).hexdigest()[:12]
-    plan.update({
-        "active": True,
-        "id": test_id,
-        "primary": {
-            "token": primary["token"],
-            "weight": primary["weight"],
-            "reason": primary.get("reason", ""),
-        },
-        "alternate": {
-            "token": alternate["token"],
-            "weight": alternate["weight"],
-            "reason": alternate.get("reason", ""),
-        },
-        "reason": "active",
-    })
-    return plan
-
-
-def _render_ab_test_hint(plan: dict) -> str:
-    if not plan or not plan.get("active"):
-        return ""
-    primary = plan["primary"]
-    alternate = plan["alternate"]
-    return "\n".join([
-        "### A/B Recommendation Test",
-        (
-            f"Exploration id `{plan['id']}`: compare primary `{primary['token']}` "
-            f"against alternate `{alternate['token']}`."
-        ),
-        (
-            "Label the final recommendation with "
-            f"`ab_test={plan['id']}` and state whether primary or alternate won."
-        ),
-    ])
-
-
-def build_pythia_snapshot(cfg: dict, category: str | None = None, no_services: bool = False, quick: bool = False, task: str | None = None) -> dict:
-    """Build the environment snapshot used by `perseus suggest`.
-
-    --quick implies --no-services (task-10).
-
-    --category falls back to a full scan with a warning if the category
-    directory does not exist.
-    """
-    now = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z")
-
-    effective_no_services = no_services or quick
-
-    # --category fallback: warn and drop the filter when the directory is absent
-    category_warning = None
-    if category:
-        skill_dir = Path(cfg["pythia"]["skill_dir"])
-        if not (skill_dir / category).exists():
-            category_warning = f"> ⚠ Skills category `{category}` not found in {skill_dir} — falling back to full scan."
-            category = None
-
-    skills_args = "flag_stale=true" + (f" category={category}" if category else "")
-    skills_table = resolve_skills(skills_args, cfg)
-    if category_warning:
-        skills_table = category_warning + "\n\n" + skills_table
-
-    if effective_no_services:
-        services_table = "(service health check skipped — use without --no-services for live status)"
-    else:
-        services_table = "(no services configured in oracle — add @services to .perseus/context.md)"
-
-    if quick:
-        # In --quick mode, do not even attempt to assemble session/checkpoint context
-        session_digest = ""
-        checkpoint_summary = ""
-    else:
-        session_digest = resolve_session("count=3", cfg)
-        checkpoint_summary = resolve_waypoint("", cfg)
-
-    outcome_weights = _pythia_online_score_adjustments(_pythia_log_entries(), cfg)
-    snapshot = {
-        "rendered_at": now,
-        "skills_table": skills_table,
-        "services_table": services_table,
-        "session_digest": session_digest,
-        "checkpoint_summary": checkpoint_summary,
-        "quick": quick,
-        "outcome_weights": outcome_weights,
-        "ab_test": _pythia_ab_test_plan(task or "", outcome_weights, cfg),
-    }
-
-    if quick:
-        skill_dir = Path(cfg["pythia"]["skill_dir"])
-        snapshot["skill_count"] = len(list(skill_dir.rglob("SKILL.md"))) if skill_dir.exists() else 0
-    return snapshot
-
-
-def render_pythia_prompt(task: str, snapshot: dict) -> str:
-    """Render the full Pythia prompt from a task and snapshot.
-
-    In --quick mode (``snapshot["quick"] is True``) the Services and
-    Sessions/Checkpoint sections are omitted entirely (task-10).
-    """
-    divider = "━" * 55
-    outcome_hints = _render_outcome_weight_hints(snapshot.get("outcome_weights", []))
-    ab_hint = _render_ab_test_hint(snapshot.get("ab_test", {}))
-    advisory_parts = [part for part in (outcome_hints, ab_hint) if part]
-    advisory_section = "\n\n" + "\n\n".join(advisory_parts) if advisory_parts else ""
-
-    if snapshot.get("quick"):
-        return f"""You are Perseus Pythia, the Tool Oracle. Given a task and a snapshot of available skills,
-recommend the single best skill/tool/approach.
-
-TASK: {task}
-
-ENVIRONMENT SNAPSHOT (rendered {snapshot['rendered_at']}):
-
-### Available Skills
-{snapshot['skills_table']}
-{advisory_section}
-
----
-
-Return ONE recommendation, one sentence. No alternatives, no hedging.
-{divider}"""
-
-    return f"""You are Perseus Pythia, the Tool Oracle. Given a task and a live environment snapshot,
-recommend the top 2-3 approaches in ranked order.
-
-TASK: {task}
-
-ENVIRONMENT SNAPSHOT (rendered {snapshot['rendered_at']}):
-
-### Available Skills
-{snapshot['skills_table']}
-
-### Service Health
-{snapshot['services_table']}
-
-### Recent Checkpoint
-{snapshot['checkpoint_summary']}
-
-### Recent Sessions
-{snapshot['session_digest']}
-{advisory_section}
-
----
-
-For each recommendation:
-- Name the specific skills/tools/integrations to use
-- Explain in one sentence why this ranks where it does
-- Note any dependencies, risks, or conditions
-- Flag if the approach is overkill or underpowered for this task
-
-Format: ranked list, most recommended first. Be direct. No hedging.
-{divider}"""
-
-
-def run_ollama(prompt: str, cfg: dict, model_override: str | None = None) -> str:
-    """Run the Pythia prompt against a local Ollama instance."""
-    host = str(cfg["pythia"].get("ollama_host", "http://127.0.0.1:11434")).rstrip("/")
-    model = model_override or str(cfg["pythia"].get("ollama_model", "llama3.1"))
-    timeout = float(cfg["pythia"].get("llm_timeout_s", 30))
-    body = json.dumps({"model": model, "prompt": prompt, "stream": False}).encode()
-    req = urllib.request.Request(
-        f"{host}/api/generate",
-        data=body,
-        headers={"Content-Type": "application/json"},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            payload = json.loads(resp.read().decode())
-        return str(payload.get("response", "")).strip() or "> ⚠ Ollama returned no response."
-    except urllib.error.URLError as exc:
-        return f"> ⚠ Ollama request failed: {exc}"
-    except Exception as exc:
-        return f"> ⚠ Ollama error: {exc}"
-
-
-def cmd_suggest(args, cfg):
-    """Pythia: build a live snapshot, render a prompt, optionally run a local model, and log the interaction.
-
-    Flag handling (task-10):
-      --quick           shortens the prompt; implies --no-services
-      --no-services     skips live service health checks
-      --category NAME   limits skill scan to ~/.hermes/skills/<NAME>/ (falls back with warning)
-    """
-    task = args.task
-    quick = getattr(args, "quick", False)
-    no_services = getattr(args, "no_services", False)
-    category = getattr(args, "category", None)
-    llm = getattr(args, "llm", None)
-    model = getattr(args, "model", None)
-    model_url = getattr(args, "model_url", None)
-
-    # Build list of active flags for log entry
-    active_flags: list[str] = []
-    if quick:
-        active_flags.append("--quick")
-    if no_services and not quick:  # --quick implies --no-services; don't double-record
-        active_flags.append("--no-services")
-    if category:
-        active_flags.append(f"--category={category}")
-
-    snapshot = build_pythia_snapshot(cfg, category=category, no_services=no_services, quick=quick, task=task)
-
-    prompt = render_pythia_prompt(task, snapshot)
-    response_text = None
-    provider_used = None
-    model_used = None
-    exit_code = 0
-
-    if llm:
-        provider_used = llm.strip().lower()
-        if ":" in provider_used and not model:
-            provider_used, _, model = provider_used.partition(":")
-        response_text, exit_code = run_llm(provider_used, prompt, cfg, model=model or None, model_url=model_url)
-        model_used = model or cfg.get("llm", {}).get("model")
-        print(response_text)
-    else:
-        print(prompt)
-
-    append_pythia_log(
-        build_pythia_log_entry(task, snapshot, prompt, response_text, provider_used, model_used, flags=active_flags),
-        cfg,
-    )
-    if exit_code:
-        raise SystemExit(exit_code)
-
-
 # ──────────────────────────────── cmd_init ────────────────────────────────────
 
 INIT_CONTEXT_TEMPLATE = """\
@@ -7502,662 +8149,6 @@ def resolve_health(args_str: str, cfg: dict, workspace: Path | None = None) -> s
     """@health [section-only] — embed maintenance suggestions inline."""
     ws = (workspace or Path.cwd()).expanduser().resolve()
     return "\n".join(_health_collect(cfg, ws))
-
-
-# ────────────────────────── Oracle / Daedalus (task-06) ──────────────────────
-
-def _pythia_log_entries() -> list[dict]:
-    return _read_all_pythia_entries()
-
-
-def _find_pythia_entry(entries: list[dict], log_id: str) -> int | None:
-    if log_id == "latest":
-        return len(entries) - 1 if entries else None
-    for i, e in enumerate(entries):
-        if str(e.get("timestamp", "")) == log_id:
-            return i
-    # match by prefix
-    for i, e in enumerate(entries):
-        if str(e.get("timestamp", "")).startswith(log_id):
-            return i
-    return None
-
-
-def _rewrite_pythia_log(entries: list[dict]) -> None:
-    log_path = _pythia_log_path()
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    payload = "\n".join(json.dumps(e, ensure_ascii=False) for e in entries) + ("\n" if entries else "")
-    tmp = log_path.with_suffix(".jsonl.tmp")
-    tmp.write_text(payload, encoding="utf-8")
-    os.replace(tmp, log_path)
-
-
-def _label_pythia_entry(log_id: str, accepted: bool) -> tuple[bool, str]:
-    entries = _pythia_log_entries()
-    idx = _find_pythia_entry(entries, log_id)
-    if idx is None:
-        return (False, f"No Pythia log entry matched `{log_id}`")
-    entries[idx]["accepted"] = bool(accepted)
-    _rewrite_pythia_log(entries)
-    return (True, f"Entry `{entries[idx].get('timestamp')}` marked accepted={accepted}")
-
-
-# ───── Phase 9.1 — Daedalus self-rating loop (task-20) ───────────────────────
-
-
-_TOKEN_RE = re.compile(r"[a-z0-9][a-z0-9_\-./]+")
-
-
-def _extract_recommendation_tokens(response_text: str) -> set[str]:
-    """Extract candidate tool/skill names from a Pythia recommendation.
-
-    Deterministic: lowercase the response, pull out backtick-wrapped names,
-    skill-style identifiers, and bare-word commands. Stopwords are stripped
-    so we don't match the literal word "you" or "the".
-    """
-    if not response_text:
-        return set()
-    text = response_text.lower()
-    tokens: set[str] = set()
-    # Backtick-wrapped names — highest signal
-    for m in re.findall(r"`([^`]{2,60})`", text):
-        tokens.add(m.strip().lower())
-    # Skill/tool-style identifiers in body
-    for m in _TOKEN_RE.findall(text):
-        if 2 < len(m) < 40 and m not in _RECO_STOPWORDS:
-            tokens.add(m)
-    return tokens
-
-
-_RECO_STOPWORDS = {
-    "the", "and", "for", "you", "use", "with", "this", "that", "your",
-    "from", "into", "have", "has", "was", "are", "but", "any", "all",
-    "tool", "skill", "task", "command", "perseus", "see", "would",
-    "should", "could", "first", "second", "next", "step", "steps",
-    "recommend", "recommended", "consider", "based", "context",
-}
-
-
-def _checkpoint_haystack(checkpoint: dict) -> str:
-    """Concatenate the fields scanned for inferred-accept matches."""
-    parts = []
-    for key in ("task", "status", "next", "notes", "summary", "blockers"):
-        v = checkpoint.get(key)
-        if isinstance(v, list):
-            parts.extend(str(x) for x in v)
-        elif v is not None:
-            parts.append(str(v))
-    return " ".join(parts).lower()
-
-
-def _infer_label_for_entry(entry: dict, checkpoints_in_window: list[dict], min_checkpoints: int = 2) -> str | None:
-    """Compute the inferred label for one Pythia log entry.
-
-    Returns one of: ``inferred_accept``, ``inferred_reject``,
-    ``inferred_none``, or ``None`` if the entry already has an explicit
-    label and shouldn't be touched.
-
-    Pure function — no I/O, no mutation.
-    """
-    if entry.get("accepted") is True:
-        return None  # explicit accept wins
-    if entry.get("accepted") is False:
-        return None  # explicit reject wins
-
-    tokens = _extract_recommendation_tokens(str(entry.get("response", "") or ""))
-    if not tokens:
-        return "inferred_none"
-
-    n = len(checkpoints_in_window)
-    if n == 0:
-        return "inferred_none"
-
-    hits = 0
-    for cp in checkpoints_in_window:
-        hay = _checkpoint_haystack(cp)
-        if any(tok in hay for tok in tokens):
-            hits += 1
-
-    if hits > 0:
-        return "inferred_accept"
-    if n >= min_checkpoints:
-        return "inferred_reject"
-    return "inferred_none"
-
-
-def _parse_iso_ts(ts: str) -> float | None:
-    """Parse Pythia log / checkpoint timestamps into epoch seconds (best-effort)."""
-    if not ts:
-        return None
-    try:
-        # checkpoint timestamps look like "2026-05-18T19:00:00+00:00"
-        return datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
-    except Exception:
-        try:
-            return datetime.strptime(ts[:19], "%Y-%m-%dT%H:%M:%S").timestamp()
-        except Exception:
-            return None
-
-
-def _checkpoints_in_window(entry_ts_epoch: float | None, all_checkpoints: list[tuple[float, dict]], window_days: int, window_checkpoints: int) -> list[dict]:
-    """Return up to ``window_checkpoints`` checkpoints that fall within
-    ``window_days`` after ``entry_ts_epoch``. Inputs assumed sorted ascending."""
-    if entry_ts_epoch is None:
-        return []
-    cutoff = entry_ts_epoch + window_days * 86400
-    window: list[dict] = []
-    for cp_ts, cp in all_checkpoints:
-        if cp_ts <= entry_ts_epoch:
-            continue
-        if cp_ts > cutoff:
-            break
-        window.append(cp)
-        if len(window) >= window_checkpoints:
-            break
-    return window
-
-
-def _load_indexed_checkpoints(cfg: dict) -> list[tuple[float, dict]]:
-    """Load all checkpoints into (epoch_ts, body) tuples sorted ascending."""
-    out: list[tuple[float, dict]] = []
-    for fp in _list_checkpoint_files(cfg):
-        body = _load_checkpoint_file(fp) or {}
-        ts = _parse_iso_ts(str(body.get("written") or body.get("ts") or body.get("timestamp") or ""))
-        if ts is None:
-            # Fall back to file mtime
-            try:
-                ts = fp.stat().st_mtime
-            except Exception:
-                continue
-        out.append((ts, body))
-    out.sort(key=lambda t: t[0])
-    return out
-
-
-def _indexed_checkpoints_in_window(
-    entry_ts_epoch: float | None,
-    all_checkpoints: list[tuple[float, dict]],
-    window_days: int,
-    window_checkpoints: int,
-) -> list[tuple[float, dict]]:
-    """Return timestamped checkpoints after an Pythia entry within a bounded window."""
-    if entry_ts_epoch is None:
-        return []
-    cutoff = entry_ts_epoch + window_days * 86400
-    window: list[tuple[float, dict]] = []
-    for cp_ts, cp in all_checkpoints:
-        if cp_ts <= entry_ts_epoch:
-            continue
-        if cp_ts > cutoff:
-            break
-        window.append((cp_ts, cp))
-        if len(window) >= window_checkpoints:
-            break
-    return window
-
-
-_OUTCOME_COMPLETE_WORDS = {"complete", "completed", "done", "shipped", "merged", "closed", "resolved"}
-_OUTCOME_ERROR_WORDS = {"error", "errors", "failed", "failure", "exception", "traceback", "blocked", "regression"}
-
-
-def _pythia_entry_has_positive_label(entry: dict) -> bool:
-    if entry.get("accepted") is True:
-        return True
-    return entry.get("accepted") is None and entry.get("inferred_label") == "inferred_accept"
-
-
-def _outcome_checkpoint_text(checkpoint: dict) -> str:
-    parts: list[str] = []
-    for key in ("task", "status", "next", "notes", "summary", "blockers"):
-        val = checkpoint.get(key)
-        if isinstance(val, list):
-            parts.extend(str(item) for item in val)
-        elif val is not None:
-            parts.append(str(val))
-    return " ".join(parts).lower()
-
-
-def _checkpoint_completion_signal(checkpoint: dict) -> bool:
-    status = str(checkpoint.get("status", "") or "").strip().lower()
-    if any(word in status for word in _OUTCOME_COMPLETE_WORDS):
-        return True
-    text = _outcome_checkpoint_text(checkpoint)
-    return any(phrase in text for phrase in ("task completed", "work completed", "merged to main", "shipped"))
-
-
-def _checkpoint_error_signal(checkpoint: dict) -> bool:
-    text = _outcome_checkpoint_text(checkpoint)
-    return any(word in text for word in _OUTCOME_ERROR_WORDS)
-
-
-def _pythia_outcome_for_entry(
-    entry: dict,
-    indexed_checkpoints: list[tuple[float, dict]],
-    window_days: int,
-    window_checkpoints: int,
-) -> dict:
-    entry_ts = _parse_iso_ts(str(entry.get("timestamp", "") or ""))
-    window = _indexed_checkpoints_in_window(entry_ts, indexed_checkpoints, window_days, window_checkpoints)
-    checkpoint_count = len(window)
-    error_count = sum(1 for _, cp in window if _checkpoint_error_signal(cp))
-    completion_ts = None
-    for cp_ts, cp in window:
-        if _checkpoint_completion_signal(cp):
-            completion_ts = cp_ts
-            break
-
-    completed = completion_ts is not None
-    if completed:
-        completion_signal = "completed"
-    elif checkpoint_count:
-        completion_signal = "no_completion"
-    else:
-        completion_signal = "no_checkpoints"
-
-    return {
-        "schema": 1,
-        "source": "checkpoint_correlation",
-        "window_days": window_days,
-        "window_checkpoints": window_checkpoints,
-        "checkpoint_count": checkpoint_count,
-        "completion_signal": completion_signal,
-        "completed": completed,
-        "time_to_completion_s": int(completion_ts - entry_ts) if completed and entry_ts is not None else None,
-        "error_count": error_count,
-        "error_rate": round(error_count / checkpoint_count, 3) if checkpoint_count else 0.0,
-    }
-
-
-def collect_pythia_outcomes(entries: list[dict], cfg: dict, dry_run: bool = False) -> dict:
-    """Annotate accepted Pythia entries with deterministic outcome signals."""
-    o_cfg = cfg.get("pythia", {})
-    window_days = int(o_cfg.get("outcome_window_days", 7))
-    window_checkpoints = int(o_cfg.get("outcome_window_checkpoints", 10))
-    indexed = _load_indexed_checkpoints(cfg)
-
-    results: list[dict] = []
-    changed = 0
-    eligible = 0
-    skipped = 0
-    for idx, entry in enumerate(entries):
-        ts = str(entry.get("timestamp", ""))
-        task = str(entry.get("task", ""))
-        if not _pythia_entry_has_positive_label(entry):
-            skipped += 1
-            results.append({
-                "index": idx,
-                "timestamp": ts,
-                "task": task,
-                "status": "skipped",
-                "reason": "entry is not accepted or inferred-accepted",
-            })
-            continue
-
-        eligible += 1
-        outcome = _pythia_outcome_for_entry(entry, indexed, window_days, window_checkpoints)
-        if entry.get("outcome") == outcome:
-            results.append({
-                "index": idx,
-                "timestamp": ts,
-                "task": task,
-                "status": "unchanged",
-                "outcome": outcome,
-            })
-            continue
-
-        changed += 1
-        if not dry_run:
-            entry["outcome"] = outcome
-        results.append({
-            "index": idx,
-            "timestamp": ts,
-            "task": task,
-            "status": "would_update" if dry_run else "updated",
-            "outcome": outcome,
-        })
-
-    return {
-        "scanned": len(entries),
-        "eligible": eligible,
-        "skipped": skipped,
-        "updated": 0 if dry_run else changed,
-        "would_update": changed if dry_run else 0,
-        "unchanged": sum(1 for item in results if item["status"] == "unchanged"),
-        "dry_run": dry_run,
-        "window_days": window_days,
-        "window_checkpoints": window_checkpoints,
-        "results": results,
-    }
-
-
-def cmd_oracle_outcomes(args, cfg) -> int:
-    """`perseus oracle outcomes` — collect Phase 14A reinforcement signals."""
-    cfg_local = copy.deepcopy(cfg)
-    o_cfg = cfg_local.setdefault("pythia", {})
-    if getattr(args, "window_days", None) is not None:
-        o_cfg["outcome_window_days"] = int(args.window_days)
-    if getattr(args, "window_checkpoints", None) is not None:
-        o_cfg["outcome_window_checkpoints"] = int(args.window_checkpoints)
-
-    dry_run = bool(getattr(args, "dry_run", False))
-    entries = _pythia_log_entries()
-    result = collect_pythia_outcomes(entries, cfg_local, dry_run=dry_run)
-    if not dry_run and result["updated"]:
-        _rewrite_pythia_log(entries)
-
-    if getattr(args, "json", False):
-        print(json.dumps(result, indent=2))
-        return 0
-
-    print("Oracle outcomes")
-    print(f"  scanned:            {result['scanned']}")
-    print(f"  eligible:           {result['eligible']}")
-    print(f"  skipped:            {result['skipped']}")
-    print(f"  updated:            {result['updated']}")
-    print(f"  would_update:       {result['would_update']}")
-    print(f"  unchanged:          {result['unchanged']}")
-    print(f"  dry_run:            {result['dry_run']}")
-    print(f"  window_days:        {result['window_days']}")
-    print(f"  window_checkpoints: {result['window_checkpoints']}")
-    for item in result["results"][:10]:
-        if item["status"] in {"updated", "would_update", "unchanged"}:
-            outcome = item["outcome"]
-            print(
-                f"  {item['status']}: {item['timestamp']} "
-                f"completed={outcome['completed']} errors={outcome['error_count']} "
-                f"time_to_completion_s={outcome['time_to_completion_s']}"
-            )
-        else:
-            print(f"  skipped: {item['timestamp']} ({item['reason']})")
-    if len(result["results"]) > 10:
-        print(f"  ... {len(result['results']) - 10} more")
-    return 0
-
-
-def cmd_oracle_infer_labels(args, cfg) -> int:
-    """`perseus oracle infer-labels` — apply implicit accept/reject labels.
-
-    Idempotent: re-running produces the same result. Never overrides an
-    explicit `accepted: true/false`. Writes the Pythia log atomically.
-    """
-    o_cfg = cfg.get("pythia", {})
-    window_days = int(getattr(args, "window_days", None) or o_cfg.get("inferred_label_window_days", 7))
-    window_cps = int(getattr(args, "window_checkpoints", None) or o_cfg.get("inferred_label_window_checkpoints", 5))
-    floor = int(o_cfg.get("inferred_label_min_checkpoints", 2))
-    dry_run = bool(getattr(args, "dry_run", False))
-
-    entries = _pythia_log_entries()
-    if not entries:
-        use_json = getattr(args, "json", False)
-        if use_json:
-            import json as _json
-            print(_json.dumps({
-                "scanned": 0, "explicit_skipped": 0, "inferred_accept": 0,
-                "inferred_reject": 0, "inferred_none": 0, "unchanged": 0,
-                "written": 0, "dry_run": dry_run,
-                "window_days": window_days, "window_checkpoints": window_cps,
-                "floor": floor,
-            }, indent=2))
-        else:
-            print("(no Pythia log entries)")
-        return 0
-
-    indexed_cps = _load_indexed_checkpoints(cfg)
-
-    changes = {"inferred_accept": 0, "inferred_reject": 0, "inferred_none": 0, "unchanged": 0, "explicit_skipped": 0}
-    for entry in entries:
-        if entry.get("accepted") is True or entry.get("accepted") is False:
-            changes["explicit_skipped"] += 1
-            continue
-        entry_ts = _parse_iso_ts(str(entry.get("timestamp", "") or ""))
-        window = _checkpoints_in_window(entry_ts, indexed_cps, window_days, window_cps)
-        new_label = _infer_label_for_entry(entry, window, min_checkpoints=floor)
-        # _infer_label_for_entry returns:
-        #   - None  → entry already has explicit accept/reject; should not happen
-        #             here since we filtered above, but treat as no-op.
-        #   - "inferred_none" → no signal (empty tokens, no window, or zero hits)
-        #   - "inferred_accept" / "inferred_reject" → real inference
-        if new_label is None:
-            # Defensive — already filtered, but never crash
-            continue
-        if new_label == "inferred_none":
-            # Per code review 2026-05-18: this was previously suppressed (continue
-            # without increment), so the inferred_none bucket was always 0 even
-            # when many entries produced no signal. That was actively misleading.
-            changes["inferred_none"] += 1
-            continue
-        if new_label not in ("inferred_accept", "inferred_reject"):
-            # Unknown label — refuse to silently grow a new bucket
-            continue
-        old = entry.get("inferred_label")
-        if old == new_label:
-            changes["unchanged"] += 1
-            continue
-        if not dry_run:
-            entry["inferred_label"] = new_label
-        changes[new_label] += 1
-
-    if not dry_run:
-        _rewrite_pythia_log(entries)
-
-    use_json = getattr(args, "json", False)
-    if use_json:
-        import json as _json
-        output = {
-            "scanned": len(entries),
-            "explicit_skipped": changes["explicit_skipped"],
-            "inferred_accept": changes["inferred_accept"],
-            "inferred_reject": changes["inferred_reject"],
-            "inferred_none": changes["inferred_none"],
-            "unchanged": changes["unchanged"],
-            "written": changes["inferred_accept"] + changes["inferred_reject"],
-            "dry_run": dry_run,
-            "window_days": window_days,
-            "window_checkpoints": window_cps,
-            "floor": floor,
-        }
-        print(_json.dumps(output, indent=2))
-    else:
-        prefix = "(dry-run) " if dry_run else ""
-        print(f"{prefix}Inferred labels (window: {window_days}d / {window_cps} checkpoints, floor: {floor}):")
-        print(f"  ✓ inferred_accept: {changes['inferred_accept']}")
-        print(f"  ✗ inferred_reject: {changes['inferred_reject']}")
-        print(f"  · inferred_none:   {changes['inferred_none']}")
-        print(f"  = unchanged:       {changes['unchanged']}")
-        print(f"  ⏭ explicit-label entries skipped: {changes['explicit_skipped']}")
-    return 0
-
-
-# ───── Phase 9.3 — Drift detection (task-22) ────────────────────────────────
-
-
-def _jaccard(a: set, b: set) -> float:
-    if not a and not b:
-        return 1.0
-    if not a or not b:
-        return 0.0
-    return len(a & b) / len(a | b)
-
-
-def _compute_drift(cfg: dict, now_epoch: float | None = None) -> dict:
-    """Three drift metrics over the Pythia log:
-
-    1. **Acceptance rate** — (explicit accepts + inferred accepts) / total
-       compared between the trailing 7-day window and the longer baseline.
-    2. **Skill recommendation Jaccard** — set-similarity of recommended
-       tokens between the recent window and the baseline.
-    3. **Confidence proxy** — average response length (no LLM confidence
-       score exists yet; length is a reasonable surrogate while we wait
-       for the Daedalus inference path to surface a real score).
-    """
-    o = cfg.get("pythia", {})
-    win_days = int(o.get("drift_window_days", 30))
-    # Recent window: trailing N days, default 7. Was hardcoded as 7 in v0.8; made
-    # config-driven 2026-05-18 in response to review (consistency with baseline window).
-    recent_days = int(o.get("drift_recent_window_days", 7))
-    acc_drop = float(o.get("drift_acceptance_drop", 0.20))
-    jac_floor = float(o.get("drift_jaccard_floor", 0.30))
-    conf_drop = float(o.get("drift_confidence_drop", 0.15))
-
-    now = now_epoch if now_epoch is not None else time.time()
-    recent_cutoff = now - recent_days * 86400
-    baseline_cutoff = now - win_days * 86400
-
-    entries = _pythia_log_entries()
-    recent = []
-    baseline = []
-    for e in entries:
-        ts = _parse_iso_ts(str(e.get("timestamp", "") or ""))
-        if ts is None:
-            continue
-        if ts >= recent_cutoff:
-            recent.append(e)
-        elif ts >= baseline_cutoff:
-            baseline.append(e)
-
-    def rate(es: list[dict]) -> float:
-        if not es:
-            return 0.0
-        pos = sum(1 for e in es if e.get("accepted") is True or e.get("inferred_label") == "inferred_accept")
-        return pos / len(es)
-
-    def tokens(es: list[dict]) -> set[str]:
-        out: set[str] = set()
-        for e in es:
-            out |= _extract_recommendation_tokens(str(e.get("response", "") or ""))
-        return out
-
-    def avg_len(es: list[dict]) -> float:
-        if not es:
-            return 0.0
-        return sum(len(str(e.get("response", "") or "")) for e in es) / len(es)
-
-    r_rate, b_rate = rate(recent), rate(baseline)
-    r_toks, b_toks = tokens(recent), tokens(baseline)
-    r_len, b_len = avg_len(recent), avg_len(baseline)
-    jaccard = _jaccard(r_toks, b_toks)
-
-    findings: list[str] = []
-    if b_rate > 0 and (b_rate - r_rate) >= acc_drop:
-        findings.append(f"acceptance rate dropped {int((b_rate-r_rate)*100)}pp (baseline {int(b_rate*100)}% → recent {int(r_rate*100)}%)")
-    if b_toks and jaccard < jac_floor:
-        findings.append(f"recommendation token Jaccard with baseline = {jaccard:.2f} (floor {jac_floor})")
-    if b_len > 0 and (b_len - r_len) / b_len >= conf_drop:
-        findings.append(f"average response length fell {int((b_len-r_len)/b_len*100)}% (baseline {int(b_len)}c → recent {int(r_len)}c)")
-
-    return {
-        "recent_count": len(recent),
-        "baseline_count": len(baseline),
-        "recent_accept_rate": r_rate,
-        "baseline_accept_rate": b_rate,
-        "jaccard": jaccard,
-        "recent_avg_len": r_len,
-        "baseline_avg_len": b_len,
-        "findings": findings,
-        "window_days": win_days,
-    }
-
-
-def cmd_oracle_drift(args, cfg) -> int:
-    report = _compute_drift(cfg)
-    use_json = getattr(args, "json", False)
-    min_samples = int(cfg.get("pythia", {}).get("drift_min_samples", 10))
-    o_cfg = cfg.get("pythia", {})
-    recent_days = int(o_cfg.get("drift_recent_window_days", 7))
-
-    if use_json:
-        import json as _json
-        # Determine verdict
-        warnings = []
-        if report["recent_count"] < min_samples:
-            warnings.append(f"recent window has only {report['recent_count']} samples (min {min_samples})")
-        if report["baseline_count"] < min_samples:
-            warnings.append(f"baseline has only {report['baseline_count']} samples (min {min_samples})")
-        if warnings:
-            verdict = "insufficient_data"
-        elif report["findings"]:
-            verdict = "drift_detected"
-        else:
-            verdict = "no_drift"
-
-        output = {
-            "samples": {"recent": report["recent_count"], "baseline": report["baseline_count"]},
-            "metrics": {
-                "acceptance_rate": {
-                    "recent": round(report["recent_accept_rate"], 4),
-                    "baseline": round(report["baseline_accept_rate"], 4),
-                    "delta": round(report["recent_accept_rate"] - report["baseline_accept_rate"], 4),
-                },
-                "jaccard": {
-                    "value": round(report["jaccard"], 4),
-                    "floor": float(o_cfg.get("drift_jaccard_floor", 0.30)),
-                },
-                "confidence_proxy": {
-                    "recent": round(report["recent_avg_len"], 1),
-                    "baseline": round(report["baseline_avg_len"], 1),
-                    "delta": round(report["recent_avg_len"] - report["baseline_avg_len"], 1),
-                    "note": "average response length — proxy for confidence",
-                },
-            },
-            "thresholds": {
-                "drift_acceptance_drop": float(o_cfg.get("drift_acceptance_drop", 0.20)),
-                "drift_jaccard_floor": float(o_cfg.get("drift_jaccard_floor", 0.30)),
-                "drift_confidence_drop": float(o_cfg.get("drift_confidence_drop", 0.15)),
-                "drift_window_days": report["window_days"],
-                "drift_recent_window_days": recent_days,
-            },
-            "verdict": verdict,
-            "warnings": warnings,
-        }
-        print(_json.dumps(output, indent=2))
-        return 0
-
-    print(f"Drift report (recent {recent_days}d vs baseline {report['window_days']}d):")
-    print(f"  Sample size: recent={report['recent_count']} · baseline={report['baseline_count']}")
-    print(f"  Acceptance rate: recent={report['recent_accept_rate']:.0%} · baseline={report['baseline_accept_rate']:.0%}")
-    print(f"  Jaccard: {report['jaccard']:.2f}")
-    print(f"  Avg response length: recent={int(report['recent_avg_len'])}c · baseline={int(report['baseline_avg_len'])}c")
-    if not report["findings"]:
-        print("  ✓ No drift detected.")
-        return 0
-    print("  ⚠ Drift detected:")
-    for f in report["findings"]:
-        print(f"    - {f}")
-    return 0
-
-
-def resolve_drift(args: str, cfg: dict) -> str:
-    """`@drift` directive — renders drift report inline."""
-    report = _compute_drift(cfg)
-    lines = [
-        f"_Drift report — recent 7d vs baseline {report['window_days']}d_",
-        f"_Sample: recent={report['recent_count']} · baseline={report['baseline_count']}_",
-        "",
-    ]
-    if not report["findings"]:
-        lines.append("✓ No drift detected.")
-    else:
-        lines.append("⚠ **Drift detected:**")
-        for f in report["findings"]:
-            lines.append(f"- {f}")
-    return "\n".join(lines)
-
-
-# ───────────── Bind the Directive Registry (task-25) ─────────────────────────
-# All resolve_* functions are now defined; wire up the registry and build the
-# regex.  This runs once at import time.
-_bind_registry()
-INLINE_DIRECTIVE_RE = _build_inline_directive_re()
-
-# Validate invariant: shell-executing or state-mutating directives must NOT be
-# safe for hover preview.
-for _spec in DIRECTIVE_REGISTRY.values():
-    if (_spec.executes_shell or _spec.mutates_state) and _spec.safe_for_hover:
-        raise AssertionError(
-            f"Registry invariant violation: {_spec.name} executes_shell={_spec.executes_shell} "
-            f"mutates_state={_spec.mutates_state} but safe_for_hover=True"
-        )
-# ─────────────────────────────────────────────────────────────────────────────
 
 
 # ───── Task-26: perseus doctor ───────────────────────────────────────────────
@@ -9979,6 +9970,24 @@ def main():
     elif args.command == "launchd":
         cmd_launchd(args, cfg)
 
+
+# Module-level call: runs at import time so render_source() and other
+# functions work correctly when called without going through main().
+# Restore the full bind sequence originally at lines 8146-8162 of perseus.py:
+#   1. populate DIRECTIVE_REGISTRY
+#   2. build and assign INLINE_DIRECTIVE_RE
+#   3. validate registry invariants
+_bind_registry()
+INLINE_DIRECTIVE_RE = _build_inline_directive_re()
+
+# Validate invariant: shell-executing or state-mutating directives must NOT be
+# safe for hover preview.
+for _spec in DIRECTIVE_REGISTRY.values():
+    if (_spec.executes_shell or _spec.mutates_state) and _spec.safe_for_hover:
+        raise AssertionError(
+            f"Registry invariant violation: {_spec.name} executes_shell={_spec.executes_shell} "
+            f"mutates_state={_spec.mutates_state} but safe_for_hover=True"
+        )
 
 if __name__ == "__main__":
     rc = main()
