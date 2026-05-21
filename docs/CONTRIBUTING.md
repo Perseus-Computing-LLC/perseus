@@ -70,7 +70,7 @@ See the [directive reference](../spec/directives.md) and the `DIRECTIVE_REGISTRY
 
 ## Writing Tests
 
-Read [`references/perseus-test-authoring.md`](../docs/AGENT_SURFACES.md) (or the version in the Perseus context engine skill) before writing new tests. Critical conventions:
+Follow these conventions when writing new tests:
 
 - Shell-running resolvers are `resolve_query` / `resolve_agent` — not `execute_*`.
 - Every `cmd_*` handler takes `(args, cfg)` — two args.

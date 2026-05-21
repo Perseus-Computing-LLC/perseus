@@ -8162,7 +8162,7 @@ for _spec in DIRECTIVE_REGISTRY.values():
 
 # ───── Task-26: perseus doctor ───────────────────────────────────────────────
 
-_PERSEUS_VERSION = "1.0.0"
+_PERSEUS_VERSION = "1.0.1"
 
 
 class DoctorResult(NamedTuple):
