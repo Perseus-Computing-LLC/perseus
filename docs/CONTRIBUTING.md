@@ -6,9 +6,13 @@ Thank you for your interest. Perseus is an open project — contributions of all
 
 ## Ground Rules
 
-Perseus is a **single-file CLI** (`perseus.py`). This constraint is intentional:
+Perseus ships as a **single-file CLI** (`perseus.py`). This constraint is intentional:
 
-- **Do not split `perseus.py` into modules or packages.** The single-file design is about trust and inspectability — anyone can read the whole thing.
+- **`perseus.py` is a generated artifact.** Do not edit it directly.
+  The canonical source lives in `src/perseus/`. Run `python scripts/build.py`
+  to regenerate `perseus.py` after making changes.
+- **The single-file design is about trust and inspectability** — anyone can read,
+  audit, and `cp` the whole thing without `pip install`.
 - **`pyyaml` is the only runtime dependency.** Do not add runtime deps. Dev/test deps in `requirements.txt` are fine.
 - **Use `patch`, not `write_file` or full rewrites.** The file is ~10K lines; any whole-file replacement risks truncation and data loss.
 - **All tests must pass before committing.** Run `python -m pytest tests/ -q`.
@@ -29,16 +33,49 @@ python perseus.py --version        # perseus v1.0.0
 
 ---
 
+## The single-file artifact
+
+`perseus.py` is generated from the module tree in `src/perseus/`. The build script
+stitches all modules together in dependency order, stripping `from perseus.X import Y`
+internal imports (which are only needed when running modules individually during
+development). The install story is unchanged: `cp perseus.py ~/.local/bin/perseus`.
+
+To regenerate after editing `src/`:
+```bash
+python scripts/build.py
+```
+
+Contributors should edit `src/perseus/` and run `python scripts/build.py` before
+committing — the `perseus.py` in the repo root is always a build artifact.
+
+See `scripts/build.py` for the full module order and strip logic.
+
+---
+
 ## Repo Layout
 
 ```
-perseus.py              ← entire implementation (single file)
+perseus.py              ← generated single-file artifact (do not edit directly)
+src/perseus/            ← canonical source split by module
+  __init__.py           ← shebang, stdlib imports (no logic)
+  cli.py                ← argparse, main(), command dispatch
+  config.py             ← PERSEUS_HOME, DEFAULT_CONFIG, load_config
+  registry.py           ← DirectiveSpec, DIRECTIVE_REGISTRY, _bind_registry
+  renderer.py           ← cache layer, _render_lines, render pipeline
+  serve.py              ← HTTP serve, LSP, cmd_render, cmd_synthesize, …
+  directives/           ← one file per directive resolver
+  … (see scripts/build.py for full module order)
+scripts/
+  build.py              ← concatenates src/ → perseus.py
+  release.sh            ← builds dist artifacts (calls build.py first)
+  install.sh            ← one-liner installer
 requirements.txt        ← pyyaml + dev deps (pytest, etc.)
 tests/
   conftest.py           ← shared fixtures and module import wiring
   test_renderer.py      ← directive resolution, rendering
   test_lsp.py           ← LSP JSON-RPC subprocess harness
   test_doctor.py        ← doctor checks
+  test_build.py         ← verifies build.py: clean run, determinism, --version
   test_*.py             ← subsystem suites; run all before committing
 spec/
   overview.md           ← architecture start point
@@ -104,8 +141,8 @@ Perseus is built with AI coding assistants as first-class contributors. The `AGE
 
 - **Executor, not architect.** Implement the spec, don't propose changes to it.
 - **No unsolicited new tasks.** If you spot something worth doing, note it in your completion summary — the owner decides.
-- **No file splits.** `perseus.py` stays a single file.
-- **`patch` not `write_file`** on `perseus.py`. Recovery from a truncated file: `git checkout HEAD -- perseus.py`.
+- **Edit `src/perseus/`, not `perseus.py`.** `perseus.py` is a generated artifact; edits to it are overwritten by the next build.
+- **`patch` not `write_file`** on any large source file. Recovery from a truncated file: `git checkout HEAD -- <file>`.
 
 ---
 
