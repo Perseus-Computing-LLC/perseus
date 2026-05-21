@@ -288,6 +288,8 @@ Full documentation lives in [`docs/`](./docs/index.md):
 - [Cited Synthesis](./docs/CITED_SYNTHESIS.md) — `@synthesize` and the citation gate.
 - [Contributing](./docs/CONTRIBUTING.md) — How to contribute code, directives, and tests.
 
+> `perseus.py` is generated from `src/perseus/`. Run `python scripts/build.py` to rebuild.
+
 ## Real-World Examples
 
 - [Subagent Handover](./docs/EXAMPLES.md#subagent-handover-zero-tax-orientation) — Zero-tax orientation for fresh agents.
