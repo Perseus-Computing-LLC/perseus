@@ -4,6 +4,12 @@ import json
 import sys
 from pathlib import Path
 
+# Also make src/perseus importable for build tests (test_build.py).
+# Append (not insert at 0) to avoid shadowing the importlib-loaded perseus_module.
+_SRC_PATH = str(Path(__file__).resolve().parents[1] / "src")
+if _SRC_PATH not in sys.path:
+    sys.path.append(_SRC_PATH)
+
 PY_VER = tuple(map(int, sys.version.split()[0].split('.')))
 
 if PY_VER >= (3, 10):
