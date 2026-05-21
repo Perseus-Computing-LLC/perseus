@@ -103,8 +103,15 @@ def build() -> None:
 
         first_module = False
 
-    output = GENERATED_HEADER + "\n".join(output_lines) + "\n"
-
+    # ── Assemble output: shebang (line 1), then header, then body ────────────
+    # Extract shebang from output_lines (it's the first line, from __init__.py)
+    if output_lines and SHEBANG_RE.match(output_lines[0]):
+        shebang_line = output_lines[0]
+        body_lines = output_lines[1:]
+    else:
+        shebang_line = "#!/usr/bin/env python3"
+        body_lines = output_lines
+    output = shebang_line + "\n" + GENERATED_HEADER + "\n".join(body_lines) + "\n"
     # ── Line-count drift guard ────────────────────────────────────────────────
     actual_lines = len(output.splitlines())
     low = int(BASELINE_LINES * 0.95)   # 9486

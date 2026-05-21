@@ -1,9 +1,9 @@
+#!/usr/bin/env python3
 # ═══════════════════════════════════════════════════════════════════════════
 # perseus.py — GENERATED FILE. Do not edit directly.
 # Edit src/perseus/ modules and run:  python scripts/build.py
 # Perseus builds Perseus.
 # ═══════════════════════════════════════════════════════════════════════════
-#!/usr/bin/env python3
 """
 Perseus — Live Context Engine for AI Assistants
 Alpha v0.4: render (@query, @skills, @services, @session, @read, @env,
