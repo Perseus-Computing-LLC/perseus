@@ -21,3 +21,6 @@ __pycache__/
 dist/
 *.egg-info/
 ~/
+
+# Generated Perseus output (rendered context files)
+examples/claude-code/CLAUDE.md
