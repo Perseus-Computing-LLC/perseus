@@ -1,6 +1,6 @@
 # Perseus v1 Product Contract
 
-**Status:** Phase 16 baseline
+**Status:** v1.0.1 — stable
 **Scope:** Resolver-first local context engine for AI assistants
 
 ---
