@@ -25,10 +25,20 @@ Works with any AI assistant that reads a file: **Claude Code, Cursor, Codex, Her
 ```bash
 pip install perseus-ctx
 perseus init /workspace/myproject
-perseus render /workspace/myproject/.perseus/context.md --output /workspace/myproject/CLAUDE.md
+perseus render /workspace/myproject/.perseus/context.md --output <whatever-your-assistant-reads>
 ```
 
 Your AI assistant now opens every session with a complete, live picture of your workspace — services running, last checkpoint, recent git log, available tools — **without burning a single turn on orientation.**
+
+The output file name is the only assistant-specific detail:
+
+| Assistant | Output file |
+|---|---|
+| Claude Code | `CLAUDE.md` |
+| Hermes Agent | `.hermes.md` |
+| Cursor | `.cursorrules` or `.cursor/context.md` |
+| Codex | `AGENTS.md` |
+| Any other | Whatever your assistant reads at session start |
 
 No pip? One-liner install:
 ```bash
@@ -294,42 +304,31 @@ Full documentation lives in [`docs/`](./docs/index.md):
 pip install perseus-ctx
 ```
 
-#### Claude Code
+The pattern is the same for every assistant — only the output filename changes:
 
 ```bash
+# Scaffold a source document
 perseus init /workspace/myproject
-# Edit .perseus/context.md to your liking, then:
-perseus render /workspace/myproject/.perseus/context.md --output /workspace/myproject/CLAUDE.md
+
+# Render to whatever file your assistant reads at session start
+perseus render /workspace/myproject/.perseus/context.md --output <assistant-file>
 ```
 
-Claude Code reads `CLAUDE.md` at session start. To keep it auto-refreshed (max 5-minute staleness):
+| Assistant | `--output` target | Notes |
+|---|---|---|
+| Claude Code | `CLAUDE.md` | Read at session start automatically |
+| Hermes Agent | `.hermes.md` | Highest-priority context file |
+| Cursor | `.cursorrules` or `.cursor/context.md` | Either location works |
+| Codex | `AGENTS.md` | Standard agent context file |
+| Any other | Whatever your assistant reads | Perseus produces plain markdown |
+
+**Auto-refresh** — add a crontab entry to keep context ≤5 minutes stale:
 
 ```bash
-# Add to crontab:
 */5 * * * * cd /workspace/myproject && perseus render .perseus/context.md --output CLAUDE.md
 ```
 
-#### Cursor
-
-Same pattern — output to `.cursor/context.md` or `.cursorrules`:
-
-```bash
-perseus render /workspace/myproject/.perseus/context.md --output /workspace/myproject/.cursorrules
-```
-
-#### Hermes Agent
-
-Output to `.hermes.md` — highest priority in Hermes's context file scan:
-
-```bash
-perseus render /workspace/myproject/.perseus/context.md --output /workspace/myproject/.hermes.md
-```
-
-The [`Auto-Injection`](#auto-injection) section below covers the cron watchdog pattern that keeps `.hermes.md` fresh without manual runs.
-
-#### Any other assistant
-
-Perseus outputs plain markdown. Point `--output` at whatever file your assistant reads at session start.
+For Hermes-specific setup (cron watchdog, `.hermes.md` priority order, config paths), see [`docs/HERMES_INTEGRATION.md`](./docs/HERMES_INTEGRATION.md).
 
 ---
 
