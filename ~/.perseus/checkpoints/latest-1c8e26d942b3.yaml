@@ -1,9 +1,0 @@
-next: Monitor PyPI listing; consider Show HN / announcement
-notes: 'Package: perseus-ctx 1.0.0 on PyPI. Commits d9d793e (packaging) + f79452d
-  (README). 493 tests passing. Token used for publish should be rotated.'
-stale_after: '2026-05-21T17:36:25.179987-05:00'
-status: Complete. All 4 tasks shipped.
-task: Distribution sprint — PyPI publish + README rewrite
-version: 1
-workspace: /workspace/perseus
-written: '2026-05-20T17:36:25.179987-05:00'

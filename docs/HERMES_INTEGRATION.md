@@ -1,6 +1,6 @@
 # Hermes Integration — Perseus + NousResearch Hermes Agent
 
-**Status:** supported in alpha v0.7+ · single-config-block · no Perseus code changes ever required after initial setup
+**Status:** supported in v1.0.0+ · single-config-block · no Perseus code changes ever required after initial setup
 **Audience:** anyone running [Hermes Agent](https://github.com/NousResearch/hermes-agent) who wants Perseus's LLM-augmented surfaces (Pythia oracle, Mnēmē narrative compaction, Daedalus drift detection) to route through Hermes instead of Ollama or a raw OpenAI endpoint.
 
 ---
@@ -9,9 +9,7 @@
 
 ```bash
 # 1. Start Hermes's OpenAI-compatible server (any port, this example uses 8080)
-hermes proxy start --port 8080      # OAuth provider (Claude Pro, ChatGPT Pro, SuperGrok)
-# — or —
-hermes serve --openai --port 8080   # any configured Hermes provider
+hermes proxy start --port 8080      # routes through your configured Hermes provider
 
 # 2. Tell Perseus to use it (~/.perseus/config.yaml)
 cat >> ~/.perseus/config.yaml <<'YAML'

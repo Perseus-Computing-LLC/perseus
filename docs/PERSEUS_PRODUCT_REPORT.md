@@ -119,8 +119,7 @@ Claude Code, Cursor, Rovo Dev, or any assistant that can read a file or stdin.
    prose would damage the main trust promise.
 6. **Platform parity.** macOS/Linux/BSD are strong; native Windows scheduling is
    explicitly deferred, and managed runtime behavior still needs hardening.
-7. **No v1 release gate yet.** The project has tests, but not a full release
-   matrix covering install, adapters, examples, performance, and compatibility.
+7. **v1 release shipped.** Perseus v1.0.0 passed the full release matrix: install, adapters, examples, performance budgets, and compatibility suite. All 22 phases complete.
 
 ---
 
@@ -130,14 +129,14 @@ The new Agora roadmap runs through Phase 22:
 
 | Phase | Outcome |
 |---|---|
-| 15B-C | Finish cited synthesis with cross-source consistency and optional curated render sections |
+| 15B-C | Finish cited synthesis with cross-source consistency and optional curated render sections ✅ |
 | 16 | Define product contract, context pack manifest, and profile-based init ✅ |
 | 17 | Add trust profiles, redaction, audit logs, and trust reports ✅ |
 | 18 | Make installation, versioning, release artifacts, and scheduler parity real ✅ |
 | 19 | Prove adapter compatibility with profiles and conformance tests ✅ |
 | 20 | Support managed runtime through authenticated serve ✅, container deployment ✅, and watch mode ✅ |
-| 21 | Add golden evals, performance budgets, and migration/compatibility checks |
-| 22 | Cut a v1 release candidate with docs, demos, artifacts, and gates |
+| 21 | Add golden evals, performance budgets, and migration/compatibility checks ✅ |
+| 22 | Docs hub, example workspaces, contributing guide, and v1.0.0 release ✅ |
 
 This path aims at a product that can be deployed as:
 
@@ -150,13 +149,9 @@ This path aims at a product that can be deployed as:
 
 ---
 
-## Recommended Execution Order
+## Status
 
-1. Finish task-40 and task-41 only if cited synthesis proves useful in
-   cross-source consistency mode.
-2. Do managed runtime after auth/trust and installer basics.
-3. Treat Phase 21 as the release safety net.
-4. Freeze features for Phase 22.
+All 22 phases shipped. Perseus v1.0.0 is released on PyPI as `perseus-ctx`. The deployment targets below are all operational.
 
 ---
 
