@@ -71,4 +71,4 @@ spec/                   ← Normative design specifications
 
 ## Version
 
-Current release: **alpha v0.9.0** — all Phase 1–21 tasks complete. Phase 22 is the v1 Release Candidate.
+Current release: **v1.0.0** — all Phase 1–22 tasks complete. 493 tests passing.

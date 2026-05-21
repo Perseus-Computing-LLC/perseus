@@ -1,8 +1,8 @@
-# Perseus v1.0.0-rc.1 — Release Candidate Checklist
+# Perseus v1.0.0 — Release Validation Record
 
 **Date:** 2026-05-20  
-**Version:** v1.0.0-rc.1  
-**Gate:** Owner approval required before cutting v1.0.0 tag.
+**RC Version:** v1.0.0-rc.1 → **Released as v1.0.0**  
+**Gate:** ✅ Owner approved. v1.0.0 tag cut and published to PyPI as `perseus-ctx`.
 
 ---
 
@@ -13,9 +13,9 @@
 | All blocking Phase 16–22 tasks complete | ✅ | tasks 42–62 all closed |
 | Full test suite green | ✅ | 493 passed, 1 skipped (TCP LSP smoke — expected in sandbox) |
 | py_compile (syntax check) | ✅ | No errors |
-| Release artifacts built | ✅ | `dist/perseus-1.0.0-rc.1.tar.gz` + `SHA256SUMS` |
+| Release artifacts built | ✅ | `dist/perseus-1.0.0-rc.1.tar.gz` + `SHA256SUMS` (RC); v1.0.0 artifacts rebuilt after version bump |
 | Release artifact checksums verified | ✅ | `scripts/release.sh --check` passes |
-| Version coherence (`VERSION` ↔ `_PERSEUS_VERSION` ↔ `--version`) | ✅ | All report `v1.0.0-rc.1` |
+| Version coherence (`VERSION` ↔ `_PERSEUS_VERSION` ↔ `--version`) | ✅ | All report `v1.0.0` |
 | Adapter conformance harness | ✅ | 6 profiles: generic, hermes, codex, claude-code, cursor, rovodev |
 | Golden corpus tests | ✅ | `tests/test_golden.py` |
 | Performance budget tests | ✅ | 3 advisory warnings (render, graph, prefetch) — not failures; see Known Limitations |
@@ -24,7 +24,7 @@
 | Container image tests | ✅ | Static checks pass; Docker build/run skipped (no Docker in CI sandbox) |
 | Docs hub + quickstart | ✅ | `docs/index.md`, `docs/quickstart.md`, `docs/CONTRIBUTING.md` |
 | Example workspaces | ✅ | `examples/local-cli/`, `examples/assistant-profile/`, `examples/container/` — smoke tests pass |
-| README / CHANGELOG / ROADMAP aligned | ✅ | All reference v1.0.0-rc.1; CHANGELOG entries for tasks 56–62 |
+| README / CHANGELOG / ROADMAP aligned | ✅ | All reference v1.0.0; CHANGELOG entries for tasks 56–62 |
 | IP portfolio | ✅ | Trademark filed |
 | No open Agora tasks | ✅ | Tasks 60–62 closed; 0 open |
 
@@ -67,18 +67,16 @@ Verify: `bash scripts/release.sh --check`
 
 ---
 
-## Pre-Tag Checklist (owner approval gate)
+## Release Record
 
-Before cutting the `v1.0.0` tag, the project owner should confirm:
-
-- [ ] Review this checklist and sign off
-- [ ] Confirm Known Limitations are acceptable or explicitly deferred
-- [ ] Confirm IP status is correctly recorded
-- [ ] Run `bash scripts/release.sh --check` on a clean checkout
-- [ ] Push the version commit to `main`
-- [ ] `git tag -a v1.0.0-rc.1 -m "Perseus v1 Release Candidate"` + `git push origin v1.0.0-rc.1`
-- [ ] When ready for v1.0.0: bump `VERSION` + `_PERSEUS_VERSION` to `1.0.0`, update CHANGELOG `[Unreleased]` → `[1.0.0]`, rebuild artifacts, tag
+- ✅ RC validation passed on 2026-05-20
+- ✅ Known Limitations reviewed and accepted or deferred
+- ✅ IP status recorded (trademark filed)
+- ✅ Version bumped from `1.0.0-rc.1` → `1.0.0` in all 6 locations
+- ✅ CHANGELOG `[Unreleased]` → `[1.0.0] — 2026-05-20`
+- ✅ Release artifacts rebuilt and checksums verified
+- ✅ Published to PyPI as `perseus-ctx 1.0.0`
 
 ---
 
-*Perseus v1 RC. All 63 tasks complete. The mirror is ready.*
+*Perseus v1.0.0. All 63 tasks complete. The mirror is ready.*
