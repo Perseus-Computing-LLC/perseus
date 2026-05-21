@@ -1,8 +1,8 @@
 # Perseus Product Report
 
-**Date:** 2026-05-19  
-**Status:** Phases 1-14, 15A, 16, 17, 18, 19, and 20 complete; task-63 Pythia rename complete; Phases 21-22C queued in Agora
-**Current baseline:** 466 tests passing, 2 skipped TCP/Docker smokes
+**Date:** 2026-05-20  
+**Status:** All 22 phases complete. Perseus v1.0.0 released.
+**Current baseline:** 493 tests passing, 1 skipped (TCP LSP smoke — expected in sandbox/CI)
 
 ---
 

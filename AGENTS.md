@@ -1,4 +1,5 @@
 @perseus v0.8
+<!-- directive protocol version (v0.8) — distinct from the Perseus package version (v1.0.0) -->
 
 # Perseus — Agent Contributor Guide
 

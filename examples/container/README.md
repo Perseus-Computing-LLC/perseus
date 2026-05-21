@@ -10,6 +10,8 @@ Docker and compose setup for running Perseus as a service with authenticated ser
 
 ## Quick start
 
+`Dockerfile` and `docker-compose.yaml` live at the **repo root** — run all commands from there:
+
 ```bash
 # From the repo root
 docker compose -f docker-compose.yaml build
@@ -21,6 +23,9 @@ docker compose -f docker-compose.yaml run --rm render
 # Edit examples/container/config.yaml first — replace the bearer token
 docker compose -f docker-compose.yaml up serve
 ```
+
+> **Note:** There is no standalone `smoke.sh` for this example — Docker is not available
+> in the CI sandbox. Run the commands above manually to verify the container workflow.
 
 ## Configuration
 
