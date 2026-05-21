@@ -128,7 +128,11 @@ Current date/time.
 ## Session & Assistant State
 
 ### `@session`
-Digest of recent Hermes sessions — titles, timestamps, brief summaries.
+Digest of recent assistant sessions — titles, timestamps, brief summaries. Reads from the
+`sessions_dir` path configured under `assistant.sessions_dir` in `~/.perseus/config.yaml`.
+The default value points to `~/.hermes/sessions` for Hermes Agent users; any assistant that
+stores sessions as JSON files in a directory can use this directive by pointing `sessions_dir`
+at its own session store.
 
 ```
 @session count=5
