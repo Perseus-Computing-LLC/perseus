@@ -70,6 +70,10 @@ if [ "$ACTION" = "check" ]; then
 fi
 
 # --- build ---------------------------------------------------------------------
+# Regenerate the single-file artifact from src/ before packaging.
+note "building perseus.py from src/"
+python3 "$REPO_ROOT/scripts/build.py" || { note "build.py failed — aborting release"; exit 1; }
+
 mkdir -p "$DIST_DIR"
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
