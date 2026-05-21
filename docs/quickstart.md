@@ -51,14 +51,14 @@ mkdir -p ~/.perseus
 ```yaml
 # ~/.perseus/config.yaml
 pythia:
-  skill_dir: /home/you/.hermes/skills       # your agent's skills directory
+  skill_dir: ~/.hermes/skills       # optional: your Hermes skills directory
 assistant:
-  sessions_dir: /home/you/.hermes/sessions  # your agent's session logs
+  sessions_dir: ~/.hermes/sessions  # optional: your Hermes session logs
 ```
 
-> **Note:** Use absolute paths. `~` expansion is not guaranteed in all environments.
-> If you're not using Hermes, leave these unset — the renderer, checkpoints, and
-> Pythia all work without them; `@skills` and `@session` directives just return empty.
+> **Note:** These fields are only needed if you're using Hermes Agent for `@skills` and
+> `@session` directives. Leave them unset if you're using a different assistant — the
+> renderer, checkpoints, and Pythia all work without them.
 
 ---
 

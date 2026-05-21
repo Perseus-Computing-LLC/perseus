@@ -14,7 +14,7 @@ Works with any AI assistant that reads a file: **Claude Code, Cursor, Codex, Her
 
 *Perseus with the Head of Medusa — Benvenuto Cellini, 1545. Loggia dei Lanzi, Florence. ([Jastrow](https://commons.wikimedia.org/wiki/File:Perseus_Cellini_Loggia_dei_Lanzi_2005_09_13.jpg), CC BY-SA 4.0)*
 
-**Status: v1.0.0 — stable. 63 features shipped, 493 tests passing.**
+**Status: v1.0.1 — stable. 63 features shipped, 493 tests passing.**
 
 ---
 
@@ -167,6 +167,8 @@ Emits a structured Pythia prompt with a live environment snapshot — skills tab
 ---
 
 ## Directives
+
+> **Note on the `@perseus` header:** Source documents start with `@perseus v0.4` on line 1. This is the **directive protocol version** (the syntax revision Perseus parses), not the package version. The package is `v1.0.0`; the current directive protocol is `v0.4`. You don't need to change this header — Perseus reads it to select the right parser.
 
 | Directive | What it does |
 |---|---|
