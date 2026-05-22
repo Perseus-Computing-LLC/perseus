@@ -54,7 +54,7 @@ runtime, reads local workspace state, and writes rendered context files.
 `.perseus/pack.yaml`. Profiles declare the assistant target and rendered output
 path, while preserving plain markdown output.
 
-Supported Phase 16 profiles:
+Supported v1 profiles:
 
 - `generic`
 - `hermes`
@@ -92,8 +92,15 @@ The default v1 trust model is:
 - Model failure must not alter normal render output.
 - State lives in local files under the workspace and `~/.perseus`.
 
-Phase 17 adds named permission profiles, redaction, and audit reporting. Until
-then, the existing config keys remain the effective policy surface.
+Named permission profiles, redaction, and audit reporting are part of the v1
+trust posture:
+
+- Named permission profiles gate which directives and shell-backed features are
+  active for a given assistant or deployment context.
+- Redaction runs before sensitive output crosses the render, synthesis, serve,
+  and logging boundaries.
+- Audit reporting and logging are part of the v1 trust posture; events are
+  written to `~/.perseus/audit_log.jsonl`.
 
 ---
 
@@ -110,6 +117,7 @@ then, the existing config keys remain the effective policy surface.
 | `~/.perseus/pythia_log.jsonl` | Pythia recommendation log |
 | `~/.perseus/memory/` | Mneme narrative memory |
 | `~/.perseus/inbox/` | Agent inbox messages |
+| `~/.perseus/audit_log.jsonl` | Append-only audit log for sensitive operations and policy denials |
 
 ---
 
@@ -119,7 +127,7 @@ then, the existing config keys remain the effective policy surface.
 - Perseus v1 does not require an LLM.
 - Perseus v1 does not allow uncited generated context into trusted output.
 - Perseus v1 does not replace downstream assistant reasoning.
-- Perseus v1 does not promise perfect secret detection before Phase 17.
+- Perseus v1 does not promise perfect DLP or secret detection.
 - Perseus v1 does not require a package split or dependency expansion.
 
 ---
@@ -130,5 +138,6 @@ Perseus is deployable when a user can install it, initialize a profile, validate
 a context pack, render context, inspect trust settings, use it with a supported
 assistant, and upgrade without losing existing state.
 
-Phase 16 defines the product spine. Phases 17-22 harden that spine into a
-release candidate.
+Perseus v1.0.1 meets that bar as a stable, local-first resolver runtime with a
+generated single-file artifact, tested adapter profiles, trust controls, release
+artifacts, and documented deployment modes.
