@@ -27,6 +27,9 @@ classifiers = [
 requires-python = ">=3.9"
 dependencies = ["pyyaml"]
 
+[project.optional-dependencies]
+dev = ["pytest"]
+
 [project.urls]
 Homepage = "https://github.com/tcconnally/perseus"
 Documentation = "https://github.com/tcconnally/perseus/blob/main/docs/index.md"
