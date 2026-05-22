@@ -180,7 +180,7 @@ Emits a structured Pythia prompt with a live environment snapshot — skills tab
 
 ## Directives
 
-> **Note on the `@perseus` header:** Source documents start with `@perseus v0.4` on line 1. This is the **directive protocol version** (the syntax revision Perseus parses), not the package version. The package is `v1.0.0`; the current directive protocol is `v0.4`. You don't need to change this header — Perseus reads it to select the right parser.
+> **Note on the `@perseus` header:** Source documents start with `@perseus v0.4` on line 1. The value after `@perseus` is the **directive protocol version** (the syntax revision Perseus parses), not the package version. Existing v0.4/v0.8 context files remain supported for compatibility. You don't need to change this header when upgrading the package.
 
 | Directive | What it does |
 |---|---|

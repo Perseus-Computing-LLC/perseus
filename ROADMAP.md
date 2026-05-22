@@ -110,7 +110,7 @@ checkpoints feed it.
 
 ```
 <workspace>/
-  perseus.py                    ← single-file CLI; entire implementation lives here
+  perseus.py                    ← generated single-file artifact; canonical source in src/perseus/
   requirements.txt              ← pyyaml only; no other deps
   tests/
     conftest.py                 ← shared Perseus loader and test helpers
