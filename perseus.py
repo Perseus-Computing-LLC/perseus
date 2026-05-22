@@ -705,6 +705,27 @@ def load_config(workspace: Path | None = None) -> dict:
             with open(local_cfg) as f:
                 merge_loaded(yaml.safe_load(f) or {})
 
+    # Expand ~ in any config key that holds a filesystem path.  Without this,
+    # a config.yaml entry like `store: ~/.perseus/checkpoints` is treated as a
+    # literal relative path starting with '~', causing Perseus to create a
+    # directory named '~' under the current working directory instead of
+    # resolving to the user's home directory.
+    _PATH_KEYS: list[tuple[str, str]] = [
+        ("checkpoints", "store"),
+        ("memory", "store"),
+        ("memory", "federation_manifest"),
+        ("inbox", "store"),
+        ("render", "cache_dir"),
+        ("audit", "log_path"),
+        ("pythia", "skill_dir"),
+        ("assistant", "sessions_dir"),
+    ]
+    for section, key in _PATH_KEYS:
+        if section in cfg and isinstance(cfg[section], dict):
+            val = cfg[section].get(key)
+            if isinstance(val, str) and val.startswith("~"):
+                cfg[section][key] = str(Path(val).expanduser())
+
     return cfg
 
 def _infer_workspace(source_path: Path) -> Path:
