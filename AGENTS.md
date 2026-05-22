@@ -1,5 +1,5 @@
 @perseus v0.8
-<!-- directive protocol version (v0.8) — distinct from the Perseus package version (v1.0.0) -->
+<!-- directive protocol version (v0.8) — distinct from the Perseus package version (v1.0.1) -->
 
 # Perseus — Agent Contributor Guide
 
@@ -37,7 +37,9 @@ Any AI assistant that can read a file or receive stdin can use Perseus.
 ## Repo Layout
 
 ```
-perseus.py              ← single-file CLI; this is the entire implementation
+perseus.py              ← generated single-file artifact; do not edit directly
+src/perseus/            ← canonical source, split by module
+scripts/build.py        ← concatenates src/ into perseus.py
 requirements.txt        ← pyyaml only
 tests/
   conftest.py           ← shared pytest fixtures and module import wiring
@@ -71,7 +73,6 @@ as specified — correctly, completely, and within the stated constraints.
 **Do not:**
 - Propose architectural changes, refactors, or "next steps" outside of a task spec
 - Create new tasks unless the owner or current handoff explicitly asks for them
-- Suggest splitting `perseus.py` into modules or packages
 - Rename concepts, directives, or config keys
 - Add dependencies
 - Open PRs or branches without being asked — commit to `main` and push
@@ -87,9 +88,9 @@ Add a `## Blocked` section to the task file explaining the conflict and wait for
 
 ## Non-Negotiable Constraints
 
-1. **Single file.** `perseus.py` stays one file. No package structure, no `setup.py`, no
-   sub-modules. The entire implementation must be inspectable in one scroll. Internal
-   organization (section headers, grouping) is fine. File splits are not.
+1. **Edit source, regenerate artifact.** Edit `src/perseus/`, not `perseus.py` directly.
+   Regenerate with `python scripts/build.py`. Keep the generated root artifact committed.
+   Do not add runtime dependencies without explicit approval.
 2. **`pyyaml` is the only dependency.** Do not add deps without explicit approval.
 3. **Tests before merge.** All existing tests must pass. New behavior needs new tests.
    Run: `python -m pytest tests/ -q`
