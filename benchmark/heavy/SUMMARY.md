@@ -2,12 +2,14 @@
 
 **Date:** 2026-05-23 · **Perseus:** v1.0.1 · **Host:** Windows 11 native Python 3.14.2
 
-Three progressively heavier cold-start benchmarks were run against a
-fresh clone of `https://github.com/tcconnally/perseus`. Full reports:
+Three progressively heavier cold-start benchmarks + one follow-up
+coverage pass were run against a fresh clone of
+`https://github.com/tcconnally/perseus`. Full reports:
 
 - `BENCHMARK-MEGA-ENTERPRISE.md`   — 500 microservices
 - `BENCHMARK-MIXED-REAL-WORLD.md`  — Perseus core + 8 ACME satellite repos
 - `BENCHMARK-ADVERSARIAL.md`       — scaling sweep + 10 edge cases
+- `BENCHMARK-PHASE2.md`            — cache, concurrency, memory, CLI, LSP
 
 ---
 
