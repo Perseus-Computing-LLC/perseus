@@ -1,0 +1,125 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1100" viewBox="0 0 1800 1100">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f8faf7"/>
+      <stop offset="1" stop-color="#edf3ef"/>
+    </linearGradient>
+    <linearGradient id="perseus" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#0fbf9f"/>
+      <stop offset="1" stop-color="#45c84a"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#12342d" flood-opacity="0.16"/>
+    </filter>
+    <style>
+      text { font-family: Inter, Segoe UI, Arial, sans-serif; letter-spacing: 0; }
+      .title { font-size: 68px; font-weight: 850; fill: #14211d; }
+      .subtitle { font-size: 31px; font-weight: 500; fill: #52625c; }
+      .kicker { font-size: 22px; font-weight: 850; fill: #0b9a82; letter-spacing: 1.5px; }
+      .panelTitle { font-size: 34px; font-weight: 850; fill: #17231f; }
+      .panelSub { font-size: 22px; font-weight: 550; fill: #596a64; }
+      .bigBad { font-size: 96px; font-weight: 900; fill: #bf382f; }
+      .bigGood { font-size: 96px; font-weight: 900; fill: #0b987f; }
+      .metric { font-size: 54px; font-weight: 900; fill: #16231f; }
+      .small { font-size: 21px; font-weight: 560; fill: #53635e; }
+      .tiny { font-size: 18px; font-weight: 620; fill: #65766f; }
+      .white { fill: #ffffff; }
+      .badPanel { fill: #fff7f5; stroke: #f2c5bf; stroke-width: 2; }
+      .goodPanel { fill: #f2fff8; stroke: #b6e8ce; stroke-width: 2; }
+      .neutralPanel { fill: #ffffff; stroke: #d9e3de; stroke-width: 2; }
+      .badBar { fill: #db5146; }
+      .goodBar { fill: url(#perseus); }
+      .axis { stroke: #ccd8d2; stroke-width: 2; }
+      .grid { stroke: #dfe8e3; stroke-width: 1.5; }
+    </style>
+  </defs>
+
+  <rect width="1800" height="1100" fill="url(#bg)"/>
+
+  <text x="80" y="92" class="kicker">THE IMPROVEMENT FROM ADDING PERSEUS</text>
+  <text x="80" y="174" class="title">Cold-start discovery goes from thousands of calls to zero</text>
+  <text x="82" y="222" class="subtitle">Perseus pre-renders the facts before the assistant starts working.</text>
+
+  <g transform="translate(82 285)" filter="url(#shadow)">
+    <rect class="badPanel" width="765" height="300" rx="10"/>
+    <text x="40" y="60" class="panelTitle">Without Perseus</text>
+    <text x="40" y="100" class="panelSub">The assistant must discover the environment first.</text>
+    <text x="40" y="205" class="bigBad">2,864</text>
+    <text x="330" y="180" class="panelTitle">manual discovery calls</text>
+    <text x="332" y="220" class="small">cat files, run git, query CI, inspect containers, scan services</text>
+    <g transform="translate(40 245)">
+      <rect x="0" y="0" width="22" height="22" rx="3" fill="#db5146"/>
+      <text x="36" y="18" class="tiny">Work begins after orientation</text>
+      <rect x="318" y="0" width="22" height="22" rx="3" fill="#f09a92"/>
+      <text x="354" y="18" class="tiny">Error-prone, repetitive, linear</text>
+    </g>
+  </g>
+
+  <g transform="translate(952 285)" filter="url(#shadow)">
+    <rect class="goodPanel" width="765" height="300" rx="10"/>
+    <text x="40" y="60" class="panelTitle">With Perseus</text>
+    <text x="40" y="100" class="panelSub">The assistant receives pre-resolved context immediately.</text>
+    <text x="40" y="205" class="bigGood">0</text>
+    <text x="160" y="180" class="panelTitle">assistant discovery calls</text>
+    <text x="162" y="220" class="small">The first action can be analysis, debugging, or remediation.</text>
+    <g transform="translate(40 245)">
+      <rect x="0" y="0" width="22" height="22" rx="3" fill="#0fbf9f"/>
+      <text x="36" y="18" class="tiny">Facts are preloaded</text>
+      <rect x="278" y="0" width="22" height="22" rx="3" fill="#45c84a"/>
+      <text x="314" y="18" class="tiny">Same evidence, one render step</text>
+    </g>
+  </g>
+
+  <g transform="translate(823 405)">
+    <path d="M0 30 L84 30" stroke="#81918b" stroke-width="8" stroke-linecap="round"/>
+    <path d="M62 8 L88 30 L62 52" fill="none" stroke="#81918b" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <g transform="translate(110 665)">
+    <rect class="neutralPanel" width="1580" height="310" rx="10" filter="url(#shadow)"/>
+    <text x="38" y="58" class="panelTitle">Benchmark Results</text>
+    <text x="40" y="95" class="panelSub">Each row compares the cold-start discovery burden before and after adding Perseus.</text>
+
+    <line x1="390" y1="128" x2="1470" y2="128" class="axis"/>
+    <text x="390" y="118" class="tiny">0 calls</text>
+    <text x="738" y="118" class="tiny">250</text>
+    <text x="1084" y="118" class="tiny">500</text>
+    <text x="1436" y="118" class="tiny">2,000</text>
+    <line x1="390" y1="132" x2="390" y2="270" class="grid"/>
+    <line x1="738" y1="132" x2="738" y2="270" class="grid"/>
+    <line x1="1084" y1="132" x2="1084" y2="270" class="grid"/>
+    <line x1="1436" y1="132" x2="1436" y2="270" class="grid"/>
+
+    <g transform="translate(40 148)">
+      <text x="0" y="28" class="small">Mega enterprise</text>
+      <text x="0" y="56" class="tiny">500 services · 50 DBs · 30 pipelines</text>
+      <rect x="350" y="4" width="1068" height="34" rx="5" class="badBar"/>
+      <rect x="350" y="48" width="7" height="26" rx="3" class="goodBar"/>
+      <text x="1440" y="31" class="small">788 → 0</text>
+      <text x="1440" y="66" class="tiny">8.957s render</text>
+    </g>
+
+    <g transform="translate(40 218)">
+      <text x="0" y="28" class="small">Mixed real-world</text>
+      <text x="0" y="56" class="tiny">Perseus repo + 8 satellite repos</text>
+      <rect x="350" y="4" width="103" height="34" rx="5" class="badBar"/>
+      <rect x="350" y="48" width="7" height="26" rx="3" class="goodBar"/>
+      <text x="1440" y="31" class="small">76 → 0</text>
+      <text x="1440" y="66" class="tiny">2.604s render</text>
+    </g>
+
+    <g transform="translate(40 288)">
+      <text x="0" y="28" class="small">Adversarial</text>
+      <text x="0" y="56" class="tiny">2,000 @query blocks</text>
+      <rect x="350" y="4" width="1080" height="34" rx="5" class="badBar"/>
+      <rect x="350" y="48" width="7" height="26" rx="3" class="goodBar"/>
+      <text x="1440" y="31" class="small">2,000 → 0</text>
+      <text x="1440" y="66" class="tiny">208.752s render</text>
+    </g>
+  </g>
+
+  <g transform="translate(110 1015)">
+    <text x="0" y="0" class="small">Total: 2,864 discovery calls eliminated at assistant cold start. Perseus shifts the work into a reproducible pre-render.</text>
+    <text x="1236" y="0" class="tiny">Source: benchmark/heavy/measurements.json</text>
+  </g>
+</svg>
