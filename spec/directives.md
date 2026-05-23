@@ -142,13 +142,22 @@ at its own session store.
 Output is a compact markdown list of recent sessions the assistant can use to understand active threads.
 
 ### `@skills`
-List available Hermes skills, with optional staleness flags.
+List available Hermes skills, with optional staleness flags and category filters.
 
 ```
 @skills
-@skills category="github"
-@skills flag_stale=true   → marks skills not updated in >30 days
+@skills category=github
+@skills category=devops,media,github    → comma-separated multi-category filter
+@skills include=devops                  → alias for category=
+@skills flag_stale=true                 → marks skills not updated in >30 days
+@skills flag_stale=true category=devops,software-development
 ```
+
+| Modifier | Description |
+|---|---|
+| `category=<name>` | Filter to skills whose path starts with `<name>/`. Comma-separated for multiple: `category=devops,media`. |
+| `include=<name>` | Alias for `category=`. |
+| `flag_stale=true` | Append ⚠ stale marker to skills not updated within `stale_skill_days` (default 30). Can be combined with `category=`. |
 
 ### `@waypoint`
 Include the most recent checkpoint (or a specific one).
