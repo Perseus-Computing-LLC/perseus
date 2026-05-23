@@ -198,6 +198,18 @@ dev-02: [architect → implementer → reviewer → tester]  ─┤
 dev-30: [architect → implementer → reviewer → tester]  ─┘     (namespaced + lock-protected)
 ```
 
+### 📊 Render Performance at Scale
+
+![Perseus Cold vs Warm — @cache eliminates subprocess cost](https://raw.githubusercontent.com/tcconnally/perseus/main/benchmark/infographic/perseus-cold-vs-warm-cache.svg)
+
+**Cold render:** ~22.5ms per directive, linear with count. **Warm render:** &lt;1s regardless of scale — the `@cache ttl=300` modifier eliminates subprocess cost entirely after the first run. Speedup grows with directive count: 9× at 100 queries, **40× at 500**, 77× at 1,000, **323× at 10,000**.
+
+![Perseus Breaking Point — Linear to 1,000,000 directives](https://raw.githubusercontent.com/tcconnally/perseus/main/benchmark/infographic/perseus-breaking-point.svg)
+
+Perseus processes **1,000,000 `@query` directives in 22.0 seconds** (31 MB file, 3M output lines) — 22μs per directive, zero crashes. The ceiling is file I/O and available memory, not Perseus logic. Projected limit: ~10M directives at ~220s with a ~310MB file.
+
+---
+
 ---
 
 ### 🔮 Pythia — Tool Oracle (`perseus suggest`)
