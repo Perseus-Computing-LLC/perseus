@@ -85,6 +85,14 @@ def test_services_invalid_entry_reports_warning_row():
     assert "service entry must be a mapping" in out
 
 
+def test_services_mapping_format_emits_warning():
+    """@services with YAML mapping (dict) instead of list must emit a warning and still process."""
+    block = "name: my-app\nurl: http://localhost:9999/health\ntimeout: 3"
+    out = perseus.resolve_services(block, cfg())
+    assert "YAML mapping detected" in out
+    assert "my-app" in out
+
+
 def test_services_command_disabled_by_default():
     block = "- name: check\n  command: echo hello"
     out = perseus.resolve_services(block, cfg())

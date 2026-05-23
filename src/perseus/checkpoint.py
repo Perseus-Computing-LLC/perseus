@@ -272,6 +272,10 @@ def cmd_recover(args, cfg):
     Fast path (task-07): when --workspace is supplied and a
     ``latest-<workspace-hash>.yaml`` pointer exists, load it directly
     instead of scanning the entire store.
+
+    Use --global to skip per-workspace matching entirely and return the
+    global latest checkpoint (cross-platform coordination fallback when
+    workspace path representations differ between OS platforms).
     """
     store = Path(cfg["checkpoints"]["store"])
     ttl_s = int(cfg["checkpoints"].get("ttl_s", 86400))
@@ -281,6 +285,17 @@ def cmd_recover(args, cfg):
 
     if not store.exists():
         print(f"No checkpoint store found at {store}. Run `perseus checkpoint` first.")
+        return
+
+    # --global flag: skip per-workspace matching, go straight to global latest
+    if getattr(args, "global_flag", False):
+        cp = _load_checkpoint_file(store / "latest.yaml")
+        if not cp:
+            print("No checkpoint found.")
+            return
+        cp_ws = cp.get("workspace", "(no workspace recorded)")
+        print(f"# Checkpoint (global pointer — checkpoint workspace: {cp_ws})\n")
+        print(yaml.dump(cp, default_flow_style=False, allow_unicode=True))
         return
 
     # Fast path — per-workspace pointer

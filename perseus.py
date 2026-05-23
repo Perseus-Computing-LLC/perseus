@@ -3021,6 +3021,14 @@ def resolve_services(block_content: str, cfg: dict) -> str:
     if not services:
         return "> No services configured."
 
+    # Detect YAML mapping (dict) format instead of the required list format
+    # Each key in a mapping iterates as a string, which fails isinstance(svc, dict)
+    # in _check_one_service, silently marking every service as invalid.
+    mapping_warning = ""
+    if isinstance(services, dict):
+        mapping_warning = "> ⚠ @services: YAML mapping detected, use list format (each entry with name/url/timeout)\n\n"
+        services = [services]
+
     rows = [None] * len(services)
 
     if parallel and len(services) > 1:
@@ -3039,7 +3047,8 @@ def resolve_services(block_content: str, cfg: dict) -> str:
             _, row = _check_one_service(svc, i, timeout, cfg)
             rows[i] = row
 
-    return "\n".join(["| Service | Status | Latency |", "|---|---|---|"] + rows)
+    result = "\n".join(["| Service | Status | Latency |", "|---|---|---|"] + rows)
+    return mapping_warning + result
 # ───────────────────────────── @list / @tree ─────────────────────────────────
 
 def _list_emit_warning(msg: str) -> str:
@@ -4198,6 +4207,10 @@ def cmd_recover(args, cfg):
     Fast path (task-07): when --workspace is supplied and a
     ``latest-<workspace-hash>.yaml`` pointer exists, load it directly
     instead of scanning the entire store.
+
+    Use --global to skip per-workspace matching entirely and return the
+    global latest checkpoint (cross-platform coordination fallback when
+    workspace path representations differ between OS platforms).
     """
     store = Path(cfg["checkpoints"]["store"])
     ttl_s = int(cfg["checkpoints"].get("ttl_s", 86400))
@@ -4207,6 +4220,17 @@ def cmd_recover(args, cfg):
 
     if not store.exists():
         print(f"No checkpoint store found at {store}. Run `perseus checkpoint` first.")
+        return
+
+    # --global flag: skip per-workspace matching, go straight to global latest
+    if getattr(args, "global_flag", False):
+        cp = _load_checkpoint_file(store / "latest.yaml")
+        if not cp:
+            print("No checkpoint found.")
+            return
+        cp_ws = cp.get("workspace", "(no workspace recorded)")
+        print(f"# Checkpoint (global pointer — checkpoint workspace: {cp_ws})\n")
+        print(yaml.dump(cp, default_flow_style=False, allow_unicode=True))
         return
 
     # Fast path — per-workspace pointer
@@ -4304,12 +4328,19 @@ _DECISION_KEYWORDS = [
 
 
 def _workspace_hash(workspace: Path) -> str:
-    """12-char sha256 hex digest of the resolved workspace path.
+    """12-char sha256 hex digest of the canonicalized workspace path.
+
+    Canonicalizes the path — expanduser, resolve to absolute, dereference
+    symlinks — before hashing so that logically identical physical
+    directories produce the same hash regardless of how the path was
+    specified (e.g., ``~/project`` vs ``/home/user/project``, or Windows
+    ``A:\\labyrinth`` vs Linux ``/workspace/appdata/labyrinth`` via SMB).
 
     Stable for the same path across sessions. Shared with task-07
     (multi-workspace checkpoint namespacing) if/when that lands.
     """
-    return hashlib.sha256(str(workspace.resolve()).encode()).hexdigest()[:12]
+    canonical = workspace.expanduser().resolve()
+    return hashlib.sha256(str(canonical).encode()).hexdigest()[:12]
 
 
 def _mneme_path(workspace: Path, cfg: dict) -> Path:
@@ -10176,6 +10207,10 @@ def main():
     p_recover.add_argument(
         "--workspace", default=None,
         help="Prefer checkpoints from this workspace path (default: cwd)"
+    )
+    p_recover.add_argument(
+        "--global", dest="global_flag", action="store_true",
+        help="Skip per-workspace matching; use the global latest checkpoint"
     )
 
     # diff
