@@ -14,9 +14,13 @@ Works with any AI assistant that reads a file: **Claude Code, Cursor, Codex, Her
 
 *Perseus with the Head of Medusa — Benvenuto Cellini, 1545. Loggia dei Lanzi, Florence. ([Jastrow](https://commons.wikimedia.org/wiki/File:Perseus_Cellini_Loggia_dei_Lanzi_2005_09_13.jpg), CC BY-SA 4.0)*
 
-**Status: v1.0.1 — stable. 63 features shipped, 539 tests passing, 1 skipped.**
+**Status:** v1.0.2 — stable. 63 features shipped, 539 tests passing, 1 skipped.
 
-[![CI](https://github.com/tcconnally/perseus/actions/workflows/ci.yml/badge.svg)](https://github.com/tcconnally/perseus/actions/workflows/ci.yml)
+[![CI](https://github.com/tcconnally/perseus/actions/workflows/test.yml/badge.svg)](https://github.com/tcconnally/perseus/actions/workflows/test.yml)
+
+![Perseus Efficiency — Cold vs Warm Render Speed](https://raw.githubusercontent.com/tcconnally/perseus/main/benchmark/infographic/perseus-efficiency.svg)
+
+> **Headline:** Perseus with `@cache ttl=300` renders in **constant time** regardless of how many `@query` directives you have — 500 queries at **0.28s warm** (40× faster than 11.5s sequential cold). A 500-microservice enterprise audit with 788 discovery calls renders in **1.7s** and produces a 722-line context document. The assistant opens every session already oriented.
 
 ---
 
