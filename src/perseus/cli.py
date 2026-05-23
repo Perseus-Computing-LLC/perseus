@@ -75,8 +75,8 @@ def main():
     p_cp.add_argument("--task", required=True, help="What is being worked on")
     p_cp.add_argument("--status", default="", help="Current progress")
     p_cp.add_argument("--next", default="", help="Immediate next action")
-    p_cp.add_argument("--workspace", default="", help="Working directory path")
-    p_cp.add_argument("--notes", default="", help="Context that would be lost")
+    p_cp.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
+    p_cp.add_argument("--notes", "--note", dest="notes", default="", help="Context that would be lost")
 
     # recover
     p_recover = sub.add_parser("recover", help="Print the latest checkpoint")
