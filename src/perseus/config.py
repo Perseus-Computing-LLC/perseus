@@ -17,6 +17,8 @@ DEFAULT_CONFIG = {
         "allow_agent_shell": True,    # task-15: @agent gate (mirrors allow_query_shell)
         "session_digest_count": 5,
         "services_timeout_s": 3,
+        "query_timeout_s": 30,
+        "max_query_bytes": 262144,    # 256 KB stdout cap
         "shell": "/bin/bash",
         "allow_query_shell": True,
         "allow_services_command": False,

@@ -74,6 +74,13 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
                 command=cmd[:500],
                 shell=shell)
 
+    # Extract timeout=N modifier (per-directive override, default 30s)
+    timeout = int(cfg["render"].get("query_timeout_s", 30))
+    tm_match = re.search(r'\s+timeout=(\d+)(?:\s|$)', raw)
+    if tm_match:
+        timeout = int(tm_match.group(1))
+        raw = (raw[:tm_match.start()] + raw[tm_match.end():]).rstrip()
+
     try:
         result = subprocess.run(
             cmd,
@@ -81,7 +88,7 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
             executable=shell,
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=timeout,
         )
         stdout = (result.stdout or "").rstrip("\n")
         stderr = result.stderr.strip()
@@ -98,6 +105,23 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
             if fallback is not None:
                 return fallback
             return f"> (no output from `{cmd}`)"
+
+        # Apply stdout size cap (default 256 KB).
+        # Truncate at the nearest preceding newline to avoid mid-line cuts.
+        max_bytes = int(cfg["render"].get("max_query_bytes", 256 * 1024))
+        stdout_bytes = stdout.encode("utf-8")
+        if len(stdout_bytes) > max_bytes:
+            truncated = stdout_bytes[:max_bytes].decode("utf-8", errors="replace")
+            last_nl = truncated.rfind("\n")
+            if last_nl > max_bytes // 2:
+                truncated = truncated[:last_nl]
+            total_kb = len(stdout_bytes) / 1024
+            cap_kb = max_bytes / 1024
+            stdout = truncated + (
+                f"\n\n> ⚠ Output truncated at {cap_kb:.0f} KB "
+                f"({total_kb:.0f} KB total). "
+                f"Set render.max_query_bytes to increase."
+            )
 
         # schema validation: pure-Python Phase 12 subset, with schema refs
         # resolved via <workspace>/.perseus/schemas/ before workspace root.
@@ -119,7 +143,7 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
     except subprocess.TimeoutExpired:
         if fallback is not None:
             return fallback
-        return f"> ⚠ `@query` timed out (30s): `{cmd}`"
+        return f"> ⚠ `@query` timed out ({timeout}s): `{cmd}`"
     except Exception as exc:
         if fallback is not None:
             return fallback
