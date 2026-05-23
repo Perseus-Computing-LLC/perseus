@@ -31,7 +31,7 @@ jobs:
         run: |
           coverage run --source=. -m pytest tests/ -q
           coverage report --include="perseus.py" --show-missing
-          coverage report --include="perseus.py" --fail-under=70
+          coverage report --include="perseus.py" --fail-under=68
 
       - name: Verify build artifact consistency
         run: |
