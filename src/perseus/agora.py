@@ -267,6 +267,28 @@ def cmd_memory(args, cfg):
     print(f"> ⚠ Unknown memory subcommand: {sub}")
 
 
+def _memory_federation_diagnostic(name: str, args_str: str, cfg: dict, workspace: object) -> list[dict]:
+    """Per-directive LSP diagnostic for @memory: warn on unsubscribed federation alias.
+
+    Registered via DirectiveSpec.diagnostic_fn (task-25).  Returns diagnostic dicts
+    that conform to the LSP diagnostics shape (range, severity, source, message).
+    """
+    diagnostics: list[dict] = []
+    if "federation" in args_str and "alias=" in args_str:
+        mm = re.search(r"alias=([A-Za-z0-9_\-]+)", args_str)
+        if mm:
+            alias = mm.group(1)
+            manifest = _load_federation_manifest(cfg)
+            aliases = {s.get("alias") for s in manifest.get("subscriptions", [])}
+            if alias not in aliases:
+                diagnostics.append({
+                    "severity": 2,
+                    "source": "perseus",
+                    "message": f"Federation alias `{alias}` is not subscribed (run `perseus memory federation subscribe`)",
+                })
+    return diagnostics
+
+
 def resolve_memory(args_str: str, cfg: dict, workspace: Path | None = None) -> str:
     """Render the @memory directive.
 

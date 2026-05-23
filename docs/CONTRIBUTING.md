@@ -27,8 +27,8 @@ git clone https://github.com/tcconnally/perseus.git
 cd perseus
 pip install -r requirements.txt   # pyyaml + pytest
 
-python -m pytest tests/ -q        # 496 tests, ~24s
-python perseus.py --version        # perseus v1.0.1
+python -m pytest tests/ -q        # 539 tests, ~35s
+python perseus.py --version        # perseus v1.0.2
 ```
 
 ---

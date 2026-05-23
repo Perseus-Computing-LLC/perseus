@@ -1,6 +1,6 @@
 # Perseus v1 Product Contract
 
-**Status:** v1.0.1 — stable
+**Status:** v1.0.2 — stable
 **Scope:** Resolver-first local context engine for AI assistants
 
 ---
@@ -138,6 +138,6 @@ Perseus is deployable when a user can install it, initialize a profile, validate
 a context pack, render context, inspect trust settings, use it with a supported
 assistant, and upgrade without losing existing state.
 
-Perseus v1.0.1 meets that bar as a stable, local-first resolver runtime with a
+Perseus v1.0.2 meets that bar as a stable, local-first resolver runtime with a
 generated single-file artifact, tested adapter profiles, trust controls, release
 artifacts, and documented deployment modes.

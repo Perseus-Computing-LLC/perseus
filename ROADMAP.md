@@ -707,19 +707,26 @@ bundle and, only when generation is enabled, lets an LLM draft claims. The
 validator keeps only claims with exact source quotes and line citations. Normal
 `perseus render` output is unchanged.
 
-### 15B: Cross-source consistency synthesis (task-40)
+### 15B: Cross-source consistency synthesis (task-40) ✅
 
 Use the cited-claim contract for high-value checks such as roadmap/handoff/task
 drift, documented-next-action synthesis, and conflicting source summaries. The
 output should compress relationships across sources, not restate individual
 values.
 
-### 15C: Optional render surface for curated sections (task-41)
+**Status:** Complete. `perseus synthesize --consistency-mode` with full pipeline:
+`build_consistency_prompt` → LLM → `_validate_consistency_conflicts` → separate
+`conflicts`/`claims` arrays. Both human and JSON output surfaces work.
+
+### 15C: Optional render surface for curated sections (task-41) ✅
 
 Only after 15B is useful, add an opt-in render surface that places cited
 synthesis beside resolved context. Generated sections must be plainly labeled,
 JSON surfaces must separate `resolved` from `generated`, and model failure must
 leave ordinary render output unchanged.
+
+**Status:** Complete. Verified: `@synthesize` renders labeled generated content,
+`generation.enabled` gate respected, graceful degradation on model failure.
 
 ---
 
@@ -887,8 +894,8 @@ Phase 14C ─── A/B recommendation testing ✅ ─────────�
               ══════════════════════════════════          │
                                                          │
 Phase 15A ─── Cited synthesis contract ✅ ────────────────┤
-Phase 15B ─── Cross-source consistency synthesis ─────────┤
-Phase 15C ─── Optional curated render surface ────────────┤
+Phase 15B ─── Cross-source consistency synthesis ✅ ─────────┤
+Phase 15C ─── Optional curated render surface ✅ ──────────────┤
                                                          │
 Phase 16A ─── Product contract ✅ ───────────────────────┤
 Phase 16B ─── Context pack manifest ✅ ──────────────────┤
@@ -907,21 +914,19 @@ Phase 19B ─── Assistant profile gallery ✅ ──────────
 Phase 19C ─── VSCode extension release polish ✅ ────────┤
                                                          │
 Phase 20A ─── Authenticated serve mode ✅ ───────────────┤
-Phase 20B ─── Container image and compose example ───────┤
-Phase 20C ─── Headless watch mode ───────────────────────┤
+Phase 20B ─── Container image and compose example ✅ ────┤
+Phase 20C ─── Headless watch mode ✅ ────────────────────┤
                                                          │
-Phase 21A ─── Golden eval corpus ────────────────────────┤
-Phase 21B ─── Performance budgets ───────────────────────┤
-Phase 21C ─── Compatibility/migration suite ─────────────┤
+Phase 21A ─── Golden eval corpus ✅ ─────────────────────┤
+Phase 21B ─── Performance budgets ✅ ────────────────────┤
+Phase 21C ─── Compatibility/migration suite ✅ ──────────┤
                                                          │
-Phase 22A ─── Documentation site and quickstart ─────────┤
-Phase 22B ─── Example workspace/demo pack ───────────────┤
-Phase 22C ─── v1 release candidate checklist ────────────┘
+Phase 22A ─── Documentation site and quickstart ✅ ──────┤
+Phase 22B ─── Example workspace/demo pack ✅ ────────────┤
+Phase 22C ─── v1 release candidate checklist ✅ ─────────┘
 ```
 
-**Estimated scope:** Phase 11, Phase 12, Phase 13, Phase 14, Phase 15A,
-Phase 16, Phase 17, Phase 18, and Phase 19 are complete. Phases 20 through
-22C remain queued in Agora as the productization path to a deployable v1.
+**Status:** v1.0.2 — 2026-05-23. All 63 roadmap tasks complete. task-64 (daemon cache invalidation) is open — post-v1 spike.
 
 ---
 
