@@ -150,6 +150,17 @@ DEFAULT_CONFIG = {
         "log_path": str(PERSEUS_HOME / "audit_log.jsonl"),
         "max_log_bytes": 1_048_576,   # 1 MiB
     },
+    "update": {
+        # Self-update: pull latest from the Perseus git repository.
+        # auto: when True, `perseus update --apply` is safe to run unattended
+        #   (cron/watchdog). When False, the command requires explicit --apply.
+        "auto": False,
+        # repo_path: path to the git checkout. Auto-detected from the installed
+        #   package location if not set.
+        "repo_path": "",
+        # branch: remote branch to track.
+        "branch": "main",
+    },
 }
 
 
@@ -227,5 +238,24 @@ def _apply_permission_profile(cfg: dict, profile_name: object) -> str | None:
             cfg[section] = {}
         cfg[section].update(vals)
     return name
+
+
+def _get_shell(cfg: dict) -> str | None:
+    """Return the shell executable path, or None to use the system default.
+
+    On Windows, /bin/bash doesn't exist. Returning None tells subprocess.run
+    to use the platform default (COMSPEC on Windows, /bin/sh elsewhere).
+    Also handles non-default shells that aren't findable — falls back to None
+    rather than crashing.
+    """
+    shell = cfg["render"].get("shell", "/bin/bash")
+    resolved = shutil.which(shell)
+    if resolved is None and shell != "/bin/bash":
+        # Non-default shell specified but not found — log and fall back
+        return None
+    if resolved is None:
+        # Default /bin/bash not found (Windows) — use system default
+        return None
+    return resolved
 
 

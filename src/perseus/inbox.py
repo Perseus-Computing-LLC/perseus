@@ -33,7 +33,7 @@ def _inbox_write(path: Path, msg: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     text = yaml.safe_dump(msg, default_flow_style=False, allow_unicode=True, sort_keys=False)
     tmp = path.with_suffix(".yaml.tmp")
-    tmp.write_text(text)
+    tmp.write_text(text, encoding="utf-8")
     os.replace(tmp, path)
 
 
