@@ -64,13 +64,15 @@ def test_cli_version_matches_version_file():
 
 
 def test_py_source_version_matches_version_file():
-    """AC #1: _PERSEUS_VERSION in perseus.py must match VERSION file."""
+    """AC #1: CLI --version output must match VERSION file."""
     version = VERSION_FILE.read_text().strip()
-    src = PERSEUS_PY.read_text()
-    m = re.search(r'^_PERSEUS_VERSION\s*=\s*["\']([^"\']+)["\']', src, re.MULTILINE)
-    assert m, "_PERSEUS_VERSION not found in perseus.py"
-    assert m.group(1) == version, (
-        f"_PERSEUS_VERSION='{m.group(1)}' but VERSION='{version}'"
+    out = subprocess.run(
+        [sys.executable, str(PERSEUS_PY), "--version"],
+        capture_output=True, text=True, check=True,
+    )
+    cli_version = out.stdout.strip().split()[-1].lstrip("v")
+    assert cli_version == version, (
+        f"'perseus --version' reports '{cli_version}' but VERSION says '{version}'"
     )
 
 

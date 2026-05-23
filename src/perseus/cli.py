@@ -4,7 +4,7 @@
 def main():
     parser = argparse.ArgumentParser(
         prog="perseus",
-        description="Perseus — Live Context Engine for AI Assistants (v1.0.0)",
+        description=f"Perseus — Live Context Engine for AI Assistants (v{_PERSEUS_VERSION})",
     )
     parser.add_argument("--version", action="version", version=f"perseus v{_PERSEUS_VERSION}")
     sub = parser.add_subparsers(dest="command", required=True)

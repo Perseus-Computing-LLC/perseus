@@ -6,13 +6,6 @@
 # ═══════════════════════════════════════════════════════════════════════════
 """
 Perseus — Live Context Engine for AI Assistants
-Alpha v0.4: render (@query, @skills, @services, @session, @read, @env,
-            @if/@else/@endif, @include, @constraint, @validate), checkpoint, suggest
-            + @cache session / @cache ttl=N caching layer
-            + smart recover with workspace + TTL matching
-            + @services command: variant
-            + `perseus init` workspace scaffolder
-            + --version flag
 
 Usage:
   perseus render <source.md>               → resolved markdown to stdout
@@ -39,7 +32,6 @@ from pathlib import Path
 
 import yaml  # pyyaml
 from typing import NamedTuple, Callable
-
 # ─────────────────────────────── Paths & Config ───────────────────────────────
 
 PERSEUS_HOME = Path(os.environ.get("PERSEUS_HOME", Path.home() / ".perseus"))
@@ -7950,7 +7942,7 @@ PRODUCT_PROFILES: dict[str, dict] = {
 
 def _profile_context_template(profile_name: str, profile: dict) -> str:
     label = profile["label"]
-    return f"""@perseus v0.4
+    return f"""@perseus v{_PERSEUS_VERSION}
 
 @prompt
 This document was rendered live by Perseus for the {label} profile. Treat the
@@ -8248,7 +8240,7 @@ def cmd_validate(args, cfg) -> int:
 # ──────────────────────────────── cmd_init ────────────────────────────────────
 
 INIT_CONTEXT_TEMPLATE = """\
-@perseus v0.4
+@perseus v{version}
 
 @prompt
 This document was rendered live by Perseus. All values below are current —
@@ -8641,7 +8633,17 @@ def resolve_health(args_str: str, cfg: dict, workspace: Path | None = None) -> s
 
 # ───── Task-26: perseus doctor ───────────────────────────────────────────────
 
-_PERSEUS_VERSION = "1.0.1"
+def _find_version() -> str:
+    """Read version from VERSION file in repo root if present, else use baked-in."""
+    start = Path(__file__).resolve().parent
+    for p in [start] + list(start.parents):
+        candidate = p / "VERSION"
+        if candidate.exists():
+            return candidate.read_text().strip()
+    return _PERSEUS_VERSION  # fallback to build-time injected literal
+
+_PERSEUS_VERSION = "1.0.1"  # injected by scripts/build.py at build time
+_PERSEUS_VERSION = _find_version()
 
 
 class DoctorResult(NamedTuple):
@@ -9688,7 +9690,7 @@ def cmd_init(args, cfg):
             sys.exit(1)
         content = tpl.replace("{workspace}", str(workspace))
     else:
-        content = INIT_CONTEXT_TEMPLATE.format(workspace=str(workspace))
+        content = INIT_CONTEXT_TEMPLATE.format(workspace=str(workspace), version=_PERSEUS_VERSION)
     context_file.write_text(content)
 
     manifest = None
@@ -9739,7 +9741,7 @@ def cmd_init(args, cfg):
 def main():
     parser = argparse.ArgumentParser(
         prog="perseus",
-        description="Perseus — Live Context Engine for AI Assistants (v1.0.0)",
+        description=f"Perseus — Live Context Engine for AI Assistants (v{_PERSEUS_VERSION})",
     )
     parser.add_argument("--version", action="version", version=f"perseus v{_PERSEUS_VERSION}")
     sub = parser.add_subparsers(dest="command", required=True)
