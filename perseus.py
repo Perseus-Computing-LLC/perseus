@@ -63,6 +63,8 @@ DEFAULT_CONFIG = {
         "services_timeout_s": 3,
         "query_timeout_s": 30,
         "max_query_bytes": 262144,    # 256 KB stdout cap
+        "parallel_services": False,   # opt-in: concurrent @services health checks
+        "parallel_queries": False,    # opt-in: concurrent @query resolution
         "shell": "/bin/bash",
         "allow_query_shell": True,
         "allow_services_command": False,
@@ -2938,9 +2940,79 @@ def health_check_url(url: str, timeout: float, cfg: dict) -> tuple[str, float | 
         return f"❌ {type(exc).__name__}", None
 
 
+def _check_one_service(svc: dict, index: int, timeout: float, cfg: dict) -> tuple[int, str]:
+    """Check one service entry, return (index, markdown table row)."""
+    if not isinstance(svc, dict):
+        return index, "| (invalid) | ⚠ service entry must be a mapping | — |"
+    name = svc.get("name", "(unnamed)")
+    url = svc.get("url", "")
+    docker = svc.get("docker", "")
+
+    if url:
+        status, latency = health_check_url(url, timeout, cfg)
+        lat_str = f"{latency:.0f}ms" if latency is not None else "—"
+        return index, f"| {name} | {status} | {lat_str} |"
+    elif docker:
+        try:
+            out = subprocess.check_output(
+                ["docker", "ps", "--filter", f"name={docker}", "--format", "{{.Status}}"],
+                timeout=timeout,
+                stderr=subprocess.DEVNULL,
+                text=True,
+            ).strip()
+            if out:
+                return index, f"| {name} | ✅ {out} | — |"
+            else:
+                return index, f"| {name} | ❌ not running | — |"
+        except Exception:
+            return index, f"| {name} | ⚠ docker unavailable | — |"
+    elif command := str(svc.get("command") or ""):
+        if not cfg["render"].get("allow_services_command", False):
+            audit_event(cfg, "policy_denied",
+                        directive="@services",
+                        reason="render.allow_services_command=false",
+                        service=name,
+                        command=command[:300])
+            return index, f"| {name} | ⚠ command checks disabled by config | — |"
+        # Run arbitrary shell command; success = exit 0
+        audit_event(cfg, "shell_exec",
+                    directive="@services",
+                    service=name,
+                    command=command[:500],
+                    shell=_get_shell(cfg))
+        try:
+            result = subprocess.run(
+                command,
+                shell=True,
+                executable=_get_shell(cfg),
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+            out_text = (result.stdout or result.stderr).strip()
+            first_line = out_text.splitlines()[0][:80] if out_text else ""
+            if result.returncode == 0:
+                status = f"✅ {first_line}" if first_line else "✅ ok"
+            else:
+                status = f"❌ {first_line}" if first_line else f"❌ exit {result.returncode}"
+        except subprocess.TimeoutExpired:
+            status = "⚠ timeout"
+        except Exception as exc:
+            status = f"⚠ {exc}"
+        return index, f"| {name} | {status} | — |"
+    else:
+        return index, f"| {name} | ⚠ no url/docker/command | — |"
+
+
 def resolve_services(block_content: str, cfg: dict) -> str:
-    """Parse YAML service list from block and health-check each."""
+    """Parse YAML service list from block and health-check each.
+
+    With render.parallel_services=True (default False), health checks
+    run concurrently via ThreadPoolExecutor for dramatic speedup when
+    checking many services.
+    """
     timeout = float(cfg["render"].get("services_timeout_s", 3))
+    parallel = bool(cfg["render"].get("parallel_services", False))
     try:
         services = yaml.safe_load(block_content) or []
     except yaml.YAMLError as e:
@@ -2949,77 +3021,25 @@ def resolve_services(block_content: str, cfg: dict) -> str:
     if not services:
         return "> No services configured."
 
-    rows = ["| Service | Status | Latency |", "|---|---|---|"]
-    for svc in services:
-        if not isinstance(svc, dict):
-            rows.append("| (invalid) | ⚠ service entry must be a mapping | — |")
-            continue
-        name = svc.get("name", "(unnamed)")
-        url = svc.get("url", "")
-        docker = svc.get("docker", "")
+    rows = [None] * len(services)
 
-        if url:
-            status, latency = health_check_url(url, timeout, cfg)
-            lat_str = f"{latency:.0f}ms" if latency is not None else "—"
-            rows.append(f"| {name} | {status} | {lat_str} |")
-        elif docker:
-            # Try docker ps via subprocess
-            try:
-                out = subprocess.check_output(
-                    ["docker", "ps", "--filter", f"name={docker}", "--format", "{{.Status}}"],
-                    timeout=timeout,
-                    stderr=subprocess.DEVNULL,
-                    text=True,
-                ).strip()
-                if out:
-                    status = f"✅ {out}"
-                else:
-                    status = "❌ not running"
-            except Exception:
-                status = "⚠ docker unavailable"
-            rows.append(f"| {name} | {status} | — |")
-        elif command := str(svc.get("command") or ""):
-            if not cfg["render"].get("allow_services_command", False):
-                audit_event(cfg, "policy_denied",
-                            directive="@services",
-                            reason="render.allow_services_command=false",
-                            service=name,
-                            command=command[:300])
-                status = "⚠ command checks disabled by config"
-                rows.append(f"| {name} | {status} | — |")
-                continue
-            # Run arbitrary shell command; success = exit 0
-            audit_event(cfg, "shell_exec",
-                        directive="@services",
-                        service=name,
-                        command=command[:500],
-                        shell=_get_shell(cfg))
-            try:
-                result = subprocess.run(
-                    command,
-                    shell=True,
-                    executable=_get_shell(cfg),
-                    capture_output=True,
-                    text=True,
-                    timeout=timeout,
-                )
-                out_text = (result.stdout or result.stderr).strip()
-                first_line = out_text.splitlines()[0][:80] if out_text else ""
-                if result.returncode == 0:
-                    status = f"✅ {first_line}" if first_line else "✅ ok"
-                else:
-                    status = f"❌ {first_line}" if first_line else f"❌ exit {result.returncode}"
-            except subprocess.TimeoutExpired:
-                status = "⚠ timeout"
-            except Exception as exc:
-                status = f"⚠ {exc}"
-            rows.append(f"| {name} | {status} | — |")
-        else:
-            rows.append(f"| {name} | ⚠ no url/docker/command | — |")
+    if parallel and len(services) > 1:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        max_workers = min(len(services), 16)
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(_check_one_service, svc, i, timeout, cfg): i
+                for i, svc in enumerate(services)
+            }
+            for future in as_completed(futures):
+                idx, row = future.result()
+                rows[idx] = row
+    else:
+        for i, svc in enumerate(services):
+            _, row = _check_one_service(svc, i, timeout, cfg)
+            rows[i] = row
 
-    return "\n".join(rows)
-
-
+    return "\n".join(["| Service | Status | Latency |", "|---|---|---|"] + rows)
 # ───────────────────────────── @list / @tree ─────────────────────────────────
 
 def _list_emit_warning(msg: str) -> str:
@@ -3504,6 +3524,65 @@ def _render_lines(
     if top_level:
         _constraint_rows = []
 
+    # ── Pre-scan @query directives for parallel resolution ──────────────
+    # When render.parallel_queries is enabled at the top level, collect all
+    # unconditional @query directives and run them concurrently.  Directives
+    # inside @if branches are handled sequentially by recursive calls.
+    query_results: dict[int, str] = {}
+    if top_level and cfg["render"].get("parallel_queries", False):
+        in_fence_pre = False
+        fc_pre = ""
+        fl_pre = 0
+        for idx, raw_line in enumerate(lines):
+            fm = re.match(r'^\s*(`{3,}|~{3,})(.*)$', raw_line)
+            if in_fence_pre:
+                if re.match(rf'^\s*{re.escape(fc_pre)}{{{fl_pre},}}\s*$', raw_line):
+                    in_fence_pre = False
+                continue
+            if fm:
+                in_fence_pre = True
+                fc_pre = fm.group(1)[0]
+                fl_pre = len(fm.group(1))
+                continue
+            m = INLINE_DIRECTIVE_RE.match(raw_line)
+            if m and m.group(1).lower() == "@query":
+                clean_args, cache_mode, cache_ttl, cache_mock = _parse_cache_modifier(
+                    (m.group(2) or "").strip()
+                )
+                if cache_mode == "mock":
+                    query_results[idx] = cache_mock or "(mock)"
+                    continue
+                cache_key = _cache_key(f"@query {clean_args}")
+                cached = cache_get(cache_key, cache_mode, cache_ttl, cfg)
+                if cached is not None:
+                    query_results[idx] = cached
+                    continue
+                # Mark for parallel execution; resolve after scan
+                query_results[idx] = None  # sentinel: needs resolution
+
+        # Execute unresolved queries in parallel
+        pending = [(idx, raw_line) for idx, v in query_results.items() if v is None]
+        if len(pending) > 1:
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+
+            def _run_one(idx: int, raw_line: str) -> tuple[int, str]:
+                m2 = INLINE_DIRECTIVE_RE.match(raw_line)
+                args2 = (m2.group(2) or "").strip()
+                clean2, cmode, cttl, _ = _parse_cache_modifier(args2)
+                spec2 = DIRECTIVE_REGISTRY.get("@query")
+                result = _call_resolver(spec2, clean2, cfg, workspace)
+                result = _apply_output_schema_validation(spec2, clean2, result, workspace)
+                if cmode:
+                    ckey = _cache_key(f"@query {clean2}")
+                    cache_set(ckey, result, cmode, cttl, cfg)
+                return idx, result
+
+            with ThreadPoolExecutor(max_workers=min(len(pending), 8)) as executor:
+                futures = {executor.submit(_run_one, idx, line): idx for idx, line in pending}
+                for future in as_completed(futures):
+                    idx, result = future.result()
+                    query_results[idx] = result
+
     output = []
     i = 0
     in_fence = False
@@ -3763,6 +3842,12 @@ def _render_lines(
         if m:
             directive = m.group(1).lower()
             raw_args = (m.group(2) or "").strip()
+
+            # If this @query was pre-resolved in parallel mode, use the result
+            if directive == "@query" and i in query_results:
+                output.append(query_results[i])
+                i += 1
+                continue
 
             # @memory ttl=N → syntactic sugar for @cache ttl=N
             if directive == "@memory" and "@cache" not in raw_args.lower():
