@@ -18,7 +18,7 @@ Works with any AI assistant that reads a file: **Claude Code, Cursor, Codex, Her
 
 *Perseus with the Head of Medusa — Benvenuto Cellini, 1545. Loggia dei Lanzi, Florence. ([Jastrow](https://commons.wikimedia.org/wiki/File:Perseus_Cellini_Loggia_dei_Lanzi_2005_09_13.jpg), CC BY-SA 4.0)*
 
-**Status:** v1.0.2 — stable. 63 features shipped, 539 tests passing, 1 skipped.
+**Status:** v1.0.2 — stable. 63 features shipped, 540 tests passing, 1 skipped.
 
 [![CI](https://github.com/tcconnally/perseus/actions/workflows/test.yml/badge.svg)](https://github.com/tcconnally/perseus/actions/workflows/test.yml)
 
