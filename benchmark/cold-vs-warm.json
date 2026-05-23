@@ -1,0 +1,32 @@
+{
+  "test": "cold-vs-warm-cached",
+  "per_query_ms": 22.5,
+  "scales": {
+    "100": {
+      "cold": 2.523,
+      "warm": 0.285,
+      "speedup": 8.9
+    },
+    "500": {
+      "cold": 11.485,
+      "warm": 0.29,
+      "speedup": 39.6
+    },
+    "1000": {
+      "cold": 22.69,
+      "warm": 0.295,
+      "speedup": 76.9
+    },
+    "5000": {
+      "cold": 112.728,
+      "warm": 0.389,
+      "speedup": 289.8
+    },
+    "10000": {
+      "cold": 225.303,
+      "warm": 0.698,
+      "speedup": 322.8
+    }
+  },
+  "headline": "500 queries: 11.5s cold -> 0.29s warm = 40x speedup. Warm time flat regardless of scale."
+}
