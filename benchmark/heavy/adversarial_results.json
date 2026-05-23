@@ -1,0 +1,151 @@
+{
+  "perseus_version": "1.0.1 (with local Windows shell-fallback patch)",
+  "host": "nt \u00b7 python 3.14.2",
+  "generated_at": "2026-05-23T17:10:40Z",
+  "scaling": [
+    {
+      "ok": true,
+      "rc": 0,
+      "elapsed_s": 0.607,
+      "out_lines": 10,
+      "out_bytes": 1040,
+      "stderr_tail": "",
+      "test": "scale-10-queries",
+      "n_queries": 10,
+      "per_query_ms": 60.7
+    },
+    {
+      "ok": true,
+      "rc": 0,
+      "elapsed_s": 2.255,
+      "out_lines": 50,
+      "out_bytes": 5240,
+      "stderr_tail": "",
+      "test": "scale-50-queries",
+      "n_queries": 50,
+      "per_query_ms": 45.1
+    },
+    {
+      "ok": true,
+      "rc": 0,
+      "elapsed_s": 4.215,
+      "out_lines": 100,
+      "out_bytes": 10490,
+      "stderr_tail": "",
+      "test": "scale-100-queries",
+      "n_queries": 100,
+      "per_query_ms": 42.1
+    },
+    {
+      "ok": true,
+      "rc": 0,
+      "elapsed_s": 8.235,
+      "out_lines": 200,
+      "out_bytes": 21090,
+      "stderr_tail": "",
+      "test": "scale-200-queries",
+      "n_queries": 200,
+      "per_query_ms": 41.2
+    },
+    {
+      "ok": true,
+      "rc": 0,
+      "elapsed_s": 20.218,
+      "out_lines": 500,
+      "out_bytes": 52890,
+      "stderr_tail": "",
+      "test": "scale-500-queries",
+      "n_queries": 500,
+      "per_query_ms": 40.4
+    }
+  ],
+  "edges": [
+    {
+      "ok": true,
+      "rc": 0,
+      "elapsed_s": 1.224,
+      "out_lines": 1200002,
+      "out_bytes": 13200014,
+      "stderr_tail": "",
+      "test": "B1-big-stdout-12MB"
+    },
+    {
+      "ok": true,
+      "rc": 0,
+      "elapsed_s": 45.251,
+      "out_lines": 1,
+      "out_bytes": 166,
+      "stderr_tail": "",
+      "test": "B2-timeout-45s"
+    },
+    {
+      "ok": true,
+      "rc": 0,
+      "elapsed_s": 0.267,
+      "out_lines": 1,
+      "out_bytes": 67,
+      "stderr_tail": "e \"C:\\Users\\tccon\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\threading.py\", line 1024, in run\r\n    self._target(*self._args, **self._kwargs)\r\n    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\r\n  File \"C:\\Users\\tccon\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\subprocess.py\", line 1613, in _readerthread\r\n    buffer.append(fh.read())\r\n                  ~~~~~~~^^\r\n  File \"<frozen codecs>\", line 325, in decode\r\nUnicodeDecodeError: 'utf-8' codec can't decode byte 0xff in position 1: invalid start byte\r\n",
+      "test": "B3-binary-output"
+    },
+    {
+      "ok": true,
+      "rc": 0,
+      "elapsed_s": 0.248,
+      "out_lines": 3,
+      "out_bytes": 74,
+      "stderr_tail": "",
+      "test": "B4-shell-metacharacters"
+    },
+    {
+      "ok": true,
+      "rc": 0,
+      "elapsed_s": 0.236,
+      "out_lines": 5,
+      "out_bytes": 389,
+      "stderr_tail": "",
+      "test": "B5-missing-script"
+    },
+    {
+      "ok": false,
+      "elapsed_s": 180.023,
+      "error": "timeout after 180s",
+      "test": "B6-services-100-entries"
+    },
+    {
+      "ok": true,
+      "rc": 0,
+      "elapsed_s": 0.198,
+      "out_lines": 8,
+      "out_bytes": 387,
+      "stderr_tail": "",
+      "test": "B7-services-command-hang"
+    },
+    {
+      "ok": true,
+      "rc": 0,
+      "elapsed_s": 0.186,
+      "out_lines": 8,
+      "out_bytes": 260,
+      "stderr_tail": "",
+      "test": "B8-malformed-services-yaml"
+    },
+    {
+      "ok": true,
+      "rc": 0,
+      "elapsed_s": 7.965,
+      "out_lines": 3199,
+      "out_bytes": 96156,
+      "stderr_tail": "",
+      "test": "B9-long-context-md"
+    },
+    {
+      "ok": true,
+      "rc": 0,
+      "elapsed_s": 0.233,
+      "out_lines": 4,
+      "out_bytes": 109,
+      "stderr_tail": "",
+      "test": "B10-unicode-emoji"
+    }
+  ]
+}
