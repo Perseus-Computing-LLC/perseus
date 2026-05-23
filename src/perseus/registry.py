@@ -20,6 +20,7 @@ class DirectiveSpec(NamedTuple):
     cacheable: bool = False
     summary: str = ""
     output_schema: object | None = None  # Optional registry-level rendered output schema
+    diagnostic_fn: "Callable | None" = None  # Optional per-directive LSP diagnostic (task-25)
 
 
 # NOTE: resolver references are forward-declared as strings and bound after
@@ -40,7 +41,7 @@ def _bind_registry() -> None:
         DirectiveSpec("@env",       resolve_env,       ["required=", "fallback=", "schema="], "inline", "acw", cacheable=False, summary="Embed environment variable"),
         DirectiveSpec("@include",   resolve_include,   [],                         "inline",  "awc", reads_files=True, cacheable=True, summary="Include and render another file"),
         DirectiveSpec("@agora",     resolve_agora,     ["status="],                "inline",  "acw", reads_files=True, cacheable=True, summary="Task board from tasks/*.md"),
-        DirectiveSpec("@memory",    resolve_memory,    ["focus=", "federation", "include_federation=", "alias=", "workspace="], "inline", "acw", reads_files=True, cacheable=True, summary="Mnēmē narrative memory"),
+        DirectiveSpec("@memory",    resolve_memory,    ["focus=", "federation", "include_federation=", "alias=", "workspace="], "inline", "acw", reads_files=True, cacheable=True, summary="Mnēmē narrative memory", diagnostic_fn=_memory_federation_diagnostic),
         DirectiveSpec("@list",      resolve_list,      ["limit=", "sort="],        "inline",  "acw", reads_files=True, cacheable=True, summary="List directory or structured data"),
         DirectiveSpec("@tree",      resolve_tree,      ["depth="],                 "inline",  "acw", reads_files=True, cacheable=True, summary="Tree view of directory"),
         DirectiveSpec("@health",    resolve_health,    [],                         "inline",  "acw", reads_files=True, summary="Context maintenance report"),
@@ -88,5 +89,3 @@ def _build_inline_directive_re():
     )
     pattern = r'^(' + '|'.join(re.escape(n) for n in names) + r')(\s+.*)?$'
     return re.compile(pattern, re.IGNORECASE)
-
-

@@ -4,12 +4,14 @@ title: Background daemon with graph-driven cache invalidation
 status: open
 priority: low
 scope: spike
-claimed_by: 
+claimed_by: null
 created: 2026-05-23
 phase: post-v1
-theme: Managed Runtime — Continuous Resolution
+theme: "Managed Runtime \u2014 Continuous Resolution"
+depends_on: []
+opened: '2026-05-23'
+closed: null
 ---
-
 ## Why
 
 Task-56 delivered a polling watch mode (`perseus watch`) that re-renders the

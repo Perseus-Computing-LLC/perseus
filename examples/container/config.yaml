@@ -1,5 +1,23 @@
-# Example global config mounted by docker-compose.yaml for authenticated serve.
-# Replace this token before exposing the service beyond your own machine.
+# Perseus container config — example for docker compose serve profile.
+#
+# Replace this token before serving:
+#   docker run --rm perseus:local serve --generate-token
+#
+# For local-only use, set bind_host to 127.0.0.1 and omit auth_token entirely.
+
+permissions:
+  profile: balanced
+
+render:
+  allow_query_shell: false
+  allow_agent_shell: false
+
 serve:
-  bind_host: 0.0.0.0
+  bind_host: "0.0.0.0"
   auth_token: change-me-before-serving
+
+generation:
+  enabled: false
+
+redaction:
+  enabled: false

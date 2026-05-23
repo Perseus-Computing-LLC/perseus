@@ -33,15 +33,13 @@ MODULE_ORDER = [
     "src/perseus/directives/session.py",
     "src/perseus/directives/services.py",
     "src/perseus/directives/misc.py",
-    "src/perseus/directives/health.py",
-    "src/perseus/directives/memory.py",
-    "src/perseus/directives/synthesis.py",
     "src/perseus/renderer.py",
     "src/perseus/checkpoint.py",
     "src/perseus/memory.py",
     "src/perseus/inbox.py",
     "src/perseus/agora.py",
     "src/perseus/pythia.py",
+    "src/perseus/lsp.py",
     "src/perseus/serve.py",
     "src/perseus/cli.py",  # includes _bind_registry() call before dispatch
 ]
@@ -82,6 +80,13 @@ def build() -> None:
     output_lines: list[str] = []
     first_module = True
 
+    # ── Read version from VERSION file ──────────────────────────────────────
+    version_path = repo_root / "VERSION"
+    if version_path.exists():
+        build_version = version_path.read_text().strip()
+    else:
+        build_version = "0.0.0"
+
     for rel_path in MODULE_ORDER:
         path = repo_root / rel_path
         if not path.exists():
@@ -112,6 +117,9 @@ def build() -> None:
         shebang_line = "#!/usr/bin/env python3"
         body_lines = output_lines
     output = shebang_line + "\n" + GENERATED_HEADER + "\n".join(body_lines) + "\n"
+    # ── Inject version from VERSION file ────────────────────────────────────
+    _VERSION_RE = re.compile(r'^(_PERSEUS_VERSION\s*=\s*)".*?"(\s*#.*)?$', re.MULTILINE)
+    output = _VERSION_RE.sub(rf'\g<1>"{build_version}"\g<2>', output)
     # ── Line-count drift guard ────────────────────────────────────────────────
     actual_lines = len(output.splitlines())
     low = int(BASELINE_LINES * 0.95)   # 9486

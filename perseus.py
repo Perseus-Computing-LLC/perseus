@@ -3953,63 +3953,85 @@ def cmd_checkpoint(args, cfg):
     cp["workspace"] = effective_workspace
 
     outfile = store / f"{ts}.yaml"
-    # avoid collision
-    suffix = 0
-    while outfile.exists():
-        suffix += 1
-        outfile = store / f"{ts}_{suffix}.yaml"
 
-    with open(outfile, "w") as f:
-        yaml.dump(cp, f, default_flow_style=False, allow_unicode=True)
-
-    # Update latest pointer (global)
-    latest = store / "latest.yaml"
-    _update_latest_checkpoint_pointer(latest, outfile)
-
-    # Update per-workspace pointer (task-07)
-    if cp.get("workspace"):
+    # ── Lock file for multi-agent coordination ──────────────────────────
+    # Prevents two concurrent writers (agents sharing a checkpoint store
+    # via NFS/SMB) from picking the same filename and clobbering.
+    # os.O_CREAT | os.O_EXCL is atomic across NFS.
+    lock_path = store / ".lock"
+    locked = False
+    for attempt in range(10):
         try:
-            ws_path = Path(str(cp["workspace"])).expanduser().resolve()
-            ws_hash = _workspace_hash(ws_path)
-            ws_pointer = store / f"latest-{ws_hash}.yaml"
-            # Pointer is always a plain copy (not a symlink) — safer across FS
-            ws_pointer.write_text(outfile.read_text())
-        except Exception as exc:
-            print(f"> ⚠ Could not write per-workspace pointer: {exc}")
+            fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(fd, str(os.getpid()).encode())
+            os.close(fd)
+            locked = True
+            break
+        except FileExistsError:
+            time.sleep(0.2 * (attempt + 1))  # 0.2s, 0.4s, ..., 2.0s
+    if not locked:
+        print("⚠ checkpoint store is locked by another agent; try again later", file=sys.stderr)
+        return 1
 
-    # Prune old checkpoints (filename-based, deterministic — exclude pointer files)
-    all_cps = sorted(
-        [f for f in store.glob("*.yaml")
-         if f.name != "latest.yaml" and not f.name.startswith("latest-")],
-        key=lambda f: f.name,
-        reverse=True,
-    )
-    pruned = set()
-    for old in all_cps[max_keep:]:
-        pruned.add(old.name)
-        old.unlink(missing_ok=True)
+    try:
+        # avoid collision
+        suffix = 0
+        while outfile.exists():
+            suffix += 1
+            outfile = store / f"{ts}_{suffix}.yaml"
 
-    # Clean up workspace pointers that now point to deleted checkpoints (task-07)
-    if pruned:
-        for ptr in store.glob("latest-*.yaml"):
+        with open(outfile, "w") as f:
+            yaml.dump(cp, f, default_flow_style=False, allow_unicode=True)
+
+        # Update latest pointer (global)
+        latest = store / "latest.yaml"
+        _update_latest_checkpoint_pointer(latest, outfile)
+
+        # Update per-workspace pointer (task-07)
+        if cp.get("workspace"):
             try:
-                ptr_cp = yaml.safe_load(ptr.read_text()) or {}
-                ptr_written = str(ptr_cp.get("written", ""))
-                ptr_ws = str(ptr_cp.get("workspace", ""))
-                # If pointer's checkpoint no longer exists, re-point to most recent for that ws
-                surviving = []
-                for f in all_cps[:max_keep]:
-                    f_cp = _load_checkpoint_file(f) or {}
-                    if str(f_cp.get("workspace", "")) == ptr_ws:
-                        surviving.append((f, f_cp.get("written", "")))
-                if surviving:
-                    # Pick most recent (filename-sorted desc, so first survivor wins)
-                    surviving.sort(key=lambda x: x[1], reverse=True)
-                    ptr.write_text(surviving[0][0].read_text())
-                else:
-                    ptr.unlink(missing_ok=True)
-            except Exception:
-                pass
+                ws_path = Path(str(cp["workspace"])).expanduser().resolve()
+                ws_hash = _workspace_hash(ws_path)
+                ws_pointer = store / f"latest-{ws_hash}.yaml"
+                ws_pointer.write_text(outfile.read_text())
+            except Exception as exc:
+                print(f"> ⚠ Could not write per-workspace pointer: {exc}")
+
+        # Prune old checkpoints
+        all_cps = sorted(
+            [f for f in store.glob("*.yaml")
+             if f.name != "latest.yaml" and not f.name.startswith("latest-")],
+            key=lambda f: f.name,
+            reverse=True,
+        )
+        pruned = set()
+        for old in all_cps[max_keep:]:
+            pruned.add(old.name)
+            old.unlink(missing_ok=True)
+
+        # Clean up workspace pointers that now point to deleted checkpoints
+        if pruned:
+            for ptr in store.glob("latest-*.yaml"):
+                try:
+                    ptr_cp = yaml.safe_load(ptr.read_text()) or {}
+                    ptr_written = str(ptr_cp.get("written", ""))
+                    ptr_ws = str(ptr_cp.get("workspace", ""))
+                    surviving = []
+                    for f in all_cps[:max_keep]:
+                        f_cp = _load_checkpoint_file(f) or {}
+                        if str(f_cp.get("workspace", "")) == ptr_ws:
+                            surviving.append((f, f_cp.get("written", "")))
+                    if surviving:
+                        surviving.sort(key=lambda x: x[1], reverse=True)
+                        ptr.write_text(surviving[0][0].read_text())
+                    else:
+                        ptr.unlink(missing_ok=True)
+                except Exception:
+                    pass
+
+    finally:
+        # Release the lock so other agents can write
+        lock_path.unlink(missing_ok=True)
 
     print(f"✅ Checkpoint written: {outfile}")
     print(f"   Task:   {cp['task']}")

@@ -29,7 +29,7 @@ This puts `perseus` on `~/.local/bin/`. Make sure that's on your PATH:
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"   # add to ~/.bashrc or ~/.zshrc
-perseus --version                       # should print: perseus v1.0.1
+perseus --version                       # should print: perseus v1.0.2
 ```
 
 **Alternative — run directly from the repo:**

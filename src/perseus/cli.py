@@ -258,6 +258,15 @@ def main():
     p_trust_audit.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     p_trust.add_argument("--json", action="store_true", help="Output machine-readable JSON")
 
+    # update (self-update from git)
+    p_update = sub.add_parser("update", help="Check for and apply Perseus updates from git")
+    p_update.add_argument("--apply", action="store_true",
+                          help="Fetch and pull the latest update")
+    p_update.add_argument("--check", action="store_true",
+                          help="Dry run: show available updates without applying")
+    p_update.add_argument("--auto", default=None, metavar="on|off",
+                          help="Toggle auto-update on/off and persist to config")
+
     # oracle (Daedalus dataset / labeling)
     p_oracle = sub.add_parser("oracle", help="Pythia log labeling and dataset export")
     oracle_sub = p_oracle.add_subparsers(dest="oracle_command", required=True)
@@ -345,6 +354,8 @@ def main():
         return cmd_doctor(args, cfg)
     elif args.command == "trust":
         return cmd_trust(args, cfg)
+    elif args.command == "update":
+        return cmd_update(args, cfg)
     elif args.command == "oracle":
         rc = cmd_oracle(args, cfg)
         if isinstance(rc, int):
