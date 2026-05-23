@@ -19,6 +19,8 @@ DEFAULT_CONFIG = {
         "services_timeout_s": 3,
         "query_timeout_s": 30,
         "max_query_bytes": 262144,    # 256 KB stdout cap
+        "parallel_services": False,   # opt-in: concurrent @services health checks
+        "parallel_queries": False,    # opt-in: concurrent @query resolution
         "shell": "/bin/bash",
         "allow_query_shell": True,
         "allow_services_command": False,

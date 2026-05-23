@@ -167,6 +167,65 @@ def _render_lines(
     if top_level:
         _constraint_rows = []
 
+    # ── Pre-scan @query directives for parallel resolution ──────────────
+    # When render.parallel_queries is enabled at the top level, collect all
+    # unconditional @query directives and run them concurrently.  Directives
+    # inside @if branches are handled sequentially by recursive calls.
+    query_results: dict[int, str] = {}
+    if top_level and cfg["render"].get("parallel_queries", False):
+        in_fence_pre = False
+        fc_pre = ""
+        fl_pre = 0
+        for idx, raw_line in enumerate(lines):
+            fm = re.match(r'^\s*(`{3,}|~{3,})(.*)$', raw_line)
+            if in_fence_pre:
+                if re.match(rf'^\s*{re.escape(fc_pre)}{{{fl_pre},}}\s*$', raw_line):
+                    in_fence_pre = False
+                continue
+            if fm:
+                in_fence_pre = True
+                fc_pre = fm.group(1)[0]
+                fl_pre = len(fm.group(1))
+                continue
+            m = INLINE_DIRECTIVE_RE.match(raw_line)
+            if m and m.group(1).lower() == "@query":
+                clean_args, cache_mode, cache_ttl, cache_mock = _parse_cache_modifier(
+                    (m.group(2) or "").strip()
+                )
+                if cache_mode == "mock":
+                    query_results[idx] = cache_mock or "(mock)"
+                    continue
+                cache_key = _cache_key(f"@query {clean_args}")
+                cached = cache_get(cache_key, cache_mode, cache_ttl, cfg)
+                if cached is not None:
+                    query_results[idx] = cached
+                    continue
+                # Mark for parallel execution; resolve after scan
+                query_results[idx] = None  # sentinel: needs resolution
+
+        # Execute unresolved queries in parallel
+        pending = [(idx, raw_line) for idx, v in query_results.items() if v is None]
+        if len(pending) > 1:
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+
+            def _run_one(idx: int, raw_line: str) -> tuple[int, str]:
+                m2 = INLINE_DIRECTIVE_RE.match(raw_line)
+                args2 = (m2.group(2) or "").strip()
+                clean2, cmode, cttl, _ = _parse_cache_modifier(args2)
+                spec2 = DIRECTIVE_REGISTRY.get("@query")
+                result = _call_resolver(spec2, clean2, cfg, workspace)
+                result = _apply_output_schema_validation(spec2, clean2, result, workspace)
+                if cmode:
+                    ckey = _cache_key(f"@query {clean2}")
+                    cache_set(ckey, result, cmode, cttl, cfg)
+                return idx, result
+
+            with ThreadPoolExecutor(max_workers=min(len(pending), 8)) as executor:
+                futures = {executor.submit(_run_one, idx, line): idx for idx, line in pending}
+                for future in as_completed(futures):
+                    idx, result = future.result()
+                    query_results[idx] = result
+
     output = []
     i = 0
     in_fence = False
@@ -426,6 +485,12 @@ def _render_lines(
         if m:
             directive = m.group(1).lower()
             raw_args = (m.group(2) or "").strip()
+
+            # If this @query was pre-resolved in parallel mode, use the result
+            if directive == "@query" and i in query_results:
+                output.append(query_results[i])
+                i += 1
+                continue
 
             # @memory ttl=N → syntactic sugar for @cache ttl=N
             if directive == "@memory" and "@cache" not in raw_args.lower():
