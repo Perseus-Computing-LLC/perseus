@@ -21,6 +21,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -183,6 +184,17 @@ DEFAULT_CONFIG = {
         "log_path": str(PERSEUS_HOME / "audit_log.jsonl"),
         "max_log_bytes": 1_048_576,   # 1 MiB
     },
+    "update": {
+        # Self-update: pull latest from the Perseus git repository.
+        # auto: when True, `perseus update --apply` is safe to run unattended
+        #   (cron/watchdog). When False, the command requires explicit --apply.
+        "auto": False,
+        # repo_path: path to the git checkout. Auto-detected from the installed
+        #   package location if not set.
+        "repo_path": "",
+        # branch: remote branch to track.
+        "branch": "main",
+    },
 }
 
 
@@ -260,6 +272,25 @@ def _apply_permission_profile(cfg: dict, profile_name: object) -> str | None:
             cfg[section] = {}
         cfg[section].update(vals)
     return name
+
+
+def _get_shell(cfg: dict) -> str | None:
+    """Return the shell executable path, or None to use the system default.
+
+    On Windows, /bin/bash doesn't exist. Returning None tells subprocess.run
+    to use the platform default (COMSPEC on Windows, /bin/sh elsewhere).
+    Also handles non-default shells that aren't findable — falls back to None
+    rather than crashing.
+    """
+    shell = cfg["render"].get("shell", "/bin/bash")
+    resolved = shutil.which(shell)
+    if resolved is None and shell != "/bin/bash":
+        # Non-default shell specified but not found — log and fall back
+        return None
+    if resolved is None:
+        # Default /bin/bash not found (Windows) — use system default
+        return None
+    return resolved
 
 
 # ─────────────────────────────── Directive Registry ───────────────────────────
@@ -1555,7 +1586,7 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
     <workspace>/.perseus/schemas/ before the workspace root. Validation errors
     are returned as a warning block instead of the output.
     """
-    shell = cfg["render"].get("shell", "/bin/bash")
+    shell = _get_shell(cfg)
     if not cfg["render"].get("allow_query_shell", True):
         audit_event(cfg, "policy_denied",
                     directive="@query",
@@ -1616,7 +1647,7 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
             text=True,
             timeout=30,
         )
-        stdout = result.stdout.rstrip("\n")
+        stdout = (result.stdout or "").rstrip("\n")
         stderr = result.stderr.strip()
         exit_code = result.returncode
 
@@ -2926,12 +2957,12 @@ def resolve_services(block_content: str, cfg: dict) -> str:
                         directive="@services",
                         service=name,
                         command=command[:500],
-                        shell=cfg["render"].get("shell", "/bin/bash"))
+                        shell=_get_shell(cfg))
             try:
                 result = subprocess.run(
                     command,
                     shell=True,
-                    executable=cfg["render"].get("shell", "/bin/bash"),
+                    executable=_get_shell(cfg),
                     capture_output=True,
                     text=True,
                     timeout=timeout,
@@ -4846,7 +4877,7 @@ def _inbox_write(path: Path, msg: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     text = yaml.safe_dump(msg, default_flow_style=False, allow_unicode=True, sort_keys=False)
     tmp = path.with_suffix(".yaml.tmp")
-    tmp.write_text(text)
+    tmp.write_text(text, encoding="utf-8")
     os.replace(tmp, path)
 
 
@@ -7118,7 +7149,7 @@ def cmd_render(args, cfg):
     if output:
         out_path = Path(output)
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(rendered)
+        out_path.write_text(rendered, encoding="utf-8")
     else:
         print(rendered)
 
@@ -8651,7 +8682,7 @@ def _find_version() -> str:
             return candidate.read_text().strip()
     return _PERSEUS_VERSION  # fallback to build-time injected literal
 
-_PERSEUS_VERSION = "1.0.1"  # injected by scripts/build.py at build time
+_PERSEUS_VERSION = "1.0.2"  # injected by scripts/build.py at build time
 _PERSEUS_VERSION = _find_version()
 
 
@@ -9056,6 +9087,179 @@ def cmd_doctor(args, cfg) -> int:
         print(f"─ Summary: {ok} ok · {warn} warning · {err} errors  (exit {exit_code})")
 
     return exit_code
+
+
+def cmd_update(args, cfg) -> int:
+    """Self-update: check for or apply Perseus updates from git.
+
+    Perseus is installed in editable mode — updating the source via git pull
+    automatically updates the CLI. No reinstall needed.
+    """
+    import subprocess as _sp
+
+    update_cfg = cfg.get("update", {})
+    repo_path_str = update_cfg.get("repo_path", "")
+    branch = update_cfg.get("branch", "main")
+
+    # ── --auto toggle ──────────────────────────────────────────────────────
+    auto_val = getattr(args, "auto", None)
+    if auto_val is not None:
+        return _toggle_auto_update(auto_val, cfg)
+
+    # ── Find the repo ──────────────────────────────────────────────────────
+    repo = None
+    if repo_path_str:
+        repo = Path(repo_path_str).resolve()
+    if not repo or not (repo / ".git").exists():
+        repo = _find_perseus_repo()
+    if not repo or not (repo / ".git").exists():
+        print("Error: Perseus git repository not found.", file=sys.stderr)
+        print("  Set update.repo_path in ~/.perseus/config.yaml", file=sys.stderr)
+        print("  Clone: git clone https://github.com/tcconnally/perseus.git", file=sys.stderr)
+        return 1
+
+    os.chdir(str(repo))
+
+    # ── Fetch ──────────────────────────────────────────────────────────────
+    print(f"Fetching origin/{branch} …")
+    try:
+        _sp.run(["git", "fetch", "origin", branch],
+                check=True, capture_output=True, text=True)
+    except _sp.CalledProcessError as e:
+        print(f"Error: git fetch failed: {e.stderr.strip()}", file=sys.stderr)
+        return 1
+
+    # ── Compare local vs remote ────────────────────────────────────────────
+    def _git(args_list):
+        return _sp.run(["git"] + args_list, capture_output=True,
+                       text=True).stdout.strip()
+
+    local = _git(["rev-parse", "HEAD"])
+    remote = _git(["rev-parse", f"origin/{branch}"])
+
+    if local == remote:
+        print(f"\u2713 Perseus is up to date ({local[:8]} on {branch})")
+        return 0
+
+    # Determine relationship: is local ahead, behind, or diverged?
+    merge_base = _git(["merge-base", local, remote])
+    if merge_base == remote:
+        # local is ahead of or same as remote — nothing to pull
+        print(f"\u2713 Perseus is up to date (local is ahead of origin/{branch})")
+        print(f"  Local:  {local[:8]}")
+        print(f"  Remote: {remote[:8]} (behind)")
+        return 0
+    elif merge_base == local:
+        # local is behind remote — updates available
+        pass
+    else:
+        # Diverged — both have commits the other doesn't
+        print(f"\u26a0 Local and origin/{branch} have diverged.", file=sys.stderr)
+        print(f"  Local:  {local[:8]}", file=sys.stderr)
+        print(f"  Remote: {remote[:8]}", file=sys.stderr)
+        print("  Fast-forward not possible. Manual merge required.", file=sys.stderr)
+        return 1
+
+    # ── Show available updates ─────────────────────────────────────────────
+    log = _git(["log", "--oneline", f"{local}..{remote}"])
+    commits = log.split("\n") if log else []
+    count = len(commits)
+
+    print(f"\n{count} commit(s) behind origin/{branch}:")
+    print(f"  Installed: {local[:8]}")
+    print(f"  Latest:    {remote[:8]}")
+    print()
+    for line in commits:
+        print(f"  {line}")
+    print()
+
+    apply_update = getattr(args, "apply", False)
+    check_only = getattr(args, "check", False)
+
+    if apply_update:
+        print("Applying update …")
+        try:
+            result = _sp.run(
+                ["git", "pull", "--ff-only", "origin", branch],
+                capture_output=True, text=True, check=True,
+            )
+            print(result.stdout.strip())
+            new_local = _git(["rev-parse", "HEAD"])
+            print(f"\u2713 Updated to {new_local[:8]}")
+        except _sp.CalledProcessError as e:
+            print(f"Error: git pull failed: {e.stderr.strip()}", file=sys.stderr)
+            print(f"  Try: cd {repo} && git pull --ff-only origin {branch}",
+                  file=sys.stderr)
+            return 1
+    elif not check_only:
+        print("To apply:  perseus update --apply")
+        print("Dry run:   perseus update --check")
+        if not cfg.get("update", {}).get("auto", False):
+            print("Auto:      perseus update --auto on")
+
+    return 0
+
+
+def _find_perseus_repo():
+    """Locate the Perseus git repository from the installed package."""
+    import subprocess as _sp
+    # Check pip show for editable install location
+    try:
+        result = _sp.run(["pip", "show", "perseus-ctx"],
+                         capture_output=True, text=True)
+        for line in result.stdout.split("\n"):
+            if line.startswith("Editable project location:"):
+                loc = line.split(":", 1)[1].strip()
+                p = Path(loc)
+                if (p / ".git").exists():
+                    return p
+    except Exception:
+        pass
+    # Fallback: common paths
+    for c in [Path("/workspace/perseus")]:
+        if (c / ".git").exists():
+            return c
+    return None
+
+
+def _toggle_auto_update(value, cfg):
+    """Persist update.auto on/off in the global config file."""
+    config_path = Path(os.environ.get("PERSEUS_HOME",
+                       Path.home() / ".perseus")) / "config.yaml"
+    val = value.strip().lower()
+    if val in ("on", "true", "1", "yes"):
+        enabled = True
+    elif val in ("off", "false", "0", "no"):
+        enabled = False
+    else:
+        print(f"Error: '{value}' — use 'on' or 'off'.", file=sys.stderr)
+        return 1
+
+    # Read existing config, preserving comments is hard so just re-dump
+    if config_path.exists():
+        with open(config_path) as f:
+            data = yaml.safe_load(f) or {}
+    else:
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+
+    cfg2 = copy.deepcopy(data)
+    if "update" not in cfg2:
+        cfg2["update"] = {}
+    cfg2["update"]["auto"] = enabled
+
+    if cfg2 != data:
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(config_path, "w") as f:
+            yaml.safe_dump(cfg2, f, default_flow_style=False, sort_keys=False)
+
+    status = "ON" if enabled else "OFF"
+    print(f"Auto-update: {status}")
+    print(f"  Config: {config_path}")
+    if enabled:
+        print("  Perseus will check for updates when invoked with --apply.")
+    return 0
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -9700,7 +9904,7 @@ def cmd_init(args, cfg):
         content = tpl.replace("{workspace}", str(workspace))
     else:
         content = INIT_CONTEXT_TEMPLATE.format(workspace=str(workspace), version=_PERSEUS_VERSION)
-    context_file.write_text(content)
+    context_file.write_text(content, encoding="utf-8")
 
     manifest = None
     if profile_name and not getattr(args, "no_pack", False):
@@ -10004,6 +10208,15 @@ def main():
     p_trust_audit.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     p_trust.add_argument("--json", action="store_true", help="Output machine-readable JSON")
 
+    # update (self-update from git)
+    p_update = sub.add_parser("update", help="Check for and apply Perseus updates from git")
+    p_update.add_argument("--apply", action="store_true",
+                          help="Fetch and pull the latest update")
+    p_update.add_argument("--check", action="store_true",
+                          help="Dry run: show available updates without applying")
+    p_update.add_argument("--auto", default=None, metavar="on|off",
+                          help="Toggle auto-update on/off and persist to config")
+
     # oracle (Daedalus dataset / labeling)
     p_oracle = sub.add_parser("oracle", help="Pythia log labeling and dataset export")
     oracle_sub = p_oracle.add_subparsers(dest="oracle_command", required=True)
@@ -10091,6 +10304,8 @@ def main():
         return cmd_doctor(args, cfg)
     elif args.command == "trust":
         return cmd_trust(args, cfg)
+    elif args.command == "update":
+        return cmd_update(args, cfg)
     elif args.command == "oracle":
         rc = cmd_oracle(args, cfg)
         if isinstance(rc, int):

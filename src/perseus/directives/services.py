@@ -81,12 +81,12 @@ def resolve_services(block_content: str, cfg: dict) -> str:
                         directive="@services",
                         service=name,
                         command=command[:500],
-                        shell=cfg["render"].get("shell", "/bin/bash"))
+                        shell=_get_shell(cfg))
             try:
                 result = subprocess.run(
                     command,
                     shell=True,
-                    executable=cfg["render"].get("shell", "/bin/bash"),
+                    executable=_get_shell(cfg),
                     capture_output=True,
                     text=True,
                     timeout=timeout,

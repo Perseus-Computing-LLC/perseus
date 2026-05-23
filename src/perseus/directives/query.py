@@ -22,7 +22,7 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
     <workspace>/.perseus/schemas/ before the workspace root. Validation errors
     are returned as a warning block instead of the output.
     """
-    shell = cfg["render"].get("shell", "/bin/bash")
+    shell = _get_shell(cfg)
     if not cfg["render"].get("allow_query_shell", True):
         audit_event(cfg, "policy_denied",
                     directive="@query",
@@ -83,7 +83,7 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
             text=True,
             timeout=30,
         )
-        stdout = result.stdout.rstrip("\n")
+        stdout = (result.stdout or "").rstrip("\n")
         stderr = result.stderr.strip()
         exit_code = result.returncode
 

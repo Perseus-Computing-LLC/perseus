@@ -58,7 +58,7 @@ def cmd_render(args, cfg):
     if output:
         out_path = Path(output)
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(rendered)
+        out_path.write_text(rendered, encoding="utf-8")
     else:
         print(rendered)
 
@@ -2640,7 +2640,7 @@ def cmd_init(args, cfg):
         content = tpl.replace("{workspace}", str(workspace))
     else:
         content = INIT_CONTEXT_TEMPLATE.format(workspace=str(workspace), version=_PERSEUS_VERSION)
-    context_file.write_text(content)
+    context_file.write_text(content, encoding="utf-8")
 
     manifest = None
     if profile_name and not getattr(args, "no_pack", False):
