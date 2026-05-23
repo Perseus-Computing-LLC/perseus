@@ -158,8 +158,9 @@ checkpoints feed it.
 
 These apply to every agent working in this repo. They are not up for discussion.
 
-1. **Single file.** `perseus.py` stays one file. No package structure, no `setup.py`, no
-   sub-modules. Internal section headers and grouping are fine. File splits are not.
+1. **Edit source, regenerate artifact.** Edit `src/perseus/` modules, not `perseus.py`
+   directly. Regenerate the single-file artifact with `python scripts/build.py`. Keep the
+   generated root artifact committed. Do not add runtime dependencies without explicit approval.
 2. **`pyyaml` is the only dependency.** Do not add deps without explicit approval.
 3. **Tests before commit.** All existing tests must pass. New behavior needs new tests.
 4. **Spec follows code.** When behavior changes, update the relevant `spec/*.md`. The code
