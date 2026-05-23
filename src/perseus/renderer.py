@@ -130,7 +130,7 @@ def cache_set(key: str, value: str, mode: str, ttl: int | None, cfg: dict) -> No
 # ──────────────────────────────── Renderer ────────────────────────────────────
 
 PROMPT_BLOCK_RE = re.compile(r'^@prompt\s*$', re.IGNORECASE)
-PROMPT_END_RE = re.compile(r'^@end\s*$', re.IGNORECASE)
+END_RE = re.compile(r'^@end\s*$', re.IGNORECASE)
 SERVICES_RE = re.compile(r'^@services\s*$', re.IGNORECASE)
 VALIDATE_RE = re.compile(r'^@validate\s+(.+)$', re.IGNORECASE)
 PERCY_HEADER_RE = re.compile(r'^@perseus(?:\s+.*)?$', re.IGNORECASE)
@@ -138,7 +138,6 @@ IF_RE = re.compile(r'^@if\s+(.+)$', re.IGNORECASE)
 ELSE_RE = re.compile(r'^@else\s*$', re.IGNORECASE)
 ENDIF_RE = re.compile(r'^@endif\s*$', re.IGNORECASE)
 CONSTRAINT_RE = re.compile(r'^@constraint\s+(.+)$', re.IGNORECASE)
-CONSTRAINT_END_RE = re.compile(r'^@end\s*$', re.IGNORECASE)
 SYNTHESIZE_BLOCK_RE = re.compile(r'^@synthesize\s*(.*)$', re.IGNORECASE)
 
 # INLINE_DIRECTIVE_RE — built from DIRECTIVE_REGISTRY after all resolvers are
@@ -199,7 +198,7 @@ def _render_lines(
         if PROMPT_BLOCK_RE.match(line):
             block_lines = []
             i += 1
-            while i < len(lines) and not PROMPT_END_RE.match(lines[i]):
+            while i < len(lines) and not END_RE.match(lines[i]):
                 block_lines.append(lines[i])
                 i += 1
             i += 1  # skip @end
@@ -221,7 +220,7 @@ def _render_lines(
             # Gather body lines until @end
             body_lines = []
             i += 1
-            while i < len(lines) and not CONSTRAINT_END_RE.match(lines[i]):
+            while i < len(lines) and not END_RE.match(lines[i]):
                 body_lines.append(lines[i].strip())
                 i += 1
             i += 1  # skip @end
@@ -243,7 +242,7 @@ def _render_lines(
             i += 1
             explicit_end = False
             while i < len(lines):
-                if PROMPT_END_RE.match(lines[i]):
+                if END_RE.match(lines[i]):
                     explicit_end = True
                     i += 1
                     break
@@ -273,7 +272,7 @@ def _render_lines(
             # Collect body lines until @end (body may also specify question/sources as YAML-like lines)
             body_lines = []
             i += 1
-            while i < len(lines) and not PROMPT_END_RE.match(lines[i]):
+            while i < len(lines) and not END_RE.match(lines[i]):
                 body_lines.append(lines[i])
                 i += 1
             i += 1  # skip @end
@@ -358,7 +357,7 @@ def _render_lines(
             explicit_end = False
             while i < len(lines):
                 next_line = lines[i]
-                if PROMPT_END_RE.match(next_line):
+                if END_RE.match(next_line):
                     explicit_end = True
                     i += 1
                     break
