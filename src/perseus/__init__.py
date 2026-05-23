@@ -20,6 +20,16 @@ import shutil
 import signal
 import subprocess
 import sys
+
+# Windows charset compat: Perseus emits non-cp1252 text in help,
+# prompts, and rendered output (e.g. 'Mnēmē', '📌').
+# Without this, `perseus --help` itself crashes on a fresh Windows install.
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 import time
 import urllib.request
 import urllib.error
