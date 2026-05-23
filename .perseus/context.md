@@ -1,4 +1,4 @@
-@perseus v0.4
+@perseus v0.8
 
 @prompt
 This document was rendered live by Perseus. All values below are current —
@@ -27,7 +27,7 @@ rendered output and skip orientation. Start work immediately.
 ---
 
 ## Available Skills
-@skills flag_stale=true
+@skills flag_stale=true category=devops,media,smart-home,github,software-development
 
 ---
 
@@ -40,13 +40,13 @@ rendered output and skip orientation. Start work immediately.
   - name: Portainer
     url: https://localhost:9443/api/status
   - name: Perseus CLI
-    command: "python3 /workspace/perseus/perseus.py --version"
+    command: "perseus --version"
 @end
 
 ---
 
 ## Recent Sessions
-@session count=5
+@session count=3
 
 ---
 
