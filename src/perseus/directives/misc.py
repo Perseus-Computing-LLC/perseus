@@ -246,10 +246,12 @@ def resolve_tree(args_str: str, cfg: dict, workspace: Path | None = None) -> str
 
 def resolve_date(args_str: str) -> str:
     """Resolve @date with optional format."""
-    fmt_match = re.search(r'format=["\'"]([^"\']+)["\'"]', args_str)
-    if not fmt_match:
+    fmt_match = re.search(r'format=(["\'])([^"\']*)\1', args_str)
+    if fmt_match:
+        fmt = fmt_match.group(2)
+    else:
         fmt_match = re.search(r"format='([^']+)'", args_str)
-    fmt = fmt_match.group(1) if fmt_match else "YYYY-MM-DD HH:mm z"
+        fmt = fmt_match.group(1) if fmt_match else "YYYY-MM-DD HH:mm z"
 
     now = datetime.now()
     # Map common tokens
@@ -289,7 +291,8 @@ def _replace_inline_date_outside_code(line: str, workspace: Path | None = None) 
         return line
 
     def resolve_inline_date(match: re.Match) -> str:
-        args = f'format="{match.group(1)}"' if match.group(1) else ""
+        fmt_val = match.group(2)
+        args = f'format="{fmt_val}"' if fmt_val else ""
         result = resolve_date(args)
         spec = DIRECTIVE_REGISTRY.get("@date")
         if spec:
@@ -298,7 +301,7 @@ def _replace_inline_date_outside_code(line: str, workspace: Path | None = None) 
 
     def repl(segment: str) -> str:
         return re.sub(
-            r'@date(?:\s+format=["\'"]([^"\']+)["\'"])?',
+            r'@date(?:\s+format=(["\'])([^"\']*)\1)?',
             resolve_inline_date,
             segment,
         )

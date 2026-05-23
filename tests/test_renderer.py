@@ -791,3 +791,18 @@ def test_registry_completeness_against_resolver_functions():
     }
     missing = resolver_funcs - registered_resolvers
     assert not missing, f"resolve_* functions not in registry: {missing}"
+
+
+def test_date_format_rejects_backslash_as_quote_delimiter():
+    """@date format=\\YYYY\\ should fall through to default — backslash is not a valid quote."""
+    result = perseus.resolve_date('format=\\YYYY\\')
+    # Default format: "2026-05-22 21:20 CDT" — contains digits, dashes, colon, timezone
+    # It should NOT return just the year "2026" (which would mean backslash was matched)
+    assert len(result) > 10, f"expected default format, got {result!r}"
+
+
+def test_date_format_backreference_correctly_pairs_quotes():
+    """Backreference must not let single quote close a double-quoted value."""
+    # format="YYYY' — mismatched quotes should fall through
+    result = perseus.resolve_date("format=\"YYYY'")
+    assert len(result) > 10, f"unpaired quotes should fall through: got {result!r}"
