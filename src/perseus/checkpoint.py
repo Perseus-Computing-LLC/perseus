@@ -17,10 +17,14 @@ def cmd_checkpoint(args, cfg):
         "task": args.task,
         "stale_after": stale_after,
     }
-    for field in ("status", "next", "workspace", "notes"):
+    # Feature #4: default workspace to CWD when not explicitly provided so
+    # checkpoints are always workspace-tagged for per-workspace pointer logic.
+    effective_workspace = (getattr(args, "workspace", None) or "").strip() or str(Path.cwd().resolve())
+    for field in ("status", "next", "notes"):
         val = getattr(args, field, None)
         if val:
             cp[field] = val
+    cp["workspace"] = effective_workspace
 
     outfile = store / f"{ts}.yaml"
     # avoid collision
@@ -90,7 +94,7 @@ def cmd_checkpoint(args, cfg):
 
     # ── Mnēmē auto-update (silent side-effect) ──
     if bool(cfg.get("memory", {}).get("auto_update", True)):
-        ws_arg = getattr(args, "workspace", "") or ""
+        ws_arg = getattr(args, "workspace", None) or ""
         ws = Path(ws_arg).expanduser().resolve() if ws_arg else Path.cwd().resolve()
         cmd_memory_update_silent(ws, cfg)
 

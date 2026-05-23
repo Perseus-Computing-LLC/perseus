@@ -5,7 +5,13 @@ def _memory_workspace(args, cfg) -> Path:
     raw = getattr(args, "workspace", None)
     if raw:
         return Path(raw).expanduser().resolve()
-    return Path.cwd().resolve()
+    # Bug #2: if CWD has no .perseus/ directory, fall back to home so that
+    # running `perseus memory show` from inside a project repo doesn't
+    # silently display the wrong workspace's narrative.
+    cwd = Path.cwd().resolve()
+    if (cwd / ".perseus").exists():
+        return cwd
+    return Path.home().resolve()
 
 
 def _memory_llm_provider(args, cfg) -> str | None:
@@ -267,6 +273,9 @@ def resolve_memory(args_str: str, cfg: dict, workspace: Path | None = None) -> s
     Args:
       focus="decisions|recent|patterns|arc" → emit only the named section
       ttl=N → sugar for @cache ttl=N (caller handles by pre-rewriting)
+      workspace=PATH → override the workspace used to resolve the narrative
+        (Feature #1: allows cross-workspace renders from a fixed context file,
+        e.g. @memory focus=recent workspace=~/ to always pull the home narrative)
 
     task-19 (Phase 8.2): subcommand `federation` renders the cross-workspace
     digest instead of (or in addition to, with `include_federation=true`)
@@ -292,6 +301,11 @@ def resolve_memory(args_str: str, cfg: dict, workspace: Path | None = None) -> s
     focus = (mods.get("focus") or "").strip().lower()
     include_fed = str(mods.get("include_federation", "")).strip().lower() in {"true", "1", "yes"}
 
+    # Feature #1: explicit workspace= modifier overrides the render-file workspace
+    ws_override = (mods.get("workspace") or "").strip()
+    if ws_override:
+        ws = Path(ws_override).expanduser().resolve()
+
     def _maybe_append_federation(local_text: str) -> str:
         if not include_fed:
             return local_text
@@ -307,23 +321,57 @@ def resolve_memory(args_str: str, cfg: dict, workspace: Path | None = None) -> s
 
     fm, body = _load_narrative(mp)
 
-    # Staleness check (uses checkpoints.ttl_s as the cadence reference)
+    # Staleness check (uses checkpoints.ttl_s as the cadence reference).
+    # Bug #1: a stale narrative still has valid content — return the body with
+    # an inline warning prepended rather than replacing it entirely.  Only a
+    # missing/empty body (genuinely uninitialised) returns a warning-only block.
     ttl_s = int(cfg.get("checkpoints", {}).get("ttl_s", 86400))
     updated = str(fm.get("updated", ""))
+    stale_note = ""
     try:
         dt = datetime.fromisoformat(updated)
         age_s = (datetime.now(dt.tzinfo) - dt).total_seconds()
         if age_s > ttl_s:
             age_h = _human_age(updated)
-            return _maybe_append_federation(
+            stale_note = (
                 f"> ⚠ Mnēmē narrative is stale (last updated {age_h}).\n"
-                "> Run `perseus memory update` to refresh."
+                "> Run `perseus memory update` to refresh.\n\n"
             )
     except Exception:
         pass
 
+    # Feature #2: touch updated timestamp on successful render so that a cold
+    # morning render doesn't make the narrative appear stale on the *next*
+    # render within the same TTL window.  Only update the timestamp — never
+    # the body — so this is always a no-op from a content perspective.
+    if not stale_note and body.strip():
+        try:
+            fm["updated"] = datetime.now().astimezone().isoformat(timespec="seconds")
+            _save_narrative(mp, fm, body)
+        except Exception:
+            pass  # never fatal — render proceeds regardless
+
+    # Feature #3: proactive compact suggestion when approaching compact_threshold.
+    compact_note = ""
+    threshold = int(cfg.get("memory", {}).get("compact_threshold", 20))
+    if threshold:
+        cp_processed = int(fm.get("checkpoints_processed", 0))
+        last_compact = int(fm.get("last_compact_processed", 0))
+        updates_since = cp_processed - last_compact
+        # Warn when >= 80 % of threshold to give the user advance notice
+        warn_at = max(1, int(threshold * 0.8))
+        if updates_since >= warn_at:
+            compact_note = (
+                f"\n\n> 💡 Mnēmē has {updates_since} incremental updates "
+                f"(threshold: {threshold}) — consider running `perseus memory compact`.\n"
+            )
+
     if not focus:
-        return _maybe_append_federation(body.rstrip())
+        result = body.rstrip()
+        if stale_note:
+            result = stale_note + result
+        result = result + compact_note
+        return _maybe_append_federation(result)
 
     focus_map = {
         "decisions": "Key Decisions",
@@ -343,7 +391,11 @@ def resolve_memory(args_str: str, cfg: dict, workspace: Path | None = None) -> s
         return _maybe_append_federation(
             f"> ⚠ @memory focus={focus!r}: section not found in narrative."
         )
-    return _maybe_append_federation(section.rstrip())
+    result = section.rstrip()
+    if stale_note:
+        result = stale_note + result
+    result = result + compact_note
+    return _maybe_append_federation(result)
 
 
 
