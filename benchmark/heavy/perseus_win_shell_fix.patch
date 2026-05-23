@@ -1,0 +1,18 @@
+diff --git a/perseus.py b/perseus.py
+index df4c683..0191d13 100755
+--- a/perseus.py
++++ b/perseus.py
+@@ -1556,6 +1556,13 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) ->
+     are returned as a warning block instead of the output.
+     """
+     shell = cfg["render"].get("shell", "/bin/bash")
++    # Windows compatibility: /bin/bash isn't a valid path under native
++    # Python on Windows, and paths-with-spaces (e.g. Git Bash) get mangled
++    # by subprocess.run(shell=True, executable=...). If we're on Windows
++    # and the configured shell doesn't exist, fall back to the system
++    # default (cmd.exe) by passing executable=None.
++    if os.name == "nt" and not os.path.exists(shell):
++        shell = None
+     if not cfg["render"].get("allow_query_shell", True):
+         audit_event(cfg, "policy_denied",
+                     directive="@query",
