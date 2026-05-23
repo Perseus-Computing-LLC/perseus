@@ -1,13 +1,6 @@
 #!/usr/bin/env python3
 """
 Perseus — Live Context Engine for AI Assistants
-Alpha v0.4: render (@query, @skills, @services, @session, @read, @env,
-            @if/@else/@endif, @include, @constraint, @validate), checkpoint, suggest
-            + @cache session / @cache ttl=N caching layer
-            + smart recover with workspace + TTL matching
-            + @services command: variant
-            + `perseus init` workspace scaffolder
-            + --version flag
 
 Usage:
   perseus render <source.md>               → resolved markdown to stdout
@@ -34,4 +27,3 @@ from pathlib import Path
 
 import yaml  # pyyaml
 from typing import NamedTuple, Callable
-
