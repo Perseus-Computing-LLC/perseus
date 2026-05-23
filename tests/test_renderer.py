@@ -91,6 +91,34 @@ def test_services_command_disabled_by_default():
     assert "command checks disabled by config" in out
 
 
+def test_services_blocks_remote_url_by_default():
+    """@services must block non-localhost URLs when allow_remote_services_health is False."""
+    c = cfg()
+    c["render"]["allow_remote_services_health"] = False
+    block = "- name: myhost\n  url: http://evil.example.com:8080/health"
+    out = perseus.resolve_services(block, c)
+    assert "remote blocked" in out or "🔒" in out, f"expected remote URL blocked, got: {out}"
+
+
+def test_services_allows_localhost_url():
+    """@services must allow localhost URLs even when remote check is disabled."""
+    c = cfg()
+    c["render"]["allow_remote_services_health"] = False
+    block = "- name: local\n  url: http://127.0.0.1:9999/health"
+    out = perseus.resolve_services(block, c)
+    # Should attempt connection (will fail with connection refused, not blocked)
+    assert "remote blocked" not in out, f"localhost should not be blocked, got: {out}"
+
+
+def test_services_respects_allow_remote_enabled():
+    """@services must allow remote URLs when allow_remote_services_health is True."""
+    c = cfg()
+    c["render"]["allow_remote_services_health"] = True
+    block = "- name: remote\n  url: http://example.com:80/"
+    out = perseus.resolve_services(block, c)
+    assert "remote blocked" not in out
+
+
 def test_services_block_allows_blank_lines_and_explicit_end():
     text = "@perseus\n@services\n- name: one\n  command: echo hi\n\n- name: two\n  command: echo hi\n@end"
     out = perseus.render_source(text, cfg(), None)

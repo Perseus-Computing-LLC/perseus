@@ -1,8 +1,14 @@
 # stdlib imports available from build artifact header
 # ──────────────────────────────── @services ───────────────────────────────────
 
-def health_check_url(url: str, timeout: float) -> tuple[str, float | None]:
+def health_check_url(url: str, timeout: float, cfg: dict) -> tuple[str, float | None]:
     """Returns (status_emoji, latency_ms | None)."""
+    # Security gate: restrict to localhost by default (SSRF prevention)
+    if not cfg["render"].get("allow_remote_services_health", False):
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        if parsed.hostname and parsed.hostname not in ("127.0.0.1", "localhost", "::1"):
+            return "🔒 remote blocked", None
     start = time.monotonic()
     try:
         req = urllib.request.urlopen(url, timeout=timeout)  # noqa: S310
@@ -41,7 +47,7 @@ def resolve_services(block_content: str, cfg: dict) -> str:
         docker = svc.get("docker", "")
 
         if url:
-            status, latency = health_check_url(url, timeout)
+            status, latency = health_check_url(url, timeout, cfg)
             lat_str = f"{latency:.0f}ms" if latency is not None else "—"
             rows.append(f"| {name} | {status} | {lat_str} |")
         elif docker:

@@ -20,6 +20,7 @@ DEFAULT_CONFIG = {
         "shell": "/bin/bash",
         "allow_query_shell": True,
         "allow_services_command": False,
+        "allow_remote_services_health": False,
         "allow_outside_workspace": False,
     },
     "checkpoints": {
@@ -176,6 +177,7 @@ PERMISSION_PROFILES: dict[str, dict[str, dict[str, object]]] = {
             "allow_query_shell": False,
             "allow_agent_shell": False,
             "allow_services_command": False,
+            "allow_remote_services_health": False,
             "allow_outside_workspace": False,
         },
         "generation": {"enabled": False},
@@ -186,6 +188,7 @@ PERMISSION_PROFILES: dict[str, dict[str, dict[str, object]]] = {
             "allow_query_shell": True,
             "allow_agent_shell": True,
             "allow_services_command": False,
+            "allow_remote_services_health": False,
             "allow_outside_workspace": False,
         },
         "generation": {"enabled": False},
@@ -196,6 +199,7 @@ PERMISSION_PROFILES: dict[str, dict[str, dict[str, object]]] = {
             "allow_query_shell": True,
             "allow_agent_shell": True,
             "allow_services_command": True,
+            "allow_remote_services_health": True,
             "allow_outside_workspace": False,  # still off — workspace boundary is a hard wall
         },
         "generation": {"enabled": False},      # generation stays opt-in even for power-user

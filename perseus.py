@@ -53,6 +53,7 @@ DEFAULT_CONFIG = {
         "shell": "/bin/bash",
         "allow_query_shell": True,
         "allow_services_command": False,
+        "allow_remote_services_health": False,
         "allow_outside_workspace": False,
     },
     "checkpoints": {
@@ -209,6 +210,7 @@ PERMISSION_PROFILES: dict[str, dict[str, dict[str, object]]] = {
             "allow_query_shell": False,
             "allow_agent_shell": False,
             "allow_services_command": False,
+            "allow_remote_services_health": False,
             "allow_outside_workspace": False,
         },
         "generation": {"enabled": False},
@@ -219,6 +221,7 @@ PERMISSION_PROFILES: dict[str, dict[str, dict[str, object]]] = {
             "allow_query_shell": True,
             "allow_agent_shell": True,
             "allow_services_command": False,
+            "allow_remote_services_health": False,
             "allow_outside_workspace": False,
         },
         "generation": {"enabled": False},
@@ -229,6 +232,7 @@ PERMISSION_PROFILES: dict[str, dict[str, dict[str, object]]] = {
             "allow_query_shell": True,
             "allow_agent_shell": True,
             "allow_services_command": True,
+            "allow_remote_services_health": True,
             "allow_outside_workspace": False,  # still off — workspace boundary is a hard wall
         },
         "generation": {"enabled": False},      # generation stays opt-in even for power-user
@@ -2842,8 +2846,14 @@ def resolve_session(args_str: str, cfg: dict) -> str:
 
 # ──────────────────────────────── @services ───────────────────────────────────
 
-def health_check_url(url: str, timeout: float) -> tuple[str, float | None]:
+def health_check_url(url: str, timeout: float, cfg: dict) -> tuple[str, float | None]:
     """Returns (status_emoji, latency_ms | None)."""
+    # Security gate: restrict to localhost by default (SSRF prevention)
+    if not cfg["render"].get("allow_remote_services_health", False):
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        if parsed.hostname and parsed.hostname not in ("127.0.0.1", "localhost", "::1"):
+            return "🔒 remote blocked", None
     start = time.monotonic()
     try:
         req = urllib.request.urlopen(url, timeout=timeout)  # noqa: S310
@@ -2882,7 +2892,7 @@ def resolve_services(block_content: str, cfg: dict) -> str:
         docker = svc.get("docker", "")
 
         if url:
-            status, latency = health_check_url(url, timeout)
+            status, latency = health_check_url(url, timeout, cfg)
             lat_str = f"{latency:.0f}ms" if latency is not None else "—"
             rows.append(f"| {name} | {status} | {lat_str} |")
         elif docker:
