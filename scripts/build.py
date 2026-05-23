@@ -70,7 +70,7 @@ STDLIB_REMINDER_RE = re.compile(
 )
 
 # Baseline line count for drift detection.
-BASELINE_LINES = 9986
+BASELINE_LINES = 10494
 
 
 def build() -> None:

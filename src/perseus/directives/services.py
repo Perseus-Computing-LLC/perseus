@@ -107,6 +107,14 @@ def resolve_services(block_content: str, cfg: dict) -> str:
     if not services:
         return "> No services configured."
 
+    # Detect YAML mapping (dict) format instead of the required list format
+    # Each key in a mapping iterates as a string, which fails isinstance(svc, dict)
+    # in _check_one_service, silently marking every service as invalid.
+    mapping_warning = ""
+    if isinstance(services, dict):
+        mapping_warning = "> ⚠ @services: YAML mapping detected, use list format (each entry with name/url/timeout)\n\n"
+        services = [services]
+
     rows = [None] * len(services)
 
     if parallel and len(services) > 1:
@@ -125,4 +133,5 @@ def resolve_services(block_content: str, cfg: dict) -> str:
             _, row = _check_one_service(svc, i, timeout, cfg)
             rows[i] = row
 
-    return "\n".join(["| Service | Status | Latency |", "|---|---|---|"] + rows)
+    result = "\n".join(["| Service | Status | Latency |", "|---|---|---|"] + rows)
+    return mapping_warning + result

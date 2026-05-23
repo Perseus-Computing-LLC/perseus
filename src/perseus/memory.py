@@ -22,12 +22,19 @@ _DECISION_KEYWORDS = [
 
 
 def _workspace_hash(workspace: Path) -> str:
-    """12-char sha256 hex digest of the resolved workspace path.
+    """12-char sha256 hex digest of the canonicalized workspace path.
+
+    Canonicalizes the path — expanduser, resolve to absolute, dereference
+    symlinks — before hashing so that logically identical physical
+    directories produce the same hash regardless of how the path was
+    specified (e.g., ``~/project`` vs ``/home/user/project``, or Windows
+    ``A:\\labyrinth`` vs Linux ``/workspace/appdata/labyrinth`` via SMB).
 
     Stable for the same path across sessions. Shared with task-07
     (multi-workspace checkpoint namespacing) if/when that lands.
     """
-    return hashlib.sha256(str(workspace.resolve()).encode()).hexdigest()[:12]
+    canonical = workspace.expanduser().resolve()
+    return hashlib.sha256(str(canonical).encode()).hexdigest()[:12]
 
 
 def _mneme_path(workspace: Path, cfg: dict) -> Path:

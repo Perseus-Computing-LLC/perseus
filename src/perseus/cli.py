@@ -84,6 +84,10 @@ def main():
         "--workspace", default=None,
         help="Prefer checkpoints from this workspace path (default: cwd)"
     )
+    p_recover.add_argument(
+        "--global", dest="global_flag", action="store_true",
+        help="Skip per-workspace matching; use the global latest checkpoint"
+    )
 
     # diff
     p_diff = sub.add_parser("diff", help="Diff two checkpoints or the most recent pair")
