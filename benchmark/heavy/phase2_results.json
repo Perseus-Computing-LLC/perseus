@@ -1,35 +1,35 @@
 {
   "perseus_version": "1.0.1 (with local Windows shell-fallback patch)",
-  "host": "nt \u00b7 python 3.14.2",
-  "generated_at": "2026-05-23T12:27:00",
+  "host": "posix \u00b7 python 3.12.13",
+  "generated_at": "2026-05-23T12:53:14",
   "psutil_available": true,
   "cache": [
     {
       "test": "C1-no-cache",
-      "cold_s": 3.46,
-      "warm_s": 3.431,
-      "speedup": 1.01
+      "cold_s": 3.632,
+      "warm_s": 3.617,
+      "speedup": 1.0
     },
     {
       "test": "C2-cache-ttl-300",
-      "cold_s": 3.477,
-      "warm_s": 0.229,
-      "speedup": 15.18,
+      "cold_s": 3.609,
+      "warm_s": 0.27,
+      "speedup": 13.37,
       "out_lines_cold": 15,
       "out_lines_warm": 15
     },
     {
       "test": "C3-cache-persist",
-      "cold_s": 3.443,
-      "warm_s": 0.219,
-      "speedup": 15.72,
+      "cold_s": 3.63,
+      "warm_s": 0.271,
+      "speedup": 13.39,
       "out_lines_cold": 15,
       "out_lines_warm": 15
     },
     {
       "test": "C4-cache-session",
-      "cold_s": 3.406,
-      "warm_s": 3.422,
+      "cold_s": 3.624,
+      "warm_s": 3.622,
       "speedup": 1.0,
       "note": "session cache lives within one render only \u2014 warm should NOT be faster"
     }
@@ -39,21 +39,21 @@
       "test": "D-isolated-n2",
       "n": 2,
       "shared_workspace": false,
-      "wall_clock_s": 1.537,
-      "per_render_min_s": 1.536,
-      "per_render_max_s": 1.537,
+      "wall_clock_s": 0.314,
+      "per_render_min_s": 0.308,
+      "per_render_max_s": 0.313,
       "all_rc_zero": true,
       "results": [
         {
           "i": 0,
           "rc": 0,
-          "elapsed_s": 1.537,
+          "elapsed_s": 0.313,
           "stderr_tail": ""
         },
         {
           "i": 1,
           "rc": 0,
-          "elapsed_s": 1.536,
+          "elapsed_s": 0.308,
           "stderr_tail": ""
         }
       ]
@@ -62,39 +62,39 @@
       "test": "D-isolated-n5",
       "n": 5,
       "shared_workspace": false,
-      "wall_clock_s": 1.884,
-      "per_render_min_s": 1.88,
-      "per_render_max_s": 1.883,
+      "wall_clock_s": 0.383,
+      "per_render_min_s": 0.322,
+      "per_render_max_s": 0.382,
       "all_rc_zero": true,
       "results": [
         {
           "i": 0,
           "rc": 0,
-          "elapsed_s": 1.883,
+          "elapsed_s": 0.369,
           "stderr_tail": ""
         },
         {
           "i": 1,
           "rc": 0,
-          "elapsed_s": 1.881,
+          "elapsed_s": 0.322,
           "stderr_tail": ""
         },
         {
           "i": 2,
           "rc": 0,
-          "elapsed_s": 1.883,
+          "elapsed_s": 0.325,
           "stderr_tail": ""
         },
         {
           "i": 3,
           "rc": 0,
-          "elapsed_s": 1.881,
+          "elapsed_s": 0.382,
           "stderr_tail": ""
         },
         {
           "i": 4,
           "rc": 0,
-          "elapsed_s": 1.88,
+          "elapsed_s": 0.327,
           "stderr_tail": ""
         }
       ]
@@ -103,69 +103,69 @@
       "test": "D-isolated-n10",
       "n": 10,
       "shared_workspace": false,
-      "wall_clock_s": 3.113,
-      "per_render_min_s": 2.923,
-      "per_render_max_s": 3.111,
+      "wall_clock_s": 0.48,
+      "per_render_min_s": 0.326,
+      "per_render_max_s": 0.479,
       "all_rc_zero": true,
       "results": [
         {
           "i": 0,
           "rc": 0,
-          "elapsed_s": 3.111,
+          "elapsed_s": 0.474,
           "stderr_tail": ""
         },
         {
           "i": 1,
           "rc": 0,
-          "elapsed_s": 3.107,
+          "elapsed_s": 0.335,
           "stderr_tail": ""
         },
         {
           "i": 2,
           "rc": 0,
-          "elapsed_s": 3.111,
+          "elapsed_s": 0.479,
           "stderr_tail": ""
         },
         {
           "i": 3,
           "rc": 0,
-          "elapsed_s": 3.109,
+          "elapsed_s": 0.398,
           "stderr_tail": ""
         },
         {
           "i": 4,
           "rc": 0,
-          "elapsed_s": 3.026,
+          "elapsed_s": 0.329,
           "stderr_tail": ""
         },
         {
           "i": 5,
           "rc": 0,
-          "elapsed_s": 3.108,
+          "elapsed_s": 0.328,
           "stderr_tail": ""
         },
         {
           "i": 6,
           "rc": 0,
-          "elapsed_s": 3.106,
+          "elapsed_s": 0.326,
           "stderr_tail": ""
         },
         {
           "i": 7,
           "rc": 0,
-          "elapsed_s": 3.111,
+          "elapsed_s": 0.438,
           "stderr_tail": ""
         },
         {
           "i": 8,
           "rc": 0,
-          "elapsed_s": 3.11,
+          "elapsed_s": 0.434,
           "stderr_tail": ""
         },
         {
           "i": 9,
           "rc": 0,
-          "elapsed_s": 2.923,
+          "elapsed_s": 0.391,
           "stderr_tail": ""
         }
       ]
@@ -174,21 +174,21 @@
       "test": "D-shared-n2",
       "n": 2,
       "shared_workspace": true,
-      "wall_clock_s": 1.734,
-      "per_render_min_s": 1.733,
-      "per_render_max_s": 1.733,
+      "wall_clock_s": 0.319,
+      "per_render_min_s": 0.304,
+      "per_render_max_s": 0.319,
       "all_rc_zero": true,
       "results": [
         {
           "i": 0,
           "rc": 0,
-          "elapsed_s": 1.733,
+          "elapsed_s": 0.319,
           "stderr_tail": ""
         },
         {
           "i": 1,
           "rc": 0,
-          "elapsed_s": 1.733,
+          "elapsed_s": 0.304,
           "stderr_tail": ""
         }
       ]
@@ -197,57 +197,57 @@
   "memory": [
     {
       "test": "E1-mem-500-queries",
-      "elapsed_s": 21.568,
-      "samples_taken": 376,
-      "peak_perseus_rss_mb": 51.6,
-      "peak_combined_rss_mb": 71.6,
-      "out_bytes": 52890
+      "elapsed_s": 0.807,
+      "samples_taken": 17,
+      "peak_perseus_rss_mb": 51.1,
+      "peak_combined_rss_mb": 54.1,
+      "out_bytes": 104280
     },
     {
       "test": "E2-mem-12mb-stdout",
-      "elapsed_s": 1.293,
-      "samples_taken": 23,
-      "peak_perseus_rss_mb": 67.6,
-      "peak_combined_rss_mb": 84.2,
-      "out_bytes": 13200014
+      "elapsed_s": 1.311,
+      "samples_taken": 27,
+      "peak_perseus_rss_mb": 113.4,
+      "peak_combined_rss_mb": 113.4,
+      "out_bytes": 12000012
     }
   ],
   "cli": [
     {
       "args": [
         "graph",
-        "C:\\Users\\tccon\\benchmark\\perseus-phase2\\ph2-cli-graph\\.perseus\\context.md",
+        "/tmp/perseus-phase2/ph2-cli-graph/.perseus/context.md",
         "--json"
       ],
       "rc": 0,
-      "elapsed_s": 0.2,
-      "stdout_bytes": 1679,
+      "elapsed_s": 0.26,
+      "stdout_bytes": 1550,
       "stderr_tail": "",
-      "stdout_head": "{\r\n  \"source\": \"C:\\\\Users\\\\tccon\\\\benchmark\\\\perseus-phase2\\\\ph2-cli-graph\\\\.perseus\\\\context.md\",\r\n  \"workspace\": \"C:\\\\Users\\\\tccon\\\\benchmark\\\\perseus-phase2\\\\ph2-cli-graph\",\r\n  \"nodes\": [\r\n    {\r\n      \"id\": \"n1\",\r\n      \"directive\": \"@query\",\r\n      \"line\": 3,\r\n      \"kind\": \"inline\",\r\n      \"args\": \"\\\"echo hi\\\"\",\r\n      \"cache\": {\r\n        \"mode\": \"\",\r\n        \"ttl\": null,\r\n        \"mock\": nu",
+      "stdout_head": "{\n  \"source\": \"/tmp/perseus-phase2/ph2-cli-graph/.perseus/context.md\",\n  \"workspace\": \"/tmp/perseus-phase2/ph2-cli-graph\",\n  \"nodes\": [\n    {\n      \"id\": \"n1\",\n      \"directive\": \"@query\",\n      \"line\": 3,\n      \"kind\": \"inline\",\n      \"args\": \"\\\"echo hi\\\"\",\n      \"cache\": {\n        \"mode\": \"\",\n        \"ttl\": null,\n        \"mock\": null\n      },\n      \"metadata\": {\n        \"executes_shell\": true,\n ",
       "test": "F1-graph-json"
     },
     {
       "args": [
         "prefetch",
-        "C:\\Users\\tccon\\benchmark\\perseus-phase2\\ph2-cli-prefetch-none\\.perseus\\context.md"
+        "/tmp/perseus-phase2/ph2-cli-prefetch-none/.perseus/context.md"
       ],
       "rc": 0,
-      "elapsed_s": 0.197,
-      "stdout_bytes": 177,
+      "elapsed_s": 0.259,
+      "stdout_bytes": 154,
       "stderr_tail": "",
-      "stdout_head": "Prefetch: C:\\Users\\tccon\\benchmark\\perseus-phase2\\ph2-cli-prefetch-none\\.perseus\\context.md\r\nRules: 0  Matches: 0  Ran: 0  Skipped: 0  Failed: 0\r\nNo prefetch rules configured.\r\n",
+      "stdout_head": "Prefetch: /tmp/perseus-phase2/ph2-cli-prefetch-none/.perseus/context.md\nRules: 0  Matches: 0  Ran: 0  Skipped: 0  Failed: 0\nNo prefetch rules configured.\n",
       "test": "F2-prefetch-no-rules"
     },
     {
       "args": [
         "prefetch",
-        "C:\\Users\\tccon\\benchmark\\perseus-phase2\\ph2-cli-prefetch-rules\\.perseus\\context.md"
+        "/tmp/perseus-phase2/ph2-cli-prefetch-rules/.perseus/context.md"
       ],
       "rc": 0,
-      "elapsed_s": 0.252,
-      "stdout_bytes": 222,
+      "elapsed_s": 0.286,
+      "stdout_bytes": 199,
       "stderr_tail": "",
-      "stdout_head": "Prefetch: C:\\Users\\tccon\\benchmark\\perseus-phase2\\ph2-cli-prefetch-rules\\.perseus\\context.md\r\nRules: 1  Matches: 1  Ran: 1  Skipped: 0  Failed: 0\r\n- ran: status-diff n1 -> @query \"git diff --stat\" @cache ttl=300 (cached)\r\n",
+      "stdout_head": "Prefetch: /tmp/perseus-phase2/ph2-cli-prefetch-rules/.perseus/context.md\nRules: 1  Matches: 1  Ran: 1  Skipped: 0  Failed: 0\n- ran: status-diff n1 -> @query \"git diff --stat\" @cache ttl=300 (cached)\n",
       "test": "F3-prefetch-with-rules"
     },
     {
@@ -255,15 +255,15 @@
         "synthesize",
         "What is the next allowable action?",
         "--source",
-        "C:\\Users\\tccon\\benchmark\\perseus-phase2\\ph2-cli-synthesize\\ROADMAP.md",
+        "/tmp/perseus-phase2/ph2-cli-synthesize/ROADMAP.md",
         "--workspace",
-        "C:\\Users\\tccon\\benchmark\\perseus-phase2\\ph2-cli-synthesize"
+        "/tmp/perseus-phase2/ph2-cli-synthesize"
       ],
       "rc": 0,
-      "elapsed_s": 0.201,
-      "stdout_bytes": 905,
+      "elapsed_s": 0.272,
+      "stdout_bytes": 873,
       "stderr_tail": "",
-      "stdout_head": "Cited synthesis: What is the next allowable action?\r\nSources:\r\n- src1 ROADMAP.md (8 lines)\r\n\r\nGeneration was not run. Prompt:\r\n\r\nYou are drafting cited synthesis claims for Perseus.\r\nPerseus is a resolver first. You are a drafter, not an authority.\r\n\r\nRules:\r\n- Return JSON only.\r\n- Do not include uncited claims.\r\n- Every claim must cite at least one exact quote from the source lines.\r\n- If the sou",
+      "stdout_head": "Cited synthesis: What is the next allowable action?\nSources:\n- src1 ROADMAP.md (8 lines)\n\nGeneration was not run. Prompt:\n\nYou are drafting cited synthesis claims for Perseus.\nPerseus is a resolver first. You are a drafter, not an authority.\n\nRules:\n- Return JSON only.\n- Do not include uncited claims.\n- Every claim must cite at least one exact quote from the source lines.\n- If the sources do not s",
       "test": "F4-synthesize-cited"
     },
     {
@@ -271,10 +271,10 @@
         "health"
       ],
       "rc": 0,
-      "elapsed_s": 0.208,
-      "stdout_bytes": 219,
+      "elapsed_s": 0.263,
+      "stdout_bytes": 309,
       "stderr_tail": "",
-      "stdout_head": "# Perseus Health Report\r\n\r\n**Workspace:** `C:\\Users\\tccon\\benchmark\\perseus-bench-heavy\\benchmark\\heavy`  \r\n**Generated:** 2026-05-23 12:27 Central Daylight Time\r\n\r\n---\r\n\r\n_All clear \u2014 no maintenance suggestions._\r\n\r\n",
+      "stdout_head": "# Perseus Health Report\n\n**Workspace:** `/workspace/perseus/benchmark/heavy`  \n**Generated:** 2026-05-23 12:53 CDT\n\n---\n\n### Duplicate Checkpoints (in last 5)\n- **auto-checkpoint: daily cron at 2026-05-23T0749** \u2014 appears 2\u00d7 with same status/next:\n  - `2026-05-23T0749_1.yaml`\n  - `2026-05-23T0749.yaml`\n\n\n",
       "test": "F5-health"
     },
     {
@@ -282,10 +282,10 @@
         "--help"
       ],
       "rc": 0,
-      "elapsed_s": 0.202,
-      "stdout_bytes": 2356,
+      "elapsed_s": 0.259,
+      "stdout_bytes": 2416,
       "stderr_tail": "",
-      "stdout_head": "usage: perseus [-h] [--version]\r\n               {render,watch,graph,prefetch,synthesize,pack,validate,checkpoint,recover,diff,agora,suggest,inbox,memory,init,serve,cron,launchd,systemd,health,doctor,trust,oracle,llm} ...\r\n\r\nPerseus \u2014 Live Context Engine for AI Assistants (v1.0.1)\r\n\r\npositional arguments:\r\n  {render,watch,graph,prefetch,synthesize,pack,validate,checkpoint,recover,diff,agora,suggest",
+      "stdout_head": "usage: perseus [-h] [--version]\n               {render,watch,graph,prefetch,synthesize,pack,validate,checkpoint,recover,diff,agora,suggest,inbox,memory,init,serve,cron,launchd,systemd,health,doctor,trust,update,oracle,llm}\n               ...\n\nPerseus \u2014 Live Context Engine for AI Assistants (v1.0.2)\n\npositional arguments:\n  {render,watch,graph,prefetch,synthesize,pack,validate,checkpoint,recover,di",
       "test": "F6-help"
     }
   ],
@@ -293,7 +293,7 @@
     "test": "G1-lsp-initialize",
     "response_id": 1,
     "has_capabilities": true,
-    "elapsed_s": 0.203,
+    "elapsed_s": 0.263,
     "rc": 0
   }
 }

@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Perseus Efficiency — Cold-Start Eliminated</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #020617;
+    color: #e2e8f0;
+    font-family: 'JetBrains Mono', monospace;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    padding: 2rem;
+  }
+  .dashboard {
+    max-width: 1400px;
+    width: 100%;
+    display: grid;
+    gap: 1.5rem;
+    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-rows: auto auto auto auto;
+  }
+  .header {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 2rem 1rem 1rem;
+    border-bottom: 1px solid #1e293b;
+  }
+  .header h1 {
+    font-size: 2.5rem;
+    font-weight: 800;
+    letter-spacing: -1px;
+    color: #f8fafc;
+  }
+  .header .sub {
+    font-size: 1.1rem;
+    color: #64748b;
+    margin-top: 0.5rem;
+  }
+  .header .dot {
+    display: inline-block;
+    width: 10px; height: 10px;
+    background: #22d3ee;
+    border-radius: 50%;
+    margin: 0 0.5rem;
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+  .chart-panel {
+    grid-column: 1 / 3;
+    grid-row: 2 / 4;
+    background: #0f172a;
+    border: 1px solid #1e293b;
+    border-radius: 12px;
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+  }
+  .chart-panel h3 {
+    font-size: 0.9rem;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 1rem;
+  }
+  .chart-panel svg { flex: 1; }
+  .kpi-grid {
+    grid-column: 3;
+    grid-row: 2 / 4;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    gap: 1rem;
+  }
+  .kpi {
+    background: #0f172a;
+    border: 1px solid #1e293b;
+    border-radius: 12px;
+    padding: 1.2rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+  }
+  .kpi .value {
+    font-size: 2.5rem;
+    font-weight: 800;
+    line-height: 1;
+  }
+  .kpi .label {
+    font-size: 0.7rem;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-top: 0.4rem;
+  }
+  .kpi .detail {
+    font-size: 0.65rem;
+    color: #475569;
+    margin-top: 0.3rem;
+  }
+  .kpi.green .value { color: #34d399; }
+  .kpi.amber .value { color: #f59e0b; }
+  .kpi.cyan .value { color: #22d3ee; }
+  .kpi.violet .value { color: #a78bfa; }
+  .impact-panel {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+  }
+  .impact {
+    background: #0f172a;
+    border: 1px solid #1e293b;
+    border-radius: 12px;
+    padding: 1.5rem;
+    text-align: center;
+  }
+  .impact .big {
+    font-size: 2rem;
+    font-weight: 800;
+    color: #f8fafc;
+  }
+  .impact .arrow { color: #34d399; font-size: 1.5rem; margin: 0 0.5rem; }
+  .impact .desc { font-size: 0.75rem; color: #64748b; margin-top: 0.4rem; }
+  .feature-bar {
+    grid-column: 1 / -1;
+    background: #0f172a;
+    border: 1px solid #1e293b;
+    border-radius: 12px;
+    padding: 1rem 1.5rem;
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+    font-size: 0.7rem;
+    color: #64748b;
+  }
+  .feature-bar span { color: #22d3ee; }
+  .feature-bar .sep { color: #1e293b; }
+  .footer {
+    grid-column: 1 / -1;
+    text-align: center;
+    font-size: 0.65rem;
+    color: #334155;
+    padding: 0.5rem;
+  }
+</style>
+</head>
+<body>
+<div class="dashboard">
+  <div class="header">
+    <h1>PERSEUS EFFICIENCY <span class="dot"></span></h1>
+    <div class="sub">Cold-Start Eliminated — Facts Before the First Prompt</div>
+  </div>
+
+  <div class="chart-panel">
+    <h3>Render Time vs @query Count — Cold → Warm</h3>
+    <svg viewBox="0 0 640 280" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="coldGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.4"/>
+          <stop offset="100%" stop-color="#3b82f6" stop-opacity="0.05"/>
+        </linearGradient>
+        <linearGradient id="warmGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#34d399" stop-opacity="0.3"/>
+          <stop offset="100%" stop-color="#34d399" stop-opacity="0.05"/>
+        </linearGradient>
+      </defs>
+      <!-- Grid -->
+      <pattern id="g" width="40" height="40" patternUnits="userSpaceOnUse">
+        <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+      </pattern>
+      <rect x="50" y="20" width="570" height="240" fill="url(#g)" rx="4"/>
+      
+      <!-- Axes -->
+      <line x1="80" y1="230" x2="600" y2="230" stroke="#334155" stroke-width="1"/>
+      <line x1="80" y1="30" x2="80" y2="230" stroke="#334155" stroke-width="1"/>
+      
+      <!-- Y labels -->
+      <text x="70" y="234" fill="#64748b" font-size="8" text-anchor="end">0s</text>
+      <text x="70" y="150" fill="#64748b" font-size="8" text-anchor="end">6s</text>
+      <text x="70" y="66" fill="#64748b" font-size="8" text-anchor="end">12s</text>
+      
+      <!-- X labels -->
+      <text x="130" y="248" fill="#64748b" font-size="9" text-anchor="middle">10</text>
+      <text x="240" y="248" fill="#64748b" font-size="9" text-anchor="middle">50</text>
+      <text x="350" y="248" fill="#64748b" font-size="9" text-anchor="middle">100</text>
+      <text x="460" y="248" fill="#64748b" font-size="9" text-anchor="middle">200</text>
+      <text x="570" y="248" fill="#64748b" font-size="9" text-anchor="middle">500</text>
+      <text x="360" y="268" fill="#475569" font-size="8" text-anchor="middle">@query directives</text>
+      
+      <!-- Cold area + line -->
+      <polygon points="130,215 240,190 350,160 460,115 570,30 570,230 130,230" fill="url(#coldGrad)"/>
+      <polyline points="130,215 240,190 350,160 460,115 570,30" fill="none" stroke="#3b82f6" stroke-width="2"/>
+      <circle cx="130" cy="215" r="4" fill="#3b82f6"/>
+      <circle cx="570" cy="30" r="5" fill="#3b82f6" stroke="#020617" stroke-width="2"/>
+      
+      <!-- Warm line (flat) -->
+      <line x1="130" y1="222" x2="570" y2="222" stroke="#34d399" stroke-width="2.5" stroke-dasharray="8,3"/>
+      <circle cx="130" cy="222" r="3" fill="#34d399"/>
+      <circle cx="570" cy="222" r="3" fill="#34d399"/>
+      
+      <!-- Annotation -->
+      <line x1="570" y1="30" x2="590" y2="30" stroke="#f59e0b" stroke-width="1"/>
+      <text x="595" y="26" fill="#f59e0b" font-size="11" font-weight="700">11.5s</text>
+      <text x="595" y="38" fill="#64748b" font-size="8">Sequential</text>
+      
+      <line x1="570" y1="222" x2="590" y2="222" stroke="#34d399" stroke-width="1"/>
+      <text x="595" y="218" fill="#34d399" font-size="11" font-weight="700">0.28s</text>
+      <text x="595" y="230" fill="#64748b" font-size="8">Cached</text>
+      
+      <!-- 40× callout -->
+      <rect x="520" y="50" rx="4" width="70" height="22" fill="#0f172a" stroke="#f59e0b" stroke-width="1.5"/>
+      <text x="555" y="65" fill="#f59e0b" font-size="12" font-weight="800" text-anchor="middle">40×</text>
+      
+      <!-- Legend -->
+      <rect x="100" y="42" width="10" height="10" rx="2" fill="#3b82f6" opacity="0.6"/>
+      <text x="115" y="51" fill="#64748b" font-size="8">Cold (no cache)</text>
+      <rect x="220" y="42" width="10" height="2" y2="52" fill="#34d399"/>
+      <text x="235" y="51" fill="#64748b" font-size="8">Warm (@cache ttl=300)</text>
+    </svg>
+  </div>
+
+  <div class="kpi-grid">
+    <div class="kpi green">
+      <div class="value">40×</div>
+      <div class="label">WARM SPEEDUP</div>
+      <div class="detail">Cache makes render time constant</div>
+    </div>
+    <div class="kpi amber">
+      <div class="value">47×</div>
+      <div class="label">STDOUT REDUCTION</div>
+      <div class="detail">12MB output capped at 256KB</div>
+    </div>
+    <div class="kpi cyan">
+      <div class="value">1.7s</div>
+      <div class="label">ENTERPRISE AUDIT</div>
+      <div class="detail">500 microservices · 722 lines</div>
+    </div>
+    <div class="kpi violet">
+      <div class="value">539</div>
+      <div class="label">TESTS PASSING</div>
+      <div class="detail">4 Windows bugs fixed · 0 regressions</div>
+    </div>
+  </div>
+
+  <div class="impact-panel">
+    <div class="impact">
+      <div class="big"><span style="color:#3b82f6">788</span> <span class="arrow">→</span> <span style="color:#34d399">0</span></div>
+      <div class="desc">Discovery calls eliminated in mega-enterprise audit</div>
+    </div>
+    <div class="impact">
+      <div class="big"><span style="color:#3b82f6">76</span> <span class="arrow">→</span> <span style="color:#34d399">0</span></div>
+      <div class="desc">cd-and-query operations eliminated in 9-repo cross-org snapshot</div>
+    </div>
+  </div>
+
+  <div class="feature-bar">
+    <span>@cache ttl=N</span> <span class="sep">|</span>
+    <span>max_query_bytes</span> <span class="sep">|</span>
+    <span>timeout=N</span> <span class="sep">|</span>
+    <span>parallel_queries</span> <span class="sep">|</span>
+    <span>parallel_services</span> <span class="sep">|</span>
+    <span>Windows fixes</span>
+  </div>
+
+  <div class="footer">
+    perseus v1.0.2 · github.com/tcconnally/perseus · 2026-05-23
+  </div>
+</div>
+</body>
+</html>
