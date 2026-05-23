@@ -4,8 +4,11 @@
 # Hermes agent working directory — local tooling only, not project source
 .hermes/
 
-# Private legal documents — never commit to public repo
-docs/ip/
+# Private legal strategy documents — share directly with counsel, not via public repo
+docs/ip/attorney-brief.md
+docs/ip/claim-concepts.md
+docs/ip/ip-context.md
+docs/ip/support-checklist.md
 
 # Python
 __pycache__/
