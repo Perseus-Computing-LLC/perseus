@@ -6,6 +6,10 @@ Works with any AI assistant that reads a file: **Claude Code, Cursor, Codex, Her
 
 ![Perseus demo — before/after cold-start](demo.gif)
 
+![Perseus Efficiency — Cold vs Warm Render Speed](https://raw.githubusercontent.com/tcconnally/perseus/main/benchmark/infographic/perseus-efficiency.svg)
+
+> **Headline:** Perseus with `@cache ttl=300` renders in **constant time** regardless of how many `@query` directives you have — 500 queries at **0.28s warm** (40× faster than 11.5s sequential cold). A 500-microservice enterprise audit with 788 discovery calls renders in **1.7s** and produces a 722-line context document. The assistant opens every session already oriented.
+
 ---
 
 > *Athena didn't tell Perseus to fight Medusa. She handed him a shield — polished to a mirror — and let him see the monster clearly without meeting her gaze. The trick was never strength. It was reflection.*
@@ -17,10 +21,6 @@ Works with any AI assistant that reads a file: **Claude Code, Cursor, Codex, Her
 **Status:** v1.0.2 — stable. 63 features shipped, 539 tests passing, 1 skipped.
 
 [![CI](https://github.com/tcconnally/perseus/actions/workflows/test.yml/badge.svg)](https://github.com/tcconnally/perseus/actions/workflows/test.yml)
-
-![Perseus Efficiency — Cold vs Warm Render Speed](https://raw.githubusercontent.com/tcconnally/perseus/main/benchmark/infographic/perseus-efficiency.svg)
-
-> **Headline:** Perseus with `@cache ttl=300` renders in **constant time** regardless of how many `@query` directives you have — 500 queries at **0.28s warm** (40× faster than 11.5s sequential cold). A 500-microservice enterprise audit with 788 discovery calls renders in **1.7s** and produces a 722-line context document. The assistant opens every session already oriented.
 
 ---
 
