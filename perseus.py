@@ -2523,10 +2523,14 @@ def resolve_skills(args_str: str, cfg: dict) -> str:
     skill_dir = Path(cfg["pythia"]["skill_dir"])
     stale_days = int(cfg["pythia"].get("stale_skill_days", 30))
     flag_stale = "flag_stale=true" in args_str
-    category_filter = None
-    m = re.search(r'category=["\'"]?([^"\'">\\s]+)["\'"]?', args_str)
-    if m:
-        category_filter = m.group(1).lower()
+
+    # Parse category= / include= filter (comma-separated, case-insensitive).
+    # include= is an alias for category=.
+    _cat_m = re.search(r'(?:category|include)=([^\s]+)', args_str)
+    categories: list = []
+    if _cat_m:
+        raw = _cat_m.group(1).strip("\"'")
+        categories = [c.strip().lower() for c in raw.split(",") if c.strip()]
 
     stale_threshold = time.time() - stale_days * 86400
     skills = []
@@ -2545,7 +2549,7 @@ def resolve_skills(args_str: str, cfg: dict) -> str:
             category = ""
             name = parts[0]
 
-        if category_filter and category.lower() != category_filter:
+        if categories and category.lower() not in categories:
             continue
 
         mtime = skill_md.stat().st_mtime
