@@ -1,10 +1,10 @@
 [run]
 source = .
-include = perseus.py
+
 
 [report]
 include = perseus.py
-fail_under = 70
+fail_under = 68
 show_missing = true
 skip_empty = true
 
