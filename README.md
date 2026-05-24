@@ -83,7 +83,7 @@ Keep it fresh with `cron`, `launchd`, `systemd`, or `perseus watch` — see the 
 - **120-agent swarm, 0 failures** — 30 developers × 4 agents each, 150 concurrent checkpoint writes in 9.7s on a shared store. Atomic `O_CREAT | O_EXCL` locking — zero collisions, zero corruption.
 - **540 tests passing** — every directive, parser edge case, lock contention scenario, and trust gate has coverage.
 
-![Perseus Cold vs Warm — @cache eliminates subprocess cost](https://raw.githubusercontent.com/tcconnally/perseus/main/benchmark/infographic/perseus-cold-vs-warm-cache.svg)
+![Perseus Cold vs Warm — @cache eliminates subprocess cost](https://raw.githubusercontent.com/tcconnally/perseus/main/benchmark/infographic/perseus-cold-vs-warm-cache.svg?v=1)
 
 ---
 
