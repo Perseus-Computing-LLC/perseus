@@ -7,13 +7,6 @@ AGENTS.md
 # Hermes agent working directory — local tooling only, not project source
 .hermes/
 
-# Private legal strategy documents — share directly with counsel, not via public repo
-docs/ip/attorney-brief.md
-docs/ip/claim-concepts.md
-docs/ip/counsel-package.md
-docs/ip/ip-context.md
-docs/ip/support-checklist.md
-
 # Python
 __pycache__/
 *.py[cod]
