@@ -1,0 +1,56 @@
+{
+  "scenarios": [
+    {
+      "name": "minimal",
+      "directives": 1,
+      "perseus_cold_s": 0.285,
+      "perseus_warm_s": 0.285,
+      "llm_estimate_s": 7.5,
+      "speedup": 26.3,
+      "tool_calls_saved": 1,
+      "tokens_saved": 100,
+      "output_lines": 7,
+      "output_chars": 153
+    },
+    {
+      "name": "typical",
+      "directives": 5,
+      "perseus_cold_s": 0.297,
+      "perseus_warm_s": 0.292,
+      "llm_estimate_s": 7.5,
+      "speedup": 25.7,
+      "tool_calls_saved": 4,
+      "tokens_saved": 500,
+      "output_lines": 13,
+      "output_chars": 238
+    },
+    {
+      "name": "thorough",
+      "directives": 12,
+      "perseus_cold_s": 0.311,
+      "perseus_warm_s": 0.302,
+      "llm_estimate_s": 12.5,
+      "speedup": 41.4,
+      "tool_calls_saved": 11,
+      "tokens_saved": 1200,
+      "output_lines": 65,
+      "output_chars": 1445
+    },
+    {
+      "name": "enterprise",
+      "directives": 26,
+      "perseus_cold_s": 0.32,
+      "perseus_warm_s": 0.317,
+      "llm_estimate_s": 25.0,
+      "speedup": 78.8,
+      "tool_calls_saved": 25,
+      "tokens_saved": 2600,
+      "output_lines": 112,
+      "output_chars": 2482
+    }
+  ],
+  "model": {
+    "tool_call_seconds": 2.5,
+    "parallel_factor": 3
+  }
+}
