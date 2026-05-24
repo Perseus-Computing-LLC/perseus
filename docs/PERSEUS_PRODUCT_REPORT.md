@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-20  
 **Status:** All 22 phases complete. Perseus v1.0.2 released.
-**Current baseline:** 539 tests passing, 1 skipped (TCP LSP smoke — expected in sandbox/CI)
+**Current baseline:** 573 tests passing, 1 skipped (TCP LSP smoke — expected in sandbox/CI)
 
 ---
 
@@ -72,18 +72,18 @@ Claude Code, Cursor, Rovo Dev, or any assistant that can read a file or stdin.
 | Daedalus path | complete on Perseus side | Label/export/routing; model training is user-owned |
 | Mneme | complete | Narrative project memory and query |
 | Federation | complete | Cross-workspace narrative subscriptions |
-| Templates/init | Phase 19B complete | Starter scaffolds plus documented, tested product profiles exist |
-| Serve | Phase 20A complete | Loopback-first read-only HTTP view with optional bearer auth |
+| Templates/init | complete | Starter scaffolds plus documented, tested product profiles exist |
+| Serve | complete | Loopback-first read-only HTTP view with optional bearer auth |
 | Inbox | complete | Point-to-point agent messages |
-| Cron/schedulers | Phase 18 complete | Host-neutral cron text generation, POSIX crontab install, macOS launchd, and Linux systemd are documented/tested; native Windows Task Scheduler is deferred |
-| LSP/editor | Phase 19C complete | LSP baseline plus VSCode packaging docs and smoke checks |
-| Adapter conformance/profile gallery | Phase 19A-B complete | Offline fixtures and profile generation cover generic, Hermes, Codex, Claude Code, Cursor, and Rovo Dev |
+| Cron/schedulers | complete | Host-neutral cron text generation, POSIX crontab install, macOS launchd, and Linux systemd are documented/tested; native Windows Task Scheduler is deferred |
+| LSP/editor | complete | LSP baseline plus VSCode packaging docs and smoke checks |
+| Adapter conformance/profile gallery | complete | Offline fixtures and profile generation cover generic, Hermes, Codex, Claude Code, Cursor, and Rovo Dev |
 | Schema validation | complete | Built-in validator, no new dependency |
 | Graph/prefetch | complete | Static graph, rules, adaptive scoring |
 | Pythia learning | complete | Outcomes, online hints, opt-in A/B exploration |
-| Cited synthesis | Phase 15A complete | Command surface and citation gate exist |
-| Trust/redaction/audit | Phase 17 complete | Profiles, redaction, and audit report are live |
-| Installer/release | Phase 18 complete | Installer, release artifacts, checksums, and scheduler parity are live |
+| Cited synthesis | complete | Command surface and citation gate exist |
+| Trust/redaction/audit | complete | Profiles, redaction, and audit report are live |
+| Installer/release | complete | Installer, release artifacts, checksums, and scheduler parity are live |
 
 ---
 
