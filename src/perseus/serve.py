@@ -31,6 +31,11 @@ LAUNCHD_TEMPLATE = """\
 </plist>
 """
 
+# Phase 24 — internal imports (stripped by build; defined earlier in concatenated artifact)
+from perseus.assistant_formats import wrap_rendered, get_default_output_path
+from perseus.install import install_target
+from perseus.mcp import serve_mcp, print_mcp_config, print_mcp_registry
+
 
 def cmd_render(args, cfg):
     source_path = Path(args.source).expanduser().resolve()
@@ -43,6 +48,8 @@ def cmd_render(args, cfg):
 
     text = source_path.read_text(errors="replace")
     fmt = getattr(args, "format", "md")
+    is_assistant_format = fmt in ("agents-md", "claude-md", "cursorrules", "copilot-instructions")
+
     if fmt == "html":
         title = source_path.stem.replace("-", " ").replace("_", " ").title()
         rendered = render_source_html(text, cfg, workspace, title=title)
@@ -59,7 +66,16 @@ def cmd_render(args, cfg):
                         total=int(_report.get("total", 0)),
                         counts=_report.get("counts", {}))
 
+    # Phase 24: assistant format wrapping (AGENTS.md, CLAUDE.md, etc.)
+    if is_assistant_format:
+        version = _PERSEUS_VERSION
+        rendered = wrap_rendered(rendered, fmt, version)
+
     output = getattr(args, "output", None)
+    # Phase 24: auto-resolve default output path for assistant formats
+    if is_assistant_format and not output:
+        output = get_default_output_path(fmt, str(workspace))
+
     if output:
         out_path = Path(output)
         out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1287,6 +1303,53 @@ def cmd_launchd(args, cfg):
     print(f"  1. Load it:    launchctl load {plist_path}")
     print(f"  2. Start now:  launchctl start {label}")
     print(f"  3. Check logs: tail -f {stdout_log} {stderr_log}")
+
+
+# ───────────────────────── Phase 24: install ──────────────────────────────────
+
+def cmd_install(args, cfg) -> int:
+    """Install Perseus hooks into an AI assistant."""
+    import json as _json
+
+    target = args.target
+    workspace = Path(args.workspace).expanduser().resolve() if args.workspace else None
+    dry_run = getattr(args, "dry_run", False)
+    json_out = getattr(args, "json", False)
+    perseus_cmd = getattr(args, "perseus_cmd", "perseus")
+
+    result = install_target(
+        target=target,
+        cfg=cfg,
+        workspace=workspace,
+        perseus_cmd=perseus_cmd,
+        dry_run=dry_run,
+    )
+
+    if json_out:
+        print(_json.dumps(result, indent=2))
+    return 0
+
+
+# ───────────────────────── Phase 24: mcp ────────────────────────────────────
+
+def cmd_mcp(args, cfg) -> int:
+    """Perseus MCP server — expose directives as MCP tools."""
+    import json as _json
+
+    mcp_cmd = args.mcp_command  # "serve", "config", or "register"
+    workspace = Path(args.workspace).expanduser().resolve() if getattr(args, "workspace", None) else None
+
+    if mcp_cmd == "serve":
+        return serve_mcp(cfg, workspace=workspace)
+    elif mcp_cmd == "config":
+        print_mcp_config(cfg, workspace=workspace)
+        return 0
+    elif mcp_cmd == "register":
+        print_mcp_registry(cfg)
+        return 0
+    else:
+        print(f"Error: unknown mcp command: {mcp_cmd}", file=sys.stderr)
+        return 1
 
 
 # ─────────────────────────────── cron (POSIX) ────────────────────────────────

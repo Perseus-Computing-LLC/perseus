@@ -9,6 +9,8 @@ Usage:
   perseus suggest "<task description>"     → Pythia ranked suggestions
 """
 
+from __future__ import annotations
+
 import argparse
 import copy
 import fnmatch
