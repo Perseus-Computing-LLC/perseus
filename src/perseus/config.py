@@ -19,6 +19,10 @@ DEFAULT_CONFIG = {
         "services_timeout_s": 3,
         "query_timeout_s": 30,
         "max_query_bytes": 262144,    # 256 KB stdout cap
+        "max_read_bytes": 524288,    # 512 KB file size cap for @read (None = unlimited)
+        "max_include_bytes": 524288, # 512 KB file size cap for @include (None = unlimited)
+        "max_include_depth": 5,      # max depth for transitive @include recursion
+        "integrity_check": False,    # opt-in: detect files modified during render
         "parallel_services": False,   # opt-in: concurrent @services health checks
         "parallel_queries": False,    # opt-in: concurrent @query resolution
         "shell": "/bin/bash",

@@ -147,11 +147,44 @@ SYNTHESIZE_BLOCK_RE = re.compile(r'^@synthesize\s*(.*)$', re.IGNORECASE)
 INLINE_DIRECTIVE_RE: "re.Pattern[str] | None" = None
 
 
+def _capture_file_snapshot(lines: list[str], workspace: Path | None) -> dict[str, float]:
+    """Scan source lines for file-reading directives and record their mtimes.
+
+    Returns a dict mapping resolved path → mtime at the start of render.
+    Used by the integrity check to detect files that changed mid-render.
+    """
+    snap: dict[str, float] = {}
+    for line in lines:
+        m = INLINE_DIRECTIVE_RE.match(line) if INLINE_DIRECTIVE_RE else None
+        if not m:
+            continue
+        directive = m.group(1).lower()
+        if directive not in ("@read", "@include", "@tree", "@list"):
+            continue
+        args = (m.group(2) or "").strip()
+        file_path_str, _ = _extract_quoted_token(args)
+        if not file_path_str:
+            continue
+        base = workspace or Path.cwd()
+        try:
+            fp = Path(file_path_str).expanduser()
+            if not fp.is_absolute() and workspace:
+                fp = workspace / fp
+            fp = fp.resolve(strict=False)
+            if fp.is_file():
+                snap[str(fp)] = fp.stat().st_mtime
+        except (OSError, ValueError):
+            pass
+    return snap
+
+
 def _render_lines(
     lines: list[str],
     cfg: dict,
     workspace: Path | None = None,
     _constraint_rows: list[str] | None = None,
+    _include_depth: int = 0,
+    _include_visited: set | None = None,
 ) -> str:
     """
     Core rendering loop. Processes a list of lines (already stripped of the
@@ -161,11 +194,21 @@ def _render_lines(
 
     _constraint_rows: shared mutable list used to accumulate @constraint rows
     across the full document so a single table is emitted at the end.
+    _include_depth: current depth of transitive @include recursion.
+    _include_visited: set of resolved paths already included in this chain.
     """
     # Top-level call owns the constraint rows list and decides when to flush it
     top_level = _constraint_rows is None
     if top_level:
         _constraint_rows = []
+    if _include_visited is None:
+        _include_visited = set()
+
+    # ── File integrity pre-check (top-level only) ──
+    _integrity_snapshot: dict[str, float] = {}
+    if top_level and cfg.get("render", {}).get("integrity_check", False):
+        _integrity_snapshot = _capture_file_snapshot(lines, workspace)
+
 
     # ── Pre-scan @query directives for parallel resolution ──────────────
     # When render.parallel_queries is enabled at the top level, collect all
@@ -312,7 +355,9 @@ def _render_lines(
                 output.append(f"> ⚠ unmatched @validate: missing @end for schema `{schema_ref}`")
                 break
 
-            rendered_block = _render_lines(block_lines, cfg, workspace, _constraint_rows)
+            rendered_block = _render_lines(block_lines, cfg, workspace, _constraint_rows,
+                                           _include_depth=_include_depth,
+                                           _include_visited=_include_visited)
             output.append(resolve_validate_block(rendered_block, schema_ref, cfg, workspace))
             continue
 
@@ -477,7 +522,9 @@ def _render_lines(
                 output.append(f"> ⚠ @if error: {exc}")
                 continue
             if branch:
-                output.append(_render_lines(branch, cfg, workspace, _constraint_rows))
+                output.append(_render_lines(branch, cfg, workspace, _constraint_rows,
+                                             _include_depth=_include_depth,
+                                             _include_visited=_include_visited))
             continue
 
         # ── inline directives (with optional @cache modifier) ──
@@ -521,8 +568,14 @@ def _render_lines(
                 i += 1
                 continue
 
+            # @include — intercept for recursive rendering with depth/cycle tracking
+            if directive == "@include" and spec and spec.resolver:
+                result = spec.resolver(clean_args, workspace, cfg,
+                                       _depth=_include_depth,
+                                       _visited=_include_visited.copy() if _include_visited is not None else None)
+                result = _apply_output_schema_validation(spec, clean_args, result, workspace)
             # Resolve the directive via registry (task-25)
-            if spec and spec.resolver and spec.kind == "inline":
+            elif spec and spec.resolver and spec.kind == "inline":
                 result = _call_resolver(spec, clean_args, cfg, workspace)
                 result = _apply_output_schema_validation(spec, clean_args, result, workspace)
             else:
@@ -542,6 +595,25 @@ def _render_lines(
         output.append(line)
         i += 1
 
+    # ── Integrity drift check (top-level only) ──
+    if top_level and _integrity_snapshot:
+        drift_warnings = []
+        for path_str, orig_mtime in _integrity_snapshot.items():
+            try:
+                current = Path(path_str).stat().st_mtime
+                if current != orig_mtime:
+                    drift_warnings.append(
+                        f"> ⚠ Integrity drift: `{path_str}` was modified "
+                        f"during render (mtime changed). Output may be inconsistent."
+                    )
+            except OSError:
+                drift_warnings.append(
+                    f"> ⚠ Integrity drift: `{path_str}` was deleted "
+                    f"during render. Output may be inconsistent."
+                )
+        if drift_warnings:
+            output.insert(0, "\n".join(drift_warnings) + "\n")
+
     # ── Flush constraint table at top-level only ──
     if top_level and _constraint_rows:
         header = "| ID | Severity | Rule |\n|---|---|---|"
@@ -554,10 +626,15 @@ def render_source(
     source_text: str,
     cfg: dict,
     workspace: Path | None = None,
+    _include_depth: int = 0,
+    _include_visited: set | None = None,
 ) -> str:
     """
     Parse and resolve a @perseus source document.
     Returns plain rendered markdown.
+
+    _include_depth: current depth of transitive @include recursion.
+    _include_visited: set of resolved paths already visited in this include chain.
     """
     lines = source_text.splitlines()
 
@@ -565,6 +642,8 @@ def render_source(
     if not lines or not PERCY_HEADER_RE.match(lines[0]):
         return source_text  # not a perseus doc; pass through unchanged
 
-    return _render_lines(lines[1:], cfg, workspace)  # skip @perseus header line
+    return _render_lines(lines[1:], cfg, workspace,
+                         _include_depth=_include_depth,
+                         _include_visited=_include_visited)
 
 
