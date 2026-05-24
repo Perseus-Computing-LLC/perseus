@@ -69,6 +69,22 @@ def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str
             return fallback_result()
         return f"> ⚠ @read: could not read `{file_path_str}`: {e}"
 
+    # ── File size limit check ──
+    max_bytes = cfg.get("render", {}).get("max_read_bytes")
+    if max_bytes is not None and len(content) > max_bytes:
+        truncated = content[:max_bytes]
+        trunc_note = (
+            f"> ⚠ @read: file `{file_path_str}` exceeds max_read_bytes "
+            f"({len(content):,} > {max_bytes:,}). Output truncated to first "
+            f"{max_bytes:,} bytes.\n\n"
+        )
+        if schema_ref is not None:
+            # Can't validate truncated content — skip validation for this run
+            pass
+        content = truncated
+    else:
+        trunc_note = ""
+
     # ── No modifier → full file as fenced block ──
     if path_key is None and env_key is None:
         ext = fp.suffix.lower()
@@ -86,7 +102,7 @@ def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str
             warning = _validate_against_schema_ref(data, schema_ref, workspace, "@read")
             if warning:
                 return warning
-        return f"```{lang}\n{content.rstrip()}\n```"
+        return trunc_note + f"```{lang}\n{content.rstrip()}\n```"
 
     # ── key= → .env-style KEY=VALUE lookup ──
     if env_key is not None:
