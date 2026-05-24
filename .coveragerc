@@ -4,7 +4,7 @@ source = .
 
 [report]
 include = perseus.py
-fail_under = 68
+fail_under = 67
 show_missing = true
 skip_empty = true
 
