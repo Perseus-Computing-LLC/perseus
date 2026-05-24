@@ -33,6 +33,7 @@ MODULE_ORDER = [
     "src/perseus/directives/session.py",
     "src/perseus/directives/services.py",
     "src/perseus/directives/misc.py",
+    "src/perseus/html_format.py",     # ← Phase 23: HTML output — before renderer (renderer imports from it)
     "src/perseus/renderer.py",
     "src/perseus/checkpoint.py",
     "src/perseus/memory.py",
@@ -70,7 +71,7 @@ STDLIB_REMINDER_RE = re.compile(
 )
 
 # Baseline line count for drift detection.
-BASELINE_LINES = 10494
+BASELINE_LINES = 11098  # was 10494; Phase 23 adds ~600 lines for HTML format
 
 
 def build() -> None:

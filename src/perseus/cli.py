@@ -16,6 +16,10 @@ def main():
         "--output", "-o", default=None, metavar="FILE",
         help="Write rendered output to FILE instead of stdout",
     )
+    p_render.add_argument(
+        "--format", "-f", default="md", choices=["md", "html"],
+        help="Output format: md (markdown, default) or html (self-contained dashboard)",
+    )
 
     # watch (Phase 20C)
     p_watch = sub.add_parser("watch", help="Poll and refresh render outputs when context sources change")
