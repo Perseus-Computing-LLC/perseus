@@ -17,8 +17,11 @@ def main():
         help="Write rendered output to FILE instead of stdout",
     )
     p_render.add_argument(
-        "--format", "-f", default="md", choices=["md", "html"],
-        help="Output format: md (markdown, default) or html (self-contained dashboard)",
+        "--format", "-f", default="md",
+        choices=["md", "html", "agents-md", "claude-md", "cursorrules", "copilot-instructions"],
+        help="Output format: md (markdown), html (dashboard), agents-md (AGENTS.md), "
+             "claude-md (CLAUDE.md), cursorrules (.cursorrules), "
+             "copilot-instructions (.github/copilot-instructions.md)",
     )
 
     # watch (Phase 20C)
@@ -203,6 +206,29 @@ def main():
     p_init.add_argument("--no-pack", action="store_true",
                         help="When using --profile, do not write .perseus/pack.yaml")
 
+    # install (Phase 24 — hook setup for AI assistants)
+    p_install = sub.add_parser("install", help="Install Perseus hooks into an AI assistant")
+    p_install.add_argument(
+        "--target", required=True,
+        choices=["claude-code", "cursor", "gemini-cli", "copilot"],
+        help="Target assistant (claude-code, cursor, gemini-cli, copilot)",
+    )
+    p_install.add_argument("--workspace", default=None, help="Workspace path (default: auto-detect)")
+    p_install.add_argument("--perseus-cmd", default="perseus", help="Path or name of the perseus CLI")
+    p_install.add_argument("--dry-run", action="store_true", help="Print actions without writing files")
+    p_install.add_argument("--json", action="store_true", help="Output machine-readable JSON")
+
+    # mcp (Phase 24 — MCP server façade)
+    p_mcp = sub.add_parser("mcp", help="Perseus as an MCP server — expose directives as tools")
+    mcp_sub = p_mcp.add_subparsers(dest="mcp_command", required=True)
+    p_mcp_serve = mcp_sub.add_parser("serve", help="Run as an MCP server over stdio (JSON-RPC 2.0)")
+    p_mcp_serve.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
+    p_mcp_config = mcp_sub.add_parser("config", help="Print MCP client configuration for Claude Desktop, Cursor, etc.")
+    p_mcp_config.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
+    p_mcp_config.add_argument("--json", action="store_true", help="Output machine-readable JSON (default)")
+    p_mcp_register = mcp_sub.add_parser("register", help="Print MCP registry listing metadata for submission")
+    p_mcp_register.add_argument("--json", action="store_true", help="Output machine-readable JSON (default)")
+
     # serve (read-only HTTP view)
     p_serve = sub.add_parser("serve", help="Start a read-only HTTP view of workspace state, or an LSP server")
     p_serve.add_argument("--port", type=int, default=7991, help="HTTP port (default: 7991)")
@@ -374,6 +400,10 @@ def main():
         cmd_init(args, cfg)
     elif args.command == "launchd":
         cmd_launchd(args, cfg)
+    elif args.command == "install":
+        return cmd_install(args, cfg)
+    elif args.command == "mcp":
+        return cmd_mcp(args, cfg)
 
 
 # Module-level call: runs at import time so render_source() and other

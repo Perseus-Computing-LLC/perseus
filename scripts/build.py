@@ -34,6 +34,8 @@ MODULE_ORDER = [
     "src/perseus/directives/services.py",
     "src/perseus/directives/misc.py",
     "src/perseus/html_format.py",     # ← Phase 23: HTML output — before renderer (renderer imports from it)
+    "src/perseus/assistant_formats.py", # ← Phase 24: assistant format targets (AGENTS.md, CLAUDE.md, etc.)
+    "src/perseus/mcp.py",               # ← Phase 24: MCP server (depends on registry, before serve)
     "src/perseus/renderer.py",
     "src/perseus/checkpoint.py",
     "src/perseus/memory.py",
@@ -41,6 +43,7 @@ MODULE_ORDER = [
     "src/perseus/agora.py",
     "src/perseus/pythia.py",
     "src/perseus/lsp.py",
+    "src/perseus/install.py",           # ← Phase 24: hook installer (depends on assistant_formats, before serve)
     "src/perseus/serve.py",
     "src/perseus/cli.py",  # includes _bind_registry() call before dispatch
 ]
@@ -71,7 +74,7 @@ STDLIB_REMINDER_RE = re.compile(
 )
 
 # Baseline line count for drift detection.
-BASELINE_LINES = 11098  # was 10494; Phase 23 adds ~600 lines for HTML format
+BASELINE_LINES = 11937  # Phase 24 adds ~839 lines: assistant_formats, install, mcp modules + CLI changes
 
 
 def build() -> None:
