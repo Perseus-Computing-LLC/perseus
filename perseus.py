@@ -10239,7 +10239,7 @@ def _find_version() -> str:
             return candidate.read_text().strip()
     return _PERSEUS_VERSION  # fallback to build-time injected literal
 
-_PERSEUS_VERSION = "1.0.2"  # injected by scripts/build.py at build time
+_PERSEUS_VERSION = "1.0.3"  # injected by scripts/build.py at build time
 _PERSEUS_VERSION = _find_version()
 
 
