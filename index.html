@@ -794,7 +794,8 @@
     color: var(--accent-bright);
     letter-spacing: 0.02em;
     overflow-x: auto;
-    white-space: nowrap;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
   }
   .triad-card.is-oracle .cmd { color: var(--accent-2); }
   .triad-card .cmd::before { content: "$ "; color: var(--text-muted); }
@@ -1248,7 +1249,8 @@
   .int-card .int-cmd code {
     flex: 1;
     color: var(--accent-bright);
-    white-space: nowrap;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
     overflow-x: auto;
   }
   .int-card.cyan .int-cmd code { color: var(--accent-2); }
@@ -1461,7 +1463,16 @@
     flex: 1;
     color: var(--text);
     overflow-x: auto;
-    white-space: nowrap;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    min-width: 0;
+  }
+  @media (max-width: 560px) {
+    .qs-line {
+      gap: 10px;
+      padding: 14px 14px;
+      font-size: 13px;
+    }
   }
   .qs-line code .em { color: var(--accent-bright); }
   .qs-line code .arg { color: var(--text-dim); }
