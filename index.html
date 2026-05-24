@@ -859,14 +859,68 @@
     border: 1px solid var(--line);
     background: var(--bg-2);
     border-radius: 2px;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
+    cursor: zoom-in;
+    transition: border-color 0.2s ease;
+  }
+  .arch-diagram:hover {
+    border-color: var(--accent);
   }
   .arch-diagram svg {
     display: block;
     width: 100%;
-    min-width: 760px;
     height: auto;
+  }
+  .arch-diagram .expand-hint {
+    position: absolute;
+    top: 10px;
+    right: 14px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    transition: color 0.2s ease;
+  }
+  .arch-diagram:hover .expand-hint {
+    color: var(--accent);
+  }
+
+  /* Fullscreen lightbox */
+  .arch-lightbox {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    background: rgba(12, 8, 20, 0.92);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    cursor: zoom-out;
+    padding: 20px;
+  }
+  .arch-lightbox.open {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .arch-lightbox svg {
+    width: 100%;
+    max-width: 1200px;
+    height: auto;
+    max-height: 95vh;
+  }
+  .arch-lightbox .close-hint {
+    position: absolute;
+    top: 20px;
+    right: 24px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    transition: color 0.2s ease;
+  }
+  .arch-lightbox:hover .close-hint {
+    color: var(--text);
   }
 
   @media (max-width: 820px) {
@@ -1828,7 +1882,8 @@ Branch: <span class="s">feat/billing-v2</span>
       <h2 class="sec-title">How the pieces <em>fit together</em>.</h2>
     </header>
 
-    <div class="arch-diagram reveal">
+    <div class="arch-diagram reveal" id="arch-diagram">
+      <div class="expand-hint">Click to expand</div>
       <svg viewBox="0 0 920 620" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Perseus architecture diagram" role="img">
         <desc>A diagram showing how Perseus directive sources flow through the render engine into output files consumed by AI assistants, with subsystems and integrations branching off.</desc>
 
@@ -1990,6 +2045,11 @@ Branch: <span class="s">feat/billing-v2</span>
         <rect x="902" y="609" width="8" height="1" fill="#c77dff" opacity="0.4"/>
         <rect x="909" y="602" width="1" height="8" fill="#c77dff" opacity="0.4"/>
       </svg>
+    </div>
+
+    <div class="arch-lightbox" id="arch-lightbox" aria-hidden="true">
+      <div class="close-hint">Click to close</div>
+      <svg viewBox="0 0 920 620" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Perseus architecture diagram (expanded)" role="img"></svg>
     </div>
 
     <p class="arch-note reveal" style="margin-top:20px; text-align:center; color:var(--text-muted); font-family:var(--mono); font-size:11px; letter-spacing:0.10em; text-transform:uppercase;">
@@ -2561,6 +2621,37 @@ Branch: <span class="s">feat/billing-v2</span>
       }
     }
     requestAnimationFrame(loop);
+  })();
+
+  /* ---------- Architecture diagram lightbox ---------- */
+  (function archLightbox() {
+    var diagram = document.getElementById('arch-diagram');
+    var lightbox = document.getElementById('arch-lightbox');
+    if (!diagram || !lightbox) return;
+
+    diagram.addEventListener('click', function () {
+      var srcSvg = diagram.querySelector('svg');
+      var dstSvg = lightbox.querySelector('svg');
+      // Clone SVG content into the lightbox
+      dstSvg.innerHTML = srcSvg.innerHTML;
+      lightbox.classList.add('open');
+      lightbox.setAttribute('aria-hidden', 'false');
+      document.body.style.overflow = 'hidden';
+    });
+
+    lightbox.addEventListener('click', function () {
+      lightbox.classList.remove('open');
+      lightbox.setAttribute('aria-hidden', 'true');
+      document.body.style.overflow = '';
+    });
+
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && lightbox.classList.contains('open')) {
+        lightbox.classList.remove('open');
+        lightbox.setAttribute('aria-hidden', 'true');
+        document.body.style.overflow = '';
+      }
+    });
   })();
 </script>
 
