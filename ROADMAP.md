@@ -851,6 +851,20 @@ and validated by repeatable release gates.
 
 ---
 
+### Phase 23 — HTML Output
+
+`perseus render --format html` produces self-contained, zero-dependency HTML
+dashboards. Dark theme matches the perseus.observer landing page. `@services`
+results are parsed into service-card divs with green/red status dots. Long code
+blocks are collapsed behind `<details>` elements. The HTML is fully self-contained —
+no CDN, no external fonts, no JavaScript — and opens in any browser offline.
+
+Architecture: post-processing. Directives resolve to markdown as always, then
+a new `html_format.py` module converts to semantic HTML and wraps in the
+document template. Zero new dependencies. 596 tests passing.
+
+---
+
 ## Future Direction: Decentralized Federation
 
 Deepen federation to securely share context across decentralized workspaces or

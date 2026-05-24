@@ -647,3 +647,24 @@ def render_source(
                          _include_visited=_include_visited)
 
 
+def render_source_html(
+    source_text: str,
+    cfg: dict,
+    workspace: Path | None = None,
+    title: str = "Workspace Context",
+) -> str:
+    """Resolve a @perseus source document and return self-contained HTML.
+
+    Internally calls render_source() for markdown resolution, then converts
+    the resolved markdown to semantic HTML using the built-in template.
+    Zero external dependencies — the CSS is embedded.
+    """
+    md_output = render_source(source_text, cfg, workspace)
+    body = markdown_to_html_body(md_output)
+
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    version = _PERSEUS_VERSION
+
+    return html_document(body, title, timestamp, version)
+
+

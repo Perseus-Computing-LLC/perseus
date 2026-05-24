@@ -42,17 +42,22 @@ def cmd_render(args, cfg):
     cfg = load_config(workspace)
 
     text = source_path.read_text(errors="replace")
-    rendered = render_source(text, cfg, workspace)
-    # task-46: redact before the rendered text crosses the trust boundary
-    # (file write, stdout, or downstream pipe). Source file on disk is
-    # never modified.
-    rendered, _report = redact_text(rendered, cfg)
-    # task-47: audit redaction crossing the rendered-output trust boundary.
-    if _report.get("total", 0) > 0:
-        audit_event(cfg, "redaction",
-                    surface="render",
-                    total=int(_report.get("total", 0)),
-                    counts=_report.get("counts", {}))
+    fmt = getattr(args, "format", "md")
+    if fmt == "html":
+        title = source_path.stem.replace("-", " ").replace("_", " ").title()
+        rendered = render_source_html(text, cfg, workspace, title=title)
+    else:
+        rendered = render_source(text, cfg, workspace)
+        # task-46: redact before the rendered text crosses the trust boundary
+        # (file write, stdout, or downstream pipe). Source file on disk is
+        # never modified.
+        rendered, _report = redact_text(rendered, cfg)
+        # task-47: audit redaction crossing the rendered-output trust boundary.
+        if _report.get("total", 0) > 0:
+            audit_event(cfg, "redaction",
+                        surface="render",
+                        total=int(_report.get("total", 0)),
+                        counts=_report.get("counts", {}))
 
     output = getattr(args, "output", None)
     if output:
