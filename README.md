@@ -19,6 +19,8 @@
 pip install perseus-ctx
 ```
 
+Requires Python 3.10+. Zero dependencies beyond `pyyaml`.
+
 No pip? Single-file drop-in — `perseus.py` is a compiled build artifact from the modular `src/perseus/` tree, not a hand-maintained monolith:
 
 ```bash
@@ -79,7 +81,7 @@ Keep it fresh with `cron`, `launchd`, `systemd`, or `perseus watch` — see the 
 ## Proof
 
 - **40× speedup** — 500 `@query` directives render in 0.28s warm (vs 11.5s cold) with `@cache ttl=300`. Cache backend: local filesystem JSON lookups (one file per directive, SHA-256 keyed). Warm render time is **constant** regardless of directive count.
-- **10,000 directives in 0.36 seconds** — 35.6μs per directive. 23,402× faster than an LLM discovering the same information via tool calls (estimated 2.3 hours). [Full benchmarks →](benchmark/edge-bench/)
+- **10,000 directives in 0.36 seconds** — 35.6μs per directive. 23,402× faster than an LLM discovering the same information via tool calls (estimated 2.3 hours, assuming 2.5s per tool-call round-trip with 3-way batching). [Full benchmarks →](benchmark/edge-bench/)
 - **1,000,000 directives in 22 seconds** — 22μs per directive (lightweight variable/static substitutions — `@env`, `@date`, simple `@read`; no subprocess I/O). 31 MB file, 3M output lines, zero crashes. The ceiling is file I/O, not Perseus logic.
 - **120-agent swarm, 0 failures** — 30 developers × 4 agents each, 150 concurrent checkpoint writes in 9.7s on a **local NVMe filesystem** with atomic `O_CREAT | O_EXCL` locking — zero collisions, zero corruption. Network filesystems (NFS, SMB) require careful lock configuration; see [Caveats](#caveats).
 - **573 tests passing** — every directive, parser edge case, lock contention scenario, trust gate, and context-overflow guard has coverage.
@@ -104,7 +106,7 @@ Perseus is tested against edge cases that challenge the "resolve before context"
 
 Perseus reads from a live filesystem — there is no snapshot isolation unless you enable `integrity_check`. Files can change between directive resolutions. The render output reflects whatever was on disk at the moment each directive resolved, **not** a single atomic point-in-time. This is the right tradeoff for a zero-dependency pre-processor (zero overhead by default, check when it matters), but it is not a database transaction.
 
-The `O_CREAT | O_EXCL` checkpoint locking is atomic on local POSIX filesystems. Network filesystems (NFS < v4, SMB, cloud mounts) may not honor these semantics — if you run a multi-agent relay across machines, use a local disk or a filesystem with verified atomic-create support.
+The `O_CREAT | O_EXCL` checkpoint locking is atomic on local POSIX filesystems. Network filesystems (**NFS** < v4, **SMB**, cloud mounts) may not honor these semantics — if you run a multi-agent relay across machines, use a local disk or a filesystem with verified atomic-create support.
 
 `perseus.py` is ~10,600 lines. It is a compiled build artifact produced by `scripts/build.py` from the modular `src/perseus/` tree. It is not hand-maintained as a single file. The source modules are the canonical form.
 
@@ -212,13 +214,13 @@ Source document (.perseus/context.md)
 
 ---
 
-> *Athena didn't tell Perseus to fight Medusa. She handed him a shield — polished to a mirror — and let him see the monster clearly without meeting her gaze. The trick was never strength. It was reflection.*
-
-![Perseus with the Head of Medusa — Benvenuto Cellini, 1545](https://upload.wikimedia.org/wikipedia/commons/thumb/c/c0/Perseus_Cellini_Loggia_dei_Lanzi_2005_09_13.jpg/500px-Perseus_Cellini_Loggia_dei_Lanzi_2005_09_13.jpg)
-
-*Perseus with the Head of Medusa — Benvenuto Cellini, 1545. Loggia dei Lanzi, Florence.*
-
-**Perseus** slew Medusa by watching her reflection in Athena's polished shield — he never met her gaze directly. The Medusa here is the paralysis of facing a chaotic development environment. The mirror is resolved context: you see the situation clearly without being turned to stone by it. **Hermes** gave Perseus winged sandals and guidance. This Perseus returns the favor — giving Hermes (and every AI assistant) a way to navigate any workspace without the orientation tax.
+> *Athena gave Perseus a mirror-shield, not a sword. He slew Medusa by watching her reflection — never meeting her gaze directly.*
+>
+> The Medusa is a chaotic development environment. The mirror is resolved context: you see the situation clearly without being paralyzed by it. **Hermes** gave Perseus winged sandals and guidance; this Perseus returns the favor — giving every AI assistant a way to navigate any workspace without the orientation tax.
+>
+> ![Perseus with the Head of Medusa — Benvenuto Cellini, 1545](https://upload.wikimedia.org/wikipedia/commons/thumb/c/c0/Perseus_Cellini_Loggia_dei_Lanzi_2005_09_13.jpg/500px-Perseus_Cellini_Loggia_dei_Lanzi_2005_09_13.jpg)
+>
+> *Perseus with the Head of Medusa — Benvenuto Cellini, 1545. Loggia dei Lanzi, Florence.*
 
 ---
 
