@@ -88,6 +88,7 @@ Keep it fresh with `cron`, `launchd`, `systemd`, or `perseus watch` — see the 
 - **120-agent swarm, 0 failures** — 30 developers × 4 agents each, 150 concurrent checkpoint writes in 9.7s on a **local NVMe filesystem** with atomic `O_CREAT | O_EXCL` locking — zero collisions, zero corruption. Network filesystems (NFS, SMB) require careful lock configuration; see [Caveats](#caveats).
 - **nearly 600 tests, all passing** — every directive, parser edge case, lock contention scenario, trust gate, and context-overflow guard has coverage.
 - **Compile-before-context validated** — Perseus resolves all directives in a single ~0.3s render pass, vs an estimated 7–8,338s for an LLM discovering the same information via tool calls. The gap widens with complexity: [26× → 23,402× faster](benchmark/edge-bench/).
+- **10× cheaper per session** — Perseus resolves context for ~$4.50 of Claude Opus tokens vs $45 burning tokens on tool-call round-trips. Claude Sonnet: $0.90 vs $9. GPT-5 (Codex): $0.38 vs $5.62. The ratio holds at every scale and provider. At 400 sessions/month, swarm-scale saves $16K+ on Opus alone. [Full token economics →](benchmark/edge-bench/)
 
 ![Perseus Cold vs Warm — @cache eliminates subprocess cost](https://raw.githubusercontent.com/tcconnally/perseus/main/benchmark/infographic/perseus-cold-vs-warm.svg)
 
