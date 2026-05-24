@@ -5,6 +5,7 @@
 [![CI](https://github.com/tcconnally/perseus/actions/workflows/test.yml/badge.svg)](https://github.com/tcconnally/perseus/actions/workflows/test.yml)
 [![PyPI](https://img.shields.io/pypi/v/perseus-ctx)](https://pypi.org/project/perseus-ctx/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
+[**perseus.observer →**](https://perseus.observer)
 
 ![Perseus demo — before/after cold-start](demo.gif)
 
@@ -202,6 +203,7 @@ Source document (.perseus/context.md)
 
 Everything else lives in `docs/`:
 
+- [**Website**](https://perseus.observer) — Landing page with benchmarks, assistant compatibility, and 30-second quickstart
 - [**Quickstart**](./docs/quickstart.md) — Install, configure, and render your first context in 5 minutes
 - [**Integration Guide**](./docs/HERMES_INTEGRATION.md) — Wire Perseus to Hermes, Codex, Claude Code, Cursor, or Rovo Dev
 - [**Context Packs**](./docs/CONTEXT_PACKS.md) — Portable workspace context with assistant-specific profiles
