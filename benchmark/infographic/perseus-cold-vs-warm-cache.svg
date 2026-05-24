@@ -1,13 +1,4 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<style>
-body { margin: 0; background: #0d1117; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-svg { max-width: 900px; width: 100%; }
-</style>
-</head>
-<body>
+<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 520" font-family="system-ui, -apple-system, sans-serif">
   <defs>
     <linearGradient id="coldGrad" x1="0" y1="0" x2="1" y2="0">
@@ -135,5 +126,3 @@ svg { max-width: 900px; width: 100%; }
     Perseus never crashed. Scale ceiling tested to 1,000,000 directives (31 MB file, 22.0s render).
   </text>
 </svg>
-</body>
-</html>
