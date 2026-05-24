@@ -79,10 +79,11 @@ Keep it fresh with `cron`, `launchd`, `systemd`, or `perseus watch` — see the 
 ## Proof
 
 - **40× speedup** — 500 `@query` directives render in 0.28s warm (vs 11.5s cold) with `@cache ttl=300`. Cache backend: local filesystem JSON lookups (one file per directive, SHA-256 keyed). Warm render time is **constant** regardless of directive count.
+- **10,000 directives in 0.36 seconds** — 35.6μs per directive. 23,402× faster than an LLM discovering the same information via tool calls (estimated 2.3 hours). [Full benchmarks →](benchmark/edge-bench/)
 - **1,000,000 directives in 22 seconds** — 22μs per directive (lightweight variable/static substitutions — `@env`, `@date`, simple `@read`; no subprocess I/O). 31 MB file, 3M output lines, zero crashes. The ceiling is file I/O, not Perseus logic.
 - **120-agent swarm, 0 failures** — 30 developers × 4 agents each, 150 concurrent checkpoint writes in 9.7s on a **local NVMe filesystem** with atomic `O_CREAT | O_EXCL` locking — zero collisions, zero corruption. Network filesystems (NFS, SMB) require careful lock configuration; see [Caveats](#caveats).
 - **573 tests passing** — every directive, parser edge case, lock contention scenario, trust gate, and context-overflow guard has coverage.
-- **Compile-before-context validated** — Perseus resolves all directives in a single ~0.3s render pass, vs an estimated 7–25s for an LLM discovering the same information via tool calls. The gap widens with complexity: [26× → 79× faster](benchmark/edge-bench/).
+- **Compile-before-context validated** — Perseus resolves all directives in a single ~0.3s render pass, vs an estimated 7–8,338s for an LLM discovering the same information via tool calls. The gap widens with complexity: [26× → 23,402× faster](benchmark/edge-bench/).
 
 ![Perseus Cold vs Warm — @cache eliminates subprocess cost](https://raw.githubusercontent.com/tcconnally/perseus/main/benchmark/infographic/perseus-cold-vs-warm.svg)
 

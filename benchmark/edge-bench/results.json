@@ -1,56 +1,235 @@
 {
+  "meta": {
+    "date": "2026-05-23T20:53:06.668385",
+    "host": "e92fb95134c0",
+    "python": "3.12.13",
+    "perseus": "1.0.2",
+    "passes": 3,
+    "model": {
+      "tool_call_seconds": 2.5,
+      "parallel_factor": 3
+    }
+  },
   "scenarios": [
     {
       "name": "minimal",
-      "directives": 1,
-      "perseus_cold_s": 0.285,
-      "perseus_warm_s": 0.285,
+      "directives": 5,
+      "perseus_cold_median_s": 0.284,
+      "perseus_warm_median_s": 0.285,
+      "perseus_cold_all_s": [
+        0.284,
+        0.284,
+        0.282
+      ],
+      "perseus_warm_all_s": [
+        0.295,
+        0.285,
+        0.278
+      ],
       "llm_estimate_s": 7.5,
       "speedup": 26.3,
-      "tool_calls_saved": 1,
-      "tokens_saved": 100,
-      "output_lines": 7,
-      "output_chars": 153
+      "tool_calls_saved": 4,
+      "tokens_saved": 500,
+      "output_lines": 8,
+      "output_chars": 119
     },
     {
       "name": "typical",
-      "directives": 5,
-      "perseus_cold_s": 0.297,
-      "perseus_warm_s": 0.292,
-      "llm_estimate_s": 7.5,
-      "speedup": 25.7,
-      "tool_calls_saved": 4,
-      "tokens_saved": 500,
-      "output_lines": 13,
-      "output_chars": 238
+      "directives": 10,
+      "perseus_cold_median_s": 0.294,
+      "perseus_warm_median_s": 0.289,
+      "perseus_cold_all_s": [
+        0.295,
+        0.286,
+        0.294
+      ],
+      "perseus_warm_all_s": [
+        0.286,
+        0.289,
+        0.296
+      ],
+      "llm_estimate_s": 12.5,
+      "speedup": 43.3,
+      "tool_calls_saved": 9,
+      "tokens_saved": 1000,
+      "output_lines": 27,
+      "output_chars": 442
     },
     {
       "name": "thorough",
-      "directives": 12,
-      "perseus_cold_s": 0.311,
-      "perseus_warm_s": 0.302,
-      "llm_estimate_s": 12.5,
-      "speedup": 41.4,
-      "tool_calls_saved": 11,
-      "tokens_saved": 1200,
-      "output_lines": 65,
-      "output_chars": 1445
+      "directives": 20,
+      "perseus_cold_median_s": 0.311,
+      "perseus_warm_median_s": 0.31,
+      "perseus_cold_all_s": [
+        0.324,
+        0.305,
+        0.311
+      ],
+      "perseus_warm_all_s": [
+        0.312,
+        0.3,
+        0.31
+      ],
+      "llm_estimate_s": 20.0,
+      "speedup": 64.6,
+      "tool_calls_saved": 19,
+      "tokens_saved": 2000,
+      "output_lines": 77,
+      "output_chars": 1859
     },
     {
-      "name": "enterprise",
-      "directives": 26,
-      "perseus_cold_s": 0.32,
-      "perseus_warm_s": 0.317,
-      "llm_estimate_s": 25.0,
-      "speedup": 78.8,
-      "tool_calls_saved": 25,
-      "tokens_saved": 2600,
-      "output_lines": 112,
-      "output_chars": 2482
+      "name": "heavy",
+      "directives": 42,
+      "perseus_cold_median_s": 0.352,
+      "perseus_warm_median_s": 0.353,
+      "perseus_cold_all_s": [
+        0.369,
+        0.352,
+        0.341
+      ],
+      "perseus_warm_all_s": [
+        0.353,
+        0.351,
+        0.353
+      ],
+      "llm_estimate_s": 37.5,
+      "speedup": 106.4,
+      "tool_calls_saved": 41,
+      "tokens_saved": 4200,
+      "output_lines": 215,
+      "output_chars": 5778
+    },
+    {
+      "name": "mega",
+      "directives": 113,
+      "perseus_cold_median_s": 1.045,
+      "perseus_warm_median_s": 1.055,
+      "perseus_cold_all_s": [
+        1.16,
+        1.045,
+        1.034
+      ],
+      "perseus_warm_all_s": [
+        1.055,
+        1.061,
+        1.029
+      ],
+      "llm_estimate_s": 97.5,
+      "speedup": 92.4,
+      "tool_calls_saved": 112,
+      "tokens_saved": 11300,
+      "output_lines": 455,
+      "output_chars": 12671
+    },
+    {
+      "name": "extreme",
+      "directives": 501,
+      "perseus_cold_median_s": 1.031,
+      "perseus_warm_median_s": 1.054,
+      "perseus_cold_all_s": [
+        1.025,
+        1.031,
+        1.058
+      ],
+      "perseus_warm_all_s": [
+        1.042,
+        1.087,
+        1.054
+      ],
+      "llm_estimate_s": 420.0,
+      "speedup": 398.4,
+      "tool_calls_saved": 500,
+      "tokens_saved": 50100,
+      "output_lines": 829,
+      "output_chars": 24720
+    },
+    {
+      "name": "stress-500",
+      "directives": 500,
+      "perseus_cold_median_s": 0.28,
+      "perseus_warm_median_s": 0.283,
+      "perseus_cold_all_s": [
+        0.28,
+        0.279,
+        0.282
+      ],
+      "perseus_warm_all_s": [
+        0.291,
+        0.283,
+        0.282
+      ],
+      "llm_estimate_s": 420.0,
+      "speedup": 1486.7,
+      "tool_calls_saved": 499,
+      "tokens_saved": 50000,
+      "output_lines": 501,
+      "output_chars": 15519
+    },
+    {
+      "name": "stress-1000",
+      "directives": 1000,
+      "perseus_cold_median_s": 0.287,
+      "perseus_warm_median_s": 0.29,
+      "perseus_cold_all_s": [
+        0.287,
+        0.291,
+        0.286
+      ],
+      "perseus_warm_all_s": [
+        0.281,
+        0.29,
+        0.296
+      ],
+      "llm_estimate_s": 837.5,
+      "speedup": 2887.8,
+      "tool_calls_saved": 999,
+      "tokens_saved": 100000,
+      "output_lines": 1001,
+      "output_chars": 31021
+    },
+    {
+      "name": "stress-2000",
+      "directives": 2000,
+      "perseus_cold_median_s": 0.296,
+      "perseus_warm_median_s": 0.295,
+      "perseus_cold_all_s": [
+        0.327,
+        0.296,
+        0.295
+      ],
+      "perseus_warm_all_s": [
+        0.303,
+        0.295,
+        0.295
+      ],
+      "llm_estimate_s": 1670.0,
+      "speedup": 5658.4,
+      "tool_calls_saved": 1999,
+      "tokens_saved": 200000,
+      "output_lines": 2001,
+      "output_chars": 62021
+    },
+    {
+      "name": "stress-10000",
+      "directives": 10000,
+      "perseus_cold_median_s": 0.367,
+      "perseus_warm_median_s": 0.356,
+      "perseus_cold_all_s": [
+        0.371,
+        0.367,
+        0.365
+      ],
+      "perseus_warm_all_s": [
+        0.355,
+        0.374,
+        0.356
+      ],
+      "llm_estimate_s": 8337.5,
+      "speedup": 23402.4,
+      "tool_calls_saved": 9999,
+      "tokens_saved": 1000000,
+      "output_lines": 10001,
+      "output_chars": 310022
     }
-  ],
-  "model": {
-    "tool_call_seconds": 2.5,
-    "parallel_factor": 3
-  }
+  ]
 }
