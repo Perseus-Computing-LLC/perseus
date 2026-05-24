@@ -10,6 +10,8 @@ Creates a dramatic terminal demo of Perseus's filesystem-based coordination:
   4. Verifies zero lost tasks, correct collision counting
   5. Benchmarks Perseus render speed (pre-resolve vs hypothetical MCP)
 
+Colors match perseus.observer cyberpunk palette exactly via 24-bit ANSI.
+
 Usage:
     python3 scripts/showhn-swarm-demo.py
 
@@ -33,14 +35,47 @@ WORKSPACE = Path("/tmp/showhn-perseus-swarm")
 NUM_AGENTS = 120
 NUM_TASKS = 120
 
-COLORS = {
-    "cyan": "\033[36m", "green": "\033[32m", "yellow": "\033[33m",
-    "red": "\033[31m", "magenta": "\033[35m", "reset": "\033[0m",
-    "bold": "\033[1m", "dim": "\033[2m",
+# Site palette — 24-bit ANSI true color, exact match with perseus.observer
+SITE = {
+    "bg":      (0x0c, 0x08, 0x14),   # deep violet-black
+    "magenta": (0xc7, 0x7d, 0xff),   # primary accent — agents, branding
+    "cyan":    (0x56, 0xe1, 0xff),   # secondary accent — success, writes
+    "bright":  (0xe4, 0xa8, 0xff),   # flash on write
+    "text":    (0xec, 0xe4, 0xff),   # near-white
+    "dim":     (0x9a, 0x8c, 0xc4),   # muted
+    "muted":   (0x5d, 0x50, 0x78),   # very muted
+    "warn":    (0xff, 0x6b, 0x9d),   # warning/danger
 }
 
-def c(text, color):
-    return f"{COLORS.get(color, '')}{text}{COLORS['reset']}"
+RESET = "\033[0m"
+
+def _tc(r, g, b, bg=False):
+    """24-bit ANSI truecolor: \\033[38;2;R;G;Bm (fg) or \\033[48;2;R;G;Bm (bg)"""
+    code = 48 if bg else 38
+    return "\033[{};2;{};{};{}m".format(code, r, g, b)
+
+def _col(text, name):
+    """Color text with a site palette color by name."""
+    rgb = SITE.get(name)
+    if rgb is None:
+        return text
+    return _tc(*rgb) + text + RESET
+
+# Logical-to-site color mapping
+_color_map = {
+    "green":   "cyan",     # success → cyan
+    "cyan":    "magenta",  # brand → magenta
+    "yellow":  "bright",   # claimed → bright
+    "red":     "warn",     # collisions → warn
+    "dim":     "muted",    # inactive → muted
+    "magenta": "magenta",
+    "bold":    "text",
+}
+
+def c(text, color_name):
+    """Color text using the logical→site-palette mapping."""
+    site_color = _color_map.get(color_name, color_name)
+    return _col(text, site_color)
 
 
 # ── Shared state ────────────────────────────────────────────────────────────
@@ -83,7 +118,6 @@ def setup_workspace():
             encoding="utf-8",
         )
 
-    # Perseus context
     perseus_dir = WORKSPACE / ".perseus"
     perseus_dir.mkdir()
     (perseus_dir / "context.md").write_text(
@@ -103,7 +137,6 @@ def simulate_agent(agent_id, tasks):
     lock_file = WORKSPACE / "tasks" / f".{task}.lock"
     report = {"agent": agent_id, "task": task, "status": "ok"}
 
-    # ── Claim via atomic sidecar lock ──
     try:
         fd = os.open(str(lock_file), os.O_WRONLY | os.O_CREAT | os.O_EXCL)
         os.close(fd)
@@ -113,7 +146,6 @@ def simulate_agent(agent_id, tasks):
         report["status"] = "lock_collision"
         return report
 
-    # Lock acquired — verify task still available
     content = task_file.read_text(encoding="utf-8")
     if "status: claimed" in content or "status: done" in content:
         lock_file.unlink(missing_ok=True)
@@ -122,7 +154,6 @@ def simulate_agent(agent_id, tasks):
         report["status"] = "already_claimed"
         return report
 
-    # Write claim
     claim = (
         f"# {task}\nstatus: claimed\nagent: agent-{agent_id:03d}\n"
         f"claimed: {datetime.now(timezone.utc).isoformat()}\n"
@@ -132,10 +163,8 @@ def simulate_agent(agent_id, tasks):
     with states_lock:
         agent_states[task] = "claimed"
 
-    # Simulate work
     time.sleep(random.uniform(0.001, 0.01))
 
-    # ── Complete ──
     done = (
         f"# {task}\nstatus: done\nagent: agent-{agent_id:03d}\n"
         f"claimed: {datetime.now(timezone.utc).isoformat()}\n"
@@ -172,19 +201,16 @@ def animate_swarm():
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
-    # Find perseus
     perseus = shutil.which("perseus") or str(Path(__file__).resolve().parent.parent / "perseus.py")
 
     print(f"\n{c('═' * 68, 'bold')}{c('═' * 68, 'cyan')}")
     print(f"{c('  Show HN Swarm Demo — 120 Agents, Atomic Sidecar Locks, Zero Lost Tasks', 'bold')}")
     print(f"{c('═' * 68, 'bold')}{c('═' * 68, 'cyan')}\n")
 
-    # Setup
     print(c("🏗  Setting up workspace...", "cyan"))
     tasks = setup_workspace()
     print(f"  ✓ {len(tasks)} tasks created")
 
-    # Launch — batched for dramatic animation
     print(f"\n{c('⚡ Launching 120-agent swarm...', 'yellow')}\n")
 
     stop = threading.Event()
@@ -199,13 +225,11 @@ def main():
     t_anim = threading.Thread(target=anim, daemon=True)
     t_anim.start()
 
-    # Phase 1: Show empty board
     time.sleep(0.8)
 
     t0 = time.perf_counter()
     reports = []
 
-    # Launch in 4 staggered batches with visual pauses
     batch_size = NUM_AGENTS // 4
     with ThreadPoolExecutor(max_workers=50) as ex:
         for batch_num in range(4):
@@ -216,7 +240,6 @@ def main():
                 futs[ex.submit(simulate_agent, i, tasks)] = i
             for f in as_completed(futs):
                 reports.append(f.result())
-            # Pause between batches for visual impact
             if batch_num < 3:
                 time.sleep(0.5)
 
@@ -231,7 +254,6 @@ def main():
     print(f"  {c(f'{lc} lock collisions (expected: 0)', 'red' if lc else 'green')}")
     print(f"  {c(f'{ac} already-claimed', 'yellow') if ac else ''}")
 
-    # Verify
     print(f"\n{c('🔍 Integrity check...', 'cyan')}")
     completed = sum(1 for f in (WORKSPACE / "tasks").glob("*.md")
                     if "status: done" in f.read_text(encoding="utf-8"))
@@ -240,9 +262,7 @@ def main():
     print(f"  {c(f'✓ {completed} done', 'green')}  {c(f'{claimed} claimed-only', 'yellow')}  "
           f"{c(f'{NUM_TASKS - completed - claimed} todo', 'dim')}")
 
-    # Render speed
     print(f"\n{c('⚡ Render speed benchmark...', 'cyan')}")
-    # Warm-up
     subprocess.run([perseus, "render", ".perseus/context.md", "--format", "md"],
                    capture_output=True, cwd=str(WORKSPACE))
     times = []
@@ -258,7 +278,6 @@ def main():
     print(f"  {c(f'✓ Best: {best*1000:.1f}ms, Avg: {sum(times)/len(times)*1000:.1f}ms', 'green')}")
     print(f"  {c(f'⚡ {speedup:,.0f}× faster than {NUM_TASKS} MCP tool calls (~{mcp_time:.0f}s)', 'cyan')}")
 
-    # Summary
     print(f"\n{c('═' * 68, 'cyan')}")
     print(f"  Agents: {c(str(NUM_AGENTS), 'green')}  |  Done: {c(str(completed), 'green')}  "
           f"|  Collisions: {c(str(collision_count[0]), 'yellow')}  |  Render: {c(f'{best*1000:.0f}ms', 'green')}")
