@@ -184,7 +184,7 @@ def main():
     tasks = setup_workspace()
     print(f"  ✓ {len(tasks)} tasks created")
 
-    # Launch
+    # Launch — batched for dramatic animation
     print(f"\n{c('⚡ Launching 120-agent swarm...', 'yellow')}\n")
 
     stop = threading.Event()
@@ -199,12 +199,26 @@ def main():
     t_anim = threading.Thread(target=anim, daemon=True)
     t_anim.start()
 
+    # Phase 1: Show empty board
+    time.sleep(0.8)
+
     t0 = time.perf_counter()
     reports = []
+
+    # Launch in 4 staggered batches with visual pauses
+    batch_size = NUM_AGENTS // 4
     with ThreadPoolExecutor(max_workers=50) as ex:
-        futs = {ex.submit(simulate_agent, i, tasks): i for i in range(NUM_AGENTS)}
-        for f in as_completed(futs):
-            reports.append(f.result())
+        for batch_num in range(4):
+            start_idx = batch_num * batch_size
+            end_idx = min((batch_num + 1) * batch_size, NUM_AGENTS)
+            futs = {}
+            for i in range(start_idx, end_idx):
+                futs[ex.submit(simulate_agent, i, tasks)] = i
+            for f in as_completed(futs):
+                reports.append(f.result())
+            # Pause between batches for visual impact
+            if batch_num < 3:
+                time.sleep(0.5)
 
     stop.set()
     t_anim.join(timeout=1)
