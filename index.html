@@ -1877,21 +1877,15 @@ Branch: <span class="s">feat/billing-v2</span>
       </div>
 
       <div class="stat">
-        <div class="skey">Throughput</div>
-        <div class="sval">1M<span class="unit"> directives</span></div>
-        <div class="sdesc">resolved in <b>22 seconds</b> — 22μs per directive, zero crashes, zero memory growth. The ceiling is file I/O, not Perseus.</div>
+        <div class="skey">Token economics</div>
+        <div class="sval">$16<span class="unit">K/month</span></div>
+        <div class="sdesc">saved at swarm scale on Claude Opus vs discovering the same context via runtime tool calls — 10× cheaper per session at every scale, on every provider. per-session: $4.50 vs $45.</div>
       </div>
 
       <div class="stat">
         <div class="skey">Stability</div>
         <div class="sval"><span data-live="tests">~600</span><span class="unit"> tests</span></div>
         <div class="sdesc">All green on CI, stable release. The boring kind of reliable.</div>
-      </div>
-
-      <div class="stat">
-        <div class="skey">Token economics</div>
-        <div class="sval">10<span class="unit">× cheaper</span></div>
-        <div class="sdesc">per session vs runtime discovery. At 10K directives, Perseus resolves context for <b>~$4.50</b> of Claude Opus tokens vs <b>$45</b> burning tokens on tool-call round-trips. The ratio holds at every scale, on every provider.</div>
       </div>
     </div>
   </div>
