@@ -19,7 +19,7 @@
 pip install perseus-ctx
 ```
 
-No pip? Single-file drop-in:
+No pip? Single-file drop-in — `perseus.py` is a compiled build artifact from the modular `src/perseus/` tree, not a hand-maintained monolith:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/tcconnally/perseus/main/perseus.py \
@@ -78,10 +78,11 @@ Keep it fresh with `cron`, `launchd`, `systemd`, or `perseus watch` — see the 
 
 ## Proof
 
-- **40× speedup** — 500 `@query` directives render in 0.28s warm (vs 11.5s cold) with `@cache ttl=300`. Warm render time is **constant** regardless of directive count.
-- **1,000,000 directives in 22 seconds** — 22μs per directive, 31 MB file, 3M output lines, zero crashes. The ceiling is file I/O, not Perseus logic.
-- **120-agent swarm, 0 failures** — 30 developers × 4 agents each, 150 concurrent checkpoint writes in 9.7s on a shared store. Atomic `O_CREAT | O_EXCL` locking — zero collisions, zero corruption.
+- **40× speedup** — 500 `@query` directives render in 0.28s warm (vs 11.5s cold) with `@cache ttl=300`. Cache backend: local filesystem JSON lookups (one file per directive, SHA-256 keyed). Warm render time is **constant** regardless of directive count.
+- **1,000,000 directives in 22 seconds** — 22μs per directive (lightweight variable/static substitutions — `@env`, `@date`, simple `@read`; no subprocess I/O). 31 MB file, 3M output lines, zero crashes. The ceiling is file I/O, not Perseus logic.
+- **120-agent swarm, 0 failures** — 30 developers × 4 agents each, 150 concurrent checkpoint writes in 9.7s on a **local NVMe filesystem** with atomic `O_CREAT | O_EXCL` locking — zero collisions, zero corruption. Network filesystems (NFS, SMB) require careful lock configuration; see [Caveats](#caveats).
 - **573 tests passing** — every directive, parser edge case, lock contention scenario, trust gate, and context-overflow guard has coverage.
+- **Compile-before-context validated** — Perseus resolves all directives in a single ~0.3s render pass, vs an estimated 7–25s for an LLM discovering the same information via tool calls. The gap widens with complexity: [26× → 79× faster](benchmark/edge-bench/).
 
 ![Perseus Cold vs Warm — @cache eliminates subprocess cost](https://raw.githubusercontent.com/tcconnally/perseus/main/benchmark/infographic/perseus-cold-vs-warm.svg)
 
@@ -97,6 +98,14 @@ Perseus is tested against edge cases that challenge the "resolve before context"
 - **Integrity drift** — Optional `integrity_check` captures file mtimes before render and warns if any file changed mid-resolution.
 
 [33 edge-case tests](tests/test_edge_cases.py) cover circular dependencies, race conditions, symlink escapes, and context overflow. These four config knobs live under `render:` in `~/.perseus/config.yaml`.
+
+### Caveats
+
+Perseus reads from a live filesystem — there is no snapshot isolation unless you enable `integrity_check`. Files can change between directive resolutions. The render output reflects whatever was on disk at the moment each directive resolved, **not** a single atomic point-in-time. This is the right tradeoff for a zero-dependency pre-processor (zero overhead by default, check when it matters), but it is not a database transaction.
+
+The `O_CREAT | O_EXCL` checkpoint locking is atomic on local POSIX filesystems. Network filesystems (NFS < v4, SMB, cloud mounts) may not honor these semantics — if you run a multi-agent relay across machines, use a local disk or a filesystem with verified atomic-create support.
+
+`perseus.py` is ~10,600 lines. It is a compiled build artifact produced by `scripts/build.py` from the modular `src/perseus/` tree. It is not hand-maintained as a single file. The source modules are the canonical form.
 
 ---
 
@@ -145,7 +154,7 @@ Full directive reference: [`docs/DIRECTIVES.md`](./docs/DIRECTIVES.md) (20 direc
 
 ## Session Waypoints
 
-The Fates cut the thread when the connection drops. Waypoints are how you pick it back up.
+If an agent session crashes or a connection drops, Waypoints preserve the execution state.
 
 ```bash
 perseus checkpoint \
@@ -161,7 +170,7 @@ The next session recovers immediately with `perseus recover` — workspace-aware
 
 ## Multi-Agent Coordination
 
-Checkpoints aren't just for session recovery — they're the backbone of multi-agent relay. Each developer runs 3–5 AI agents that coordinate internally via checkpoint handoff. Clusters talk to each other through shared inbox and agora task boards.
+Because Perseus outputs flat files and writes checkpoints to disk, downstream systems can build coordination on top of it without Perseus itself being an orchestration platform. The checkpoint store is namespaced and lock-protected — agents read each other's latest state from the filesystem rather than a message bus. Teams have extended this pattern to multi-agent relay, shared inboxes, and agora task boards.
 
 ```
 dev-01: [architect → implementer → reviewer → tester]  ─┐
