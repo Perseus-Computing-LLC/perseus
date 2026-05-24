@@ -81,9 +81,22 @@ Keep it fresh with `cron`, `launchd`, `systemd`, or `perseus watch` — see the 
 - **40× speedup** — 500 `@query` directives render in 0.28s warm (vs 11.5s cold) with `@cache ttl=300`. Warm render time is **constant** regardless of directive count.
 - **1,000,000 directives in 22 seconds** — 22μs per directive, 31 MB file, 3M output lines, zero crashes. The ceiling is file I/O, not Perseus logic.
 - **120-agent swarm, 0 failures** — 30 developers × 4 agents each, 150 concurrent checkpoint writes in 9.7s on a shared store. Atomic `O_CREAT | O_EXCL` locking — zero collisions, zero corruption.
-- **540 tests passing** — every directive, parser edge case, lock contention scenario, and trust gate has coverage.
+- **573 tests passing** — every directive, parser edge case, lock contention scenario, trust gate, and context-overflow guard has coverage.
 
 ![Perseus Cold vs Warm — @cache eliminates subprocess cost](https://raw.githubusercontent.com/tcconnally/perseus/main/benchmark/infographic/perseus-cold-vs-warm.svg)
+
+---
+
+## Hardened
+
+Perseus is tested against edge cases that challenge the "resolve before context" claim:
+
+- **Workspace boundaries** — Symlink escapes (direct, relative, chained, to `/etc`) are all blocked. The trust-gate resolves symlinks to their real target before checking boundaries.
+- **Context overflow protection** — `@read` and `@include` warn and truncate when files exceed `max_read_bytes` / `max_include_bytes` (512 KB default, `None` for unlimited).
+- **Transitive resolution** — `@include` on `.md` files recursively renders directives up to `max_include_depth` (default 5), with cycle detection.
+- **Integrity drift** — Optional `integrity_check` captures file mtimes before render and warns if any file changed mid-resolution.
+
+[33 edge-case tests](tests/test_edge_cases.py) cover circular dependencies, race conditions, symlink escapes, and context overflow. These four config knobs live under `render:` in `~/.perseus/config.yaml`.
 
 ---
 
@@ -212,6 +225,7 @@ Everything else lives in `docs/`:
 - [**Performance Benchmarks**](./docs/PERFORMANCE.md) — Scaling data, cold vs. warm, enterprise profiles
 - [**Container Runtime**](./docs/CONTAINER.md) — Docker and compose deployment
 - [**Contributing**](./docs/CONTRIBUTING.md) — How to contribute code, directives, and tests
+- [**Edge-Case Vetting**](./tests/test_edge_cases.py) — 33 tests covering circular deps, race conditions, symlink escapes, and context overflow
 - [**Product Contract**](./docs/PRODUCT_CONTRACT.md) — What Perseus guarantees and what it doesn't
 - [**Roadmap**](./ROADMAP.md) — 22 completed phases, 63 features shipped
 - [**VSCode Extension**](./editors/vscode/README.md) — LSP server + editor integration
