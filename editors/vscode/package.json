@@ -1,9 +1,9 @@
 {
   "name": "perseus-vscode",
-  "displayName": "Perseus",
+  "displayName": "Perseus — Live Context Engine",
   "description": "Live preview and diagnostics for Perseus context-engine directives in markdown files.",
   "version": "0.1.0",
-  "publisher": "perseus",
+  "publisher": "tcconnally",
   "license": "MIT",
   "repository": {
     "type": "git",
