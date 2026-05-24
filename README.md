@@ -86,7 +86,7 @@ Keep it fresh with `cron`, `launchd`, `systemd`, or `perseus watch` — see the 
 - **10,000 directives in 0.36 seconds** — 35.6μs per directive. 23,402× faster than an LLM discovering the same information via tool calls (estimated 2.3 hours, assuming 2.5s per tool-call round-trip with 3-way batching). [Full benchmarks →](benchmark/edge-bench/)
 - **1,000,000 directives in 22 seconds** — 22μs per directive (lightweight variable/static substitutions — `@env`, `@date`, simple `@read`; no subprocess I/O). 31 MB file, 3M output lines, zero crashes. The ceiling is file I/O, not Perseus logic.
 - **120-agent swarm, 0 failures** — 30 developers × 4 agents each, 150 concurrent checkpoint writes in 9.7s on a **local NVMe filesystem** with atomic `O_CREAT | O_EXCL` locking — zero collisions, zero corruption. Network filesystems (NFS, SMB) require careful lock configuration; see [Caveats](#caveats).
-- **573 tests passing** — every directive, parser edge case, lock contention scenario, trust gate, and context-overflow guard has coverage.
+- **nearly 600 tests, all passing** — every directive, parser edge case, lock contention scenario, trust gate, and context-overflow guard has coverage.
 - **Compile-before-context validated** — Perseus resolves all directives in a single ~0.3s render pass, vs an estimated 7–8,338s for an LLM discovering the same information via tool calls. The gap widens with complexity: [26× → 23,402× faster](benchmark/edge-bench/).
 
 ![Perseus Cold vs Warm — @cache eliminates subprocess cost](https://raw.githubusercontent.com/tcconnally/perseus/main/benchmark/infographic/perseus-cold-vs-warm.svg)
@@ -110,7 +110,7 @@ Perseus reads from a live filesystem — there is no snapshot isolation unless y
 
 The `O_CREAT | O_EXCL` checkpoint locking is atomic on local POSIX filesystems. Network filesystems (**NFS** < v4, **SMB**, cloud mounts) may not honor these semantics — if you run a multi-agent relay across machines, use a local disk or a filesystem with verified atomic-create support.
 
-`perseus.py` is ~10,600 lines. It is a compiled build artifact produced by `scripts/build.py` from the modular `src/perseus/` tree. It is not hand-maintained as a single file. The source modules are the canonical form.
+`perseus.py` is ~12,000 lines. It is a compiled build artifact produced by `scripts/build.py` from the modular `src/perseus/` tree. It is not hand-maintained as a single file. The source modules are the canonical form.
 
 ---
 
