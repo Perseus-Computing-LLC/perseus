@@ -6,7 +6,7 @@
 <meta name="description" content="Perseus is a live context engine that resolves your environment before the context window opens. Works with any assistant that reads a file.">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+<link rel="preconnect" href="https://fonts.gstatic.com">
 <style>/* cyrillic-ext */
 @font-face {
   font-family: 'Cormorant Garamond';
@@ -936,6 +936,30 @@
     font-weight: 500;
   }
 
+  .hero-companion {
+    margin: 18px 0 28px;
+    padding: 14px 16px 14px 18px;
+    font-size: 14px;
+    line-height: 1.55;
+    color: var(--text-dim);
+    border-left: 2px solid var(--accent-2);
+    background: linear-gradient(90deg, rgba(86, 225, 255, 0.04), transparent 60%);
+  }
+  .hero-companion b { color: var(--text); font-weight: 500; }
+  .hero-companion .hc-mark {
+    display: inline-block;
+    font-family: var(--mono);
+    color: var(--accent-2);
+    margin-right: 8px;
+    text-shadow: 0 0 12px rgba(86, 225, 255, 0.5);
+  }
+  .hero-companion .hc-link {
+    color: var(--accent-2);
+    border-bottom: 1px dotted rgba(86, 225, 255, 0.4);
+    transition: color .18s ease, border-color .18s ease;
+  }
+  .hero-companion .hc-link:hover { color: var(--accent-bright); border-bottom-color: var(--accent); }
+
   /* Install command block */
   .install {
     display: flex;
@@ -1339,7 +1363,280 @@
   }
   .flow-lede p .accent { color: var(--accent); font-style: normal; font-family: var(--mono); font-size: 0.55em; vertical-align: middle; letter-spacing: 0.2em; text-transform: uppercase; margin-right: 14px; }
 
-  /* ---------- Stats ---------- */
+  /* ---------- Triad (Three Components) ---------- */
+  .triad {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+  }
+  @media (max-width: 980px) { .triad { grid-template-columns: 1fr; } }
+
+  .triad-card {
+    background: var(--bg);
+    padding: clamp(28px, 3vw, 40px) clamp(24px, 2.6vw, 36px);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+  }
+  .triad-card::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse 80% 60% at 100% 0%, rgba(199, 125, 255, 0.07), transparent 70%);
+    z-index: -1;
+    pointer-events: none;
+  }
+  .triad-card.is-oracle::before {
+    background: radial-gradient(ellipse 80% 60% at 100% 0%, rgba(86, 225, 255, 0.07), transparent 70%);
+  }
+
+  .triad-card .glyph {
+    width: 44px;
+    height: 44px;
+    color: var(--accent);
+    margin-bottom: 4px;
+  }
+  .triad-card.is-oracle .glyph { color: var(--accent-2); }
+
+  .triad-card .role {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .triad-card h3 {
+    font-family: var(--serif);
+    font-size: 28px;
+    line-height: 1.05;
+    letter-spacing: -0.012em;
+    margin: 0;
+    color: var(--text);
+    font-weight: 500;
+  }
+  .triad-card h3 em {
+    font-style: italic;
+    color: var(--accent);
+    font-weight: 400;
+  }
+  .triad-card.is-oracle h3 em { color: var(--accent-2); }
+  .triad-card p {
+    color: var(--text-dim);
+    font-size: 14.5px;
+    line-height: 1.6;
+    margin: 0;
+  }
+  .triad-card p b { color: var(--text); font-weight: 500; }
+  .triad-card .cmd {
+    margin-top: auto;
+    padding: 10px 14px;
+    background: var(--code-bg);
+    border: 1px solid var(--line-strong);
+    border-radius: 2px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--accent-bright);
+    letter-spacing: 0.02em;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+  .triad-card.is-oracle .cmd { color: var(--accent-2); }
+  .triad-card .cmd::before { content: "$ "; color: var(--text-muted); }
+
+  /* ---------- Constellation (broader feature surfaces) ---------- */
+  .constellation-lede {
+    margin-top: 56px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    text-align: center;
+  }
+  .constellation-lede::before, .constellation-lede::after {
+    content: "";
+    display: inline-block;
+    width: 80px;
+    height: 1px;
+    background: var(--line-strong);
+    vertical-align: middle;
+    margin: 0 14px;
+  }
+  .constellation {
+    margin-top: 24px;
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+  }
+  @media (max-width: 980px) { .constellation { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 560px) { .constellation { grid-template-columns: repeat(2, 1fr); } }
+
+  .const-cell {
+    background: var(--bg);
+    padding: 22px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    transition: background .2s ease;
+  }
+  .const-cell:hover { background: var(--bg-2); }
+  .const-cell .greek {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 20px;
+    color: var(--accent);
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+  .const-cell.cyan .greek { color: var(--accent-2); }
+  .const-cell .name {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text);
+  }
+  .const-cell .desc {
+    font-size: 12.5px;
+    color: var(--text-dim);
+    line-height: 1.5;
+  }
+
+  /* ---------- Featured stat with swarm viz ---------- */
+  .featured-stat {
+    display: grid;
+    grid-template-columns: 0.85fr 1.15fr;
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    margin-bottom: 1px;
+  }
+  @media (max-width: 980px) { .featured-stat { grid-template-columns: 1fr; } }
+
+  .featured-stat .fs-text {
+    background: var(--bg);
+    padding: clamp(32px, 3.4vw, 48px);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .featured-stat .skey {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  .featured-stat .sval {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: clamp(66px, 8vw, 104px);
+    line-height: 0.92;
+    letter-spacing: -0.04em;
+    color: var(--text);
+    text-shadow: 0 0 30px rgba(199, 125, 255, 0.18);
+  }
+  .featured-stat .sval .unit { color: var(--accent); font-size: 0.4em; vertical-align: baseline; margin-left: 6px; letter-spacing: 0; }
+  .featured-stat .sdesc {
+    color: var(--text-dim);
+    font-size: 15px;
+    line-height: 1.6;
+    margin: 4px 0 0;
+    max-width: 38ch;
+  }
+  .featured-stat .sdesc b { color: var(--text); font-weight: 500; }
+  .featured-stat .sfoot {
+    margin-top: 10px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .featured-stat .chip {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent-2);
+    border: 1px solid rgba(86, 225, 255, 0.25);
+    padding: 4px 9px;
+    border-radius: 2px;
+  }
+
+  /* Swarm visualization */
+  .swarm-viz {
+    background: var(--code-bg);
+    position: relative;
+    overflow: hidden;
+    min-height: 360px;
+    background-image:
+      radial-gradient(ellipse 70% 60% at 50% 50%, rgba(122, 46, 196, 0.16), transparent 70%),
+      linear-gradient(rgba(199, 125, 255, 0.045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(199, 125, 255, 0.045) 1px, transparent 1px);
+    background-size: 100% 100%, 36px 36px, 36px 36px;
+  }
+  .swarm-viz svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+  .swarm-hud {
+    position: absolute;
+    inset: 0;
+    padding: 18px 22px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    pointer-events: none;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .swarm-hud .row { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .swarm-hud .pair { color: var(--text-muted); }
+  .swarm-hud .pair .v { color: var(--text); margin-left: 6px; font-variant-numeric: tabular-nums; }
+  .swarm-hud .pair.ok .v { color: var(--accent-2); text-shadow: 0 0 10px rgba(86, 225, 255, 0.45); }
+  .swarm-hud .pair.warn .v { color: var(--text-muted); }
+  .swarm-hud .legend {
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    color: var(--text-muted);
+    display: flex;
+    gap: 14px;
+    align-items: center;
+  }
+  .swarm-hud .legend .swatch {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  .swarm-hud .legend .swatch.agent { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+  .swarm-hud .legend .swatch.write { background: var(--accent-2); box-shadow: 0 0 6px var(--accent-2); }
+  .swarm-hud .bar {
+    height: 2px;
+    background: rgba(196, 168, 255, 0.12);
+    margin-top: 8px;
+    position: relative;
+    overflow: hidden;
+  }
+  .swarm-hud .bar i {
+    position: absolute; left: 0; top: 0; bottom: 0;
+    background: linear-gradient(90deg, var(--accent-2), var(--accent));
+    width: 0%;
+    box-shadow: 0 0 12px rgba(86, 225, 255, 0.5);
+  }
+
   .stats {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
@@ -1349,6 +1646,9 @@
   }
   @media (max-width: 980px) { .stats { grid-template-columns: repeat(2, 1fr); } }
   @media (max-width: 560px) { .stats { grid-template-columns: 1fr; } }
+  .stats.three-up { grid-template-columns: repeat(3, 1fr); }
+  @media (max-width: 980px) { .stats.three-up { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 560px) { .stats.three-up { grid-template-columns: 1fr; } }
   .stat {
     background: var(--bg);
     padding: clamp(28px, 3vw, 40px) clamp(24px, 2.6vw, 36px);
@@ -1605,6 +1905,7 @@
     </a>
     <nav>
       <a href="#how" class="nav-link">How it works</a>
+      <a href="#triad" class="nav-link">The Triad</a>
       <a href="#proof" class="nav-link">Benchmarks</a>
       <a href="#compat" class="nav-link">Assistants</a>
       <a href="#start" class="nav-link">Start</a>
@@ -1620,7 +1921,7 @@
       <div>
         <div class="hero-eyebrow reveal">
           <span>Live context engine</span>
-          <span class="ver">v1.0.2 · MIT</span>
+          <span class="ver">v1.0.3 · MIT</span>
         </div>
 
         <h1 class="reveal">
@@ -1634,6 +1935,12 @@
           <code style="font-family:var(--mono);color:var(--accent-bright);font-size:0.92em;">@query "git log -5"</code>
           are rendered to facts at build time, so the assistant reads a document
           that was already true. Works with any tool that reads a file.
+        </p>
+
+        <p class="hero-companion reveal">
+          <span class="hc-mark" aria-hidden="true">⌘</span>
+          Built as a companion to <a href="https://hermes-agent.nousresearch.com" class="hc-link">Hermes Agent</a>.
+          Designed to be <b>assistant-agnostic</b> — Claude Code, Cursor, Codex, Rovo Dev, anything that opens a file.
         </p>
 
         <div class="install reveal" role="group" aria-label="Install command">
@@ -1808,15 +2115,155 @@ Branch: <span class="s">feat/billing-v2</span>
   </div>
 </section>
 
+<!-- ============ TRIAD ============ -->
+<section id="triad" class="section-block">
+  <div class="wrap">
+    <header class="sec-head reveal">
+      <div class="sec-num">III &nbsp;— &nbsp;The Triad</div>
+      <h2 class="sec-title">Three tools. <em>One mirror.</em></h2>
+    </header>
+
+    <div class="triad reveal" role="list">
+      <div class="triad-card" role="listitem">
+        <svg class="glyph" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+          <circle cx="16" cy="16" r="11"></circle>
+          <circle cx="16" cy="16" r="6"></circle>
+          <path d="M16 5 L16 9 M16 23 L16 27 M5 16 L9 16 M23 16 L27 16" stroke-linecap="round"></path>
+        </svg>
+        <div class="role">The Renderer</div>
+        <h3>The polished <em>shield</em>.</h3>
+        <p>Resolves <b>@query</b>, <b>@read</b>, <b>@waypoint</b>, <b>@services</b> and friends before the assistant sees them. The output is plain markdown. No directives left for the model to chase.</p>
+        <div class="cmd">perseus render .perseus/context.md</div>
+      </div>
+
+      <div class="triad-card" role="listitem">
+        <svg class="glyph" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+          <path d="M6 6 L26 6 L26 26 L6 26 Z"></path>
+          <path d="M6 12 L26 12"></path>
+          <circle cx="10" cy="9" r="0.8" fill="currentColor"></circle>
+          <path d="M10 17 L22 17 M10 21 L18 21" stroke-linecap="round"></path>
+        </svg>
+        <div class="role">Session Waypoints</div>
+        <h3>Pick up <em>where the thread snapped</em>.</h3>
+        <p>Write a checkpoint at any natural pause; <b>perseus recover</b> finds the right one for your workspace; <b>perseus diff</b> shows what changed between two pauses. Continuity, without re-orientation.</p>
+        <div class="cmd">perseus checkpoint --task ... --next ...</div>
+      </div>
+
+      <div class="triad-card is-oracle" role="listitem">
+        <svg class="glyph" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+          <path d="M16 4 C9 4 4 9 4 16 C4 23 9 28 16 28 C23 28 28 23 28 16 C28 9 23 4 16 4 Z"></path>
+          <path d="M11 13 Q16 18 21 13 M11 19 Q16 24 21 19" stroke-linecap="round"></path>
+          <circle cx="16" cy="10" r="1.2" fill="currentColor" stroke="none"></circle>
+        </svg>
+        <div class="role">Pythia · Tool Oracle</div>
+        <h3>Ranked paths, <em>with a reason</em>.</h3>
+        <p>Given a task and the current environment, Pythia surfaces the highest-utility skill or tool and tells you <i>why</i>. No extra model required. The loop closes inside the same context window.</p>
+        <div class="cmd">perseus suggest "deploy the staging container"</div>
+      </div>
+    </div>
+
+    <div class="constellation-lede reveal">The wider constellation</div>
+    <div class="constellation reveal" role="list">
+      <div class="const-cell" role="listitem">
+        <div class="greek">Mōnēmē</div>
+        <div class="name">@memory</div>
+        <div class="desc">Narrative project memory. Federates across workspaces.</div>
+      </div>
+      <div class="const-cell" role="listitem">
+        <div class="greek">Daedalus</div>
+        <div class="name">@drift</div>
+        <div class="desc">Self-rating oracle. Detects when recommendations drift.</div>
+      </div>
+      <div class="const-cell" role="listitem">
+        <div class="greek">Agora</div>
+        <div class="name">@agora</div>
+        <div class="desc">Live task board rendered from <code>tasks/</code>.</div>
+      </div>
+      <div class="const-cell cyan" role="listitem">
+        <div class="greek">Hermes</div>
+        <div class="name">@inbox</div>
+        <div class="desc">Point-to-point messages between agents.</div>
+      </div>
+      <div class="const-cell cyan" role="listitem">
+        <div class="greek">Synthēsis</div>
+        <div class="name">perseus synthesize</div>
+        <div class="desc">Cited drafts. Uncited claims are dropped.</div>
+      </div>
+      <div class="const-cell cyan" role="listitem">
+        <div class="greek">Graeae</div>
+        <div class="name">perseus serve —lsp</div>
+        <div class="desc">LSP server &amp; VSCode extension. Hover-preview directives.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
 <!-- ============ PROOF / STATS ============ -->
 <section id="proof" class="section-block">
   <div class="wrap">
     <header class="sec-head reveal">
-      <div class="sec-num">III &nbsp;— &nbsp;The Receipts</div>
+      <div class="sec-num">IV &nbsp;— &nbsp;The Receipts</div>
       <h2 class="sec-title">Numbers from the bench, <em>not the pitch deck.</em></h2>
     </header>
 
-    <div class="stats reveal">
+    <div class="featured-stat reveal" aria-label="Concurrent writer benchmark">
+      <div class="fs-text">
+        <div class="skey">Concurrent writers</div>
+        <div class="sval">120<span class="unit">agents</span></div>
+        <p class="sdesc">writing simultaneously to the checkpoint store. <b>150 writes in 9.7s</b>. Zero failures, zero lock collisions. Built for swarms — every agent in the cohort gets a clean reflection.</p>
+        <div class="sfoot">
+          <span class="chip">0 failures</span>
+          <span class="chip">0 collisions</span>
+          <span class="chip">9.7s wall</span>
+        </div>
+      </div>
+      <div class="swarm-viz" id="swarm-viz" aria-hidden="true">
+        <svg viewBox="0 0 600 400" preserveAspectRatio="xMidYMid meet">
+          <defs>
+            <radialGradient id="sw-core" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stop-color="#56e1ff" stop-opacity="0.85"></stop>
+              <stop offset="40%" stop-color="#c77dff" stop-opacity="0.35"></stop>
+              <stop offset="100%" stop-color="#c77dff" stop-opacity="0"></stop>
+            </radialGradient>
+            <filter id="sw-glow" x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur stdDeviation="3.5" result="b"></feGaussianBlur>
+              <feMerge><feMergeNode in="b"></feMergeNode><feMergeNode in="SourceGraphic"></feMergeNode></feMerge>
+            </filter>
+          </defs>
+
+          <!-- core: the checkpoint store -->
+          <g transform="translate(300 200)">
+            <circle r="70" fill="url(#sw-core)"></circle>
+            <circle r="34" fill="none" stroke="#56e1ff" stroke-width="1" stroke-opacity="0.55" id="sw-ring-a"></circle>
+            <circle r="22" fill="none" stroke="#c77dff" stroke-width="1" stroke-opacity="0.7" id="sw-ring-b"></circle>
+            <circle r="10" fill="#0c0814" stroke="#c77dff" stroke-width="1.2"></circle>
+            <text y="4" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="8" fill="#56e1ff" letter-spacing="1.5">STORE</text>
+          </g>
+
+          <g id="sw-rays" stroke-linecap="round"></g>
+          <g id="sw-agents"></g>
+        </svg>
+        <div class="swarm-hud">
+          <div class="row">
+            <div class="pair">writes <span class="v" id="sw-writes">000</span><span style="color:var(--text-muted)">/150</span></div>
+            <div class="pair">elapsed <span class="v" id="sw-elapsed">0.00s</span></div>
+            <div class="pair ok">status <span class="v" id="sw-status">RACING</span></div>
+          </div>
+          <div>
+            <div class="row">
+              <div class="legend">
+                <span><span class="swatch agent"></span>agent</span>
+                <span><span class="swatch write"></span>write</span>
+              </div>
+              <div class="pair warn">collisions <span class="v" id="sw-coll">0</span></div>
+            </div>
+            <div class="bar"><i id="sw-bar"></i></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stats three-up reveal">
       <div class="stat">
         <div class="skey">Warm renders</div>
         <div class="sval">40<span class="unit">×</span></div>
@@ -1824,21 +2271,15 @@ Branch: <span class="s">feat/billing-v2</span>
       </div>
 
       <div class="stat">
-        <div class="skey">Concurrent writers</div>
-        <div class="sval">120<span class="unit"> agents</span></div>
-        <div class="sdesc">writing simultaneously. <b>150 writes in 9.7s</b>, zero failures, zero lock collisions. Built for swarms.</div>
-      </div>
-
-      <div class="stat">
-        <div class="skey">Vs. the alternative</div>
-        <div class="sval">10K<span class="unit"> directives</span></div>
-        <div class="sdesc">in <b>0.36s</b>. An LLM discovering the same information via tool calls would take an estimated <b>2.3 hours</b> — 23,402× slower.</div>
+        <div class="skey">Throughput</div>
+        <div class="sval">1M<span class="unit"> directives</span></div>
+        <div class="sdesc">resolved in <b>22 seconds</b> — 22μs per directive, zero crashes, zero memory growth across the run.</div>
       </div>
 
       <div class="stat">
         <div class="skey">Stability</div>
-        <div class="sval">573<span class="unit"> tests</span></div>
-        <div class="sdesc"><b>63 features shipped</b>, all green on CI. v1.0.2 stable. The boring kind of reliable.</div>
+        <div class="sval">540<span class="unit"> tests</span></div>
+        <div class="sdesc"><b>Production-grade</b>, all green on CI. v1.0.3 stable. 24 phases shipped. The boring kind of reliable.</div>
       </div>
     </div>
   </div>
@@ -1848,7 +2289,7 @@ Branch: <span class="s">feat/billing-v2</span>
 <section id="compat" class="section-block">
   <div class="wrap">
     <header class="sec-head reveal">
-      <div class="sec-num">IV &nbsp;— &nbsp;The Compatible</div>
+      <div class="sec-num">V &nbsp;— &nbsp;The Compatible</div>
       <h2 class="sec-title">If it reads a file, <em>it works.</em></h2>
     </header>
 
@@ -1906,7 +2347,7 @@ Branch: <span class="s">feat/billing-v2</span>
 <section id="start" class="section-block">
   <div class="wrap">
     <header class="sec-head reveal">
-      <div class="sec-num">V &nbsp;— &nbsp;The Start</div>
+      <div class="sec-num">VI &nbsp;— &nbsp;The Start</div>
       <h2 class="sec-title">Thirty seconds <em>from cold to warm.</em></h2>
     </header>
 
@@ -1999,6 +2440,151 @@ Branch: <span class="s">feat/billing-v2</span>
       }
     });
   });
+
+  /* ---------- Swarm visualization ---------- */
+  (function swarmInit() {
+    var viz = document.getElementById('swarm-viz');
+    if (!viz) return;
+    var svgNS = 'http://www.w3.org/2000/svg';
+    var agentsG = document.getElementById('sw-agents');
+    var raysG = document.getElementById('sw-rays');
+    var elWrites = document.getElementById('sw-writes');
+    var elElapsed = document.getElementById('sw-elapsed');
+    var elStatus = document.getElementById('sw-status');
+    var elBar = document.getElementById('sw-bar');
+    var elColl = document.getElementById('sw-coll');
+    if (!agentsG || !raysG) return;
+
+    var W = 600, H = 400, CX = 300, CY = 200;
+    var TOTAL_AGENTS = 120;
+    var TOTAL_WRITES = 150;
+    var DURATION = 9700; // ms
+    var rings = [{ r: 100, n: 32 }, { r: 138, n: 40 }, { r: 176, n: 48 }];
+
+    var agents = [];
+    var idx = 0;
+    rings.forEach(function (ring) {
+      for (var i = 0; i < ring.n; i++) {
+        var a = (i / ring.n) * Math.PI * 2 + Math.random() * 0.04;
+        var x = CX + Math.cos(a) * ring.r;
+        var y = CY + Math.sin(a) * ring.r * 0.65; // squish vertically for a less circular feel
+        var c = document.createElementNS(svgNS, 'circle');
+        c.setAttribute('cx', x.toFixed(2));
+        c.setAttribute('cy', y.toFixed(2));
+        c.setAttribute('r', '2.1');
+        c.setAttribute('fill', '#c77dff');
+        c.setAttribute('opacity', '0.55');
+        c.setAttribute('filter', 'url(#sw-glow)');
+        agentsG.appendChild(c);
+        agents.push({ x: x, y: y, el: c, lastFlash: 0 });
+        idx++;
+        if (idx >= TOTAL_AGENTS) return;
+      }
+    });
+
+    // Pre-generate a write schedule per cycle: 150 events, each with a time + agent idx
+    function buildSchedule() {
+      var s = [];
+      for (var i = 0; i < TOTAL_WRITES; i++) {
+        // ease-in slightly so the swarm "ramps up"
+        var u = Math.pow(Math.random(), 0.85);
+        s.push({ t: u * DURATION, ai: (Math.random() * agents.length) | 0, fired: false });
+      }
+      s.sort(function (a, b) { return a.t - b.t; });
+      return s;
+    }
+    var schedule = buildSchedule();
+    var cycleStart = performance.now();
+    var writes = 0;
+    var status = 'RACING';
+    var paused = false;
+    var prm = window.matchMedia('(prefers-reduced-motion: reduce)');
+    if (prm && prm.matches) paused = true;
+
+    function spawnRay(agent) {
+      // line from agent to core; very brief
+      var line = document.createElementNS(svgNS, 'line');
+      line.setAttribute('x1', agent.x);
+      line.setAttribute('y1', agent.y);
+      line.setAttribute('x2', CX);
+      line.setAttribute('y2', CY);
+      line.setAttribute('stroke', '#56e1ff');
+      line.setAttribute('stroke-width', '0.9');
+      line.setAttribute('opacity', '0.85');
+      line.setAttribute('filter', 'url(#sw-glow)');
+      raysG.appendChild(line);
+      var born = performance.now();
+      var life = 480;
+      function tick() {
+        var p = (performance.now() - born) / life;
+        if (p >= 1) { line.remove(); return; }
+        line.setAttribute('opacity', (0.85 * (1 - p)).toFixed(3));
+        requestAnimationFrame(tick);
+      }
+      tick();
+      // brief agent flash
+      agent.el.setAttribute('opacity', '1');
+      agent.el.setAttribute('r', '3.2');
+      agent.el.setAttribute('fill', '#e4a8ff');
+      agent.lastFlash = performance.now();
+    }
+
+    function loop(now) {
+      requestAnimationFrame(loop);
+      if (paused) return;
+      var t = now - cycleStart;
+
+      // fire any due events
+      for (var i = 0; i < schedule.length; i++) {
+        var ev = schedule[i];
+        if (ev.fired) continue;
+        if (ev.t <= t) {
+          ev.fired = true;
+          spawnRay(agents[ev.ai]);
+          writes++;
+          if (elWrites) elWrites.textContent = String(writes).padStart(3, '0');
+          if (elBar) elBar.style.width = ((writes / TOTAL_WRITES) * 100).toFixed(1) + '%';
+        } else {
+          break; // schedule is sorted
+        }
+      }
+
+      // agent dot decay
+      for (var j = 0; j < agents.length; j++) {
+        var ag = agents[j];
+        if (ag.lastFlash && now - ag.lastFlash < 600) {
+          var k = (now - ag.lastFlash) / 600;
+          ag.el.setAttribute('opacity', (1 - 0.45 * k).toFixed(3));
+          ag.el.setAttribute('r', (3.2 - 1.1 * k).toFixed(2));
+        } else if (ag.lastFlash) {
+          ag.el.setAttribute('opacity', '0.55');
+          ag.el.setAttribute('r', '2.1');
+          ag.el.setAttribute('fill', '#c77dff');
+          ag.lastFlash = 0;
+        }
+      }
+
+      var tShown = Math.min(t / 1000, 9.7);
+      if (elElapsed) elElapsed.textContent = tShown.toFixed(2) + 's';
+
+      if (writes >= TOTAL_WRITES && status !== 'COMPLETE') {
+        status = 'COMPLETE';
+        if (elStatus) elStatus.textContent = 'COMPLETE';
+      }
+
+      if (t > DURATION + 1400) {
+        // reset
+        cycleStart = now;
+        writes = 0;
+        schedule = buildSchedule();
+        status = 'RACING';
+        if (elStatus) elStatus.textContent = 'RACING';
+        if (elWrites) elWrites.textContent = '000';
+        if (elBar) elBar.style.width = '0%';
+      }
+    }
+    requestAnimationFrame(loop);
+  })();
 </script>
 
 
