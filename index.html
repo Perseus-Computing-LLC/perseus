@@ -602,7 +602,15 @@
     padding: 18px 20px;
     margin: 0 0 22px;
     border-radius: 3px;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
     overflow-x: auto;
+  }
+  @media (max-width: 560px) {
+    .transcript {
+      font-size: 12px;
+      padding: 14px 14px;
+    }
   }
   .transcript .you { color: var(--accent-bright); }
   .transcript .ai { color: var(--text); }
@@ -843,6 +851,30 @@
     font-size: 12.5px;
     color: var(--text-dim);
     line-height: 1.5;
+  }
+
+  /* ---------- Architecture diagram ---------- */
+  .arch-diagram {
+    position: relative;
+    border: 1px solid var(--line);
+    background: var(--bg-2);
+    border-radius: 2px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .arch-diagram svg {
+    display: block;
+    width: 100%;
+    min-width: 760px;
+    height: auto;
+  }
+
+  @media (max-width: 820px) {
+    .arch-diagram {
+      border-left: 0;
+      border-right: 0;
+      border-radius: 0;
+    }
   }
 
   /* ---------- Featured stat with swarm viz ---------- */
@@ -1483,6 +1515,7 @@
     <nav>
       <a href="#how" class="nav-link">How it works</a>
       <a href="#triad" class="nav-link">The Triad</a>
+      <a href="#architecture" class="nav-link">Architecture</a>
       <a href="#proof" class="nav-link">Benchmarks</a>
       <a href="#compat" class="nav-link">Assistants</a>
       <a href="#integrate" class="nav-link">Integrations</a>
@@ -1784,6 +1817,184 @@ Branch: <span class="s">feat/billing-v2</span>
         <div class="desc">LSP server &amp; VSCode extension. Hover-preview directives.</div>
       </div>
     </div>
+  </div>
+</section>
+
+<!-- ============ ARCHITECTURE DIAGRAM ============ -->
+<section id="architecture" class="section-block">
+  <div class="wrap">
+    <header class="sec-head reveal">
+      <div class="sec-num">· &nbsp;— &nbsp;The Blueprint</div>
+      <h2 class="sec-title">How the pieces <em>fit together</em>.</h2>
+    </header>
+
+    <div class="arch-diagram reveal">
+      <svg viewBox="0 0 920 620" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Perseus architecture diagram" role="img">
+        <desc>A diagram showing how Perseus directive sources flow through the render engine into output files consumed by AI assistants, with subsystems and integrations branching off.</desc>
+
+        <defs>
+          <!-- Arrowhead -->
+          <marker id="arch-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#9a8cc4"/>
+          </marker>
+          <marker id="arch-arrow-cyan" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#56e1ff"/>
+          </marker>
+          <marker id="arch-arrow-magenta" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#c77dff"/>
+          </marker>
+
+          <!-- Grid pattern -->
+          <pattern id="arch-grid" width="40" height="40" patternUnits="userSpaceOnUse">
+            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(196,168,255,0.06)" stroke-width="0.5"/>
+          </pattern>
+
+          <!-- Glow filter -->
+          <filter id="arch-glow" x="-30%" y="-30%" width="160%" height="160%">
+            <feGaussianBlur stdDeviation="3" result="blur"/>
+            <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+        </defs>
+
+        <!-- Background -->
+        <rect width="920" height="620" fill="url(#arch-grid)"/>
+
+        <!-- ===== SECTION: Directive Sources (top center) ===== -->
+        <rect x="260" y="30" width="400" height="130" rx="8" fill="rgba(12,8,20,0.9)" stroke="#c77dff" stroke-width="1.5" stroke-opacity="0.6"/>
+        <rect x="260" y="30" width="400" height="28" rx="8" fill="rgba(199,125,255,0.12)"/>
+        <rect x="260" y="48" width="400" height="10" fill="rgba(199,125,255,0.12)"/>
+        <text x="460" y="49" fill="#c77dff" font-family="'IBM Plex Sans', sans-serif" font-size="11" font-weight="600" text-anchor="middle" letter-spacing="0.12em">DIRECTIVE SOURCES</text>
+
+        <text x="460" y="74" fill="#ece4ff" font-family="'JetBrains Mono', monospace" font-size="12" text-anchor="middle">.perseus/context.md</text>
+
+        <text x="290" y="100" fill="#9a8cc4" font-family="'JetBrains Mono', monospace" font-size="10">
+          <tspan fill="#c77dff">@query</tspan><tspan fill="#9a8cc4"> · </tspan><tspan fill="#c77dff">@read</tspan><tspan fill="#9a8cc4"> · </tspan><tspan fill="#c77dff">@cache</tspan>
+        </text>
+        <text x="290" y="118" fill="#9a8cc4" font-family="'JetBrains Mono', monospace" font-size="10">
+          <tspan fill="#c77dff">@memory</tspan><tspan fill="#9a8cc4"> · </tspan><tspan fill="#c77dff">@drift</tspan><tspan fill="#9a8cc4"> · </tspan><tspan fill="#c77dff">@skills</tspan><tspan fill="#9a8cc4"> · </tspan><tspan fill="#c77dff">@services</tspan>
+        </text>
+        <text x="290" y="136" fill="#9a8cc4" font-family="'JetBrains Mono', monospace" font-size="10">
+          <tspan fill="#c77dff">@agora</tspan><tspan fill="#9a8cc4"> · </tspan><tspan fill="#c77dff">@inbox</tspan><tspan fill="#9a8cc4"> · </tspan><tspan fill="#c77dff">@checkpoint</tspan>
+        </text>
+        <text x="650" y="150" fill="#5d5078" font-family="'IBM Plex Sans', sans-serif" font-size="9" text-anchor="end">authored once</text>
+
+        <!-- Arrow: Sources → Engine -->
+        <line x1="460" y1="160" x2="460" y2="200" stroke="#c77dff" stroke-width="1.5" marker-end="url(#arch-arrow-magenta)"/>
+        <text x="476" y="183" fill="#5d5078" font-family="'IBM Plex Sans', sans-serif" font-size="8">triggers on push / schedule</text>
+
+        <!-- ===== SECTION: Perseus Engine (center) ===== -->
+        <rect x="310" y="210" width="300" height="95" rx="8" fill="rgba(12,8,20,0.95)" stroke="#56e1ff" stroke-width="2" filter="url(#arch-glow)"/>
+        <rect x="310" y="210" width="300" height="26" rx="8" fill="rgba(86,225,255,0.10)"/>
+        <rect x="310" y="228" width="300" height="8" fill="rgba(86,225,255,0.10)"/>
+        <text x="460" y="229" fill="#56e1ff" font-family="'JetBrains Mono', monospace" font-size="12" font-weight="600" text-anchor="middle" letter-spacing="0.08em">perseus render</text>
+
+        <!-- Three sub-boxes inside the engine -->
+        <rect x="322" y="246" width="86" height="46" rx="4" fill="rgba(86,225,255,0.06)" stroke="rgba(86,225,255,0.25)" stroke-width="1"/>
+        <text x="365" y="265" fill="#56e1ff" font-family="'JetBrains Mono', monospace" font-size="10" font-weight="500" text-anchor="middle">Resolve</text>
+        <text x="365" y="280" fill="#5d5078" font-family="'IBM Plex Sans', sans-serif" font-size="8" text-anchor="middle">shell · HTTP</text>
+
+        <rect x="417" y="246" width="86" height="46" rx="4" fill="rgba(86,225,255,0.06)" stroke="rgba(86,225,255,0.25)" stroke-width="1"/>
+        <text x="460" y="265" fill="#56e1ff" font-family="'JetBrains Mono', monospace" font-size="10" font-weight="500" text-anchor="middle">Cache</text>
+        <text x="460" y="280" fill="#5d5078" font-family="'IBM Plex Sans', sans-serif" font-size="8" text-anchor="middle">TTL-aware</text>
+
+        <rect x="512" y="246" width="86" height="46" rx="4" fill="rgba(86,225,255,0.06)" stroke="rgba(86,225,255,0.25)" stroke-width="1"/>
+        <text x="555" y="265" fill="#56e1ff" font-family="'JetBrains Mono', monospace" font-size="10" font-weight="500" text-anchor="middle">Compile</text>
+        <text x="555" y="280" fill="#5d5078" font-family="'IBM Plex Sans', sans-serif" font-size="8" text-anchor="middle">markdown</text>
+
+        <!-- Small arrows between sub-boxes -->
+        <line x1="408" y1="269" x2="415" y2="269" stroke="#56e1ff" stroke-width="0.8" stroke-opacity="0.5" marker-end="url(#arch-arrow-cyan)"/>
+        <line x1="503" y1="269" x2="510" y2="269" stroke="#56e1ff" stroke-width="0.8" stroke-opacity="0.5" marker-end="url(#arch-arrow-cyan)"/>
+
+        <text x="640" y="260" fill="#5d5078" font-family="'IBM Plex Sans', sans-serif" font-size="9">resolves directives</text>
+        <text x="640" y="274" fill="#5d5078" font-family="'IBM Plex Sans', sans-serif" font-size="9">against live environment</text>
+
+        <!-- Arrows from Engine → Output + Subsystems -->
+        <line x1="380" y1="305" x2="280" y2="370" stroke="#56e1ff" stroke-width="1.5" marker-end="url(#arch-arrow-cyan)"/>
+        <line x1="540" y1="305" x2="640" y2="370" stroke="#9a8cc4" stroke-width="1.5" marker-end="url(#arch-arrow)"/>
+
+        <!-- ===== SECTION: Output Files (bottom left) ===== -->
+        <rect x="60" y="375" width="440" height="115" rx="8" fill="rgba(12,8,20,0.9)" stroke="#56e1ff" stroke-width="1" stroke-opacity="0.5"/>
+        <rect x="60" y="375" width="440" height="24" rx="8" fill="rgba(86,225,255,0.08)"/>
+        <rect x="60" y="391" width="440" height="8" fill="rgba(86,225,255,0.08)"/>
+        <text x="280" y="392" fill="#56e1ff" font-family="'IBM Plex Sans', sans-serif" font-size="11" font-weight="600" text-anchor="middle" letter-spacing="0.10em">RESOLVED CONTEXT (plain markdown)</text>
+
+        <!-- Output file boxes -->
+        <rect x="80" y="411" width="78" height="34" rx="4" fill="rgba(86,225,255,0.05)" stroke="rgba(86,225,255,0.20)" stroke-width="1"/>
+        <text x="119" y="425" fill="#ece4ff" font-family="'JetBrains Mono', monospace" font-size="9" font-weight="500" text-anchor="middle">CLAUDE.md</text>
+        <text x="119" y="438" fill="#5d5078" font-family="'IBM Plex Sans', sans-serif" font-size="7" text-anchor="middle">Claude Code</text>
+
+        <rect x="168" y="411" width="78" height="34" rx="4" fill="rgba(86,225,255,0.05)" stroke="rgba(86,225,255,0.20)" stroke-width="1"/>
+        <text x="207" y="425" fill="#ece4ff" font-family="'JetBrains Mono', monospace" font-size="9" font-weight="500" text-anchor="middle">AGENTS.md</text>
+        <text x="207" y="438" fill="#5d5078" font-family="'IBM Plex Sans', sans-serif" font-size="7" text-anchor="middle">Codex · Rovo</text>
+
+        <rect x="256" y="411" width="72" height="34" rx="4" fill="rgba(86,225,255,0.05)" stroke="rgba(86,225,255,0.20)" stroke-width="1"/>
+        <text x="292" y="425" fill="#ece4ff" font-family="'JetBrains Mono', monospace" font-size="9" font-weight="500" text-anchor="middle">.cursorrules</text>
+        <text x="292" y="438" fill="#5d5078" font-family="'IBM Plex Sans', sans-serif" font-size="7" text-anchor="middle">Cursor</text>
+
+        <rect x="338" y="411" width="70" height="34" rx="4" fill="rgba(86,225,255,0.05)" stroke="rgba(86,225,255,0.20)" stroke-width="1"/>
+        <text x="373" y="425" fill="#ece4ff" font-family="'JetBrains Mono', monospace" font-size="9" font-weight="500" text-anchor="middle">.hermes.md</text>
+        <text x="373" y="438" fill="#5d5078" font-family="'IBM Plex Sans', sans-serif" font-size="7" text-anchor="middle">Hermes</text>
+
+        <rect x="418" y="411" width="62" height="34" rx="4" fill="rgba(86,225,255,0.05)" stroke="rgba(86,225,255,0.20)" stroke-width="1"/>
+        <text x="449" y="425" fill="#ece4ff" font-family="'JetBrains Mono', monospace" font-size="9" font-weight="500" text-anchor="middle">CONTEXT</text>
+        <text x="449" y="438" fill="#5d5078" font-family="'IBM Plex Sans', sans-serif" font-size="7" text-anchor="middle">Your own</text>
+
+        <!-- Consumers line -->
+        <text x="280" y="470" fill="#5d5078" font-family="'IBM Plex Sans', sans-serif" font-size="9" text-anchor="middle">read by any assistant that opens a file at session start</text>
+
+        <!-- ===== SECTION: Subsystems (bottom right) ===== -->
+        <rect x="540" y="375" width="350" height="115" rx="8" fill="rgba(12,8,20,0.9)" stroke="#c77dff" stroke-width="1" stroke-opacity="0.5"/>
+        <rect x="540" y="375" width="350" height="24" rx="8" fill="rgba(199,125,255,0.08)"/>
+        <rect x="540" y="391" width="350" height="8" fill="rgba(199,125,255,0.08)"/>
+        <text x="715" y="392" fill="#c77dff" font-family="'IBM Plex Sans', sans-serif" font-size="11" font-weight="600" text-anchor="middle" letter-spacing="0.10em">SUBSYSTEMS &amp; INTEGRATIONS</text>
+
+        <!-- Left column of subsystems -->
+        <rect x="555" y="411" width="155" height="34" rx="4" fill="rgba(199,125,255,0.05)" stroke="rgba(199,125,255,0.18)" stroke-width="1"/>
+        <text x="632" y="425" fill="#ece4ff" font-family="'JetBrains Mono', monospace" font-size="9.5" text-anchor="middle">checkpoint · recover · diff</text>
+        <text x="632" y="438" fill="#5d5078" font-family="'IBM Plex Sans', sans-serif" font-size="7" text-anchor="middle">session waypoints</text>
+
+        <rect x="555" y="450" width="80" height="30" rx="4" fill="rgba(199,125,255,0.05)" stroke="rgba(199,125,255,0.18)" stroke-width="1"/>
+        <text x="595" y="461" fill="#ece4ff" font-family="'JetBrains Mono', monospace" font-size="9.5" text-anchor="middle">Agora</text>
+        <text x="595" y="473" fill="#5d5078" font-family="'IBM Plex Sans', sans-serif" font-size="7" text-anchor="middle">task board</text>
+
+        <rect x="642" y="450" width="68" height="30" rx="4" fill="rgba(86,225,255,0.05)" stroke="rgba(86,225,255,0.18)" stroke-width="1"/>
+        <text x="676" y="461" fill="#ece4ff" font-family="'JetBrains Mono', monospace" font-size="9.5" text-anchor="middle">Inbox</text>
+        <text x="676" y="473" fill="#5d5078" font-family="'IBM Plex Sans', sans-serif" font-size="7" text-anchor="middle">messages</text>
+
+        <!-- Right column of integrations -->
+        <rect x="722" y="411" width="155" height="34" rx="4" fill="rgba(86,225,255,0.05)" stroke="rgba(86,225,255,0.18)" stroke-width="1"/>
+        <text x="799" y="425" fill="#ece4ff" font-family="'JetBrains Mono', monospace" font-size="9.5" text-anchor="middle">Pythia · @drift</text>
+        <text x="799" y="438" fill="#5d5078" font-family="'IBM Plex Sans', sans-serif" font-size="7" text-anchor="middle">tool oracle</text>
+
+        <rect x="722" y="450" width="155" height="30" rx="4" fill="rgba(86,225,255,0.05)" stroke="rgba(86,225,255,0.18)" stroke-width="1"/>
+        <text x="799" y="461" fill="#ece4ff" font-family="'JetBrains Mono', monospace" font-size="9.5" text-anchor="middle">LSP · VSCode · MCP</text>
+        <text x="799" y="473" fill="#5d5078" font-family="'IBM Plex Sans', sans-serif" font-size="7" text-anchor="middle">editor + registry</text>
+
+        <!-- ===== Annotation: GitHub Action ===== -->
+        <rect x="540" y="510" width="350" height="28" rx="4" fill="rgba(251,191,36,0.05)" stroke="rgba(251,191,36,0.20)" stroke-width="1" stroke-dasharray="3,3"/>
+        <text x="715" y="528" fill="#fbbf24" font-family="'JetBrains Mono', monospace" font-size="9.5" text-anchor="middle">GitHub Action — renders on push, commits resolved context</text>
+
+        <!-- Lines from engine to subsystems -->
+        <line x1="640" y1="305" x2="715" y2="373" stroke="#c77dff" stroke-width="1.2" stroke-opacity="0.5"/>
+
+        <!-- ===== BOTTOM NOTE ===== -->
+        <text x="460" y="578" fill="#5d5078" font-family="'IBM Plex Sans', sans-serif" font-size="10" text-anchor="middle" font-style="italic">Directives authored once. Context resolved on every render. The assistant opens a file that was already true.</text>
+
+        <!-- Decorative corner elements -->
+        <rect x="10" y="10" width="8" height="1" fill="#c77dff" opacity="0.4"/>
+        <rect x="10" y="10" width="1" height="8" fill="#c77dff" opacity="0.4"/>
+        <rect x="902" y="10" width="8" height="1" fill="#c77dff" opacity="0.4"/>
+        <rect x="909" y="10" width="1" height="8" fill="#c77dff" opacity="0.4"/>
+        <rect x="10" y="609" width="8" height="1" fill="#c77dff" opacity="0.4"/>
+        <rect x="10" y="602" width="1" height="8" fill="#c77dff" opacity="0.4"/>
+        <rect x="902" y="609" width="8" height="1" fill="#c77dff" opacity="0.4"/>
+        <rect x="909" y="602" width="1" height="8" fill="#c77dff" opacity="0.4"/>
+      </svg>
+    </div>
+
+    <p class="arch-note reveal" style="margin-top:20px; text-align:center; color:var(--text-muted); font-family:var(--mono); font-size:11px; letter-spacing:0.10em; text-transform:uppercase;">
+      One file · one render · every assistant reads the same live truth
+    </p>
   </div>
 </section>
 
