@@ -39,8 +39,9 @@
   <div id="__bundler_loading">Unpacking...</div>
 
   <script>
-    
-document.addEventListener('DOMContentLoaded', async function() {
+    // Use 'load' (not DOMContentLoaded) to avoid racing with Cloudflare's
+    // injected challenge script that reads iframe.contentWindow.document.
+window.addEventListener('load', async function() {
   const loading = document.getElementById('__bundler_loading');
   function setStatus(msg) { if (loading) loading.textContent = msg; }
 
