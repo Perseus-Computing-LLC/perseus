@@ -7,6 +7,8 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [**perseus.observer →**](https://perseus.observer)
 
+<!-- mcp-name: io.github.tcconnally/perseus -->
+
 ![Perseus demo — before/after cold-start](demo.gif)
 
 ![Perseus Efficiency — Cold vs Warm Render Speed](https://raw.githubusercontent.com/tcconnally/perseus/main/benchmark/infographic/perseus-efficiency.svg)
