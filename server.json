@@ -2,37 +2,25 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.tcconnally/perseus",
   "title": "Perseus — Live Context Engine",
-  "description": "Compile-before-context engine for AI assistants. Pre-resolves your entire workspace state (git, services, memory, team coordination) into a single markdown briefing before the assistant sees it. Exposes 13 directive tools: query, services, memory, skills, waypoint, session, agora, inbox, read, env, health, agent, date. Deterministic, cacheable, and assistant-agnostic. Multi-agent coordination with zero-collision concurrent writes, federated memory, and crash recovery.",
-  "version": "1.0.2",
+  "description": "Compile-before-context engine: pre-resolves workspace state into markdown before the AI sees it.",
+  "version": "1.0.3",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "perseus-ctx",
-      "version": "1.0.2",
+      "version": "1.0.3",
+      "packageArguments": [
+        {"type": "positional", "value": "mcp"},
+        {"type": "positional", "value": "serve"}
+      ],
       "transport": {
-        "type": "stdio",
-        "command": "perseus",
-        "args": ["mcp", "serve"]
+        "type": "stdio"
       }
     }
   ],
-  "tools": [
-    {"name": "perseus_query", "description": "Execute a shell command inside the workspace and return its stdout. Respects Perseus path guards and trust boundaries."},
-    {"name": "perseus_services", "description": "Run the configured service health checks and return a table of results."},
-    {"name": "perseus_memory", "description": "Query Perseus's narrative project memory (Mnēmē). Optionally federated across subscribed workspaces."},
-    {"name": "perseus_skills", "description": "List available agent skills from the configured skill library."},
-    {"name": "perseus_waypoint", "description": "Return the latest session checkpoint so an agent can resume where it left off. Includes task, status, and next steps."},
-    {"name": "perseus_session", "description": "Return digests of recent Perseus sessions."},
-    {"name": "perseus_agora", "description": "Query the Agora task board — list tasks, optionally filtered by status."},
-    {"name": "perseus_inbox", "description": "Read agent inbox messages (point-to-point inter-agent communication)."},
-    {"name": "perseus_read", "description": "Read the contents of a file within the workspace. Respects Perseus path guards."},
-    {"name": "perseus_env", "description": "Read the value of an environment variable (with fallback)."},
-    {"name": "perseus_health", "description": "Run Daedalus context-maintenance heuristics and return a report of stale or decaying context."},
-    {"name": "perseus_agent", "description": "Execute a Perseus @agent subprocess and return its output. Short-lived agent that completes a single task."},
-    {"name": "perseus_date", "description": "Return the current date and time in the configured format."}
-  ],
-  "homepage": "https://github.com/tcconnally/perseus",
-  "license": "MIT",
-  "repository": "https://github.com/tcconnally/perseus",
-  "tags": ["context", "pre-processor", "agent-coordination", "workspace", "deterministic", "cache", "multi-agent"]
+  "websiteUrl": "https://github.com/tcconnally/perseus",
+  "repository": {
+    "source": "github",
+    "url": "https://github.com/tcconnally/perseus"
+  }
 }
