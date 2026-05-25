@@ -34,4 +34,4 @@ Token savings: Perseus resolved output averages ~100 tokens/directive vs ~200 fo
 
 See `results.json` for machine-readable data.
 
-Key finding: **Perseus warm render time is constant** regardless of directive count. The speedup vs LLM tool-calling widens from 26× (5 directives) to 79× (26 directives) and continues to grow with complexity.
+Key finding: **Perseus warm render time is constant** regardless of directive count. The speedup vs LLM tool-calling widens from 26× (5 directives) to 23,402× (10,000 directives). At **enterprise scale**, Perseus is **301× faster** than an LLM — 500 developers, 10 teams, 16,250 renders, 0 failures. The **cold→warm cache gap** reaches **450×** at 50,000 directives.

@@ -1,32 +1,42 @@
 {
-  "test": "cold-vs-warm-cached",
-  "per_query_ms": 22.5,
+  "test": "cold-vs-warm-heavy",
   "scales": {
     "100": {
-      "cold": 2.523,
-      "warm": 0.285,
-      "speedup": 8.9
+      "cold": 1.529,
+      "warm": 0.267,
+      "speedup": 5.7
     },
     "500": {
-      "cold": 11.485,
-      "warm": 0.29,
-      "speedup": 39.6
+      "cold": 6.43,
+      "warm": 0.278,
+      "speedup": 23.1
     },
     "1000": {
-      "cold": 22.69,
-      "warm": 0.295,
-      "speedup": 76.9
+      "cold": 12.559,
+      "warm": 0.288,
+      "speedup": 43.6
     },
     "5000": {
-      "cold": 112.728,
-      "warm": 0.389,
-      "speedup": 289.8
+      "cold": 61.805,
+      "warm": 0.371,
+      "speedup": 166.6
     },
     "10000": {
-      "cold": 225.303,
-      "warm": 0.698,
-      "speedup": 322.8
+      "cold": 123.303,
+      "warm": 0.487,
+      "speedup": 253.2
+    },
+    "20000": {
+      "cold": 245.932,
+      "warm": 0.71,
+      "speedup": 346.4
+    },
+    "50000": {
+      "cold": 612.563,
+      "warm": 1.362,
+      "speedup": 449.8
     }
   },
-  "headline": "500 queries: 11.5s cold -> 0.29s warm = 40x speedup. Warm time flat regardless of scale."
+  "per_query_ms": 12.8,
+  "headline": "50K queries: 612.563s cold \u2192 1.362s warm = 449.8x speedup. Warm time flat regardless of scale."
 }

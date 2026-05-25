@@ -16,23 +16,24 @@ Perseus front-loads the work. You write a `.perseus/context.md` with directives 
 
 **The speed delta is structural, not incremental.**
 - 1 directive via runtime tool call: ~50ms round-trip
-- 10,000 directives via Perseus: 0.36 seconds total
-- That's ~23,000× faster for large directive counts
+- 10,000 directives via Perseus: 0.36 seconds — 23,402× faster
+- 50,000 directives cold → warm: 450× gap (612.6s → 1.36s)
+- Enterprise scale (500 devs, 5-day week): 301× faster than LLM tool-calling. $295K/year saved on Claude Opus.
 
 ## The swarm demo
 
-Perseus's coordination layer handles 120 agents writing to the same task board simultaneously — 150 concurrent writers, zero collisions. The filesystem-based protocol uses atomic locks and checkpoint semantics tested across 33 edge cases (crash recovery, stale claims, TTL expiry). No server. No database. Just `@agora` and `@inbox`.
+Perseus's coordination layer handles 120 agents writing to the same task board simultaneously — 150 concurrent writers, zero collisions. The filesystem-based protocol uses atomic locks and checkpoint semantics tested across edge cases (crash recovery, stale claims, TTL expiry). No server. No database. Just `@agora` and `@inbox`.
 
 ![120-agent swarm — 150 writes in 9.7s, zero collisions](demo-swarm.gif)
 
 ## What you get
 
-- **20 directives:** @query, @services, @waypoint, @agora, @inbox, @memory, @read, @env, @skills, @session, @date, @health, @agent, @tree, @list, @include, @if/@else/@endif, @constraint, @validate, @cache
+- **22 directives:** @query, @services, @waypoint, @agora, @inbox, @memory, @read, @env, @skills, @session, @date, @health, @agent, @tree, @list, @include, @if/@else/@endif, @constraint, @validate, @cache, @tool, @perseus
 - **Assistant-agnostic:** writes plain markdown — works with Claude Code, Cursor, Codex, Rovo Dev, or anything that reads a file
 - **CLAUDE.md / AGENTS.md targets:** `perseus render --format agents-md` outputs AGENTS.md every tool already reads
 - **Claude Code hook installer:** `perseus install --target claude-code` auto-injects context at session start
 - **MCP server façade:** `perseus mcp serve` — 13 directive tools for any MCP-compatible assistant
-- **Single file, one dep:** `perseus.py` (~12,000 lines) + pyyaml
+- **Single file, one dep:** `perseus.py` (~12,750 lines) + pyyaml
 - **Nearly 600 tests, MIT license**
 
 ## Try it

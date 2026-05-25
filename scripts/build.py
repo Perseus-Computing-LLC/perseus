@@ -28,6 +28,8 @@ MODULE_ORDER = [
     "src/perseus/directives/read.py",
     "src/perseus/directives/query.py",
     "src/perseus/directives/agent.py",
+    "src/perseus/directives/tool.py",
+    "src/perseus/directives/perseus.py",
     "src/perseus/directives/skills.py",
     "src/perseus/directives/waypoint.py",
     "src/perseus/directives/session.py",
@@ -74,7 +76,7 @@ STDLIB_REMINDER_RE = re.compile(
 )
 
 # Baseline line count for drift detection.
-BASELINE_LINES = 11937  # Phase 24 adds ~839 lines: assistant_formats, install, mcp modules + CLI changes
+BASELINE_LINES = 12748  # Phase 24: all 10 extensibility tasks complete
 
 
 def build() -> None:
