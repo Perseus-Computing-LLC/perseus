@@ -371,6 +371,9 @@ def cmd_graph(args, cfg) -> int:
         print(f"Error: file not found: {source_path}", file=sys.stderr)
         return 1
     workspace = Path(args.workspace).expanduser().resolve() if getattr(args, "workspace", None) else _infer_workspace(source_path)
+    cfg = load_config(workspace)
+    # task-65: ensure plugin directives are visible in the graph
+    register_plugins(cfg)
     graph = directive_dependency_graph(
         source_path.read_text(errors="replace"),
         source_name=str(source_path),
@@ -408,6 +411,8 @@ def cmd_prefetch(args, cfg) -> int:
         return 1
     workspace = Path(args.workspace).expanduser().resolve() if getattr(args, "workspace", None) else _infer_workspace(source_path)
     cfg = load_config(workspace)
+    # task-65: register plugin directives so prefetch graph rules can target them
+    register_plugins(cfg)
     result = prefetch_source(
         source_path.read_text(errors="replace"),
         cfg,
