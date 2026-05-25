@@ -21,6 +21,7 @@ MODULE_ORDER = [
     "src/perseus/__init__.py",
     "src/perseus/config.py",
     "src/perseus/hooks.py",
+    "src/perseus/webhooks.py",
     "src/perseus/registry.py",
     "src/perseus/macros.py",
     "src/perseus/redaction.py",
