@@ -1,0 +1,9 @@
+version: 1
+name: assistant-profile-demo
+profile: hermes
+trust_profile: balanced
+renders:
+  - name: default
+    source: .perseus/context.md
+    output: .hermes.md
+    assistant: hermes

@@ -1,0 +1,12 @@
+type: map
+mapping:
+  "name":
+    type: str
+    required: yes
+  "version":
+    type: str
+    required: yes
+  "dependencies":
+    type: seq
+    sequence:
+      - type: str

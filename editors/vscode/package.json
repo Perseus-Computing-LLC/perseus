@@ -1,0 +1,65 @@
+{
+  "name": "perseus-vscode",
+  "displayName": "Perseus — Live Context Engine",
+  "description": "Live preview and diagnostics for Perseus context-engine directives in markdown files.",
+  "version": "0.1.0",
+  "publisher": "tcconnally",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tcconnally/perseus.git"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Programming Languages", "Other"],
+  "activationEvents": [
+    "onLanguage:markdown",
+    "onCommand:perseus.render",
+    "onCommand:perseus.openCheckpoint",
+    "onCommand:perseus.compactMemory"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      { "command": "perseus.render", "title": "Perseus: Render Current Document" },
+      { "command": "perseus.openCheckpoint", "title": "Perseus: Open Latest Checkpoint" },
+      { "command": "perseus.compactMemory", "title": "Perseus: Compact Mnēmē Narrative" }
+    ],
+    "configuration": {
+      "title": "Perseus",
+      "properties": {
+        "perseus.binary": {
+          "type": "string",
+          "default": "perseus",
+          "description": "Path to the `perseus` executable (used as `perseus serve --lsp --stdio`)."
+        },
+        "perseus.tracing": {
+          "type": "string",
+          "enum": ["off", "messages", "verbose"],
+          "default": "off",
+          "description": "LSP trace level"
+        },
+        "perseus.allowMutations": {
+          "type": "boolean",
+          "default": false,
+          "description": "Start the Perseus LSP with --allow-lsp-mutations so executeCommand handlers such as compactMemory may write local state."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "npx @vscode/vsce package"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.0"
+  }
+}

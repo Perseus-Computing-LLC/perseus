@@ -1,0 +1,10 @@
+version: 1
+name: codex-adapter-conformance
+profile: codex
+trust_profile: balanced
+renders:
+  - name: default
+    source: context.md
+    output: AGENTS.md
+    assistant: codex
+synthesis: []

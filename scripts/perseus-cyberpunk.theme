@@ -1,0 +1,33 @@
+# Perseus Cyberpunk theme for agg (asciinema GIF renderer)
+# Matches perseus.observer palette exactly
+# Usage: agg --theme custom --theme-file perseus-cyberpunk.theme demo.cast demo.gif
+
+[theme]
+name = "perseus-cyberpunk"
+
+# ANSI 16-color palette
+[colors]
+# normal
+black      = "#1c1430"
+red        = "#ff6b9d"
+green      = "#56e1ff"
+yellow     = "#e4a8ff"
+blue       = "#c77dff"
+magenta    = "#c77dff"
+cyan       = "#56e1ff"
+white      = "#ece4ff"
+
+# bright
+"bright black"   = "#5d5078"
+"bright red"     = "#ff6b9d"
+"bright green"   = "#56e1ff"
+"bright yellow"  = "#e4a8ff"
+"bright blue"    = "#e4a8ff"
+"bright magenta" = "#e4a8ff"
+"bright cyan"    = "#56e1ff"
+"bright white"   = "#ffffff"
+
+# terminal
+[theme.terminal]
+background = "#0c0814"
+foreground = "#ece4ff"
