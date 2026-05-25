@@ -53,6 +53,8 @@ checkpoints feed it.
 | **Inbox** | Per-workspace point-to-point message store + `@inbox` directive | ✅ Phase 8 |
 | **Cron** | Cross-platform scheduler (macOS/Linux/BSD) — bridges launchd + systemd | ✅ Phase 8 |
 | **Synthesis** | Opt-in cited synthesis claims; uncited LLM output is dropped | ✅ Phase 15A |
+| **Hephaestus** | Extensibility architecture — plugin directives, macros, hooks, format adapters, pipe syntax | 🔲 Phase 24 |
+| **MCP Integration** | Expose every directive as an MCP tool for universal AI client compatibility | 🔲 Phase 25 |
 
 ---
 
@@ -439,8 +441,11 @@ Phase 17 (done):  Trust, Privacy, and Local Policy
 Phase 18 (done):  Distribution and Installation
 Phase 19 (done):  Assistant Adapter Ecosystem
 Phase 20 (done):  Managed Runtime and Deployment Modes
-Phase 21:         Evaluation, Performance, and Compatibility Gates
-Phase 22:         v1 Release Candidate
+Phase 21 (done):  Evaluation, Performance, and Compatibility Gates
+Phase 22 (done):  v1 Release Candidate
+Phase 23 (done):  HTML Output — `perseus render --format html`
+Phase 24:          Extensibility Architecture (Hephaestus) — tasks/task-65 through task-74
+Phase 25:          MCP Deep Integration — tasks/task-75
 ```
 
 ---
@@ -1051,6 +1056,34 @@ in any order once 24A lands.
 
 ---
 
+## Phase 25 — MCP Deep Integration
+
+**Goal:** Bridge Perseus into the broader AI ecosystem by exposing every
+directive as a first-class MCP tool. Any MCP-compatible client — Claude Desktop,
+Continue, Cursor, Zed, Codex — can invoke `perseus_query`, `perseus_read`,
+`perseus_services` as native tools without parsing Perseus syntax.
+
+The existing `src/perseus/mcp.py` already provides read-only `get_context` and
+`get_health` MCP tools. This phase extends it to the full directive surface,
+making Perseus a universal context provider across the MCP ecosystem.
+
+### 25A — Expose directives as MCP tools (task-75)
+
+Each directive in the `DIRECTIVE_REGISTRY` (built-in + plugin) becomes an MCP
+tool named `perseus_<name>`. Tool descriptions and input schemas are
+auto-generated from registry metadata. Trust gates are enforced per-tool.
+
+**Status:** Task file written (`tasks/task-75-mcp-deep-integration.md`).
+
+Full spec in the task file. Covers:
+- Tool mapping for all built-in directives
+- Plugin directive tool exposure
+- Stdio and HTTP+SSE transports
+- Trust gate enforcement
+- Backward compatibility with existing `perseus_get_context` / `perseus_get_health`
+
+---
+
 ## Future Direction: Decentralized Federation
 
 Deepen federation to securely share context across decentralized workspaces or
@@ -1138,6 +1171,8 @@ Phase 24A ─── Plugin directives (task-65) ──────────�
     ├── 24H ─── Event webhooks (task-72) ─────────────────┤
     ├── 24I ─── Tool directive integration (task-73) ─────┤
     └── 24J ─── Directive aliasing (task-74) ─────────────┘
+                                                         │
+Phase 25  ─── MCP deep integration (task-75) ────────────┘
 ```
 
 ---
