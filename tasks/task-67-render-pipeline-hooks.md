@@ -1,11 +1,12 @@
 ---
 id: task-67
 title: Phase 24C — Render Pipeline Hooks
-status: open
+status: completed
 priority: medium
 scope: medium
-claimed_by: null
+claimed_by: hermes
 created: 2026-05-24
+closed: 2026-05-25
 phase: 24
 theme: "Extensibility Architecture — Hephaestus"
 depends_on:
@@ -103,3 +104,8 @@ the hook name exactly.
 - Do not expose raw directive output in hook payloads (truncated summary only)
 - Do not add built-in notification targets (Slack, email, etc.) — use shell
   hooks + external tools
+
+## Completed
+
+- Implemented in Phase 24 sprint (2026-05-24–25)
+- Full test suite: 661 passed, 1 skipped
