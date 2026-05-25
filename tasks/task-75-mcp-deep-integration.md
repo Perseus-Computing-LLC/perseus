@@ -1,21 +1,20 @@
 ---
 id: task-75
-title: MCP Deep Integration — Expose Directives as MCP Tools
-status: open
+title: "MCP Deep Integration \u2014 Expose Directives as MCP Tools"
+status: completed
 priority: high
 scope: large
-claimed_by: null
+claimed_by: hermes
 created: 2026-05-24
 phase: 25
-theme: "MCP Protocol Integration"
+theme: MCP Protocol Integration
 depends_on:
 - task-65
 - task-69
 blocks: []
 opened: '2026-05-24'
-closed: null
+closed: '2026-05-25'
 ---
-
 ## Why
 
 Perseus resolves live context for AI assistants that read markdown files. But

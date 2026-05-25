@@ -1,25 +1,32 @@
-# Perseus MCP Server (Phase 24)
-# ──────────────────────────────
+# Perseus MCP Server — task-75 Deep Integration
+# ──────────────────────────────────────────────────
+# Each directive in DIRECTIVE_REGISTRY is auto-exposed as an MCP tool.
+# Legacy hardcoded tools preserved for backward compatibility.
 
 import json
 import sys
+import time
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from perseus.registry import DIRECTIVE_REGISTRY, _call_resolver
 
+# In the built artifact, render_source is top-level. In source, import it.
+try:
+    from perseus.renderer import render_source
+except ImportError:
+    render_source = None  # Will be available at runtime in the built artifact
 
 # ── Protocol constants ───────────────────────────────────────────────────────
 
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_NAME = "perseus"
-SERVER_VERSION = "1.0.0"  # overridden at serve time
+SERVER_VERSION = "1.0.0"
+DEFAULT_TOOL_TIMEOUT_S = 30
 
-
-# ── Tool definitions ─────────────────────────────────────────────────────────
+# ── Tool schema helpers ──────────────────────────────────────────────────────
 
 def _tool_schema(name: str, description: str, props: dict, required: list[str] | None = None) -> dict:
-    """Build a standard MCP tool descriptor."""
     return {
         "name": name,
         "description": description,
@@ -31,186 +38,215 @@ def _tool_schema(name: str, description: str, props: dict, required: list[str] |
     }
 
 
-# Mapping from MCP tool name → (directive_name, arg_key, description)
-MCP_TOOLS: list[dict] = [
+def _generate_directive_tools() -> list[dict]:
+    """Auto-generate MCP tool schemas from all resolvable directives in the registry."""
+    tools = []
+    for name, spec in sorted(DIRECTIVE_REGISTRY.items()):
+        # Include inline and block directives that have resolvers
+        if spec.kind not in ("inline", "block"):
+            continue
+        if spec.resolver is None:
+            continue
+        tool_name = f"perseus_{name.lstrip('@')}"
+        props = {}
+        required = []
+        # Build input schema from directive args
+        for arg in spec.args:
+            arg_name = arg.rstrip("=")
+            props[arg_name] = {"type": "string", "description": f"{arg} modifier for {name}"}
+            if arg_name in ("command", "path", "task", "agent", "prompt", "name", "var"):
+                required.append(arg_name)
+        # Fallback: generic args field
+        if not props:
+            props["args"] = {"type": "string", "description": f"Arguments for {name} directive"}
+        desc = spec.summary or f"Resolve {name} directive"
+        tools.append(_tool_schema(tool_name, desc, props, required))
+    return tools
+
+
+# ── Legacy tool definitions (preserved for backward compat) ──────────────────
+
+LEGACY_MCP_TOOLS: list[dict] = [
     _tool_schema(
-        "perseus_query",
-        "Execute a shell command inside the workspace and return its stdout. Respects Perseus path guards and trust boundaries.",
-        {"command": {"type": "string", "description": "Shell command to execute (e.g. 'git status', 'ls -la')"}},
-        ["command"],
+        "perseus_get_context",
+        "Return the full rendered Perseus context for the workspace.",
+        {"format": {"type": "string", "description": "Output format: markdown or json (default: markdown)"}},
     ),
     _tool_schema(
-        "perseus_services",
-        "Run the configured service health checks and return a table of results. Runs the @services block logic.",
+        "perseus_get_health",
+        "Run Daedalus context-maintenance heuristics and return a health report.",
         {},
-    ),
-    _tool_schema(
-        "perseus_memory",
-        "Query Perseus's narrative project memory (Mnēmē). Optionally federated across subscribed workspaces.",
-        {
-            "focus": {"type": "string", "description": "Optional topic focus (e.g. 'CI pipeline', 'deployment')"},
-            "federation": {"type": "boolean", "description": "Include federated workspace memories (default: false)"},
-        },
-    ),
-    _tool_schema(
-        "perseus_skills",
-        "List available agent skills from the configured skill library.",
-        {
-            "category": {"type": "string", "description": "Optional category filter"},
-            "flag_stale": {"type": "boolean", "description": "Flag skills not updated recently"},
-            "limit": {"type": "integer", "description": "Max skills to return"},
-        },
-    ),
-    _tool_schema(
-        "perseus_waypoint",
-        "Return the latest session checkpoint so an agent can resume where it left off. Includes task, status, and next steps.",
-        {},
-    ),
-    _tool_schema(
-        "perseus_session",
-        "Return digests of recent Perseus sessions.",
-        {"count": {"type": "integer", "description": "Number of recent sessions (default: 3)"}},
-    ),
-    _tool_schema(
-        "perseus_agora",
-        "Query the Agora task board — list tasks, optionally filtered by status.",
-        {"status": {"type": "string", "description": "Optional status filter (todo, in-progress, done)"}},
-    ),
-    _tool_schema(
-        "perseus_inbox",
-        "Read agent inbox messages (point-to-point inter-agent communication).",
-        {"limit": {"type": "integer", "description": "Max messages to return (default: 5)"}, "unread": {"type": "boolean", "description": "Only unread messages (default: false)"}},
-    ),
-    _tool_schema(
-        "perseus_read",
-        "Read the contents of a file within the workspace. Respects Perseus path guards.",
-        {"path": {"type": "string", "description": "File path to read (absolute or workspace-relative)"}},
-        ["path"],
-    ),
-    _tool_schema(
-        "perseus_env",
-        "Read the value of an environment variable (with fallback).",
-        {"name": {"type": "string", "description": "Environment variable name"}, "fallback": {"type": "string", "description": "Default if not set"}},
-        ["name"],
-    ),
-    _tool_schema(
-        "perseus_health",
-        "Run Daedalus context-maintenance heuristics and return a report of stale/decaying context.",
-        {},
-    ),
-    _tool_schema(
-        "perseus_agent",
-        "Execute a Perseus @agent subprocess and return its output. Short-lived agent that completes a single task.",
-        {"agent": {"type": "string", "description": "Agent name or command to execute"}, "prompt": {"type": "string", "description": "Prompt/instruction for the agent"}},
-        ["agent", "prompt"],
-    ),
-    _tool_schema(
-        "perseus_date",
-        "Return the current date and time in the configured format.",
-        {"format": {"type": "string", "description": "strftime format string (default: %Y-%m-%d %H:%M:%S)"}},
     ),
 ]
+
+# Sensitive tools — require explicit config opt-in
+_MCP_SENSITIVE_TOOLS = {"perseus_query", "perseus_agent"}
+
+# ── Tool list builder ────────────────────────────────────────────────────────
+
+def _get_all_mcp_tools(cfg: dict) -> list[dict]:
+    """Return merged tool list: registry-generated + legacy, filtered by config."""
+    mcp_cfg = cfg.get("mcp", {}) if isinstance(cfg, dict) else {}
+    allowlist = set(mcp_cfg.get("tool_allowlist") or [])
+    blocklist = set(mcp_cfg.get("tool_blocklist") or [])
+
+    tools = []
+    # Auto-generated from registry
+    for tool in _generate_directive_tools():
+        name = tool["name"]
+        if name in blocklist:
+            continue
+        if allowlist and name not in allowlist:
+            continue
+        if name in _MCP_SENSITIVE_TOOLS and name not in allowlist:
+            continue
+        tools.append(tool)
+
+    # Legacy tools (always available unless blocked)
+    for tool in LEGACY_MCP_TOOLS:
+        name = tool["name"]
+        if name in blocklist:
+            continue
+        tools.append(tool)
+
+    return tools
 
 
 # ── Tool dispatch ────────────────────────────────────────────────────────────
 
-def _build_tool_args(tool_name: str, arguments: dict) -> str:
-    """Convert MCP tool arguments into a Perseus directive argument string."""
-    if tool_name == "perseus_query":
-        return arguments.get("command", "")
-    elif tool_name == "perseus_memory":
-        parts = []
-        if arguments.get("focus"):
-            parts.append(f"focus={arguments['focus']}")
-        if arguments.get("federation"):
-            parts.append("federation")
-        return " ".join(parts)
-    elif tool_name == "perseus_skills":
-        parts = []
-        if arguments.get("category"):
-            parts.append(f"category={arguments['category']}")
-        if arguments.get("limit"):
-            parts.append(f"limit={arguments['limit']}")
-        if arguments.get("flag_stale"):
-            parts.append("flag_stale=true")
-        return " ".join(parts)
-    elif tool_name == "perseus_session":
-        count = arguments.get("count", 3)
-        return f"count={count}"
-    elif tool_name == "perseus_agora":
-        status = arguments.get("status", "")
-        return f"status={status}" if status else ""
-    elif tool_name == "perseus_inbox":
-        parts = []
-        if arguments.get("limit"):
-            parts.append(f"limit={arguments['limit']}")
-        if arguments.get("unread"):
-            parts.append("unread=true")
-        return " ".join(parts)
-    elif tool_name == "perseus_read":
-        return f"path={arguments.get('path', '')}"
-    elif tool_name == "perseus_env":
-        name = arguments.get("name", "")
-        fallback = arguments.get("fallback", "")
-        if fallback:
-            return f"{name} required={name} fallback={fallback}"
-        return name
-    elif tool_name == "perseus_agent":
-        agent = arguments.get("agent", "")
-        prompt = arguments.get("prompt", "")
-        return f"{agent} {prompt}"
-    elif tool_name == "perseus_date":
-        fmt = arguments.get("format", "%Y-%m-%d %H:%M:%S")
-        return f"format={fmt}"
-    else:
-        return ""
-
-
-# Map tool name → directive name
-_TOOL_DIRECTIVE_MAP: dict[str, str] = {
-    "perseus_query": "@query",
-    "perseus_services": "@services",
-    "perseus_memory": "@memory",
-    "perseus_skills": "@skills",
-    "perseus_waypoint": "@waypoint",
-    "perseus_session": "@session",
-    "perseus_agora": "@agora",
-    "perseus_inbox": "@inbox",
-    "perseus_read": "@read",
-    "perseus_env": "@env",
-    "perseus_health": "@health",
-    "perseus_agent": "@agent",
-    "perseus_date": "@date",
+# Special arg builders for directives with positional/non-standard arg formats
+_DIRECTIVE_ARG_BUILDERS = {
+    "@query": lambda args: f'"{(args.get("command") or "").strip()}"',
+    "@read": lambda args: f'path="{(args.get("path") or "")}"' + (f' key="{(args.get("key") or "")}"' if args.get("key") else ""),
+    "@env": lambda args: (args.get("var") or args.get("name") or ""),
+    "@agent": lambda args: f'"{(args.get("agent") or "")}" "{(args.get("prompt") or "")}"',
+    "@checkpoint": lambda args: args.get("task") or args.get("args", ""),
+    "@recover": lambda args: "",
+    "@suggest": lambda args: args.get("task") or args.get("args", ""),
+    "@services": lambda args: "",
+    "@drift": lambda args: "",
+    "@date": lambda args: f'format="{(args.get("format") or "%Y-%m-%d %H:%M:%S")}"',
+    "@waypoint": lambda args: f'ttl={(args.get("ttl") or 86400)}' if args.get("ttl") else "",
+    "@session": lambda args: f'count={(args.get("count") or 3)}',
+    "@list": lambda args: f'path="{(args.get("path") or ".")}"',
+    "@tree": lambda args: f'path="{(args.get("path") or ".")}"',
+    "@inbox": lambda args: (f'limit={(args.get("limit") or 5)}' if args.get("limit") else "") + (" unread=true" if args.get("unread") else ""),
+    "@skills": lambda args: (f'category="{(args.get("category") or "")}"' if args.get("category") else "") + (" flag_stale=true" if args.get("flag_stale") else ""),
 }
 
 
+def _build_tool_args_generic(tool_name: str, arguments: dict) -> str:
+    """Build directive args from MCP tool arguments using the registry metadata."""
+    if tool_name.startswith("perseus_"):
+        directive_name = "@" + tool_name[len("perseus_"):]
+    else:
+        return ""
+
+    # Special-cased directives
+    if directive_name in _DIRECTIVE_ARG_BUILDERS:
+        return _DIRECTIVE_ARG_BUILDERS[directive_name](arguments)
+
+    spec = DIRECTIVE_REGISTRY.get(directive_name)
+    if spec is None:
+        return ""
+
+    # Generic: build from spec.args
+    parts = []
+    for arg in spec.args:
+        arg_name = arg.rstrip("=")
+        if arg_name in arguments:
+            val = arguments[arg_name]
+            if isinstance(val, bool):
+                if val:
+                    parts.append(arg_name)
+            else:
+                parts.append(f'{arg_name}="{val}"')
+
+    if not parts and "args" in arguments:
+        return arguments["args"]
+
+    return " ".join(parts)
+
+
 def _call_tool(tool_name: str, arguments: dict, cfg: dict, workspace: Path) -> str:
-    """Resolve an MCP tool call by delegating to the Perseus directive resolver."""
-    directive_name = _TOOL_DIRECTIVE_MAP.get(tool_name)
-    if directive_name is None:
+    """Resolve an MCP tool call through the Perseus directive resolver."""
+    # Legacy tools
+    if tool_name == "perseus_get_context":
+        try:
+            ctx_path = workspace / ".perseus" / "context.md"
+            if ctx_path.exists():
+                source = ctx_path.read_text()
+                # render_source is a top-level function in the built artifact
+                # In source module context, import from the parent module
+                result = render_source(source, cfg, workspace)
+                fmt = arguments.get("format", "markdown")
+                if fmt == "json":
+                    return json.dumps({"resolved": result, "workspace": str(workspace)})
+                return result
+            return f"No context file at {ctx_path}"
+        except Exception as exc:
+            return f"Error rendering context: {exc}"
+
+    if tool_name == "perseus_get_health":
+        spec = DIRECTIVE_REGISTRY.get("@health")
+        if spec and spec.resolver:
+            return _call_resolver(spec, "", cfg, workspace)
+        return "Error: @health directive not registered"
+
+    # Trust gate: block shell execution for sensitive tools
+    if tool_name in _MCP_SENSITIVE_TOOLS:
+        if tool_name == "perseus_query" and not cfg.get("render", {}).get("allow_query_shell", False):
+            return 'Error: shell execution blocked by trust profile (render.allow_query_shell=false)'
+        if tool_name == "perseus_agent" and not cfg.get("render", {}).get("allow_agent_shell", False):
+            return 'Error: agent execution blocked by trust profile (render.allow_agent_shell=false)'
+
+    # Map tool name to directive
+    if tool_name.startswith("perseus_"):
+        directive_name = "@" + tool_name[len("perseus_"):]
+    else:
         return f"Error: unknown tool {tool_name}"
 
     spec = DIRECTIVE_REGISTRY.get(directive_name)
     if spec is None:
         return f"Error: directive {directive_name} not registered"
-
     if spec.resolver is None:
         return f"Error: directive {directive_name} has no resolver"
 
-    args_str = _build_tool_args(tool_name, arguments)
+    args_str = _build_tool_args_generic(tool_name, arguments)
+
+    # Timeout enforcement
+    mcp_cfg = cfg.get("mcp", {}) if isinstance(cfg, dict) else {}
+    timeout = mcp_cfg.get("tool_timeout_s", DEFAULT_TOOL_TIMEOUT_S)
+
+    import signal
+
+    def _timeout_handler(signum, frame):
+        raise TimeoutError(f"Tool {tool_name} timed out after {timeout}s")
+
     try:
+        old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
+        signal.alarm(timeout)
         result = _call_resolver(spec, args_str, cfg, workspace)
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old_handler)
         return result
+    except TimeoutError as exc:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old_handler)
+        return f"Error: {exc}"
     except Exception as exc:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old_handler)
         return f"Error executing {directive_name}: {exc}"
 
 
 # ── JSON-RPC 2.0 message handling ────────────────────────────────────────────
 
-def _read_message() -> dict | None:
-    """Read a single JSON-RPC message from stdin."""
+def _read_message(stream=None) -> dict | None:
+    """Read a single JSON-RPC message from stdin (or given stream)."""
+    src = stream or sys.stdin
     try:
-        line = sys.stdin.readline()
+        line = src.readline()
         if not line:
             return None
         return json.loads(line.strip())
@@ -218,10 +254,11 @@ def _read_message() -> dict | None:
         return None
 
 
-def _write_message(msg: dict) -> None:
-    """Write a JSON-RPC message to stdout."""
-    sys.stdout.write(json.dumps(msg) + "\n")
-    sys.stdout.flush()
+def _write_message(msg: dict, stream=None) -> None:
+    """Write a JSON-RPC message to stdout (or given stream)."""
+    dest = stream or sys.stdout
+    dest.write(json.dumps(msg) + "\n")
+    dest.flush()
 
 
 def _make_response(id_: int | str, result: Any) -> dict:
@@ -229,102 +266,58 @@ def _make_response(id_: int | str, result: Any) -> dict:
 
 
 def _make_error(id_: int | str | None, code: int, message: str) -> dict:
-    return {
-        "jsonrpc": "2.0",
-        "id": id_,
-        "error": {"code": code, "message": message},
-    }
+    return {"jsonrpc": "2.0", "id": id_, "error": {"code": code, "message": message}}
 
 
 # ── MCP lifecycle handlers ───────────────────────────────────────────────────
 
 def _handle_initialize(msg: dict, version: str) -> dict:
-    """Respond to the initialize request."""
     return _make_response(msg["id"], {
         "protocolVersion": PROTOCOL_VERSION,
-        "capabilities": {
-            "tools": {},
-        },
-        "serverInfo": {
-            "name": SERVER_NAME,
-            "version": version,
-        },
+        "capabilities": {"tools": {}},
+        "serverInfo": {"name": SERVER_NAME, "version": version},
     })
 
 
-# Sensitive tools excluded from MCP by default (require explicit config opt-in)
-_MCP_SENSITIVE_TOOLS = {"perseus_query", "perseus_agent"}
-
-def _get_mcp_tools(cfg: dict) -> list[dict]:
-    """Return the MCP tool list, filtered by config allowlist/blocklist."""
-    mcp_cfg = cfg.get("mcp", {}) if isinstance(cfg, dict) else {}
-    allowlist = set(mcp_cfg.get("tool_allowlist") or [])
-    blocklist = set(mcp_cfg.get("tool_blocklist") or [])
-    tools = []
-    for tool in MCP_TOOLS:
-        name = tool["name"]
-        if name in blocklist:
-            continue
-        if allowlist and name not in allowlist:
-            continue
-        # Sensitive tools excluded unless explicitly allowed
-        if name in _MCP_SENSITIVE_TOOLS and name not in allowlist:
-            continue
-        tools.append(tool)
-    return tools
-
-def _handle_tools_list(msg: dict, cfg: dict | None = None) -> dict:
-    """Respond to tools/list."""
-    tools = _get_mcp_tools(cfg or {})
-    return _make_response(msg["id"], {
-        "tools": tools,
-    })
+def _handle_tools_list(msg: dict, cfg: dict) -> dict:
+    tools = _get_all_mcp_tools(cfg)
+    return _make_response(msg["id"], {"tools": tools})
 
 
 def _handle_tools_call(msg: dict, cfg: dict, workspace: Path) -> dict:
-    """Respond to tools/call."""
     params = msg.get("params", {})
     tool_name = params.get("name", "")
     arguments = params.get("arguments", {})
-
     result_text = _call_tool(tool_name, arguments, cfg, workspace)
-
     return _make_response(msg["id"], {
-        "content": [
-            {"type": "text", "text": result_text}
-        ],
+        "content": [{"type": "text", "text": result_text}],
     })
 
 
-# ── Server loop ──────────────────────────────────────────────────────────────
+# ── Server loop (stdio) ─────────────────────────────────────────────────────
 
-def serve_mcp(
-    cfg: dict,
-    workspace: Path | None = None,
-) -> int:
+def serve_mcp(cfg: dict, workspace: Path | None = None) -> int:
     """Run the Perseus MCP server over stdio. Blocks until stdin closes."""
     ws = workspace or Path.cwd()
     version = cfg.get("version", SERVER_VERSION)
 
-    # Update tool server version
-    for i, tool in enumerate(MCP_TOOLS):
-        tool["description"] = tool["description"].replace("v1.0.0", f"v{version}")
-        tool["description"] = tool["description"].replace("v0.0.0", f"v{version}")
+    # Ensure plugins are loaded so plugin directives appear in MCP tools
+    try:
+        from perseus.registry import register_plugins
+        register_plugins(cfg)
+    except Exception:
+        pass
 
-    # Main loop
     while True:
         msg = _read_message()
         if msg is None:
             break
-
         method = msg.get("method", "")
         msg_id = msg.get("id")
-
         try:
             if method == "initialize":
                 _write_message(_handle_initialize(msg, version))
             elif method == "notifications/initialized":
-                # No response needed
                 pass
             elif method == "tools/list":
                 _write_message(_handle_tools_list(msg, cfg))
@@ -334,21 +327,96 @@ def serve_mcp(
                 _write_message(_make_response(msg_id, {}))
             else:
                 _write_message(_make_error(msg_id, -32601, f"Method not found: {method}"))
-
         except Exception as exc:
             _write_message(_make_error(msg_id, -32603, f"Internal error: {exc}"))
-
     return 0
 
 
-def print_mcp_config(cfg: dict, workspace: Path | None = None) -> None:
-    """Print the MCP client configuration for Claude Desktop / Cursor / etc."""
-    import shutil
+# ── SSE Transport ────────────────────────────────────────────────────────────
 
+def serve_mcp_sse(cfg: dict, workspace: Path | None = None, port: int = 8420) -> None:
+    """Run Perseus MCP server over HTTP with Server-Sent Events."""
+    from http.server import HTTPServer, BaseHTTPRequestHandler
+    import threading
+
+    ws = workspace or Path.cwd()
+    version = cfg.get("version", SERVER_VERSION)
+
+    class MCPSSEHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path == "/sse":
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("Connection", "keep-alive")
+                self.end_headers()
+                # Send endpoint info
+                self.wfile.write(f"data: {json.dumps({'endpoint': f'/message', 'server': SERVER_NAME, 'version': version})}\n\n".encode())
+                self.wfile.flush()
+                # Keep connection open, reading messages from client
+                # For simplicity, SSE endpoint just announces; actual messages come via POST /message
+            elif self.path == "/health":
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "ok", "server": SERVER_NAME, "version": version}).encode())
+            else:
+                self.send_response(404)
+                self.end_headers()
+
+        def do_POST(self):
+            if self.path == "/message":
+                content_length = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(content_length)
+                try:
+                    msg = json.loads(body)
+                    # Process the JSON-RPC message and respond
+                    method = msg.get("method", "")
+                    msg_id = msg.get("id")
+                    if method == "initialize":
+                        resp = _handle_initialize(msg, version)
+                    elif method == "tools/list":
+                        resp = _handle_tools_list(msg, cfg)
+                    elif method == "tools/call":
+                        resp = _handle_tools_call(msg, cfg, ws)
+                    elif method == "ping":
+                        resp = _make_response(msg_id, {})
+                    else:
+                        resp = _make_error(msg_id, -32601, f"Method not found: {method}")
+
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(json.dumps(resp).encode())
+                except Exception as exc:
+                    self.send_response(500)
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"error": str(exc)}).encode())
+            else:
+                self.send_response(404)
+                self.end_headers()
+
+        def log_message(self, format, *args):
+            pass  # suppress HTTP request logging
+
+    server = HTTPServer(("127.0.0.1", port), MCPSSEHandler)
+    print(f"Perseus MCP SSE server listening on http://127.0.0.1:{port}")
+    print(f"  SSE endpoint: http://127.0.0.1:{port}/sse")
+    print(f"  POST messages to: http://127.0.0.1:{port}/message")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        server.shutdown()
+
+
+# ── Config printer ───────────────────────────────────────────────────────────
+
+def print_mcp_config(cfg: dict, workspace: Path | None = None) -> None:
+    """Print MCP client configuration for Claude Desktop / Cursor / etc."""
+    import shutil
     perseus_path = shutil.which("perseus") or "perseus"
     ws = workspace or Path.cwd()
     version = cfg.get("version", "1.0.0")
-
     config = {
         "mcpServers": {
             "perseus": {
@@ -357,46 +425,24 @@ def print_mcp_config(cfg: dict, workspace: Path | None = None) -> None:
             }
         }
     }
-
     print(json.dumps(config, indent=2))
     print()
     print("# Paste the above into your MCP client configuration:")
     print("#   Claude Desktop : ~/Library/Application Support/Claude/claude_desktop_config.json")
     print("#   Cursor         : .cursor/mcp.json")
-    print("#   Continue       : ~/.continue/config.json → experimental.mcpServers")
     print(f"# Perseus v{version}")
-
-
-def _generate_directive_tools() -> list[dict]:
-    """task-69: Generate MCP tool schemas from all inline directives in the registry."""
-    tools = []
-    for name, spec in sorted(DIRECTIVE_REGISTRY.items()):
-        if spec.kind != "inline":
-            continue
-        tool_name = f"perseus_{name.lstrip('@')}"
-        props = {"args": {"type": "string", "description": f"Arguments for {name} directive"}}
-        required = []
-        if spec.args:
-            for arg in spec.args:
-                arg_name = arg.rstrip("=")
-                props[arg_name] = {"type": "string", "description": f"{arg} modifier for {name}"}
-        tools.append(_tool_schema(tool_name, spec.summary or f"Run {name} directive", props, required))
-    return tools
 
 
 def print_mcp_registry(cfg: dict) -> None:
     """Print Perseus's MCP registry listing metadata (for registry submission)."""
     version = cfg.get("version", "1.0.0")
-
+    tools = _get_all_mcp_tools(cfg)
     registry_entry = {
         "name": "perseus",
         "description": (
-            "Live context engine for AI assistants — compile-before-context. "
-            "Exposes @query, @services, @memory, @skills, @waypoint, @agora, "
-            "@inbox, @read, @env, @health, and @agent as MCP tools. "
-            "Perseus pre-resolves your entire workspace state (git, services, "
-            "memory, team coordination) into a single briefing before the "
-            "assistant sees it — deterministic, cacheable, and assistant-agnostic."
+            "Live context engine for AI assistants. Exposes every Perseus directive "
+            "as an MCP tool — @query, @services, @memory, @skills, @waypoint, @agora, "
+            "@inbox, @read, @env, @health, @agent, and all plugin directives."
         ),
         "version": version,
         "vendor": "tcconnally",
@@ -408,10 +454,9 @@ def print_mcp_registry(cfg: dict) -> None:
         "env": {},
         "tools": [
             {"name": t["name"], "description": t["description"].split(".")[0] + "."}
-            for t in MCP_TOOLS
+            for t in tools
         ],
     }
-
     print(json.dumps(registry_entry, indent=2))
     print()
     print("# Submit to the MCP Registry at https://registry.modelcontextprotocol.io/")
