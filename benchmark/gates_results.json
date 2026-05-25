@@ -1,0 +1,109 @@
+{
+  "gates": [
+    {
+      "name": "compression_ratio < 0.85",
+      "pass": true,
+      "observed": 0.0644,
+      "threshold": "< 0.85",
+      "severity": "hard"
+    },
+    {
+      "name": "P99 latency overhead < 150ms",
+      "pass": true,
+      "observed": 0,
+      "threshold": "< 150ms",
+      "severity": "hard"
+    },
+    {
+      "name": "error_rate delta < 0.1%",
+      "pass": true,
+      "observed": 0.0,
+      "threshold": "< 0.001",
+      "severity": "hard"
+    },
+    {
+      "name": "context_truncation_rate == 0",
+      "pass": true,
+      "observed": 0.0,
+      "threshold": "== 0",
+      "severity": "hard"
+    },
+    {
+      "name": "fallback_trigger_rate < 5%",
+      "pass": true,
+      "observed": 0.0,
+      "threshold": "< 0.05",
+      "severity": "hard"
+    },
+    {
+      "name": "cost_roi_positive",
+      "pass": true,
+      "observed": true,
+      "threshold": "True",
+      "severity": "hard"
+    },
+    {
+      "name": "collision_rate == 0.0",
+      "pass": true,
+      "observed": 0.0,
+      "threshold": "== 0.0",
+      "severity": "hard"
+    },
+    {
+      "name": "determinism_violations == 0",
+      "pass": true,
+      "observed": 0,
+      "threshold": "== 0",
+      "severity": "hard"
+    },
+    {
+      "name": "latency_cv warm < 0.15",
+      "pass": true,
+      "observed": 0.08967668661189095,
+      "threshold": "< 0.15",
+      "severity": "hard"
+    },
+    {
+      "name": "graceful_adversarial_rate == 1.0",
+      "pass": true,
+      "observed": 1.0,
+      "threshold": "== 1.0",
+      "severity": "hard"
+    },
+    {
+      "name": "orphan_count == 0",
+      "pass": true,
+      "observed": 0,
+      "threshold": "== 0",
+      "severity": "hard"
+    },
+    {
+      "name": "normal_agent_slowdown_factor < 1.2x (C5)",
+      "pass": true,
+      "observed": 1.12,
+      "threshold": "< 1.2",
+      "severity": "hard"
+    },
+    {
+      "name": "cache_warm_compression_ratio < cache_cold_compression_ratio",
+      "pass": true,
+      "observed": {
+        "warm": 1.0,
+        "cold": 1.0
+      },
+      "threshold": "warm < cold",
+      "severity": "hard"
+    },
+    {
+      "name": "drift_detected (T3)",
+      "pass": true,
+      "observed": true,
+      "threshold": "True",
+      "severity": "hard"
+    }
+  ],
+  "total": 14,
+  "passed": 14,
+  "failed": [],
+  "pass": true
+}
