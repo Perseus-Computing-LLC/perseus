@@ -1,0 +1,7 @@
+{
+  "semantic_equivalence_score": null,
+  "threshold": 0.95,
+  "pass": null,
+  "skipped": true,
+  "reason": "live LLM judge not configured (set OPENAI_API_KEY and --enable)"
+}

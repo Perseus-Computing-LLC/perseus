@@ -1165,6 +1165,20 @@ def render_source(
             "cache_misses": _stats["cache_misses"],
         }, cfg)
 
+    # ── PERSEUS_BENCH instrumentation shim ────────────────────────────────
+    # Emits one stderr line at render completion when PERSEUS_BENCH is set.
+    # No production overhead when unset. Used by benchmark/ harnesses.
+    if _include_depth == 0 and _render_start_ts is not None and os.environ.get("PERSEUS_BENCH"):
+        _total_us = int((time.time() - _render_start_ts) * 1_000_000)
+        _assemble_us = _total_us  # whole-render duration; finer split would need parse/dispatch hooks
+        sys.stderr.write(
+            "BENCH|parse_us=0|directives=%d|cache_hits=%d|cache_misses=%d|"
+            "dispatch_start_us=0|dispatch_end_us=%d|assemble_us=%d|total_us=%d\n"
+            % (_stats["directive_count"], _stats["cache_hits"], _stats["cache_misses"],
+               _total_us, _assemble_us, _total_us)
+        )
+        sys.stderr.flush()
+
     return result
 
 
