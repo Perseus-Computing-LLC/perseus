@@ -1,16 +1,16 @@
 ---
 id: task-64
 title: Background daemon with graph-driven cache invalidation
-status: open
+status: completed
 priority: low
 scope: spike
-claimed_by: null
+claimed_by: claude-opus-4-7
 created: 2026-05-23
 phase: post-v1
 theme: "Managed Runtime \u2014 Continuous Resolution"
 depends_on: []
 opened: '2026-05-23'
-closed: null
+closed: '2026-05-25'
 ---
 ## Why
 
@@ -73,3 +73,22 @@ design document (in `docs/plans/`) covering:
 3. Document includes a decision on: (a) is this worth building post-v1? (b) what
    is the minimum viable increment beyond `perseus watch`?
 4. No code changes.
+
+## Completed
+
+Design doc landed at [docs/plans/2026-05-24-daemon-cache-invalidation.md](../docs/plans/2026-05-24-daemon-cache-invalidation.md).
+
+**TL;DR of decision:**
+- **Build the v1 MVP, not the full daemon.** Add `perseus watch --graph` that reuses the existing `_watch_loop`, builds the directive graph once at startup, polls per-resource file/directory mtimes, and selectively invalidates per-directive cache entries before re-rendering. Backward compatible — without `--graph` behavior is identical to today.
+- **Do not introduce a separate `perseus daemon` command.** Existing `watch` / `serve` / LSP cover current demand; a new long-running mode without user pull is unjustified.
+- **Do not implement splice rendering.** Full re-render with warm cache is already sub-second; the leverage is on selective re-execution, not selective output assembly.
+- **Stay zero-dep via mtime polling.** The task's `select.poll` on `/proc/self/fd` hint conflates fd readiness with filesystem events — real inotify needs `ctypes` or a dep. Mtime polling is what `cmd_watch` already does; reusing it costs nothing.
+- **MVP invalidation set:** `file` + `directory` resource kinds only (`@read`, `@include`, `@list`, `@tree`). `@query`, `@env`, `@services` retain TTL semantics — adding fingerprint support for those is post-MVP.
+
+**Estimated MVP scope:** ~150–300 LOC across `renderer.py` (fingerprint helpers + cache schema field) and `serve.py` (graph hookup in `_watch_loop`). No new modules, no new dependencies.
+
+**Suggested follow-up tasks** (listed in the doc; owner decides whether to file): cache-fingerprint field, `--graph` flag wiring, optional `ctypes`-inotify backend behind config, `@services` resource hints for service-state invalidation.
+
+**Notes for the owner:**
+- I noticed `@services` resource hints aren't emitted by `directive_dependency_graph` today (only `file`/`directory`/`env`/`shell`/`key`/`schema`). Adding them is a prerequisite for service-driven invalidation — kept out of MVP scope but worth a separate task when the time comes.
+- The graph today only emits `order` edges between sequential nodes — no real data-dependency edges. The MVP doesn't need them (it walks nodes by directive line and matches resources individually), but a true dataflow graph (e.g. `@read foo.md` → `@query "process foo.md"`) would let the daemon batch invalidation. Out of scope here.
