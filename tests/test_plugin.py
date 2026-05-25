@@ -20,6 +20,8 @@ def _reset_registry():
         del perseus.DIRECTIVE_REGISTRY[k]
     # Rebuild the regex to match
     perseus.INLINE_DIRECTIVE_RE = perseus._build_inline_directive_re()
+    # task-65: reset per-process plugin-dir cache so the next test re-scans
+    perseus._reset_plugin_cache()
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
@@ -39,13 +41,10 @@ def _setup_plugin_dir(monkeypatch, tmp_path, plugin_files=None):
 
 def _discover_and_register(cfg_dict):
     """Discover plugins from cfg and register them in DIRECTIVE_REGISTRY."""
-    specs = perseus._discover_plugins(cfg_dict)
-    for spec in specs:
-        if spec.name not in perseus.DIRECTIVE_REGISTRY:
-            perseus.DIRECTIVE_REGISTRY[spec.name] = spec
-    # Rebuild the inline regex so new directives are matched
-    perseus.INLINE_DIRECTIVE_RE = perseus._build_inline_directive_re()
-    return specs
+    # task-65: exercise the production register_plugins path
+    perseus.register_plugins(cfg_dict, force=True)
+    # Return the discovered specs for tests that inspect them
+    return perseus._discover_plugins(cfg_dict)
 
 
 # ── Test: Plugin with valid REGISTER → directive resolves correctly ─────────
@@ -248,6 +247,80 @@ REGISTER = {
             registered[spec.name] = spec
     assert len(registered) == 1
     assert registered["@dup"].summary == "Duplicate A"
+
+
+# ── Test: Plugin with import error → warning on stderr, render continues ────
+
+def test_plugin_import_error_continues_render(monkeypatch, tmp_path, capsys):
+    """A plugin file that fails to import (missing module) must not break
+    Perseus startup or rendering. The error is logged to stderr; other plugins
+    and built-in directives continue to work."""
+    broken_plugin = """\
+import this_module_does_not_exist_anywhere  # raises ImportError at import time
+
+from perseus_module import DirectiveSpec
+
+REGISTER = {}
+"""
+    good_plugin = """\
+from perseus_module import DirectiveSpec
+
+def _resolve_ok(args, cfg, workspace):
+    return "good plugin"
+
+REGISTER = {
+    "@goodplugin": DirectiveSpec(
+        name="@goodplugin", resolver=_resolve_ok, args=[],
+        kind="inline", call_sig="acw", summary="Good plugin",
+    )
+}
+"""
+    pdir = _setup_plugin_dir(monkeypatch, tmp_path, {
+        "a_broken.py": broken_plugin,
+        "b_good.py": good_plugin,
+    })
+    c = cfg()
+    c["plugins"]["dir"] = str(pdir)
+    _discover_and_register(c)
+
+    captured = capsys.readouterr()
+    assert "Perseus plugin error" in captured.err
+    assert "a_broken.py" in captured.err
+
+    # Render still works; the good plugin still registered
+    out = perseus.render_source("@perseus v0.5\n@goodplugin", c, None)
+    assert "good plugin" in out
+
+
+# ── Test: Plugin directive carries source=plugin into the graph ─────────────
+
+def test_plugin_directive_has_source_metadata_in_graph(monkeypatch, tmp_path):
+    """`perseus graph` output must distinguish plugin-sourced directives from
+    built-ins so downstream tools can tell where a directive came from."""
+    plugin_py = """\
+from perseus_module import DirectiveSpec
+
+def _resolve_mine(args, cfg, workspace):
+    return "from plugin"
+
+REGISTER = {
+    "@mineonly": DirectiveSpec(
+        name="@mineonly", resolver=_resolve_mine, args=[],
+        kind="inline", call_sig="acw", summary="Plugin-sourced directive",
+    )
+}
+"""
+    pdir = _setup_plugin_dir(monkeypatch, tmp_path, {"mine.py": plugin_py})
+    c = cfg()
+    c["plugins"]["dir"] = str(pdir)
+    _discover_and_register(c)
+
+    source = "@perseus v0.5\n@date\n@mineonly\n"
+    graph = perseus.directive_dependency_graph(source, source_name="<test>", workspace=tmp_path)
+
+    by_directive = {n["directive"]: n for n in graph["nodes"]}
+    assert by_directive["@date"]["source"] == "builtin"
+    assert by_directive["@mineonly"]["source"] == "plugin"
 
 
 # ── Test: Plugin resolver that throws → error output, render continues ──────

@@ -1099,6 +1099,12 @@ def render_source(
     if not lines or not PERCY_HEADER_RE.match(lines[0]):
         return source_text  # not a perseus doc; pass through unchanged
 
+    # task-65: discover and merge plugin directives before any directive matching.
+    # Idempotent per plugins dir, so the per-render overhead is one dict lookup
+    # after the first call.
+    if _include_depth == 0:
+        register_plugins(cfg)
+
     # task-67: on_render_start hook (top-level only)
     _render_start_ts = time.time()
     _fire_hooks("on_render_start", {
@@ -1152,6 +1158,10 @@ def render_source_with_meta(
     lines = source_text.splitlines()
     if not lines or not PERCY_HEADER_RE.match(lines[0]):
         return RenderResult(text=source_text, directives=[], meta={})
+
+    # task-65: ensure plugin directives are registered before resolution
+    if _include_depth == 0:
+        register_plugins(cfg)
 
     _render_start_ts = time.time()
     _fire_hooks("on_render_start", {
