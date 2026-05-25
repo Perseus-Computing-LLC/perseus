@@ -424,6 +424,165 @@ def _bind_registry() -> None:
         DIRECTIVE_REGISTRY[spec.name] = spec
 
 
+# ── Pipe Syntax (task-71) ────────────────────────────────────────────────────
+
+_MAX_PIPE_STAGES = 5
+
+
+def _parse_pipe_stages(line: str) -> list[str]:
+    """Split a directive line into pipe stages respecting quoted strings."""
+    in_quote = False
+    quote_char = None
+    has_pipe = False
+    for ch in line:
+        if ch in ('"', "'") and not in_quote:
+            in_quote = True
+            quote_char = ch
+        elif ch == quote_char and in_quote:
+            in_quote = False
+            quote_char = None
+        elif ch == '|' and not in_quote:
+            has_pipe = True
+            break
+    if not has_pipe:
+        return [line]
+    stages = []
+    current = []
+    in_quote = False
+    quote_char = None
+    for ch in line:
+        if ch in ('"', "'") and not in_quote:
+            in_quote = True
+            quote_char = ch
+            current.append(ch)
+        elif ch == quote_char and in_quote:
+            in_quote = False
+            quote_char = None
+            current.append(ch)
+        elif ch == '|' and not in_quote:
+            stages.append(''.join(current).strip())
+            current = []
+        else:
+            current.append(ch)
+    if current:
+        stages.append(''.join(current).strip())
+    if len(stages) > _MAX_PIPE_STAGES:
+        return stages[:_MAX_PIPE_STAGES]
+    return stages
+
+
+# ── Directive Aliasing (task-74) ─────────────────────────────────────────────
+
+PREDEFINED_ALIASES = {
+    "@q": "@query",
+    "@r": "@read",
+    "@svc": "@services",
+    "@mb": "@memory",
+    "@ag": "@agora",
+    "@wp": "@waypoint",
+    "@sess": "@session",
+    "@chk": "@checkpoint",
+    "@dr": "@drift",
+    "@syn": "@synthesize",
+}
+
+
+def _expand_aliases(lines: list[str], cfg: dict) -> list[str]:
+    """Expand directive aliases (e.g. @q -> @query) before macro expansion.
+    Supports alias chains (one level), circular detection, and shadowing protection.
+    """
+    # 1. Collect all candidate aliases
+    raw_aliases = dict(PREDEFINED_ALIASES)
+    cfg_aliases = cfg.get("directives", {}).get("aliases", {})
+    raw_aliases.update(cfg_aliases)
+
+    if not raw_aliases:
+        return lines
+
+    # 2. Shadowing protection (case-sensitive)
+    aliases = {}
+    for alias, target in raw_aliases.items():
+        if alias in DIRECTIVE_REGISTRY:
+            print(f"Perseus warning: alias '{alias}' shadows a built-in directive; ignoring.", file=sys.stderr)
+            continue
+        aliases[alias] = target
+
+    # 3. Resolve chains and detect cycles
+    # According to spec: "one level of indirection only", "@a -> @b -> @c" is valid.
+    # We resolve chains; circular ones are disabled with a warning.
+    resolved_map = {}
+    disabled = set()
+
+    for start_alias in aliases:
+        if start_alias in disabled:
+            continue
+        path = [start_alias]
+        curr = aliases[start_alias]
+        while curr in aliases:
+            if curr in path:
+                # Cycle detected! Disable all members of the cycle
+                cycle_nodes = path[path.index(curr):]
+                for node in cycle_nodes:
+                    if node not in disabled:
+                        print(f"Perseus warning: circular alias detected for '{node}'; disabling.", file=sys.stderr)
+                        disabled.add(node)
+                break
+            path.append(curr)
+            curr = aliases[curr]
+        else:
+            # Successfully traced to a non-alias target or a built-in
+            resolved_map[start_alias] = curr
+
+    # Purge disabled aliases or those pointing to disabled aliases
+    for alias in list(resolved_map.keys()):
+        if alias in disabled or resolved_map[alias] in disabled:
+            resolved_map.pop(alias, None)
+
+    if not resolved_map:
+        return lines
+
+    # 4. Expansion pass
+    # Exact-match only, case-sensitive. Works with pipes.
+    sorted_aliases = sorted(resolved_map.items(), key=lambda x: -len(x[0]))
+    result: list[str] = []
+
+    for line in lines:
+        stripped = line.lstrip()
+        if not stripped.startswith("@"):
+            result.append(line)
+            continue
+
+        # Use _parse_pipe_stages to safely handle pipe stages and quotes
+        try:
+            stages = _parse_pipe_stages(line)
+            new_stages = []
+            expanded_any = False
+            for stage in stages:
+                s_stripped = stage.lstrip()
+                expanded_stage = stage
+                for alias, target in sorted_aliases:
+                    if s_stripped.startswith(alias):
+                        rest = s_stripped[len(alias):]
+                        if not rest or rest[0] in (' ', '\t'):
+                            # Match found. Preserve leading whitespace of the stage.
+                            indent = stage[:stage.find(alias)]
+                            expanded_stage = f"{indent}{target}{rest}"
+                            expanded_any = True
+                            break
+                new_stages.append(expanded_stage)
+
+            if expanded_any:
+                # Join with pipes, trying to be somewhat respectful of spacing
+                result.append(" | ".join(new_stages))
+            else:
+                result.append(line)
+        except Exception:
+            # Fallback for weird lines that might break pipe parsing
+            result.append(line)
+
+    return result
+
+
 def _call_resolver(spec: DirectiveSpec, args_str: str, cfg: dict, workspace: "Path | None") -> str:
     """Adapt resolver call to match its actual signature via call_sig."""
     # Universal shell-execution gate (task-65): plugin directives with
@@ -495,6 +654,137 @@ def _discover_plugins(cfg: dict) -> list["DirectiveSpec"]:
                 file=sys.stderr,
             )
     return specs
+import re
+from pathlib import Path
+
+# ── Directive Macros (task-66) ────────────────────────────────────────────────
+MACRO_START_RE = re.compile(r'^@macro\s+([\w-]+)\s*(.*)$', re.IGNORECASE)
+MACRO_END_RE = re.compile(r'^@endmacro\s*$', re.IGNORECASE)
+MACRO_PARAM_RE = re.compile(r'%(\w+)%')
+MAX_MACRO_DEPTH = 10
+
+def _parse_macros_from_lines(lines: list[str], start: int = 0) -> dict[str, tuple[list[str], list[str]]]:
+    """Parse @macro ... @endmacro blocks from lines, starting at index start.
+
+    Returns: {macro_name: (body_lines, param_names)} where param_names are
+    the ordered %tokens% found in the macro body.
+    """
+    macros: dict[str, tuple[list[str], list[str]]] = {}
+    i = start
+    while i < len(lines):
+        m = MACRO_START_RE.match(lines[i])
+        if m:
+            name = m.group(1).lower()
+            raw_params = (m.group(2) or "").strip()
+            # Parse %param% tokens from the macro header line or infer from body
+            header_params = [p for p in MACRO_PARAM_RE.findall(raw_params)]
+            i += 1
+            body: list[str] = []
+            while i < len(lines) and not MACRO_END_RE.match(lines[i]):
+                body.append(lines[i])
+                i += 1
+            # Infer params from body if not declared in header
+            if not header_params:
+                all_body = "\n".join(body)
+                body_params = []
+                seen = set()
+                for param in MACRO_PARAM_RE.findall(all_body):
+                    if param not in seen:
+                        body_params.append(param)
+                        seen.add(param)
+                header_params = body_params
+            macros[name] = (body, header_params)
+            if i < len(lines) and MACRO_END_RE.match(lines[i]):
+                i += 1
+        else:
+            i += 1
+    return macros
+
+
+def _load_macros(source_lines: list[str], workspace: Path | None, cfg: dict) -> dict[str, tuple[list[str], list[str]]]:
+    """Load macros from shared macros file, then overlay source-document macros.
+
+    Shared macros are loaded first; source-document macros can shadow them.
+    """
+    macros: dict[str, tuple[list[str], list[str]]] = {}
+
+    # Load shared macros file if it exists
+    # Config key 'macros.file' per spec, default ~/.perseus/macros.md
+    macros_file = cfg.get("macros", {}).get("file")
+    if not macros_file:
+        macros_path = PERSEUS_HOME / "macros.md"
+    else:
+        macros_path = Path(macros_file)
+
+    try:
+        if macros_path.is_file():
+            file_lines = macros_path.read_text().splitlines()
+            macros.update(_parse_macros_from_lines(file_lines))
+    except (OSError, ValueError):
+        pass
+
+    # Source-document macros override shared macros
+    source_macros = _parse_macros_from_lines(source_lines)
+    macros.update(source_macros)
+
+    return macros
+
+
+def _expand_macros(lines: list[str], macros: dict[str, tuple[list[str], list[str]]]) -> list[str]:
+    """Walk lines, expand macro invocations in place. Recursive up to MAX_MACRO_DEPTH.
+
+    A macro invocation is a line that exactly (case-insensitively) matches
+    a macro name (e.g. ``@project-health``).
+
+    Returns the expanded lines (macro definitions stripped, invocations replaced).
+    """
+    # Strip macro definition blocks first
+    current_lines = [l for l in _strip_macro_defs(lines)]
+    if not macros:
+        return current_lines
+
+    depth = 0
+    while depth < MAX_MACRO_DEPTH:
+        next_lines = []
+        changed = False
+        for line in current_lines:
+            stripped = line.strip()
+            if stripped.startswith("@"):
+                # Check for macro invocation (whole line)
+                parts = stripped.split(None, 1)
+                if parts:
+                    invocation = parts[0][1:].lower()
+                    if invocation in macros:
+                        body, _ = macros[invocation]
+                        next_lines.extend(body)
+                        changed = True
+                        continue
+            next_lines.append(line)
+
+        current_lines = next_lines
+        if not changed:
+            break
+        depth += 1
+    else:
+        # MAX_MACRO_DEPTH exceeded
+        current_lines.append(f"> ⚠ Macro expansion depth exceeded (max {MAX_MACRO_DEPTH})")
+
+    return current_lines
+
+
+def _strip_macro_defs(lines: list[str]) -> "iter":
+    """Generator: yield lines, skipping @macro...@endmacro definition blocks."""
+    i = 0
+    while i < len(lines):
+        if MACRO_START_RE.match(lines[i]):
+            i += 1
+            while i < len(lines) and not MACRO_END_RE.match(lines[i]):
+                i += 1
+            if i < len(lines):
+                i += 1  # skip @endmacro
+            continue
+        yield lines[i]
+        i += 1
 # ─────────────────────────── Phase 17B redaction (task-46) ───────────────────
 #
 # Goal: deterministic, opt-out redaction of common secret shapes before they
@@ -2004,16 +2294,30 @@ def directive_dependency_graph(
     source_text: str,
     source_name: str = "<memory>",
     workspace: Path | None = None,
+    cfg: dict | None = None,
 ) -> dict:
     """Build a static directive graph without executing any directive."""
+    effective_cfg = cfg or {}
     lines = source_text.splitlines()
+    # task-66: expand macros before building graph
+    body_lines = lines[1:] if lines and PERCY_HEADER_RE.match(lines[0]) else lines
+    macros = _load_macros(body_lines, workspace, effective_cfg)
+    if macros:
+        body_lines = _expand_macros(body_lines, macros)
+    
+    # Re-assemble if we had a header
+    if lines and PERCY_HEADER_RE.match(lines[0]):
+        processed_lines = [lines[0]] + body_lines
+    else:
+        processed_lines = body_lines
+
     nodes: list[dict] = []
     edges: list[dict] = []
     in_fence = False
     fence_char = ""
     fence_len = 0
 
-    for line_no, line in enumerate(lines, start=1):
+    for line_no, line in enumerate(processed_lines, start=1):
         fence_match = re.match(r'^\s*(`{3,}|~{3,})(.*)$', line)
         if in_fence:
             if re.match(rf'^\s*{re.escape(fence_char)}{{{fence_len},}}\s*$', line):
@@ -4769,7 +5073,7 @@ INLINE_DIRECTIVE_RE: "re.Pattern[str] | None" = None
 MACRO_START_RE = re.compile(r'^@macro\s+([\w-]+)\s*(.*)$', re.IGNORECASE)
 MACRO_END_RE = re.compile(r'^@endmacro\s*$', re.IGNORECASE)
 MACRO_PARAM_RE = re.compile(r'%(\w+)%')
-MAX_MACRO_DEPTH = 5
+MAX_MACRO_DEPTH = 10
 
 
 def _parse_macros_from_lines(lines: list[str], start: int = 0) -> dict[str, tuple[list[str], list[str]]]:
@@ -4817,16 +5121,21 @@ def _load_macros(source_lines: list[str], workspace: Path | None, cfg: dict) -> 
     """
     macros: dict[str, tuple[list[str], list[str]]] = {}
 
-    # Load workspace macros file if it exists
-    macros_file_rel = cfg["render"].get("macros_file", ".perseus/macros.md")
-    if workspace:
-        macros_path = workspace / macros_file_rel
-        try:
-            if macros_path.is_file():
-                file_lines = macros_path.read_text().splitlines()
-                macros.update(_parse_macros_from_lines(file_lines))
-        except (OSError, ValueError):
-            pass
+    # Load macros file if configured — per spec, key is 'macros.file'
+    macros_cfg = cfg.get("macros", {}) if isinstance(cfg, dict) else {}
+    macros_file_rel = macros_cfg.get("file", ".perseus/macros.md")
+    macros_path = Path(macros_file_rel)
+    if not macros_path.is_absolute():
+        if workspace:
+            macros_path = workspace / macros_file_rel
+        else:
+            macros_path = PERSEUS_HOME / "macros.md"
+    try:
+        if macros_path.is_file():
+            file_lines = macros_path.read_text().splitlines()
+            macros.update(_parse_macros_from_lines(file_lines))
+    except (OSError, ValueError):
+        pass
 
     # Source-document macros override workspace macros
     source_macros = _parse_macros_from_lines(source_lines)
@@ -4913,6 +5222,9 @@ def _expand_macros(lines: list[str], macros: dict[str, tuple[list[str], list[str
         if not has_macros:
             break
         depth += 1
+    else:
+        # Depth exceeded — emit warning
+        expanded.append(f"> \u26a0 Macro expansion depth exceeded (max {MAX_MACRO_DEPTH})")
 
     return expanded
 
@@ -5061,7 +5373,7 @@ def _load_plugin_validator(validator_name: str) -> "Callable | None":
 
 # ── Pipe Syntax (task-71) ────────────────────────────────────────────────────
 
-_MAX_PIPE_STAGES = 3
+_MAX_PIPE_STAGES = 5
 
 
 def _parse_pipe_stages(line: str) -> list[str]:
@@ -5164,31 +5476,84 @@ PREDEFINED_ALIASES = {
 }
 
 
+def _aliases_detect_and_remove_cycles(aliases: dict[str, str]) -> None:
+    """Detect circular alias chains and remove them. Mutates aliases in place."""
+    # Floyd's cycle detection for each alias chain
+    def follow(alias: str) -> str | None:
+        seen: set[str] = set()
+        current = alias
+        while current in aliases:
+            if current in seen:
+                return None  # cycle detected
+            seen.add(current)
+            current = aliases[current]
+        return current  # resolved target
+
+    to_remove: set[str] = set()
+    for alias in list(aliases):
+        if follow(alias) is None:
+            to_remove.add(alias)
+
+    for alias in to_remove:
+        aliases.pop(alias, None)
+
+
 def _expand_aliases(lines: list[str], cfg: dict) -> list[str]:
     """Single-pass alias expansion. Config aliases override pre-defined.
-    Aliases that shadow built-in directive names are warned and ignored."""
+    Aliases that shadow built-in directive names are warned and ignored.
+    Circular alias chains are detected and disabled."""
     aliases = dict(PREDEFINED_ALIASES)
     cfg_aliases = cfg.get("directives", {}).get("aliases", {})
     aliases.update(cfg_aliases)
     for alias, target in list(aliases.items()):
-        if alias.lower() in DIRECTIVE_REGISTRY:
+        if alias in DIRECTIVE_REGISTRY:
             aliases.pop(alias)
+    # Detect and remove circular alias chains
+    _aliases_detect_and_remove_cycles(aliases)
     if not aliases:
         return lines
     sorted_aliases = sorted(aliases.items(), key=lambda x: -len(x[0]))
     result: list[str] = []
     for line in lines:
-        stripped = line.strip()
-        expanded = False
-        for alias, target in sorted_aliases:
-            if stripped.lower().startswith(alias.lower()):
-                rest = stripped[len(alias):]
-                if not rest or rest[0] in (' ', '\t'):
-                    result.append(f"{target}{rest}")
-                    expanded = True
+        # Handle pipe stages — expand aliases in each stage independently
+        if "|" in line:
+            stages = line.split("|")
+            expanded_stages = []
+            for stage in stages:
+                stage_stripped = stage.strip()
+                current = stage_stripped
+                depth = 0
+                while depth < MAX_MACRO_DEPTH:
+                    expanded = False
+                    for alias, target in sorted_aliases:
+                        if current.startswith(alias):
+                            rest = current[len(alias):]
+                            if not rest or rest[0] in (' ', '\t'):
+                                current = f"{target}{rest}"
+                                expanded = True
+                                break
+                    if not expanded:
+                        break
+                    depth += 1
+                expanded_stages.append(current)
+            result.append(" | ".join(expanded_stages))
+        else:
+            current = line
+            depth = 0
+            while depth < MAX_MACRO_DEPTH:
+                stripped = current.strip()
+                expanded = False
+                for alias, target in sorted_aliases:
+                    if stripped.startswith(alias):
+                        rest = stripped[len(alias):]
+                        if not rest or rest[0] in (' ', '\t'):
+                            current = f"{target}{rest}"
+                            expanded = True
+                            break
+                if not expanded:
                     break
-        if not expanded:
-            result.append(line)
+                depth += 1
+            result.append(current)
     return result
 
 
