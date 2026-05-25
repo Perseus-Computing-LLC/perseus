@@ -31,6 +31,7 @@ DEFAULT_CONFIG = {
         "allow_services_command": False,
         "allow_remote_services_health": False,
         "allow_outside_workspace": False,
+        "default_tier": 3,            # task-76: context tier for rendering (1=always, 2=conditional, 3=all). Set to 1 or 2 for smaller context windows.
     },
     "checkpoints": {
         "store": str(PERSEUS_HOME / "checkpoints"),
