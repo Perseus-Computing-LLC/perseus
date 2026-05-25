@@ -24,6 +24,7 @@ class DirectiveSpec(NamedTuple):
     output_schema: object | None = None  # Optional registry-level rendered output schema
     diagnostic_fn: "Callable | None" = None  # Optional per-directive LSP diagnostic (task-25)
     source: str = "builtin"             # task-65: "builtin" for shipped specs, "plugin" for ~/.perseus/plugins/*.py
+    tier: int = 1                       # Context tier: 1=always, 2=conditional, 3=on-demand
 
 
 # NOTE: resolver references are forward-declared as strings and bound after
@@ -35,35 +36,41 @@ def _bind_registry() -> None:
     """Populate DIRECTIVE_REGISTRY. Called once after all resolvers are defined."""
     # fmt: off
     _entries: list[DirectiveSpec] = [
-        DirectiveSpec("@query",     resolve_query,     ["fallback=", "schema="],   "inline",  "acw", executes_shell=True,  safe_for_hover=False, cacheable=True,  summary="Run a shell command and embed stdout"),
-        DirectiveSpec("@skills",    resolve_skills,    ["flag_stale=", "category=", "limit="], "inline", "ac", reads_files=True, cacheable=True, summary="List available skills"),
-        DirectiveSpec("@session",   resolve_session,   ["count="],                 "inline",  "ac",  reads_files=True, cacheable=True, summary="Recent session digests"),
-        DirectiveSpec("@date",      resolve_date,      ["format="],                "inline",  "a",   cacheable=False, summary="Current date/time", output_schema={"type": "str", "pattern": ".+"}),
-        DirectiveSpec("@waypoint",  resolve_waypoint,  ["ttl="],                   "inline",  "ac",  reads_files=True, cacheable=True, summary="Latest checkpoint summary"),
-        DirectiveSpec("@read",      resolve_read,      ["path=", "key=", "fallback=", "schema="], "inline", "acw", reads_files=True, cacheable=True, summary="Embed file contents"),
-        DirectiveSpec("@env",       resolve_env,       ["required=", "fallback=", "schema="], "inline", "acw", cacheable=False, summary="Embed environment variable"),
-        DirectiveSpec("@include",   resolve_include,   [],                         "inline",  "awc", reads_files=True, cacheable=True, summary="Include and render another file"),
-        DirectiveSpec("@agora",     resolve_agora,     ["status="],                "inline",  "acw", reads_files=True, cacheable=True, summary="Task board from tasks/*.md"),
-        DirectiveSpec("@memory",    resolve_memory,    ["focus=", "federation", "include_federation=", "alias=", "workspace="], "inline", "acw", reads_files=True, cacheable=True, summary="Mnēmē narrative memory", diagnostic_fn=_memory_federation_diagnostic),
-        DirectiveSpec("@list",      resolve_list,      ["limit=", "sort="],        "inline",  "acw", reads_files=True, cacheable=True, summary="List directory or structured data"),
-        DirectiveSpec("@tree",      resolve_tree,      ["depth="],                 "inline",  "acw", reads_files=True, cacheable=True, summary="Tree view of directory"),
-        DirectiveSpec("@health",    resolve_health,    [],                         "inline",  "acw", reads_files=True, summary="Context maintenance report"),
-        DirectiveSpec("@agent",     resolve_agent,     [],                         "inline",  "acw", executes_shell=True, safe_for_hover=False, summary="Execute local agent subprocess"),
-        DirectiveSpec("@tool",      resolve_tool,      [],                         "inline",  "acw", executes_shell=True, safe_for_hover=False, summary="Run an allowlisted external tool"),
-        DirectiveSpec("@inbox",     resolve_inbox,     ["unread=", "limit="],      "inline",  "acw", reads_files=True, cacheable=True, summary="Agent message inbox"),
-        DirectiveSpec("@drift",     resolve_drift,     [],                         "inline",  "ac",  reads_files=True, summary="Oracle drift report"),
-        DirectiveSpec("@perseus",   resolve_perseus,   [],                         "inline",  "acw", cacheable=True, summary="Fetch rendered context from a remote Perseus instance"),
-        # Block directives — resolved via special block-parsing logic, not the inline dispatch
-        DirectiveSpec("@services",  resolve_services,  [],                         "block",   "block", executes_shell=True, safe_for_hover=False, summary="Health-check listed services"),
-        DirectiveSpec("@prompt",    resolve_prompt_block, [],                      "block",   "block", summary="System prompt block"),
-        DirectiveSpec("@constraint", None,             [],                         "block",   "block", summary="Constraint block for validation"),
-        DirectiveSpec("@validate",  resolve_validate_block, ["schema="],           "block",   "block", reads_files=True, summary="Validate a rendered block against a schema"),
-        DirectiveSpec("@synthesize", None,                  ["question=", "source=", "label=", "consistency_mode"], "block", "block", reads_files=True, safe_for_hover=False, summary="Optional curated synthesis section (generation.enabled required)"),
+        # Tier 1 — Always (lightweight, core context)
+        DirectiveSpec("@date",      resolve_date,      ["format="],                "inline",  "a",   cacheable=False, summary="Current date/time", output_schema={"type": "str", "pattern": ".+"}, tier=1),
+        DirectiveSpec("@waypoint",  resolve_waypoint,  ["ttl="],                   "inline",  "ac",  reads_files=True, cacheable=True, summary="Latest checkpoint summary", tier=1),
+        DirectiveSpec("@memory",    resolve_memory,    ["focus=", "federation", "include_federation=", "alias=", "workspace="], "inline", "acw", reads_files=True, cacheable=True, summary="Mnēmē narrative memory", diagnostic_fn=_memory_federation_diagnostic, tier=1),
+        DirectiveSpec("@health",    resolve_health,    [],                         "inline",  "acw", reads_files=True, summary="Context maintenance report", tier=1),
+        DirectiveSpec("@env",       resolve_env,       ["required=", "fallback=", "schema="], "inline", "acw", cacheable=False, summary="Embed environment variable", tier=1),
+
+        # Tier 2 — Conditional (heavier, task-specific)
+        DirectiveSpec("@services",  resolve_services,  [],                         "block",   "block", executes_shell=True, safe_for_hover=False, summary="Health-check listed services", tier=2),
+        DirectiveSpec("@skills",    resolve_skills,    ["flag_stale=", "category=", "limit="], "inline", "ac", reads_files=True, cacheable=True, summary="List available skills", tier=2),
+        DirectiveSpec("@session",   resolve_session,   ["count="],                 "inline",  "ac",  reads_files=True, cacheable=True, summary="Recent session digests", tier=2),
+        DirectiveSpec("@agora",     resolve_agora,     ["status="],                "inline",  "acw", reads_files=True, cacheable=True, summary="Task board from tasks/*.md", tier=2),
+        DirectiveSpec("@inbox",     resolve_inbox,     ["unread=", "limit="],      "inline",  "acw", reads_files=True, cacheable=True, summary="Agent message inbox", tier=2),
+        DirectiveSpec("@drift",     resolve_drift,     [],                         "inline",  "ac",  reads_files=True, summary="Oracle drift report", tier=2),
+        DirectiveSpec("@perseus",   resolve_perseus,   [],                         "inline",  "acw", cacheable=True, summary="Fetch rendered context from a remote Perseus instance", tier=2),
+
+        # Tier 3 — On-demand (bulky, expensive)
+        DirectiveSpec("@query",     resolve_query,     ["fallback=", "schema="],   "inline",  "acw", executes_shell=True,  safe_for_hover=False, cacheable=True,  summary="Run a shell command and embed stdout", tier=3),
+        DirectiveSpec("@read",      resolve_read,      ["path=", "key=", "fallback=", "schema="], "inline", "acw", reads_files=True, cacheable=True, summary="Embed file contents", tier=3),
+        DirectiveSpec("@include",   resolve_include,   [],                         "inline",  "awc", reads_files=True, cacheable=True, summary="Include and render another file", tier=3),
+        DirectiveSpec("@list",      resolve_list,      ["limit=", "sort="],        "inline",  "acw", reads_files=True, cacheable=True, summary="List directory or structured data", tier=3),
+        DirectiveSpec("@tree",      resolve_tree,      ["depth="],                 "inline",  "acw", reads_files=True, cacheable=True, summary="Tree view of directory", tier=3),
+        DirectiveSpec("@agent",     resolve_agent,     [],                         "inline",  "acw", executes_shell=True, safe_for_hover=False, summary="Execute local agent subprocess", tier=3),
+        DirectiveSpec("@tool",      resolve_tool,      [],                         "inline",  "acw", executes_shell=True, safe_for_hover=False, summary="Run an allowlisted external tool", tier=3),
+
+        # Block / control (resolved by renderer, tier doesn't apply)
+        DirectiveSpec("@prompt",    resolve_prompt_block, [],                      "block",   "block", summary="System prompt block", tier=1),
+        DirectiveSpec("@constraint", None,             [],                         "block",   "block", summary="Constraint block for validation", tier=1),
+        DirectiveSpec("@validate",  resolve_validate_block, ["schema="],           "block",   "block", reads_files=True, summary="Validate a rendered block against a schema", tier=1),
+        DirectiveSpec("@synthesize", None,                  ["question=", "source=", "label=", "consistency_mode"], "block", "block", reads_files=True, safe_for_hover=False, summary="Optional curated synthesis section (generation.enabled required)", tier=3),
         # Control directives — structural, no resolver
-        DirectiveSpec("@if",        None,              [],                         "control", "block", summary="Conditional block start"),
-        DirectiveSpec("@else",      None,              [],                         "control", "block", summary="Conditional block else"),
-        DirectiveSpec("@endif",     None,              [],                         "control", "block", summary="Conditional block end"),
-        DirectiveSpec("@end",       None,              [],                         "control", "block", summary="Block directive end"),
+        DirectiveSpec("@if",        None,              [],                         "control", "block", summary="Conditional block start", tier=1),
+        DirectiveSpec("@else",      None,              [],                         "control", "block", summary="Conditional block else", tier=1),
+        DirectiveSpec("@endif",     None,              [],                         "control", "block", summary="Conditional block end", tier=1),
+        DirectiveSpec("@end",       None,              [],                         "control", "block", summary="Block directive end", tier=1),
     ]
     # fmt: on
     for spec in _entries:

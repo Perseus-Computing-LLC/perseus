@@ -152,6 +152,24 @@ MACRO_END_RE = re.compile(r'^@endmacro\s*$', re.IGNORECASE)
 MACRO_PARAM_RE = re.compile(r'%(\w+)%')
 MAX_MACRO_DEPTH = 10
 
+# ── Tier Modifier (task-76) ───────────────────────────────────────────────────
+# @tier:N on any directive line overrides the registry default for that instance.
+# Syntax: @services @tier:1 — force Tier 1, even if @services defaults to Tier 2.
+# Stripped before directive dispatch; passed as instance_tier to the tier gate.
+
+TIER_MODIFIER_RE = re.compile(r'@tier:(\d)', re.IGNORECASE)
+
+def _parse_tier_modifier(line: str) -> tuple[str, int | None]:
+    """Strip @tier:N modifier from a directive line.
+    Returns (clean_line, tier_number) or (original_line, None) if no modifier.
+    """
+    m = TIER_MODIFIER_RE.search(line)
+    if m:
+        tier = int(m.group(1))
+        clean = line[:m.start()] + line[m.end():]
+        return clean.rstrip(), tier
+    return line, None
+
 
 def _parse_macros_from_lines(lines: list[str], start: int = 0) -> dict[str, tuple[list[str], list[str]]]:
     """Parse @macro ... @endmacro blocks from lines, starting at index start.
@@ -543,6 +561,46 @@ def _capture_file_snapshot(lines: list[str], workspace: Path | None) -> dict[str
             pass
     return snap
 
+def _check_directive_tier(
+    line: str,
+    directive_name: str,
+    max_tier: int,
+    skipped: list[dict] | None,
+) -> tuple[bool, str]:
+    """Check if a directive should be skipped based on context tier.
+
+    Parses @tier:N modifier if present, then falls back to registry default.
+    Returns (should_skip: bool, cleaned_line: str with @tier:N stripped).
+    When should_skip is True, records the directive in skipped for the manifest.
+
+    Control/structural directives (@if, @else, @endif, @end) always render
+    regardless of tier — they don't produce output, just structure.
+    """
+    # Strip @tier:N modifier
+    clean_line, instance_tier = _parse_tier_modifier(line)
+
+    # Structural directives always render
+    if directive_name in ("@if", "@else", "@endif", "@end"):
+        return False, clean_line
+
+    # Determine effective tier: instance override > config override > registry default
+    spec = DIRECTIVE_REGISTRY.get(directive_name)
+    registry_tier = spec.tier if spec else 3
+    effective_tier = instance_tier if instance_tier is not None else registry_tier
+
+    if effective_tier > max_tier:
+        if skipped is not None:
+            skipped.append({
+                "name": directive_name,
+                "tier": effective_tier,
+                "summary": spec.summary if spec else "",
+                "line": clean_line.strip(),
+            })
+        return True, clean_line
+
+    return False, clean_line
+
+
 def _render_lines(
     lines: list[str],
     cfg: dict,
@@ -552,12 +610,20 @@ def _render_lines(
     _include_visited: set | None = None,
     _directive_collector: list[dict] | None = None,
     _stats: dict | None = None,
+    max_tier: int = 3,
+    _skipped_directives: list[dict] | None = None,
 ) -> str:
-    """Core rendering loop. Processes a list of lines and returns resolved markdown."""
+    """Core rendering loop. Processes a list of lines and returns resolved markdown.
+
+    max_tier: render directives up to this tier (1=always, 2=conditional, 3=all).
+    Directives above max_tier are skipped and recorded in _skipped_directives.
+    """
     # Top-level call owns the constraint rows list and decides when to flush it
     top_level = _constraint_rows is None
     if top_level:
         _constraint_rows = []
+        if _skipped_directives is None:
+            _skipped_directives = []
     if _include_visited is None:
         _include_visited = set()
 
@@ -646,6 +712,13 @@ def _render_lines(
 
         # ── Block directives ──
         if PROMPT_BLOCK_RE.match(line):
+            should_skip, line = _check_directive_tier(line, "@prompt", max_tier, _skipped_directives)
+            if should_skip:
+                i += 1
+                while i < len(lines) and not END_RE.match(lines[i]):
+                    i += 1
+                i += 1
+                continue
             block_lines = []
             i += 1
             while i < len(lines) and not END_RE.match(lines[i]):
@@ -657,6 +730,13 @@ def _render_lines(
 
         m_con = CONSTRAINT_RE.match(line)
         if m_con:
+            should_skip, line = _check_directive_tier(line, "@constraint", max_tier, _skipped_directives)
+            if should_skip:
+                i += 1
+                while i < len(lines) and not END_RE.match(lines[i]):
+                    i += 1
+                i += 1
+                continue
             attrs_str = m_con.group(1)
             con_id = ""
             con_sev = "info"
@@ -676,6 +756,13 @@ def _render_lines(
 
         m_validate = VALIDATE_RE.match(line)
         if m_validate:
+            should_skip, line = _check_directive_tier(line, "@validate", max_tier, _skipped_directives)
+            if should_skip:
+                i += 1
+                while i < len(lines) and not END_RE.match(lines[i]):
+                    i += 1
+                i += 1
+                continue
             attrs = _parse_kv_modifiers(m_validate.group(1))
             schema_ref = attrs.get("schema")
             if not schema_ref:
@@ -699,12 +786,21 @@ def _render_lines(
                                            _include_depth=_include_depth,
                                            _include_visited=_include_visited,
                                            _directive_collector=_directive_collector,
-                                           _stats=_stats)
+                                           _stats=_stats,
+                                           max_tier=max_tier,
+                                           _skipped_directives=_skipped_directives)
             output.append(resolve_validate_block(rendered_block, schema_ref, cfg, workspace))
             continue
 
         m_syn = SYNTHESIZE_BLOCK_RE.match(line)
         if m_syn:
+            should_skip, line = _check_directive_tier(line, "@synthesize", max_tier, _skipped_directives)
+            if should_skip:
+                i += 1
+                while i < len(lines) and not END_RE.match(lines[i]):
+                    i += 1
+                i += 1
+                continue
             attrs_str = m_syn.group(1).strip()
             attrs = _parse_kv_modifiers(attrs_str)
             question = attrs.get("question", "What is the current project status and next action?")
@@ -773,6 +869,18 @@ def _render_lines(
             continue
 
         if SERVICES_RE.match(line):
+            should_skip, line = _check_directive_tier(line, "@services", max_tier, _skipped_directives)
+            if should_skip:
+                i += 1
+                while i < len(lines):
+                    next_line = lines[i]
+                    if END_RE.match(next_line):
+                        i += 1
+                        break
+                    if next_line.startswith("@") and next_line.strip() != "@":
+                        break
+                    i += 1
+                continue
             block_lines = []
             i += 1
             explicit_end = False
@@ -831,12 +939,22 @@ def _render_lines(
                                              _include_depth=_include_depth,
                                              _include_visited=_include_visited,
                                              _directive_collector=_directive_collector,
-                                             _stats=_stats))
+                                             _stats=_stats,
+                                             max_tier=max_tier,
+                                             _skipped_directives=_skipped_directives))
             continue
 
         # ── inline directives ──
         m = INLINE_DIRECTIVE_RE.match(line)
         if m:
+            directive = m.group(1).lower()
+
+            # ── Tier gate: skip directives above max_tier ──
+            should_skip, line = _check_directive_tier(line, directive, max_tier, _skipped_directives)
+            if should_skip:
+                i += 1
+                continue
+
             raw_line = line
             pipe_stages = _parse_pipe_stages(raw_line)
             if len(pipe_stages) > 1:
@@ -845,8 +963,6 @@ def _render_lines(
                     output.append(result)
                     i += 1
                     continue
-
-            directive = m.group(1).lower()
             raw_args = (m.group(2) or "").strip()
 
             if directive == "@query" and i in query_results:
@@ -966,6 +1082,7 @@ def render_source(
     source_text: str,
     cfg: dict,
     workspace: Path | None = None,
+    max_tier: int = 3,
     _include_depth: int = 0,
     _include_visited: set | None = None,
     _directive_collector: list[dict] | None = None,
@@ -1007,11 +1124,36 @@ def render_source(
         body_lines = _expand_macros(body_lines, macros)
 
     _constraint_rows = []
+    _skipped_directives = []
     result = _render_lines(body_lines, cfg, workspace, _constraint_rows,
                          _include_depth=_include_depth,
                          _include_visited=_include_visited,
                          _directive_collector=_directive_collector,
-                         _stats=_stats)
+                         _stats=_stats,
+                         max_tier=max_tier,
+                         _skipped_directives=_skipped_directives)
+
+    # ── Context Manifest: report skipped directives for transparency ──
+    if _include_depth == 0 and _skipped_directives and max_tier < 3:
+        manifest_lines = ["\n> ---", "> 📋 **Context Manifest** — Tier limit: %d" % max_tier, "> "]
+        tier_names = {2: "Conditional", 3: "On-Demand"}
+        for sd in _skipped_directives:
+            name = sd["name"]
+            t = sd["tier"]
+            label = tier_names.get(t, f"Tier {t}")
+            summary = sd.get("summary", "")
+            if summary:
+                manifest_lines.append(f"> • `{name}` (Tier {t} / {label}) — {summary}")
+            else:
+                manifest_lines.append(f"> • `{name}` (Tier {t} / {label})")
+        if max_tier == 1:
+            manifest_lines.append("> ")
+            manifest_lines.append("> Re-run with `perseus render --tier 2` for conditional context,")
+            manifest_lines.append("> or `--tier 3` for full context on demand.")
+        elif max_tier == 2:
+            manifest_lines.append("> ")
+            manifest_lines.append("> Re-run with `perseus render --tier 3` to include on-demand context.")
+        result = result + "\n".join(manifest_lines)
 
     if _include_depth == 0 and _render_start_ts is not None:
         _fire_hooks("on_render_complete", {
@@ -1107,11 +1249,12 @@ def render_output(
     cfg: dict,
     workspace: Path | None = None,
     title: str | None = None,
+    max_tier: int = 3,
 ) -> str:
     """Resolve source and format output using built-in or custom adapter."""
     # Built-in formats
     if fmt in ("md", "markdown"):
-        rendered = render_source(source_text, cfg, workspace)
+        rendered = render_source(source_text, cfg, workspace, max_tier=max_tier)
         rendered, _report = redact_text(rendered, cfg)
         if _report.get("total", 0) > 0:
             audit_event(cfg, "redaction", surface="render",
@@ -1125,7 +1268,7 @@ def render_output(
 
     # Assistant formats (Phase 24)
     if fmt in ("agents-md", "claude-md", "cursorrules", "copilot-instructions"):
-        rendered = render_source(source_text, cfg, workspace)
+        rendered = render_source(source_text, cfg, workspace, max_tier=max_tier)
         rendered, _report = redact_text(rendered, cfg)
         if _report.get("total", 0) > 0:
             audit_event(cfg, "redaction", surface="render",

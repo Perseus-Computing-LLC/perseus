@@ -27,6 +27,12 @@ def main():
         "--strict", action="store_true",
         help="Exit with code 1 if any directive emits a ⚠ warning during render",
     )
+    p_render.add_argument(
+        "--tier", type=int, default=None, choices=[1, 2, 3],
+        help="Context tier limit: 1=always (minimal), 2=conditional, 3=all. "
+             "Directives above this tier are skipped and reported in a manifest. "
+             "(default: 3 — everything resolves)",
+    )
 
     # watch (Phase 20C)
     p_watch = sub.add_parser("watch", help="Poll and refresh render outputs when context sources change")

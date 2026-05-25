@@ -50,7 +50,14 @@ def cmd_render(args, cfg):
     fmt = getattr(args, "format", "md")
     title = source_path.stem.replace("-", " ").replace("_", " ").title()
 
-    rendered = render_output(text, fmt, cfg, workspace, title=title)
+    # Determine tier: CLI --tier > config default > fallback to 3
+    max_tier = getattr(args, "tier", None)
+    if max_tier is None:
+        max_tier = cfg.get("render", {}).get("default_tier", 3)
+    if max_tier is None:
+        max_tier = 3
+
+    rendered = render_output(text, fmt, cfg, workspace, title=title, max_tier=max_tier)
 
     is_assistant_format = fmt in ("agents-md", "claude-md", "cursorrules", "copilot-instructions")
     output = getattr(args, "output", None)
