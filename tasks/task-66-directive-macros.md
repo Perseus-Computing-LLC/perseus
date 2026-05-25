@@ -1,11 +1,12 @@
 ---
 id: task-66
 title: Phase 24B — Directive Macros
-status: open
+status: completed
 priority: high
 scope: medium
-claimed_by: null
+claimed_by: hermes
 created: 2026-05-24
+closed: 2026-05-24
 phase: 24
 theme: "Extensibility Architecture — Hephaestus"
 depends_on:
@@ -107,3 +108,14 @@ macros compose existing directives with zero Python.
 - Do not support nested macro definitions
 - Do not add macro import/export between workspaces
 - Do not persist macro expansion in rendered output
+
+## Completed
+
+- Implemented `src/perseus/macros.py` — standalone macro module: `_parse_macros_from_lines`, `_load_macros`, `_expand_macros`, `_strip_macro_defs`
+- Wired into renderer pre-processing pass before directive resolution
+- Shared macros file support (`~/.perseus/macros.md`, configurable via `macros.file`)
+- Source-doc macros override shared macros
+- Recursive expansion up to depth 10 with error message on exceed
+- Case-insensitive macro name matching
+- 10 tests passing in `tests/test_macros.py`
+- Full suite: 646 passed, 1 skipped
