@@ -15,6 +15,7 @@ import argparse
 import copy
 import fnmatch
 import hashlib
+import hmac
 import importlib.util
 import json
 import os
@@ -36,6 +37,7 @@ except Exception:
 import time
 import urllib.request
 import urllib.error
+import urllib.parse
 from datetime import datetime, timezone
 from pathlib import Path
 

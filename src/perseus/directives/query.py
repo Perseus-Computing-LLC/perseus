@@ -187,6 +187,12 @@ def _directive_resource_hints(directive: str, args_str: str) -> list[dict]:
                     resources.append({"kind": key, "value": modifiers[key]})
         return resources
 
+    if directive == "@perseus":
+        url, _ = _graph_first_token_path(args_str)
+        if url:
+            resources.append({"kind": "foreign", "value": url})
+        return resources
+
     if directive == "@env":
         parts = args_str.strip().split(maxsplit=1)
         if parts:

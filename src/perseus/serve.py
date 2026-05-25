@@ -48,38 +48,11 @@ def cmd_render(args, cfg):
 
     text = source_path.read_text(errors="replace")
     fmt = getattr(args, "format", "md")
+    title = source_path.stem.replace("-", " ").replace("_", " ").title()
+
+    rendered = render_output(text, fmt, cfg, workspace, title=title)
+
     is_assistant_format = fmt in ("agents-md", "claude-md", "cursorrules", "copilot-instructions")
-
-    if fmt == "html":
-        title = source_path.stem.replace("-", " ").replace("_", " ").title()
-        rendered = render_source_html(text, cfg, workspace, title=title)
-    elif fmt == "json":
-        result = render_source_with_meta(text, cfg, workspace)
-        import json as _json
-        rendered = _json.dumps({
-            "meta": result.meta,
-            "resolved": result.text,
-            "directives": result.directives,
-            "integrity": {"drift_detected": False, "drift_files": []},
-        }, indent=2, default=str)
-    else:
-        rendered = render_source(text, cfg, workspace)
-        # task-46: redact before the rendered text crosses the trust boundary
-        # (file write, stdout, or downstream pipe). Source file on disk is
-        # never modified.
-        rendered, _report = redact_text(rendered, cfg)
-        # task-47: audit redaction crossing the rendered-output trust boundary.
-        if _report.get("total", 0) > 0:
-            audit_event(cfg, "redaction",
-                        surface="render",
-                        total=int(_report.get("total", 0)),
-                        counts=_report.get("counts", {}))
-
-    # Phase 24: assistant format wrapping (AGENTS.md, CLAUDE.md, etc.)
-    if is_assistant_format:
-        version = _PERSEUS_VERSION
-        rendered = wrap_rendered(rendered, fmt, version)
-
     output = getattr(args, "output", None)
     # Phase 24: auto-resolve default output path for assistant formats
     if is_assistant_format and not output:
@@ -1190,25 +1163,46 @@ def cmd_validate(args, cfg) -> int:
     """Validate a payload against a Perseus schema."""
     workspace = Path(args.workspace).expanduser().resolve() if getattr(args, "workspace", None) else Path.cwd().resolve()
     schema_ref = args.schema
-    schema_path, schema_data, schema_error = _load_schema(schema_ref, workspace)
-    schema_label = str(schema_path or schema_ref)
-
     data, input_label, input_error = _validate_cli_payload(args)
-    if schema_error or input_error:
-        payload = {
-            "ok": False,
-            "schema": schema_label,
-            "input": input_label,
-            "errors": [],
-            "error": schema_error or input_error,
-        }
+    if input_error:
+        payload = {"ok": False, "input": input_label, "errors": [], "error": input_error}
         if getattr(args, "json", False):
             print(json.dumps(payload, indent=2))
         else:
             print(f"Error: {payload['error']}")
         return 2
 
-    errors = _validate_basic_schema(data, schema_data)
+    if isinstance(schema_ref, str) and schema_ref.startswith("plugin:"):
+        validator_name = schema_ref[7:]
+        schema_label = schema_ref
+        try:
+            validator_fn = _load_plugin_validator(validator_name, workspace)
+            if not validator_fn:
+                if getattr(args, "json", False):
+                    print(json.dumps({"ok": False, "schema": schema_label, "error": f"plugin validator `{validator_name}` not found"}, indent=2))
+                else:
+                    print(f"Error: plugin validator `{validator_name}` not found")
+                return 2
+            valid, message = validator_fn(data, {})
+            errors = [] if valid else [message]
+        except Exception as e:
+            if getattr(args, "json", False):
+                print(json.dumps({"ok": False, "schema": schema_label, "error": str(e)}, indent=2))
+            else:
+                print(f"Error: {e}")
+            return 2
+    else:
+        schema_path, schema_data, schema_error = _load_schema(schema_ref, workspace)
+        schema_label = str(schema_path or schema_ref)
+        if schema_error:
+            payload = {"ok": False, "schema": schema_label, "input": input_label, "errors": [], "error": schema_error}
+            if getattr(args, "json", False):
+                print(json.dumps(payload, indent=2))
+            else:
+                print(f"Error: {payload['error']}")
+            return 2
+        errors = _validate_basic_schema(data, schema_data)
+
     payload = {
         "ok": not errors,
         "schema": schema_label,
@@ -2691,6 +2685,32 @@ def _serve_render_endpoint(endpoint: str, cfg: dict, workspace: Path, query: dic
             cp_body, _ = redact_text(ptr.read_text(), cfg)
             return (200, "text/yaml; charset=utf-8", cp_body)
 
+        if endpoint == "/api/context":
+            ws_name = query.get("workspace")
+            if not ws_name:
+                return (400, "application/json; charset=utf-8", '{"error": "workspace parameter required"}')
+            # task-69: for simplicity, we serve the context of the current serve workspace.
+            # In a multi-workspace environment, we might resolve ws_name to a path.
+            ctx_path = workspace / ".perseus" / "context.md"
+            if not ctx_path.exists():
+                return (404, "application/json; charset=utf-8", '{"error": "workspace context not found"}')
+            text = ctx_path.read_text(errors="replace")
+            rendered = render_source(text, cfg, workspace)
+            rendered, _ = redact_text(rendered, cfg)
+            resp_data = {
+                "resolved": rendered,
+                "metadata": {
+                    "workspace": ws_name,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "version": "1.0.3",
+                },
+                "integrity": {
+                    "sha256": hashlib.sha256(rendered.encode()).hexdigest(),
+                    "algorithm": "sha256"
+                }
+            }
+            return (200, "application/json; charset=utf-8", json.dumps(resp_data))
+
         if endpoint == "/oracle/log":
             try:
                 limit = int(query.get("limit", "20"))
@@ -2771,6 +2791,14 @@ def cmd_serve(args, cfg):
             self.send_response(status)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(data)))
+
+            # task-69: HMAC signature for foreign resolver protocol
+            f_cfg = cfg.get("foreign", {})
+            secret = f_cfg.get("shared_secret")
+            if secret and content_type.startswith("application/json"):
+                sig = hmac.new(secret.encode(), data, hashlib.sha256).hexdigest()
+                self.send_header("X-Perseus-Signature", sig)
+
             self.end_headers()
             self.wfile.write(data)
 
