@@ -3,7 +3,7 @@
     {
       "name": "compression_ratio < 0.85",
       "pass": true,
-      "observed": 0.0644,
+      "observed": 0.0716,
       "threshold": "< 0.85",
       "severity": "hard"
     },
@@ -46,21 +46,21 @@
       "name": "collision_rate == 0.0",
       "pass": true,
       "observed": 0.0,
-      "threshold": "== 0.0",
+      "threshold": "== 0.0 (max across scales)",
       "severity": "hard"
     },
     {
       "name": "determinism_violations == 0",
       "pass": true,
       "observed": 0,
-      "threshold": "== 0",
+      "threshold": "== 0 (sum across scales)",
       "severity": "hard"
     },
     {
       "name": "latency_cv warm < 0.15",
       "pass": true,
-      "observed": 0.08967668661189095,
-      "threshold": "< 0.15",
+      "observed": 0.09767018161015766,
+      "threshold": "< 0.15 (at N=10)",
       "severity": "hard"
     },
     {
@@ -80,7 +80,7 @@
     {
       "name": "normal_agent_slowdown_factor < 1.2x (C5)",
       "pass": true,
-      "observed": 1.12,
+      "observed": 1.02,
       "threshold": "< 1.2",
       "severity": "hard"
     },
@@ -88,7 +88,7 @@
       "name": "cache_warm_compression_ratio < cache_cold_compression_ratio",
       "pass": true,
       "observed": {
-        "warm": 1.0,
+        "warm": 0.10037174721189591,
         "cold": 1.0
       },
       "threshold": "warm < cold",
