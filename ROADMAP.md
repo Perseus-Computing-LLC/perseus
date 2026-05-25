@@ -865,6 +865,186 @@ document template. Zero new dependencies. 596 tests passing.
 
 ---
 
+### Phase 24 — Extensibility Architecture
+
+**Goal:** Perseus becomes extensible without source patching. Users can add
+directives, macros, validators, format adapters, pipeline hooks, and remote
+resolvers from `~/.perseus/plugins/` — no rebuild, no fork.
+
+**Current gap:** The `DIRECTIVE_REGISTRY` is clean internally but every
+extension requires editing `registry.py`, adding a resolver to the source tree,
+and rebuilding the artifact. A plugin system makes Perseus a *platform* rather
+than a closed tool.
+
+**Etymology:** **Hephaestus** forged the automata — self-operating bronze
+servants, the golden maiden assistants, Talos the bronze guardian who patrolled
+Crete's shores. Extensibility is Hephaestus's domain: giving Perseus the
+ability to forge its own tools.
+
+#### 24A — Plugin Directive System (task-65)
+
+Auto-discovered Python plugins under `~/.perseus/plugins/`. Each module exports
+a `REGISTER` dict of `DirectiveSpec` entries. `_bind_registry()` scans and
+merges them before building the inline regex. Plugin errors are warnings, not
+fatal — a broken plugin never breaks render.
+
+Config gate: `plugins.enabled` (default: `true`). Trust boundaries: plugin
+directives inherit the workspace permission profile but cannot override safety
+gates.
+
+#### 24B — Directive Macros (task-66)
+
+Declarative composition without code. `@macro name ... @endmacro` blocks in
+context documents or in a shared `.perseus/macros.md`. The pre-processing pass
+expands macro invocations before the resolver loop, so macros compose existing
+directives with zero Python.
+
+```markdown
+@macro project-health
+@health
+@agora status=open
+@drift
+@endmacro
+
+@project-health  ← expands to the three directives above
+```
+
+#### 24C — Render Pipeline Hooks (task-67)
+
+Lifecycle callbacks for observability and CI integration:
+
+| Hook | Fires |
+|---|---|
+| `on_render_start` | Source doc opened, pre-processing |
+| `on_directive_resolved` | After each directive (name, args, result, cache hit/miss) |
+| `on_cache_hit` / `on_cache_miss` | Cache layer events with key + directive |
+| `on_render_complete` | All output assembled |
+| `on_directive_error` | Any resolver throws (directive, error, traceback) |
+
+Hooks are shell commands or Python callbacks (same plugin discovery pattern).
+Non-blocking — hook failure is logged but never breaks render. Configurable
+per-hook in `config.yaml`.
+
+#### 24D — Output Format Adapters (task-68)
+
+Plugin interface for format adapters beyond the built-in markdown and HTML.
+`perseus render --format json` resolves directives and returns structured
+`{resolved: ..., directives: [{name, args, output, cached}, ...]}`.
+
+Custom formats live in `~/.perseus/formats/<name>.py` and export a
+`render(resolved_markdown, metadata) -> str` function. The `metadata` dict
+carries directive execution records, timestamps, cache stats, and integrity
+results.
+
+#### 24E — Foreign Resolver Protocol (task-69)
+
+Remote directive that fetches rendered context from another Perseus serve
+instance. Enables distributed context: a team server renders shared
+infrastructure context; individual workstations pull it inline.
+
+```
+@perseus https://team-server:8420/workspace/infra  @cache ttl=300
+```
+
+Trust model: HMAC signature verification (opt-in), TTL caching, graceful
+degradation on connection failure. Works with authenticated serve mode
+from Phase 20A.
+
+MCP deep integration: expose each directive as an MCP tool so any MCP
+client can invoke `@query`, `@read`, `@services` through the MCP transport
+without touching Perseus syntax. The existing `src/perseus/mcp.py` server
+gets extended from read-only `get_context`/`get_health` to the full directive
+surface.
+
+#### 24F — Custom Schema Validators (task-70)
+
+Plugin validators co-located with schema files in `.perseus/schemas/`.
+Each validator module exports `validate(value, schema) -> (bool, str)`.
+Referenced via `schema="plugin:my-validator"` in any `schema=` modifier
+or `@validate` block. Works alongside the built-in validator — plugin
+validators can enforce domain-specific contracts (e.g., "this YAML must
+contain exactly 3 services, each with a `port` field").
+
+#### 24G — Pipe Syntax for Directive Composition (task-71)
+
+Lightweight chaining without macros. Results of one directive feed into
+the next:
+
+```markdown
+@query "ls services/" | @cache ttl=300
+@read config.yaml path="endpoints" | @validate schema="endpoint-list"
+```
+
+Pipes are resolved left-to-right. The output of directive N becomes the
+input (args) of directive N+1. More natural than separate lines for simple
+two-step pipelines. Macros (24B) remain the right tool for 3+ step
+compositions.
+
+#### 24H — Event Webhooks (task-72)
+
+POST render lifecycle events to an external URL. Separate from pipeline
+hooks (24C) — webhooks are for external observability (dashboards, CI
+status, Slack notifications); hooks are for local processing.
+
+Config-driven: `webhooks.url`, `webhooks.events` (subset of lifecycle
+events), `webhooks.secret` (HMAC-SHA256 signing). Payload is JSON with
+event type, timestamp, workspace hash, and event-specific data.
+
+#### 24I — Tool Directive Integration (task-73)
+
+Generic external tool invocation with an allowlist:
+
+```markdown
+@tool "path/to/scanner.py" --workspace . @cache ttl=3600
+```
+
+The tool's stdout becomes the directive output. Tools are registered in
+config (`tools.allowlist`) with optional argument allowlists. Similar to
+`@agent` but with a structured tool contract (exit code semantics, timeout,
+output size cap) and explicit allowlist gating.
+
+#### 24J — Directive Aliasing (task-74)
+
+Shorthand and namespacing without code:
+
+```yaml
+# config.yaml
+directives:
+  aliases:
+    "@q": "@query"
+    "@svc": "@services"
+    "@mb": "@memory"
+```
+
+Aliases are expanded before the resolver loop. Namespaced to prevent
+collisions with built-in directives (built-ins always win). Useful for
+teams with domain-specific shorthand conventions.
+
+---
+
+#### Execution Order
+
+```
+Phase 24A ─── Plugin directives (task-65)
+    │          Foundation — everything else builds on plugin discovery
+    │
+    ├── 24B ─── Directive macros (task-66)
+    ├── 24C ─── Pipeline hooks (task-67)
+    ├── 24D ─── Format adapters (task-68)
+    ├── 24E ─── Foreign resolver protocol (task-69)
+    ├── 24F ─── Custom schema validators (task-70)
+    ├── 24G ─── Pipe syntax (task-71)
+    ├── 24H ─── Event webhooks (task-72)
+    ├── 24I ─── Tool directive integration (task-73)
+    └── 24J ─── Directive aliasing (task-74)
+```
+
+24A is the dependency — plugins are the substrate that macros, hooks,
+validators, and format adapters all use for discovery. 24B–24J can run
+in any order once 24A lands.
+
+---
+
 ## Future Direction: Decentralized Federation
 
 Deepen federation to securely share context across decentralized workspaces or
@@ -937,10 +1117,24 @@ Phase 21C ─── Compatibility/migration suite ✅ ────────�
                                                          │
 Phase 22A ─── Documentation site and quickstart ✅ ──────┤
 Phase 22B ─── Example workspace/demo pack ✅ ────────────┤
-Phase 22C ─── v1 release candidate checklist ✅ ─────────┘
+Phase 22C ─── v1 release candidate checklist ✅ ─────────┤
+                                                         │
+Phase 23  ─── HTML output ✅ ────────────────────────────┤
+                                                         │
+Phase 24A ─── Plugin directives (task-65) ───────────────┤
+    │          Foundation — everything below depends on it │
+    ├── 24B ─── Directive macros (task-66) ───────────────┤
+    ├── 24C ─── Pipeline hooks (task-67) ─────────────────┤
+    ├── 24D ─── Format adapters (task-68) ────────────────┤
+    ├── 24E ─── Foreign resolver protocol (task-69) ──────┤
+    ├── 24F ─── Custom schema validators (task-70) ───────┤
+    ├── 24G ─── Pipe syntax (task-71) ────────────────────┤
+    ├── 24H ─── Event webhooks (task-72) ─────────────────┤
+    ├── 24I ─── Tool directive integration (task-73) ─────┤
+    └── 24J ─── Directive aliasing (task-74) ─────────────┘
 ```
 
-**Status:** v1.0.2 — 2026-05-23. All 63 roadmap tasks complete. task-64 (daemon cache invalidation) is open — post-v1 spike.
+**Status:** v1.0.3 — 2026-05-24. All 63 roadmap tasks complete. Phase 23 (HTML output) complete. Phase 24 (Extensibility) spec'd — 10 tasks, no code yet. task-64 (daemon cache invalidation) is open — post-v1 spike.
 
 ---
 
