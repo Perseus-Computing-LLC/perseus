@@ -150,7 +150,7 @@ INLINE_DIRECTIVE_RE: "re.Pattern[str] | None" = None
 MACRO_START_RE = re.compile(r'^@macro\s+([\w-]+)\s*(.*)$', re.IGNORECASE)
 MACRO_END_RE = re.compile(r'^@endmacro\s*$', re.IGNORECASE)
 MACRO_PARAM_RE = re.compile(r'%(\w+)%')
-MAX_MACRO_DEPTH = 5
+MAX_MACRO_DEPTH = 10
 
 
 def _parse_macros_from_lines(lines: list[str], start: int = 0) -> dict[str, tuple[list[str], list[str]]]:
@@ -198,16 +198,21 @@ def _load_macros(source_lines: list[str], workspace: Path | None, cfg: dict) -> 
     """
     macros: dict[str, tuple[list[str], list[str]]] = {}
 
-    # Load workspace macros file if it exists
-    macros_file_rel = cfg["render"].get("macros_file", ".perseus/macros.md")
-    if workspace:
-        macros_path = workspace / macros_file_rel
-        try:
-            if macros_path.is_file():
-                file_lines = macros_path.read_text().splitlines()
-                macros.update(_parse_macros_from_lines(file_lines))
-        except (OSError, ValueError):
-            pass
+    # Load macros file if configured — per spec, key is 'macros.file'
+    macros_cfg = cfg.get("macros", {}) if isinstance(cfg, dict) else {}
+    macros_file_rel = macros_cfg.get("file", ".perseus/macros.md")
+    macros_path = Path(macros_file_rel)
+    if not macros_path.is_absolute():
+        if workspace:
+            macros_path = workspace / macros_file_rel
+        else:
+            macros_path = PERSEUS_HOME / "macros.md"
+    try:
+        if macros_path.is_file():
+            file_lines = macros_path.read_text().splitlines()
+            macros.update(_parse_macros_from_lines(file_lines))
+    except (OSError, ValueError):
+        pass
 
     # Source-document macros override workspace macros
     source_macros = _parse_macros_from_lines(source_lines)
@@ -294,6 +299,9 @@ def _expand_macros(lines: list[str], macros: dict[str, tuple[list[str], list[str
         if not has_macros:
             break
         depth += 1
+    else:
+        # Depth exceeded — emit warning
+        expanded.append(f"> \u26a0 Macro expansion depth exceeded (max {MAX_MACRO_DEPTH})")
 
     return expanded
 
@@ -442,7 +450,7 @@ def _load_plugin_validator(validator_name: str) -> "Callable | None":
 
 # ── Pipe Syntax (task-71) ────────────────────────────────────────────────────
 
-_MAX_PIPE_STAGES = 3
+_MAX_PIPE_STAGES = 5
 
 
 def _parse_pipe_stages(line: str) -> list[str]:
@@ -545,31 +553,84 @@ PREDEFINED_ALIASES = {
 }
 
 
+def _aliases_detect_and_remove_cycles(aliases: dict[str, str]) -> None:
+    """Detect circular alias chains and remove them. Mutates aliases in place."""
+    # Floyd's cycle detection for each alias chain
+    def follow(alias: str) -> str | None:
+        seen: set[str] = set()
+        current = alias
+        while current in aliases:
+            if current in seen:
+                return None  # cycle detected
+            seen.add(current)
+            current = aliases[current]
+        return current  # resolved target
+
+    to_remove: set[str] = set()
+    for alias in list(aliases):
+        if follow(alias) is None:
+            to_remove.add(alias)
+
+    for alias in to_remove:
+        aliases.pop(alias, None)
+
+
 def _expand_aliases(lines: list[str], cfg: dict) -> list[str]:
     """Single-pass alias expansion. Config aliases override pre-defined.
-    Aliases that shadow built-in directive names are warned and ignored."""
+    Aliases that shadow built-in directive names are warned and ignored.
+    Circular alias chains are detected and disabled."""
     aliases = dict(PREDEFINED_ALIASES)
     cfg_aliases = cfg.get("directives", {}).get("aliases", {})
     aliases.update(cfg_aliases)
     for alias, target in list(aliases.items()):
-        if alias.lower() in DIRECTIVE_REGISTRY:
+        if alias in DIRECTIVE_REGISTRY:
             aliases.pop(alias)
+    # Detect and remove circular alias chains
+    _aliases_detect_and_remove_cycles(aliases)
     if not aliases:
         return lines
     sorted_aliases = sorted(aliases.items(), key=lambda x: -len(x[0]))
     result: list[str] = []
     for line in lines:
-        stripped = line.strip()
-        expanded = False
-        for alias, target in sorted_aliases:
-            if stripped.lower().startswith(alias.lower()):
-                rest = stripped[len(alias):]
-                if not rest or rest[0] in (' ', '\t'):
-                    result.append(f"{target}{rest}")
-                    expanded = True
+        # Handle pipe stages — expand aliases in each stage independently
+        if "|" in line:
+            stages = line.split("|")
+            expanded_stages = []
+            for stage in stages:
+                stage_stripped = stage.strip()
+                current = stage_stripped
+                depth = 0
+                while depth < MAX_MACRO_DEPTH:
+                    expanded = False
+                    for alias, target in sorted_aliases:
+                        if current.startswith(alias):
+                            rest = current[len(alias):]
+                            if not rest or rest[0] in (' ', '\t'):
+                                current = f"{target}{rest}"
+                                expanded = True
+                                break
+                    if not expanded:
+                        break
+                    depth += 1
+                expanded_stages.append(current)
+            result.append(" | ".join(expanded_stages))
+        else:
+            current = line
+            depth = 0
+            while depth < MAX_MACRO_DEPTH:
+                stripped = current.strip()
+                expanded = False
+                for alias, target in sorted_aliases:
+                    if stripped.startswith(alias):
+                        rest = stripped[len(alias):]
+                        if not rest or rest[0] in (' ', '\t'):
+                            current = f"{target}{rest}"
+                            expanded = True
+                            break
+                if not expanded:
                     break
-        if not expanded:
-            result.append(line)
+                depth += 1
+            result.append(current)
     return result
 
 
