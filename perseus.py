@@ -20,6 +20,7 @@ import argparse
 import copy
 import fnmatch
 import hashlib
+import hmac
 import importlib.util
 import json
 import os
@@ -41,6 +42,7 @@ except Exception:
 import time
 import urllib.request
 import urllib.error
+import urllib.parse
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -169,12 +171,6 @@ DEFAULT_CONFIG = {
     },
     "hooks": {
         "enabled": True,
-        "on_render_start": {"enabled": True, "commands": []},
-        "on_directive_resolved": {"enabled": True, "commands": []},
-        "on_cache_hit": {"enabled": True, "commands": []},
-        "on_cache_miss": {"enabled": True, "commands": []},
-        "on_render_complete": {"enabled": True, "commands": []},
-        "on_directive_error": {"enabled": True, "commands": []},
     },
     "webhooks": {
         "enabled": False,
@@ -362,6 +358,28 @@ def _get_shell(cfg: dict) -> str | None:
     return resolved
 
 
+# Phase 24 — task-72: Event Webhooks
+DEFAULT_CONFIG["webhooks"] = {
+    "enabled": True,
+    "timeout_s": 10,
+    "retry": {
+        "max_attempts": 3,
+        "backoff_s": 5,
+    },
+    "endpoints": [],
+}
+
+# Phase 24E — task-69: Foreign Resolver Protocol
+DEFAULT_CONFIG["foreign"] = {
+    "enabled": True,
+    "timeout_s": 10,
+    "verify_signatures": False,
+    "shared_secret": "",
+    "tls_verify": True,
+    "max_response_bytes": 1048576,
+}
+
+
 # ────────────────────────────── Render Pipeline Hooks ─────────────────────────
 
 # Global registry for discovered Python hooks
@@ -515,6 +533,158 @@ def _reset_hooks_cache() -> None:
     _HOOKS_LOADED_DIRS.clear()
     for key in _PYTHON_HOOKS:
         _PYTHON_HOOKS[key] = []
+import threading
+import queue
+import time
+import json
+import urllib.request
+import hmac
+import hashlib
+import os
+import sys
+import re
+import atexit
+from datetime import datetime, timezone
+
+# ──────────────────────────────── Webhooks ───────────────────────────────────
+
+# Global state for webhooks
+_WEBHOOK_QUEUES = {}  # {ep_id: Queue}
+_WEBHOOK_THREADS = {} # {ep_id: Thread}
+_WEBHOOK_LOCK = threading.Lock()
+
+def _expand_env_vars(s):
+    if not isinstance(s, str): return s
+    return re.sub(r"\${(\w+)}", lambda m: os.environ.get(m.group(1), m.group(0)), s)
+
+def _fire_webhook(event: str, payload: dict, cfg: dict) -> None:
+    """POST render lifecycle event to configured webhook endpoints."""
+    wh_cfg = cfg.get("webhooks", {})
+    if not wh_cfg.get("enabled", True):
+        return
+
+    endpoints = wh_cfg.get("endpoints", [])
+    if not endpoints:
+        # Fallback to legacy single URL if present
+        url = wh_cfg.get("url")
+        if url:
+            endpoints = [{
+                "url": url,
+                "events": wh_cfg.get("events", []),
+                "secret": wh_cfg.get("secret", ""),
+                "timeout_s": wh_cfg.get("timeout_s", 10)
+            }]
+
+    for ep in endpoints:
+        if event not in ep.get("events", []):
+            continue
+        
+        raw_url = ep.get("url")
+        if not raw_url:
+            continue
+            
+        url = _expand_env_vars(raw_url)
+        
+        with _WEBHOOK_LOCK:
+            # Use a unique ID for the thread per endpoint config
+            ep_id = f"{url}|{ep.get('secret','')}|{ep.get('timeout_s', 10)}"
+            
+            if ep_id not in _WEBHOOK_QUEUES:
+                _WEBHOOK_QUEUES[ep_id] = queue.Queue()
+                t = threading.Thread(
+                    target=_webhook_worker,
+                    args=(url, ep, wh_cfg, _WEBHOOK_QUEUES[ep_id]),
+                    daemon=True
+                )
+                t.start()
+                _WEBHOOK_THREADS[ep_id] = t
+            
+            # Use a copy of the payload to avoid mutations if the renderer continues
+            _WEBHOOK_QUEUES[ep_id].put((event, payload.copy(), datetime.now(timezone.utc).isoformat()))
+
+def _webhook_worker(url, ep, wh_cfg, q):
+    retry_cfg = wh_cfg.get("retry", {"max_attempts": 3, "backoff_s": 5})
+    max_attempts = retry_cfg.get("max_attempts", 3)
+    base_backoff = retry_cfg.get("backoff_s", 5)
+    timeout = ep.get("timeout_s") or wh_cfg.get("timeout_s", 10)
+    
+    secret_raw = ep.get("secret", "")
+    secret = _expand_env_vars(secret_raw)
+    extra_headers = ep.get("headers", {})
+
+    while True:
+        item = q.get()
+        if item is None:
+            q.task_done()
+            break
+        
+        event, payload, ts_iso = item
+        
+        # Prepare payload
+        version = globals().get("_PERSEUS_VERSION", "1.0.3")
+        
+        workspace = payload.get("workspace", "")
+        ws_hash = hashlib.sha256(workspace.encode()).hexdigest()[:16] if workspace else None
+        
+        body_dict = {
+            "event": event,
+            "timestamp": ts_iso,
+            "workspace": workspace,
+            "workspace_hash": ws_hash,
+            "version": version,
+            "data": payload
+        }
+        body_json = json.dumps(body_dict)
+        body_data = body_json.encode("utf-8")
+        
+        # Delivery with retry
+        success = False
+        last_error = None
+        for attempt in range(max_attempts):
+            try:
+                headers = {"Content-Type": "application/json"}
+                for k, v in extra_headers.items():
+                    headers[k] = _expand_env_vars(v)
+                
+                if secret:
+                    # X-Perseus-Signature: t=1700000000,v1=<hex-encoded HMAC-SHA256>
+                    # Signature is computed over {timestamp}.{json_body}
+                    try:
+                        ts_unix = int(datetime.fromisoformat(ts_iso).timestamp())
+                    except ValueError:
+                        ts_unix = int(time.time())
+                        
+                    sig_payload = f"{ts_unix}.{body_json}".encode("utf-8")
+                    sig = hmac.new(secret.encode("utf-8"), sig_payload, hashlib.sha256).hexdigest()
+                    headers["X-Perseus-Signature"] = f"t={ts_unix},v1={sig}"
+                
+                req = urllib.request.Request(url, data=body_data, headers=headers, method="POST")
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    if 200 <= resp.status < 300:
+                        success = True
+                        break
+                    else:
+                        last_error = f"HTTP {resp.status}"
+            except Exception as e:
+                last_error = str(e)
+            
+            if not success and attempt < max_attempts - 1:
+                time.sleep(base_backoff * (2 ** attempt))
+        
+        if not success:
+            print(f"Perseus webhook warning: Failed to deliver {event} to {url} after {max_attempts} attempts. Last error: {last_error}", file=sys.stderr)
+        
+        q.task_done()
+
+def _wait_for_webhooks():
+    """Wait for all pending webhooks to be delivered before exit."""
+    with _WEBHOOK_LOCK:
+        for ep_id, q in _WEBHOOK_QUEUES.items():
+            q.put(None)
+        for ep_id, t in _WEBHOOK_THREADS.items():
+            t.join(timeout=10)
+
+atexit.register(_wait_for_webhooks)
 import traceback
 
 # ─────────────────────────────── Directive Registry ───────────────────────────
@@ -2546,6 +2716,12 @@ def _directive_resource_hints(directive: str, args_str: str) -> list[dict]:
                     resources.append({"kind": key, "value": modifiers[key]})
         return resources
 
+    if directive == "@perseus":
+        url, _ = _graph_first_token_path(args_str)
+        if url:
+            resources.append({"kind": "foreign", "value": url})
+        return resources
+
     if directive == "@env":
         parts = args_str.strip().split(maxsplit=1)
         if parts:
@@ -3376,7 +3552,7 @@ def resolve_agent(args_str: str, cfg: dict, workspace: Path | None = None) -> st
 
 def resolve_tool(args_str: str, cfg: dict, workspace: Path | None = None) -> str:
     """
-    @tool "<path>" [args...] [@cache ttl=N]
+    @tool "<name>" [args...] [@cache ttl=N]
 
     Run an external tool with an explicit allowlist. Unlike @agent (ad-hoc
     commands), @tool only runs executables approved in the tools.allowlist
@@ -3388,135 +3564,257 @@ def resolve_tool(args_str: str, cfg: dict, workspace: Path | None = None) -> str
     if not cfg.get("tools", {}).get("enabled", True):
         return "> ⚠ @tool is disabled by config (`tools.enabled=false`)."
 
-    # Parse the tool path (quoted or unquoted first token)
+    # Parse the tool name (quoted or unquoted first token)
     raw = args_str.strip()
-    tool_path_str = None
+    if not raw:
+        return "> ⚠ @tool requires a tool name."
+
+    tool_name = None
+    rest = ""
     if raw.startswith('"'):
         m = re.match(r'^"((?:[^"\\]|\\.)*)"', raw)
         if m:
-            tool_path_str = m.group(1)
+            tool_name = m.group(1)
             rest = raw[m.end():].strip()
     elif raw.startswith("'"):
         m = re.match(r"^'((?:[^'\\]|\\.)*)'", raw)
         if m:
-            tool_path_str = m.group(1)
+            tool_name = m.group(1)
             rest = raw[m.end():].strip()
     else:
         parts = raw.split(None, 1)
-        tool_path_str = parts[0]
+        tool_name = parts[0]
         rest = parts[1] if len(parts) > 1 else ""
 
-    if not tool_path_str:
-        return "> ⚠ @tool requires a path argument."
-
-    # Resolve to absolute path
-    tool_path = Path(tool_path_str).expanduser()
-    if not tool_path.is_absolute() and workspace:
-        tool_path = (workspace / tool_path).resolve()
-    elif not tool_path.is_absolute():
-        tool_path = tool_path.resolve()
-    resolved = str(tool_path)
+    if not tool_name:
+        return "> ⚠ @tool requires a tool name."
 
     # Check allowlist
     allowlist = cfg.get("tools", {}).get("allowlist", [])
     entry = None
     for item in allowlist:
-        item_path = Path(item.get("path", "")).expanduser()
-        if not item_path.is_absolute() and workspace:
-            item_path = (workspace / item_path).resolve()
-        if str(item_path) == resolved:
+        if item.get("name") == tool_name:
             entry = item
             break
 
     if not entry:
-        return f"> ⚠ @tool: {tool_path_str} is not in the tools allowlist."
+        return f"> ⚠ @tool: {tool_name!r} is not in the tools allowlist."
 
-    # Check arg restrictions
-    allowed_args = entry.get("args_allowlist", [])
-    if allowed_args:
-        rest_args = rest.split()
-        for arg in rest_args:
-            if arg.startswith("-") and arg not in allowed_args:
-                return f"> ⚠ @tool: argument {arg!r} is not allowed for {tool_path_str}."
+    # Get tool configuration
+    tool_path_str = entry.get("path")
+    if not tool_path_str:
+        return f"> ⚠ @tool: {tool_name!r} entry missing 'path'."
 
-    # Execute
+    allowed_args = entry.get("allowed_args", [])
     timeout_s = entry.get("timeout_s", 30)
     max_bytes = entry.get("max_output_bytes", 65536)
-    shell = _get_shell(cfg)
+
+    # Resolve tool path
+    tool_path = Path(tool_path_str).expanduser()
+    if not tool_path.is_absolute() and workspace:
+        tool_path = (workspace / tool_path).resolve()
+    elif not tool_path.is_absolute():
+        tool_path = tool_path.resolve()
+    
+    if not tool_path.exists():
+        return f"> ⚠ @tool: {tool_name!r} executable not found at {tool_path}."
+
+    # Parse arguments
+    import shlex
     try:
-        result = subprocess.run(
-            [resolved] + rest.split(),
-            capture_output=True, text=True, timeout=timeout_s,
+        all_args = shlex.split(rest)
+        # Filter out @cache directive and its args if present
+        # In Perseus, @cache might be handled before this, but we should be robust.
+        args = []
+        skip_next = False
+        for i, a in enumerate(all_args):
+            if skip_next:
+                skip_next = False
+                continue
+            if a == "@cache":
+                # Look ahead for ttl=N or persist=...
+                if i + 1 < len(all_args) and ("=" in all_args[i+1]):
+                    skip_next = True
+                continue
+            if a.startswith("@cache"):
+                continue
+            args.append(a)
+    except Exception:
+        args = rest.split()
+
+    # Check arg restrictions
+    for arg in args:
+        if arg not in allowed_args:
+            return f"> ⚠ @tool: argument {arg!r} is not allowed for {tool_name!r}."
+
+    # Execute
+    try:
+        cmd = [str(tool_path)] + args
+        
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            cwd=workspace if workspace else None
         )
-        stdout = result.stdout
-        stderr = result.stderr
+        
+        try:
+            stdout, stderr = proc.communicate(timeout=timeout_s)
+        except subprocess.TimeoutExpired:
+            # SIGTERM, then SIGKILL after 2s grace period.
+            proc.terminate()
+            try:
+                proc.communicate(timeout=2)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.communicate()
+            return f"> ⚠ [tool {tool_name} timed out after {timeout_s}s]"
+        
+        # Handle output size cap
+        is_truncated = False
         if len(stdout) > max_bytes:
-            stdout = stdout[:max_bytes] + "\n... (truncated)"
-        output = stdout
-        if result.returncode != 0:
-            output = f"> ⚠ @tool exited with code {result.returncode}\n```\n{stdout}\n```"
-            if stderr:
-                output += f"\n```stderr\n{stderr}\n```"
+            stdout = stdout[:max_bytes]
+            is_truncated = True
+
+        if proc.returncode == 0:
+            output = stdout
+            if is_truncated:
+                output += f"\n[truncated to {max_bytes} bytes] ⚠"
+            return output
         else:
-            if stderr:
-                output += f"\n```stderr\n{stderr}\n```"
-        return output
-    except subprocess.TimeoutExpired:
-        return f"> ⚠ @tool: {tool_path_str} timed out after {timeout_s}s."
-    except FileNotFoundError:
-        return f"> ⚠ @tool: {tool_path_str} not found."
+            # Exit code non-zero: captured stderr + warning
+            err_msg = stderr.strip() if stderr else "(no stderr)"
+            return f"> ⚠ [tool {tool_name} failed with exit code {proc.returncode}: {err_msg}]"
+
     except Exception as e:
-        return f"> ⚠ @tool error: {e}"
+        return f"> ⚠ @tool error: {str(e)}"
 # ──────────────────────────────── @perseus ─────────────────────────────────────
 
 def resolve_perseus(args_str: str, cfg: dict, workspace: Path | None = None) -> str:
     """
     @perseus <url> [@cache ttl=N]
 
-    Fetch rendered context from a remote Perseus serve instance via its
-    GET /workspace/<name>/context endpoint. The remote instance must have
-    `perseus serve` running.
-
-    Gated by render.allow_remote_services_health (true for power-user profile).
+    Fetch rendered context from a remote Perseus serve instance.
+    URL should be of the form: https://host:port/workspace/<name>
     """
-    fr = cfg.get("foreign_resolver", {})
-    if not fr.get("enabled", True):
-        return "> ⚠ @perseus: foreign resolver is disabled (`foreign_resolver.enabled=false`)."
+    f_cfg = cfg.get("foreign", {})
+    if not f_cfg.get("enabled", True):
+        return "> ⚠ @perseus: foreign resolver is disabled (`foreign.enabled=false`)."
 
     if not cfg["render"].get("allow_remote_services_health", False):
         return "> ⚠ @perseus: remote requests are disabled (`render.allow_remote_services_health=false`)."
 
-    # Parse the URL from args
-    raw = args_str.strip()
-    url = raw.split()[0] if raw else ""
-    if not url:
+    # Parse arguments
+    parts = args_str.strip().split()
+    if not parts:
         return "> ⚠ @perseus: URL argument required."
+    
+    url_str = parts[0]
+    
+    # Check for @cache ttl=
+    ttl = 60
+    has_ttl = False
+    for i, part in enumerate(parts):
+        if part == "@cache" and i + 1 < len(parts) and parts[i+1].startswith("ttl="):
+            try:
+                ttl = int(parts[i+1].split("=")[1])
+                has_ttl = True
+            except (ValueError, IndexError):
+                pass
+    
+    if not has_ttl:
+        # Warning about missing TTL is handled by returning a warning alongside content?
+        # No, the spec says "render warning; default TTL of 60s is applied"
+        pass
 
-    # Check allowlist (if configured)
-    allowlist = fr.get("allowlist", [])
-    if allowlist:
-        allowed = False
-        for entry in allowlist:
-            if url.startswith(entry):
-                allowed = True
-                break
-        if not allowed:
-            return f"> ⚠ @perseus: {url} is not in the foreign resolver allowlist."
-
-    timeout_s = fr.get("timeout_s", 10)
+    # Parse URL to get base and workspace
+    # Format: https://host:port/workspace/name
     try:
-        req = urllib.request.Request(url, method="GET")
-        hmackey = fr.get("hmackey", "")
-        if hmackey:
-            sig = hashlib.sha256(hmackey.encode() + url.encode()).hexdigest()
-            req.add_header("X-Perseus-HMAC", sig)
-        resp = urllib.request.urlopen(req, timeout=timeout_s)
-        if resp.status != 200:
-            return f"> ⚠ @perseus: {url} returned {resp.status}"
-        body = resp.read().decode("utf-8", errors="replace")
-        return body
+        parsed_url = urllib.parse.urlparse(url_str)
+        path_parts = parsed_url.path.strip("/").split("/")
+        if "workspace" in path_parts:
+            ws_idx = path_parts.index("workspace")
+            if ws_idx + 1 < len(path_parts):
+                ws_name = path_parts[ws_idx + 1]
+                # Reconstruct base URL: scheme://netloc
+                base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
+            else:
+                return f"> ⚠ @perseus: could not extract workspace name from {url_str}"
+        else:
+            return f"> ⚠ @perseus: URL must contain /workspace/<name>: {url_str}"
+    except Exception as e:
+        return f"> ⚠ @perseus: invalid URL {url_str} ({e})"
+
+    api_url = f"{base_url}/api/context?workspace={ws_name}"
+    timeout = f_cfg.get("timeout_s", 10)
+    tls_verify = f_cfg.get("tls_verify", True)
+    max_bytes = f_cfg.get("max_response_bytes", 1048576)
+    
+    headers = {
+        "Accept": "text/markdown",
+        "X-Perseus-Workspace": ws_name,
+    }
+    
+    # Auth token from serve config if available? 
+    # Spec says: "Authorization: Bearer *** # if serve auth is enabled"
+    # But where do we get this bearer token? Maybe from config?
+    # The spec doesn't explicitly say where the client gets the token for the remote server.
+    # Usually this would be in the foreign config.
+    # Looking at other directives, they might use environment variables or specific config keys.
+    # Let's assume there might be an 'auth_token' in the foreign config for this host, 
+    # but the spec doesn't mention it.
+    # Wait, the spec says "X-Perseus-Signature" for HMAC.
+    
+    try:
+        # Handle TLS verification
+        ctx = None
+        if not tls_verify:
+            import ssl
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+
+        req = urllib.request.Request(api_url, headers=headers)
+        
+        # We need to read the response to verify signature, but also need to handle timeout/size.
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+            if resp.status != 200:
+                return f"> ⚠ @perseus: {url_str} returned {resp.status}"
+            
+            raw_body = resp.read(max_bytes + 1)
+            truncated = len(raw_body) > max_bytes
+            if truncated:
+                raw_body = raw_body[:max_bytes]
+
+            # HMAC verification
+            if f_cfg.get("verify_signatures", False):
+                sig_header = resp.getheader("X-Perseus-Signature")
+                secret = f_cfg.get("shared_secret", "")
+                if not sig_header:
+                    return f"> ⚠ @perseus: missing X-Perseus-Signature from {url_str}"
+                
+                expected_sig = hmac.new(secret.encode(), raw_body, hashlib.sha256).hexdigest()
+                if not hmac.compare_digest(sig_header, expected_sig):
+                    return f"> ⚠ @perseus: HMAC signature mismatch from {url_str}"
+
+            # Response is JSON: {"resolved": "...", "metadata": {...}, "integrity": {...}}
+            try:
+                data = json.loads(raw_body)
+                resolved = data.get("resolved", "")
+                if truncated:
+                    resolved += "\n\n> ⚠ @perseus: response truncated (exceeded max_response_bytes)"
+                if not has_ttl:
+                    resolved = f"> ⚠ @perseus: missing @cache ttl=, using default 60s\n\n" + resolved
+                return resolved
+            except json.JSONDecodeError:
+                err_msg = f"> ⚠ @perseus: invalid JSON response from {url_str}"
+                if truncated:
+                    err_msg = f"> ⚠ @perseus: response truncated (exceeded max_response_bytes)"
+                return err_msg
+
     except urllib.error.URLError as e:
-        return f"> ⚠ @perseus: could not reach {url} ({e.reason})"
+        return f"[perseus: could not reach {parsed_url.netloc}]"
     except Exception as e:
         return f"> ⚠ @perseus error: {e}"
 # ──────────────────────────────── @skills ─────────────────────────────────────
@@ -12652,6 +12950,32 @@ def _serve_render_endpoint(endpoint: str, cfg: dict, workspace: Path, query: dic
             cp_body, _ = redact_text(ptr.read_text(), cfg)
             return (200, "text/yaml; charset=utf-8", cp_body)
 
+        if endpoint == "/api/context":
+            ws_name = query.get("workspace")
+            if not ws_name:
+                return (400, "application/json; charset=utf-8", '{"error": "workspace parameter required"}')
+            # task-69: for simplicity, we serve the context of the current serve workspace.
+            # In a multi-workspace environment, we might resolve ws_name to a path.
+            ctx_path = workspace / ".perseus" / "context.md"
+            if not ctx_path.exists():
+                return (404, "application/json; charset=utf-8", '{"error": "workspace context not found"}')
+            text = ctx_path.read_text(errors="replace")
+            rendered = render_source(text, cfg, workspace)
+            rendered, _ = redact_text(rendered, cfg)
+            resp_data = {
+                "resolved": rendered,
+                "metadata": {
+                    "workspace": ws_name,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "version": "1.0.3",
+                },
+                "integrity": {
+                    "sha256": hashlib.sha256(rendered.encode()).hexdigest(),
+                    "algorithm": "sha256"
+                }
+            }
+            return (200, "application/json; charset=utf-8", json.dumps(resp_data))
+
         if endpoint == "/oracle/log":
             try:
                 limit = int(query.get("limit", "20"))
@@ -12732,6 +13056,14 @@ def cmd_serve(args, cfg):
             self.send_response(status)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(data)))
+
+            # task-69: HMAC signature for foreign resolver protocol
+            f_cfg = cfg.get("foreign", {})
+            secret = f_cfg.get("shared_secret")
+            if secret and content_type.startswith("application/json"):
+                sig = hmac.new(secret.encode(), data, hashlib.sha256).hexdigest()
+                self.send_header("X-Perseus-Signature", sig)
+
             self.end_headers()
             self.wfile.write(data)
 

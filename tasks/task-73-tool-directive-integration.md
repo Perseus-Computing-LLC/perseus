@@ -1,20 +1,19 @@
 ---
 id: task-73
-title: Phase 24I — Tool Directive Integration
-status: open
+title: "Phase 24I \u2014 Tool Directive Integration"
+status: completed
 priority: medium
 scope: medium
-claimed_by: null
+claimed_by: hermes
 created: 2026-05-24
 phase: 24
-theme: "Extensibility Architecture — Hephaestus"
+theme: "Extensibility Architecture \u2014 Hephaestus"
 depends_on:
 - task-65
 blocks: []
 opened: '2026-05-24'
-closed: null
+closed: '2026-05-25'
 ---
-
 ## Why
 
 `@agent` allows running arbitrary shell commands and capturing stdout. It's

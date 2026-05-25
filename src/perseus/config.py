@@ -301,3 +301,25 @@ def _get_shell(cfg: dict) -> str | None:
     return resolved
 
 
+# Phase 24 — task-72: Event Webhooks
+DEFAULT_CONFIG["webhooks"] = {
+    "enabled": True,
+    "timeout_s": 10,
+    "retry": {
+        "max_attempts": 3,
+        "backoff_s": 5,
+    },
+    "endpoints": [],
+}
+
+# Phase 24E — task-69: Foreign Resolver Protocol
+DEFAULT_CONFIG["foreign"] = {
+    "enabled": True,
+    "timeout_s": 10,
+    "verify_signatures": False,
+    "shared_secret": "",
+    "tls_verify": True,
+    "max_response_bytes": 1048576,
+}
+
+

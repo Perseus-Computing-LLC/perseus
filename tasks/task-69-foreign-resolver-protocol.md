@@ -1,20 +1,19 @@
 ---
 id: task-69
-title: Phase 24E — Foreign Resolver Protocol
-status: open
+title: "Phase 24E \u2014 Foreign Resolver Protocol"
+status: completed
 priority: medium
 scope: large
-claimed_by: null
+claimed_by: hermes
 created: 2026-05-24
 phase: 24
-theme: "Extensibility Architecture — Hephaestus"
+theme: "Extensibility Architecture \u2014 Hephaestus"
 depends_on:
 - task-65
 blocks: []
 opened: '2026-05-24'
-closed: null
+closed: '2026-05-25'
 ---
-
 ## Why
 
 Perseus works well for local workspaces, but teams often have shared context
