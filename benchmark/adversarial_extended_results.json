@@ -5,19 +5,19 @@
       {
         "depth": 10,
         "rc": 0,
-        "time_to_failure_ms": 389,
+        "time_to_failure_ms": 318,
         "error_class": "clean"
       },
       {
         "depth": 100,
         "rc": 0,
-        "time_to_failure_ms": 415,
+        "time_to_failure_ms": 326,
         "error_class": "clean"
       },
       {
         "depth": 1000,
         "rc": 0,
-        "time_to_failure_ms": 459,
+        "time_to_failure_ms": 308,
         "error_class": "clean"
       }
     ],
@@ -105,14 +105,14 @@
   },
   "C5": {
     "test": "C5_concurrent_adversarial",
-    "n_agents": 20,
+    "n_agents": 50,
     "orphan_count": 0,
-    "baseline_ms": 931.8,
-    "normal_avg_ms": 1048.1,
-    "normal_agent_slowdown_factor": 1.12,
+    "baseline_ms": 1016.2,
+    "normal_avg_ms": 1040.2,
+    "normal_agent_slowdown_factor": 1.02,
     "traceback_count": 0,
-    "advrs_completed": 4,
-    "advrs_total": 4
+    "advrs_completed": 10,
+    "advrs_total": 10
   },
   "C6": {
     "test": "C6_provider_degradation",
