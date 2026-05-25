@@ -1,4 +1,6 @@
 # stdlib imports available from build artifact header
+import traceback
+
 # ─────────────────────────────── Directive Registry ───────────────────────────
 #
 # Single source of truth for every directive (task-25).  Adding a new directive
@@ -248,12 +250,12 @@ def _call_resolver(spec: DirectiveSpec, args_str: str, cfg: dict, workspace: "Pa
     except Exception as e:
         # task-67: on_directive_error hook
         _fire_hooks("on_directive_error", {
-            "directive": spec.name,
+            "name": spec.name,
             "args": args_str[:200],
             "error": str(e),
-            "traceback": "",
-        }, cfg, workspace)
-        return f"> ⚠ {spec.name} error: {e}"
+            "traceback_truncated": traceback.format_exc()[-1000:],
+        }, cfg)
+        return f"> \u26a0 {spec.name} error: {e}"
 
 
 # Built at import time from the registry (after _bind_registry is called).
@@ -277,7 +279,8 @@ def _discover_plugins(cfg: dict) -> list["DirectiveSpec"]:
     """
     if not cfg.get("plugins", {}).get("enabled", True):
         return []
-    plugins_dir = Path(cfg["plugins"].get("dir", str(PERSEUS_HOME / "plugins")))
+    plugins_cfg = cfg.get("plugins", {})
+    plugins_dir = Path(plugins_cfg.get("dir", str(PERSEUS_HOME / "plugins")))
     if not plugins_dir.is_dir():
         return []
     specs: list["DirectiveSpec"] = []
@@ -301,6 +304,50 @@ def _discover_plugins(cfg: dict) -> list["DirectiveSpec"]:
 
 
 _PLUGIN_LOADED_DIRS: set[str] = set()
+
+
+def _discover_formats(cfg: dict) -> dict[str, "Callable"]:
+    """Scan ~/.perseus/formats/ dir, import Python modules, collect render functions.
+
+    Returns {format_name: render_fn}. Format name = filename stem.
+    Built-in names (markdown, html, json) are ignored with a warning.
+    """
+    formats_dir = PERSEUS_HOME / "formats"
+    if not formats_dir.is_dir():
+        return {}
+
+    discovered = {}
+    built_ins = {"markdown", "md", "html", "json"}
+
+    for py_file in sorted(formats_dir.glob("*.py")):
+        name = py_file.stem.lower()
+        if name in built_ins:
+            print(
+                f"Perseus format warning: '{name}' collides with built-in format; custom adapter ignored",
+                file=sys.stderr,
+            )
+            continue
+
+        try:
+            spec = importlib.util.spec_from_file_location(
+                f"perseus_format_{name}", py_file
+            )
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            render_fn = getattr(mod, "render", None)
+            if render_fn and callable(render_fn):
+                discovered[name] = render_fn
+            else:
+                print(
+                    f"Perseus format warning: {py_file.name} does not export render(resolved_markdown, metadata)",
+                    file=sys.stderr,
+                )
+        except Exception as e:
+            print(
+                f"Perseus format error ({py_file.name}): {e}",
+                file=sys.stderr,
+            )
+    return discovered
 
 
 def register_plugins(cfg: dict, force: bool = False) -> int:
