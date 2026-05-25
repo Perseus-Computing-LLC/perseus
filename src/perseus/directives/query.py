@@ -219,6 +219,7 @@ def _directive_graph_node(directive: str, args_str: str, line_no: int, ordinal: 
         "directive": directive,
         "line": line_no,
         "kind": spec.kind,
+        "source": spec.source,  # task-65: "builtin" or "plugin"
         "args": clean_args,
         "cache": {"mode": cache_mode, "ttl": cache_ttl, "mock": cache_mock},
         "metadata": {

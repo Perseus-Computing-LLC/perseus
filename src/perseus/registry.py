@@ -21,6 +21,7 @@ class DirectiveSpec(NamedTuple):
     summary: str = ""
     output_schema: object | None = None  # Optional registry-level rendered output schema
     diagnostic_fn: "Callable | None" = None  # Optional per-directive LSP diagnostic (task-25)
+    source: str = "builtin"             # task-65: "builtin" for shipped specs, "plugin" for ~/.perseus/plugins/*.py
 
 
 # NOTE: resolver references are forward-declared as strings and bound after
@@ -131,10 +132,60 @@ def _discover_plugins(cfg: dict) -> list["DirectiveSpec"]:
             if hasattr(mod, "REGISTER") and isinstance(mod.REGISTER, dict):
                 for name, ds in mod.REGISTER.items():
                     if isinstance(ds, DirectiveSpec):
-                        specs.append(ds)
+                        specs.append(ds._replace(source="plugin"))
         except Exception as e:
             print(
                 f"Perseus plugin error ({py_file.name}): {e}",
                 file=sys.stderr,
             )
     return specs
+
+
+_PLUGIN_LOADED_DIRS: set[str] = set()
+
+
+def register_plugins(cfg: dict, force: bool = False) -> int:
+    """Discover plugins and merge into DIRECTIVE_REGISTRY. Idempotent per plugins dir.
+
+    Built-ins always win on name collisions; plugin-vs-plugin collisions are
+    first-loaded-wins (sorted-filename order from _discover_plugins). Both
+    collision cases warn to stderr. Returns the count of new directives added.
+    """
+    plugins_cfg = cfg.get("plugins") or {}
+    if not plugins_cfg.get("enabled", True):
+        return 0
+    plugins_dir = str(Path(plugins_cfg.get("dir", str(PERSEUS_HOME / "plugins"))))
+    if not force and plugins_dir in _PLUGIN_LOADED_DIRS:
+        return 0
+    _PLUGIN_LOADED_DIRS.add(plugins_dir)
+
+    added = 0
+    needs_regex_rebuild = False
+    for ds in _discover_plugins(cfg):
+        existing = DIRECTIVE_REGISTRY.get(ds.name)
+        if existing is not None:
+            if existing.source == "builtin":
+                print(
+                    f"Perseus plugin warning: {ds.name} collides with built-in directive; plugin ignored",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    f"Perseus plugin warning: {ds.name} already registered by an earlier plugin; first-loaded wins",
+                    file=sys.stderr,
+                )
+            continue
+        DIRECTIVE_REGISTRY[ds.name] = ds
+        added += 1
+        if ds.kind == "inline":
+            needs_regex_rebuild = True
+
+    if needs_regex_rebuild:
+        global INLINE_DIRECTIVE_RE
+        INLINE_DIRECTIVE_RE = _build_inline_directive_re()
+    return added
+
+
+def _reset_plugin_cache() -> None:
+    """Test-only: clear the per-process plugin-dir cache so register_plugins re-scans."""
+    _PLUGIN_LOADED_DIRS.clear()
