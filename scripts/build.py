@@ -90,7 +90,7 @@ def build() -> None:
     # ── Read version from VERSION file ──────────────────────────────────────
     version_path = repo_root / "VERSION"
     if version_path.exists():
-        build_version = version_path.read_text().strip()
+        build_version = version_path.read_text(encoding="utf-8").strip()
     else:
         build_version = "0.0.0"
 
@@ -100,7 +100,7 @@ def build() -> None:
             print(f"ERROR: module not found: {path}", file=sys.stderr)
             sys.exit(1)
 
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
         for line in text.splitlines():
             # Drop internal cross-module imports (build concatenation provides them)
             if INTERNAL_IMPORT_RE.match(line):
@@ -140,7 +140,7 @@ def build() -> None:
         )
         sys.exit(1)
 
-    out_path.write_text(output)
+    out_path.write_text(output, encoding="utf-8")
     print(f"Built {out_path} ({actual_lines} lines)")
 
     # ── Smoke test ────────────────────────────────────────────────────────────
