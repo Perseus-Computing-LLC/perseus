@@ -1,0 +1,122 @@
+{
+  "C1": {
+    "test": "C1_recursive_include",
+    "results": [
+      {
+        "depth": 10,
+        "rc": 0,
+        "time_to_failure_ms": 389,
+        "error_class": "clean"
+      },
+      {
+        "depth": 100,
+        "rc": 0,
+        "time_to_failure_ms": 415,
+        "error_class": "clean"
+      },
+      {
+        "depth": 1000,
+        "rc": 0,
+        "time_to_failure_ms": 459,
+        "error_class": "clean"
+      }
+    ],
+    "all_clean_or_safe": true
+  },
+  "C2": {
+    "test": "C2_malformed_directives",
+    "graceful_rate": 1.0,
+    "graceful_count": 12,
+    "total": 12,
+    "details": [
+      {
+        "i": 0,
+        "rc": 0,
+        "graceful": true
+      },
+      {
+        "i": 1,
+        "rc": 0,
+        "graceful": true
+      },
+      {
+        "i": 2,
+        "rc": 0,
+        "graceful": true
+      },
+      {
+        "i": 3,
+        "rc": 0,
+        "graceful": true
+      },
+      {
+        "i": 4,
+        "rc": 0,
+        "graceful": true
+      },
+      {
+        "i": 5,
+        "rc": 0,
+        "graceful": true
+      },
+      {
+        "i": 6,
+        "rc": 0,
+        "graceful": true
+      },
+      {
+        "i": 7,
+        "rc": 0,
+        "graceful": true
+      },
+      {
+        "i": 8,
+        "rc": 0,
+        "graceful": true
+      },
+      {
+        "i": 9,
+        "rc": 0,
+        "graceful": true
+      },
+      {
+        "i": 10,
+        "rc": 0,
+        "graceful": true
+      },
+      {
+        "i": 11,
+        "rc": 0,
+        "graceful": true
+      }
+    ]
+  },
+  "C3": {
+    "test": "C3_infinite_output",
+    "completed": true,
+    "wall_s": 0.33,
+    "output_bytes_captured": 71,
+    "bounded": true
+  },
+  "C4": {
+    "test": "C4_fs_exhaustion",
+    "skipped": true,
+    "reason": "not root"
+  },
+  "C5": {
+    "test": "C5_concurrent_adversarial",
+    "n_agents": 20,
+    "orphan_count": 0,
+    "baseline_ms": 931.8,
+    "normal_avg_ms": 1048.1,
+    "normal_agent_slowdown_factor": 1.12,
+    "traceback_count": 0,
+    "advrs_completed": 4,
+    "advrs_total": 4
+  },
+  "C6": {
+    "test": "C6_provider_degradation",
+    "skipped": true,
+    "reason": "toxiproxy not installed"
+  }
+}
