@@ -332,6 +332,48 @@ Chain directives with `|` for lightweight composition (max 3 stages):
 
 Output of each stage becomes the first positional argument to the next.
 
+### Tiered Context (Progressive Disclosure)
+
+Not every question needs the full environment injected. A "what's 2+2?" shouldn't pull in Docker health checks, skill listings, and session digests. Perseus now ships tiered context rendering — the agent *is* the RAG.
+
+```bash
+perseus render .perseus/context.md --tier 1    # core context (~12 directives, lean)
+perseus render .perseus/context.md --tier 2    # + services, skills, sessions
+perseus render .perseus/context.md              # everything (backward compatible)
+```
+
+Three tiers, assigned per directive in the registry:
+
+| Tier | Name | What goes here |
+|------|------|---------------|
+| **1** | Always | Core context — lightweight, always needed (`@date`, `@memory`, `@waypoint`, `@health`, `@env`) |
+| **2** | Conditional | Task-specific, heavier (`@services`, `@skills`, `@session`, `@agora`, `@inbox`) |
+| **3** | On-Demand | Bulky/expensive — the agent pulls it if needed (`@query`, `@read`, `@include`, `@tree`, `@list`) |
+
+Directives above the tier limit are skipped and reported in a **Context Manifest**:
+
+```
+> 📋 Context Manifest — Tier limit: 1
+>
+> • @services (Tier 2 / Conditional) — Health-check listed services
+> • @skills (Tier 2 / Conditional) — List available skills
+> • @query (Tier 3 / On-Demand) — Run a shell command and embed stdout
+>
+> Re-run with `perseus render --tier 2` for conditional context,
+> or `--tier 3` for full context on demand.
+```
+
+Template authors can override per-instance with `@tier:N`:
+
+```markdown
+@services @tier:1    # Always resolve this block, even though @services defaults to Tier 2
+docker
+nginx
+@end
+```
+
+Set `render.default_tier: 1` in `~/.perseus/config.yaml` to make lean context the default for all renders. No embedding model, no LLM routing — one integer comparison per directive gates resolution. The agent sees what's available and can pull it on demand.
+
 ### Directive Aliases
 
 Config-driven shorthand — single-pass, no recursive expansion:
