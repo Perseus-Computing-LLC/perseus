@@ -1,0 +1,152 @@
+import threading
+import queue
+import time
+import json
+import urllib.request
+import hmac
+import hashlib
+import os
+import sys
+import re
+import atexit
+from datetime import datetime, timezone
+
+# ──────────────────────────────── Webhooks ───────────────────────────────────
+
+# Global state for webhooks
+_WEBHOOK_QUEUES = {}  # {ep_id: Queue}
+_WEBHOOK_THREADS = {} # {ep_id: Thread}
+_WEBHOOK_LOCK = threading.Lock()
+
+def _expand_env_vars(s):
+    if not isinstance(s, str): return s
+    return re.sub(r"\${(\w+)}", lambda m: os.environ.get(m.group(1), m.group(0)), s)
+
+def _fire_webhook(event: str, payload: dict, cfg: dict) -> None:
+    """POST render lifecycle event to configured webhook endpoints."""
+    wh_cfg = cfg.get("webhooks", {})
+    if not wh_cfg.get("enabled", True):
+        return
+
+    endpoints = wh_cfg.get("endpoints", [])
+    if not endpoints:
+        # Fallback to legacy single URL if present
+        url = wh_cfg.get("url")
+        if url:
+            endpoints = [{
+                "url": url,
+                "events": wh_cfg.get("events", []),
+                "secret": wh_cfg.get("secret", ""),
+                "timeout_s": wh_cfg.get("timeout_s", 10)
+            }]
+
+    for ep in endpoints:
+        if event not in ep.get("events", []):
+            continue
+        
+        raw_url = ep.get("url")
+        if not raw_url:
+            continue
+            
+        url = _expand_env_vars(raw_url)
+        
+        with _WEBHOOK_LOCK:
+            # Use a unique ID for the thread per endpoint config
+            ep_id = f"{url}|{ep.get('secret','')}|{ep.get('timeout_s', 10)}"
+            
+            if ep_id not in _WEBHOOK_QUEUES:
+                _WEBHOOK_QUEUES[ep_id] = queue.Queue()
+                t = threading.Thread(
+                    target=_webhook_worker,
+                    args=(url, ep, wh_cfg, _WEBHOOK_QUEUES[ep_id]),
+                    daemon=True
+                )
+                t.start()
+                _WEBHOOK_THREADS[ep_id] = t
+            
+            # Use a copy of the payload to avoid mutations if the renderer continues
+            _WEBHOOK_QUEUES[ep_id].put((event, payload.copy(), datetime.now(timezone.utc).isoformat()))
+
+def _webhook_worker(url, ep, wh_cfg, q):
+    retry_cfg = wh_cfg.get("retry", {"max_attempts": 3, "backoff_s": 5})
+    max_attempts = retry_cfg.get("max_attempts", 3)
+    base_backoff = retry_cfg.get("backoff_s", 5)
+    timeout = ep.get("timeout_s") or wh_cfg.get("timeout_s", 10)
+    
+    secret_raw = ep.get("secret", "")
+    secret = _expand_env_vars(secret_raw)
+    extra_headers = ep.get("headers", {})
+
+    while True:
+        item = q.get()
+        if item is None:
+            q.task_done()
+            break
+        
+        event, payload, ts_iso = item
+        
+        # Prepare payload
+        version = globals().get("_PERSEUS_VERSION", "1.0.3")
+        
+        workspace = payload.get("workspace", "")
+        ws_hash = hashlib.sha256(workspace.encode()).hexdigest()[:16] if workspace else None
+        
+        body_dict = {
+            "event": event,
+            "timestamp": ts_iso,
+            "workspace": workspace,
+            "workspace_hash": ws_hash,
+            "version": version,
+            "data": payload
+        }
+        body_json = json.dumps(body_dict)
+        body_data = body_json.encode("utf-8")
+        
+        # Delivery with retry
+        success = False
+        last_error = None
+        for attempt in range(max_attempts):
+            try:
+                headers = {"Content-Type": "application/json"}
+                for k, v in extra_headers.items():
+                    headers[k] = _expand_env_vars(v)
+                
+                if secret:
+                    # X-Perseus-Signature: t=1700000000,v1=<hex-encoded HMAC-SHA256>
+                    # Signature is computed over {timestamp}.{json_body}
+                    try:
+                        ts_unix = int(datetime.fromisoformat(ts_iso).timestamp())
+                    except ValueError:
+                        ts_unix = int(time.time())
+                        
+                    sig_payload = f"{ts_unix}.{body_json}".encode("utf-8")
+                    sig = hmac.new(secret.encode("utf-8"), sig_payload, hashlib.sha256).hexdigest()
+                    headers["X-Perseus-Signature"] = f"t={ts_unix},v1={sig}"
+                
+                req = urllib.request.Request(url, data=body_data, headers=headers, method="POST")
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    if 200 <= resp.status < 300:
+                        success = True
+                        break
+                    else:
+                        last_error = f"HTTP {resp.status}"
+            except Exception as e:
+                last_error = str(e)
+            
+            if not success and attempt < max_attempts - 1:
+                time.sleep(base_backoff * (2 ** attempt))
+        
+        if not success:
+            print(f"Perseus webhook warning: Failed to deliver {event} to {url} after {max_attempts} attempts. Last error: {last_error}", file=sys.stderr)
+        
+        q.task_done()
+
+def _wait_for_webhooks():
+    """Wait for all pending webhooks to be delivered before exit."""
+    with _WEBHOOK_LOCK:
+        for ep_id, q in _WEBHOOK_QUEUES.items():
+            q.put(None)
+        for ep_id, t in _WEBHOOK_THREADS.items():
+            t.join(timeout=10)
+
+atexit.register(_wait_for_webhooks)

@@ -1,20 +1,19 @@
 ---
 id: task-72
-title: Phase 24H — Event Webhooks
-status: open
+title: "Phase 24H \u2014 Event Webhooks"
+status: completed
 priority: low
 scope: medium
-claimed_by: null
+claimed_by: hermes
 created: 2026-05-24
 phase: 24
-theme: "Extensibility Architecture — Hephaestus"
+theme: "Extensibility Architecture \u2014 Hephaestus"
 depends_on:
 - task-67
 blocks: []
 opened: '2026-05-24'
-closed: null
+closed: '2026-05-25'
 ---
-
 ## Why
 
 Pipeline hooks (task-67) cover local processing — shell commands and Python
