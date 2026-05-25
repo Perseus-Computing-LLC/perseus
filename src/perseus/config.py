@@ -14,7 +14,7 @@ DEFAULT_CONFIG = {
     "render": {
         "cache_dir": str(PERSEUS_HOME / "cache"),
         "persist_cache_ttl_s": 3600,  # task-09: default TTL for @cache persist
-        "allow_agent_shell": True,    # task-15: @agent gate (mirrors allow_query_shell)
+        "allow_agent_shell": False,   # task-15: @agent gate (mirrors allow_query_shell). Default off for security; opt-in via power-user profile or explicit config.
         "session_digest_count": 5,
         "services_timeout_s": 3,
         "query_timeout_s": 30,
@@ -25,8 +25,9 @@ DEFAULT_CONFIG = {
         "integrity_check": False,    # opt-in: detect files modified during render
         "parallel_services": False,   # opt-in: concurrent @services health checks
         "parallel_queries": False,    # opt-in: concurrent @query resolution
+        "macros_file": ".perseus/macros.md",  # task-66: directive macros definition file
         "shell": "/bin/bash",
-        "allow_query_shell": True,
+        "allow_query_shell": False,   # Default off for security. Opt-in via power-user profile or `perseus trust enable-queries`.
         "allow_services_command": False,
         "allow_remote_services_health": False,
         "allow_outside_workspace": False,
@@ -107,6 +108,33 @@ DEFAULT_CONFIG = {
         "default_recipient": "anyone",
         "default_sender": "perseus",
     },
+    "plugins": {
+        "enabled": True,
+        "dir": str(PERSEUS_HOME / "plugins"),
+    },
+    "hooks": {
+        "enabled": True,
+    },
+    "webhooks": {
+        "enabled": False,
+        "url": "",
+        "secret": "",
+        "events": ["on_render_start", "on_render_complete", "on_directive_error"],
+        "timeout_s": 5,
+    },
+    "tools": {
+        "enabled": True,
+        "allowlist": [],
+    },
+    "foreign_resolver": {
+        "enabled": True,
+        "allowlist": [],
+        "hmackey": "",
+        "timeout_s": 10,
+    },
+    "directives": {
+        "aliases": {},
+    },
     "prefetch": {
         "rules": [],
         "adaptive": {
@@ -122,6 +150,9 @@ DEFAULT_CONFIG = {
         "model": None,
         "max_source_bytes": 12000,
         "max_claims": 6,
+    },
+    "validate": {
+        "validators_dir": str(PERSEUS_HOME / "validators"),  # task-70
     },
     "serve": {                        # Phase 17A: surface serve bind for permission profiles
         "bind": "127.0.0.1",
@@ -158,6 +189,10 @@ DEFAULT_CONFIG = {
         "log_path": str(PERSEUS_HOME / "audit_log.jsonl"),
         "max_log_bytes": 1_048_576,   # 1 MiB
     },
+    "mcp": {
+        "tool_allowlist": [],     # empty = all non-sensitive tools allowed
+        "tool_blocklist": [],     # explicit blocklist (overrides allowlist)
+    },
     "update": {
         # Self-update: pull latest from the Perseus git repository.
         # auto: when True, `perseus update --apply` is safe to run unattended
@@ -184,9 +219,8 @@ DEFAULT_CONFIG = {
 #   `allow_query_shell`, `generation.enabled`, etc. are unchanged. A profile
 #   simply seeds those gates with safer defaults.
 # - Strict locks down every shell/network/generation surface Perseus exposes.
-# - Balanced mirrors today's defaults — useful for users who want to pin
-#   current behavior explicitly so a future default change doesn't surprise
-#   them.
+# - Balanced is the recommended default — shell execution disabled, safe
+#   for AI-agent workspaces. Pin this to insulate against future default changes.
 # - Power-user enables the riskier opt-in surfaces (`@services command:`)
 #   while still keeping LLM generation opt-in (`generation.enabled: false`)
 #   because uncited generation is a separate trust boundary (see PRODUCT_CONTRACT).
@@ -204,8 +238,8 @@ PERMISSION_PROFILES: dict[str, dict[str, dict[str, object]]] = {
     },
     "balanced": {
         "render": {
-            "allow_query_shell": True,
-            "allow_agent_shell": True,
+            "allow_query_shell": False,
+            "allow_agent_shell": False,
             "allow_services_command": False,
             "allow_remote_services_health": False,
             "allow_outside_workspace": False,

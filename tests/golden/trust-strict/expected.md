@@ -1,8 +1,6 @@
 
 # Strict Trust
 
-```text
-should-not-run
-```
+> ⚠ @query is disabled by config (`render.allow_query_shell=false`).
 
-agent-should-not-run
+> ⚠ @agent is disabled by config (`render.allow_query_shell=false`).

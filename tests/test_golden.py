@@ -43,6 +43,10 @@ def _load_cfg(workspace: Path) -> dict:
                 cfg[section].update(values)
             else:
                 cfg[section] = values
+    # Apply permission profile if configured
+    profile = cfg.get("permissions", {}).get("profile")
+    if profile:
+        perseus._apply_permission_profile(cfg, profile)
     return cfg
 
 

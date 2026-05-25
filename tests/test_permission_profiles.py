@@ -90,8 +90,8 @@ def test_apply_balanced_matches_today_defaults():
     cfg = {"render": {}, "generation": {}, "serve": {}}
     applied = perseus._apply_permission_profile(cfg, "balanced")
     assert applied == "balanced"
-    assert cfg["render"]["allow_query_shell"] is True
-    assert cfg["render"]["allow_agent_shell"] is True
+    assert cfg["render"]["allow_query_shell"] is False
+    assert cfg["render"]["allow_agent_shell"] is False
     assert cfg["render"]["allow_services_command"] is False
     assert cfg["render"]["allow_outside_workspace"] is False
     assert cfg["generation"]["enabled"] is False
@@ -135,7 +135,7 @@ def test_load_config_no_profile_preserves_defaults(monkeypatch, tmp_path):
     _isolate_home(monkeypatch, tmp_path)
     cfg = perseus.load_config()
     # No profile → behaves like DEFAULT_CONFIG (AC #3)
-    assert cfg["render"]["allow_query_shell"] is True
+    assert cfg["render"]["allow_query_shell"] is False  # default changed in v1.0.3
     assert cfg["render"]["allow_services_command"] is False
     assert cfg["generation"]["enabled"] is False
 
@@ -179,7 +179,7 @@ def test_load_config_unknown_profile_falls_through(monkeypatch, tmp_path):
     _write_global_cfg(home, {"permissions": {"profile": "yolo"}})
     cfg = perseus.load_config()
     # Defaults preserved
-    assert cfg["render"]["allow_query_shell"] is True
+    assert cfg["render"]["allow_query_shell"] is False  # default changed in v1.0.3
     # Configured value still readable for trust report
     assert cfg["permissions"]["profile"] == "yolo"
 

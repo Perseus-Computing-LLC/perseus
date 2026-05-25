@@ -18,10 +18,14 @@ def main():
     )
     p_render.add_argument(
         "--format", "-f", default="md",
-        choices=["md", "html", "agents-md", "claude-md", "cursorrules", "copilot-instructions"],
+        # choices removed so plugin format names work; md/html/json/agents-md built-in
         help="Output format: md (markdown), html (dashboard), agents-md (AGENTS.md), "
              "claude-md (CLAUDE.md), cursorrules (.cursorrules), "
              "copilot-instructions (.github/copilot-instructions.md)",
+    )
+    p_render.add_argument(
+        "--strict", action="store_true",
+        help="Exit with code 1 if any directive emits a ⚠ warning during render",
     )
 
     # watch (Phase 20C)

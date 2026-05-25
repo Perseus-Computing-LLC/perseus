@@ -46,6 +46,20 @@ DEFAULT_REDACTION_RULES: list[dict[str, str]] = [
     {"name": "private_key_block", "pattern": r"-----BEGIN (?:RSA |EC |OPENSSH |DSA |ENCRYPTED |PGP )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |OPENSSH |DSA |ENCRYPTED |PGP )?PRIVATE KEY-----"},
     # Hex-encoded high-entropy strings of 40+ chars used as secrets/api hashes
     {"name": "long_hex_secret", "pattern": r"\b[a-fA-F0-9]{40,}\b"},
+    # HuggingFace: hf_... (read/write tokens)
+    {"name": "huggingface_token", "pattern": r"\bhf_[A-Za-z0-9]{30,}\b"},
+    # Google Cloud API key: AIza...
+    {"name": "google_api_key", "pattern": r"\bAIza[0-9A-Za-z_-]{30,40}\b"},
+    # GitLab: glpat-, gldt-, glrt-, glsoat-
+    {"name": "gitlab_token", "pattern": r"\bgl(?:pat|dt|rt|soat)-[A-Za-z0-9_-]{20,}\b"},
+    # Stripe: sk_live_, rk_live_, sk_test_, whsec_
+    {"name": "stripe_token", "pattern": r"\b(?:sk_live|rk_live|sk_test|whsec)_[A-Za-z0-9]{24,}\b"},
+    # PyPI: pypi-...
+    {"name": "pypi_token", "pattern": r"\bpypi-[A-Za-z0-9_-]{20,}\b"},
+    # Sentry DSN: https://<key>@<host>.ingest.sentry.io/<id>
+    {"name": "sentry_dsn", "pattern": r"\bhttps://[a-f0-9]+@o\d+\.ingest\.sentry\.io/\d+\b"},
+    # Discord bot tokens (common leak pattern from config files: token = "...")
+    {"name": "discord_token", "pattern": r"\b[NM][A-Za-z0-9]{23}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27}\b"},
 ]
 
 

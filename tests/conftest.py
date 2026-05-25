@@ -16,14 +16,23 @@ if PY_VER >= (3, 10):
     SPEC = importlib.util.spec_from_file_location("perseus_module", Path(__file__).resolve().parents[1] / "perseus.py")
     perseus = importlib.util.module_from_spec(SPEC)
     assert SPEC and SPEC.loader
+    # Register before exec_module so that init code can find us
+    sys.modules["perseus_module"] = perseus
     SPEC.loader.exec_module(perseus)
 else:
     perseus = None
 
 
 def cfg():
+    """Return a config with shell execution enabled (test default).
+
+    Tests that need to verify the gated behavior (shell disabled) should
+    explicitly set `c["render"]["allow_query_shell"] = False`."""
     assert perseus is not None
-    return copy.deepcopy(perseus.DEFAULT_CONFIG)
+    c = copy.deepcopy(perseus.DEFAULT_CONFIG)
+    c["render"]["allow_query_shell"] = True
+    c["render"]["allow_agent_shell"] = True
+    return c
 
 
 def _seed_oracle_log(monkeypatch, tmp_path, entries):
