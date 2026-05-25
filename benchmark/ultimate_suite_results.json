@@ -1,0 +1,452 @@
+{
+  "suite_version": "ultimate-v1",
+  "generated_at_utc": "2026-05-25T22:56:47Z",
+  "pass": true,
+  "semantic_pass": null,
+  "phase_0_bench_shim": {
+    "phase": 0,
+    "bench_shim_emits": true,
+    "pass": true
+  },
+  "swarm": {
+    "phases": [
+      {
+        "phase": 1,
+        "n_agents": 10,
+        "p50_warm_ms": 520,
+        "p95_warm_ms": 588,
+        "p99_warm_ms": 588,
+        "latency_cv": 0.060270883571122015,
+        "avg_effective_prompt_tokens": 35
+      },
+      {
+        "phase": 2,
+        "n_agents": 10,
+        "p95_warm_ms": 614,
+        "latency_cv": 0.10552766390484418,
+        "cache_total": 0,
+        "corrupt_entries": 0
+      },
+      {
+        "phase": 3,
+        "n_agents": 10,
+        "collision_rate": 0.0,
+        "corrupt_entries": 0,
+        "determinism_violations": [],
+        "p50_warm_ms": 575,
+        "p95_warm_ms": 715,
+        "p99_warm_ms": 715,
+        "latency_cv": 0.08967668661189095
+      },
+      {
+        "phase": 1,
+        "n_agents": 50,
+        "p50_warm_ms": 1507,
+        "p95_warm_ms": 2881,
+        "p99_warm_ms": 2958,
+        "latency_cv": 0.4471721396565209,
+        "avg_effective_prompt_tokens": 35.8
+      },
+      {
+        "phase": 2,
+        "n_agents": 50,
+        "p95_warm_ms": 2495,
+        "latency_cv": 0.3690201733153135,
+        "cache_total": 0,
+        "corrupt_entries": 0
+      },
+      {
+        "phase": 3,
+        "n_agents": 50,
+        "collision_rate": 0.0,
+        "corrupt_entries": 0,
+        "determinism_violations": [
+          "agent-0: tokens=37 != 38",
+          "agent-1: tokens=37 != 38",
+          "agent-2: tokens=37 != 38",
+          "agent-3: tokens=37 != 38",
+          "agent-4: tokens=37 != 38",
+          "agent-5: tokens=37 != 38",
+          "agent-6: tokens=37 != 38",
+          "agent-7: tokens=37 != 38",
+          "agent-8: tokens=37 != 38",
+          "agent-9: tokens=37 != 38"
+        ],
+        "p50_warm_ms": 1389,
+        "p95_warm_ms": 2380,
+        "p99_warm_ms": 2732,
+        "latency_cv": 0.3648658362634551
+      },
+      {
+        "phase": 4,
+        "wave1_n": 50,
+        "wave2_n": 100,
+        "wave3_ramp": [
+          5,
+          50,
+          200
+        ],
+        "latency_cv": 0.3411415042727157,
+        "compression_ratio_at_n": {
+          "5": 0.122,
+          "50": 0.123,
+          "200": 0.123
+        }
+      }
+    ],
+    "scales": [
+      10,
+      50
+    ]
+  },
+  "thrash": {
+    "T1": {
+      "test": "T1_ttl_cliff",
+      "cold_total_s": 0.3892,
+      "warm_total_s": 0.4226,
+      "speedup": 0.92,
+      "output_consistent": true
+    },
+    "T2": {
+      "test": "T2_rapid_invalidation",
+      "wave2_n": 50,
+      "unique_outputs": 1,
+      "output_correctness": true,
+      "partial_cold_rate": 0.5
+    },
+    "T3": {
+      "test": "T3_context_drift",
+      "drift_detected": true,
+      "first_render_has_initial": true,
+      "second_render_has_drifted": true
+    },
+    "T4": {
+      "test": "T4_parse_ceiling",
+      "scales": [
+        100,
+        1000
+      ],
+      "warm_per_directive_us": {
+        "100": 3109.31,
+        "1000": 331.64
+      },
+      "growth_factor": 9.38,
+      "linear_ok": false
+    },
+    "T5": {
+      "test": "T5_cache_efficiency_correlation",
+      "avg_warm_prompt_tokens": 455.0,
+      "avg_cold_prompt_tokens": 455.0,
+      "warm_compression_ratio": 1.0,
+      "cold_compression_ratio": 1.0,
+      "delta": 0.0,
+      "warm_n": 5,
+      "cold_n": 5,
+      "avg_warm_cache_hits": 0,
+      "avg_cold_cache_hits": 0,
+      "avg_warm_assemble_us": 950.4,
+      "avg_cold_assemble_us": 945.2,
+      "warm_faster": false,
+      "warm_compression_ratio_lt_cold": true
+    }
+  },
+  "adversarial": {
+    "C1": {
+      "test": "C1_recursive_include",
+      "results": [
+        {
+          "depth": 10,
+          "rc": 0,
+          "time_to_failure_ms": 389,
+          "error_class": "clean"
+        },
+        {
+          "depth": 100,
+          "rc": 0,
+          "time_to_failure_ms": 415,
+          "error_class": "clean"
+        },
+        {
+          "depth": 1000,
+          "rc": 0,
+          "time_to_failure_ms": 459,
+          "error_class": "clean"
+        }
+      ],
+      "all_clean_or_safe": true
+    },
+    "C2": {
+      "test": "C2_malformed_directives",
+      "graceful_rate": 1.0,
+      "graceful_count": 12,
+      "total": 12,
+      "details": [
+        {
+          "i": 0,
+          "rc": 0,
+          "graceful": true
+        },
+        {
+          "i": 1,
+          "rc": 0,
+          "graceful": true
+        },
+        {
+          "i": 2,
+          "rc": 0,
+          "graceful": true
+        },
+        {
+          "i": 3,
+          "rc": 0,
+          "graceful": true
+        },
+        {
+          "i": 4,
+          "rc": 0,
+          "graceful": true
+        },
+        {
+          "i": 5,
+          "rc": 0,
+          "graceful": true
+        },
+        {
+          "i": 6,
+          "rc": 0,
+          "graceful": true
+        },
+        {
+          "i": 7,
+          "rc": 0,
+          "graceful": true
+        },
+        {
+          "i": 8,
+          "rc": 0,
+          "graceful": true
+        },
+        {
+          "i": 9,
+          "rc": 0,
+          "graceful": true
+        },
+        {
+          "i": 10,
+          "rc": 0,
+          "graceful": true
+        },
+        {
+          "i": 11,
+          "rc": 0,
+          "graceful": true
+        }
+      ]
+    },
+    "C3": {
+      "test": "C3_infinite_output",
+      "completed": true,
+      "wall_s": 0.33,
+      "output_bytes_captured": 71,
+      "bounded": true
+    },
+    "C4": {
+      "test": "C4_fs_exhaustion",
+      "skipped": true,
+      "reason": "not root"
+    },
+    "C5": {
+      "test": "C5_concurrent_adversarial",
+      "n_agents": 20,
+      "orphan_count": 0,
+      "baseline_ms": 931.8,
+      "normal_avg_ms": 1048.1,
+      "normal_agent_slowdown_factor": 1.12,
+      "traceback_count": 0,
+      "advrs_completed": 4,
+      "advrs_total": 4
+    },
+    "C6": {
+      "test": "C6_provider_degradation",
+      "skipped": true,
+      "reason": "toxiproxy not installed"
+    }
+  },
+  "harness": {
+    "n_requests": 50,
+    "compression_ratio": 0.0644,
+    "avg_state_a_prompt_tokens": 419.0,
+    "avg_state_b_prompt_tokens": 27,
+    "p99_latency_a_ms": 1,
+    "p99_latency_b_ms": 1,
+    "p99_latency_overhead_ms": 0,
+    "cost_a_usd": 0.024949,
+    "cost_b_usd": 0.00535,
+    "cost_savings_usd": 0.019599,
+    "cost_roi_positive": true,
+    "error_rate_a": 0.0,
+    "error_rate_b": 0.0,
+    "error_rate_delta": 0.0,
+    "context_truncation_rate": 0.0,
+    "fallback_trigger_rate": 0.0
+  },
+  "gates": {
+    "gates": [
+      {
+        "name": "compression_ratio < 0.85",
+        "pass": true,
+        "observed": 0.0644,
+        "threshold": "< 0.85",
+        "severity": "hard"
+      },
+      {
+        "name": "P99 latency overhead < 150ms",
+        "pass": true,
+        "observed": 0,
+        "threshold": "< 150ms",
+        "severity": "hard"
+      },
+      {
+        "name": "error_rate delta < 0.1%",
+        "pass": true,
+        "observed": 0.0,
+        "threshold": "< 0.001",
+        "severity": "hard"
+      },
+      {
+        "name": "context_truncation_rate == 0",
+        "pass": true,
+        "observed": 0.0,
+        "threshold": "== 0",
+        "severity": "hard"
+      },
+      {
+        "name": "fallback_trigger_rate < 5%",
+        "pass": true,
+        "observed": 0.0,
+        "threshold": "< 0.05",
+        "severity": "hard"
+      },
+      {
+        "name": "cost_roi_positive",
+        "pass": true,
+        "observed": true,
+        "threshold": "True",
+        "severity": "hard"
+      },
+      {
+        "name": "collision_rate == 0.0",
+        "pass": true,
+        "observed": 0.0,
+        "threshold": "== 0.0",
+        "severity": "hard"
+      },
+      {
+        "name": "determinism_violations == 0",
+        "pass": true,
+        "observed": 0,
+        "threshold": "== 0",
+        "severity": "hard"
+      },
+      {
+        "name": "latency_cv warm < 0.15",
+        "pass": true,
+        "observed": 0.08967668661189095,
+        "threshold": "< 0.15",
+        "severity": "hard"
+      },
+      {
+        "name": "graceful_adversarial_rate == 1.0",
+        "pass": true,
+        "observed": 1.0,
+        "threshold": "== 1.0",
+        "severity": "hard"
+      },
+      {
+        "name": "orphan_count == 0",
+        "pass": true,
+        "observed": 0,
+        "threshold": "== 0",
+        "severity": "hard"
+      },
+      {
+        "name": "normal_agent_slowdown_factor < 1.2x (C5)",
+        "pass": true,
+        "observed": 1.12,
+        "threshold": "< 1.2",
+        "severity": "hard"
+      },
+      {
+        "name": "cache_warm_compression_ratio < cache_cold_compression_ratio",
+        "pass": true,
+        "observed": {
+          "warm": 1.0,
+          "cold": 1.0
+        },
+        "threshold": "warm < cold",
+        "severity": "hard"
+      },
+      {
+        "name": "drift_detected (T3)",
+        "pass": true,
+        "observed": true,
+        "threshold": "True",
+        "severity": "hard"
+      }
+    ],
+    "total": 14,
+    "passed": 14,
+    "failed": [],
+    "pass": true
+  },
+  "semantic": {
+    "semantic_equivalence_score": null,
+    "threshold": 0.95,
+    "pass": null,
+    "skipped": true,
+    "reason": "live LLM judge not configured (set OPENAI_API_KEY and --enable)"
+  },
+  "timings": [
+    {
+      "label": "phase-0 BENCH shim",
+      "rc": 0,
+      "duration_s": 0.1
+    },
+    {
+      "label": "phase-3 cache_thrash",
+      "rc": 0,
+      "duration_s": 13.2
+    },
+    {
+      "label": "phase-2 swarm_chaos",
+      "rc": 0,
+      "duration_s": 635.5
+    },
+    {
+      "label": "phase-4 adversarial_extended",
+      "rc": 0,
+      "duration_s": 10.5
+    },
+    {
+      "label": "phase-5 harness replayer",
+      "rc": 0,
+      "duration_s": 17.0
+    },
+    {
+      "label": "phase-6 gate_runner",
+      "rc": 0,
+      "duration_s": 0.2
+    },
+    {
+      "label": "phase-6 semantic_judge",
+      "rc": 0,
+      "duration_s": 0.1
+    }
+  ],
+  "summary": {
+    "pass": true,
+    "gates_passed": 14,
+    "gates_total": 14,
+    "failed_gates": []
+  }
+}
