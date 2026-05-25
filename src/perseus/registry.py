@@ -67,6 +67,165 @@ def _bind_registry() -> None:
         DIRECTIVE_REGISTRY[spec.name] = spec
 
 
+# ── Pipe Syntax (task-71) ────────────────────────────────────────────────────
+
+_MAX_PIPE_STAGES = 5
+
+
+def _parse_pipe_stages(line: str) -> list[str]:
+    """Split a directive line into pipe stages respecting quoted strings."""
+    in_quote = False
+    quote_char = None
+    has_pipe = False
+    for ch in line:
+        if ch in ('"', "'") and not in_quote:
+            in_quote = True
+            quote_char = ch
+        elif ch == quote_char and in_quote:
+            in_quote = False
+            quote_char = None
+        elif ch == '|' and not in_quote:
+            has_pipe = True
+            break
+    if not has_pipe:
+        return [line]
+    stages = []
+    current = []
+    in_quote = False
+    quote_char = None
+    for ch in line:
+        if ch in ('"', "'") and not in_quote:
+            in_quote = True
+            quote_char = ch
+            current.append(ch)
+        elif ch == quote_char and in_quote:
+            in_quote = False
+            quote_char = None
+            current.append(ch)
+        elif ch == '|' and not in_quote:
+            stages.append(''.join(current).strip())
+            current = []
+        else:
+            current.append(ch)
+    if current:
+        stages.append(''.join(current).strip())
+    if len(stages) > _MAX_PIPE_STAGES:
+        return stages[:_MAX_PIPE_STAGES]
+    return stages
+
+
+# ── Directive Aliasing (task-74) ─────────────────────────────────────────────
+
+PREDEFINED_ALIASES = {
+    "@q": "@query",
+    "@r": "@read",
+    "@svc": "@services",
+    "@mb": "@memory",
+    "@ag": "@agora",
+    "@wp": "@waypoint",
+    "@sess": "@session",
+    "@chk": "@checkpoint",
+    "@dr": "@drift",
+    "@syn": "@synthesize",
+}
+
+
+def _expand_aliases(lines: list[str], cfg: dict) -> list[str]:
+    """Expand directive aliases (e.g. @q -> @query) before macro expansion.
+    Supports alias chains (one level), circular detection, and shadowing protection.
+    """
+    # 1. Collect all candidate aliases
+    raw_aliases = dict(PREDEFINED_ALIASES)
+    cfg_aliases = cfg.get("directives", {}).get("aliases", {})
+    raw_aliases.update(cfg_aliases)
+
+    if not raw_aliases:
+        return lines
+
+    # 2. Shadowing protection (case-sensitive)
+    aliases = {}
+    for alias, target in raw_aliases.items():
+        if alias in DIRECTIVE_REGISTRY:
+            print(f"Perseus warning: alias '{alias}' shadows a built-in directive; ignoring.", file=sys.stderr)
+            continue
+        aliases[alias] = target
+
+    # 3. Resolve chains and detect cycles
+    # According to spec: "one level of indirection only", "@a -> @b -> @c" is valid.
+    # We resolve chains; circular ones are disabled with a warning.
+    resolved_map = {}
+    disabled = set()
+
+    for start_alias in aliases:
+        if start_alias in disabled:
+            continue
+        path = [start_alias]
+        curr = aliases[start_alias]
+        while curr in aliases:
+            if curr in path:
+                # Cycle detected! Disable all members of the cycle
+                cycle_nodes = path[path.index(curr):]
+                for node in cycle_nodes:
+                    if node not in disabled:
+                        print(f"Perseus warning: circular alias detected for '{node}'; disabling.", file=sys.stderr)
+                        disabled.add(node)
+                break
+            path.append(curr)
+            curr = aliases[curr]
+        else:
+            # Successfully traced to a non-alias target or a built-in
+            resolved_map[start_alias] = curr
+
+    # Purge disabled aliases or those pointing to disabled aliases
+    for alias in list(resolved_map.keys()):
+        if alias in disabled or resolved_map[alias] in disabled:
+            resolved_map.pop(alias, None)
+
+    if not resolved_map:
+        return lines
+
+    # 4. Expansion pass
+    # Exact-match only, case-sensitive. Works with pipes.
+    sorted_aliases = sorted(resolved_map.items(), key=lambda x: -len(x[0]))
+    result: list[str] = []
+
+    for line in lines:
+        stripped = line.lstrip()
+        if not stripped.startswith("@"):
+            result.append(line)
+            continue
+
+        # Use _parse_pipe_stages to safely handle pipe stages and quotes
+        try:
+            stages = _parse_pipe_stages(line)
+            new_stages = []
+            expanded_any = False
+            for stage in stages:
+                s_stripped = stage.lstrip()
+                expanded_stage = stage
+                for alias, target in sorted_aliases:
+                    if s_stripped.startswith(alias):
+                        rest = s_stripped[len(alias):]
+                        if not rest or rest[0] in (' ', '\t'):
+                            # Match found. Preserve leading whitespace of the stage.
+                            indent = stage[:stage.find(alias)]
+                            expanded_stage = f"{indent}{target}{rest}"
+                            expanded_any = True
+                            break
+                new_stages.append(expanded_stage)
+
+            if expanded_any:
+                # Join with pipes, trying to be somewhat respectful of spacing
+                result.append(" | ".join(new_stages))
+            else:
+                result.append(line)
+        except Exception:
+            # Fallback for weird lines that might break pipe parsing
+            result.append(line)
+
+    return result
+
+
 def _call_resolver(spec: DirectiveSpec, args_str: str, cfg: dict, workspace: "Path | None") -> str:
     """Adapt resolver call to match its actual signature via call_sig."""
     # Universal shell-execution gate (task-65): plugin directives with
