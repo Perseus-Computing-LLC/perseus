@@ -1,0 +1,10 @@
+version: 1
+name: generic-adapter-conformance
+profile: generic
+trust_profile: balanced
+renders:
+  - name: default
+    source: context.md
+    output: live-context.md
+    assistant: generic
+synthesis: []

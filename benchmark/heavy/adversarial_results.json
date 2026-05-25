@@ -1,0 +1,154 @@
+{
+  "perseus_version": "1.0.1 (with local Windows shell-fallback patch)",
+  "host": "posix \u00b7 python 3.12.13",
+  "generated_at": "2026-05-23T18:00:03Z",
+  "scaling": [
+    {
+      "ok": true,
+      "rc": 0,
+      "elapsed_s": 0.276,
+      "out_lines": 60,
+      "out_bytes": 2050,
+      "stderr_tail": "",
+      "test": "scale-10-queries",
+      "n_queries": 10,
+      "per_query_ms": 27.6
+    },
+    {
+      "ok": true,
+      "rc": 0,
+      "elapsed_s": 0.321,
+      "out_lines": 300,
+      "out_bytes": 10330,
+      "stderr_tail": "",
+      "test": "scale-50-queries",
+      "n_queries": 50,
+      "per_query_ms": 6.4
+    },
+    {
+      "ok": true,
+      "rc": 0,
+      "elapsed_s": 0.379,
+      "out_lines": 600,
+      "out_bytes": 20680,
+      "stderr_tail": "",
+      "test": "scale-100-queries",
+      "n_queries": 100,
+      "per_query_ms": 3.8
+    },
+    {
+      "ok": true,
+      "rc": 0,
+      "elapsed_s": 0.487,
+      "out_lines": 1200,
+      "out_bytes": 41580,
+      "stderr_tail": "",
+      "test": "scale-200-queries",
+      "n_queries": 200,
+      "per_query_ms": 2.4
+    },
+    {
+      "ok": true,
+      "rc": 0,
+      "elapsed_s": 0.819,
+      "out_lines": 3000,
+      "out_bytes": 104280,
+      "stderr_tail": "",
+      "test": "scale-500-queries",
+      "n_queries": 500,
+      "per_query_ms": 1.6
+    }
+  ],
+  "edges": [
+    {
+      "ok": true,
+      "rc": 0,
+      "elapsed_s": 0.884,
+      "out_lines": 26218,
+      "out_bytes": 262244,
+      "stderr_tail": "",
+      "test": "B1-big-stdout-12MB"
+    },
+    {
+      "ok": true,
+      "rc": 0,
+      "elapsed_s": 30.306,
+      "out_lines": 1,
+      "out_bytes": 97,
+      "stderr_tail": "",
+      "test": "B2-timeout-45s"
+    },
+    {
+      "ok": true,
+      "rc": 0,
+      "elapsed_s": 0.334,
+      "out_lines": 1,
+      "out_bytes": 93,
+      "stderr_tail": "",
+      "test": "B3-binary-output"
+    },
+    {
+      "ok": true,
+      "rc": 0,
+      "elapsed_s": 0.332,
+      "out_lines": 3,
+      "out_bytes": 71,
+      "stderr_tail": "",
+      "test": "B4-shell-metacharacters"
+    },
+    {
+      "ok": true,
+      "rc": 0,
+      "elapsed_s": 0.333,
+      "out_lines": 5,
+      "out_bytes": 242,
+      "stderr_tail": "",
+      "test": "B5-missing-script"
+    },
+    {
+      "ok": true,
+      "rc": 0,
+      "elapsed_s": 0.291,
+      "out_lines": 102,
+      "out_bytes": 3135,
+      "stderr_tail": "",
+      "test": "B6-services-100-entries"
+    },
+    {
+      "ok": true,
+      "rc": 0,
+      "elapsed_s": 3.262,
+      "out_lines": 3,
+      "out_bytes": 78,
+      "stderr_tail": "",
+      "test": "B7-services-command-hang"
+    },
+    {
+      "ok": true,
+      "rc": 0,
+      "elapsed_s": 0.286,
+      "out_lines": 8,
+      "out_bytes": 252,
+      "stderr_tail": "",
+      "test": "B8-malformed-services-yaml"
+    },
+    {
+      "ok": true,
+      "rc": 0,
+      "elapsed_s": 0.519,
+      "out_lines": 4199,
+      "out_bytes": 114935,
+      "stderr_tail": "",
+      "test": "B9-long-context-md"
+    },
+    {
+      "ok": true,
+      "rc": 0,
+      "elapsed_s": 0.357,
+      "out_lines": 4,
+      "out_bytes": 105,
+      "stderr_tail": "",
+      "test": "B10-unicode-emoji"
+    }
+  ]
+}

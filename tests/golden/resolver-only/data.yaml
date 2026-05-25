@@ -1,0 +1,5 @@
+items:
+  - name: render
+    status: deterministic
+  - name: shell
+    status: disabled

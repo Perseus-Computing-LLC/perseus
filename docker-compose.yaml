@@ -1,0 +1,60 @@
+# Perseus container compose — render, serve, and watch profiles.
+#
+#   docker compose run --rm render           # one-shot context render
+#   docker compose --profile serve up serve  # authenticated HTTP endpoint
+#   docker compose --profile watch up watch  # foreground file watcher
+#
+# Mount your workspace at /workspace. Perseus state persists in the
+# perseus-home named volume.
+
+services:
+  render:
+    image: perseus:local
+    build: .
+    command:
+      - render
+      - /workspace/.perseus/context.md
+      - --output
+      - /perseus-home/rendered-context.md
+    volumes:
+      - ./:/workspace:ro
+      - perseus-home:/perseus-home
+
+  serve:
+    image: perseus:local
+    build: .
+    profiles: [serve]
+    command:
+      - serve
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "7991"
+      - --workspace
+      - /workspace
+    ports:
+      - "127.0.0.1:7991:7991"
+    volumes:
+      - ./:/workspace:ro
+      - perseus-home:/perseus-home
+      - ./examples/container/config.yaml:/perseus-home/config.yaml:ro
+
+  watch:
+    image: perseus:local
+    build: .
+    profiles: [watch]
+    command:
+      - watch
+      - --source
+      - /workspace/.perseus/context.md
+      - --output
+      - /perseus-home/rendered-context.md
+      - --allow-outside-workspace
+      - --interval
+      - "10"
+    volumes:
+      - ./:/workspace:ro
+      - perseus-home:/perseus-home
+
+volumes:
+  perseus-home:

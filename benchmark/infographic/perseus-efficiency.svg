@@ -1,0 +1,139 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" font-family="'JetBrains Mono','Courier New',monospace">
+  <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+    </pattern>
+    <linearGradient id="coldGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#3b82f6" stop-opacity="0.02"/>
+    </linearGradient>
+    <linearGradient id="warmGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#34d399" stop-opacity="0.2"/>
+      <stop offset="100%" stop-color="#34d399" stop-opacity="0.02"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="800" fill="#020617"/>
+  <rect width="1200" height="800" fill="url(#grid)"/>
+
+  <!-- Header -->
+  <rect x="50" y="25" width="1100" height="80" rx="8" fill="#0f172a" stroke="#1e293b" stroke-width="1"/>
+  <text x="600" y="60" fill="#f8fafc" font-size="32" font-weight="800" text-anchor="middle" letter-spacing="-1">PERSEUS EFFICIENCY</text>
+  <circle cx="830" cy="52" r="5" fill="#22d3ee" opacity="0.8"/>
+  <text x="600" y="88" fill="#64748b" font-size="14" text-anchor="middle">Cold-Start Eliminated — Facts Before the First Prompt</text>
+
+  <!-- Chart Panel -->
+  <rect x="50" y="120" width="700" height="370" rx="8" fill="#0f172a" stroke="#1e293b" stroke-width="1"/>
+  <text x="75" y="150" fill="#64748b" font-size="11" font-weight="700" letter-spacing="1">RENDER TIME vs @query COUNT — COLD → WARM</text>
+
+  <!-- Chart Area -->
+  <rect x="75" y="165" width="650" height="300" fill="url(#grid)" rx="4"/>
+  
+  <!-- Axes -->
+  <line x1="110" y1="430" x2="700" y2="430" stroke="#334155" stroke-width="1"/>
+  <line x1="110" y1="185" x2="110" y2="430" stroke="#334155" stroke-width="1"/>
+  
+  <!-- Y axis labels -->
+  <text x="100" y="434" fill="#64748b" font-size="9" text-anchor="end">0s</text>
+  <text x="100" y="328" fill="#475569" font-size="9" text-anchor="end">4s</text>
+  <text x="100" y="222" fill="#475569" font-size="9" text-anchor="end">8s</text>
+  <line x1="110" y1="327" x2="700" y2="327" stroke="#1e293b" stroke-width="0.5"/>
+  <line x1="110" y1="221" x2="700" y2="221" stroke="#1e293b" stroke-width="0.5"/>
+  <text x="100" y="440" fill="#64748b" font-size="9" text-anchor="end">12s</text>
+
+  <!-- X axis labels -->
+  <text x="190" y="452" fill="#64748b" font-size="10" text-anchor="middle">10</text>
+  <text x="310" y="452" fill="#64748b" font-size="10" text-anchor="middle">50</text>
+  <text x="430" y="452" fill="#64748b" font-size="10" text-anchor="middle">100</text>
+  <text x="550" y="452" fill="#64748b" font-size="10" text-anchor="middle">200</text>
+  <text x="670" y="452" fill="#64748b" font-size="10" text-anchor="middle">500</text>
+  <text x="400" y="472" fill="#475569" font-size="9" text-anchor="middle">@query directives</text>
+
+  <!-- Cold data line + area -->
+  <!-- Scale: 1s = 20.4px. Values: 10q=0.7s(14px), 50q=1.4s(29px), 100q=2.6s(53px), 200q=4.8s(98px), 500q=11.5s(235px) -->
+  <polygon points="190,416 310,401 430,377 550,332 670,195 670,430 190,430" fill="url(#coldGrad)"/>
+  <polyline points="190,416 310,401 430,377 550,332 670,195" fill="none" stroke="#3b82f6" stroke-width="2.5"/>
+  <circle cx="190" cy="416" r="4" fill="#3b82f6"/>
+  <circle cx="670" cy="195" r="5" fill="#3b82f6" stroke="#0f172a" stroke-width="2"/>
+
+  <!-- Warm line (flat at 0.28s = 6px from bottom) -->
+  <line x1="190" y1="424" x2="670" y2="424" stroke="#34d399" stroke-width="3" stroke-dasharray="8,3"/>
+  <circle cx="190" cy="424" r="3.5" fill="#34d399"/>
+  <circle cx="670" cy="424" r="3.5" fill="#34d399"/>
+
+  <!-- Annotation labels -->
+  <defs><filter id="glow"><feGaussianBlur stdDeviation="1.5"/></filter></defs>
+  <text x="680" y="192" fill="#f8fafc" font-size="13" font-weight="700">11.5s</text>
+  <text x="680" y="207" fill="#94a3b8" font-size="9">Cold</text>
+  <text x="680" y="420" fill="#34d399" font-size="13" font-weight="700">0.28s</text>
+  <text x="680" y="435" fill="#94a3b8" font-size="9">Warm</text>
+
+  <!-- 40x callout -->
+  <rect x="600" y="240" rx="6" width="85" height="28" fill="#0f172a" stroke="#f59e0b" stroke-width="2"/>
+  <text x="642" y="259" fill="#f59e0b" font-size="15" font-weight="800" text-anchor="middle">40×</text>
+
+  <!-- Legend -->
+  <rect x="130" y="170" width="12" height="12" rx="3" fill="#3b82f6" opacity="0.5"/>
+  <text x="148" y="180" fill="#94a3b8" font-size="9">Cold (no cache)</text>
+  <line x1="270" y1="176" x2="290" y2="176" stroke="#34d399" stroke-width="2.5" stroke-dasharray="6,3"/>
+  <text x="296" y="180" fill="#94a3b8" font-size="9">Warm (@cache ttl=300)</text>
+
+  <!-- KPI Cards -->
+  <!-- KPI 1: 40x -->
+  <rect x="770" y="120" width="180" height="115" rx="8" fill="#0f172a" stroke="#1e293b" stroke-width="1"/>
+  <text x="860" y="165" fill="#34d399" font-size="42" font-weight="800" text-anchor="middle">40×</text>
+  <text x="860" y="188" fill="#64748b" font-size="9" text-anchor="middle" letter-spacing="1">WARM SPEEDUP</text>
+  <text x="860" y="212" fill="#475569" font-size="8" text-anchor="middle">Cache makes render time constant</text>
+
+  <!-- KPI 2: 47x -->
+  <rect x="970" y="120" width="180" height="115" rx="8" fill="#0f172a" stroke="#1e293b" stroke-width="1"/>
+  <text x="1060" y="165" fill="#f59e0b" font-size="42" font-weight="800" text-anchor="middle">47×</text>
+  <text x="1060" y="188" fill="#64748b" font-size="9" text-anchor="middle" letter-spacing="1">STDOUT REDUCTION</text>
+  <text x="1060" y="212" fill="#475569" font-size="8" text-anchor="middle">12MB capped at 256KB</text>
+
+  <!-- KPI 3: 1.7s -->
+  <rect x="770" y="250" width="180" height="115" rx="8" fill="#0f172a" stroke="#1e293b" stroke-width="1"/>
+  <text x="860" y="295" fill="#22d3ee" font-size="42" font-weight="800" text-anchor="middle">1.7s</text>
+  <text x="860" y="318" fill="#64748b" font-size="9" text-anchor="middle" letter-spacing="1">ENTERPRISE AUDIT</text>
+  <text x="860" y="342" fill="#475569" font-size="8" text-anchor="middle">500 microservices · 722 lines</text>
+
+  <!-- KPI 4: 539 -->
+  <rect x="970" y="250" width="180" height="115" rx="8" fill="#0f172a" stroke="#1e293b" stroke-width="1"/>
+  <text x="1060" y="295" fill="#a78bfa" font-size="42" font-weight="800" text-anchor="middle">539</text>
+  <text x="1060" y="318" fill="#64748b" font-size="9" text-anchor="middle" letter-spacing="1">TESTS PASSING</text>
+  <text x="1060" y="342" fill="#475569" font-size="8" text-anchor="middle">4 Windows bugs fixed · 0 regressions</text>
+
+  <!-- Real-World Impact Panel -->
+  <rect x="50" y="505" width="1100" height="110" rx="8" fill="#0f172a" stroke="#1e293b" stroke-width="1"/>
+
+  <!-- Impact Left -->
+  <rect x="80" y="525" width="510" height="70" rx="6" fill="#0f172a" stroke="#1e293b" stroke-width="1"/>
+  <text x="335" y="555" fill="#f8fafc" font-size="26" font-weight="800" text-anchor="middle">
+    <tspan fill="#3b82f6">788</tspan> <tspan fill="#475569" font-size="18">→</tspan> <tspan fill="#34d399">0</tspan>
+  </text>
+  <text x="335" y="580" fill="#64748b" font-size="10" text-anchor="middle">Discovery calls eliminated in mega-enterprise audit</text>
+
+  <!-- Impact Right -->
+  <rect x="610" y="525" width="510" height="70" rx="6" fill="#0f172a" stroke="#1e293b" stroke-width="1"/>
+  <text x="865" y="555" fill="#f8fafc" font-size="26" font-weight="800" text-anchor="middle">
+    <tspan fill="#3b82f6">76</tspan> <tspan fill="#475569" font-size="18">→</tspan> <tspan fill="#34d399">0</tspan>
+  </text>
+  <text x="865" y="580" fill="#64748b" font-size="10" text-anchor="middle">cd-and-query operations eliminated in 9-repo cross-org snapshot</text>
+
+  <!-- Feature Bar -->
+  <rect x="50" y="630" width="1100" height="50" rx="8" fill="#0f172a" stroke="#1e293b" stroke-width="1"/>
+  <text x="600" y="660" fill="#64748b" font-size="11" text-anchor="middle">
+    <tspan fill="#22d3ee">@cache ttl=N</tspan> | 
+    <tspan fill="#22d3ee">max_query_bytes</tspan> | 
+    <tspan fill="#22d3ee">timeout=N</tspan> | 
+    <tspan fill="#22d3ee">parallel_queries</tspan> | 
+    <tspan fill="#22d3ee">parallel_services</tspan> | 
+    <tspan fill="#22d3ee">Windows fixes</tspan>
+  </text>
+
+  <!-- Agora / task context blast -->
+  <rect x="50" y="700" width="1100" height="60" rx="8" fill="#0f172a" stroke="#1e293b" stroke-width="1"/>
+  <text x="600" y="725" fill="#94a3b8" font-size="12" text-anchor="middle">The assistant opens every session <tspan fill="#34d399" font-weight="700">already oriented</tspan> — facts, not instructions to go find facts.</text>
+  <text x="600" y="745" fill="#475569" font-size="9" text-anchor="middle">perseus v1.0.2 · github.com/tcconnally/perseus · benchmarked 2026-05-23 on Linux</text>
+</svg>

@@ -1,0 +1,2686 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Perseus — Live context engine for AI assistants</title>
+<meta name="description" content="Perseus is a live context engine that resolves your environment before the context window opens. Works with any assistant that reads a file." />
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+
+<template id="__bundler_thumbnail" data-bg-color="#0c0814">
+  <svg viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+        <feGaussianBlur stdDeviation="14" result="blur" />
+        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+    </defs>
+    <rect x="360" y="120" width="480" height="560" fill="none" stroke="#c77dff" stroke-width="2" opacity="0.55" />
+    <path d="M 360 144 L 360 120 L 384 120" fill="none" stroke="#56e1ff" stroke-width="3" />
+    <path d="M 816 120 L 840 120 L 840 144" fill="none" stroke="#56e1ff" stroke-width="3" />
+    <path d="M 360 656 L 360 680 L 384 680" fill="none" stroke="#56e1ff" stroke-width="3" />
+    <path d="M 816 680 L 840 680 L 840 656" fill="none" stroke="#56e1ff" stroke-width="3" />
+    <text x="600" y="510" font-family="Georgia, 'Cormorant Garamond', serif" font-style="italic" font-weight="500" font-size="380" fill="#c77dff" text-anchor="middle" filter="url(#glow)">P</text>
+    <circle cx="600" cy="740" r="4" fill="#c77dff" />
+  </svg>
+</template>
+
+<style>
+  :root {
+    /* CYBERPUNK PALETTE — deep violet ground, neon magenta + electric cyan */
+    --bg: #0c0814;
+    --bg-2: #140e22;
+    --bg-3: #1c1430;
+    --line: rgba(196, 168, 255, 0.10);
+    --line-strong: rgba(196, 168, 255, 0.22);
+    --text: #ece4ff;
+    --text-dim: #9a8cc4;
+    --text-muted: #5d5078;
+    --accent: #c77dff;       /* neon magenta-violet */
+    --accent-bright: #e4a8ff;
+    --accent-deep: #7a2ec4;
+    --accent-2: #56e1ff;     /* electric cyan, used very sparingly */
+    --code-bg: #07040d;
+    --good: #56e1ff;         /* cyan stands in for "ok" in this palette */
+    --warn: #ff6b9d;         /* hot pink for warnings */
+    --serif: "Cormorant Garamond", "EB Garamond", Georgia, serif;
+    --sans: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --mono: "JetBrains Mono", "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    --max: 1240px;
+    --gutter: clamp(20px, 4vw, 56px);
+    --glow-accent: 0 0 24px rgba(199, 125, 255, 0.45);
+    --glow-cyan: 0 0 18px rgba(86, 225, 255, 0.45);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: "ss01", "cv11";
+    overflow-x: hidden;
+    /* Subtle cyber-grid: violet hairlines at 80px, plus diffuse vignette */
+    background-image:
+      radial-gradient(ellipse 80% 60% at 50% 0%, rgba(122, 46, 196, 0.18), transparent 70%),
+      linear-gradient(rgba(199, 125, 255, 0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(199, 125, 255, 0.035) 1px, transparent 1px);
+    background-size: 100% 100%, 80px 80px, 80px 80px;
+    background-position: 0 0, 0 0, 0 0;
+    background-attachment: fixed, fixed, fixed;
+  }
+  ::selection { background: var(--accent); color: #1a1410; }
+
+  a { color: inherit; text-decoration: none; }
+  img { display: block; max-width: 100%; }
+
+  /* ---------- Reusable ---------- */
+  .wrap {
+    max-width: var(--max);
+    margin: 0 auto;
+    padding: 0 var(--gutter);
+  }
+
+  .rule {
+    height: 1px;
+    background: var(--line);
+    margin: 0;
+    border: 0;
+  }
+
+  /* Architectural section header */
+  .sec-head {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    gap: 48px;
+    align-items: baseline;
+    padding-top: 28px;
+    margin-bottom: clamp(40px, 6vw, 80px);
+  }
+  .sec-num {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    color: var(--accent);
+    text-transform: uppercase;
+  }
+  .sec-title {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: clamp(34px, 4.6vw, 60px);
+    line-height: 1.02;
+    letter-spacing: -0.012em;
+    margin: 0;
+    color: var(--text);
+    text-wrap: balance;
+  }
+  .sec-title em {
+    font-style: italic;
+    color: var(--accent);
+    font-weight: 400;
+    text-shadow: 0 0 22px rgba(199, 125, 255, 0.45);
+  }
+
+  @media (max-width: 680px) {
+    .sec-head {
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+  }
+
+  /* Sections */
+  section { position: relative; }
+  .section-block {
+    padding: clamp(80px, 10vw, 140px) 0;
+    border-top: 1px solid var(--line);
+  }
+
+  /* ---------- Top bar ---------- */
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    background: color-mix(in oklab, var(--bg) 78%, transparent);
+    border-bottom: 1px solid var(--line);
+  }
+  .topbar-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 60px;
+  }
+  .wordmark {
+    font-family: var(--serif);
+    font-size: 21px;
+    font-weight: 500;
+    letter-spacing: 0.005em;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  .wordmark .dot {
+    width: 6px;
+    height: 6px;
+    background: var(--accent);
+    border-radius: 50%;
+    display: inline-block;
+    transform: translateY(-3px);
+    box-shadow: 0 0 8px var(--accent), 0 0 16px rgba(199, 125, 255, 0.7);
+  }
+  .topbar nav {
+    display: flex;
+    gap: 28px;
+    align-items: center;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+  .topbar nav a { transition: color .18s ease; }
+  .topbar nav a:hover { color: var(--text); }
+  .topbar nav .ghbtn {
+    border: 1px solid var(--line-strong);
+    padding: 8px 14px;
+    color: var(--text);
+    transition: all .18s ease;
+  }
+  .topbar nav .ghbtn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  @media (max-width: 720px) {
+    .topbar nav .nav-link { display: none; }
+  }
+
+  /* ---------- Hero ---------- */
+  .hero {
+    padding: clamp(60px, 9vw, 120px) 0 clamp(40px, 6vw, 80px);
+    position: relative;
+    overflow: hidden;
+  }
+  .hero-grid {
+    display: grid;
+    grid-template-columns: 1.05fr 0.95fr;
+    gap: clamp(40px, 6vw, 80px);
+    align-items: center;
+  }
+  @media (max-width: 900px) {
+    .hero-grid { grid-template-columns: 1fr; }
+  }
+
+  .hero-eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 32px;
+    display: inline-flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .hero-eyebrow::before {
+    content: "";
+    width: 36px;
+    height: 1px;
+    background: var(--accent);
+  }
+  .hero-eyebrow .ver {
+    color: var(--text-muted);
+    letter-spacing: 0.18em;
+  }
+
+  .hero h1 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: clamp(42px, 6.4vw, 84px);
+    line-height: 0.98;
+    letter-spacing: -0.018em;
+    margin: 0 0 28px;
+    color: var(--text);
+    text-wrap: balance;
+  }
+  .hero h1 em {
+    font-style: italic;
+    color: var(--accent);
+    font-weight: 400;
+    text-shadow:
+      0 0 22px rgba(199, 125, 255, 0.55),
+      0 0 60px rgba(199, 125, 255, 0.25);
+  }
+  .hero-sub {
+    font-size: 18px;
+    line-height: 1.55;
+    color: var(--text-dim);
+    max-width: 52ch;
+    margin: 0 0 40px;
+    font-weight: 300;
+  }
+  .hero-sub b {
+    color: var(--text);
+    font-weight: 500;
+  }
+
+  .hero-companion {
+    margin: 18px 0 28px;
+    padding: 14px 16px 14px 18px;
+    font-size: 14px;
+    line-height: 1.55;
+    color: var(--text-dim);
+    border-left: 2px solid var(--accent-2);
+    background: linear-gradient(90deg, rgba(86, 225, 255, 0.04), transparent 60%);
+  }
+  .hero-companion b { color: var(--text); font-weight: 500; }
+  .hero-companion .hc-mark {
+    display: inline-block;
+    font-family: var(--mono);
+    color: var(--accent-2);
+    margin-right: 8px;
+    text-shadow: 0 0 12px rgba(86, 225, 255, 0.5);
+  }
+  .hero-companion .hc-link {
+    color: var(--accent-2);
+    border-bottom: 1px dotted rgba(86, 225, 255, 0.4);
+    transition: color .18s ease, border-color .18s ease;
+  }
+  .hero-companion .hc-link:hover { color: var(--accent-bright); border-bottom-color: var(--accent); }
+  .hero-companion .hc-sub {
+    display: block;
+    margin-top: 6px;
+    color: var(--text-dim);
+    font-size: 0.94em;
+  }
+
+  /* Install command block */
+  .install {
+    display: flex;
+    align-items: stretch;
+    background: var(--code-bg);
+    border: 1px solid var(--accent);
+    border-radius: 2px;
+    font-family: var(--mono);
+    font-size: 14.5px;
+    max-width: 460px;
+    margin-bottom: 28px;
+    overflow: hidden;
+    box-shadow: var(--glow-accent), inset 0 0 0 1px rgba(199, 125, 255, 0.08);
+    position: relative;
+  }
+  .install::before {
+    /* corner ticks: cyberpunk frame brackets */
+    content: "";
+    position: absolute; inset: -1px;
+    pointer-events: none;
+    background:
+      linear-gradient(var(--accent-2), var(--accent-2)) top left / 8px 1px no-repeat,
+      linear-gradient(var(--accent-2), var(--accent-2)) top left / 1px 8px no-repeat,
+      linear-gradient(var(--accent-2), var(--accent-2)) top right / 8px 1px no-repeat,
+      linear-gradient(var(--accent-2), var(--accent-2)) top right / 1px 8px no-repeat,
+      linear-gradient(var(--accent-2), var(--accent-2)) bottom left / 8px 1px no-repeat,
+      linear-gradient(var(--accent-2), var(--accent-2)) bottom left / 1px 8px no-repeat,
+      linear-gradient(var(--accent-2), var(--accent-2)) bottom right / 8px 1px no-repeat,
+      linear-gradient(var(--accent-2), var(--accent-2)) bottom right / 1px 8px no-repeat;
+  }
+  .install .prompt {
+    color: var(--accent-2);
+    padding: 14px 0 14px 16px;
+    user-select: none;
+    text-shadow: var(--glow-cyan);
+  }
+  .install code {
+    flex: 1;
+    padding: 14px 12px 14px 10px;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-family: inherit;
+    font-size: inherit;
+  }
+  .install code .em { color: var(--accent-bright); }
+  .copy-btn {
+    background: transparent;
+    border: 0;
+    border-left: 1px solid var(--line-strong);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    padding: 0 18px;
+    cursor: pointer;
+    transition: all .18s ease;
+  }
+  .copy-btn:hover { color: var(--accent); background: rgba(200, 148, 86, 0.06); }
+  .copy-btn.copied { color: var(--good); }
+
+  /* Badges */
+  .badges {
+    display: flex;
+    gap: 18px;
+    flex-wrap: wrap;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .badge .b-key {
+    padding: 5px 9px;
+    background: rgba(255,255,255,0.02);
+    color: var(--text-dim);
+  }
+  .badge .b-val {
+    padding: 5px 9px;
+    color: var(--text);
+    border-left: 1px solid var(--line);
+  }
+  .badge .b-val.star { color: var(--accent); text-shadow: 0 0 10px rgba(199, 125, 255, 0.55); }
+  .badge .b-val.ok { color: var(--accent-2); text-shadow: 0 0 10px rgba(86, 225, 255, 0.5); }
+
+  /* Sculpture frame */
+  .sculpture {
+    position: relative;
+    aspect-ratio: 3 / 4;
+    background: var(--bg-2);
+    border: 1px solid var(--accent);
+    overflow: hidden;
+    box-shadow:
+      0 0 0 1px rgba(199, 125, 255, 0.05),
+      0 0 60px rgba(199, 125, 255, 0.18),
+      inset 0 0 80px rgba(122, 46, 196, 0.25);
+  }
+  .sculpture::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      /* scanlines */
+      repeating-linear-gradient(0deg, rgba(199, 125, 255, 0.07) 0 1px, transparent 1px 3px),
+      /* magenta wash */
+      radial-gradient(ellipse at 50% 30%, rgba(199, 125, 255, 0.22), transparent 65%),
+      linear-gradient(180deg, rgba(0,0,0,0) 40%, rgba(12, 8, 20, 0.7) 100%);
+    z-index: 2;
+    pointer-events: none;
+    mix-blend-mode: screen;
+  }
+  .sculpture::after {
+    /* vertical neon stripe down the right edge */
+    content: "";
+    position: absolute;
+    top: 0; bottom: 0; right: 0;
+    width: 2px;
+    background: linear-gradient(to bottom, transparent, var(--accent) 30%, var(--accent) 70%, transparent);
+    opacity: 0.55;
+    z-index: 2;
+    pointer-events: none;
+  }
+  .sculpture img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: 50% 18%;
+    /* duotone-ish: desaturate bronze, push hues to violet, mild crush */
+    filter: contrast(1.15) brightness(0.85) saturate(0.5) hue-rotate(220deg);
+    transition: transform 1.4s cubic-bezier(.16,.7,.2,1);
+  }
+  /* Fallback "museum plate" — shown only if the sculpture image fails to load */
+  .sculpture .plate {
+    position: absolute; inset: 0; z-index: 1;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    background:
+      radial-gradient(ellipse at 50% 35%, rgba(199, 125, 255, 0.30), transparent 62%),
+      linear-gradient(160deg, #1c1430 0%, #140e22 60%, #0a0614 100%);
+    color: var(--text);
+    padding: 40px;
+    text-align: center;
+  }
+  .sculpture.broken img { display: none; }
+  .sculpture.broken .plate { display: flex; }
+  .sculpture .plate .num {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 24px;
+  }
+  .sculpture .plate .mono-mark {
+    font-family: var(--serif);
+    font-style: italic;
+    font-weight: 500;
+    font-size: clamp(110px, 18vw, 200px);
+    line-height: 1;
+    color: var(--accent);
+    letter-spacing: -0.04em;
+    background: linear-gradient(180deg, #e4a8ff 0%, #7a2ec4 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin: 0;
+    filter: drop-shadow(0 0 24px rgba(199, 125, 255, 0.55));
+  }
+  .sculpture .plate .title {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 22px;
+    margin-top: 18px;
+    color: var(--text);
+    line-height: 1.25;
+    max-width: 22ch;
+  }
+  .sculpture .plate .meta {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-top: 14px;
+    line-height: 1.7;
+  }
+  .sculpture .caption {
+    position: absolute;
+    left: 20px;
+    bottom: 20px;
+    z-index: 3;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: rgba(236, 230, 221, 0.65);
+    line-height: 1.7;
+    max-width: 70%;
+  }
+  .sculpture .caption .lead { color: var(--accent); }
+  .sculpture .corner {
+    position: absolute;
+    width: 18px; height: 18px;
+    border: 1px solid var(--accent);
+    opacity: 0.55;
+    z-index: 3;
+  }
+  .sculpture .corner.tl { top: 10px; left: 10px; border-right: 0; border-bottom: 0; }
+  .sculpture .corner.tr { top: 10px; right: 10px; border-left: 0; border-bottom: 0; }
+  .sculpture .corner.bl { bottom: 10px; left: 10px; border-right: 0; border-top: 0; }
+  .sculpture .corner.br { bottom: 10px; right: 10px; border-left: 0; border-top: 0; }
+
+  /* Scroll indicator */
+  .scroll-ind {
+    position: absolute;
+    left: 50%;
+    bottom: 0;
+    transform: translateX(-50%);
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding-bottom: 8px;
+  }
+  .scroll-ind .line {
+    width: 1px;
+    height: 44px;
+    background: linear-gradient(to bottom, var(--text-muted), transparent);
+    animation: pulse 2.6s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 0.35; transform: scaleY(0.85); }
+    50% { opacity: 1; transform: scaleY(1); }
+  }
+
+  /* ---------- Problem / Fix ---------- */
+  .duo {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+  }
+  @media (max-width: 820px) {
+    .duo { grid-template-columns: 1fr; }
+  }
+  .duo > div {
+    background: var(--bg);
+    padding: clamp(28px, 3.4vw, 44px);
+    min-height: 100%;
+  }
+  .duo .label {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 18px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .duo .label .pill {
+    border: 1px solid currentColor;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 10px;
+  }
+  .duo .duo-without .label { color: var(--warn); }
+  .duo .duo-with .label { color: var(--good); }
+
+  .duo h3 {
+    font-family: var(--serif);
+    font-size: 30px;
+    line-height: 1.1;
+    font-weight: 500;
+    margin: 0 0 22px;
+    letter-spacing: -0.01em;
+  }
+
+  .transcript {
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.7;
+    color: var(--text-dim);
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    padding: 18px 20px;
+    margin: 0 0 22px;
+    border-radius: 3px;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    overflow-x: auto;
+  }
+  @media (max-width: 560px) {
+    .transcript {
+      font-size: 12px;
+      padding: 14px 14px;
+    }
+  }
+  .transcript .you { color: var(--accent-bright); }
+  .transcript .ai { color: var(--text); }
+  .transcript .ai-bad { color: var(--warn); font-style: italic; }
+  .transcript .ai-good { color: var(--good); }
+  .transcript .turn { display: block; }
+  .transcript .turn + .turn { margin-top: 8px; }
+  .transcript .meta { color: var(--text-muted); }
+  .transcript .strike { text-decoration: line-through; opacity: 0.55; }
+
+  .duo .note {
+    color: var(--text-dim);
+    font-size: 14.5px;
+    line-height: 1.6;
+    max-width: 44ch;
+    margin: 0;
+  }
+  .duo .note b { color: var(--text); font-weight: 500; }
+
+  /* ---------- How it works ---------- */
+  .flow {
+    display: grid;
+    grid-template-columns: 1fr 88px 1fr 88px 1fr;
+    gap: 0;
+    align-items: stretch;
+  }
+  @media (max-width: 980px) {
+    .flow { grid-template-columns: 1fr; gap: 16px; }
+    .flow-arrow { transform: rotate(90deg); margin: 0 auto; }
+  }
+  .flow-step {
+    border: 1px solid var(--line);
+    background: var(--bg-2);
+    display: flex;
+    flex-direction: column;
+  }
+  .flow-step .fs-head {
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--line);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .flow-step .fs-head .idx { color: var(--accent); }
+  .flow-step .fs-body {
+    padding: 20px 18px;
+    flex: 1;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.75;
+    color: var(--text-dim);
+    overflow-x: auto;
+  }
+  .flow-step .fs-body .k { color: var(--accent); }
+  .flow-step .fs-body .s { color: var(--text); }
+  .flow-step .fs-body .c { color: var(--text-muted); }
+  .flow-step .fs-body .h { color: var(--text); font-weight: 600; }
+  .flow-step .fs-foot {
+    padding: 12px 18px;
+    border-top: 1px solid var(--line);
+    font-size: 12px;
+    color: var(--text-muted);
+    letter-spacing: 0.04em;
+  }
+  .flow-arrow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--accent);
+  }
+  .flow-arrow svg { width: 100%; height: 24px; }
+
+  .flow-lede {
+    margin-top: 56px;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    padding: 32px 0;
+    text-align: center;
+  }
+  .flow-lede p {
+    font-family: var(--serif);
+    font-size: clamp(22px, 2.6vw, 30px);
+    font-style: italic;
+    color: var(--text);
+    margin: 0;
+    line-height: 1.3;
+    letter-spacing: -0.005em;
+    text-wrap: balance;
+  }
+  .flow-lede p .accent { color: var(--accent); font-style: normal; font-family: var(--mono); font-size: 0.55em; vertical-align: middle; letter-spacing: 0.2em; text-transform: uppercase; margin-right: 14px; }
+
+  /* ---------- Triad (Three Components) ---------- */
+  .triad {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+  }
+  @media (max-width: 980px) { .triad { grid-template-columns: 1fr; } }
+
+  .triad-card {
+    background: var(--bg);
+    padding: clamp(28px, 3vw, 40px) clamp(24px, 2.6vw, 36px);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+  }
+  .triad-card::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse 80% 60% at 100% 0%, rgba(199, 125, 255, 0.07), transparent 70%);
+    z-index: -1;
+    pointer-events: none;
+  }
+  .triad-card.is-oracle::before {
+    background: radial-gradient(ellipse 80% 60% at 100% 0%, rgba(86, 225, 255, 0.07), transparent 70%);
+  }
+
+  .triad-card .glyph {
+    width: 44px;
+    height: 44px;
+    color: var(--accent);
+    margin-bottom: 4px;
+  }
+  .triad-card.is-oracle .glyph { color: var(--accent-2); }
+
+  .triad-card .role {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .triad-card h3 {
+    font-family: var(--serif);
+    font-size: 28px;
+    line-height: 1.05;
+    letter-spacing: -0.012em;
+    margin: 0;
+    color: var(--text);
+    font-weight: 500;
+  }
+  .triad-card h3 em {
+    font-style: italic;
+    color: var(--accent);
+    font-weight: 400;
+  }
+  .triad-card.is-oracle h3 em { color: var(--accent-2); }
+  .triad-card p {
+    color: var(--text-dim);
+    font-size: 14.5px;
+    line-height: 1.6;
+    margin: 0;
+  }
+  .triad-card p b { color: var(--text); font-weight: 500; }
+  .triad-card .cmd {
+    margin-top: auto;
+    padding: 10px 14px;
+    background: var(--code-bg);
+    border: 1px solid var(--line-strong);
+    border-radius: 2px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--accent-bright);
+    letter-spacing: 0.02em;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+  }
+  .triad-card.is-oracle .cmd { color: var(--accent-2); }
+  .triad-card .cmd::before { content: "$ "; color: var(--text-muted); }
+
+  /* ---------- Constellation (broader feature surfaces) ---------- */
+  .constellation-lede {
+    margin-top: 56px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    text-align: center;
+  }
+  .constellation-lede::before, .constellation-lede::after {
+    content: "";
+    display: inline-block;
+    width: 80px;
+    height: 1px;
+    background: var(--line-strong);
+    vertical-align: middle;
+    margin: 0 14px;
+  }
+  .constellation {
+    margin-top: 24px;
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+  }
+  @media (max-width: 980px) { .constellation { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 560px) { .constellation { grid-template-columns: repeat(2, 1fr); } }
+
+  .const-cell {
+    background: var(--bg);
+    padding: 22px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    transition: background .2s ease;
+  }
+  .const-cell:hover { background: var(--bg-2); }
+  .const-cell .greek {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 20px;
+    color: var(--accent);
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+  .const-cell.cyan .greek { color: var(--accent-2); }
+  .const-cell .name {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text);
+  }
+  .const-cell .desc {
+    font-size: 12.5px;
+    color: var(--text-dim);
+    line-height: 1.5;
+  }
+
+  /* ---------- Architecture diagram ---------- */
+  .arch-diagram {
+    position: relative;
+    border: 1px solid var(--line);
+    background: var(--bg-2);
+    border-radius: 2px;
+    cursor: zoom-in;
+    transition: border-color 0.2s ease;
+  }
+  .arch-diagram:hover {
+    border-color: var(--accent);
+  }
+  .arch-diagram svg {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+  .arch-diagram .expand-hint {
+    position: absolute;
+    top: 10px;
+    right: 14px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    transition: color 0.2s ease;
+  }
+  .arch-diagram:hover .expand-hint {
+    color: var(--accent);
+  }
+
+  /* Fullscreen lightbox */
+  .arch-lightbox {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    background: rgba(12, 8, 20, 0.92);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    cursor: zoom-out;
+    padding: 20px;
+  }
+  .arch-lightbox.open {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .arch-lightbox svg {
+    width: 100%;
+    max-width: 1200px;
+    height: auto;
+    max-height: 95vh;
+  }
+  .arch-lightbox .close-hint {
+    position: absolute;
+    top: 20px;
+    right: 24px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    transition: color 0.2s ease;
+  }
+  .arch-lightbox:hover .close-hint {
+    color: var(--text);
+  }
+
+  @media (max-width: 820px) {
+    .arch-diagram {
+      border-left: 0;
+      border-right: 0;
+      border-radius: 0;
+    }
+  }
+
+  /* ---------- Featured stat with swarm viz ---------- */
+  .featured-stat {
+    display: grid;
+    grid-template-columns: 0.85fr 1.15fr;
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    margin-bottom: 1px;
+  }
+  @media (max-width: 980px) { .featured-stat { grid-template-columns: 1fr; } }
+
+  .featured-stat .fs-text {
+    background: var(--bg);
+    padding: clamp(32px, 3.4vw, 48px);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .featured-stat .skey {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  .featured-stat .sval {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: clamp(66px, 8vw, 104px);
+    line-height: 0.92;
+    letter-spacing: -0.04em;
+    color: var(--text);
+    text-shadow: 0 0 30px rgba(199, 125, 255, 0.18);
+  }
+  .featured-stat .sval .unit { color: var(--accent); font-size: 0.4em; vertical-align: baseline; margin-left: 6px; letter-spacing: 0; }
+  .featured-stat .sdesc {
+    color: var(--text-dim);
+    font-size: 15px;
+    line-height: 1.6;
+    margin: 4px 0 0;
+    max-width: 38ch;
+  }
+  .featured-stat .sdesc b { color: var(--text); font-weight: 500; }
+  .featured-stat .sfoot {
+    margin-top: 10px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .featured-stat .chip {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent-2);
+    border: 1px solid rgba(86, 225, 255, 0.25);
+    padding: 4px 9px;
+    border-radius: 2px;
+  }
+
+  /* Swarm visualization */
+  .swarm-viz {
+    background: var(--code-bg);
+    position: relative;
+    overflow: hidden;
+    min-height: 360px;
+    background-image:
+      radial-gradient(ellipse 70% 60% at 50% 50%, rgba(122, 46, 196, 0.16), transparent 70%),
+      linear-gradient(rgba(199, 125, 255, 0.045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(199, 125, 255, 0.045) 1px, transparent 1px);
+    background-size: 100% 100%, 36px 36px, 36px 36px;
+  }
+  .swarm-viz svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+  .swarm-hud {
+    position: absolute;
+    inset: 0;
+    padding: 18px 22px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    pointer-events: none;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .swarm-hud .row { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .swarm-hud .pair { color: var(--text-muted); }
+  .swarm-hud .pair .v { color: var(--text); margin-left: 6px; font-variant-numeric: tabular-nums; }
+  .swarm-hud .pair.ok .v { color: var(--accent-2); text-shadow: 0 0 10px rgba(86, 225, 255, 0.45); }
+  .swarm-hud .pair.warn .v { color: var(--text-muted); }
+  .swarm-hud .legend {
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    color: var(--text-muted);
+    display: flex;
+    gap: 14px;
+    align-items: center;
+  }
+  .swarm-hud .legend .swatch {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  .swarm-hud .legend .swatch.agent { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+  .swarm-hud .legend .swatch.write { background: var(--accent-2); box-shadow: 0 0 6px var(--accent-2); }
+  .swarm-hud .bar {
+    height: 2px;
+    background: rgba(196, 168, 255, 0.12);
+    margin-top: 8px;
+    position: relative;
+    overflow: hidden;
+  }
+  .swarm-hud .bar i {
+    position: absolute; left: 0; top: 0; bottom: 0;
+    background: linear-gradient(90deg, var(--accent-2), var(--accent));
+    width: 0%;
+    box-shadow: 0 0 12px rgba(86, 225, 255, 0.5);
+  }
+
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+  }
+  @media (max-width: 980px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 560px) { .stats { grid-template-columns: 1fr; } }
+  .stats.three-up { grid-template-columns: repeat(3, 1fr); }
+  @media (max-width: 980px) { .stats.three-up { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 560px) { .stats.three-up { grid-template-columns: 1fr; } }
+  .stat {
+    background: var(--bg);
+    padding: clamp(28px, 3vw, 40px) clamp(24px, 2.6vw, 36px);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    position: relative;
+  }
+  .stat .skey {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .stat .sval {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: clamp(48px, 5.6vw, 76px);
+    line-height: 1;
+    letter-spacing: -0.02em;
+    color: var(--text);
+    text-shadow: 0 0 30px rgba(199, 125, 255, 0.18);
+  }
+  .stat .sval .unit { color: var(--accent); font-size: 0.55em; vertical-align: baseline; letter-spacing: -0.01em; margin-left: 4px; }
+  .stat .sval .sub { color: var(--text-dim); font-size: 0.45em; vertical-align: super; margin-left: 4px; }
+  .stat .sdesc {
+    color: var(--text-dim);
+    font-size: 14px;
+    line-height: 1.55;
+    max-width: 32ch;
+  }
+  .stat .sdesc b { color: var(--text); font-weight: 500; }
+
+  /* ---------- Hardened note ---------- */
+  .hardened-note {
+    margin-top: 1px;
+    padding: 18px clamp(24px, 2.6vw, 36px);
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-top: 0;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 18px;
+    align-items: center;
+  }
+  @media (max-width: 760px) {
+    .hardened-note { grid-template-columns: 1fr; }
+    .hardened-note .hn-chips { justify-content: flex-start; }
+  }
+  .hardened-note .hn-label {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--accent-2);
+    border: 1px solid rgba(86, 225, 255, 0.3);
+    padding: 4px 10px;
+    border-radius: 2px;
+    white-space: nowrap;
+  }
+  .hardened-note .hn-text {
+    font-size: 13.5px;
+    line-height: 1.55;
+    color: var(--text-dim);
+  }
+  .hardened-note .hn-text b { color: var(--text); font-weight: 500; }
+  .hardened-note .hn-text code {
+    font-family: var(--mono);
+    color: var(--accent-bright);
+    font-size: 0.92em;
+  }
+  .hardened-note .hn-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: flex-end;
+  }
+  .hardened-note .hn-chip {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    border: 1px solid var(--line-strong);
+    padding: 3px 8px;
+    border-radius: 2px;
+  }
+
+  /* ---------- Integrations ---------- */
+  .integrations {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+  }
+  @media (max-width: 760px) { .integrations { grid-template-columns: 1fr; } }
+
+  .int-card {
+    background: var(--bg);
+    padding: clamp(26px, 2.8vw, 36px);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+  }
+  .int-card::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse 60% 50% at 100% 0%, rgba(199, 125, 255, 0.06), transparent 70%);
+    z-index: -1;
+    pointer-events: none;
+  }
+  .int-card.cyan::before {
+    background: radial-gradient(ellipse 60% 50% at 100% 0%, rgba(86, 225, 255, 0.06), transparent 70%);
+  }
+  .int-card .int-head {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .int-card .glyph {
+    width: 32px;
+    height: 32px;
+    color: var(--accent);
+    flex-shrink: 0;
+  }
+  .int-card.cyan .glyph { color: var(--accent-2); }
+  .int-card .int-name {
+    font-family: var(--serif);
+    font-size: 22px;
+    font-weight: 500;
+    letter-spacing: -0.008em;
+    color: var(--text);
+  }
+  .int-card .int-tag {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-top: 2px;
+  }
+  .int-card .int-desc {
+    color: var(--text-dim);
+    font-size: 14px;
+    line-height: 1.55;
+    margin: 0;
+  }
+  .int-card .int-desc b { color: var(--text); font-weight: 500; }
+  .int-card .int-cmd {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: auto;
+    padding: 12px 14px;
+    background: var(--code-bg);
+    border: 1px solid var(--line-strong);
+    border-radius: 2px;
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .int-card .int-cmd .prompt { color: var(--text-muted); flex-shrink: 0; }
+  .int-card .int-cmd code {
+    flex: 1;
+    color: var(--accent-bright);
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    overflow-x: auto;
+  }
+  .int-card.cyan .int-cmd code { color: var(--accent-2); }
+  .int-card .int-cmd .mini-copy {
+    background: transparent;
+    border: 0;
+    color: var(--text-muted);
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: color .18s ease;
+    padding: 2px 6px;
+  }
+  .int-card .int-cmd .mini-copy:hover { color: var(--accent); }
+  .int-card .int-cmd .mini-copy.copied { color: var(--good); }
+
+  /* Live / verified row — appears on real, published integrations */
+  .int-live {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    row-gap: 6px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--accent-2);
+    margin: -2px 0 2px;
+  }
+  .int-live .live-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent-2);
+    box-shadow: 0 0 8px var(--accent-2), 0 0 14px rgba(86, 225, 255, 0.55);
+    animation: int-live-pulse 2.6s ease-in-out infinite;
+    flex-shrink: 0;
+  }
+  @keyframes int-live-pulse {
+    0%, 100% { opacity: 0.55; transform: scale(0.85); }
+    50%      { opacity: 1;    transform: scale(1); }
+  }
+  .int-live .live-label { color: var(--accent-2); }
+  .int-live .sep { color: var(--text-muted); opacity: 0.6; }
+  .int-live a.live-ns {
+    color: var(--text);
+    border-bottom: 1px dotted rgba(86, 225, 255, 0.4);
+    text-transform: none;
+    letter-spacing: 0.02em;
+    font-size: 11px;
+    transition: color .18s ease, border-color .18s ease;
+  }
+  .int-live a.live-ns:hover { color: var(--accent-2); border-bottom-color: var(--accent-2); }
+  .int-live .ver {
+    color: var(--text-muted);
+    text-transform: none;
+    letter-spacing: 0.04em;
+    font-size: 11px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .int-live .live-dot { animation: none; }
+  }
+
+  /* qs-line variant for an extra-mode "or:" comment line */
+  .qs-line.alt {
+    background: rgba(86, 225, 255, 0.02);
+  }
+  .qs-line .step.alt { color: var(--text-muted); font-style: italic; letter-spacing: 0; text-transform: none; }
+  .qs-line .alt-prompt {
+    font-family: var(--mono);
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
+  .qs-line code .opt {
+    color: var(--text-dim);
+    font-style: italic;
+    margin-left: 12px;
+  }
+
+  /* ---------- Compatibility ---------- */
+  .compat-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+  }
+  @media (max-width: 860px) { .compat-grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 480px) { .compat-grid { grid-template-columns: 1fr; } }
+  .compat-cell {
+    background: var(--bg);
+    padding: 28px 22px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 10px;
+    transition: background .2s ease;
+  }
+  .compat-cell:hover { background: var(--bg-2); }
+  .compat-cell .name {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--text-dim);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .compat-cell .file {
+    font-family: var(--serif);
+    font-size: 22px;
+    font-weight: 500;
+    color: var(--text);
+    letter-spacing: -0.005em;
+  }
+  .compat-cell .file b { color: var(--accent-bright); font-weight: 500; }
+  .compat-cell .glyph {
+    width: 36px;
+    height: 36px;
+    margin-bottom: 6px;
+    color: var(--text-dim);
+  }
+  .compat-foot {
+    margin-top: 36px;
+    color: var(--text-dim);
+    font-size: 16px;
+    max-width: 60ch;
+    line-height: 1.6;
+  }
+  .compat-foot b { color: var(--text); font-weight: 500; }
+
+  /* ---------- Demo GIF in Problem/Fix section ---------- */
+  .demo-gif-wrap {
+    margin-top: 48px;
+    text-align: center;
+  }
+  .demo-gif-wrap .demo-label {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 20px;
+  }
+  .demo-gif-wrap img {
+    max-width: 100%;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    box-shadow: 0 0 40px rgba(122, 46, 196, 0.18);
+  }
+
+  /* ---------- Quickstart ---------- */
+  .quickstart-grid {
+    display: grid;
+    grid-template-columns: 0.9fr 1.1fr;
+    gap: clamp(40px, 5vw, 72px);
+    align-items: center;
+  }
+  @media (max-width: 900px) { .quickstart-grid { grid-template-columns: 1fr; } }
+
+  .qs-lede {
+    font-family: var(--serif);
+    font-size: clamp(28px, 3.2vw, 40px);
+    line-height: 1.1;
+    font-weight: 500;
+    letter-spacing: -0.012em;
+    margin: 0 0 24px;
+    text-wrap: balance;
+  }
+  .qs-lede em { font-style: italic; color: var(--accent); font-weight: 400; }
+  .qs-sub {
+    color: var(--text-dim);
+    font-size: 16px;
+    line-height: 1.6;
+    max-width: 40ch;
+    margin: 0;
+  }
+  .qs-block {
+    background: var(--code-bg);
+    border: 1px solid var(--line-strong);
+    border-radius: 4px;
+    padding: 4px;
+    font-family: var(--mono);
+  }
+  .qs-line {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 16px 18px;
+    font-size: 14.5px;
+    border-bottom: 1px solid var(--line);
+    position: relative;
+  }
+  .qs-line:last-child { border-bottom: 0; }
+  .qs-line .step {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    color: var(--accent);
+    flex-shrink: 0;
+    width: 24px;
+  }
+  .qs-line .prompt {
+    color: var(--accent);
+    flex-shrink: 0;
+  }
+  .qs-line code {
+    flex: 1;
+    color: var(--text);
+    overflow-x: auto;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    min-width: 0;
+  }
+  @media (max-width: 560px) {
+    .qs-line {
+      gap: 10px;
+      padding: 14px 14px;
+      font-size: 13px;
+    }
+  }
+  .qs-line code .em { color: var(--accent-bright); }
+  .qs-line code .arg { color: var(--text-dim); }
+  .qs-line .mini-copy {
+    background: transparent;
+    border: 0;
+    color: var(--text-muted);
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    cursor: pointer;
+    padding: 4px 6px;
+    transition: color .18s ease;
+  }
+  .qs-line .mini-copy:hover { color: var(--accent); }
+  .qs-line .mini-copy.copied { color: var(--good); }
+
+  /* ---------- Footer ---------- */
+  footer {
+    border-top: 1px solid var(--line);
+    padding: 64px 0 56px;
+    color: var(--text-dim);
+    font-size: 14px;
+  }
+  .footer-grid {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: 48px;
+    align-items: start;
+  }
+  @media (max-width: 720px) { .footer-grid { grid-template-columns: 1fr; } }
+  .footer-mark {
+    font-family: var(--serif);
+    font-size: 26px;
+    font-weight: 500;
+    color: var(--text);
+    margin-bottom: 14px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  .footer-mark .dot {
+    width: 6px; height: 6px; background: var(--accent); border-radius: 50%;
+    display: inline-block; transform: translateY(-3px);
+  }
+  .footer-credit {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    line-height: 1.7;
+    max-width: 48ch;
+  }
+  .footer-credit em { color: var(--text-dim); font-style: italic; }
+  .footer-links {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+  }
+  .footer-links a {
+    color: var(--text-dim);
+    transition: color .18s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .footer-links a::before {
+    content: ""; width: 16px; height: 1px; background: var(--line-strong);
+    transition: all .18s ease;
+  }
+  .footer-links a:hover { color: var(--accent); }
+  .footer-links a:hover::before { background: var(--accent); width: 24px; }
+  .footer-meta {
+    margin-top: 56px;
+    padding-top: 24px;
+    border-top: 1px solid var(--line);
+    display: flex;
+    justify-content: space-between;
+    color: var(--text-muted);
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  /* ---------- Reveal ----------
+     No entrance animation. `.reveal` is kept as a no-op marker so existing
+     markup stays intact; content is visible at rest in all environments. */
+  @media (prefers-reduced-motion: reduce) {
+    .sculpture img { transition: none; }
+    .scroll-ind .line { animation: none; }
+    html { scroll-behavior: auto; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ============ TOP BAR ============ -->
+<header class="topbar">
+  <div class="wrap topbar-inner">
+    <a href="#top" class="wordmark" aria-label="Perseus home">
+      <span class="dot" aria-hidden="true"></span>
+      <span>Perseus</span>
+    </a>
+    <nav>
+      <a href="#how" class="nav-link">How it works</a>
+      <a href="#triad" class="nav-link">The Triad</a>
+      <a href="#architecture" class="nav-link">Architecture</a>
+      <a href="#proof" class="nav-link">Benchmarks</a>
+      <a href="#compat" class="nav-link">Assistants</a>
+      <a href="#integrate" class="nav-link">Integrations</a>
+      <a href="#start" class="nav-link">Start</a>
+      <a href="https://github.com/tcconnally/perseus" class="ghbtn">GitHub ↗</a>
+    </nav>
+  </div>
+</header>
+
+<!-- ============ HERO ============ -->
+<section id="top" class="hero">
+  <div class="wrap">
+    <div class="hero-grid">
+      <div>
+        <div class="hero-eyebrow reveal">
+          <span>Live context engine</span>
+          <span class="ver">v<span data-live="version-bare">1.0.3</span> · MIT</span>
+        </div>
+
+        <h1 class="reveal">
+          Your AI assistant opens cold.<br/>
+          Perseus makes sure it <em>already knows</em> what&rsquo;s running.
+        </h1>
+
+        <p class="hero-sub reveal">
+          A live context engine for AI coding assistants. Perseus resolves your
+          environment <b>before</b> the context window opens — directives like
+          <code style="font-family:var(--mono);color:var(--accent-bright);font-size:0.92em;">@query "git log -5"</code>
+          are rendered to facts at build time, so the assistant reads a document
+          that was already true. Works with any tool that reads a file.
+        </p>
+
+        <p class="hero-companion reveal">
+          <span class="hc-mark" aria-hidden="true">⌘</span>
+          Works with <b>any assistant that reads a file</b> — Claude Code, Cursor, Codex, Rovo Dev, Hermes, or your own.
+          <span class="hc-sub">No plugin. No SDK. Drop a rendered markdown file where your assistant already looks.</span>
+        </p>
+
+        <div class="install reveal" role="group" aria-label="Install command">
+          <span class="prompt" aria-hidden="true">$</span>
+          <code id="install-cmd">pip install <span class="em">perseus-ctx</span></code>
+          <button class="copy-btn" data-copy="pip install perseus-ctx" aria-label="Copy install command">Copy</button>
+        </div>
+
+        <div class="badges reveal" aria-label="Project badges">
+          <span class="badge"><span class="b-key">github</span><span class="b-val star">★</span></span>
+          <span class="badge"><span class="b-key">ci</span><span class="b-val ok">passing</span></span>
+          <span class="badge"><span class="b-key">pypi</span><span class="b-val">v<span data-live="version-bare">1.0.3</span></span></span>
+          <span class="badge"><span class="b-key">license</span><span class="b-val">MIT</span></span>
+        </div>
+      </div>
+
+      <div class="reveal">
+        <!--
+          Sculpture image: served via MediaWiki's Special:FilePath redirect, which
+          resolves any Commons file by name (no hash needed). To swap in your own
+          higher-res capture, replace the src below. The .plate fallback below
+          activates automatically if the image fails to load (offline, blocked, etc.)
+        -->
+        <div class="sculpture" id="sculpture">
+          <span class="corner tl" aria-hidden="true"></span>
+          <span class="corner tr" aria-hidden="true"></span>
+          <span class="corner bl" aria-hidden="true"></span>
+          <span class="corner br" aria-hidden="true"></span>
+          <img
+            src="https://commons.wikimedia.org/wiki/Special:FilePath/Cellini_Perseus_Firenze_Apr_2008.JPG?width=800"
+            alt="Perseus with the Head of Medusa, bronze sculpture by Benvenuto Cellini, 1545–1554, Loggia dei Lanzi, Florence"
+            loading="eager"
+            decoding="async"
+            referrerpolicy="no-referrer"
+            onerror="document.getElementById('sculpture').classList.add('broken'); this.onerror=null;" />
+          <div class="plate" aria-hidden="true">
+            <div class="num">Plate I &middot; Bronze</div>
+            <div class="mono-mark">P</div>
+            <div class="title">Perseus with the<br/>Head of Medusa</div>
+            <div class="meta">Benvenuto Cellini, 1545<br/>Loggia dei Lanzi · Florence</div>
+          </div>
+          <div class="caption">
+            <div class="lead">Plate I</div>
+            <div>Perseus with the Head of Medusa</div>
+            <div>Cellini, 1545 · Bronze · Loggia dei Lanzi</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="scroll-ind" aria-hidden="true">
+    <span>Read on</span>
+    <span class="line"></span>
+  </div>
+</section>
+
+<!-- ============ PROBLEM / FIX ============ -->
+<section id="problem" class="section-block">
+  <div class="wrap">
+    <header class="sec-head reveal">
+      <div class="sec-num">I &nbsp;— &nbsp;The Mirror</div>
+      <h2 class="sec-title">Don&rsquo;t meet the Gorgon&rsquo;s gaze. <em>Reflect it.</em></h2>
+    </header>
+
+    <div class="duo reveal" role="group" aria-label="Without Perseus versus with Perseus">
+      <div class="duo-without">
+        <div class="label"><span class="pill">Without</span> Stale facts. Wasted turns.</div>
+        <h3>The assistant guesses.</h3>
+        <pre class="transcript" aria-label="Without Perseus session"><span class="turn"><span class="meta"># session opens, CLAUDE.md last edited 11 days ago</span></span>
+<span class="turn"><span class="you">you</span>  &nbsp;deploy the api service to staging.</span>
+<span class="turn"><span class="ai ai-bad">ai</span>  &nbsp;<span class="strike">running `make deploy-staging`...</span></span>
+<span class="turn"><span class="ai ai-bad">ai</span>  &nbsp;Makefile target removed in #482. Let me check
+     &nbsp;&nbsp;&nbsp; the current scripts.</span>
+<span class="turn"><span class="ai ai-bad">ai</span>  &nbsp;Which branch are you on? Is the helm chart
+     &nbsp;&nbsp;&nbsp; still at v0.3? What&rsquo;s the staging cluster name?</span>
+<span class="turn"><span class="meta"># 4 orientation turns. 11k tokens. 0 progress.</span></span></pre>
+        <p class="note">Sessions start cold. Tooling drifts. Docs lie politely. Every conversation pays an <b>orientation tax</b> before the real work begins — and the assistant is staring straight at the Gorgon.</p>
+      </div>
+
+      <div class="duo-with">
+        <div class="label"><span class="pill">With</span> Resolved at render time.</div>
+        <h3>The assistant already knows.</h3>
+        <pre class="transcript" aria-label="With Perseus session"><span class="turn"><span class="meta"># CLAUDE.md rendered 38s ago by `perseus render`</span></span>
+<span class="turn"><span class="you">you</span>  &nbsp;deploy the api service to staging.</span>
+<span class="turn"><span class="ai ai-good">ai</span>  &nbsp;You&rsquo;re on <span style="color:var(--accent)">feat/billing-v2</span>, helm chart
+     &nbsp;&nbsp;&nbsp; v0.4.1, staging = <span style="color:var(--accent)">eu-west-2/stg-a</span>.</span>
+<span class="turn"><span class="ai ai-good">ai</span>  &nbsp;Running `./scripts/deploy.sh staging api`.</span>
+<span class="turn"><span class="ai ai-good">ai</span>  &nbsp;✓ Image pushed. ✓ Helm upgrade applied.</span>
+<span class="turn"><span class="meta"># 1 turn. The branch, chart version, cluster: all true.</span></span></pre>
+        <p class="note">Perseus renders directives to live facts <b>before</b> the assistant reads the file. No guessing, no probing, no trusting yesterday&rsquo;s notes. The mirror, polished.</p>
+      </div>
+    </div>
+
+    <div class="demo-gif-wrap reveal">
+      <div class="demo-label">Watch it happen — cold-start eliminated</div>
+      <img src="demo.gif" alt="Perseus demo: without Perseus (cold start, 36 discovery calls) vs with Perseus (install, render, 0 discovery calls, warm cache 0.28s)" loading="lazy" />
+    </div>
+
+  </div>
+</section>
+<!-- ============ HOW IT WORKS ============ -->
+<section id="how" class="section-block">
+  <div class="wrap">
+    <header class="sec-head reveal">
+      <div class="sec-num">II &nbsp;— &nbsp;The Render</div>
+      <h2 class="sec-title">A document that was <em>already true</em>.</h2>
+    </header>
+
+    <div class="flow reveal">
+      <div class="flow-step">
+        <div class="fs-head"><span>Source</span><span class="idx">01</span></div>
+        <div class="fs-body">
+<span class="c"># .perseus/context.md</span>
+<span class="h">## Project</span>
+This is <span class="k">@query</span> <span class="s">"jq -r .name package.json"</span>.
+
+<span class="h">## Current state</span>
+Branch: <span class="k">@query</span> <span class="s">"git branch --show-current"</span>
+<span class="k">@cache</span> ttl=300
+<span class="k">@query</span> <span class="s">"git log --oneline -5"</span>
+
+<span class="h">## Dependencies</span>
+<span class="k">@read</span> <span class="s">pyproject.toml</span>
+        </div>
+        <div class="fs-foot">Directives. Authored once.</div>
+      </div>
+
+      <div class="flow-arrow" aria-hidden="true">
+        <svg viewBox="0 0 80 12" fill="none" stroke="currentColor" stroke-width="1">
+          <line x1="0" y1="6" x2="72" y2="6" />
+          <polyline points="64,2 72,6 64,10" stroke-linejoin="round" />
+        </svg>
+      </div>
+
+      <div class="flow-step">
+        <div class="fs-head"><span>Perseus render</span><span class="idx">02</span></div>
+        <div class="fs-body">
+<span class="c">$ perseus render \</span>
+<span class="c">    .perseus/context.md \</span>
+<span class="c">    --output CLAUDE.md</span>
+
+<span class="k">resolve</span>  query → 3 directives <span class="c">(1 cached)</span>
+<span class="k">resolve</span>  read  → 1 directive
+
+<span class="h">  ✓ 4 directives in 31ms</span>
+<span class="h">  ✓ wrote CLAUDE.md (3.2 KB)</span>
+        </div>
+        <div class="fs-foot">Parallel. Cached. Idempotent.</div>
+      </div>
+
+      <div class="flow-arrow" aria-hidden="true">
+        <svg viewBox="0 0 80 12" fill="none" stroke="currentColor" stroke-width="1">
+          <line x1="0" y1="6" x2="72" y2="6" />
+          <polyline points="64,2 72,6 64,10" stroke-linejoin="round" />
+        </svg>
+      </div>
+
+      <div class="flow-step">
+        <div class="fs-head"><span>Output → Assistant</span><span class="idx">03</span></div>
+        <div class="fs-body">
+<span class="c"># CLAUDE.md</span>
+<span class="h">## Project</span>
+This is <span class="s">perseus-ctx</span>.
+
+<span class="h">## Current state</span>
+Branch: <span class="s">feat/billing-v2</span>
+<span class="s">a3f1b9c</span> fix: drift on tag walk
+<span class="s">8c2e4d7</span> feat: add @file lines=
+<span class="s">d019f80</span> bench: 1M directive run
+<span class="s">…</span>
+        </div>
+        <div class="fs-foot">Plain markdown. No directives left.</div>
+      </div>
+    </div>
+
+    <div class="flow-lede reveal">
+      <p>
+        <span class="accent">The principle</span>
+        The assistant never sees a directive. It sees a document that was already true.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ TRIAD ============ -->
+<section id="triad" class="section-block">
+  <div class="wrap">
+    <header class="sec-head reveal">
+      <div class="sec-num">III &nbsp;&mdash; &nbsp;The Triad</div>
+      <h2 class="sec-title">Three tools. <em>One mirror.</em></h2>
+    </header>
+
+    <div class="triad reveal" role="list">
+      <div class="triad-card" role="listitem">
+        <svg class="glyph" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+          <circle cx="16" cy="16" r="11" />
+          <circle cx="16" cy="16" r="6" />
+          <path d="M16 5 L16 9 M16 23 L16 27 M5 16 L9 16 M23 16 L27 16" stroke-linecap="round" />
+        </svg>
+        <div class="role">The Renderer</div>
+        <h3>The polished <em>shield</em>.</h3>
+        <p>Resolves <b>@query</b>, <b>@read</b>, <b>@waypoint</b>, <b>@services</b> and friends before the assistant sees them. The output is plain markdown. No directives left for the model to chase.</p>
+        <div class="cmd">perseus render .perseus/context.md</div>
+      </div>
+
+      <div class="triad-card" role="listitem">
+        <svg class="glyph" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+          <path d="M6 6 L26 6 L26 26 L6 26 Z" />
+          <path d="M6 12 L26 12" />
+          <circle cx="10" cy="9" r="0.8" fill="currentColor" />
+          <path d="M10 17 L22 17 M10 21 L18 21" stroke-linecap="round" />
+        </svg>
+        <div class="role">Session Waypoints</div>
+        <h3>Pick up <em>where the thread snapped</em>.</h3>
+        <p>Write a checkpoint at any natural pause; <b>perseus recover</b> finds the right one for your workspace; <b>perseus diff</b> shows what changed between two pauses. Continuity, without re-orientation.</p>
+        <div class="cmd">perseus checkpoint --task ... --next ...</div>
+      </div>
+
+      <div class="triad-card is-oracle" role="listitem">
+        <svg class="glyph" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+          <path d="M16 4 C9 4 4 9 4 16 C4 23 9 28 16 28 C23 28 28 23 28 16 C28 9 23 4 16 4 Z" />
+          <path d="M11 13 Q16 18 21 13 M11 19 Q16 24 21 19" stroke-linecap="round" />
+          <circle cx="16" cy="10" r="1.2" fill="currentColor" stroke="none" />
+        </svg>
+        <div class="role">Pythia &middot; Tool Oracle</div>
+        <h3>Ranked paths, <em>with a reason</em>.</h3>
+        <p>Given a task and the current environment, Pythia surfaces the highest-utility skill or tool and tells you <i>why</i>. No extra model required. The loop closes inside the same context window.</p>
+        <div class="cmd">perseus suggest &quot;deploy the staging container&quot;</div>
+      </div>
+    </div>
+
+    <div class="constellation-lede reveal">The wider constellation</div>
+    <div class="constellation reveal" role="list">
+      <div class="const-cell" role="listitem">
+        <div class="greek">Mōnēmē</div>
+        <div class="name">@memory</div>
+        <div class="desc">Narrative project memory. Federates across workspaces.</div>
+      </div>
+      <div class="const-cell" role="listitem">
+        <div class="greek">Daedalus</div>
+        <div class="name">@drift</div>
+        <div class="desc">Self-rating oracle. Detects when recommendations drift.</div>
+      </div>
+      <div class="const-cell" role="listitem">
+        <div class="greek">Agora</div>
+        <div class="name">@agora</div>
+        <div class="desc">Live task board rendered from <code>tasks/</code>.</div>
+      </div>
+      <div class="const-cell cyan" role="listitem">
+        <div class="greek">Hermes</div>
+        <div class="name">@inbox</div>
+        <div class="desc">Point-to-point messages between agents.</div>
+      </div>
+      <div class="const-cell cyan" role="listitem">
+        <div class="greek">Synthēsis</div>
+        <div class="name">perseus synthesize</div>
+        <div class="desc">Cited drafts. Uncited claims are dropped.</div>
+      </div>
+      <div class="const-cell cyan" role="listitem">
+        <div class="greek">Graeae</div>
+        <div class="name">perseus serve &mdash;lsp</div>
+        <div class="desc">LSP server &amp; VSCode extension. Hover-preview directives.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ ARCHITECTURE DIAGRAM ============ -->
+<section id="architecture" class="section-block">
+  <div class="wrap">
+    <header class="sec-head reveal">
+      <div class="sec-num">· &nbsp;— &nbsp;The Blueprint</div>
+      <h2 class="sec-title">How the pieces <em>fit together</em>.</h2>
+    </header>
+
+    <div class="arch-diagram reveal" id="arch-diagram">
+      <div class="expand-hint">Click to expand</div>
+      <svg viewBox="0 0 920 620" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Perseus architecture diagram" role="img">
+        <desc>A diagram showing how Perseus directive sources flow through the render engine into output files consumed by AI assistants, with subsystems and integrations branching off.</desc>
+
+        <defs>
+          <!-- Arrowhead -->
+          <marker id="arch-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#9a8cc4"/>
+          </marker>
+          <marker id="arch-arrow-cyan" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#56e1ff"/>
+          </marker>
+          <marker id="arch-arrow-magenta" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#c77dff"/>
+          </marker>
+
+          <!-- Grid pattern -->
+          <pattern id="arch-grid" width="40" height="40" patternUnits="userSpaceOnUse">
+            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(196,168,255,0.06)" stroke-width="0.5"/>
+          </pattern>
+
+          <!-- Glow filter -->
+          <filter id="arch-glow" x="-30%" y="-30%" width="160%" height="160%">
+            <feGaussianBlur stdDeviation="3" result="blur"/>
+            <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+        </defs>
+
+        <!-- Background -->
+        <rect width="920" height="620" fill="url(#arch-grid)"/>
+
+        <!-- ===== SECTION: Directive Sources (top center) ===== -->
+        <rect x="260" y="30" width="400" height="130" rx="8" fill="rgba(12,8,20,0.9)" stroke="#c77dff" stroke-width="1.5" stroke-opacity="0.6"/>
+        <rect x="260" y="30" width="400" height="28" rx="8" fill="rgba(199,125,255,0.12)"/>
+        <rect x="260" y="48" width="400" height="10" fill="rgba(199,125,255,0.12)"/>
+        <text x="460" y="49" fill="#c77dff" font-family="'IBM Plex Sans', sans-serif" font-size="11" font-weight="600" text-anchor="middle" letter-spacing="0.12em">DIRECTIVE SOURCES</text>
+
+        <text x="460" y="74" fill="#ece4ff" font-family="'JetBrains Mono', monospace" font-size="12" text-anchor="middle">.perseus/context.md</text>
+
+        <text x="290" y="100" fill="#9a8cc4" font-family="'JetBrains Mono', monospace" font-size="10">
+          <tspan fill="#c77dff">@query</tspan><tspan fill="#9a8cc4"> · </tspan><tspan fill="#c77dff">@read</tspan><tspan fill="#9a8cc4"> · </tspan><tspan fill="#c77dff">@cache</tspan>
+        </text>
+        <text x="290" y="118" fill="#9a8cc4" font-family="'JetBrains Mono', monospace" font-size="10">
+          <tspan fill="#c77dff">@memory</tspan><tspan fill="#9a8cc4"> · </tspan><tspan fill="#c77dff">@drift</tspan><tspan fill="#9a8cc4"> · </tspan><tspan fill="#c77dff">@skills</tspan><tspan fill="#9a8cc4"> · </tspan><tspan fill="#c77dff">@services</tspan>
+        </text>
+        <text x="290" y="136" fill="#9a8cc4" font-family="'JetBrains Mono', monospace" font-size="10">
+          <tspan fill="#c77dff">@agora</tspan><tspan fill="#9a8cc4"> · </tspan><tspan fill="#c77dff">@inbox</tspan><tspan fill="#9a8cc4"> · </tspan><tspan fill="#c77dff">@checkpoint</tspan>
+        </text>
+        <text x="650" y="150" fill="#5d5078" font-family="'IBM Plex Sans', sans-serif" font-size="9" text-anchor="end">authored once</text>
+
+        <!-- Arrow: Sources → Engine -->
+        <line x1="460" y1="160" x2="460" y2="200" stroke="#c77dff" stroke-width="1.5" marker-end="url(#arch-arrow-magenta)"/>
+        <text x="476" y="183" fill="#5d5078" font-family="'IBM Plex Sans', sans-serif" font-size="8">triggers on push / schedule</text>
+
+        <!-- ===== SECTION: Perseus Engine (center) ===== -->
+        <rect x="310" y="210" width="300" height="95" rx="8" fill="rgba(12,8,20,0.95)" stroke="#56e1ff" stroke-width="2" filter="url(#arch-glow)"/>
+        <rect x="310" y="210" width="300" height="26" rx="8" fill="rgba(86,225,255,0.10)"/>
+        <rect x="310" y="228" width="300" height="8" fill="rgba(86,225,255,0.10)"/>
+        <text x="460" y="229" fill="#56e1ff" font-family="'JetBrains Mono', monospace" font-size="12" font-weight="600" text-anchor="middle" letter-spacing="0.08em">perseus render</text>
+
+        <!-- Three sub-boxes inside the engine -->
+        <rect x="322" y="246" width="86" height="46" rx="4" fill="rgba(86,225,255,0.06)" stroke="rgba(86,225,255,0.25)" stroke-width="1"/>
+        <text x="365" y="265" fill="#56e1ff" font-family="'JetBrains Mono', monospace" font-size="10" font-weight="500" text-anchor="middle">Resolve</text>
+        <text x="365" y="280" fill="#5d5078" font-family="'IBM Plex Sans', sans-serif" font-size="8" text-anchor="middle">shell · HTTP</text>
+
+        <rect x="417" y="246" width="86" height="46" rx="4" fill="rgba(86,225,255,0.06)" stroke="rgba(86,225,255,0.25)" stroke-width="1"/>
+        <text x="460" y="265" fill="#56e1ff" font-family="'JetBrains Mono', monospace" font-size="10" font-weight="500" text-anchor="middle">Cache</text>
+        <text x="460" y="280" fill="#5d5078" font-family="'IBM Plex Sans', sans-serif" font-size="8" text-anchor="middle">TTL-aware</text>
+
+        <rect x="512" y="246" width="86" height="46" rx="4" fill="rgba(86,225,255,0.06)" stroke="rgba(86,225,255,0.25)" stroke-width="1"/>
+        <text x="555" y="265" fill="#56e1ff" font-family="'JetBrains Mono', monospace" font-size="10" font-weight="500" text-anchor="middle">Compile</text>
+        <text x="555" y="280" fill="#5d5078" font-family="'IBM Plex Sans', sans-serif" font-size="8" text-anchor="middle">markdown</text>
+
+        <!-- Small arrows between sub-boxes -->
+        <line x1="408" y1="269" x2="415" y2="269" stroke="#56e1ff" stroke-width="0.8" stroke-opacity="0.5" marker-end="url(#arch-arrow-cyan)"/>
+        <line x1="503" y1="269" x2="510" y2="269" stroke="#56e1ff" stroke-width="0.8" stroke-opacity="0.5" marker-end="url(#arch-arrow-cyan)"/>
+
+        <text x="640" y="260" fill="#5d5078" font-family="'IBM Plex Sans', sans-serif" font-size="9">resolves directives</text>
+        <text x="640" y="274" fill="#5d5078" font-family="'IBM Plex Sans', sans-serif" font-size="9">against live environment</text>
+
+        <!-- Arrows from Engine → Output + Subsystems -->
+        <line x1="380" y1="305" x2="280" y2="370" stroke="#56e1ff" stroke-width="1.5" marker-end="url(#arch-arrow-cyan)"/>
+        <line x1="540" y1="305" x2="640" y2="370" stroke="#9a8cc4" stroke-width="1.5" marker-end="url(#arch-arrow)"/>
+
+        <!-- ===== SECTION: Output Files (bottom left) ===== -->
+        <rect x="60" y="375" width="440" height="115" rx="8" fill="rgba(12,8,20,0.9)" stroke="#56e1ff" stroke-width="1" stroke-opacity="0.5"/>
+        <rect x="60" y="375" width="440" height="24" rx="8" fill="rgba(86,225,255,0.08)"/>
+        <rect x="60" y="391" width="440" height="8" fill="rgba(86,225,255,0.08)"/>
+        <text x="280" y="392" fill="#56e1ff" font-family="'IBM Plex Sans', sans-serif" font-size="11" font-weight="600" text-anchor="middle" letter-spacing="0.10em">RESOLVED CONTEXT (plain markdown)</text>
+
+        <!-- Output file boxes -->
+        <rect x="80" y="411" width="78" height="34" rx="4" fill="rgba(86,225,255,0.05)" stroke="rgba(86,225,255,0.20)" stroke-width="1"/>
+        <text x="119" y="425" fill="#ece4ff" font-family="'JetBrains Mono', monospace" font-size="9" font-weight="500" text-anchor="middle">CLAUDE.md</text>
+        <text x="119" y="438" fill="#5d5078" font-family="'IBM Plex Sans', sans-serif" font-size="7" text-anchor="middle">Claude Code</text>
+
+        <rect x="168" y="411" width="78" height="34" rx="4" fill="rgba(86,225,255,0.05)" stroke="rgba(86,225,255,0.20)" stroke-width="1"/>
+        <text x="207" y="425" fill="#ece4ff" font-family="'JetBrains Mono', monospace" font-size="9" font-weight="500" text-anchor="middle">AGENTS.md</text>
+        <text x="207" y="438" fill="#5d5078" font-family="'IBM Plex Sans', sans-serif" font-size="7" text-anchor="middle">Codex · Rovo</text>
+
+        <rect x="256" y="411" width="72" height="34" rx="4" fill="rgba(86,225,255,0.05)" stroke="rgba(86,225,255,0.20)" stroke-width="1"/>
+        <text x="292" y="425" fill="#ece4ff" font-family="'JetBrains Mono', monospace" font-size="9" font-weight="500" text-anchor="middle">.cursorrules</text>
+        <text x="292" y="438" fill="#5d5078" font-family="'IBM Plex Sans', sans-serif" font-size="7" text-anchor="middle">Cursor</text>
+
+        <rect x="338" y="411" width="70" height="34" rx="4" fill="rgba(86,225,255,0.05)" stroke="rgba(86,225,255,0.20)" stroke-width="1"/>
+        <text x="373" y="425" fill="#ece4ff" font-family="'JetBrains Mono', monospace" font-size="9" font-weight="500" text-anchor="middle">.hermes.md</text>
+        <text x="373" y="438" fill="#5d5078" font-family="'IBM Plex Sans', sans-serif" font-size="7" text-anchor="middle">Hermes</text>
+
+        <rect x="418" y="411" width="62" height="34" rx="4" fill="rgba(86,225,255,0.05)" stroke="rgba(86,225,255,0.20)" stroke-width="1"/>
+        <text x="449" y="425" fill="#ece4ff" font-family="'JetBrains Mono', monospace" font-size="9" font-weight="500" text-anchor="middle">CONTEXT</text>
+        <text x="449" y="438" fill="#5d5078" font-family="'IBM Plex Sans', sans-serif" font-size="7" text-anchor="middle">Your own</text>
+
+        <!-- Consumers line -->
+        <text x="280" y="470" fill="#5d5078" font-family="'IBM Plex Sans', sans-serif" font-size="9" text-anchor="middle">read by any assistant that opens a file at session start</text>
+
+        <!-- ===== SECTION: Subsystems (bottom right) ===== -->
+        <rect x="540" y="375" width="350" height="115" rx="8" fill="rgba(12,8,20,0.9)" stroke="#c77dff" stroke-width="1" stroke-opacity="0.5"/>
+        <rect x="540" y="375" width="350" height="24" rx="8" fill="rgba(199,125,255,0.08)"/>
+        <rect x="540" y="391" width="350" height="8" fill="rgba(199,125,255,0.08)"/>
+        <text x="715" y="392" fill="#c77dff" font-family="'IBM Plex Sans', sans-serif" font-size="11" font-weight="600" text-anchor="middle" letter-spacing="0.10em">SUBSYSTEMS &amp; INTEGRATIONS</text>
+
+        <!-- Left column of subsystems -->
+        <rect x="555" y="411" width="155" height="34" rx="4" fill="rgba(199,125,255,0.05)" stroke="rgba(199,125,255,0.18)" stroke-width="1"/>
+        <text x="632" y="425" fill="#ece4ff" font-family="'JetBrains Mono', monospace" font-size="9.5" text-anchor="middle">checkpoint · recover · diff</text>
+        <text x="632" y="438" fill="#5d5078" font-family="'IBM Plex Sans', sans-serif" font-size="7" text-anchor="middle">session waypoints</text>
+
+        <rect x="555" y="450" width="80" height="30" rx="4" fill="rgba(199,125,255,0.05)" stroke="rgba(199,125,255,0.18)" stroke-width="1"/>
+        <text x="595" y="461" fill="#ece4ff" font-family="'JetBrains Mono', monospace" font-size="9.5" text-anchor="middle">Agora</text>
+        <text x="595" y="473" fill="#5d5078" font-family="'IBM Plex Sans', sans-serif" font-size="7" text-anchor="middle">task board</text>
+
+        <rect x="642" y="450" width="68" height="30" rx="4" fill="rgba(86,225,255,0.05)" stroke="rgba(86,225,255,0.18)" stroke-width="1"/>
+        <text x="676" y="461" fill="#ece4ff" font-family="'JetBrains Mono', monospace" font-size="9.5" text-anchor="middle">Inbox</text>
+        <text x="676" y="473" fill="#5d5078" font-family="'IBM Plex Sans', sans-serif" font-size="7" text-anchor="middle">messages</text>
+
+        <!-- Right column of integrations -->
+        <rect x="722" y="411" width="155" height="34" rx="4" fill="rgba(86,225,255,0.05)" stroke="rgba(86,225,255,0.18)" stroke-width="1"/>
+        <text x="799" y="425" fill="#ece4ff" font-family="'JetBrains Mono', monospace" font-size="9.5" text-anchor="middle">Pythia · @drift</text>
+        <text x="799" y="438" fill="#5d5078" font-family="'IBM Plex Sans', sans-serif" font-size="7" text-anchor="middle">tool oracle</text>
+
+        <rect x="722" y="450" width="155" height="30" rx="4" fill="rgba(86,225,255,0.05)" stroke="rgba(86,225,255,0.18)" stroke-width="1"/>
+        <text x="799" y="461" fill="#ece4ff" font-family="'JetBrains Mono', monospace" font-size="9.5" text-anchor="middle">LSP · VSCode · MCP</text>
+        <text x="799" y="473" fill="#5d5078" font-family="'IBM Plex Sans', sans-serif" font-size="7" text-anchor="middle">editor + registry</text>
+
+        <!-- ===== Annotation: GitHub Action ===== -->
+        <rect x="540" y="510" width="350" height="28" rx="4" fill="rgba(251,191,36,0.05)" stroke="rgba(251,191,36,0.20)" stroke-width="1" stroke-dasharray="3,3"/>
+        <text x="715" y="528" fill="#fbbf24" font-family="'JetBrains Mono', monospace" font-size="9.5" text-anchor="middle">GitHub Action — renders on push, commits resolved context</text>
+
+        <!-- Lines from engine to subsystems -->
+        <line x1="640" y1="305" x2="715" y2="373" stroke="#c77dff" stroke-width="1.2" stroke-opacity="0.5"/>
+
+        <!-- ===== BOTTOM NOTE ===== -->
+        <text x="460" y="578" fill="#5d5078" font-family="'IBM Plex Sans', sans-serif" font-size="10" text-anchor="middle" font-style="italic">Directives authored once. Context resolved on every render. The assistant opens a file that was already true.</text>
+
+        <!-- Decorative corner elements -->
+        <rect x="10" y="10" width="8" height="1" fill="#c77dff" opacity="0.4"/>
+        <rect x="10" y="10" width="1" height="8" fill="#c77dff" opacity="0.4"/>
+        <rect x="902" y="10" width="8" height="1" fill="#c77dff" opacity="0.4"/>
+        <rect x="909" y="10" width="1" height="8" fill="#c77dff" opacity="0.4"/>
+        <rect x="10" y="609" width="8" height="1" fill="#c77dff" opacity="0.4"/>
+        <rect x="10" y="602" width="1" height="8" fill="#c77dff" opacity="0.4"/>
+        <rect x="902" y="609" width="8" height="1" fill="#c77dff" opacity="0.4"/>
+        <rect x="909" y="602" width="1" height="8" fill="#c77dff" opacity="0.4"/>
+      </svg>
+    </div>
+
+    <div class="arch-lightbox" id="arch-lightbox" aria-hidden="true">
+      <div class="close-hint">Click to close</div>
+      <svg viewBox="0 0 920 620" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Perseus architecture diagram (expanded)" role="img"></svg>
+    </div>
+
+    <p class="arch-note reveal" style="margin-top:20px; text-align:center; color:var(--text-muted); font-family:var(--mono); font-size:11px; letter-spacing:0.10em; text-transform:uppercase;">
+      One file · one render · every assistant reads the same live truth
+    </p>
+  </div>
+</section>
+
+<!-- ============ PROOF / STATS ============ -->
+<section id="proof" class="section-block">
+  <div class="wrap">
+    <header class="sec-head reveal">
+      <div class="sec-num">IV &nbsp;— &nbsp;The Receipts</div>
+      <h2 class="sec-title">Numbers from the bench, <em>not the pitch deck.</em></h2>
+    </header>
+
+    <div class="featured-stat reveal" aria-label="Concurrent writer benchmark">
+      <div class="fs-text">
+        <div class="skey">Concurrent writers</div>
+        <div class="sval">120<span class="unit">agents</span></div>
+        <p class="sdesc">30 developers × 4 agents each. <b>150 concurrent checkpoint writes in 9.7s</b> on local NVMe with atomic <code style="font-family:var(--mono);color:var(--accent-bright);font-size:0.92em;">O_CREAT&nbsp;|&nbsp;O_EXCL</code> locking. Writes hit the task board (<code style="font-family:var(--mono);color:var(--accent-bright);font-size:0.92em;">tasks/*.md</code>) with zero failures, zero collisions — protocol tested across edge cases: crash recovery, stale claims, TTL expiry.</p>
+        <div class="sfoot">
+          <span class="chip">0 failures</span>
+          <span class="chip">0 collisions</span>
+          <span class="chip">9.7s wall</span>
+          <span class="chip">edge cases</span>
+        </div>
+      </div>
+      <div class="swarm-viz" id="swarm-viz" aria-hidden="true">
+        <svg viewBox="0 0 600 400" preserveAspectRatio="xMidYMid meet">
+          <defs>
+            <radialGradient id="sw-core" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stop-color="#56e1ff" stop-opacity="0.85" />
+              <stop offset="40%" stop-color="#c77dff" stop-opacity="0.35" />
+              <stop offset="100%" stop-color="#c77dff" stop-opacity="0" />
+            </radialGradient>
+            <filter id="sw-glow" x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur stdDeviation="3.5" result="b" />
+              <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
+            </filter>
+          </defs>
+
+          <!-- core: the checkpoint store -->
+          <g transform="translate(300 200)">
+            <circle r="70" fill="url(#sw-core)" />
+            <circle r="34" fill="none" stroke="#56e1ff" stroke-width="1" stroke-opacity="0.55" id="sw-ring-a" />
+            <circle r="22" fill="none" stroke="#c77dff" stroke-width="1" stroke-opacity="0.7" id="sw-ring-b" />
+            <circle r="10" fill="#0c0814" stroke="#c77dff" stroke-width="1.2" />
+            <text y="4" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="8" fill="#56e1ff" letter-spacing="1.5">STORE</text>
+          </g>
+
+          <g id="sw-rays" stroke-linecap="round"></g>
+          <g id="sw-agents"></g>
+        </svg>
+        <div class="swarm-hud">
+          <div class="row">
+            <div class="pair">writes <span class="v" id="sw-writes">000</span><span style="color:var(--text-muted)">/150</span></div>
+            <div class="pair">elapsed <span class="v" id="sw-elapsed">0.00s</span></div>
+            <div class="pair ok">status <span class="v" id="sw-status">RACING</span></div>
+          </div>
+          <div>
+            <div class="row">
+              <div class="legend">
+                <span><span class="swatch agent"></span>agent</span>
+                <span><span class="swatch write"></span>write</span>
+              </div>
+              <div class="pair warn">collisions <span class="v" id="sw-coll">0</span></div>
+            </div>
+            <div class="bar"><i id="sw-bar"></i></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <aside class="hardened-note reveal" aria-label="Hardened">
+      <span class="hn-label">Hardened</span>
+      <div class="hn-text">Symlink escapes blocked (direct, relative, chained, to <code>/etc</code>). Context overflow protection on <code>@read</code> and <code>@include</code>. Optional <code>integrity_check</code> warns when a file changes mid-render. <b>NVMe local lock is atomic;</b> NFS&nbsp;v4+ required for cross-machine, SMB requires careful config.</div>
+      <div class="hn-chips">
+        <span class="hn-chip">workspace boundaries</span>
+        <span class="hn-chip">overflow guard</span>
+        <span class="hn-chip">drift detect</span>
+      </div>
+    </aside>
+
+    <div class="stats reveal">
+      <div class="stat">
+        <div class="skey">Cache punch</div>
+        <div class="sval">450<span class="unit">×</span></div>
+        <div class="sdesc"><b>50,000 directives in 1.36s.</b> 612.6s without cache. Warm time is <b>flat</b> — same speed at 100 or 50,000. The render path becomes free.</div>
+      </div>
+
+      <div class="stat">
+        <div class="skey">vs. LLM tool-calling</div>
+        <div class="sval">301<span class="unit">×</span></div>
+        <div class="sdesc">faster at enterprise scale. <b>500 developers, 10 teams, 5-day workweek. 16,250 renders, 0 failures.</b> An LLM would take 83 hours and cost thousands in tokens. Perseus: 16 minutes, $0.</div>
+      </div>
+
+      <div class="stat">
+        <div class="skey">Annual savings</div>
+        <div class="sval">$295<span class="unit">K</span></div>
+        <div class="sdesc">at 500-dev scale. 10× cheaper per session on <b>every</b> provider, at <b>every</b> scale.</div>
+      </div>
+
+      <div class="stat">
+        <div class="skey">Battle-tested</div>
+        <div class="sval"><span data-live="tests">~600</span><span class="unit"> tests</span></div>
+        <div class="sdesc">All green. 16,250 renders through the enterprise gauntlet — not one crash. Atomic filesystem locking, overflow guards, symlink hardening. The boring kind of reliable.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ COMPAT ============ -->
+<section id="compat" class="section-block">
+  <div class="wrap">
+    <header class="sec-head reveal">
+      <div class="sec-num">V &nbsp;— &nbsp;The Compatible</div>
+      <h2 class="sec-title">Resolves to a file. <em>Yours, already.</em></h2>
+    </header>
+
+    <div class="compat-grid reveal" role="list">
+      <div class="compat-cell" role="listitem">
+        <svg class="glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+          <rect x="4" y="5" width="16" height="14" rx="1" />
+          <path d="M4 9 H20 M8 13 H14 M8 16 H12" />
+        </svg>
+        <div class="file">CLAUDE<b>.md</b></div>
+        <div class="name">Claude Code</div>
+      </div>
+      <div class="compat-cell" role="listitem">
+        <svg class="glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+          <path d="M5 4 L19 4 L19 20 L5 20 Z" />
+          <path d="M9 8 L15 8 M9 12 L15 12 M9 16 L13 16" />
+        </svg>
+        <div class="file">.cursorrules</div>
+        <div class="name">Cursor</div>
+      </div>
+      <div class="compat-cell" role="listitem">
+        <svg class="glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+          <circle cx="12" cy="12" r="8" />
+          <path d="M8 12 L11 15 L16 9" />
+        </svg>
+        <div class="file">AGENTS<b>.md</b></div>
+        <div class="name">Codex · Rovo Dev</div>
+      </div>
+      <div class="compat-cell" role="listitem">
+        <svg class="glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+          <path d="M6 4 L18 4 L14 12 L18 20 L6 20 L10 12 Z" />
+        </svg>
+        <div class="file">.hermes<b>.md</b></div>
+        <div class="name">Hermes</div>
+      </div>
+      <div class="compat-cell" role="listitem">
+        <svg class="glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+          <path d="M4 4 H20 V20 H4 Z" />
+          <path d="M8 8 H16 M8 12 H16 M8 16 H12" />
+          <path d="M4 4 L8 8 M20 4 L16 8" stroke-dasharray="1 2" />
+        </svg>
+        <div class="file">CONTEXT<b>.md</b></div>
+        <div class="name">Your own</div>
+      </div>
+    </div>
+
+    <p class="compat-foot reveal">
+      Perseus outputs <b>plain markdown</b>. Point the output at whatever file your assistant
+      opens at session start — no plugin, no SDK, no migration. The next session opens warm.
+    </p>
+  </div>
+</section>
+
+<!-- ============ INTEGRATIONS ============ -->
+<section id="integrate" class="section-block">
+  <div class="wrap">
+    <header class="sec-head reveal">
+      <div class="sec-num">VI &nbsp;— &nbsp;The Adapters</div>
+      <h2 class="sec-title">Four ways to <em>own session-start</em>.</h2>
+    </header>
+
+    <div class="integrations reveal" role="list">
+      <div class="int-card" role="listitem">
+        <div class="int-head">
+          <svg class="glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+            <path d="M3 5 L21 5 L21 16 L3 16 Z" />
+            <path d="M8 20 L16 20 M12 16 L12 20" stroke-linecap="round" />
+            <path d="M9 9 L15 9 M9 12 L13 12" stroke-linecap="round" />
+          </svg>
+          <div>
+            <div class="int-name">VS Code &middot; Cursor</div>
+            <div class="int-tag">editor extension &middot; LSP server</div>
+          </div>
+        </div>
+        <div class="int-live" aria-label="Source on GitHub">
+          <span class="live-dot" aria-hidden="true"></span>
+          <span class="live-label">Source</span>
+          <span class="sep">·</span>
+          <a class="live-ns" href="https://github.com/tcconnally/perseus/tree/main/editors/vscode" target="_blank" rel="noopener">editors/vscode&nbsp;↗</a>
+        </div>
+        <p class="int-desc">Auto-renders <code style="font-family:var(--mono);color:var(--accent-bright);font-size:0.92em;">.perseus/context.md</code> on save. Status bar indicator. Hover-preview for any directive. Auto-detects the target assistant file. Install from source; Marketplace publishing pending.</p>
+        <div class="int-cmd">
+          <span class="prompt">$</span>
+          <code>git clone https://github.com/tcconnally/perseus.git &amp;&amp; cp -r perseus/editors/vscode ~/.vscode/extensions/tcconnally.perseus-vscode</code>
+          <button class="mini-copy" data-copy="git clone https://github.com/tcconnally/perseus.git && cp -r perseus/editors/vscode ~/.vscode/extensions/tcconnally.perseus-vscode">Copy</button>
+        </div>
+      </div>
+
+      <div class="int-card cyan" role="listitem">
+        <div class="int-head">
+          <svg class="glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+            <rect x="4" y="5" width="16" height="14" rx="1" />
+            <path d="M4 9 H20" />
+            <path d="M8 13 L11 16 L16 11" stroke-linecap="round" />
+          </svg>
+          <div>
+            <div class="int-name">Claude Code Hook</div>
+            <div class="int-tag">session-start trigger &middot; one curl</div>
+          </div>
+        </div>
+        <p class="int-desc">Runs <code style="font-family:var(--mono);color:var(--accent-2);font-size:0.92em;">perseus render</code> automatically before every Claude Code session. The assistant opens already briefed — no orientation phase, ever.</p>
+        <div class="int-cmd">
+          <span class="prompt">$</span>
+          <code>perseus install --target claude-code</code>
+          <button class="mini-copy" data-copy="perseus install --target claude-code">Copy</button>
+        </div>
+      </div>
+
+      <div class="int-card" role="listitem">
+        <div class="int-head">
+          <svg class="glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+            <circle cx="12" cy="12" r="8" />
+            <path d="M12 6 L12 12 L16 14" stroke-linecap="round" />
+            <path d="M4 4 L7 7 M20 4 L17 7" stroke-linecap="round" />
+          </svg>
+          <div>
+            <div class="int-name">GitHub Action</div>
+            <div class="int-tag">push &amp; schedule &middot; commits back</div>
+          </div>
+        </div>
+        <div class="int-live" aria-label="Released on the GitHub Marketplace">
+          <span class="live-dot" aria-hidden="true"></span>
+          <span class="live-label">Released</span>
+          <span class="sep">·</span>
+          <a class="live-ns" href="https://github.com/tcconnally/perseus-action" target="_blank" rel="noopener">tcconnally/perseus-action ↗</a>
+          <span class="ver">@v1</span>
+        </div>
+        <p class="int-desc">Renders on every push and on a schedule. Commits the resolved context back to the repo so <b>every teammate</b> gets pre-warmed context without installing anything locally.</p>
+        <div class="int-cmd">
+          <span class="prompt"># .github/workflows/</span>
+          <code>uses: tcconnally/perseus-action@v1</code>
+          <button class="mini-copy" data-copy="uses: tcconnally/perseus-action@v1">Copy</button>
+        </div>
+      </div>
+
+      <div class="int-card cyan" role="listitem">
+        <div class="int-head">
+          <svg class="glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+            <path d="M4 8 L12 4 L20 8 L20 16 L12 20 L4 16 Z" />
+            <path d="M12 4 L12 12 M4 8 L12 12 L20 8" />
+          </svg>
+          <div>
+            <div class="int-name">MCP Server</div>
+            <div class="int-tag">directive tools &middot; on the registry</div>
+          </div>
+        </div>
+        <div class="int-live" aria-label="Listed on the MCP Registry">
+          <span class="live-dot" aria-hidden="true"></span>
+          <span class="live-label">Listed</span>
+          <span class="sep">·</span>
+          <a class="live-ns" href="https://registry.modelcontextprotocol.io/" target="_blank" rel="noopener">io.github.tcconnally/perseus ↗</a>
+        </div>
+        <p class="int-desc">Exposes Perseus directives as MCP tools for any MCP-compatible assistant. Same engine, runtime-callable for the rare case it earns its keep. Listed on the official <a href="https://registry.modelcontextprotocol.io/" style="color:var(--accent-2);border-bottom:1px dotted rgba(86,225,255,0.4);">MCP Registry</a>.</p>
+        <div class="int-cmd">
+          <span class="prompt">$</span>
+          <code>perseus mcp serve</code>
+          <button class="mini-copy" data-copy="perseus mcp serve">Copy</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ QUICKSTART ============ -->
+<section id="start" class="section-block">
+  <div class="wrap">
+    <header class="sec-head reveal">
+      <div class="sec-num">VII &nbsp;— &nbsp;The Start</div>
+      <h2 class="sec-title">Thirty seconds <em>from cold to warm.</em></h2>
+    </header>
+
+    <div class="quickstart-grid reveal">
+      <div>
+        <h3 class="qs-lede">Three commands. <em>One file your assistant already reads.</em></h3>
+        <p class="qs-sub">
+          Your assistant now opens every session with live context — branch state,
+          recent commits, current dependencies. <b>Zero orientation turns.</b>
+        </p>
+      </div>
+
+      <div class="qs-block" aria-label="Quickstart commands">
+        <div class="qs-line">
+          <span class="step">01</span>
+          <span class="prompt">$</span>
+          <code>pip install <span class="em">perseus-ctx</span></code>
+          <button class="mini-copy" data-copy="pip install perseus-ctx">Copy</button>
+        </div>
+        <div class="qs-line alt">
+          <span class="step">or</span>
+          <span class="alt-prompt">~</span>
+          <code><span class="opt">uv tool install perseus-ctx</span></code>
+          <button class="mini-copy" data-copy="uv tool install perseus-ctx">Copy</button>
+        </div>
+        <div class="qs-line">
+          <span class="step">02</span>
+          <span class="prompt">$</span>
+          <code>perseus <span class="em">init</span> <span class="arg">/workspace/myproject</span></code>
+          <button class="mini-copy" data-copy="perseus init /workspace/myproject">Copy</button>
+        </div>
+        <div class="qs-line">
+          <span class="step">03</span>
+          <span class="prompt">$</span>
+          <code>perseus <span class="em">render</span> <span class="arg">.perseus/context.md --output CLAUDE.md</span></code>
+          <button class="mini-copy" data-copy="perseus render .perseus/context.md --output CLAUDE.md">Copy</button>
+        </div>
+        <div class="qs-line alt">
+          <span class="step">or</span>
+          <span class="alt-prompt">~</span>
+          <code><span class="opt">perseus render .perseus/context.md --output AGENTS.md  &nbsp;# universal target</span></code>
+          <button class="mini-copy" data-copy="perseus render .perseus/context.md --output AGENTS.md">Copy</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FOOTER ============ -->
+<footer>
+  <div class="wrap">
+    <div class="footer-grid">
+      <div>
+        <div class="footer-mark"><span class="dot"></span><span>Perseus</span></div>
+        <p class="footer-credit">
+          <em>Perseus with the Head of Medusa</em> — Benvenuto Cellini, 1545.<br/>
+          Loggia dei Lanzi, Florence. Photograph by Jastrow,<br/>
+          via Wikimedia Commons, CC&nbsp;BY-SA&nbsp;4.0.
+        </p>
+      </div>
+
+      <div class="footer-links" aria-label="Project links">
+        <a href="https://github.com/tcconnally/perseus">GitHub →</a>
+        <a href="https://github.com/tcconnally/perseus#readme">Documentation →</a>
+        <a href="https://pypi.org/project/perseus-ctx/">PyPI →</a>
+        <a href="https://registry.modelcontextprotocol.io/">MCP Registry →</a>
+        <a href="https://github.com/anthropics/skills/pull/1193">Anthropic Skills →</a>
+        <a href="https://github.com/tcconnally/perseus/blob/main/LICENSE">License (MIT) →</a>
+      </div>
+    </div>
+
+    <div class="footer-meta">
+      <span>Perseus &middot; live context engine</span>
+      <span>v<span data-live="version-bare">1.0.3</span> &middot; built in the open</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+  /* ---------- Live stamps: pull VERSION and test count from the repo ---------- */
+  (function liveStamps() {
+    var RAW = 'https://raw.githubusercontent.com/tcconnally/perseus/main';
+
+    fetch(RAW + '/VERSION', { cache: 'no-cache' })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        if (!t) return;
+        var v = t.trim();
+        if (!/^\d+\.\d+\.\d+/.test(v)) return;
+        document.querySelectorAll('[data-live="version-bare"]').forEach(function (el) {
+          el.textContent = v;
+        });
+      })
+      .catch(function () { /* offline, leave fallback */ });
+
+    fetch(RAW + '/README.md', { cache: 'no-cache' })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        if (!t) return;
+        // Prefer explicit sentinel: <!-- test-count: 604 -->
+        var sentinel = t.match(/<!--\s*test-count:\s*(\d{2,5})\s*-->/i);
+        if (sentinel) {
+          var n = parseInt(sentinel[1], 10);
+          if (!isNaN(n) && n >= 100 && n <= 99999) {
+            document.querySelectorAll('[data-live="tests"]').forEach(function (el) {
+              el.textContent = n.toLocaleString();
+            });
+            return;
+          }
+        }
+        // Fallback: look for patterns like "**596 tests passing**", "573 tests passing"
+        var m =
+          t.match(/\*\*\s*(\d{2,5})\s+tests?\s+(?:all\s+)?passing\s*\*\*/i) ||
+          t.match(/(\d{2,5})\s+tests?\s+(?:all\s+)?passing/i);
+        if (!m) return;
+        var n2 = parseInt(m[1], 10);
+        if (isNaN(n2) || n2 < 100 || n2 > 99999) return;
+        document.querySelectorAll('[data-live="tests"]').forEach(function (el) {
+          el.textContent = n2.toLocaleString();
+        });
+      })
+      .catch(function () { /* offline, leave fallback */ });
+  })();
+
+  // Copy-to-clipboard on install / quickstart commands
+  document.querySelectorAll('[data-copy]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var text = btn.getAttribute('data-copy');
+      var done = function () {
+        var prev = btn.textContent;
+        btn.textContent = 'Copied';
+        btn.classList.add('copied');
+        setTimeout(function () {
+          btn.textContent = prev;
+          btn.classList.remove('copied');
+        }, 1400);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, done);
+      } else {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); } catch (e) {}
+        document.body.removeChild(ta);
+        done();
+      }
+    });
+  });
+
+  /* ---------- Swarm visualization ---------- */
+  (function swarmInit() {
+    var viz = document.getElementById('swarm-viz');
+    if (!viz) return;
+    var svgNS = 'http://www.w3.org/2000/svg';
+    var agentsG = document.getElementById('sw-agents');
+    var raysG = document.getElementById('sw-rays');
+    var elWrites = document.getElementById('sw-writes');
+    var elElapsed = document.getElementById('sw-elapsed');
+    var elStatus = document.getElementById('sw-status');
+    var elBar = document.getElementById('sw-bar');
+    var elColl = document.getElementById('sw-coll');
+    if (!agentsG || !raysG) return;
+
+    var W = 600, H = 400, CX = 300, CY = 200;
+    var TOTAL_AGENTS = 120;
+    var TOTAL_WRITES = 150;
+    var DURATION = 9700; // ms
+    var rings = [{ r: 100, n: 32 }, { r: 138, n: 40 }, { r: 176, n: 48 }];
+
+    var agents = [];
+    var idx = 0;
+    rings.forEach(function (ring) {
+      for (var i = 0; i < ring.n; i++) {
+        var a = (i / ring.n) * Math.PI * 2 + Math.random() * 0.04;
+        var x = CX + Math.cos(a) * ring.r;
+        var y = CY + Math.sin(a) * ring.r * 0.65; // squish vertically for a less circular feel
+        var c = document.createElementNS(svgNS, 'circle');
+        c.setAttribute('cx', x.toFixed(2));
+        c.setAttribute('cy', y.toFixed(2));
+        c.setAttribute('r', '2.1');
+        c.setAttribute('fill', '#c77dff');
+        c.setAttribute('opacity', '0.55');
+        c.setAttribute('filter', 'url(#sw-glow)');
+        agentsG.appendChild(c);
+        agents.push({ x: x, y: y, el: c, lastFlash: 0 });
+        idx++;
+        if (idx >= TOTAL_AGENTS) return;
+      }
+    });
+
+    // Pre-generate a write schedule per cycle: 150 events, each with a time + agent idx
+    function buildSchedule() {
+      var s = [];
+      for (var i = 0; i < TOTAL_WRITES; i++) {
+        // ease-in slightly so the swarm "ramps up"
+        var u = Math.pow(Math.random(), 0.85);
+        s.push({ t: u * DURATION, ai: (Math.random() * agents.length) | 0, fired: false });
+      }
+      s.sort(function (a, b) { return a.t - b.t; });
+      return s;
+    }
+    var schedule = buildSchedule();
+    var cycleStart = performance.now();
+    var writes = 0;
+    var status = 'RACING';
+    var paused = false;
+    var prm = window.matchMedia('(prefers-reduced-motion: reduce)');
+    if (prm && prm.matches) paused = true;
+
+    function spawnRay(agent) {
+      // line from agent to core; very brief
+      var line = document.createElementNS(svgNS, 'line');
+      line.setAttribute('x1', agent.x);
+      line.setAttribute('y1', agent.y);
+      line.setAttribute('x2', CX);
+      line.setAttribute('y2', CY);
+      line.setAttribute('stroke', '#56e1ff');
+      line.setAttribute('stroke-width', '0.9');
+      line.setAttribute('opacity', '0.85');
+      line.setAttribute('filter', 'url(#sw-glow)');
+      raysG.appendChild(line);
+      var born = performance.now();
+      var life = 480;
+      function tick() {
+        var p = (performance.now() - born) / life;
+        if (p >= 1) { line.remove(); return; }
+        line.setAttribute('opacity', (0.85 * (1 - p)).toFixed(3));
+        requestAnimationFrame(tick);
+      }
+      tick();
+      // brief agent flash
+      agent.el.setAttribute('opacity', '1');
+      agent.el.setAttribute('r', '3.2');
+      agent.el.setAttribute('fill', '#e4a8ff');
+      agent.lastFlash = performance.now();
+    }
+
+    function loop(now) {
+      requestAnimationFrame(loop);
+      if (paused) return;
+      var t = now - cycleStart;
+
+      // fire any due events
+      for (var i = 0; i < schedule.length; i++) {
+        var ev = schedule[i];
+        if (ev.fired) continue;
+        if (ev.t <= t) {
+          ev.fired = true;
+          spawnRay(agents[ev.ai]);
+          writes++;
+          if (elWrites) elWrites.textContent = String(writes).padStart(3, '0');
+          if (elBar) elBar.style.width = ((writes / TOTAL_WRITES) * 100).toFixed(1) + '%';
+        } else {
+          break; // schedule is sorted
+        }
+      }
+
+      // agent dot decay
+      for (var j = 0; j < agents.length; j++) {
+        var ag = agents[j];
+        if (ag.lastFlash && now - ag.lastFlash < 600) {
+          var k = (now - ag.lastFlash) / 600;
+          ag.el.setAttribute('opacity', (1 - 0.45 * k).toFixed(3));
+          ag.el.setAttribute('r', (3.2 - 1.1 * k).toFixed(2));
+        } else if (ag.lastFlash) {
+          ag.el.setAttribute('opacity', '0.55');
+          ag.el.setAttribute('r', '2.1');
+          ag.el.setAttribute('fill', '#c77dff');
+          ag.lastFlash = 0;
+        }
+      }
+
+      var tShown = Math.min(t / 1000, 9.7);
+      if (elElapsed) elElapsed.textContent = tShown.toFixed(2) + 's';
+
+      if (writes >= TOTAL_WRITES && status !== 'COMPLETE') {
+        status = 'COMPLETE';
+        if (elStatus) elStatus.textContent = 'COMPLETE';
+      }
+
+      if (t > DURATION + 1400) {
+        // reset
+        cycleStart = now;
+        writes = 0;
+        schedule = buildSchedule();
+        status = 'RACING';
+        if (elStatus) elStatus.textContent = 'RACING';
+        if (elWrites) elWrites.textContent = '000';
+        if (elBar) elBar.style.width = '0%';
+      }
+    }
+    requestAnimationFrame(loop);
+  })();
+
+  /* ---------- Architecture diagram lightbox ---------- */
+  (function archLightbox() {
+    var diagram = document.getElementById('arch-diagram');
+    var lightbox = document.getElementById('arch-lightbox');
+    if (!diagram || !lightbox) return;
+
+    diagram.addEventListener('click', function () {
+      var srcSvg = diagram.querySelector('svg');
+      var dstSvg = lightbox.querySelector('svg');
+      // Clone SVG content into the lightbox
+      dstSvg.innerHTML = srcSvg.innerHTML;
+      lightbox.classList.add('open');
+      lightbox.setAttribute('aria-hidden', 'false');
+      document.body.style.overflow = 'hidden';
+    });
+
+    lightbox.addEventListener('click', function () {
+      lightbox.classList.remove('open');
+      lightbox.setAttribute('aria-hidden', 'true');
+      document.body.style.overflow = '';
+    });
+
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && lightbox.classList.contains('open')) {
+        lightbox.classList.remove('open');
+        lightbox.setAttribute('aria-hidden', 'true');
+        document.body.style.overflow = '';
+      }
+    });
+  })();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,52 @@
+name: 'Perseus — Live Context Render'
+description: 'Pre-resolve workspace state into a context file your AI assistant reads at session start. Eliminates cold-start discovery calls.'
+author: 'tcconnally'
+branding:
+  icon: 'eye'
+  color: 'blue'
+
+inputs:
+  context_file:
+    description: 'Path to Perseus context source (relative to repo root)'
+    required: false
+    default: '.perseus/context.md'
+  output_file:
+    description: 'Output file the assistant reads (CLAUDE.md, AGENTS.md, .cursorrules, .hermes.md)'
+    required: false
+    default: 'CLAUDE.md'
+  commit:
+    description: 'Commit the rendered output back to the repo'
+    required: false
+    default: 'true'
+  commit_message:
+    description: 'Commit message for rendered context update'
+    required: false
+    default: 'chore: update Perseus context [skip ci]'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install Perseus
+      shell: bash
+      run: pip install perseus-ctx
+
+    - name: Render context
+      shell: bash
+      run: |
+        perseus render "${{ inputs.context_file }}" --output "${{ inputs.output_file }}"
+        echo "Rendered $(wc -l < ${{ inputs.output_file }}) lines to ${{ inputs.output_file }}"
+
+    - name: Commit rendered context
+      if: ${{ inputs.commit == 'true' }}
+      shell: bash
+      run: |
+        git config user.name "perseus[bot]"
+        git config user.email "perseus[bot]@users.noreply.github.com"
+        git add "${{ inputs.output_file }}"
+        if git diff --cached --quiet; then
+          echo "No context changes — already up to date."
+        else
+          git commit -m "${{ inputs.commit_message }}"
+          git push
+          echo "Context updated and pushed."
+        fi

@@ -1,0 +1,29 @@
+{
+  "test": "breaking-point-scale",
+  "per_directive_us": 22,
+  "scales": {
+    "50000": {
+      "time_s": 1.376,
+      "output_lines": 150000
+    },
+    "100000": {
+      "time_s": 2.403,
+      "output_lines": 300000
+    },
+    "200000": {
+      "time_s": 4.538,
+      "output_lines": 600000
+    },
+    "500000": {
+      "time_s": 11.114,
+      "output_lines": 1500000
+    },
+    "1000000": {
+      "time_s": 21.997,
+      "output_lines": 3000000
+    }
+  },
+  "max_tested": 1000000,
+  "limit": "no crash \u2014 constrained by file I/O and memory, not Perseus logic",
+  "projected_10M": "~220s, ~310MB file"
+}

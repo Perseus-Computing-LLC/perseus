@@ -1,0 +1,299 @@
+{
+  "perseus_version": "1.0.1 (with local Windows shell-fallback patch)",
+  "host": "posix \u00b7 python 3.12.13",
+  "generated_at": "2026-05-23T12:53:14",
+  "psutil_available": true,
+  "cache": [
+    {
+      "test": "C1-no-cache",
+      "cold_s": 3.632,
+      "warm_s": 3.617,
+      "speedup": 1.0
+    },
+    {
+      "test": "C2-cache-ttl-300",
+      "cold_s": 3.609,
+      "warm_s": 0.27,
+      "speedup": 13.37,
+      "out_lines_cold": 15,
+      "out_lines_warm": 15
+    },
+    {
+      "test": "C3-cache-persist",
+      "cold_s": 3.63,
+      "warm_s": 0.271,
+      "speedup": 13.39,
+      "out_lines_cold": 15,
+      "out_lines_warm": 15
+    },
+    {
+      "test": "C4-cache-session",
+      "cold_s": 3.624,
+      "warm_s": 3.622,
+      "speedup": 1.0,
+      "note": "session cache lives within one render only \u2014 warm should NOT be faster"
+    }
+  ],
+  "concurrency": [
+    {
+      "test": "D-isolated-n2",
+      "n": 2,
+      "shared_workspace": false,
+      "wall_clock_s": 0.314,
+      "per_render_min_s": 0.308,
+      "per_render_max_s": 0.313,
+      "all_rc_zero": true,
+      "results": [
+        {
+          "i": 0,
+          "rc": 0,
+          "elapsed_s": 0.313,
+          "stderr_tail": ""
+        },
+        {
+          "i": 1,
+          "rc": 0,
+          "elapsed_s": 0.308,
+          "stderr_tail": ""
+        }
+      ]
+    },
+    {
+      "test": "D-isolated-n5",
+      "n": 5,
+      "shared_workspace": false,
+      "wall_clock_s": 0.383,
+      "per_render_min_s": 0.322,
+      "per_render_max_s": 0.382,
+      "all_rc_zero": true,
+      "results": [
+        {
+          "i": 0,
+          "rc": 0,
+          "elapsed_s": 0.369,
+          "stderr_tail": ""
+        },
+        {
+          "i": 1,
+          "rc": 0,
+          "elapsed_s": 0.322,
+          "stderr_tail": ""
+        },
+        {
+          "i": 2,
+          "rc": 0,
+          "elapsed_s": 0.325,
+          "stderr_tail": ""
+        },
+        {
+          "i": 3,
+          "rc": 0,
+          "elapsed_s": 0.382,
+          "stderr_tail": ""
+        },
+        {
+          "i": 4,
+          "rc": 0,
+          "elapsed_s": 0.327,
+          "stderr_tail": ""
+        }
+      ]
+    },
+    {
+      "test": "D-isolated-n10",
+      "n": 10,
+      "shared_workspace": false,
+      "wall_clock_s": 0.48,
+      "per_render_min_s": 0.326,
+      "per_render_max_s": 0.479,
+      "all_rc_zero": true,
+      "results": [
+        {
+          "i": 0,
+          "rc": 0,
+          "elapsed_s": 0.474,
+          "stderr_tail": ""
+        },
+        {
+          "i": 1,
+          "rc": 0,
+          "elapsed_s": 0.335,
+          "stderr_tail": ""
+        },
+        {
+          "i": 2,
+          "rc": 0,
+          "elapsed_s": 0.479,
+          "stderr_tail": ""
+        },
+        {
+          "i": 3,
+          "rc": 0,
+          "elapsed_s": 0.398,
+          "stderr_tail": ""
+        },
+        {
+          "i": 4,
+          "rc": 0,
+          "elapsed_s": 0.329,
+          "stderr_tail": ""
+        },
+        {
+          "i": 5,
+          "rc": 0,
+          "elapsed_s": 0.328,
+          "stderr_tail": ""
+        },
+        {
+          "i": 6,
+          "rc": 0,
+          "elapsed_s": 0.326,
+          "stderr_tail": ""
+        },
+        {
+          "i": 7,
+          "rc": 0,
+          "elapsed_s": 0.438,
+          "stderr_tail": ""
+        },
+        {
+          "i": 8,
+          "rc": 0,
+          "elapsed_s": 0.434,
+          "stderr_tail": ""
+        },
+        {
+          "i": 9,
+          "rc": 0,
+          "elapsed_s": 0.391,
+          "stderr_tail": ""
+        }
+      ]
+    },
+    {
+      "test": "D-shared-n2",
+      "n": 2,
+      "shared_workspace": true,
+      "wall_clock_s": 0.319,
+      "per_render_min_s": 0.304,
+      "per_render_max_s": 0.319,
+      "all_rc_zero": true,
+      "results": [
+        {
+          "i": 0,
+          "rc": 0,
+          "elapsed_s": 0.319,
+          "stderr_tail": ""
+        },
+        {
+          "i": 1,
+          "rc": 0,
+          "elapsed_s": 0.304,
+          "stderr_tail": ""
+        }
+      ]
+    }
+  ],
+  "memory": [
+    {
+      "test": "E1-mem-500-queries",
+      "elapsed_s": 0.807,
+      "samples_taken": 17,
+      "peak_perseus_rss_mb": 51.1,
+      "peak_combined_rss_mb": 54.1,
+      "out_bytes": 104280
+    },
+    {
+      "test": "E2-mem-12mb-stdout",
+      "elapsed_s": 1.311,
+      "samples_taken": 27,
+      "peak_perseus_rss_mb": 113.4,
+      "peak_combined_rss_mb": 113.4,
+      "out_bytes": 12000012
+    }
+  ],
+  "cli": [
+    {
+      "args": [
+        "graph",
+        "/tmp/perseus-phase2/ph2-cli-graph/.perseus/context.md",
+        "--json"
+      ],
+      "rc": 0,
+      "elapsed_s": 0.26,
+      "stdout_bytes": 1550,
+      "stderr_tail": "",
+      "stdout_head": "{\n  \"source\": \"/tmp/perseus-phase2/ph2-cli-graph/.perseus/context.md\",\n  \"workspace\": \"/tmp/perseus-phase2/ph2-cli-graph\",\n  \"nodes\": [\n    {\n      \"id\": \"n1\",\n      \"directive\": \"@query\",\n      \"line\": 3,\n      \"kind\": \"inline\",\n      \"args\": \"\\\"echo hi\\\"\",\n      \"cache\": {\n        \"mode\": \"\",\n        \"ttl\": null,\n        \"mock\": null\n      },\n      \"metadata\": {\n        \"executes_shell\": true,\n ",
+      "test": "F1-graph-json"
+    },
+    {
+      "args": [
+        "prefetch",
+        "/tmp/perseus-phase2/ph2-cli-prefetch-none/.perseus/context.md"
+      ],
+      "rc": 0,
+      "elapsed_s": 0.259,
+      "stdout_bytes": 154,
+      "stderr_tail": "",
+      "stdout_head": "Prefetch: /tmp/perseus-phase2/ph2-cli-prefetch-none/.perseus/context.md\nRules: 0  Matches: 0  Ran: 0  Skipped: 0  Failed: 0\nNo prefetch rules configured.\n",
+      "test": "F2-prefetch-no-rules"
+    },
+    {
+      "args": [
+        "prefetch",
+        "/tmp/perseus-phase2/ph2-cli-prefetch-rules/.perseus/context.md"
+      ],
+      "rc": 0,
+      "elapsed_s": 0.286,
+      "stdout_bytes": 199,
+      "stderr_tail": "",
+      "stdout_head": "Prefetch: /tmp/perseus-phase2/ph2-cli-prefetch-rules/.perseus/context.md\nRules: 1  Matches: 1  Ran: 1  Skipped: 0  Failed: 0\n- ran: status-diff n1 -> @query \"git diff --stat\" @cache ttl=300 (cached)\n",
+      "test": "F3-prefetch-with-rules"
+    },
+    {
+      "args": [
+        "synthesize",
+        "What is the next allowable action?",
+        "--source",
+        "/tmp/perseus-phase2/ph2-cli-synthesize/ROADMAP.md",
+        "--workspace",
+        "/tmp/perseus-phase2/ph2-cli-synthesize"
+      ],
+      "rc": 0,
+      "elapsed_s": 0.272,
+      "stdout_bytes": 873,
+      "stderr_tail": "",
+      "stdout_head": "Cited synthesis: What is the next allowable action?\nSources:\n- src1 ROADMAP.md (8 lines)\n\nGeneration was not run. Prompt:\n\nYou are drafting cited synthesis claims for Perseus.\nPerseus is a resolver first. You are a drafter, not an authority.\n\nRules:\n- Return JSON only.\n- Do not include uncited claims.\n- Every claim must cite at least one exact quote from the source lines.\n- If the sources do not s",
+      "test": "F4-synthesize-cited"
+    },
+    {
+      "args": [
+        "health"
+      ],
+      "rc": 0,
+      "elapsed_s": 0.263,
+      "stdout_bytes": 309,
+      "stderr_tail": "",
+      "stdout_head": "# Perseus Health Report\n\n**Workspace:** `/workspace/perseus/benchmark/heavy`  \n**Generated:** 2026-05-23 12:53 CDT\n\n---\n\n### Duplicate Checkpoints (in last 5)\n- **auto-checkpoint: daily cron at 2026-05-23T0749** \u2014 appears 2\u00d7 with same status/next:\n  - `2026-05-23T0749_1.yaml`\n  - `2026-05-23T0749.yaml`\n\n\n",
+      "test": "F5-health"
+    },
+    {
+      "args": [
+        "--help"
+      ],
+      "rc": 0,
+      "elapsed_s": 0.259,
+      "stdout_bytes": 2416,
+      "stderr_tail": "",
+      "stdout_head": "usage: perseus [-h] [--version]\n               {render,watch,graph,prefetch,synthesize,pack,validate,checkpoint,recover,diff,agora,suggest,inbox,memory,init,serve,cron,launchd,systemd,health,doctor,trust,update,oracle,llm}\n               ...\n\nPerseus \u2014 Live Context Engine for AI Assistants (v1.0.2)\n\npositional arguments:\n  {render,watch,graph,prefetch,synthesize,pack,validate,checkpoint,recover,di",
+      "test": "F6-help"
+    }
+  ],
+  "lsp": {
+    "test": "G1-lsp-initialize",
+    "response_id": 1,
+    "has_capabilities": true,
+    "elapsed_s": 0.263,
+    "rc": 0
+  }
+}

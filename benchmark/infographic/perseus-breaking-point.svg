@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 420" font-family="system-ui,-apple-system,sans-serif">
+  <defs>
+    <linearGradient id="scaleGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#7c3aed"/><stop offset="100%" stop-color="#a78bfa"/>
+    </linearGradient>
+    <filter id="glow2"><feGaussianBlur stdDeviation="3"/><feMerge><feMergeNode in="SourceGraphic"/><feMergeNode in="blur"/></feMerge></filter>
+  </defs>
+  <rect width="900" height="420" fill="#0d1117" rx="12"/>
+  <text x="450" y="35" text-anchor="middle" fill="#e6edf3" font-size="21" font-weight="700">Perseus v1.0.2 — Breaking Point: Linear to 1,000,000 Directives</text>
+  <text x="450" y="53" text-anchor="middle" fill="#8b949e" font-size="12">22μs per directive · zero crashes · max tested 1M (31 MB file)</text>
+
+  <g stroke="#21262d" stroke-width="1">
+    <line x1="80" y1="70" x2="80" y2="340"/>
+    <line x1="80" y1="340" x2="860" y2="340"/>
+    <line x1="80" y1="295" x2="860" y2="295" stroke-dasharray="4,4"/>
+    <line x1="80" y1="250" x2="860" y2="250" stroke-dasharray="4,4"/>
+    <line x1="80" y1="205" x2="860" y2="205" stroke-dasharray="4,4"/>
+    <line x1="80" y1="160" x2="860" y2="160" stroke-dasharray="4,4"/>
+    <line x1="80" y1="115" x2="860" y2="115" stroke-dasharray="4,4"/>
+    <line x1="80" y1="70" x2="860" y2="70" stroke-dasharray="4,4"/>
+  </g>
+
+  <g fill="#8b949e" font-size="11" text-anchor="end">
+    <text x="70" y="82">22s</text><text x="70" y="130">15s</text>
+    <text x="70" y="175">10s</text><text x="70" y="220">5s</text>
+    <text x="70" y="265">0s</text>
+  </g>
+
+  <g fill="#8b949e" font-size="11" text-anchor="middle">
+    <text x="160" y="355">50K</text><text x="280" y="355">100K</text>
+    <text x="400" y="355">200K</text><text x="520" y="355">500K</text>
+    <text x="640" y="355">1,000,000</text>
+  </g>
+
+  <!-- Scale line: 50K=1.4s→y=266, 100K=2.4s→y=262, 200K=4.5s→y=254, 500K=11.1s→y=230, 1M=22s→y=187 -->
+  <polyline points="160,266 280,262 400,254 520,230 640,187"
+            fill="none" stroke="url(#scaleGrad)" stroke-width="3" stroke-linecap="round" filter="url(#glow2)"/>
+  <g fill="#a78bfa">
+    <circle cx="160" cy="266" r="5"/><circle cx="280" cy="262" r="5"/>
+    <circle cx="400" cy="254" r="5"/><circle cx="520" cy="230" r="5"/>
+    <circle cx="640" cy="187" r="6"/>
+  </g>
+
+  <g fill="#c4b5fd" font-size="10" font-weight="600" text-anchor="middle">
+    <text x="160" y="282">1.4s · 1.6MB</text>
+    <text x="280" y="278">2.4s · 3.1MB</text>
+    <text x="400" y="270">4.5s · 6.2MB</text>
+    <text x="520" y="246">11.1s · 16MB</text>
+    <text x="640" y="204" fill="#d8b4fe" font-size="12">22.0s · 31MB</text>
+  </g>
+
+  <!-- 1M annotation -->
+  <g transform="translate(640,160)">
+    <rect x="-65" y="0" width="130" height="30" rx="6" fill="#7c3aed" opacity="0.2"/>
+    <text x="0" y="18" text-anchor="middle" fill="#d8b4fe" font-size="11" font-weight="700">NO CRASH · LINEAR</text>
+  </g>
+
+  <text x="450" y="380" text-anchor="middle" fill="#8b949e" font-size="11">Per-directive cost: 22μs. Ceiling: file I/O and memory, not Perseus logic. Projected: 10M ≈ 220s with ~310MB file.</text>
+</svg>
