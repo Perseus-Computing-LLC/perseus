@@ -1,11 +1,12 @@
 ---
 id: task-71
 title: Phase 24G — Pipe Syntax for Directive Composition
-status: open
+status: completed
 priority: medium
 scope: medium
-claimed_by: null
+claimed_by: hermes
 created: 2026-05-24
+closed: 2026-05-24
 phase: 24
 theme: "Extensibility Architecture — Hephaestus"
 depends_on:
@@ -99,3 +100,13 @@ silently ignored (no warning).
 - Do not add pipe branching/fan-out
 - Do not add pipe parallelism
 - Do not add pipe output capture to named variables
+
+## Completed
+
+- Existing pipe infrastructure migrated to `src/perseus/renderer.py` (was in generated artifact only)
+- `_MAX_PIPE_STAGES` bumped from 3 → 5 per spec
+- `_parse_pipe_stages` — quote-aware pipe stage splitting
+- `_execute_pipe` — left-to-right resolution with cache-on-final-stage support
+- Integrated into render loop (lines 1020-1028 of renderer.py)
+- 12 tests in `tests/test_pipes_aliases.py` covering: 2-stage, bad stage error, max depth, query pipe, quoted pipes, macro composition, graph edges, alias+pipe integration
+- Full suite: 646 passed, 1 skipped

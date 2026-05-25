@@ -237,16 +237,30 @@ def directive_dependency_graph(
     source_text: str,
     source_name: str = "<memory>",
     workspace: Path | None = None,
+    cfg: dict | None = None,
 ) -> dict:
     """Build a static directive graph without executing any directive."""
+    effective_cfg = cfg or {}
     lines = source_text.splitlines()
+    # task-66: expand macros before building graph
+    body_lines = lines[1:] if lines and PERCY_HEADER_RE.match(lines[0]) else lines
+    macros = _load_macros(body_lines, workspace, effective_cfg)
+    if macros:
+        body_lines = _expand_macros(body_lines, macros)
+    
+    # Re-assemble if we had a header
+    if lines and PERCY_HEADER_RE.match(lines[0]):
+        processed_lines = [lines[0]] + body_lines
+    else:
+        processed_lines = body_lines
+
     nodes: list[dict] = []
     edges: list[dict] = []
     in_fence = False
     fence_char = ""
     fence_len = 0
 
-    for line_no, line in enumerate(lines, start=1):
+    for line_no, line in enumerate(processed_lines, start=1):
         fence_match = re.match(r'^\s*(`{3,}|~{3,})(.*)$', line)
         if in_fence:
             if re.match(rf'^\s*{re.escape(fence_char)}{{{fence_len},}}\s*$', line):

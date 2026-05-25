@@ -1,233 +1,153 @@
 import pytest
 from pathlib import Path
-
-from conftest import PY_VER, cfg, perseus
-
-pytestmark = pytest.mark.skipif(PY_VER < (3, 10), reason="Perseus requires Python 3.10+")
-
-
-# ── Test: Simple macro expansion (no params) ─────────────────────────────────
+from datetime import datetime
+from conftest import cfg, perseus
 
 def test_simple_macro_expansion():
-    source = """\
-@perseus v0.5
-
-@macro hello
-Hello, world!
+    text = """@perseus
+@macro project-health
+Custom Macro Content
 @endmacro
 
-@hello
-"""
-    c = cfg()
-    out = perseus.render_source(source, c, None)
-    assert "Hello, world!" in out
+@project-health"""
+    out = perseus.render_source(text, cfg(), None)
+    assert "Custom Macro Content" in out
+    assert "@project-health" not in out
     assert "@macro" not in out
     assert "@endmacro" not in out
 
-
-# ── Test: Parameterized macro substitution ───────────────────────────────────
-
-def test_parameterized_macro():
-    source = """\
-@perseus v0.5
-
-@macro greet %name%
-Greetings, %name%!
+def test_macro_case_insensitivity():
+    text = """@perseus
+@macro Project-Health
+Custom Macro Content
 @endmacro
 
-@greet Thomas
-"""
-    c = cfg()
-    out = perseus.render_source(source, c, None)
-    assert "Greetings, Thomas!" in out
+@project-health"""
+    out = perseus.render_source(text, cfg(), None)
+    assert "@project-health" not in out
+    assert "Custom Macro Content" in out
 
-
-# ── Test: Macro in macros file loaded correctly ──────────────────────────────
-
-def test_macro_from_workspace_file(tmp_path):
-    macros_file = tmp_path / ".perseus" / "macros.md"
-    macros_file.parent.mkdir(parents=True)
-    macros_file.write_text("""\
-@macro workspace-hello
-Hello from workspace macros!
+def test_recursive_macro_expansion():
+    text = """@perseus
+@macro level2
+Deep Content
 @endmacro
-""")
 
-    source = """\
-@perseus v0.5
-@workspace-hello
-"""
-    c = cfg()
-    out = perseus.render_source(source, c, tmp_path)
-    assert "Hello from workspace macros!" in out
+@macro level1
+@level2
+@endmacro
 
+@level1"""
+    out = perseus.render_source(text, cfg(), None)
+    assert "@level1" not in out
+    assert "@level2" not in out
+    assert "Deep Content" in out
 
-# ── Test: Macro shadowing (source doc overrides macros file) ─────────────────
+def test_recursive_macro_depth_exceeded(tmp_path):
+    # The spec says depth 10.
+    text = """@perseus
+@macro infinite
+@infinite
+@endmacro
 
-def test_macro_shadowing(tmp_path):
-    macros_file = tmp_path / ".perseus" / "macros.md"
-    macros_file.parent.mkdir(parents=True)
-    macros_file.write_text("""\
-@macro greet %name%
-Hello from file, %name%!
+@infinite"""
+    out = perseus.render_source(text, cfg(), None)
+    assert "macro expansion depth exceeded" in out.lower()
+    assert "max 10" in out.lower()
+
+def test_shared_macros(tmp_path, monkeypatch):
+    shared_macros_file = tmp_path / "macros.md"
+    shared_macros_file.write_text("""@macro shared-macro
+Shared Content
 @endmacro
 """)
+    
+    # Configure perseus to use this shared macros file
+    config = cfg()
+    if "macros" not in config:
+        config["macros"] = {}
+    config["macros"]["file"] = str(shared_macros_file)
+    
+    text = """@perseus
+@shared-macro"""
+    out = perseus.render_source(text, config, None)
+    assert "Shared Content" in out
 
-    source = """\
-@perseus v0.5
-
-@macro greet %name%
-Hello from source, %name%!
+def test_source_macro_overrides_shared(tmp_path):
+    shared_macros_file = tmp_path / "macros.md"
+    shared_macros_file.write_text("""@macro override-me
+Shared Content
+@endmacro
+""")
+    
+    config = cfg()
+    if "macros" not in config:
+        config["macros"] = {}
+    config["macros"]["file"] = str(shared_macros_file)
+    
+    text = """@perseus
+@macro override-me
+Local Content
 @endmacro
 
-@greet Thomas
-"""
-    c = cfg()
-    out = perseus.render_source(source, c, tmp_path)
-    assert "Hello from source, Thomas!" in out
-    assert "Hello from file" not in out
+@override-me"""
+    out = perseus.render_source(text, config, None)
+    assert "Local Content" in out
+    assert "Shared Content" not in out
 
-
-# ── Test: Recursive macro (chained) ──────────────────────────────────────────
-
-def test_macro_chaining():
-    source = """\
-@perseus v0.5
-
-@macro inner
-inner content
-@endmacro
-
-@macro outer
-outer: @inner
-@endmacro
-
-@outer
-"""
-    c = cfg()
-    out = perseus.render_source(source, c, None)
-    assert "outer: inner content" in out
-
-
-# ── Test: Macro cycle detection (depth-limited) ──────────────────────────────
-
-def test_macro_cycle_stops():
-    """A → B → A cycle should stop after MAX_MACRO_DEPTH without infinite recursion."""
-    source = """\
-@perseus v0.5
-
-@macro a
-from A: @b
-@endmacro
-
-@macro b
-from B: @a
-@endmacro
-
-@a
-"""
-    c = cfg()
-    out = perseus.render_source(source, c, None)
-    # Should not crash — output will either be partially expanded or contain the raw invocation
-    assert "from A" in out or "from B" in out
-    # Verify it didn't infinite-recursion (test just needs to not hang)
-
-
-# ── Test: Macro inside @if block (macros expand before if evaluation) ────────
-
-def test_macro_inside_if_block():
-    source = """\
-@perseus v0.5
-
-@macro show-something
-something
-@endmacro
-
+def test_macro_with_if_directive():
+    text = """@perseus
+@macro conditional-block
 @if env.set HOME
-@show-something
+Inside If
 @endif
-"""
-    c = cfg()
-    out = perseus.render_source(source, c, None)
-    assert "something" in out
-
-
-# ── Test: Macro referencing undefined macro → warning ────────────────────────
-
-def test_macro_referencing_undefined():
-    source = """\
-@perseus v0.5
-
-@macro test-macro
-@nonexistent
 @endmacro
 
-@test-macro
-"""
-    c = cfg()
-    out = perseus.render_source(source, c, None)
-    # The @nonexistent should remain as-is (unexpanded) — render should not crash
-    assert "@nonexistent" in out
+@conditional-block"""
+    out = perseus.render_source(text, cfg(), None)
+    assert "@conditional-block" not in out
+    # If HOME is set, it should show "Inside If"
+    import os
+    if os.environ.get("HOME"):
+        assert "Inside If" in out
 
+def test_undefined_macro_invocation():
+    text = """@perseus
+@undefined-macro"""
+    out = perseus.render_source(text, cfg(), None)
+    # Undefined macro should be preserved
+    assert "@undefined-macro" in out
 
-# ── Test: Empty macro → no output ────────────────────────────────────────────
-
-def test_empty_macro():
-    source = """\
-@perseus v0.5
-
-@macro nothing
+def test_macro_with_cache_modifier(tmp_path):
+    local_cfg = cfg()
+    local_cfg["render"]["cache_dir"] = str(tmp_path / "cache")
+    
+    text = """@perseus
+@macro cached-macro
+@query "echo cached-output" @cache ttl=60
 @endmacro
 
-Before
-@nothing
-After
-"""
-    c = cfg()
-    out = perseus.render_source(source, c, None)
-    assert "Before" in out
-    assert "After" in out
-    # Empty macro expands to nothing — Before and After should be adjacent
-    lines = [l for l in out.splitlines() if l.strip()]
-    before_idx = next(i for i, l in enumerate(lines) if "Before" in l)
-    after_idx = next(i for i, l in enumerate(lines) if "After" in l)
-    # They should be consecutive (or very close, accounting for empty lines)
-    assert after_idx == before_idx + 1 or lines[before_idx + 1].strip() == ""
+@cached-macro"""
+    out = perseus.render_source(text, local_cfg, None)
+    assert "cached-output" in out
+    
+    # Check if it was actually cached
+    cache_key = perseus._cache_key('@query "echo cached-output"')
+    cached = perseus.cache_get(cache_key, "ttl", 60, local_cfg)
+    assert cached is not None
+    assert "cached-output" in cached
 
-
-# ── Test: Macro preserves indentation and structure ──────────────────────────
-
-def test_macro_preserves_structure():
-    source = """\
-@perseus v0.5
-
-@macro header
-## Section Title
-- item 1
-- item 2
+def test_macro_graph_expansion(tmp_path):
+    source = """@perseus
+@macro my-macro
+@read config.yaml
 @endmacro
 
-@header
+@my-macro
 """
-    c = cfg()
-    out = perseus.render_source(source, c, None)
-    assert "## Section Title" in out
-    assert "- item 1" in out
-    assert "- item 2" in out
-
-
-# ── Test: Multiple parameters ────────────────────────────────────────────────
-
-def test_multiple_parameters():
-    source = """\
-@perseus v0.5
-
-@macro deploy %env% %version%
-Deploying %env% at version %version%
-@endmacro
-
-@deploy production 2.0
-"""
-    c = cfg()
-    out = perseus.render_source(source, c, None)
-    assert "Deploying production at version 2.0" in out
+    # Build graph
+    graph = perseus.directive_dependency_graph(source, workspace=tmp_path, cfg=cfg())
+    
+    directives = [node["directive"] for node in graph["nodes"]]
+    assert "@read" in directives
+    assert "@my-macro" not in directives

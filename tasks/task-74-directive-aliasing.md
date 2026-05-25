@@ -1,11 +1,12 @@
 ---
 id: task-74
 title: Phase 24J — Directive Aliasing
-status: open
+status: completed
 priority: low
 scope: small
-claimed_by: null
+claimed_by: hermes
 created: 2026-05-24
+closed: 2026-05-24
 phase: 24
 theme: "Extensibility Architecture — Hephaestus"
 depends_on:
@@ -97,3 +98,15 @@ continue to work.
 - Do not add runtime alias definition via directives
 - Do not add alias import/export or sharing
 - Do not add alias prefix/suffix patterns or regex-based aliasing
+
+## Completed
+
+- `_expand_aliases` in `src/perseus/renderer.py` with pre-defined shorthand aliases (`@q`→`@query`, `@svc`→`@services`, etc.)
+- Config-driven aliases via `directives.aliases` in config.yaml
+- Case-sensitive exact-match expansion
+- Iterative alias chaining with depth limit
+- Circular alias detection and removal (`_aliases_detect_and_remove_cycles`)
+- Built-in name shadowing protection
+- Pipe-stage-aware expansion (each `|`-separated stage expanded independently)
+- 9 tests in `tests/test_task_74_aliases.py` + 4 integration tests in `tests/test_pipes_aliases.py`
+- Full suite: 646 passed, 1 skipped
