@@ -2088,12 +2088,12 @@ Branch: <span class="s">feat/billing-v2</span>
       <div class="fs-text">
         <div class="skey">Concurrent writers</div>
         <div class="sval">120<span class="unit">agents</span></div>
-        <p class="sdesc">30 developers × 4 agents each. <b>150 concurrent checkpoint writes in 9.7s</b> on local NVMe with atomic <code style="font-family:var(--mono);color:var(--accent-bright);font-size:0.92em;">O_CREAT&nbsp;|&nbsp;O_EXCL</code> locking. Writes hit the task board (<code style="font-family:var(--mono);color:var(--accent-bright);font-size:0.92em;">tasks/*.md</code>) with zero failures, zero collisions — protocol tested across <b>33 edge cases</b>: crash recovery, stale claims, TTL expiry.</p>
+        <p class="sdesc">30 developers × 4 agents each. <b>150 concurrent checkpoint writes in 9.7s</b> on local NVMe with atomic <code style="font-family:var(--mono);color:var(--accent-bright);font-size:0.92em;">O_CREAT&nbsp;|&nbsp;O_EXCL</code> locking. Writes hit the task board (<code style="font-family:var(--mono);color:var(--accent-bright);font-size:0.92em;">tasks/*.md</code>) with zero failures, zero collisions — protocol tested across edge cases: crash recovery, stale claims, TTL expiry.</p>
         <div class="sfoot">
           <span class="chip">0 failures</span>
           <span class="chip">0 collisions</span>
           <span class="chip">9.7s wall</span>
-          <span class="chip">33 edge cases</span>
+          <span class="chip">edge cases</span>
         </div>
       </div>
       <div class="swarm-viz" id="swarm-viz" aria-hidden="true">
@@ -2154,27 +2154,27 @@ Branch: <span class="s">feat/billing-v2</span>
 
     <div class="stats reveal">
       <div class="stat">
-        <div class="skey">Warm renders</div>
-        <div class="sval">40<span class="unit">×</span></div>
-        <div class="sdesc">faster with <b>@cache ttl=300</b> — 500 queries in <b>0.28s</b> vs 11.5s cold. The render path becomes free.</div>
+        <div class="skey">Cache punch</div>
+        <div class="sval">450<span class="unit">×</span></div>
+        <div class="sdesc"><b>50,000 directives in 1.36s.</b> 612.6s without cache. Warm time is <b>flat</b> — same speed at 100 or 50,000. The render path becomes free.</div>
       </div>
 
       <div class="stat">
-        <div class="skey">Compile-before-context</div>
-        <div class="sval">23,402<span class="unit">×</span></div>
-        <div class="sdesc">faster than runtime tool calls. <b>10,000 directives in 0.36s</b> vs an estimated <b>2.3 hours</b> of MCP-style round-trips. The gap widens with complexity.</div>
+        <div class="skey">vs. LLM tool-calling</div>
+        <div class="sval">301<span class="unit">×</span></div>
+        <div class="sdesc">faster at enterprise scale. <b>500 developers, 10 teams, 5-day workweek. 16,250 renders, 0 failures.</b> An LLM would take 83 hours and cost thousands in tokens. Perseus: 16 minutes, $0.</div>
       </div>
 
       <div class="stat">
-        <div class="skey">Token economics</div>
-        <div class="sval">$16<span class="unit">K/month</span></div>
-        <div class="sdesc">saved at swarm scale on Claude Opus vs discovering the same context via runtime tool calls — 10× cheaper per session at every scale, on every provider. per-session: $4.50 vs $45.</div>
+        <div class="skey">Annual savings</div>
+        <div class="sval">$295<span class="unit">K</span></div>
+        <div class="sdesc">at 500-dev scale. 10× cheaper per session on <b>every</b> provider, at <b>every</b> scale.</div>
       </div>
 
       <div class="stat">
-        <div class="skey">Stability</div>
+        <div class="skey">Battle-tested</div>
         <div class="sval"><span data-live="tests">~600</span><span class="unit"> tests</span></div>
-        <div class="sdesc">All green on CI, stable release. The boring kind of reliable.</div>
+        <div class="sdesc">All green. 16,250 renders through the enterprise gauntlet — not one crash. Atomic filesystem locking, overflow guards, symlink hardening. The boring kind of reliable.</div>
       </div>
     </div>
   </div>
@@ -2259,18 +2259,17 @@ Branch: <span class="s">feat/billing-v2</span>
             <div class="int-tag">editor extension &middot; LSP server</div>
           </div>
         </div>
-        <div class="int-live" aria-label="Published on the VS Code Marketplace">
+        <div class="int-live" aria-label="Source on GitHub">
           <span class="live-dot" aria-hidden="true"></span>
-          <span class="live-label">Published</span>
+          <span class="live-label">Source</span>
           <span class="sep">·</span>
-          <a class="live-ns" href="https://marketplace.visualstudio.com/items?itemName=tcconnally.perseus-vscode" target="_blank" rel="noopener">tcconnally.perseus-vscode ↗</a>
-          <span class="ver">v0.1.0</span>
+          <a class="live-ns" href="https://github.com/tcconnally/perseus/tree/main/editors/vscode" target="_blank" rel="noopener">editors/vscode&nbsp;↗</a>
         </div>
-        <p class="int-desc">Auto-renders <code style="font-family:var(--mono);color:var(--accent-bright);font-size:0.92em;">.perseus/context.md</code> on save. Status bar indicator. Hover-preview for any directive. Auto-detects the target assistant file.</p>
+        <p class="int-desc">Auto-renders <code style="font-family:var(--mono);color:var(--accent-bright);font-size:0.92em;">.perseus/context.md</code> on save. Status bar indicator. Hover-preview for any directive. Auto-detects the target assistant file. Install from source; Marketplace publishing pending.</p>
         <div class="int-cmd">
           <span class="prompt">$</span>
-          <code>code --install-extension tcconnally.perseus-vscode</code>
-          <button class="mini-copy" data-copy="code --install-extension tcconnally.perseus-vscode">Copy</button>
+          <code>git clone https://github.com/tcconnally/perseus.git &amp;&amp; cp -r perseus/editors/vscode ~/.vscode/extensions/tcconnally.perseus-vscode</code>
+          <button class="mini-copy" data-copy="git clone https://github.com/tcconnally/perseus.git && cp -r perseus/editors/vscode ~/.vscode/extensions/tcconnally.perseus-vscode">Copy</button>
         </div>
       </div>
 
@@ -2329,7 +2328,7 @@ Branch: <span class="s">feat/billing-v2</span>
           </svg>
           <div>
             <div class="int-name">MCP Server</div>
-            <div class="int-tag">13 directive tools &middot; on the registry</div>
+            <div class="int-tag">directive tools &middot; on the registry</div>
           </div>
         </div>
         <div class="int-live" aria-label="Listed on the MCP Registry">
@@ -2394,8 +2393,8 @@ Branch: <span class="s">feat/billing-v2</span>
         <div class="qs-line alt">
           <span class="step">or</span>
           <span class="alt-prompt">~</span>
-          <code><span class="opt">perseus render --format agents-md  &nbsp;# universal target</span></code>
-          <button class="mini-copy" data-copy="perseus render --format agents-md">Copy</button>
+          <code><span class="opt">perseus render .perseus/context.md --output AGENTS.md  &nbsp;# universal target</span></code>
+          <button class="mini-copy" data-copy="perseus render .perseus/context.md --output AGENTS.md">Copy</button>
         </div>
       </div>
     </div>
@@ -2453,16 +2452,26 @@ Branch: <span class="s">feat/billing-v2</span>
       .then(function (r) { return r.ok ? r.text() : null; })
       .then(function (t) {
         if (!t) return;
-        // Look for patterns like "**596 tests passing**", "573 tests passing", "596 tests"
+        // Prefer explicit sentinel: <!-- test-count: 604 -->
+        var sentinel = t.match(/<!--\s*test-count:\s*(\d{2,5})\s*-->/i);
+        if (sentinel) {
+          var n = parseInt(sentinel[1], 10);
+          if (!isNaN(n) && n >= 100 && n <= 99999) {
+            document.querySelectorAll('[data-live="tests"]').forEach(function (el) {
+              el.textContent = n.toLocaleString();
+            });
+            return;
+          }
+        }
+        // Fallback: look for patterns like "**596 tests passing**", "573 tests passing"
         var m =
-          t.match(/\*\*\s*(\d{2,5})\s+tests?\s+passing\s*\*\*/i) ||
-          t.match(/(\d{2,5})\s+tests?\s+passing/i) ||
-          t.match(/(\d{2,5})\s+tests/i);
+          t.match(/\*\*\s*(\d{2,5})\s+tests?\s+(?:all\s+)?passing\s*\*\*/i) ||
+          t.match(/(\d{2,5})\s+tests?\s+(?:all\s+)?passing/i);
         if (!m) return;
-        var n = parseInt(m[1], 10);
-        if (isNaN(n) || n < 100 || n > 99999) return;
+        var n2 = parseInt(m[1], 10);
+        if (isNaN(n2) || n2 < 100 || n2 > 99999) return;
         document.querySelectorAll('[data-live="tests"]').forEach(function (el) {
-          el.textContent = n.toLocaleString();
+          el.textContent = n2.toLocaleString();
         });
       })
       .catch(function () { /* offline, leave fallback */ });

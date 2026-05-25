@@ -29,7 +29,7 @@ This puts `perseus` on `~/.local/bin/`. Make sure that's on your PATH:
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"   # add to ~/.bashrc or ~/.zshrc
-perseus --version                       # should print: perseus v1.0.2
+perseus --version                       # should print: perseus v1.0.3
 ```
 
 **Alternative — run directly from the repo:**
@@ -121,7 +121,7 @@ This document was rendered live by Perseus. All values below are current.
 @skills flag_stale=true
 ```
 
-See [spec/directives.md](../spec/directives.md) for the full directive reference.
+See [docs/DIRECTIVES.md](./DIRECTIVES.md) for the full directive reference.
 
 ---
 
@@ -216,10 +216,10 @@ perseus doctor
 
 | Topic | Link |
 |---|---|
-| All directives | [spec/directives.md](../spec/directives.md) |
+| All directives | [docs/DIRECTIVES.md](./DIRECTIVES.md) |
 | Wiring to your assistant | [spec/integration.md](../spec/integration.md) |
 | Context packs and profiles | [docs/CONTEXT_PACKS.md](./CONTEXT_PACKS.md) |
-| Trust and permissions | [spec/components.md](../spec/components.md) |
+| Trust and permissions | [docs/PRODUCT_CONTRACT.md](./PRODUCT_CONTRACT.md) |
 | Container deployment | [docs/CONTAINER.md](./CONTAINER.md) |
 | Cited synthesis | [docs/CITED_SYNTHESIS.md](./CITED_SYNTHESIS.md) |
 | Real-world examples | [docs/EXAMPLES.md](./EXAMPLES.md) |

@@ -44,7 +44,7 @@ and `.perseus/pack.yaml` with relative paths only.
 
 The adapter conformance fixtures for these profiles live under
 `tests/fixtures/adapters/` and are summarized in
-[`spec/integration.md`](../spec/integration.md#adapter-conformance-matrix).
+[`spec/integration.md`](../spec/integration.md).
 
 ---
 

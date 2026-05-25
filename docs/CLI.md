@@ -6,7 +6,7 @@
 
 | Command | What it does |
 |---|---|
-| `perseus render <file>` | Resolve all directives in a source document and print rendered output. Add `--output <path>` to write to disk. |
+| `perseus render <file>` | Resolve all directives in a source document and print rendered output. Add `--output <path>` to write to disk. `--format json` for structured output with metadata, directive details, and integrity report — consumable by agents and CI pipelines. Custom format plugins in `~/.perseus/formats/<name>.py`. |
 | `perseus graph <file> [--json]` | Build a static directive graph without executing directives; foundation for predictive prefetching. |
 | `perseus prefetch <file> [--json]` | Apply configured `prefetch.rules` to the static graph and warm directive caches. |
 | `perseus synthesize <question> --source FILE [--json]` | Build a cited-synthesis prompt, or explicitly run an LLM drafter with citation validation. Uncited claims are dropped. |
@@ -29,6 +29,11 @@
 | `perseus cron SOURCE --output FILE [--every N] [--install]` | POSIX crontab entry generator/installer for macOS, Linux, and BSD cron. |
 | `perseus systemd SOURCE --output FILE [--interval 5m] [--install] [--enable]` | Linux-only systemd `--user` service + timer scaffolder. |
 | `perseus launchd SOURCE --output FILE [--interval 300] [--label LABEL] [--force]` | macOS-only LaunchAgent plist scaffolder. |
+| `perseus install --target {claude-code,cursor,gemini-cli,copilot} [--workspace PATH] [--dry-run]` | Install Perseus hooks into an AI assistant. |
+| `perseus update [--apply] [--check] [--auto on\|off]` | Check for and apply Perseus updates from git. |
+| `perseus mcp {serve,config,register}` | Run Perseus as an MCP server — expose directives as tools for any MCP-compatible assistant. |
+| `perseus doctor [--workspace PATH] [--json]` | Run readiness checks against workspace and config (10 checks: config, context file, render settings, checkpoint age, Mnēmē narrative, federation, Pythia log, serve endpoint, directive registry, version). |
+| `perseus trust [--json] {profile,audit}` | Show effective permission profile and trust posture; audit recent access decisions. |
 
 ## JSON Surfaces
 

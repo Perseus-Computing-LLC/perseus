@@ -6,7 +6,7 @@ This page provides practical examples of how Perseus is used today, plus scenari
 
 ---
 
-## Subagent Handover (Zero‑Tax Orientation)
+## Subagent Handover (Zero-Tax Orientation)
 
 **Goal:** Let a fresh agent or teammate pick up work without spending the first 10–15 turns reconstructing context.
 

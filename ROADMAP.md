@@ -8,6 +8,8 @@ Do not propose architecture, new tasks, or "next steps" not already described he
 The framework and plan belong to the project owner. Your job is to execute tasks.
 @end
 
+> **Note to human readers:** This file is a live `@perseus` source document. The raw directive syntax (`@query`, `@prompt`, `@date`) is Perseus input — render with `perseus render ROADMAP.md` for plain markdown output. The phase numbering and task-IDs are internal sprint structure used by Perseus's own build process; treat the "✅ Complete" markers as the authoritative shipping status.
+
 # Perseus — Living Roadmap
 
 **Repo:** https://github.com/tcconnally/perseus  
@@ -426,17 +428,17 @@ Phase 10 (done):  task-23/24 — LSP server (`perseus serve --lsp`), VSCode exte
 Phase 11 (done):   Internal hardening — DIRECTIVE_REGISTRY (task-25 ✅), doctor (task-26 ✅),
                   --json surfaces (task-28 ✅), LSP integration tests (task-27 ✅), split tests (task-29 ✅)
 Phase 12 (done):  Schema Validation Engine — schema=, @validate, output_schema, validate CLI
-Phase 13:         Predictive Pre-fetching — anticipate next-needed context from patterns
-Phase 14:         Adaptive Self-Optimizing Pythia — RL-driven Pythia scoring
+Phase 13 (done):  Predictive Pre-fetching — anticipate next-needed context from patterns
+Phase 14 (done):  Adaptive Self-Optimizing Pythia — RL-driven Pythia scoring
               ════════════════════════════════════════════════════════
               STOP: Product identity decision — resolver vs generator
               ════════════════════════════════════════════════════════
-Phase 15:         Cited Synthesis Under Scarcity (bounded curator layer)
+Phase 15 (done):  Cited Synthesis Under Scarcity (bounded curator layer)
 Phase 16 (done): Product Contract and Context Packs
-Phase 17:         Trust, Privacy, and Local Policy
-Phase 18:         Distribution and Installation
-Phase 19:         Assistant Adapter Ecosystem
-Phase 20:         Managed Runtime and Deployment Modes
+Phase 17 (done):  Trust, Privacy, and Local Policy
+Phase 18 (done):  Distribution and Installation
+Phase 19 (done):  Assistant Adapter Ecosystem
+Phase 20 (done):  Managed Runtime and Deployment Modes
 Phase 21:         Evaluation, Performance, and Compatibility Gates
 Phase 22:         v1 Release Candidate
 ```
@@ -730,7 +732,7 @@ leave ordinary render output unchanged.
 
 ---
 
-## Deployable Product Roadmap
+## Deployable Product Roadmap (Shipped)
 
 The phases below carry Perseus from a powerful local research tool to a
 deployable product that can be installed, configured, audited, integrated, and
@@ -818,6 +820,10 @@ needs a persistent context endpoint rather than ad hoc CLI execution.
   containerized deployment that mounts a workspace and Perseus home.
 - **20C Headless watch mode (task-56) ✅:** Add a portable watch/daemon mode that
   refreshes render outputs without depending on platform schedulers.
+
+---
+
+## Planned
 
 ### Phase 21 — Evaluation, Performance, and Compatibility Gates
 
@@ -1133,8 +1139,6 @@ Phase 24A ─── Plugin directives (task-65) ──────────�
     ├── 24I ─── Tool directive integration (task-73) ─────┤
     └── 24J ─── Directive aliasing (task-74) ─────────────┘
 ```
-
-**Status:** v1.0.3 — 2026-05-24. All 63 roadmap tasks complete. Phase 23 (HTML output) complete. Phase 24 (Extensibility) spec'd — 10 tasks, no code yet. task-64 (daemon cache invalidation) is open — post-v1 spike.
 
 ---
 
