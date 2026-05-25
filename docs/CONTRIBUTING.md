@@ -28,7 +28,7 @@ cd perseus
 pip install -r requirements.txt   # pyyaml + pytest
 
 python -m pytest tests/ -q        # 604 tests, ~37s
-python perseus.py --version        # perseus v1.0.3
+python perseus.py --version        # perseus v1.0.4
 ```
 
 ---
