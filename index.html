@@ -1826,7 +1826,7 @@ Branch: <span class="s">feat/billing-v2</span>
         </svg>
         <div class="role">The Renderer</div>
         <h3>The polished <em>shield</em>.</h3>
-        <p>Resolves <b>@query</b>, <b>@read</b>, <b>@waypoint</b>, <b>@services</b> and friends before the assistant sees them. The output is plain markdown. No directives left for the model to chase.</p>
+        <p>Resolves <b>@query</b>, <b>@read</b>, <b>@waypoint</b>, <b>@services</b> and friends before the assistant sees them. The output is plain markdown. No directives left for the model to chase. <b>--tier 1|2|3</b> for progressive context disclosure.</p>
         <div class="cmd">perseus render .perseus/context.md</div>
       </div>
 
@@ -1882,6 +1882,11 @@ Branch: <span class="s">feat/billing-v2</span>
         <div class="greek">Synthēsis</div>
         <div class="name">perseus synthesize</div>
         <div class="desc">Cited drafts. Uncited claims are dropped.</div>
+      </div>
+      <div class="const-cell cyan" role="listitem">
+        <div class="greek">Tiered Context</div>
+        <div class="name">--tier 1|2|3</div>
+        <div class="desc">Progressive disclosure. The agent is the RAG — only core context injected, rest pulled on demand.</div>
       </div>
       <div class="const-cell cyan" role="listitem">
         <div class="greek">Graeae</div>
