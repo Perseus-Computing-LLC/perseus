@@ -33,6 +33,8 @@ Source documents start with `@perseus v0.4` on line 1. The value after `@perseus
 | `@memory federation [alias=name]` | Render digest of subscribed cross-workspace narratives (see `perseus memory federation`) |
 | `@memory include_federation=true` | Local narrative + appended `## Federated Context` digest |
 | `@drift` | Daedalus drift report — acceptance rate, recommendation Jaccard, confidence proxy (see `perseus oracle drift`) |
+| `@tool "\"<path>\"" [args...]` | Run an allowlisted external tool. Unlike `@agent` (ad-hoc), `@tool` requires explicit approval in `tools.allowlist` per path, with argument restrictions, timeouts, and output size caps. Accepts `@cache ttl=N`. |
+| `@perseus <url>` | Fetch rendered context from a remote Perseus serve instance. Gated by `foreign_resolver.allowlist` and `render.allow_remote_services_health`. Accepts `@cache ttl=N`. |
 
 ## Cache Modifiers
 

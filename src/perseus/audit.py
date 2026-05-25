@@ -426,6 +426,19 @@ def _validate_against_schema_ref(
     """Return a rendered warning string when validation fails."""
     if not schema_ref:
         return None
+    # task-70: plugin: prefix loads a custom validator
+    if isinstance(schema_ref, str) and schema_ref.startswith("plugin:"):
+        validator_name = schema_ref[7:]
+        validator_fn = _load_plugin_validator(validator_name)
+        if not validator_fn:
+            return f"> ⚠ `{source}` schema error: plugin validator `{validator_name}` not found"
+        try:
+            valid, message = validator_fn(data, {})
+            if not valid:
+                return f"> ⚠ `{source}` validation failed ({validator_name}): {message}"
+            return None
+        except Exception as e:
+            return f"> ⚠ `{source}` validator error ({validator_name}): {e}"
     schema_path, schema_data, schema_error = _load_schema(schema_ref, workspace)
     schema_label = str(schema_path or schema_ref)
     if schema_error:

@@ -46,8 +46,10 @@ def _bind_registry() -> None:
         DirectiveSpec("@tree",      resolve_tree,      ["depth="],                 "inline",  "acw", reads_files=True, cacheable=True, summary="Tree view of directory"),
         DirectiveSpec("@health",    resolve_health,    [],                         "inline",  "acw", reads_files=True, summary="Context maintenance report"),
         DirectiveSpec("@agent",     resolve_agent,     [],                         "inline",  "acw", executes_shell=True, safe_for_hover=False, summary="Execute local agent subprocess"),
+        DirectiveSpec("@tool",      resolve_tool,      [],                         "inline",  "acw", executes_shell=True, safe_for_hover=False, summary="Run an allowlisted external tool"),
         DirectiveSpec("@inbox",     resolve_inbox,     ["unread=", "limit="],      "inline",  "acw", reads_files=True, cacheable=True, summary="Agent message inbox"),
         DirectiveSpec("@drift",     resolve_drift,     [],                         "inline",  "ac",  reads_files=True, summary="Oracle drift report"),
+        DirectiveSpec("@perseus",   resolve_perseus,   [],                         "inline",  "acw", cacheable=True, summary="Fetch rendered context from a remote Perseus instance"),
         # Block directives — resolved via special block-parsing logic, not the inline dispatch
         DirectiveSpec("@services",  resolve_services,  [],                         "block",   "block", executes_shell=True, safe_for_hover=False, summary="Health-check listed services"),
         DirectiveSpec("@prompt",    resolve_prompt_block, [],                      "block",   "block", summary="System prompt block"),
@@ -67,17 +69,31 @@ def _bind_registry() -> None:
 
 def _call_resolver(spec: DirectiveSpec, args_str: str, cfg: dict, workspace: "Path | None") -> str:
     """Adapt resolver call to match its actual signature via call_sig."""
-    sig = spec.call_sig
-    if sig == "acw":
-        return spec.resolver(args_str, cfg, workspace)
-    elif sig == "ac":
-        return spec.resolver(args_str, cfg)
-    elif sig == "a":
-        return spec.resolver(args_str)
-    elif sig == "awc":
-        return spec.resolver(args_str, workspace, cfg)
-    else:
-        raise ValueError(f"Unknown call_sig {sig!r} for {spec.name}")
+    # Universal shell-execution gate (task-65): plugin directives with
+    # executes_shell=True are gated behind allow_query_shell, same as built-ins.
+    if spec.executes_shell and not cfg["render"].get("allow_query_shell", True):
+        return f"> ⚠ {spec.name} is disabled by config (`render.allow_query_shell=false`)."
+    try:
+        sig = spec.call_sig
+        if sig == "acw":
+            return spec.resolver(args_str, cfg, workspace)
+        elif sig == "ac":
+            return spec.resolver(args_str, cfg)
+        elif sig == "a":
+            return spec.resolver(args_str)
+        elif sig == "awc":
+            return spec.resolver(args_str, workspace, cfg)
+        else:
+            raise ValueError(f"Unknown call_sig {sig!r} for {spec.name}")
+    except Exception as e:
+        # task-67: on_directive_error hook
+        _fire_hooks("on_directive_error", {
+            "directive": spec.name,
+            "args": args_str[:200],
+            "error": str(e),
+            "traceback": "",
+        }, cfg, workspace)
+        return f"> ⚠ {spec.name} error: {e}"
 
 
 # Built at import time from the registry (after _bind_registry is called).
@@ -89,3 +105,36 @@ def _build_inline_directive_re():
     )
     pattern = r'^(' + '|'.join(re.escape(n) for n in names) + r')(\s+.*)?$'
     return re.compile(pattern, re.IGNORECASE)
+
+
+# ── Plugin Discovery (task-65) ──────────────────────────────────────────────
+
+def _discover_plugins(cfg: dict) -> list["DirectiveSpec"]:
+    """Scan plugins dir, import Python modules, collect REGISTER entries.
+
+    Returns empty list if plugins are disabled or the directory doesn't exist.
+    Plugin import errors are warnings to stderr, never fatal.
+    """
+    if not cfg.get("plugins", {}).get("enabled", True):
+        return []
+    plugins_dir = Path(cfg["plugins"].get("dir", str(PERSEUS_HOME / "plugins")))
+    if not plugins_dir.is_dir():
+        return []
+    specs: list["DirectiveSpec"] = []
+    for py_file in sorted(plugins_dir.glob("*.py")):
+        try:
+            spec = importlib.util.spec_from_file_location(
+                f"perseus_plugin_{py_file.stem}", py_file
+            )
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            if hasattr(mod, "REGISTER") and isinstance(mod.REGISTER, dict):
+                for name, ds in mod.REGISTER.items():
+                    if isinstance(ds, DirectiveSpec):
+                        specs.append(ds)
+        except Exception as e:
+            print(
+                f"Perseus plugin error ({py_file.name}): {e}",
+                file=sys.stderr,
+            )
+    return specs

@@ -15,6 +15,7 @@ import argparse
 import copy
 import fnmatch
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -40,3 +41,11 @@ from pathlib import Path
 
 import yaml  # pyyaml
 from typing import NamedTuple, Callable
+
+# Register as 'perseus' so plugins can import from us (task-65)
+import sys as _sys
+if "perseus" not in _sys.modules:
+    if __name__ == "__main__":
+        _sys.modules["perseus"] = _sys.modules["__main__"]
+    elif __name__ in _sys.modules:
+        _sys.modules["perseus"] = _sys.modules[__name__]

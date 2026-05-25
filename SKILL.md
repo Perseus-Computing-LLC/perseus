@@ -45,7 +45,7 @@ automatically.
 ## Core Directives
 
 Write a `.perseus/context.md` file with `@perseus` as the first line, then use
-any of these 20 directives:
+any of these 22 directives:
 
 | Directive | What it does |
 |-----------|-------------|
