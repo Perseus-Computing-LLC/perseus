@@ -227,6 +227,8 @@ def main():
     mcp_sub = p_mcp.add_subparsers(dest="mcp_command", required=True)
     p_mcp_serve = mcp_sub.add_parser("serve", help="Run as an MCP server over stdio (JSON-RPC 2.0)")
     p_mcp_serve.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
+    p_mcp_serve.add_argument("--transport", default="stdio", choices=["stdio", "sse"], help="Transport: stdio (default) or sse")
+    p_mcp_serve.add_argument("--port", type=int, default=8420, help="Port for SSE transport (default: 8420)")
     p_mcp_config = mcp_sub.add_parser("config", help="Print MCP client configuration for Claude Desktop, Cursor, etc.")
     p_mcp_config.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
     p_mcp_config.add_argument("--json", action="store_true", help="Output machine-readable JSON (default)")

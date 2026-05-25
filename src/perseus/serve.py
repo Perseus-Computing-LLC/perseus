@@ -1353,6 +1353,12 @@ def cmd_mcp(args, cfg) -> int:
     workspace = Path(args.workspace).expanduser().resolve() if getattr(args, "workspace", None) else None
 
     if mcp_cmd == "serve":
+        transport = getattr(args, "transport", "stdio")
+        if transport == "sse":
+            from perseus.mcp import serve_mcp_sse
+            port = getattr(args, "port", 8420)
+            serve_mcp_sse(cfg, workspace=workspace, port=port)
+            return 0
         return serve_mcp(cfg, workspace=workspace)
     elif mcp_cmd == "config":
         print_mcp_config(cfg, workspace=workspace)
@@ -1867,6 +1873,18 @@ def _doctor_check_registry(cfg: dict, workspace: Path) -> DoctorResult:
                         f"{len(DIRECTIVE_REGISTRY)} directives registered", "")
 
 
+def _doctor_check_mcp(cfg: dict, workspace: Path) -> DoctorResult:
+    """Check MCP server readiness — registry and tool count."""
+    try:
+        tools = _get_all_mcp_tools(cfg)
+        count = len(tools)
+        if count == 0:
+            return DoctorResult("mcp_server", "warn", "mcp_server", "0 tools available", "Check DIRECTIVE_REGISTRY and config")
+        return DoctorResult("mcp_server", "ok", "mcp_server", f"{count} MCP tools available", "")
+    except Exception as exc:
+        return DoctorResult("mcp_server", "error", "mcp_server", str(exc), "Check mcp.py")
+
+
 # Ordered list of doctor checks — adding a check is one function + one line here.
 _DOCTOR_CHECKS = [
     _doctor_check_config,
@@ -1879,6 +1897,7 @@ _DOCTOR_CHECKS = [
     _doctor_check_pythia_log,
     _doctor_check_serve_loopback,
     _doctor_check_registry,
+    _doctor_check_mcp,
 ]
 
 
