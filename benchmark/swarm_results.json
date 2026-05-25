@@ -1,0 +1,91 @@
+{
+  "phases": [
+    {
+      "phase": 1,
+      "n_agents": 10,
+      "p50_warm_ms": 520,
+      "p95_warm_ms": 588,
+      "p99_warm_ms": 588,
+      "latency_cv": 0.060270883571122015,
+      "avg_effective_prompt_tokens": 35
+    },
+    {
+      "phase": 2,
+      "n_agents": 10,
+      "p95_warm_ms": 614,
+      "latency_cv": 0.10552766390484418,
+      "cache_total": 0,
+      "corrupt_entries": 0
+    },
+    {
+      "phase": 3,
+      "n_agents": 10,
+      "collision_rate": 0.0,
+      "corrupt_entries": 0,
+      "determinism_violations": [],
+      "p50_warm_ms": 575,
+      "p95_warm_ms": 715,
+      "p99_warm_ms": 715,
+      "latency_cv": 0.08967668661189095
+    },
+    {
+      "phase": 1,
+      "n_agents": 50,
+      "p50_warm_ms": 1507,
+      "p95_warm_ms": 2881,
+      "p99_warm_ms": 2958,
+      "latency_cv": 0.4471721396565209,
+      "avg_effective_prompt_tokens": 35.8
+    },
+    {
+      "phase": 2,
+      "n_agents": 50,
+      "p95_warm_ms": 2495,
+      "latency_cv": 0.3690201733153135,
+      "cache_total": 0,
+      "corrupt_entries": 0
+    },
+    {
+      "phase": 3,
+      "n_agents": 50,
+      "collision_rate": 0.0,
+      "corrupt_entries": 0,
+      "determinism_violations": [
+        "agent-0: tokens=37 != 38",
+        "agent-1: tokens=37 != 38",
+        "agent-2: tokens=37 != 38",
+        "agent-3: tokens=37 != 38",
+        "agent-4: tokens=37 != 38",
+        "agent-5: tokens=37 != 38",
+        "agent-6: tokens=37 != 38",
+        "agent-7: tokens=37 != 38",
+        "agent-8: tokens=37 != 38",
+        "agent-9: tokens=37 != 38"
+      ],
+      "p50_warm_ms": 1389,
+      "p95_warm_ms": 2380,
+      "p99_warm_ms": 2732,
+      "latency_cv": 0.3648658362634551
+    },
+    {
+      "phase": 4,
+      "wave1_n": 50,
+      "wave2_n": 100,
+      "wave3_ramp": [
+        5,
+        50,
+        200
+      ],
+      "latency_cv": 0.3411415042727157,
+      "compression_ratio_at_n": {
+        "5": 0.122,
+        "50": 0.123,
+        "200": 0.123
+      }
+    }
+  ],
+  "scales": [
+    10,
+    50
+  ]
+}
