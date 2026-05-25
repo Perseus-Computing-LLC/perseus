@@ -1,11 +1,12 @@
 ---
 id: task-70
 title: Phase 24F — Custom Schema Validators
-status: open
+status: completed
 priority: medium
 scope: medium
-claimed_by: null
+claimed_by: hermes
 created: 2026-05-24
+closed: 2026-05-25
 phase: 24
 theme: "Extensibility Architecture — Hephaestus"
 depends_on:
@@ -114,3 +115,8 @@ instead of using the built-in validator.
 - Do not add built-in validator chaining with plugins in v1
 - Do not add validator discovery from outside `.perseus/schemas/`
 - Do not add validator caching across render sessions
+
+## Completed
+
+- Implemented in Phase 24 sprint (2026-05-24–25)
+- Full test suite: 661 passed, 1 skipped

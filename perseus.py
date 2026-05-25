@@ -169,6 +169,12 @@ DEFAULT_CONFIG = {
     },
     "hooks": {
         "enabled": True,
+        "on_render_start": {"enabled": True, "commands": []},
+        "on_directive_resolved": {"enabled": True, "commands": []},
+        "on_cache_hit": {"enabled": True, "commands": []},
+        "on_cache_miss": {"enabled": True, "commands": []},
+        "on_render_complete": {"enabled": True, "commands": []},
+        "on_directive_error": {"enabled": True, "commands": []},
     },
     "webhooks": {
         "enabled": False,
@@ -355,6 +361,161 @@ def _get_shell(cfg: dict) -> str | None:
         return None
     return resolved
 
+
+# ────────────────────────────── Render Pipeline Hooks ─────────────────────────
+
+# Global registry for discovered Python hooks
+# { "on_render_start": [fn1, fn2], ... }
+_PYTHON_HOOKS: dict[str, list] = {
+    "on_render_start": [],
+    "on_directive_resolved": [],
+    "on_cache_hit": [],
+    "on_cache_miss": [],
+    "on_render_complete": [],
+    "on_directive_error": [],
+}
+
+_HOOKS_LOADED_DIRS: set[str] = set()
+
+
+def register_hooks(cfg: dict, force: bool = False) -> int:
+    """Discover Python hooks from ~/.perseus/hooks/*.py. Idempotent.
+
+    Hook modules are imported and any function matching a lifecycle event
+    name (e.g. on_render_start) is registered as a callback.
+    """
+    if not cfg.get("hooks", {}).get("enabled", True):
+        return 0
+
+    hooks_dir = Path(cfg.get("hooks", {}).get("dir", str(PERSEUS_HOME / "hooks")))
+    if not force and str(hooks_dir) in _HOOKS_LOADED_DIRS:
+        return 0
+    _HOOKS_LOADED_DIRS.add(str(hooks_dir))
+
+    if not hooks_dir.is_dir():
+        return 0
+
+    added = 0
+    for py_file in sorted(hooks_dir.glob("*.py")):
+        try:
+            spec = importlib.util.spec_from_file_location(
+                f"perseus_hook_{py_file.stem}", py_file
+            )
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+
+            found_in_mod = False
+            for hook_name in _PYTHON_HOOKS.keys():
+                fn = getattr(mod, hook_name, None)
+                if fn and callable(fn):
+                    _PYTHON_HOOKS[hook_name].append(fn)
+                    found_in_mod = True
+            if found_in_mod:
+                added += 1
+        except Exception as e:
+            print(f"Perseus hook error ({py_file.name}): {e}", file=sys.stderr)
+    return added
+
+
+def _fire_hooks(event: str, payload: dict, cfg: dict) -> None:
+    """Fire all configured hooks and webhooks for an event. Never raises.
+
+    Payload variables are substituted into shell commands using {{var}} syntax.
+    Python hooks receive the payload dict as their only argument.
+    """
+    # Master kill switch
+    if not cfg.get("hooks", {}).get("enabled", True):
+        return
+
+    event_cfg = cfg.get("hooks", {}).get(event)
+    # Check per-hook enabled gate
+    if isinstance(event_cfg, dict) and not event_cfg.get("enabled", True):
+        return
+
+    # Fire Python hooks (auto-discovered)
+    for fn in _PYTHON_HOOKS.get(event, []):
+        try:
+            fn(payload)
+        except Exception as e:
+            print(f"Perseus Python hook error ({event}): {e}", file=sys.stderr)
+
+    # Fire Shell hooks (configured in config.yaml)
+    commands = []
+    if isinstance(event_cfg, list):
+        commands = event_cfg
+    elif isinstance(event_cfg, dict):
+        # Support both 'command' (singular per list item) and 'commands' (list in dict)
+        commands = event_cfg.get("commands", [])
+
+    for hook in commands:
+        cmd = None
+        if isinstance(hook, str):
+            cmd = hook
+        elif isinstance(hook, dict):
+            cmd = hook.get("command") or hook.get("cmd")
+
+        if cmd:
+            _fire_shell_hook(cmd, payload, event)
+
+    # Fire webhooks (Phase 25 / task-72)
+    _fire_webhook(event, payload, cfg)
+
+
+def _fire_shell_hook(cmd_template: str, payload: dict, event: str) -> None:
+    """Run a shell hook with {{var}} substitution. Timeout 5s."""
+    try:
+        cmd = cmd_template
+        for key, val in payload.items():
+            cmd = cmd.replace(f"{{{{{key}}}}}", str(val))
+
+        # Use shell=True as per spec trust consideration
+        subprocess.run(
+            cmd, shell=True, capture_output=True, text=True,
+            timeout=5,
+        )
+    except subprocess.TimeoutExpired:
+        print(f"Perseus hook timeout ({event}): {cmd_template[:80]}", file=sys.stderr)
+    except Exception as e:
+        print(f"Perseus hook shell error ({event}): {e}", file=sys.stderr)
+
+
+def _fire_webhook(event: str, payload: dict, cfg: dict) -> None:
+    """POST render lifecycle event to configured webhook URL (fire-and-forget)."""
+    wh = cfg.get("webhooks", {})
+    if not wh or not wh.get("enabled") or not wh.get("url"):
+        return
+    if event not in wh.get("events", []):
+        return
+    try:
+        body = json.dumps({
+            "event": event,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "workspace_hash": hashlib.sha256(
+                (payload.get("workspace") or "").encode()
+            ).hexdigest()[:16] if payload.get("workspace") else None,
+            "data": payload,
+        })
+        data = body.encode("utf-8")
+        req = urllib.request.Request(
+            wh["url"], data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        secret = wh.get("secret", "")
+        if secret:
+            sig = hashlib.sha256(secret.encode() + data).hexdigest()
+            req.add_header("X-Perseus-Signature", f"sha256={sig}")
+        urllib.request.urlopen(req, timeout=wh.get("timeout_s", 5))
+    except Exception as e:
+        print(f"Perseus webhook error ({event}): {e}", file=sys.stderr)
+
+
+def _reset_hooks_cache() -> None:
+    """Test-only: clear the per-process hooks registry."""
+    _HOOKS_LOADED_DIRS.clear()
+    for key in _PYTHON_HOOKS:
+        _PYTHON_HOOKS[key] = []
+import traceback
 
 # ─────────────────────────────── Directive Registry ───────────────────────────
 #
@@ -605,12 +766,12 @@ def _call_resolver(spec: DirectiveSpec, args_str: str, cfg: dict, workspace: "Pa
     except Exception as e:
         # task-67: on_directive_error hook
         _fire_hooks("on_directive_error", {
-            "directive": spec.name,
+            "name": spec.name,
             "args": args_str[:200],
             "error": str(e),
-            "traceback": "",
-        }, cfg, workspace)
-        return f"> ⚠ {spec.name} error: {e}"
+            "traceback_truncated": traceback.format_exc()[-1000:],
+        }, cfg)
+        return f"> \u26a0 {spec.name} error: {e}"
 
 
 # Built at import time from the registry (after _bind_registry is called).
@@ -634,7 +795,8 @@ def _discover_plugins(cfg: dict) -> list["DirectiveSpec"]:
     """
     if not cfg.get("plugins", {}).get("enabled", True):
         return []
-    plugins_dir = Path(cfg["plugins"].get("dir", str(PERSEUS_HOME / "plugins")))
+    plugins_cfg = cfg.get("plugins", {})
+    plugins_dir = Path(plugins_cfg.get("dir", str(PERSEUS_HOME / "plugins")))
     if not plugins_dir.is_dir():
         return []
     specs: list["DirectiveSpec"] = []
@@ -658,6 +820,50 @@ def _discover_plugins(cfg: dict) -> list["DirectiveSpec"]:
 
 
 _PLUGIN_LOADED_DIRS: set[str] = set()
+
+
+def _discover_formats(cfg: dict) -> dict[str, "Callable"]:
+    """Scan ~/.perseus/formats/ dir, import Python modules, collect render functions.
+
+    Returns {format_name: render_fn}. Format name = filename stem.
+    Built-in names (markdown, html, json) are ignored with a warning.
+    """
+    formats_dir = PERSEUS_HOME / "formats"
+    if not formats_dir.is_dir():
+        return {}
+
+    discovered = {}
+    built_ins = {"markdown", "md", "html", "json"}
+
+    for py_file in sorted(formats_dir.glob("*.py")):
+        name = py_file.stem.lower()
+        if name in built_ins:
+            print(
+                f"Perseus format warning: '{name}' collides with built-in format; custom adapter ignored",
+                file=sys.stderr,
+            )
+            continue
+
+        try:
+            spec = importlib.util.spec_from_file_location(
+                f"perseus_format_{name}", py_file
+            )
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            render_fn = getattr(mod, "render", None)
+            if render_fn and callable(render_fn):
+                discovered[name] = render_fn
+            else:
+                print(
+                    f"Perseus format warning: {py_file.name} does not export render(resolved_markdown, metadata)",
+                    file=sys.stderr,
+                )
+        except Exception as e:
+            print(
+                f"Perseus format error ({py_file.name}): {e}",
+                file=sys.stderr,
+            )
+    return discovered
 
 
 def register_plugins(cfg: dict, force: bool = False) -> int:
@@ -982,11 +1188,47 @@ def redact_text(text: str, cfg: dict) -> tuple[str, dict]:
     }
 
 
-# ───── Phase 17C — audit log (task-47) ────────────────────────────────────────
+# Callers can disable via `audit.enabled = false`.
+_VALIDATOR_CACHE: dict[str, Callable] = {}
+
+
+def _load_plugin_validator(validator_name: str, workspace: Path | None) -> Callable | None:
+    """Load a custom validator from .perseus/schemas/<name>.py.
+    Returns the validate() function or None."""
+    if validator_name in _VALIDATOR_CACHE:
+        return _VALIDATOR_CACHE[validator_name]
+
+    # Discovery: .perseus/schemas/<name>.py
+    # Try workspace first, then relative to current dir
+    candidates = []
+    if workspace:
+        candidates.append(workspace / ".perseus" / "schemas" / f"{validator_name}.py")
+    candidates.append(Path(".perseus") / "schemas" / f"{validator_name}.py")
+
+    py_file = next((p for p in candidates if p.exists()), None)
+    if not py_file:
+        return None
+
+    try:
+        spec = importlib.util.spec_from_file_location(
+            f"perseus_validator_{validator_name}", py_file
+        )
+        if not spec or not spec.loader:
+            return None
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        fn = getattr(mod, "validate", None)
+        if fn and callable(fn):
+            _VALIDATOR_CACHE[validator_name] = fn
+            return fn
+    except Exception as e:
+        # Rethrow so the caller can handle it as a skip-and-pass or render warning
+        raise e
+    return None
 
 
 def _audit_log_path(cfg: dict) -> Path:
-    """Resolve the audit log path, expanding ~ and falling back to PERSEUS_HOME."""
+
     raw = (cfg.get("audit") or {}).get("log_path") or str(PERSEUS_HOME / "audit_log.jsonl")
     return Path(str(raw)).expanduser()
 
@@ -1412,16 +1654,21 @@ def _validate_against_schema_ref(
     # task-70: plugin: prefix loads a custom validator
     if isinstance(schema_ref, str) and schema_ref.startswith("plugin:"):
         validator_name = schema_ref[7:]
-        validator_fn = _load_plugin_validator(validator_name)
-        if not validator_fn:
-            return f"> ⚠ `{source}` schema error: plugin validator `{validator_name}` not found"
         try:
-            valid, message = validator_fn(data, {})
+            validator_fn = _load_plugin_validator(validator_name, workspace)
+            if not validator_fn:
+                return f"> ⚠ `{source}` schema error: plugin validator `{validator_name}` not found"
+            # Parse data if it's a string (e.g. from _apply_output_schema_validation)
+            # so the plugin receives the parsed object as expected.
+            parsed_data = _parse_validation_payload(data) if isinstance(data, str) else data
+            valid, message = validator_fn(parsed_data, {})
             if not valid:
                 return f"> ⚠ `{source}` validation failed ({validator_name}): {message}"
             return None
         except Exception as e:
-            return f"> ⚠ `{source}` validator error ({validator_name}): {e}"
+            # AC #5, #6: warning, validation skipped (value passes)
+            sys.stderr.write(f"Perseus validator error ({validator_name}): {e}\n")
+            return None
     schema_path, schema_data, schema_error = _load_schema(schema_ref, workspace)
     schema_label = str(schema_path or schema_ref)
     if schema_error:
@@ -1830,7 +2077,9 @@ def resolve_env(args_str: str, cfg: dict | None = None, workspace: Path | None =
 # ──────────────────────────────── @include ────────────────────────────────────
 
 def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | None = None,
-                    *, _depth: int = 0, _visited: set | None = None) -> str:
+                    *, _depth: int = 0, _visited: set | None = None,
+                    _directive_collector: list[dict] | None = None,
+                    _stats: dict | None = None) -> str:
     """
     @include <file>
 
@@ -1906,7 +2155,9 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
             try:
                 # Render the included file through Perseus with incremented depth
                 rendered = render_source(raw, cfg, workspace, _include_depth=_depth + 1,
-                                         _include_visited=_visited.copy())
+                                         _include_visited=_visited.copy(),
+                                         _directive_collector=_directive_collector,
+                                         _stats=_stats)
                 return trunc_note + rendered
             except RecursionError:
                 return "> ⚠ @include: recursion limit exceeded."
@@ -2231,20 +2482,16 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
                 f"Set render.max_query_bytes to increase."
             )
 
-        # schema validation: pure-Python Phase 12 subset, with schema refs
-        # resolved via <workspace>/.perseus/schemas/ before workspace root.
+        # schema validation: route through _validate_against_schema_ref which
+        # handles built-in schemas and plugin: validators (task-70).
         if schema_path:
             try:
                 data = yaml.safe_load(stdout)
             except Exception:
                 return f"> ⚠ `@query` schema validation: stdout is not valid YAML.\n\n```{lang}\n{stdout}\n```"
-            schema_file, schema_data, schema_error = _load_schema(schema_path, workspace)
-            schema_label = str(schema_file or schema_path)
-            if schema_error:
-                return f"> ⚠ `@query` schema error: {schema_error}"
-            validation_errors = _validate_basic_schema(data, schema_data)
-            if validation_errors:
-                return _schema_validation_error("@query", schema_label, validation_errors)
+            warning = _validate_against_schema_ref(data, schema_path, workspace, "@query")
+            if warning:
+                return warning
 
         return f"```{lang}\n{stdout}\n```"
 
@@ -5298,129 +5545,8 @@ def _strip_macro_defs(lines: list[str]) -> "iter":
 
 # ── Render Pipeline Hooks (task-67) ──────────────────────────────────────────
 
-_HOOK_TIMEOUT_S = 10
-
-
-def _fire_hooks(event: str, payload: dict, cfg: dict, workspace: Path | None) -> None:
-    """Fire all configured hooks and webhooks for an event. Never raises."""
-    # Fire webhook (task-72)
-    _fire_webhook(event, payload, cfg)
-    # Fire local hooks
-    if not cfg.get("hooks", {}).get("enabled", True):
-        return
-    event_hooks = cfg.get("hooks", {}).get(event, [])
-    if not event_hooks:
-        return
-    for hook in event_hooks:
-        try:
-            if "cmd" in hook:
-                _fire_shell_hook(hook["cmd"], payload, event)
-            elif "plugin" in hook:
-                _fire_plugin_hook(hook["plugin"], payload, cfg, event)
-        except Exception as e:
-            print(f"Perseus hook error ({event}): {e}", file=sys.stderr)
-
-
-def _fire_shell_hook(cmd: str, payload: dict, event: str) -> None:
-    """Run a shell hook. Accepts argv form (list) for safe execution or
-    legacy string form (shell=False with shlex.split after format).
-    Timeout 10s."""
-    try:
-        if isinstance(cmd, list):
-            # argv form: each element formatted independently, shell=False
-            formatted = [str(arg).format(**payload) for arg in cmd]
-            subprocess.run(
-                formatted, shell=False, capture_output=True, text=True,
-                timeout=_HOOK_TIMEOUT_S,
-            )
-        else:
-            # Legacy string form: format, then shlex.split for safe execution
-            import shlex as _shlex
-            formatted_str = cmd.format(**payload)
-            formatted = _shlex.split(formatted_str)
-            subprocess.run(
-                formatted, shell=False, capture_output=True, text=True,
-                timeout=_HOOK_TIMEOUT_S,
-            )
-    except subprocess.TimeoutExpired:
-        print(f"Perseus hook timeout ({event}): {str(cmd)[:80]}", file=sys.stderr)
-    except Exception as e:
-        print(f"Perseus hook shell error ({event}): {e}", file=sys.stderr)
-
-
-def _fire_plugin_hook(plugin_name: str, payload: dict, cfg: dict, event: str) -> None:
-    """Load and call a Python hook function from a plugin module."""
-    plugins_dir = Path(cfg.get("plugins", {}).get("dir", str(PERSEUS_HOME / "plugins")))
-    py_file = plugins_dir / f"{plugin_name}.py"
-    if not py_file.is_file():
-        return
-    try:
-        spec = importlib.util.spec_from_file_location(
-            f"perseus_hook_{plugin_name}", py_file
-        )
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        fn = getattr(mod, event, None)
-        if fn and callable(fn):
-            fn(payload)
-    except Exception as e:
-        print(f"Perseus hook plugin error ({plugin_name}/{event}): {e}", file=sys.stderr)
-
-
-# ── Event Webhooks (task-72) ─────────────────────────────────────────────────
-
-def _fire_webhook(event: str, payload: dict, cfg: dict) -> None:
-    """POST render lifecycle event to configured webhook URL (fire-and-forget)."""
-    wh = cfg.get("webhooks", {})
-    if not wh.get("enabled") or not wh.get("url"):
-        return
-    if event not in wh.get("events", []):
-        return
-    try:
-        body = json.dumps({
-            "event": event,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "workspace": hashlib.sha256(
-                (payload.get("workspace", "") or "").encode()
-            ).hexdigest()[:16],
-            "data": payload,
-        })
-        data = body.encode("utf-8")
-        req = urllib.request.Request(
-            wh["url"], data=data,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        secret = wh.get("secret", "")
-        if secret:
-            sig = hashlib.sha256(secret.encode() + data).hexdigest()
-            req.add_header("X-Perseus-Signature", f"sha256={sig}")
-        urllib.request.urlopen(req, timeout=wh.get("timeout_s", 5))
-    except Exception as e:
-        print(f"Perseus webhook error ({event}): {e}", file=sys.stderr)
-
-
-# ── Custom Schema Validators (task-70) ───────────────────────────────────────
-
-def _load_plugin_validator(validator_name: str) -> "Callable | None":
-    """Load a custom validator from ~/.perseus/validators/<name>.py.
-    Returns the validate() function or None."""
-    validators_dir = PERSEUS_HOME / "validators"
-    py_file = validators_dir / f"{validator_name}.py"
-    if not py_file.is_file():
-        return None
-    try:
-        spec = importlib.util.spec_from_file_location(
-            f"perseus_validator_{validator_name}", py_file
-        )
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        fn = getattr(mod, "validate", None)
-        if fn and callable(fn):
-            return fn
-    except Exception as e:
-        print(f"Perseus validator error ({validator_name}): {e}", file=sys.stderr)
-    return None
+# Implementation moved to src/perseus/hooks.py.
+# Callers use _fire_hooks(event, payload, cfg).
 
 
 # ── Pipe Syntax (task-71) ────────────────────────────────────────────────────
@@ -5639,26 +5765,17 @@ def _capture_file_snapshot(lines: list[str], workspace: Path | None) -> dict[str
             pass
     return snap
 
-
 def _render_lines(
     lines: list[str],
     cfg: dict,
-    workspace: Path | None = None,
+    workspace: Path | None,
     _constraint_rows: list[str] | None = None,
     _include_depth: int = 0,
     _include_visited: set | None = None,
+    _directive_collector: list[dict] | None = None,
+    _stats: dict | None = None,
 ) -> str:
-    """
-    Core rendering loop. Processes a list of lines (already stripped of the
-    @perseus header) and returns the resolved markdown string.
-
-    This function is called recursively for @if/@else branches.
-
-    _constraint_rows: shared mutable list used to accumulate @constraint rows
-    across the full document so a single table is emitted at the end.
-    _include_depth: current depth of transitive @include recursion.
-    _include_visited: set of resolved paths already included in this chain.
-    """
+    """Core rendering loop. Processes a list of lines and returns resolved markdown."""
     # Top-level call owns the constraint rows list and decides when to flush it
     top_level = _constraint_rows is None
     if top_level:
@@ -5671,11 +5788,7 @@ def _render_lines(
     if top_level and cfg.get("render", {}).get("integrity_check", False):
         _integrity_snapshot = _capture_file_snapshot(lines, workspace)
 
-
     # ── Pre-scan @query directives for parallel resolution ──────────────
-    # When render.parallel_queries is enabled at the top level, collect all
-    # unconditional @query directives and run them concurrently.  Directives
-    # inside @if branches are handled sequentially by recursive calls.
     query_results: dict[int, str] = {}
     if top_level and cfg["render"].get("parallel_queries", False):
         in_fence_pre = False
@@ -5705,14 +5818,11 @@ def _render_lines(
                 if cached is not None:
                     query_results[idx] = cached
                     continue
-                # Mark for parallel execution; resolve after scan
                 query_results[idx] = None  # sentinel: needs resolution
 
-        # Execute unresolved queries in parallel
         pending = [(idx, raw_line) for idx, v in query_results.items() if v is None]
         if len(pending) > 1:
             from concurrent.futures import ThreadPoolExecutor, as_completed
-
             def _run_one(idx: int, raw_line: str) -> tuple[int, str]:
                 m2 = INLINE_DIRECTIVE_RE.match(raw_line)
                 args2 = (m2.group(2) or "").strip()
@@ -5724,7 +5834,6 @@ def _render_lines(
                     ckey = _cache_key(f"@query {clean2}")
                     cache_set(ckey, result, cmode, cttl, cfg)
                 return idx, result
-
             with ThreadPoolExecutor(max_workers=min(len(pending), 8)) as executor:
                 futures = {executor.submit(_run_one, idx, line): idx for idx, line in pending}
                 for future in as_completed(futures):
@@ -5739,7 +5848,6 @@ def _render_lines(
 
     while i < len(lines):
         line = lines[i]
-
         fence_match = re.match(r'^\s*(`{3,}|~{3,})(.*)$', line)
         if in_fence:
             output.append(line)
@@ -5758,7 +5866,7 @@ def _render_lines(
             i += 1
             continue
 
-        # ── @prompt...@end block ──
+        # ── Block directives ──
         if PROMPT_BLOCK_RE.match(line):
             block_lines = []
             i += 1
@@ -5769,19 +5877,15 @@ def _render_lines(
             output.append(resolve_prompt_block("\n".join(block_lines)))
             continue
 
-        # ── @constraint id="..." severity="..." block ──
         m_con = CONSTRAINT_RE.match(line)
         if m_con:
             attrs_str = m_con.group(1)
             con_id = ""
             con_sev = "info"
             mid = re.search(r'id=["\']([^"\']+)["\']', attrs_str)
-            if mid:
-                con_id = mid.group(1)
+            if mid: con_id = mid.group(1)
             msev = re.search(r'severity=["\']([^"\']+)["\']', attrs_str)
-            if msev:
-                con_sev = msev.group(1).upper()
-            # Gather body lines until @end
+            if msev: con_sev = msev.group(1).upper()
             body_lines = []
             i += 1
             while i < len(lines) and not END_RE.match(lines[i]):
@@ -5792,16 +5896,14 @@ def _render_lines(
             _constraint_rows.append(f"| {con_id} | {con_sev} | {rule_text} |")
             continue
 
-        # ── @validate schema="..." block ──
         m_validate = VALIDATE_RE.match(line)
         if m_validate:
             attrs = _parse_kv_modifiers(m_validate.group(1))
             schema_ref = attrs.get("schema")
             if not schema_ref:
-                output.append('> ⚠ @validate: missing schema="..."')
+                output.append('> \u26a0 @validate: missing schema="..."')
                 i += 1
                 continue
-
             block_lines = []
             i += 1
             explicit_end = False
@@ -5812,80 +5914,58 @@ def _render_lines(
                     break
                 block_lines.append(lines[i])
                 i += 1
-
             if not explicit_end:
-                output.append(f"> ⚠ unmatched @validate: missing @end for schema `{schema_ref}`")
+                output.append(f"> \u26a0 unmatched @validate: missing @end for schema `{schema_ref}`")
                 break
-
             rendered_block = _render_lines(block_lines, cfg, workspace, _constraint_rows,
                                            _include_depth=_include_depth,
-                                           _include_visited=_include_visited)
+                                           _include_visited=_include_visited,
+                                           _directive_collector=_directive_collector,
+                                           _stats=_stats)
             output.append(resolve_validate_block(rendered_block, schema_ref, cfg, workspace))
             continue
 
-        # ── @synthesize block (Phase 15C) ──
         m_syn = SYNTHESIZE_BLOCK_RE.match(line)
         if m_syn:
             attrs_str = m_syn.group(1).strip()
             attrs = _parse_kv_modifiers(attrs_str)
-            # Parse attrs: question="...", source="path1,path2", label="...", consistency_mode
             question = attrs.get("question", "What is the current project status and next action?")
             source_attr = attrs.get("source", "")
             sources_list = [s.strip() for s in source_attr.split(",") if s.strip()] if source_attr else []
             label = attrs.get("label", "Generated synthesis")
             consistency_mode = "consistency_mode" in attrs_str.lower().replace("-", "_")
-
-            # Collect body lines until @end (body may also specify question/sources as YAML-like lines)
             body_lines = []
             i += 1
             while i < len(lines) and not END_RE.match(lines[i]):
                 body_lines.append(lines[i])
                 i += 1
             i += 1  # skip @end
-
-            # Body lines can add sources: one bare path per line
             for bline in body_lines:
                 stripped = bline.strip()
                 if stripped and not stripped.startswith("#"):
                     sources_list.append(stripped)
-
             generation_cfg = cfg.get("generation", {})
             if not bool(generation_cfg.get("enabled", False)):
-                # Generation disabled — silently emit nothing (resolved render unaffected)
                 continue
-
             if not sources_list:
-                output.append("> ⚠ @synthesize: no sources specified")
+                output.append("> \u26a0 @synthesize: no sources specified")
                 continue
-
             if workspace is None:
-                output.append("> ⚠ @synthesize: workspace not available")
+                output.append("> \u26a0 @synthesize: workspace not available")
                 continue
-
             try:
-                synth_result, _code = synthesize_question(
-                    question,
-                    sources_list,
-                    cfg,
-                    workspace,
+                synth_result, _code = synthesize_question(question, sources_list, cfg, workspace,
                     llm=cfg.get("llm", {}).get("provider") or cfg.get("generation", {}).get("provider"),
                     model=cfg.get("generation", {}).get("model") or cfg.get("llm", {}).get("model"),
-                    enable_generation=True,
-                    consistency_mode=consistency_mode,
-                )
+                    enable_generation=True, consistency_mode=consistency_mode)
             except Exception as exc:
-                # Failure must never affect the resolved render
-                output.append(f"> ⚠ @synthesize: generation error: {exc}")
+                output.append(f"> \u26a0 @synthesize: generation error: {exc}")
                 continue
-
             if synth_result.get("source_errors") or not synth_result.get("generated"):
-                # Model not configured, sources missing, or generation disabled — skip silently
                 err = synth_result.get("error", "")
                 if err and "generation is disabled" not in err:
-                    output.append(f"> ⚠ @synthesize: {err}")
+                    output.append(f"> \u26a0 @synthesize: {err}")
                 continue
-
-            # Render the curated section — plainly labeled, clearly separated from resolved content
             output.append(f"\n> **{label}** _(generated — not resolver output)_\n")
             claims = synth_result.get("claims", [])
             conflicts = synth_result.get("conflicts", [])
@@ -5895,18 +5975,16 @@ def _render_lines(
                 output.append(f"> {idx}. {claim['text']}")
                 for citation in claim["citations"]:
                     label_c = citation["label"]
-                    s = citation["line_start"]
-                    e = citation["line_end"]
+                    s, e = citation["line_start"], citation["line_end"]
                     ref = f"{s}" if s == e else f"{s}-{e}"
                     output.append(f">    - {label_c}:{ref} `{citation['quote']}`")
             if conflicts:
                 output.append("> \n> **Source disagreements:**")
                 for idx, conflict in enumerate(conflicts, start=1):
-                    output.append(f"> {idx}. ⚠ {conflict['description']}")
+                    output.append(f"> {idx}. \u26a0 {conflict['description']}")
                     for ref in conflict["sources"]:
                         label_c = ref["label"]
-                        s = ref["line_start"]
-                        e = ref["line_end"]
+                        s, e = ref["line_start"], ref["line_end"]
                         lref = f"{s}" if s == e else f"{s}-{e}"
                         output.append(f">    - {label_c}:{lref} `{ref['quote']}`")
             dropped = synth_result.get("dropped_claims", [])
@@ -5916,7 +5994,6 @@ def _render_lines(
                 output.append(f"> \n> _{total} uncited item(s) dropped by citation gate._")
             continue
 
-        # ── @services block ──
         if SERVICES_RE.match(line):
             block_lines = []
             i += 1
@@ -5928,71 +6005,60 @@ def _render_lines(
                     i += 1
                     break
                 if next_line.startswith("@") and next_line.strip() != "@":
-                    if block_lines:
-                        break
-                    output.append("> ⚠ @services: empty block")
+                    if block_lines: break
+                    output.append("> \u26a0 @services: empty block")
                     break
                 block_lines.append(next_line)
                 i += 1
-
-            while block_lines and block_lines[-1].strip() == "":
-                block_lines.pop()
-
+            while block_lines and block_lines[-1].strip() == "": block_lines.pop()
             block_content = "\n".join(block_lines)
             if not block_content.strip() and explicit_end:
-                output.append("> ⚠ @services: empty block")
+                output.append("> \u26a0 @services: empty block")
             else:
                 output.append(resolve_services(block_content, cfg))
             continue
 
-        # ── @if/@else/@endif block ──
         m_if = IF_RE.match(line)
         if m_if:
             condition_str = m_if.group(1).strip()
-            true_lines: list[str] = []
-            false_lines: list[str] = []
+            true_lines, false_lines = [], []
             in_else = False
             i += 1
-            depth = 1  # track nested @if depth
+            depth = 1
             while i < len(lines):
                 inner = lines[i]
-                if IF_RE.match(inner):
-                    depth += 1
+                if IF_RE.match(inner): depth += 1
                 elif ENDIF_RE.match(inner):
                     depth -= 1
                     if depth == 0:
-                        i += 1  # skip @endif
+                        i += 1
                         break
                 elif ELSE_RE.match(inner) and depth == 1:
                     in_else = True
                     i += 1
                     continue
-                if in_else:
-                    false_lines.append(inner)
-                else:
-                    true_lines.append(inner)
+                if in_else: false_lines.append(inner)
+                else: true_lines.append(inner)
                 i += 1
-
             if depth != 0:
-                output.append(f"> ⚠ unmatched @if: missing @endif for `{condition_str}`")
+                output.append(f"> \u26a0 unmatched @if: missing @endif for `{condition_str}`")
                 break
-
-            # Evaluate condition and render the correct branch
             try:
                 branch = true_lines if evaluate_condition(condition_str, workspace, cfg) else false_lines
             except ConditionParseError as exc:
-                output.append(f"> ⚠ @if error: {exc}")
+                output.append(f"> \u26a0 @if error: {exc}")
                 continue
             if branch:
                 output.append(_render_lines(branch, cfg, workspace, _constraint_rows,
                                              _include_depth=_include_depth,
-                                             _include_visited=_include_visited))
+                                             _include_visited=_include_visited,
+                                             _directive_collector=_directive_collector,
+                                             _stats=_stats))
             continue
 
-        # ── inline directives (with optional @cache modifier) ──
+        # ── inline directives ──
         m = INLINE_DIRECTIVE_RE.match(line)
         if m:
-            # task-71: pipe syntax — chain directives with |
             raw_line = line
             pipe_stages = _parse_pipe_stages(raw_line)
             if len(pipe_stages) > 1:
@@ -6005,76 +6071,88 @@ def _render_lines(
             directive = m.group(1).lower()
             raw_args = (m.group(2) or "").strip()
 
-            # If this @query was pre-resolved in parallel mode, use the result
             if directive == "@query" and i in query_results:
                 output.append(query_results[i])
                 i += 1
                 continue
 
-            # @memory ttl=N → syntactic sugar for @cache ttl=N
             if directive == "@memory" and "@cache" not in raw_args.lower():
                 m_ttl = re.search(r'\bttl=(\d+)\b', raw_args, re.IGNORECASE)
                 if m_ttl:
                     raw_args = (raw_args[:m_ttl.start()] + raw_args[m_ttl.end():]).strip()
                     raw_args = f"{raw_args} @cache ttl={m_ttl.group(1)}".strip()
 
-            # Strip @cache modifier from args; determine cache mode
             clean_args, cache_mode, cache_ttl, cache_mock = _parse_cache_modifier(raw_args)
-
-            # Build stable cache key from directive + clean args
             cache_key = _cache_key(f"{directive} {clean_args}")
 
-            # @cache mock — substitute the mock value, bypass execution entirely
             if cache_mode == "mock":
-                output.append(cache_mock or "(mock — directive skipped)")
+                output.append(cache_mock or "(mock \u2014 directive skipped)")
                 i += 1
                 continue
 
-            # Check cache first
+            if _stats is not None:
+                _stats["directive_count"] += 1
+
             spec = DIRECTIVE_REGISTRY.get(directive)
             cached = cache_get(cache_key, cache_mode, cache_ttl, cfg)
             if cached is not None:
-                # task-67: on_cache_hit hook
+                if _stats is not None: _stats["cache_hits"] += 1
                 _fire_hooks("on_cache_hit", {
-                    "directive": directive,
+                    "directive_name": directive,
                     "cache_key": cache_key,
-                }, cfg, workspace)
+                    "age_s": 0,
+                }, cfg)
+                if _directive_collector is not None:
+                    _directive_collector.append({
+                        "name": directive.lstrip("@"),
+                        "args": clean_args,
+                        "output": cached,
+                        "cached": True,
+                        "duration_ms": 0
+                    })
                 if spec and spec.kind == "inline":
                     cached = _apply_output_schema_validation(spec, clean_args, cached, workspace)
                 output.append(cached)
                 i += 1
                 continue
 
-            # task-67: on_cache_miss hook (when cache is configured but cold)
             if cache_mode:
+                if _stats is not None: _stats["cache_misses"] += 1
                 _fire_hooks("on_cache_miss", {
-                    "directive": directive,
+                    "directive_name": directive,
                     "cache_key": cache_key,
-                }, cfg, workspace)
+                }, cfg)
 
-            # @include — intercept for recursive rendering with depth/cycle tracking
             if directive == "@include" and spec and spec.resolver:
                 result = spec.resolver(clean_args, workspace, cfg,
                                        _depth=_include_depth,
-                                       _visited=_include_visited.copy() if _include_visited is not None else None)
+                                       _visited=_include_visited.copy() if _include_visited is not None else None,
+                                       _directive_collector=_directive_collector,
+                                       _stats=_stats)
                 result = _apply_output_schema_validation(spec, clean_args, result, workspace)
-            # Resolve the directive via registry (task-25)
             elif spec and spec.resolver and spec.kind == "inline":
                 _resolve_ts = time.time()
                 result = _call_resolver(spec, clean_args, cfg, workspace)
+                _duration_ms = int((time.time() - _resolve_ts) * 1000)
                 result = _apply_output_schema_validation(spec, clean_args, result, workspace)
-                # task-67: on_directive_resolved hook
+                if _directive_collector is not None:
+                    _directive_collector.append({
+                        "name": directive.lstrip("@"),
+                        "args": clean_args,
+                        "output": result,
+                        "cached": False,
+                        "duration_ms": _duration_ms
+                    })
                 _fire_hooks("on_directive_resolved", {
-                    "directive": directive,
+                    "name": directive,
                     "args": clean_args[:200],
-                    "result_len": len(result),
-                    "cached": False,
-                    "duration_ms": int((time.time() - _resolve_ts) * 1000),
-                }, cfg, workspace)
+                    "result_truncated": result[:200] if isinstance(result, str) else "",
+                    "cache_hit": False,
+                    "duration_ms": _duration_ms,
+                }, cfg)
             else:
                 result = line
 
-            # Store in cache if a modifier was specified
             if cache_mode:
                 cache_set(cache_key, result, cache_mode, cache_ttl, cfg)
 
@@ -6082,32 +6160,23 @@ def _render_lines(
             i += 1
             continue
 
-        # Inline @date substitution within any line
         if "@date" in line:
             line = _replace_inline_date_outside_code(line, workspace)
         output.append(line)
         i += 1
 
-    # ── Integrity drift check (top-level only) ──
     if top_level and _integrity_snapshot:
         drift_warnings = []
         for path_str, orig_mtime in _integrity_snapshot.items():
             try:
                 current = Path(path_str).stat().st_mtime
                 if current != orig_mtime:
-                    drift_warnings.append(
-                        f"> ⚠ Integrity drift: `{path_str}` was modified "
-                        f"during render (mtime changed). Output may be inconsistent."
-                    )
+                    drift_warnings.append(f"> \u26a0 Integrity drift: `{path_str}` was modified during render.")
             except OSError:
-                drift_warnings.append(
-                    f"> ⚠ Integrity drift: `{path_str}` was deleted "
-                    f"during render. Output may be inconsistent."
-                )
+                drift_warnings.append(f"> \u26a0 Integrity drift: `{path_str}` was deleted during render.")
         if drift_warnings:
             output.insert(0, "\n".join(drift_warnings) + "\n")
 
-    # ── Flush constraint table at top-level only ──
     if top_level and _constraint_rows:
         header = "| ID | Severity | Rule |\n|---|---|---|"
         output.append(header + "\n" + "\n".join(_constraint_rows))
@@ -6121,56 +6190,60 @@ def render_source(
     workspace: Path | None = None,
     _include_depth: int = 0,
     _include_visited: set | None = None,
+    _directive_collector: list[dict] | None = None,
+    _stats: dict | None = None,
 ) -> str:
     """
     Parse and resolve a @perseus source document.
     Returns plain rendered markdown.
-
-    _include_depth: current depth of transitive @include recursion.
-    _include_visited: set of resolved paths already visited in this include chain.
     """
     lines = source_text.splitlines()
 
     # Must start with @perseus
     if not lines or not PERCY_HEADER_RE.match(lines[0]):
-        return source_text  # not a perseus doc; pass through unchanged
+        return source_text
 
-    # task-65: discover and merge plugin directives before any directive matching.
-    # Idempotent per plugins dir, so the per-render overhead is one dict lookup
-    # after the first call.
     if _include_depth == 0:
         register_plugins(cfg)
+        register_hooks(cfg)
 
-    # task-67: on_render_start hook (top-level only)
-    _render_start_ts = time.time()
-    _fire_hooks("on_render_start", {
-        "source": getattr(source_text, "__class__", "").__name__,
-        "workspace": str(workspace) if workspace else "",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }, cfg, workspace)
+    if _stats is None:
+        _stats = {
+            "directive_count": 0,
+            "cache_hits": 0,
+            "cache_misses": 0,
+        }
 
-    # task-66: expand directive macros before rendering (top-level only)
+    _render_start_ts = time.time() if _include_depth == 0 else None
+    if _include_depth == 0:
+        _fire_hooks("on_render_start", {
+            "source_path": ".perseus/context.md",
+            "workspace": str(workspace) if workspace else "",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }, cfg)
+
     body_lines = lines[1:]
-
-    # task-74: expand directive aliases (single-pass, before macros)
     body_lines = _expand_aliases(body_lines, cfg)
-
     macros = _load_macros(body_lines, workspace, cfg)
     if macros:
         body_lines = _expand_macros(body_lines, macros)
 
-    result = _render_lines(body_lines, cfg, workspace,
+    _constraint_rows = []
+    result = _render_lines(body_lines, cfg, workspace, _constraint_rows,
                          _include_depth=_include_depth,
-                         _include_visited=_include_visited)
+                         _include_visited=_include_visited,
+                         _directive_collector=_directive_collector,
+                         _stats=_stats)
 
-    # task-67: on_render_complete hook (top-level only)
-    _fire_hooks("on_render_complete", {
-        "source": ".perseus/context.md",
-        "workspace": str(workspace) if workspace else "",
-        "line_count": len(body_lines),
-        "duration_ms": int((time.time() - _render_start_ts) * 1000),
-        "errors": result.count("⚠"),
-    }, cfg, workspace)
+    if _include_depth == 0 and _render_start_ts is not None:
+        _fire_hooks("on_render_complete", {
+            "source_path": ".perseus/context.md",
+            "output_path": "",
+            "duration_ms": int((time.time() - _render_start_ts) * 1000),
+            "directive_count": _stats["directive_count"],
+            "cache_hits": _stats["cache_hits"],
+            "cache_misses": _stats["cache_misses"],
+        }, cfg)
 
     return result
 
@@ -6187,59 +6260,46 @@ def render_source_with_meta(
     source_text: str,
     cfg: dict,
     workspace: Path | None = None,
-    _include_depth: int = 0,
-    _include_visited: set | None = None,
 ) -> RenderResult:
     """Like render_source() but returns structured RenderResult with metadata."""
-    lines = source_text.splitlines()
-    if not lines or not PERCY_HEADER_RE.match(lines[0]):
-        return RenderResult(text=source_text, directives=[], meta={})
+    _stats = {
+        "directive_count": 0,
+        "cache_hits": 0,
+        "cache_misses": 0,
+    }
+    _directives_collector = []
+    text = render_source(source_text, cfg, workspace,
+                         _directive_collector=_directives_collector,
+                         _stats=_stats)
 
-    # task-65: ensure plugin directives are registered before resolution
-    if _include_depth == 0:
-        register_plugins(cfg)
-
-    _render_start_ts = time.time()
-    _fire_hooks("on_render_start", {
+    meta = {
         "source": ".perseus/context.md",
-        "workspace": str(workspace) if workspace else "",
+        "workspace": str(workspace) if workspace else str(Path.cwd()),
         "timestamp": datetime.now(timezone.utc).isoformat(),
-    }, cfg, workspace)
-
-    body_lines = lines[1:]
-    body_lines = _expand_aliases(body_lines, cfg)
-    macros = _load_macros(body_lines, workspace, cfg)
-    if macros:
-        body_lines = _expand_macros(body_lines, macros)
-
-    text = _render_lines(body_lines, cfg, workspace,
-                         _include_depth=_include_depth,
-                         _include_visited=_include_visited)
-
-    _fire_hooks("on_render_complete", {
-        "source": ".perseus/context.md",
-        "workspace": str(workspace) if workspace else "",
-        "line_count": len(body_lines),
-        "duration_ms": int((time.time() - _render_start_ts) * 1000),
-        "errors": text.count("\u26a0"),
-    }, cfg, workspace)
-
-    # Collect directive metadata from the result text
-    directives_meta = []
-    for m in re.finditer(r'@(\w+)', text):
-        directives_meta.append({"name": f"@{m.group(1)}", "output": ""})
+        "version": _PERSEUS_VERSION,
+        "cache_stats": {"hits": _stats["cache_hits"], "misses": _stats["cache_misses"]},
+        "directive_count": _stats["directive_count"],
+    }
 
     return RenderResult(
         text=text,
-        directives=directives_meta,
-        meta={
-            "source": ".perseus/context.md",
-            "workspace": str(workspace) if workspace else "",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "duration_ms": int((time.time() - _render_start_ts) * 1000),
-            "errors": text.count("\u26a0"),
-        },
+        directives=_directives_collector,
+        meta=meta,
     )
+
+
+def render_source_json(
+    source_text: str,
+    cfg: dict,
+    workspace: Path | None = None,
+) -> str:
+    """Resolve a @perseus source document and return structured JSON."""
+    result = render_source_with_meta(source_text, cfg, workspace)
+    return json.dumps({
+        "resolved": result.text,
+        "directives": result.directives,
+        "metadata": result.meta,
+    }, indent=2, default=str)
 
 
 def render_source_html(
@@ -6263,6 +6323,52 @@ def render_source_html(
     return html_document(body, title, timestamp, version)
 
 
+def render_output(
+    source_text: str,
+    fmt: str,
+    cfg: dict,
+    workspace: Path | None = None,
+    title: str | None = None,
+) -> str:
+    """Resolve source and format output using built-in or custom adapter."""
+    # Built-in formats
+    if fmt in ("md", "markdown"):
+        rendered = render_source(source_text, cfg, workspace)
+        rendered, _report = redact_text(rendered, cfg)
+        if _report.get("total", 0) > 0:
+            audit_event(cfg, "redaction", surface="render",
+                        total=int(_report.get("total", 0)), counts=_report.get("counts", {}))
+        return rendered
+    elif fmt == "html":
+        t = title or "Workspace Context"
+        return render_source_html(source_text, cfg, workspace, title=t)
+    elif fmt == "json":
+        return render_source_json(source_text, cfg, workspace)
+
+    # Assistant formats (Phase 24)
+    if fmt in ("agents-md", "claude-md", "cursorrules", "copilot-instructions"):
+        rendered = render_source(source_text, cfg, workspace)
+        rendered, _report = redact_text(rendered, cfg)
+        if _report.get("total", 0) > 0:
+            audit_event(cfg, "redaction", surface="render",
+                        total=int(_report.get("total", 0)), counts=_report.get("counts", {}))
+        return wrap_rendered(rendered, fmt, _PERSEUS_VERSION)
+
+    # Custom formats (task-68)
+    custom_formats = _discover_formats(cfg)
+    if fmt in custom_formats:
+        result = render_source_with_meta(source_text, cfg, workspace)
+        metadata = result.meta.copy()
+        metadata["directives"] = result.directives
+        try:
+            return custom_formats[fmt](result.text, metadata)
+        except Exception as e:
+            return f"> ⚠ Format error: custom adapter '{fmt}' failed: {e}"
+
+    # Default: markdown with a warning if format unknown
+    if fmt:
+        print(f"Perseus warning: unknown format '{fmt}'; falling back to markdown", file=sys.stderr)
+    return render_output(source_text, "markdown", cfg, workspace)
 # ──────────────────────────────── Checkpoint ──────────────────────────────────
 
 def cmd_checkpoint(args, cfg):
@@ -9909,38 +10015,11 @@ def cmd_render(args, cfg):
 
     text = source_path.read_text(errors="replace")
     fmt = getattr(args, "format", "md")
+    title = source_path.stem.replace("-", " ").replace("_", " ").title()
+
+    rendered = render_output(text, fmt, cfg, workspace, title=title)
+
     is_assistant_format = fmt in ("agents-md", "claude-md", "cursorrules", "copilot-instructions")
-
-    if fmt == "html":
-        title = source_path.stem.replace("-", " ").replace("_", " ").title()
-        rendered = render_source_html(text, cfg, workspace, title=title)
-    elif fmt == "json":
-        result = render_source_with_meta(text, cfg, workspace)
-        import json as _json
-        rendered = _json.dumps({
-            "meta": result.meta,
-            "resolved": result.text,
-            "directives": result.directives,
-            "integrity": {"drift_detected": False, "drift_files": []},
-        }, indent=2, default=str)
-    else:
-        rendered = render_source(text, cfg, workspace)
-        # task-46: redact before the rendered text crosses the trust boundary
-        # (file write, stdout, or downstream pipe). Source file on disk is
-        # never modified.
-        rendered, _report = redact_text(rendered, cfg)
-        # task-47: audit redaction crossing the rendered-output trust boundary.
-        if _report.get("total", 0) > 0:
-            audit_event(cfg, "redaction",
-                        surface="render",
-                        total=int(_report.get("total", 0)),
-                        counts=_report.get("counts", {}))
-
-    # Phase 24: assistant format wrapping (AGENTS.md, CLAUDE.md, etc.)
-    if is_assistant_format:
-        version = _PERSEUS_VERSION
-        rendered = wrap_rendered(rendered, fmt, version)
-
     output = getattr(args, "output", None)
     # Phase 24: auto-resolve default output path for assistant formats
     if is_assistant_format and not output:
@@ -11051,25 +11130,46 @@ def cmd_validate(args, cfg) -> int:
     """Validate a payload against a Perseus schema."""
     workspace = Path(args.workspace).expanduser().resolve() if getattr(args, "workspace", None) else Path.cwd().resolve()
     schema_ref = args.schema
-    schema_path, schema_data, schema_error = _load_schema(schema_ref, workspace)
-    schema_label = str(schema_path or schema_ref)
-
     data, input_label, input_error = _validate_cli_payload(args)
-    if schema_error or input_error:
-        payload = {
-            "ok": False,
-            "schema": schema_label,
-            "input": input_label,
-            "errors": [],
-            "error": schema_error or input_error,
-        }
+    if input_error:
+        payload = {"ok": False, "input": input_label, "errors": [], "error": input_error}
         if getattr(args, "json", False):
             print(json.dumps(payload, indent=2))
         else:
             print(f"Error: {payload['error']}")
         return 2
 
-    errors = _validate_basic_schema(data, schema_data)
+    if isinstance(schema_ref, str) and schema_ref.startswith("plugin:"):
+        validator_name = schema_ref[7:]
+        schema_label = schema_ref
+        try:
+            validator_fn = _load_plugin_validator(validator_name, workspace)
+            if not validator_fn:
+                if getattr(args, "json", False):
+                    print(json.dumps({"ok": False, "schema": schema_label, "error": f"plugin validator `{validator_name}` not found"}, indent=2))
+                else:
+                    print(f"Error: plugin validator `{validator_name}` not found")
+                return 2
+            valid, message = validator_fn(data, {})
+            errors = [] if valid else [message]
+        except Exception as e:
+            if getattr(args, "json", False):
+                print(json.dumps({"ok": False, "schema": schema_label, "error": str(e)}, indent=2))
+            else:
+                print(f"Error: {e}")
+            return 2
+    else:
+        schema_path, schema_data, schema_error = _load_schema(schema_ref, workspace)
+        schema_label = str(schema_path or schema_ref)
+        if schema_error:
+            payload = {"ok": False, "schema": schema_label, "input": input_label, "errors": [], "error": schema_error}
+            if getattr(args, "json", False):
+                print(json.dumps(payload, indent=2))
+            else:
+                print(f"Error: {payload['error']}")
+            return 2
+        errors = _validate_basic_schema(data, schema_data)
+
     payload = {
         "ok": not errors,
         "schema": schema_label,
