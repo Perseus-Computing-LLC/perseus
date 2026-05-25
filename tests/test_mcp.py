@@ -92,9 +92,10 @@ def test_legacy_get_health_preserved(tmp_path):
 
 def test_doctor_includes_mcp_check():
     """perseus doctor includes MCP server readiness."""
+    ROOT = str(Path(__file__).resolve().parent.parent)
     result = subprocess.run(
         [sys.executable, "perseus.py", "doctor", "--json"],
-        capture_output=True, text=True, cwd="/workspace/perseus"
+        capture_output=True, text=True, cwd=ROOT
     )
     data = json.loads(result.stdout)
     check_ids = [c["id"] for c in data["checks"]]
@@ -103,10 +104,11 @@ def test_doctor_includes_mcp_check():
 
 def test_stdio_handshake():
     """Stdio transport handles initialize -> tools/list -> tools/call."""
+    ROOT = str(Path(__file__).resolve().parent.parent)
     proc = subprocess.Popen(
         [sys.executable, "perseus.py", "mcp", "serve", "--workspace", "/tmp"],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        text=True, cwd="/workspace/perseus"
+        text=True, cwd=ROOT
     )
     try:
         # Initialize
