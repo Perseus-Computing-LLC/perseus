@@ -1,0 +1,15 @@
+version: 1
+name: golden-pack
+profile: generic
+trust_profile: balanced
+renders:
+  - name: default
+    source: context.md
+    output: live-context.md
+    assistant: generic
+synthesis:
+  - name: cited-status
+    question: What is the pack status?
+    sources:
+      - status.md
+    enabled: false

@@ -1,0 +1,11 @@
+type: map
+mapping:
+  "output":
+    type: str
+    required: yes
+  "exit_code":
+    type: int
+    required: yes
+  "error":
+    type: any
+    required: no

@@ -1,0 +1,68 @@
+{
+  "name": "perseus-context",
+  "displayName": "Perseus — Live Context Engine",
+  "description": "Resolves live workspace state before it reaches your AI assistant's context window. Eliminates cold-start discovery calls.",
+  "version": "1.0.0",
+  "publisher": "tcconnally",
+  "license": "MIT",
+  "icon": "icon.png",
+  "repository": "https://github.com/tcconnally/perseus",
+  "engines": { "vscode": "^1.80.0" },
+  "categories": ["Other", "Machine Learning"],
+  "keywords": ["ai", "context", "assistant", "claude", "cursor", "codex", "copilot", "perseus"],
+  "activationEvents": [
+    "workspaceContains:.perseus/context.md",
+    "onCommand:perseus.render",
+    "onCommand:perseus.init"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "perseus.render",
+        "title": "Perseus: Render Context Now"
+      },
+      {
+        "command": "perseus.init",
+        "title": "Perseus: Initialize Workspace"
+      },
+      {
+        "command": "perseus.watch",
+        "title": "Perseus: Start Watching Context"
+      }
+    ],
+    "configuration": {
+      "title": "Perseus",
+      "properties": {
+        "perseus.autoRender": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically render context when .perseus/context.md changes"
+        },
+        "perseus.outputFile": {
+          "type": "string",
+          "default": ".hermes.md",
+          "description": "Output file for rendered context (CLAUDE.md, AGENTS.md, .cursorrules, or .hermes.md)"
+        },
+        "perseus.assistant": {
+          "type": "string",
+          "default": "auto",
+          "enum": ["auto", "claude", "cursor", "codex", "hermes", "copilot"],
+          "description": "Target AI assistant (auto-detects from workspace files)"
+        },
+        "perseus.showStatusBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show Perseus render status in the status bar"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.80.0"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.tcconnally/perseus",
+  "title": "Perseus — Live Context Engine",
+  "description": "Compile-before-context engine: pre-resolves workspace state into markdown before the AI sees it.",
+  "version": "1.0.3",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "perseus-ctx",
+      "version": "1.0.3",
+      "packageArguments": [
+        {"type": "positional", "value": "mcp"},
+        {"type": "positional", "value": "serve"}
+      ],
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ],
+  "websiteUrl": "https://github.com/tcconnally/perseus",
+  "repository": {
+    "source": "github",
+    "url": "https://github.com/tcconnally/perseus"
+  }
+}
