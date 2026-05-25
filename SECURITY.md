@@ -15,7 +15,7 @@ If you discover a security vulnerability in Perseus, please report it to us priv
 
 **Do not open a public GitHub issue for security vulnerabilities.**
 
-Please report security issues via email to **thomas@connally.net**.
+Please report security issues via email to **perseus@perseus.observer**.
 
 ### What to Expect
 
