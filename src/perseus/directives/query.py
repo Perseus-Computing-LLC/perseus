@@ -123,20 +123,16 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
                 f"Set render.max_query_bytes to increase."
             )
 
-        # schema validation: pure-Python Phase 12 subset, with schema refs
-        # resolved via <workspace>/.perseus/schemas/ before workspace root.
+        # schema validation: route through _validate_against_schema_ref which
+        # handles built-in schemas and plugin: validators (task-70).
         if schema_path:
             try:
                 data = yaml.safe_load(stdout)
             except Exception:
                 return f"> ⚠ `@query` schema validation: stdout is not valid YAML.\n\n```{lang}\n{stdout}\n```"
-            schema_file, schema_data, schema_error = _load_schema(schema_path, workspace)
-            schema_label = str(schema_file or schema_path)
-            if schema_error:
-                return f"> ⚠ `@query` schema error: {schema_error}"
-            validation_errors = _validate_basic_schema(data, schema_data)
-            if validation_errors:
-                return _schema_validation_error("@query", schema_label, validation_errors)
+            warning = _validate_against_schema_ref(data, schema_path, workspace, "@query")
+            if warning:
+                return warning
 
         return f"```{lang}\n{stdout}\n```"
 

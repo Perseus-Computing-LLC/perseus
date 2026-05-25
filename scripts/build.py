@@ -20,6 +20,7 @@ from pathlib import Path
 MODULE_ORDER = [
     "src/perseus/__init__.py",
     "src/perseus/config.py",
+    "src/perseus/hooks.py",
     "src/perseus/registry.py",
     "src/perseus/macros.py",
     "src/perseus/redaction.py",
@@ -77,7 +78,7 @@ STDLIB_REMINDER_RE = re.compile(
 )
 
 # Baseline line count for drift detection.
-BASELINE_LINES = 12748  # Phase 24: all 10 extensibility tasks complete
+BASELINE_LINES = 13410  # Phase 24: all 10 extensibility tasks complete
 
 
 def build() -> None:

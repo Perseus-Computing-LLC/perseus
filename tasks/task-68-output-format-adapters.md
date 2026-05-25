@@ -1,11 +1,12 @@
 ---
 id: task-68
 title: Phase 24D — Output Format Adapters
-status: open
+status: completed
 priority: medium
 scope: medium
-claimed_by: null
+claimed_by: hermes
 created: 2026-05-24
+closed: 2026-05-25
 phase: 24
 theme: "Extensibility Architecture — Hephaestus"
 depends_on:
@@ -123,3 +124,8 @@ Documented in `docs/AGENT_SURFACES.md`.
 - Do not add streaming/chunked format output
 - Do not add format-specific directive behavior
 - Do not add a format registry or marketplace
+
+## Completed
+
+- Implemented in Phase 24 sprint (2026-05-24–25)
+- Full test suite: 661 passed, 1 skipped

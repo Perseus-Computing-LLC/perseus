@@ -1,9 +1,45 @@
 # stdlib imports available from build artifact header
-# ───── Phase 17C — audit log (task-47) ────────────────────────────────────────
+# Callers can disable via `audit.enabled = false`.
+_VALIDATOR_CACHE: dict[str, Callable] = {}
+
+
+def _load_plugin_validator(validator_name: str, workspace: Path | None) -> Callable | None:
+    """Load a custom validator from .perseus/schemas/<name>.py.
+    Returns the validate() function or None."""
+    if validator_name in _VALIDATOR_CACHE:
+        return _VALIDATOR_CACHE[validator_name]
+
+    # Discovery: .perseus/schemas/<name>.py
+    # Try workspace first, then relative to current dir
+    candidates = []
+    if workspace:
+        candidates.append(workspace / ".perseus" / "schemas" / f"{validator_name}.py")
+    candidates.append(Path(".perseus") / "schemas" / f"{validator_name}.py")
+
+    py_file = next((p for p in candidates if p.exists()), None)
+    if not py_file:
+        return None
+
+    try:
+        spec = importlib.util.spec_from_file_location(
+            f"perseus_validator_{validator_name}", py_file
+        )
+        if not spec or not spec.loader:
+            return None
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        fn = getattr(mod, "validate", None)
+        if fn and callable(fn):
+            _VALIDATOR_CACHE[validator_name] = fn
+            return fn
+    except Exception as e:
+        # Rethrow so the caller can handle it as a skip-and-pass or render warning
+        raise e
+    return None
 
 
 def _audit_log_path(cfg: dict) -> Path:
-    """Resolve the audit log path, expanding ~ and falling back to PERSEUS_HOME."""
+
     raw = (cfg.get("audit") or {}).get("log_path") or str(PERSEUS_HOME / "audit_log.jsonl")
     return Path(str(raw)).expanduser()
 
@@ -429,16 +465,21 @@ def _validate_against_schema_ref(
     # task-70: plugin: prefix loads a custom validator
     if isinstance(schema_ref, str) and schema_ref.startswith("plugin:"):
         validator_name = schema_ref[7:]
-        validator_fn = _load_plugin_validator(validator_name)
-        if not validator_fn:
-            return f"> ⚠ `{source}` schema error: plugin validator `{validator_name}` not found"
         try:
-            valid, message = validator_fn(data, {})
+            validator_fn = _load_plugin_validator(validator_name, workspace)
+            if not validator_fn:
+                return f"> ⚠ `{source}` schema error: plugin validator `{validator_name}` not found"
+            # Parse data if it's a string (e.g. from _apply_output_schema_validation)
+            # so the plugin receives the parsed object as expected.
+            parsed_data = _parse_validation_payload(data) if isinstance(data, str) else data
+            valid, message = validator_fn(parsed_data, {})
             if not valid:
                 return f"> ⚠ `{source}` validation failed ({validator_name}): {message}"
             return None
         except Exception as e:
-            return f"> ⚠ `{source}` validator error ({validator_name}): {e}"
+            # AC #5, #6: warning, validation skipped (value passes)
+            sys.stderr.write(f"Perseus validator error ({validator_name}): {e}\n")
+            return None
     schema_path, schema_data, schema_error = _load_schema(schema_ref, workspace)
     schema_label = str(schema_path or schema_ref)
     if schema_error:
