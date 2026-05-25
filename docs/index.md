@@ -71,4 +71,4 @@ spec/                   ← Normative design specifications
 
 ## Version
 
-Current release: **v1.0.3** — Phases 1–20 shipped. 604 tests passing.
+Current release: **v1.0.4** — All 25 phases shipped. 604 tests passing.

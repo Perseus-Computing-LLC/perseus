@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "perseus-ctx"
-version = "1.0.3"
+version = "1.0.4"
 description = "Live context engine for AI assistants — resolve before context, zero cold-start tax."
 readme = "README.md"
 license = { text = "MIT" }
