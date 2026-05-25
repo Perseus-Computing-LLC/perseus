@@ -2,7 +2,9 @@
 # ──────────────────────────────── @include ────────────────────────────────────
 
 def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | None = None,
-                    *, _depth: int = 0, _visited: set | None = None) -> str:
+                    *, _depth: int = 0, _visited: set | None = None,
+                    _directive_collector: list[dict] | None = None,
+                    _stats: dict | None = None) -> str:
     """
     @include <file>
 
@@ -78,7 +80,9 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
             try:
                 # Render the included file through Perseus with incremented depth
                 rendered = render_source(raw, cfg, workspace, _include_depth=_depth + 1,
-                                         _include_visited=_visited.copy())
+                                         _include_visited=_visited.copy(),
+                                         _directive_collector=_directive_collector,
+                                         _stats=_stats)
                 return trunc_note + rendered
             except RecursionError:
                 return "> ⚠ @include: recursion limit exceeded."
