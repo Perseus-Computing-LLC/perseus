@@ -53,8 +53,8 @@ checkpoints feed it.
 | **Inbox** | Per-workspace point-to-point message store + `@inbox` directive | ✅ Phase 8 |
 | **Cron** | Cross-platform scheduler (macOS/Linux/BSD) — bridges launchd + systemd | ✅ Phase 8 |
 | **Synthesis** | Opt-in cited synthesis claims; uncited LLM output is dropped | ✅ Phase 15A |
-| **Hephaestus** | Extensibility architecture — plugin directives, macros, hooks, format adapters, pipe syntax | 🔲 Phase 24 |
-| **MCP Integration** | Expose every directive as an MCP tool for universal AI client compatibility | 🔲 Phase 25 |
+| **Hephaestus** | Extensibility architecture — plugin directives, macros, hooks, format adapters, pipe syntax | ✅ Phase 24 |
+| **MCP Integration** | Expose every directive as an MCP tool for universal AI client compatibility | ✅ Phase 25 |
 
 ---
 
@@ -444,8 +444,8 @@ Phase 20 (done):  Managed Runtime and Deployment Modes
 Phase 21 (done):  Evaluation, Performance, and Compatibility Gates
 Phase 22 (done):  v1 Release Candidate
 Phase 23 (done):  HTML Output — `perseus render --format html`
-Phase 24:          Extensibility Architecture (Hephaestus) — tasks/task-65 through task-74
-Phase 25:          MCP Deep Integration — tasks/task-75
+Phase 24 (done):   Extensibility Architecture (Hephaestus) — tasks/task-65 through task-74
+Phase 25 (done):   MCP Deep Integration — tasks/task-75
 ```
 
 ---
@@ -876,7 +876,7 @@ document template. Zero new dependencies. 596 tests passing.
 
 ---
 
-### Phase 24 — Extensibility Architecture
+### Phase 24 — Extensibility Architecture ✅ Complete
 
 **Goal:** Perseus becomes extensible without source patching. Users can add
 directives, macros, validators, format adapters, pipeline hooks, and remote
@@ -1056,7 +1056,7 @@ in any order once 24A lands.
 
 ---
 
-## Phase 25 — MCP Deep Integration
+## Phase 25 — MCP Deep Integration ✅ Complete
 
 **Goal:** Bridge Perseus into the broader AI ecosystem by exposing every
 directive as a first-class MCP tool. Any MCP-compatible client — Claude Desktop,
@@ -1073,7 +1073,10 @@ Each directive in the `DIRECTIVE_REGISTRY` (built-in + plugin) becomes an MCP
 tool named `perseus_<name>`. Tool descriptions and input schemas are
 auto-generated from registry metadata. Trust gates are enforced per-tool.
 
-**Status:** Task file written (`tasks/task-75-mcp-deep-integration.md`).
+**Status:** Complete. `perseus mcp serve` runs a JSON-RPC 2.0 MCP server over stdio,
+exposing all directive registry entries (built-in + plugin) as `perseus_<name>` tools.
+Trust gates enforced per-tool. Backward compatible with existing `perseus_get_context` /
+`perseus_get_health`. MCP Registry listing published live.
 
 Full spec in the task file. Covers:
 - Tool mapping for all built-in directives
@@ -1160,19 +1163,19 @@ Phase 22C ─── v1 release candidate checklist ✅ ────────�
                                                          │
 Phase 23  ─── HTML output ✅ ────────────────────────────┤
                                                          │
-Phase 24A ─── Plugin directives (task-65) ───────────────┤
+Phase 24A ─── Plugin directives (task-65) ✅ ───────────┤
     │          Foundation — everything below depends on it │
-    ├── 24B ─── Directive macros (task-66) ───────────────┤
-    ├── 24C ─── Pipeline hooks (task-67) ─────────────────┤
-    ├── 24D ─── Format adapters (task-68) ────────────────┤
-    ├── 24E ─── Foreign resolver protocol (task-69) ──────┤
-    ├── 24F ─── Custom schema validators (task-70) ───────┤
-    ├── 24G ─── Pipe syntax (task-71) ────────────────────┤
-    ├── 24H ─── Event webhooks (task-72) ─────────────────┤
-    ├── 24I ─── Tool directive integration (task-73) ─────┤
-    └── 24J ─── Directive aliasing (task-74) ─────────────┘
+    ├── 24B ─── Directive macros (task-66) ✅ ────────────┤
+    ├── 24C ─── Pipeline hooks (task-67) ✅ ──────────────┤
+    ├── 24D ─── Format adapters (task-68) ✅ ─────────────┤
+    ├── 24E ─── Foreign resolver protocol (task-69) ✅ ───┤
+    ├── 24F ─── Custom schema validators (task-70) ✅ ────┤
+    ├── 24G ─── Pipe syntax (task-71) ✅ ─────────────────┤
+    ├── 24H ─── Event webhooks (task-72) ✅ ──────────────┤
+    ├── 24I ─── Tool directive integration (task-73) ✅ ──┤
+    └── 24J ─── Directive aliasing (task-74) ✅ ──────────┘
                                                          │
-Phase 25  ─── MCP deep integration (task-75) ────────────┘
+Phase 25  ─── MCP deep integration (task-75) ✅ ─────────┘
 ```
 
 ---

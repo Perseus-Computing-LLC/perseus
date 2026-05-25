@@ -621,7 +621,7 @@ def _webhook_worker(url, ep, wh_cfg, q):
         event, payload, ts_iso = item
         
         # Prepare payload
-        version = globals().get("_PERSEUS_VERSION", "1.0.3")
+        version = globals().get("_PERSEUS_VERSION", "1.0.4")
         
         workspace = payload.get("workspace", "")
         ws_hash = hashlib.sha256(workspace.encode()).hexdigest()[:16] if workspace else None
@@ -11988,7 +11988,7 @@ def _find_version() -> str:
             return candidate.read_text().strip()
     return _PERSEUS_VERSION  # fallback to build-time injected literal
 
-_PERSEUS_VERSION = "1.0.3"  # injected by scripts/build.py at build time
+_PERSEUS_VERSION = "1.0.4"  # injected by scripts/build.py at build time
 _PERSEUS_VERSION = _find_version()
 
 
@@ -13031,7 +13031,7 @@ def _serve_render_endpoint(endpoint: str, cfg: dict, workspace: Path, query: dic
                 "metadata": {
                     "workspace": ws_name,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "version": "1.0.3",
+                    "version": "1.0.4",
                 },
                 "integrity": {
                     "sha256": hashlib.sha256(rendered.encode()).hexdigest(),

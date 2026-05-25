@@ -3,12 +3,12 @@
   "name": "io.github.tcconnally/perseus",
   "title": "Perseus — Live Context Engine",
   "description": "Compile-before-context engine: pre-resolves workspace state into markdown before the AI sees it.",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "perseus-ctx",
-      "version": "1.0.3",
+      "version": "1.0.4",
       "packageArguments": [
         {"type": "positional", "value": "mcp"},
         {"type": "positional", "value": "serve"}
