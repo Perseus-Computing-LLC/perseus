@@ -143,6 +143,7 @@ def test_policy_denied_emitted_when_query_shell_disabled(tmp_path):
 
 def test_shell_exec_emitted_for_query(tmp_path):
     cfg = json.loads(json.dumps(perseus.DEFAULT_CONFIG))
+    cfg["render"]["allow_query_shell"] = True  # explicit opt-in for audit test
     cfg["audit"] = {"enabled": True, "log_path": str(tmp_path / "a.jsonl"), "max_log_bytes": 1_048_576}
     perseus.resolve_query("\"echo hello\"", cfg)
     entries = perseus._read_audit_entries(cfg)

@@ -252,10 +252,32 @@ def _handle_initialize(msg: dict, version: str) -> dict:
     })
 
 
-def _handle_tools_list(msg: dict) -> dict:
+# Sensitive tools excluded from MCP by default (require explicit config opt-in)
+_MCP_SENSITIVE_TOOLS = {"perseus_query", "perseus_agent"}
+
+def _get_mcp_tools(cfg: dict) -> list[dict]:
+    """Return the MCP tool list, filtered by config allowlist/blocklist."""
+    mcp_cfg = cfg.get("mcp", {}) if isinstance(cfg, dict) else {}
+    allowlist = set(mcp_cfg.get("tool_allowlist") or [])
+    blocklist = set(mcp_cfg.get("tool_blocklist") or [])
+    tools = []
+    for tool in MCP_TOOLS:
+        name = tool["name"]
+        if name in blocklist:
+            continue
+        if allowlist and name not in allowlist:
+            continue
+        # Sensitive tools excluded unless explicitly allowed
+        if name in _MCP_SENSITIVE_TOOLS and name not in allowlist:
+            continue
+        tools.append(tool)
+    return tools
+
+def _handle_tools_list(msg: dict, cfg: dict | None = None) -> dict:
     """Respond to tools/list."""
+    tools = _get_mcp_tools(cfg or {})
     return _make_response(msg["id"], {
-        "tools": MCP_TOOLS,
+        "tools": tools,
     })
 
 
@@ -305,7 +327,7 @@ def serve_mcp(
                 # No response needed
                 pass
             elif method == "tools/list":
-                _write_message(_handle_tools_list(msg))
+                _write_message(_handle_tools_list(msg, cfg))
             elif method == "tools/call":
                 _write_message(_handle_tools_call(msg, cfg, ws))
             elif method == "ping":
@@ -343,6 +365,23 @@ def print_mcp_config(cfg: dict, workspace: Path | None = None) -> None:
     print("#   Cursor         : .cursor/mcp.json")
     print("#   Continue       : ~/.continue/config.json → experimental.mcpServers")
     print(f"# Perseus v{version}")
+
+
+def _generate_directive_tools() -> list[dict]:
+    """task-69: Generate MCP tool schemas from all inline directives in the registry."""
+    tools = []
+    for name, spec in sorted(DIRECTIVE_REGISTRY.items()):
+        if spec.kind != "inline":
+            continue
+        tool_name = f"perseus_{name.lstrip('@')}"
+        props = {"args": {"type": "string", "description": f"Arguments for {name} directive"}}
+        required = []
+        if spec.args:
+            for arg in spec.args:
+                arg_name = arg.rstrip("=")
+                props[arg_name] = {"type": "string", "description": f"{arg} modifier for {name}"}
+        tools.append(_tool_schema(tool_name, spec.summary or f"Run {name} directive", props, required))
+    return tools
 
 
 def print_mcp_registry(cfg: dict) -> None:

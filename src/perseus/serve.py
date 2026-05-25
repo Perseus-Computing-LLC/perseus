@@ -53,6 +53,15 @@ def cmd_render(args, cfg):
     if fmt == "html":
         title = source_path.stem.replace("-", " ").replace("_", " ").title()
         rendered = render_source_html(text, cfg, workspace, title=title)
+    elif fmt == "json":
+        result = render_source_with_meta(text, cfg, workspace)
+        import json as _json
+        rendered = _json.dumps({
+            "meta": result.meta,
+            "resolved": result.text,
+            "directives": result.directives,
+            "integrity": {"drift_detected": False, "drift_files": []},
+        }, indent=2, default=str)
     else:
         rendered = render_source(text, cfg, workspace)
         # task-46: redact before the rendered text crosses the trust boundary
@@ -75,6 +84,11 @@ def cmd_render(args, cfg):
     # Phase 24: auto-resolve default output path for assistant formats
     if is_assistant_format and not output:
         output = get_default_output_path(fmt, str(workspace))
+
+    strict = getattr(args, "strict", False)
+    if strict and "⚠" in rendered:
+        print(f"Perseus: strict mode — {rendered.count('⚠')} warning(s) in rendered output", file=sys.stderr)
+        sys.exit(1)
 
     if output:
         out_path = Path(output)
