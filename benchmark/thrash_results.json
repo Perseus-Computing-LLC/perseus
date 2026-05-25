@@ -1,9 +1,15 @@
 {
   "T1": {
     "test": "T1_ttl_cliff",
-    "cold_total_s": 0.3892,
-    "warm_total_s": 0.4226,
-    "speedup": 0.92,
+    "cold_total_us": 6779,
+    "warm_total_us": 3098,
+    "cold_total_s": 0.006779,
+    "warm_total_s": 0.003098,
+    "cold_wall_s": 0.3435,
+    "warm_wall_s": 0.3276,
+    "speedup": 2.19,
+    "cache_hits_warm": 100,
+    "cache_misses_cold": 100,
     "output_consistent": true
   },
   "T2": {
@@ -23,29 +29,33 @@
     "test": "T4_parse_ceiling",
     "scales": [
       100,
-      1000
+      1000,
+      10000
     ],
     "warm_per_directive_us": {
-      "100": 3109.31,
-      "1000": 331.64
+      "100": 14.5,
+      "1000": 10.4,
+      "10000": 10.97
     },
-    "growth_factor": 9.38,
-    "linear_ok": false
+    "smallest_scale_per_directive_us": 14.5,
+    "largest_scale_per_directive_us": 10.97,
+    "growth_factor": 0.76,
+    "linear_ok": true
   },
   "T5": {
     "test": "T5_cache_efficiency_correlation",
-    "avg_warm_prompt_tokens": 455.0,
-    "avg_cold_prompt_tokens": 455.0,
-    "warm_compression_ratio": 1.0,
+    "avg_warm_prompt_tokens": 54.0,
+    "avg_cold_prompt_tokens": 538.0,
+    "warm_compression_ratio": 0.10037174721189591,
     "cold_compression_ratio": 1.0,
-    "delta": 0.0,
+    "delta": -0.8996282527881041,
     "warm_n": 5,
     "cold_n": 5,
-    "avg_warm_cache_hits": 0,
+    "avg_warm_cache_hits": 50,
     "avg_cold_cache_hits": 0,
-    "avg_warm_assemble_us": 950.4,
-    "avg_cold_assemble_us": 945.2,
-    "warm_faster": false,
+    "avg_warm_assemble_us": 1812.6,
+    "avg_cold_assemble_us": 4216,
+    "warm_faster": true,
     "warm_compression_ratio_lt_cold": true
   }
 }

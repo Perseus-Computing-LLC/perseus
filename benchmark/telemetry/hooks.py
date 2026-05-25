@@ -59,16 +59,39 @@ def stub_call(
     start_iso = utc_now_iso()
 
     if state == "B" and perseus_compiled_context is not None:
-        effective = _stub_token_count(perseus_compiled_context)
+        prompt_tokens = _stub_token_count(perseus_compiled_context)
     else:
         # State A baseline: simulate the model needing to ask follow-up
         # context probes to recover what Perseus would have provided. The
         # plan models this as State B having a *smaller* effective prompt
         # at request time (no orientation overhead).
-        effective = _stub_token_count(prompt) + 250  # orientation overhead
+        prompt_tokens = _stub_token_count(prompt) + 250  # orientation overhead
 
+    # Parse PERSEUS_BENCH stderr first so we can derive cached_tokens from
+    # the Perseus cache state for this render.
+    perseus_metrics = None
+    if state == "B" and bench_stderr is not None:
+        perseus_metrics = parse_bench_line(bench_stderr)
+
+    # Anthropic-style prompt-cache discount model: when Perseus serves a
+    # directive from its on-disk cache, the directive's expansion is part of a
+    # stable prompt prefix that an upstream prompt cache (Anthropic, OpenAI
+    # responses cache, etc.) can also reuse. We translate Perseus hit-rate into
+    # a `cached_tokens` count so warm renders show fewer billed tokens.
+    cached_tokens = 0
+    if perseus_metrics:
+        hits = perseus_metrics.get("cache_hits") or 0
+        misses = perseus_metrics.get("cache_misses") or 0
+        total = hits + misses
+        if total > 0:
+            hit_rate = hits / total
+            # 0.9 accounts for the non-cacheable fraction (Anthropic caches by
+            # block; small tail / system messages are not always alignable).
+            cached_tokens = int(prompt_tokens * hit_rate * 0.9)
+
+    effective_prompt_tokens = max(prompt_tokens - cached_tokens, 1)
     completion_tokens = 80  # fixed stub completion size
-    total_tokens = effective + completion_tokens
+    total_tokens = prompt_tokens + completion_tokens
 
     # Simulate small latency
     time.sleep(0.001)
@@ -90,24 +113,22 @@ def stub_call(
         model_id=model_id,
         provider=provider,
         pricing_snapshot_id=PRICING_SNAPSHOT_ID,
-        prompt_tokens=effective,
+        prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
         total_tokens=total_tokens,
-        cached_tokens=0,
-        effective_prompt_tokens=effective,
+        cached_tokens=cached_tokens,
+        effective_prompt_tokens=effective_prompt_tokens,
         cost_usd=total_tokens * 1e-6,  # stub pricing: $1/M tokens
         http_status=200,
     )
 
-    if state == "B" and bench_stderr is not None:
-        parsed = parse_bench_line(bench_stderr)
-        if parsed:
-            rec.perseus_parse_us = parsed.get("parse_us")
-            rec.perseus_directives = parsed.get("directives")
-            rec.perseus_cache_hits = parsed.get("cache_hits")
-            rec.perseus_cache_misses = parsed.get("cache_misses")
-            rec.perseus_assemble_us = parsed.get("assemble_us")
-            rec.perseus_total_us = parsed.get("total_us")
+    if perseus_metrics:
+        rec.perseus_parse_us = perseus_metrics.get("parse_us")
+        rec.perseus_directives = perseus_metrics.get("directives")
+        rec.perseus_cache_hits = perseus_metrics.get("cache_hits")
+        rec.perseus_cache_misses = perseus_metrics.get("cache_misses")
+        rec.perseus_assemble_us = perseus_metrics.get("assemble_us")
+        rec.perseus_total_us = perseus_metrics.get("total_us")
 
     emit_record(rec)
     return rec
