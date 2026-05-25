@@ -26,6 +26,7 @@ from bench_lib import (  # noqa: E402
     cache_efficiency_delta,
     cache_snapshot,
     diff_snapshots,
+    parse_bench_line,
     perseus_executable,
     write_json,
 )
@@ -40,23 +41,43 @@ def _render(ctx: Path, home: Path) -> tuple[str, bytes, float]:
 
 
 def t1_ttl_cliff() -> dict:
-    """100 × @env directives with cache. Sleep, re-render, compare."""
+    """100 × cached @env directives. Render cold → render warm. Speedup must
+    reflect the cache, not interpreter startup, so we use BENCH `total_us`
+    (intra-process render time) rather than wall-clock subprocess time.
+
+    Without the @cache modifier the directive resolver never consults the cache
+    and warm is indistinguishable from cold (the prior bug). With @cache the
+    cold render writes 100 entries and the warm render reads them.
+    """
     home = Path(tempfile.mkdtemp(prefix="t1_"))
     tmp = Path(tempfile.mkdtemp(prefix="t1ctx_"))
     try:
-        lines = ["@perseus"] + [f'@env HOME fallback="/home/u{i}"' for i in range(100)]
+        lines = ["@perseus"] + [
+            f'@env HOME fallback="/home/u{i}" @cache ttl=86400'
+            for i in range(100)
+        ]
         ctx = tmp / "ttl.md"
         ctx.write_text("\n".join(lines))
         # Cold
-        out1, _, cold = _render(ctx, home)
+        out1, stderr1, cold_wall = _render(ctx, home)
+        bench_cold = parse_bench_line(stderr1) or {}
+        cold_us = bench_cold.get("total_us") or int(cold_wall * 1_000_000)
         # Warm
-        out2, _, warm = _render(ctx, home)
+        out2, stderr2, warm_wall = _render(ctx, home)
+        bench_warm = parse_bench_line(stderr2) or {}
+        warm_us = bench_warm.get("total_us") or int(warm_wall * 1_000_000)
         stale_ok = out1 == out2  # @env results should match
         return {
             "test": "T1_ttl_cliff",
-            "cold_total_s": round(cold, 4),
-            "warm_total_s": round(warm, 4),
-            "speedup": round(cold / max(warm, 1e-9), 2),
+            "cold_total_us": cold_us,
+            "warm_total_us": warm_us,
+            "cold_total_s": round(cold_us / 1_000_000, 6),
+            "warm_total_s": round(warm_us / 1_000_000, 6),
+            "cold_wall_s": round(cold_wall, 4),
+            "warm_wall_s": round(warm_wall, 4),
+            "speedup": round(cold_us / max(warm_us, 1), 2),
+            "cache_hits_warm": bench_warm.get("cache_hits", 0),
+            "cache_misses_cold": bench_cold.get("cache_misses", 0),
             "output_consistent": stale_ok,
         }
     finally:
@@ -126,7 +147,13 @@ def t3_context_drift() -> dict:
 
 
 def t4_parse_ceiling(scales: list[int]) -> dict:
-    """Zero-I/O @env directives at increasing scales. warm_per_directive_us must stay near-constant."""
+    """Zero-I/O @env directives at increasing scales.
+
+    Scaling check: per-directive time at the largest N relative to the smallest N.
+    A `growth_factor` ≤ 1.0 means amortisation (good — fixed startup costs spread
+    across more directives). The original max/min metric flagged amortisation as
+    a failure; this version measures actual end-to-end scaling.
+    """
     home = Path(tempfile.mkdtemp(prefix="t4_"))
     tmp = Path(tempfile.mkdtemp(prefix="t4ctx_"))
     measurements = {}
@@ -137,19 +164,25 @@ def t4_parse_ceiling(scales: list[int]) -> dict:
             ctx.write_text("\n".join(lines))
             # Cold
             _render(ctx, home)
-            # Warm timing
-            _, _, warm = _render(ctx, home)
-            per_directive_us = (warm * 1_000_000) / n
+            # Warm timing — prefer BENCH total_us to strip subprocess startup noise
+            _, stderr, warm = _render(ctx, home)
+            bench = parse_bench_line(stderr) or {}
+            total_us = bench.get("total_us") or int(warm * 1_000_000)
+            per_directive_us = total_us / n
             measurements[str(n)] = round(per_directive_us, 2)
-        # Linearity check: ratio of largest:smallest per-directive should be ≤ 2x
-        vals = list(measurements.values())
-        growth_factor = max(vals) / min(vals) if min(vals) else 1.0
+        # Order by scale; compare per-directive cost at the largest N vs smallest N.
+        sorted_items = sorted(measurements.items(), key=lambda kv: int(kv[0]))
+        smallest_per = sorted_items[0][1]
+        largest_per = sorted_items[-1][1]
+        growth_factor = (largest_per / smallest_per) if smallest_per else 1.0
         return {
             "test": "T4_parse_ceiling",
             "scales": scales,
             "warm_per_directive_us": measurements,
+            "smallest_scale_per_directive_us": smallest_per,
+            "largest_scale_per_directive_us": largest_per,
             "growth_factor": round(growth_factor, 2),
-            "linear_ok": growth_factor < 3.0,
+            "linear_ok": growth_factor <= 3.0,
         }
     finally:
         shutil.rmtree(home, ignore_errors=True)
@@ -157,17 +190,24 @@ def t4_parse_ceiling(scales: list[int]) -> dict:
 
 
 def t5_cache_efficiency_correlation() -> dict:
-    """The new test: warm cache must produce smaller effective prompts than cold."""
+    """The new test: warm cache must produce smaller effective prompts than cold.
+
+    Each directive carries `@cache ttl=86400` so the renderer actually consults
+    the cache. On the cold path every PERSEUS_HOME is fresh → every directive is
+    a miss. On the warm path the cache is primed once → every directive is a hit.
+    stub_call then translates `perseus_cache_hits` into Anthropic-style
+    `cached_tokens`, which drives `effective_prompt_tokens` down for warm runs.
+    """
     home_cold = Path(tempfile.mkdtemp(prefix="t5cold_"))
     home_warm = Path(tempfile.mkdtemp(prefix="t5warm_"))
     tmp = Path(tempfile.mkdtemp(prefix="t5ctx_"))
     try:
-        # 50 directives that together produce non-trivial output
+        # 50 cached directives → cache_hits=50 on warm path, 0 on cold path.
         lines = ["@perseus", "# T5 context"]
         for i in range(40):
-            lines.append(f'@env HOME fallback="/home/d{i}"')
+            lines.append(f'@env HOME fallback="/home/d{i}" @cache ttl=86400')
         for i in range(10):
-            lines.append(f'@env PATH fallback="/usr/bin:{i}"')
+            lines.append(f'@env PATH fallback="/usr/bin:{i}" @cache ttl=86400')
         ctx = tmp / "t5.md"
         ctx.write_text("\n".join(lines))
 
@@ -214,7 +254,7 @@ def t5_cache_efficiency_correlation() -> dict:
             "avg_warm_assemble_us": statistics.mean(warm_us),
             "avg_cold_assemble_us": statistics.mean(cold_us),
             "warm_faster": statistics.mean(warm_us) <= statistics.mean(cold_us),
-            "warm_compression_ratio_lt_cold": delta["warm_compression_ratio"] <= delta["cold_compression_ratio"],
+            "warm_compression_ratio_lt_cold": delta["warm_compression_ratio"] < delta["cold_compression_ratio"],
         }
     finally:
         for d in (home_cold, home_warm, tmp):

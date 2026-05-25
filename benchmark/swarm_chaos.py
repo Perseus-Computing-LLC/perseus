@@ -51,18 +51,40 @@ key={key}
 agent_id={agent_id}
 """
 
+# Phase-3 specifically asserts byte-identical input → byte-identical output across
+# every agent. Any per-agent substitution (agent_id, unique key) would make the
+# *inputs* differ and produce legitimate token-count variance that masquerades as
+# non-determinism. Phase 3 uses this fixed template instead.
+PHASE3_CONTEXT = """@perseus
+# Shared collision-pressure context
 
-def _make_context(tmp: Path, agent_id: int, key: str) -> Path:
-    p = tmp / f"ctx_{agent_id}.md"
-    p.write_text(CONTEXT_TEMPLATE.format(agent_id=agent_id, key=key))
+@env HOME fallback="/home/dev"
+@env PATH fallback="/usr/bin"
+
+## Notes
+shared-render-payload
+"""
+
+
+def _make_context(tmp: Path, agent_id: int, key: str, *, identical: bool = False) -> Path:
+    p = tmp / ("ctx_shared.md" if identical else f"ctx_{agent_id}.md")
+    if identical:
+        p.write_text(PHASE3_CONTEXT)
+    else:
+        p.write_text(CONTEXT_TEMPLATE.format(agent_id=agent_id, key=key))
     return p
 
 
 def _run_agent(args) -> dict:
-    agent_id, perseus_home, key, cohort, n_agents = args
+    # args: (agent_id, perseus_home, key, cohort, n_agents, identical_context?)
+    if len(args) == 6:
+        agent_id, perseus_home, key, cohort, n_agents, identical = args
+    else:
+        agent_id, perseus_home, key, cohort, n_agents = args
+        identical = False
     tmp = Path(tempfile.mkdtemp(prefix=f"swarm_{agent_id}_"))
     try:
-        ctx = _make_context(tmp, agent_id, key)
+        ctx = _make_context(tmp, agent_id, key, identical=identical)
         env = {"PERSEUS_HOME": str(perseus_home)}
         t0 = time.perf_counter()
         compiled, stderr, wall = perseus_render(PERSEUS_PY, ctx, env=env)
@@ -156,10 +178,12 @@ def run_phase_3(n: int, cohort: str) -> dict:
     """Shared cache, overlapping keys — collision pressure. collision_rate MUST be 0.0."""
     home = Path(tempfile.mkdtemp(prefix="home3_"))
     try:
-        # All agents use identical context
+        # All agents render byte-identical context (identical=True). Any token-count
+        # variance across agents then exposes a real non-determinism bug, not just
+        # input variance from the agent_id substitution.
         with cf.ThreadPoolExecutor(max_workers=min(n, 32)) as ex:
             results = list(ex.map(_run_agent, [
-                (i, home, "phase3-shared-key", cohort, n) for i in range(n)
+                (i, home, "phase3-shared-key", cohort, n, True) for i in range(n)
             ]))
         warm_ms = [r["warm_ms"] for r in results]
         tokens = [r["effective_prompt_tokens"] for r in results]
