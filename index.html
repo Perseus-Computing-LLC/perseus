@@ -1116,57 +1116,48 @@
   /* ---------- Hardened note ---------- */
   .hardened-note {
     margin-top: 1px;
-    padding: 18px clamp(24px, 2.6vw, 36px);
-    background: var(--bg);
     border: 1px solid var(--line);
     border-top: 0;
     display: grid;
-    grid-template-columns: auto 1fr auto;
-    gap: 18px;
-    align-items: center;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 1px;
+    background: var(--line);
   }
-  @media (max-width: 760px) {
-    .hardened-note { grid-template-columns: 1fr; }
-    .hardened-note .hn-chips { justify-content: flex-start; }
+  @media (max-width: 1100px) {
+    .hardened-note { grid-template-columns: repeat(4, 1fr); }
   }
-  .hardened-note .hn-label {
+  @media (max-width: 700px) {
+    .hardened-note { grid-template-columns: repeat(2, 1fr); }
+  }
+  .hardened-note .hn-item {
+    background: var(--bg);
+    padding: 16px clamp(14px, 1.8vw, 22px);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .hardened-note .hn-head {
     font-family: var(--mono);
-    font-size: 10.5px;
-    letter-spacing: 0.22em;
+    font-size: 10px;
+    letter-spacing: 0.15em;
     text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .hardened-note .hn-item:first-child .hn-head {
     color: var(--accent-2);
-    border: 1px solid rgba(86, 225, 255, 0.3);
-    padding: 4px 10px;
-    border-radius: 2px;
-    white-space: nowrap;
   }
-  .hardened-note .hn-text {
-    font-size: 13.5px;
-    line-height: 1.55;
+  .hardened-note .hn-desc {
+    font-size: 12px;
+    line-height: 1.5;
     color: var(--text-dim);
+    margin: 0;
   }
-  .hardened-note .hn-text b { color: var(--text); font-weight: 500; }
-  .hardened-note .hn-text code {
+  .hardened-note .hn-desc code {
     font-family: var(--mono);
     color: var(--accent-bright);
     font-size: 0.92em;
   }
-  .hardened-note .hn-chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    justify-content: flex-end;
-  }
-  .hardened-note .hn-chip {
-    font-family: var(--mono);
-    font-size: 10px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--text-muted);
-    border: 1px solid var(--line-strong);
-    padding: 3px 8px;
-    border-radius: 2px;
-  }
+  .hardened-note .hn-desc b { color: var(--text); font-weight: 500; }
 
   /* ---------- Integrations ---------- */
   .integrations {
@@ -1565,17 +1556,145 @@
     flex-wrap: wrap;
   }
 
-  /* ---------- Reveal ----------
-     No entrance animation. `.reveal` is kept as a no-op marker so existing
-     markup stays intact; content is visible at rest in all environments. */
+  /* ---------- Reveal ---------- */
+  .reveal {
+    opacity: 0;
+    transform: translateY(16px);
+    transition: opacity .65s ease, transform .65s cubic-bezier(.16,.7,.2,1);
+  }
+  .reveal.in-view { opacity: 1; transform: none; }
   @media (prefers-reduced-motion: reduce) {
+    .reveal { opacity: 1; transform: none; transition: none; }
     .sculpture img { transition: none; }
     .scroll-ind .line { animation: none; }
     html { scroll-behavior: auto; }
   }
+
+  /* ============================================================
+     INTERACTIVE ENHANCEMENTS
+     ============================================================ */
+
+  /* Cursor follower */
+  #cursor-glow {
+    position: fixed;
+    width: 520px;
+    height: 520px;
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 0;
+    background: radial-gradient(circle, rgba(199, 125, 255, 0.055) 0%, transparent 65%);
+    transform: translate(-50%, -50%);
+    will-change: left, top;
+    top: -9999px; left: -9999px;
+  }
+
+  /* Scanline texture */
+  body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 9999;
+    background-image: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0, 0, 0, 0.05) 2px,
+      rgba(0, 0, 0, 0.05) 3px
+    );
+  }
+
+  /* Hardened note columns */
+  .hardened-note .hn-item { transition: background .22s ease, box-shadow .22s ease; cursor: default; }
+  .hardened-note .hn-item:hover {
+    background: rgba(86, 225, 255, 0.055);
+    box-shadow: inset 0 0 0 1px rgba(86, 225, 255, 0.22);
+  }
+  .hardened-note .hn-head { transition: color .22s ease, text-shadow .22s ease; }
+  .hardened-note .hn-item:hover .hn-head {
+    color: var(--accent-2) !important;
+    text-shadow: 0 0 14px rgba(86, 225, 255, 0.65);
+  }
+  .hardened-note .hn-desc { transition: color .22s ease; }
+  .hardened-note .hn-item:hover .hn-desc { color: rgba(236, 228, 255, 0.88); }
+
+  /* Triad cards */
+  .triad-card { transition: background .25s ease, box-shadow .25s ease; }
+  .triad-card:hover {
+    background: var(--bg-2);
+    box-shadow: inset 0 1px 0 rgba(199, 125, 255, 0.3);
+  }
+  .triad-card.is-oracle:hover { box-shadow: inset 0 1px 0 rgba(86, 225, 255, 0.3); }
+  .triad-card .glyph { transition: filter .25s ease; }
+  .triad-card:hover .glyph { filter: drop-shadow(0 0 10px currentColor); }
+  .triad-card .cmd { transition: border-color .25s ease, box-shadow .25s ease; }
+  .triad-card:hover .cmd { border-color: rgba(199, 125, 255, 0.4); box-shadow: 0 0 14px rgba(199, 125, 255, 0.1); }
+  .triad-card.is-oracle:hover .cmd { border-color: rgba(86, 225, 255, 0.4); box-shadow: 0 0 14px rgba(86, 225, 255, 0.1); }
+
+  /* Stat cards */
+  .stat { transition: background .22s ease, box-shadow .22s ease; cursor: default; }
+  .stat:hover { background: var(--bg-2); box-shadow: inset 0 1px 0 rgba(199, 125, 255, 0.25); }
+  .stat .sval { transition: text-shadow .22s ease; }
+  .stat:hover .sval { text-shadow: 0 0 44px rgba(199, 125, 255, 0.6), 0 0 88px rgba(199, 125, 255, 0.22); }
+
+  /* Featured stat chips */
+  .featured-stat .chip { transition: background .2s, border-color .2s, box-shadow .2s; cursor: default; }
+  .featured-stat .chip:hover {
+    background: rgba(86, 225, 255, 0.09);
+    border-color: rgba(86, 225, 255, 0.55);
+    box-shadow: 0 0 12px rgba(86, 225, 255, 0.2);
+  }
+
+  /* Integration cards */
+  .int-card { transition: background .25s ease, box-shadow .25s ease; }
+  .int-card:hover { background: var(--bg-2); box-shadow: inset 0 1px 0 rgba(199, 125, 255, 0.25); }
+  .int-card.cyan:hover { box-shadow: inset 0 1px 0 rgba(86, 225, 255, 0.25); }
+  .int-card .int-name { transition: color .22s ease; }
+  .int-card:hover .int-name { color: var(--accent-bright); }
+  .int-card.cyan:hover .int-name { color: var(--accent-2); }
+
+  /* Compat cells */
+  .compat-cell:hover { box-shadow: inset 0 0 28px rgba(199, 125, 255, 0.07); }
+  .compat-cell .glyph { transition: color .22s ease, filter .22s ease; }
+  .compat-cell:hover .glyph { color: var(--accent); filter: drop-shadow(0 0 7px rgba(199, 125, 255, 0.7)); }
+  .compat-cell .name { transition: color .22s ease; }
+  .compat-cell:hover .name { color: var(--text); }
+
+  /* Quickstart lines */
+  .qs-line { transition: background .18s ease; border-radius: 3px; }
+  .qs-line:hover { background: rgba(199, 125, 255, 0.05); }
+
+  /* Install command: breathing glow */
+  @keyframes install-pulse {
+    0%, 100% { box-shadow: var(--glow-accent), inset 0 0 0 1px rgba(199, 125, 255, 0.08); }
+    50% { box-shadow: 0 0 36px rgba(199, 125, 255, 0.65), 0 0 72px rgba(199, 125, 255, 0.2), inset 0 0 0 1px rgba(199, 125, 255, 0.14); }
+  }
+  .install { animation: install-pulse 3.5s ease-in-out infinite; }
+
+  /* Wordmark + footer dot pulse */
+  @keyframes dot-pulse {
+    0%, 100% { box-shadow: 0 0 8px var(--accent), 0 0 16px rgba(199, 125, 255, 0.7); }
+    50% { box-shadow: 0 0 16px var(--accent), 0 0 34px rgba(199, 125, 255, 0.95), 0 0 56px rgba(199, 125, 255, 0.35); }
+  }
+  .wordmark .dot, .footer-mark .dot { animation: dot-pulse 2.8s ease-in-out infinite; }
+
+  /* Section number: neon flicker */
+  @keyframes sec-flicker {
+    0%, 89%, 91%, 95%, 100% { opacity: 1; text-shadow: 0 0 8px rgba(199, 125, 255, 0.55); }
+    90%, 93% { opacity: 0.65; text-shadow: none; }
+    92%, 96% { opacity: 1; text-shadow: 0 0 20px rgba(199, 125, 255, 1), 0 0 40px rgba(199, 125, 255, 0.4); }
+  }
+  .sec-num { animation: sec-flicker 9s ease-in-out infinite; }
+
+  /* Section title italic: hover intensifies glow */
+  .sec-title em { transition: text-shadow .3s ease; }
+  .sec-title:hover em { text-shadow: 0 0 36px rgba(199, 125, 255, 0.8), 0 0 72px rgba(199, 125, 255, 0.3); }
+  .hero h1 em { transition: text-shadow .3s ease; }
+  .hero:hover h1 em { text-shadow: 0 0 36px rgba(199, 125, 255, 0.8), 0 0 80px rgba(199, 125, 255, 0.3); }
 </style>
 </head>
 <body>
+<div id="cursor-glow" aria-hidden="true"></div>
 
 <!-- ============ TOP BAR ============ -->
 <header class="topbar">
@@ -2143,15 +2262,33 @@ Branch: <span class="s">feat/billing-v2</span>
     </div>
 
     <aside class="hardened-note reveal" aria-label="Hardened">
-      <span class="hn-label">Hardened</span>
-      <div class="hn-text">Symlink escapes blocked (direct, relative, chained, to <code>/etc</code>). Context overflow protection on <code>@read</code> and <code>@include</code>. Optional <code>integrity_check</code> warns when a file changes mid-render. <b>NVMe local lock is atomic;</b> NFS&nbsp;v4+ required for cross-machine, SMB requires careful config. <b>15/15 hard gates passed</b> — swarm chaos at 10/50/100 agents, cache thrash T1–T5, adversarial C1–C5. Zero hash collisions. Zero determinism violations. Adversarial-neighbor slowdown: <b>1.02×</b> — isolation is effectively free. <b>Semantic equivalence: 1.0</b> — Gemini 2.5 Flash judge, 20 A/B pairs. Perseus changes what the assistant knows. Not what it says.</div>
-      <div class="hn-chips">
-        <span class="hn-chip">workspace boundaries</span>
-        <span class="hn-chip">overflow guard</span>
-        <span class="hn-chip">drift detect</span>
-        <span class="hn-chip">15/15 gates</span>
-        <span class="hn-chip">0 collisions @ 100 agents</span>
-        <span class="hn-chip">semantic equiv 1.0</span>
+      <div class="hn-item">
+        <span class="hn-head">Hardened</span>
+        <p class="hn-desc">Symlink escapes blocked — direct, relative, chained, to <code>/etc</code>.</p>
+      </div>
+      <div class="hn-item">
+        <span class="hn-head">Workspace Boundaries</span>
+        <p class="hn-desc"><b>NVMe local lock is atomic.</b> NFS v4+ for cross-machine; SMB requires careful config.</p>
+      </div>
+      <div class="hn-item">
+        <span class="hn-head">Overflow Guard</span>
+        <p class="hn-desc">Context overflow protection on <code>@read</code> and <code>@include</code>.</p>
+      </div>
+      <div class="hn-item">
+        <span class="hn-head">Drift Detect</span>
+        <p class="hn-desc">Optional <code>integrity_check</code> warns when a file changes mid-render.</p>
+      </div>
+      <div class="hn-item">
+        <span class="hn-head">15/15 Gates</span>
+        <p class="hn-desc">Swarm chaos at 10/50/100 agents, cache thrash T1–T5, adversarial C1–C5.</p>
+      </div>
+      <div class="hn-item">
+        <span class="hn-head">0 Collisions @ 100 Agents</span>
+        <p class="hn-desc">Zero hash collisions. Zero determinism violations. Adversarial-neighbor slowdown: <b>1.02×</b>.</p>
+      </div>
+      <div class="hn-item">
+        <span class="hn-head">Semantic Equiv 1.0</span>
+        <p class="hn-desc">Gemini 2.5 Flash judge, 20 A/B pairs. Perseus changes what the assistant <em>knows</em>. Not what it says.</p>
       </div>
     </aside>
 
@@ -2682,6 +2819,42 @@ Branch: <span class="s">feat/billing-v2</span>
         document.body.style.overflow = '';
       }
     });
+  })();
+</script>
+
+<script>
+  /* Cursor follower glow */
+  (function () {
+    var glow = document.getElementById('cursor-glow');
+    if (!glow) return;
+    var ax = -9999, ay = -9999;
+    document.addEventListener('mousemove', function (e) {
+      ax = e.clientX; ay = e.clientY;
+    });
+    (function loop() {
+      glow.style.left = ax + 'px';
+      glow.style.top  = ay + 'px';
+      requestAnimationFrame(loop);
+    })();
+  })();
+
+  /* Scroll reveal */
+  (function () {
+    var els = document.querySelectorAll('.reveal');
+    if (!els.length) return;
+    if (!('IntersectionObserver' in window)) {
+      els.forEach(function (el) { el.classList.add('in-view'); });
+      return;
+    }
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) {
+          e.target.classList.add('in-view');
+          io.unobserve(e.target);
+        }
+      });
+    }, { threshold: 0.08, rootMargin: '0px 0px -24px 0px' });
+    els.forEach(function (el) { io.observe(el); });
   })();
 </script>
 
