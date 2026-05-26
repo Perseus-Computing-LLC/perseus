@@ -2276,12 +2276,12 @@ Branch: <span class="s">feat/billing-v2</span>
         <p class="hn-desc">Optional <code>integrity_check</code> warns when a file changes mid-render.</p>
       </div>
       <div class="hn-item">
-        <span class="hn-head">15/15 Gates</span>
+        <span class="hn-head">14/14 Gates</span>
         <p class="hn-desc">Swarm chaos at 10/50/100 agents, cache thrash T1–T5, adversarial C1–C5.</p>
       </div>
       <div class="hn-item">
         <span class="hn-head">0 Collisions @ 100 Agents</span>
-        <p class="hn-desc">Zero hash collisions. Zero determinism violations. Adversarial-neighbor slowdown: <b>1.02×</b>.</p>
+        <p class="hn-desc">Zero hash collisions. Zero determinism violations. Adversarial-neighbor slowdown: <b>1.06×</b>.</p>
       </div>
       <div class="hn-item">
         <span class="hn-head">Semantic Equiv 1.0</span>
@@ -2292,26 +2292,26 @@ Branch: <span class="s">feat/billing-v2</span>
     <div class="stats reveal">
       <div class="stat">
         <div class="skey">Cache punch</div>
-        <div class="sval">450<span class="unit">×</span></div>
-        <div class="sdesc"><b>50,000 directives in 1.36s.</b> 612.6s without cache. Warm time is <b>flat</b> — same speed at 100 or 50,000. The render path becomes free.</div>
+        <div class="sval">1,190<span class="unit">×</span></div>
+        <div class="sdesc"><b>Real-world directives against the Perseus repo.</b> 578.7s without cache, 0.486s with. Warm time is <b>flat</b> — the render path becomes free.</div>
       </div>
 
       <div class="stat">
         <div class="skey">vs. LLM tool-calling</div>
         <div class="sval">301<span class="unit">×</span></div>
-        <div class="sdesc">faster at enterprise scale. <b>500 developers, 10 teams, 5-day workweek. 16,250 renders, 0 failures.</b> An LLM would take 83 hours and cost thousands in tokens. Perseus: 16 minutes, $0.</div>
+        <div class="sdesc">faster at enterprise scale. <b>500 developers, 10 teams, 5-day workweek.</b> An LLM would take 83 hours and cost thousands in tokens. Perseus: 16 minutes, $0.</div>
       </div>
 
       <div class="stat">
         <div class="skey">Token compression</div>
-        <div class="sval">93<span class="unit">%</span></div>
-        <div class="sdesc">Live A/B harness, 200 requests: <b>488 → 35 avg prompt tokens.</b> P99 latency overhead: <b>0ms</b> — Perseus adds nothing to response time. Smaller prompts, same output, every provider.</div>
+        <div class="sval">94<span class="unit">%</span></div>
+        <div class="sdesc">Live A/B harness, 200 requests: <b>488 → 27 avg prompt tokens.</b> P99 latency overhead: <b>0ms</b> — Perseus adds nothing to response time. Smaller prompts, same output, every provider.</div>
       </div>
 
       <div class="stat">
         <div class="skey">Battle-tested</div>
         <div class="sval"><span data-live="tests">~600</span><span class="unit"> tests</span></div>
-        <div class="sdesc">All green. 16,250 renders through the enterprise gauntlet — not one crash. Atomic filesystem locking, overflow guards, symlink hardening. The boring kind of reliable.</div>
+        <div class="sdesc">All green. 14/14 gates passed in the ultimate suite. Atomic filesystem locking, overflow guards, symlink hardening. The boring kind of reliable.</div>
       </div>
     </div>
   </div>
