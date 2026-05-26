@@ -22,7 +22,7 @@ perseus init --profile generic
 perseus pack validate
 ```
 
-Available Phase 16 profiles:
+Available profiles:
 
 ```bash
 perseus init --list-profiles
@@ -91,10 +91,10 @@ sources that do not exist yet.
 
 | Field | Required | Meaning |
 |---|---:|---|
-| `version` | yes | Manifest version. Phase 16 supports `1`. |
+| `version` | yes | Manifest version. Current version supports `1`. |
 | `name` | no | Human-readable pack name. |
 | `profile` | no | Product profile such as `generic`, `hermes`, or `claude-code`. |
-| `trust_profile` | no | One of `strict`, `balanced`, or `power-user`. Phase 17 implements full behavior. |
+| `trust_profile` | no | One of `strict`, `balanced`, or `power-user`. Full behavior implemented in future versions. |
 | `renders` | yes | Non-empty render target list. |
 | `synthesis` | no | Optional cited-synthesis packs. |
 
