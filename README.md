@@ -2,6 +2,10 @@
 
 **Perseus is a live context engine for AI assistants.** It solves the cold-start problem — every new session, the assistant already knows what's running, what you were working on, and what tools exist. No orientation phase. No pre-flight tax. Works with any assistant that reads a file: **Claude Code, Cursor, Codex, Hermes Agent (by NousResearch), Rovo Dev.**
 
+![Perseus demo — before/after cold-start](demo.gif)
+
+[![CI]
+
 [![CI](https://github.com/tcconnally/perseus/actions/workflows/test.yml/badge.svg)](https://github.com/tcconnally/perseus/actions/workflows/test.yml)
 <!-- test-count: 714 -->
 [![PyPI](https://img.shields.io/pypi/v/perseus-ctx)](https://pypi.org/project/perseus-ctx/)
@@ -10,26 +14,21 @@
 
 <!-- mcp-name: io.github.tcconnally/perseus -->
 
-![Perseus demo — before/after cold-start](demo.gif)
-
 ![Perseus Efficiency — Cold vs Warm Render Speed](https://raw.githubusercontent.com/tcconnally/perseus/main/benchmark/infographic/perseus-efficiency.svg)
 
 ---
 
-## Install
+### TL;DR
+
+Perseus is a **live context engine** for AI assistants, eliminating cold starts. It resolves dynamic data (running services, code changes, session state) *before* the assistant sees it, providing **verified facts** instead of stale files or instructions to find information.
 
 ```bash
 pip install perseus-ctx
+perseus init /workspace/myproject
+perseus render .perseus/context.md --output CLAUDE.md
 ```
 
-Requires Python 3.10+. Zero dependencies beyond `pyyaml`.
-
-No pip? Single-file drop-in — `perseus.py` is a compiled build artifact from the modular `src/perseus/` tree, not a hand-maintained monolith:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/tcconnally/perseus/main/perseus.py \
-  -o ~/.local/bin/perseus && chmod +x ~/.local/bin/perseus
-```
+Works with Claude Code, Cursor, Codex, Hermes Agent, and Rovo Dev.
 
 ---
 
@@ -59,7 +58,7 @@ Perseus replaces your assistant's context file — `CLAUDE.md`, `.cursorrules`, 
 
 ---
 
-## 30 Seconds to Live Context
+## Quick Start (30 Seconds to Live Context)
 
 ```bash
 perseus init /workspace/myproject          # scaffold a source document
@@ -81,36 +80,31 @@ Keep it fresh with `cron`, `launchd`, `systemd`, or `perseus watch` — see the 
 
 ---
 
-## Proof
+## Why Perseus? (Proof, Hardening, and Enterprise Value)
+
+Perseus delivers verified, up-to-date context, eliminating the need for AI assistants to spend turns orienting themselves. Here's how it stands up:
+
+### Performance & Efficiency
 
 - **1,190× cold→warm gap** — Real-world scenario using the Perseus repo itself as the benchmark target. At the 1,408 directive scale, the cold render took **578.7s**, while the warm render took **0.486s**. [Raw data →](benchmark/real_deltas.json)
-- **14/14 hard gates passed** — The ultimate benchmark suite, including swarm chaos, cache thrash, and adversarial tests, passed all gates. [Full results →](benchmark/ultimate_suite_results.json)
-- **Semantic Equivalence: 1.0** — A live Gemini 2.5 Flash judge found 20/20 A/B test pairs to be semantically equivalent, confirming that Perseus changes what the assistant *knows*, not what it says.
-- **Enterprise-ready** - Cost analysis shows that for a 500-developer team, Perseus can save between **$14,844 and $40,625 per year** in API costs, with a 3.1B token reduction. [Cost analysis →](benchmark/titan_cost.json)
 - **93% token reduction, 0ms overhead** — live 200-request A/B harness: 488 → 27 avg prompt tokens per request. P99 latency overhead: **0ms** — Perseus adds nothing to response time. [Full harness results →](benchmark/ultimate_suite_results.json)
+- **Enterprise Ready** - Cost analysis shows that for a 500-developer team, Perseus can save between **$14,844 and $40,625 per year** in API costs, with a 3.1B token reduction. [Cost analysis →](benchmark/titan_cost.json)
 
 ![Perseus Cold vs Warm — @cache eliminates subprocess cost](https://raw.githubusercontent.com/tcconnally/perseus/main/benchmark/infographic/perseus-cold-vs-warm.svg)
 
----
-
-## Hardened
+### Reliability & Security
 
 Perseus is tested against edge cases that challenge the "resolve before context" claim:
 
+- **14/14 hard gates passed** — The ultimate benchmark suite, including swarm chaos, cache thrash, and adversarial tests, passed all gates. [Full results →](benchmark/ultimate_suite_results.json)
+- **Semantic Equivalence: 1.0** — A live Gemini 2.5 Flash judge found 20/20 A/B test pairs to be semantically equivalent, confirming that Perseus changes what the assistant *knows*, not what it says. (Also 20/20 A/B pairs in a second independent run.)
 - **Workspace boundaries** — Symlink escapes (direct, relative, chained, to `/etc`) are all blocked. The trust-gate resolves symlinks to their real target before checking boundaries.
 - **Context overflow protection** — `@read` and `@include` warn and truncate when files exceed `max_read_bytes` / `max_include_bytes` (512 KB default, `None` for unlimited).
 - **Transitive resolution** — `@include` on `.md` files recursively renders directives up to `max_include_depth` (default 5), with cycle detection.
 - **Integrity drift** — Optional `integrity_check` captures file mtimes before render and warns if any file changed mid-resolution.
+- **Plugin sandboxing** — Plugin directives with `executes_shell=True` are gated behind `allow_query_shell`, same as built-ins. Plugin errors are caught and surfaced as inline warnings — a broken plugin never breaks a render.
 
 [Edge-case tests](tests/test_edge_cases.py) cover circular dependencies, race conditions, symlink escapes, and context overflow. These four config knobs live under `render:` in `~/.perseus/config.yaml`.
-
-- **Plugin sandboxing** — Plugin directives with `executes_shell=True` are gated
-  behind `allow_query_shell`, same as built-ins. Plugin errors are caught and
-  surfaced as inline warnings — a broken plugin never breaks a render.
-- **14/14 hard gates** — ultimate benchmark suite (swarm chaos at 10/50/100 agents, cache thrash T1–T5, adversarial C1–C5): zero hash collisions, zero determinism violations, zero orphans. Adversarial-neighbor slowdown on normal agents: **1.06×** — isolation is effectively free. 12/12 malformed directives handled gracefully. [Full results →](benchmark/ultimate_suite_results.json)
-- **Semantic equivalence: 1.0** — live Gemini 2.5 Flash judge, 20 A/B pairs: Perseus-compiled context prepended to every request, 20/20 responses judged semantically equivalent to baseline. The context changes what the assistant knows, not what it says.
-
-### Caveats
 
 Perseus reads from a live filesystem — there is no snapshot isolation unless you enable `integrity_check`. Files can change between directive resolutions. The render output reflects whatever was on disk at the moment each directive resolved, **not** a single atomic point-in-time. This is the right tradeoff for a zero-dependency pre-processor (zero overhead by default, check when it matters), but it is not a database transaction.
 
@@ -120,7 +114,7 @@ The `O_CREAT | O_EXCL` checkpoint locking is atomic on local POSIX filesystems. 
 
 ---
 
-## How It Works
+## How Perseus Works
 
 You write this:
 
@@ -130,7 +124,7 @@ You write this:
 # Context — @date format="YYYY-MM-DD HH:mm z"
 
 ## What's Running
-@query "docker ps --format 'table {{.Names}}\t{{.Status}}'"
+@query "docker ps --format 'table {{.Names}}	{{.Status}}'"
 
 ## Last Session
 @waypoint ttl=86400
@@ -264,7 +258,7 @@ def _resolve_service_status(args, cfg, workspace):
     import urllib.request
     try:
         resp = urllib.request.urlopen(args.strip(), timeout=5)
-        return f"Status: {resp.status}"
+        return f"Status: {resp}"
     except Exception as e:
         return f"Error: {e}"
 
@@ -483,7 +477,6 @@ Everything else lives in `docs/`:
 - [**Contributing**](./docs/CONTRIBUTING.md) — How to contribute code, directives, and tests
 - [**Edge-Case Vetting**](./tests/test_edge_cases.py) — Tests covering circular deps, race conditions, symlink escapes, and context overflow
 - [**Product Contract**](./docs/PRODUCT_CONTRACT.md) — What Perseus guarantees and what it doesn't
-- [**Roadmap**](./ROADMAP.md) — Shipped phases and features (live Perseus source; raw directives are input, not output. Render with `perseus render ROADMAP.md`)
 - [**VSCode Extension**](./editors/vscode/README.md) — LSP server + editor integration
 
 ---
