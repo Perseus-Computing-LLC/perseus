@@ -1,0 +1,38 @@
+{
+  "test": "titan-coldwarm",
+  "timestamp": "2026-05-25T22:12:23.776699",
+  "hostname": "e814fee5f347",
+  "cpu_count": 20,
+  "memory": "unknown",
+  "python": "3.12.13",
+  "probe_command": "sleep 0.01",
+  "patience_threshold_s": 3600,
+  "scales": {
+    "100": {
+      "scale": 100,
+      "cold": 1.527,
+      "cold_file_mb": 0.0,
+      "warm": 0.283,
+      "warm_file_mb": 0.0,
+      "speedup": 5.4
+    },
+    "500": {
+      "scale": 500,
+      "cold": 6.42,
+      "cold_file_mb": 0.01,
+      "warm": 0.311,
+      "warm_file_mb": 0.02,
+      "speedup": 20.6
+    },
+    "1000": {
+      "scale": 1000,
+      "cold": 12.615,
+      "cold_file_mb": 0.02,
+      "warm": 0.31,
+      "warm_file_mb": 0.03,
+      "speedup": 40.7
+    }
+  },
+  "cold_abandoned_at": null,
+  "cold_abandoned_reason": null
+}
