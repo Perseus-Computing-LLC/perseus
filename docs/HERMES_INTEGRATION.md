@@ -182,5 +182,6 @@ The SSH-tunnel option is the simplest secure default — Hermes stays bound to l
 ## See also
 
 - [Hermes Agent — README](https://github.com/NousResearch/hermes-agent)
+- [Perseus Deployment Guide](./DEPLOYMENT.md) — full ecosystem setup (Bastra, LLM proxy, cron jobs)
 - Perseus `spec/components.md` § 4 (Mnēmē) and § 6 (Pythia) for the LLM-augmented surfaces
 - Perseus `README.md` § "Configuration" for the full `llm:` block
