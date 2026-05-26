@@ -1159,6 +1159,7 @@ def render_source(
         _fire_hooks("on_render_complete", {
             "source_path": ".perseus/context.md",
             "output_path": "",
+            "workspace": str(workspace) if workspace else "",
             "duration_ms": int((time.time() - _render_start_ts) * 1000),
             "directive_count": _stats["directive_count"],
             "cache_hits": _stats["cache_hits"],
@@ -1229,11 +1230,20 @@ def render_source_json(
 ) -> str:
     """Resolve a @perseus source document and return structured JSON."""
     result = render_source_with_meta(source_text, cfg, workspace)
-    return json.dumps({
+    payload = {
         "resolved": result.text,
         "directives": result.directives,
         "metadata": result.meta,
-    }, indent=2, default=str)
+    }
+    payload, report = redact_value(payload, cfg)
+    _audit_render_redaction(cfg, report)
+    return json.dumps(payload, indent=2, default=str)
+
+
+def _audit_render_redaction(cfg: dict, report: dict) -> None:
+    if report.get("total", 0) > 0:
+        audit_event(cfg, "redaction", surface="render",
+                    total=int(report.get("total", 0)), counts=report.get("counts", {}))
 
 
 def render_source_html(
@@ -1249,6 +1259,8 @@ def render_source_html(
     Zero external dependencies — the CSS is embedded.
     """
     md_output = render_source(source_text, cfg, workspace)
+    md_output, report = redact_text(md_output, cfg)
+    _audit_render_redaction(cfg, report)
     body = markdown_to_html_body(md_output)
 
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
@@ -1270,9 +1282,7 @@ def render_output(
     if fmt in ("md", "markdown"):
         rendered = render_source(source_text, cfg, workspace, max_tier=max_tier)
         rendered, _report = redact_text(rendered, cfg)
-        if _report.get("total", 0) > 0:
-            audit_event(cfg, "redaction", surface="render",
-                        total=int(_report.get("total", 0)), counts=_report.get("counts", {}))
+        _audit_render_redaction(cfg, _report)
         return rendered
     elif fmt == "html":
         t = title or "Workspace Context"
@@ -1284,19 +1294,27 @@ def render_output(
     if fmt in ("agents-md", "claude-md", "cursorrules", "copilot-instructions"):
         rendered = render_source(source_text, cfg, workspace, max_tier=max_tier)
         rendered, _report = redact_text(rendered, cfg)
-        if _report.get("total", 0) > 0:
-            audit_event(cfg, "redaction", surface="render",
-                        total=int(_report.get("total", 0)), counts=_report.get("counts", {}))
+        _audit_render_redaction(cfg, _report)
         return wrap_rendered(rendered, fmt, _PERSEUS_VERSION)
 
     # Custom formats (task-68)
     custom_formats = _discover_formats(cfg)
     if fmt in custom_formats:
         result = render_source_with_meta(source_text, cfg, workspace)
+        text, text_report = redact_text(result.text, cfg)
         metadata = result.meta.copy()
         metadata["directives"] = result.directives
+        metadata, meta_report = redact_value(metadata, cfg)
+        combined_report = {
+            "total": text_report.get("total", 0) + meta_report.get("total", 0),
+            "counts": {},
+        }
+        for report in (text_report, meta_report):
+            for name, count in report.get("counts", {}).items():
+                combined_report["counts"][name] = combined_report["counts"].get(name, 0) + count
+        _audit_render_redaction(cfg, combined_report)
         try:
-            return custom_formats[fmt](result.text, metadata)
+            return custom_formats[fmt](text, metadata)
         except Exception as e:
             return f"> ⚠ Format error: custom adapter '{fmt}' failed: {e}"
 
