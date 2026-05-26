@@ -1,0 +1,127 @@
+{
+  "test": "real-deltas",
+  "description": "Non-synthetic benchmark using the real Perseus codebase. Each block contains 22 varied directives (@git, @tree, @query, @include, @file, @env). COLD: directives resolve from scratch. WARM: same directives with @cache.",
+  "timestamp": "2026-05-25T21:57:33.366779",
+  "hostname": "e814fee5f347",
+  "python": "3.12.13",
+  "repo": "/workspace/perseus",
+  "directives_per_block": 22,
+  "directive_types": {
+    "@git": 6,
+    "@tree": 3,
+    "@query": 8,
+    "@include": 1,
+    "@env": 1,
+    "@file": 3
+  },
+  "scales": {
+    "1": {
+      "blocks": 1,
+      "directives": 22,
+      "cold_s": 0.979,
+      "warm_s": 0.298,
+      "speedup": 3.3,
+      "cold_ms_per_directive": 44.5,
+      "warm_ms_per_directive": 13.5,
+      "context_kb": 0.8,
+      "cold_per_directive_us": 44500.0,
+      "warm_per_directive_us": 13545.5
+    },
+    "2": {
+      "blocks": 2,
+      "directives": 44,
+      "cold_s": 1.772,
+      "warm_s": 0.347,
+      "speedup": 5.1,
+      "cold_ms_per_directive": 40.3,
+      "warm_ms_per_directive": 7.9,
+      "context_kb": 1.5,
+      "cold_per_directive_us": 40272.7,
+      "warm_per_directive_us": 7886.4
+    },
+    "4": {
+      "blocks": 4,
+      "directives": 88,
+      "cold_s": 3.321,
+      "warm_s": 0.308,
+      "speedup": 10.8,
+      "cold_ms_per_directive": 37.7,
+      "warm_ms_per_directive": 3.5,
+      "context_kb": 3.0,
+      "cold_per_directive_us": 37738.6,
+      "warm_per_directive_us": 3500.0
+    },
+    "8": {
+      "blocks": 8,
+      "directives": 176,
+      "cold_s": 5.208,
+      "warm_s": 0.776,
+      "speedup": 6.7,
+      "cold_ms_per_directive": 29.6,
+      "warm_ms_per_directive": 4.4,
+      "context_kb": 6.1,
+      "cold_per_directive_us": 29590.9,
+      "warm_per_directive_us": 4409.1
+    },
+    "16": {
+      "blocks": 16,
+      "directives": 352,
+      "cold_s": 49.752,
+      "warm_s": 0.298,
+      "speedup": 167.0,
+      "cold_ms_per_directive": 141.3,
+      "warm_ms_per_directive": 0.8,
+      "context_kb": 12.1,
+      "cold_per_directive_us": 141340.9,
+      "warm_per_directive_us": 846.6
+    },
+    "32": {
+      "blocks": 32,
+      "directives": 704,
+      "cold_s": 19.749,
+      "warm_s": 0.326,
+      "speedup": 60.6,
+      "cold_ms_per_directive": 28.1,
+      "warm_ms_per_directive": 0.5,
+      "context_kb": 24.2,
+      "cold_per_directive_us": 28052.6,
+      "warm_per_directive_us": 463.1
+    },
+    "64": {
+      "blocks": 64,
+      "directives": 1408,
+      "cold_s": 578.704,
+      "warm_s": 0.486,
+      "speedup": 1190.7,
+      "cold_ms_per_directive": 411.0,
+      "warm_ms_per_directive": 0.3,
+      "context_kb": 48.4,
+      "cold_per_directive_us": 411011.4,
+      "warm_per_directive_us": 345.2
+    },
+    "128": {
+      "blocks": 128,
+      "directives": 2816,
+      "cold_s": 90.7,
+      "warm_s": 0.375,
+      "speedup": 241.9,
+      "cold_ms_per_directive": 32.2,
+      "warm_ms_per_directive": 0.1,
+      "context_kb": 96.8,
+      "cold_per_directive_us": 32208.8,
+      "warm_per_directive_us": 133.2
+    },
+    "256": {
+      "blocks": 256,
+      "directives": 5632,
+      "cold_s": 147.204,
+      "warm_s": 0.425,
+      "speedup": 346.4,
+      "cold_ms_per_directive": 26.1,
+      "warm_ms_per_directive": 0.1,
+      "context_kb": 193.5,
+      "cold_per_directive_us": 26137.1,
+      "warm_per_directive_us": 75.5
+    }
+  }
+}

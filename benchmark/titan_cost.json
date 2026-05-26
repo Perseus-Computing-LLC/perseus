@@ -1,0 +1,659 @@
+{
+  "test": "titan-cost-analysis",
+  "pricing_date": "May 2026",
+  "pricing_source": "Anthropic & Google official API pricing pages",
+  "models": {
+    "claude_opus_47": {
+      "label": "Claude Opus 4.7",
+      "provider": "Anthropic",
+      "input_per_1M": 5.0,
+      "output_per_1M": 25.0,
+      "tool_call_s": 2.5,
+      "parallel_calls": 3,
+      "tier": "premium"
+    },
+    "claude_sonnet_46": {
+      "label": "Claude Sonnet 4.6",
+      "provider": "Anthropic",
+      "input_per_1M": 3.0,
+      "output_per_1M": 15.0,
+      "tool_call_s": 1.5,
+      "parallel_calls": 5,
+      "tier": "balanced"
+    },
+    "gemini_25_pro": {
+      "label": "Gemini 2.5 Pro",
+      "provider": "Google",
+      "input_per_1M": 1.25,
+      "output_per_1M": 10.0,
+      "tool_call_s": 1.2,
+      "parallel_calls": 8,
+      "tier": "efficient"
+    },
+    "gpt5": {
+      "label": "GPT-5",
+      "provider": "OpenAI",
+      "input_per_1M": 3.75,
+      "output_per_1M": 15.0,
+      "tool_call_s": 1.8,
+      "parallel_calls": 5,
+      "tier": "balanced"
+    }
+  },
+  "token_estimates": {
+    "per_directive": {
+      "input": 300,
+      "output": 200
+    },
+    "methodology": "Each @query directive simulates one LLM tool call cycle: read directive (100 input) \u2192 think/output tool call (50 output) \u2192 receive result (200 input) \u2192 summarize (150 output) = 300 input + 200 output tokens"
+  },
+  "per_directive_cost": {
+    "claude_opus_47": {
+      "directives": 1,
+      "input_tokens": 300,
+      "output_tokens": 200,
+      "total_tokens": 500,
+      "input_cost_usd": 0.0015,
+      "output_cost_usd": 0.005,
+      "total_cost_usd": 0.01,
+      "estimated_time_s": 0.8
+    },
+    "claude_sonnet_46": {
+      "directives": 1,
+      "input_tokens": 300,
+      "output_tokens": 200,
+      "total_tokens": 500,
+      "input_cost_usd": 0.0009,
+      "output_cost_usd": 0.003,
+      "total_cost_usd": 0.0,
+      "estimated_time_s": 0.3
+    },
+    "gemini_25_pro": {
+      "directives": 1,
+      "input_tokens": 300,
+      "output_tokens": 200,
+      "total_tokens": 500,
+      "input_cost_usd": 0.0004,
+      "output_cost_usd": 0.002,
+      "total_cost_usd": 0.0,
+      "estimated_time_s": 0.1
+    },
+    "gpt5": {
+      "directives": 1,
+      "input_tokens": 300,
+      "output_tokens": 200,
+      "total_tokens": 500,
+      "input_cost_usd": 0.0011,
+      "output_cost_usd": 0.003,
+      "total_cost_usd": 0.0,
+      "estimated_time_s": 0.4
+    }
+  },
+  "per_developer_per_day": {
+    "directives": 50,
+    "costs": {
+      "claude_opus_47": {
+        "directives": 50,
+        "input_tokens": 15000,
+        "output_tokens": 10000,
+        "total_tokens": 25000,
+        "input_cost_usd": 0.075,
+        "output_cost_usd": 0.25,
+        "total_cost_usd": 0.33,
+        "estimated_time_s": 41.7
+      },
+      "claude_sonnet_46": {
+        "directives": 50,
+        "input_tokens": 15000,
+        "output_tokens": 10000,
+        "total_tokens": 25000,
+        "input_cost_usd": 0.045,
+        "output_cost_usd": 0.15,
+        "total_cost_usd": 0.2,
+        "estimated_time_s": 15.0
+      },
+      "gemini_25_pro": {
+        "directives": 50,
+        "input_tokens": 15000,
+        "output_tokens": 10000,
+        "total_tokens": 25000,
+        "input_cost_usd": 0.0187,
+        "output_cost_usd": 0.1,
+        "total_cost_usd": 0.12,
+        "estimated_time_s": 7.5
+      },
+      "gpt5": {
+        "directives": 50,
+        "input_tokens": 15000,
+        "output_tokens": 10000,
+        "total_tokens": 25000,
+        "input_cost_usd": 0.0562,
+        "output_cost_usd": 0.15,
+        "total_cost_usd": 0.21,
+        "estimated_time_s": 18.0
+      }
+    }
+  },
+  "enterprise_annual": {
+    "developers": 500,
+    "workdays_per_year": 250,
+    "directives_per_dev_per_day": 50,
+    "total_annual_directives": 6250000,
+    "annual_costs": {
+      "claude_opus_47": {
+        "directives": 6250000,
+        "input_tokens": 1875000000,
+        "output_tokens": 1250000000,
+        "total_tokens": 3125000000,
+        "input_cost_usd": 9375.0,
+        "output_cost_usd": 31250.0,
+        "total_cost_usd": 40625.0,
+        "estimated_time_s": 5208333.3
+      },
+      "claude_sonnet_46": {
+        "directives": 6250000,
+        "input_tokens": 1875000000,
+        "output_tokens": 1250000000,
+        "total_tokens": 3125000000,
+        "input_cost_usd": 5625.0,
+        "output_cost_usd": 18750.0,
+        "total_cost_usd": 24375.0,
+        "estimated_time_s": 1875000.0
+      },
+      "gemini_25_pro": {
+        "directives": 6250000,
+        "input_tokens": 1875000000,
+        "output_tokens": 1250000000,
+        "total_tokens": 3125000000,
+        "input_cost_usd": 2343.75,
+        "output_cost_usd": 12500.0,
+        "total_cost_usd": 14843.75,
+        "estimated_time_s": 937500.0
+      },
+      "gpt5": {
+        "directives": 6250000,
+        "input_tokens": 1875000000,
+        "output_tokens": 1250000000,
+        "total_tokens": 3125000000,
+        "input_cost_usd": 7031.25,
+        "output_cost_usd": 18750.0,
+        "total_cost_usd": 25781.25,
+        "estimated_time_s": 2250000.0
+      }
+    },
+    "perseus_comparison": {
+      "claude_opus_47": {
+        "model": "Claude Opus 4.7",
+        "provider": "Anthropic",
+        "annual_directives": 6250000,
+        "llm_api_cost_usd": 40625.0,
+        "llm_input_tokens": 1875000000,
+        "llm_output_tokens": 1250000000,
+        "llm_total_tokens": 3125000000,
+        "llm_estimated_hours": 1446.8,
+        "perseus_cost_usd": 0.0,
+        "perseus_time_s": 137.5,
+        "perseus_time_minutes": 2.29,
+        "annual_savings_usd": 40625.0,
+        "token_savings_pct": 100.0
+      },
+      "claude_sonnet_46": {
+        "model": "Claude Sonnet 4.6",
+        "provider": "Anthropic",
+        "annual_directives": 6250000,
+        "llm_api_cost_usd": 24375.0,
+        "llm_input_tokens": 1875000000,
+        "llm_output_tokens": 1250000000,
+        "llm_total_tokens": 3125000000,
+        "llm_estimated_hours": 520.8,
+        "perseus_cost_usd": 0.0,
+        "perseus_time_s": 137.5,
+        "perseus_time_minutes": 2.29,
+        "annual_savings_usd": 24375.0,
+        "token_savings_pct": 100.0
+      },
+      "gemini_25_pro": {
+        "model": "Gemini 2.5 Pro",
+        "provider": "Google",
+        "annual_directives": 6250000,
+        "llm_api_cost_usd": 14843.75,
+        "llm_input_tokens": 1875000000,
+        "llm_output_tokens": 1250000000,
+        "llm_total_tokens": 3125000000,
+        "llm_estimated_hours": 260.4,
+        "perseus_cost_usd": 0.0,
+        "perseus_time_s": 137.5,
+        "perseus_time_minutes": 2.29,
+        "annual_savings_usd": 14843.75,
+        "token_savings_pct": 100.0
+      },
+      "gpt5": {
+        "model": "GPT-5",
+        "provider": "OpenAI",
+        "annual_directives": 6250000,
+        "llm_api_cost_usd": 25781.25,
+        "llm_input_tokens": 1875000000,
+        "llm_output_tokens": 1250000000,
+        "llm_total_tokens": 3125000000,
+        "llm_estimated_hours": 625.0,
+        "perseus_cost_usd": 0.0,
+        "perseus_time_s": 137.5,
+        "perseus_time_minutes": 2.29,
+        "annual_savings_usd": 25781.25,
+        "token_savings_pct": 100.0
+      }
+    }
+  },
+  "scale_comparison": {
+    "10": {
+      "claude_opus_47": {
+        "directives": 10,
+        "input_tokens": 3000,
+        "output_tokens": 2000,
+        "total_tokens": 5000,
+        "input_cost_usd": 0.015,
+        "output_cost_usd": 0.05,
+        "total_cost_usd": 0.07,
+        "estimated_time_s": 8.3
+      },
+      "claude_sonnet_46": {
+        "directives": 10,
+        "input_tokens": 3000,
+        "output_tokens": 2000,
+        "total_tokens": 5000,
+        "input_cost_usd": 0.009,
+        "output_cost_usd": 0.03,
+        "total_cost_usd": 0.04,
+        "estimated_time_s": 3.0
+      },
+      "gemini_25_pro": {
+        "directives": 10,
+        "input_tokens": 3000,
+        "output_tokens": 2000,
+        "total_tokens": 5000,
+        "input_cost_usd": 0.0037,
+        "output_cost_usd": 0.02,
+        "total_cost_usd": 0.02,
+        "estimated_time_s": 1.5
+      },
+      "gpt5": {
+        "directives": 10,
+        "input_tokens": 3000,
+        "output_tokens": 2000,
+        "total_tokens": 5000,
+        "input_cost_usd": 0.0112,
+        "output_cost_usd": 0.03,
+        "total_cost_usd": 0.04,
+        "estimated_time_s": 3.6
+      }
+    },
+    "50": {
+      "claude_opus_47": {
+        "directives": 50,
+        "input_tokens": 15000,
+        "output_tokens": 10000,
+        "total_tokens": 25000,
+        "input_cost_usd": 0.075,
+        "output_cost_usd": 0.25,
+        "total_cost_usd": 0.33,
+        "estimated_time_s": 41.7
+      },
+      "claude_sonnet_46": {
+        "directives": 50,
+        "input_tokens": 15000,
+        "output_tokens": 10000,
+        "total_tokens": 25000,
+        "input_cost_usd": 0.045,
+        "output_cost_usd": 0.15,
+        "total_cost_usd": 0.2,
+        "estimated_time_s": 15.0
+      },
+      "gemini_25_pro": {
+        "directives": 50,
+        "input_tokens": 15000,
+        "output_tokens": 10000,
+        "total_tokens": 25000,
+        "input_cost_usd": 0.0187,
+        "output_cost_usd": 0.1,
+        "total_cost_usd": 0.12,
+        "estimated_time_s": 7.5
+      },
+      "gpt5": {
+        "directives": 50,
+        "input_tokens": 15000,
+        "output_tokens": 10000,
+        "total_tokens": 25000,
+        "input_cost_usd": 0.0562,
+        "output_cost_usd": 0.15,
+        "total_cost_usd": 0.21,
+        "estimated_time_s": 18.0
+      }
+    },
+    "100": {
+      "claude_opus_47": {
+        "directives": 100,
+        "input_tokens": 30000,
+        "output_tokens": 20000,
+        "total_tokens": 50000,
+        "input_cost_usd": 0.15,
+        "output_cost_usd": 0.5,
+        "total_cost_usd": 0.65,
+        "estimated_time_s": 83.3
+      },
+      "claude_sonnet_46": {
+        "directives": 100,
+        "input_tokens": 30000,
+        "output_tokens": 20000,
+        "total_tokens": 50000,
+        "input_cost_usd": 0.09,
+        "output_cost_usd": 0.3,
+        "total_cost_usd": 0.39,
+        "estimated_time_s": 30.0
+      },
+      "gemini_25_pro": {
+        "directives": 100,
+        "input_tokens": 30000,
+        "output_tokens": 20000,
+        "total_tokens": 50000,
+        "input_cost_usd": 0.0375,
+        "output_cost_usd": 0.2,
+        "total_cost_usd": 0.24,
+        "estimated_time_s": 15.0
+      },
+      "gpt5": {
+        "directives": 100,
+        "input_tokens": 30000,
+        "output_tokens": 20000,
+        "total_tokens": 50000,
+        "input_cost_usd": 0.1125,
+        "output_cost_usd": 0.3,
+        "total_cost_usd": 0.41,
+        "estimated_time_s": 36.0
+      }
+    },
+    "500": {
+      "claude_opus_47": {
+        "directives": 500,
+        "input_tokens": 150000,
+        "output_tokens": 100000,
+        "total_tokens": 250000,
+        "input_cost_usd": 0.75,
+        "output_cost_usd": 2.5,
+        "total_cost_usd": 3.25,
+        "estimated_time_s": 416.7
+      },
+      "claude_sonnet_46": {
+        "directives": 500,
+        "input_tokens": 150000,
+        "output_tokens": 100000,
+        "total_tokens": 250000,
+        "input_cost_usd": 0.45,
+        "output_cost_usd": 1.5,
+        "total_cost_usd": 1.95,
+        "estimated_time_s": 150.0
+      },
+      "gemini_25_pro": {
+        "directives": 500,
+        "input_tokens": 150000,
+        "output_tokens": 100000,
+        "total_tokens": 250000,
+        "input_cost_usd": 0.1875,
+        "output_cost_usd": 1.0,
+        "total_cost_usd": 1.19,
+        "estimated_time_s": 75.0
+      },
+      "gpt5": {
+        "directives": 500,
+        "input_tokens": 150000,
+        "output_tokens": 100000,
+        "total_tokens": 250000,
+        "input_cost_usd": 0.5625,
+        "output_cost_usd": 1.5,
+        "total_cost_usd": 2.06,
+        "estimated_time_s": 180.0
+      }
+    },
+    "1000": {
+      "claude_opus_47": {
+        "directives": 1000,
+        "input_tokens": 300000,
+        "output_tokens": 200000,
+        "total_tokens": 500000,
+        "input_cost_usd": 1.5,
+        "output_cost_usd": 5.0,
+        "total_cost_usd": 6.5,
+        "estimated_time_s": 833.3
+      },
+      "claude_sonnet_46": {
+        "directives": 1000,
+        "input_tokens": 300000,
+        "output_tokens": 200000,
+        "total_tokens": 500000,
+        "input_cost_usd": 0.9,
+        "output_cost_usd": 3.0,
+        "total_cost_usd": 3.9,
+        "estimated_time_s": 300.0
+      },
+      "gemini_25_pro": {
+        "directives": 1000,
+        "input_tokens": 300000,
+        "output_tokens": 200000,
+        "total_tokens": 500000,
+        "input_cost_usd": 0.375,
+        "output_cost_usd": 2.0,
+        "total_cost_usd": 2.38,
+        "estimated_time_s": 150.0
+      },
+      "gpt5": {
+        "directives": 1000,
+        "input_tokens": 300000,
+        "output_tokens": 200000,
+        "total_tokens": 500000,
+        "input_cost_usd": 1.125,
+        "output_cost_usd": 3.0,
+        "total_cost_usd": 4.12,
+        "estimated_time_s": 360.0
+      }
+    },
+    "5000": {
+      "claude_opus_47": {
+        "directives": 5000,
+        "input_tokens": 1500000,
+        "output_tokens": 1000000,
+        "total_tokens": 2500000,
+        "input_cost_usd": 7.5,
+        "output_cost_usd": 25.0,
+        "total_cost_usd": 32.5,
+        "estimated_time_s": 4166.7
+      },
+      "claude_sonnet_46": {
+        "directives": 5000,
+        "input_tokens": 1500000,
+        "output_tokens": 1000000,
+        "total_tokens": 2500000,
+        "input_cost_usd": 4.5,
+        "output_cost_usd": 15.0,
+        "total_cost_usd": 19.5,
+        "estimated_time_s": 1500.0
+      },
+      "gemini_25_pro": {
+        "directives": 5000,
+        "input_tokens": 1500000,
+        "output_tokens": 1000000,
+        "total_tokens": 2500000,
+        "input_cost_usd": 1.875,
+        "output_cost_usd": 10.0,
+        "total_cost_usd": 11.88,
+        "estimated_time_s": 750.0
+      },
+      "gpt5": {
+        "directives": 5000,
+        "input_tokens": 1500000,
+        "output_tokens": 1000000,
+        "total_tokens": 2500000,
+        "input_cost_usd": 5.625,
+        "output_cost_usd": 15.0,
+        "total_cost_usd": 20.62,
+        "estimated_time_s": 1800.0
+      }
+    },
+    "10000": {
+      "claude_opus_47": {
+        "directives": 10000,
+        "input_tokens": 3000000,
+        "output_tokens": 2000000,
+        "total_tokens": 5000000,
+        "input_cost_usd": 15.0,
+        "output_cost_usd": 50.0,
+        "total_cost_usd": 65.0,
+        "estimated_time_s": 8333.3
+      },
+      "claude_sonnet_46": {
+        "directives": 10000,
+        "input_tokens": 3000000,
+        "output_tokens": 2000000,
+        "total_tokens": 5000000,
+        "input_cost_usd": 9.0,
+        "output_cost_usd": 30.0,
+        "total_cost_usd": 39.0,
+        "estimated_time_s": 3000.0
+      },
+      "gemini_25_pro": {
+        "directives": 10000,
+        "input_tokens": 3000000,
+        "output_tokens": 2000000,
+        "total_tokens": 5000000,
+        "input_cost_usd": 3.75,
+        "output_cost_usd": 20.0,
+        "total_cost_usd": 23.75,
+        "estimated_time_s": 1500.0
+      },
+      "gpt5": {
+        "directives": 10000,
+        "input_tokens": 3000000,
+        "output_tokens": 2000000,
+        "total_tokens": 5000000,
+        "input_cost_usd": 11.25,
+        "output_cost_usd": 30.0,
+        "total_cost_usd": 41.25,
+        "estimated_time_s": 3600.0
+      }
+    },
+    "50000": {
+      "claude_opus_47": {
+        "directives": 50000,
+        "input_tokens": 15000000,
+        "output_tokens": 10000000,
+        "total_tokens": 25000000,
+        "input_cost_usd": 75.0,
+        "output_cost_usd": 250.0,
+        "total_cost_usd": 325.0,
+        "estimated_time_s": 41666.7
+      },
+      "claude_sonnet_46": {
+        "directives": 50000,
+        "input_tokens": 15000000,
+        "output_tokens": 10000000,
+        "total_tokens": 25000000,
+        "input_cost_usd": 45.0,
+        "output_cost_usd": 150.0,
+        "total_cost_usd": 195.0,
+        "estimated_time_s": 15000.0
+      },
+      "gemini_25_pro": {
+        "directives": 50000,
+        "input_tokens": 15000000,
+        "output_tokens": 10000000,
+        "total_tokens": 25000000,
+        "input_cost_usd": 18.75,
+        "output_cost_usd": 100.0,
+        "total_cost_usd": 118.75,
+        "estimated_time_s": 7500.0
+      },
+      "gpt5": {
+        "directives": 50000,
+        "input_tokens": 15000000,
+        "output_tokens": 10000000,
+        "total_tokens": 25000000,
+        "input_cost_usd": 56.25,
+        "output_cost_usd": 150.0,
+        "total_cost_usd": 206.25,
+        "estimated_time_s": 18000.0
+      }
+    },
+    "100000": {
+      "claude_opus_47": {
+        "directives": 100000,
+        "input_tokens": 30000000,
+        "output_tokens": 20000000,
+        "total_tokens": 50000000,
+        "input_cost_usd": 150.0,
+        "output_cost_usd": 500.0,
+        "total_cost_usd": 650.0,
+        "estimated_time_s": 83333.3
+      },
+      "claude_sonnet_46": {
+        "directives": 100000,
+        "input_tokens": 30000000,
+        "output_tokens": 20000000,
+        "total_tokens": 50000000,
+        "input_cost_usd": 90.0,
+        "output_cost_usd": 300.0,
+        "total_cost_usd": 390.0,
+        "estimated_time_s": 30000.0
+      },
+      "gemini_25_pro": {
+        "directives": 100000,
+        "input_tokens": 30000000,
+        "output_tokens": 20000000,
+        "total_tokens": 50000000,
+        "input_cost_usd": 37.5,
+        "output_cost_usd": 200.0,
+        "total_cost_usd": 237.5,
+        "estimated_time_s": 15000.0
+      },
+      "gpt5": {
+        "directives": 100000,
+        "input_tokens": 30000000,
+        "output_tokens": 20000000,
+        "total_tokens": 50000000,
+        "input_cost_usd": 112.5,
+        "output_cost_usd": 300.0,
+        "total_cost_usd": 412.5,
+        "estimated_time_s": 36000.0
+      }
+    }
+  },
+  "token_comparison": {
+    "per_single_directive": {
+      "input": 300,
+      "output": 200
+    },
+    "per_dev_day": {
+      "directives": 50,
+      "input_tokens": 15000,
+      "output_tokens": 10000
+    },
+    "per_dev_year": {
+      "directives": 12500,
+      "input_tokens": 3750000,
+      "output_tokens": 2500000
+    },
+    "enterprise_annual": {
+      "developers": 500,
+      "workdays": 250,
+      "directives_per_dev_day": 50,
+      "total_directives": 6250000,
+      "total_input_tokens": 1875000000,
+      "total_output_tokens": 1250000000,
+      "total_tokens": 3125000000
+    }
+  },
+  "perseus_data": {
+    "avg_cold_ms_per_query": 12.8,
+    "warm_us_per_query": 22,
+    "best_speedup": 449.8,
+    "cold_abandoned_at": null
+  },
+  "headline": "500 developers \u00d7 250 days \u00d7 50 directives/day = 6,250,000 directives/year. LLM cost: $40,625/yr (Opus 4.7) to $14,844/yr (Gemini 2.5 Pro). Perseus: $137.50 of CPU time, zero API cost. Token savings: 3.1B tokens/year."
+}
