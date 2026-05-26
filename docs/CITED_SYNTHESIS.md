@@ -1,6 +1,6 @@
 # Cited Synthesis
 
-Phase 15 keeps Perseus resolver-first. The new synthesis surface is a bounded
+This synthesis surface keeps Perseus resolver-first. The new synthesis surface is a bounded
 curator layer for cases where Perseus can add value before the consuming
 assistant sees the context: compression, cross-source consistency, and stable
 handoff claims.
@@ -44,7 +44,7 @@ generation:
 
 ```json
 {
-  "version": "phase15a-cited-synthesis-v1",
+  "version": "v1.0.0-cited-synthesis",
   "question": "What is the next allowable action?",
   "generated": true,
   "claims": [
@@ -57,7 +57,7 @@ generation:
           "label": "ROADMAP.md",
           "line_start": 640,
           "line_end": 666,
-          "quote": "treating Phase 15 generation as an explicit opt-in product pivot"
+          "quote": "treating generation as an explicit opt-in product pivot"
         }
       ]
     }
