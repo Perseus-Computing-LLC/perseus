@@ -10,7 +10,7 @@ rendered output and skip orientation. Start work immediately.
 
 **Workspace:** current repo checkout  
 **Repo:** https://github.com/tcconnally/perseus  
-**Project:** Perseus — Live Context Engine for AI Assistants (v1.0.0)
+**Project:** Perseus — Live Context Engine for AI Assistants (v1.0.4)
 
 ---
 
@@ -27,7 +27,7 @@ rendered output and skip orientation. Start work immediately.
 ---
 
 ## Available Skills
-@skills flag_stale=true category=devops,media,smart-home,github,software-development
+@skills category="perseus" flag_stale=true
 
 ---
 
@@ -62,4 +62,4 @@ rendered output and skip orientation. Start work immediately.
 ---
 
 ## Project Narrative
-@memory focus="recent"
+Project memory is intentionally not rendered into tracked assistant files.
