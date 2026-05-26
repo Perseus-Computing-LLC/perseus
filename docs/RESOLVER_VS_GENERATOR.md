@@ -1,9 +1,9 @@
 # Resolver vs Generator Decision Brief
 
 **Date:** 2026-05-19  
-**Status:** Phase 15 direction accepted
+**Status:** Synthesis direction accepted
 **Recommendation:** Keep Perseus a trustworthy resolver at the core. The only
-approved Phase 15 direction is bounded cited synthesis under context scarcity,
+approved direction is bounded cited synthesis under context scarcity,
 not generic elaboration and not an unconstrained generator.
 
 ---
@@ -18,7 +18,7 @@ context:
 - Score and prefetch existing facts.
 - Improve Pythia recommendations from observed outcomes.
 
-Perseus should not silently become a prose generator. Phase 15 may proceed only
+Perseus should not silently become a prose generator. The synthesis feature may proceed only
 as an opt-in, visibly labeled layer that sits beside resolved facts rather than
 replacing them. The LLM is a drafter, not an authority: no citation, no claim.
 
@@ -82,24 +82,23 @@ testing, and makes Perseus compete with the consuming assistant's own reasoning.
 
 ## Recommendation
 
-Choose **Option A for Phase 14**.
+Choose **Option A for the current development phase**.
 
-Phase 14 should improve Pythia scoring, feedback loops, and recommendation
-quality without generating new context prose. This keeps Phase 14 aligned with
-the resolver identity.
+The current development phase should improve Pythia scoring, feedback loops, and recommendation
+quality without generating new context prose. This keeps this development phase aligned with the resolver identity.
 
-The owner has chosen **Option B as the first experiment**, not Option C. The
+The owner has chosen **Option B as the first experiment**.
 first generative surface is explicitly labeled, opt-in, and provenance-backed.
 Generic single-value elaboration, such as explaining an obvious `@read` result,
 is not enough delta to justify the generation layer.
 
 ---
 
-## Phase 15 Entry Criteria
+## Synthesis Entry Criteria
 
 Do not begin generative context work until all of these are true:
 
-- Phase 14 recommendation learning is green and documented.
+- Recommendation learning for the current development phase is green and documented.
 - The owner explicitly chooses a generator/curator direction. ✅
 - Generated content has a separate output section or command surface.
 - Every generated claim can point back to exact resolved context, Pythia log
@@ -123,11 +122,11 @@ Do not begin generative context work until all of these are true:
 
 ---
 
-## Phase 15 Direction
+## Synthesis Direction
 
-Do not build generic `@read` elaboration as the primary Phase 15 feature. The
+Do not build generic `@read` elaboration as the primary synthesis feature. The
 consuming assistant can already infer obvious meanings from resolved facts.
-Phase 15 earns its keep only when Perseus has a pre-assistant advantage:
+Synthesis earns its keep only when Perseus has a pre-assistant advantage:
 
 - It can inspect more sources than will fit downstream.
 - It can preserve stable, reusable synthesis across sessions.
@@ -140,9 +139,9 @@ any render-time surface.
 
 ---
 
-## Phase 14 Guidance
+## Current Development Phase Guidance
 
-Phase 14 should stay inside the resolver boundary:
+The current development phase should stay inside the resolver boundary:
 
 - Reinforcement signals may adjust Pythia scores.
 - Online scoring may change recommendation order.
@@ -150,4 +149,4 @@ Phase 14 should stay inside the resolver boundary:
 - Daedalus may score, rank, or classify.
 - Daedalus should not write primary context prose.
 
-That keeps the next phase powerful without changing what Perseus is.
+That keeps the next iteration powerful without changing what Perseus is.

@@ -10,7 +10,7 @@
 
 | Gate | Status | Notes |
 |---|---|---|
-| All blocking Phase 16–22 tasks complete | ✅ | tasks 42–62 all closed |
+| All critical development tasks complete | ✅ | All development tasks closed |
 | Full test suite green | ✅ | 493 passed, 1 skipped (TCP LSP smoke — expected in sandbox) |
 | py_compile (syntax check) | ✅ | No errors |
 | Release artifacts built | ✅ | `dist/perseus-1.0.0-rc.1.tar.gz` + `SHA256SUMS` (RC); v1.0.0 artifacts rebuilt after version bump |
@@ -24,9 +24,9 @@
 | Container image tests | ✅ | Static checks pass; Docker build/run skipped (no Docker in CI sandbox) |
 | Docs hub + quickstart | ✅ | `docs/index.md`, `docs/quickstart.md`, `docs/CONTRIBUTING.md` |
 | Example workspaces | ✅ | `examples/local-cli/`, `examples/assistant-profile/`, `examples/container/` — smoke tests pass |
-| README / CHANGELOG / ROADMAP aligned | ✅ | All reference v1.0.0; CHANGELOG entries for tasks 56–62 |
+| README / CHANGELOG / ROADMAP aligned | ✅ | All reference v1.0.0; CHANGELOG entries updated |
 | IP portfolio | ✅ | Trademark filed |
-| No open Agora tasks | ✅ | Tasks 60–62 closed; 0 open |
+| No open Agora tasks | ✅ | All Agora tasks closed; 0 open |
 
 ---
 
@@ -79,4 +79,4 @@ Verify: `bash scripts/release.sh --check`
 
 ---
 
-*Perseus v1.0.0. All 63 tasks complete. The mirror is ready.*
+*Perseus v1.0.0. All development tasks complete. The mirror is ready.*
