@@ -19,7 +19,7 @@
   <rect width="900" height="520" fill="#0d1117" rx="12"/>
 
   <!-- Title -->
-  <text x="450.0" y="38" text-anchor="middle" fill="#e6edf3" font-size="22" font-weight="700">Perseus v1.0.3 — Cold vs Warm Render Performance</text>
+  <text x="450.0" y="38" text-anchor="middle" fill="#e6edf3" font-size="22" font-weight="700">Perseus v1.0.4 — Cold vs Warm Render Performance</text>
   <text x="450.0" y="58" text-anchor="middle" fill="#8b949e" font-size="13">@cache ttl=300 · 12.8ms per query cold · warm time constant</text>
 
   <!-- Grid -->
