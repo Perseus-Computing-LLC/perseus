@@ -14,18 +14,18 @@ values depend on the local workspace.
 
 ## `perseus synthesize --json`
 
-Returns a Phase 15 cited-synthesis object. Generation is off by default; when
+Returns a cited-synthesis object. Generation is off by default; when
 LLM drafting runs, only claims with exact source quotes and line citations
 survive validation.
 
 ```json
 {
-  "version": "phase15a-cited-synthesis-v1",
+  "version": "v1.0.0-cited-synthesis",
   "question": "What is the next allowable action?",
   "generated": true,
   "claims": [
     {
-      "text": "The next action is the Phase 14/15 decision gate.",
+      "text": "The next action is the resolver/generator decision gate.",
       "citations": [
         {
           "source_id": "src1",
@@ -33,7 +33,7 @@ survive validation.
           "label": "HANDOFF.md",
           "line_start": 6,
           "line_end": 6,
-          "quote": "stop at resolver/generator decision gate before Phase 15"
+          "quote": "stop at resolver/generator decision gate"
         }
       ]
     }

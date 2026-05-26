@@ -77,7 +77,7 @@ Most of Perseus is deterministic and doesn't need an LLM at all. The LLM-augment
 | **Mnēmē compact** | `perseus memory compact --llm hermes` | Rewrites the narrative into tighter prose (deterministic falls back if LLM unavailable) |
 | **Mnēmē update** | `perseus memory update --llm hermes` | Optional polish over the deterministic distillation |
 | **Mnēmē query** | `perseus memory query "<question>" --llm hermes` | Answers questions over the narrative (deterministic grep fallback otherwise) |
-| **Daedalus drift** (Phase 9) | `perseus oracle drift --llm hermes` | Reserved for future LLM explanation; current drift reporting is deterministic/JSON-first |
+| **Daedalus drift** | `perseus oracle drift --llm hermes` | Reserved for future LLM explanation; current drift reporting is deterministic/JSON-first |
 
 Everything else — rendering, checkpoints, federation, health, inbox, serve, agora — runs without ever touching an LLM. You can use Perseus end-to-end with no LLM configured at all.
 
@@ -146,7 +146,7 @@ The SSH-tunnel option is the simplest secure default — Hermes stays bound to l
 
 ## Federation + Hermes
 
-`@memory federation` and `perseus memory federation *` are **LLM-free**. Subscriptions read narrative files directly from disk; no model is invoked. If you want LLM-summarized federation digests, treat that as post-Phase 14 generator/curator work and file an issue tagged `federation-llm-digest`.
+`@memory federation` and `perseus memory federation *` are **LLM-free**. Subscriptions read narrative files directly from disk; no model is invoked. If you want LLM-summarized federation digests, treat that as generator/curator work and file an issue tagged `federation-llm-digest`.
 
 ---
 
@@ -182,7 +182,5 @@ The SSH-tunnel option is the simplest secure default — Hermes stays bound to l
 ## See also
 
 - [Hermes Agent — README](https://github.com/NousResearch/hermes-agent)
-- [Hermes Agent — Quickstart](https://github.com/NousResearch/hermes-agent/blob/main/website/docs/getting-started/quickstart.md)
-- [Hermes Agent — v0.14 Foundation Release (OpenAI-compatible proxy)](https://github.com/NousResearch/hermes-agent/blob/main/RELEASE_v0.14.0.md)
 - Perseus `spec/components.md` § 4 (Mnēmē) and § 6 (Pythia) for the LLM-augmented surfaces
 - Perseus `README.md` § "Configuration" for the full `llm:` block

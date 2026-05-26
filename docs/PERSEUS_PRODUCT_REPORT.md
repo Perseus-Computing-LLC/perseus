@@ -1,7 +1,7 @@
 # Perseus Product Report
 
 **Date:** 2026-05-20  
-**Status:** All 22 phases complete. Perseus v1.0.2 released.
+**Status:** All major development phases complete. Perseus v1.0.2 released.
 **Current baseline:** 573 tests passing, 1 skipped (TCP LSP smoke — expected in sandbox/CI)
 
 ---
@@ -15,7 +15,7 @@ assistant receives facts instead of instructions to go find facts.
 The project has moved beyond a renderer. It now includes checkpoints, Pythia
 recommendations, Agora task coordination, Mneme narrative memory, federation,
 LSP/editor support, schema validation, predictive prefetch, adaptive Pythia
-signals, and the first bounded Phase 15 synthesis surface.
+signals, and the first bounded synthesis surface.
 
 The next product challenge is not "more intelligence." It is packaging the
 existing power into a deployable, understandable, safe product:
@@ -100,7 +100,7 @@ Claude Code, Cursor, Rovo Dev, or any assistant that can read a file or stdin.
 5. **Rich local state loop.** Checkpoints, Pythia logs, Mneme, and Agora make
    context accumulate value across sessions.
 6. **Good test discipline.** The suite is already broad and split by subsystem.
-7. **Right Phase 15 boundary.** The project rejected vague elaboration and kept
+7. **Right synthesis boundary.** The project rejected vague elaboration and kept
    generation optional, cited, and separate from normal render output.
 
 ---
@@ -115,7 +115,7 @@ Claude Code, Cursor, Rovo Dev, or any assistant that can read a file or stdin.
    but release discipline still needs v1 hardening and publishing practice.
 4. **Adapter drift.** Assistant-specific docs can go stale unless profiles and
    conformance fixtures keep them honest.
-5. **Generated-context creep.** Phase 15 must stay bounded. Uncited generated
+5. **Generated-context creep.** Synthesis must stay bounded. Uncited generated
    prose would damage the main trust promise.
 6. **Platform parity.** macOS/Linux/BSD are strong; native Windows scheduling is
    explicitly deferred, and managed runtime behavior still needs hardening.
@@ -123,35 +123,12 @@ Claude Code, Cursor, Rovo Dev, or any assistant that can read a file or stdin.
 
 ---
 
-## Productization Roadmap
-
-The new Agora roadmap runs through Phase 22:
-
-| Phase | Outcome |
-|---|---|
-| 15B-C | Finish cited synthesis with cross-source consistency and optional curated render sections ✅ |
-| 16 | Define product contract, context pack manifest, and profile-based init ✅ |
-| 17 | Add trust profiles, redaction, audit logs, and trust reports ✅ |
-| 18 | Make installation, versioning, release artifacts, and scheduler parity real ✅ |
-| 19 | Prove adapter compatibility with profiles and conformance tests ✅ |
-| 20 | Support managed runtime through authenticated serve ✅, container deployment ✅, and watch mode ✅ |
-| 21 | Add golden evals, performance budgets, and migration/compatibility checks ✅ |
-| 22 | Docs hub, example workspaces, contributing guide, and v1.0.0 release ✅ |
-
-This path aims at a product that can be deployed as:
-
-- local CLI installed on PATH
-- assistant-specific rendered file/profile
-- editor/LSP integration
-- scheduled or watched context refresh
-- authenticated local HTTP service
-- containerized sidecar/helper
 
 ---
 
 ## Status
 
-All 22 phases shipped. Perseus v1.0.0 is released on PyPI as `perseus-ctx`. The deployment targets below are all operational.
+All major development phases shipped. Perseus v1.0.0 is released on PyPI as `perseus-ctx`. The deployment targets below are all operational.
 
 ---
 
