@@ -190,10 +190,36 @@ def c5_concurrent_adversarial(n: int = 50) -> dict:
                 "traceback": b"Traceback" in stderr,
             }
 
+        # Snapshot perseus.py PIDs running BEFORE C5 starts (e.g. titan running
+        # concurrently in another process). We only want to detect orphans that
+        # were spawned by C5 itself — not pre-existing long-running benchmarks.
+        try:
+            from bench_lib import psutil as _psutil  # noqa: E402
+            pre_c5_pids: set[int] = set()
+            if _psutil is not None:
+                for _p in _psutil.process_iter(["pid", "cmdline"]):
+                    try:
+                        _cmd = " ".join(_p.info.get("cmdline") or [])
+                        if "perseus.py" in _cmd:
+                            pre_c5_pids.add(_p.info["pid"])
+                    except Exception:
+                        pass
+        except Exception:
+            pre_c5_pids = set()
+
         with cf.ThreadPoolExecutor(max_workers=20) as ex:
             results = list(ex.map(run_one, range(n)))
-        time.sleep(2)
-        orphans = find_orphan_subprocesses(set())
+
+        # Grandchild cleanup: yes/bash subprocesses spawned by adversarial agents
+        # can linger briefly after Perseus exits. Retry the orphan check up to 3×
+        # with increasing back-off. True orphans persist; cleanup stragglers vanish.
+        # Exclude pre-existing PIDs (e.g. titan running in parallel).
+        orphans = []
+        for _attempt, _wait in enumerate([2, 3, 5]):
+            time.sleep(_wait)
+            orphans = find_orphan_subprocesses(pre_c5_pids)
+            if not orphans:
+                break
         normal_results = [r for r in results if r["i"] >= n * 0.2]
         adv_results = [r for r in results if r["i"] < n * 0.2]
         normal_avg = sum(r["wall_ms"] for r in normal_results) / max(len(normal_results), 1)
