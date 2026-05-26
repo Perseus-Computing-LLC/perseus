@@ -68,6 +68,34 @@ def _save_narrative(path: Path, frontmatter: dict, body: str) -> None:
     os.replace(tmp, path)
 
 
+def _bastra_recall(cfg: dict, query: str, k: int = 5,
+                   scope: str | None = None,
+                   type_filter: str | None = None) -> list[dict]:
+    """Call bastra-recall HTTP API and return matching memory hits.
+
+    Returns empty list on any failure (daemon down, timeout, bad response).
+    """
+    url = (cfg.get("memory", {}).get("bastra_url", "http://127.0.0.1:6723")
+           .rstrip("/"))
+    payload: dict = {"query": query, "k": k}
+    if scope:
+        payload["scope"] = scope
+    if type_filter:
+        payload["type"] = type_filter
+    try:
+        req = urllib.request.Request(
+            f"{url}/api/v1/recall",
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            result = json.loads(resp.read().decode())
+        return result.get("hits", [])
+    except Exception:
+        return []
+
+
 def _mneme_default_frontmatter(workspace: Path) -> dict:
     return {
         "schema": 1,
