@@ -110,6 +110,7 @@ Perseus is tested against edge cases that challenge the "resolve before context"
   behind `allow_query_shell`, same as built-ins. Plugin errors are caught and
   surfaced as inline warnings — a broken plugin never breaks a render.
 - **14/14 hard gates** — ultimate benchmark suite (swarm chaos at 10/50/100 agents, cache thrash T1–T5, adversarial C1–C5): zero hash collisions, zero determinism violations, zero orphans. Adversarial-neighbor slowdown on normal agents: **1.02×** — isolation is effectively free. 12/12 malformed directives handled gracefully. [Full results →](benchmark/ultimate_suite_results.json)
+- **Semantic equivalence: 1.0** — live Gemini 2.5 Flash judge, 20 A/B pairs: Perseus-compiled context prepended to every request, 20/20 responses judged semantically equivalent to baseline. The context changes what the assistant knows, not what it says.
 
 ### Caveats
 
