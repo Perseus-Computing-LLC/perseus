@@ -82,14 +82,11 @@ Keep it fresh with `cron`, `launchd`, `systemd`, or `perseus watch` — see the 
 
 ## Proof
 
-- **450× cold→warm gap** — **50,000 `@query` directives in 1.36 seconds.** 612.6s without cache, 1.36s with `@cache ttl=300`. Warm time is flat regardless of scale — the render path is free. Cache: local filesystem JSON, one file per directive, SHA-256 keyed. [Raw data →](benchmark/cold-vs-warm.json)
-- **301× faster than an LLM doing the same work** — enterprise simulation: **500 developers, 10 teams, 5-day workweek.** 16,250 context renders in 961s wall clock. **Zero failures.** An LLM burning tool-call round-trips would take 83 hours and cost thousands in API tokens. Perseus does it in 16 minutes for zero API cost. [Full enterprise benchmark →](benchmark/extreme_week_results.json)
-- **1,000,000 directives in 22 seconds** — 22μs per directive. 31 MB file, 3M output lines, zero crashes. The ceiling is file I/O, not Perseus logic.
-- **120-agent swarm, 0 collisions** — 30 developers × 4 agents each, 150 concurrent checkpoint writes in 9.7s on local NVMe with atomic `O_CREAT | O_EXCL` locking. Network filesystems (NFS, SMB) require careful lock config; see [Caveats](#caveats).
-- **All green** — every directive, parser edge case, lock contention, trust gate, and overflow guard has coverage. <!-- test-count: 604 -->
-- **Compile-before-context** — Perseus resolves everything in a single render pass (~0.3s) before the assistant reads the file. An LLM discovering the same facts via tool calls spends 7–298,388s getting there. The gap only widens: [26× → 23,402× → 301×](benchmark/edge-bench/).
-- **10× cheaper per session, every provider, every scale** — see the token economics for full provider breakdowns. [Token economics →](benchmark/edge-bench/)
-- **93% token reduction, 0ms overhead** — live 200-request A/B harness: 488 → 35 avg prompt tokens per request. P99 latency overhead: **0ms** — Perseus adds nothing to response time. [Full harness results →](benchmark/ultimate_suite_results.json)
+- **1,190× cold→warm gap** — Real-world scenario using the Perseus repo itself as the benchmark target. At the 1,408 directive scale, the cold render took **578.7s**, while the warm render took **0.486s**. [Raw data →](benchmark/real_deltas.json)
+- **14/14 hard gates passed** — The ultimate benchmark suite, including swarm chaos, cache thrash, and adversarial tests, passed all gates. [Full results →](benchmark/ultimate_suite_results.json)
+- **Semantic Equivalence: 1.0** — A live Gemini 2.5 Flash judge found 20/20 A/B test pairs to be semantically equivalent, confirming that Perseus changes what the assistant *knows*, not what it says.
+- **Enterprise-ready** - Cost analysis shows that for a 500-developer team, Perseus can save between **$14,844 and $40,625 per year** in API costs, with a 3.1B token reduction. [Cost analysis →](benchmark/titan_cost.json)
+- **93% token reduction, 0ms overhead** — live 200-request A/B harness: 488 → 27 avg prompt tokens per request. P99 latency overhead: **0ms** — Perseus adds nothing to response time. [Full harness results →](benchmark/ultimate_suite_results.json)
 
 ![Perseus Cold vs Warm — @cache eliminates subprocess cost](https://raw.githubusercontent.com/tcconnally/perseus/main/benchmark/infographic/perseus-cold-vs-warm.svg)
 
@@ -109,7 +106,7 @@ Perseus is tested against edge cases that challenge the "resolve before context"
 - **Plugin sandboxing** — Plugin directives with `executes_shell=True` are gated
   behind `allow_query_shell`, same as built-ins. Plugin errors are caught and
   surfaced as inline warnings — a broken plugin never breaks a render.
-- **14/14 hard gates** — ultimate benchmark suite (swarm chaos at 10/50/100 agents, cache thrash T1–T5, adversarial C1–C5): zero hash collisions, zero determinism violations, zero orphans. Adversarial-neighbor slowdown on normal agents: **1.02×** — isolation is effectively free. 12/12 malformed directives handled gracefully. [Full results →](benchmark/ultimate_suite_results.json)
+- **14/14 hard gates** — ultimate benchmark suite (swarm chaos at 10/50/100 agents, cache thrash T1–T5, adversarial C1–C5): zero hash collisions, zero determinism violations, zero orphans. Adversarial-neighbor slowdown on normal agents: **1.06×** — isolation is effectively free. 12/12 malformed directives handled gracefully. [Full results →](benchmark/ultimate_suite_results.json)
 - **Semantic equivalence: 1.0** — live Gemini 2.5 Flash judge, 20 A/B pairs: Perseus-compiled context prepended to every request, 20/20 responses judged semantically equivalent to baseline. The context changes what the assistant knows, not what it says.
 
 ### Caveats
