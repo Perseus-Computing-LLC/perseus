@@ -1,38 +1,121 @@
 {
   "test": "titan-coldwarm",
-  "timestamp": "2026-05-25T22:12:23.776699",
-  "hostname": "e814fee5f347",
+  "timestamp": "2026-05-26T08:35:21.469268",
+  "hostname": "6e3e8d540724",
   "cpu_count": 20,
   "memory": "unknown",
   "python": "3.12.13",
   "probe_command": "sleep 0.01",
-  "patience_threshold_s": 3600,
+  "patience_threshold_s": 120,
   "scales": {
     "100": {
       "scale": 100,
-      "cold": 1.527,
+      "cold": 1.608,
       "cold_file_mb": 0.0,
-      "warm": 0.283,
+      "warm": 0.346,
       "warm_file_mb": 0.0,
-      "speedup": 5.4
+      "speedup": 4.6
     },
     "500": {
       "scale": 500,
-      "cold": 6.42,
+      "cold": 6.726,
       "cold_file_mb": 0.01,
-      "warm": 0.311,
+      "warm": 0.358,
       "warm_file_mb": 0.02,
-      "speedup": 20.6
+      "speedup": 18.8
     },
     "1000": {
       "scale": 1000,
-      "cold": 12.615,
+      "cold": 13.18,
       "cold_file_mb": 0.02,
-      "warm": 0.31,
+      "warm": 0.413,
       "warm_file_mb": 0.03,
-      "speedup": 40.7
+      "speedup": 31.9
+    },
+    "5000": {
+      "scale": 5000,
+      "cold": 63.734,
+      "cold_file_mb": 0.1,
+      "warm": 0.505,
+      "warm_file_mb": 0.17,
+      "speedup": 126.2
+    },
+    "10000": {
+      "scale": 10000,
+      "cold": 127.295,
+      "cold_abandoned": true,
+      "warm": 1.069,
+      "warm_file_mb": 0.34,
+      "speedup": 119.1
+    },
+    "20000": {
+      "scale": 20000,
+      "cold": null,
+      "cold_skipped": true,
+      "cold_skipped_reason": "Cold abandoned at N=10000: cold render (127.3s) exceeded patience threshold (120s). Marking subsequent cold runs as IMPRACTICAL.",
+      "warm": 1.398,
+      "warm_file_mb": 0.69
+    },
+    "50000": {
+      "scale": 50000,
+      "cold": null,
+      "cold_skipped": true,
+      "cold_skipped_reason": "Cold abandoned at N=10000: cold render (127.3s) exceeded patience threshold (120s). Marking subsequent cold runs as IMPRACTICAL.",
+      "warm": 2.528,
+      "warm_file_mb": 1.72
+    },
+    "100000": {
+      "scale": 100000,
+      "cold": null,
+      "cold_skipped": true,
+      "cold_skipped_reason": "Cold abandoned at N=10000: cold render (127.3s) exceeded patience threshold (120s). Marking subsequent cold runs as IMPRACTICAL.",
+      "warm": 5.086,
+      "warm_file_mb": 3.43
+    },
+    "200000": {
+      "scale": 200000,
+      "cold": null,
+      "cold_skipped": true,
+      "cold_skipped_reason": "Cold abandoned at N=10000: cold render (127.3s) exceeded patience threshold (120s). Marking subsequent cold runs as IMPRACTICAL.",
+      "warm": 10.121,
+      "warm_file_mb": 6.87
+    },
+    "500000": {
+      "scale": 500000,
+      "cold": null,
+      "cold_skipped": true,
+      "cold_skipped_reason": "Cold abandoned at N=10000: cold render (127.3s) exceeded patience threshold (120s). Marking subsequent cold runs as IMPRACTICAL.",
+      "warm": 28.754,
+      "warm_file_mb": 17.17
+    },
+    "1000000": {
+      "scale": 1000000,
+      "cold": null,
+      "cold_skipped": true,
+      "cold_skipped_reason": "Cold abandoned at N=10000: cold render (127.3s) exceeded patience threshold (120s). Marking subsequent cold runs as IMPRACTICAL.",
+      "warm": 60.843,
+      "warm_file_mb": 34.33
     }
   },
-  "cold_abandoned_at": null,
-  "cold_abandoned_reason": null
+  "cold_abandoned_at": 10000,
+  "cold_abandoned_reason": "cold render (127.3s) exceeded patience threshold (120s). Marking subsequent cold runs as IMPRACTICAL.",
+  "avg_per_query_ms_cold": 13.6,
+  "best_speedup": {
+    "scale": 5000,
+    "cold_s": 63.734,
+    "warm_s": 0.505,
+    "speedup": 126.2
+  },
+  "largest_warm": {
+    "scale": 1000000,
+    "warm_s": 60.843
+  },
+  "headline": "Cold abandoned at 10,000 queries (cold render (127.3s) exceeded patience threshold (120s). Marking subsequent cold runs as IMPRACTICAL.). Perseus warm at 1,000,000 queries: 60.84s. Max speedup: 126.2x.",
+  "per_query_breakdown": {
+    "cold_ms": 13.6,
+    "warm_us": 22,
+    "cold_mechanism": "subprocess per @query (simulates LLM tool call)",
+    "warm_mechanism": "Perseus cache hit (hash \u2192 lookup, no subprocess)",
+    "ratio": 618.0
+  }
 }
