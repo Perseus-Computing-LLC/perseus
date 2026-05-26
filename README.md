@@ -16,6 +16,8 @@
 
 ![Perseus Efficiency — Cold vs Warm Render Speed](https://raw.githubusercontent.com/tcconnally/perseus/main/benchmark/infographic/perseus-efficiency.svg)
 
+![Perseus Extreme Enterprise Benchmark — Cold/Warm · Concurrency · Gates](https://raw.githubusercontent.com/tcconnally/perseus/main/benchmark/infographic/perseus-xeb-infographic-full.svg)
+
 ---
 
 ### TL;DR
@@ -89,6 +91,7 @@ Perseus delivers verified, up-to-date context, eliminating the need for AI assis
 - **1,190× cold→warm gap** — Real-world scenario using the Perseus repo itself as the benchmark target. At the 1,408 directive scale, the cold render took **578.7s**, while the warm render took **0.486s**. [Raw data →](benchmark/real_deltas.json)
 - **93% token reduction, 0ms overhead** — live 200-request A/B harness: 488 → 27 avg prompt tokens per request. P99 latency overhead: **0ms** — Perseus adds nothing to response time. [Full harness results →](benchmark/ultimate_suite_results.json)
 - **Enterprise Ready** - Cost analysis shows that for a 500-developer team, Perseus can save between **$14,844 and $40,625 per year** in API costs, with a 3.1B token reduction. [Cost analysis →](benchmark/titan_cost.json)
+- **Extreme Enterprise Benchmark** — 10-phase suite (reps=10, 50 devs, 250 concurrent agents): **10/10 hard gates · 6/6 soft gates · 0 errors at 250 concurrent · 90% enterprise ROI · fleet P99 1,169ms**. The benchmark is designed to surface regressions, not hide them. [Full methodology →](benchmark/README_EXTREME.md) · [Raw results →](benchmark/extreme_enterprise_results_full.json)
 
 ![Perseus Cold vs Warm — @cache eliminates subprocess cost](https://raw.githubusercontent.com/tcconnally/perseus/main/benchmark/infographic/perseus-cold-vs-warm.svg)
 
