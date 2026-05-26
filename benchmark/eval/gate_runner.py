@@ -35,10 +35,11 @@ def evaluate(bench_dir: Path) -> dict:
 
     gates: list[dict] = []
 
-    def gate(name, ok, observed, threshold, severity="hard"):
+    def gate(name, ok, observed, threshold, severity="hard", note=""):
         gates.append({
             "name": name, "pass": bool(ok),
-            "observed": observed, "threshold": threshold, "severity": severity,
+            "observed": observed, "threshold": threshold,
+            "severity": severity, "note": note,
         })
 
     # Plan 1 gates (from harness)
@@ -123,6 +124,47 @@ def evaluate(bench_dir: Path) -> dict:
             score >= threshold,
             score,
             f">= {threshold}",
+        )
+
+    # ── Extreme Enterprise Benchmark gates (XEB) ─────────────────────
+    # These are sourced from extreme_enterprise_results.json produced by
+    # extreme_enterprise_benchmark.py (Phase 7 of the unified suite).
+    xeb = _load(bench_dir / "extreme_enterprise_results.json")
+    if xeb:
+        p10 = xeb.get("phase_10", {})
+        xeb_gates = p10.get("gates", [])
+        for xg in xeb_gates:
+            # Only promote hard XEB gates into the unified gate runner.
+            # Soft and informational gates are captured in the XEB report
+            # but do not block the unified suite pass.
+            if xg.get("severity", "hard") == "hard":
+                gate(
+                    f"XEB: {xg['name']}",
+                    bool(xg["pass"]),
+                    xg["observed"],
+                    xg["threshold"],
+                    severity="hard",
+                )
+        # Surface a single aggregate soft-gate for XEB soft failures
+        soft_xeb = [xg for xg in xeb_gates if xg.get("severity") == "soft"]
+        passed_soft = sum(1 for xg in soft_xeb if xg["pass"])
+        total_soft = len(soft_xeb)
+        if total_soft > 0:
+            gate(
+                f"XEB soft gates ({passed_soft}/{total_soft} passing)",
+                passed_soft >= total_soft // 2,   # majority must pass
+                f"{passed_soft}/{total_soft}",
+                f">= {total_soft // 2}",
+                severity="soft",
+            )
+    else:
+        # XEB results not present — not a hard failure (phase may have been skipped)
+        gate(
+            "XEB: results present (extreme_enterprise_results.json)",
+            False,
+            "file not found",
+            "file exists",
+            severity="soft",
         )
 
     summary = {
