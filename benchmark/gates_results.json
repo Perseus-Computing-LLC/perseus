@@ -100,10 +100,17 @@
       "observed": true,
       "threshold": "True",
       "severity": "hard"
+    },
+    {
+      "name": "semantic_equivalence_score >= 0.95 (n=20)",
+      "pass": true,
+      "observed": 1.0,
+      "threshold": ">= 0.95",
+      "severity": "hard"
     }
   ],
-  "total": 14,
-  "passed": 14,
+  "total": 15,
+  "passed": 15,
   "failed": [],
   "pass": true
 }

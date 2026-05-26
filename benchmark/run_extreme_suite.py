@@ -94,7 +94,11 @@ def main():
     plan.append(("phase-5 harness replayer", [sys.executable, str(ROOT / "harness/replayer.py"), "--n", str(harness_n)]))
     plan.append(("phase-6 gate_runner", [sys.executable, str(ROOT / "eval/gate_runner.py"), "--dir", str(ROOT)]))
     if args.include_semantic:
-        plan.append(("phase-6 semantic_judge", [sys.executable, str(ROOT / "eval/semantic_judge.py"), "--out", str(ROOT / "semantic_results.json"), "--enable"]))
+        plan.append(("phase-6 semantic_judge", [
+            sys.executable, str(ROOT / "eval/semantic_judge.py"),
+            "--out", str(ROOT / "semantic_results.json"),
+            "--enable", "--n", "20", "--control-n", "5",
+        ]))
     else:
         plan.append(("phase-6 semantic_judge", [sys.executable, str(ROOT / "eval/semantic_judge.py"), "--out", str(ROOT / "semantic_results.json")]))
 

@@ -31,6 +31,7 @@ def evaluate(bench_dir: Path) -> dict:
     thrash = _load(bench_dir / "thrash_results.json")
     advrs = _load(bench_dir / "adversarial_extended_results.json")
     harness = _load(bench_dir / "harness_results.json")
+    semantic = _load(bench_dir / "semantic_results.json")
 
     gates: list[dict] = []
 
@@ -111,6 +112,18 @@ def evaluate(bench_dir: Path) -> dict:
     gate("drift_detected (T3)",
          bool(t3.get("drift_detected")),
          t3.get("drift_detected"), "True")
+
+    # Semantic gate — only evaluated when judge has run (not skipped)
+    if semantic and not semantic.get("skipped", True):
+        score = semantic.get("semantic_equivalence_score", 0.0)
+        threshold = semantic.get("threshold", 0.95)
+        n_pairs = semantic.get("n_pairs", 0)
+        gate(
+            f"semantic_equivalence_score >= {threshold} (n={n_pairs})",
+            score >= threshold,
+            score,
+            f">= {threshold}",
+        )
 
     summary = {
         "gates": gates,
