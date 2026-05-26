@@ -89,6 +89,7 @@ Keep it fresh with `cron`, `launchd`, `systemd`, or `perseus watch` — see the 
 - **All green** — every directive, parser edge case, lock contention, trust gate, and overflow guard has coverage. <!-- test-count: 604 -->
 - **Compile-before-context** — Perseus resolves everything in a single render pass (~0.3s) before the assistant reads the file. An LLM discovering the same facts via tool calls spends 7–298,388s getting there. The gap only widens: [26× → 23,402× → 301×](benchmark/edge-bench/).
 - **10× cheaper per session, every provider, every scale** — see the token economics for full provider breakdowns. [Token economics →](benchmark/edge-bench/)
+- **93% token reduction, 0ms overhead** — live 200-request A/B harness: 488 → 35 avg prompt tokens per request. P99 latency overhead: **0ms** — Perseus adds nothing to response time. [Full harness results →](benchmark/ultimate_suite_results.json)
 
 ![Perseus Cold vs Warm — @cache eliminates subprocess cost](https://raw.githubusercontent.com/tcconnally/perseus/main/benchmark/infographic/perseus-cold-vs-warm.svg)
 
@@ -108,6 +109,7 @@ Perseus is tested against edge cases that challenge the "resolve before context"
 - **Plugin sandboxing** — Plugin directives with `executes_shell=True` are gated
   behind `allow_query_shell`, same as built-ins. Plugin errors are caught and
   surfaced as inline warnings — a broken plugin never breaks a render.
+- **14/14 hard gates** — ultimate benchmark suite (swarm chaos at 10/50/100 agents, cache thrash T1–T5, adversarial C1–C5): zero hash collisions, zero determinism violations, zero orphans. Adversarial-neighbor slowdown on normal agents: **1.02×** — isolation is effectively free. 12/12 malformed directives handled gracefully. [Full results →](benchmark/ultimate_suite_results.json)
 
 ### Caveats
 
