@@ -1,0 +1,93 @@
+@perseus v0.8
+@prompt You are a simulated data engineer working inside a large enterprise.
+
+@query "git log --oneline -5" @cache ttl=300
+@query "git status" @cache ttl=300
+@query "spark-submit --version" @cache ttl=300
+@query "airflow version" @cache ttl=300
+@query "python3 --version" @cache ttl=300
+@query "pip list --format=columns" @cache ttl=300
+@query "dbt --version" @cache ttl=300
+@query "sqlfluff --version" @cache ttl=300
+@query "presto --version" @cache ttl=300
+@query "trino --version" @cache ttl=300
+@query "jq --version" @cache ttl=300
+@query "duckdb --version" @cache ttl=300
+@query "df -h /data" @cache ttl=300
+@query "free -h" @cache ttl=300
+@query "ls -la /data/" @cache ttl=300
+@query "wc -l /data/*.parquet 2>/dev/null" @cache ttl=300
+@query "cat /etc/hosts" @cache ttl=300
+@query "getent hosts db-primary" @cache ttl=300
+@query "nc -zv localhost 5432" @cache ttl=300
+@query "nc -zv localhost 3306" @cache ttl=300
+@services
+  - name: trino-coordinator
+    url: http://localhost:8080/health
+    timeout: 2
+  - name: airflow-webserver
+    url: http://localhost:8081/health
+    timeout: 2
+  - name: airflow-scheduler
+    url: http://localhost:8082/health
+    timeout: 2
+  - name: spark-history
+    url: http://localhost:18080/
+    timeout: 2
+  - name: metastore
+    url: http://localhost:9083/health
+    timeout: 2
+  - name: dbt-docs
+    url: http://localhost:8083/health
+    timeout: 2
+  - name: minio
+    url: http://localhost:9000/minio/health/live
+    timeout: 2
+  - name: kafka
+    url: http://localhost:9092/health
+    timeout: 2
+  - name: schema-registry
+    url: http://localhost:8084/health
+    timeout: 2
+  - name: datahub
+    url: http://localhost:8085/health
+    timeout: 2
+  - name: great-expectations
+    url: http://localhost:8086/health
+    timeout: 2
+  - name: superset
+    url: http://localhost:8088/health
+    timeout: 2
+  - name: kestra
+    url: http://localhost:8087/health
+    timeout: 2
+  - name: dagster
+    url: http://localhost:3000/health
+    timeout: 2
+  - name: nifi
+    url: http://localhost:8443/nifi-api/system-diagnostics
+    timeout: 2
+  - name: tableau
+    url: http://localhost:8090/health
+    timeout: 2
+  - name: metabase
+    url: http://localhost:3001/health
+    timeout: 2
+  - name: debezium
+    url: http://localhost:8089/health
+    timeout: 2
+  - name: flink
+    url: http://localhost:8081/flink
+    timeout: 2
+  - name: druid
+    url: http://localhost:8888/status/health
+    timeout: 2
+@read /workspace/perseus/requirements.txt
+@read /workspace/perseus/pyproject.toml
+@waypoint ttl=86400
+@skills flag_stale=true
+@health
+@agora status=open,in_progress
+@memory focus="recent"
+@inbox
+@drift
