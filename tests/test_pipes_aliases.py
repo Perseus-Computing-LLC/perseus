@@ -95,6 +95,14 @@ def test_pipe_in_graph():
         assert "@date" in directive_names
 
 
+def test_alias_expands_in_graph():
+    """`perseus graph` sees the same aliases the render path executes."""
+    source = '@perseus v0.5\n@q "git status"\n'
+    graph = perseus.directive_dependency_graph(source, workspace=None, cfg=cfg())
+    directive_names = [n["directive"] for n in graph.get("nodes", [])]
+    assert "@query" in directive_names
+
+
 def test_macro_alias_pipe_composition():
     """Aliases expand inside pipe stages, pipes inside macros."""
     source = """\

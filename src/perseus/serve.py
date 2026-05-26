@@ -814,36 +814,11 @@ def cmd_synthesize(args, cfg) -> int:
     # task-46: redact synthesis result before output. JSON-mode caller can
     # inspect `result["redaction"]` to see counts without seeing secrets.
     if isinstance(result, dict):
-        red_total = 0
-        red_counts: dict[str, int] = {}
-        red_enabled = True
-        for key in ("answer", "rendered", "prompt", "raw_response"):
-            val = result.get(key)
-            if isinstance(val, str):
-                new_val, rep = redact_text(val, cfg)
-                result[key] = new_val
-                if rep.get("enabled") is False:
-                    red_enabled = False
-                red_total += rep.get("total", 0)
-                for n, c in rep.get("counts", {}).items():
-                    red_counts[n] = red_counts.get(n, 0) + c
-        # Redact strings inside common nested lists (claims, sources)
-        for key in ("claims", "sources", "accepted", "dropped"):
-            items = result.get(key)
-            if isinstance(items, list):
-                for item in items:
-                    if isinstance(item, dict):
-                        for k, v in list(item.items()):
-                            if isinstance(v, str):
-                                new_v, rep = redact_text(v, cfg)
-                                item[k] = new_v
-                                red_total += rep.get("total", 0)
-                                for n, c in rep.get("counts", {}).items():
-                                    red_counts[n] = red_counts.get(n, 0) + c
+        result, rep = redact_value(result, cfg)
         result["redaction"] = {
-            "enabled": red_enabled,
-            "total": red_total,
-            "counts": red_counts,
+            "enabled": rep.get("enabled", True),
+            "total": rep.get("total", 0),
+            "counts": rep.get("counts", {}),
         }
     if getattr(args, "json", False):
         print(json.dumps(result, indent=2))
@@ -1685,7 +1660,7 @@ def _find_version() -> str:
             return candidate.read_text().strip()
     return _PERSEUS_VERSION  # fallback to build-time injected literal
 
-_PERSEUS_VERSION = "1.0.2"  # injected by scripts/build.py at build time
+_PERSEUS_VERSION = "1.0.4"  # injected by scripts/build.py at build time
 _PERSEUS_VERSION = _find_version()
 
 
@@ -2728,7 +2703,7 @@ def _serve_render_endpoint(endpoint: str, cfg: dict, workspace: Path, query: dic
                 "metadata": {
                     "workspace": ws_name,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "version": "1.0.3",
+                    "version": _PERSEUS_VERSION,
                 },
                 "integrity": {
                     "sha256": hashlib.sha256(rendered.encode()).hexdigest(),
@@ -2997,5 +2972,3 @@ def cmd_init(args, cfg):
         print(f"  1. Edit {context_file} to add project-specific @services and @query blocks")
         print(f"  2. Run: perseus render {context_file}")
         print(f"  3. Add to cron watchdog: add '{workspace}' to WORKSPACES in perseus-render-workspace.sh")
-
-

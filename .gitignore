@@ -24,6 +24,10 @@ dist/
 
 # Generated Perseus output (rendered context files)
 examples/claude-code/CLAUDE.md
+.perseus/audit_log.jsonl
+.perseus/config.yaml
+.perseus/pack.yaml
+.perseus/memory/
 
 # Coverage
 .coverage

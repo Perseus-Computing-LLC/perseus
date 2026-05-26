@@ -64,7 +64,7 @@ def test_plugin_validator_cli(tmp_path):
     import subprocess, os as _os
     perseus_py = _os.path.join(_os.path.dirname(__file__), "..", "perseus.py")
     result = subprocess.run(
-        ["python", perseus_py, "validate", "--schema", "plugin:always_ok"],
+        [sys.executable, perseus_py, "validate", "--schema", "plugin:always_ok"],
         cwd=str(tmp_path),
         input='{"key": "value"}',
         capture_output=True,
