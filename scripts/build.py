@@ -79,7 +79,7 @@ STDLIB_REMINDER_RE = re.compile(
 )
 
 # Baseline line count for drift detection.
-BASELINE_LINES = 13410  # Phase 24: all 10 extensibility tasks complete
+BASELINE_LINES = 14089  # Phase 24 + bastra-recall integration
 
 
 def build() -> None:
