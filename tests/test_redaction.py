@@ -213,6 +213,44 @@ def test_cmd_render_redacts_output_but_keeps_source(tmp_path, monkeypatch, capsy
     assert "[REDACTED:openai_api_key]" in rendered
 
 
+def test_render_output_redacts_json_and_html(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr(perseus, "PERSEUS_HOME", home)
+
+    secret = "sk-" + "A" * 40
+    source = f"@perseus v1.0\n\nkey={secret}\n"
+    c = {"redaction": {"enabled": True, "include_defaults": True}}
+
+    json_out = perseus.render_output(source, "json", c, tmp_path)
+    html_out = perseus.render_output(source, "html", c, tmp_path)
+
+    assert secret not in json_out
+    assert secret not in html_out
+    assert "[REDACTED:openai_api_key]" in json_out
+    assert "[REDACTED:openai_api_key]" in html_out
+
+
+def test_redact_value_recurses_into_nested_citations():
+    secret = "sk-" + "A" * 40
+    payload = {
+        "claims": [
+            {
+                "text": "cited",
+                "citations": [{"quote": f"secret {secret}"}],
+            }
+        ],
+        "dropped_claims": [{"citations": [{"quote": secret}]}],
+    }
+
+    out, report = perseus.redact_value(payload, {"redaction": {"enabled": True}})
+
+    serialized = json.dumps(out)
+    assert secret not in serialized
+    assert "[REDACTED:openai_api_key]" in serialized
+    assert report["total"] == 2
+
+
 def test_cmd_render_redaction_disabled_passes_secret_through(tmp_path, monkeypatch):
     home = tmp_path / "home"
     home.mkdir()

@@ -145,3 +145,41 @@ def redact_text(text: str, cfg: dict) -> tuple[str, dict]:
     }
 
 
+def redact_value(value, cfg: dict) -> tuple[object, dict]:
+    """Recursively redact strings inside JSON-like values."""
+    if isinstance(value, str):
+        return redact_text(value, cfg)
+    if isinstance(value, list):
+        out = []
+        total = 0
+        counts: dict[str, int] = {}
+        enabled = True
+        rules_active = 0
+        for item in value:
+            new_item, rep = redact_value(item, cfg)
+            out.append(new_item)
+            if rep.get("enabled") is False:
+                enabled = False
+            total += rep.get("total", 0)
+            rules_active = max(rules_active, int(rep.get("rules_active", 0) or 0))
+            for name, count in rep.get("counts", {}).items():
+                counts[name] = counts.get(name, 0) + count
+        return out, {"enabled": enabled, "total": total, "counts": counts, "rules_active": rules_active}
+    if isinstance(value, dict):
+        out = {}
+        total = 0
+        counts: dict[str, int] = {}
+        enabled = True
+        rules_active = 0
+        for key, item in value.items():
+            new_item, rep = redact_value(item, cfg)
+            out[key] = new_item
+            if rep.get("enabled") is False:
+                enabled = False
+            total += rep.get("total", 0)
+            rules_active = max(rules_active, int(rep.get("rules_active", 0) or 0))
+            for name, count in rep.get("counts", {}).items():
+                counts[name] = counts.get(name, 0) + count
+        return out, {"enabled": enabled, "total": total, "counts": counts, "rules_active": rules_active}
+    return value, {"enabled": True, "total": 0, "counts": {}, "rules_active": 0}
+

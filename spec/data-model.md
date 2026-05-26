@@ -192,7 +192,8 @@ permissions:                             # task-45 / Phase 17A
 
 redaction:                               # task-46 / Phase 17B
   # Redact common secret shapes from output that leaves Perseus's trust
-  # boundary (render output, synthesize answer/prompt, serve responses).
+  # boundary (all render formats, synthesize answer/prompt/result metadata,
+  # serve responses).
   # Source files on disk are NEVER mutated.
   enabled: true
   include_defaults: true
@@ -214,6 +215,13 @@ audit:                                   # task-47 / Phase 17C
   max_log_bytes: 1048576                 # 1 MiB
 # Event types: shell_exec, policy_denied, model_call, redaction, serve_request.
 # Inspect with `perseus trust audit [--tail N] [--json]`.
+
+mcp:
+  # Optional direct-control surface for MCP tools. The same policy applies to
+  # tools/list and tools/call.
+  tool_allowlist: []                     # when non-empty, only these tools are callable
+  tool_blocklist: []                     # always denied, even if also allowlisted
+  tool_timeout_s: 30
 
 agora:                                   # task-04
   tasks_dir: tasks                       # default; can be absolute

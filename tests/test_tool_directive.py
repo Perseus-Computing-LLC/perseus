@@ -128,6 +128,7 @@ def test_tool_with_cache(tmp_path):
     tool_script.chmod(0o755)
     
     c = cfg()
+    c["render"]["cache_dir"] = str(tmp_path / "cache")
     c["tools"] = {
         "enabled": True,
         "allowlist": [{"name": "count", "path": str(tool_script)}]
