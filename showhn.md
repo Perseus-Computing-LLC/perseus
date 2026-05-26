@@ -16,9 +16,9 @@ Perseus front-loads the work. You write a `.perseus/context.md` with directives 
 
 **The speed delta is structural, not incremental.**
 - 1 directive via runtime tool call: ~50ms round-trip
-- 10,000 directives via Perseus: 0.36 seconds — 23,402× faster
-- 50,000 directives cold → warm: 450× gap (612.6s → 1.36s)
-- Enterprise scale (500 devs, 5-day week): 301× faster than LLM tool-calling. $295K/year saved on Claude Opus.
+- 22,500 directives via Perseus: 611× faster with caching — 619s cold → 1.0s warm, against the real Perseus repo
+- Per-directive cost with caching: effectively zero. Cold: 27.5ms/dir. Warm: rounds to 0.0ms/dir.
+- The ratio holds at every scale, on every provider — pre-resolve scales linearly. Runtime tool calls don't.
 
 ## The swarm demo
 
@@ -28,13 +28,13 @@ Perseus's coordination layer handles 120 agents writing to the same task board s
 
 ## What you get
 
-- **22 directives:** @query, @services, @waypoint, @agora, @inbox, @memory, @read, @env, @skills, @session, @date, @health, @agent, @tree, @list, @include, @if/@else/@endif, @constraint, @validate, @cache, @tool, @perseus
+- **27 directives:** @query, @services, @waypoint, @agora, @inbox, @memory, @read, @env, @skills, @session, @date, @health, @agent, @tree, @list, @include, @constraint, @validate, @cache, @tool, @drift, @prompt, @synthesize, @if/@else/@endif, @perseus
 - **Assistant-agnostic:** writes plain markdown — works with Claude Code, Cursor, Codex, Rovo Dev, or anything that reads a file
 - **CLAUDE.md / AGENTS.md targets:** `perseus render --format agents-md` outputs AGENTS.md every tool already reads
 - **Claude Code hook installer:** `perseus install --target claude-code` auto-injects context at session start
-- **MCP server façade:** `perseus mcp serve` — 13 directive tools for any MCP-compatible assistant
-- **Single file, one dep:** `perseus.py` (~12,750 lines) + pyyaml
-- **Nearly 600 tests, MIT license**
+- **MCP server façade:** `perseus mcp serve` — every directive auto-exposed as an MCP tool, plus stdio + SSE transports
+- **Single file, one dep:** `perseus.py` (~13,900 lines) + pyyaml
+- **714 tests, MIT license**
 
 ## Try it
 
