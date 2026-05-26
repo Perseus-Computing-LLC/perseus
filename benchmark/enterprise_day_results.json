@@ -1,9 +1,9 @@
 {
   "meta": {
-    "date": "2026-05-24T16:49:13.147548",
-    "host": "d9e10837d063",
+    "date": "2026-05-26T08:33:50.076407",
+    "host": "6e3e8d540724",
     "python": "3.12.13",
-    "perseus": "1.0.3",
+    "perseus": "1.0.4",
     "developers": 50,
     "roles": {
       "frontend": 10,
@@ -34,12 +34,12 @@
         "renders": 50,
         "successful": 50,
         "failed": 0,
-        "wall_clock_s": 9.118,
-        "total_render_s": 250.045,
-        "per_render_min_s": 3.376,
-        "per_render_max_s": 9.11,
-        "per_render_median_s": 4.22,
-        "per_render_p95_s": 8.974,
+        "wall_clock_s": 5.742,
+        "total_render_s": 268.346,
+        "per_render_min_s": 4.749,
+        "per_render_max_s": 5.729,
+        "per_render_median_s": 5.462,
+        "per_render_p95_s": 5.651,
         "total_directives_resolved": 930
       },
       "llm_estimate": {
@@ -50,48 +50,16 @@
         "total_output_tokens": 158100,
         "total_cost_usd": 13.0433
       },
-      "system_speedup": 72.8,
-      "dev_speedup": 3.1,
+      "system_speedup": 115.6,
+      "dev_speedup": 2.4,
       "llm_per_dev_s": 13.3,
       "cost_saved_usd": 13.04,
       "per_dev_results": [
         {
-          "dev": "data-08",
-          "role": "data",
-          "directives": 17,
-          "elapsed_s": 3.466,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "data-01",
-          "role": "data",
-          "directives": 17,
-          "elapsed_s": 3.484,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "mobile-08",
-          "role": "mobile",
-          "directives": 17,
-          "elapsed_s": 3.376,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "mobile-01",
-          "role": "mobile",
-          "directives": 17,
-          "elapsed_s": 3.489,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "mobile-02",
-          "role": "mobile",
-          "directives": 17,
-          "elapsed_s": 3.597,
+          "dev": "frontend-02",
+          "role": "frontend",
+          "directives": 18,
+          "elapsed_s": 4.749,
           "success": true,
           "error": null
         },
@@ -99,71 +67,7 @@
           "dev": "frontend-00",
           "role": "frontend",
           "directives": 18,
-          "elapsed_s": 3.798,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "devops-00",
-          "role": "devops",
-          "directives": 24,
-          "elapsed_s": 3.893,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "data-04",
-          "role": "data",
-          "directives": 17,
-          "elapsed_s": 3.918,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "mobile-03",
-          "role": "mobile",
-          "directives": 17,
-          "elapsed_s": 3.855,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "devops-01",
-          "role": "devops",
-          "directives": 24,
-          "elapsed_s": 3.922,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "mobile-06",
-          "role": "mobile",
-          "directives": 17,
-          "elapsed_s": 3.839,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "frontend-06",
-          "role": "frontend",
-          "directives": 18,
-          "elapsed_s": 3.904,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "data-03",
-          "role": "data",
-          "directives": 17,
-          "elapsed_s": 4.002,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "devops-07",
-          "role": "devops",
-          "directives": 24,
-          "elapsed_s": 3.961,
+          "elapsed_s": 4.763,
           "success": true,
           "error": null
         },
@@ -171,71 +75,23 @@
           "dev": "data-05",
           "role": "data",
           "directives": 17,
-          "elapsed_s": 4.078,
+          "elapsed_s": 4.809,
           "success": true,
           "error": null
         },
         {
-          "dev": "frontend-03",
-          "role": "frontend",
-          "directives": 18,
-          "elapsed_s": 4.067,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "devops-05",
-          "role": "devops",
-          "directives": 24,
-          "elapsed_s": 4.101,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "devops-09",
-          "role": "devops",
-          "directives": 24,
-          "elapsed_s": 4.08,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "devops-08",
-          "role": "devops",
-          "directives": 24,
-          "elapsed_s": 4.096,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "data-06",
+          "dev": "data-03",
           "role": "data",
           "directives": 17,
-          "elapsed_s": 4.148,
+          "elapsed_s": 4.865,
           "success": true,
           "error": null
         },
         {
-          "dev": "frontend-09",
-          "role": "frontend",
-          "directives": 18,
-          "elapsed_s": 4.14,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "frontend-02",
-          "role": "frontend",
-          "directives": 18,
-          "elapsed_s": 4.154,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "data-09",
+          "dev": "data-01",
           "role": "data",
           "directives": 17,
-          "elapsed_s": 4.209,
+          "elapsed_s": 4.88,
           "success": true,
           "error": null
         },
@@ -243,151 +99,15 @@
           "dev": "mobile-07",
           "role": "mobile",
           "directives": 17,
-          "elapsed_s": 4.105,
+          "elapsed_s": 4.845,
           "success": true,
           "error": null
         },
         {
-          "dev": "frontend-01",
-          "role": "frontend",
-          "directives": 18,
-          "elapsed_s": 4.199,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "devops-03",
-          "role": "devops",
-          "directives": 24,
-          "elapsed_s": 4.249,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "data-00",
-          "role": "data",
-          "directives": 17,
-          "elapsed_s": 4.272,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "data-02",
-          "role": "data",
-          "directives": 17,
-          "elapsed_s": 4.274,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "frontend-05",
-          "role": "frontend",
-          "directives": 18,
-          "elapsed_s": 4.25,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "mobile-00",
+          "dev": "mobile-08",
           "role": "mobile",
           "directives": 17,
-          "elapsed_s": 4.23,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "frontend-04",
-          "role": "frontend",
-          "directives": 18,
-          "elapsed_s": 4.247,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "devops-04",
-          "role": "devops",
-          "directives": 24,
-          "elapsed_s": 4.276,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "mobile-05",
-          "role": "mobile",
-          "directives": 17,
-          "elapsed_s": 4.243,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "mobile-04",
-          "role": "mobile",
-          "directives": 17,
-          "elapsed_s": 4.252,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "devops-06",
-          "role": "devops",
-          "directives": 24,
-          "elapsed_s": 4.322,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "mobile-09",
-          "role": "mobile",
-          "directives": 17,
-          "elapsed_s": 4.243,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "data-07",
-          "role": "data",
-          "directives": 17,
-          "elapsed_s": 4.35,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "frontend-08",
-          "role": "frontend",
-          "directives": 18,
-          "elapsed_s": 4.303,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "devops-02",
-          "role": "devops",
-          "directives": 24,
-          "elapsed_s": 4.355,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "frontend-07",
-          "role": "frontend",
-          "directives": 18,
-          "elapsed_s": 4.388,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "backend-08",
-          "role": "backend",
-          "directives": 17,
-          "elapsed_s": 8.566,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "backend-01",
-          "role": "backend",
-          "directives": 17,
-          "elapsed_s": 8.588,
+          "elapsed_s": 4.891,
           "success": true,
           "error": null
         },
@@ -395,47 +115,15 @@
           "dev": "backend-03",
           "role": "backend",
           "directives": 17,
-          "elapsed_s": 8.62,
+          "elapsed_s": 5.022,
           "success": true,
           "error": null
         },
         {
-          "dev": "backend-07",
-          "role": "backend",
-          "directives": 17,
-          "elapsed_s": 8.628,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "backend-05",
-          "role": "backend",
-          "directives": 17,
-          "elapsed_s": 8.642,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "backend-04",
-          "role": "backend",
-          "directives": 17,
-          "elapsed_s": 8.754,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "backend-00",
-          "role": "backend",
-          "directives": 17,
-          "elapsed_s": 8.93,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "backend-09",
-          "role": "backend",
-          "directives": 17,
-          "elapsed_s": 8.974,
+          "dev": "frontend-07",
+          "role": "frontend",
+          "directives": 18,
+          "elapsed_s": 4.971,
           "success": true,
           "error": null
         },
@@ -443,7 +131,247 @@
           "dev": "backend-02",
           "role": "backend",
           "directives": 17,
-          "elapsed_s": 9.098,
+          "elapsed_s": 5.09,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "mobile-06",
+          "role": "mobile",
+          "directives": 17,
+          "elapsed_s": 5.101,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "data-00",
+          "role": "data",
+          "directives": 17,
+          "elapsed_s": 5.238,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "devops-08",
+          "role": "devops",
+          "directives": 24,
+          "elapsed_s": 5.221,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "backend-05",
+          "role": "backend",
+          "directives": 17,
+          "elapsed_s": 5.321,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "data-02",
+          "role": "data",
+          "directives": 17,
+          "elapsed_s": 5.335,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "mobile-03",
+          "role": "mobile",
+          "directives": 17,
+          "elapsed_s": 5.285,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "data-09",
+          "role": "data",
+          "directives": 17,
+          "elapsed_s": 5.376,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "devops-03",
+          "role": "devops",
+          "directives": 24,
+          "elapsed_s": 5.371,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "frontend-01",
+          "role": "frontend",
+          "directives": 18,
+          "elapsed_s": 5.353,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "mobile-01",
+          "role": "mobile",
+          "directives": 17,
+          "elapsed_s": 5.362,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "frontend-08",
+          "role": "frontend",
+          "directives": 18,
+          "elapsed_s": 5.39,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "devops-00",
+          "role": "devops",
+          "directives": 24,
+          "elapsed_s": 5.466,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "backend-09",
+          "role": "backend",
+          "directives": 17,
+          "elapsed_s": 5.499,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "devops-09",
+          "role": "devops",
+          "directives": 24,
+          "elapsed_s": 5.465,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "mobile-09",
+          "role": "mobile",
+          "directives": 17,
+          "elapsed_s": 5.385,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "frontend-03",
+          "role": "frontend",
+          "directives": 18,
+          "elapsed_s": 5.458,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "backend-04",
+          "role": "backend",
+          "directives": 17,
+          "elapsed_s": 5.54,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "data-08",
+          "role": "data",
+          "directives": 17,
+          "elapsed_s": 5.532,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "mobile-04",
+          "role": "mobile",
+          "directives": 17,
+          "elapsed_s": 5.446,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "mobile-05",
+          "role": "mobile",
+          "directives": 17,
+          "elapsed_s": 5.44,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "devops-05",
+          "role": "devops",
+          "directives": 24,
+          "elapsed_s": 5.517,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "devops-01",
+          "role": "devops",
+          "directives": 24,
+          "elapsed_s": 5.532,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "frontend-04",
+          "role": "frontend",
+          "directives": 18,
+          "elapsed_s": 5.5,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "data-07",
+          "role": "data",
+          "directives": 17,
+          "elapsed_s": 5.566,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "data-06",
+          "role": "data",
+          "directives": 17,
+          "elapsed_s": 5.572,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "devops-06",
+          "role": "devops",
+          "directives": 24,
+          "elapsed_s": 5.557,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "backend-01",
+          "role": "backend",
+          "directives": 17,
+          "elapsed_s": 5.607,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "mobile-02",
+          "role": "mobile",
+          "directives": 17,
+          "elapsed_s": 5.519,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "mobile-00",
+          "role": "mobile",
+          "directives": 17,
+          "elapsed_s": 5.522,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "backend-07",
+          "role": "backend",
+          "directives": 17,
+          "elapsed_s": 5.62,
           "success": true,
           "error": null
         },
@@ -451,7 +379,79 @@
           "dev": "backend-06",
           "role": "backend",
           "directives": 17,
-          "elapsed_s": 9.11,
+          "elapsed_s": 5.625,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "devops-07",
+          "role": "devops",
+          "directives": 24,
+          "elapsed_s": 5.585,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "data-04",
+          "role": "data",
+          "directives": 17,
+          "elapsed_s": 5.619,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "backend-00",
+          "role": "backend",
+          "directives": 17,
+          "elapsed_s": 5.639,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "devops-02",
+          "role": "devops",
+          "directives": 24,
+          "elapsed_s": 5.623,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "devops-04",
+          "role": "devops",
+          "directives": 24,
+          "elapsed_s": 5.651,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "frontend-06",
+          "role": "frontend",
+          "directives": 18,
+          "elapsed_s": 5.607,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "frontend-09",
+          "role": "frontend",
+          "directives": 18,
+          "elapsed_s": 5.623,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "backend-08",
+          "role": "backend",
+          "directives": 17,
+          "elapsed_s": 5.729,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "frontend-05",
+          "role": "frontend",
+          "directives": 18,
+          "elapsed_s": 5.664,
           "success": true,
           "error": null
         }
@@ -469,12 +469,12 @@
         "renders": 50,
         "successful": 50,
         "failed": 0,
-        "wall_clock_s": 0.541,
-        "total_render_s": 18.912,
-        "per_render_min_s": 0.321,
-        "per_render_max_s": 0.541,
-        "per_render_median_s": 0.374,
-        "per_render_p95_s": 0.458,
+        "wall_clock_s": 0.418,
+        "total_render_s": 18.532,
+        "per_render_min_s": 0.335,
+        "per_render_max_s": 0.418,
+        "per_render_median_s": 0.368,
+        "per_render_p95_s": 0.402,
         "total_directives_resolved": 930
       },
       "llm_estimate": {
@@ -485,360 +485,16 @@
         "total_output_tokens": 158100,
         "total_cost_usd": 13.0433
       },
-      "system_speedup": 1227.0,
-      "dev_speedup": 35.5,
+      "system_speedup": 1588.0,
+      "dev_speedup": 36.1,
       "llm_per_dev_s": 13.3,
       "cost_saved_usd": 13.04,
       "per_dev_results": [
         {
-          "dev": "mobile-00",
-          "role": "mobile",
-          "directives": 17,
-          "elapsed_s": 0.442,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "mobile-05",
-          "role": "mobile",
-          "directives": 17,
-          "elapsed_s": 0.369,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "data-09",
-          "role": "data",
-          "directives": 17,
-          "elapsed_s": 0.344,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "data-01",
-          "role": "data",
-          "directives": 17,
-          "elapsed_s": 0.403,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "mobile-09",
-          "role": "mobile",
-          "directives": 17,
-          "elapsed_s": 0.343,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "devops-01",
-          "role": "devops",
-          "directives": 24,
-          "elapsed_s": 0.369,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "data-03",
-          "role": "data",
-          "directives": 17,
-          "elapsed_s": 0.445,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "frontend-04",
-          "role": "frontend",
-          "directives": 18,
-          "elapsed_s": 0.38,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "backend-05",
-          "role": "backend",
-          "directives": 17,
-          "elapsed_s": 0.354,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "backend-07",
-          "role": "backend",
-          "directives": 17,
-          "elapsed_s": 0.419,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "data-02",
-          "role": "data",
-          "directives": 17,
-          "elapsed_s": 0.541,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "devops-03",
-          "role": "devops",
-          "directives": 24,
-          "elapsed_s": 0.383,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "mobile-01",
-          "role": "mobile",
-          "directives": 17,
-          "elapsed_s": 0.381,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "mobile-07",
-          "role": "mobile",
-          "directives": 17,
-          "elapsed_s": 0.323,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "data-00",
-          "role": "data",
-          "directives": 17,
-          "elapsed_s": 0.389,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "frontend-07",
-          "role": "frontend",
-          "directives": 18,
-          "elapsed_s": 0.425,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "frontend-02",
-          "role": "frontend",
-          "directives": 18,
-          "elapsed_s": 0.365,
-          "success": true,
-          "error": null
-        },
-        {
           "dev": "backend-09",
           "role": "backend",
           "directives": 17,
-          "elapsed_s": 0.371,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "mobile-08",
-          "role": "mobile",
-          "directives": 17,
-          "elapsed_s": 0.331,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "devops-07",
-          "role": "devops",
-          "directives": 24,
-          "elapsed_s": 0.388,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "devops-02",
-          "role": "devops",
-          "directives": 24,
-          "elapsed_s": 0.355,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "data-04",
-          "role": "data",
-          "directives": 17,
-          "elapsed_s": 0.354,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "mobile-03",
-          "role": "mobile",
-          "directives": 17,
-          "elapsed_s": 0.344,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "backend-03",
-          "role": "backend",
-          "directives": 17,
-          "elapsed_s": 0.35,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "devops-09",
-          "role": "devops",
-          "directives": 24,
-          "elapsed_s": 0.34,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "frontend-08",
-          "role": "frontend",
-          "directives": 18,
-          "elapsed_s": 0.417,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "devops-00",
-          "role": "devops",
-          "directives": 24,
-          "elapsed_s": 0.454,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "frontend-01",
-          "role": "frontend",
-          "directives": 18,
-          "elapsed_s": 0.417,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "mobile-04",
-          "role": "mobile",
-          "directives": 17,
-          "elapsed_s": 0.369,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "devops-08",
-          "role": "devops",
-          "directives": 24,
-          "elapsed_s": 0.381,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "mobile-02",
-          "role": "mobile",
-          "directives": 17,
-          "elapsed_s": 0.321,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "backend-08",
-          "role": "backend",
-          "directives": 17,
-          "elapsed_s": 0.38,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "data-05",
-          "role": "data",
-          "directives": 17,
-          "elapsed_s": 0.458,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "frontend-05",
-          "role": "frontend",
-          "directives": 18,
-          "elapsed_s": 0.391,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "mobile-06",
-          "role": "mobile",
-          "directives": 17,
-          "elapsed_s": 0.381,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "devops-06",
-          "role": "devops",
-          "directives": 24,
-          "elapsed_s": 0.337,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "data-08",
-          "role": "data",
-          "directives": 17,
-          "elapsed_s": 0.377,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "frontend-09",
-          "role": "frontend",
-          "directives": 18,
-          "elapsed_s": 0.378,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "backend-00",
-          "role": "backend",
-          "directives": 17,
-          "elapsed_s": 0.355,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "backend-02",
-          "role": "backend",
-          "directives": 17,
-          "elapsed_s": 0.335,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "data-07",
-          "role": "data",
-          "directives": 17,
-          "elapsed_s": 0.329,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "backend-06",
-          "role": "backend",
-          "directives": 17,
-          "elapsed_s": 0.378,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "devops-04",
-          "role": "devops",
-          "directives": 24,
-          "elapsed_s": 0.33,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "frontend-06",
-          "role": "frontend",
-          "directives": 18,
-          "elapsed_s": 0.335,
+          "elapsed_s": 0.402,
           "success": true,
           "error": null
         },
@@ -846,23 +502,23 @@
           "dev": "backend-01",
           "role": "backend",
           "directives": 17,
-          "elapsed_s": 0.357,
+          "elapsed_s": 0.378,
           "success": true,
           "error": null
         },
         {
-          "dev": "devops-05",
+          "dev": "devops-08",
           "role": "devops",
           "directives": 24,
-          "elapsed_s": 0.343,
+          "elapsed_s": 0.363,
           "success": true,
           "error": null
         },
         {
-          "dev": "frontend-00",
-          "role": "frontend",
-          "directives": 18,
-          "elapsed_s": 0.386,
+          "dev": "backend-06",
+          "role": "backend",
+          "directives": 17,
+          "elapsed_s": 0.418,
           "success": true,
           "error": null
         },
@@ -870,7 +526,39 @@
           "dev": "frontend-03",
           "role": "frontend",
           "directives": 18,
-          "elapsed_s": 0.465,
+          "elapsed_s": 0.368,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "devops-04",
+          "role": "devops",
+          "directives": 24,
+          "elapsed_s": 0.358,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "data-05",
+          "role": "data",
+          "directives": 17,
+          "elapsed_s": 0.375,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "devops-07",
+          "role": "devops",
+          "directives": 24,
+          "elapsed_s": 0.4,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "frontend-04",
+          "role": "frontend",
+          "directives": 18,
+          "elapsed_s": 0.365,
           "success": true,
           "error": null
         },
@@ -878,7 +566,143 @@
           "dev": "data-06",
           "role": "data",
           "directives": 17,
-          "elapsed_s": 0.38,
+          "elapsed_s": 0.368,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "data-09",
+          "role": "data",
+          "directives": 17,
+          "elapsed_s": 0.378,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "devops-06",
+          "role": "devops",
+          "directives": 24,
+          "elapsed_s": 0.359,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "devops-09",
+          "role": "devops",
+          "directives": 24,
+          "elapsed_s": 0.391,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "backend-07",
+          "role": "backend",
+          "directives": 17,
+          "elapsed_s": 0.378,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "frontend-01",
+          "role": "frontend",
+          "directives": 18,
+          "elapsed_s": 0.37,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "devops-01",
+          "role": "devops",
+          "directives": 24,
+          "elapsed_s": 0.346,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "frontend-09",
+          "role": "frontend",
+          "directives": 18,
+          "elapsed_s": 0.374,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "mobile-04",
+          "role": "mobile",
+          "directives": 17,
+          "elapsed_s": 0.346,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "mobile-01",
+          "role": "mobile",
+          "directives": 17,
+          "elapsed_s": 0.399,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "frontend-06",
+          "role": "frontend",
+          "directives": 18,
+          "elapsed_s": 0.375,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "mobile-06",
+          "role": "mobile",
+          "directives": 17,
+          "elapsed_s": 0.359,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "backend-00",
+          "role": "backend",
+          "directives": 17,
+          "elapsed_s": 0.39,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "frontend-02",
+          "role": "frontend",
+          "directives": 18,
+          "elapsed_s": 0.358,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "mobile-07",
+          "role": "mobile",
+          "directives": 17,
+          "elapsed_s": 0.351,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "frontend-05",
+          "role": "frontend",
+          "directives": 18,
+          "elapsed_s": 0.356,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "devops-00",
+          "role": "devops",
+          "directives": 24,
+          "elapsed_s": 0.356,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "backend-05",
+          "role": "backend",
+          "directives": 17,
+          "elapsed_s": 0.365,
           "success": true,
           "error": null
         },
@@ -886,7 +710,183 @@
           "dev": "backend-04",
           "role": "backend",
           "directives": 17,
-          "elapsed_s": 0.35,
+          "elapsed_s": 0.362,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "devops-02",
+          "role": "devops",
+          "directives": 24,
+          "elapsed_s": 0.373,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "devops-03",
+          "role": "devops",
+          "directives": 24,
+          "elapsed_s": 0.368,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "data-00",
+          "role": "data",
+          "directives": 17,
+          "elapsed_s": 0.362,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "mobile-05",
+          "role": "mobile",
+          "directives": 17,
+          "elapsed_s": 0.361,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "mobile-00",
+          "role": "mobile",
+          "directives": 17,
+          "elapsed_s": 0.358,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "data-08",
+          "role": "data",
+          "directives": 17,
+          "elapsed_s": 0.388,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "backend-03",
+          "role": "backend",
+          "directives": 17,
+          "elapsed_s": 0.362,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "frontend-08",
+          "role": "frontend",
+          "directives": 18,
+          "elapsed_s": 0.368,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "frontend-07",
+          "role": "frontend",
+          "directives": 18,
+          "elapsed_s": 0.349,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "mobile-03",
+          "role": "mobile",
+          "directives": 17,
+          "elapsed_s": 0.365,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "data-07",
+          "role": "data",
+          "directives": 17,
+          "elapsed_s": 0.414,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "mobile-09",
+          "role": "mobile",
+          "directives": 17,
+          "elapsed_s": 0.354,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "backend-02",
+          "role": "backend",
+          "directives": 17,
+          "elapsed_s": 0.38,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "data-04",
+          "role": "data",
+          "directives": 17,
+          "elapsed_s": 0.372,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "frontend-00",
+          "role": "frontend",
+          "directives": 18,
+          "elapsed_s": 0.356,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "devops-05",
+          "role": "devops",
+          "directives": 24,
+          "elapsed_s": 0.385,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "backend-08",
+          "role": "backend",
+          "directives": 17,
+          "elapsed_s": 0.352,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "mobile-02",
+          "role": "mobile",
+          "directives": 17,
+          "elapsed_s": 0.386,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "data-03",
+          "role": "data",
+          "directives": 17,
+          "elapsed_s": 0.373,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "mobile-08",
+          "role": "mobile",
+          "directives": 17,
+          "elapsed_s": 0.394,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "data-02",
+          "role": "data",
+          "directives": 17,
+          "elapsed_s": 0.369,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "data-01",
+          "role": "data",
+          "directives": 17,
+          "elapsed_s": 0.335,
           "success": true,
           "error": null
         }
@@ -904,12 +904,12 @@
         "renders": 50,
         "successful": 50,
         "failed": 0,
-        "wall_clock_s": 0.925,
-        "total_render_s": 19.707,
-        "per_render_min_s": 0.33,
-        "per_render_max_s": 0.925,
-        "per_render_median_s": 0.367,
-        "per_render_p95_s": 0.535,
+        "wall_clock_s": 0.404,
+        "total_render_s": 17.085,
+        "per_render_min_s": 0.322,
+        "per_render_max_s": 0.404,
+        "per_render_median_s": 0.338,
+        "per_render_p95_s": 0.371,
         "total_directives_resolved": 930
       },
       "llm_estimate": {
@@ -920,120 +920,16 @@
         "total_output_tokens": 158100,
         "total_cost_usd": 13.0433
       },
-      "system_speedup": 717.6,
-      "dev_speedup": 36.2,
+      "system_speedup": 1643.1,
+      "dev_speedup": 39.3,
       "llm_per_dev_s": 13.3,
       "cost_saved_usd": 13.04,
       "per_dev_results": [
         {
-          "dev": "frontend-06",
+          "dev": "frontend-02",
           "role": "frontend",
           "directives": 18,
-          "elapsed_s": 0.408,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "data-02",
-          "role": "data",
-          "directives": 17,
-          "elapsed_s": 0.376,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "backend-06",
-          "role": "backend",
-          "directives": 17,
-          "elapsed_s": 0.525,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "mobile-03",
-          "role": "mobile",
-          "directives": 17,
-          "elapsed_s": 0.393,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "devops-09",
-          "role": "devops",
-          "directives": 24,
-          "elapsed_s": 0.398,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "backend-01",
-          "role": "backend",
-          "directives": 17,
-          "elapsed_s": 0.355,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "frontend-01",
-          "role": "frontend",
-          "directives": 18,
-          "elapsed_s": 0.384,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "mobile-08",
-          "role": "mobile",
-          "directives": 17,
-          "elapsed_s": 0.399,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "frontend-03",
-          "role": "frontend",
-          "directives": 18,
-          "elapsed_s": 0.367,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "data-00",
-          "role": "data",
-          "directives": 17,
-          "elapsed_s": 0.434,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "frontend-00",
-          "role": "frontend",
-          "directives": 18,
-          "elapsed_s": 0.462,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "mobile-01",
-          "role": "mobile",
-          "directives": 17,
-          "elapsed_s": 0.371,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "data-07",
-          "role": "data",
-          "directives": 17,
-          "elapsed_s": 0.341,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "backend-05",
-          "role": "backend",
-          "directives": 17,
-          "elapsed_s": 0.365,
+          "elapsed_s": 0.404,
           "success": true,
           "error": null
         },
@@ -1041,63 +937,39 @@
           "dev": "backend-02",
           "role": "backend",
           "directives": 17,
-          "elapsed_s": 0.371,
+          "elapsed_s": 0.341,
           "success": true,
           "error": null
         },
         {
-          "dev": "frontend-08",
-          "role": "frontend",
-          "directives": 18,
-          "elapsed_s": 0.355,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "data-03",
-          "role": "data",
-          "directives": 17,
-          "elapsed_s": 0.366,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "data-09",
-          "role": "data",
-          "directives": 17,
-          "elapsed_s": 0.343,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "frontend-07",
-          "role": "frontend",
-          "directives": 18,
-          "elapsed_s": 0.439,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "backend-07",
+          "dev": "backend-06",
           "role": "backend",
           "directives": 17,
-          "elapsed_s": 0.362,
+          "elapsed_s": 0.339,
           "success": true,
           "error": null
         },
         {
-          "dev": "backend-03",
+          "dev": "frontend-09",
+          "role": "frontend",
+          "directives": 18,
+          "elapsed_s": 0.35,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "backend-01",
           "role": "backend",
           "directives": 17,
-          "elapsed_s": 0.337,
+          "elapsed_s": 0.349,
           "success": true,
           "error": null
         },
         {
-          "dev": "devops-06",
-          "role": "devops",
-          "directives": 24,
-          "elapsed_s": 0.352,
+          "dev": "mobile-00",
+          "role": "mobile",
+          "directives": 17,
+          "elapsed_s": 0.348,
           "success": true,
           "error": null
         },
@@ -1105,7 +977,159 @@
           "dev": "devops-01",
           "role": "devops",
           "directives": 24,
-          "elapsed_s": 0.33,
+          "elapsed_s": 0.335,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "frontend-08",
+          "role": "frontend",
+          "directives": 18,
+          "elapsed_s": 0.325,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "mobile-05",
+          "role": "mobile",
+          "directives": 17,
+          "elapsed_s": 0.334,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "data-06",
+          "role": "data",
+          "directives": 17,
+          "elapsed_s": 0.332,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "devops-00",
+          "role": "devops",
+          "directives": 24,
+          "elapsed_s": 0.338,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "data-01",
+          "role": "data",
+          "directives": 17,
+          "elapsed_s": 0.334,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "backend-00",
+          "role": "backend",
+          "directives": 17,
+          "elapsed_s": 0.353,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "devops-02",
+          "role": "devops",
+          "directives": 24,
+          "elapsed_s": 0.333,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "mobile-03",
+          "role": "mobile",
+          "directives": 17,
+          "elapsed_s": 0.332,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "backend-09",
+          "role": "backend",
+          "directives": 17,
+          "elapsed_s": 0.336,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "mobile-02",
+          "role": "mobile",
+          "directives": 17,
+          "elapsed_s": 0.339,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "frontend-05",
+          "role": "frontend",
+          "directives": 18,
+          "elapsed_s": 0.333,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "backend-03",
+          "role": "backend",
+          "directives": 17,
+          "elapsed_s": 0.362,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "mobile-08",
+          "role": "mobile",
+          "directives": 17,
+          "elapsed_s": 0.322,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "devops-09",
+          "role": "devops",
+          "directives": 24,
+          "elapsed_s": 0.347,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "mobile-09",
+          "role": "mobile",
+          "directives": 17,
+          "elapsed_s": 0.329,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "devops-08",
+          "role": "devops",
+          "directives": 24,
+          "elapsed_s": 0.335,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "backend-07",
+          "role": "backend",
+          "directives": 17,
+          "elapsed_s": 0.342,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "data-00",
+          "role": "data",
+          "directives": 17,
+          "elapsed_s": 0.351,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "data-02",
+          "role": "data",
+          "directives": 17,
+          "elapsed_s": 0.371,
           "success": true,
           "error": null
         },
@@ -1118,106 +1142,18 @@
           "error": null
         },
         {
-          "dev": "mobile-04",
-          "role": "mobile",
-          "directives": 17,
-          "elapsed_s": 0.367,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "backend-09",
-          "role": "backend",
-          "directives": 17,
-          "elapsed_s": 0.341,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "frontend-09",
+          "dev": "frontend-07",
           "role": "frontend",
           "directives": 18,
-          "elapsed_s": 0.341,
+          "elapsed_s": 0.324,
           "success": true,
           "error": null
         },
         {
-          "dev": "mobile-07",
+          "dev": "mobile-01",
           "role": "mobile",
           "directives": 17,
-          "elapsed_s": 0.367,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "devops-08",
-          "role": "devops",
-          "directives": 24,
-          "elapsed_s": 0.434,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "devops-04",
-          "role": "devops",
-          "directives": 24,
-          "elapsed_s": 0.405,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "frontend-02",
-          "role": "frontend",
-          "directives": 18,
-          "elapsed_s": 0.376,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "devops-05",
-          "role": "devops",
-          "directives": 24,
-          "elapsed_s": 0.39,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "mobile-00",
-          "role": "mobile",
-          "directives": 17,
-          "elapsed_s": 0.398,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "backend-04",
-          "role": "backend",
-          "directives": 17,
-          "elapsed_s": 0.39,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "data-01",
-          "role": "data",
-          "directives": 17,
-          "elapsed_s": 0.356,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "backend-08",
-          "role": "backend",
-          "directives": 17,
-          "elapsed_s": 0.925,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "devops-02",
-          "role": "devops",
-          "directives": 24,
-          "elapsed_s": 0.337,
+          "elapsed_s": 0.338,
           "success": true,
           "error": null
         },
@@ -1225,84 +1161,20 @@
           "dev": "data-08",
           "role": "data",
           "directives": 17,
-          "elapsed_s": 0.389,
+          "elapsed_s": 0.346,
           "success": true,
           "error": null
         },
         {
-          "dev": "mobile-02",
-          "role": "mobile",
-          "directives": 17,
-          "elapsed_s": 0.359,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "devops-00",
+          "dev": "devops-04",
           "role": "devops",
           "directives": 24,
-          "elapsed_s": 0.556,
+          "elapsed_s": 0.328,
           "success": true,
           "error": null
         },
         {
-          "dev": "frontend-04",
-          "role": "frontend",
-          "directives": 18,
-          "elapsed_s": 0.357,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "frontend-05",
-          "role": "frontend",
-          "directives": 18,
-          "elapsed_s": 0.349,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "mobile-09",
-          "role": "mobile",
-          "directives": 17,
-          "elapsed_s": 0.366,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "data-04",
-          "role": "data",
-          "directives": 17,
-          "elapsed_s": 0.352,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "mobile-05",
-          "role": "mobile",
-          "directives": 17,
-          "elapsed_s": 0.378,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "devops-03",
-          "role": "devops",
-          "directives": 24,
-          "elapsed_s": 0.431,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "mobile-06",
-          "role": "mobile",
-          "directives": 17,
-          "elapsed_s": 0.535,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "data-05",
+          "dev": "data-03",
           "role": "data",
           "directives": 17,
           "elapsed_s": 0.33,
@@ -1310,18 +1182,146 @@
           "error": null
         },
         {
-          "dev": "backend-00",
-          "role": "backend",
-          "directives": 17,
-          "elapsed_s": 0.366,
+          "dev": "devops-03",
+          "role": "devops",
+          "directives": 24,
+          "elapsed_s": 0.351,
           "success": true,
           "error": null
         },
         {
-          "dev": "data-06",
+          "dev": "frontend-01",
+          "role": "frontend",
+          "directives": 18,
+          "elapsed_s": 0.344,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "frontend-04",
+          "role": "frontend",
+          "directives": 18,
+          "elapsed_s": 0.332,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "data-09",
+          "role": "data",
+          "directives": 17,
+          "elapsed_s": 0.347,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "backend-05",
+          "role": "backend",
+          "directives": 17,
+          "elapsed_s": 0.323,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "mobile-07",
+          "role": "mobile",
+          "directives": 17,
+          "elapsed_s": 0.325,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "backend-04",
+          "role": "backend",
+          "directives": 17,
+          "elapsed_s": 0.346,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "frontend-00",
+          "role": "frontend",
+          "directives": 18,
+          "elapsed_s": 0.334,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "devops-05",
+          "role": "devops",
+          "directives": 24,
+          "elapsed_s": 0.335,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "data-07",
+          "role": "data",
+          "directives": 17,
+          "elapsed_s": 0.369,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "data-04",
+          "role": "data",
+          "directives": 17,
+          "elapsed_s": 0.336,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "data-05",
           "role": "data",
           "directives": 17,
           "elapsed_s": 0.344,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "frontend-06",
+          "role": "frontend",
+          "directives": 18,
+          "elapsed_s": 0.392,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "backend-08",
+          "role": "backend",
+          "directives": 17,
+          "elapsed_s": 0.339,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "mobile-04",
+          "role": "mobile",
+          "directives": 17,
+          "elapsed_s": 0.337,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "devops-06",
+          "role": "devops",
+          "directives": 24,
+          "elapsed_s": 0.346,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "frontend-03",
+          "role": "frontend",
+          "directives": 18,
+          "elapsed_s": 0.342,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "mobile-06",
+          "role": "mobile",
+          "directives": 17,
+          "elapsed_s": 0.328,
           "success": true,
           "error": null
         }
@@ -1339,12 +1339,12 @@
         "renders": 50,
         "successful": 50,
         "failed": 0,
-        "wall_clock_s": 3.461,
-        "total_render_s": 123.015,
-        "per_render_min_s": 1.313,
-        "per_render_max_s": 3.406,
-        "per_render_median_s": 2.638,
-        "per_render_p95_s": 3.299,
+        "wall_clock_s": 3.81,
+        "total_render_s": 165.302,
+        "per_render_min_s": 1.084,
+        "per_render_max_s": 3.772,
+        "per_render_median_s": 3.467,
+        "per_render_p95_s": 3.74,
         "total_directives_resolved": 930
       },
       "llm_estimate": {
@@ -1355,176 +1355,16 @@
         "total_output_tokens": 158100,
         "total_cost_usd": 13.0433
       },
-      "system_speedup": 191.8,
-      "dev_speedup": 5.0,
+      "system_speedup": 174.2,
+      "dev_speedup": 3.8,
       "llm_per_dev_s": 13.3,
       "cost_saved_usd": 13.04,
       "per_dev_results": [
         {
-          "dev": "data-05",
-          "role": "data",
-          "directives": 17,
-          "elapsed_s": 1.314,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "backend-09",
-          "role": "backend",
-          "directives": 17,
-          "elapsed_s": 1.372,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "data-02",
-          "role": "data",
-          "directives": 17,
-          "elapsed_s": 1.384,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "mobile-03",
-          "role": "mobile",
-          "directives": 17,
-          "elapsed_s": 1.313,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "data-09",
-          "role": "data",
-          "directives": 17,
-          "elapsed_s": 1.449,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "data-04",
-          "role": "data",
-          "directives": 17,
-          "elapsed_s": 1.497,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "frontend-00",
-          "role": "frontend",
-          "directives": 18,
-          "elapsed_s": 1.555,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "data-06",
-          "role": "data",
-          "directives": 17,
-          "elapsed_s": 1.614,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "backend-00",
-          "role": "backend",
-          "directives": 17,
-          "elapsed_s": 1.65,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "backend-06",
-          "role": "backend",
-          "directives": 17,
-          "elapsed_s": 1.788,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "devops-00",
-          "role": "devops",
-          "directives": 24,
-          "elapsed_s": 1.875,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "data-01",
-          "role": "data",
-          "directives": 17,
-          "elapsed_s": 1.935,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "devops-01",
-          "role": "devops",
-          "directives": 24,
-          "elapsed_s": 1.947,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "frontend-02",
-          "role": "frontend",
-          "directives": 18,
-          "elapsed_s": 1.948,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "data-00",
-          "role": "data",
-          "directives": 17,
-          "elapsed_s": 2.038,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "devops-02",
-          "role": "devops",
-          "directives": 24,
-          "elapsed_s": 2.025,
-          "success": true,
-          "error": null
-        },
-        {
           "dev": "devops-03",
           "role": "devops",
           "directives": 24,
-          "elapsed_s": 2.113,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "devops-07",
-          "role": "devops",
-          "directives": 24,
-          "elapsed_s": 2.13,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "backend-03",
-          "role": "backend",
-          "directives": 17,
-          "elapsed_s": 2.31,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "data-03",
-          "role": "data",
-          "directives": 17,
-          "elapsed_s": 2.408,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "devops-04",
-          "role": "devops",
-          "directives": 24,
-          "elapsed_s": 2.561,
+          "elapsed_s": 1.084,
           "success": true,
           "error": null
         },
@@ -1532,95 +1372,23 @@
           "dev": "devops-05",
           "role": "devops",
           "directives": 24,
+          "elapsed_s": 2.208,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "data-00",
+          "role": "data",
+          "directives": 17,
+          "elapsed_s": 2.413,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "data-05",
+          "role": "data",
+          "directives": 17,
           "elapsed_s": 2.577,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "devops-09",
-          "role": "devops",
-          "directives": 24,
-          "elapsed_s": 2.607,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "backend-04",
-          "role": "backend",
-          "directives": 17,
-          "elapsed_s": 2.691,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "backend-08",
-          "role": "backend",
-          "directives": 17,
-          "elapsed_s": 2.688,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "frontend-04",
-          "role": "frontend",
-          "directives": 18,
-          "elapsed_s": 2.625,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "frontend-05",
-          "role": "frontend",
-          "directives": 18,
-          "elapsed_s": 2.634,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "frontend-07",
-          "role": "frontend",
-          "directives": 18,
-          "elapsed_s": 2.641,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "data-07",
-          "role": "data",
-          "directives": 17,
-          "elapsed_s": 2.772,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "mobile-06",
-          "role": "mobile",
-          "directives": 17,
-          "elapsed_s": 2.731,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "mobile-04",
-          "role": "mobile",
-          "directives": 17,
-          "elapsed_s": 2.748,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "data-08",
-          "role": "data",
-          "directives": 17,
-          "elapsed_s": 2.851,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "mobile-02",
-          "role": "mobile",
-          "directives": 17,
-          "elapsed_s": 2.765,
           "success": true,
           "error": null
         },
@@ -1628,71 +1396,7 @@
           "dev": "frontend-01",
           "role": "frontend",
           "directives": 18,
-          "elapsed_s": 2.82,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "backend-01",
-          "role": "backend",
-          "directives": 17,
-          "elapsed_s": 2.89,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "backend-05",
-          "role": "backend",
-          "directives": 17,
-          "elapsed_s": 2.947,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "frontend-06",
-          "role": "frontend",
-          "directives": 18,
-          "elapsed_s": 2.888,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "frontend-03",
-          "role": "frontend",
-          "directives": 18,
-          "elapsed_s": 2.952,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "frontend-09",
-          "role": "frontend",
-          "directives": 18,
-          "elapsed_s": 2.949,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "mobile-09",
-          "role": "mobile",
-          "directives": 17,
-          "elapsed_s": 2.913,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "backend-07",
-          "role": "backend",
-          "directives": 17,
-          "elapsed_s": 3.116,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "mobile-01",
-          "role": "mobile",
-          "directives": 17,
-          "elapsed_s": 3.041,
+          "elapsed_s": 2.59,
           "success": true,
           "error": null
         },
@@ -1700,15 +1404,119 @@
           "dev": "mobile-07",
           "role": "mobile",
           "directives": 17,
-          "elapsed_s": 3.1,
+          "elapsed_s": 2.58,
           "success": true,
           "error": null
         },
         {
-          "dev": "mobile-08",
+          "dev": "backend-06",
+          "role": "backend",
+          "directives": 17,
+          "elapsed_s": 2.673,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "data-09",
+          "role": "data",
+          "directives": 17,
+          "elapsed_s": 2.936,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "frontend-03",
+          "role": "frontend",
+          "directives": 18,
+          "elapsed_s": 2.972,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "backend-09",
+          "role": "backend",
+          "directives": 17,
+          "elapsed_s": 3.072,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "data-02",
+          "role": "data",
+          "directives": 17,
+          "elapsed_s": 3.148,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "backend-00",
+          "role": "backend",
+          "directives": 17,
+          "elapsed_s": 3.164,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "frontend-02",
+          "role": "frontend",
+          "directives": 18,
+          "elapsed_s": 3.129,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "data-03",
+          "role": "data",
+          "directives": 17,
+          "elapsed_s": 3.207,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "mobile-03",
           "role": "mobile",
           "directives": 17,
-          "elapsed_s": 3.116,
+          "elapsed_s": 3.199,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "backend-03",
+          "role": "backend",
+          "directives": 17,
+          "elapsed_s": 3.304,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "data-04",
+          "role": "data",
+          "directives": 17,
+          "elapsed_s": 3.331,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "data-07",
+          "role": "data",
+          "directives": 17,
+          "elapsed_s": 3.338,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "frontend-00",
+          "role": "frontend",
+          "directives": 18,
+          "elapsed_s": 3.377,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "mobile-04",
+          "role": "mobile",
+          "directives": 17,
+          "elapsed_s": 3.344,
           "success": true,
           "error": null
         },
@@ -1716,15 +1524,7 @@
           "dev": "devops-08",
           "role": "devops",
           "directives": 24,
-          "elapsed_s": 3.225,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "mobile-05",
-          "role": "mobile",
-          "directives": 17,
-          "elapsed_s": 3.202,
+          "elapsed_s": 3.409,
           "success": true,
           "error": null
         },
@@ -1732,7 +1532,119 @@
           "dev": "backend-02",
           "role": "backend",
           "directives": 17,
-          "elapsed_s": 3.327,
+          "elapsed_s": 3.47,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "backend-05",
+          "role": "backend",
+          "directives": 17,
+          "elapsed_s": 3.486,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "devops-09",
+          "role": "devops",
+          "directives": 24,
+          "elapsed_s": 3.463,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "devops-00",
+          "role": "devops",
+          "directives": 24,
+          "elapsed_s": 3.479,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "mobile-01",
+          "role": "mobile",
+          "directives": 17,
+          "elapsed_s": 3.45,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "frontend-09",
+          "role": "frontend",
+          "directives": 18,
+          "elapsed_s": 3.452,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "data-01",
+          "role": "data",
+          "directives": 17,
+          "elapsed_s": 3.51,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "devops-07",
+          "role": "devops",
+          "directives": 24,
+          "elapsed_s": 3.496,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "devops-01",
+          "role": "devops",
+          "directives": 24,
+          "elapsed_s": 3.507,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "data-06",
+          "role": "data",
+          "directives": 17,
+          "elapsed_s": 3.518,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "mobile-05",
+          "role": "mobile",
+          "directives": 17,
+          "elapsed_s": 3.464,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "devops-04",
+          "role": "devops",
+          "directives": 24,
+          "elapsed_s": 3.537,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "backend-08",
+          "role": "backend",
+          "directives": 17,
+          "elapsed_s": 3.626,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "backend-07",
+          "role": "backend",
+          "directives": 17,
+          "elapsed_s": 3.659,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "mobile-06",
+          "role": "mobile",
+          "directives": 17,
+          "elapsed_s": 3.586,
           "success": true,
           "error": null
         },
@@ -1740,15 +1652,71 @@
           "dev": "mobile-00",
           "role": "mobile",
           "directives": 17,
-          "elapsed_s": 3.268,
+          "elapsed_s": 3.613,
           "success": true,
           "error": null
         },
         {
-          "dev": "frontend-08",
+          "dev": "mobile-02",
+          "role": "mobile",
+          "directives": 17,
+          "elapsed_s": 3.609,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "data-08",
+          "role": "data",
+          "directives": 17,
+          "elapsed_s": 3.664,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "backend-04",
+          "role": "backend",
+          "directives": 17,
+          "elapsed_s": 3.687,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "frontend-07",
           "role": "frontend",
           "directives": 18,
-          "elapsed_s": 3.299,
+          "elapsed_s": 3.642,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "mobile-08",
+          "role": "mobile",
+          "directives": 17,
+          "elapsed_s": 3.618,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "devops-02",
+          "role": "devops",
+          "directives": 24,
+          "elapsed_s": 3.694,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "mobile-09",
+          "role": "mobile",
+          "directives": 17,
+          "elapsed_s": 3.638,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "frontend-04",
+          "role": "frontend",
+          "directives": 18,
+          "elapsed_s": 3.683,
           "success": true,
           "error": null
         },
@@ -1756,7 +1724,39 @@
           "dev": "devops-06",
           "role": "devops",
           "directives": 24,
-          "elapsed_s": 3.406,
+          "elapsed_s": 3.74,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "frontend-06",
+          "role": "frontend",
+          "directives": 18,
+          "elapsed_s": 3.715,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "frontend-08",
+          "role": "frontend",
+          "directives": 18,
+          "elapsed_s": 3.711,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "backend-01",
+          "role": "backend",
+          "directives": 17,
+          "elapsed_s": 3.772,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "frontend-05",
+          "role": "frontend",
+          "directives": 18,
+          "elapsed_s": 3.758,
           "success": true,
           "error": null
         }
@@ -1774,12 +1774,12 @@
         "renders": 10,
         "successful": 10,
         "failed": 0,
-        "wall_clock_s": 4.858,
-        "total_render_s": 17.252,
-        "per_render_min_s": 0.629,
-        "per_render_max_s": 4.857,
-        "per_render_median_s": 0.795,
-        "per_render_p95_s": 4.857,
+        "wall_clock_s": 0.868,
+        "total_render_s": 7.393,
+        "per_render_min_s": 0.584,
+        "per_render_max_s": 0.864,
+        "per_render_median_s": 0.764,
+        "per_render_p95_s": 0.864,
         "total_directives_resolved": 199
       },
       "llm_estimate": {
@@ -1790,72 +1790,16 @@
         "total_output_tokens": 33830,
         "total_cost_usd": 2.791
       },
-      "system_speedup": 30.1,
-      "dev_speedup": 18.4,
+      "system_speedup": 168.2,
+      "dev_speedup": 19.1,
       "llm_per_dev_s": 14.6,
       "cost_saved_usd": 2.79,
       "per_dev_results": [
         {
-          "dev": "data-05",
-          "role": "data",
-          "directives": 17,
-          "elapsed_s": 0.629,
-          "success": true,
-          "error": null
-        },
-        {
           "dev": "frontend-06",
           "role": "frontend",
           "directives": 18,
-          "elapsed_s": 0.657,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "devops-00",
-          "role": "devops",
-          "directives": 24,
-          "elapsed_s": 0.694,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "data-09",
-          "role": "data",
-          "directives": 17,
-          "elapsed_s": 0.78,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "devops-02",
-          "role": "devops",
-          "directives": 24,
-          "elapsed_s": 0.787,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "devops-04",
-          "role": "devops",
-          "directives": 24,
-          "elapsed_s": 0.803,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "devops-08",
-          "role": "devops",
-          "directives": 24,
-          "elapsed_s": 0.82,
-          "success": true,
-          "error": null
-        },
-        {
-          "dev": "backend-03",
-          "role": "backend",
-          "directives": 17,
-          "elapsed_s": 3.424,
+          "elapsed_s": 0.584,
           "success": true,
           "error": null
         },
@@ -1863,7 +1807,39 @@
           "dev": "backend-07",
           "role": "backend",
           "directives": 17,
-          "elapsed_s": 3.801,
+          "elapsed_s": 0.59,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "devops-08",
+          "role": "devops",
+          "directives": 24,
+          "elapsed_s": 0.638,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "data-05",
+          "role": "data",
+          "directives": 17,
+          "elapsed_s": 0.731,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "devops-02",
+          "role": "devops",
+          "directives": 24,
+          "elapsed_s": 0.734,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "devops-04",
+          "role": "devops",
+          "directives": 24,
+          "elapsed_s": 0.794,
           "success": true,
           "error": null
         },
@@ -1871,7 +1847,31 @@
           "dev": "backend-01",
           "role": "backend",
           "directives": 17,
-          "elapsed_s": 4.857,
+          "elapsed_s": 0.801,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "data-09",
+          "role": "data",
+          "directives": 17,
+          "elapsed_s": 0.815,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "devops-00",
+          "role": "devops",
+          "directives": 24,
+          "elapsed_s": 0.842,
+          "success": true,
+          "error": null
+        },
+        {
+          "dev": "backend-03",
+          "role": "backend",
+          "directives": 17,
+          "elapsed_s": 0.864,
           "success": true,
           "error": null
         }
@@ -1882,17 +1882,17 @@
     "events": 5,
     "total_renders": 210,
     "total_failed": 0,
-    "perseus_wall_clock_s": 18.9,
-    "perseus_total_render_s": 428.93,
+    "perseus_wall_clock_s": 11.24,
+    "perseus_total_render_s": 476.66,
     "llm_total_seconds": 2801.2,
     "llm_total_cost_usd": 54.96,
-    "best_dev_speedup": 36.2,
-    "incident_dev_speedup": 18.4,
-    "incident_median_render_s": 0.795,
+    "best_dev_speedup": 39.3,
+    "incident_dev_speedup": 19.1,
+    "incident_median_render_s": 0.764,
     "cost_saved_usd": 54.95,
-    "cold_median_dev_s": 4.22,
+    "cold_median_dev_s": 5.462,
     "projections": {
-      "daily_perseus_seconds": 1715.7,
+      "daily_perseus_seconds": 1906.6,
       "daily_llm_hours": 3.1,
       "daily_llm_cost_usd": 219.8,
       "annual_cost_saved_usd": 54950.0,
