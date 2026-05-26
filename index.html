@@ -2144,13 +2144,14 @@ Branch: <span class="s">feat/billing-v2</span>
 
     <aside class="hardened-note reveal" aria-label="Hardened">
       <span class="hn-label">Hardened</span>
-      <div class="hn-text">Symlink escapes blocked (direct, relative, chained, to <code>/etc</code>). Context overflow protection on <code>@read</code> and <code>@include</code>. Optional <code>integrity_check</code> warns when a file changes mid-render. <b>NVMe local lock is atomic;</b> NFS&nbsp;v4+ required for cross-machine, SMB requires careful config. <b>14/14 hard gates passed</b> — swarm chaos at 10/50/100 agents, cache thrash T1–T5, adversarial C1–C5. Zero hash collisions. Zero determinism violations. Adversarial-neighbor slowdown: <b>1.02×</b> — isolation is effectively free.</div>
+      <div class="hn-text">Symlink escapes blocked (direct, relative, chained, to <code>/etc</code>). Context overflow protection on <code>@read</code> and <code>@include</code>. Optional <code>integrity_check</code> warns when a file changes mid-render. <b>NVMe local lock is atomic;</b> NFS&nbsp;v4+ required for cross-machine, SMB requires careful config. <b>15/15 hard gates passed</b> — swarm chaos at 10/50/100 agents, cache thrash T1–T5, adversarial C1–C5. Zero hash collisions. Zero determinism violations. Adversarial-neighbor slowdown: <b>1.02×</b> — isolation is effectively free. <b>Semantic equivalence: 1.0</b> — Gemini 2.5 Flash judge, 20 A/B pairs. Perseus changes what the assistant knows. Not what it says.</div>
       <div class="hn-chips">
         <span class="hn-chip">workspace boundaries</span>
         <span class="hn-chip">overflow guard</span>
         <span class="hn-chip">drift detect</span>
-        <span class="hn-chip">14/14 gates</span>
+        <span class="hn-chip">15/15 gates</span>
         <span class="hn-chip">0 collisions @ 100 agents</span>
+        <span class="hn-chip">semantic equiv 1.0</span>
       </div>
     </aside>
 
