@@ -2,6 +2,7 @@
 import copy
 import pytest
 import re
+import sys
 from pathlib import Path
 
 
@@ -172,7 +173,7 @@ def test_cli_help_shows_format_flag():
     """perseus render --help must document the --format flag."""
     import subprocess
     result = subprocess.run(
-        ["python", "perseus.py", "render", "--help"],
+        [sys.executable, "perseus.py", "render", "--help"],
         capture_output=True, text=True,
         cwd=str(Path(__file__).resolve().parent.parent)
     )

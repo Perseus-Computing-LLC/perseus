@@ -46,6 +46,7 @@ def test_tools_call_query_resolves(tmp_path):
     """tools/call for perseus_query resolves correctly."""
     c = cfg()
     c["render"]["allow_query_shell"] = True
+    c["mcp"] = {"tool_allowlist": ["perseus_query"]}
     result = perseus._call_tool("perseus_query", {"command": "echo hello_mcp"}, c, tmp_path)
     assert "hello_mcp" in result
 
@@ -56,8 +57,17 @@ def test_tools_call_read_resolves(tmp_path):
     test_file.write_text("mcp read test")
     c = cfg()
     result = perseus._call_tool("perseus_read", {"path": str(test_file)}, c, tmp_path)
-    # path resolution may vary; accept either successful read or graceful error
-    assert "mcp read test" in result or "file not found" in result.lower()
+    assert "mcp read test" in result
+
+
+def test_tools_call_enforces_blocklist(tmp_path):
+    """tools/call enforces the same blocklist policy as tools/list."""
+    c = cfg()
+    c["render"]["allow_query_shell"] = True
+    c["mcp"] = {"tool_blocklist": ["perseus_query"]}
+    result = perseus._call_tool("perseus_query", {"command": "echo bypassed"}, c, tmp_path)
+    assert "blocked by mcp.tool_blocklist" in result
+    assert "bypassed" not in result
 
 
 def test_trust_gate_blocks_query(tmp_path):

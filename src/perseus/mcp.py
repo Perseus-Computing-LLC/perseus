@@ -21,7 +21,7 @@ except ImportError:
 
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_NAME = "perseus"
-SERVER_VERSION = "1.0.0"
+SERVER_VERSION = "1.0.4"
 DEFAULT_TOOL_TIMEOUT_S = 30
 
 # ── Tool schema helpers ──────────────────────────────────────────────────────
@@ -82,30 +82,39 @@ LEGACY_MCP_TOOLS: list[dict] = [
 # Sensitive tools — require explicit config opt-in
 _MCP_SENSITIVE_TOOLS = {"perseus_query", "perseus_agent"}
 
-# ── Tool list builder ────────────────────────────────────────────────────────
 
-def _get_all_mcp_tools(cfg: dict) -> list[dict]:
-    """Return merged tool list: registry-generated + legacy, filtered by config."""
+def _mcp_tool_allowed(tool_name: str, cfg: dict) -> tuple[bool, str]:
+    """Return whether an MCP tool is exposed/callable under cfg policy."""
     mcp_cfg = cfg.get("mcp", {}) if isinstance(cfg, dict) else {}
     allowlist = set(mcp_cfg.get("tool_allowlist") or [])
     blocklist = set(mcp_cfg.get("tool_blocklist") or [])
 
+    if tool_name in blocklist:
+        return False, f"tool {tool_name} is blocked by mcp.tool_blocklist"
+    if allowlist and tool_name not in allowlist:
+        return False, f"tool {tool_name} is not allowed by mcp.tool_allowlist"
+    if tool_name in _MCP_SENSITIVE_TOOLS and tool_name not in allowlist:
+        return False, f"tool {tool_name} requires explicit mcp.tool_allowlist opt-in"
+    return True, ""
+
+# ── Tool list builder ────────────────────────────────────────────────────────
+
+def _get_all_mcp_tools(cfg: dict) -> list[dict]:
+    """Return merged tool list: registry-generated + legacy, filtered by config."""
     tools = []
     # Auto-generated from registry
     for tool in _generate_directive_tools():
         name = tool["name"]
-        if name in blocklist:
-            continue
-        if allowlist and name not in allowlist:
-            continue
-        if name in _MCP_SENSITIVE_TOOLS and name not in allowlist:
+        allowed, _reason = _mcp_tool_allowed(name, cfg)
+        if not allowed:
             continue
         tools.append(tool)
 
     # Legacy tools (always available unless blocked)
     for tool in LEGACY_MCP_TOOLS:
         name = tool["name"]
-        if name in blocklist:
+        allowed, _reason = _mcp_tool_allowed(name, cfg)
+        if not allowed:
             continue
         tools.append(tool)
 
@@ -117,7 +126,7 @@ def _get_all_mcp_tools(cfg: dict) -> list[dict]:
 # Special arg builders for directives with positional/non-standard arg formats
 _DIRECTIVE_ARG_BUILDERS = {
     "@query": lambda args: f'"{(args.get("command") or "").strip()}"',
-    "@read": lambda args: f'path="{(args.get("path") or "")}"' + (f' key="{(args.get("key") or "")}"' if args.get("key") else ""),
+    "@read": lambda args: f'"{(args.get("path") or "")}"' + (f' key="{(args.get("key") or "")}"' if args.get("key") else ""),
     "@env": lambda args: (args.get("var") or args.get("name") or ""),
     "@agent": lambda args: f'"{(args.get("agent") or "")}" "{(args.get("prompt") or "")}"',
     "@checkpoint": lambda args: args.get("task") or args.get("args", ""),
@@ -170,6 +179,10 @@ def _build_tool_args_generic(tool_name: str, arguments: dict) -> str:
 
 def _call_tool(tool_name: str, arguments: dict, cfg: dict, workspace: Path) -> str:
     """Resolve an MCP tool call through the Perseus directive resolver."""
+    allowed, reason = _mcp_tool_allowed(tool_name, cfg)
+    if not allowed:
+        return f"Error: {reason}"
+
     # Legacy tools
     if tool_name == "perseus_get_context":
         try:
