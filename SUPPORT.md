@@ -5,9 +5,9 @@ Thank you for using Perseus! Here are the primary resources for getting help and
 ## 1. Documentation & Usage
 
 For questions on how to use Perseus, please consult the documentation:
-- **[Documentation Directory](file:///docs/)**: Contains guides, examples, and detailed specs.
-- **[AGENTS.md](file:///AGENTS.md)**: Guidelines for AI contributors.
-- **[ROADMAP.md](file:///ROADMAP.md)**: Current roadmap and future milestones.
+- **[Documentation Directory](./docs/)**: Contains guides, examples, and detailed specs.
+- **[AGENTS.md](./AGENTS.md)**: Guidelines for AI contributors.
+- **[ROADMAP.md](./ROADMAP.md)**: Current roadmap and future milestones.
 
 ## 2. Issues and Requests
 

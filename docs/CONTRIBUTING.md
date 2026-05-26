@@ -125,7 +125,7 @@ The `tasks/` directory is the async coordination substrate. Any contributor can 
 
 ```bash
 python perseus.py agora list                   # see open tasks
-python perseus.py agora claim task-N --agent <your-name>   # claim one
+python perseus.py agora claim task-N --agent your_agent_name   # claim one
 # ... do the work ...
 # Add a ## Completed section to the task file
 python perseus.py agora complete task-N        # mark done
