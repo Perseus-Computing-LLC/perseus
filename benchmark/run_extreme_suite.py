@@ -92,6 +92,14 @@ def main():
     plan.append(("phase-2 swarm_chaos", [sys.executable, str(ROOT / "swarm_chaos.py"), "--scales", swarm_scales]))
     plan.append(("phase-4 adversarial_extended", [sys.executable, str(ROOT / "adversarial_extended.py"), "--c5-n", str(c5_n)]))
     plan.append(("phase-5 harness replayer", [sys.executable, str(ROOT / "harness/replayer.py"), "--n", str(harness_n)]))
+    # Phase 7 — extreme enterprise benchmark (cold/warm A/B, regression probes,
+    #            concurrency stress, enterprise day sim, cache pathology)
+    xeb_args = [sys.executable, str(ROOT / "extreme_enterprise_benchmark.py")]
+    if args.quick:
+        xeb_args += ["--quick", "--skip-memory"]
+    else:
+        xeb_args += ["--skip-memory"]   # memory phase requires psutil; gated separately
+    plan.append(("phase-7 extreme_enterprise", xeb_args))
     plan.append(("phase-6 gate_runner", [sys.executable, str(ROOT / "eval/gate_runner.py"), "--dir", str(ROOT)]))
     if args.include_semantic:
         plan.append(("phase-6 semantic_judge", [
@@ -126,10 +134,11 @@ def main():
     harness = load(ROOT / "harness_results.json")
     gates = load(ROOT / "gates_results.json")
     semantic = load(ROOT / "semantic_results.json")
+    xeb = load(ROOT / "extreme_enterprise_results.json")
 
     suite_pass = bool(gates.get("pass", False))
     final = {
-        "suite_version": "ultimate-v1",
+        "suite_version": "ultimate-v2",
         "generated_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "pass": suite_pass,
         "semantic_pass": semantic.get("pass") if semantic.get("skipped") is False else None,
@@ -140,12 +149,22 @@ def main():
         "harness": harness,
         "gates": gates,
         "semantic": semantic,
+        "extreme_enterprise": {
+            "overall_pass": xeb.get("overall_pass"),
+            "total_duration_s": xeb.get("total_duration_s"),
+            "hard_gates": xeb.get("phase_10", {}).get("hard", {}),
+            "soft_gates": xeb.get("phase_10", {}).get("soft", {}),
+            "enterprise_day_roi_pct": xeb.get("phase_7", {}).get("estimated_roi_pct"),
+            "fleet_p99_ms": xeb.get("phase_7", {}).get("fleet_latency_ms", {}).get("p99"),
+        } if xeb else {"skipped": True},
         "timings": timings,
         "summary": {
             "pass": suite_pass,
             "gates_passed": gates.get("passed", 0),
             "gates_total": gates.get("total", 0),
             "failed_gates": gates.get("failed", []),
+            "xeb_hard_pass": xeb.get("phase_10", {}).get("hard", {}).get("passed") ==
+                             xeb.get("phase_10", {}).get("hard", {}).get("total") if xeb else None,
         },
     }
     write_json(Path(args.out), final)
