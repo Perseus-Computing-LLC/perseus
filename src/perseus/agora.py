@@ -1,4 +1,5 @@
 # stdlib imports available from build artifact header
+from perseus.memory import _bastra_recall
 # ── Command dispatch ──────────────────────────────────────────────────────────
 
 def _memory_workspace(args, cfg) -> Path:
@@ -289,6 +290,100 @@ def _memory_federation_diagnostic(name: str, args_str: str, cfg: dict, workspace
     return diagnostics
 
 
+def resolve_bastra(args_str: str, cfg: dict,
+                   workspace: Path | None = None) -> str:
+    """Render the @bastra directive — persistent memory recall via bastra-recall.
+
+    Args:
+      query="..."  → search query (required)
+      scope="..."  → filter by project scope
+      k=N          → max results (1-20, default 5)
+      type="..."   → filter by memory type (lesson|preference|decision|...)
+
+    Calls the bastra-recall HTTP daemon at memory.bastra_url.
+    Falls back gracefully if the daemon is unreachable.
+    """
+    mods = _parse_kv_modifiers(args_str)
+    query = (mods.get("query") or "").strip()
+    if not query:
+        return "> ⚠ @bastra requires a `query=\"...\"` argument.\n"
+
+    scope = (mods.get("scope") or "").strip() or None
+    type_filter = (mods.get("type") or "").strip().lower() or None
+    try:
+        k = max(1, min(20, int(mods.get("k", "5"))))
+    except (ValueError, TypeError):
+        k = 5
+
+    hits = _bastra_recall(cfg, query, k=k, scope=scope, type_filter=type_filter)
+    if not hits:
+        return "> \u2139\ufe0f No bastra-recall memories matched.\n"
+
+    lines = ["> \U0001f9e0 **Bastra-Recall Memories:**\n"]
+    for h in hits:
+        title = h.get("title", "untitled")
+        summary = h.get("summary", "")
+        score = h.get("score", 0)
+        mem_type = h.get("type", "")
+        mem_scope = h.get("scope", "")
+        parts = [f"  - **{title}**"]
+        if mem_type:
+            parts.append(f"_{mem_type}_")
+        if mem_scope:
+            parts.append(f"`{mem_scope}`")
+        parts.append(f"{summary}")
+        if score:
+            parts.append(f"(score: {score:.0f})")
+        lines.append(" ".join(parts))
+    return "\n".join(lines) + "\n"
+
+
+def _resolve_memory_via_bastra(focus: str, workspace: Path,
+                                cfg: dict, include_fed: bool) -> str:
+    """Resolve @memory through bastra-recall API instead of file narrative."""
+    # Map Mn\u0113m\u0113 focus sections to bastra type filters
+    type_map = {
+        "decisions": "decision",
+        "recent": None,
+        "patterns": "lesson",
+        "arc": None,
+        "tasks": "decision",
+        "history": "decision",
+        "": None,
+    }
+    type_filter = type_map.get(focus)
+    ws_name = workspace.name if workspace.name and workspace.name != "/" \
+               else workspace.parent.name
+    query = f"{focus} {ws_name}".strip() if focus else ws_name
+    scope = ws_name
+
+    hits = _bastra_recall(cfg, query, k=8, scope=scope, type_filter=type_filter)
+    if not hits:
+        base = "> \u2139\ufe0f No bastra-recall memories found for this workspace.\n"
+        if include_fed:
+            return f"{base}\n---\n\n## Federated Context\n\n{_render_federation_digest(cfg)}"
+        return base
+
+    lines = ["> \U0001f9e0 **Bastra-recall memories**\n"]
+    for h in hits:
+        title = h.get("title", "untitled")
+        summary = h.get("summary", "")
+        score = h.get("score", 0)
+        mem_type = h.get("type", "")
+        parts = [f"  - **{title}**"]
+        if mem_type:
+            parts.append(f"_{mem_type}_")
+        parts.append(summary)
+        if score:
+            parts.append(f"(score: {score:.0f})")
+        lines.append(" ".join(parts))
+
+    result = "\n".join(lines) + "\n"
+    if include_fed:
+        result += f"\n---\n\n## Federated Context\n\n{_render_federation_digest(cfg)}"
+    return result
+
+
 def resolve_memory(args_str: str, cfg: dict, workspace: Path | None = None) -> str:
     """Render the @memory directive.
 
@@ -327,6 +422,11 @@ def resolve_memory(args_str: str, cfg: dict, workspace: Path | None = None) -> s
     ws_override = (mods.get("workspace") or "").strip()
     if ws_override:
         ws = Path(ws_override).expanduser().resolve()
+
+    # ── Route through bastra-recall when configured ────────────────────────
+    backend = cfg.get("memory", {}).get("backend", "file")
+    if backend == "bastra":
+        return _resolve_memory_via_bastra(focus, ws, cfg, include_fed)
 
     def _maybe_append_federation(local_text: str) -> str:
         if not include_fed:
