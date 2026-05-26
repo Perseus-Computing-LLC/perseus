@@ -15,6 +15,7 @@ Perseus is a live context engine for AI assistants. It solves the **cold-start p
 | Wire Perseus to a specific assistant (Hermes, Codex, Claude Code, Cursor, Rovo Dev) | [Integration guide](./HERMES_INTEGRATION.md) · [spec/integration.md](../spec/integration.md) |
 | Use context packs and profiles | [Context Packs](./CONTEXT_PACKS.md) |
 | Deploy with Docker / run as a service | [Container deployment](./CONTAINER.md) |
+| Deploy the full ecosystem on Hermes (Bastra, LLM proxy, crons) | [Deployment Guide](./DEPLOYMENT.md) |
 | Enable cited synthesis (`@synthesize`) | [Cited Synthesis](./CITED_SYNTHESIS.md) |
 | Use the trust and security model | [Spec: permissions](../spec/components.md) |
 | Look up every directive | [spec/directives.md](../spec/directives.md) |
@@ -32,6 +33,7 @@ docs/
   index.md              ← You are here — documentation hub
   quickstart.md         ← Shortest path from install to rendered context
   HERMES_INTEGRATION.md ← Hermes Agent adapter
+  DEPLOYMENT.md         ← Full ecosystem deployment on Hermes
   CONTEXT_PACKS.md      ← Profiles, pack.yaml, gallery
   CONTAINER.md          ← Docker / compose deployment
   CITED_SYNTHESIS.md    ← @synthesize and cited claims
