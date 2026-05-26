@@ -650,10 +650,10 @@
     }
   },
   "perseus_data": {
-    "avg_cold_ms_per_query": 12.8,
+    "avg_cold_ms_per_query": 13.6,
     "warm_us_per_query": 22,
-    "best_speedup": 449.8,
-    "cold_abandoned_at": null
+    "best_speedup": 126.2,
+    "cold_abandoned_at": 10000
   },
   "headline": "500 developers \u00d7 250 days \u00d7 50 directives/day = 6,250,000 directives/year. LLM cost: $40,625/yr (Opus 4.7) to $14,844/yr (Gemini 2.5 Pro). Perseus: $137.50 of CPU time, zero API cost. Token savings: 3.1B tokens/year."
 }
