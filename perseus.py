@@ -622,7 +622,7 @@ def _webhook_worker(url, ep, wh_cfg, q):
         event, payload, ts_iso = item
         
         # Prepare payload
-        version = globals().get("_PERSEUS_VERSION", "1.0.3")
+        version = globals().get("_PERSEUS_VERSION", "1.0.4")
         
         workspace = payload.get("workspace", "")
         ws_hash = hashlib.sha256(workspace.encode()).hexdigest()[:16] if workspace else None
@@ -1365,6 +1365,44 @@ def redact_text(text: str, cfg: dict) -> tuple[str, dict]:
         "rules_active": len(rules),
     }
 
+
+def redact_value(value, cfg: dict) -> tuple[object, dict]:
+    """Recursively redact strings inside JSON-like values."""
+    if isinstance(value, str):
+        return redact_text(value, cfg)
+    if isinstance(value, list):
+        out = []
+        total = 0
+        counts: dict[str, int] = {}
+        enabled = True
+        rules_active = 0
+        for item in value:
+            new_item, rep = redact_value(item, cfg)
+            out.append(new_item)
+            if rep.get("enabled") is False:
+                enabled = False
+            total += rep.get("total", 0)
+            rules_active = max(rules_active, int(rep.get("rules_active", 0) or 0))
+            for name, count in rep.get("counts", {}).items():
+                counts[name] = counts.get(name, 0) + count
+        return out, {"enabled": enabled, "total": total, "counts": counts, "rules_active": rules_active}
+    if isinstance(value, dict):
+        out = {}
+        total = 0
+        counts: dict[str, int] = {}
+        enabled = True
+        rules_active = 0
+        for key, item in value.items():
+            new_item, rep = redact_value(item, cfg)
+            out[key] = new_item
+            if rep.get("enabled") is False:
+                enabled = False
+            total += rep.get("total", 0)
+            rules_active = max(rules_active, int(rep.get("rules_active", 0) or 0))
+            for name, count in rep.get("counts", {}).items():
+                counts[name] = counts.get(name, 0) + count
+        return out, {"enabled": enabled, "total": total, "counts": counts, "rules_active": rules_active}
+    return value, {"enabled": True, "total": 0, "counts": {}, "rules_active": 0}
 
 # Callers can disable via `audit.enabled = false`.
 _VALIDATOR_CACHE: dict[str, Callable] = {}
@@ -2784,6 +2822,7 @@ def directive_dependency_graph(
     lines = source_text.splitlines()
     # task-66: expand macros before building graph
     body_lines = lines[1:] if lines and PERCY_HEADER_RE.match(lines[0]) else lines
+    body_lines = _expand_aliases(body_lines, effective_cfg)
     macros = _load_macros(body_lines, workspace, effective_cfg)
     if macros:
         body_lines = _expand_macros(body_lines, macros)
@@ -3465,7 +3504,6 @@ def format_prefetch_human(result: dict) -> str:
         trigger = entry.get("trigger") or "no-trigger"
         lines.append(f"- {entry['status']}: {entry['rule']} {trigger} -> {target}{reason}")
     return "\n".join(lines)
-
 
 # ──────────────────────────────── @agent ──────────────────────────────────────
 
@@ -5133,7 +5171,7 @@ except ImportError:
 
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_NAME = "perseus"
-SERVER_VERSION = "1.0.0"
+SERVER_VERSION = "1.0.4"
 DEFAULT_TOOL_TIMEOUT_S = 30
 
 # ── Tool schema helpers ──────────────────────────────────────────────────────
@@ -5194,30 +5232,39 @@ LEGACY_MCP_TOOLS: list[dict] = [
 # Sensitive tools — require explicit config opt-in
 _MCP_SENSITIVE_TOOLS = {"perseus_query", "perseus_agent"}
 
-# ── Tool list builder ────────────────────────────────────────────────────────
 
-def _get_all_mcp_tools(cfg: dict) -> list[dict]:
-    """Return merged tool list: registry-generated + legacy, filtered by config."""
+def _mcp_tool_allowed(tool_name: str, cfg: dict) -> tuple[bool, str]:
+    """Return whether an MCP tool is exposed/callable under cfg policy."""
     mcp_cfg = cfg.get("mcp", {}) if isinstance(cfg, dict) else {}
     allowlist = set(mcp_cfg.get("tool_allowlist") or [])
     blocklist = set(mcp_cfg.get("tool_blocklist") or [])
 
+    if tool_name in blocklist:
+        return False, f"tool {tool_name} is blocked by mcp.tool_blocklist"
+    if allowlist and tool_name not in allowlist:
+        return False, f"tool {tool_name} is not allowed by mcp.tool_allowlist"
+    if tool_name in _MCP_SENSITIVE_TOOLS and tool_name not in allowlist:
+        return False, f"tool {tool_name} requires explicit mcp.tool_allowlist opt-in"
+    return True, ""
+
+# ── Tool list builder ────────────────────────────────────────────────────────
+
+def _get_all_mcp_tools(cfg: dict) -> list[dict]:
+    """Return merged tool list: registry-generated + legacy, filtered by config."""
     tools = []
     # Auto-generated from registry
     for tool in _generate_directive_tools():
         name = tool["name"]
-        if name in blocklist:
-            continue
-        if allowlist and name not in allowlist:
-            continue
-        if name in _MCP_SENSITIVE_TOOLS and name not in allowlist:
+        allowed, _reason = _mcp_tool_allowed(name, cfg)
+        if not allowed:
             continue
         tools.append(tool)
 
     # Legacy tools (always available unless blocked)
     for tool in LEGACY_MCP_TOOLS:
         name = tool["name"]
-        if name in blocklist:
+        allowed, _reason = _mcp_tool_allowed(name, cfg)
+        if not allowed:
             continue
         tools.append(tool)
 
@@ -5229,7 +5276,7 @@ def _get_all_mcp_tools(cfg: dict) -> list[dict]:
 # Special arg builders for directives with positional/non-standard arg formats
 _DIRECTIVE_ARG_BUILDERS = {
     "@query": lambda args: f'"{(args.get("command") or "").strip()}"',
-    "@read": lambda args: f'path="{(args.get("path") or "")}"' + (f' key="{(args.get("key") or "")}"' if args.get("key") else ""),
+    "@read": lambda args: f'"{(args.get("path") or "")}"' + (f' key="{(args.get("key") or "")}"' if args.get("key") else ""),
     "@env": lambda args: (args.get("var") or args.get("name") or ""),
     "@agent": lambda args: f'"{(args.get("agent") or "")}" "{(args.get("prompt") or "")}"',
     "@checkpoint": lambda args: args.get("task") or args.get("args", ""),
@@ -5282,6 +5329,10 @@ def _build_tool_args_generic(tool_name: str, arguments: dict) -> str:
 
 def _call_tool(tool_name: str, arguments: dict, cfg: dict, workspace: Path) -> str:
     """Resolve an MCP tool call through the Perseus directive resolver."""
+    allowed, reason = _mcp_tool_allowed(tool_name, cfg)
+    if not allowed:
+        return f"Error: {reason}"
+
     # Legacy tools
     if tool_name == "perseus_get_context":
         try:
@@ -6732,6 +6783,7 @@ def render_source(
         _fire_hooks("on_render_complete", {
             "source_path": ".perseus/context.md",
             "output_path": "",
+            "workspace": str(workspace) if workspace else "",
             "duration_ms": int((time.time() - _render_start_ts) * 1000),
             "directive_count": _stats["directive_count"],
             "cache_hits": _stats["cache_hits"],
@@ -6802,11 +6854,20 @@ def render_source_json(
 ) -> str:
     """Resolve a @perseus source document and return structured JSON."""
     result = render_source_with_meta(source_text, cfg, workspace)
-    return json.dumps({
+    payload = {
         "resolved": result.text,
         "directives": result.directives,
         "metadata": result.meta,
-    }, indent=2, default=str)
+    }
+    payload, report = redact_value(payload, cfg)
+    _audit_render_redaction(cfg, report)
+    return json.dumps(payload, indent=2, default=str)
+
+
+def _audit_render_redaction(cfg: dict, report: dict) -> None:
+    if report.get("total", 0) > 0:
+        audit_event(cfg, "redaction", surface="render",
+                    total=int(report.get("total", 0)), counts=report.get("counts", {}))
 
 
 def render_source_html(
@@ -6822,6 +6883,8 @@ def render_source_html(
     Zero external dependencies — the CSS is embedded.
     """
     md_output = render_source(source_text, cfg, workspace)
+    md_output, report = redact_text(md_output, cfg)
+    _audit_render_redaction(cfg, report)
     body = markdown_to_html_body(md_output)
 
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
@@ -6843,9 +6906,7 @@ def render_output(
     if fmt in ("md", "markdown"):
         rendered = render_source(source_text, cfg, workspace, max_tier=max_tier)
         rendered, _report = redact_text(rendered, cfg)
-        if _report.get("total", 0) > 0:
-            audit_event(cfg, "redaction", surface="render",
-                        total=int(_report.get("total", 0)), counts=_report.get("counts", {}))
+        _audit_render_redaction(cfg, _report)
         return rendered
     elif fmt == "html":
         t = title or "Workspace Context"
@@ -6857,19 +6918,27 @@ def render_output(
     if fmt in ("agents-md", "claude-md", "cursorrules", "copilot-instructions"):
         rendered = render_source(source_text, cfg, workspace, max_tier=max_tier)
         rendered, _report = redact_text(rendered, cfg)
-        if _report.get("total", 0) > 0:
-            audit_event(cfg, "redaction", surface="render",
-                        total=int(_report.get("total", 0)), counts=_report.get("counts", {}))
+        _audit_render_redaction(cfg, _report)
         return wrap_rendered(rendered, fmt, _PERSEUS_VERSION)
 
     # Custom formats (task-68)
     custom_formats = _discover_formats(cfg)
     if fmt in custom_formats:
         result = render_source_with_meta(source_text, cfg, workspace)
+        text, text_report = redact_text(result.text, cfg)
         metadata = result.meta.copy()
         metadata["directives"] = result.directives
+        metadata, meta_report = redact_value(metadata, cfg)
+        combined_report = {
+            "total": text_report.get("total", 0) + meta_report.get("total", 0),
+            "counts": {},
+        }
+        for report in (text_report, meta_report):
+            for name, count in report.get("counts", {}).items():
+                combined_report["counts"][name] = combined_report["counts"].get(name, 0) + count
+        _audit_render_redaction(cfg, combined_report)
         try:
-            return custom_formats[fmt](result.text, metadata)
+            return custom_formats[fmt](text, metadata)
         except Exception as e:
             return f"> ⚠ Format error: custom adapter '{fmt}' failed: {e}"
 
@@ -11289,36 +11358,11 @@ def cmd_synthesize(args, cfg) -> int:
     # task-46: redact synthesis result before output. JSON-mode caller can
     # inspect `result["redaction"]` to see counts without seeing secrets.
     if isinstance(result, dict):
-        red_total = 0
-        red_counts: dict[str, int] = {}
-        red_enabled = True
-        for key in ("answer", "rendered", "prompt", "raw_response"):
-            val = result.get(key)
-            if isinstance(val, str):
-                new_val, rep = redact_text(val, cfg)
-                result[key] = new_val
-                if rep.get("enabled") is False:
-                    red_enabled = False
-                red_total += rep.get("total", 0)
-                for n, c in rep.get("counts", {}).items():
-                    red_counts[n] = red_counts.get(n, 0) + c
-        # Redact strings inside common nested lists (claims, sources)
-        for key in ("claims", "sources", "accepted", "dropped"):
-            items = result.get(key)
-            if isinstance(items, list):
-                for item in items:
-                    if isinstance(item, dict):
-                        for k, v in list(item.items()):
-                            if isinstance(v, str):
-                                new_v, rep = redact_text(v, cfg)
-                                item[k] = new_v
-                                red_total += rep.get("total", 0)
-                                for n, c in rep.get("counts", {}).items():
-                                    red_counts[n] = red_counts.get(n, 0) + c
+        result, rep = redact_value(result, cfg)
         result["redaction"] = {
-            "enabled": red_enabled,
-            "total": red_total,
-            "counts": red_counts,
+            "enabled": rep.get("enabled", True),
+            "total": rep.get("total", 0),
+            "counts": rep.get("counts", {}),
         }
     if getattr(args, "json", False):
         print(json.dumps(result, indent=2))
@@ -13203,7 +13247,7 @@ def _serve_render_endpoint(endpoint: str, cfg: dict, workspace: Path, query: dic
                 "metadata": {
                     "workspace": ws_name,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "version": "1.0.3",
+                    "version": _PERSEUS_VERSION,
                 },
                 "integrity": {
                     "sha256": hashlib.sha256(rendered.encode()).hexdigest(),
@@ -13472,8 +13516,6 @@ def cmd_init(args, cfg):
         print(f"  1. Edit {context_file} to add project-specific @services and @query blocks")
         print(f"  2. Run: perseus render {context_file}")
         print(f"  3. Add to cron watchdog: add '{workspace}' to WORKSPACES in perseus-render-workspace.sh")
-
-
 # ──────────────────────────────── Main ────────────────────────────────────────
 
 def main():

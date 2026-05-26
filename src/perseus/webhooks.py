@@ -86,7 +86,7 @@ def _webhook_worker(url, ep, wh_cfg, q):
         event, payload, ts_iso = item
         
         # Prepare payload
-        version = globals().get("_PERSEUS_VERSION", "1.0.3")
+        version = globals().get("_PERSEUS_VERSION", "1.0.4")
         
         workspace = payload.get("workspace", "")
         ws_hash = hashlib.sha256(workspace.encode()).hexdigest()[:16] if workspace else None

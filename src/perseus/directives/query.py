@@ -247,6 +247,7 @@ def directive_dependency_graph(
     lines = source_text.splitlines()
     # task-66: expand macros before building graph
     body_lines = lines[1:] if lines and PERCY_HEADER_RE.match(lines[0]) else lines
+    body_lines = _expand_aliases(body_lines, effective_cfg)
     macros = _load_macros(body_lines, workspace, effective_cfg)
     if macros:
         body_lines = _expand_macros(body_lines, macros)
@@ -928,5 +929,4 @@ def format_prefetch_human(result: dict) -> str:
         trigger = entry.get("trigger") or "no-trigger"
         lines.append(f"- {entry['status']}: {entry['rule']} {trigger} -> {target}{reason}")
     return "\n".join(lines)
-
 
