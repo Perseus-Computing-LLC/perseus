@@ -589,6 +589,10 @@ The graph skips fenced code blocks and derives directive metadata from
 It also includes static resource hints for file/path/env-style directives such
 as `@read`, `@include`, `@list`, `@tree`, and `@env`.
 
+The graph uses the same directive alias expansion as the render pipeline before
+extracting nodes, so shorthand such as `@q` appears as its canonical directive
+in graph and prefetch output.
+
 The command never executes shell-backed directives.
 
 ---
@@ -673,6 +677,10 @@ Claims without validated citations are dropped. JSON output keeps accepted
 `claims`, `dropped_claims`, `sources`, model metadata, and guardrail metadata
 separate so downstream agents can inspect what survived validation.
 
+Redaction applies recursively to every string in the synthesis result before
+CLI output, including nested claim citations, dropped claims, source quotes,
+and raw prompt/model-response fields.
+
 ## 17. Cron (`perseus cron`) — POSIX Scheduling
 
 Generates a crontab entry for periodic rendering. The print path is host-neutral;
@@ -750,3 +758,16 @@ warning blocks; render never silently skips and never hard-fails.
 **Privacy (Q6):** subscriber-side only. No publisher-side ACLs. Any
 filesystem-trust assumption the user already makes between two workspaces
 is the trust assumption federation inherits.
+
+---
+
+## 19. MCP Server
+
+`perseus mcp serve` exposes registered directives as Model Context Protocol
+tools. Tool visibility and direct invocation share the same policy checks:
+`mcp.tool_blocklist` denies listed tools, `mcp.tool_allowlist` narrows the
+callable surface when present, and sensitive shell-backed tools such as
+`perseus_query` and `perseus_agent` require explicit allowlist opt-in.
+
+The policy is enforced at both `tools/list` and `tools/call` so a client cannot
+invoke a hidden or blocked tool by name.
