@@ -25,6 +25,10 @@ Perseus ships as a **single-file CLI** (`perseus.py`). This constraint is intent
 ```bash
 git clone https://github.com/tcconnally/perseus.git
 cd perseus
+
+# Activate the pre-commit hook — auto-rebuilds perseus.py when src/ changes
+git config core.hooksPath .githooks
+
 pip install -r requirements.txt   # pyyaml + pytest
 
 python -m pytest tests/ -q        # 753 tests
