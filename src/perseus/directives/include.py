@@ -63,9 +63,10 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
     max_bytes = render_cfg.get("max_include_bytes")
     if max_bytes is not None and len(raw) > max_bytes:
         raw = raw[:max_bytes]
+        actual_size = fp.stat().st_size
         trunc_note = (
             f"> ⚠ @include: file `{file_path_str}` exceeds max_include_bytes "
-            f"(actual {len(fp.read_text(errors='replace')):,} > "
+            f"(actual {actual_size:,} > "
             f"{max_bytes:,}). Output truncated to first {max_bytes:,} bytes.\n\n"
         )
     else:
