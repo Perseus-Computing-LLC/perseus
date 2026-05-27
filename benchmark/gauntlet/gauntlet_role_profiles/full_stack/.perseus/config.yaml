@@ -1,0 +1,12 @@
+permissions:
+  profile: power-user
+render:
+  allow_query_shell: true
+  services_timeout_s: 1
+  allow_remote_services_health: false
+generation:
+  enabled: false
+agora:
+  task_dir: tasks
+memory:
+  store: .perseus/memory

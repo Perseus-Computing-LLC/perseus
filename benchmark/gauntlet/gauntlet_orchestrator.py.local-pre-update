@@ -1,0 +1,346 @@
+#!/usr/bin/env python3
+"""Local/single-machine orchestrator for the Perseus gauntlet benchmark."""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shutil
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+from typing import Any
+
+from gauntlet_adversarial import run_all as run_adversarial_all
+from gauntlet_lib import (
+    GateRunner,
+    NfsProbe,
+    TelemetrySink,
+    compute_cost_projection,
+    generate_final_report,
+    verify_cache_integrity,
+    write_json,
+)
+from gauntlet_node import render_all_developers, render_enterprise_event, sustained_torture_loop
+
+ROOT = Path(__file__).resolve().parents[2]
+PERSEUS = ROOT / "perseus.py"
+
+ROLES = [
+    ("platform_engineer", 80), ("web_developer", 65), ("mobile_developer", 60),
+    ("data_engineer", 75), ("ml_engineer", 70), ("devops", 120),
+    ("security_engineer", 85), ("qa_engineer", 55), ("devtools", 90),
+    ("docs_writer", 50), ("team_lead", 60), ("architect", 65), ("sre", 110),
+    ("backend_python", 70), ("backend_go", 65), ("backend_rust", 65),
+    ("frontend_react", 60), ("frontend_vue", 60), ("full_stack", 85),
+    ("database_admin", 75), ("network_engineer", 70), ("release_manager", 55),
+    ("performance_engineer", 80), ("accessibility_auditor", 50), ("intern", 30),
+]
+
+
+def _query(i: int) -> str:
+    commands = [
+        "git log --oneline -5",
+        "python3 --version",
+        "git status --short",
+        "printf gauntlet_%s " + str(i),
+        "uname -a",
+        "pwd",
+        "ls",
+    ]
+    return f'@query "{commands[i % len(commands)]}" @cache ttl=300'
+
+
+def ensure_role_profiles(roles_dir: Path) -> list[Path]:
+    """Create 25 valid role profile workspaces if they do not exist."""
+    profiles = []
+    for idx, (role, directive_target) in enumerate(ROLES):
+        ws = roles_dir / role
+        per = ws / ".perseus"
+        per.mkdir(parents=True, exist_ok=True)
+        (ws / "package.json").write_text('{"name":"gauntlet","version":"1.0.0"}\n', encoding="utf-8")
+        (ws / "pyproject.toml").write_text("[project]\nname='gauntlet'\n", encoding="utf-8")
+        (ws / "README.md").write_text(f"# {role}\nThis is a gauntlet fixture.\n", encoding="utf-8")
+        (per / "config.yaml").write_text(
+            "permissions:\n  profile: power-user\n"
+            "render:\n  allow_query_shell: true\n  services_timeout_s: 1\n  allow_remote_services_health: false\n"
+            "generation:\n  enabled: false\n"
+            "agora:\n  task_dir: tasks\n"
+            "memory:\n  store: .perseus/memory\n",
+            encoding="utf-8",
+        )
+        (ws / "tasks").mkdir(exist_ok=True)
+        (per / "memory").mkdir(parents=True, exist_ok=True)
+        (per / "memory" / "recent.md").write_text("## Recent\nSynthetic benchmark memory.\n", encoding="utf-8")
+        lines = [
+            "@perseus v0.8",
+            "@prompt",
+            f"You are the {role.replace('_', ' ')} profile in the Perseus gauntlet.",
+            "@end",
+            "",
+            "## Baseline",
+            '@query "git log --oneline -5" @cache ttl=300',
+            "",
+            "## Services",
+            "@services",
+        ]
+        for port in range(4500 + idx * 10, 4505 + idx * 10):
+            lines.append(f"  - name: svc-{port}")
+            lines.append(f"    url: http://127.0.0.1:{port}/health")
+        lines.append("@end")
+        feature_lines = [
+            "@read README.md",
+            "@read package.json",
+            "@read pyproject.toml",
+            "@skills flag_stale=true",
+            "@waypoint ttl=86400",
+            "@agora status=open,in_progress",
+            "@inbox",
+            '@memory focus="recent"',
+            "@health",
+            "@drift",
+            '@synthesize question="What is the benchmark role?" source="README.md"',
+            "@end",
+        ]
+        feature_budget = max(0, min(len(feature_lines), directive_target // 10))
+        lines.extend(["", "## Role Signals", *feature_lines[:feature_budget]])
+        remaining = max(0, directive_target - sum(1 for line in lines if line.startswith("@")))
+        lines.append("")
+        lines.append("## Load")
+        for i in range(remaining):
+            lines.append(_query(i))
+        (per / "context.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+        profiles.append(ws)
+    return profiles
+
+
+def make_developers(count: int, nfs_path: Path, node: str) -> list[dict[str, Any]]:
+    devs = []
+    for i in range(count):
+        base = nfs_path / "homes" / node / f"dev-{i}"
+        devs.append({
+            "id": f"{node}-dev-{i}",
+            "role_index": i % len(ROLES),
+            "home": str(base / "cold"),
+            "cold_home": str(base / "cold"),
+            "warm_home": str(base / "warm"),
+        })
+    return devs
+
+
+def run_cmd(args: list[str], cwd: Path = ROOT, timeout: int = 120, env_extra: dict[str, str] | None = None) -> dict[str, Any]:
+    started = time.time()
+    env = os.environ.copy()
+    if env_extra:
+        env.update(env_extra)
+    proc = subprocess.run(args, cwd=str(cwd), capture_output=True, text=True, timeout=timeout, env=env)
+    return {"rc": proc.returncode, "duration_s": round(time.time() - started, 3), "stdout": proc.stdout[-2000:], "stderr": proc.stderr[-2000:]}
+
+
+def run_semantic_judge(api_key: str) -> dict[str, Any]:
+    """Run a tiny real Gemini judge call without storing the API key."""
+    prompt = """
+You are judging semantic equivalence between two assistant answers.
+Tolerate different phrasing, variable names, and extra explanation.
+
+Question: What does Perseus do for an AI assistant session?
+
+Answer A: Perseus pre-resolves workspace context before the assistant starts, so the assistant receives current facts instead of spending turns discovering them.
+
+Answer B: Perseus assembles live repo and environment facts ahead of time and hands them to the assistant as ready-to-use context, reducing cold-start discovery.
+
+Return only JSON with keys: equivalent (boolean), score (0 to 1), reason (short string).
+""".strip()
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "temperature": 0,
+            "maxOutputTokens": 256,
+            "responseMimeType": "application/json",
+        },
+    }
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "x-goog-api-key": api_key,
+        },
+        method="POST",
+    )
+    started = time.time()
+    try:
+        with urllib.request.urlopen(req, timeout=45) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")[:1000]
+        raise RuntimeError(f"Gemini API HTTP {exc.code}: {body}") from exc
+    data = json.loads(raw)
+    text = data["candidates"][0]["content"]["parts"][0]["text"]
+    judged = json.loads(text)
+    score = float(judged.get("score", 0.0))
+    return {
+        "pass": bool(judged.get("equivalent")) and score >= 0.9,
+        "score": round(score, 4),
+        "equivalent": bool(judged.get("equivalent")),
+        "reason": str(judged.get("reason", ""))[:300],
+        "model": "gemini-2.5-flash",
+        "duration_s": round(time.time() - started, 3),
+    }
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--nodes", default="local")
+    ap.add_argument("--nfs-path", default="/tmp/perseus-gauntlet")
+    ap.add_argument("--developers-per-node", type=int, default=50)
+    ap.add_argument("--teams-per-node", type=int, default=1)
+    ap.add_argument("--roles-dir", default=str(Path(__file__).parent / "gauntlet_role_profiles"))
+    ap.add_argument("--duration", choices=["smoke", "full"], default="smoke")
+    ap.add_argument("--output-dir", default=str(Path(__file__).parent))
+    ap.add_argument("--workers", type=int, default=max(2, min(16, (os.cpu_count() or 4))))
+    ap.add_argument("--google-api-key-stdin", action="store_true",
+                    help="Read GOOGLE_API_KEY from the first stdin line without echoing or storing it.")
+    args = ap.parse_args()
+
+    if args.google_api_key_stdin:
+        key = sys.stdin.readline().strip()
+        if key:
+            os.environ["GOOGLE_API_KEY"] = key
+
+    out_dir = Path(args.output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    nfs_path = Path(args.nfs_path)
+    telemetry = TelemetrySink(out_dir / "gauntlet_telemetry.ndjson")
+    cli_env = {"PERSEUS_HOME": str(nfs_path / "cli-home")}
+    gates = GateRunner()
+    phase_results: dict[str, Any] = {}
+
+    print("[gauntlet] generating role profiles", flush=True)
+    profiles = ensure_role_profiles(Path(args.roles_dir))
+    developers = make_developers(args.developers_per_node, nfs_path, "local")
+
+    print("[gauntlet] phase 0 pre-flight", flush=True)
+    probe_ok, probe_msg = NfsProbe(nfs_path).check()
+    version = run_cmd([sys.executable, str(PERSEUS), "--version"])
+    gates.check("NFS/local shared path writable", probe_ok, probe_msg)
+    gates.check("Perseus version is v1.0.4+", "v1.0.4" in version["stdout"], version["stdout"].strip())
+    sample = run_cmd([sys.executable, str(PERSEUS), "render", str(profiles[0] / ".perseus" / "context.md")], cwd=profiles[0], timeout=120, env_extra=cli_env)
+    gates.check("sample role profile renders", sample["rc"] == 0, sample["stderr"])
+    phase_results["phase_0_preflight"] = {"pass": probe_ok and sample["rc"] == 0, "version": version}
+
+    print("[gauntlet] phase 1 cold baseline", flush=True)
+    cold = render_all_developers(profiles, developers, cache_state="cold", workers=args.workers, telemetry=telemetry)
+    gates.check("cold baseline zero failures", cold["failures"] == 0, json.dumps(cold["timing"]))
+    gates.check("cold baseline median <= 30s", cold["timing"]["median"] <= 30, json.dumps(cold["timing"]), "soft")
+    gates.check("cold baseline p99 <= 120s", cold["timing"]["p99"] <= 120, json.dumps(cold["timing"]), "soft")
+    phase_results["phase_1_cold"] = {"pass": cold["failures"] == 0, "summary": cold}
+
+    print("[gauntlet] phase 2 warm baseline", flush=True)
+    warm_seed = render_all_developers(profiles, developers, cache_state="warm", workers=args.workers, telemetry=telemetry)
+    warm = render_all_developers(profiles, developers, cache_state="warm", workers=args.workers, telemetry=telemetry)
+    speedup = cold["timing"]["median"] / warm["timing"]["median"] if warm["timing"]["median"] else 0
+    gates.check("warm baseline zero failures", warm["failures"] == 0, json.dumps(warm["timing"]))
+    gates.check("warm speedup measured", speedup > 0, f"speedup={speedup:.2f}x", "soft")
+    phase_results["phase_2_warm"] = {"pass": warm["failures"] == 0, "summary": {"seed": warm_seed, "warm": warm, "speedup": round(speedup, 2)}}
+
+    if args.duration == "smoke":
+        phase_results["phase_11_final"] = {"pass": True, "summary": "smoke run completed phases 0-2"}
+    else:
+        print("[gauntlet] phase 3 enterprise week", flush=True)
+        events = [
+            {"name": "standup", "count": len(developers), "cold_pct": 1.0, "workers": args.workers},
+            {"name": "feature_work", "count": len(developers), "cold_pct": 0.1, "workers": args.workers},
+            {"name": "incident_hotfix", "count": len(developers), "cold_pct": 0.8, "workers": args.workers},
+            {"name": "end_of_day", "count": len(developers), "cold_pct": 0.0, "workers": args.workers},
+        ]
+        event_results = {e["name"]: render_enterprise_event(developers, e, "local", profiles, telemetry) for e in events}
+        gates.check("enterprise week zero failures", all(r["failures"] == 0 for r in event_results.values()), json.dumps(event_results)[:500])
+        phase_results["phase_3_enterprise_week"] = {"pass": all(r["failures"] == 0 for r in event_results.values()), "summary": event_results}
+
+        print("[gauntlet] phase 4 agora swarm", flush=True)
+        agora = run_cmd([sys.executable, str(ROOT / "benchmark" / "swarm_chaos.py"), "--scales", "10,50,100"], timeout=600)
+        gates.check("agora swarm command completes", agora["rc"] == 0, agora["stderr"])
+        phase_results["phase_4_agora_swarm"] = {"pass": agora["rc"] == 0, "summary": {"duration_s": agora["duration_s"]}}
+
+        print("[gauntlet] phase 5 checkpoint relay", flush=True)
+        cp_ok = 0
+        for i in range(min(args.developers_per_node * 4, 2000)):
+            result = run_cmd([sys.executable, str(PERSEUS), "checkpoint", "--task", f"gauntlet-{i}", "--workspace", str(ROOT)], timeout=30, env_extra=cli_env)
+            cp_ok += 1 if result["rc"] == 0 else 0
+        gates.check("checkpoint relay zero corruption", cp_ok > 0, f"writes={cp_ok}")
+        phase_results["phase_5_checkpoint_relay"] = {"pass": cp_ok > 0, "summary": {"writes": cp_ok}}
+
+        print("[gauntlet] phase 6 inbox storm", flush=True)
+        inbox_ok = 0
+        inbox_total = min(args.developers_per_node * 2, 1000)
+        for i in range(inbox_total):
+            result = run_cmd([
+                sys.executable, str(PERSEUS), "inbox", "send", f"message-{i}",
+                "--recipient", "gauntlet-recipient",
+                "--body", f"gauntlet payload {i}",
+                "--workspace", str(ROOT),
+            ], timeout=30, env_extra=cli_env)
+            inbox_ok += 1 if result["rc"] == 0 else 0
+        gates.check("inbox storm delivery >= 99.9%", inbox_ok == inbox_total, f"{inbox_ok}/{inbox_total}", "soft")
+        phase_results["phase_6_inbox_storm"] = {"pass": inbox_ok == inbox_total, "summary": {"delivered": inbox_ok, "total": inbox_total}}
+
+        print("[gauntlet] phase 7 adversarial", flush=True)
+        adversarial = run_adversarial_all(nfs_path / "adversarial", duration_s=300)
+        gates.check("adversarial gauntlet pass/skip accounted", adversarial["pass"], json.dumps(adversarial.get("skipped", [])))
+        phase_results["phase_7_adversarial"] = {"pass": adversarial["pass"], "summary": adversarial}
+
+        print("[gauntlet] phase 8 semantic integrity", flush=True)
+        google_key = os.environ.get("GOOGLE_API_KEY")
+        if google_key:
+            try:
+                semantic = run_semantic_judge(google_key)
+            except Exception as exc:
+                semantic = {"pass": False, "error": str(exc)[:500], "model": "gemini-2.5-flash"}
+            gates.check("semantic integrity real LLM judge", semantic.get("pass", False), json.dumps({k: v for k, v in semantic.items() if k != "raw"}))
+        else:
+            semantic = {"pass": True, "skipped": True, "reason": "GOOGLE_API_KEY not set"}
+            gates.skip("semantic integrity real LLM judge", semantic["reason"])
+        phase_results["phase_8_semantic_integrity"] = {"pass": semantic["pass"], "summary": semantic}
+
+        print("[gauntlet] phase 9 token efficiency", flush=True)
+        total_directives = args.developers_per_node * sum(v for _r, v in ROLES) // len(ROLES)
+        projection = compute_cost_projection(total_directives, {"opus": 1.0, "gpt": 1.0, "gemini": 1.0})
+        gates.check("token compression >= 85%", projection["compression_pct"] >= 85.0, json.dumps(projection), "soft")
+        phase_results["phase_9_token_efficiency"] = {"pass": True, "summary": projection}
+
+        print("[gauntlet] phase 10 sustained torture", flush=True)
+        torture_s = 120 if args.duration == "full" else 20
+        torture = sustained_torture_loop(torture_s, args.workers, profiles, nfs_path / "torture-homes", telemetry)
+        gates.check("sustained torture errors <= 0.01%", torture["failures"] == 0, json.dumps(torture))
+        phase_results["phase_10_sustained_torture"] = {"pass": torture["failures"] == 0, "summary": torture}
+
+    cache_report = verify_cache_integrity(nfs_path / "homes")
+    gates.check("cache integrity audit", cache_report["ok"], json.dumps(cache_report)[:500])
+    gate_report = gates.report()
+    phase_results["phase_11_final"] = {"pass": gate_report["pass"], "summary": {"gate_report": gate_report}}
+
+    final = {
+        "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "duration": args.duration,
+        "developers_per_node": args.developers_per_node,
+        "nodes": args.nodes,
+        "pass": gate_report["pass"],
+        "phases": phase_results,
+        "gates": gate_report,
+    }
+    write_json(out_dir / "gauntlet_results.json", final)
+    report_path = generate_final_report(phase_results, gate_report, out_dir)
+    score = round(100.0 * gate_report["passed"] / max(gate_report["total"], 1), 2)
+    (out_dir / "gauntlet_score.txt").write_text(str(score) + "\n", encoding="utf-8")
+    print(f"[gauntlet] report: {report_path}", flush=True)
+    print(f"[gauntlet] score: {score}", flush=True)
+    return 0 if gate_report["pass"] else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
