@@ -1,0 +1,177 @@
+#!/usr/bin/env python3
+"""Shared helpers for the Perseus gauntlet benchmark."""
+from __future__ import annotations
+
+import json
+import os
+import statistics
+import time
+from pathlib import Path
+from typing import Any
+
+
+def percentile(values: list[float], pct: float) -> float:
+    if not values:
+        return 0.0
+    vals = sorted(values)
+    idx = min(len(vals) - 1, max(0, int(round((pct / 100.0) * (len(vals) - 1)))))
+    return vals[idx]
+
+
+def summarize(values: list[float]) -> dict[str, float | int]:
+    if not values:
+        return {"n": 0, "median": 0.0, "p95": 0.0, "p99": 0.0, "mean": 0.0}
+    return {
+        "n": len(values),
+        "median": round(statistics.median(values), 4),
+        "p95": round(percentile(values, 95), 4),
+        "p99": round(percentile(values, 99), 4),
+        "mean": round(statistics.mean(values), 4),
+    }
+
+
+class GauntletMetrics:
+    """Collect per-phase timing, counts, and distributions."""
+
+    def __init__(self, phase: str):
+        self.phase = phase
+        self.started = time.time()
+        self.records: list[dict[str, Any]] = []
+
+    def add(self, **record: Any) -> None:
+        self.records.append(record)
+
+    def finish(self) -> dict[str, Any]:
+        durations = [float(r.get("duration_s", 0.0)) for r in self.records]
+        failures = [r for r in self.records if not r.get("ok", True)]
+        return {
+            "phase": self.phase,
+            "duration_s": round(time.time() - self.started, 3),
+            "records": len(self.records),
+            "failures": len(failures),
+            "timing": summarize(durations),
+        }
+
+
+class GateRunner:
+    """Evaluate pass/fail conditions and produce a gate report."""
+
+    def __init__(self):
+        self.gates: list[dict[str, Any]] = []
+
+    def check(self, name: str, passed: bool, details: str = "", severity: str = "hard") -> None:
+        self.gates.append({
+            "name": name,
+            "pass": bool(passed),
+            "details": details,
+            "severity": severity,
+        })
+
+    def skip(self, name: str, reason: str) -> None:
+        self.gates.append({
+            "name": name,
+            "pass": True,
+            "skipped": True,
+            "details": reason,
+            "severity": "skip",
+        })
+
+    def report(self) -> dict[str, Any]:
+        hard = [g for g in self.gates if g.get("severity") == "hard" and not g["pass"]]
+        return {
+            "pass": not hard,
+            "total": len(self.gates),
+            "passed": sum(1 for g in self.gates if g["pass"]),
+            "failed": [g["name"] for g in self.gates if not g["pass"]],
+            "gates": self.gates,
+        }
+
+
+class TelemetrySink:
+    """NDJSON writer for per-render records."""
+
+    def __init__(self, path: Path):
+        self.path = path
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+
+    def write(self, record: dict[str, Any]) -> None:
+        with self.path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record, sort_keys=True) + "\n")
+
+
+class NfsProbe:
+    """Touch/remove health probe for the shared gauntlet path."""
+
+    def __init__(self, root: Path):
+        self.root = root
+
+    def check(self) -> tuple[bool, str]:
+        try:
+            self.root.mkdir(parents=True, exist_ok=True)
+            p = self.root / f".probe-{os.getpid()}-{int(time.time() * 1000)}"
+            p.write_text("ok", encoding="utf-8")
+            if p.read_text(encoding="utf-8") != "ok":
+                return False, "probe readback mismatch"
+            p.unlink()
+            return True, "ok"
+        except Exception as exc:
+            return False, str(exc)
+
+
+def verify_cache_integrity(cache_dir: Path) -> dict[str, Any]:
+    """Validate all cache entries are parseable JSON."""
+    total = 0
+    bad: list[str] = []
+    if not cache_dir.exists():
+        return {"total": 0, "bad": [], "ok": True}
+    for path in cache_dir.rglob("*.json"):
+        total += 1
+        try:
+            json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            bad.append(str(path))
+    return {"total": total, "bad": bad, "ok": not bad}
+
+
+def compute_cost_projection(total_directives: int, pricing_tiers: dict[str, float]) -> dict[str, Any]:
+    """Return ratio-only savings projections; no dollar amounts."""
+    baseline_tokens = max(total_directives * 900, 1)
+    perseus_tokens = max(total_directives * 120, 1)
+    compression = 1.0 - (perseus_tokens / baseline_tokens)
+    return {
+        "total_directives": total_directives,
+        "baseline_to_perseus_token_ratio": round(baseline_tokens / perseus_tokens, 2),
+        "compression_pct": round(compression * 100, 2),
+        "tiers": {name: {"relative_savings_pct": round(compression * 100, 2)} for name in pricing_tiers},
+    }
+
+
+def write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def generate_final_report(phase_results: dict[str, Any], gate_results: dict[str, Any], output_dir: Path) -> Path:
+    """Write gauntlet_report.md."""
+    lines = [
+        "# Perseus Gauntlet Report",
+        "",
+        f"Overall: {'PASS' if gate_results.get('pass') else 'FAIL'}",
+        f"Gates: {gate_results.get('passed', 0)}/{gate_results.get('total', 0)}",
+        "",
+        "## Phase Summary",
+        "",
+        "| Phase | Status | Key Metrics |",
+        "|---|---|---|",
+    ]
+    for name, result in phase_results.items():
+        status = "PASS" if result.get("pass", True) else "FAIL"
+        metrics = result.get("summary") or result.get("metrics") or {}
+        lines.append(f"| {name} | {status} | `{json.dumps(metrics, sort_keys=True)[:180]}` |")
+    lines.extend(["", "## Gates", "", "| Gate | Result | Details |", "|---|---|---|"])
+    for gate in gate_results.get("gates", []):
+        result = "SKIP" if gate.get("skipped") else ("PASS" if gate.get("pass") else "FAIL")
+        lines.append(f"| {gate.get('name')} | {result} | {gate.get('details', '')} |")
+    report = output_dir / "gauntlet_report.md"
+    report.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return report
