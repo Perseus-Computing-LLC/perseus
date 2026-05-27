@@ -337,3 +337,73 @@ def _mneme_index_stats(cfg: dict) -> dict:
         return {"doc_count": 0, "indexed_files": 0, "index_path": "", "available": False}
     finally:
         conn.close()
+
+
+# ─────────────────────────── CLI: perseus memory index ────────────────────────
+
+def _cmd_memory_index(args, cfg) -> None:
+    """Handle `perseus memory index {stats,rebuild,search}`."""
+    sub = getattr(args, "index_command", None)
+
+    if sub == "stats":
+        stats = _mneme_index_stats(cfg)
+        if not stats["available"]:
+            print("Index not available. Vault may not exist yet.")
+            return
+        print(f"Index: {stats['index_path']}")
+        print(f"Documents: {stats['doc_count']}")
+        print(f"Files tracked: {stats['indexed_files']}")
+        # Get file size
+        try:
+            size_bytes = Path(stats["index_path"]).stat().st_size
+            print(f"Index size: {_mneme_fmt_bytes(size_bytes)}")
+        except Exception:
+            pass
+        return
+
+    if sub == "rebuild":
+        force = getattr(args, "force", False)
+        print(f"{'Force-rebuilding' if force else 'Rebuilding'} Mnēmē FTS5 index...")
+        count = _mneme_build_index(cfg, force=force)
+        print(f"Indexed {count} document{'s' if count != 1 else ''}.")
+        stats = _mneme_index_stats(cfg)
+        print(f"Total indexed: {stats['doc_count']}")
+        return
+
+    if sub == "search":
+        query = (getattr(args, "query", "") or "").strip()
+        if not query:
+            print("Error: --query is required for index search.", file=sys.stderr)
+            sys.exit(2)
+        k = max(1, min(20, int(getattr(args, "k", 5) or 5)))
+        scope = getattr(args, "scope", None) or None
+        type_filter = getattr(args, "type", None) or None
+        results = _mneme_recall(cfg, query, k=k, scope=scope, type_filter=type_filter)
+        if not results:
+            print("No results.")
+            return
+        print(f"Top {len(results)} results for \"{query}\":")
+        for i, r in enumerate(results, 1):
+            title = r.get("title", "untitled")
+            summary = r.get("summary", "")
+            score = r.get("score", 0)
+            mem_type = r.get("type", "")
+            scope_val = r.get("scope", "")
+            print(f"  {i}. {title} [{mem_type}] ({scope_val}) score={score:.1f}")
+            if summary:
+                print(f"     {summary}")
+            print()
+        return
+
+    print(f"perseus memory index: unknown subcommand '{sub}'.", file=sys.stderr)
+    print("Available: stats, rebuild, search", file=sys.stderr)
+    sys.exit(2)
+
+
+def _mneme_fmt_bytes(n: int) -> str:
+    """Format bytes for human display."""
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024:
+            return f"{n:.0f} {unit}"
+        n /= 1024
+    return f"{n:.1f} TB"
