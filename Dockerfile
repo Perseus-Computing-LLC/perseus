@@ -1,7 +1,7 @@
-# Perseus container image — minimal, single-file runtime.
+# Perseus container image — MCP server, minimal single-file runtime.
 #
 # Build:  docker build -t perseus:local .
-# Verify: docker run --rm perseus:local --version
+# Verify: docker run --rm perseus:local mcp serve (starts MCP server over stdio)
 #
 # Perseus depends only on pyyaml + Python 3.10+ stdlib.
 # The single-file perseus.py is the entire runtime, copied directly
@@ -9,8 +9,8 @@
 
 FROM python:3.12-slim
 
-LABEL org.opencontainers.image.title="Perseus"
-LABEL org.opencontainers.image.description="Live context engine for AI assistants — resolver-first, assistant-agnostic"
+LABEL org.opencontainers.image.title="Perseus MCP Server"
+LABEL org.opencontainers.image.description="MCP server and live context engine for AI assistants — 24 tools, resolver-first, assistant-agnostic"
 LABEL org.opencontainers.image.source="https://github.com/tcconnally/perseus"
 LABEL org.opencontainers.image.version="1.0.1"
 
