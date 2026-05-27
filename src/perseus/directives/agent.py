@@ -11,10 +11,10 @@ def resolve_agent(args_str: str, cfg: dict, workspace: Path | None = None) -> st
     Differs from @query in three ways:
       - Output is substituted INLINE (no fenced code block by default)
       - Failure with fallback= silently substitutes the fallback text
-      - Gated by render.allow_agent_shell (default true)
+      - Gated by render.allow_agent_shell (default false)
     """
     render_cfg = cfg.get("render", {})
-    if not render_cfg.get("allow_agent_shell", True):
+    if not render_cfg.get("allow_agent_shell", False):
         audit_event(cfg, "policy_denied",
                     directive="@agent",
                     reason="render.allow_agent_shell=false",

@@ -50,6 +50,11 @@ from pathlib import Path
 import yaml  # pyyaml
 from typing import NamedTuple, Callable
 
+# ── Version (injected by scripts/build.py at build time) ──────────────────
+# All other modules reference _PERSEUS_VERSION; the build script's
+# _VERSION_RE replaces the literal "0.0.0" with the VERSION file value.
+_PERSEUS_VERSION = "1.0.5"  # injected by scripts/build.py
+
 # Register as 'perseus' so plugins can import from us (task-65)
 import sys as _sys
 if "perseus" not in _sys.modules:
@@ -932,7 +937,7 @@ def _call_resolver(spec: DirectiveSpec, args_str: str, cfg: dict, workspace: "Pa
     """Adapt resolver call to match its actual signature via call_sig."""
     # Universal shell-execution gate (task-65): plugin directives with
     # executes_shell=True are gated behind allow_query_shell, same as built-ins.
-    if spec.executes_shell and not cfg["render"].get("allow_query_shell", True):
+    if spec.executes_shell and not cfg["render"].get("allow_query_shell", False):
         return f"> ⚠ {spec.name} is disabled by config (`render.allow_query_shell=false`)."
     try:
         sig = spec.call_sig
@@ -2359,9 +2364,10 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
     max_bytes = render_cfg.get("max_include_bytes")
     if max_bytes is not None and len(raw) > max_bytes:
         raw = raw[:max_bytes]
+        actual_size = fp.stat().st_size
         trunc_note = (
             f"> ⚠ @include: file `{file_path_str}` exceeds max_include_bytes "
-            f"(actual {len(fp.read_text(errors='replace')):,} > "
+            f"(actual {actual_size:,} > "
             f"{max_bytes:,}). Output truncated to first {max_bytes:,} bytes.\n\n"
         )
     else:
@@ -2603,7 +2609,7 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
     are returned as a warning block instead of the output.
     """
     shell = _get_shell(cfg)
-    if not cfg["render"].get("allow_query_shell", True):
+    if not cfg["render"].get("allow_query_shell", False):
         audit_event(cfg, "policy_denied",
                     directive="@query",
                     reason="render.allow_query_shell=false",
@@ -3021,9 +3027,9 @@ def _prefetch_trust_block_reason(directive: str, spec: DirectiveSpec, cfg: dict)
         return "directive is not cacheable"
     if spec.executes_shell:
         render_cfg = cfg.get("render", {})
-        if directive == "@query" and not render_cfg.get("allow_query_shell", True):
+        if directive == "@query" and not render_cfg.get("allow_query_shell", False):
             return "render.allow_query_shell=false"
-        if directive == "@agent" and not render_cfg.get("allow_agent_shell", True):
+        if directive == "@agent" and not render_cfg.get("allow_agent_shell", False):
             return "render.allow_agent_shell=false"
     return None
 
@@ -3537,10 +3543,10 @@ def resolve_agent(args_str: str, cfg: dict, workspace: Path | None = None) -> st
     Differs from @query in three ways:
       - Output is substituted INLINE (no fenced code block by default)
       - Failure with fallback= silently substitutes the fallback text
-      - Gated by render.allow_agent_shell (default true)
+      - Gated by render.allow_agent_shell (default false)
     """
     render_cfg = cfg.get("render", {})
-    if not render_cfg.get("allow_agent_shell", True):
+    if not render_cfg.get("allow_agent_shell", False):
         audit_event(cfg, "policy_denied",
                     directive="@agent",
                     reason="render.allow_agent_shell=false",
@@ -5191,7 +5197,7 @@ except ImportError:
 
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_NAME = "perseus"
-SERVER_VERSION = "1.0.4"
+SERVER_VERSION = _PERSEUS_VERSION
 DEFAULT_TOOL_TIMEOUT_S = 30
 
 # ── Tool schema helpers ──────────────────────────────────────────────────────
@@ -5293,24 +5299,31 @@ def _get_all_mcp_tools(cfg: dict) -> list[dict]:
 
 # ── Tool dispatch ────────────────────────────────────────────────────────────
 
+def _mcp_quote(value: str) -> str:
+    """Escape a string for safe embedding in a double-quoted directive arg.
+    Replaces " with \" so the resolver's quote-stripping regex handles it correctly.
+    Also strips leading/trailing whitespace."""
+    return (value or "").strip().replace('"', '\\"')
+
+
 # Special arg builders for directives with positional/non-standard arg formats
 _DIRECTIVE_ARG_BUILDERS = {
-    "@query": lambda args: f'"{(args.get("command") or "").strip()}"',
-    "@read": lambda args: f'"{(args.get("path") or "")}"' + (f' key="{(args.get("key") or "")}"' if args.get("key") else ""),
+    "@query": lambda args: f'"{_mcp_quote(args.get("command", ""))}"',
+    "@read": lambda args: f'"{_mcp_quote(args.get("path", ""))}"' + (f' key="{_mcp_quote(args.get("key", ""))}"' if args.get("key") else ""),
     "@env": lambda args: (args.get("var") or args.get("name") or ""),
-    "@agent": lambda args: f'"{(args.get("agent") or "")}" "{(args.get("prompt") or "")}"',
+    "@agent": lambda args: f'"{_mcp_quote(args.get("agent", ""))}" "{_mcp_quote(args.get("prompt", ""))}"',
     "@checkpoint": lambda args: args.get("task") or args.get("args", ""),
     "@recover": lambda args: "",
     "@suggest": lambda args: args.get("task") or args.get("args", ""),
     "@services": lambda args: "",
     "@drift": lambda args: "",
-    "@date": lambda args: f'format="{(args.get("format") or "%Y-%m-%d %H:%M:%S")}"',
+    "@date": lambda args: f'format="{_mcp_quote(args.get("format", "%Y-%m-%d %H:%M:%S"))}"',
     "@waypoint": lambda args: f'ttl={(args.get("ttl") or 86400)}' if args.get("ttl") else "",
     "@session": lambda args: f'count={(args.get("count") or 3)}',
-    "@list": lambda args: f'path="{(args.get("path") or ".")}"',
-    "@tree": lambda args: f'path="{(args.get("path") or ".")}"',
+    "@list": lambda args: f'path="{_mcp_quote(args.get("path", "."))}"',
+    "@tree": lambda args: f'path="{_mcp_quote(args.get("path", "."))}"',
     "@inbox": lambda args: (f'limit={(args.get("limit") or 5)}' if args.get("limit") else "") + (" unread=true" if args.get("unread") else ""),
-    "@skills": lambda args: (f'category="{(args.get("category") or "")}"' if args.get("category") else "") + (" flag_stale=true" if args.get("flag_stale") else ""),
+    "@skills": lambda args: (f'category="{_mcp_quote(args.get("category", ""))}"' if args.get("category") else "") + (" flag_stale=true" if args.get("flag_stale") else ""),
 }
 
 
@@ -5994,46 +6007,7 @@ def _strip_macro_defs(lines: list[str]) -> "iter":
 _MAX_PIPE_STAGES = 5
 
 
-def _parse_pipe_stages(line: str) -> list[str]:
-    """Split a directive line into pipe stages respecting quoted strings."""
-    in_quote = False
-    quote_char = None
-    has_pipe = False
-    for ch in line:
-        if ch in ('"', "'") and not in_quote:
-            in_quote = True
-            quote_char = ch
-        elif ch == quote_char and in_quote:
-            in_quote = False
-            quote_char = None
-        elif ch == '|' and not in_quote:
-            has_pipe = True
-            break
-    if not has_pipe:
-        return [line]
-    stages = []
-    current = []
-    in_quote = False
-    quote_char = None
-    for ch in line:
-        if ch in ('"', "'") and not in_quote:
-            in_quote = True
-            quote_char = ch
-            current.append(ch)
-        elif ch == quote_char and in_quote:
-            in_quote = False
-            quote_char = None
-            current.append(ch)
-        elif ch == '|' and not in_quote:
-            stages.append(''.join(current).strip())
-            current = []
-        else:
-            current.append(ch)
-    if current:
-        stages.append(''.join(current).strip())
-    if len(stages) > _MAX_PIPE_STAGES:
-        return stages[:_MAX_PIPE_STAGES]
-    return stages
+# _parse_pipe_stages defined in registry.py (shared via build concatenation)
 
 
 def _execute_pipe(stages: list[str], cfg: dict, workspace, line_index: int, query_results: dict) -> str | None:
@@ -6082,97 +6056,10 @@ def _execute_pipe(stages: list[str], cfg: dict, workspace, line_index: int, quer
 
 
 # ── Directive Aliasing (task-74) ─────────────────────────────────────────────
-
-PREDEFINED_ALIASES = {
-    "@q": "@query",
-    "@r": "@read",
-    "@svc": "@services",
-    "@mb": "@memory",
-    "@ag": "@agora",
-    "@wp": "@waypoint",
-    "@sess": "@session",
-}
-
-
-def _aliases_detect_and_remove_cycles(aliases: dict[str, str]) -> None:
-    """Detect circular alias chains and remove them. Mutates aliases in place."""
-    # Floyd's cycle detection for each alias chain
-    def follow(alias: str) -> str | None:
-        seen: set[str] = set()
-        current = alias
-        while current in aliases:
-            if current in seen:
-                return None  # cycle detected
-            seen.add(current)
-            current = aliases[current]
-        return current  # resolved target
-
-    to_remove: set[str] = set()
-    for alias in list(aliases):
-        if follow(alias) is None:
-            to_remove.add(alias)
-
-    for alias in to_remove:
-        aliases.pop(alias, None)
-
-
-def _expand_aliases(lines: list[str], cfg: dict) -> list[str]:
-    """Single-pass alias expansion. Config aliases override pre-defined.
-    Aliases that shadow built-in directive names are warned and ignored.
-    Circular alias chains are detected and disabled."""
-    aliases = dict(PREDEFINED_ALIASES)
-    cfg_aliases = cfg.get("directives", {}).get("aliases", {})
-    aliases.update(cfg_aliases)
-    for alias, target in list(aliases.items()):
-        if alias in DIRECTIVE_REGISTRY:
-            aliases.pop(alias)
-    # Detect and remove circular alias chains
-    _aliases_detect_and_remove_cycles(aliases)
-    if not aliases:
-        return lines
-    sorted_aliases = sorted(aliases.items(), key=lambda x: -len(x[0]))
-    result: list[str] = []
-    for line in lines:
-        # Handle pipe stages — expand aliases in each stage independently
-        if "|" in line:
-            stages = line.split("|")
-            expanded_stages = []
-            for stage in stages:
-                stage_stripped = stage.strip()
-                current = stage_stripped
-                depth = 0
-                while depth < MAX_MACRO_DEPTH:
-                    expanded = False
-                    for alias, target in sorted_aliases:
-                        if current.startswith(alias):
-                            rest = current[len(alias):]
-                            if not rest or rest[0] in (' ', '\t'):
-                                current = f"{target}{rest}"
-                                expanded = True
-                                break
-                    if not expanded:
-                        break
-                    depth += 1
-                expanded_stages.append(current)
-            result.append(" | ".join(expanded_stages))
-        else:
-            current = line
-            depth = 0
-            while depth < MAX_MACRO_DEPTH:
-                stripped = current.strip()
-                expanded = False
-                for alias, target in sorted_aliases:
-                    if stripped.startswith(alias):
-                        rest = stripped[len(alias):]
-                        if not rest or rest[0] in (' ', '\t'):
-                            current = f"{target}{rest}"
-                            expanded = True
-                            break
-                if not expanded:
-                    break
-                depth += 1
-            result.append(current)
-    return result
+# _parse_pipe_stages, PREDEFINED_ALIASES, and _expand_aliases are defined
+# in registry.py. The build concatenation makes them available here.
+# Registry.py has the authoritative versions with full alias set
+# (@chk, @dr, @syn) and chain-resolution with shadowing warnings.
 
 
 def _capture_file_snapshot(lines: list[str], workspace: Path | None) -> dict[str, float]:
@@ -7373,7 +7260,7 @@ def _mneme_recall(cfg: dict, query: str, k: int = 5,
                    type_filter: str | None = None) -> list[dict]:
     """Recall memories via SQLite FTS5 BM25 index.
 
-    Opens a fresh connection per call (WAL mode handles concurrency).
+    Uses a process-lifetime cached connection (WAL mode handles concurrency).
     Lazily builds the index if empty (first-call initialization).
     Falls back to empty list on any failure.
     """
@@ -7384,17 +7271,14 @@ def _mneme_recall(cfg: dict, query: str, k: int = 5,
         # Lazy init: build index if no documents indexed yet
         count = conn.execute("SELECT COUNT(*) FROM mneme_fts").fetchone()[0]
         if count == 0:
-            conn.close()
             _mneme_build_index(cfg)
-            conn = _mneme_open_index(cfg)
-            if conn is None:
+            count = conn.execute("SELECT COUNT(*) FROM mneme_fts").fetchone()[0]
+            if count == 0:
                 return []
 
         return _mneme_search(conn, query, k, scope, type_filter)
     except Exception:
         return []
-    finally:
-        conn.close()
 # ─────────────────────── Mnēmē v2 — SQLite FTS5 Index ────────────────────────
 # Persistent BM25 index over Perseus-native vault .md files.
 # Uses SQLite FTS5 (stdlib sqlite3) — zero dependencies beyond Python.
@@ -7441,16 +7325,34 @@ _MNEME_FIELD_WEIGHTS = {
 }
 
 
+# Process-lifetime connection cache: (index_path, pid) → sqlite3.Connection.
+# Avoids paying connect + PRAGMA roundtrips on every operation.
+# Keyed by pid so forked processes get their own connection.
+_MNEME_CONN_CACHE: dict[tuple[str, int], sqlite3.Connection] = {}
+
+
 def _mneme_open_index(cfg: dict):
     """Open (or create) the SQLite FTS5 index. Returns sqlite3.Connection.
 
     Enables WAL mode for concurrent reads. Creates tables on first open.
     Returns None if the vault directory cannot be determined.
+    Connections are cached per-process for the lifetime of the interpreter.
     """
     try:
         index_path = _mneme_index_path(cfg)
     except Exception:
         return None
+
+    cache_key = (str(index_path), os.getpid())
+    cached = _MNEME_CONN_CACHE.get(cache_key)
+    if cached is not None:
+        # Check that the cached connection hasn't been closed externally
+        # (tests, signal handlers, explicit close). If closed, re-create.
+        try:
+            cached.execute("SELECT 1")
+            return cached
+        except (sqlite3.ProgrammingError, sqlite3.OperationalError):
+            del _MNEME_CONN_CACHE[cache_key]
 
     index_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -7463,6 +7365,7 @@ def _mneme_open_index(cfg: dict):
 
         # Create tables if needed
         conn.executescript(_MNEME_SCHEMA_SQL)
+        _MNEME_CONN_CACHE[cache_key] = conn
         return conn
     except Exception:
         return None
@@ -7539,10 +7442,12 @@ def _mneme_build_index(cfg: dict, force: bool = False) -> int:
 
     vault_path = _mneme_vault_path(cfg)
     if not vault_path.is_dir():
-        conn.close()
         return 0
 
     try:
+        # Explicit transaction — all-or-nothing build.
+        conn.execute("BEGIN IMMEDIATE")
+
         # On forced rebuild, clear existing index state so stale
         # entries for deleted files are not left behind.
         if force:
@@ -7594,12 +7499,10 @@ def _mneme_build_index(cfg: dict, force: bool = False) -> int:
 
         conn.commit()
     except Exception:
-        try:
-            conn.rollback()
-        except Exception:
-            pass
+        conn.rollback()
+        raise  # Let caller handle (mneme_recall catches and returns [])
     finally:
-        conn.close()
+        pass  # Connection is cached for process lifetime; do not close
 
     return count
 
@@ -7636,22 +7539,25 @@ def _mneme_search(conn, query: str, k: int = 5,
         # Single term.
         fts_expr = safe
 
-    where_clauses = [f"mneme_fts MATCH '{fts_expr}'"]
-    params = []
+    # Parameterized MATCH — FTS5 expression bound via ? to prevent
+    # operator injection (AND, NOT, NEAR, column-name prefixes, etc.).
+    # The user-supplied query is treated as literal search tokens.
+    params = [fts_expr]
 
     if scope:
-        where_clauses.append("mneme_fts.scope = ?")
         params.append(scope)
     if type_filter:
-        where_clauses.append("mneme_fts.type = ?")
         params.append(type_filter)
+
+    scope_clause = "AND mneme_fts.scope = ?" if scope else ""
+    type_clause = "AND mneme_fts.type = ?" if type_filter else ""
 
     sql = (
         "SELECT mneme_fts.id, mneme_fts.title, mneme_fts.type, mneme_fts.scope, "
         "mneme_fts.summary, mneme_fts.updated, "
         "bm25(mneme_fts) AS score "
         "FROM mneme_fts "
-        "WHERE " + " AND ".join(where_clauses) + " "
+        f"WHERE mneme_fts MATCH ? {scope_clause} {type_clause} "
         "ORDER BY score "
         f"LIMIT {max(1, min(k, 100))}"
     )
@@ -7683,7 +7589,6 @@ def _mneme_index_document(cfg: dict, file_path: Path) -> bool:
     try:
         doc = _mneme_parse_vault_file(file_path)
         if doc is None:
-            conn.close()
             return False
 
         search_text = _mneme_build_field_text(doc)
@@ -7722,9 +7627,19 @@ def _mneme_delete_document(cfg: dict, doc_id: str) -> bool:
         return False
 
     try:
+        # Delete from mneme_fts by document id.
+        # mneme_files stores full resolved paths — we match by the filename
+        # component (the doc_id with .md suffix). The doc_id is validated
+        # to be a safe filesystem name by _mneme_parse_vault_file before
+        # it's ever inserted, so a GLOB match with the literal id is safe.
+        # We use GLOB (not LIKE) to avoid %/_ metacharacter interpretation.
+        escaped_id = doc_id.replace("*", "\\*").replace("?", "\\?").replace("[", "\\[").replace("]", "\\]")
         cursor = conn.execute("DELETE FROM mneme_fts WHERE id = ?", (doc_id,))
         deleted = cursor.rowcount > 0
-        conn.execute("DELETE FROM mneme_files WHERE path LIKE ?", (f"%/{doc_id}.md",))
+        conn.execute(
+            "DELETE FROM mneme_files WHERE path GLOB ? ESCAPE '\\'",
+            (f"*/{escaped_id}.md",)
+        )
         if deleted:
             conn.execute("INSERT INTO mneme_fts(mneme_fts) VALUES('rebuild')")
         conn.commit()
@@ -7736,7 +7651,7 @@ def _mneme_delete_document(cfg: dict, doc_id: str) -> bool:
             pass
         return False
     finally:
-        conn.close()
+        pass  # Connection is cached for process lifetime; do not close
 
 
 def _mneme_index_stats(cfg: dict) -> dict:
@@ -7758,7 +7673,7 @@ def _mneme_index_stats(cfg: dict) -> dict:
     except Exception:
         return {"doc_count": 0, "indexed_files": 0, "index_path": "", "available": False}
     finally:
-        conn.close()
+        pass  # Connection is cached for process lifetime; do not close
 
 
 # ─────────────────────────── CLI: perseus memory index ────────────────────────
