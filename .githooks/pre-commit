@@ -1,0 +1,18 @@
+#!/bin/bash
+# Pre-commit hook: regenerate perseus.py from src/perseus/ and stage it.
+# Ensures the build artifact never drifts from source.
+
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+BUILD_SCRIPT="$REPO_ROOT/scripts/build.py"
+ARTIFACT="$REPO_ROOT/perseus.py"
+
+# Only rebuild if source files changed
+SOURCE_DIR="$REPO_ROOT/src/perseus"
+if git diff --cached --name-only | grep -q "^src/perseus/"; then
+    echo "→ src/perseus/ changed — rebuilding perseus.py..."
+    python3 "$BUILD_SCRIPT"
+    git add "$ARTIFACT"
+    echo "→ perseus.py rebuilt and staged."
+fi
