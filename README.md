@@ -1,6 +1,6 @@
-# Perseus™ 🪞
+# Perseus™ 🪞 — MCP Server + Live Context Engine
 
-**Perseus is a live context engine for AI assistants.** It solves the cold-start problem — every new session, the assistant already knows what's running, what you were working on, and what tools exist. No orientation phase. No pre-flight tax. Works with any assistant that reads a file: **Claude Code, Cursor, Codex, Hermes Agent (by NousResearch), Rovo Dev.**
+**Perseus is an MCP server and live context engine for AI assistants.** It solves the cold-start problem — every new session, the assistant already knows what's running, what you were working on, and what tools exist. No orientation phase. No pre-flight tax. Exposes 24 MCP tools over stdio/SSE for workspace state resolution. Works with any MCP-compatible assistant: **Claude Desktop, Claude Code, Cursor, Codex, Hermes Agent (by NousResearch), Rovo Dev.**
 
 ![Perseus demo — before/after cold-start](demo.gif)
 
@@ -9,6 +9,7 @@
 [![CI](https://github.com/tcconnally/perseus/actions/workflows/test.yml/badge.svg)](https://github.com/tcconnally/perseus/actions/workflows/test.yml)
 <!-- test-count: 714 -->
 [![PyPI](https://img.shields.io/pypi/v/perseus-ctx)](https://pypi.org/project/perseus-ctx/)
+[![MCP Registry](https://img.shields.io/badge/MCP-Registry-blue)](https://registry.modelcontextprotocol.io/servers/io.github.tcconnally/perseus)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [**perseus.observer →**](https://perseus.observer)
 
@@ -22,7 +23,7 @@
 
 ### TL;DR
 
-Perseus is a **live context engine** for AI assistants, eliminating cold starts. It resolves dynamic data (running services, code changes, session state) *before* the assistant sees it, providing **verified facts** instead of stale files or instructions to find information.
+Perseus is a **live context engine and MCP server** for AI assistants, eliminating cold starts. It resolves dynamic data (running services, code changes, session state) *before* the assistant sees it, providing **verified facts** instead of stale files or instructions to find information. Exposes 24 MCP tools for workspace state over stdio/SSE.
 
 ```bash
 pip install perseus-ctx
@@ -30,7 +31,92 @@ perseus init /workspace/myproject
 perseus render .perseus/context.md --output CLAUDE.md
 ```
 
-Works with Claude Code, Cursor, Codex, Hermes Agent, and Rovo Dev.
+Works with any MCP-compatible assistant: Claude Desktop, Claude Code, Cursor, Codex, Hermes Agent, and Rovo Dev.
+
+---
+
+## MCP Server — 24 Tools for Workspace State
+
+Perseus implements the [Model Context Protocol](https://modelcontextprotocol.io/) (MCP), exposing 24 tools over stdio or SSE transport. Every tool resolves live workspace state at invocation time — no stale cache, no pre-computed snapshots.
+
+### Quick Start (MCP)
+
+```bash
+pip install perseus-ctx
+perseus mcp serve                          # stdio (default — Claude Desktop, Claude Code, Cursor)
+perseus mcp serve --transport sse --port 8420  # SSE (remote agents, multi-machine)
+```
+
+### Tools
+
+| Tool | Description |
+|---|---|
+| `perseus_services` | Health-check running services |
+| `perseus_query` | Run a shell command and return stdout |
+| `perseus_read` | Read file contents |
+| `perseus_list` | List directory or structured data |
+| `perseus_tree` | Tree view of directory |
+| `perseus_env` | Read environment variables |
+| `perseus_date` | Current date/time |
+| `perseus_waypoint` | Latest checkpoint summary |
+| `perseus_session` | Recent session digests |
+| `perseus_health` | Context maintenance report |
+| `perseus_drift` | Oracle drift report |
+| `perseus_memory` | Mnēmē narrative memory |
+| `perseus_bastra` | Recall persistent memories via bastra-recall |
+| `perseus_skills` | List available skills |
+| `perseus_include` | Include and render another file |
+| `perseus_agent` | Execute local agent subprocess |
+| `perseus_agora` | Task board from tasks/*.md |
+| `perseus_inbox` | Agent message inbox |
+| `perseus_prompt` | System prompt block |
+| `perseus_validate` | Validate rendered block against schema |
+| `perseus_tool` | Run allowlisted external tool |
+| `perseus_perseus` | Fetch context from remote Perseus instance |
+| `perseus_get_context` | Full rendered workspace context |
+| `perseus_get_health` | Daedalus context-maintenance heuristics |
+
+### Client Integration
+
+**Claude Desktop** (`claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "perseus": {
+      "command": "perseus",
+      "args": ["mcp", "serve"],
+      "env": { "PERSEUS_WORKSPACE": "/path/to/workspace" }
+    }
+  }
+}
+```
+
+**Claude Code / Cursor** (`.mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "perseus": {
+      "command": "perseus",
+      "args": ["mcp", "serve"]
+    }
+  }
+}
+```
+
+### Docker
+
+```bash
+docker build -t perseus .
+docker run --rm -v /path/to/workspace:/workspace perseus mcp serve
+```
+
+See [Container Runtime](./docs/CONTAINER.md) for full Docker and compose deployment.
+
+### MCP Registry
+
+Published as [`io.github.tcconnally/perseus`](https://registry.modelcontextprotocol.io/servers/io.github.tcconnally/perseus) on the official MCP Registry. Includes `server.json` for zero-config discovery.
 
 ---
 
