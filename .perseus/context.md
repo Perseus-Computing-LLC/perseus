@@ -1,65 +1,17 @@
-@perseus v0.8
+@perseus v0.4
 
-@prompt
-This document was rendered live by Perseus. All values below are current —
-do not verify services, re-scan skills, or re-read session history. Trust the
-rendered output and skip orientation. Start work immediately.
-@end
+# Context - @date format="YYYY-MM-DD HH:mm z"
 
-# Perseus Session Context — @date format="YYYY-MM-DD HH:mm CDT"
+## Persistent Memory
+@mneme query="lesson preference decision reference" k=5 scope=perseus
 
-**Workspace:** current repo checkout  
-**Repo:** https://github.com/tcconnally/perseus  
-**Project:** Perseus — Live Context Engine for AI Assistants (v1.0.4)
+## What's Running
+@query "echo 'stale_service Up 2 hours'"
 
----
+## Ports
+@read .env key="API_PORT" fallback="3000"
 
 ## Last Session
 @waypoint ttl=86400
+@memory query="smoke test" scope=perseus k=2
 
----
-
-## Workspace State
-
-@query "git log --oneline -5" fallback="git log unavailable"
-@query "git status --short" fallback="clean"
-
----
-
-## Available Skills
-@skills category="perseus" flag_stale=true
-
----
-
-## Services
-@services
-  - name: Hermes WebUI
-    url: http://localhost:7779
-  - name: ntfy
-    url: http://localhost:8080/v1/health
-  - name: Portainer
-    url: https://localhost:9443/api/status
-  - name: Perseus CLI
-    command: "perseus --version"
-@end
-
----
-
-## Recent Sessions
-@session count=3
-
----
-
-## Active Tasks
-@agora status=open
-@agora status=in_progress
-
----
-
-## Maintenance Snapshot
-@health
-
----
-
-## Project Narrative
-Project memory is intentionally not rendered into tracked assistant files.

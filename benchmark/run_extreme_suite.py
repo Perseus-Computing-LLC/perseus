@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 run_extreme_suite.py — Phase 7 unified orchestrator.
 

@@ -3,7 +3,7 @@
     {
       "name": "compression_ratio < 0.85",
       "pass": true,
-      "observed": 0.0716,
+      "observed": 0.0553,
       "threshold": "< 0.85",
       "severity": "hard"
     },
@@ -59,7 +59,7 @@
     {
       "name": "latency_cv warm < 0.15",
       "pass": true,
-      "observed": 0.09767018161015766,
+      "observed": 0.10026968034803187,
       "threshold": "< 0.15 (at N=10)",
       "severity": "hard"
     },
@@ -80,7 +80,7 @@
     {
       "name": "normal_agent_slowdown_factor < 1.2x (C5)",
       "pass": true,
-      "observed": 1.02,
+      "observed": 1.06,
       "threshold": "< 1.2",
       "severity": "hard"
     },
@@ -88,7 +88,7 @@
       "name": "cache_warm_compression_ratio < cache_cold_compression_ratio",
       "pass": true,
       "observed": {
-        "warm": 0.10037174721189591,
+        "warm": 0.1010989010989011,
         "cold": 1.0
       },
       "threshold": "warm < cold",
@@ -100,17 +100,10 @@
       "observed": true,
       "threshold": "True",
       "severity": "hard"
-    },
-    {
-      "name": "semantic_equivalence_score >= 0.95 (n=20)",
-      "pass": true,
-      "observed": 1.0,
-      "threshold": ">= 0.95",
-      "severity": "hard"
     }
   ],
-  "total": 15,
-  "passed": 15,
+  "total": 14,
+  "passed": 14,
   "failed": [],
   "pass": true
 }

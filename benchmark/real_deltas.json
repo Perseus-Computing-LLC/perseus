@@ -122,6 +122,43 @@
       "context_kb": 193.5,
       "cold_per_directive_us": 26137.1,
       "warm_per_directive_us": 75.5
+    },
+    "512": {
+      "blocks": 512,
+      "directives": 11264,
+      "cold_s": 299.082,
+      "warm_s": 0.558,
+      "speedup": 536.0,
+      "cold_ms_per_directive": 26.6,
+      "warm_ms_per_directive": 0.0,
+      "context_kb": 387.0,
+      "cold_per_directive_us": 26552.0,
+      "warm_per_directive_us": 49.5
+    },
+    "1024": {
+      "blocks": 1024,
+      "directives": 22528,
+      "cold_s": 619.1,
+      "warm_s": 1.014,
+      "speedup": 610.6,
+      "cold_ms_per_directive": 27.5,
+      "warm_ms_per_directive": 0.0,
+      "context_kb": 774.0,
+      "cold_per_directive_us": 27481.4,
+      "warm_per_directive_us": 45.0
     }
-  }
+  },
+  "best_speedup": {
+    "blocks": 64,
+    "directives": 1408,
+    "cold_s": 578.704,
+    "warm_s": 0.486,
+    "speedup": 1190.7
+  },
+  "averages": {
+    "cold_ms_per_directive": 76.81,
+    "warm_ms_per_directive": 2.83,
+    "speedup_at_largest_scale": 610.6
+  },
+  "headline": "Real Perseus codebase benchmark: 22,528 varied directives (1024\u00d7 repeat, 22 directive types). Cold: 619.10s (27.5ms/dir avg). Warm: 1.014s (0.0ms/dir avg). Speedup: 611\u00d7. Not synthetic \u2014 real git, tree, query, include, file directives against the actual Perseus repo at /workspace/perseus."
 }

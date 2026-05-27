@@ -1,13 +1,13 @@
 {
   "T1": {
     "test": "T1_ttl_cliff",
-    "cold_total_us": 6779,
-    "warm_total_us": 3098,
-    "cold_total_s": 0.006779,
-    "warm_total_s": 0.003098,
-    "cold_wall_s": 0.3435,
-    "warm_wall_s": 0.3276,
-    "speedup": 2.19,
+    "cold_total_us": 6743,
+    "warm_total_us": 2999,
+    "cold_total_s": 0.006743,
+    "warm_total_s": 0.002999,
+    "cold_wall_s": 0.2956,
+    "warm_wall_s": 0.2906,
+    "speedup": 2.25,
     "cache_hits_warm": 100,
     "cache_misses_cold": 100,
     "output_consistent": true
@@ -33,28 +33,28 @@
       10000
     ],
     "warm_per_directive_us": {
-      "100": 14.5,
-      "1000": 10.4,
-      "10000": 10.97
+      "100": 13.84,
+      "1000": 10.39,
+      "10000": 10.38
     },
-    "smallest_scale_per_directive_us": 14.5,
-    "largest_scale_per_directive_us": 10.97,
-    "growth_factor": 0.76,
+    "smallest_scale_per_directive_us": 13.84,
+    "largest_scale_per_directive_us": 10.38,
+    "growth_factor": 0.75,
     "linear_ok": true
   },
   "T5": {
     "test": "T5_cache_efficiency_correlation",
-    "avg_warm_prompt_tokens": 54.0,
-    "avg_cold_prompt_tokens": 538.0,
-    "warm_compression_ratio": 0.10037174721189591,
+    "avg_warm_prompt_tokens": 46.0,
+    "avg_cold_prompt_tokens": 455.0,
+    "warm_compression_ratio": 0.1010989010989011,
     "cold_compression_ratio": 1.0,
-    "delta": -0.8996282527881041,
+    "delta": -0.8989010989010989,
     "warm_n": 5,
     "cold_n": 5,
     "avg_warm_cache_hits": 50,
     "avg_cold_cache_hits": 0,
-    "avg_warm_assemble_us": 1812.6,
-    "avg_cold_assemble_us": 4216,
+    "avg_warm_assemble_us": 1566,
+    "avg_cold_assemble_us": 3459.2,
     "warm_faster": true,
     "warm_compression_ratio_lt_cold": true
   }
