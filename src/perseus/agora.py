@@ -292,23 +292,56 @@ def _memory_federation_diagnostic(name: str, args_str: str, cfg: dict, workspace
 
 def resolve_mneme(args_str: str, cfg: dict,
                    workspace: Path | None = None) -> str:
-    """Render the @mneme directive — persistent memory recall via Mnēmē BM25.
+    """@mneme shim → forwards to unified @memory mode=search.
 
-    Args:
-      query="..."  → search query (required)
-      scope="..."  → filter by project scope
-      k=N          → max results (1-20, default 5)
-      type="..."   → filter by memory type (lesson|preference|decision|...)
-
-    Reads the Mnēmē memory vault directly — in-process BM25, zero network.
+    Kept for backward compatibility. Simply prepends mode=search to handle
+    the old @mneme query="..." syntax and delegates to resolve_memory.
     """
+    # Build equivalent @memory args: mode=search query="..." [scope=...] [k=...] [type=...]
+    return resolve_memory(f"mode=search {args_str}", cfg, workspace)
+
+
+def resolve_memory(args_str: str, cfg: dict, workspace: Path | None = None) -> str:
+    """Render the unified @memory directive — Mnēmē v2.
+
+    Modes (auto-detected or explicit):
+      mode=search [query=...] [scope=...] [k=5] [type=...] [render=default]
+        → BM25 search via SQLite FTS5 against the memory vault.
+      mode=narrative [focus=...] [workspace=...]
+        → Render the checkpoint-distilled narrative journal.
+      mode=federation [alias=...] [include_federation=true]
+        → Cross-workspace narrative aggregation.
+
+    Default: if query= is present → search; otherwise → narrative.
+    Legacy shim: @mneme calls this with mode=search automatically.
+    """
+    ws = workspace or Path.cwd()
+    args_stripped = args_str.strip()
+
+    # ── Detect mode ──────────────────────────────────────────────────────
     mods = _parse_kv_modifiers(args_str)
+    explicit_mode = (mods.get("mode") or "").strip().lower()
+    has_query = bool((mods.get("query") or "").strip())
+    is_federation = bool(re.match(r'^federation\b', args_stripped, re.IGNORECASE))
+
+    if explicit_mode == "search" or (has_query and not explicit_mode):
+        return _resolve_memory_search(mods, cfg, ws)
+    elif explicit_mode == "federation" or is_federation:
+        return _resolve_memory_federation(args_stripped, mods, cfg)
+    else:
+        return _resolve_memory_narrative(args_stripped, mods, cfg, ws)
+
+
+def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path) -> str:
+    """@memory mode=search — BM25 recall via SQLite FTS5."""
     query = (mods.get("query") or "").strip()
     if not query:
-        return "> ⚠ @mneme requires a `query=\"...\"` argument.\n"
+        return "> \u26a0 @memory search requires a `query=` argument.\n"
 
     scope = (mods.get("scope") or "").strip() or None
     type_filter = (mods.get("type") or "").strip().lower() or None
+    render_template = (mods.get("render") or "default").strip().lower()
+
     try:
         k = max(1, min(20, int(mods.get("k", "5"))))
     except (ValueError, TypeError):
@@ -318,114 +351,54 @@ def resolve_mneme(args_str: str, cfg: dict,
     if not hits:
         return "> \u2139\ufe0f No Mn\u0113m\u0113 memories matched.\n"
 
-    lines = ["> \U0001f9e0 **Mn\u0113m\u0113 Memories:**\n"]
+    lines = ["> \U0001f9e0 **Mn\u0113m\u0113 memories:**\n"]
     for h in hits:
         title = h.get("title", "untitled")
         summary = h.get("summary", "")
         score = h.get("score", 0)
         mem_type = h.get("type", "")
         mem_scope = h.get("scope", "")
-        parts = [f"  - **{title}**"]
-        if mem_type:
-            parts.append(f"_{mem_type}_")
-        if mem_scope:
-            parts.append(f"`{mem_scope}`")
-        parts.append(f"{summary}")
-        if score:
-            parts.append(f"(score: {score:.0f})")
-        lines.append(" ".join(parts))
+
+        if render_template == "compact":
+            lines.append(f"  - **{title}**")
+        elif render_template == "full":
+            lines.append(f"### {title}")
+            if mem_type:
+                lines.append(f"_{mem_type}_  `{mem_scope}`  score: {score:.0f}")
+            lines.append(f"\n{summary}\n")
+        else:
+            parts = [f"  - **{title}**"]
+            if mem_type:
+                parts.append(f"_{mem_type}_")
+            if mem_scope:
+                parts.append(f"`{mem_scope}`")
+            parts.append(summary)
+            if score:
+                parts.append(f"(score: {score:.0f})")
+            lines.append(" ".join(parts))
     return "\n".join(lines) + "\n"
 
 
-def _resolve_memory_via_mneme(focus: str, workspace: Path,
-                                cfg: dict, include_fed: bool) -> str:
-    """Resolve @memory through Mnēmē BM25 vault instead of file narrative."""
-    # Map Mnēmē focus sections to memory type filters
-    type_map = {
-        "decisions": "decision",
-        "recent": None,
-        "patterns": "lesson",
-        "arc": None,
-        "tasks": "decision",
-        "history": "decision",
-        "": None,
-    }
-    type_filter = type_map.get(focus)
-    ws_name = workspace.name if workspace.name and workspace.name != "/" \
-               else workspace.parent.name
-    query = f"{focus} {ws_name}".strip() if focus else ws_name
-    scope = ws_name
-
-    hits = _mneme_recall(cfg, query, k=8, scope=scope, type_filter=type_filter)
-    if not hits:
-        base = "> \u2139\ufe0f No Mn\u0113m\u0113 memories found for this workspace.\n"
-        if include_fed:
-            return f"{base}\n---\n\n## Federated Context\n\n{_render_federation_digest(cfg)}"
-        return base
-
-    lines = ["> \U0001f9e0 **Mn\u0113m\u0113 memories**\n"]
-    for h in hits:
-        title = h.get("title", "untitled")
-        summary = h.get("summary", "")
-        score = h.get("score", 0)
-        mem_type = h.get("type", "")
-        parts = [f"  - **{title}**"]
-        if mem_type:
-            parts.append(f"_{mem_type}_")
-        parts.append(summary)
-        if score:
-            parts.append(f"(score: {score:.0f})")
-        lines.append(" ".join(parts))
-
-    result = "\n".join(lines) + "\n"
-    if include_fed:
-        result += f"\n---\n\n## Federated Context\n\n{_render_federation_digest(cfg)}"
-    return result
-
-
-def resolve_memory(args_str: str, cfg: dict, workspace: Path | None = None) -> str:
-    """Render the @memory directive.
-
-    Args:
-      focus="decisions|recent|patterns|arc" → emit only the named section
-      ttl=N → sugar for @cache ttl=N (caller handles by pre-rewriting)
-      workspace=PATH → override the workspace used to resolve the narrative
-        (Feature #1: allows cross-workspace renders from a fixed context file,
-        e.g. @memory focus=recent workspace=~/ to always pull the home narrative)
-
-    task-19 (Phase 8.2): subcommand `federation` renders the cross-workspace
-    digest instead of (or in addition to, with `include_federation=true`)
-    the local narrative:
-      @memory federation                  → all enabled subs as digest
-      @memory federation alias=hermes     → that single sub only
-      @memory include_federation=true     → local narrative + federated digest
-    Plain `@memory` stays local-only forever (Q3 decision).
-    """
-    ws = workspace or Path.cwd()
-    args_stripped = args_str.strip()
-
-    # task-19: explicit federation subcommand
-    # Match `federation` as a bare leading token (case-insensitive)
+def _resolve_memory_federation(args_stripped: str, mods: dict, cfg: dict) -> str:
+    """@memory mode=federation — cross-workspace digest."""
     fed_match = re.match(r'^federation\b\s*(.*)$', args_stripped, re.IGNORECASE)
     if fed_match:
         fed_args = fed_match.group(1).strip()
         fed_mods = _parse_kv_modifiers(fed_args)
         alias_filter = fed_mods.get("alias")
-        return _render_federation_digest(cfg, alias_filter)
+    else:
+        alias_filter = mods.get("alias")
+    return _render_federation_digest(cfg, alias_filter)
 
-    mods = _parse_kv_modifiers(args_str)
+
+def _resolve_memory_narrative(args_stripped: str, mods: dict, cfg: dict, ws: Path) -> str:
+    """@memory mode=narrative — render the narrative journal."""
     focus = (mods.get("focus") or "").strip().lower()
     include_fed = str(mods.get("include_federation", "")).strip().lower() in {"true", "1", "yes"}
 
-    # Feature #1: explicit workspace= modifier overrides the render-file workspace
     ws_override = (mods.get("workspace") or "").strip()
     if ws_override:
         ws = Path(ws_override).expanduser().resolve()
-
-    # ── Route through Mnēmē BM25 when configured ────────────────────────
-    backend = cfg.get("memory", {}).get("backend", "file")
-    if backend == "mneme":
-        return _resolve_memory_via_mneme(focus, ws, cfg, include_fed)
 
     def _maybe_append_federation(local_text: str) -> str:
         if not include_fed:
@@ -436,16 +409,12 @@ def resolve_memory(args_str: str, cfg: dict, workspace: Path | None = None) -> s
     mp = _mneme_path(ws, cfg)
     if not mp.exists():
         return _maybe_append_federation(
-            "> ⚠ No Mnēmē narrative found for this workspace.\n"
+            "> \u26a0 No Mn\u0113m\u0113 narrative found for this workspace.\n"
             "> Run `perseus memory update` to initialize."
         )
 
     fm, body = _load_narrative(mp)
 
-    # Staleness check (uses checkpoints.ttl_s as the cadence reference).
-    # Bug #1: a stale narrative still has valid content — return the body with
-    # an inline warning prepended rather than replacing it entirely.  Only a
-    # missing/empty body (genuinely uninitialised) returns a warning-only block.
     ttl_s = int(cfg.get("checkpoints", {}).get("ttl_s", 86400))
     updated = str(fm.get("updated", ""))
     stale_note = ""
@@ -455,36 +424,30 @@ def resolve_memory(args_str: str, cfg: dict, workspace: Path | None = None) -> s
         if age_s > ttl_s:
             age_h = _human_age(updated)
             stale_note = (
-                f"> ⚠ Mnēmē narrative is stale (last updated {age_h}).\n"
+                f"> \u26a0 Mn\u0113m\u0113 narrative is stale (last updated {age_h}).\n"
                 "> Run `perseus memory update` to refresh.\n\n"
             )
     except Exception:
         pass
 
-    # Feature #2: touch updated timestamp on successful render so that a cold
-    # morning render doesn't make the narrative appear stale on the *next*
-    # render within the same TTL window.  Only update the timestamp — never
-    # the body — so this is always a no-op from a content perspective.
     if not stale_note and body.strip():
         try:
             fm["updated"] = datetime.now().astimezone().isoformat(timespec="seconds")
             _save_narrative(mp, fm, body)
         except Exception:
-            pass  # never fatal — render proceeds regardless
+            pass
 
-    # Feature #3: proactive compact suggestion when approaching compact_threshold.
     compact_note = ""
     threshold = int(cfg.get("memory", {}).get("compact_threshold", 20))
     if threshold:
         cp_processed = int(fm.get("checkpoints_processed", 0))
         last_compact = int(fm.get("last_compact_processed", 0))
         updates_since = cp_processed - last_compact
-        # Warn when >= 80 % of threshold to give the user advance notice
         warn_at = max(1, int(threshold * 0.8))
         if updates_since >= warn_at:
             compact_note = (
-                f"\n\n> 💡 Mnēmē has {updates_since} incremental updates "
-                f"(threshold: {threshold}) — consider running `perseus memory compact`.\n"
+                f"\n\n> \U0001f4a1 Mn\u0113m\u0113 has {updates_since} incremental updates "
+                f"(threshold: {threshold}) \u2014 consider running `perseus memory compact`.\n"
             )
 
     if not focus:
@@ -505,12 +468,12 @@ def resolve_memory(args_str: str, cfg: dict, workspace: Path | None = None) -> s
     heading = focus_map.get(focus)
     if not heading:
         return _maybe_append_federation(
-            f"> ⚠ Unknown @memory focus={focus!r}. Valid: {', '.join(sorted(focus_map.keys()))}"
+            f"> \u26a0 Unknown @memory focus={focus!r}. Valid: {', '.join(sorted(focus_map.keys()))}"
         )
     section = _extract_section(body, heading)
     if not section.strip():
         return _maybe_append_federation(
-            f"> ⚠ @memory focus={focus!r}: section not found in narrative."
+            f"> \u26a0 @memory focus={focus!r}: section not found in narrative."
         )
     result = section.rstrip()
     if stale_note:
