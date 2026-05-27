@@ -1,5 +1,5 @@
 # stdlib imports available from build artifact header
-from perseus.memory import _bastra_recall
+from perseus.memory import _mneme_recall
 # ── Command dispatch ──────────────────────────────────────────────────────────
 
 def _memory_workspace(args, cfg) -> Path:
@@ -290,9 +290,9 @@ def _memory_federation_diagnostic(name: str, args_str: str, cfg: dict, workspace
     return diagnostics
 
 
-def resolve_bastra(args_str: str, cfg: dict,
+def resolve_mneme(args_str: str, cfg: dict,
                    workspace: Path | None = None) -> str:
-    """Render the @bastra directive — persistent memory recall via bastra-recall.
+    """Render the @mneme directive — persistent memory recall via Mnēmē BM25.
 
     Args:
       query="..."  → search query (required)
@@ -300,13 +300,12 @@ def resolve_bastra(args_str: str, cfg: dict,
       k=N          → max results (1-20, default 5)
       type="..."   → filter by memory type (lesson|preference|decision|...)
 
-    Calls the bastra-recall HTTP daemon at memory.bastra_url.
-    Falls back gracefully if the daemon is unreachable.
+    Reads the Mnēmē memory vault directly — in-process BM25, zero network.
     """
     mods = _parse_kv_modifiers(args_str)
     query = (mods.get("query") or "").strip()
     if not query:
-        return "> ⚠ @bastra requires a `query=\"...\"` argument.\n"
+        return "> ⚠ @mneme requires a `query=\"...\"` argument.\n"
 
     scope = (mods.get("scope") or "").strip() or None
     type_filter = (mods.get("type") or "").strip().lower() or None
@@ -315,11 +314,11 @@ def resolve_bastra(args_str: str, cfg: dict,
     except (ValueError, TypeError):
         k = 5
 
-    hits = _bastra_recall(cfg, query, k=k, scope=scope, type_filter=type_filter)
+    hits = _mneme_recall(cfg, query, k=k, scope=scope, type_filter=type_filter)
     if not hits:
-        return "> \u2139\ufe0f No bastra-recall memories matched.\n"
+        return "> \u2139\ufe0f No Mn\u0113m\u0113 memories matched.\n"
 
-    lines = ["> \U0001f9e0 **Bastra-Recall Memories:**\n"]
+    lines = ["> \U0001f9e0 **Mn\u0113m\u0113 Memories:**\n"]
     for h in hits:
         title = h.get("title", "untitled")
         summary = h.get("summary", "")
@@ -338,10 +337,10 @@ def resolve_bastra(args_str: str, cfg: dict,
     return "\n".join(lines) + "\n"
 
 
-def _resolve_memory_via_bastra(focus: str, workspace: Path,
+def _resolve_memory_via_mneme(focus: str, workspace: Path,
                                 cfg: dict, include_fed: bool) -> str:
-    """Resolve @memory through bastra-recall API instead of file narrative."""
-    # Map Mn\u0113m\u0113 focus sections to bastra type filters
+    """Resolve @memory through Mnēmē BM25 vault instead of file narrative."""
+    # Map Mnēmē focus sections to memory type filters
     type_map = {
         "decisions": "decision",
         "recent": None,
@@ -357,14 +356,14 @@ def _resolve_memory_via_bastra(focus: str, workspace: Path,
     query = f"{focus} {ws_name}".strip() if focus else ws_name
     scope = ws_name
 
-    hits = _bastra_recall(cfg, query, k=8, scope=scope, type_filter=type_filter)
+    hits = _mneme_recall(cfg, query, k=8, scope=scope, type_filter=type_filter)
     if not hits:
-        base = "> \u2139\ufe0f No bastra-recall memories found for this workspace.\n"
+        base = "> \u2139\ufe0f No Mn\u0113m\u0113 memories found for this workspace.\n"
         if include_fed:
             return f"{base}\n---\n\n## Federated Context\n\n{_render_federation_digest(cfg)}"
         return base
 
-    lines = ["> \U0001f9e0 **Bastra-recall memories**\n"]
+    lines = ["> \U0001f9e0 **Mn\u0113m\u0113 memories**\n"]
     for h in hits:
         title = h.get("title", "untitled")
         summary = h.get("summary", "")
@@ -423,10 +422,10 @@ def resolve_memory(args_str: str, cfg: dict, workspace: Path | None = None) -> s
     if ws_override:
         ws = Path(ws_override).expanduser().resolve()
 
-    # ── Route through bastra-recall when configured ────────────────────────
+    # ── Route through Mnēmē BM25 when configured ────────────────────────
     backend = cfg.get("memory", {}).get("backend", "file")
-    if backend == "bastra":
-        return _resolve_memory_via_bastra(focus, ws, cfg, include_fed)
+    if backend == "mneme":
+        return _resolve_memory_via_mneme(focus, ws, cfg, include_fed)
 
     def _maybe_append_federation(local_text: str) -> str:
         if not include_fed:

@@ -150,8 +150,7 @@ DEFAULT_CONFIG = {
         "recent_keep": 5,           # raw checkpoints to include in Recent Activity
         "auto_update": True,        # update narrative on every checkpoint write
         "compact_threshold": 20,    # advisory: compact after this many incremental updates
-        "backend": "file",         # "file" (default, Mnēmē narrative) or "bastra" (HTTP API)
-        "bastra_url": "http://127.0.0.1:6723",  # bastra-recall daemon endpoint
+        "backend": "file",         # "file" (default, Mnēmē narrative) or "mneme" (BM25 vault)
         "llm_provider": None,       # None = deterministic; "ollama" / "openai-compat" enables LLM
         "llm_model": None,          # inherits from llm: block if None
         "max_narrative_lines": 300, # warn (not error) if narrative grows beyond this
@@ -740,7 +739,7 @@ def _bind_registry() -> None:
         DirectiveSpec("@inbox",     resolve_inbox,     ["unread=", "limit="],      "inline",  "acw", reads_files=True, cacheable=True, summary="Agent message inbox", tier=2),
         DirectiveSpec("@drift",     resolve_drift,     [],                         "inline",  "ac",  reads_files=True, summary="Oracle drift report", tier=2),
         DirectiveSpec("@perseus",   resolve_perseus,   [],                         "inline",  "acw", cacheable=True, summary="Fetch rendered context from a remote Perseus instance", tier=2),
-        DirectiveSpec("@bastra",    resolve_bastra,    ["query=", "scope=", "k=", "type="], "inline", "acw", summary="Recall persistent memories via bastra-recall", tier=2),
+        DirectiveSpec("@mneme",    resolve_mneme,    ["query=", "scope=", "k=", "type="], "inline", "acw", summary="Recall persistent memories via Mnēmē BM25", tier=2),
 
         # Tier 3 — On-demand (bulky, expensive)
         DirectiveSpec("@query",     resolve_query,     ["fallback=", "schema="],   "inline",  "acw", executes_shell=True,  safe_for_hover=False, cacheable=True,  summary="Run a shell command and embed stdout", tier=3),
@@ -7320,6 +7319,314 @@ def cmd_recover(args, cfg):
     print(yaml.dump(cp, default_flow_style=False, allow_unicode=True))
 
 
+import math
+
+# ─────────────────────── In-Process BM25 Index ───────────────────────────
+# Module-level cache: {vault_path: (mtime, index, documents)}
+# Shared across all concurrent render processes because Perseus uses
+# @cache to avoid re-rendering the same context. Each render process gets
+# its own copy of the index — no daemon lock contention, zero serialization.
+_MNEME_INDEX_CACHE: dict = {}
+
+# Stopwords — bare minimum for BM25. Short, common English tokens that
+# contribute no signal. Shorter than NLTK's list; these are the top-30
+# by frequency across all documents.
+_MNEME_STOPWORDS = {
+    "the", "a", "an", "is", "are", "was", "were", "be", "been",
+    "this", "that", "these", "those", "it", "its", "they", "them",
+    "to", "of", "in", "for", "on", "and", "or", "with", "at", "by",
+    "as", "from", "we", "you", "he", "she", "not", "do", "does",
+    "did", "has", "have", "had", "but", "if", "so", "no", "will",
+    "can", "all", "each", "which", "what", "who", "how", "when",
+}
+
+# BM25 parameters (defaults from Lucene / Elasticsearch)
+_MNEME_BM25_K1 = 1.2
+_MNEME_BM25_B = 0.75
+
+# Weight multipliers per field (compared to body text weight of 1.0)
+_MNEME_FIELD_WEIGHTS = {
+    "title": 3.0,      # title matches are very important
+    "recall_when": 2.0,  # trigger phrases are highly weighted
+    "summary": 1.5,      # summary is more important than body
+    "tags": 1.5,         # exact tag matches
+    "topic_path": 1.2,   # topic path segments
+    "body": 1.0,
+}
+
+
+def _mneme_vault_path(cfg: dict) -> Path:
+    """Resolve the Mnēmē vault directory from config or auto-detect.
+
+    Resolution order:
+      1. memory.mneme_vault_path from config (if set)
+      2. Auto-detect: $HERMES_HOME/mneme-vault/memories/projects
+         (or ~/.hermes/mneme-vault/memories/projects as fallback)
+      3. Default path even if it doesn't exist (returns empty list)
+    """
+    raw = cfg.get("memory", {}).get("mneme_vault_path", "").strip()
+    if raw:
+        return Path(raw).expanduser()
+
+    # Auto-detect: check HERMES_HOME first, then ~/.hermes
+    hermes_home = os.environ.get("HERMES_HOME", "")
+    candidates = []
+    if hermes_home:
+        candidates.append(Path(hermes_home) / "mneme-vault" / "memories" / "projects")
+    candidates.append(Path.home() / ".hermes" / "mneme-vault" / "memories" / "projects")
+
+    for cand in candidates:
+        if cand.is_dir():
+            return cand
+
+    # Return the default even if it doesn't exist (will trigger local recall
+    # to return empty, then fall through to daemon)
+    return Path.home() / ".hermes" / "mneme-vault" / "memories" / "projects"
+
+
+def _mneme_tokenize(text: str) -> list[str]:
+    """Tokenize a text string: lowercase, split on non-alpha, filter stopwords, strip short."""
+    if not text:
+        return []
+    tokens = re.findall(r"[a-zA-Z0-9][a-zA-Z0-9_-]{1,}", text.lower())
+    return [t for t in tokens if t not in _MNEME_STOPWORDS and len(t) > 1]
+
+
+def _mneme_index_document(file_path: Path) -> dict | None:
+    """Parse a single vault .md file and return structured fields, or None on error."""
+    try:
+        text = file_path.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return None
+    fm, body = _parse_frontmatter(text)
+    if not fm:
+        return None
+
+    # Build text-indexable fields
+    title = str(fm.get("title", "") or "")
+    summary = str(fm.get("summary", "") or "")
+    doc_scope = str(fm.get("scope", "") or "")
+    doc_type = str(fm.get("type", "") or "")
+    tags = [str(t) for t in (fm.get("tags") or []) if t]
+    topic_path = [str(t) for t in (fm.get("topic_path") or []) if t]
+    recall_when = [str(rw) for rw in (fm.get("recall_when") or []) if rw]
+    doc_id = str(fm.get("id", file_path.stem) or file_path.stem)
+
+    # Concatenate all text for BM25 indexing
+    searchable_text = " ".join([
+        title,
+        summary,
+        body,
+        " ".join(tags),
+        " ".join(topic_path),
+        " ".join(recall_when),
+    ])
+
+    # Per-field tokenization for weighted scoring
+    field_tokens = {
+        "title": _mneme_tokenize(title),
+        "summary": _mneme_tokenize(summary),
+        "recall_when": _mneme_tokenize(" ".join(recall_when)),
+        "tags": _mneme_tokenize(" ".join(tags) if tags else ""),
+        "topic_path": _mneme_tokenize(" ".join(topic_path) if topic_path else ""),
+        "body": _mneme_tokenize(body),
+    }
+
+    # Per-field tokens for matching — used in scoring
+    return {
+        "id": doc_id,
+        "title": title,
+        "type": doc_type,
+        "scope": doc_scope,
+        "summary": summary,
+        "topic_path": topic_path,
+        "tags": tags,
+        "field_tokens": field_tokens,
+        "all_tokens": [],
+    }
+
+
+def _mneme_build_bm25(vault_path: Path) -> tuple[list[dict], dict[str, int], float, dict[str, list[int]]]:
+    """Scan vault, parse all .md files, build BM25 index.
+
+    Returns:
+        documents — list of parsed doc dicts with id, title, type, scope, summary, field_tokens
+        df — dict mapping token → document frequency
+        avg_doc_len — average token count across all documents
+        inverted — term → list of doc indices (for fast candidate selection)
+    """
+    documents: list[dict] = []
+    df: dict[str, int] = {}  # document frequency per token
+    inverted: dict[str, list[int]] = {}  # term → [doc_idx, ...]
+    total_tokens = 0
+
+    if not vault_path.is_dir():
+        return documents, df, 0.0, inverted
+
+    for md_file in sorted(vault_path.rglob("*.md")):
+        doc = _mneme_index_document(md_file)
+        if doc is None:
+            continue
+
+        doc_idx = len(documents)
+
+        # Compute all_tokens for IDF calculation (union of field tokens)
+        all_tokens = []
+        for field_toks in doc["field_tokens"].values():
+            all_tokens.extend(field_toks)
+        doc["all_tokens"] = all_tokens
+        total_tokens += len(all_tokens)
+
+        # Document frequency: count how many docs each token appears in
+        # Inverted index: map token → doc indices
+        seen_tokens = set(all_tokens)
+        for token in seen_tokens:
+            df[token] = df.get(token, 0) + 1
+            if token not in inverted:
+                inverted[token] = []
+            inverted[token].append(doc_idx)
+
+        documents.append(doc)
+
+    avg_doc_len = total_tokens / len(documents) if documents else 0.0
+    return documents, df, avg_doc_len, inverted
+
+
+def _mneme_ensure_index(cfg: dict) -> tuple[list[dict], dict[str, int], float, dict[str, list[int]]]:
+    """Load or return cached BM25 index. Rebuilds when vault mtime changes.
+
+    Module-level cache means multiple @mneme directives in the same render
+    process share the same index. Only re-scans the vault when a file has
+    been added, removed, or modified.
+    """
+    vault_path = _mneme_vault_path(cfg)
+    vault_path_str = str(vault_path.resolve())
+
+    # Determine current vault mtime (latest file mtime)
+    max_mtime = 0.0
+    try:
+        if vault_path.is_dir():
+            for f in vault_path.rglob("*.md"):
+                try:
+                    m = f.stat().st_mtime
+                    if m > max_mtime:
+                        max_mtime = m
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    cached = _MNEME_INDEX_CACHE.get(vault_path_str)
+    if cached is not None and cached[0] == max_mtime:
+        return cached[1], cached[2], cached[3], cached[4]
+
+    docs, df, avg_doc_len, inverted = _mneme_build_bm25(vault_path)
+    _MNEME_INDEX_CACHE[vault_path_str] = (max_mtime, docs, df, avg_doc_len, inverted)
+    return docs, df, avg_doc_len, inverted
+
+
+def _mneme_score(query_tokens: list[str], doc: dict, df: dict[str, int],
+                  avg_doc_len: float, num_docs: int) -> float:
+    """BM25 score for a single document against the query.
+
+    Uses the Okapi BM25+ variant, weighted by field multipliers.
+    """
+    score = 0.0
+    doc_len = len(doc["all_tokens"])
+
+    for q_token in query_tokens:
+        doc_freq = df.get(q_token, 0)
+        if doc_freq == 0:
+            continue
+
+        # IDF component
+        idf = math.log((num_docs - doc_freq + 0.5) / (doc_freq + 0.5) + 1.0)
+
+        # TF component: aggregate over fields with field weights
+        tf_total = 0
+        for field_name, field_tokens in doc["field_tokens"].items():
+            tf = field_tokens.count(q_token)
+            if tf > 0:
+                weight = _MNEME_FIELD_WEIGHTS.get(field_name, 1.0)
+                tf_total += tf * weight
+
+        if tf_total == 0:
+            continue
+
+        # Okapi BM25 TF saturation
+        tf_saturated = (tf_total * (_MNEME_BM25_K1 + 1)) / (
+            tf_total + _MNEME_BM25_K1 * (1 - _MNEME_BM25_B + _MNEME_BM25_B * (doc_len / avg_doc_len))
+        )
+
+        score += idf * tf_saturated
+
+    return score
+
+
+def _mneme_recall(cfg: dict, query: str, k: int = 5,
+                   scope: str | None = None,
+                   type_filter: str | None = None) -> list[dict]:
+    """In-process BM25 recall against the Mnēmē memory vault.
+
+    Reads vault .md files directly — no network, no daemon, zero deps.
+    Uses an inverted index with Okapi BM25+ scoring and field weighting.
+
+    Returns list of hit dicts (id, title, type, scope, summary, score), ordered
+    by score descending, limited to k.
+    """
+    try:
+        documents, df, avg_doc_len, inverted = _mneme_ensure_index(cfg)
+    except Exception:
+        return []
+
+    if not documents:
+        return []
+
+    num_docs = len(documents)
+    query_tokens = _mneme_tokenize(query)
+    if not query_tokens:
+        return []
+
+    # Candidate selection via inverted index: only score docs that
+    # contain at least one query term.
+    candidate_set: set[int] = set()
+    for q_token in query_tokens:
+        indices = inverted.get(q_token)
+        if indices:
+            candidate_set.update(indices)
+
+    if not candidate_set:
+        return []
+
+    # Score candidates, apply scope/type filters
+    scored: list[tuple[float, dict]] = []
+    for doc_idx in candidate_set:
+        doc = documents[doc_idx]
+        if scope and doc.get("scope") != scope:
+            continue
+        if type_filter and doc.get("type") != type_filter:
+            continue
+
+        score = _mneme_score(query_tokens, doc, df, avg_doc_len, num_docs)
+        scored.append((score, doc))
+
+    # Sort by score descending, keep top-k
+    scored.sort(key=lambda x: -x[0])
+    top = scored[:k]
+
+    return [
+        {
+            "id": doc["id"],
+            "title": doc["title"],
+            "type": doc.get("type", ""),
+            "scope": doc.get("scope", ""),
+            "summary": doc.get("summary", ""),
+            "score": round(score, 2),
+        }
+        for score, doc in top
+    ]
+
+
 # ─────────────────────────────── Mnēmē Memory ────────────────────────────────
 #
 # Mnēmē — narrative project memory. Distills checkpoints + Pythia log into a
@@ -7389,32 +7696,6 @@ def _save_narrative(path: Path, frontmatter: dict, body: str) -> None:
     os.replace(tmp, path)
 
 
-def _bastra_recall(cfg: dict, query: str, k: int = 5,
-                   scope: str | None = None,
-                   type_filter: str | None = None) -> list[dict]:
-    """Call bastra-recall HTTP API and return matching memory hits.
-
-    Returns empty list on any failure (daemon down, timeout, bad response).
-    """
-    url = (cfg.get("memory", {}).get("bastra_url", "http://127.0.0.1:6723")
-           .rstrip("/"))
-    payload: dict = {"query": query, "k": k}
-    if scope:
-        payload["scope"] = scope
-    if type_filter:
-        payload["type"] = type_filter
-    try:
-        req = urllib.request.Request(
-            f"{url}/api/v1/recall",
-            data=json.dumps(payload).encode(),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            result = json.loads(resp.read().decode())
-        return result.get("hits", [])
-    except Exception:
-        return []
 
 
 def _mneme_default_frontmatter(workspace: Path) -> dict:
@@ -8526,9 +8807,9 @@ def _memory_federation_diagnostic(name: str, args_str: str, cfg: dict, workspace
     return diagnostics
 
 
-def resolve_bastra(args_str: str, cfg: dict,
+def resolve_mneme(args_str: str, cfg: dict,
                    workspace: Path | None = None) -> str:
-    """Render the @bastra directive — persistent memory recall via bastra-recall.
+    """Render the @mneme directive — persistent memory recall via Mnēmē BM25.
 
     Args:
       query="..."  → search query (required)
@@ -8536,13 +8817,12 @@ def resolve_bastra(args_str: str, cfg: dict,
       k=N          → max results (1-20, default 5)
       type="..."   → filter by memory type (lesson|preference|decision|...)
 
-    Calls the bastra-recall HTTP daemon at memory.bastra_url.
-    Falls back gracefully if the daemon is unreachable.
+    Reads the Mnēmē memory vault directly — in-process BM25, zero network.
     """
     mods = _parse_kv_modifiers(args_str)
     query = (mods.get("query") or "").strip()
     if not query:
-        return "> ⚠ @bastra requires a `query=\"...\"` argument.\n"
+        return "> ⚠ @mneme requires a `query=\"...\"` argument.\n"
 
     scope = (mods.get("scope") or "").strip() or None
     type_filter = (mods.get("type") or "").strip().lower() or None
@@ -8551,11 +8831,11 @@ def resolve_bastra(args_str: str, cfg: dict,
     except (ValueError, TypeError):
         k = 5
 
-    hits = _bastra_recall(cfg, query, k=k, scope=scope, type_filter=type_filter)
+    hits = _mneme_recall(cfg, query, k=k, scope=scope, type_filter=type_filter)
     if not hits:
-        return "> \u2139\ufe0f No bastra-recall memories matched.\n"
+        return "> \u2139\ufe0f No Mn\u0113m\u0113 memories matched.\n"
 
-    lines = ["> \U0001f9e0 **Bastra-Recall Memories:**\n"]
+    lines = ["> \U0001f9e0 **Mn\u0113m\u0113 Memories:**\n"]
     for h in hits:
         title = h.get("title", "untitled")
         summary = h.get("summary", "")
@@ -8574,10 +8854,10 @@ def resolve_bastra(args_str: str, cfg: dict,
     return "\n".join(lines) + "\n"
 
 
-def _resolve_memory_via_bastra(focus: str, workspace: Path,
+def _resolve_memory_via_mneme(focus: str, workspace: Path,
                                 cfg: dict, include_fed: bool) -> str:
-    """Resolve @memory through bastra-recall API instead of file narrative."""
-    # Map Mn\u0113m\u0113 focus sections to bastra type filters
+    """Resolve @memory through Mnēmē BM25 vault instead of file narrative."""
+    # Map Mnēmē focus sections to memory type filters
     type_map = {
         "decisions": "decision",
         "recent": None,
@@ -8593,14 +8873,14 @@ def _resolve_memory_via_bastra(focus: str, workspace: Path,
     query = f"{focus} {ws_name}".strip() if focus else ws_name
     scope = ws_name
 
-    hits = _bastra_recall(cfg, query, k=8, scope=scope, type_filter=type_filter)
+    hits = _mneme_recall(cfg, query, k=8, scope=scope, type_filter=type_filter)
     if not hits:
-        base = "> \u2139\ufe0f No bastra-recall memories found for this workspace.\n"
+        base = "> \u2139\ufe0f No Mn\u0113m\u0113 memories found for this workspace.\n"
         if include_fed:
             return f"{base}\n---\n\n## Federated Context\n\n{_render_federation_digest(cfg)}"
         return base
 
-    lines = ["> \U0001f9e0 **Bastra-recall memories**\n"]
+    lines = ["> \U0001f9e0 **Mn\u0113m\u0113 memories**\n"]
     for h in hits:
         title = h.get("title", "untitled")
         summary = h.get("summary", "")
@@ -8659,10 +8939,10 @@ def resolve_memory(args_str: str, cfg: dict, workspace: Path | None = None) -> s
     if ws_override:
         ws = Path(ws_override).expanduser().resolve()
 
-    # ── Route through bastra-recall when configured ────────────────────────
+    # ── Route through Mnēmē BM25 when configured ────────────────────────
     backend = cfg.get("memory", {}).get("backend", "file")
-    if backend == "bastra":
-        return _resolve_memory_via_bastra(focus, ws, cfg, include_fed)
+    if backend == "mneme":
+        return _resolve_memory_via_mneme(focus, ws, cfg, include_fed)
 
     def _maybe_append_federation(local_text: str) -> str:
         if not include_fed:

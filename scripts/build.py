@@ -79,7 +79,7 @@ STDLIB_REMINDER_RE = re.compile(
 )
 
 # Baseline line count for drift detection.
-BASELINE_LINES = 14089  # Phase 24 + bastra-recall integration
+BASELINE_LINES = 14400  # Phase 24 + bastra-recall integration + in-process BM25
 
 
 def build() -> None:
