@@ -16,7 +16,7 @@ Source documents start with `@perseus v0.4` on line 1. The value after `@perseus
 | `@include <file>` | Embeds a file inline; markdown raw, structured files fenced |
 | `@if <cond>` / `@else` / `@endif` | Conditional blocks: `file.exists/missing`, `env.set/unset/eq/neq`, `query("cmd") [not] matches /regex/[i]` |
 | `@constraint id="..." severity="..."` | Machine-readable rules rendered as a `\| ID \| Severity \| Rule \|` table |
-| `@skills [flag_stale=true]` | Scans the Hermes skills dir, reads frontmatter, flags stale entries |
+| `@skills [flag_stale=true]` | Scans the assistant's skills dir, reads frontmatter, flags stale entries |
 | `@services` (YAML block or `@services ... @end`) | HTTP health checks (`url:`), Docker container status (`docker:`), or optional shell exit check (`command:`) |
 | `@session [count=N] [topic="..."]` | Recent session digest from the sessions directory |
 | `@date format="YYYY-MM-DD HH:mm z"` | Live date/time, inline or standalone |
