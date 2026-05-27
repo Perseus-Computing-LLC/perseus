@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-05-26T23:05:43.519861",
+  "timestamp": "2026-05-26T23:19:58.450864",
   "python": "3.12.13",
   "hostname": "6e22d21c3126",
   "vault": "/tmp/mneme-bench-vault",
@@ -18,65 +18,65 @@
       "10": {
         "target": 10,
         "created": 10,
-        "elapsed_s": 0.021,
-        "docs_per_second": 471.1,
-        "p50_ms": 0.39,
-        "p99_ms": 17.71,
-        "mean_ms": 2.12
+        "elapsed_s": 0.015,
+        "docs_per_second": 669.4,
+        "p50_ms": 0.4,
+        "p99_ms": 11.37,
+        "mean_ms": 1.49
       },
       "100": {
         "target": 100,
         "created": 90,
-        "elapsed_s": 0.034,
-        "docs_per_second": 2681.6,
-        "p50_ms": 0.37,
-        "p99_ms": 0.4,
-        "mean_ms": 0.37
+        "elapsed_s": 0.035,
+        "docs_per_second": 2602.2,
+        "p50_ms": 0.38,
+        "p99_ms": 0.44,
+        "mean_ms": 0.38
       },
       "500": {
         "target": 500,
         "created": 400,
-        "elapsed_s": 0.146,
-        "docs_per_second": 2743.4,
-        "p50_ms": 0.36,
-        "p99_ms": 0.41,
-        "mean_ms": 0.36
+        "elapsed_s": 0.155,
+        "docs_per_second": 2576.3,
+        "p50_ms": 0.38,
+        "p99_ms": 0.64,
+        "mean_ms": 0.39
       },
       "1000": {
         "target": 1000,
         "created": 500,
-        "elapsed_s": 0.179,
-        "docs_per_second": 2791.2,
-        "p50_ms": 0.36,
-        "p99_ms": 0.39,
-        "mean_ms": 0.36
+        "elapsed_s": 0.187,
+        "docs_per_second": 2669.0,
+        "p50_ms": 0.37,
+        "p99_ms": 0.55,
+        "mean_ms": 0.37
       },
       "2500": {
         "target": 2500,
         "created": 1500,
-        "elapsed_s": 0.548,
-        "docs_per_second": 2738.1,
-        "p50_ms": 0.36,
-        "p99_ms": 0.4,
+        "elapsed_s": 0.561,
+        "docs_per_second": 2675.6,
+        "p50_ms": 0.37,
+        "p99_ms": 0.45,
         "mean_ms": 0.37
       },
       "5000": {
         "target": 5000,
         "created": 2500,
-        "elapsed_s": 0.922,
-        "docs_per_second": 2711.0,
+        "elapsed_s": 0.925,
+        "docs_per_second": 2702.7,
         "p50_ms": 0.37,
-        "p99_ms": 0.4,
+        "p99_ms": 0.45,
         "mean_ms": 0.37
       },
       "10000": {
         "target": 10000,
         "created": 5000,
-        "elapsed_s": 1.858,
-        "docs_per_second": 2691.2,
+        "elapsed_s": 1.879,
+        "docs_per_second": 2660.9,
         "p50_ms": 0.37,
-        "p99_ms": 0.41,
-        "mean_ms": 0.37
+        "p99_ms": 0.79,
+        "mean_ms": 0.38
       }
     },
     "total": 10000
@@ -86,76 +86,76 @@
     "scales": {
       "10": {
         "docs": 10,
-        "index_build_ms": 6033.4,
-        "search_p50_ms": 35.78,
-        "search_p95_ms": 69.5,
-        "scoped_p50_ms": 30.8,
+        "index_build_ms": 6015.1,
+        "search_p50_ms": 37.08,
+        "search_p95_ms": 71.42,
+        "scoped_p50_ms": 31.48,
         "mean_hits": 5
       },
       "100": {
         "docs": 100,
-        "index_build_ms": 6005.1,
-        "search_p50_ms": 36.63,
-        "search_p95_ms": 73.77,
-        "scoped_p50_ms": 30.46,
+        "index_build_ms": 6028.1,
+        "search_p50_ms": 36.12,
+        "search_p95_ms": 72.89,
+        "scoped_p50_ms": 31.28,
         "mean_hits": 5
       },
       "500": {
         "docs": 500,
-        "index_build_ms": 6066.9,
-        "search_p50_ms": 36.86,
-        "search_p95_ms": 72.79,
-        "scoped_p50_ms": 31.7,
+        "index_build_ms": 5953.2,
+        "search_p50_ms": 36.5,
+        "search_p95_ms": 85.42,
+        "scoped_p50_ms": 30.32,
         "mean_hits": 5
       },
       "1000": {
         "docs": 1000,
-        "index_build_ms": 6190.6,
-        "search_p50_ms": 36.94,
-        "search_p95_ms": 75.93,
-        "scoped_p50_ms": 30.56,
+        "index_build_ms": 5985.6,
+        "search_p50_ms": 37.04,
+        "search_p95_ms": 73.2,
+        "scoped_p50_ms": 31.2,
         "mean_hits": 5
       },
       "2500": {
         "docs": 2500,
-        "index_build_ms": 6182.9,
-        "search_p50_ms": 37.55,
-        "search_p95_ms": 75.05,
-        "scoped_p50_ms": 31.33,
+        "index_build_ms": 5996.2,
+        "search_p50_ms": 37.56,
+        "search_p95_ms": 71.96,
+        "scoped_p50_ms": 30.42,
         "mean_hits": 5
       },
       "5000": {
         "docs": 5000,
-        "index_build_ms": 7046.5,
-        "search_p50_ms": 38.45,
-        "search_p95_ms": 74.25,
-        "scoped_p50_ms": 30.82,
+        "index_build_ms": 5936.1,
+        "search_p50_ms": 36.61,
+        "search_p95_ms": 73.01,
+        "scoped_p50_ms": 30.21,
         "mean_hits": 5
       },
       "10000": {
         "docs": 10000,
-        "index_build_ms": 7438.3,
-        "search_p50_ms": 38.41,
-        "search_p95_ms": 89.48,
-        "scoped_p50_ms": 46.52,
+        "index_build_ms": 6000.4,
+        "search_p50_ms": 37.11,
+        "search_p95_ms": 71.84,
+        "scoped_p50_ms": 29.92,
         "mean_hits": 5
       }
     }
   },
   "throughput": {
     "phase": "throughput",
-    "index_build_ms": 7336.0,
+    "index_build_ms": 6133.3,
     "recall_500": {
-      "qps": 16.7,
-      "p50_ms": 41.72,
-      "p95_ms": 131.59,
-      "min_ms": 31.42,
-      "max_ms": 382.59
+      "qps": 21.5,
+      "p50_ms": 36.46,
+      "p95_ms": 72.51,
+      "min_ms": 31.22,
+      "max_ms": 169.55
     },
     "save_100": {
-      "docs_per_second": 2645.1,
+      "docs_per_second": 2664.2,
       "p50_ms": 0.37,
-      "p95_ms": 0.41
+      "p95_ms": 0.4
     }
   },
   "perseus": {
@@ -163,49 +163,49 @@
     "scales": {
       "1": {
         "directives": 3,
-        "cold_s": 8.051,
-        "warm_s": 0.434,
-        "speedup": 18.6,
+        "cold_s": 6.524,
+        "warm_s": 0.296,
+        "speedup": 22.0,
         "cold_ok": true,
         "warm_ok": true
       },
       "5": {
         "directives": 15,
-        "cold_s": 9.372,
-        "warm_s": 0.293,
-        "speedup": 32.0,
+        "cold_s": 6.981,
+        "warm_s": 0.308,
+        "speedup": 22.7,
         "cold_ok": true,
         "warm_ok": true
       },
       "10": {
         "directives": 30,
-        "cold_s": 8.4,
-        "warm_s": 0.425,
-        "speedup": 19.8,
+        "cold_s": 7.511,
+        "warm_s": 0.3,
+        "speedup": 25.0,
         "cold_ok": true,
         "warm_ok": true
       },
       "20": {
         "directives": 60,
-        "cold_s": 9.598,
-        "warm_s": 0.306,
-        "speedup": 31.4,
+        "cold_s": 8.75,
+        "warm_s": 0.309,
+        "speedup": 28.3,
         "cold_ok": true,
         "warm_ok": true
       },
       "50": {
         "directives": 150,
-        "cold_s": 12.263,
+        "cold_s": 12.119,
         "warm_s": 0.314,
-        "speedup": 39.1,
+        "speedup": 38.6,
         "cold_ok": true,
         "warm_ok": true
       },
       "100": {
         "directives": 300,
-        "cold_s": 17.616,
-        "warm_s": 0.328,
-        "speedup": 53.7,
+        "cold_s": 17.62,
+        "warm_s": 0.346,
+        "speedup": 50.9,
         "cold_ok": true,
         "warm_ok": true
       }
@@ -216,12 +216,12 @@
     "processes": 8,
     "per_process": 50,
     "total_queries": 400,
-    "elapsed_s": 18.528,
-    "qps": 21.6,
-    "search_p50_ms": 63.98,
-    "search_p95_ms": 162.77,
-    "search_p99_ms": 198.17,
-    "index_build_p50_ms": 12406.2
+    "elapsed_s": 16.951,
+    "qps": 23.6,
+    "search_p50_ms": 60.32,
+    "search_p95_ms": 171.63,
+    "search_p99_ms": 208.54,
+    "index_build_p50_ms": 11257.5
   },
-  "headline": "Mn\u0113m\u0113 BM25: 10000 docs, index=7438ms, search=38.4ms P50, concurrent=21.6 qps"
+  "headline": "Mn\u0113m\u0113 BM25: 10000 docs, index=6000ms, search=37.1ms P50, concurrent=23.6 qps"
 }
