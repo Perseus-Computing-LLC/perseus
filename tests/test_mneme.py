@@ -43,7 +43,7 @@ def _file_cfg() -> dict:
 class TestResolveMneme:
     def test_missing_query_returns_warning(self):
         result = perseus.resolve_mneme("", cfg())
-        assert "@mneme requires" in result
+        assert "@memory search requires" in result
         assert "query=" in result
 
     def test_no_hits_returns_info_message(self):
@@ -108,11 +108,12 @@ class TestResolveMneme:
 
 
 # ---------------------------------------------------------------------------
-# resolve_memory() — backend routing
+# resolve_memory() — unified mode dispatch (Mnēmē v2)
 # ---------------------------------------------------------------------------
 
-class TestResolveMemoryBackendRouting:
-    def test_file_backend_does_not_call_mneme(self, tmp_path, monkeypatch):
+class TestResolveMemoryUnified:
+    def test_no_query_uses_narrative_mode(self, tmp_path, monkeypatch):
+        """Plain @memory with no query → narrative mode, does not call _mneme_recall."""
         monkeypatch.chdir(tmp_path)
         (tmp_path / ".perseus").mkdir()
         called = []
@@ -122,12 +123,12 @@ class TestResolveMemoryBackendRouting:
             return []
 
         with patch.object(perseus, "_mneme_recall", side_effect=fake_mneme):
-            result = perseus.resolve_memory("", _file_cfg(), workspace=tmp_path)
+            result = perseus.resolve_memory("", cfg(), workspace=tmp_path)
 
-        assert not called, "_mneme_recall should not be called with file backend"
+        assert not called, "_mneme_recall should not be called for narrative mode"
 
-    def test_mneme_backend_calls_mneme(self, tmp_path, monkeypatch):
-        monkeypatch.chdir(tmp_path)
+    def test_query_triggers_search_mode(self, tmp_path):
+        """@memory query=... → search mode, calls _mneme_recall."""
         called = []
 
         def fake_mneme(cfg_, query, k=5, scope=None, type_filter=None):
@@ -135,40 +136,52 @@ class TestResolveMemoryBackendRouting:
             return []
 
         with patch.object(perseus, "_mneme_recall", side_effect=fake_mneme):
-            result = perseus.resolve_memory("", _mneme_cfg(), workspace=tmp_path)
+            result = perseus.resolve_memory('query="test"', cfg(), workspace=tmp_path)
 
-        assert called, "_mneme_recall should be called with mneme backend"
-        assert "No Mnēmē memories found" in result
+        assert called, "_mneme_recall should be called for search mode"
+        assert "No Mnēmē memories matched" in result
 
-    def test_mneme_backend_renders_hits(self, tmp_path):
+    def test_search_renders_hits(self, tmp_path):
         hits = [{"title": "Arch decision", "summary": "Chose monorepo.", "score": 80, "type": "decision"}]
 
         with patch.object(perseus, "_mneme_recall", return_value=hits):
-            result = perseus.resolve_memory("", _mneme_cfg(), workspace=tmp_path)
+            result = perseus.resolve_memory('query="arch"', cfg(), workspace=tmp_path)
 
         assert "Arch decision" in result
         assert "Chose monorepo" in result
 
-    def test_mneme_backend_focus_decisions_uses_type_filter(self, tmp_path):
+    def test_search_forwards_type_filter(self, tmp_path):
         captured = {}
 
-        def fake_mneme(cfg_, query, k=8, scope=None, type_filter=None):
+        def fake_mneme(cfg_, query, k=5, scope=None, type_filter=None):
             captured["type_filter"] = type_filter
             return []
 
         with patch.object(perseus, "_mneme_recall", side_effect=fake_mneme):
-            perseus.resolve_memory("focus=decisions", _mneme_cfg(), workspace=tmp_path)
+            perseus.resolve_memory('query="x" type="decision"', cfg(), workspace=tmp_path)
 
         assert captured.get("type_filter") == "decision"
 
-    def test_mneme_backend_focus_patterns_uses_lesson_type(self, tmp_path):
+    def test_search_forwards_scope(self, tmp_path):
         captured = {}
 
-        def fake_mneme(cfg_, query, k=8, scope=None, type_filter=None):
-            captured["type_filter"] = type_filter
+        def fake_mneme(cfg_, query, k=5, scope=None, type_filter=None):
+            captured["scope"] = scope
             return []
 
         with patch.object(perseus, "_mneme_recall", side_effect=fake_mneme):
-            perseus.resolve_memory("focus=patterns", _mneme_cfg(), workspace=tmp_path)
+            perseus.resolve_memory('query="x" scope="myproject"', cfg(), workspace=tmp_path)
 
-        assert captured.get("type_filter") == "lesson"
+        assert captured.get("scope") == "myproject"
+
+    def test_explicit_mode_search(self, tmp_path):
+        called = []
+
+        def fake_mneme(cfg_, query, k=5, scope=None, type_filter=None):
+            called.append(True)
+            return []
+
+        with patch.object(perseus, "_mneme_recall", side_effect=fake_mneme):
+            perseus.resolve_memory('mode=search query="x"', cfg(), workspace=tmp_path)
+
+        assert called
