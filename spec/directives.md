@@ -130,9 +130,14 @@ Current date/time.
 ### `@session`
 Digest of recent assistant sessions — titles, timestamps, brief summaries. Reads from the
 `sessions_dir` path configured under `assistant.sessions_dir` in `~/.perseus/config.yaml`.
-The default value points to `~/.hermes/sessions` for Hermes Agent users; any assistant that
-stores sessions as JSON files in a directory can use this directive by pointing `sessions_dir`
-at its own session store.
+Default: `~/.hermes/sessions` (Hermes Agent). Configure for your assistant:
+
+```yaml
+# ~/.perseus/config.yaml
+assistant:
+  sessions_dir: "~/.codex/sessions"   # Codex sessions
+  sessions_dir: "~/.claude/sessions"  # Claude Code sessions
+```
 
 ```
 @session count=5
@@ -142,7 +147,17 @@ at its own session store.
 Output is a compact markdown list of recent sessions the assistant can use to understand active threads.
 
 ### `@skills`
-List available Hermes skills, with optional staleness flags and category filters.
+List available skills for the configured assistant, with optional staleness flags and category filters.
+Reads from the `skill_dir` path configured under `assistant.skill_dir` in `~/.perseus/config.yaml`.
+Default: `~/.hermes/skills/` (Hermes Agent). Configure for your assistant:
+
+```yaml
+# ~/.perseus/config.yaml
+assistant:
+  skill_dir: "~/.codex/skills"        # Codex skills
+  skill_dir: "~/.claude/skills"       # Claude Code skills
+  skill_dir: "~/.cursor/skills"       # Cursor skills
+```
 
 ```
 @skills
