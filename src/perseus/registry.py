@@ -51,7 +51,7 @@ def _bind_registry() -> None:
         DirectiveSpec("@inbox",     resolve_inbox,     ["unread=", "limit="],      "inline",  "acw", reads_files=True, cacheable=True, summary="Agent message inbox", tier=2),
         DirectiveSpec("@drift",     resolve_drift,     [],                         "inline",  "ac",  reads_files=True, summary="Oracle drift report", tier=2),
         DirectiveSpec("@perseus",   resolve_perseus,   [],                         "inline",  "acw", cacheable=True, summary="Fetch rendered context from a remote Perseus instance", tier=2),
-        DirectiveSpec("@bastra",    resolve_bastra,    ["query=", "scope=", "k=", "type="], "inline", "acw", summary="Recall persistent memories via bastra-recall", tier=2),
+        DirectiveSpec("@mneme",    resolve_mneme,    ["query=", "scope=", "k=", "type="], "inline", "acw", summary="Recall persistent memories via Mnēmē BM25", tier=2),
 
         # Tier 3 — On-demand (bulky, expensive)
         DirectiveSpec("@query",     resolve_query,     ["fallback=", "schema="],   "inline",  "acw", executes_shell=True,  safe_for_hover=False, cacheable=True,  summary="Run a shell command and embed stdout", tier=3),

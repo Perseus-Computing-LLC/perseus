@@ -93,8 +93,7 @@ DEFAULT_CONFIG = {
         "recent_keep": 5,           # raw checkpoints to include in Recent Activity
         "auto_update": True,        # update narrative on every checkpoint write
         "compact_threshold": 20,    # advisory: compact after this many incremental updates
-        "backend": "file",         # "file" (default, Mnēmē narrative) or "bastra" (HTTP API)
-        "bastra_url": "http://127.0.0.1:6723",  # bastra-recall daemon endpoint
+        "backend": "file",         # "file" (default, Mnēmē narrative) or "mneme" (BM25 vault)
         "llm_provider": None,       # None = deterministic; "ollama" / "openai-compat" enables LLM
         "llm_model": None,          # inherits from llm: block if None
         "max_narrative_lines": 300, # warn (not error) if narrative grows beyond this
