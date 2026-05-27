@@ -29,7 +29,7 @@ This puts `perseus` on `~/.local/bin/`. Make sure that's on your PATH:
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"   # add to ~/.bashrc or ~/.zshrc
-perseus --version                       # should print: perseus v1.0.4
+perseus --version                       # should print: perseus v1.0.5
 ```
 
 **Alternative — run directly from the repo:**
@@ -51,9 +51,9 @@ mkdir -p ~/.perseus
 ```yaml
 # ~/.perseus/config.yaml
 pythia:
-  skill_dir: ~/.hermes/skills       # optional: your Hermes skills directory
+  skill_dir: ~/.hermes/skills       # optional: your assistant's skills directory
 assistant:
-  sessions_dir: ~/.hermes/sessions  # optional: your Hermes session logs
+  sessions_dir: ~/.hermes/sessions  # optional: your assistant's session logs
 ```
 
 > **Note:** These fields are only needed if you're using Hermes Agent for `@skills` and
