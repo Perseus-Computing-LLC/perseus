@@ -44,6 +44,7 @@ MODULE_ORDER = [
     "src/perseus/renderer.py",
     "src/perseus/checkpoint.py",
     "src/perseus/memory.py",
+    "src/perseus/mneme_index.py",    # ← Mnēmē v2: SQLite FTS5 index (depends on memory.py for paths + frontmatter)
     "src/perseus/inbox.py",
     "src/perseus/agora.py",
     "src/perseus/pythia.py",
