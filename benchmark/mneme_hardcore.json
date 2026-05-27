@@ -1,0 +1,227 @@
+{
+  "timestamp": "2026-05-26T23:05:43.519861",
+  "python": "3.12.13",
+  "hostname": "6e22d21c3126",
+  "vault": "/tmp/mneme-bench-vault",
+  "scales": [
+    10,
+    100,
+    500,
+    1000,
+    2500,
+    5000,
+    10000
+  ],
+  "seed": {
+    "phase": "seed",
+    "scales": {
+      "10": {
+        "target": 10,
+        "created": 10,
+        "elapsed_s": 0.021,
+        "docs_per_second": 471.1,
+        "p50_ms": 0.39,
+        "p99_ms": 17.71,
+        "mean_ms": 2.12
+      },
+      "100": {
+        "target": 100,
+        "created": 90,
+        "elapsed_s": 0.034,
+        "docs_per_second": 2681.6,
+        "p50_ms": 0.37,
+        "p99_ms": 0.4,
+        "mean_ms": 0.37
+      },
+      "500": {
+        "target": 500,
+        "created": 400,
+        "elapsed_s": 0.146,
+        "docs_per_second": 2743.4,
+        "p50_ms": 0.36,
+        "p99_ms": 0.41,
+        "mean_ms": 0.36
+      },
+      "1000": {
+        "target": 1000,
+        "created": 500,
+        "elapsed_s": 0.179,
+        "docs_per_second": 2791.2,
+        "p50_ms": 0.36,
+        "p99_ms": 0.39,
+        "mean_ms": 0.36
+      },
+      "2500": {
+        "target": 2500,
+        "created": 1500,
+        "elapsed_s": 0.548,
+        "docs_per_second": 2738.1,
+        "p50_ms": 0.36,
+        "p99_ms": 0.4,
+        "mean_ms": 0.37
+      },
+      "5000": {
+        "target": 5000,
+        "created": 2500,
+        "elapsed_s": 0.922,
+        "docs_per_second": 2711.0,
+        "p50_ms": 0.37,
+        "p99_ms": 0.4,
+        "mean_ms": 0.37
+      },
+      "10000": {
+        "target": 10000,
+        "created": 5000,
+        "elapsed_s": 1.858,
+        "docs_per_second": 2691.2,
+        "p50_ms": 0.37,
+        "p99_ms": 0.41,
+        "mean_ms": 0.37
+      }
+    },
+    "total": 10000
+  },
+  "recall": {
+    "phase": "recall",
+    "scales": {
+      "10": {
+        "docs": 10,
+        "index_build_ms": 6033.4,
+        "search_p50_ms": 35.78,
+        "search_p95_ms": 69.5,
+        "scoped_p50_ms": 30.8,
+        "mean_hits": 5
+      },
+      "100": {
+        "docs": 100,
+        "index_build_ms": 6005.1,
+        "search_p50_ms": 36.63,
+        "search_p95_ms": 73.77,
+        "scoped_p50_ms": 30.46,
+        "mean_hits": 5
+      },
+      "500": {
+        "docs": 500,
+        "index_build_ms": 6066.9,
+        "search_p50_ms": 36.86,
+        "search_p95_ms": 72.79,
+        "scoped_p50_ms": 31.7,
+        "mean_hits": 5
+      },
+      "1000": {
+        "docs": 1000,
+        "index_build_ms": 6190.6,
+        "search_p50_ms": 36.94,
+        "search_p95_ms": 75.93,
+        "scoped_p50_ms": 30.56,
+        "mean_hits": 5
+      },
+      "2500": {
+        "docs": 2500,
+        "index_build_ms": 6182.9,
+        "search_p50_ms": 37.55,
+        "search_p95_ms": 75.05,
+        "scoped_p50_ms": 31.33,
+        "mean_hits": 5
+      },
+      "5000": {
+        "docs": 5000,
+        "index_build_ms": 7046.5,
+        "search_p50_ms": 38.45,
+        "search_p95_ms": 74.25,
+        "scoped_p50_ms": 30.82,
+        "mean_hits": 5
+      },
+      "10000": {
+        "docs": 10000,
+        "index_build_ms": 7438.3,
+        "search_p50_ms": 38.41,
+        "search_p95_ms": 89.48,
+        "scoped_p50_ms": 46.52,
+        "mean_hits": 5
+      }
+    }
+  },
+  "throughput": {
+    "phase": "throughput",
+    "index_build_ms": 7336.0,
+    "recall_500": {
+      "qps": 16.7,
+      "p50_ms": 41.72,
+      "p95_ms": 131.59,
+      "min_ms": 31.42,
+      "max_ms": 382.59
+    },
+    "save_100": {
+      "docs_per_second": 2645.1,
+      "p50_ms": 0.37,
+      "p95_ms": 0.41
+    }
+  },
+  "perseus": {
+    "phase": "perseus",
+    "scales": {
+      "1": {
+        "directives": 3,
+        "cold_s": 8.051,
+        "warm_s": 0.434,
+        "speedup": 18.6,
+        "cold_ok": true,
+        "warm_ok": true
+      },
+      "5": {
+        "directives": 15,
+        "cold_s": 9.372,
+        "warm_s": 0.293,
+        "speedup": 32.0,
+        "cold_ok": true,
+        "warm_ok": true
+      },
+      "10": {
+        "directives": 30,
+        "cold_s": 8.4,
+        "warm_s": 0.425,
+        "speedup": 19.8,
+        "cold_ok": true,
+        "warm_ok": true
+      },
+      "20": {
+        "directives": 60,
+        "cold_s": 9.598,
+        "warm_s": 0.306,
+        "speedup": 31.4,
+        "cold_ok": true,
+        "warm_ok": true
+      },
+      "50": {
+        "directives": 150,
+        "cold_s": 12.263,
+        "warm_s": 0.314,
+        "speedup": 39.1,
+        "cold_ok": true,
+        "warm_ok": true
+      },
+      "100": {
+        "directives": 300,
+        "cold_s": 17.616,
+        "warm_s": 0.328,
+        "speedup": 53.7,
+        "cold_ok": true,
+        "warm_ok": true
+      }
+    }
+  },
+  "concurrent": {
+    "phase": "concurrent",
+    "processes": 8,
+    "per_process": 50,
+    "total_queries": 400,
+    "elapsed_s": 18.528,
+    "qps": 21.6,
+    "search_p50_ms": 63.98,
+    "search_p95_ms": 162.77,
+    "search_p99_ms": 198.17,
+    "index_build_p50_ms": 12406.2
+  },
+  "headline": "Mn\u0113m\u0113 BM25: 10000 docs, index=7438ms, search=38.4ms P50, concurrent=21.6 qps"
+}
