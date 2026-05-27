@@ -7374,15 +7374,22 @@ def _mneme_recall(cfg: dict, query: str, k: int = 5,
     """Recall memories via SQLite FTS5 BM25 index.
 
     Opens a fresh connection per call (WAL mode handles concurrency).
+    Lazily builds the index if empty (first-call initialization).
     Falls back to empty list on any failure.
-
-    Returns list of hit dicts (id, type, scope, summary, score), ordered
-    by score ascending (lower BM25 = better match), limited to k.
     """
     conn = _mneme_open_index(cfg)
     if conn is None:
         return []
     try:
+        # Lazy init: build index if no documents indexed yet
+        count = conn.execute("SELECT COUNT(*) FROM mneme_fts").fetchone()[0]
+        if count == 0:
+            conn.close()
+            _mneme_build_index(cfg)
+            conn = _mneme_open_index(cfg)
+            if conn is None:
+                return []
+
         return _mneme_search(conn, query, k, scope, type_filter)
     except Exception:
         return []
