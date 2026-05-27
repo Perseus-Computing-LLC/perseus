@@ -33,4 +33,4 @@ ENV PYTHONUNBUFFERED=1
 WORKDIR /workspace
 
 ENTRYPOINT ["perseus"]
-CMD ["--version"]
+CMD ["mcp", "serve"]
