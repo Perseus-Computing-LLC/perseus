@@ -147,6 +147,12 @@ def _mneme_build_index(cfg: dict, force: bool = False) -> int:
         return 0
 
     try:
+        # On forced rebuild, clear existing index state so stale
+        # entries for deleted files are not left behind.
+        if force:
+            conn.execute("DELETE FROM mneme_fts")
+            conn.execute("DELETE FROM mneme_files")
+
         # Load currently indexed files (path → mtime)
         indexed = {}
         for row in conn.execute("SELECT path, mtime FROM mneme_files"):
@@ -208,13 +214,33 @@ def _mneme_search(conn, query: str, k: int = 5,
     """Search the FTS5 index. Returns top-k results as list of dicts.
 
     Uses FTS5's built-in BM25 ranking. Filters by scope and type if provided.
+    Multi-term queries use token search (implicit AND). Single-term queries
+    or explicit double-quoted phrases use exact phrase matching.
     """
     if not query or not query.strip():
         return []
 
-    # Escape special FTS5 characters and build query
-    safe_query = query.replace('"', '""')
-    where_clauses = [f"mneme_fts MATCH '\"{safe_query}\"'"]
+    # Escape FTS5 and SQL special characters.
+    # FTS5: double-quote escaping ("" → escaped quote).
+    # SQL: single-quote escaping ('' → literal single quote in string).
+    stripped = query.strip()
+    safe = stripped.replace("'", "''")
+
+    # Build FTS5 MATCH expression.
+    # - Quoted phrase ("...") → keep surrounding " inside MATCH string.
+    # - Multi-word bare text → token search (implicit AND).
+    # - Single-word bare text → token search.
+    if stripped.startswith('"') and stripped.endswith('"'):
+        # Explicit phrase search — keep the FTS5 phrase syntax.
+        fts_expr = safe  # already has SQL-safe quotes, FTS5 double-quotes preserved
+    elif " " in stripped:
+        # Multi-term token search.
+        fts_expr = safe
+    else:
+        # Single term.
+        fts_expr = safe
+
+    where_clauses = [f"mneme_fts MATCH '{fts_expr}'"]
     params = []
 
     if scope:
