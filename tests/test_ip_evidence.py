@@ -379,10 +379,6 @@ def test_e2_no_cache_directive_is_always_skipped(e2_workspace, request):
     ws, home, source = e2_workspace
     env = _env(home)
 
-    _, pf = _run(
-        ["prefetch", str(source), "--workspace", str(ws), "--json"],
-        cwd=ws, env=env,
-    ), None
     pf = _run(["prefetch", str(source), "--workspace", str(ws), "--json"], cwd=ws, env=env)
     assert pf.returncode == 0, pf.stderr
 
