@@ -350,46 +350,7 @@ def _strip_macro_defs(lines: list[str]) -> "iter":
 _MAX_PIPE_STAGES = 5
 
 
-def _parse_pipe_stages(line: str) -> list[str]:
-    """Split a directive line into pipe stages respecting quoted strings."""
-    in_quote = False
-    quote_char = None
-    has_pipe = False
-    for ch in line:
-        if ch in ('"', "'") and not in_quote:
-            in_quote = True
-            quote_char = ch
-        elif ch == quote_char and in_quote:
-            in_quote = False
-            quote_char = None
-        elif ch == '|' and not in_quote:
-            has_pipe = True
-            break
-    if not has_pipe:
-        return [line]
-    stages = []
-    current = []
-    in_quote = False
-    quote_char = None
-    for ch in line:
-        if ch in ('"', "'") and not in_quote:
-            in_quote = True
-            quote_char = ch
-            current.append(ch)
-        elif ch == quote_char and in_quote:
-            in_quote = False
-            quote_char = None
-            current.append(ch)
-        elif ch == '|' and not in_quote:
-            stages.append(''.join(current).strip())
-            current = []
-        else:
-            current.append(ch)
-    if current:
-        stages.append(''.join(current).strip())
-    if len(stages) > _MAX_PIPE_STAGES:
-        return stages[:_MAX_PIPE_STAGES]
-    return stages
+# _parse_pipe_stages defined in registry.py (shared via build concatenation)
 
 
 def _execute_pipe(stages: list[str], cfg: dict, workspace, line_index: int, query_results: dict) -> str | None:
@@ -438,97 +399,10 @@ def _execute_pipe(stages: list[str], cfg: dict, workspace, line_index: int, quer
 
 
 # ── Directive Aliasing (task-74) ─────────────────────────────────────────────
-
-PREDEFINED_ALIASES = {
-    "@q": "@query",
-    "@r": "@read",
-    "@svc": "@services",
-    "@mb": "@memory",
-    "@ag": "@agora",
-    "@wp": "@waypoint",
-    "@sess": "@session",
-}
-
-
-def _aliases_detect_and_remove_cycles(aliases: dict[str, str]) -> None:
-    """Detect circular alias chains and remove them. Mutates aliases in place."""
-    # Floyd's cycle detection for each alias chain
-    def follow(alias: str) -> str | None:
-        seen: set[str] = set()
-        current = alias
-        while current in aliases:
-            if current in seen:
-                return None  # cycle detected
-            seen.add(current)
-            current = aliases[current]
-        return current  # resolved target
-
-    to_remove: set[str] = set()
-    for alias in list(aliases):
-        if follow(alias) is None:
-            to_remove.add(alias)
-
-    for alias in to_remove:
-        aliases.pop(alias, None)
-
-
-def _expand_aliases(lines: list[str], cfg: dict) -> list[str]:
-    """Single-pass alias expansion. Config aliases override pre-defined.
-    Aliases that shadow built-in directive names are warned and ignored.
-    Circular alias chains are detected and disabled."""
-    aliases = dict(PREDEFINED_ALIASES)
-    cfg_aliases = cfg.get("directives", {}).get("aliases", {})
-    aliases.update(cfg_aliases)
-    for alias, target in list(aliases.items()):
-        if alias in DIRECTIVE_REGISTRY:
-            aliases.pop(alias)
-    # Detect and remove circular alias chains
-    _aliases_detect_and_remove_cycles(aliases)
-    if not aliases:
-        return lines
-    sorted_aliases = sorted(aliases.items(), key=lambda x: -len(x[0]))
-    result: list[str] = []
-    for line in lines:
-        # Handle pipe stages — expand aliases in each stage independently
-        if "|" in line:
-            stages = line.split("|")
-            expanded_stages = []
-            for stage in stages:
-                stage_stripped = stage.strip()
-                current = stage_stripped
-                depth = 0
-                while depth < MAX_MACRO_DEPTH:
-                    expanded = False
-                    for alias, target in sorted_aliases:
-                        if current.startswith(alias):
-                            rest = current[len(alias):]
-                            if not rest or rest[0] in (' ', '\t'):
-                                current = f"{target}{rest}"
-                                expanded = True
-                                break
-                    if not expanded:
-                        break
-                    depth += 1
-                expanded_stages.append(current)
-            result.append(" | ".join(expanded_stages))
-        else:
-            current = line
-            depth = 0
-            while depth < MAX_MACRO_DEPTH:
-                stripped = current.strip()
-                expanded = False
-                for alias, target in sorted_aliases:
-                    if stripped.startswith(alias):
-                        rest = stripped[len(alias):]
-                        if not rest or rest[0] in (' ', '\t'):
-                            current = f"{target}{rest}"
-                            expanded = True
-                            break
-                if not expanded:
-                    break
-                depth += 1
-            result.append(current)
-    return result
+# _parse_pipe_stages, PREDEFINED_ALIASES, and _expand_aliases are defined
+# in registry.py. The build concatenation makes them available here.
+# Registry.py has the authoritative versions with full alias set
+# (@chk, @dr, @syn) and chain-resolution with shadowing warnings.
 
 
 def _capture_file_snapshot(lines: list[str], workspace: Path | None) -> dict[str, float]:

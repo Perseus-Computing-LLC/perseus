@@ -241,7 +241,7 @@ def _call_resolver(spec: DirectiveSpec, args_str: str, cfg: dict, workspace: "Pa
     """Adapt resolver call to match its actual signature via call_sig."""
     # Universal shell-execution gate (task-65): plugin directives with
     # executes_shell=True are gated behind allow_query_shell, same as built-ins.
-    if spec.executes_shell and not cfg["render"].get("allow_query_shell", True):
+    if spec.executes_shell and not cfg["render"].get("allow_query_shell", False):
         return f"> ⚠ {spec.name} is disabled by config (`render.allow_query_shell=false`)."
     try:
         sig = spec.call_sig

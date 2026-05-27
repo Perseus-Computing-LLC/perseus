@@ -45,16 +45,34 @@ _MNEME_FIELD_WEIGHTS = {
 }
 
 
+# Process-lifetime connection cache: (index_path, pid) → sqlite3.Connection.
+# Avoids paying connect + PRAGMA roundtrips on every operation.
+# Keyed by pid so forked processes get their own connection.
+_MNEME_CONN_CACHE: dict[tuple[str, int], sqlite3.Connection] = {}
+
+
 def _mneme_open_index(cfg: dict):
     """Open (or create) the SQLite FTS5 index. Returns sqlite3.Connection.
 
     Enables WAL mode for concurrent reads. Creates tables on first open.
     Returns None if the vault directory cannot be determined.
+    Connections are cached per-process for the lifetime of the interpreter.
     """
     try:
         index_path = _mneme_index_path(cfg)
     except Exception:
         return None
+
+    cache_key = (str(index_path), os.getpid())
+    cached = _MNEME_CONN_CACHE.get(cache_key)
+    if cached is not None:
+        # Check that the cached connection hasn't been closed externally
+        # (tests, signal handlers, explicit close). If closed, re-create.
+        try:
+            cached.execute("SELECT 1")
+            return cached
+        except (sqlite3.ProgrammingError, sqlite3.OperationalError):
+            del _MNEME_CONN_CACHE[cache_key]
 
     index_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -67,6 +85,7 @@ def _mneme_open_index(cfg: dict):
 
         # Create tables if needed
         conn.executescript(_MNEME_SCHEMA_SQL)
+        _MNEME_CONN_CACHE[cache_key] = conn
         return conn
     except Exception:
         return None
@@ -143,10 +162,12 @@ def _mneme_build_index(cfg: dict, force: bool = False) -> int:
 
     vault_path = _mneme_vault_path(cfg)
     if not vault_path.is_dir():
-        conn.close()
         return 0
 
     try:
+        # Explicit transaction — all-or-nothing build.
+        conn.execute("BEGIN IMMEDIATE")
+
         # On forced rebuild, clear existing index state so stale
         # entries for deleted files are not left behind.
         if force:
@@ -198,12 +219,10 @@ def _mneme_build_index(cfg: dict, force: bool = False) -> int:
 
         conn.commit()
     except Exception:
-        try:
-            conn.rollback()
-        except Exception:
-            pass
+        conn.rollback()
+        raise  # Let caller handle (mneme_recall catches and returns [])
     finally:
-        conn.close()
+        pass  # Connection is cached for process lifetime; do not close
 
     return count
 
@@ -240,22 +259,25 @@ def _mneme_search(conn, query: str, k: int = 5,
         # Single term.
         fts_expr = safe
 
-    where_clauses = [f"mneme_fts MATCH '{fts_expr}'"]
-    params = []
+    # Parameterized MATCH — FTS5 expression bound via ? to prevent
+    # operator injection (AND, NOT, NEAR, column-name prefixes, etc.).
+    # The user-supplied query is treated as literal search tokens.
+    params = [fts_expr]
 
     if scope:
-        where_clauses.append("mneme_fts.scope = ?")
         params.append(scope)
     if type_filter:
-        where_clauses.append("mneme_fts.type = ?")
         params.append(type_filter)
+
+    scope_clause = "AND mneme_fts.scope = ?" if scope else ""
+    type_clause = "AND mneme_fts.type = ?" if type_filter else ""
 
     sql = (
         "SELECT mneme_fts.id, mneme_fts.title, mneme_fts.type, mneme_fts.scope, "
         "mneme_fts.summary, mneme_fts.updated, "
         "bm25(mneme_fts) AS score "
         "FROM mneme_fts "
-        "WHERE " + " AND ".join(where_clauses) + " "
+        f"WHERE mneme_fts MATCH ? {scope_clause} {type_clause} "
         "ORDER BY score "
         f"LIMIT {max(1, min(k, 100))}"
     )
@@ -287,7 +309,6 @@ def _mneme_index_document(cfg: dict, file_path: Path) -> bool:
     try:
         doc = _mneme_parse_vault_file(file_path)
         if doc is None:
-            conn.close()
             return False
 
         search_text = _mneme_build_field_text(doc)
@@ -326,9 +347,19 @@ def _mneme_delete_document(cfg: dict, doc_id: str) -> bool:
         return False
 
     try:
+        # Delete from mneme_fts by document id.
+        # mneme_files stores full resolved paths — we match by the filename
+        # component (the doc_id with .md suffix). The doc_id is validated
+        # to be a safe filesystem name by _mneme_parse_vault_file before
+        # it's ever inserted, so a GLOB match with the literal id is safe.
+        # We use GLOB (not LIKE) to avoid %/_ metacharacter interpretation.
+        escaped_id = doc_id.replace("*", "\\*").replace("?", "\\?").replace("[", "\\[").replace("]", "\\]")
         cursor = conn.execute("DELETE FROM mneme_fts WHERE id = ?", (doc_id,))
         deleted = cursor.rowcount > 0
-        conn.execute("DELETE FROM mneme_files WHERE path LIKE ?", (f"%/{doc_id}.md",))
+        conn.execute(
+            "DELETE FROM mneme_files WHERE path GLOB ? ESCAPE '\\'",
+            (f"*/{escaped_id}.md",)
+        )
         if deleted:
             conn.execute("INSERT INTO mneme_fts(mneme_fts) VALUES('rebuild')")
         conn.commit()
@@ -340,7 +371,7 @@ def _mneme_delete_document(cfg: dict, doc_id: str) -> bool:
             pass
         return False
     finally:
-        conn.close()
+        pass  # Connection is cached for process lifetime; do not close
 
 
 def _mneme_index_stats(cfg: dict) -> dict:
@@ -362,7 +393,7 @@ def _mneme_index_stats(cfg: dict) -> dict:
     except Exception:
         return {"doc_count": 0, "indexed_files": 0, "index_path": "", "available": False}
     finally:
-        conn.close()
+        pass  # Connection is cached for process lifetime; do not close
 
 
 # ─────────────────────────── CLI: perseus memory index ────────────────────────

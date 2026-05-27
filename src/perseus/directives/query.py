@@ -23,7 +23,7 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
     are returned as a warning block instead of the output.
     """
     shell = _get_shell(cfg)
-    if not cfg["render"].get("allow_query_shell", True):
+    if not cfg["render"].get("allow_query_shell", False):
         audit_event(cfg, "policy_denied",
                     directive="@query",
                     reason="render.allow_query_shell=false",
@@ -441,9 +441,9 @@ def _prefetch_trust_block_reason(directive: str, spec: DirectiveSpec, cfg: dict)
         return "directive is not cacheable"
     if spec.executes_shell:
         render_cfg = cfg.get("render", {})
-        if directive == "@query" and not render_cfg.get("allow_query_shell", True):
+        if directive == "@query" and not render_cfg.get("allow_query_shell", False):
             return "render.allow_query_shell=false"
-        if directive == "@agent" and not render_cfg.get("allow_agent_shell", True):
+        if directive == "@agent" and not render_cfg.get("allow_agent_shell", False):
             return "render.allow_agent_shell=false"
     return None
 
