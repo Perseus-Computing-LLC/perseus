@@ -1,11 +1,10 @@
 # Perseus™ 🪞 — MCP Server + Live Context Engine
 
-**Perseus is an MCP server and live context engine for AI assistants.** It solves the cold-start problem — every new session, the assistant already knows what's running, what you were working on, and what tools exist. No orientation phase. No pre-flight tax. Exposes 24 MCP tools over stdio/SSE for workspace state resolution. Works with any MCP-compatible assistant: **Claude Desktop, Claude Code, Cursor, Codex, Hermes Agent (by NousResearch), Rovo Dev.**
+**Perseus is an MCP server and live context engine for AI assistants.** It solves the cold-start problem — every new session, the assistant already knows what's running, what you were working on, and what tools exist. No orientation phase. No pre-flight tax. Works with any MCP-compatible assistant: **Claude Desktop, Claude Code, Cursor, Codex, Hermes Agent (by NousResearch), Rovo Dev.**
 
 ![Perseus demo — before/after cold-start](demo.gif)
 
 [![CI](https://github.com/tcconnally/perseus/actions/workflows/test.yml/badge.svg)](https://github.com/tcconnally/perseus/actions/workflows/test.yml)
-<!-- test-count: 730 -->
 [![PyPI](https://img.shields.io/pypi/v/perseus-ctx)](https://pypi.org/project/perseus-ctx/)
 [![MCP Registry](https://img.shields.io/badge/MCP-Registry-blue)](https://registry.modelcontextprotocol.io/servers/io.github.tcconnally/perseus)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
@@ -22,7 +21,7 @@
 
 ### TL;DR
 
-Perseus is a **live context engine and MCP server** for AI assistants, eliminating cold starts. It resolves dynamic data (running services, code changes, session state) *before* the assistant sees it, providing **verified facts** instead of stale files or instructions to find information. Exposes 24 MCP tools for workspace state over stdio/SSE.
+Perseus is a **live context engine and MCP server** for AI assistants, eliminating cold starts. It resolves dynamic data (running services, code changes, session state) *before* the assistant sees it, providing **verified facts** instead of stale files or instructions to find information.
 
 ```bash
 pip install perseus-ctx
@@ -34,19 +33,120 @@ Works with any MCP-compatible assistant: Claude Desktop, Claude Code, Cursor, Co
 
 ---
 
-## MCP Server — 24 Tools for Workspace State
+## Wire Perseus to Your Assistant (MCP)
 
-Perseus implements the [Model Context Protocol](https://modelcontextprotocol.io/) (MCP), exposing 24 tools over stdio or SSE transport. Every tool resolves live workspace state at invocation time — no stale cache, no pre-computed snapshots.
+Perseus implements the [Model Context Protocol](https://modelcontextprotocol.io/) (MCP), exposing tools over stdio or SSE transport. Every tool resolves live workspace state at invocation time — no stale cache, no pre-computed snapshots.
 
-### Quick Start (MCP)
+### Quick Start (MCP Server)
 
 ```bash
 pip install perseus-ctx
-perseus mcp serve                          # stdio (default — Claude Desktop, Claude Code, Cursor)
+perseus mcp serve                          # stdio (Claude Desktop, Claude Code, Cursor, Codex)
 perseus mcp serve --transport sse --port 8420  # SSE (remote agents, multi-machine)
 ```
 
-### Tools
+### Assistant-Specific Wiring
+
+Pick your assistant and add the config block shown:
+
+**Hermes Agent** (`~/.hermes/config.yaml`):
+
+```yaml
+mcp_servers:
+  perseus:
+    transport: stdio
+    command: perseus
+    args: ["mcp", "serve"]
+```
+
+Then verify with `hermes mcp test perseus`. Tools appear as `mcp_perseus_*` in your session.
+
+**Claude Desktop** (`claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "perseus": {
+      "command": "perseus",
+      "args": ["mcp", "serve"],
+      "env": { "PERSEUS_WORKSPACE": "/path/to/workspace" }
+    }
+  }
+}
+```
+
+**Claude Code** (`.mcp.json` in your project root):
+
+```json
+{
+  "mcpServers": {
+    "perseus": {
+      "command": "perseus",
+      "args": ["mcp", "serve"]
+    }
+  }
+}
+```
+
+**Cursor** (`.cursor/mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "perseus": {
+      "command": "perseus",
+      "args": ["mcp", "serve"]
+    }
+  }
+}
+```
+
+**Codex** (`~/.codex/config.toml` or per-project `.mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "perseus": {
+      "command": "perseus",
+      "args": ["mcp", "serve"]
+    }
+  }
+}
+```
+
+**Rovo Dev** (`.mcp.json` in repo root):
+
+```json
+{
+  "mcpServers": {
+    "perseus": {
+      "command": "perseus",
+      "args": ["mcp", "serve"]
+    }
+  }
+}
+```
+
+Rovo Dev also reads `AGENTS.md` at session start — pair MCP tools with rendered context for a complete setup.
+
+### Docker
+
+```bash
+docker build -t perseus .
+docker run --rm -v /path/to/workspace:/workspace perseus mcp serve
+```
+
+See [Container Runtime](./docs/CONTAINER.md) for full Docker and compose deployment.
+
+### MCP Registry
+
+Published as [`io.github.tcconnally/perseus`](https://registry.modelcontextprotocol.io/servers/io.github.tcconnally/perseus) on the official MCP Registry. Includes `server.json` for zero-config discovery.
+
+---
+
+### MCP Tools
+
+All 24 MCP tools resolve live state at invocation time:
 
 | Tool | Description |
 |---|---|
@@ -63,7 +163,7 @@ perseus mcp serve --transport sse --port 8420  # SSE (remote agents, multi-machi
 | `perseus_drift` | Oracle drift report |
 | `perseus_memory` | Mnēmē narrative memory |
 | `perseus_mneme` | Recall persistent memories via in-process BM25 |
-| `perseus_skills` | List available skills |
+| `perseus_skills` | List available skills with staleness flags |
 | `perseus_include` | Include and render another file |
 | `perseus_agent` | Execute local agent subprocess |
 | `perseus_agora` | Task board from tasks/*.md |
@@ -74,48 +174,6 @@ perseus mcp serve --transport sse --port 8420  # SSE (remote agents, multi-machi
 | `perseus_perseus` | Fetch context from remote Perseus instance |
 | `perseus_get_context` | Full rendered workspace context |
 | `perseus_get_health` | Daedalus context-maintenance heuristics |
-
-### Client Integration
-
-**Claude Desktop** (`claude_desktop_config.json`):
-
-```json
-{
-  "mcpServers": {
-    "perseus": {
-      "command": "perseus",
-      "args": ["mcp", "serve"],
-      "env": { "PERSEUS_WORKSPACE": "/path/to/workspace" }
-    }
-  }
-}
-```
-
-**Claude Code / Cursor** (`.mcp.json`):
-
-```json
-{
-  "mcpServers": {
-    "perseus": {
-      "command": "perseus",
-      "args": ["mcp", "serve"]
-    }
-  }
-}
-```
-
-### Docker
-
-```bash
-docker build -t perseus .
-docker run --rm -v /path/to/workspace:/workspace perseus mcp serve
-```
-
-See [Container Runtime](./docs/CONTAINER.md) for full Docker and compose deployment.
-
-### MCP Registry
-
-Published as [`io.github.tcconnally/perseus`](https://registry.modelcontextprotocol.io/servers/io.github.tcconnally/perseus) on the official MCP Registry. Includes `server.json` for zero-config discovery.
 
 ---
 
@@ -163,7 +221,20 @@ That's it. The output file name is the only assistant-specific detail:
 | Rovo Dev | `AGENTS.md` |
 | Any other | Whatever your assistant reads at session start |
 
-Keep it fresh with `cron`, `launchd`, `systemd`, or `perseus watch` — see the [Integration Guide](./docs/HERMES_INTEGRATION.md) for Hermes auto-refresh setups. For other assistants (Codex, Cursor, Claude Code, Rovo Dev), follow the adapter patterns in [`spec/integration.md`](./spec/integration.md).
+Keep it fresh with cron, launchd, systemd, or `perseus watch`:
+
+```bash
+# Linux systemd (auto-refresh every 5 minutes)
+perseus systemd .perseus/context.md --output AGENTS.md --interval 5m --install --enable
+
+# macOS launchd
+perseus launchd .perseus/context.md --output AGENTS.md
+
+# Cron (any POSIX host)
+perseus cron .perseus/context.md --output AGENTS.md --every 5 --install
+```
+
+See the [Integration Guide](./docs/HERMES_INTEGRATION.md) for Hermes-specific auto-refresh setups and [spec/integration.md](./spec/integration.md) for full adapter patterns.
 
 ---
 
@@ -176,7 +247,7 @@ Perseus delivers verified, up-to-date context, eliminating the need for AI assis
 - **1,190× cold→warm gap** — Real-world scenario using the Perseus repo itself as the benchmark target. At the 1,408 directive scale, the cold render took **578.7s**, while the warm render took **0.486s**. [Raw data →](benchmark/real_deltas.json)
 - **Mnēmē persistent memory** — In-process BM25 recall, zero daemon. **37ms search P50 at 10,000 docs**, flat across all scales. Perseus `@mneme` renders: **54× cold→warm speedup** with @cache. **2,700 docs/sec** write throughput, **0.4ms P50** saves. [Full results →](benchmark/mneme_hardcore.json)
 - **93% token reduction, 0ms overhead** — live 200-request A/B harness: 488 → 27 avg prompt tokens per request. P99 latency overhead: **0ms** — Perseus adds nothing to response time. [Full harness results →](benchmark/ultimate_suite_results.json)
-- **Enterprise Ready** - Cost analysis shows that for a 500-developer team, Perseus can save between **$14,844 and $40,625 per year** in API costs, with a 3.1B token reduction. [Cost analysis →](benchmark/titan_cost.json)
+- **Enterprise Ready** — Cost analysis shows that for a 500-developer team, Perseus can save significant token costs per year. [Cost analysis →](benchmark/titan_cost.json)
 - **Extreme Enterprise Benchmark** — 10-phase suite (reps=10, 50 devs, 250 concurrent agents): **10/10 hard gates · 6/6 soft gates · 0 errors at 250 concurrent · 90% enterprise ROI · fleet P99 1,169ms**. The benchmark is designed to surface regressions, not hide them. [Full methodology →](benchmark/README_EXTREME.md) · [Raw results →](benchmark/extreme_enterprise_results_full.json)
 
 ![Perseus Cold vs Warm — @cache eliminates subprocess cost](https://raw.githubusercontent.com/tcconnally/perseus/main/benchmark/infographic/perseus-cold-vs-warm.svg)
@@ -186,7 +257,7 @@ Perseus delivers verified, up-to-date context, eliminating the need for AI assis
 Perseus is tested against edge cases that challenge the "resolve before context" claim:
 
 - **14/14 hard gates passed** — The ultimate benchmark suite, including swarm chaos, cache thrash, and adversarial tests, passed all gates. [Full results →](benchmark/ultimate_suite_results.json)
-- **Semantic Equivalence: 1.0** — A live Gemini 2.5 Flash judge found 20/20 A/B test pairs to be semantically equivalent, confirming that Perseus changes what the assistant *knows*, not what it says. (Also 20/20 A/B pairs in a second independent run.)
+- **Semantic Equivalence: 1.0** — A live Gemini 2.5 Flash judge found 20/20 A/B test pairs to be semantically equivalent, confirming that Perseus changes what the assistant *knows*, not what it says.
 - **Workspace boundaries** — Symlink escapes (direct, relative, chained, to `/etc`) are all blocked. The trust-gate resolves symlinks to their real target before checking boundaries.
 - **Context overflow protection** — `@read` and `@include` warn and truncate when files exceed `max_read_bytes` / `max_include_bytes` (512 KB default, `None` for unlimited).
 - **Transitive resolution** — `@include` on `.md` files recursively renders directives up to `max_include_depth` (default 5), with cycle detection.
@@ -213,34 +284,63 @@ You write this:
 # Context — @date format="YYYY-MM-DD HH:mm z"
 
 ## What's Running
-@query "docker ps --format 'table {{.Names}}	{{.Status}}'"
+@query "docker ps --format 'table {{.Names}}\t{{.Status}}'"
 
 ## Last Session
 @waypoint ttl=86400
 
 ## Ports
 @read .env key="API_PORT" fallback="3001"
+
+## Active Tasks
+@agora status=open,in_progress
+
+## Skills Available
+@skills flag_stale=true category=devops,github
+
+## Project Memory
+@memory focus="recent"
 ```
 
 Perseus renders this:
 
 ```markdown
-# Context — 2026-05-18 08:33 CDT
+# Context — 2026-05-27 08:33 CDT
 
 ## What's Running
 mongo-dev    Up 4 hours
 redis-dev    Up 4 hours
 
 ## Last Session
-Checkpoint written: 2026-05-18T08:28
+Checkpoint written: 2026-05-27T08:28
 Task: webhook handler — written, pending test run
 Next: run pytest tests/test_webhook.py
 
 ## Ports
 3001
+
+## Active Tasks
+| ID | Title | Status | Scope |
+|---|---|---|---|
+| task-08 | List and Tree Directives | Complete | medium |
+| task-12 | Mnēmē Narrative Memory | Complete | large |
+
+## Skills Available
+| Skill | Category | Updated |
+|---|---|---|
+| hermes-agent | autonomous-ai-agents | 2026-05-20 |
+| github-pr-workflow | github | 2026-05-15 |
+| docker-stack-auditing ⚠ | devops | 2026-03-01 |
+| documentation-audit | software-development | 2026-05-26 |
+
+## Project Memory
+### Recent
+- 2026-05-26: Shipped MCP deep integration (Phase 25). All 24 directives exposed as MCP tools.
+- 2026-05-25: Deployed Perseus v1.0.5 to PyPI. Edge-case test suite at 753 tests.
+- 2026-05-24: Completed Hephaestus extensibility — plugin directives, macros, hooks, pipes.
 ```
 
-The assistant never sees a directive. It sees a document that was already true.
+The assistant never sees a directive. It sees a document that was already true — including which skills are available, which tasks are open, and what decisions were recently made.
 
 ### Extensibility in Practice
 
@@ -500,76 +600,57 @@ webhooks:
     - on_directive_error
 ```
 
-### Structured JSON Output
+---
+
+## Project Memory (Mnēmē)
+
+Mnēmē (Μνήμη) is Perseus's narrative project memory. It distills checkpoints and Pythia recommendations into a per-workspace narrative — so your assistant knows not just what's running, but *how you got here*.
 
 ```bash
-perseus render .perseus/context.md --format json
+# Update the narrative from latest checkpoints
+perseus memory update
+
+# Query the narrative
+perseus memory query "what was the auth decision?"
+
+# Render it inline
+perseus render .perseus/context.md --output CLAUDE.md
 ```
 
-Returns `{meta, resolved, directives, integrity}` — consumable by agents, CI
-pipelines, and format plugins in `~/.perseus/formats/`.
-
-### Allowlisted External Tools
-
-`@tool` runs external executables with an explicit allowlist, argument
-restrictions, timeouts, and output size caps — safer than ad-hoc `@agent`:
-
-```yaml
-tools:
-  enabled: true
-  allowlist:
-    - path: "/usr/local/bin/scanner"
-      args_allowlist: ["--workspace", "--format"]
-      timeout_s: 30
-      max_output_bytes: 65536
-```
+In your context file:
 
 ```markdown
-@tool "/usr/local/bin/scanner" --workspace . --format json @cache ttl=3600
+@memory                    # full narrative
+@memory focus="decisions"  # decisions section only
+@memory focus="recent"     # recent activity
 ```
 
-### Remote Context Fetching
-
-`@perseus <url>` fetches rendered context from a remote Perseus serve instance:
-
-```markdown
-@perseus https://team-server:8420/workspace/infra @cache ttl=300
-```
-
-Gated by `foreign_resolver.allowlist` and `render.allow_remote_services_health`.
+Mnēmē is LLM-optional: deterministic assembly works zero-dependency; an optional `memory.llm_provider` enables richer distillation. Full docs: [spec/components.md](./spec/components.md) § 4.
 
 ---
 
-> *Athena gave Perseus a mirror-shield, not a sword. He slew Medusa by watching her reflection — never meeting her gaze directly.*
->
-> The Medusa is a chaotic development environment. The mirror is resolved context: you see the situation clearly without being paralyzed by it. **Hermes** gave Perseus winged sandals and guidance; this Perseus returns the favor — giving every AI assistant a way to navigate any workspace without the orientation tax.
->
-> ![Perseus with the Head of Medusa — Benvenuto Cellini, 1545](https://upload.wikimedia.org/wikipedia/commons/thumb/c/c0/Perseus_Cellini_Loggia_dei_Lanzi_2005_09_13.jpg/500px-Perseus_Cellini_Loggia_dei_Lanzi_2005_09_13.jpg)
->
-> *Perseus with the Head of Medusa — Benvenuto Cellini, 1545. Loggia dei Lanzi, Florence.*
+## Full Documentation
 
----
-
-## Documentation
-
-Everything else lives in `docs/`:
-
-- [**Website**](https://perseus.observer) — Landing page with benchmarks, assistant compatibility, and 30-second quickstart
-- [**Quickstart**](./docs/quickstart.md) — Install, configure, and render your first context in 5 minutes
-- [**Integration Guide**](./docs/HERMES_INTEGRATION.md) — Wire Perseus to Hermes via LLM routing (Hermes Agent by NousResearch)
-- [**Adapter Patterns**](./spec/integration.md) — Wire Perseus to Claude Code, Cursor, Codex, Rovo Dev, and other assistants
-- [**Context Packs**](./docs/CONTEXT_PACKS.md) — Portable workspace context with assistant-specific profiles
-- [**CLI Reference**](./docs/CLI.md) — Full command surface: `render`, `checkpoint`, `agora`, `suggest`, `serve`, `synthesize`, and more
-- [**Directives Reference**](./docs/DIRECTIVES.md) — All directives with modifiers and examples
-- [**Performance Benchmarks**](./docs/PERFORMANCE.md) — Scaling data, cold vs. warm, enterprise profiles
-- [**Container Runtime**](./docs/CONTAINER.md) — Docker and compose deployment
-- [**Contributing**](./docs/CONTRIBUTING.md) — How to contribute code, directives, and tests
-- [**Edge-Case Vetting**](./tests/test_edge_cases.py) — Tests covering circular deps, race conditions, symlink escapes, and context overflow
-- [**Product Contract**](./docs/PRODUCT_CONTRACT.md) — What Perseus guarantees and what it doesn't
-- [**VSCode Extension**](./editors/vscode/README.md) — LSP server + editor integration
+| Document | What it covers |
+|---|---|
+| [**CLI Reference**](./docs/CLI.md) | Every command and flag |
+| [**Directives Reference**](./docs/DIRECTIVES.md) | All directives with modifiers and examples |
+| [**Integration Guide**](./docs/HERMES_INTEGRATION.md) | Wire Perseus to Hermes via LLM routing |
+| [**Adapter Patterns**](./spec/integration.md) | Wire Perseus to any AI assistant |
+| [**Container Runtime**](./docs/CONTAINER.md) | Docker and compose deployment |
+| [**Quickstart**](./docs/quickstart.md) | 5-minute setup walkthrough |
+| [**Product Contract**](./docs/PRODUCT_CONTRACT.md) | Guarantees, trust model, permissions |
+| [**Contributing**](./docs/CONTRIBUTING.md) | Dev setup, test suite, commit conventions |
+| [**Examples**](./docs/EXAMPLES.md) | End-to-end workflow recipes |
+| [**Use Cases**](./docs/use-cases.md) | Real-world usage patterns |
+| [**Performance**](./docs/PERFORMANCE.md) | Benchmark methodology and results |
+| [**Agent Surfaces**](./docs/AGENT_SURFACES.md) | JSON contracts for agent consumption |
+| [**Deployment**](./docs/DEPLOYMENT.md) | Systemd, launchd, cron, Docker, CI |
+| [**Security**](./SECURITY.md) | Trust model, workspace boundaries, secrets |
+| [**Roadmap**](./ROADMAP.md) | Living roadmap (live `@perseus` source) |
 
 ---
 
 ## License
 
-MIT — see [LICENSE](./LICENSE).
+MIT — see [LICENSE](./LICENSE). Perseus™ is a trademark of Thomas Connally. Patent pending.
