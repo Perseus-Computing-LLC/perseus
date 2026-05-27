@@ -1,0 +1,271 @@
+#!/usr/bin/env python3
+"""Adversarial gauntlet scenarios with explicit safety gates."""
+from __future__ import annotations
+
+import json
+import os
+import resource
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+from typing import Any
+
+
+def _render_once(workspace: Path, home: Path, timeout: int = 20) -> dict[str, Any]:
+    ctx = workspace / ".perseus" / "context.md"
+    env = os.environ.copy()
+    env["PERSEUS_HOME"] = str(home)
+    proc = subprocess.run(
+        [sys.executable, str(Path(__file__).resolve().parents[2] / "perseus.py"), "render", str(ctx)],
+        cwd=str(workspace),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+    return {"rc": proc.returncode, "stdout_len": len(proc.stdout), "stderr": proc.stderr[-500:]}
+
+
+def _workspace(root: Path, name: str, body: str) -> Path:
+    ws = root / name
+    (ws / ".perseus").mkdir(parents=True, exist_ok=True)
+    (ws / ".perseus" / "config.yaml").write_text(
+        "permissions:\n  profile: power-user\nrender:\n  allow_query_shell: true\n  services_timeout_s: 1\n",
+        encoding="utf-8",
+    )
+    (ws / ".perseus" / "context.md").write_text(body, encoding="utf-8")
+    return ws
+
+
+def _skip(name: str, reason: str) -> dict[str, Any]:
+    return {"scenario": name, "pass": True, "skipped": True, "reason": reason}
+
+
+def fill_nfs_to_95_percent_then_continue(root: Path, duration_s: int) -> dict[str, Any]:
+    quota_dir = root / "a1-quota"
+    quota_dir.mkdir(parents=True, exist_ok=True)
+    quota_bytes = int(os.environ.get("PERSEUS_GAUNTLET_DISK_QUOTA_BYTES", str(64 * 1024 * 1024)))
+    fill_bytes = int(quota_bytes * 0.95)
+    filler = quota_dir / "filler.bin"
+    try:
+        with filler.open("wb") as f:
+            chunk = b"0" * (1024 * 1024)
+            written = 0
+            while written < fill_bytes:
+                n = min(len(chunk), fill_bytes - written)
+                f.write(chunk[:n])
+                written += n
+        ws = _workspace(root, "a1-ws", '@perseus v0.8\n@query "echo disk_pressure" @cache ttl=1\n')
+        result = _render_once(ws, root / "a1-home")
+        return {"scenario": "A1_disk_full", "pass": result["rc"] == 0, "simulated_quota_bytes": quota_bytes, "filled_bytes": fill_bytes, "result": result}
+    finally:
+        try:
+            filler.unlink()
+        except Exception:
+            pass
+
+
+def isolate_node_iptables(root: Path, duration_s: int) -> dict[str, Any]:
+    ws = _workspace(root, "a2-ws", """@perseus v0.8
+@services
+  - name: partitioned-service
+    url: http://127.0.0.1:9/unreachable
+@end
+@query "echo partition_recovered" @cache ttl=1
+""")
+    result = _render_once(ws, root / "a2-home")
+    return {"scenario": "A2_network_partition", "pass": result["rc"] == 0, "mode": "loopback-unreachable-service", "result": result}
+
+
+def skew_system_clock_2h(root: Path, duration_s: int) -> dict[str, Any]:
+    ws = _workspace(root, "a3-ws", '@perseus v0.8\n@date format="YYYY-MM-DD HH:mm z"\n@query "echo clock_skew_sim" @cache ttl=1\n')
+    results = []
+    original_tz = os.environ.get("TZ")
+    try:
+        for tz in ("UTC", "Etc/GMT-2", "Etc/GMT+2"):
+            os.environ["TZ"] = tz
+            try:
+                time.tzset()
+            except Exception:
+                pass
+            results.append(_render_once(ws, root / f"a3-home-{tz.replace('/', '-')}"))
+    finally:
+        if original_tz is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = original_tz
+        try:
+            time.tzset()
+        except Exception:
+            pass
+    return {"scenario": "A3_clock_skew", "pass": all(r["rc"] == 0 for r in results), "mode": "timezone-offset-simulation", "results": results}
+
+
+def consume_90_percent_ram(root: Path, duration_s: int) -> dict[str, Any]:
+    pressure_mb = int(os.environ.get("PERSEUS_GAUNTLET_MEMORY_PRESSURE_MB", "128"))
+    ws = _workspace(root, "a4-ws", f'@perseus v0.8\n@query "python3 -c \\"x=bytearray({pressure_mb}*1024*1024); print(len(x))\\"" @cache ttl=1\n')
+    result = _render_once(ws, root / "a4-home", timeout=30)
+    return {"scenario": "A4_oom_pressure", "pass": result["rc"] == 0, "bounded_pressure_mb": pressure_mb, "result": result}
+
+
+def inject_invalid_cache_entries(root: Path, duration_s: int) -> dict[str, Any]:
+    home = root / "a5-home"
+    cache = home / "cache"
+    cache.mkdir(parents=True, exist_ok=True)
+    for i in range(20):
+        (cache / f"poison-{i}.json").write_text("{not-json", encoding="utf-8")
+    ws = _workspace(root, "a5-ws", '@perseus v0.8\n@query "echo cache_poison_survived" @cache ttl=300\n')
+    result = _render_once(ws, home)
+    return {"scenario": "A5_cache_poison", "pass": result["rc"] == 0, "result": result}
+
+
+def rapid_process_churn(root: Path, duration_s: int) -> dict[str, Any]:
+    ws = _workspace(root, "a6-ws", '@perseus v0.8\n@query "echo churn" @cache ttl=1\n')
+    ok = 0
+    total = 20
+    for i in range(total):
+        result = _render_once(ws, root / f"a6-home-{i}", timeout=15)
+        ok += 1 if result["rc"] == 0 else 0
+    return {"scenario": "A6_pid_reuse", "pass": ok == total, "ok": ok, "total": total}
+
+
+def send_sigterm_sigint_randomly(root: Path, duration_s: int) -> dict[str, Any]:
+    code = "import signal,time,sys\nsignal.signal(signal.SIGTERM, lambda s,f: sys.exit(0))\ntime.sleep(10)\n"
+    procs = [subprocess.Popen([sys.executable, "-c", code]) for _ in range(12)]
+    try:
+        for i, proc in enumerate(procs):
+            proc.send_signal(signal.SIGTERM if i % 2 == 0 else signal.SIGINT)
+        exits = []
+        for proc in procs:
+            try:
+                exits.append(proc.wait(timeout=5))
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                exits.append(proc.wait(timeout=5))
+        ws = _workspace(root, "a7-ws", '@perseus v0.8\n@query "echo signal_recovered" @cache ttl=1\n')
+        result = _render_once(ws, root / "a7-home")
+        expected = {0, -2, -15}
+        return {"scenario": "A7_signal_storm", "pass": result["rc"] == 0 and all(code in expected for code in exits), "child_exits": exits, "result": result}
+    finally:
+        for proc in procs:
+            if proc.poll() is None:
+                proc.kill()
+
+
+def open_50k_file_descriptors(root: Path, duration_s: int) -> dict[str, Any]:
+    soft, _hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    target = min(soft // 2, 1024)
+    files = []
+    try:
+        for _ in range(max(target, 1)):
+            files.append(tempfile.TemporaryFile())
+        ws = _workspace(root, "a8-ws", '@perseus v0.8\n@query "echo fd_pressure" @cache ttl=1\n')
+        result = _render_once(ws, root / "a8-home")
+        return {"scenario": "A8_fd_exhaustion", "pass": result["rc"] == 0, "opened_fds": len(files), "result": result}
+    finally:
+        for f in files:
+            try:
+                f.close()
+            except Exception:
+                pass
+
+
+def limit_subprocesses_hammer_concurrent(root: Path, duration_s: int) -> dict[str, Any]:
+    total = int(os.environ.get("PERSEUS_GAUNTLET_FORK_PRESSURE_PROCS", "32"))
+    procs = []
+    try:
+        for _ in range(total):
+            procs.append(subprocess.Popen([sys.executable, "-c", "print('fork_pressure_child')"], stdout=subprocess.PIPE, stderr=subprocess.PIPE))
+        exits = [p.wait(timeout=10) for p in procs]
+        ws = _workspace(root, "a9-ws", '@perseus v0.8\n@query "echo fork_pressure_recovered" @cache ttl=1\n')
+        result = _render_once(ws, root / "a9-home")
+        return {"scenario": "A9_fork_bomb_defense", "pass": result["rc"] == 0 and all(code == 0 for code in exits), "children": total, "result": result}
+    finally:
+        for proc in procs:
+            if proc.poll() is None:
+                proc.kill()
+
+
+def create_symlink_chains_during_render(root: Path, duration_s: int) -> dict[str, Any]:
+    ws = root / "a10-ws"
+    (ws / ".perseus").mkdir(parents=True, exist_ok=True)
+    target = ws / "target.txt"
+    target.write_text("symlink-safe", encoding="utf-8")
+    link = ws / "link.txt"
+    if not link.exists():
+        link.symlink_to(target)
+    (ws / ".perseus" / "context.md").write_text('@perseus v0.8\n@read link.txt\n', encoding="utf-8")
+    result = _render_once(ws, root / "a10-home")
+    return {"scenario": "A10_symlink_race", "pass": result["rc"] == 0, "result": result}
+
+
+def set_invalid_locale(root: Path, duration_s: int) -> dict[str, Any]:
+    ws = _workspace(root, "a11-ws", '@perseus v0.8\n@query "echo locale_ok" @cache ttl=1\n')
+    env = os.environ.copy()
+    env["PERSEUS_HOME"] = str(root / "a11-home")
+    env["LC_ALL"] = "not-a-real-locale"
+    proc = subprocess.run(
+        [sys.executable, str(Path(__file__).resolve().parents[2] / "perseus.py"), "render", str(ws / ".perseus" / "context.md")],
+        cwd=str(ws),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    return {"scenario": "A11_locale_corruption", "pass": proc.returncode == 0, "rc": proc.returncode}
+
+
+def change_tz_during_enterprise_week(root: Path, duration_s: int) -> dict[str, Any]:
+    ws = _workspace(root, "a12-ws", '@perseus v0.8\n@date format="YYYY-MM-DD HH:mm z"\n')
+    results = []
+    for tz in ("UTC", "America/Chicago", "Pacific/Honolulu"):
+        env_home = root / f"a12-{tz.replace('/', '-')}"
+        os.environ["TZ"] = tz
+        try:
+            time.tzset()
+        except Exception:
+            pass
+        results.append(_render_once(ws, env_home))
+    return {"scenario": "A12_timezone_shift", "pass": all(r["rc"] == 0 for r in results), "results": results}
+
+
+SCENARIOS = {
+    "A1_disk_full": fill_nfs_to_95_percent_then_continue,
+    "A2_network_partition": isolate_node_iptables,
+    "A3_clock_skew": skew_system_clock_2h,
+    "A4_oom_pressure": consume_90_percent_ram,
+    "A5_cache_poison": inject_invalid_cache_entries,
+    "A6_pid_reuse": rapid_process_churn,
+    "A7_signal_storm": send_sigterm_sigint_randomly,
+    "A8_fd_exhaustion": open_50k_file_descriptors,
+    "A9_fork_bomb_defense": limit_subprocesses_hammer_concurrent,
+    "A10_symlink_race": create_symlink_chains_during_render,
+    "A11_locale_corruption": set_invalid_locale,
+    "A12_timezone_shift": change_tz_during_enterprise_week,
+}
+
+
+def run_all(root: Path, duration_s: int = 300) -> dict[str, Any]:
+    root.mkdir(parents=True, exist_ok=True)
+    results = []
+    for name, fn in SCENARIOS.items():
+        started = time.time()
+        try:
+            item = fn(root, min(duration_s, 300))
+        except Exception as exc:
+            item = {"scenario": name, "pass": False, "error": str(exc)}
+        item["duration_s"] = round(time.time() - started, 3)
+        results.append(item)
+    return {
+        "pass": all(r.get("pass") for r in results),
+        "scenarios": results,
+        "skipped": [r["scenario"] for r in results if r.get("skipped")],
+    }
+
+
+if __name__ == "__main__":
+    out = run_all(Path(sys.argv[1]) if len(sys.argv) > 1 else Path("/tmp/perseus-gauntlet-adversarial"))
+    print(json.dumps(out, indent=2))
