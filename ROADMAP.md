@@ -55,6 +55,7 @@ checkpoints feed it.
 | **Synthesis** | Opt-in cited synthesis claims; uncited LLM output is dropped | ✅ Phase 15A |
 | **Hephaestus** | Extensibility architecture — plugin directives, macros, hooks, format adapters, pipe syntax | ✅ Phase 24 |
 | **MCP Integration** | Expose every directive as an MCP tool for universal AI client compatibility | ✅ Phase 25 |
+| **Security Hardening** | MCP SSE auth, Windows timeout, SSRF protection, build robustness | ◐ Phase 26 (5 tasks, 0/5 complete) |
 
 ---
 
@@ -1075,6 +1076,96 @@ Full spec in the task file. Covers:
 
 ---
 
+## Phase 26 — Security Hardening & Review Fixes
+
+**Source:** Claude Code Opus 4.7 Medium review of v1.0.5 (2026-05-27).
+All findings verified against `src/perseus/`. See `.claude/review-prompt.txt` for the full review prompt.
+
+### 26A — Fix MCP SSE authentication (task-91)
+
+**Problem:** `POST /message` in the SSE transport (`mcp.py:380`) has no auth layer,
+unlike `serve` mode which learned bearer-token auth in Phase 20A. Any local
+process can drive the MCP server over the SSE transport.
+
+**Fix:** Add bearer-token auth consistent with `serve` mode. Read token from
+`mcp.sse_bearer_token` config key. Reject unauthenticated `POST /message` with 401.
+
+**Status:** ☐ Pending
+
+---
+
+### 26B — MCP timeout: thread-based fallback for Windows (task-92)
+
+**Problem:** `_call_tool()` timeout (`mcp.py:222`) uses `signal.SIGALRM`, which does
+not exist on Windows. The `else:` branch has no timeout enforcement — a slow tool
+can hang the entire MCP server indefinitely. Also: if the resolver finishes between
+`signal.alarm(timeout)` and the handler restore in the `except` arm, a stale
+alarm handler is left installed.
+
+**Fix:** Replace SIGALRM with a `threading.Timer`-based timeout that works on all
+platforms. Use `concurrent.futures.ThreadPoolExecutor` to run the resolver in a
+separate thread with a `Future.result(timeout=...)`. Clean up alarm references.
+
+**Status:** ☐ Pending
+
+---
+
+### 26C — Foreign resolver URL allowlist & SSRF protection (task-93)
+
+**Problem:** `@perseus <url>` (`directives/perseus.py:60`) has no URL allowlist —
+any reachable URL is fetched. `verify_signatures` defaults to `False`. No SSRF
+protection: `https://169.254.169.254/...` (cloud metadata), RFC1918, and
+link-local addresses are reachable. Response data flows directly into rendered
+context that an LLM reads — a prompt-injection vector.
+
+**Fix:**
+- Add `foreign_resolver.url_allowlist` config key (list of URL prefixes).
+- Add `foreign_resolver.block_private_ips` config key (default `true`) —
+  block RFC1918, link-local, loopback (non-`127.0.0.1`), and cloud metadata IPs.
+- Add `foreign_resolver.verify_signatures` defaulting to `True`.
+- Document the prompt-injection risk prominently in README.
+
+**Status:** ☐ Pending
+
+---
+
+### 26D — Build script: multi-line import support (task-94)
+
+**Problem:** `INTERNAL_IMPORT_RE` (`build.py:73`) only matches single-line
+`from perseus.x import y` statements. A future multi-line import:
+```python
+from perseus.x import (
+    a,
+    b,
+)
+```
+would strip the first line but leave `a,` / `b,` / `)` as orphaned syntax,
+producing a broken artifact with no build error.
+
+**Fix:** Extend the regex (or add a multi-line state machine in the build loop)
+to consume through the closing `)`. Add a build-correctness test that introduces
+a deliberate multi-line internal import in a fixture module and asserts the
+build either handles it or fails loudly.
+
+**Status:** ☐ Pending
+
+---
+
+### 26E — Fix `_mneme_delete_document` GLOB test failure (task-95)
+
+**Problem:** `test_delete_document_removes` fails after the Mnēmē connection
+cache and transaction changes. The GLOB pattern `*/del.md` doesn't match the
+stored absolute path, or the build_index transaction hasn't committed before
+the delete queries. Needs investigation.
+
+**Fix:** Debug the `BEGIN IMMEDIATE` commit visibility on the cached connection.
+Ensure the FTS5 `rebuild` call flushes before subsequent reads. Verify GLOB
+pattern matching against the actual stored path format.
+
+**Status:** ☐ Pending
+
+---
+
 ## Future Direction: Decentralized Federation
 
 Deepen federation to securely share context across decentralized workspaces or
@@ -1164,6 +1255,12 @@ Phase 24A ─── Plugin directives (task-65) ✅ ─────────�
     └── 24J ─── Directive aliasing (task-74) ✅ ──────────┘
                                                          │
 Phase 25  ─── MCP deep integration (task-75) ✅ ─────────┘
+                                                         │
+Phase 26A ─── MCP SSE authentication (task-91) ☐ ───────┤
+    ├── 26B ─── Windows MCP timeout (task-92) ☐ ─────────┤
+    ├── 26C ─── Foreign resolver SSRF (task-93) ☐ ───────┤
+    ├── 26D ─── Build multi-line import (task-94) ☐ ─────┤
+    └── 26E ─── Delete-doc GLOB test fix (task-95) ☐ ────┘
 ```
 
 ---
