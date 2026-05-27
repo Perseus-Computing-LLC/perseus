@@ -1,0 +1,105 @@
+#!/usr/bin/env python3
+"""Per-node worker helpers for the Perseus gauntlet."""
+from __future__ import annotations
+
+import concurrent.futures as cf
+import json
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+from typing import Any
+
+from gauntlet_lib import TelemetrySink, summarize
+
+ROOT = Path(__file__).resolve().parents[2]
+PERSEUS = ROOT / "perseus.py"
+
+
+def _render_context(ctx: Path, home: Path, telemetry: TelemetrySink | None = None, tier: int = 3) -> dict[str, Any]:
+    env = os.environ.copy()
+    env["PERSEUS_HOME"] = str(home)
+    env["PERSEUS_BENCH"] = "1"
+    started = time.perf_counter()
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(PERSEUS), "render", str(ctx), "--tier", str(tier)],
+            cwd=str(ctx.parents[1]),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        duration = time.perf_counter() - started
+        record = {
+            "ctx": str(ctx),
+            "home": str(home),
+            "duration_s": round(duration, 4),
+            "ok": proc.returncode == 0,
+            "rc": proc.returncode,
+            "stdout_bytes": len(proc.stdout),
+            "stderr_tail": proc.stderr[-400:],
+        }
+    except subprocess.TimeoutExpired:
+        record = {"ctx": str(ctx), "home": str(home), "duration_s": 120.0, "ok": False, "rc": -1, "timeout": True}
+    if telemetry:
+        telemetry.write(record)
+    return record
+
+
+def render_all_developers(role_profiles: list[Path], developers: list[dict[str, Any]], cache_state: str = "cold", tier: int = 3, workers: int = 16, telemetry: TelemetrySink | None = None) -> dict[str, Any]:
+    """Render all context files for all developers on this node."""
+    jobs = []
+    for dev in developers:
+        role = role_profiles[dev["role_index"] % len(role_profiles)]
+        home = Path(dev["home"])
+        if cache_state == "cold" and home.exists():
+            import shutil
+            shutil.rmtree(home, ignore_errors=True)
+        jobs.append((role / ".perseus" / "context.md", home))
+
+    with cf.ThreadPoolExecutor(max_workers=max(1, workers)) as ex:
+        records = list(ex.map(lambda item: _render_context(item[0], item[1], telemetry, tier), jobs))
+    durations = [r["duration_s"] for r in records]
+    return {
+        "renders": len(records),
+        "failures": sum(1 for r in records if not r["ok"]),
+        "timing": summarize(durations),
+        "cache_state": cache_state,
+    }
+
+
+def render_enterprise_event(developers: list[dict[str, Any]], event_spec: dict[str, Any], node_id: str, role_profiles: list[Path], telemetry: TelemetrySink | None = None) -> dict[str, Any]:
+    """Execute one enterprise week event."""
+    cold_pct = float(event_spec.get("cold_pct", 0.1))
+    selected = developers[: int(event_spec.get("count", len(developers)))]
+    for idx, dev in enumerate(selected):
+        dev["home"] = dev["cold_home"] if (idx / max(len(selected), 1)) < cold_pct else dev["warm_home"]
+    return render_all_developers(role_profiles, selected, cache_state="mixed", workers=int(event_spec.get("workers", 16)), telemetry=telemetry)
+
+
+def run_adversarial_scenario(scenario_id: str, config: dict[str, Any], duration_s: int) -> dict[str, Any]:
+    from gauntlet_adversarial import SCENARIOS
+
+    root = Path(config.get("root", "/tmp/perseus-gauntlet-adversarial"))
+    if scenario_id not in SCENARIOS:
+        return {"scenario": scenario_id, "pass": False, "error": "unknown scenario"}
+    return SCENARIOS[scenario_id](root, min(duration_s, 300))
+
+
+def sustained_torture_loop(duration_s: int, concurrent_renders: int, role_profiles: list[Path], home_root: Path, telemetry: TelemetrySink | None = None) -> dict[str, Any]:
+    """Continuous cold/warm cycling with lightweight memory monitoring."""
+    deadline = time.time() + duration_s
+    records = []
+    i = 0
+    while time.time() < deadline:
+        ctx = role_profiles[i % len(role_profiles)] / ".perseus" / "context.md"
+        home = home_root / f"torture-{i % max(concurrent_renders, 1)}"
+        records.append(_render_context(ctx, home, telemetry))
+        i += 1
+    return {
+        "renders": len(records),
+        "failures": sum(1 for r in records if not r["ok"]),
+        "timing": summarize([r["duration_s"] for r in records]),
+    }

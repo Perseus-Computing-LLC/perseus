@@ -1,0 +1,533 @@
+{
+  "developers_per_node": 500,
+  "duration": "full",
+  "gates": {
+    "failed": [
+      "checkpoint relay zero corruption",
+      "inbox storm delivery >= 99.9%"
+    ],
+    "gates": [
+      {
+        "details": "ok",
+        "name": "NFS/local shared path writable",
+        "pass": true,
+        "severity": "hard"
+      },
+      {
+        "details": "perseus v1.0.4",
+        "name": "Perseus version is v1.0.4+",
+        "pass": true,
+        "severity": "hard"
+      },
+      {
+        "details": "ration not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\n",
+        "name": "sample role profile renders",
+        "pass": true,
+        "severity": "hard"
+      },
+      {
+        "details": "{\"n\": 500, \"median\": 1.8905, \"p95\": 2.6868, \"p99\": 3.0624, \"mean\": 1.9276}",
+        "name": "cold baseline zero failures",
+        "pass": true,
+        "severity": "hard"
+      },
+      {
+        "details": "{\"n\": 500, \"median\": 1.8905, \"p95\": 2.6868, \"p99\": 3.0624, \"mean\": 1.9276}",
+        "name": "cold baseline median <= 30s",
+        "pass": true,
+        "severity": "soft"
+      },
+      {
+        "details": "{\"n\": 500, \"median\": 1.8905, \"p95\": 2.6868, \"p99\": 3.0624, \"mean\": 1.9276}",
+        "name": "cold baseline p99 <= 120s",
+        "pass": true,
+        "severity": "soft"
+      },
+      {
+        "details": "{\"n\": 500, \"median\": 0.957, \"p95\": 1.3678, \"p99\": 1.4792, \"mean\": 0.9961}",
+        "name": "warm baseline zero failures",
+        "pass": true,
+        "severity": "hard"
+      },
+      {
+        "details": "speedup=1.98x",
+        "name": "warm speedup measured",
+        "pass": true,
+        "severity": "soft"
+      },
+      {
+        "details": "{\"standup\": {\"renders\": 500, \"failures\": 0, \"timing\": {\"n\": 500, \"median\": 0.9027, \"p95\": 1.0758, \"p99\": 1.2449, \"mean\": 0.9073}, \"cache_state\": \"mixed\"}, \"feature_work\": {\"renders\": 500, \"failures\": 0, \"timing\": {\"n\": 500, \"median\": 1.8987, \"p95\": 3.4335, \"p99\": 3.8965, \"mean\": 1.9955}, \"cache_state\": \"mixed\"}, \"incident_hotfix\": {\"renders\": 500, \"failures\": 0, \"timing\": {\"n\": 500, \"median\": 0.9104, \"p95\": 1.5204, \"p99\": 1.9418, \"mean\": 0.9935}, \"cache_state\": \"mixed\"}, \"end_of_day\": {\"renders\"",
+        "name": "enterprise week zero failures",
+        "pass": true,
+        "severity": "hard"
+      },
+      {
+        "details": "",
+        "name": "agora swarm command completes",
+        "pass": true,
+        "severity": "hard"
+      },
+      {
+        "details": "writes=0",
+        "name": "checkpoint relay zero corruption",
+        "pass": false,
+        "severity": "hard"
+      },
+      {
+        "details": "0/1000",
+        "name": "inbox storm delivery >= 99.9%",
+        "pass": false,
+        "severity": "soft"
+      },
+      {
+        "details": "[\"A1_disk_full\", \"A2_network_partition\", \"A3_clock_skew\", \"A4_oom_pressure\", \"A7_signal_storm\", \"A9_fork_bomb_defense\"]",
+        "name": "adversarial gauntlet pass/skip accounted",
+        "pass": true,
+        "severity": "hard"
+      },
+      {
+        "details": "GOOGLE_API_KEY not set",
+        "name": "semantic integrity real LLM judge",
+        "pass": true,
+        "severity": "skip",
+        "skipped": true
+      },
+      {
+        "details": "{\"total_directives\": 35000, \"baseline_to_perseus_token_ratio\": 7.5, \"compression_pct\": 86.67, \"tiers\": {\"opus\": {\"relative_savings_pct\": 86.67}, \"gpt\": {\"relative_savings_pct\": 86.67}, \"gemini\": {\"relative_savings_pct\": 86.67}}}",
+        "name": "token compression >= 85%",
+        "pass": true,
+        "severity": "soft"
+      },
+      {
+        "details": "{\"renders\": 498, \"failures\": 0, \"timing\": {\"n\": 498, \"median\": 0.217, \"p95\": 0.3659, \"p99\": 0.5809, \"mean\": 0.2404}}",
+        "name": "sustained torture errors <= 0.01%",
+        "pass": true,
+        "severity": "hard"
+      },
+      {
+        "details": "{\"total\": 13520, \"bad\": [], \"ok\": true}",
+        "name": "cache integrity audit",
+        "pass": true,
+        "severity": "hard"
+      }
+    ],
+    "pass": false,
+    "passed": 15,
+    "total": 17
+  },
+  "generated_at": "2026-05-26T19:47:10Z",
+  "nodes": "local",
+  "pass": false,
+  "phases": {
+    "phase_0_preflight": {
+      "pass": true,
+      "version": {
+        "duration_s": 0.218,
+        "rc": 0,
+        "stderr": "",
+        "stdout": "perseus v1.0.4\n"
+      }
+    },
+    "phase_10_sustained_torture": {
+      "pass": true,
+      "summary": {
+        "failures": 0,
+        "renders": 498,
+        "timing": {
+          "mean": 0.2404,
+          "median": 0.217,
+          "n": 498,
+          "p95": 0.3659,
+          "p99": 0.5809
+        }
+      }
+    },
+    "phase_11_final": {
+      "pass": false,
+      "summary": {
+        "gate_report": {
+          "failed": [
+            "checkpoint relay zero corruption",
+            "inbox storm delivery >= 99.9%"
+          ],
+          "gates": [
+            {
+              "details": "ok",
+              "name": "NFS/local shared path writable",
+              "pass": true,
+              "severity": "hard"
+            },
+            {
+              "details": "perseus v1.0.4",
+              "name": "Perseus version is v1.0.4+",
+              "pass": true,
+              "severity": "hard"
+            },
+            {
+              "details": "ration not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\nperseus audit: write failed (PermissionError(1, 'Operation not permitted'))\n",
+              "name": "sample role profile renders",
+              "pass": true,
+              "severity": "hard"
+            },
+            {
+              "details": "{\"n\": 500, \"median\": 1.8905, \"p95\": 2.6868, \"p99\": 3.0624, \"mean\": 1.9276}",
+              "name": "cold baseline zero failures",
+              "pass": true,
+              "severity": "hard"
+            },
+            {
+              "details": "{\"n\": 500, \"median\": 1.8905, \"p95\": 2.6868, \"p99\": 3.0624, \"mean\": 1.9276}",
+              "name": "cold baseline median <= 30s",
+              "pass": true,
+              "severity": "soft"
+            },
+            {
+              "details": "{\"n\": 500, \"median\": 1.8905, \"p95\": 2.6868, \"p99\": 3.0624, \"mean\": 1.9276}",
+              "name": "cold baseline p99 <= 120s",
+              "pass": true,
+              "severity": "soft"
+            },
+            {
+              "details": "{\"n\": 500, \"median\": 0.957, \"p95\": 1.3678, \"p99\": 1.4792, \"mean\": 0.9961}",
+              "name": "warm baseline zero failures",
+              "pass": true,
+              "severity": "hard"
+            },
+            {
+              "details": "speedup=1.98x",
+              "name": "warm speedup measured",
+              "pass": true,
+              "severity": "soft"
+            },
+            {
+              "details": "{\"standup\": {\"renders\": 500, \"failures\": 0, \"timing\": {\"n\": 500, \"median\": 0.9027, \"p95\": 1.0758, \"p99\": 1.2449, \"mean\": 0.9073}, \"cache_state\": \"mixed\"}, \"feature_work\": {\"renders\": 500, \"failures\": 0, \"timing\": {\"n\": 500, \"median\": 1.8987, \"p95\": 3.4335, \"p99\": 3.8965, \"mean\": 1.9955}, \"cache_state\": \"mixed\"}, \"incident_hotfix\": {\"renders\": 500, \"failures\": 0, \"timing\": {\"n\": 500, \"median\": 0.9104, \"p95\": 1.5204, \"p99\": 1.9418, \"mean\": 0.9935}, \"cache_state\": \"mixed\"}, \"end_of_day\": {\"renders\"",
+              "name": "enterprise week zero failures",
+              "pass": true,
+              "severity": "hard"
+            },
+            {
+              "details": "",
+              "name": "agora swarm command completes",
+              "pass": true,
+              "severity": "hard"
+            },
+            {
+              "details": "writes=0",
+              "name": "checkpoint relay zero corruption",
+              "pass": false,
+              "severity": "hard"
+            },
+            {
+              "details": "0/1000",
+              "name": "inbox storm delivery >= 99.9%",
+              "pass": false,
+              "severity": "soft"
+            },
+            {
+              "details": "[\"A1_disk_full\", \"A2_network_partition\", \"A3_clock_skew\", \"A4_oom_pressure\", \"A7_signal_storm\", \"A9_fork_bomb_defense\"]",
+              "name": "adversarial gauntlet pass/skip accounted",
+              "pass": true,
+              "severity": "hard"
+            },
+            {
+              "details": "GOOGLE_API_KEY not set",
+              "name": "semantic integrity real LLM judge",
+              "pass": true,
+              "severity": "skip",
+              "skipped": true
+            },
+            {
+              "details": "{\"total_directives\": 35000, \"baseline_to_perseus_token_ratio\": 7.5, \"compression_pct\": 86.67, \"tiers\": {\"opus\": {\"relative_savings_pct\": 86.67}, \"gpt\": {\"relative_savings_pct\": 86.67}, \"gemini\": {\"relative_savings_pct\": 86.67}}}",
+              "name": "token compression >= 85%",
+              "pass": true,
+              "severity": "soft"
+            },
+            {
+              "details": "{\"renders\": 498, \"failures\": 0, \"timing\": {\"n\": 498, \"median\": 0.217, \"p95\": 0.3659, \"p99\": 0.5809, \"mean\": 0.2404}}",
+              "name": "sustained torture errors <= 0.01%",
+              "pass": true,
+              "severity": "hard"
+            },
+            {
+              "details": "{\"total\": 13520, \"bad\": [], \"ok\": true}",
+              "name": "cache integrity audit",
+              "pass": true,
+              "severity": "hard"
+            }
+          ],
+          "pass": false,
+          "passed": 15,
+          "total": 17
+        }
+      }
+    },
+    "phase_1_cold": {
+      "pass": true,
+      "summary": {
+        "cache_state": "cold",
+        "failures": 0,
+        "renders": 500,
+        "timing": {
+          "mean": 1.9276,
+          "median": 1.8905,
+          "n": 500,
+          "p95": 2.6868,
+          "p99": 3.0624
+        }
+      }
+    },
+    "phase_2_warm": {
+      "pass": true,
+      "summary": {
+        "seed": {
+          "cache_state": "warm",
+          "failures": 0,
+          "renders": 500,
+          "timing": {
+            "mean": 1.0288,
+            "median": 0.9602,
+            "n": 500,
+            "p95": 1.6353,
+            "p99": 1.9532
+          }
+        },
+        "speedup": 1.98,
+        "warm": {
+          "cache_state": "warm",
+          "failures": 0,
+          "renders": 500,
+          "timing": {
+            "mean": 0.9961,
+            "median": 0.957,
+            "n": 500,
+            "p95": 1.3678,
+            "p99": 1.4792
+          }
+        }
+      }
+    },
+    "phase_3_enterprise_week": {
+      "pass": true,
+      "summary": {
+        "end_of_day": {
+          "cache_state": "mixed",
+          "failures": 0,
+          "renders": 500,
+          "timing": {
+            "mean": 1.0512,
+            "median": 0.9522,
+            "n": 500,
+            "p95": 1.9103,
+            "p99": 2.1877
+          }
+        },
+        "feature_work": {
+          "cache_state": "mixed",
+          "failures": 0,
+          "renders": 500,
+          "timing": {
+            "mean": 1.9955,
+            "median": 1.8987,
+            "n": 500,
+            "p95": 3.4335,
+            "p99": 3.8965
+          }
+        },
+        "incident_hotfix": {
+          "cache_state": "mixed",
+          "failures": 0,
+          "renders": 500,
+          "timing": {
+            "mean": 0.9935,
+            "median": 0.9104,
+            "n": 500,
+            "p95": 1.5204,
+            "p99": 1.9418
+          }
+        },
+        "standup": {
+          "cache_state": "mixed",
+          "failures": 0,
+          "renders": 500,
+          "timing": {
+            "mean": 0.9073,
+            "median": 0.9027,
+            "n": 500,
+            "p95": 1.0758,
+            "p99": 1.2449
+          }
+        }
+      }
+    },
+    "phase_4_agora_swarm": {
+      "pass": true,
+      "summary": {
+        "duration_s": 424.82
+      }
+    },
+    "phase_5_checkpoint_relay": {
+      "pass": false,
+      "summary": {
+        "writes": 0
+      }
+    },
+    "phase_6_inbox_storm": {
+      "pass": false,
+      "summary": {
+        "delivered": 0,
+        "total": 1000
+      }
+    },
+    "phase_7_adversarial": {
+      "pass": true,
+      "summary": {
+        "pass": true,
+        "scenarios": [
+          {
+            "duration_s": 0.001,
+            "pass": true,
+            "reason": "dangerous disk-fill scenario requires PERSEUS_GAUNTLET_ALLOW_DISK_FILL=1",
+            "scenario": "A1_disk_full",
+            "skipped": true
+          },
+          {
+            "duration_s": 0.001,
+            "pass": true,
+            "reason": "iptables/pf network isolation requires root",
+            "scenario": "A2_network_partition",
+            "skipped": true
+          },
+          {
+            "duration_s": 0.001,
+            "pass": true,
+            "reason": "system clock mutation is unsafe on this runner; timezone-shift scenario covers time variance",
+            "scenario": "A3_clock_skew",
+            "skipped": true
+          },
+          {
+            "duration_s": 0.0,
+            "pass": true,
+            "reason": "OOM pressure requires PERSEUS_GAUNTLET_ALLOW_OOM=1",
+            "scenario": "A4_oom_pressure",
+            "skipped": true
+          },
+          {
+            "duration_s": 0.196,
+            "pass": true,
+            "result": {
+              "rc": 0,
+              "stderr": "",
+              "stdout_len": 34
+            },
+            "scenario": "A5_cache_poison"
+          },
+          {
+            "duration_s": 4.03,
+            "ok": 20,
+            "pass": true,
+            "scenario": "A6_pid_reuse",
+            "total": 20
+          },
+          {
+            "duration_s": 0.0,
+            "pass": true,
+            "reason": "signal storm is destructive without a process supervisor harness",
+            "scenario": "A7_signal_storm",
+            "skipped": true
+          },
+          {
+            "duration_s": 0.742,
+            "opened_fds": 1024,
+            "pass": true,
+            "result": {
+              "rc": 0,
+              "stderr": "",
+              "stdout_len": 24
+            },
+            "scenario": "A8_fd_exhaustion"
+          },
+          {
+            "duration_s": 0.0,
+            "pass": true,
+            "reason": "fork-pressure scenario requires PERSEUS_GAUNTLET_ALLOW_FORK_PRESSURE=1",
+            "scenario": "A9_fork_bomb_defense",
+            "skipped": true
+          },
+          {
+            "duration_s": 0.385,
+            "pass": true,
+            "result": {
+              "rc": 0,
+              "stderr": "",
+              "stdout_len": 25
+            },
+            "scenario": "A10_symlink_race"
+          },
+          {
+            "duration_s": 0.287,
+            "pass": true,
+            "rc": 0,
+            "scenario": "A11_locale_corruption"
+          },
+          {
+            "duration_s": 0.613,
+            "pass": true,
+            "results": [
+              {
+                "rc": 0,
+                "stderr": "",
+                "stdout_len": 21
+              },
+              {
+                "rc": 0,
+                "stderr": "",
+                "stdout_len": 21
+              },
+              {
+                "rc": 0,
+                "stderr": "",
+                "stdout_len": 21
+              }
+            ],
+            "scenario": "A12_timezone_shift"
+          }
+        ],
+        "skipped": [
+          "A1_disk_full",
+          "A2_network_partition",
+          "A3_clock_skew",
+          "A4_oom_pressure",
+          "A7_signal_storm",
+          "A9_fork_bomb_defense"
+        ]
+      }
+    },
+    "phase_8_semantic_integrity": {
+      "pass": true,
+      "summary": {
+        "pass": true,
+        "reason": "GOOGLE_API_KEY not set",
+        "skipped": true
+      }
+    },
+    "phase_9_token_efficiency": {
+      "pass": true,
+      "summary": {
+        "baseline_to_perseus_token_ratio": 7.5,
+        "compression_pct": 86.67,
+        "tiers": {
+          "gemini": {
+            "relative_savings_pct": 86.67
+          },
+          "gpt": {
+            "relative_savings_pct": 86.67
+          },
+          "opus": {
+            "relative_savings_pct": 86.67
+          }
+        },
+        "total_directives": 35000
+      }
+    }
+  }
+}
