@@ -10,6 +10,7 @@ All scenarios have a max 300s duration and cleanup that runs even on exception.
 
 from __future__ import annotations
 
+import inspect
 import json
 import os
 import random
@@ -872,11 +873,14 @@ def run_all_adversarial(
         print(f"  Running {sid}: {info['description']}...", file=sys.stderr)
 
         try:
-            result = info["fn"](
-                duration_s=info["duration"],
-                nfs_base=nfs_base,
-                perseus_home=perseus_home,
-            )
+            # Compat: respect each scenario's actual signature (not all accept nfs_base/perseus_home)
+            sig = inspect.signature(info["fn"])
+            kwargs = {"duration_s": info["duration"]}
+            if "nfs_base" in sig.parameters:
+                kwargs["nfs_base"] = nfs_base
+            if "perseus_home" in sig.parameters:
+                kwargs["perseus_home"] = perseus_home
+            result = info["fn"](**kwargs)
             results[sid] = result
 
             # Check if renders succeeded

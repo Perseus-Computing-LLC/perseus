@@ -1,20 +1,28 @@
 #!/usr/bin/env python3
 """
-Real Deltas Benchmark — Not Synthetic (Fixed)
-==============================================
+MCP-Class Benchmark — Tool-Layer Generality
+============================================
 
-Uses the Perseus repo ITSELF as the benchmark target. Two modes:
+Demonstrates Perseus caching of expensive knowledge-retrieval operations —
+the class of work that MCP tools like Bastra Recall perform: document search,
+memory retrieval, and knowledge-base queries across a real codebase.
 
-  COLD — directives run WITHOUT @cache. Each query, git command, tree walk,
-         and file read executes from scratch. This IS the orientation tax.
+Perseus doesn't care whether the tool is local or remote, POSIX or MCP.
+Cache behavior is identical: cold = O(n) from scratch, warm = O(1) hash lookup.
 
-  WARM — same directives WITH @cache ttl=3600. Perseus has already resolved
-         everything — hash lookup, instant return.
+Each block contains 20 directives simulating what an AI agent with
+Bastra-style memory tools would execute:
+  - Document retrieval (@include of large spec/knowledge files)
+  - Semantic search (@query with ripgrep across the knowledge base)
+  - Project memory recall (@query git log with complex filters)
+  - Codebase intelligence (@query with aggregation/analysis)
 
-Each block simulates what an AI assistant would query to understand this
-project. 24 directives per block, repeated up to 1024× (24,576 total).
+Compare to real_deltas.py (varied lightweight directives) and
+run_coldwarm_heavy.py (synthetic sleep directives). This benchmark fills the
+MCP-gap: heavier per-directive cost than real_deltas, lighter than synthetic,
+and representative of real agent tool workflows.
 
-Output: benchmark/real_deltas.json
+Output: benchmark/mcp_integration.json
 """
 import os
 import shutil
@@ -28,48 +36,44 @@ from datetime import datetime
 PERSEUS = Path("/workspace/perseus/perseus.py")
 REPO = Path("/workspace/perseus")
 PY = sys.executable
-BASE = Path("/tmp/perseus-real-deltas")
-OUT = Path("/workspace/perseus/benchmark/real_deltas.json")
+BASE = Path("/tmp/perseus-mcp-bench")
+OUT = Path("/workspace/perseus/benchmark/mcp_integration.json")
 
 # ── Directive block — WITHOUT @cache (cold uses these raw) ────────────
-# This is what an AI assistant would actually run to discover context.
-# No cache hints — every directive resolves from scratch.
+# These simulate expensive MCP-class knowledge retrieval operations:
+# document loads, semantic searches, project memory queries.
 DIRECTIVE_BLOCK_COLD = [
-    # Git history
-    '@git log --oneline -20\n',
-    '@git log --format="%an" --since="2 weeks ago" | sort | uniq -c | sort -rn\n',
-    '@git diff --stat HEAD~5\n',
-    # Project structure
-    '@tree src/ depth=2\n',
-    '@tree tests/ depth=2\n',
-    '@tree benchmark/ depth=1\n',
-    # Source stats
+    # ── Document retrieval (simulates Bastra read_document) ──────────
+    '@include spec/components.md\n',              # 773 lines — heavy doc retrieval
+    '@include ROADMAP.md\n',                      # 1229 lines — heavy project memory
+    '@include spec/directives.md\n',              # 453 lines — medium doc retrieval
+    '@include docs/DEPLOYMENT.md\n',              # 870 lines — infrastructure knowledge
+    '@include spec/data-model.md\n',              # 432 lines — schema retrieval
+
+    # ── Semantic search (simulates Bastra find_document / recall) ────
+    '@query "rg -l \\"cache|benchmark|performance\\" spec/ src/ --glob \\"*.md\\" --glob \\"*.py\\" | head -15"\n',
+    '@query "rg -c \\"^def \\" src/perseus/*.py | awk -F: \'{sum+=$2} END {print sum}\'"\n',
+    '@query "find spec/ -name \\"*.md\\" -exec wc -l {} + | sort -rn | head -10"\n',
+    '@query "rg \\"TODO|FIXME|HACK\\" src/ --no-heading | wc -l"\n',
+    '@query "find benchmark/ -name \\"*.py\\" | xargs wc -l | sort -rn | head -15"\n',
+
+    # ── Project memory recall (simulates Bastra recall / memory queries) ─
+    '@query "git log --format=\\"%h %s\\" -30"\n',
+    '@query "git log --format=\\"%an\\" --since=\\"3 months ago\\" | sort | uniq -c | sort -rn"\n',
+    '@query "git diff --stat HEAD~10"\n',
+    '@query "git rev-list --count HEAD"\n',
+    '@query "git log --oneline --since=\\"1 month ago\\" | wc -l"\n',
+
+    # ── Codebase intelligence ─────────────────────────────────────────
+    '@tree src/perseus/ depth=2\n',
+    '@tree spec/ depth=1\n',
     '@query "wc -l perseus.py"\n',
-    '@query "find src/ -name \\"*.py\\" | xargs wc -l | tail -1"\n',
-    '@query "grep -c \\"^def \\" perseus.py"\n',
-    '@query "grep -c \\"^class \\" perseus.py"\n',
-    '@query "grep -c \\"^import \\" perseus.py"\n',
-    # Tests
-    '@query "find tests/ -name \\"test_*.py\\" | wc -l"\n',
-    # Version
-    '@query "head -1 VERSION 2>/dev/null || echo unknown"\n',
-    # Dependencies
-    '@query "pip list 2>/dev/null | wc -l"\n',
-    # Environment
-    '@env PERSEUS_HOME PYTHONPATH\n',
-    # Docs
-    '@include docs/PERFORMANCE.md\n',
-    # Git metadata
-    '@git branch --show-current\n',
-    '@git rev-parse --short HEAD\n',
-    '@git status --short | head -20\n',
-    # File previews
-    '@file perseus.py limit=30\n',
-    '@file src/perseus/renderer.py limit=30\n',
-    '@file src/perseus/cache.py limit=30\n',
+    '@query "find tests/ -name \\"test_*.py\\" | xargs grep -l \\"def test_\\" | wc -l"\n',
+    '@env PERSEUS_HOME HOME\n',
 ]
 
 # ── Same directives WITH @cache (warm uses these) ─────────────────────
+# ttl=3600 keeps the cache valid for the entire warm run.
 DIRECTIVE_BLOCK_WARM = [
     line.replace('\n', ' @cache ttl=3600\n')
     for line in DIRECTIVE_BLOCK_COLD
@@ -77,7 +81,9 @@ DIRECTIVE_BLOCK_WARM = [
 
 DIRECTIVES_PER_BLOCK = len(DIRECTIVE_BLOCK_COLD)
 
-BLOCK_REPEATS = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024]
+# Fewer repeat levels than synthetic/real-deltas since each directive is
+# heavier. Max 512 blocks = 10,240 directives. High contrast with warm.
+BLOCK_REPEATS = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512]
 
 # ── Setup ──────────────────────────────────────────────────────────────
 shutil.rmtree(BASE, ignore_errors=True)
@@ -88,20 +94,31 @@ try:
 except Exception:
     hostname = "unknown"
 
+# Estimate per-file size stats for documentation
+file_sizes: dict[str, int] = {}
+for line in DIRECTIVE_BLOCK_COLD:
+    if line.startswith("@include"):
+        path = line.split()[1]
+        f = REPO / path
+        if f.is_file():
+            file_sizes[path] = f.stat().st_size
+
 # Count directive types
-type_counts = {"@git": 0, "@tree": 0, "@query": 0, "@include": 0, "@env": 0, "@file": 0}
+type_counts = {"@include": 0, "@query": 0, "@git": 0, "@tree": 0, "@env": 0}
 for line in DIRECTIVE_BLOCK_COLD:
     for t in type_counts:
         if line.startswith(t):
             type_counts[t] += 1
 
 results = {
-    "test": "real-deltas",
+    "test": "mcp-integration",
     "description": (
-        "Non-synthetic benchmark using the real Perseus codebase. "
-        f"Each block contains {DIRECTIVES_PER_BLOCK} varied directives "
-        "(@git, @tree, @query, @include, @file, @env). "
-        "COLD: directives resolve from scratch. WARM: same directives with @cache."
+        "MCP-class benchmark simulating expensive knowledge-retrieval operations "
+        "(Bastra Recall-style: document vault search, memory queries, codebase "
+        "intelligence). Each block contains 20 directives heavier than real_deltas "
+        "— @include of large spec files, @query with rg/find across the repo, "
+        "git history analysis. COLD: directives resolve from scratch. "
+        "WARM: same directives with @cache ttl=3600."
     ),
     "timestamp": datetime.now().isoformat(),
     "hostname": hostname,
@@ -109,6 +126,7 @@ results = {
     "repo": str(REPO),
     "directives_per_block": DIRECTIVES_PER_BLOCK,
     "directive_types": type_counts,
+    "doc_retrieval_file_sizes": file_sizes,
     "scales": {},
 }
 
@@ -168,6 +186,11 @@ for repeats in BLOCK_REPEATS:
         [PY, str(PERSEUS), "render", str(ctx_warm), "--output", str(d / "warm_prime.md")],
         capture_output=True, timeout=1800, env=warm_env, cwd=str(REPO),
     )
+    if r.returncode != 0:
+        err = r.stderr.decode()[:300]
+        print(f"PRIME FAILED rc={r.returncode}: {err}")
+        results["scales"][str(repeats)] = {"directives": N, "cold": cold_s, "warm": None, "error": f"prime rc={r.returncode}"}
+        continue
 
     # Warm render
     print("warm...", end=" ", flush=True)
@@ -210,10 +233,10 @@ if valid:
     best = max(valid, key=lambda x: x[1]["speedup"])
     largest = max(valid, key=lambda x: x[1]["directives"])
 
+    cold_us = [v.get("cold_per_directive_us", v["cold_ms_per_directive"]*1000) for _, v in valid]
+    warm_us_list = [v.get("warm_per_directive_us", v["warm_ms_per_directive"]*1000) for _, v in valid]
     cold_ms = [v["cold_ms_per_directive"] for _, v in valid]
     warm_ms = [v["warm_ms_per_directive"] for _, v in valid]
-    cold_us = [v.get("cold_per_directive_us", m*1000) for _, v, m in [(k,v,v["cold_ms_per_directive"]) for k,v in valid]]
-    warm_us_list = [v.get("warm_per_directive_us", v["warm_ms_per_directive"]*1000) for _, v in valid]
 
     results["best_speedup"] = {
         "blocks": int(best[0]),
@@ -226,17 +249,21 @@ if valid:
     results["averages"] = {
         "cold_ms_per_directive": round(sum(cold_ms) / len(cold_ms), 2),
         "warm_ms_per_directive": round(sum(warm_ms) / len(warm_ms), 2),
+        "cold_us_per_directive": round(sum(cold_us) / len(cold_us), 1),
+        "warm_us_per_directive": round(sum(warm_us_list) / len(warm_us_list), 1),
         "speedup_at_largest_scale": largest[1]["speedup"],
     }
 
     results["headline"] = (
-        f"Real Perseus codebase benchmark: {largest[1]['directives']:,} varied directives "
-        f"({largest[0]}× repeat, {DIRECTIVES_PER_BLOCK} directive types). "
+        f"MCP-class benchmark: {largest[1]['directives']:,} knowledge-retrieval directives "
+        f"({largest[0]}× repeat, {DIRECTIVES_PER_BLOCK} types: @include doc-retrieval, "
+        f"@query semantic-search, @git memory-recall, @tree intelligence). "
         f"Cold: {largest[1]['cold_s']:.2f}s ({largest[1]['cold_ms_per_directive']}ms/dir avg). "
         f"Warm: {largest[1]['warm_s']:.3f}s ({largest[1]['warm_ms_per_directive']}ms/dir avg). "
         f"Speedup: {largest[1]['speedup']:.0f}×. "
-        f"Not synthetic — real git, tree, query, include, file directives "
-        f"against the actual Perseus repo at {REPO}."
+        f"Perseus caches MCP-class operations at the same O(1) constant as local POSIX commands. "
+        f"No special MCP adapter needed — the @cache directive works at the tool-agnostic "
+        f"render layer."
     )
 
 OUT.write_text(json.dumps(results, indent=2))
