@@ -150,10 +150,12 @@ DEFAULT_CONFIG = {
         "recent_keep": 5,           # raw checkpoints to include in Recent Activity
         "auto_update": True,        # update narrative on every checkpoint write
         "compact_threshold": 20,    # advisory: compact after this many incremental updates
-        "backend": "file",         # "file" (default, Mnēmē narrative) or "mneme" (BM25 vault)
         "llm_provider": None,       # None = deterministic; "ollama" / "openai-compat" enables LLM
         "llm_model": None,          # inherits from llm: block if None
         "max_narrative_lines": 300, # warn (not error) if narrative grows beyond this
+        # Mnēmē v2 — Perseus-native vault (SQLite FTS5, no Bastra dependency)
+        "mneme_vault_path": "",     # empty = auto-detect ($PERSEUS_HOME/memory/vault/)
+        "mneme_index_path": "",     # empty = vault_path / "mneme.index"
         # task-19 (Phase 8.2) — federation manifest path
         "federation_manifest": str(PERSEUS_HOME / "memory" / "federation.yaml"),
         # task-21 (Phase 9.2) — pattern extractor backend:
@@ -7356,32 +7358,32 @@ _MNEME_FIELD_WEIGHTS = {
 
 
 def _mneme_vault_path(cfg: dict) -> Path:
-    """Resolve the Mnēmē vault directory from config or auto-detect.
+    """Resolve the Mnēmē v2 vault directory from config or auto-detect.
 
     Resolution order:
       1. memory.mneme_vault_path from config (if set)
-      2. Auto-detect: $HERMES_HOME/mneme-vault/memories/projects
-         (or ~/.hermes/mneme-vault/memories/projects as fallback)
+      2. Auto-detect: $PERSEUS_HOME/memory/vault
       3. Default path even if it doesn't exist (returns empty list)
     """
     raw = cfg.get("memory", {}).get("mneme_vault_path", "").strip()
     if raw:
         return Path(raw).expanduser()
 
-    # Auto-detect: check HERMES_HOME first, then ~/.hermes
-    hermes_home = os.environ.get("HERMES_HOME", "")
-    candidates = []
-    if hermes_home:
-        candidates.append(Path(hermes_home) / "mneme-vault" / "memories" / "projects")
-    candidates.append(Path.home() / ".hermes" / "mneme-vault" / "memories" / "projects")
+    # Auto-detect: $PERSEUS_HOME/memory/vault
+    vault = PERSEUS_HOME / "memory" / "vault"
+    if vault.is_dir():
+        return vault
 
-    for cand in candidates:
-        if cand.is_dir():
-            return cand
+    # Return the default even if it doesn't exist
+    return vault
 
-    # Return the default even if it doesn't exist (will trigger local recall
-    # to return empty, then fall through to daemon)
-    return Path.home() / ".hermes" / "mneme-vault" / "memories" / "projects"
+
+def _mneme_index_path(cfg: dict) -> Path:
+    """Resolve the SQLite FTS5 index path."""
+    raw = cfg.get("memory", {}).get("mneme_index_path", "").strip()
+    if raw:
+        return Path(raw).expanduser()
+    return _mneme_vault_path(cfg) / "mneme.index"
 
 
 def _mneme_tokenize(text: str) -> list[str]:
