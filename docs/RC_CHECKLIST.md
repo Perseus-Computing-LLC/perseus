@@ -25,7 +25,7 @@
 | Docs hub + quickstart | ✅ | `docs/index.md`, `docs/quickstart.md`, `docs/CONTRIBUTING.md` |
 | Example workspaces | ✅ | `examples/local-cli/`, `examples/assistant-profile/`, `examples/container/` — smoke tests pass |
 | README / CHANGELOG / ROADMAP aligned | ✅ | All reference v1.0.0; CHANGELOG entries updated |
-| IP portfolio | ✅ | Trademark filed |
+| IP portfolio | ✅ | Trademark filed. Patent pending. |
 | No open Agora tasks | ✅ | All Agora tasks closed; 0 open |
 
 ---
