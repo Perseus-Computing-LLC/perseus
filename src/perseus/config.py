@@ -93,10 +93,12 @@ DEFAULT_CONFIG = {
         "recent_keep": 5,           # raw checkpoints to include in Recent Activity
         "auto_update": True,        # update narrative on every checkpoint write
         "compact_threshold": 20,    # advisory: compact after this many incremental updates
-        "backend": "file",         # "file" (default, Mnēmē narrative) or "mneme" (BM25 vault)
         "llm_provider": None,       # None = deterministic; "ollama" / "openai-compat" enables LLM
         "llm_model": None,          # inherits from llm: block if None
         "max_narrative_lines": 300, # warn (not error) if narrative grows beyond this
+        # Mnēmē v2 — Perseus-native vault (SQLite FTS5, no Bastra dependency)
+        "mneme_vault_path": "",     # empty = auto-detect ($PERSEUS_HOME/memory/vault/)
+        "mneme_index_path": "",     # empty = vault_path / "mneme.index"
         # task-19 (Phase 8.2) — federation manifest path
         "federation_manifest": str(PERSEUS_HOME / "memory" / "federation.yaml"),
         # task-21 (Phase 9.2) — pattern extractor backend:
