@@ -14,7 +14,7 @@ The framework and plan belong to the project owner. Your job is to execute tasks
 
 **Repo:** https://github.com/tcconnally/perseus  
 **Workspace:** current repo checkout  
-**Skill:** `perseus-context-engine` (installed at `~/.hermes/skills/`)  
+**Skill:** `perseus-context-engine` (installed at your assistant's skills directory)  
 **CLI:** `~/.local/bin/perseus`  
 **Last updated:** @date format="YYYY-MM-DD"
 
@@ -144,8 +144,8 @@ checkpoints feed it.
 
 ~/.local/bin/perseus            ← symlink / wrapper
 
-~/.hermes/skills/
-  perseus/
+~/.hermes/skills/               ← Hermes Agent skills (default; configurable via assistant.skill_dir)
+  perseus-context-engine/
     SKILL.md                    ← `perseus-context-engine` skill
 ```
 
@@ -491,20 +491,8 @@ explicit mutation gate for `perseus.compactMemory`.
 ### 11E: Split Tests by Subsystem (task-29) ✅
 
 Split `tests/test_perseus.py` into subsystem files plus `tests/conftest.py`.
-At Phase 11 close the suite collected 272 tests. After Phase 12 it reached
-283 passed, 1 skipped; after Phase 13 it reached 297 passed, 1 skipped; after
-Phase 14A it reached 300 passed, 1 skipped; after Phase 14B it reached
-304 passed, 1 skipped; after Phase 14C it reached 308 passed, 1 skipped; after
-Phase 15A it reached 314 passed, 1 skipped; after Phase 16 it reached
-322 passed, 1 skipped; after Phase 17/18A plus task-63 it reached
-394 passed, 1 skipped; after Phase 18B-C it reached 413 passed, 1 skipped;
-after Phase 19A it reached 433 passed, 1 skipped; after Phase 19B it reached
-439 passed, 1 skipped; after Phase 19C it reached 446 passed, 1 skipped; after
-Phase 20A it reached 453 passed, 1 skipped (sandbox-blocked TCP bind; the same
-TCP smoke passes outside the sandbox).
-- `test_oracle.py` — suggest, Pythia log, drift, infer-labels
-- `test_memory.py` — Mnēmē narrative, federation
-- `test_lsp.py` — LSP helpers, framing, diagnostics
+The test suite is organized by subsystem (oracle, memory, LSP, renderer, etc.) with
+shared fixtures in `conftest.py`. Run with `python -m pytest tests/ -q`.
 
 No code changes to `perseus.py`. Mechanical file splitting + `conftest.py`
 for shared fixtures. Do this last so all new tests land first.
@@ -872,7 +860,7 @@ no CDN, no external fonts, no JavaScript — and opens in any browser offline.
 
 Architecture: post-processing. Directives resolve to markdown as always, then
 a new `html_format.py` module converts to semantic HTML and wraps in the
-document template. Zero new dependencies. 596 tests passing.
+document template. Zero new dependencies. All tests passing.
 
 ---
 

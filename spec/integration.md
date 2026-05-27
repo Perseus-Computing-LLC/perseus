@@ -1,6 +1,17 @@
 # Integrating Perseus with an AI Assistant
 
-Perseus is assistant-agnostic. The core pattern is simple:
+Perseus is assistant-agnostic. There are two integration paths:
+
+1. **Render-to-file** — Perseus resolves `@directive` blocks in a source document, writes plain markdown to a file your assistant reads at session start.
+2. **MCP server** — Your assistant calls Perseus tools directly over the Model Context Protocol for live, on-demand workspace state.
+
+The two paths are complementary — use render-to-file for baseline context, MCP for dynamic queries.
+
+---
+
+## Path A: Render-to-File
+
+The core pattern is simple:
 
 1. Write a live context source file with `@perseus` directives
 2. Render it on a schedule or at session start
@@ -13,9 +24,7 @@ Phase 15 cited synthesis is deliberately separate from this render path.
 explicitly, only with exact citations, and without changing ordinary rendered
 context.
 
----
-
-## The Pattern
+### The Pattern
 
 ```text
 source.md with @perseus directives
@@ -38,6 +47,126 @@ Profiles write `.perseus/context.md` plus `.perseus/pack.yaml`, which records
 the assistant target, rendered output path, trust profile, and optional
 synthesis source packs. Existing `perseus init --template` and direct render
 flows remain supported.
+
+### Per-Assistant Output Files
+
+| Assistant | Output file | Command |
+|---|---|---|
+| Claude Code | `CLAUDE.md` | `perseus render .perseus/context.md --output CLAUDE.md` |
+| Hermes Agent | `.hermes.md` | `perseus render .perseus/context.md --output .hermes.md` |
+| Cursor | `.cursorrules` | `perseus render .perseus/context.md --output .cursorrules` |
+| Codex | `AGENTS.md` | `perseus render .perseus/context.md --output AGENTS.md` |
+| Rovo Dev | `AGENTS.md` | `perseus render .perseus/context.md --output AGENTS.md` |
+| Generic | Any filename | `perseus render .perseus/context.md --output live-context.md` |
+
+---
+
+## Path B: MCP Server
+
+Perseus implements the [Model Context Protocol](https://modelcontextprotocol.io/) (MCP),
+exposing all 24 directives as tools over stdio or SSE transport. Your assistant calls
+`perseus_services`, `perseus_query`, `perseus_memory`, etc. directly — live state,
+no pre-rendered files.
+
+### Starting the MCP Server
+
+```bash
+perseus mcp serve                          # stdio (default)
+perseus mcp serve --transport sse --port 8420  # SSE for remote agents
+perseus mcp serve --workspace /path/to/project  # scope to a specific workspace
+```
+
+### Assistant-Specific MCP Config
+
+**Hermes Agent** (`~/.hermes/config.yaml`):
+
+```yaml
+mcp_servers:
+  perseus:
+    transport: stdio
+    command: perseus
+    args: ["mcp", "serve"]
+```
+
+Verify: `hermes mcp test perseus`. Tools appear as `mcp_perseus_*` in session.
+
+**Claude Desktop** (`claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "perseus": {
+      "command": "perseus",
+      "args": ["mcp", "serve"],
+      "env": { "PERSEUS_WORKSPACE": "/path/to/workspace" }
+    }
+  }
+}
+```
+
+**Claude Code** (`.mcp.json` in project root):
+
+```json
+{
+  "mcpServers": {
+    "perseus": {
+      "command": "perseus",
+      "args": ["mcp", "serve"]
+    }
+  }
+}
+```
+
+**Cursor** (`.cursor/mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "perseus": {
+      "command": "perseus",
+      "args": ["mcp", "serve"]
+    }
+  }
+}
+```
+
+**Codex** (`~/.codex/config.toml` or `.mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "perseus": {
+      "command": "perseus",
+      "args": ["mcp", "serve"]
+    }
+  }
+}
+```
+
+**Rovo Dev** (`.mcp.json` in repo root):
+
+```json
+{
+  "mcpServers": {
+    "perseus": {
+      "command": "perseus",
+      "args": ["mcp", "serve"]
+    }
+  }
+}
+```
+
+Rovo Dev also reads `AGENTS.md` at session start — pair MCP tools with rendered context
+for a complete setup: MCP for live queries (service health, env vars, task board), rendered
+`AGENTS.md` for baseline context (project constraints, roadmap, recent decisions).
+
+### Combining Both Paths
+
+The recommended setup for most projects:
+
+1. **Render-to-file** for baseline context — `perseus cron/render --output AGENTS.md` every 5 minutes
+2. **MCP server** for on-demand queries — `perseus_services`, `perseus_query`, `perseus_memory`
+3. The assistant reads `AGENTS.md` at session start (immediate orientation) and calls MCP tools for dynamic state (service health, git status, skill listings)
 
 ---
 
@@ -99,7 +228,7 @@ A pre-commit or post-checkout hook can refresh rendered context for local workfl
 
 ---
 
-## Per-Assistant Notes
+## Per-Assistant Notes (Render-to-File)
 
 ### Hermes Agent
 Hermes commonly uses `.hermes.md` as the rendered output file.
@@ -108,7 +237,8 @@ Hermes commonly uses `.hermes.md` as the rendered output file.
 perseus render .perseus/context.md --output .hermes.md
 ```
 
-Hermes can read that file at session start, or a wrapper script can render on demand before invoking Hermes.
+Hermes can read that file at session start, or a cron watchdog can keep it fresh.
+For MCP integration (recommended for dynamic state), see Path B above.
 
 ### Claude Code / claude.ai Projects
 Render to `CLAUDE.md` or another project knowledge file Claude reads.
@@ -147,14 +277,14 @@ perseus render .perseus/context.md --output live-context.md
 The Phase 19A harness keeps adapter docs, product profiles, context packs, and
 render outputs aligned. Each fixture is offline and deterministic.
 
-| Adapter | Expected output | Trust profile | Fixture |
-|---|---|---|---|
-| generic | `live-context.md` | `balanced` | `tests/fixtures/adapters/generic/` |
-| hermes | `.hermes.md` | `balanced` | `tests/fixtures/adapters/hermes/` |
-| codex | `AGENTS.md` | `balanced` | `tests/fixtures/adapters/codex/` |
-| claude-code | `CLAUDE.md` | `balanced` | `tests/fixtures/adapters/claude-code/` |
-| cursor | `.cursorrules` | `balanced` | `tests/fixtures/adapters/cursor/` |
-| rovodev | `AGENTS.md` | `balanced` | `tests/fixtures/adapters/rovodev/` |
+| Adapter | Output file | MCP support | Trust profile | Fixture |
+|---|---|---|---|---|
+| generic | `live-context.md` | Yes (stdio) | `balanced` | `tests/fixtures/adapters/generic/` |
+| hermes | `.hermes.md` | Yes (config.yaml) | `balanced` | `tests/fixtures/adapters/hermes/` |
+| codex | `AGENTS.md` | Yes (.mcp.json) | `balanced` | `tests/fixtures/adapters/codex/` |
+| claude-code | `CLAUDE.md` | Yes (.mcp.json) | `balanced` | `tests/fixtures/adapters/claude-code/` |
+| cursor | `.cursorrules` | Yes (.mcp.json) | `balanced` | `tests/fixtures/adapters/cursor/` |
+| rovodev | `AGENTS.md` | Yes (.mcp.json) | `balanced` | `tests/fixtures/adapters/rovodev/` |
 
 Run the conformance harness with:
 
@@ -179,7 +309,7 @@ A workspace can carry its own context source and config:
 
 ---
 
-## Example
+## Example Context Source
 
 ```markdown
 @perseus v0.4
@@ -204,4 +334,10 @@ Trust the rendered output and skip orientation.
 
 ## Available Skills
 @skills flag_stale=true
+
+## Active Tasks
+@agora status=open,in_progress
+
+## Project Memory
+@memory focus="recent"
 ```

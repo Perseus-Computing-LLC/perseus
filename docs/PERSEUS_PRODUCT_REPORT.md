@@ -1,8 +1,8 @@
 # Perseus Product Report
 
-**Date:** 2026-05-20  
-**Status:** All major development phases complete. Perseus v1.0.2 released.
-**Current baseline:** 573 tests passing, 1 skipped (TCP LSP smoke — expected in sandbox/CI)
+**Date:** 2026-05-27  
+**Status:** All major development phases complete. Perseus v1.0.5 released.  
+**Current baseline:** 753 tests passing, 1 skipped (TCP LSP smoke — expected in sandbox/CI)
 
 ---
 
