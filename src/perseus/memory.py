@@ -1,38 +1,4 @@
 # stdlib imports available from build artifact header
-import math
-
-# ─────────────────────── In-Process BM25 Index ───────────────────────────
-# Module-level cache: {vault_path: (mtime, index, documents)}
-# Shared across all concurrent render processes because Perseus uses
-# @cache to avoid re-rendering the same context. Each render process gets
-# its own copy of the index — no daemon lock contention, zero serialization.
-_MNEME_INDEX_CACHE: dict = {}
-
-# Stopwords — bare minimum for BM25. Short, common English tokens that
-# contribute no signal. Shorter than NLTK's list; these are the top-30
-# by frequency across all documents.
-_MNEME_STOPWORDS = {
-    "the", "a", "an", "is", "are", "was", "were", "be", "been",
-    "this", "that", "these", "those", "it", "its", "they", "them",
-    "to", "of", "in", "for", "on", "and", "or", "with", "at", "by",
-    "as", "from", "we", "you", "he", "she", "not", "do", "does",
-    "did", "has", "have", "had", "but", "if", "so", "no", "will",
-    "can", "all", "each", "which", "what", "who", "how", "when",
-}
-
-# BM25 parameters (defaults from Lucene / Elasticsearch)
-_MNEME_BM25_K1 = 1.2
-_MNEME_BM25_B = 0.75
-
-# Weight multipliers per field (compared to body text weight of 1.0)
-_MNEME_FIELD_WEIGHTS = {
-    "title": 3.0,      # title matches are very important
-    "recall_when": 2.0,  # trigger phrases are highly weighted
-    "summary": 1.5,      # summary is more important than body
-    "tags": 1.5,         # exact tag matches
-    "topic_path": 1.2,   # topic path segments
-    "body": 1.0,
-}
 
 
 def _mneme_vault_path(cfg: dict) -> Path:
@@ -64,247 +30,26 @@ def _mneme_index_path(cfg: dict) -> Path:
     return _mneme_vault_path(cfg) / "mneme.index"
 
 
-def _mneme_tokenize(text: str) -> list[str]:
-    """Tokenize a text string: lowercase, split on non-alpha, filter stopwords, strip short."""
-    if not text:
-        return []
-    tokens = re.findall(r"[a-zA-Z0-9][a-zA-Z0-9_-]{1,}", text.lower())
-    return [t for t in tokens if t not in _MNEME_STOPWORDS and len(t) > 1]
-
-
-def _mneme_index_document(file_path: Path) -> dict | None:
-    """Parse a single vault .md file and return structured fields, or None on error."""
-    try:
-        text = file_path.read_text(encoding="utf-8", errors="replace")
-    except Exception:
-        return None
-    fm, body = _parse_frontmatter(text)
-    if not fm:
-        return None
-
-    # Build text-indexable fields
-    title = str(fm.get("title", "") or "")
-    summary = str(fm.get("summary", "") or "")
-    doc_scope = str(fm.get("scope", "") or "")
-    doc_type = str(fm.get("type", "") or "")
-    tags = [str(t) for t in (fm.get("tags") or []) if t]
-    topic_path = [str(t) for t in (fm.get("topic_path") or []) if t]
-    recall_when = [str(rw) for rw in (fm.get("recall_when") or []) if rw]
-    doc_id = str(fm.get("id", file_path.stem) or file_path.stem)
-
-    # Concatenate all text for BM25 indexing
-    searchable_text = " ".join([
-        title,
-        summary,
-        body,
-        " ".join(tags),
-        " ".join(topic_path),
-        " ".join(recall_when),
-    ])
-
-    # Per-field tokenization for weighted scoring
-    field_tokens = {
-        "title": _mneme_tokenize(title),
-        "summary": _mneme_tokenize(summary),
-        "recall_when": _mneme_tokenize(" ".join(recall_when)),
-        "tags": _mneme_tokenize(" ".join(tags) if tags else ""),
-        "topic_path": _mneme_tokenize(" ".join(topic_path) if topic_path else ""),
-        "body": _mneme_tokenize(body),
-    }
-
-    # Per-field tokens for matching — used in scoring
-    return {
-        "id": doc_id,
-        "title": title,
-        "type": doc_type,
-        "scope": doc_scope,
-        "summary": summary,
-        "topic_path": topic_path,
-        "tags": tags,
-        "field_tokens": field_tokens,
-        "all_tokens": [],
-    }
-
-
-def _mneme_build_bm25(vault_path: Path) -> tuple[list[dict], dict[str, int], float, dict[str, list[int]]]:
-    """Scan vault, parse all .md files, build BM25 index.
-
-    Returns:
-        documents — list of parsed doc dicts with id, title, type, scope, summary, field_tokens
-        df — dict mapping token → document frequency
-        avg_doc_len — average token count across all documents
-        inverted — term → list of doc indices (for fast candidate selection)
-    """
-    documents: list[dict] = []
-    df: dict[str, int] = {}  # document frequency per token
-    inverted: dict[str, list[int]] = {}  # term → [doc_idx, ...]
-    total_tokens = 0
-
-    if not vault_path.is_dir():
-        return documents, df, 0.0, inverted
-
-    for md_file in sorted(vault_path.rglob("*.md")):
-        doc = _mneme_index_document(md_file)
-        if doc is None:
-            continue
-
-        doc_idx = len(documents)
-
-        # Compute all_tokens for IDF calculation (union of field tokens)
-        all_tokens = []
-        for field_toks in doc["field_tokens"].values():
-            all_tokens.extend(field_toks)
-        doc["all_tokens"] = all_tokens
-        total_tokens += len(all_tokens)
-
-        # Document frequency: count how many docs each token appears in
-        # Inverted index: map token → doc indices
-        seen_tokens = set(all_tokens)
-        for token in seen_tokens:
-            df[token] = df.get(token, 0) + 1
-            if token not in inverted:
-                inverted[token] = []
-            inverted[token].append(doc_idx)
-
-        documents.append(doc)
-
-    avg_doc_len = total_tokens / len(documents) if documents else 0.0
-    return documents, df, avg_doc_len, inverted
-
-
-def _mneme_ensure_index(cfg: dict) -> tuple[list[dict], dict[str, int], float, dict[str, list[int]]]:
-    """Load or return cached BM25 index. Rebuilds when vault mtime changes.
-
-    Module-level cache means multiple @mneme directives in the same render
-    process share the same index. Only re-scans the vault when a file has
-    been added, removed, or modified.
-    """
-    vault_path = _mneme_vault_path(cfg)
-    vault_path_str = str(vault_path.resolve())
-
-    # Determine current vault mtime (latest file mtime)
-    max_mtime = 0.0
-    try:
-        if vault_path.is_dir():
-            for f in vault_path.rglob("*.md"):
-                try:
-                    m = f.stat().st_mtime
-                    if m > max_mtime:
-                        max_mtime = m
-                except Exception:
-                    pass
-    except Exception:
-        pass
-
-    cached = _MNEME_INDEX_CACHE.get(vault_path_str)
-    if cached is not None and cached[0] == max_mtime:
-        return cached[1], cached[2], cached[3], cached[4]
-
-    docs, df, avg_doc_len, inverted = _mneme_build_bm25(vault_path)
-    _MNEME_INDEX_CACHE[vault_path_str] = (max_mtime, docs, df, avg_doc_len, inverted)
-    return docs, df, avg_doc_len, inverted
-
-
-def _mneme_score(query_tokens: list[str], doc: dict, df: dict[str, int],
-                  avg_doc_len: float, num_docs: int) -> float:
-    """BM25 score for a single document against the query.
-
-    Uses the Okapi BM25+ variant, weighted by field multipliers.
-    """
-    score = 0.0
-    doc_len = len(doc["all_tokens"])
-
-    for q_token in query_tokens:
-        doc_freq = df.get(q_token, 0)
-        if doc_freq == 0:
-            continue
-
-        # IDF component
-        idf = math.log((num_docs - doc_freq + 0.5) / (doc_freq + 0.5) + 1.0)
-
-        # TF component: aggregate over fields with field weights
-        tf_total = 0
-        for field_name, field_tokens in doc["field_tokens"].items():
-            tf = field_tokens.count(q_token)
-            if tf > 0:
-                weight = _MNEME_FIELD_WEIGHTS.get(field_name, 1.0)
-                tf_total += tf * weight
-
-        if tf_total == 0:
-            continue
-
-        # Okapi BM25 TF saturation
-        tf_saturated = (tf_total * (_MNEME_BM25_K1 + 1)) / (
-            tf_total + _MNEME_BM25_K1 * (1 - _MNEME_BM25_B + _MNEME_BM25_B * (doc_len / avg_doc_len))
-        )
-
-        score += idf * tf_saturated
-
-    return score
-
-
 def _mneme_recall(cfg: dict, query: str, k: int = 5,
                    scope: str | None = None,
                    type_filter: str | None = None) -> list[dict]:
-    """In-process BM25 recall against the Mnēmē memory vault.
+    """Recall memories via SQLite FTS5 BM25 index.
 
-    Reads vault .md files directly — no network, no daemon, zero deps.
-    Uses an inverted index with Okapi BM25+ scoring and field weighting.
+    Opens a fresh connection per call (WAL mode handles concurrency).
+    Falls back to empty list on any failure.
 
-    Returns list of hit dicts (id, title, type, scope, summary, score), ordered
-    by score descending, limited to k.
+    Returns list of hit dicts (id, type, scope, summary, score), ordered
+    by score ascending (lower BM25 = better match), limited to k.
     """
+    conn = _mneme_open_index(cfg)
+    if conn is None:
+        return []
     try:
-        documents, df, avg_doc_len, inverted = _mneme_ensure_index(cfg)
+        return _mneme_search(conn, query, k, scope, type_filter)
     except Exception:
         return []
-
-    if not documents:
-        return []
-
-    num_docs = len(documents)
-    query_tokens = _mneme_tokenize(query)
-    if not query_tokens:
-        return []
-
-    # Candidate selection via inverted index: only score docs that
-    # contain at least one query term.
-    candidate_set: set[int] = set()
-    for q_token in query_tokens:
-        indices = inverted.get(q_token)
-        if indices:
-            candidate_set.update(indices)
-
-    if not candidate_set:
-        return []
-
-    # Score candidates, apply scope/type filters
-    scored: list[tuple[float, dict]] = []
-    for doc_idx in candidate_set:
-        doc = documents[doc_idx]
-        if scope and doc.get("scope") != scope:
-            continue
-        if type_filter and doc.get("type") != type_filter:
-            continue
-
-        score = _mneme_score(query_tokens, doc, df, avg_doc_len, num_docs)
-        scored.append((score, doc))
-
-    # Sort by score descending, keep top-k
-    scored.sort(key=lambda x: -x[0])
-    top = scored[:k]
-
-    return [
-        {
-            "id": doc["id"],
-            "title": doc["title"],
-            "type": doc.get("type", ""),
-            "scope": doc.get("scope", ""),
-            "summary": doc.get("summary", ""),
-            "score": round(score, 2),
-        }
-        for score, doc in top
-    ]
+    finally:
+        conn.close()
 
 
 # ─────────────────────────────── Mnēmē Memory ────────────────────────────────

@@ -27,6 +27,7 @@ import os
 import re
 import shutil
 import signal
+import sqlite3
 import subprocess
 import sys
 
@@ -7321,40 +7322,6 @@ def cmd_recover(args, cfg):
     print(yaml.dump(cp, default_flow_style=False, allow_unicode=True))
 
 
-import math
-
-# ─────────────────────── In-Process BM25 Index ───────────────────────────
-# Module-level cache: {vault_path: (mtime, index, documents)}
-# Shared across all concurrent render processes because Perseus uses
-# @cache to avoid re-rendering the same context. Each render process gets
-# its own copy of the index — no daemon lock contention, zero serialization.
-_MNEME_INDEX_CACHE: dict = {}
-
-# Stopwords — bare minimum for BM25. Short, common English tokens that
-# contribute no signal. Shorter than NLTK's list; these are the top-30
-# by frequency across all documents.
-_MNEME_STOPWORDS = {
-    "the", "a", "an", "is", "are", "was", "were", "be", "been",
-    "this", "that", "these", "those", "it", "its", "they", "them",
-    "to", "of", "in", "for", "on", "and", "or", "with", "at", "by",
-    "as", "from", "we", "you", "he", "she", "not", "do", "does",
-    "did", "has", "have", "had", "but", "if", "so", "no", "will",
-    "can", "all", "each", "which", "what", "who", "how", "when",
-}
-
-# BM25 parameters (defaults from Lucene / Elasticsearch)
-_MNEME_BM25_K1 = 1.2
-_MNEME_BM25_B = 0.75
-
-# Weight multipliers per field (compared to body text weight of 1.0)
-_MNEME_FIELD_WEIGHTS = {
-    "title": 3.0,      # title matches are very important
-    "recall_when": 2.0,  # trigger phrases are highly weighted
-    "summary": 1.5,      # summary is more important than body
-    "tags": 1.5,         # exact tag matches
-    "topic_path": 1.2,   # topic path segments
-    "body": 1.0,
-}
 
 
 def _mneme_vault_path(cfg: dict) -> Path:
@@ -7386,247 +7353,26 @@ def _mneme_index_path(cfg: dict) -> Path:
     return _mneme_vault_path(cfg) / "mneme.index"
 
 
-def _mneme_tokenize(text: str) -> list[str]:
-    """Tokenize a text string: lowercase, split on non-alpha, filter stopwords, strip short."""
-    if not text:
-        return []
-    tokens = re.findall(r"[a-zA-Z0-9][a-zA-Z0-9_-]{1,}", text.lower())
-    return [t for t in tokens if t not in _MNEME_STOPWORDS and len(t) > 1]
-
-
-def _mneme_index_document(file_path: Path) -> dict | None:
-    """Parse a single vault .md file and return structured fields, or None on error."""
-    try:
-        text = file_path.read_text(encoding="utf-8", errors="replace")
-    except Exception:
-        return None
-    fm, body = _parse_frontmatter(text)
-    if not fm:
-        return None
-
-    # Build text-indexable fields
-    title = str(fm.get("title", "") or "")
-    summary = str(fm.get("summary", "") or "")
-    doc_scope = str(fm.get("scope", "") or "")
-    doc_type = str(fm.get("type", "") or "")
-    tags = [str(t) for t in (fm.get("tags") or []) if t]
-    topic_path = [str(t) for t in (fm.get("topic_path") or []) if t]
-    recall_when = [str(rw) for rw in (fm.get("recall_when") or []) if rw]
-    doc_id = str(fm.get("id", file_path.stem) or file_path.stem)
-
-    # Concatenate all text for BM25 indexing
-    searchable_text = " ".join([
-        title,
-        summary,
-        body,
-        " ".join(tags),
-        " ".join(topic_path),
-        " ".join(recall_when),
-    ])
-
-    # Per-field tokenization for weighted scoring
-    field_tokens = {
-        "title": _mneme_tokenize(title),
-        "summary": _mneme_tokenize(summary),
-        "recall_when": _mneme_tokenize(" ".join(recall_when)),
-        "tags": _mneme_tokenize(" ".join(tags) if tags else ""),
-        "topic_path": _mneme_tokenize(" ".join(topic_path) if topic_path else ""),
-        "body": _mneme_tokenize(body),
-    }
-
-    # Per-field tokens for matching — used in scoring
-    return {
-        "id": doc_id,
-        "title": title,
-        "type": doc_type,
-        "scope": doc_scope,
-        "summary": summary,
-        "topic_path": topic_path,
-        "tags": tags,
-        "field_tokens": field_tokens,
-        "all_tokens": [],
-    }
-
-
-def _mneme_build_bm25(vault_path: Path) -> tuple[list[dict], dict[str, int], float, dict[str, list[int]]]:
-    """Scan vault, parse all .md files, build BM25 index.
-
-    Returns:
-        documents — list of parsed doc dicts with id, title, type, scope, summary, field_tokens
-        df — dict mapping token → document frequency
-        avg_doc_len — average token count across all documents
-        inverted — term → list of doc indices (for fast candidate selection)
-    """
-    documents: list[dict] = []
-    df: dict[str, int] = {}  # document frequency per token
-    inverted: dict[str, list[int]] = {}  # term → [doc_idx, ...]
-    total_tokens = 0
-
-    if not vault_path.is_dir():
-        return documents, df, 0.0, inverted
-
-    for md_file in sorted(vault_path.rglob("*.md")):
-        doc = _mneme_index_document(md_file)
-        if doc is None:
-            continue
-
-        doc_idx = len(documents)
-
-        # Compute all_tokens for IDF calculation (union of field tokens)
-        all_tokens = []
-        for field_toks in doc["field_tokens"].values():
-            all_tokens.extend(field_toks)
-        doc["all_tokens"] = all_tokens
-        total_tokens += len(all_tokens)
-
-        # Document frequency: count how many docs each token appears in
-        # Inverted index: map token → doc indices
-        seen_tokens = set(all_tokens)
-        for token in seen_tokens:
-            df[token] = df.get(token, 0) + 1
-            if token not in inverted:
-                inverted[token] = []
-            inverted[token].append(doc_idx)
-
-        documents.append(doc)
-
-    avg_doc_len = total_tokens / len(documents) if documents else 0.0
-    return documents, df, avg_doc_len, inverted
-
-
-def _mneme_ensure_index(cfg: dict) -> tuple[list[dict], dict[str, int], float, dict[str, list[int]]]:
-    """Load or return cached BM25 index. Rebuilds when vault mtime changes.
-
-    Module-level cache means multiple @mneme directives in the same render
-    process share the same index. Only re-scans the vault when a file has
-    been added, removed, or modified.
-    """
-    vault_path = _mneme_vault_path(cfg)
-    vault_path_str = str(vault_path.resolve())
-
-    # Determine current vault mtime (latest file mtime)
-    max_mtime = 0.0
-    try:
-        if vault_path.is_dir():
-            for f in vault_path.rglob("*.md"):
-                try:
-                    m = f.stat().st_mtime
-                    if m > max_mtime:
-                        max_mtime = m
-                except Exception:
-                    pass
-    except Exception:
-        pass
-
-    cached = _MNEME_INDEX_CACHE.get(vault_path_str)
-    if cached is not None and cached[0] == max_mtime:
-        return cached[1], cached[2], cached[3], cached[4]
-
-    docs, df, avg_doc_len, inverted = _mneme_build_bm25(vault_path)
-    _MNEME_INDEX_CACHE[vault_path_str] = (max_mtime, docs, df, avg_doc_len, inverted)
-    return docs, df, avg_doc_len, inverted
-
-
-def _mneme_score(query_tokens: list[str], doc: dict, df: dict[str, int],
-                  avg_doc_len: float, num_docs: int) -> float:
-    """BM25 score for a single document against the query.
-
-    Uses the Okapi BM25+ variant, weighted by field multipliers.
-    """
-    score = 0.0
-    doc_len = len(doc["all_tokens"])
-
-    for q_token in query_tokens:
-        doc_freq = df.get(q_token, 0)
-        if doc_freq == 0:
-            continue
-
-        # IDF component
-        idf = math.log((num_docs - doc_freq + 0.5) / (doc_freq + 0.5) + 1.0)
-
-        # TF component: aggregate over fields with field weights
-        tf_total = 0
-        for field_name, field_tokens in doc["field_tokens"].items():
-            tf = field_tokens.count(q_token)
-            if tf > 0:
-                weight = _MNEME_FIELD_WEIGHTS.get(field_name, 1.0)
-                tf_total += tf * weight
-
-        if tf_total == 0:
-            continue
-
-        # Okapi BM25 TF saturation
-        tf_saturated = (tf_total * (_MNEME_BM25_K1 + 1)) / (
-            tf_total + _MNEME_BM25_K1 * (1 - _MNEME_BM25_B + _MNEME_BM25_B * (doc_len / avg_doc_len))
-        )
-
-        score += idf * tf_saturated
-
-    return score
-
-
 def _mneme_recall(cfg: dict, query: str, k: int = 5,
                    scope: str | None = None,
                    type_filter: str | None = None) -> list[dict]:
-    """In-process BM25 recall against the Mnēmē memory vault.
+    """Recall memories via SQLite FTS5 BM25 index.
 
-    Reads vault .md files directly — no network, no daemon, zero deps.
-    Uses an inverted index with Okapi BM25+ scoring and field weighting.
+    Opens a fresh connection per call (WAL mode handles concurrency).
+    Falls back to empty list on any failure.
 
-    Returns list of hit dicts (id, title, type, scope, summary, score), ordered
-    by score descending, limited to k.
+    Returns list of hit dicts (id, type, scope, summary, score), ordered
+    by score ascending (lower BM25 = better match), limited to k.
     """
+    conn = _mneme_open_index(cfg)
+    if conn is None:
+        return []
     try:
-        documents, df, avg_doc_len, inverted = _mneme_ensure_index(cfg)
+        return _mneme_search(conn, query, k, scope, type_filter)
     except Exception:
         return []
-
-    if not documents:
-        return []
-
-    num_docs = len(documents)
-    query_tokens = _mneme_tokenize(query)
-    if not query_tokens:
-        return []
-
-    # Candidate selection via inverted index: only score docs that
-    # contain at least one query term.
-    candidate_set: set[int] = set()
-    for q_token in query_tokens:
-        indices = inverted.get(q_token)
-        if indices:
-            candidate_set.update(indices)
-
-    if not candidate_set:
-        return []
-
-    # Score candidates, apply scope/type filters
-    scored: list[tuple[float, dict]] = []
-    for doc_idx in candidate_set:
-        doc = documents[doc_idx]
-        if scope and doc.get("scope") != scope:
-            continue
-        if type_filter and doc.get("type") != type_filter:
-            continue
-
-        score = _mneme_score(query_tokens, doc, df, avg_doc_len, num_docs)
-        scored.append((score, doc))
-
-    # Sort by score descending, keep top-k
-    scored.sort(key=lambda x: -x[0])
-    top = scored[:k]
-
-    return [
-        {
-            "id": doc["id"],
-            "title": doc["title"],
-            "type": doc.get("type", ""),
-            "scope": doc.get("scope", ""),
-            "summary": doc.get("summary", ""),
-            "score": round(score, 2),
-        }
-        for score, doc in top
-    ]
+    finally:
+        conn.close()
 
 
 # ─────────────────────────────── Mnēmē Memory ────────────────────────────────
@@ -8343,6 +8089,344 @@ def cmd_memory_federation(args, cfg) -> None:
     sys.exit(2)
 
 
+# ─────────────────────── Mnēmē v2 — SQLite FTS5 Index ────────────────────────
+# Persistent BM25 index over Perseus-native vault .md files.
+# Uses SQLite FTS5 (stdlib sqlite3) — zero dependencies beyond Python.
+#
+# Architecture:
+#   - One SQLite database per vault: {vault_path}/mneme.index
+#   - FTS5 virtual table with 'porter unicode61' tokenizer (stemming)
+#   - Field weighting via text repetition in a single search_text column
+#   - WAL mode for concurrent readers during writes
+#   - Incremental updates tracked via mneme_files table (path + mtime)
+
+_MNEME_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS mneme_files (
+    path TEXT PRIMARY KEY,
+    mtime REAL NOT NULL,
+    indexed_at TEXT NOT NULL
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS mneme_fts USING fts5(
+    id,
+    title,
+    search_text,
+    type,
+    scope,
+    summary,
+    updated,
+    tokenize='porter unicode61'
+);
+
+CREATE TABLE IF NOT EXISTS mneme_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT
+);
+"""
+
+# Field weight multipliers for the search_text column.
+# Higher weights = field text repeated more times before concatenation.
+_MNEME_FIELD_WEIGHTS = {
+    "title": 3,
+    "summary": 2,
+    "tags": 2,
+    "topic_path": 1,
+    "body": 1,
+}
+
+
+def _mneme_open_index(cfg: dict):
+    """Open (or create) the SQLite FTS5 index. Returns sqlite3.Connection.
+
+    Enables WAL mode for concurrent reads. Creates tables on first open.
+    Returns None if the vault directory cannot be determined.
+    """
+    try:
+        index_path = _mneme_index_path(cfg)
+    except Exception:
+        return None
+
+    index_path.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        conn = sqlite3.connect(str(index_path))
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute("PRAGMA busy_timeout=5000")
+        conn.row_factory = sqlite3.Row
+
+        # Create tables if needed
+        conn.executescript(_MNEME_SCHEMA_SQL)
+        return conn
+    except Exception:
+        return None
+
+
+def _mneme_build_field_text(doc: dict) -> str:
+    """Build the search_text column with field weighting via repetition.
+
+    Repeats high-weight fields (title 3×, summary 2×) before concatenation
+    so FTS5's BM25 naturally weights them higher.
+    """
+    parts = []
+    title = str(doc.get("title", "") or "")
+    if title:
+        parts.append(" ".join([title] * _MNEME_FIELD_WEIGHTS["title"]))
+    summary = str(doc.get("summary", "") or "")
+    if summary:
+        parts.append(" ".join([summary] * _MNEME_FIELD_WEIGHTS["summary"]))
+    tags = " ".join(str(t) for t in (doc.get("tags") or []) if t)
+    if tags:
+        parts.append(" ".join([tags] * _MNEME_FIELD_WEIGHTS["tags"]))
+    topic = " ".join(str(t) for t in (doc.get("topic_path") or []) if t)
+    if topic:
+        parts.append(" ".join([topic] * _MNEME_FIELD_WEIGHTS["topic_path"]))
+    body = str(doc.get("body", "") or "")
+    if body:
+        parts.append(body)
+    return " ".join(parts)
+
+
+def _mneme_parse_vault_file(file_path: Path) -> dict | None:
+    """Parse a single vault .md file and return structured fields.
+
+    Returns None on error or missing required fields (id, title).
+    """
+    try:
+        text = file_path.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return None
+
+    fm, body = _parse_frontmatter(text)
+    if not fm:
+        return None
+
+    doc_id = str(fm.get("id", "") or "")
+    title = str(fm.get("title", "") or "")
+    if not doc_id or not title:
+        return None
+
+    return {
+        "id": doc_id,
+        "title": title,
+        "type": str(fm.get("type", "") or ""),
+        "scope": str(fm.get("scope", "") or ""),
+        "summary": str(fm.get("summary", "") or ""),
+        "tags": [str(t) for t in (fm.get("tags") or []) if t],
+        "topic_path": [str(t) for t in (fm.get("topic_path") or []) if t],
+        "updated": str(fm.get("updated", "") or ""),
+        "body": body,
+        "confidence": float(fm.get("confidence", 1.0)),
+        "sensitivity": str(fm.get("sensitivity", "team") or "team"),
+    }
+
+
+def _mneme_build_index(cfg: dict, force: bool = False) -> int:
+    """Build (or rebuild) the FTS5 index from all vault .md files.
+
+    Returns the number of documents indexed. Skips already-indexed files
+    unless force=True.
+    """
+    conn = _mneme_open_index(cfg)
+    if conn is None:
+        return 0
+
+    vault_path = _mneme_vault_path(cfg)
+    if not vault_path.is_dir():
+        conn.close()
+        return 0
+
+    try:
+        # Load currently indexed files (path → mtime)
+        indexed = {}
+        for row in conn.execute("SELECT path, mtime FROM mneme_files"):
+            indexed[row["path"]] = row["mtime"]
+
+        count = 0
+        for md_file in sorted(vault_path.rglob("*.md")):
+            file_path_str = str(md_file.resolve())
+            try:
+                mtime = md_file.stat().st_mtime
+            except Exception:
+                continue
+
+            if not force and file_path_str in indexed and indexed[file_path_str] == mtime:
+                continue
+
+            doc = _mneme_parse_vault_file(md_file)
+            if doc is None:
+                continue
+
+            search_text = _mneme_build_field_text(doc)
+            now = datetime.now().astimezone().isoformat(timespec="seconds")
+
+            # Remove old entry if it exists
+            conn.execute("DELETE FROM mneme_fts WHERE id = ?", (doc["id"],))
+            conn.execute("DELETE FROM mneme_files WHERE path = ?", (file_path_str,))
+
+            # Insert new entry
+            conn.execute(
+                "INSERT INTO mneme_fts (id, title, search_text, type, scope, summary, updated) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (doc["id"], doc["title"], search_text, doc["type"], doc["scope"], doc["summary"], doc["updated"]),
+            )
+            conn.execute(
+                "INSERT INTO mneme_files (path, mtime, indexed_at) VALUES (?, ?, ?)",
+                (file_path_str, mtime, now),
+            )
+            count += 1
+
+        # Rebuild FTS5 index (necessary after DELETE + INSERT)
+        if count > 0:
+            conn.execute("INSERT INTO mneme_fts(mneme_fts) VALUES('rebuild')")
+
+        conn.commit()
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+    finally:
+        conn.close()
+
+    return count
+
+
+def _mneme_search(conn, query: str, k: int = 5,
+                   scope: str | None = None,
+                   type_filter: str | None = None) -> list[dict]:
+    """Search the FTS5 index. Returns top-k results as list of dicts.
+
+    Uses FTS5's built-in BM25 ranking. Filters by scope and type if provided.
+    """
+    if not query or not query.strip():
+        return []
+
+    # Escape special FTS5 characters and build query
+    safe_query = query.replace('"', '""')
+    where_clauses = [f"mneme_fts MATCH '\"{safe_query}\"'"]
+    params = []
+
+    if scope:
+        where_clauses.append("mneme_fts.scope = ?")
+        params.append(scope)
+    if type_filter:
+        where_clauses.append("mneme_fts.type = ?")
+        params.append(type_filter)
+
+    sql = (
+        "SELECT mneme_fts.id, mneme_fts.title, mneme_fts.type, mneme_fts.scope, "
+        "mneme_fts.summary, mneme_fts.updated, "
+        "bm25(mneme_fts) AS score "
+        "FROM mneme_fts "
+        "WHERE " + " AND ".join(where_clauses) + " "
+        "ORDER BY score "
+        f"LIMIT {max(1, min(k, 100))}"
+    )
+
+    try:
+        rows = conn.execute(sql, params).fetchall()
+    except Exception:
+        return []
+
+    results = []
+    for row in rows:
+        results.append({
+            "id": row["id"],
+            "title": row["title"] or "",
+            "type": row["type"] or "",
+            "scope": row["scope"] or "",
+            "summary": row["summary"] or "",
+            "score": round(float(row["score"]), 2) if row["score"] is not None else 0.0,
+        })
+    return results
+
+
+def _mneme_index_document(cfg: dict, file_path: Path) -> bool:
+    """Index (or re-index) a single vault document. Returns True on success."""
+    conn = _mneme_open_index(cfg)
+    if conn is None:
+        return False
+
+    try:
+        doc = _mneme_parse_vault_file(file_path)
+        if doc is None:
+            conn.close()
+            return False
+
+        search_text = _mneme_build_field_text(doc)
+        now = datetime.now().astimezone().isoformat(timespec="seconds")
+        file_path_str = str(file_path.resolve())
+
+        # Upsert
+        conn.execute("DELETE FROM mneme_fts WHERE id = ?", (doc["id"],))
+        conn.execute("DELETE FROM mneme_files WHERE path = ?", (file_path_str,))
+        conn.execute(
+            "INSERT INTO mneme_fts (id, title, search_text, type, scope, summary, updated) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (doc["id"], doc["title"], search_text, doc["type"], doc["scope"], doc["summary"], doc["updated"]),
+        )
+        conn.execute(
+            "INSERT INTO mneme_files (path, mtime, indexed_at) VALUES (?, ?, ?)",
+            (file_path_str, file_path.stat().st_mtime, now),
+        )
+        conn.execute("INSERT INTO mneme_fts(mneme_fts) VALUES('rebuild')")
+        conn.commit()
+        return True
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        return False
+    finally:
+        conn.close()
+
+
+def _mneme_delete_document(cfg: dict, doc_id: str) -> bool:
+    """Remove a document from the index by id. Returns True if deleted."""
+    conn = _mneme_open_index(cfg)
+    if conn is None:
+        return False
+
+    try:
+        cursor = conn.execute("DELETE FROM mneme_fts WHERE id = ?", (doc_id,))
+        deleted = cursor.rowcount > 0
+        conn.execute("DELETE FROM mneme_files WHERE path LIKE ?", (f"%/{doc_id}.md",))
+        if deleted:
+            conn.execute("INSERT INTO mneme_fts(mneme_fts) VALUES('rebuild')")
+        conn.commit()
+        return deleted
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        return False
+    finally:
+        conn.close()
+
+
+def _mneme_index_stats(cfg: dict) -> dict:
+    """Return diagnostic stats about the index."""
+    conn = _mneme_open_index(cfg)
+    if conn is None:
+        return {"doc_count": 0, "indexed_files": 0, "index_path": "", "available": False}
+
+    try:
+        doc_count = conn.execute("SELECT COUNT(*) FROM mneme_fts").fetchone()[0]
+        file_count = conn.execute("SELECT COUNT(*) FROM mneme_files").fetchone()[0]
+        index_path = str(_mneme_index_path(cfg))
+        return {
+            "doc_count": doc_count,
+            "indexed_files": file_count,
+            "index_path": index_path,
+            "available": True,
+        }
+    except Exception:
+        return {"doc_count": 0, "indexed_files": 0, "index_path": "", "available": False}
+    finally:
+        conn.close()
 # ──────────────────────────────── Inbox (task-16) ─────────────────────────────
 #
 # Point-to-point message store for cross-instance agent communication.
