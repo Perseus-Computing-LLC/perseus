@@ -7733,6 +7733,76 @@ def _mneme_index_stats(cfg: dict) -> dict:
         return {"doc_count": 0, "indexed_files": 0, "index_path": "", "available": False}
     finally:
         conn.close()
+
+
+# ─────────────────────────── CLI: perseus memory index ────────────────────────
+
+def _cmd_memory_index(args, cfg) -> None:
+    """Handle `perseus memory index {stats,rebuild,search}`."""
+    sub = getattr(args, "index_command", None)
+
+    if sub == "stats":
+        stats = _mneme_index_stats(cfg)
+        if not stats["available"]:
+            print("Index not available. Vault may not exist yet.")
+            return
+        print(f"Index: {stats['index_path']}")
+        print(f"Documents: {stats['doc_count']}")
+        print(f"Files tracked: {stats['indexed_files']}")
+        # Get file size
+        try:
+            size_bytes = Path(stats["index_path"]).stat().st_size
+            print(f"Index size: {_mneme_fmt_bytes(size_bytes)}")
+        except Exception:
+            pass
+        return
+
+    if sub == "rebuild":
+        force = getattr(args, "force", False)
+        print(f"{'Force-rebuilding' if force else 'Rebuilding'} Mnēmē FTS5 index...")
+        count = _mneme_build_index(cfg, force=force)
+        print(f"Indexed {count} document{'s' if count != 1 else ''}.")
+        stats = _mneme_index_stats(cfg)
+        print(f"Total indexed: {stats['doc_count']}")
+        return
+
+    if sub == "search":
+        query = (getattr(args, "query", "") or "").strip()
+        if not query:
+            print("Error: --query is required for index search.", file=sys.stderr)
+            sys.exit(2)
+        k = max(1, min(20, int(getattr(args, "k", 5) or 5)))
+        scope = getattr(args, "scope", None) or None
+        type_filter = getattr(args, "type", None) or None
+        results = _mneme_recall(cfg, query, k=k, scope=scope, type_filter=type_filter)
+        if not results:
+            print("No results.")
+            return
+        print(f"Top {len(results)} results for \"{query}\":")
+        for i, r in enumerate(results, 1):
+            title = r.get("title", "untitled")
+            summary = r.get("summary", "")
+            score = r.get("score", 0)
+            mem_type = r.get("type", "")
+            scope_val = r.get("scope", "")
+            print(f"  {i}. {title} [{mem_type}] ({scope_val}) score={score:.1f}")
+            if summary:
+                print(f"     {summary}")
+            print()
+        return
+
+    print(f"perseus memory index: unknown subcommand '{sub}'.", file=sys.stderr)
+    print("Available: stats, rebuild, search", file=sys.stderr)
+    sys.exit(2)
+
+
+def _mneme_fmt_bytes(n: int) -> str:
+    """Format bytes for human display."""
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024:
+            return f"{n:.0f} {unit}"
+        n /= 1024
+    return f"{n:.1f} TB"
 # ─────────────────────────────── Mnēmē Memory ────────────────────────────────
 #
 # Mnēmē — narrative project memory. Distills checkpoints + Pythia log into a
@@ -8886,8 +8956,12 @@ def cmd_memory(args, cfg):
         cmd_memory_federation(args, cfg)
         return
 
-    print(f"> ⚠ Unknown memory subcommand: {sub}")
+    if sub == "index":
+        _cmd_memory_index(args, cfg)
+        return
 
+    print(f"perseus memory: unknown subcommand '{sub}'.", file=sys.stderr)
+    sys.exit(2)
 
 def _memory_federation_diagnostic(name: str, args_str: str, cfg: dict, workspace: object) -> list[dict]:
     """Per-directive LSP diagnostic for @memory: warn on unsubscribed federation alias.
@@ -14188,6 +14262,18 @@ def main():
     p_fed_unsub.add_argument("alias", help="Alias to remove")
     p_fed_pull = fed_sub.add_parser("pull", help="Re-read all subscribed narratives (read-only, manual)")
     p_fed_pull.add_argument("--json", action="store_true", help="Machine-readable JSON output")
+
+    # memory index (Mnēmē v2)
+    p_mem_idx = mem_sub.add_parser("index", help="Manage the FTS5 search index")
+    idx_sub = p_mem_idx.add_subparsers(dest="index_command", required=True)
+    p_idx_stats = idx_sub.add_parser("stats", help="Show index statistics")
+    p_idx_rebuild = idx_sub.add_parser("rebuild", help="Rebuild index from vault")
+    p_idx_rebuild.add_argument("--force", action="store_true", help="Re-index all files even if unchanged")
+    p_idx_search = idx_sub.add_parser("search", help="Debug: search the index directly")
+    p_idx_search.add_argument("--query", required=True, help="Search query")
+    p_idx_search.add_argument("--k", type=int, default=5, help="Max results (1-20)")
+    p_idx_search.add_argument("--scope", default=None, help="Filter by scope")
+    p_idx_search.add_argument("--type", default=None, help="Filter by memory type")
 
     # init
     p_init = sub.add_parser("init", help="Scaffold .perseus/context.md for a new workspace")
