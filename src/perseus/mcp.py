@@ -21,7 +21,7 @@ except ImportError:
 
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_NAME = "perseus"
-SERVER_VERSION = "1.0.4"
+SERVER_VERSION = _PERSEUS_VERSION
 DEFAULT_TOOL_TIMEOUT_S = 30
 
 # ── Tool schema helpers ──────────────────────────────────────────────────────
@@ -123,24 +123,31 @@ def _get_all_mcp_tools(cfg: dict) -> list[dict]:
 
 # ── Tool dispatch ────────────────────────────────────────────────────────────
 
+def _mcp_quote(value: str) -> str:
+    """Escape a string for safe embedding in a double-quoted directive arg.
+    Replaces " with \" so the resolver's quote-stripping regex handles it correctly.
+    Also strips leading/trailing whitespace."""
+    return (value or "").strip().replace('"', '\\"')
+
+
 # Special arg builders for directives with positional/non-standard arg formats
 _DIRECTIVE_ARG_BUILDERS = {
-    "@query": lambda args: f'"{(args.get("command") or "").strip()}"',
-    "@read": lambda args: f'"{(args.get("path") or "")}"' + (f' key="{(args.get("key") or "")}"' if args.get("key") else ""),
+    "@query": lambda args: f'"{_mcp_quote(args.get("command", ""))}"',
+    "@read": lambda args: f'"{_mcp_quote(args.get("path", ""))}"' + (f' key="{_mcp_quote(args.get("key", ""))}"' if args.get("key") else ""),
     "@env": lambda args: (args.get("var") or args.get("name") or ""),
-    "@agent": lambda args: f'"{(args.get("agent") or "")}" "{(args.get("prompt") or "")}"',
+    "@agent": lambda args: f'"{_mcp_quote(args.get("agent", ""))}" "{_mcp_quote(args.get("prompt", ""))}"',
     "@checkpoint": lambda args: args.get("task") or args.get("args", ""),
     "@recover": lambda args: "",
     "@suggest": lambda args: args.get("task") or args.get("args", ""),
     "@services": lambda args: "",
     "@drift": lambda args: "",
-    "@date": lambda args: f'format="{(args.get("format") or "%Y-%m-%d %H:%M:%S")}"',
+    "@date": lambda args: f'format="{_mcp_quote(args.get("format", "%Y-%m-%d %H:%M:%S"))}"',
     "@waypoint": lambda args: f'ttl={(args.get("ttl") or 86400)}' if args.get("ttl") else "",
     "@session": lambda args: f'count={(args.get("count") or 3)}',
-    "@list": lambda args: f'path="{(args.get("path") or ".")}"',
-    "@tree": lambda args: f'path="{(args.get("path") or ".")}"',
+    "@list": lambda args: f'path="{_mcp_quote(args.get("path", "."))}"',
+    "@tree": lambda args: f'path="{_mcp_quote(args.get("path", "."))}"',
     "@inbox": lambda args: (f'limit={(args.get("limit") or 5)}' if args.get("limit") else "") + (" unread=true" if args.get("unread") else ""),
-    "@skills": lambda args: (f'category="{(args.get("category") or "")}"' if args.get("category") else "") + (" flag_stale=true" if args.get("flag_stale") else ""),
+    "@skills": lambda args: (f'category="{_mcp_quote(args.get("category", ""))}"' if args.get("category") else "") + (" flag_stale=true" if args.get("flag_stale") else ""),
 }
 
 
