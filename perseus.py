@@ -624,7 +624,7 @@ def _webhook_worker(url, ep, wh_cfg, q):
         event, payload, ts_iso = item
         
         # Prepare payload
-        version = globals().get("_PERSEUS_VERSION", "1.0.4")
+        version = globals().get("_PERSEUS_VERSION", "1.0.5")
         
         workspace = payload.get("workspace", "")
         ws_hash = hashlib.sha256(workspace.encode()).hexdigest()[:16] if workspace else None
@@ -5174,7 +5174,7 @@ except ImportError:
 
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_NAME = "perseus"
-SERVER_VERSION = "1.0.4"
+SERVER_VERSION = "1.0.5"
 DEFAULT_TOOL_TIMEOUT_S = 30
 
 # ── Tool schema helpers ──────────────────────────────────────────────────────
@@ -12334,7 +12334,7 @@ def _find_version() -> str:
             return candidate.read_text().strip()
     return _PERSEUS_VERSION  # fallback to build-time injected literal
 
-_PERSEUS_VERSION = "1.0.4"  # injected by scripts/build.py at build time
+_PERSEUS_VERSION = "1.0.5"  # injected by scripts/build.py at build time
 _PERSEUS_VERSION = _find_version()
 
 
