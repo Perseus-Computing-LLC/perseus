@@ -140,7 +140,7 @@ for repeats in BLOCK_REPEATS:
     t0 = time.perf_counter()
     r = subprocess.run(
         [PY, str(PERSEUS), "render", str(ctx_cold), "--output", str(d / "cold_out.md")],
-        capture_output=True, timeout=600, env=cold_env, cwd=str(REPO),
+        capture_output=True, timeout=1800, env=cold_env, cwd=str(REPO),
     )
     cold_s = round(time.perf_counter() - t0, 3)
 
@@ -166,7 +166,7 @@ for repeats in BLOCK_REPEATS:
     print("prime...", end=" ", flush=True)
     r = subprocess.run(
         [PY, str(PERSEUS), "render", str(ctx_warm), "--output", str(d / "warm_prime.md")],
-        capture_output=True, timeout=600, env=warm_env, cwd=str(REPO),
+        capture_output=True, timeout=1800, env=warm_env, cwd=str(REPO),
     )
 
     # Warm render
