@@ -265,8 +265,12 @@ def cmd_memory(args, cfg):
         cmd_memory_federation(args, cfg)
         return
 
-    print(f"> ⚠ Unknown memory subcommand: {sub}")
+    if sub == "index":
+        _cmd_memory_index(args, cfg)
+        return
 
+    print(f"perseus memory: unknown subcommand '{sub}'.", file=sys.stderr)
+    sys.exit(2)
 
 def _memory_federation_diagnostic(name: str, args_str: str, cfg: dict, workspace: object) -> list[dict]:
     """Per-directive LSP diagnostic for @memory: warn on unsubscribed federation alias.
