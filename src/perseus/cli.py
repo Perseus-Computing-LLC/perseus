@@ -195,6 +195,18 @@ def main():
     p_fed_pull = fed_sub.add_parser("pull", help="Re-read all subscribed narratives (read-only, manual)")
     p_fed_pull.add_argument("--json", action="store_true", help="Machine-readable JSON output")
 
+    # memory index (Mnēmē v2)
+    p_mem_idx = mem_sub.add_parser("index", help="Manage the FTS5 search index")
+    idx_sub = p_mem_idx.add_subparsers(dest="index_command", required=True)
+    p_idx_stats = idx_sub.add_parser("stats", help="Show index statistics")
+    p_idx_rebuild = idx_sub.add_parser("rebuild", help="Rebuild index from vault")
+    p_idx_rebuild.add_argument("--force", action="store_true", help="Re-index all files even if unchanged")
+    p_idx_search = idx_sub.add_parser("search", help="Debug: search the index directly")
+    p_idx_search.add_argument("--query", required=True, help="Search query")
+    p_idx_search.add_argument("--k", type=int, default=5, help="Max results (1-20)")
+    p_idx_search.add_argument("--scope", default=None, help="Filter by scope")
+    p_idx_search.add_argument("--type", default=None, help="Filter by memory type")
+
     # init
     p_init = sub.add_parser("init", help="Scaffold .perseus/context.md for a new workspace")
     p_init.add_argument("workspace", nargs="?", default="",
