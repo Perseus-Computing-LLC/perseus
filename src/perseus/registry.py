@@ -55,10 +55,10 @@ def _bind_registry() -> None:
 
         # Tier 3 — On-demand (bulky, expensive)
         DirectiveSpec("@query",     resolve_query,     ["fallback=", "schema="],   "inline",  "acw", executes_shell=True,  safe_for_hover=False, cacheable=True,  summary="Run a shell command and embed stdout", tier=3),
-        DirectiveSpec("@read",      resolve_read,      ["path=", "key=", "fallback=", "schema="], "inline", "acw", reads_files=True, cacheable=True, summary="Embed file contents", tier=3),
-        DirectiveSpec("@include",   resolve_include,   [],                         "inline",  "awc", reads_files=True, cacheable=True, summary="Include and render another file", tier=3),
-        DirectiveSpec("@list",      resolve_list,      ["limit=", "sort="],        "inline",  "acw", reads_files=True, cacheable=True, summary="List directory or structured data", tier=3),
-        DirectiveSpec("@tree",      resolve_tree,      ["depth="],                 "inline",  "acw", reads_files=True, cacheable=True, summary="Tree view of directory", tier=3),
+        DirectiveSpec("@read",      resolve_read,      ["path=", "key=", "fallback=", "schema="], "inline", "acw", reads_files=True, cacheable=True, safe_for_hover=False, summary="Embed file contents", tier=3),
+        DirectiveSpec("@include",   resolve_include,   [],                         "inline",  "awc", reads_files=True, cacheable=True, safe_for_hover=False, summary="Include and render another file", tier=3),
+        DirectiveSpec("@list",      resolve_list,      ["limit=", "sort="],        "inline",  "acw", reads_files=True, cacheable=True, safe_for_hover=False, summary="List directory or structured data", tier=3),
+        DirectiveSpec("@tree",      resolve_tree,      ["depth="],                 "inline",  "acw", reads_files=True, cacheable=True, safe_for_hover=False, summary="Tree view of directory", tier=3),
         DirectiveSpec("@agent",     resolve_agent,     [],                         "inline",  "acw", executes_shell=True, safe_for_hover=False, summary="Execute local agent subprocess", tier=3),
         DirectiveSpec("@tool",      resolve_tool,      [],                         "inline",  "acw", executes_shell=True, safe_for_hover=False, summary="Run an allowlisted external tool", tier=3),
 
@@ -284,12 +284,26 @@ def _discover_plugins(cfg: dict) -> list["DirectiveSpec"]:
 
     Returns empty list if plugins are disabled or the directory doesn't exist.
     Plugin import errors are warnings to stderr, never fatal.
+
+    Security: by default, plugins require a MANIFEST.toml with hash entries.
+    Set plugins.allow_unsigned: true to skip manifest verification (opt-in).
     """
-    if not cfg.get("plugins", {}).get("enabled", True):
-        return []
     plugins_cfg = cfg.get("plugins", {})
+    if not plugins_cfg.get("enabled", True):
+        return []
     plugins_dir = Path(plugins_cfg.get("dir", str(PERSEUS_HOME / "plugins")))
     if not plugins_dir.is_dir():
+        return []
+    # H-3: require manifest unless explicitly opted in
+    manifest_path = plugins_dir / "MANIFEST.toml"
+    allow_unsigned = plugins_cfg.get("allow_unsigned", False)
+    if not allow_unsigned and not manifest_path.is_file():
+        print(
+            "Perseus plugin security: plugins dir exists but no MANIFEST.toml found.\n"
+            "  Set plugins.allow_unsigned: true to load plugins without a manifest, or\n"
+            "  create plugins/MANIFEST.toml with [plugins.<name>] hash entries.",
+            file=sys.stderr,
+        )
         return []
     specs: list["DirectiveSpec"] = []
     for py_file in sorted(plugins_dir.glob("*.py")):
@@ -319,9 +333,25 @@ def _discover_formats(cfg: dict) -> dict[str, "Callable"]:
 
     Returns {format_name: render_fn}. Format name = filename stem.
     Built-in names (markdown, html, json) are ignored with a warning.
+
+    Security: by default, format adapters require a MANIFEST.toml with hash entries.
+    Set formats.allow_unsigned: true to skip manifest verification (opt-in).
     """
     formats_dir = PERSEUS_HOME / "formats"
     if not formats_dir.is_dir():
+        return {}
+
+    # H-4: require manifest unless explicitly opted in
+    formats_cfg = cfg.get("formats", {})
+    manifest_path = formats_dir / "MANIFEST.toml"
+    allow_unsigned = formats_cfg.get("allow_unsigned", False)
+    if not allow_unsigned and not manifest_path.is_file():
+        print(
+            "Perseus format security: formats dir exists but no MANIFEST.toml found.\n"
+            "  Set formats.allow_unsigned: true to load adapters without a manifest, or\n"
+            "  create formats/MANIFEST.toml with [formats.<name>] hash entries.",
+            file=sys.stderr,
+        )
         return {}
 
     discovered = {}

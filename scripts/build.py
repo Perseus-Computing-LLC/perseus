@@ -83,7 +83,7 @@ STDLIB_REMINDER_RE = re.compile(
 )
 
 # Baseline line count for drift detection.
-BASELINE_LINES = 14400  # Phase 24 + bastra-recall integration + in-process BM25
+BASELINE_LINES = 14957  # Phase 24 + Mnēmē + in-process BM25 + TIER2 audit + remaining patches
 
 
 def build() -> None:
@@ -99,6 +99,14 @@ def build() -> None:
         build_version = version_path.read_text(encoding="utf-8").strip()
     else:
         build_version = "0.0.0"
+    # H-1: validate semver to prevent code injection via VERSION file
+    if not re.fullmatch(r'\d+(\.\d+){0,3}([\-+][\w.]+)?', build_version):
+        print(
+            f"ERROR: VERSION file content {build_version!r} is not a valid "
+            "semver. Refusing to inject — would corrupt the artifact.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     for rel_path in MODULE_ORDER:
         path = repo_root / rel_path
@@ -120,9 +128,7 @@ def build() -> None:
             if in_multiline_import:
                 # Skip continuation lines until the import statement closes
                 stripped_no_comment = line.split("#")[0].rstrip()
-                if stripped_no_comment.endswith(")") or (
-                    not stripped_no_comment.endswith("\\") and "(" not in stripped_no_comment
-                ):
+                if stripped_no_comment.endswith(")"):
                     in_multiline_import = False
                 continue
             # Keep shebang only from the first module (__init__.py)
@@ -146,14 +152,14 @@ def build() -> None:
     output = shebang_line + "\n" + GENERATED_HEADER + "\n".join(body_lines) + "\n"
     # ── Inject version from VERSION file ────────────────────────────────────
     _VERSION_RE = re.compile(r'^(_PERSEUS_VERSION\s*=\s*)".*?"(\s*#.*)?$', re.MULTILINE)
-    output = _VERSION_RE.sub(rf'\g<1>"{build_version}"\g<2>', output)
+    output = _VERSION_RE.sub(lambda m: f'{m.group(1)}"{build_version}"{m.group(2) or ""}', output)
     # ── Line-count drift guard ────────────────────────────────────────────────
     actual_lines = len(output.splitlines())
-    low = int(BASELINE_LINES * 0.95)   # 9486
-    high = int(BASELINE_LINES * 1.05)  # 10485
+    low = int(BASELINE_LINES * 0.97)
+    high = int(BASELINE_LINES * 1.03)
     if not (low <= actual_lines <= high):
         print(
-            f"ERROR: generated line count {actual_lines} is outside the ±5% window "
+            f"ERROR: generated line count {actual_lines} is outside the ±3% window "
             f"({low}–{high}) of baseline {BASELINE_LINES}. "
             "Something was dropped or duplicated — aborting without writing.",
             file=sys.stderr,

@@ -98,9 +98,13 @@ def run_scenario(
         if not role_profile or not role_profile.is_file():
             # Use a minimal inline context
             ctx = str(perseus_home / "_adversarial_ctx.md")
-            Path(ctx).write_text(
-                "@perseus v0.8\n@prompt adversarial test\n@query \"echo adversarial\" @cache ttl=300\n"
-            )
+            try:
+                Path(ctx).write_text(
+                    "@perseus v0.8\n@prompt adversarial test\n@query \"echo adversarial\" @cache ttl=300\n"
+                )
+            except OSError as exc:
+                result["errors"].append(f"Cannot write context file: {exc}")
+                continue
             target = ctx
         else:
             target = str(role_profile)
@@ -476,8 +480,11 @@ def scenario_a7_signal_storm(
             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, env=env,
         )
-        proc.stdin.write(b"@perseus v0.8\n@query \"sleep 0.5\" @cache ttl=300\n")
-        proc.stdin.close()
+        try:
+            proc.stdin.write(b"@perseus v0.8\n@query \"sleep 0.5\" @cache ttl=300\n")
+            proc.stdin.close()
+        except (BrokenPipeError, OSError):
+            pass  # Process may have been killed by signal before we could write
 
         # Randomly send signal
         sig = random.choice([signal.SIGTERM, signal.SIGINT])
@@ -485,7 +492,7 @@ def scenario_a7_signal_storm(
         try:
             os.kill(proc.pid, sig)
             signals_sent += 1
-        except OSError:
+        except (OSError, ProcessLookupError):
             pass
 
         try:
@@ -494,8 +501,11 @@ def scenario_a7_signal_storm(
                 renders_ok += 1
             else:
                 renders_failed += 1
-        except subprocess.TimeoutExpired:
-            proc.kill()
+        except (subprocess.TimeoutExpired, OSError):
+            try:
+                proc.kill()
+            except OSError:
+                pass
             renders_failed += 1
 
     result["renders"] = {
@@ -515,34 +525,39 @@ def scenario_a8_fd_exhaustion(
     """A8: Exhaust file descriptors, then verify graceful degradation."""
     result: dict = {"scenario": "A8_fd_exhaustion", "setup": None, "renders": None, "cleanup": None}
 
-    # Setup: open many file descriptors
+    # Setup: open many file descriptors, but reserve ~100 for Perseus
     fds: list[int] = []
     try:
         import resource
         soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
-        target = min(50000, hard)
-        # Open files until we hit the limit
+        # Only consume FDs up to soft limit minus 200 (leave room for Perseus)
+        target = max(0, soft - 200)
         for i in range(target):
             try:
                 fd = os.open("/dev/null", os.O_RDONLY)
                 fds.append(fd)
             except OSError:
                 break
-        result["setup"] = f"opened {len(fds)} FDs (limit: soft={soft}, hard={hard})"
+        result["setup"] = f"opened {len(fds)} FDs (limit: soft={soft}, hard={hard}, reserved 200 for Perseus)"
     except Exception as exc:
         result["setup"] = f"setup failed: {exc}"
         return result
 
-    # Run renders with FD exhaustion
-    result["renders"] = run_scenario("A8_fd_exhaustion", duration_s)
-
-    # Cleanup
-    for fd in fds:
-        try:
-            os.close(fd)
-        except OSError:
-            pass
-    result["cleanup"] = f"closed {len(fds)} FDs"
+    # Run renders with FD pressure — cleanup ALWAYS runs
+    try:
+        result["renders"] = run_scenario("A8_fd_exhaustion", duration_s)
+    except Exception as exc:
+        result["renders"] = {"error": str(exc)[:200], "renders_attempted": 0, "renders_successful": 0, "errors": []}
+    finally:
+        # Cleanup: always restore FDs
+        closed = 0
+        for fd in fds:
+            try:
+                os.close(fd)
+                closed += 1
+            except OSError:
+                pass
+        result["cleanup"] = f"closed {closed}/{len(fds)} FDs"
 
     return result
 
@@ -565,50 +580,61 @@ def scenario_a9_fork_bomb_defense(
     home.mkdir(parents=True, exist_ok=True)
     env["PERSEUS_HOME"] = str(home)
 
+    # Pre-create context file so run_scenario doesn't need to write
+    ctx_file = home / "_adversarial_ctx.md"
+    ctx_file.write_text("@perseus v0.8\n@prompt adversarial test\n@query \"echo survived\" @cache ttl=300\n")
+
     t0 = time.time()
     renders_ok = 0
     renders_failed = 0
+    all_procs: list[subprocess.Popen] = []
 
-    while time.time() - t0 < duration_s:
-        if _kill_switch_triggered():
-            break
+    try:
+        while time.time() - t0 < duration_s:
+            if _kill_switch_triggered():
+                break
 
-        # Spawn many concurrent renders
-        procs = []
-        for _ in range(20):
-            p = subprocess.Popen(
-                [sys.executable, perseus, "render", "-"],
-                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE, env=env,
-            )
-            procs.append(p)
-
-        for p in procs:
-            try:
-                p.stdin.write(b"@perseus v0.8\n@query \"echo survived\" @cache ttl=300\n")
-                p.stdin.close()
-            except Exception:
-                pass
-
-        for p in procs:
-            try:
-                stdout, stderr = p.communicate(timeout=30)
-                if p.returncode == 0:
-                    renders_ok += 1
-                else:
-                    renders_failed += 1
-            except Exception:
-                renders_failed += 1
+            # Spawn many concurrent renders
+            procs = []
+            for _ in range(20):
                 try:
-                    p.kill()
-                except Exception:
-                    pass
+                    p = subprocess.Popen(
+                        [sys.executable, perseus, "render", str(ctx_file)],
+                        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE, env=env,
+                    )
+                    procs.append(p)
+                    all_procs.append(p)
+                except OSError:
+                    break  # Process limit hit
 
-    result["renders"] = {
-        "duration_s": time.time() - t0,
-        "renders_ok": renders_ok,
-        "renders_failed": renders_failed,
-    }
+            for p in procs:
+                try:
+                    stdout, stderr = p.communicate(timeout=30)
+                    if p.returncode == 0:
+                        renders_ok += 1
+                    else:
+                        renders_failed += 1
+                except Exception:
+                    renders_failed += 1
+                    try:
+                        p.kill()
+                    except OSError:
+                        pass
+
+        result["renders"] = {
+            "duration_s": time.time() - t0,
+            "renders_ok": renders_ok,
+            "renders_failed": renders_failed,
+        }
+    finally:
+        # Kill any remaining procs
+        for p in all_procs:
+            try:
+                if p.poll() is None:
+                    p.kill()
+            except OSError:
+                pass
     result["cleanup"] = "fork bomb defense completed"
 
     return result
@@ -627,6 +653,10 @@ def scenario_a10_symlink_race(
     # Setup: create symlink chains
     target = race_dir / "target"
     target.write_text("sensitive data")
+
+    # Create context.md BEFORE renders
+    ctx_file = race_dir / "context.md"
+    ctx_file.write_text("@perseus v0.8\n@prompt symlink race\n@query \"echo test\" @cache ttl=300\n")
 
     chain = []
     for i in range(20):
@@ -690,8 +720,6 @@ def scenario_a10_symlink_race(
         except Exception:
             pass
 
-    # Create context.md
-    (race_dir / "context.md").write_text("@perseus v0.8\n@prompt symlink race\n")
     result["cleanup"] = "symlink race cleaned up"
 
     return result

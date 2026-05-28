@@ -83,6 +83,8 @@ def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str
         return f"> ⚠ @read: could not read `{file_path_str}`: {e}"
 
     # ── File size limit check (byte-counted, not character-counted) ──
+    max_bytes_raw = cfg["render"].get("max_read_bytes")
+    max_bytes = int(max_bytes_raw) if max_bytes_raw is not None else None
     if max_bytes is not None and len(data) > max_bytes:
         content = data[:max_bytes].decode(errors="replace")
         trunc_note = (
