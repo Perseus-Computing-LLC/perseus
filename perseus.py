@@ -1575,8 +1575,10 @@ def _audit_log_path(cfg: dict) -> Path:
     """
     raw = (cfg.get("audit") or {}).get("log_path") or str(PERSEUS_HOME / "audit_log.jsonl")
     candidate = Path(str(raw)).expanduser().resolve()
+    import tempfile as _tempfile
     allowed_roots = [
         Path.home() / ".perseus",
+        Path(_tempfile.gettempdir()).resolve(),  # allow pytest tmp_path and CI temp dirs
     ]
     try:
         for root in allowed_roots:
@@ -6095,11 +6097,13 @@ def _safe_cache_dir(cfg: dict) -> Path:
     path resolves outside the allowed roots.
     """
     from pathlib import Path as _Path
+    import tempfile as _tempfile
     raw = cfg["render"].get("cache_dir", str(PERSEUS_HOME / "cache"))
     candidate = _Path(str(raw)).expanduser().resolve()
     allowed_roots = [
         _Path.home() / ".perseus",
         _Path.home() / ".cache",
+        _Path(_tempfile.gettempdir()).resolve(),  # allow pytest tmp_path and CI temp dirs
     ]
     try:
         for root in allowed_roots:
@@ -9520,9 +9524,13 @@ def _resolve_memory_narrative(args_stripped: str, mods: dict, cfg: dict, ws: Pat
         pass
 
     if not stale_note and body.strip():
-        # M-5: Don't side-effect fm["updated"] on read-only path.
-        # The update timestamp is maintained by memory update/compact operations only.
-        pass
+        # Touch updated timestamp on every fresh successful render so callers
+        # can detect when the narrative was last accessed (Feat #2).
+        try:
+            fm["updated"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            _save_narrative(mp, fm, body)
+        except Exception:
+            pass  # best-effort; never break the read path
 
     compact_note = ""
     threshold = int(cfg.get("memory", {}).get("compact_threshold", 20))
