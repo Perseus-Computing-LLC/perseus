@@ -6,7 +6,7 @@
 # Architecture:
 #   - One SQLite database per vault: {vault_path}/mneme.index
 #   - FTS5 virtual table with 'porter unicode61' tokenizer (stemming)
-#   - Field weighting via text repetition in a single search_text column
+#   - Field weighting via FTS5 native per-column bm25() weights
 #   - WAL mode for concurrent readers during writes
 #   - Incremental updates tracked via mneme_files table (path + mtime)
 
@@ -20,10 +20,12 @@ CREATE TABLE IF NOT EXISTS mneme_files (
 CREATE VIRTUAL TABLE IF NOT EXISTS mneme_fts USING fts5(
     id,
     title,
-    search_text,
+    summary,
+    tags,
+    topic_path,
+    body,
     type,
     scope,
-    summary,
     updated,
     tokenize='porter unicode61'
 );
@@ -34,8 +36,9 @@ CREATE TABLE IF NOT EXISTS mneme_meta (
 );
 """
 
-# Field weight multipliers for the search_text column.
-# Higher weights = field text repeated more times before concatenation.
+# Per-column BM25 weights for FTS5 native weighting (bm25() positional args).
+# Column order in CREATE VIRTUAL TABLE: id, title, summary, tags, topic_path, body, type, scope, updated
+#   bm25(mneme_fts, 0.0, 3.0, 2.0, 2.0, 1.0, 1.0)  — remaining columns default to 0.0
 _MNEME_FIELD_WEIGHTS = {
     "title": 3,
     "summary": 2,
@@ -77,7 +80,7 @@ def _mneme_open_index(cfg: dict):
     index_path.parent.mkdir(parents=True, exist_ok=True)
 
     try:
-        conn = sqlite3.connect(str(index_path))
+        conn = sqlite3.connect(str(index_path), check_same_thread=False)
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
         conn.execute("PRAGMA busy_timeout=5000")
@@ -85,35 +88,43 @@ def _mneme_open_index(cfg: dict):
 
         # Create tables if needed
         conn.executescript(_MNEME_SCHEMA_SQL)
+
+        # M1: Schema migration check — verify the FTS5 table columns match
+        # expected schema. If they don't, drop and rebuild.
+        # v1 schema: id, title, search_text, type, scope, summary, updated
+        # v2 schema: id, title, summary, tags, topic_path, body, type, scope, updated
+        expected_columns = {"id", "title", "summary", "tags", "topic_path",
+                            "body", "type", "scope", "updated"}
+        try:
+            cursor = conn.execute("PRAGMA table_info(mneme_fts)")
+            actual_columns = {row["name"] for row in cursor.fetchall()}
+            if actual_columns and actual_columns != expected_columns:
+                # Schema mismatch — drop and let re-creation happen on next index
+                conn.execute("DROP TABLE IF EXISTS mneme_fts")
+                conn.execute("DELETE FROM mneme_files")
+                conn.execute("DELETE FROM mneme_meta WHERE key LIKE 'schema_%'")
+                conn.executescript(_MNEME_SCHEMA_SQL)
+        except Exception:
+            pass  # Table doesn't exist yet — fine
         _MNEME_CONN_CACHE[cache_key] = conn
         return conn
     except Exception:
         return None
 
 
-def _mneme_build_field_text(doc: dict) -> str:
-    """Build the search_text column with field weighting via repetition.
+def _mneme_build_field_columns(doc: dict) -> tuple[str, str, str, str, str]:
+    """Return per-field column values for FTS5 native weighting.
 
-    Repeats high-weight fields (title 3×, summary 2×) before concatenation
-    so FTS5's BM25 naturally weights them higher.
+    Returns (title, summary, tags, topic_path, body) as a tuple for direct
+    column insertion. FTS5's bm25() weights each column at query time via
+    _MNEME_FIELD_WEIGHTS, eliminating the need for text repetition.
     """
-    parts = []
     title = str(doc.get("title", "") or "")
-    if title:
-        parts.append(" ".join([title] * _MNEME_FIELD_WEIGHTS["title"]))
     summary = str(doc.get("summary", "") or "")
-    if summary:
-        parts.append(" ".join([summary] * _MNEME_FIELD_WEIGHTS["summary"]))
     tags = " ".join(str(t) for t in (doc.get("tags") or []) if t)
-    if tags:
-        parts.append(" ".join([tags] * _MNEME_FIELD_WEIGHTS["tags"]))
     topic = " ".join(str(t) for t in (doc.get("topic_path") or []) if t)
-    if topic:
-        parts.append(" ".join([topic] * _MNEME_FIELD_WEIGHTS["topic_path"]))
     body = str(doc.get("body", "") or "")
-    if body:
-        parts.append(body)
-    return " ".join(parts)
+    return (title, summary, tags, topic, body)
 
 
 def _mneme_parse_vault_file(file_path: Path) -> dict | None:
@@ -134,6 +145,16 @@ def _mneme_parse_vault_file(file_path: Path) -> dict | None:
     title = str(fm.get("title", "") or "")
     if not doc_id or not title:
         return None
+
+    # M2: Validate id format at parse time. Must be 1-128 chars of
+    # alphanumeric, hyphens, underscores. Reject ids with newlines,
+    # NUL bytes, or other characters that break FTS5 / GLOB matching.
+    import re as _re
+    if not _re.match(r'^[A-Za-z0-9_-]{1,128}$', doc_id):
+        return None
+
+    # Body length cap — prevent multi-MB bodies from inflating SQLite memory
+    body = body[:1048576] if len(body) > 1048576 else body
 
     return {
         "id": doc_id,
@@ -194,7 +215,7 @@ def _mneme_build_index(cfg: dict, force: bool = False) -> int:
             if doc is None:
                 continue
 
-            search_text = _mneme_build_field_text(doc)
+            field_cols = _mneme_build_field_columns(doc)
             now = datetime.now().astimezone().isoformat(timespec="seconds")
 
             # Remove old entry if it exists
@@ -203,9 +224,10 @@ def _mneme_build_index(cfg: dict, force: bool = False) -> int:
 
             # Insert new entry
             conn.execute(
-                "INSERT INTO mneme_fts (id, title, search_text, type, scope, summary, updated) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (doc["id"], doc["title"], search_text, doc["type"], doc["scope"], doc["summary"], doc["updated"]),
+                "INSERT INTO mneme_fts (id, title, summary, tags, topic_path, body, type, scope, updated) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (doc["id"], field_cols[0], field_cols[1], field_cols[2],
+                 field_cols[3], field_cols[4], doc["type"], doc["scope"], doc["updated"]),
             )
             conn.execute(
                 "INSERT INTO mneme_files (path, mtime, indexed_at) VALUES (?, ?, ?)",
@@ -233,35 +255,20 @@ def _mneme_search(conn, query: str, k: int = 5,
     """Search the FTS5 index. Returns top-k results as list of dicts.
 
     Uses FTS5's built-in BM25 ranking. Filters by scope and type if provided.
-    Multi-term queries use token search (implicit AND). Single-term queries
-    or explicit double-quoted phrases use exact phrase matching.
+    The user query is wrapped as an FTS5 double-quoted phrase to prevent
+    operator injection (AND, OR, NOT, NEAR, column prefixes, wildcards).
     """
     if not query or not query.strip():
         return []
 
-    # Escape FTS5 and SQL special characters.
-    # FTS5: double-quote escaping ("" → escaped quote).
-    # SQL: single-quote escaping ('' → literal single quote in string).
+    # Wrap the query as an FTS5 phrase to prevent operator injection.
+    # FTS5 double-quote escaping: embedded " → "" (two double-quotes).
     stripped = query.strip()
-    safe = stripped.replace("'", "''")
+    escaped = stripped.replace('"', '""')
+    fts_expr = f'"{escaped}"'
 
-    # Build FTS5 MATCH expression.
-    # - Quoted phrase ("...") → keep surrounding " inside MATCH string.
-    # - Multi-word bare text → token search (implicit AND).
-    # - Single-word bare text → token search.
-    if stripped.startswith('"') and stripped.endswith('"'):
-        # Explicit phrase search — keep the FTS5 phrase syntax.
-        fts_expr = safe  # already has SQL-safe quotes, FTS5 double-quotes preserved
-    elif " " in stripped:
-        # Multi-term token search.
-        fts_expr = safe
-    else:
-        # Single term.
-        fts_expr = safe
-
-    # Parameterized MATCH — FTS5 expression bound via ? to prevent
-    # operator injection (AND, NOT, NEAR, column-name prefixes, etc.).
-    # The user-supplied query is treated as literal search tokens.
+    # Parameterized MATCH — SQL injection is blocked by ? binding.
+    # FTS5 expression injection is blocked by phrase-wrapping above.
     params = [fts_expr]
 
     if scope:
@@ -275,7 +282,7 @@ def _mneme_search(conn, query: str, k: int = 5,
     sql = (
         "SELECT mneme_fts.id, mneme_fts.title, mneme_fts.type, mneme_fts.scope, "
         "mneme_fts.summary, mneme_fts.updated, "
-        "bm25(mneme_fts) AS score "
+        "bm25(mneme_fts, 0.0, 3.0, 2.0, 2.0, 1.0, 1.0) AS score "
         "FROM mneme_fts "
         f"WHERE mneme_fts MATCH ? {scope_clause} {type_clause} "
         "ORDER BY score "
@@ -311,7 +318,7 @@ def _mneme_index_document(cfg: dict, file_path: Path) -> bool:
         if doc is None:
             return False
 
-        search_text = _mneme_build_field_text(doc)
+        field_cols = _mneme_build_field_columns(doc)
         now = datetime.now().astimezone().isoformat(timespec="seconds")
         file_path_str = str(file_path.resolve())
 
@@ -319,9 +326,10 @@ def _mneme_index_document(cfg: dict, file_path: Path) -> bool:
         conn.execute("DELETE FROM mneme_fts WHERE id = ?", (doc["id"],))
         conn.execute("DELETE FROM mneme_files WHERE path = ?", (file_path_str,))
         conn.execute(
-            "INSERT INTO mneme_fts (id, title, search_text, type, scope, summary, updated) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (doc["id"], doc["title"], search_text, doc["type"], doc["scope"], doc["summary"], doc["updated"]),
+            "INSERT INTO mneme_fts (id, title, summary, tags, topic_path, body, type, scope, updated) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (doc["id"], field_cols[0], field_cols[1], field_cols[2],
+             field_cols[3], field_cols[4], doc["type"], doc["scope"], doc["updated"]),
         )
         conn.execute(
             "INSERT INTO mneme_files (path, mtime, indexed_at) VALUES (?, ?, ?)",

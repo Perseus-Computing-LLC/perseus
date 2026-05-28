@@ -50,6 +50,8 @@ from gauntlet_lib import (
 
 GAUNTLET_DIR = Path(__file__).resolve().parent
 REPO_ROOT = GAUNTLET_DIR.parent.parent
+COLD_HOME = Path("/tmp/perseus-gauntlet/cold")
+WARM_HOME = Path("/tmp/perseus-gauntlet/warm")
 
 PHASE_DEFINITIONS = [
     {"phase": 0, "name": "Pre-Flight", "duration_s": 300, "key_gate": "NFS health, version match"},
@@ -196,6 +198,25 @@ class GauntletOrchestrator:
     def _phase_preflight(self) -> dict:
         """Phase 0: Pre-Flight checks."""
         print("  Pre-flight checks...")
+
+        # Clear stale caches from previous runs
+        for d in [COLD_HOME / "cache", WARM_HOME / "cache"]:
+            if d.is_dir():
+                import shutil
+                shutil.rmtree(d)
+                d.mkdir(parents=True, exist_ok=True)
+        print("  Caches cleared")
+
+        # Run full gauntlet setup (config, vault seed, checkpoints, files, narrative)
+        print("  Running gauntlet setup...")
+        try:
+            import subprocess as _sp
+            setup_script = GAUNTLET_DIR / "gauntlet_setup.py"
+            _sp.run([sys.executable, "-u", str(setup_script)],
+                    check=True, timeout=120,
+                    capture_output=False)
+        except Exception as exc:
+            print(f"  Setup WARNING: {exc}")
 
         # NFS health
         nfs_health = check_nfs_health(self.nfs_path)

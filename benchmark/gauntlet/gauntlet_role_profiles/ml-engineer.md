@@ -66,3 +66,5 @@
 @drift
 @prefetch
 @synthesize
+
+@mneme query="model training benchmark"
