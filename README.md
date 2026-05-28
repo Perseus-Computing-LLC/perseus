@@ -146,7 +146,7 @@ Published as [`io.github.tcconnally/perseus`](https://registry.modelcontextproto
 
 ### MCP Tools
 
-22 MCP tools resolve live state at invocation time (24 with sensitive tools `perseus_query` and `perseus_agent` allowlisted):
+22 MCP tools resolve live state at invocation time. Two sensitive tools (`perseus_query` and `perseus_agent`) require explicit `mcp.tool_allowlist` opt-in because they execute shell commands:
 
 | Tool | Description |
 |---|---|
@@ -258,6 +258,8 @@ Perseus is tested against edge cases that challenge the "resolve before context"
 
 - **MCP SSE bearer-token auth** — `POST /message` requires Bearer token via `mcp.sse_bearer_token` config key (falls back to `serve.auth_token` for backward compat). Unauthenticated requests receive 401.
 - **Platform-portable MCP timeout** — `_call_tool()` uses `ThreadPoolExecutor` + `Future.result(timeout=...)` instead of Unix-only SIGALRM. Works on Windows, macOS, and Linux.
+
+**Platform support:** Perseus is developed and fully tested on Linux and macOS (POSIX). Windows is supported with caveats: the MCP transport and core render pipeline work cross-platform, but approximately 8% of the test suite currently fails on Windows due to POSIX-specific shell assumptions, path handling differences, and missing `select` support in the LSP module. Native Windows scheduling (Task Scheduler) is deferred — use WSL cron or invoke `perseus render` from your own scheduler. Windows improvements are tracked but not the primary target.
 - **Foreign resolver SSRF protection** — URL allowlist via `foreign_resolver.url_allowlist`, private-IP blocking (`block_private_ips`, default true), HMAC signature verification (`verify_signatures` now defaults to true, minimum 32-char secret). Redirects re-check destination IPs. Localhost (127.0.0.1, ::1) explicitly allowed for local testing.
 
 - **14/14 hard gates passed** — The ultimate benchmark suite, including swarm chaos, cache thrash, and adversarial tests, passed all gates. [Full results →](benchmark/ultimate_suite_results.json)
@@ -340,7 +342,7 @@ Next: run pytest tests/test_webhook.py
 ## Project Memory
 ### Recent
 - 2026-05-26: Shipped MCP deep integration (Phase 25). 22 directives exposed as MCP tools by default.
-- 2026-05-25: Deployed Perseus v1.0.5 to PyPI. Edge-case test suite at 752 tests — all passing.
+- 2026-05-25: Deployed Perseus v1.0.5 to PyPI. Edge-case test suite at 757 tests — all passing.
 - 2026-05-24: Completed Hephaestus extensibility — plugin directives, macros, hooks, pipes.
 ```
 
