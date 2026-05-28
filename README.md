@@ -146,7 +146,7 @@ Published as [`io.github.tcconnally/perseus`](https://registry.modelcontextproto
 
 ### MCP Tools
 
-22 MCP tools resolve live state at invocation time. Two sensitive tools (`perseus_query` and `perseus_agent`) require explicit `mcp.tool_allowlist` opt-in because they execute shell commands:
+22 MCP tools resolve live state at invocation time. Two sensitive tools (`perseus_query` and `perseus_agent`) require explicit `mcp.tool_allowlist` opt-in because they execute commands in the user's local shell — **not sandboxed, full user permissions apply**:
 
 | Tool | Description |
 |---|---|
