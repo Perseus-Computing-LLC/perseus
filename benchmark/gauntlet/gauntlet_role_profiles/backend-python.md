@@ -68,3 +68,5 @@
 @memory focus="recent"
 @drift
 @inbox
+
+@mneme query="Python sqlite FTS5"
