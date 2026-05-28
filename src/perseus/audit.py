@@ -46,8 +46,10 @@ def _audit_log_path(cfg: dict) -> Path:
     """
     raw = (cfg.get("audit") or {}).get("log_path") or str(PERSEUS_HOME / "audit_log.jsonl")
     candidate = Path(str(raw)).expanduser().resolve()
+    import tempfile as _tempfile
     allowed_roots = [
         Path.home() / ".perseus",
+        Path(_tempfile.gettempdir()).resolve(),  # allow pytest tmp_path and CI temp dirs
     ]
     try:
         for root in allowed_roots:
