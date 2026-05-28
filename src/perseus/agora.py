@@ -435,11 +435,9 @@ def _resolve_memory_narrative(args_stripped: str, mods: dict, cfg: dict, ws: Pat
         pass
 
     if not stale_note and body.strip():
-        try:
-            fm["updated"] = datetime.now().astimezone().isoformat(timespec="seconds")
-            _save_narrative(mp, fm, body)
-        except Exception:
-            pass
+        # M-5: Don't side-effect fm["updated"] on read-only path.
+        # The update timestamp is maintained by memory update/compact operations only.
+        pass
 
     compact_note = ""
     threshold = int(cfg.get("memory", {}).get("compact_threshold", 20))

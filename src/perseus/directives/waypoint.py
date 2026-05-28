@@ -2,7 +2,7 @@
 # ──────────────────────────────── @waypoint ───────────────────────────────────
 
 def load_latest_checkpoint(cfg: dict) -> dict | None:
-    store = Path(cfg["checkpoints"]["store"])
+    store = Path(cfg.get("checkpoints", {}).get("store", str(PERSEUS_HOME / "checkpoints")))
     if not store.exists():
         return None
     latest = store / "latest.yaml"

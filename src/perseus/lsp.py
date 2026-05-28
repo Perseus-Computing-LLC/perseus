@@ -12,6 +12,11 @@ class LSPParseError(Exception):
 
 def _lsp_read_message(stream) -> dict | None:
     """Read one LSP message (Content-Length + JSON body) from a binary stream."""
+    # Ensure the stream is buffered to avoid byte-at-a-time syscall overhead (M-3)
+    if not hasattr(stream, 'read1'):
+        import io
+        stream = io.BufferedReader(stream) if hasattr(stream, 'readable') else stream
+
     headers = b""
     while not headers.endswith(b"\r\n\r\n"):
         ch = stream.read(1)

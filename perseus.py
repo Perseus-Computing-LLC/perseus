@@ -356,14 +356,30 @@ def _get_shell(cfg: dict) -> str | None:
     to use the platform default (COMSPEC on Windows, /bin/sh elsewhere).
     Also handles non-default shells that aren't findable — falls back to None
     rather than crashing.
+
+    Security (L-6): when a shell is explicitly configured, resolve it only if
+    it matches a trusted path; otherwise fall back to the system default.
     """
     shell = cfg["render"].get("shell", "/bin/bash")
+    # Trusted shell paths — only allow these absolute locations
+    trusted = {"/bin/bash", "/bin/sh", "/bin/zsh", "/usr/bin/bash", "/usr/bin/zsh",
+               "/usr/local/bin/bash", "/usr/local/bin/zsh"}
+    if shell in trusted:
+        resolved = shutil.which(shell)
+        if resolved and resolved in trusted:
+            return resolved
+    # For user-specified shells, only resolve if in a trusted location
     resolved = shutil.which(shell)
     if resolved is None and shell != "/bin/bash":
         # Non-default shell specified but not found — log and fall back
         return None
     if resolved is None:
         # Default /bin/bash not found (Windows) — use system default
+        return None
+    if resolved not in trusted:
+        # Shell resolved to unexpected location — refuse (trojan risk)
+        print(f"Perseus warning: shell '{shell}' resolved to untrusted path '{resolved}'. "
+              "Falling back to system default.", file=sys.stderr)
         return None
     return resolved
 
@@ -620,6 +636,9 @@ def _webhook_worker(url, ep, wh_cfg, q):
     
     secret_raw = ep.get("secret", "")
     secret = _expand_env_vars(secret_raw)
+    # L-9: Warn if a ${VAR} placeholder resolved to empty — HMAC silently disabled
+    if secret_raw and "${" in secret_raw and not secret:
+        print(f"Perseus webhook warning: HMAC secret env var expanded to empty for {url[:80]}...", file=sys.stderr)
     extra_headers = ep.get("headers", {})
 
     while True:
@@ -669,7 +688,18 @@ def _webhook_worker(url, ep, wh_cfg, q):
                     headers["X-Perseus-Signature"] = f"t={ts_unix},v1={sig}"
                 
                 req = urllib.request.Request(url, data=body_data, headers=headers, method="POST")
-                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                # Prevent SSRF: disable redirect following (TLS verification is default)
+                class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+                    def redirect_request(self, req, fp, code, msg, hdrs, newurl):
+                        raise urllib.error.HTTPError(
+                            req.full_url, code,
+                            f"Webhook redirect blocked: {code} → {newurl}",
+                            hdrs, fp)
+                    def http_error_301(self, req, fp, code, msg, hdrs):
+                        return self.redirect_request(req, fp, code, msg, hdrs, req.full_url)
+                    http_error_302 = http_error_303 = http_error_307 = http_error_308 = http_error_301
+                opener = urllib.request.build_opener(_NoRedirectHandler)
+                with opener.open(req, timeout=timeout) as resp:
                     if 200 <= resp.status < 300:
                         success = True
                         break
@@ -2405,6 +2435,15 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
             f"`{file_path_str}`. Stopping recursion."
         )
 
+    # ── Pre-read size check to prevent memory exhaustion ──
+    # Only gate truly massive files (50 MB+) to allow normal truncation path
+    _MAX_SAFE_READ_BYTES = 50 * 1024 * 1024  # 50 MB
+    try:
+        if fp.stat().st_size > _MAX_SAFE_READ_BYTES:
+            return f"> ⚠ @include: file too large for safe read ({fp.stat().st_size:,} bytes)"
+    except OSError:
+        pass  # stat failed, fall through to read
+
     try:
         data = fp.read_bytes()
         raw = data.decode(errors="replace").rstrip()
@@ -2412,7 +2451,6 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
         return f"> ⚠ @include: could not read `{file_path_str}`: {e}"
 
     # ── File size limit check (byte-counted, not character-counted) ──
-    max_bytes = render_cfg.get("max_include_bytes")
     if max_bytes is not None and len(data) > max_bytes:
         raw = data[:max_bytes].decode(errors="replace").rstrip()
         actual_size = len(data)
@@ -2433,7 +2471,7 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
             try:
                 # Render the included file through Perseus with incremented depth
                 rendered = render_source(raw, cfg, workspace, _include_depth=_depth + 1,
-                                         _include_visited=_visited.copy(),
+                                         _include_visited=_visited,  # shared set — M-8 diamond fix
                                          _directive_collector=_directive_collector,
                                          _stats=_stats)
                 return trunc_note + rendered
@@ -2517,6 +2555,18 @@ def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str
             return fallback_result()
         return f"> ⚠ @read: file not found: `{file_path_str}`"
 
+    # ── Pre-read size check to prevent memory exhaustion ──
+    # Only gate truly massive files (50 MB+) to allow normal truncation path
+    _MAX_SAFE_READ_BYTES = 50 * 1024 * 1024  # 50 MB
+    try:
+        if fp.stat().st_size > _MAX_SAFE_READ_BYTES:
+            msg = f"> ⚠ @read: file too large for safe read ({fp.stat().st_size:,} bytes)"
+            if fallback is not None:
+                return fallback_result()
+            return msg
+    except OSError:
+        pass  # stat failed, fall through to read
+
     try:
         data = fp.read_bytes()
         content = data.decode(errors="replace")
@@ -2526,7 +2576,6 @@ def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str
         return f"> ⚠ @read: could not read `{file_path_str}`: {e}"
 
     # ── File size limit check (byte-counted, not character-counted) ──
-    max_bytes = cfg.get("render", {}).get("max_read_bytes")
     if max_bytes is not None and len(data) > max_bytes:
         content = data[:max_bytes].decode(errors="replace")
         trunc_note = (
@@ -3794,7 +3843,9 @@ def resolve_tool(args_str: str, cfg: dict, workspace: Path | None = None) -> str
 
     # Check arg restrictions
     for arg in args:
-        if arg not in allowed_args:
+        # Split on '=' for --flag=value form — check just the flag part
+        flag = arg.split("=", 1)[0]
+        if arg not in allowed_args and flag not in allowed_args:
             return f"> ⚠ @tool: argument {arg!r} is not allowed for {tool_name!r}."
 
     # Execute
@@ -4052,8 +4103,8 @@ def resolve_perseus(args_str: str, cfg: dict, workspace: Path | None = None) -> 
 
 def resolve_skills(args_str: str, cfg: dict) -> str:
     """Scan the configured skills directory and emit a markdown summary."""
-    skill_dir = Path(cfg["pythia"]["skill_dir"])
-    stale_days = int(cfg["pythia"].get("stale_skill_days", 30))
+    skill_dir = Path(cfg.get("pythia", {}).get("skill_dir", str(PERSEUS_HOME / "skills")))
+    stale_days = int(cfg.get("pythia", {}).get("stale_skill_days", 30))
     flag_stale = "flag_stale=true" in args_str
 
     # Parse category= / include= filter (comma-separated, case-insensitive).
@@ -4111,7 +4162,7 @@ def resolve_skills(args_str: str, cfg: dict) -> str:
 # ──────────────────────────────── @waypoint ───────────────────────────────────
 
 def load_latest_checkpoint(cfg: dict) -> dict | None:
-    store = Path(cfg["checkpoints"]["store"])
+    store = Path(cfg.get("checkpoints", {}).get("store", str(PERSEUS_HOME / "checkpoints")))
     if not store.exists():
         return None
     latest = store / "latest.yaml"
@@ -4301,7 +4352,7 @@ def resolve_session(args_str: str, cfg: dict) -> str:
     if m:
         topic = m.group(1).lower()
 
-    sessions_dir = Path(cfg["assistant"].get("sessions_dir", SESSIONS_DIR))
+    sessions_dir = Path(cfg.get("assistant", {}).get("sessions_dir", SESSIONS_DIR))
     if not sessions_dir.exists():
         return "> ⚠ Sessions directory not found."
 
@@ -5714,6 +5765,12 @@ def serve_mcp_sse(cfg: dict, workspace: Path | None = None, port: int = 8420) ->
 
     class MCPSSEHandler(BaseHTTPRequestHandler):
         def do_GET(self):
+            if not _check_auth(self):
+                self.send_response(401)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": "unauthorized"}).encode())
+                return
             if self.path == "/sse":
                 self.send_response(200)
                 self.send_header("Content-Type", "text/event-stream")
@@ -6078,6 +6135,10 @@ def _parse_macros_from_lines(lines: list[str], start: int = 0) -> dict[str, tupl
             while i < len(lines) and not MACRO_END_RE.match(lines[i]):
                 body.append(lines[i])
                 i += 1
+            if i >= len(lines):
+                # Unterminated macro — discard, don't consume rest of template
+                print(f"Perseus warning: unterminated @macro '{name}'", file=sys.stderr)
+                break
             # Infer params from body if not declared in header
             if not header_params:
                 all_body = "\n".join(body)
@@ -6166,9 +6227,10 @@ def _expand_macros(lines: list[str], macros: dict[str, tuple[list[str], list[str
                 substituted: list[str] = []
                 for bline in macro_body:
                     bline_sub = bline
-                    for idx, pname in enumerate(param_names):
-                        if idx < len(arg_values):
-                            bline_sub = bline_sub.replace(f"%{pname}%", arg_values[idx])
+                    # Sort by parameter name length descending to prevent prefix collisions (M-9)
+                    for pname in sorted(param_names, key=len, reverse=True):
+                        if param_names.index(pname) < len(arg_values):
+                            bline_sub = bline_sub.replace(f"%{pname}%", arg_values[param_names.index(pname)])
                     substituted.append(bline_sub)
                 expanded.extend(substituted)
                 i += 1
@@ -7149,6 +7211,13 @@ def cmd_checkpoint(args, cfg):
             locked = True
             break
         except FileExistsError:
+            # Check if lock holder is still alive (PID staleness detection)
+            try:
+                stale_pid = int(lock_path.read_text().strip())
+                os.kill(stale_pid, 0)  # signal 0 = check existence only
+            except (OSError, ValueError):
+                lock_path.unlink(missing_ok=True)  # stale lock — holder is gone
+                continue
             time.sleep(0.2 * (attempt + 1))  # 0.2s, 0.4s, ..., 2.0s
     if not locked:
         print("⚠ checkpoint store is locked by another agent; try again later", file=sys.stderr)
@@ -7174,7 +7243,8 @@ def cmd_checkpoint(args, cfg):
                 ws_path = Path(str(cp["workspace"])).expanduser().resolve()
                 ws_hash = _workspace_hash(ws_path)
                 ws_pointer = store / f"latest-{ws_hash}.yaml"
-                ws_pointer.write_text(outfile.read_text())
+                # Write in-memory data directly instead of re-reading the file (H-5 TOCTOU fix)
+                ws_pointer.write_text(yaml.dump(cp, default_flow_style=False, allow_unicode=True))
             except Exception as exc:
                 print(f"> ⚠ Could not write per-workspace pointer: {exc}")
 
@@ -8781,6 +8851,8 @@ def cmd_inbox(args, cfg):
         body = getattr(args, "body", "") or ""
         recipient = getattr(args, "recipient", None) or cfg.get("inbox", {}).get("default_recipient", "anyone")
         sender = getattr(args, "from_", None) or cfg.get("inbox", {}).get("default_sender", "perseus")
+        # Sanitize sender to prevent path traversal (M-7)
+        safe_sender = re.sub(r'[^A-Za-z0-9_.@-]', '_', str(sender))[:64] or "perseus"
         now = datetime.now().astimezone()
         ts = now.strftime("%Y-%m-%dT%H%M%S")
         msg = {
@@ -8793,7 +8865,7 @@ def cmd_inbox(args, cfg):
             "read_at": None,
             "dismissed_at": None,
         }
-        path = _inbox_dir(workspace, cfg) / f"{ts}-{sender}.yaml"
+        path = _inbox_dir(workspace, cfg) / f"{ts}-{safe_sender}.yaml"
         _inbox_write(path, msg)
         print(f"✔ Inbox message sent: {path.stem}")
         print(f"  Recipient: {recipient}")
@@ -9328,11 +9400,9 @@ def _resolve_memory_narrative(args_stripped: str, mods: dict, cfg: dict, ws: Pat
         pass
 
     if not stale_note and body.strip():
-        try:
-            fm["updated"] = datetime.now().astimezone().isoformat(timespec="seconds")
-            _save_narrative(mp, fm, body)
-        except Exception:
-            pass
+        # M-5: Don't side-effect fm["updated"] on read-only path.
+        # The update timestamp is maintained by memory update/compact operations only.
+        pass
 
     compact_note = ""
     threshold = int(cfg.get("memory", {}).get("compact_threshold", 20))
@@ -10026,10 +10096,18 @@ def _find_pythia_entry(entries: list[dict], log_id: str) -> int | None:
 def _rewrite_pythia_log(entries: list[dict]) -> None:
     log_path = _pythia_log_path()
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    payload = "\n".join(json.dumps(e, ensure_ascii=False) for e in entries) + ("\n" if entries else "")
-    tmp = log_path.with_suffix(".jsonl.tmp")
-    tmp.write_text(payload, encoding="utf-8")
-    os.replace(tmp, log_path)
+    lock_path = log_path.with_suffix(".jsonl.lock")
+    # File locking to prevent concurrent corruption (M-6)
+    import fcntl
+    with open(lock_path, "w") as lock_fh:
+        try:
+            fcntl.flock(lock_fh, fcntl.LOCK_EX)
+            payload = "\n".join(json.dumps(e, ensure_ascii=False) for e in entries) + ("\n" if entries else "")
+            tmp = log_path.with_suffix(".jsonl.tmp")
+            tmp.write_text(payload, encoding="utf-8")
+            os.replace(tmp, log_path)
+        finally:
+            fcntl.flock(lock_fh, fcntl.LOCK_UN)
 
 
 def _label_pythia_entry(log_id: str, accepted: bool) -> tuple[bool, str]:
@@ -10656,6 +10734,11 @@ class LSPParseError(Exception):
 
 def _lsp_read_message(stream) -> dict | None:
     """Read one LSP message (Content-Length + JSON body) from a binary stream."""
+    # Ensure the stream is buffered to avoid byte-at-a-time syscall overhead (M-3)
+    if not hasattr(stream, 'read1'):
+        import io
+        stream = io.BufferedReader(stream) if hasattr(stream, 'readable') else stream
+
     headers = b""
     while not headers.endswith(b"\r\n\r\n"):
         ch = stream.read(1)
@@ -13900,6 +13983,17 @@ def _serve_trust_summary(cfg: dict) -> dict:
 
 
 def _serve_authorized(headers, token: str | None) -> bool:
+    # Host header validation for DNS rebinding protection (H-4)
+    if headers is not None:
+        try:
+            host = headers.get("Host", "") or ""
+        except AttributeError:
+            host = ""
+        if host:
+            hostname = host.split(":")[0]
+            if hostname not in ("127.0.0.1", "localhost", "::1"):
+                return False
+
     if not token:
         return True
     import hmac
@@ -14014,6 +14108,10 @@ def _serve_render_endpoint(endpoint: str, cfg: dict, workspace: Path, query: dic
             except (TypeError, ValueError):
                 limit = 20
             entries = _read_all_pythia_entries()[-limit:][::-1]
+            # M-4: Filter by workspace if provided to prevent cross-workspace data leak
+            ws_filter = query.get("workspace", "").strip()
+            if ws_filter:
+                entries = [e for e in entries if ws_filter in (e.get("task", "") or "")]
             body = json.dumps(entries, ensure_ascii=False, indent=2)
             body, _ = redact_text(body, cfg)
             return (200, "application/json; charset=utf-8", body)

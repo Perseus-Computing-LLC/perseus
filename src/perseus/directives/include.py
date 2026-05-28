@@ -54,16 +54,25 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
             f"`{file_path_str}`. Stopping recursion."
         )
 
+    # ── Pre-read size check to prevent memory exhaustion ──
+    # Only gate truly massive files (50 MB+) to allow normal truncation path
+    _MAX_SAFE_READ_BYTES = 50 * 1024 * 1024  # 50 MB
     try:
-        raw = fp.read_text(errors="replace").rstrip()
+        if fp.stat().st_size > _MAX_SAFE_READ_BYTES:
+            return f"> ⚠ @include: file too large for safe read ({fp.stat().st_size:,} bytes)"
+    except OSError:
+        pass  # stat failed, fall through to read
+
+    try:
+        data = fp.read_bytes()
+        raw = data.decode(errors="replace").rstrip()
     except Exception as e:
         return f"> ⚠ @include: could not read `{file_path_str}`: {e}"
 
-    # ── File size limit check ──
-    max_bytes = render_cfg.get("max_include_bytes")
-    if max_bytes is not None and len(raw) > max_bytes:
-        raw = raw[:max_bytes]
-        actual_size = fp.stat().st_size
+    # ── File size limit check (byte-counted, not character-counted) ──
+    if max_bytes is not None and len(data) > max_bytes:
+        raw = data[:max_bytes].decode(errors="replace").rstrip()
+        actual_size = len(data)
         trunc_note = (
             f"> ⚠ @include: file `{file_path_str}` exceeds max_include_bytes "
             f"(actual {actual_size:,} > "
@@ -81,7 +90,7 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
             try:
                 # Render the included file through Perseus with incremented depth
                 rendered = render_source(raw, cfg, workspace, _include_depth=_depth + 1,
-                                         _include_visited=_visited.copy(),
+                                         _include_visited=_visited,  # shared set — M-8 diamond fix
                                          _directive_collector=_directive_collector,
                                          _stats=_stats)
                 return trunc_note + rendered

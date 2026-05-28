@@ -19,8 +19,22 @@ _SESSION_CACHE: dict[str, str] = {}  # in-memory store for @cache session
 
 
 def _cache_key(directive_line: str) -> str:
-    """Stable SHA256 hash for a directive line (whitespace-normalised)."""
-    normalised = " ".join(directive_line.strip().split())
+    """Stable SHA256 hash for a directive line (smart-normalised).
+
+    C16: Whitespace normalization skips quoted substrings — multiple
+    spaces inside double/single quotes are preserved, preventing two
+    distinct directives from colliding on the same cache key.
+    """
+    import re as _re
+    # Split into quoted and unquoted segments, normalize unquoted only
+    parts = _re.split(r'(\"[^\"]*\"|\'[^\']*\')', directive_line)
+    normalised_parts = []
+    for part in parts:
+        if part.startswith(('"', "'")):
+            normalised_parts.append(part)  # preserve quoted spaces
+        else:
+            normalised_parts.append(" ".join(part.split()))
+    normalised = "".join(normalised_parts).strip()
     return hashlib.sha256(normalised.encode()).hexdigest()
 
 
@@ -31,6 +45,10 @@ def _parse_cache_modifier(line: str) -> tuple[str, str, int | None, str | None]:
     cache_mode: "" | "session" | "ttl" | "persist" | "mock"
     ttl_seconds: set when cache_mode == "ttl", else None (persist uses cfg)
     mock_value: set when cache_mode == "mock"; literal substitution string
+
+    C12: @cache mock= accepts a quoted or bare value. Use quotes for
+    values containing spaces: @cache mock="hello world". Unquoted values
+    stop at the first whitespace.
     """
     # @cache ttl=N
     m = re.search(r'\s*@cache\s+ttl=(\d+)', line, re.IGNORECASE)
@@ -69,6 +87,31 @@ def _parse_cache_modifier(line: str) -> tuple[str, str, int | None, str | None]:
     return line, "", None, None
 
 
+def _safe_cache_dir(cfg: dict) -> Path:
+    """Return the cache directory, constrained to a safe location.
+
+    S5: Prevents workspace config from pointing cache_dir at /etc/ or
+    other system paths. Falls back to ~/.perseus/cache if the configured
+    path resolves outside the allowed roots.
+    """
+    from pathlib import Path as _Path
+    raw = cfg["render"].get("cache_dir", str(PERSEUS_HOME / "cache"))
+    candidate = _Path(str(raw)).expanduser().resolve()
+    allowed_roots = [
+        _Path.home() / ".perseus",
+        _Path.home() / ".cache",
+    ]
+    try:
+        for root in allowed_roots:
+            root_resolved = root.expanduser().resolve()
+            if str(candidate).startswith(str(root_resolved) + "/") or candidate == root_resolved:
+                return candidate
+    except (OSError, ValueError):
+        pass
+    # Fall back to safe default
+    return PERSEUS_HOME / "cache"
+
+
 def cache_get(key: str, mode: str, ttl: int | None, cfg: dict) -> str | None:
     """Return cached value or None (miss/expired).
 
@@ -87,7 +130,7 @@ def cache_get(key: str, mode: str, ttl: int | None, cfg: dict) -> str | None:
             effective_ttl = int(cfg.get("render", {}).get("persist_cache_ttl_s", 3600))
         if effective_ttl is None:
             return None
-        cache_dir = Path(cfg["render"].get("cache_dir", str(PERSEUS_HOME / "cache")))
+        cache_dir = _safe_cache_dir(cfg)
         entry_file = cache_dir / f"{key}.json"
         if entry_file.exists():
             try:
@@ -118,11 +161,22 @@ def cache_set(key: str, value: str, mode: str, ttl: int | None, cfg: dict) -> No
             effective_ttl = int(cfg.get("render", {}).get("persist_cache_ttl_s", 3600))
         if effective_ttl is None:
             return
-        cache_dir = Path(cfg["render"].get("cache_dir", str(PERSEUS_HOME / "cache")))
+        cache_dir = _safe_cache_dir(cfg)
         try:
             cache_dir.mkdir(parents=True, exist_ok=True)
             entry = {"expires": time.time() + effective_ttl, "value": value}
-            (cache_dir / f"{key}.json").write_text(json.dumps(entry))
+            # Prior #15: atomic write via tempfile + os.replace to avoid
+            # partial/corrupt reads if a reader hits the file mid-write.
+            import tempfile
+            target_path = cache_dir / f"{key}.json"
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".json", dir=str(cache_dir),
+                delete=False, encoding="utf-8"
+            ) as tmp:
+                json.dump(entry, tmp)
+                tmp.flush()
+                os.fsync(tmp.fileno())
+            os.replace(tmp.name, target_path)
         except Exception:
             pass  # cache write failure is non-fatal
 
@@ -191,6 +245,10 @@ def _parse_macros_from_lines(lines: list[str], start: int = 0) -> dict[str, tupl
             while i < len(lines) and not MACRO_END_RE.match(lines[i]):
                 body.append(lines[i])
                 i += 1
+            if i >= len(lines):
+                # Unterminated macro — discard, don't consume rest of template
+                print(f"Perseus warning: unterminated @macro '{name}'", file=sys.stderr)
+                break
             # Infer params from body if not declared in header
             if not header_params:
                 all_body = "\n".join(body)
@@ -279,9 +337,10 @@ def _expand_macros(lines: list[str], macros: dict[str, tuple[list[str], list[str
                 substituted: list[str] = []
                 for bline in macro_body:
                     bline_sub = bline
-                    for idx, pname in enumerate(param_names):
-                        if idx < len(arg_values):
-                            bline_sub = bline_sub.replace(f"%{pname}%", arg_values[idx])
+                    # Sort by parameter name length descending to prevent prefix collisions (M-9)
+                    for pname in sorted(param_names, key=len, reverse=True):
+                        if param_names.index(pname) < len(arg_values):
+                            bline_sub = bline_sub.replace(f"%{pname}%", arg_values[param_names.index(pname)])
                     substituted.append(bline_sub)
                 expanded.extend(substituted)
                 i += 1
@@ -293,6 +352,7 @@ def _expand_macros(lines: list[str], macros: dict[str, tuple[list[str], list[str
     # Recursive expansion (depth-limited)
     _macro_invocation_re = re.compile(r'@([\w-]+)(?:\s|$)', re.IGNORECASE)
     depth = 0
+    max_width = 100000  # C13: cap total line count per pass to prevent fork-bomb
     while depth < MAX_MACRO_DEPTH:
         has_macros = False
         result: list[str] = []
@@ -307,7 +367,13 @@ def _expand_macros(lines: list[str], macros: dict[str, tuple[list[str], list[str
                         break
                     has_macros = True
                     replacement = " ".join(macro_body).strip()
+                    # C13: prevent width explosion — bail if replacement grows too large
                     new_line = new_line[:m.start()] + replacement + new_line[m.end():]
+                    if len(result) + 1 > max_width:
+                        result.append(
+                            f"> ⚠ Macro expansion width limit ({max_width} lines) exceeded. "
+                            "Check for recursive or self-multiplying macros.")
+                        return result
                     # Skip past the replacement to avoid re-matching it
                     m = _macro_invocation_re.search(new_line, m.start() + len(replacement))
                 else:
@@ -368,6 +434,19 @@ def _execute_pipe(stages: list[str], cfg: dict, workspace, line_index: int, quer
     cache_only_last = bool(re.match(r'^@cache\s', last_stage, re.IGNORECASE))
     resolve_count = len(stages) - 1 if cache_only_last else len(stages)
 
+    # Compute cache key from the directive stages (excluding @cache modifier)
+    # so the key reflects the actual computation, not the modifier line.
+    directive_stages = stages[:resolve_count]
+    cache_key = _cache_key(" | ".join(directive_stages))
+
+    # Check cache before executing (pipe stages were never cached before).
+    if cache_only_last:
+        _, cache_mode, cache_ttl, _ = _parse_cache_modifier(last_stage)
+    if cache_mode:
+        cached = cache_get(cache_key, cache_mode, cache_ttl, cfg)
+        if cached is not None:
+            return cached
+
     for idx in range(resolve_count):
         stage = stages[idx]
         m = INLINE_DIRECTIVE_RE.match(stage)
@@ -377,8 +456,11 @@ def _execute_pipe(stages: list[str], cfg: dict, workspace, line_index: int, quer
         raw_args = (m.group(2) or "").strip()
         if idx > 0 and prev_output:
             raw_args = f'"{prev_output}" {raw_args}'
+        # C11: check @cache on the original stage args (before prev_output prepend,
+        # which could contain "@cache " substring from previous stage stdout).
         if idx < resolve_count - 1:
-            if re.search(r'\s*@cache\s', raw_args, re.IGNORECASE):
+            _orig_args = (m.group(2) or "").strip()
+            if re.search(r'\s*@cache\s', _orig_args, re.IGNORECASE):
                 return "> ⚠ pipe error: @cache only allowed on final stage"
         clean_args, cmode, cttl, cmock = _parse_cache_modifier(raw_args)
         spec = DIRECTIVE_REGISTRY.get(directive)
@@ -388,12 +470,7 @@ def _execute_pipe(stages: list[str], cfg: dict, workspace, line_index: int, quer
         else:
             return f"> ⚠ pipe stage {idx+1}: {directive} cannot be resolved"
 
-    # Apply @cache modifier from last stage (if it was cache-only)
-    if cache_only_last:
-        _, cache_mode, cache_ttl, _ = _parse_cache_modifier(last_stage)
-
     if cache_mode:
-        cache_key = _cache_key(stages[-1])
         cache_set(cache_key, prev_output, cache_mode, cache_ttl, cfg)
     return prev_output
 
@@ -410,6 +487,11 @@ def _capture_file_snapshot(lines: list[str], workspace: Path | None) -> dict[str
 
     Returns a dict mapping resolved path → mtime at the start of render.
     Used by the integrity check to detect files that changed mid-render.
+
+    C14: mtime resolution is filesystem-dependent. NTFS/ext4 provide sub-second
+    resolution; FAT/HFS+ provide 1-2 second resolution. Renders faster than the
+    filesystem's mtime granularity cannot detect mid-render modifications.
+    Integrity check is opt-in (`integrity_check: false` by default).
     """
     snap: dict[str, float] = {}
     for line in lines:
