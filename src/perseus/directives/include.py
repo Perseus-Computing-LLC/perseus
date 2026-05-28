@@ -2,7 +2,7 @@
 # ──────────────────────────────── @include ────────────────────────────────────
 
 def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | None = None,
-                    *, _depth: int = 0, _visited: set | None = None,
+                    *, _depth: int = 0,
                     _path_chain: tuple = (),
                     _directive_collector: list[dict] | None = None,
                     _stats: dict | None = None) -> str:
@@ -14,10 +14,11 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
     files are resolved. Structured files (.yaml, .yml, .json, .toml) are
     wrapped in a fenced block.
 
-    Cycle detection: if a file is visited more than once in the current
-    include chain, it's a true cycle and a warning is emitted. Diamond
-    includes (A→B→D and A→C→D, same file via different branches) are
-    detected separately — the second visit skips silently.
+    Cycle detection: if a file is an ancestor in the current include
+    chain, a circular-dependency warning is emitted. Repeated includes
+    of the same file (e.g. via multiple branches in conditional blocks)
+    are intentional — each occurrence renders independently. There is
+    no deduplication; the caller controls include frequency.
     """
     file_path_str, remaining = _extract_quoted_token(args_str.strip())
     if not file_path_str:
@@ -38,9 +39,7 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
     if not fp.exists():
         return f"> ⚠ @include: file not found: `{file_path_str}`"
 
-    # ── Cycle / diamond detection ──
-    if _visited is None:
-        _visited = set()
+    # ── Cycle detection ──
     resolved_path = str(fp.resolve())
 
     # True cycle: file is an ancestor in the current include chain.
@@ -49,11 +48,6 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
         chain = " → ".join(list(_path_chain) + [resolved_path])
         return f"> ⚠ @include: circular dependency detected. Chain: {chain}"
 
-    # M-9: diamond include — already rendered in a sibling branch
-    if resolved_path in _visited:
-        return f"> ℹ @include: `{file_path_str}` already included (diamond skip)."
-
-    _visited.add(resolved_path)
     _path_chain = _path_chain + (resolved_path,)
 
     # ── Depth limit ──
@@ -104,7 +98,6 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
             try:
                 # Render the included file through Perseus with incremented depth
                 rendered = render_source(raw, cfg, workspace, _include_depth=_depth + 1,
-                                         _include_visited=_visited,
                                          _include_path_chain=_path_chain,
                                          _directive_collector=_directive_collector,
                                          _stats=_stats)
