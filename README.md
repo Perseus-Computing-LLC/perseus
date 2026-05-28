@@ -340,7 +340,7 @@ Next: run pytest tests/test_webhook.py
 ## Project Memory
 ### Recent
 - 2026-05-26: Shipped MCP deep integration (Phase 25). 22 directives exposed as MCP tools by default.
-- 2026-05-25: Deployed Perseus v1.0.5 to PyPI. Edge-case test suite at 750+ tests.
+- 2026-05-25: Deployed Perseus v1.0.5 to PyPI. Edge-case test suite at 752 tests — all passing.
 - 2026-05-24: Completed Hephaestus extensibility — plugin directives, macros, hooks, pipes.
 ```
 
