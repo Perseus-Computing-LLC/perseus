@@ -2,7 +2,9 @@
 
 ## Supported Versions
 
-As Perseus is a local command-line interface (CLI) tool with no network services or active daemon listener interfaces, security updates are applied to the latest release. Please ensure you are running the most recent version of Perseus.
+As Perseus is primarily a local command-line interface (CLI) tool, security updates are applied to the latest release. Please ensure you are running the most recent version of Perseus.
+
+Note: Perseus can optionally expose network services via `perseus serve` (HTTP API) and `perseus mcp serve` (MCP stdio/SSE transport). These are disabled by default and require explicit opt-in. See the [serve documentation](docs/serve.md) for security considerations when enabling network access.
 
 | Version | Supported          |
 | ------- | ------------------ |
