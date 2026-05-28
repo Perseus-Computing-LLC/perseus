@@ -1069,6 +1069,11 @@ def render_source(
         register_plugins(cfg)
         register_hooks(cfg)
 
+        # v1.0.6: preflight permission check — surface environment issues
+        # before any directives run. Warnings are emitted at the top of
+        # the rendered output so the agent/user sees them immediately.
+        preflight_warnings = _preflight_permissions(cfg)
+
     if _stats is None:
         _stats = {
             "directive_count": 0,
@@ -1121,6 +1126,11 @@ def render_source(
             manifest_lines.append("> ")
             manifest_lines.append("> Re-run with `perseus render --tier 3` to include on-demand context.")
         result = result + "\n".join(manifest_lines)
+
+    # v1.0.6: prepend preflight permission warnings at top of output
+    if _include_depth == 0 and preflight_warnings:
+        header = "\n".join(f"> {w}" for w in preflight_warnings) + "\n\n"
+        result = header + result
 
     if _include_depth == 0 and _render_start_ts is not None:
         _fire_hooks("on_render_complete", {

@@ -890,3 +890,65 @@ class ConditionParseError(ValueError):
     pass
 
 
+# ── v1.0.6 Preflight Permission Check ──────────────────────────────────────
+# Verifies PERSEUS_HOME and subdirectories Perseus writes to are writable.
+# Cached per-process — only runs once. Directives call _preflight_warnings()
+# to get any pending warnings, or the renderer injects them at top level.
+
+_PREFLIGHT_WARNINGS: list[str] = []
+_PREFLIGHT_RUN = False
+
+
+def _preflight_permissions(cfg: dict) -> list[str]:
+    """Check writability of PERSEUS_HOME and all write-target subdirectories.
+
+    Returns a list of warning strings (empty = all good). Cached — runs once.
+    """
+    global _PREFLIGHT_WARNINGS, _PREFLIGHT_RUN
+    if _PREFLIGHT_RUN:
+        return _PREFLIGHT_WARNINGS
+    _PREFLIGHT_RUN = True
+
+    warnings: list[str] = []
+    home = PERSEUS_HOME
+
+    # Check PERSEUS_HOME itself
+    if not home.exists():
+        try:
+            home.mkdir(parents=True, exist_ok=True)
+        except (OSError, PermissionError) as e:
+            warnings.append(
+                f"⚠ PERSEUS_HOME not writable: {home} — {e}. "
+                "@inbox, @waypoint, and @memory will be disabled."
+            )
+            _PREFLIGHT_WARNINGS = warnings
+            return warnings
+    elif not os.access(home, os.W_OK):
+        warnings.append(
+            f"⚠ PERSEUS_HOME not writable: {home}. "
+            "@inbox, @waypoint, and @memory will be disabled."
+        )
+        _PREFLIGHT_WARNINGS = warnings
+        return warnings
+
+    # Subdirectories Perseus writes to
+    subdirs = {
+        "checkpoints": cfg.get("checkpoints", {}).get("store", str(home / "checkpoints")),
+        "inbox": cfg.get("inbox", {}).get("store", str(home / "inbox")),
+        "audit": str(home),  # audit_log.jsonl lives directly in PERSEUS_HOME
+        "memory": str(home / "memory"),  # Mnēmē vault
+    }
+
+    for name, path_str in subdirs.items():
+        path = Path(path_str)
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+        except (OSError, PermissionError):
+            pass  # Check access below — mkdir may fail on parent but the leaf may exist
+        if not os.access(path if path.is_dir() else path.parent, os.W_OK):
+            warnings.append(f"⚠ {name}/ not writable: {path}")
+
+    _PREFLIGHT_WARNINGS = warnings
+    return warnings
+
+
