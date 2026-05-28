@@ -822,7 +822,7 @@ def _bind_registry() -> None:
         DirectiveSpec("@include",   resolve_include,   [],                         "inline",  "awc", reads_files=True, cacheable=True, safe_for_hover=False, summary="Include and render another file", tier=3),
         DirectiveSpec("@list",      resolve_list,      ["limit=", "sort="],        "inline",  "acw", reads_files=True, cacheable=True, safe_for_hover=False, summary="List directory or structured data", tier=3),
         DirectiveSpec("@tree",      resolve_tree,      ["depth="],                 "inline",  "acw", reads_files=True, cacheable=True, safe_for_hover=False, summary="Tree view of directory", tier=3),
-        DirectiveSpec("@agent",     resolve_agent,     [],                         "inline",  "acw", executes_shell=True, safe_for_hover=False, summary="Execute local agent subprocess", tier=3),
+        DirectiveSpec("@agent",     resolve_agent,     [],                         "inline",  "acw", summary="Execute local agent subprocess", tier=3),
         DirectiveSpec("@tool",      resolve_tool,      [],                         "inline",  "acw", executes_shell=True, safe_for_hover=False, summary="Run an allowlisted external tool", tier=3),
 
         # Block / control (resolved by renderer, tier doesn't apply)
@@ -1002,8 +1002,10 @@ def _expand_aliases(lines: list[str], cfg: dict) -> list[str]:
 
 def _call_resolver(spec: DirectiveSpec, args_str: str, cfg: dict, workspace: "Path | None") -> str:
     """Adapt resolver call to match its actual signature via call_sig."""
-    # Universal shell-execution gate (task-65): plugin directives with
-    # executes_shell=True are gated behind allow_query_shell, same as built-ins.
+    # Universal shell-execution gate (task-65): directives with
+    # executes_shell=True are gated behind allow_query_shell.
+    # @agent is the exception — it has its own independent gate
+    # (allow_agent_shell), so executes_shell is False on its spec.
     if spec.executes_shell and not cfg["render"].get("allow_query_shell", False):
         return f"> ⚠ {spec.name} is disabled by config (`render.allow_query_shell=false`)."
     try:
@@ -1068,8 +1070,52 @@ def _discover_plugins(cfg: dict) -> list["DirectiveSpec"]:
             file=sys.stderr,
         )
         return []
+
+    # v1.0.5 review: when a manifest exists, verify hashes.
+    # Prior behavior only checked file existence — an empty manifest
+    # was sufficient to execute arbitrary Python. Now we parse and
+    # validate SHA-256 hashes for each plugin file.
+    manifest_hashes: dict[str, str] = {}
+    if manifest_path.is_file() and not allow_unsigned:
+        try:
+            import tomllib
+        except ImportError:
+            import tomli as tomllib  # type: ignore[no-redef]
+        try:
+            manifest = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
+            plugins_section = manifest.get("plugins", {})
+            if isinstance(plugins_section, dict):
+                for name, entry in plugins_section.items():
+                    if isinstance(entry, dict) and "hash" in entry:
+                        manifest_hashes[name] = str(entry["hash"])
+        except Exception as e:
+            print(
+                f"Perseus plugin security: failed to parse MANIFEST.toml: {e}",
+                file=sys.stderr,
+            )
+            return []
+
     specs: list["DirectiveSpec"] = []
     for py_file in sorted(plugins_dir.glob("*.py")):
+        if py_file.name == "__init__.py":
+            continue
+        # v1.0.5 review: verify file hash against manifest
+        if manifest_hashes:
+            plugin_name = py_file.stem
+            expected = manifest_hashes.get(plugin_name)
+            if expected is None:
+                print(
+                    f"Perseus plugin security: {py_file.name} not in MANIFEST.toml — skipping",
+                    file=sys.stderr,
+                )
+                continue
+            actual = hashlib.sha256(py_file.read_bytes()).hexdigest()
+            if actual != expected:
+                print(
+                    f"Perseus plugin security: hash mismatch for {py_file.name} — skipping",
+                    file=sys.stderr,
+                )
+                continue
         try:
             spec = importlib.util.spec_from_file_location(
                 f"perseus_plugin_{py_file.stem}", py_file
@@ -1636,6 +1682,12 @@ def audit_event(cfg: dict, event_type: str, **fields) -> None:
             record[k] = v
         except Exception:
             record[k] = repr(v)
+    # v1.0.5 review: redact secrets before persisting to disk.
+    # Audit events can contain command strings, paths, or args with tokens.
+    try:
+        record, _report = redact_value(record, cfg)
+    except Exception:
+        pass  # redaction failure must not block audit persistence
     try:
         path = _audit_log_path(cfg)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -1844,24 +1896,25 @@ def _extract_quoted_token(raw: str) -> tuple[str | None, str]:
     for idx in range(1, len(raw)):
         ch = raw[idx]
         if escaped:
-            # C10: handle standard escape sequences (\n, \t, \r, \0, \\, \", \')
+            # v1.0.5 review: only decode quote-escaping and literal backslash.
+            # Decoding \n, \t, \r, \0 corrupts Windows paths (C:\Users\tccon\...\n).
+            # fallback= text can use literal newlines/tabs instead.
             if _escape_buffer:
                 _escape_buffer += ch
-                if len(_escape_buffer) >= 4:  # \uNNNN or unknown
+                if len(_escape_buffer) >= 4:  # \uNNNN or \xNN or unknown
+                    # Keep the raw escape sequence as-is; don't mangle paths
                     buf.append(_escape_buffer)
                     _escape_buffer = ""
                     escaped = False
                 continue
-            if ch in {"n", "t", "r", "0"}:
-                buf.append({"n": "\n", "t": "\t", "r": "\r", "0": "\0"}[ch])
-            elif ch in {"\\", '"', "'"}:
+            if ch in {"\\", '"', "'"}:
                 buf.append(ch)
             elif ch == "u":
                 _escape_buffer = "\\u"
             elif ch == "x":
                 _escape_buffer = "\\x"
             else:
-                # H-5: unknown escape — keep literal (backslash is preserved)
+                # Unknown escape — keep literal backslash + char (preserves Windows paths)
                 buf.append("\\" + ch)
             escaped = False
             continue
@@ -1911,10 +1964,9 @@ def _parse_kv_modifiers(raw: str) -> dict[str, str]:
             while i < n:
                 ch = raw[i]
                 if escaped:
-                    # H-5: decode only well-known escape sequences,
-                    # keep everything else literal (backslash preserved)
-                    buf.append({'n': '\n', 't': '\t', 'r': '\r',
-                                '\\': '\\', '"': '"', "'": "'"}.get(ch, '\\' + ch))
+                    # v1.0.5 review: only decode quote-escaping and literal backslash.
+                    # Decoding \n, \t, \r corrupts Windows paths like C:\Users\tccon\...
+                    buf.append({'\\': '\\', '"': '"', "'": "'"}.get(ch, '\\' + ch))
                     escaped = False
                 elif ch == "\\":
                     escaped = True
@@ -2862,7 +2914,8 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
     audit_event(cfg, "shell_exec",
                 directive="@query",
                 command=cmd[:500],
-                shell=shell)
+                shell=shell,
+                cwd=str(workspace) if workspace else None)
 
     # Extract timeout=N modifier (per-directive override, default 30s)
     timeout = int(cfg["render"].get("query_timeout_s", 30))
@@ -2870,6 +2923,13 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
     if tm_match:
         timeout = int(tm_match.group(1))
         raw = (raw[:tm_match.start()] + raw[tm_match.end():]).rstrip()
+
+    # v1.0.5 review: run from workspace by default for safety.
+    # allow_outside_workspace does not sandbox — it only controls cwd.
+    allow_outside = cfg["render"].get("allow_outside_workspace", False)
+    cwd = workspace if workspace and not allow_outside else None
+    if workspace and not allow_outside and cwd is None:
+        cwd = Path.cwd()  # fallback: restrict to cwd if no workspace set
 
     try:
         result = subprocess.run(
@@ -2879,6 +2939,7 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
             capture_output=True,
             text=True,
             timeout=timeout,
+            cwd=cwd,
         )
         stdout = (result.stdout or "").rstrip("\n")
         stderr = result.stderr.strip()
@@ -6153,7 +6214,14 @@ def cache_set(key: str, value: str, mode: str, ttl: int | None, cfg: dict) -> No
         cache_dir = _safe_cache_dir(cfg)
         try:
             cache_dir.mkdir(parents=True, exist_ok=True)
-            entry = {"expires": time.time() + effective_ttl, "value": value}
+            # v1.0.5 review: redact secrets before persisting to cache.
+            # Cached values can contain rendered output with embedded tokens.
+            safe_value = value
+            try:
+                safe_value, _report = redact_text(value, cfg)
+            except Exception:
+                pass  # redaction failure must not block caching
+            entry = {"expires": time.time() + effective_ttl, "value": safe_value}
             # Prior #15: atomic write via tempfile + os.replace to avoid
             # partial/corrupt reads if a reader hits the file mid-write.
             import tempfile
@@ -9632,6 +9700,12 @@ def _mneme_compact_llm(
 
 def append_pythia_log(entry: dict, cfg: dict) -> None:
     """Append a JSONL Pythia log entry; warn on failure without raising."""
+    # v1.0.5 review: redact secrets before persisting to disk.
+    # Pythia logs can contain prompts/responses with embedded tokens.
+    try:
+        entry, _report = redact_value(entry, cfg)
+    except Exception:
+        pass  # redaction failure must not block persistence
     log_path = _pythia_log_path()
     try:
         log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -14893,7 +14967,11 @@ def main():
     elif args.command == "inbox":
         cmd_inbox(args, cfg)
     elif args.command == "serve":
-        rc = cmd_serve(args, cfg)
+        # v1.0.5 review: reload with workspace so auth tokens,
+        # trust profiles, MCP SSE tokens, and tool allowlists work.
+        ws = getattr(args, "workspace", None)
+        srv_cfg = load_config(Path(ws).expanduser().resolve()) if ws else cfg
+        rc = cmd_serve(args, srv_cfg)
         if isinstance(rc, int):
             return rc
     elif args.command == "cron":
@@ -14921,7 +14999,11 @@ def main():
     elif args.command == "install":
         return cmd_install(args, cfg)
     elif args.command == "mcp":
-        return cmd_mcp(args, cfg)
+        # v1.0.5 review: reload with workspace so MCP SSE tokens
+        # and tool allowlists work.
+        ws = getattr(args, "workspace", None)
+        mcp_cfg = load_config(Path(ws).expanduser().resolve()) if ws else cfg
+        return cmd_mcp(args, mcp_cfg)
 
 
 # Module-level call: runs at import time so render_source() and other
