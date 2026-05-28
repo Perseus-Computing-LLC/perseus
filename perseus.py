@@ -1627,8 +1627,11 @@ def _audit_log_path(cfg: dict) -> Path:
     try:
         for root in allowed_roots:
             root_resolved = root.expanduser().resolve()
-            if str(candidate).startswith(str(root_resolved) + "/") or candidate == root_resolved:
-                return candidate
+            try:
+                if candidate == root_resolved or candidate.is_relative_to(root_resolved):
+                    return candidate
+            except ValueError:
+                pass
     except (OSError, ValueError):
         pass
     return PERSEUS_HOME / "audit_log.jsonl"
