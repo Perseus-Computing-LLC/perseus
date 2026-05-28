@@ -1069,12 +1069,15 @@ def _discover_plugins(cfg: dict) -> list["DirectiveSpec"]:
         )
         return []
 
-    # v1.0.5 review: when a manifest exists, verify hashes.
-    # Prior behavior only checked file existence — an empty manifest
-    # was sufficient to execute arbitrary Python. Now we parse and
-    # validate SHA-256 hashes for each plugin file.
+    # v1.0.5 review: when a manifest exists, verify hashes for every plugin file.
+    # Prior behavior only checked file existence and skipped verification if no
+    # hashes were defined — an empty [plugins] section was sufficient to execute
+    # arbitrary Python. Now we require a hash for every .py file in the directory
+    # unless allow_unsigned is explicitly enabled.
     manifest_hashes: dict[str, str] = {}
+    manifest_seen = False
     if manifest_path.is_file() and not allow_unsigned:
+        manifest_seen = True
         try:
             import tomllib
         except ImportError:
@@ -1097,8 +1100,8 @@ def _discover_plugins(cfg: dict) -> list["DirectiveSpec"]:
     for py_file in sorted(plugins_dir.glob("*.py")):
         if py_file.name == "__init__.py":
             continue
-        # v1.0.5 review: verify file hash against manifest
-        if manifest_hashes:
+        # v1.0.5 review: verify file hash against manifest (required when manifest exists)
+        if manifest_seen:
             plugin_name = py_file.stem
             expected = manifest_hashes.get(plugin_name)
             if expected is None:
@@ -1164,6 +1167,31 @@ def _discover_formats(cfg: dict) -> dict[str, "Callable"]:
     discovered = {}
     built_ins = {"markdown", "md", "html", "json"}
 
+    # v1.0.5 review: verify format hashes against manifest (was missing entirely).
+    # When a manifest exists and allow_unsigned is false, every .py file must have
+    # a matching hash entry in [formats.<name>] or it is skipped.
+    format_hashes: dict[str, str] = {}
+    manifest_seen = False
+    if manifest_path.is_file() and not allow_unsigned:
+        manifest_seen = True
+        try:
+            import tomllib
+        except ImportError:
+            import tomli as tomllib  # type: ignore[no-redef]
+        try:
+            manifest = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
+            formats_section = manifest.get("formats", {})
+            if isinstance(formats_section, dict):
+                for name, entry in formats_section.items():
+                    if isinstance(entry, dict) and "hash" in entry:
+                        format_hashes[name] = str(entry["hash"])
+        except Exception as e:
+            print(
+                f"Perseus format security: failed to parse MANIFEST.toml: {e}",
+                file=sys.stderr,
+            )
+            return {}
+
     for py_file in sorted(formats_dir.glob("*.py")):
         name = py_file.stem.lower()
         if name in built_ins:
@@ -1172,6 +1200,23 @@ def _discover_formats(cfg: dict) -> dict[str, "Callable"]:
                 file=sys.stderr,
             )
             continue
+
+        # Hash verification (required when manifest exists)
+        if manifest_seen:
+            expected = format_hashes.get(name)
+            if expected is None:
+                print(
+                    f"Perseus format security: {py_file.name} not in MANIFEST.toml [formats] — skipping",
+                    file=sys.stderr,
+                )
+                continue
+            actual = hashlib.sha256(py_file.read_bytes()).hexdigest()
+            if actual != expected:
+                print(
+                    f"Perseus format security: hash mismatch for {py_file.name} — skipping",
+                    file=sys.stderr,
+                )
+                continue
 
         try:
             spec = importlib.util.spec_from_file_location(
