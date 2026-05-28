@@ -170,7 +170,14 @@ def cache_set(key: str, value: str, mode: str, ttl: int | None, cfg: dict) -> No
         cache_dir = _safe_cache_dir(cfg)
         try:
             cache_dir.mkdir(parents=True, exist_ok=True)
-            entry = {"expires": time.time() + effective_ttl, "value": value}
+            # v1.0.5 review: redact secrets before persisting to cache.
+            # Cached values can contain rendered output with embedded tokens.
+            safe_value = value
+            try:
+                safe_value, _report = redact_text(value, cfg)
+            except Exception:
+                pass  # redaction failure must not block caching
+            entry = {"expires": time.time() + effective_ttl, "value": safe_value}
             # Prior #15: atomic write via tempfile + os.replace to avoid
             # partial/corrupt reads if a reader hits the file mid-write.
             import tempfile
