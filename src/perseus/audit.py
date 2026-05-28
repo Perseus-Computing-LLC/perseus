@@ -109,6 +109,12 @@ def audit_event(cfg: dict, event_type: str, **fields) -> None:
             record[k] = v
         except Exception:
             record[k] = repr(v)
+    # v1.0.5 review: redact secrets before persisting to disk.
+    # Audit events can contain command strings, paths, or args with tokens.
+    try:
+        record, _report = redact_value(record, cfg)
+    except Exception:
+        pass  # redaction failure must not block audit persistence
     try:
         path = _audit_log_path(cfg)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -317,24 +323,25 @@ def _extract_quoted_token(raw: str) -> tuple[str | None, str]:
     for idx in range(1, len(raw)):
         ch = raw[idx]
         if escaped:
-            # C10: handle standard escape sequences (\n, \t, \r, \0, \\, \", \')
+            # v1.0.5 review: only decode quote-escaping and literal backslash.
+            # Decoding \n, \t, \r, \0 corrupts Windows paths (C:\Users\tccon\...\n).
+            # fallback= text can use literal newlines/tabs instead.
             if _escape_buffer:
                 _escape_buffer += ch
-                if len(_escape_buffer) >= 4:  # \uNNNN or unknown
+                if len(_escape_buffer) >= 4:  # \uNNNN or \xNN or unknown
+                    # Keep the raw escape sequence as-is; don't mangle paths
                     buf.append(_escape_buffer)
                     _escape_buffer = ""
                     escaped = False
                 continue
-            if ch in {"n", "t", "r", "0"}:
-                buf.append({"n": "\n", "t": "\t", "r": "\r", "0": "\0"}[ch])
-            elif ch in {"\\", '"', "'"}:
+            if ch in {"\\", '"', "'"}:
                 buf.append(ch)
             elif ch == "u":
                 _escape_buffer = "\\u"
             elif ch == "x":
                 _escape_buffer = "\\x"
             else:
-                # H-5: unknown escape — keep literal (backslash is preserved)
+                # Unknown escape — keep literal backslash + char (preserves Windows paths)
                 buf.append("\\" + ch)
             escaped = False
             continue
@@ -384,10 +391,9 @@ def _parse_kv_modifiers(raw: str) -> dict[str, str]:
             while i < n:
                 ch = raw[i]
                 if escaped:
-                    # H-5: decode only well-known escape sequences,
-                    # keep everything else literal (backslash preserved)
-                    buf.append({'n': '\n', 't': '\t', 'r': '\r',
-                                '\\': '\\', '"': '"', "'": "'"}.get(ch, '\\' + ch))
+                    # v1.0.5 review: only decode quote-escaping and literal backslash.
+                    # Decoding \n, \t, \r corrupts Windows paths like C:\Users\tccon\...
+                    buf.append({'\\': '\\', '"': '"', "'": "'"}.get(ch, '\\' + ch))
                     escaped = False
                 elif ch == "\\":
                     escaped = True
@@ -884,5 +890,67 @@ def _parse_frontmatter(text: str) -> tuple[dict, str]:
 
 class ConditionParseError(ValueError):
     pass
+
+
+# ── v1.0.6 Preflight Permission Check ──────────────────────────────────────
+# Verifies PERSEUS_HOME and subdirectories Perseus writes to are writable.
+# Cached per-process — only runs once. Directives call _preflight_warnings()
+# to get any pending warnings, or the renderer injects them at top level.
+
+_PREFLIGHT_WARNINGS: list[str] = []
+_PREFLIGHT_RUN = False
+
+
+def _preflight_permissions(cfg: dict) -> list[str]:
+    """Check writability of PERSEUS_HOME and all write-target subdirectories.
+
+    Returns a list of warning strings (empty = all good). Cached — runs once.
+    """
+    global _PREFLIGHT_WARNINGS, _PREFLIGHT_RUN
+    if _PREFLIGHT_RUN:
+        return _PREFLIGHT_WARNINGS
+    _PREFLIGHT_RUN = True
+
+    warnings: list[str] = []
+    home = PERSEUS_HOME
+
+    # Check PERSEUS_HOME itself
+    if not home.exists():
+        try:
+            home.mkdir(parents=True, exist_ok=True)
+        except (OSError, PermissionError) as e:
+            warnings.append(
+                f"⚠ PERSEUS_HOME not writable: {home} — {e}. "
+                "@inbox, @waypoint, and @memory will be disabled."
+            )
+            _PREFLIGHT_WARNINGS = warnings
+            return warnings
+    elif not os.access(home, os.W_OK):
+        warnings.append(
+            f"⚠ PERSEUS_HOME not writable: {home}. "
+            "@inbox, @waypoint, and @memory will be disabled."
+        )
+        _PREFLIGHT_WARNINGS = warnings
+        return warnings
+
+    # Subdirectories Perseus writes to
+    subdirs = {
+        "checkpoints": cfg.get("checkpoints", {}).get("store", str(home / "checkpoints")),
+        "inbox": cfg.get("inbox", {}).get("store", str(home / "inbox")),
+        "audit": str(home),  # audit_log.jsonl lives directly in PERSEUS_HOME
+        "memory": str(home / "memory"),  # Mnēmē vault
+    }
+
+    for name, path_str in subdirs.items():
+        path = Path(path_str)
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+        except (OSError, PermissionError):
+            pass  # Check access below — mkdir may fail on parent but the leaf may exist
+        if not os.access(path if path.is_dir() else path.parent, os.W_OK):
+            warnings.append(f"⚠ {name}/ not writable: {path}")
+
+    _PREFLIGHT_WARNINGS = warnings
+    return warnings
 
 

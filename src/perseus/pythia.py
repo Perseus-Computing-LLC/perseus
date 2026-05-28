@@ -80,6 +80,12 @@ def _mneme_compact_llm(
 
 def append_pythia_log(entry: dict, cfg: dict) -> None:
     """Append a JSONL Pythia log entry; warn on failure without raising."""
+    # v1.0.5 review: redact secrets before persisting to disk.
+    # Pythia logs can contain prompts/responses with embedded tokens.
+    try:
+        entry, _report = redact_value(entry, cfg)
+    except Exception:
+        pass  # redaction failure must not block persistence
     log_path = _pythia_log_path()
     try:
         log_path.parent.mkdir(parents=True, exist_ok=True)

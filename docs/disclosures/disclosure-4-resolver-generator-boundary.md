@@ -48,7 +48,7 @@ The entire generation path is opt-in — `generation.enabled: false` by default,
 
 - **`@synthesize` directive:** `src/perseus/registry.py` line 69 (tier 3, block directive)
 - **`@constraint` directive:** `src/perseus/registry.py` line 67 (block directive for validation constraints)
-- **Citation gate logic:** `src/perseus/renderer.py` — resolve_synthesize_block
+- **Citation gate logic:** `src/perseus/renderer.py` L764-835 — `@synthesize` block handler (calls `synthesize_question`, validates citations via exact-match string comparison, drops uncited claims)
 - **Config gate:** `src/perseus/config.py` — `generation.enabled` defaults to `false`
 - **Permission profiles:** `src/perseus/config.py` — all three profiles set `generation.enabled: false`
 
