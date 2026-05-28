@@ -27,12 +27,17 @@ def _reset_registry():
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
 def _setup_plugin_dir(monkeypatch, tmp_path, plugin_files=None):
-    """Create a plugins dir at tmp_path/.perseus/plugins with filename→content map."""
+    """Create a plugins dir at tmp_path/.perseus/plugins with filename→content map.
+    Also creates a minimal MANIFEST.toml to satisfy the H-3 security gate."""
     home = tmp_path / ".perseus"
     home.mkdir(parents=True, exist_ok=True)
     plugins_dir = home / "plugins"
     plugins_dir.mkdir(exist_ok=True)
     monkeypatch.setattr(perseus, "PERSEUS_HOME", home)
+    # H-3: create a minimal MANIFEST.toml so plugin discovery proceeds
+    (plugins_dir / "MANIFEST.toml").write_text(
+        "# Auto-generated for tests — all plugins allowed\n"
+    )
     if plugin_files:
         for name, content in plugin_files.items():
             (plugins_dir / name).write_text(content)

@@ -44,7 +44,7 @@ def cmd_checkpoint(args, cfg):
         except FileExistsError:
             # Check if lock holder is still alive (PID staleness detection)
             try:
-                stale_pid = int(lock_path.read_text().strip())
+                stale_pid = int(lock_path.read_text(encoding="utf-8").strip())
                 os.kill(stale_pid, 0)  # signal 0 = check existence only
             except (OSError, ValueError):
                 lock_path.unlink(missing_ok=True)  # stale lock — holder is gone
@@ -75,7 +75,7 @@ def cmd_checkpoint(args, cfg):
                 ws_hash = _workspace_hash(ws_path)
                 ws_pointer = store / f"latest-{ws_hash}.yaml"
                 # Write in-memory data directly instead of re-reading the file (H-5 TOCTOU fix)
-                ws_pointer.write_text(yaml.dump(cp, default_flow_style=False, allow_unicode=True))
+                ws_pointer.write_text(yaml.dump(cp, default_flow_style=False, allow_unicode=True), encoding="utf-8")
             except Exception as exc:
                 print(f"> ⚠ Could not write per-workspace pointer: {exc}")
 
@@ -95,7 +95,7 @@ def cmd_checkpoint(args, cfg):
         if pruned:
             for ptr in store.glob("latest-*.yaml"):
                 try:
-                    ptr_cp = yaml.safe_load(ptr.read_text()) or {}
+                    ptr_cp = yaml.safe_load(ptr.read_text(encoding="utf-8")) or {}
                     ptr_written = str(ptr_cp.get("written", ""))
                     ptr_ws = str(ptr_cp.get("workspace", ""))
                     surviving = []
@@ -105,7 +105,7 @@ def cmd_checkpoint(args, cfg):
                             surviving.append((f, f_cp.get("written", "")))
                     if surviving:
                         surviving.sort(key=lambda x: x[1], reverse=True)
-                        ptr.write_text(surviving[0][0].read_text())
+                        ptr.write_text(surviving[0][0].read_text(encoding="utf-8"), encoding="utf-8")
                     else:
                         ptr.unlink(missing_ok=True)
                 except Exception:
@@ -131,7 +131,7 @@ def cmd_checkpoint(args, cfg):
 
 def _load_checkpoint_file(fp: Path) -> dict | None:
     try:
-        return yaml.safe_load(fp.read_text()) or {}
+        return yaml.safe_load(fp.read_text(encoding="utf-8")) or {}
     except Exception:
         return None
 

@@ -572,6 +572,13 @@ import re
 import atexit
 from datetime import datetime, timezone
 
+# Try to obtain the version from the serve module (same package).
+# Fall back to a hard-coded default if the package isn't fully installed.
+try:
+    from .serve import _PERSEUS_VERSION
+except ImportError:
+    _PERSEUS_VERSION = "1.0.4"
+
 # ──────────────────────────────── Webhooks ───────────────────────────────────
 
 # Global state for webhooks
@@ -582,6 +589,18 @@ _WEBHOOK_LOCK = threading.Lock()
 def _expand_env_vars(s):
     if not isinstance(s, str): return s
     return re.sub(r"\${(\w+)}", lambda m: os.environ.get(m.group(1), m.group(0)), s)
+
+def _redact_url(url: str) -> str:
+    """Redact query strings for safe logging — prevents env-var value leakage."""
+    if not isinstance(url, str):
+        return str(url)
+    from urllib.parse import urlparse, urlunparse
+    parsed = urlparse(url)
+    if parsed.query:
+        parts = list(parsed)
+        parts[4] = "[REDACTED]"
+        return urlunparse(parts)
+    return url
 
 def _fire_webhook(event: str, payload: dict, cfg: dict) -> None:
     """POST render lifecycle event to configured webhook endpoints."""
@@ -610,7 +629,25 @@ def _fire_webhook(event: str, payload: dict, cfg: dict) -> None:
             continue
             
         url = _expand_env_vars(raw_url)
-        
+
+        # H-9: URL allowlist check (webhooks.url_allowlist)
+        url_allowlist = wh_cfg.get("url_allowlist", [])
+        if url_allowlist:
+            from urllib.parse import urlparse as _urlparse
+            parsed = _urlparse(url)
+            hostname = parsed.hostname or ""
+            allowed = any(
+                hostname == prefix or hostname.endswith("." + prefix)
+                for prefix in url_allowlist
+            )
+            if not allowed:
+                print(
+                    f"Perseus webhook warning: hostname {hostname} not in "
+                    f"webhooks.url_allowlist, skipping event {event}.",
+                    file=sys.stderr,
+                )
+                continue
+
         with _WEBHOOK_LOCK:
             # Use a unique ID for the thread per endpoint config
             ep_id = f"{url}|{ep.get('secret','')}|{ep.get('timeout_s', 10)}"
@@ -638,7 +675,7 @@ def _webhook_worker(url, ep, wh_cfg, q):
     secret = _expand_env_vars(secret_raw)
     # L-9: Warn if a ${VAR} placeholder resolved to empty — HMAC silently disabled
     if secret_raw and "${" in secret_raw and not secret:
-        print(f"Perseus webhook warning: HMAC secret env var expanded to empty for {url[:80]}...", file=sys.stderr)
+        print(f"Perseus webhook warning: HMAC secret env var expanded to empty for {_redact_url(url)[:80]}...", file=sys.stderr)
     extra_headers = ep.get("headers", {})
 
     while True:
@@ -650,7 +687,7 @@ def _webhook_worker(url, ep, wh_cfg, q):
         event, payload, ts_iso = item
         
         # Prepare payload
-        version = globals().get("_PERSEUS_VERSION", "1.0.4")
+        version = _PERSEUS_VERSION
         
         workspace = payload.get("workspace", "")
         ws_hash = hashlib.sha256(workspace.encode()).hexdigest()[:16] if workspace else None
@@ -712,7 +749,7 @@ def _webhook_worker(url, ep, wh_cfg, q):
                 time.sleep(base_backoff * (2 ** attempt))
         
         if not success:
-            print(f"Perseus webhook warning: Failed to deliver {event} to {url} after {max_attempts} attempts. Last error: {last_error}", file=sys.stderr)
+            print(f"Perseus webhook warning: Failed to deliver {event} to {_redact_url(url)} after {max_attempts} attempts. Last error: {last_error}", file=sys.stderr)
         
         q.task_done()
 
@@ -781,10 +818,10 @@ def _bind_registry() -> None:
 
         # Tier 3 — On-demand (bulky, expensive)
         DirectiveSpec("@query",     resolve_query,     ["fallback=", "schema="],   "inline",  "acw", executes_shell=True,  safe_for_hover=False, cacheable=True,  summary="Run a shell command and embed stdout", tier=3),
-        DirectiveSpec("@read",      resolve_read,      ["path=", "key=", "fallback=", "schema="], "inline", "acw", reads_files=True, cacheable=True, summary="Embed file contents", tier=3),
-        DirectiveSpec("@include",   resolve_include,   [],                         "inline",  "awc", reads_files=True, cacheable=True, summary="Include and render another file", tier=3),
-        DirectiveSpec("@list",      resolve_list,      ["limit=", "sort="],        "inline",  "acw", reads_files=True, cacheable=True, summary="List directory or structured data", tier=3),
-        DirectiveSpec("@tree",      resolve_tree,      ["depth="],                 "inline",  "acw", reads_files=True, cacheable=True, summary="Tree view of directory", tier=3),
+        DirectiveSpec("@read",      resolve_read,      ["path=", "key=", "fallback=", "schema="], "inline", "acw", reads_files=True, cacheable=True, safe_for_hover=False, summary="Embed file contents", tier=3),
+        DirectiveSpec("@include",   resolve_include,   [],                         "inline",  "awc", reads_files=True, cacheable=True, safe_for_hover=False, summary="Include and render another file", tier=3),
+        DirectiveSpec("@list",      resolve_list,      ["limit=", "sort="],        "inline",  "acw", reads_files=True, cacheable=True, safe_for_hover=False, summary="List directory or structured data", tier=3),
+        DirectiveSpec("@tree",      resolve_tree,      ["depth="],                 "inline",  "acw", reads_files=True, cacheable=True, safe_for_hover=False, summary="Tree view of directory", tier=3),
         DirectiveSpec("@agent",     resolve_agent,     [],                         "inline",  "acw", executes_shell=True, safe_for_hover=False, summary="Execute local agent subprocess", tier=3),
         DirectiveSpec("@tool",      resolve_tool,      [],                         "inline",  "acw", executes_shell=True, safe_for_hover=False, summary="Run an allowlisted external tool", tier=3),
 
@@ -1010,12 +1047,26 @@ def _discover_plugins(cfg: dict) -> list["DirectiveSpec"]:
 
     Returns empty list if plugins are disabled or the directory doesn't exist.
     Plugin import errors are warnings to stderr, never fatal.
+
+    Security: by default, plugins require a MANIFEST.toml with hash entries.
+    Set plugins.allow_unsigned: true to skip manifest verification (opt-in).
     """
-    if not cfg.get("plugins", {}).get("enabled", True):
-        return []
     plugins_cfg = cfg.get("plugins", {})
+    if not plugins_cfg.get("enabled", True):
+        return []
     plugins_dir = Path(plugins_cfg.get("dir", str(PERSEUS_HOME / "plugins")))
     if not plugins_dir.is_dir():
+        return []
+    # H-3: require manifest unless explicitly opted in
+    manifest_path = plugins_dir / "MANIFEST.toml"
+    allow_unsigned = plugins_cfg.get("allow_unsigned", False)
+    if not allow_unsigned and not manifest_path.is_file():
+        print(
+            "Perseus plugin security: plugins dir exists but no MANIFEST.toml found.\n"
+            "  Set plugins.allow_unsigned: true to load plugins without a manifest, or\n"
+            "  create plugins/MANIFEST.toml with [plugins.<name>] hash entries.",
+            file=sys.stderr,
+        )
         return []
     specs: list["DirectiveSpec"] = []
     for py_file in sorted(plugins_dir.glob("*.py")):
@@ -1045,9 +1096,25 @@ def _discover_formats(cfg: dict) -> dict[str, "Callable"]:
 
     Returns {format_name: render_fn}. Format name = filename stem.
     Built-in names (markdown, html, json) are ignored with a warning.
+
+    Security: by default, format adapters require a MANIFEST.toml with hash entries.
+    Set formats.allow_unsigned: true to skip manifest verification (opt-in).
     """
     formats_dir = PERSEUS_HOME / "formats"
     if not formats_dir.is_dir():
+        return {}
+
+    # H-4: require manifest unless explicitly opted in
+    formats_cfg = cfg.get("formats", {})
+    manifest_path = formats_dir / "MANIFEST.toml"
+    allow_unsigned = formats_cfg.get("allow_unsigned", False)
+    if not allow_unsigned and not manifest_path.is_file():
+        print(
+            "Perseus format security: formats dir exists but no MANIFEST.toml found.\n"
+            "  Set formats.allow_unsigned: true to load adapters without a manifest, or\n"
+            "  create formats/MANIFEST.toml with [formats.<name>] hash entries.",
+            file=sys.stderr,
+        )
         return {}
 
     discovered = {}
@@ -1794,7 +1861,8 @@ def _extract_quoted_token(raw: str) -> tuple[str | None, str]:
             elif ch == "x":
                 _escape_buffer = "\\x"
             else:
-                buf.append("\\" + ch)  # unknown escape — keep literal
+                # H-5: unknown escape — keep literal (backslash is preserved)
+                buf.append("\\" + ch)
             escaped = False
             continue
         if ch == "\\":
@@ -1843,7 +1911,10 @@ def _parse_kv_modifiers(raw: str) -> dict[str, str]:
             while i < n:
                 ch = raw[i]
                 if escaped:
-                    buf.append(ch)
+                    # H-5: decode only well-known escape sequences,
+                    # keep everything else literal (backslash preserved)
+                    buf.append({'n': '\n', 't': '\t', 'r': '\r',
+                                '\\': '\\', '"': '"', "'": "'"}.get(ch, '\\' + ch))
                     escaped = False
                 elif ch == "\\":
                     escaped = True
@@ -2155,7 +2226,8 @@ def _update_latest_checkpoint_pointer(latest: Path, outfile: Path) -> None:
     try:
         latest.symlink_to(outfile.name)
     except OSError:
-        latest.write_text(outfile.read_text())
+        # L-4: use explicit UTF-8 encoding for cross-platform safety
+        latest.write_text(outfile.read_text(encoding="utf-8"), encoding="utf-8")
 
 
 def _get_tasks_dir(workspace: Path | None, cfg: dict) -> Path:
@@ -2255,7 +2327,9 @@ def _render_agora_table(tasks: list[tuple[Path, dict, str]]) -> str:
         return '> No tasks found.'
     rows = ['| ID | Scope | Title | Status |', '|---|---|---|---|']
     for _path, fm, _body in tasks:
-        rows.append(f"| {fm.get('id','')} | {fm.get('scope','')} | {fm.get('title','')} | {fm.get('status','')} |")
+        def _esc(v: str) -> str:
+            return str(v).replace("|", "\\|")
+        rows.append(f"| {_esc(fm.get('id',''))} | {_esc(fm.get('scope',''))} | {_esc(fm.get('title',''))} | {_esc(fm.get('status',''))} |")
     return '\n'.join(rows)
 
 
@@ -2384,6 +2458,7 @@ def resolve_env(args_str: str, cfg: dict | None = None, workspace: Path | None =
 
 def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | None = None,
                     *, _depth: int = 0, _visited: set | None = None,
+                    _path_chain: tuple = (),
                     _directive_collector: list[dict] | None = None,
                     _stats: dict | None = None) -> str:
     """
@@ -2394,8 +2469,10 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
     files are resolved. Structured files (.yaml, .yml, .json, .toml) are
     wrapped in a fenced block.
 
-    Cycle detection: if a file is visited more than once in the include
-    chain, a warning is emitted and the chain is terminated.
+    Cycle detection: if a file is visited more than once in the current
+    include chain, it's a true cycle and a warning is emitted. Diamond
+    includes (A→B→D and A→C→D, same file via different branches) are
+    detected separately — the second visit skips silently.
     """
     file_path_str, remaining = _extract_quoted_token(args_str.strip())
     if not file_path_str:
@@ -2416,16 +2493,23 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
     if not fp.exists():
         return f"> ⚠ @include: file not found: `{file_path_str}`"
 
-    # ── Cycle detection ──
+    # ── Cycle / diamond detection ──
     if _visited is None:
         _visited = set()
     resolved_path = str(fp.resolve())
-    if resolved_path in _visited:
-        chain = " → ".join(
-            str(p) for p in list(_visited) + [resolved_path]
-        )
+
+    # True cycle: file is an ancestor in the current include chain.
+    # _path_chain is an immutable tuple — no need to pop on return.
+    if resolved_path in _path_chain:
+        chain = " → ".join(list(_path_chain) + [resolved_path])
         return f"> ⚠ @include: circular dependency detected. Chain: {chain}"
+
+    # M-9: diamond include — already rendered in a sibling branch
+    if resolved_path in _visited:
+        return f"> ℹ @include: `{file_path_str}` already included (diamond skip)."
+
     _visited.add(resolved_path)
+    _path_chain = _path_chain + (resolved_path,)
 
     # ── Depth limit ──
     max_depth = render_cfg.get("max_include_depth", 5)
@@ -2444,6 +2528,10 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
     except OSError:
         pass  # stat failed, fall through to read
 
+    # ── File size limit from config ──
+    max_bytes_raw = render_cfg.get("max_include_bytes")
+    max_bytes = int(max_bytes_raw) if max_bytes_raw is not None else None
+
     try:
         data = fp.read_bytes()
         raw = data.decode(errors="replace").rstrip()
@@ -2451,7 +2539,6 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
         return f"> ⚠ @include: could not read `{file_path_str}`: {e}"
 
     # ── File size limit check (byte-counted, not character-counted) ──
-    max_bytes = render_cfg.get("max_include_bytes")
     if max_bytes is not None and len(data) > max_bytes:
         raw = data[:max_bytes].decode(errors="replace").rstrip()
         actual_size = len(data)
@@ -2472,7 +2559,8 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
             try:
                 # Render the included file through Perseus with incremented depth
                 rendered = render_source(raw, cfg, workspace, _include_depth=_depth + 1,
-                                         _include_visited=_visited,  # shared set — M-8 diamond fix
+                                         _include_visited=_visited,
+                                         _include_path_chain=_path_chain,
                                          _directive_collector=_directive_collector,
                                          _stats=_stats)
                 return trunc_note + rendered
@@ -2577,7 +2665,8 @@ def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str
         return f"> ⚠ @read: could not read `{file_path_str}`: {e}"
 
     # ── File size limit check (byte-counted, not character-counted) ──
-    max_bytes = render_cfg.get("max_read_bytes")
+    max_bytes_raw = cfg["render"].get("max_read_bytes")
+    max_bytes = int(max_bytes_raw) if max_bytes_raw is not None else None
     if max_bytes is not None and len(data) > max_bytes:
         content = data[:max_bytes].decode(errors="replace")
         trunc_note = (
@@ -4306,7 +4395,7 @@ def evaluate_condition(condition: str, workspace: Path | None = None, cfg: dict 
         except re.error as e:
             raise ConditionParseError(f"invalid @if query regex /{pattern_src}/: {e}")
 
-        if not render_cfg.get("allow_query_shell", True):
+        if not render_cfg.get("allow_query_shell", False):
             print(
                 "⚠ @if query(...) skipped: `render.allow_query_shell=false`. "
                 f"Condition evaluates to False.",
@@ -4314,7 +4403,7 @@ def evaluate_condition(condition: str, workspace: Path | None = None, cfg: dict 
             )
             return False
 
-        shell = render_cfg.get("shell", "/bin/bash")
+        shell = _get_shell(cfg) or render_cfg.get("shell")
         try:
             result = subprocess.run(
                 cmd,
@@ -5748,6 +5837,15 @@ def serve_mcp_sse(cfg: dict, workspace: Path | None = None, port: int = 8420) ->
     token = str(mcp_cfg.get("sse_bearer_token", "") or "").strip() or None
     if not token:
         token = str(cfg.get("serve", {}).get("auth_token", "") or "").strip() or None
+    # C-1: refuse to start without auth unless explicitly opted in
+    if not token and not mcp_cfg.get("allow_no_auth", False):
+        print(
+            "Perseus MCP SSE refusing to bind without authentication.\n"
+            "  Set mcp.sse_bearer_token in config.yaml to require a Bearer token, or\n"
+            "  set mcp.allow_no_auth: true to explicitly opt in to unauthenticated mode.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
 
     def _check_auth(handler) -> bool:
         """Verify Bearer token if auth is configured. Also validate Host header."""
@@ -5757,9 +5855,9 @@ def serve_mcp_sse(cfg: dict, workspace: Path | None = None, port: int = 8420) ->
             hostname = host.split(":")[0]
             if hostname not in ("127.0.0.1", "localhost", "::1"):
                 return False
-        # Bearer token check
+        # Bearer token check — token is now guaranteed non-None after startup gate
         if not token:
-            return True
+            return True  # only reachable if allow_no_auth is set
         auth = handler.headers.get("Authorization", "") or ""
         if not auth.startswith("Bearer "):
             return False
@@ -6456,6 +6554,7 @@ def _render_lines(
     _constraint_rows: list[str] | None = None,
     _include_depth: int = 0,
     _include_visited: set | None = None,
+    _include_path_chain: tuple = (),
     _directive_collector: list[dict] | None = None,
     _stats: dict | None = None,
     max_tier: int = 3,
@@ -6633,6 +6732,7 @@ def _render_lines(
             rendered_block = _render_lines(block_lines, cfg, workspace, _constraint_rows,
                                            _include_depth=_include_depth,
                                            _include_visited=_include_visited,
+                                           _include_path_chain=_include_path_chain,
                                            _directive_collector=_directive_collector,
                                            _stats=_stats,
                                            max_tier=max_tier,
@@ -6786,6 +6886,7 @@ def _render_lines(
                 output.append(_render_lines(branch, cfg, workspace, _constraint_rows,
                                              _include_depth=_include_depth,
                                              _include_visited=_include_visited,
+                                             _include_path_chain=_include_path_chain,
                                              _directive_collector=_directive_collector,
                                              _stats=_stats,
                                              max_tier=max_tier,
@@ -6869,6 +6970,7 @@ def _render_lines(
                 result = spec.resolver(clean_args, workspace, cfg,
                                        _depth=_include_depth,
                                        _visited=_include_visited.copy() if _include_visited is not None else None,
+                                       _path_chain=_include_path_chain,
                                        _directive_collector=_directive_collector,
                                        _stats=_stats)
                 result = _apply_output_schema_validation(spec, clean_args, result, workspace)
@@ -6933,6 +7035,7 @@ def render_source(
     max_tier: int = 3,
     _include_depth: int = 0,
     _include_visited: set | None = None,
+    _include_path_chain: tuple = (),
     _directive_collector: list[dict] | None = None,
     _stats: dict | None = None,
 ) -> str:
@@ -6976,6 +7079,7 @@ def render_source(
     result = _render_lines(body_lines, cfg, workspace, _constraint_rows,
                          _include_depth=_include_depth,
                          _include_visited=_include_visited,
+                         _include_path_chain=_include_path_chain,
                          _directive_collector=_directive_collector,
                          _stats=_stats,
                          max_tier=max_tier,
@@ -7215,7 +7319,7 @@ def cmd_checkpoint(args, cfg):
         except FileExistsError:
             # Check if lock holder is still alive (PID staleness detection)
             try:
-                stale_pid = int(lock_path.read_text().strip())
+                stale_pid = int(lock_path.read_text(encoding="utf-8").strip())
                 os.kill(stale_pid, 0)  # signal 0 = check existence only
             except (OSError, ValueError):
                 lock_path.unlink(missing_ok=True)  # stale lock — holder is gone
@@ -7246,7 +7350,7 @@ def cmd_checkpoint(args, cfg):
                 ws_hash = _workspace_hash(ws_path)
                 ws_pointer = store / f"latest-{ws_hash}.yaml"
                 # Write in-memory data directly instead of re-reading the file (H-5 TOCTOU fix)
-                ws_pointer.write_text(yaml.dump(cp, default_flow_style=False, allow_unicode=True))
+                ws_pointer.write_text(yaml.dump(cp, default_flow_style=False, allow_unicode=True), encoding="utf-8")
             except Exception as exc:
                 print(f"> ⚠ Could not write per-workspace pointer: {exc}")
 
@@ -7266,7 +7370,7 @@ def cmd_checkpoint(args, cfg):
         if pruned:
             for ptr in store.glob("latest-*.yaml"):
                 try:
-                    ptr_cp = yaml.safe_load(ptr.read_text()) or {}
+                    ptr_cp = yaml.safe_load(ptr.read_text(encoding="utf-8")) or {}
                     ptr_written = str(ptr_cp.get("written", ""))
                     ptr_ws = str(ptr_cp.get("workspace", ""))
                     surviving = []
@@ -7276,7 +7380,7 @@ def cmd_checkpoint(args, cfg):
                             surviving.append((f, f_cp.get("written", "")))
                     if surviving:
                         surviving.sort(key=lambda x: x[1], reverse=True)
-                        ptr.write_text(surviving[0][0].read_text())
+                        ptr.write_text(surviving[0][0].read_text(encoding="utf-8"), encoding="utf-8")
                     else:
                         ptr.unlink(missing_ok=True)
                 except Exception:
@@ -7302,7 +7406,7 @@ def cmd_checkpoint(args, cfg):
 
 def _load_checkpoint_file(fp: Path) -> dict | None:
     try:
-        return yaml.safe_load(fp.read_text()) or {}
+        return yaml.safe_load(fp.read_text(encoding="utf-8")) or {}
     except Exception:
         return None
 
@@ -7969,9 +8073,13 @@ def _mneme_delete_document(cfg: dict, doc_id: str) -> bool:
         escaped_id = doc_id.replace("*", "\\*").replace("?", "\\?").replace("[", "\\[").replace("]", "\\]")
         cursor = conn.execute("DELETE FROM mneme_fts WHERE id = ?", (doc_id,))
         deleted = cursor.rowcount > 0
+        # M-5: cross-platform path matching — handle both / and \\ separators.
+        # GLOB doesn't have an OR operator, so we OR two separate patterns.
+        pattern_fwd = f"*/{escaped_id}.md"
+        pattern_bwd = f"*\\\\{escaped_id}.md"
         conn.execute(
-            "DELETE FROM mneme_files WHERE path GLOB ?",
-            (f"*/{escaped_id}.md",)
+            "DELETE FROM mneme_files WHERE path GLOB ? OR path GLOB ?",
+            (pattern_fwd, pattern_bwd),
         )
         if deleted:
             conn.execute("INSERT INTO mneme_fts(mneme_fts) VALUES('rebuild')")
@@ -11218,10 +11326,31 @@ def _merge_json_file(path: Path, new_data: dict, top_key: str = "hooks") -> bool
     """Merge new_data into an existing JSON file, deep-merging under top_key."""
     existing: dict = {}
     if path.exists():
+        # H-10: Symlink check — refuse to overwrite symlinks
+        if path.is_symlink():
+            print(
+                f"  ⚠ {path} is a symlink; refusing to overwrite for safety.",
+                file=sys.stderr,
+            )
+            return False
+
         try:
             existing = json.loads(path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, ValueError):
-            print(f"  ⚠ {path} exists but is not valid JSON; overwriting.", file=sys.stderr)
+            print(
+                f"  ⚠ {path} exists but is not valid JSON; refusing to overwrite.",
+                file=sys.stderr,
+            )
+            return False
+
+        # H-10: JSON validation — refuse to merge into non-dict JSON
+        if not isinstance(existing, dict):
+            print(
+                f"  ⚠ {path} contains non-dict JSON (type={type(existing).__name__}); "
+                f"refusing to overwrite.",
+                file=sys.stderr,
+            )
+            return False
 
     # Deep-merge hooks dicts
     if top_key not in existing:

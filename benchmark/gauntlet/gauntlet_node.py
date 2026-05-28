@@ -358,14 +358,25 @@ def phase_sustained_torture(
 
     while time.time() < t_end:
         if cycle % 10 == 0:
+            # P1 #10: cross-platform RSS sampling via psutil.
+            # Falls back to /proc on Linux if psutil is unavailable,
+            # and returns -1 on unsupported platforms instead of
+            # silently reporting 0 (which would falsely pass the gate).
             try:
-                rss = int(subprocess.run(
-                    ["sh", "-c", f"grep VmRSS /proc/{os.getpid()}/status 2>/dev/null | awk '{{print $2}}'"],
-                    capture_output=True, text=True, timeout=5
-                ).stdout.strip() or "0")
+                import psutil
+                rss = psutil.Process().memory_info().rss // 1024  # KB
                 rss_samples.append(rss)
+            except ImportError:
+                try:
+                    rss = int(subprocess.run(
+                        ["sh", "-c", f"grep VmRSS /proc/{os.getpid()}/status 2>/dev/null | awk '{{print $2}}'"],
+                        capture_output=True, text=True, timeout=5
+                    ).stdout.strip() or "0")
+                    rss_samples.append(rss)
+                except Exception:
+                    rss_samples.append(-1)  # unsupported — gate will see negative value
             except Exception:
-                pass
+                rss_samples.append(-1)
 
         # Render profiles in rotation
         for i in range(min(concurrent_renders, 20)):  # cap concurrency
@@ -482,7 +493,7 @@ def main():
 
         executor = COMMAND_MAP.get(phase)
         if executor:
-            metrics = GauntlettMetrics(phase_name=phase)
+            metrics = GauntletMetrics(phase_name=phase)
             result = executor(
                 role_profiles,
                 params.get("developers_per_node", args.developers_per_node),
