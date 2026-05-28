@@ -822,7 +822,7 @@ def _bind_registry() -> None:
         DirectiveSpec("@include",   resolve_include,   [],                         "inline",  "awc", reads_files=True, cacheable=True, safe_for_hover=False, summary="Include and render another file", tier=3),
         DirectiveSpec("@list",      resolve_list,      ["limit=", "sort="],        "inline",  "acw", reads_files=True, cacheable=True, safe_for_hover=False, summary="List directory or structured data", tier=3),
         DirectiveSpec("@tree",      resolve_tree,      ["depth="],                 "inline",  "acw", reads_files=True, cacheable=True, safe_for_hover=False, summary="Tree view of directory", tier=3),
-        DirectiveSpec("@agent",     resolve_agent,     [],                         "inline",  "acw", executes_shell=True, safe_for_hover=False, summary="Execute local agent subprocess", tier=3),
+        DirectiveSpec("@agent",     resolve_agent,     [],                         "inline",  "acw", summary="Execute local agent subprocess", tier=3),
         DirectiveSpec("@tool",      resolve_tool,      [],                         "inline",  "acw", executes_shell=True, safe_for_hover=False, summary="Run an allowlisted external tool", tier=3),
 
         # Block / control (resolved by renderer, tier doesn't apply)
@@ -1002,8 +1002,10 @@ def _expand_aliases(lines: list[str], cfg: dict) -> list[str]:
 
 def _call_resolver(spec: DirectiveSpec, args_str: str, cfg: dict, workspace: "Path | None") -> str:
     """Adapt resolver call to match its actual signature via call_sig."""
-    # Universal shell-execution gate (task-65): plugin directives with
-    # executes_shell=True are gated behind allow_query_shell, same as built-ins.
+    # Universal shell-execution gate (task-65): directives with
+    # executes_shell=True are gated behind allow_query_shell.
+    # @agent is the exception — it has its own independent gate
+    # (allow_agent_shell), so executes_shell is False on its spec.
     if spec.executes_shell and not cfg["render"].get("allow_query_shell", False):
         return f"> ⚠ {spec.name} is disabled by config (`render.allow_query_shell=false`)."
     try:
@@ -1068,8 +1070,52 @@ def _discover_plugins(cfg: dict) -> list["DirectiveSpec"]:
             file=sys.stderr,
         )
         return []
+
+    # v1.0.5 review: when a manifest exists, verify hashes.
+    # Prior behavior only checked file existence — an empty manifest
+    # was sufficient to execute arbitrary Python. Now we parse and
+    # validate SHA-256 hashes for each plugin file.
+    manifest_hashes: dict[str, str] = {}
+    if manifest_path.is_file() and not allow_unsigned:
+        try:
+            import tomllib
+        except ImportError:
+            import tomli as tomllib  # type: ignore[no-redef]
+        try:
+            manifest = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
+            plugins_section = manifest.get("plugins", {})
+            if isinstance(plugins_section, dict):
+                for name, entry in plugins_section.items():
+                    if isinstance(entry, dict) and "hash" in entry:
+                        manifest_hashes[name] = str(entry["hash"])
+        except Exception as e:
+            print(
+                f"Perseus plugin security: failed to parse MANIFEST.toml: {e}",
+                file=sys.stderr,
+            )
+            return []
+
     specs: list["DirectiveSpec"] = []
     for py_file in sorted(plugins_dir.glob("*.py")):
+        if py_file.name == "__init__.py":
+            continue
+        # v1.0.5 review: verify file hash against manifest
+        if manifest_hashes:
+            plugin_name = py_file.stem
+            expected = manifest_hashes.get(plugin_name)
+            if expected is None:
+                print(
+                    f"Perseus plugin security: {py_file.name} not in MANIFEST.toml — skipping",
+                    file=sys.stderr,
+                )
+                continue
+            actual = hashlib.sha256(py_file.read_bytes()).hexdigest()
+            if actual != expected:
+                print(
+                    f"Perseus plugin security: hash mismatch for {py_file.name} — skipping",
+                    file=sys.stderr,
+                )
+                continue
         try:
             spec = importlib.util.spec_from_file_location(
                 f"perseus_plugin_{py_file.stem}", py_file
@@ -1638,6 +1684,12 @@ def audit_event(cfg: dict, event_type: str, **fields) -> None:
             record[k] = v
         except Exception:
             record[k] = repr(v)
+    # v1.0.5 review: redact secrets before persisting to disk.
+    # Audit events can contain command strings, paths, or args with tokens.
+    try:
+        record, _report = redact_value(record, cfg)
+    except Exception:
+        pass  # redaction failure must not block audit persistence
     try:
         path = _audit_log_path(cfg)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -1846,24 +1898,25 @@ def _extract_quoted_token(raw: str) -> tuple[str | None, str]:
     for idx in range(1, len(raw)):
         ch = raw[idx]
         if escaped:
-            # C10: handle standard escape sequences (\n, \t, \r, \0, \\, \", \')
+            # v1.0.5 review: only decode quote-escaping and literal backslash.
+            # Decoding \n, \t, \r, \0 corrupts Windows paths (C:\Users\tccon\...\n).
+            # fallback= text can use literal newlines/tabs instead.
             if _escape_buffer:
                 _escape_buffer += ch
-                if len(_escape_buffer) >= 4:  # \uNNNN or unknown
+                if len(_escape_buffer) >= 4:  # \uNNNN or \xNN or unknown
+                    # Keep the raw escape sequence as-is; don't mangle paths
                     buf.append(_escape_buffer)
                     _escape_buffer = ""
                     escaped = False
                 continue
-            if ch in {"n", "t", "r", "0"}:
-                buf.append({"n": "\n", "t": "\t", "r": "\r", "0": "\0"}[ch])
-            elif ch in {"\\", '"', "'"}:
+            if ch in {"\\", '"', "'"}:
                 buf.append(ch)
             elif ch == "u":
                 _escape_buffer = "\\u"
             elif ch == "x":
                 _escape_buffer = "\\x"
             else:
-                # H-5: unknown escape — keep literal (backslash is preserved)
+                # Unknown escape — keep literal backslash + char (preserves Windows paths)
                 buf.append("\\" + ch)
             escaped = False
             continue
@@ -1913,10 +1966,9 @@ def _parse_kv_modifiers(raw: str) -> dict[str, str]:
             while i < n:
                 ch = raw[i]
                 if escaped:
-                    # H-5: decode only well-known escape sequences,
-                    # keep everything else literal (backslash preserved)
-                    buf.append({'n': '\n', 't': '\t', 'r': '\r',
-                                '\\': '\\', '"': '"', "'": "'"}.get(ch, '\\' + ch))
+                    # v1.0.5 review: only decode quote-escaping and literal backslash.
+                    # Decoding \n, \t, \r corrupts Windows paths like C:\Users\tccon\...
+                    buf.append({'\\': '\\', '"': '"', "'": "'"}.get(ch, '\\' + ch))
                     escaped = False
                 elif ch == "\\":
                     escaped = True
@@ -2415,6 +2467,68 @@ class ConditionParseError(ValueError):
     pass
 
 
+# ── v1.0.6 Preflight Permission Check ──────────────────────────────────────
+# Verifies PERSEUS_HOME and subdirectories Perseus writes to are writable.
+# Cached per-process — only runs once. Directives call _preflight_warnings()
+# to get any pending warnings, or the renderer injects them at top level.
+
+_PREFLIGHT_WARNINGS: list[str] = []
+_PREFLIGHT_RUN = False
+
+
+def _preflight_permissions(cfg: dict) -> list[str]:
+    """Check writability of PERSEUS_HOME and all write-target subdirectories.
+
+    Returns a list of warning strings (empty = all good). Cached — runs once.
+    """
+    global _PREFLIGHT_WARNINGS, _PREFLIGHT_RUN
+    if _PREFLIGHT_RUN:
+        return _PREFLIGHT_WARNINGS
+    _PREFLIGHT_RUN = True
+
+    warnings: list[str] = []
+    home = PERSEUS_HOME
+
+    # Check PERSEUS_HOME itself
+    if not home.exists():
+        try:
+            home.mkdir(parents=True, exist_ok=True)
+        except (OSError, PermissionError) as e:
+            warnings.append(
+                f"⚠ PERSEUS_HOME not writable: {home} — {e}. "
+                "@inbox, @waypoint, and @memory will be disabled."
+            )
+            _PREFLIGHT_WARNINGS = warnings
+            return warnings
+    elif not os.access(home, os.W_OK):
+        warnings.append(
+            f"⚠ PERSEUS_HOME not writable: {home}. "
+            "@inbox, @waypoint, and @memory will be disabled."
+        )
+        _PREFLIGHT_WARNINGS = warnings
+        return warnings
+
+    # Subdirectories Perseus writes to
+    subdirs = {
+        "checkpoints": cfg.get("checkpoints", {}).get("store", str(home / "checkpoints")),
+        "inbox": cfg.get("inbox", {}).get("store", str(home / "inbox")),
+        "audit": str(home),  # audit_log.jsonl lives directly in PERSEUS_HOME
+        "memory": str(home / "memory"),  # Mnēmē vault
+    }
+
+    for name, path_str in subdirs.items():
+        path = Path(path_str)
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+        except (OSError, PermissionError):
+            pass  # Check access below — mkdir may fail on parent but the leaf may exist
+        if not os.access(path if path.is_dir() else path.parent, os.W_OK):
+            warnings.append(f"⚠ {name}/ not writable: {path}")
+
+    _PREFLIGHT_WARNINGS = warnings
+    return warnings
+
+
 # ──────────────────────────────── @env ────────────────────────────────────────
 
 def resolve_env(args_str: str, cfg: dict | None = None, workspace: Path | None = None) -> str:
@@ -2459,7 +2573,7 @@ def resolve_env(args_str: str, cfg: dict | None = None, workspace: Path | None =
 # ──────────────────────────────── @include ────────────────────────────────────
 
 def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | None = None,
-                    *, _depth: int = 0, _visited: set | None = None,
+                    *, _depth: int = 0,
                     _path_chain: tuple = (),
                     _directive_collector: list[dict] | None = None,
                     _stats: dict | None = None) -> str:
@@ -2471,10 +2585,11 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
     files are resolved. Structured files (.yaml, .yml, .json, .toml) are
     wrapped in a fenced block.
 
-    Cycle detection: if a file is visited more than once in the current
-    include chain, it's a true cycle and a warning is emitted. Diamond
-    includes (A→B→D and A→C→D, same file via different branches) are
-    detected separately — the second visit skips silently.
+    Cycle detection: if a file is an ancestor in the current include
+    chain, a circular-dependency warning is emitted. Repeated includes
+    of the same file (e.g. via multiple branches in conditional blocks)
+    are intentional — each occurrence renders independently. There is
+    no deduplication; the caller controls include frequency.
     """
     file_path_str, remaining = _extract_quoted_token(args_str.strip())
     if not file_path_str:
@@ -2495,9 +2610,7 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
     if not fp.exists():
         return f"> ⚠ @include: file not found: `{file_path_str}`"
 
-    # ── Cycle / diamond detection ──
-    if _visited is None:
-        _visited = set()
+    # ── Cycle detection ──
     resolved_path = str(fp.resolve())
 
     # True cycle: file is an ancestor in the current include chain.
@@ -2506,11 +2619,6 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
         chain = " → ".join(list(_path_chain) + [resolved_path])
         return f"> ⚠ @include: circular dependency detected. Chain: {chain}"
 
-    # M-9: diamond include — already rendered in a sibling branch
-    if resolved_path in _visited:
-        return f"> ℹ @include: `{file_path_str}` already included (diamond skip)."
-
-    _visited.add(resolved_path)
     _path_chain = _path_chain + (resolved_path,)
 
     # ── Depth limit ──
@@ -2566,7 +2674,6 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
             try:
                 # Render the included file through Perseus with incremented depth
                 rendered = render_source(raw, cfg, workspace, _include_depth=_depth + 1,
-                                         _include_visited=_visited,
                                          _include_path_chain=_path_chain,
                                          _directive_collector=_directive_collector,
                                          _stats=_stats)
@@ -2881,7 +2988,8 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
     audit_event(cfg, "shell_exec",
                 directive="@query",
                 command=cmd[:500],
-                shell=shell)
+                shell=shell,
+                cwd=str(workspace) if workspace else None)
 
     # Extract timeout=N modifier (per-directive override, default 30s)
     timeout = int(cfg["render"].get("query_timeout_s", 30))
@@ -2889,6 +2997,13 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
     if tm_match:
         timeout = int(tm_match.group(1))
         raw = (raw[:tm_match.start()] + raw[tm_match.end():]).rstrip()
+
+    # v1.0.5 review: run from workspace by default for safety.
+    # allow_outside_workspace does not sandbox — it only controls cwd.
+    allow_outside = cfg["render"].get("allow_outside_workspace", False)
+    cwd = workspace if workspace and not allow_outside else None
+    if workspace and not allow_outside and cwd is None:
+        cwd = Path.cwd()  # fallback: restrict to cwd if no workspace set
 
     try:
         result = subprocess.run(
@@ -2898,6 +3013,7 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
             capture_output=True,
             text=True,
             timeout=timeout,
+            cwd=cwd,
         )
         stdout = (result.stdout or "").rstrip("\n")
         stderr = result.stderr.strip()
@@ -4293,7 +4409,22 @@ def resolve_waypoint(args_str: str, cfg: dict) -> str:
     if m:
         ttl = int(m.group(1))
 
-    cp = load_latest_checkpoint(cfg)
+    # v1.0.6: preflight check — surface permission errors instead of silently
+    # returning "No checkpoint found."
+    preflight = _preflight_permissions(cfg)
+    cp_dir = cfg.get("checkpoints", {}).get("store", str(PERSEUS_HOME / "checkpoints"))
+    if any("PERSEUS_HOME not writable" in w for w in preflight):
+        return "> ⚠ @waypoint disabled: PERSEUS_HOME is not writable."
+    if any("checkpoints" in w for w in preflight):
+        return f"> ⚠ @waypoint disabled: checkpoint store not writable ({cp_dir})."
+
+    try:
+        cp = load_latest_checkpoint(cfg)
+    except PermissionError as e:
+        return f"> ⚠ @waypoint: cannot read checkpoint store ({cp_dir}) — {e}"
+    except OSError as e:
+        return f"> ⚠ @waypoint: error accessing checkpoint store ({cp_dir}) — {e}"
+
     if not cp:
         return "> No checkpoint found."
 
@@ -6095,7 +6226,12 @@ def _safe_cache_dir(cfg: dict) -> Path:
     S5: Prevents workspace config from pointing cache_dir at /etc/ or
     other system paths. Falls back to ~/.perseus/cache if the configured
     path resolves outside the allowed roots.
+
+    Uses Path.is_relative_to (Python 3.9+) for cross-platform safety.
+    The system temp dir is an allowed root so that tests and short-lived
+    processes can isolate their cache without polluting the shared home.
     """
+    import tempfile
     from pathlib import Path as _Path
     import tempfile as _tempfile
     raw = cfg["render"].get("cache_dir", str(PERSEUS_HOME / "cache"))
@@ -6108,7 +6244,7 @@ def _safe_cache_dir(cfg: dict) -> Path:
     try:
         for root in allowed_roots:
             root_resolved = root.expanduser().resolve()
-            if str(candidate).startswith(str(root_resolved) + "/") or candidate == root_resolved:
+            if candidate == root_resolved or candidate.is_relative_to(root_resolved):
                 return candidate
     except (OSError, ValueError):
         pass
@@ -6168,7 +6304,14 @@ def cache_set(key: str, value: str, mode: str, ttl: int | None, cfg: dict) -> No
         cache_dir = _safe_cache_dir(cfg)
         try:
             cache_dir.mkdir(parents=True, exist_ok=True)
-            entry = {"expires": time.time() + effective_ttl, "value": value}
+            # v1.0.5 review: redact secrets before persisting to cache.
+            # Cached values can contain rendered output with embedded tokens.
+            safe_value = value
+            try:
+                safe_value, _report = redact_text(value, cfg)
+            except Exception:
+                pass  # redaction failure must not block caching
+            entry = {"expires": time.time() + effective_ttl, "value": safe_value}
             # Prior #15: atomic write via tempfile + os.replace to avoid
             # partial/corrupt reads if a reader hits the file mid-write.
             import tempfile
@@ -6567,7 +6710,6 @@ def _render_lines(
     workspace: Path | None,
     _constraint_rows: list[str] | None = None,
     _include_depth: int = 0,
-    _include_visited: set | None = None,
     _include_path_chain: tuple = (),
     _directive_collector: list[dict] | None = None,
     _stats: dict | None = None,
@@ -6585,8 +6727,6 @@ def _render_lines(
         _constraint_rows = []
         if _skipped_directives is None:
             _skipped_directives = []
-    if _include_visited is None:
-        _include_visited = set()
 
     # ── File integrity pre-check (top-level only) ──
     _integrity_snapshot: dict[str, float] = {}
@@ -6745,7 +6885,6 @@ def _render_lines(
                 break
             rendered_block = _render_lines(block_lines, cfg, workspace, _constraint_rows,
                                            _include_depth=_include_depth,
-                                           _include_visited=_include_visited,
                                            _include_path_chain=_include_path_chain,
                                            _directive_collector=_directive_collector,
                                            _stats=_stats,
@@ -6899,7 +7038,6 @@ def _render_lines(
             if branch:
                 output.append(_render_lines(branch, cfg, workspace, _constraint_rows,
                                              _include_depth=_include_depth,
-                                             _include_visited=_include_visited,
                                              _include_path_chain=_include_path_chain,
                                              _directive_collector=_directive_collector,
                                              _stats=_stats,
@@ -6983,7 +7121,6 @@ def _render_lines(
             if directive == "@include" and spec and spec.resolver:
                 result = spec.resolver(clean_args, workspace, cfg,
                                        _depth=_include_depth,
-                                       _visited=_include_visited.copy() if _include_visited is not None else None,
                                        _path_chain=_include_path_chain,
                                        _directive_collector=_directive_collector,
                                        _stats=_stats)
@@ -7048,7 +7185,6 @@ def render_source(
     workspace: Path | None = None,
     max_tier: int = 3,
     _include_depth: int = 0,
-    _include_visited: set | None = None,
     _include_path_chain: tuple = (),
     _directive_collector: list[dict] | None = None,
     _stats: dict | None = None,
@@ -7066,6 +7202,11 @@ def render_source(
     if _include_depth == 0:
         register_plugins(cfg)
         register_hooks(cfg)
+
+        # v1.0.6: preflight permission check — surface environment issues
+        # before any directives run. Warnings are emitted at the top of
+        # the rendered output so the agent/user sees them immediately.
+        preflight_warnings = _preflight_permissions(cfg)
 
     if _stats is None:
         _stats = {
@@ -7092,7 +7233,6 @@ def render_source(
     _skipped_directives = []
     result = _render_lines(body_lines, cfg, workspace, _constraint_rows,
                          _include_depth=_include_depth,
-                         _include_visited=_include_visited,
                          _include_path_chain=_include_path_chain,
                          _directive_collector=_directive_collector,
                          _stats=_stats,
@@ -7120,6 +7260,11 @@ def render_source(
             manifest_lines.append("> ")
             manifest_lines.append("> Re-run with `perseus render --tier 3` to include on-demand context.")
         result = result + "\n".join(manifest_lines)
+
+    # v1.0.6: prepend preflight permission warnings at top of output
+    if _include_depth == 0 and preflight_warnings:
+        header = "\n".join(f"> {w}" for w in preflight_warnings) + "\n\n"
+        result = header + result
 
     if _include_depth == 0 and _render_start_ts is not None:
         _fire_hooks("on_render_complete", {
@@ -9065,7 +9210,21 @@ def resolve_inbox(args_str: str, cfg: dict, workspace: Path | None = None) -> st
     except (TypeError, ValueError):
         limit = 10
 
-    items = _inbox_load_all(ws, cfg)
+    # v1.0.6: preflight check — surface permission errors instead of silently
+    # returning "_No new messages._"
+    preflight = _preflight_permissions(cfg)
+    inbox_dir = str(_inbox_dir(ws, cfg))
+    if any("PERSEUS_HOME not writable" in w for w in preflight):
+        return "> ⚠ @inbox disabled: PERSEUS_HOME is not writable."
+    if any("inbox" in w for w in preflight):
+        return f"> ⚠ @inbox disabled: inbox store not writable ({inbox_dir})."
+
+    try:
+        items = _inbox_load_all(ws, cfg)
+    except PermissionError as e:
+        return f"> ⚠ @inbox: cannot read inbox ({inbox_dir}) — {e}"
+    except OSError as e:
+        return f"> ⚠ @inbox: error accessing inbox ({inbox_dir}) — {e}"
     visible = []
     for fp, msg in items:
         if msg.get("dismissed_at"):
@@ -9659,6 +9818,12 @@ def _mneme_compact_llm(
 
 def append_pythia_log(entry: dict, cfg: dict) -> None:
     """Append a JSONL Pythia log entry; warn on failure without raising."""
+    # v1.0.5 review: redact secrets before persisting to disk.
+    # Pythia logs can contain prompts/responses with embedded tokens.
+    try:
+        entry, _report = redact_value(entry, cfg)
+    except Exception:
+        pass  # redaction failure must not block persistence
     log_path = _pythia_log_path()
     try:
         log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -14920,7 +15085,11 @@ def main():
     elif args.command == "inbox":
         cmd_inbox(args, cfg)
     elif args.command == "serve":
-        rc = cmd_serve(args, cfg)
+        # v1.0.5 review: reload with workspace so auth tokens,
+        # trust profiles, MCP SSE tokens, and tool allowlists work.
+        ws = getattr(args, "workspace", None)
+        srv_cfg = load_config(Path(ws).expanduser().resolve()) if ws else cfg
+        rc = cmd_serve(args, srv_cfg)
         if isinstance(rc, int):
             return rc
     elif args.command == "cron":
@@ -14948,7 +15117,11 @@ def main():
     elif args.command == "install":
         return cmd_install(args, cfg)
     elif args.command == "mcp":
-        return cmd_mcp(args, cfg)
+        # v1.0.5 review: reload with workspace so MCP SSE tokens
+        # and tool allowlists work.
+        ws = getattr(args, "workspace", None)
+        mcp_cfg = load_config(Path(ws).expanduser().resolve()) if ws else cfg
+        return cmd_mcp(args, mcp_cfg)
 
 
 # Module-level call: runs at import time so render_source() and other

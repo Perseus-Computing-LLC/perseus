@@ -59,7 +59,7 @@ def _bind_registry() -> None:
         DirectiveSpec("@include",   resolve_include,   [],                         "inline",  "awc", reads_files=True, cacheable=True, safe_for_hover=False, summary="Include and render another file", tier=3),
         DirectiveSpec("@list",      resolve_list,      ["limit=", "sort="],        "inline",  "acw", reads_files=True, cacheable=True, safe_for_hover=False, summary="List directory or structured data", tier=3),
         DirectiveSpec("@tree",      resolve_tree,      ["depth="],                 "inline",  "acw", reads_files=True, cacheable=True, safe_for_hover=False, summary="Tree view of directory", tier=3),
-        DirectiveSpec("@agent",     resolve_agent,     [],                         "inline",  "acw", executes_shell=True, safe_for_hover=False, summary="Execute local agent subprocess", tier=3),
+        DirectiveSpec("@agent",     resolve_agent,     [],                         "inline",  "acw", summary="Execute local agent subprocess", tier=3),
         DirectiveSpec("@tool",      resolve_tool,      [],                         "inline",  "acw", executes_shell=True, safe_for_hover=False, summary="Run an allowlisted external tool", tier=3),
 
         # Block / control (resolved by renderer, tier doesn't apply)
@@ -239,8 +239,10 @@ def _expand_aliases(lines: list[str], cfg: dict) -> list[str]:
 
 def _call_resolver(spec: DirectiveSpec, args_str: str, cfg: dict, workspace: "Path | None") -> str:
     """Adapt resolver call to match its actual signature via call_sig."""
-    # Universal shell-execution gate (task-65): plugin directives with
-    # executes_shell=True are gated behind allow_query_shell, same as built-ins.
+    # Universal shell-execution gate (task-65): directives with
+    # executes_shell=True are gated behind allow_query_shell.
+    # @agent is the exception — it has its own independent gate
+    # (allow_agent_shell), so executes_shell is False on its spec.
     if spec.executes_shell and not cfg["render"].get("allow_query_shell", False):
         return f"> ⚠ {spec.name} is disabled by config (`render.allow_query_shell=false`)."
     try:
@@ -305,8 +307,52 @@ def _discover_plugins(cfg: dict) -> list["DirectiveSpec"]:
             file=sys.stderr,
         )
         return []
+
+    # v1.0.5 review: when a manifest exists, verify hashes.
+    # Prior behavior only checked file existence — an empty manifest
+    # was sufficient to execute arbitrary Python. Now we parse and
+    # validate SHA-256 hashes for each plugin file.
+    manifest_hashes: dict[str, str] = {}
+    if manifest_path.is_file() and not allow_unsigned:
+        try:
+            import tomllib
+        except ImportError:
+            import tomli as tomllib  # type: ignore[no-redef]
+        try:
+            manifest = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
+            plugins_section = manifest.get("plugins", {})
+            if isinstance(plugins_section, dict):
+                for name, entry in plugins_section.items():
+                    if isinstance(entry, dict) and "hash" in entry:
+                        manifest_hashes[name] = str(entry["hash"])
+        except Exception as e:
+            print(
+                f"Perseus plugin security: failed to parse MANIFEST.toml: {e}",
+                file=sys.stderr,
+            )
+            return []
+
     specs: list["DirectiveSpec"] = []
     for py_file in sorted(plugins_dir.glob("*.py")):
+        if py_file.name == "__init__.py":
+            continue
+        # v1.0.5 review: verify file hash against manifest
+        if manifest_hashes:
+            plugin_name = py_file.stem
+            expected = manifest_hashes.get(plugin_name)
+            if expected is None:
+                print(
+                    f"Perseus plugin security: {py_file.name} not in MANIFEST.toml — skipping",
+                    file=sys.stderr,
+                )
+                continue
+            actual = hashlib.sha256(py_file.read_bytes()).hexdigest()
+            if actual != expected:
+                print(
+                    f"Perseus plugin security: hash mismatch for {py_file.name} — skipping",
+                    file=sys.stderr,
+                )
+                continue
         try:
             spec = importlib.util.spec_from_file_location(
                 f"perseus_plugin_{py_file.stem}", py_file

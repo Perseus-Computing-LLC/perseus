@@ -92,7 +92,8 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
     audit_event(cfg, "shell_exec",
                 directive="@query",
                 command=cmd[:500],
-                shell=shell)
+                shell=shell,
+                cwd=str(workspace) if workspace else None)
 
     # Extract timeout=N modifier (per-directive override, default 30s)
     timeout = int(cfg["render"].get("query_timeout_s", 30))
@@ -100,6 +101,13 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
     if tm_match:
         timeout = int(tm_match.group(1))
         raw = (raw[:tm_match.start()] + raw[tm_match.end():]).rstrip()
+
+    # v1.0.5 review: run from workspace by default for safety.
+    # allow_outside_workspace does not sandbox — it only controls cwd.
+    allow_outside = cfg["render"].get("allow_outside_workspace", False)
+    cwd = workspace if workspace and not allow_outside else None
+    if workspace and not allow_outside and cwd is None:
+        cwd = Path.cwd()  # fallback: restrict to cwd if no workspace set
 
     try:
         result = subprocess.run(
@@ -109,6 +117,7 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
             capture_output=True,
             text=True,
             timeout=timeout,
+            cwd=cwd,
         )
         stdout = (result.stdout or "").rstrip("\n")
         stderr = result.stderr.strip()
