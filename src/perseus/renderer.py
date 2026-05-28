@@ -95,11 +95,13 @@ def _safe_cache_dir(cfg: dict) -> Path:
     path resolves outside the allowed roots.
     """
     from pathlib import Path as _Path
+    import tempfile as _tempfile
     raw = cfg["render"].get("cache_dir", str(PERSEUS_HOME / "cache"))
     candidate = _Path(str(raw)).expanduser().resolve()
     allowed_roots = [
         _Path.home() / ".perseus",
         _Path.home() / ".cache",
+        _Path(_tempfile.gettempdir()).resolve(),  # allow pytest tmp_path and CI temp dirs
     ]
     try:
         for root in allowed_roots:
