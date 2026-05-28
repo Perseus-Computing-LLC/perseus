@@ -297,7 +297,7 @@ def _measure_cell(n_directives: int, tier: int, warm: bool,
             errors += 1
             if not warm:
                 shutil.rmtree(home, ignore_errors=True)
-            continue
+            continue  # never record timeout or error samples
 
         wall_samples.append(wall * 1000)  # ms
         bench = parse_bench_line(stderr)
@@ -484,12 +484,12 @@ def _concurrent_render_batch(
         futs = [ex.submit(_one, i) for i in range(n_concurrent)]
         for fut in cf.as_completed(futs):
             wall, stdout, stderr, rc = fut.result()
-            if rc == 0 or b"TIMEOUT" not in stderr:
+            if rc == 0:
                 wall_samples.append(wall * 1000)
                 b = parse_bench_line(stderr)
                 if b:
                     bench_records.append(b)
-            if rc != 0:
+            else:
                 errors += 1
 
     avg_cache_hits = (

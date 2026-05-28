@@ -2539,6 +2539,11 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
         return f"> ⚠ @include: could not read `{file_path_str}`: {e}"
 
     # ── File size limit check (byte-counted, not character-counted) ──
+    _mb = render_cfg.get("max_include_bytes")
+    try:
+        max_bytes: int | None = int(_mb) if _mb is not None else None
+    except (ValueError, TypeError):
+        max_bytes = None
     if max_bytes is not None and len(data) > max_bytes:
         raw = data[:max_bytes].decode(errors="replace").rstrip()
         actual_size = len(data)
@@ -2623,6 +2628,11 @@ def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str
     env_key = modifiers.get("key")
     fallback = modifiers.get("fallback")
     schema_ref = modifiers.get("schema")
+    _mb = cfg["render"].get("max_read_bytes")
+    try:
+        max_bytes: int | None = int(_mb) if _mb is not None else None
+    except (ValueError, TypeError):
+        max_bytes = None
 
     def fallback_result() -> str:
         warning = _validate_against_schema_ref(fallback, schema_ref, workspace, "@read")

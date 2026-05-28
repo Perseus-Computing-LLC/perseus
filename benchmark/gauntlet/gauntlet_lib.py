@@ -70,20 +70,27 @@ def perseus_executable() -> str:
 
 
 def check_nfs_health(mount_path: Path | str = NFS_MOUNT_DIR) -> dict:
-    """Touch-and-remove health check. Also verifies mount semantics.
+    """Health check for an NFS (or shared) mount.
 
-    P1 #9: validate that the path is actually a mount, not just a local
-    directory that happens to exist. Uses os.path.ismount() on Linux
-    and falls back to a stat-based heuristic on non-Linux platforms.
+    Validates that the path is an actual mount point (not a bare local dir
+    that happens to be writable) before performing the read/write probe.
+    A missing or non-mounted path is treated as unhealthy regardless of
+    whether local directory creation would succeed.
     """
+    import os
     mount_path = Path(mount_path)
+
+    # Gate 1: path must exist and be a mount point
+    if not mount_path.exists():
+        return {"healthy": False, "path": str(mount_path),
+                "error": "path does not exist"}
+    if not os.path.ismount(mount_path):
+        return {"healthy": False, "path": str(mount_path),
+                "error": "path is not a mount point"}
+
+    # Gate 2: read/write probe
     probe = mount_path / ".gauntlet_probe"
     try:
-        # P1 #9: confirm this is actually a mount point, not a local directory
-        if not os.path.ismount(str(mount_path)):
-            return {"healthy": False, "path": str(mount_path),
-                    "error": "not a mount point — is the NFS share mounted?"}
-        mount_path.mkdir(parents=True, exist_ok=True)
         probe.write_text(timestamp_iso())
         probe.unlink()
         return {"healthy": True, "path": str(mount_path)}
