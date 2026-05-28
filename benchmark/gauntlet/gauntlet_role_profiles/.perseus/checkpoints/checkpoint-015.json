@@ -1,0 +1,14 @@
+{
+  "session_id": "sess-004",
+  "timestamp": "2026-05-21T03:00:00+00:00",
+  "label": "Gauntlet benchmark design \u2014 iteration 1",
+  "workspace": "/workspace/perseus/benchmark/gauntlet/gauntlet_role_profiles",
+  "directives_used": [
+    "@query",
+    "@read"
+  ],
+  "files_changed": 1,
+  "duration_s": 120,
+  "exit_code": 0,
+  "checkpoint_number": 1
+}

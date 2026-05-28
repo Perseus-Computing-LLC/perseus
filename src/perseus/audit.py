@@ -39,9 +39,24 @@ def _load_plugin_validator(validator_name: str, workspace: Path | None) -> Calla
 
 
 def _audit_log_path(cfg: dict) -> Path:
+    """Return the audit log path, constrained to a safe location.
 
+    S5: Prevents workspace config from pointing audit.log_path at system
+    paths. Falls back to ~/.perseus/audit_log.jsonl if outside allowed roots.
+    """
     raw = (cfg.get("audit") or {}).get("log_path") or str(PERSEUS_HOME / "audit_log.jsonl")
-    return Path(str(raw)).expanduser()
+    candidate = Path(str(raw)).expanduser().resolve()
+    allowed_roots = [
+        Path.home() / ".perseus",
+    ]
+    try:
+        for root in allowed_roots:
+            root_resolved = root.expanduser().resolve()
+            if str(candidate).startswith(str(root_resolved) + "/") or candidate == root_resolved:
+                return candidate
+    except (OSError, ValueError):
+        pass
+    return PERSEUS_HOME / "audit_log.jsonl"
 
 
 def _audit_rotate_if_needed(path: Path, max_bytes: int) -> None:
@@ -296,10 +311,28 @@ def _extract_quoted_token(raw: str) -> tuple[str | None, str]:
     quote = raw[0]
     escaped = False
     buf: list[str] = []
+    _escape_buffer = ""  # C10: accumulate escape sequence chars
     for idx in range(1, len(raw)):
         ch = raw[idx]
         if escaped:
-            buf.append(ch)
+            # C10: handle standard escape sequences (\n, \t, \r, \0, \\, \", \')
+            if _escape_buffer:
+                _escape_buffer += ch
+                if len(_escape_buffer) >= 4:  # \uNNNN or unknown
+                    buf.append(_escape_buffer)
+                    _escape_buffer = ""
+                    escaped = False
+                continue
+            if ch in {"n", "t", "r", "0"}:
+                buf.append({"n": "\n", "t": "\t", "r": "\r", "0": "\0"}[ch])
+            elif ch in {"\\", '"', "'"}:
+                buf.append(ch)
+            elif ch == "u":
+                _escape_buffer = "\\u"
+            elif ch == "x":
+                _escape_buffer = "\\x"
+            else:
+                buf.append("\\" + ch)  # unknown escape — keep literal
             escaped = False
             continue
         if ch == "\\":

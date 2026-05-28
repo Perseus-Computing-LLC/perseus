@@ -465,4 +465,98 @@ have not been opened via `perseus inbox read`.
 
 Empty inbox renders `_No new messages._`
 
+---
+
+## Mnēmē v2 Memory Search
+
+### `@mneme`
+
+Search the persistent Mnēmē vault via BM25 over SQLite FTS5.
+
+```
+@mneme query="deployment pipeline"
+@mneme query="error handling" scope="project" k=10
+@mneme query="decisions" type="decision"
+```
+
+Options:
+- `query="..."` — search query (required). Wrapped as an FTS5 phrase for safety.
+- `scope="..."` — filter by scope (e.g. `project`, `team`, `personal`).
+- `type="..."` — filter by memory type (`lesson`, `decision`, `preference`, `workflow`, etc.).
+- `k=N` — max results (default 5, max 100).
+
+---
+
+## Oracle Drift
+
+### `@drift`
+
+Generate an Oracle drift report showing discrepancies between rendered context
+and expectation.
+
+```
+@drift
+```
+
+Requires Pythia Oracle to be enabled. Returns structured drift data.
+
+---
+
+## Foreign Resolver
+
+### `@perseus`
+
+Fetch rendered context from a remote Perseus serve instance.
+
+```
+@perseus https://other-host:8420/workspace/my-project @cache ttl=300
+```
+
+Options:
+- URL must be `http://` or `https://` with a `/workspace/<name>` path.
+- `@cache ttl=N` — cache the remote response for N seconds (recommended).
+- `foreign.verify_signatures=true` — enable HMAC-SHA256 verification.
+- `foreign.shared_secret` — pre-shared key for HMAC (min 32 chars).
+- `foreign.allow_internal=true` — allow RFC1918/loopback destinations (disabled by default for SSRF protection).
+
+---
+
+## External Tool
+
+### `@tool`
+
+Run an allowlisted external tool and embed its output.
+
+```
+@tool "path/to/my-tool" arg1 arg2
+@tool "validator" --check ./data.json timeout=30
+```
+
+Options:
+- First argument is the tool name/path (must be in `tools.allowlist`).
+- `timeout=N` — max execution time in seconds.
+- `max_output_bytes=N` — truncate output (default 65536).
+- Tools are gated by `executes_shell=true` in the tool registry.
+
+---
+
+## Synthesis Block
+
+### `@synthesize`
+
+Optional curated synthesis section. Only rendered when `generation.enabled=true`.
+
+```
+@synthesize question="What are the key risks?" source="@health @agora"
+@synthesize question="Summarize recent changes" label="Weekly Summary" consistency_mode=strict
+```
+
+Options:
+- `question="..."` — the synthesis prompt.
+- `source="..."` — space-separated list of directives whose output informs the synthesis.
+- `label="..."` — optional heading label.
+- `consistency_mode=strict` — enforce consistency with source directives.
+
+Requires: `generation.enabled=true` in config.
+
 See `spec/components.md` § 8 (Inbox) for the CLI surface.

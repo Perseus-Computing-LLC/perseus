@@ -1,0 +1,5 @@
+{
+  "model": "deepseek-v4-flash",
+  "reasoningEffort": "medium",
+  "mcpServers": {}
+}

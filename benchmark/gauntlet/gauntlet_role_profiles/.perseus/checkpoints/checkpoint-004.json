@@ -1,0 +1,18 @@
+{
+  "session_id": "sess-001",
+  "timestamp": "2026-05-20T13:28:00+00:00",
+  "label": "Mn\u0113m\u0113 v2 initial implementation \u2014 iteration 5",
+  "workspace": "/workspace/perseus/benchmark/gauntlet/gauntlet_role_profiles",
+  "directives_used": [
+    "@query",
+    "@read",
+    "@memory",
+    "@services",
+    "@health",
+    "@agora"
+  ],
+  "files_changed": 5,
+  "duration_s": 240,
+  "exit_code": 0,
+  "checkpoint_number": 5
+}

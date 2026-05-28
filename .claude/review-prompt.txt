@@ -1,0 +1,162 @@
+You are reviewing the Perseus codebase. Perseus is a live context engine for AI assistants — it resolves environment state (running services, session state, memory, file contents) *before* it enters the AI's context window, eliminating cold-start orientation. It ships as an MCP server and a single-file Python CLI.
+
+Review it thoroughly and return a structured report. Be specific — cite file paths, line numbers, and code snippets in your feedback. Don't hold back.
+
+---
+
+# Repository Structure
+
+```
+/workspace/perseus/
+  perseus.py              # Built artifact (~14.5K lines) — DO NOT REVIEW DIRECTLY
+  src/perseus/            # Canonical source (37 modules)
+    __init__.py
+    config.py             # Config loading, defaults, merge
+    registry.py           # DirectiveSpec + DIRECTIVE_REGISTRY
+    renderer.py           # @directive resolver + cache layer
+    mcp.py                # MCP server — auto-exposes directives as tools
+    mcp_extended.py       # Extended MCP endpoints
+    checkpoint.py         # Session waypoints
+    memory.py / mneme_index.py / mneme_narrative.py / mneme_federation.py
+    pythia.py             # Tool oracle
+    lsp.py                # LSP server
+    serve.py              # HTTP serve
+    inbox.py / agora.py   # Agent coordination
+    macros.py / hooks.py / redaction.py / audit.py / webhooks.py
+    directives/           # Per-directive resolvers
+    html_format.py / assistant_formats.py
+  scripts/build.py        # Build system: concatenates src/ into perseus.py
+  tests/                  # Test suite
+  benchmark/              # Performance benchmarks
+  spec/                   # Spec docs (components.md, data-model.md, directives.md)
+  docs/                   # User-facing docs
+```
+
+# Context
+
+Perseus v1.0.5. MIT license, patent pending. Python 3.10+, single dependency (pyyaml). Published on PyPI (`perseus-ctx`) and the MCP Registry. Serves Claude Desktop, Claude Code, Cursor, Codex, Hermes Agent, Rovo Dev.
+
+**The build system** (`scripts/build.py`) concatenates 37 source modules in dependency order, strips internal `from perseus.X import Y` lines, and writes a single-file artifact. The single file is the shipped artifact — `src/` is the canonical development form.
+
+**The directive registry** (`DEFINITIVE_REGISTRY`) is a single `dict[str, DirectiveSpec]` that defines every `@directive` the renderer knows. Each entry declares its resolver, args, kind (inline/block/control), security profile (executes_shell, reads_files), cacheability, and context tier (1=always, 2=conditional, 3=on-demand). The MCP server auto-generates tool schemas from this registry.
+
+**The renderer** processes `.md` files with a `@perseus v0.4` header. It resolves directives line-by-line, with a two-level cache (in-memory session + disk-backed TTL), pipe syntax for chaining, macro expansion, and transitive `@include` with cycle detection.
+
+**Mnēmē** is an in-process persistent memory system using BM25 ranking. It stores narrative memories per workspace, supports cross-workspace federation, and is queryable via `@memory` directives and MCP tools.
+
+**Hephaestus** is the extensibility layer: plugins (drop Python files into `~/.perseus/plugins/`), macros, render pipeline hooks, webhooks, custom validators, output format adapters, and directive aliases.
+
+# What to Review
+
+## 1. Architecture & Design
+
+Read these files FIRST:
+- `src/perseus/registry.py` — the directive registry design
+- `src/perseus/renderer.py` — the cache layer and render pipeline
+- `src/perseus/mcp.py` — MCP server auto-generation
+- `src/perseus/memory.py` — memory system design
+- `src/perseus/mneme_index.py` — Mnēmē BM25 implementation
+- `scripts/build.py` — the build concatenation approach
+
+Then read any other files you find interesting.
+
+**Questions to answer:**
+- Is the `DirectiveSpec` abstraction doing too much or too little? Are the tier levels (1/2/3) well-motivated?
+- Does the build system (module concatenation) have latent ordering bugs or maintainability issues?
+- Is the cache layer's key design (SHA256 of whitespace-normalized directive line) collision-safe? Are there edge cases in `_parse_cache_modifier()`?
+- Does the MCP server's auto-generation from the registry correctly handle all directive shapes (block vs inline, optional vs required args)?
+- Is the memory system's separation (index / narrative / federation) clean or over-split?
+- What design patterns are used well? What anti-patterns should be addressed?
+
+## 2. Correctness & Edge Cases
+
+- Look at directive resolvers in `src/perseus/directives/`. Are there missing error handlers? Uncaught exceptions? Resource leaks?
+- Read `src/perseus/renderer.py` line 27 (`_parse_cache_modifier`). Are there regex edge cases (greedy matching, modifier ordering)?
+- The build system strips `from perseus.X import Y` lines but keeps everything else. Could this strip valid lines that happen to contain that substring? Does it handle `from perseus.X import (Y, Z)` multi-line imports?
+- Are there race conditions in the checkpoint store, cache layer, or macro expansion?
+- Are file descriptor / subprocess leaks possible in `@query`, `@agent`, or `@services` resolution?
+- Does `@include` recursion with cycle detection handle edge cases (self-includes, mutual cycles, depth limits)?
+
+## 3. Security
+
+Perseus runs shell commands and reads files from a user's workspace. Review:
+- How are trust gates enforced? (`allow_query_shell`, `allow_outside_workspace`, `allow_agent_shell`)
+- Workspace boundary enforcement — symlink escapes, relative path traversal
+- Foreign resolver (`@perseus <url>`) — HMAC verification, URL allowlisting
+- Webhook payload signing
+- MCP server transport security (stdio vs SSE)
+- Are there any TOCTOU issues in file reads or cache validation?
+
+## 4. Performance
+
+The README claims:
+- 1,190× cold→warm speedup with @cache
+- 37ms P50 BM25 search at 10,000 docs
+- 93% token reduction with 0ms overhead
+
+Look at:
+- The cache implementation — is it truly O(1) lookup? What's the actual cache key computation cost?
+- The render pipeline — is it parsing directives via regex? Is there redundant re-parsing?
+- Memory/index — is BM25 implemented as pure Python? Any vectorization? Could it handle 100K documents?
+- Macros/pipes — is expansion iterative? Could a malicious context file cause exponential blowup?
+- The build system — how long does concatenation take? Is there incremental build support?
+
+## 5. Observability & Diagnostics
+
+- How does a user debug a directive that resolves to the wrong output?
+- What logging exists? Is there a debug/verbose mode?
+- How are plugin errors surfaced? Do they fail silently?
+- Are there health metrics beyond `perseus health`?
+- Is the LSP integration useful? Does it provide completions for all directive args?
+
+## 6. Documentation
+
+Read:
+- `README.md` — is the value prop clear? Are the examples correct?
+- `docs/DIRECTIVES.md` — is every directive documented with all modifiers?
+- `spec/components.md` — is this accurate or stale?
+- `ROADMAP.md` — does it reflect reality?
+
+## 7. Testing
+
+Look at `tests/`. 
+- What's the coverage strategy? Are there integration tests or only unit?
+- Are the benchmarks (`benchmark/`) trustworthy? Do they measure what they claim?
+- Are there property-based tests? Fuzzing? Concurrency tests?
+- What's missing from the test suite?
+
+# Output Format
+
+Return a structured report:
+
+```
+# Perseus Code Review — Claude Code Opus 4.7
+
+## 1. Architecture & Design
+[Findings with specific file:line references. Distinguish "this is elegant" from "this needs attention".]
+
+## 2. Correctness & Edge Cases
+[Bugs, missing handlers, race conditions, edge cases found.]
+
+## 3. Security
+[Vulnerabilities, trust boundary issues, TOCTOU, path traversal, injection risks.]
+
+## 4. Performance
+[Bottlenecks, O(n) surprises, cache design analysis.]
+
+## 5. Observability
+[Debugging story, logging, error surfacing.]
+
+## 6. Documentation Quality
+[Accuracy, completeness, staleness.]
+
+## 7. Testing Gaps
+[What's missing, what's brittle, what the benchmarks don't measure.]
+
+## 8. Top 5 Recommendations
+[Ranked by impact. Be specific about what to change and why.]
+```
+
+---
+
+Start by reading `src/perseus/registry.py`, `src/perseus/renderer.py`, `src/perseus/mcp.py`, `scripts/build.py`, and `src/perseus/memory.py`. Then follow your curiosity through the codebase. Be thorough — this is a production project shipping to thousands of developers.
