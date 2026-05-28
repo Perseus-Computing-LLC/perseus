@@ -383,7 +383,7 @@ DEFAULT_CONFIG["webhooks"] = {
 DEFAULT_CONFIG["foreign"] = {
     "enabled": True,
     "timeout_s": 10,
-    "verify_signatures": False,
+    "verify_signatures": True,  # Phase 26C: hardened default
     "shared_secret": "",
     "tls_verify": True,
     "max_response_bytes": 1048576,
@@ -714,7 +714,7 @@ class DirectiveSpec(NamedTuple):
     executes_shell: bool = False
     reads_files: bool = False
     mutates_state: bool = False
-    safe_for_hover: bool = True
+    safe_for_hover: bool = False
     cacheable: bool = False
     summary: str = ""
     output_schema: object | None = None  # Optional registry-level rendered output schema
@@ -733,11 +733,11 @@ def _bind_registry() -> None:
     # fmt: off
     _entries: list[DirectiveSpec] = [
         # Tier 1 — Always (lightweight, core context)
-        DirectiveSpec("@date",      resolve_date,      ["format="],                "inline",  "a",   cacheable=False, summary="Current date/time", output_schema={"type": "str", "pattern": ".+"}, tier=1),
+        DirectiveSpec("@date",      resolve_date,      ["format="],                "inline",  "a",   cacheable=False, safe_for_hover=True, summary="Current date/time", output_schema={"type": "str", "pattern": ".+"}, tier=1),
         DirectiveSpec("@waypoint",  resolve_waypoint,  ["ttl="],                   "inline",  "ac",  reads_files=True, cacheable=True, summary="Latest checkpoint summary", tier=1),
         DirectiveSpec("@memory",    resolve_memory,    ["mode=", "query=", "scope=", "k=", "type=", "render=", "focus=", "federation", "include_federation=", "alias=", "workspace="], "inline", "acw", reads_files=True, cacheable=True, summary="Mnēmē v2 — unified memory search + narrative + federation", diagnostic_fn=_memory_federation_diagnostic, tier=1),
         DirectiveSpec("@health",    resolve_health,    [],                         "inline",  "acw", reads_files=True, summary="Context maintenance report", tier=1),
-        DirectiveSpec("@env",       resolve_env,       ["required=", "fallback=", "schema="], "inline", "acw", cacheable=False, summary="Embed environment variable", tier=1),
+        DirectiveSpec("@env",       resolve_env,       ["required=", "fallback=", "schema="], "inline", "acw", cacheable=False, safe_for_hover=True, summary="Embed environment variable", tier=1),
 
         # Tier 2 — Conditional (heavier, task-specific)
         DirectiveSpec("@services",  resolve_services,  [],                         "block",   "block", executes_shell=True, safe_for_hover=False, summary="Health-check listed services", tier=2),
@@ -746,8 +746,8 @@ def _bind_registry() -> None:
         DirectiveSpec("@agora",     resolve_agora,     ["status="],                "inline",  "acw", reads_files=True, cacheable=True, summary="Task board from tasks/*.md", tier=2),
         DirectiveSpec("@inbox",     resolve_inbox,     ["unread=", "limit="],      "inline",  "acw", reads_files=True, cacheable=True, summary="Agent message inbox", tier=2),
         DirectiveSpec("@drift",     resolve_drift,     [],                         "inline",  "ac",  reads_files=True, summary="Oracle drift report", tier=2),
-        DirectiveSpec("@perseus",   resolve_perseus,   [],                         "inline",  "acw", cacheable=True, summary="Fetch rendered context from a remote Perseus instance", tier=2),
-        DirectiveSpec("@mneme",    resolve_mneme,    ["query=", "scope=", "k=", "type="], "inline", "acw", summary="Recall persistent memories via Mnēmē BM25", tier=2),
+        DirectiveSpec("@perseus",   resolve_perseus,   [],                         "inline",  "acw", cacheable=True, safe_for_hover=False, summary="Fetch rendered context from a remote Perseus instance", tier=2),
+        DirectiveSpec("@mneme",    resolve_mneme,    ["query=", "scope=", "k=", "type="], "inline", "acw", safe_for_hover=True, summary="Recall persistent memories via Mnēmē BM25", tier=2),
 
         # Tier 3 — On-demand (bulky, expensive)
         DirectiveSpec("@query",     resolve_query,     ["fallback=", "schema="],   "inline",  "acw", executes_shell=True,  safe_for_hover=False, cacheable=True,  summary="Run a shell command and embed stdout", tier=3),
@@ -1317,7 +1317,24 @@ def _compile_redaction_rules(cfg: dict) -> list[dict]:
         if not pattern:
             continue
         try:
-            regex = re.compile(str(pattern))
+            # S8: Validate pattern complexity to prevent ReDoS.
+            # Simple heuristic: patterns over 200 chars or with deeply-nested
+            # repetition groups are likely dangerous.
+            pattern_str = str(pattern)
+            if len(pattern_str) > 200:
+                continue
+            # Count nested groups — more than 10 is suspicious for ReDoS
+            nested = 0
+            for c in pattern_str:
+                if c == '(':
+                    nested += 1
+                elif c == ')':
+                    nested -= 1
+                if nested > 10:
+                    break
+            if nested > 10:
+                continue
+            regex = re.compile(pattern_str)
         except re.error:
             continue
         replacement = rule.get("replacement")
@@ -1454,9 +1471,24 @@ def _load_plugin_validator(validator_name: str, workspace: Path | None) -> Calla
 
 
 def _audit_log_path(cfg: dict) -> Path:
+    """Return the audit log path, constrained to a safe location.
 
+    S5: Prevents workspace config from pointing audit.log_path at system
+    paths. Falls back to ~/.perseus/audit_log.jsonl if outside allowed roots.
+    """
     raw = (cfg.get("audit") or {}).get("log_path") or str(PERSEUS_HOME / "audit_log.jsonl")
-    return Path(str(raw)).expanduser()
+    candidate = Path(str(raw)).expanduser().resolve()
+    allowed_roots = [
+        Path.home() / ".perseus",
+    ]
+    try:
+        for root in allowed_roots:
+            root_resolved = root.expanduser().resolve()
+            if str(candidate).startswith(str(root_resolved) + "/") or candidate == root_resolved:
+                return candidate
+    except (OSError, ValueError):
+        pass
+    return PERSEUS_HOME / "audit_log.jsonl"
 
 
 def _audit_rotate_if_needed(path: Path, max_bytes: int) -> None:
@@ -1711,10 +1743,28 @@ def _extract_quoted_token(raw: str) -> tuple[str | None, str]:
     quote = raw[0]
     escaped = False
     buf: list[str] = []
+    _escape_buffer = ""  # C10: accumulate escape sequence chars
     for idx in range(1, len(raw)):
         ch = raw[idx]
         if escaped:
-            buf.append(ch)
+            # C10: handle standard escape sequences (\n, \t, \r, \0, \\, \", \')
+            if _escape_buffer:
+                _escape_buffer += ch
+                if len(_escape_buffer) >= 4:  # \uNNNN or unknown
+                    buf.append(_escape_buffer)
+                    _escape_buffer = ""
+                    escaped = False
+                continue
+            if ch in {"n", "t", "r", "0"}:
+                buf.append({"n": "\n", "t": "\t", "r": "\r", "0": "\0"}[ch])
+            elif ch in {"\\", '"', "'"}:
+                buf.append(ch)
+            elif ch == "u":
+                _escape_buffer = "\\u"
+            elif ch == "x":
+                _escape_buffer = "\\x"
+            else:
+                buf.append("\\" + ch)  # unknown escape — keep literal
             escaped = False
             continue
         if ch == "\\":
@@ -2356,15 +2406,16 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
         )
 
     try:
-        raw = fp.read_text(errors="replace").rstrip()
+        data = fp.read_bytes()
+        raw = data.decode(errors="replace").rstrip()
     except Exception as e:
         return f"> ⚠ @include: could not read `{file_path_str}`: {e}"
 
-    # ── File size limit check ──
+    # ── File size limit check (byte-counted, not character-counted) ──
     max_bytes = render_cfg.get("max_include_bytes")
-    if max_bytes is not None and len(raw) > max_bytes:
-        raw = raw[:max_bytes]
-        actual_size = fp.stat().st_size
+    if max_bytes is not None and len(data) > max_bytes:
+        raw = data[:max_bytes].decode(errors="replace").rstrip()
+        actual_size = len(data)
         trunc_note = (
             f"> ⚠ @include: file `{file_path_str}` exceeds max_include_bytes "
             f"(actual {actual_size:,} > "
@@ -2467,25 +2518,25 @@ def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str
         return f"> ⚠ @read: file not found: `{file_path_str}`"
 
     try:
-        content = fp.read_text(errors="replace")
+        data = fp.read_bytes()
+        content = data.decode(errors="replace")
     except Exception as e:
         if fallback is not None:
             return fallback_result()
         return f"> ⚠ @read: could not read `{file_path_str}`: {e}"
 
-    # ── File size limit check ──
+    # ── File size limit check (byte-counted, not character-counted) ──
     max_bytes = cfg.get("render", {}).get("max_read_bytes")
-    if max_bytes is not None and len(content) > max_bytes:
-        truncated = content[:max_bytes]
+    if max_bytes is not None and len(data) > max_bytes:
+        content = data[:max_bytes].decode(errors="replace")
         trunc_note = (
             f"> ⚠ @read: file `{file_path_str}` exceeds max_read_bytes "
-            f"({len(content):,} > {max_bytes:,}). Output truncated to first "
+            f"({len(data):,} > {max_bytes:,}). Output truncated to first "
             f"{max_bytes:,} bytes.\n\n"
         )
         if schema_ref is not None:
             # Can't validate truncated content — skip validation for this run
             pass
-        content = truncated
     else:
         trunc_note = ""
 
@@ -2587,6 +2638,24 @@ def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str
 
 # ──────────────────────────────── @query ──────────────────────────────────────
 
+def _unescape_fallback(s: str) -> str:
+    """Unescape standard escape sequences without mangling non-ASCII.
+
+    Handles: \\n, \\t, \\r, \\\\, \\\", \\', \\0, \\uNNNN, \\xNN.
+    Unlike unicode_escape, preserves non-ASCII UTF-8 bytes as-is.
+    """
+    return re.sub(
+        r'\\([ntr0\\"\'"]|x[0-9a-fA-F]{2}|u[0-9a-fA-F]{4})',
+        lambda m: _FALLBACK_ESCAPE_MAP.get(m.group(1),
+                   chr(int(m.group(1)[1:], 16)) if m.group(1).startswith(("x", "u")) else m.group(0)),
+        s
+    )
+
+_FALLBACK_ESCAPE_MAP = {
+    "n": "\n", "t": "\t", "r": "\r", "0": "\0",
+    "\\": "\\", '"': '"', "'": "'",
+}
+
 def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> str:
     """
     @query "shell command" [fallback="text"] [schema="path/to/schema.yaml"] [@cache session|ttl=N]
@@ -2635,8 +2704,10 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
     fb_match = re.search(r'\s+fallback=(?:"((?:[^"\\]|\\.)*)"|\'((?:[^\'\\]|\\.)*)\')(\s|$)', raw)
     if fb_match:
         fallback = fb_match.group(1) if fb_match.group(1) is not None else fb_match.group(2)
-        # Unescape backslash-escapes inside the captured text
-        fallback = fallback.encode("utf-8").decode("unicode_escape", errors="replace")
+        # Unescape standard escape sequences (\n, \t, \\, \", \uNNNN)
+        # WITHOUT mangling non-ASCII characters (unicode_escape decodes
+        # UTF-8 bytes as Latin-1, corrupting characters like é → Ã©).
+        fallback = _unescape_fallback(fallback)
         raw = (raw[:fb_match.start()] + raw[fb_match.end():]).rstrip()
 
     cmd_match = re.match(r'^"((?:[^"\\]|\\.)*)"', raw)   # double-quoted
@@ -3575,13 +3646,13 @@ def resolve_agent(args_str: str, cfg: dict, workspace: Path | None = None) -> st
     strip_output = str(mods.get("strip", "true")).strip().lower() != "false"
     fallback = mods.get("fallback")
 
-    shell = render_cfg.get("shell", "/bin/bash")
+    shell = _get_shell(cfg)
 
     # task-47: audit @agent shell execution crossing the trust boundary.
     audit_event(cfg, "shell_exec",
                 directive="@agent",
                 command=cmd[:500],
-                shell=shell,
+                shell=shell or "(platform default)",
                 timeout=timeout)
 
     try:
@@ -3611,6 +3682,13 @@ def resolve_agent(args_str: str, cfg: dict, workspace: Path | None = None) -> st
         return f"> ⚠ @agent: command exited {result.returncode}: `{cmd}`\n\n```\n{body}\n```"
 
     output = result.stdout or ""
+    # Output size cap — prevent multi-GB stdout from inflating RAM.
+    # Reuses max_query_bytes; override with max_agent_bytes if set.
+    max_bytes = int(render_cfg.get("max_agent_bytes",
+                     render_cfg.get("max_query_bytes", 262144)))
+    if len(output) > max_bytes:
+        output = output[:max_bytes]
+        output += f"\n[truncated to {max_bytes:,} bytes] ⚠"
     if strip_output:
         output = output.strip()
     if not output:
@@ -3763,6 +3841,27 @@ def resolve_tool(args_str: str, cfg: dict, workspace: Path | None = None) -> str
         return f"> ⚠ @tool error: {str(e)}"
 # ──────────────────────────────── @perseus ─────────────────────────────────────
 
+import ipaddress
+import socket
+
+
+def _is_private_host(hostname: str) -> bool:
+    """Return True if hostname resolves to a private/rfc1918/loopback/link-local address.
+    127.0.0.1 and ::1 (localhost loopback) are explicitly allowed for local testing."""
+    try:
+        addr = ipaddress.ip_address(hostname)
+    except ValueError:
+        # Not an IP literal — resolve it
+        try:
+            addr = ipaddress.ip_address(socket.gethostbyname(hostname))
+        except (socket.gaierror, ValueError):
+            return True  # Can't resolve — reject for safety
+    # Allow 127.0.0.1 and ::1 (localhost) — these are safe for local testing
+    if addr == ipaddress.IPv4Address("127.0.0.1") or addr == ipaddress.IPv6Address("::1"):
+        return False
+    return addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_multicast
+
+
 def resolve_perseus(args_str: str, cfg: dict, workspace: Path | None = None) -> str:
     """
     @perseus <url> [@cache ttl=N]
@@ -3796,32 +3895,58 @@ def resolve_perseus(args_str: str, cfg: dict, workspace: Path | None = None) -> 
                 pass
     
     if not has_ttl:
-        # Warning about missing TTL is handled by returning a warning alongside content?
-        # No, the spec says "render warning; default TTL of 60s is applied"
         pass
 
     # Parse URL to get base and workspace
     # Format: https://host:port/workspace/name
     try:
         parsed_url = urllib.parse.urlparse(url_str)
-        path_parts = parsed_url.path.strip("/").split("/")
-        if "workspace" in path_parts:
-            ws_idx = path_parts.index("workspace")
-            if ws_idx + 1 < len(path_parts):
-                ws_name = path_parts[ws_idx + 1]
-                # Reconstruct base URL: scheme://netloc
-                base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
-            else:
-                return f"> ⚠ @perseus: could not extract workspace name from {url_str}"
-        else:
-            return f"> ⚠ @perseus: URL must contain /workspace/<name>: {url_str}"
     except Exception as e:
         return f"> ⚠ @perseus: invalid URL {url_str} ({e})"
+
+    # C15: Only http and https schemes allowed (block file://, ftp://, etc.)
+    if parsed_url.scheme not in ("http", "https"):
+        return f"> ⚠ @perseus: unsupported URL scheme `{parsed_url.scheme}`. Only http/https allowed."
+
+    # Phase 26C: URL allowlist check (foreign_resolver.url_allowlist or foreign.url_allowlist)
+    url_allowlist = f_cfg.get("url_allowlist") or cfg.get("foreign_resolver", {}).get("url_allowlist") or []
+    if url_allowlist:
+        allowed = False
+        for prefix in url_allowlist:
+            if url_str.startswith(prefix):
+                allowed = True
+                break
+        if not allowed:
+            return f"> ⚠ @perseus: URL `{url_str}` not in foreign_resolver.url_allowlist."
+
+    # S3: Block RFC1918, loopback, link-local, multicast destinations
+    # Phase 26C: foreign_resolver.block_private_ips (default true) or foreign.allow_internal for backward compat.
+    block_private = f_cfg.get("block_private_ips")
+    if block_private is None:
+        block_private = cfg.get("foreign_resolver", {}).get("block_private_ips")
+    if block_private is None:
+        block_private = True  # default: block private IPs
+    hostname = parsed_url.hostname
+    if hostname and block_private and not f_cfg.get("allow_internal", False):
+        if _is_private_host(hostname):
+            return f"> ⚠ @perseus: internal/private host `{hostname}` blocked. Set foreign.allow_internal=true to allow."
+
+    path_parts = parsed_url.path.strip("/").split("/")
+    if "workspace" in path_parts:
+        ws_idx = path_parts.index("workspace")
+        if ws_idx + 1 < len(path_parts):
+            ws_name = path_parts[ws_idx + 1]
+            base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
+        else:
+            return f"> ⚠ @perseus: could not extract workspace name from {url_str}"
+    else:
+        return f"> ⚠ @perseus: URL must contain /workspace/<name>: {url_str}"
 
     api_url = f"{base_url}/api/context?workspace={ws_name}"
     timeout = f_cfg.get("timeout_s", 10)
     tls_verify = f_cfg.get("tls_verify", True)
     max_bytes = f_cfg.get("max_response_bytes", 1048576)
+    max_redirects = f_cfg.get("max_redirects", 2)  # S3: limit redirects
     
     headers = {
         "Accept": "text/markdown",
@@ -3849,8 +3974,32 @@ def resolve_perseus(args_str: str, cfg: dict, workspace: Path | None = None) -> 
 
         req = urllib.request.Request(api_url, headers=headers)
         
+        # S3: Limit redirects and re-check destination IP after each redirect
+        from urllib.request import HTTPRedirectHandler, build_opener
+        class _LimitedRedirectHandler(HTTPRedirectHandler):
+            def __init__(self, max_redirects, allow_internal):
+                self.max_redirects = max_redirects
+                self.allow_internal = allow_internal
+                self.redirect_count = 0
+            def redirect_request(self, req, fp, code, msg, hdrs, newurl):
+                self.redirect_count += 1
+                if self.redirect_count > self.max_redirects:
+                    raise urllib.error.HTTPError(
+                        req.full_url, code, f"Too many redirects (max {self.max_redirects})",
+                        hdrs, fp)
+                # Re-check destination IP (Phase 26C: respect block_private_ips)
+                if not self.allow_internal and block_private:
+                    new_parsed = urllib.parse.urlparse(newurl)
+                    if new_parsed.hostname and _is_private_host(new_parsed.hostname):
+                        raise urllib.error.URLError(
+                            f"Redirect to internal host blocked: {new_parsed.hostname}")
+                return super().redirect_request(req, fp, code, msg, hdrs, newurl)
+        
+        opener = build_opener(_LimitedRedirectHandler(max_redirects,
+                                f_cfg.get("allow_internal", False)))
+        
         # We need to read the response to verify signature, but also need to handle timeout/size.
-        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+        with opener.open(req, timeout=timeout) as resp:
             if resp.status != 200:
                 return f"> ⚠ @perseus: {url_str} returned {resp.status}"
             
@@ -3860,9 +4009,19 @@ def resolve_perseus(args_str: str, cfg: dict, workspace: Path | None = None) -> 
                 raw_body = raw_body[:max_bytes]
 
             # HMAC verification
-            if f_cfg.get("verify_signatures", False):
+            # Phase 26C: default verify_signatures=True (check foreign + foreign_resolver paths)
+            verify_sig = f_cfg.get("verify_signatures")
+            if verify_sig is None:
+                verify_sig = cfg.get("foreign_resolver", {}).get("verify_signatures")
+            if verify_sig is None:
+                verify_sig = True  # hardened default
+            if verify_sig:
                 sig_header = resp.getheader("X-Perseus-Signature")
                 secret = f_cfg.get("shared_secret", "")
+                # S4: Reject empty shared_secret — HMAC with empty key is forgeable
+                if not secret or len(secret) < 32:
+                    return ("> ⚠ @perseus: shared_secret is empty or too short "
+                            "(min 32 chars). HMAC signing disabled for safety.")
                 if not sig_header:
                     return f"> ⚠ @perseus: missing X-Perseus-Signature from {url_str}"
                 
@@ -5180,6 +5339,7 @@ def get_default_output_path(fmt_name: str, workspace_dir: str | None = None) -> 
 # Each directive in DIRECTIVE_REGISTRY is auto-exposed as an MCP tool.
 # Legacy hardcoded tools preserved for backward compatibility.
 
+import concurrent.futures
 import json
 import sys
 import time
@@ -5188,10 +5348,12 @@ from typing import Any
 
 
 # In the built artifact, render_source is top-level. In source, import it.
+# The build script strips internal imports; try/except scaffold is kept
+# intentionally since the NameError fallback works in both environments.
 try:
-    from perseus.renderer import render_source
-except ImportError:
-    render_source = None  # Will be available at runtime in the built artifact
+    render_source  # Already imported by build concatenation; NameError if source-mode
+except NameError:
+    render_source = None
 
 # ── Protocol constants ───────────────────────────────────────────────────────
 
@@ -5410,29 +5572,19 @@ def _call_tool(tool_name: str, arguments: dict, cfg: dict, workspace: Path) -> s
 
     args_str = _build_tool_args_generic(tool_name, arguments)
 
-    # Timeout enforcement
+    # Timeout enforcement across all platforms.
+    # Uses ThreadPoolExecutor instead of signal.SIGALRM (Unix-only, breaks Windows).
     mcp_cfg = cfg.get("mcp", {}) if isinstance(cfg, dict) else {}
     timeout = mcp_cfg.get("tool_timeout_s", DEFAULT_TOOL_TIMEOUT_S)
 
-    import signal
-
-    def _timeout_handler(signum, frame):
-        raise TimeoutError(f"Tool {tool_name} timed out after {timeout}s")
-
     try:
-        old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
-        signal.alarm(timeout)
-        result = _call_resolver(spec, args_str, cfg, workspace)
-        signal.alarm(0)
-        signal.signal(signal.SIGALRM, old_handler)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(_call_resolver, spec, args_str, cfg, workspace)
+            result = future.result(timeout=timeout)
         return result
     except TimeoutError as exc:
-        signal.alarm(0)
-        signal.signal(signal.SIGALRM, old_handler)
-        return f"Error: {exc}"
+        return f"Error executing {directive_name}: timed out after {timeout}s"
     except Exception as exc:
-        signal.alarm(0)
-        signal.signal(signal.SIGALRM, old_handler)
         return f"Error executing {directive_name}: {exc}"
 
 
@@ -5499,7 +5651,6 @@ def serve_mcp(cfg: dict, workspace: Path | None = None) -> int:
 
     # Ensure plugins are loaded so plugin directives appear in MCP tools
     try:
-        from perseus.registry import register_plugins
         register_plugins(cfg)
     except Exception:
         pass
@@ -5533,10 +5684,33 @@ def serve_mcp(cfg: dict, workspace: Path | None = None) -> int:
 def serve_mcp_sse(cfg: dict, workspace: Path | None = None, port: int = 8420) -> None:
     """Run Perseus MCP server over HTTP with Server-Sent Events."""
     from http.server import HTTPServer, BaseHTTPRequestHandler
+    import hmac
     import threading
 
     ws = workspace or Path.cwd()
     version = cfg.get("version", SERVER_VERSION)
+    # Phase 26A: MCP SSE bearer token — check mcp.sse_bearer_token first,
+    # fall back to serve.auth_token for backward compatibility.
+    mcp_cfg = cfg.get("mcp", {}) if isinstance(cfg, dict) else {}
+    token = str(mcp_cfg.get("sse_bearer_token", "") or "").strip() or None
+    if not token:
+        token = str(cfg.get("serve", {}).get("auth_token", "") or "").strip() or None
+
+    def _check_auth(handler) -> bool:
+        """Verify Bearer token if auth is configured. Also validate Host header."""
+        # Host header validation for DNS rebinding protection
+        host = handler.headers.get("Host", "")
+        if host:
+            hostname = host.split(":")[0]
+            if hostname not in ("127.0.0.1", "localhost", "::1"):
+                return False
+        # Bearer token check
+        if not token:
+            return True
+        auth = handler.headers.get("Authorization", "") or ""
+        if not auth.startswith("Bearer "):
+            return False
+        return hmac.compare_digest(auth[7:].strip(), token)
 
     class MCPSSEHandler(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -5546,11 +5720,8 @@ def serve_mcp_sse(cfg: dict, workspace: Path | None = None, port: int = 8420) ->
                 self.send_header("Cache-Control", "no-cache")
                 self.send_header("Connection", "keep-alive")
                 self.end_headers()
-                # Send endpoint info
                 self.wfile.write(f"data: {json.dumps({'endpoint': f'/message', 'server': SERVER_NAME, 'version': version})}\n\n".encode())
                 self.wfile.flush()
-                # Keep connection open, reading messages from client
-                # For simplicity, SSE endpoint just announces; actual messages come via POST /message
             elif self.path == "/health":
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
@@ -5562,11 +5733,16 @@ def serve_mcp_sse(cfg: dict, workspace: Path | None = None, port: int = 8420) ->
 
         def do_POST(self):
             if self.path == "/message":
+                if not _check_auth(self):
+                    self.send_response(401)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"error": "unauthorized"}).encode())
+                    return
                 content_length = int(self.headers.get("Content-Length", 0))
                 body = self.rfile.read(content_length)
                 try:
                     msg = json.loads(body)
-                    # Process the JSON-RPC message and respond
                     method = msg.get("method", "")
                     msg_id = msg.get("id")
                     if method == "initialize":
@@ -5676,8 +5852,22 @@ _SESSION_CACHE: dict[str, str] = {}  # in-memory store for @cache session
 
 
 def _cache_key(directive_line: str) -> str:
-    """Stable SHA256 hash for a directive line (whitespace-normalised)."""
-    normalised = " ".join(directive_line.strip().split())
+    """Stable SHA256 hash for a directive line (smart-normalised).
+
+    C16: Whitespace normalization skips quoted substrings — multiple
+    spaces inside double/single quotes are preserved, preventing two
+    distinct directives from colliding on the same cache key.
+    """
+    import re as _re
+    # Split into quoted and unquoted segments, normalize unquoted only
+    parts = _re.split(r'(\"[^\"]*\"|\'[^\']*\')', directive_line)
+    normalised_parts = []
+    for part in parts:
+        if part.startswith(('"', "'")):
+            normalised_parts.append(part)  # preserve quoted spaces
+        else:
+            normalised_parts.append(" ".join(part.split()))
+    normalised = "".join(normalised_parts).strip()
     return hashlib.sha256(normalised.encode()).hexdigest()
 
 
@@ -5688,6 +5878,10 @@ def _parse_cache_modifier(line: str) -> tuple[str, str, int | None, str | None]:
     cache_mode: "" | "session" | "ttl" | "persist" | "mock"
     ttl_seconds: set when cache_mode == "ttl", else None (persist uses cfg)
     mock_value: set when cache_mode == "mock"; literal substitution string
+
+    C12: @cache mock= accepts a quoted or bare value. Use quotes for
+    values containing spaces: @cache mock="hello world". Unquoted values
+    stop at the first whitespace.
     """
     # @cache ttl=N
     m = re.search(r'\s*@cache\s+ttl=(\d+)', line, re.IGNORECASE)
@@ -5726,6 +5920,31 @@ def _parse_cache_modifier(line: str) -> tuple[str, str, int | None, str | None]:
     return line, "", None, None
 
 
+def _safe_cache_dir(cfg: dict) -> Path:
+    """Return the cache directory, constrained to a safe location.
+
+    S5: Prevents workspace config from pointing cache_dir at /etc/ or
+    other system paths. Falls back to ~/.perseus/cache if the configured
+    path resolves outside the allowed roots.
+    """
+    from pathlib import Path as _Path
+    raw = cfg["render"].get("cache_dir", str(PERSEUS_HOME / "cache"))
+    candidate = _Path(str(raw)).expanduser().resolve()
+    allowed_roots = [
+        _Path.home() / ".perseus",
+        _Path.home() / ".cache",
+    ]
+    try:
+        for root in allowed_roots:
+            root_resolved = root.expanduser().resolve()
+            if str(candidate).startswith(str(root_resolved) + "/") or candidate == root_resolved:
+                return candidate
+    except (OSError, ValueError):
+        pass
+    # Fall back to safe default
+    return PERSEUS_HOME / "cache"
+
+
 def cache_get(key: str, mode: str, ttl: int | None, cfg: dict) -> str | None:
     """Return cached value or None (miss/expired).
 
@@ -5744,7 +5963,7 @@ def cache_get(key: str, mode: str, ttl: int | None, cfg: dict) -> str | None:
             effective_ttl = int(cfg.get("render", {}).get("persist_cache_ttl_s", 3600))
         if effective_ttl is None:
             return None
-        cache_dir = Path(cfg["render"].get("cache_dir", str(PERSEUS_HOME / "cache")))
+        cache_dir = _safe_cache_dir(cfg)
         entry_file = cache_dir / f"{key}.json"
         if entry_file.exists():
             try:
@@ -5775,11 +5994,22 @@ def cache_set(key: str, value: str, mode: str, ttl: int | None, cfg: dict) -> No
             effective_ttl = int(cfg.get("render", {}).get("persist_cache_ttl_s", 3600))
         if effective_ttl is None:
             return
-        cache_dir = Path(cfg["render"].get("cache_dir", str(PERSEUS_HOME / "cache")))
+        cache_dir = _safe_cache_dir(cfg)
         try:
             cache_dir.mkdir(parents=True, exist_ok=True)
             entry = {"expires": time.time() + effective_ttl, "value": value}
-            (cache_dir / f"{key}.json").write_text(json.dumps(entry))
+            # Prior #15: atomic write via tempfile + os.replace to avoid
+            # partial/corrupt reads if a reader hits the file mid-write.
+            import tempfile
+            target_path = cache_dir / f"{key}.json"
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".json", dir=str(cache_dir),
+                delete=False, encoding="utf-8"
+            ) as tmp:
+                json.dump(entry, tmp)
+                tmp.flush()
+                os.fsync(tmp.fileno())
+            os.replace(tmp.name, target_path)
         except Exception:
             pass  # cache write failure is non-fatal
 
@@ -5950,6 +6180,7 @@ def _expand_macros(lines: list[str], macros: dict[str, tuple[list[str], list[str
     # Recursive expansion (depth-limited)
     _macro_invocation_re = re.compile(r'@([\w-]+)(?:\s|$)', re.IGNORECASE)
     depth = 0
+    max_width = 100000  # C13: cap total line count per pass to prevent fork-bomb
     while depth < MAX_MACRO_DEPTH:
         has_macros = False
         result: list[str] = []
@@ -5964,7 +6195,13 @@ def _expand_macros(lines: list[str], macros: dict[str, tuple[list[str], list[str
                         break
                     has_macros = True
                     replacement = " ".join(macro_body).strip()
+                    # C13: prevent width explosion — bail if replacement grows too large
                     new_line = new_line[:m.start()] + replacement + new_line[m.end():]
+                    if len(result) + 1 > max_width:
+                        result.append(
+                            f"> ⚠ Macro expansion width limit ({max_width} lines) exceeded. "
+                            "Check for recursive or self-multiplying macros.")
+                        return result
                     # Skip past the replacement to avoid re-matching it
                     m = _macro_invocation_re.search(new_line, m.start() + len(replacement))
                 else:
@@ -6025,6 +6262,19 @@ def _execute_pipe(stages: list[str], cfg: dict, workspace, line_index: int, quer
     cache_only_last = bool(re.match(r'^@cache\s', last_stage, re.IGNORECASE))
     resolve_count = len(stages) - 1 if cache_only_last else len(stages)
 
+    # Compute cache key from the directive stages (excluding @cache modifier)
+    # so the key reflects the actual computation, not the modifier line.
+    directive_stages = stages[:resolve_count]
+    cache_key = _cache_key(" | ".join(directive_stages))
+
+    # Check cache before executing (pipe stages were never cached before).
+    if cache_only_last:
+        _, cache_mode, cache_ttl, _ = _parse_cache_modifier(last_stage)
+    if cache_mode:
+        cached = cache_get(cache_key, cache_mode, cache_ttl, cfg)
+        if cached is not None:
+            return cached
+
     for idx in range(resolve_count):
         stage = stages[idx]
         m = INLINE_DIRECTIVE_RE.match(stage)
@@ -6034,8 +6284,11 @@ def _execute_pipe(stages: list[str], cfg: dict, workspace, line_index: int, quer
         raw_args = (m.group(2) or "").strip()
         if idx > 0 and prev_output:
             raw_args = f'"{prev_output}" {raw_args}'
+        # C11: check @cache on the original stage args (before prev_output prepend,
+        # which could contain "@cache " substring from previous stage stdout).
         if idx < resolve_count - 1:
-            if re.search(r'\s*@cache\s', raw_args, re.IGNORECASE):
+            _orig_args = (m.group(2) or "").strip()
+            if re.search(r'\s*@cache\s', _orig_args, re.IGNORECASE):
                 return "> ⚠ pipe error: @cache only allowed on final stage"
         clean_args, cmode, cttl, cmock = _parse_cache_modifier(raw_args)
         spec = DIRECTIVE_REGISTRY.get(directive)
@@ -6045,12 +6298,7 @@ def _execute_pipe(stages: list[str], cfg: dict, workspace, line_index: int, quer
         else:
             return f"> ⚠ pipe stage {idx+1}: {directive} cannot be resolved"
 
-    # Apply @cache modifier from last stage (if it was cache-only)
-    if cache_only_last:
-        _, cache_mode, cache_ttl, _ = _parse_cache_modifier(last_stage)
-
     if cache_mode:
-        cache_key = _cache_key(stages[-1])
         cache_set(cache_key, prev_output, cache_mode, cache_ttl, cfg)
     return prev_output
 
@@ -6067,6 +6315,11 @@ def _capture_file_snapshot(lines: list[str], workspace: Path | None) -> dict[str
 
     Returns a dict mapping resolved path → mtime at the start of render.
     Used by the integrity check to detect files that changed mid-render.
+
+    C14: mtime resolution is filesystem-dependent. NTFS/ext4 provide sub-second
+    resolution; FAT/HFS+ provide 1-2 second resolution. Renders faster than the
+    filesystem's mtime granularity cannot detect mid-render modifications.
+    Integrity check is opt-in (`integrity_check: false` by default).
     """
     snap: dict[str, float] = {}
     for line in lines:
@@ -7286,7 +7539,7 @@ def _mneme_recall(cfg: dict, query: str, k: int = 5,
 # Architecture:
 #   - One SQLite database per vault: {vault_path}/mneme.index
 #   - FTS5 virtual table with 'porter unicode61' tokenizer (stemming)
-#   - Field weighting via text repetition in a single search_text column
+#   - Field weighting via FTS5 native per-column bm25() weights
 #   - WAL mode for concurrent readers during writes
 #   - Incremental updates tracked via mneme_files table (path + mtime)
 
@@ -7300,10 +7553,12 @@ CREATE TABLE IF NOT EXISTS mneme_files (
 CREATE VIRTUAL TABLE IF NOT EXISTS mneme_fts USING fts5(
     id,
     title,
-    search_text,
+    summary,
+    tags,
+    topic_path,
+    body,
     type,
     scope,
-    summary,
     updated,
     tokenize='porter unicode61'
 );
@@ -7314,8 +7569,9 @@ CREATE TABLE IF NOT EXISTS mneme_meta (
 );
 """
 
-# Field weight multipliers for the search_text column.
-# Higher weights = field text repeated more times before concatenation.
+# Per-column BM25 weights for FTS5 native weighting (bm25() positional args).
+# Column order in CREATE VIRTUAL TABLE: id, title, summary, tags, topic_path, body, type, scope, updated
+#   bm25(mneme_fts, 0.0, 3.0, 2.0, 2.0, 1.0, 1.0)  — remaining columns default to 0.0
 _MNEME_FIELD_WEIGHTS = {
     "title": 3,
     "summary": 2,
@@ -7357,7 +7613,7 @@ def _mneme_open_index(cfg: dict):
     index_path.parent.mkdir(parents=True, exist_ok=True)
 
     try:
-        conn = sqlite3.connect(str(index_path))
+        conn = sqlite3.connect(str(index_path), check_same_thread=False)
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
         conn.execute("PRAGMA busy_timeout=5000")
@@ -7365,35 +7621,43 @@ def _mneme_open_index(cfg: dict):
 
         # Create tables if needed
         conn.executescript(_MNEME_SCHEMA_SQL)
+
+        # M1: Schema migration check — verify the FTS5 table columns match
+        # expected schema. If they don't, drop and rebuild.
+        # v1 schema: id, title, search_text, type, scope, summary, updated
+        # v2 schema: id, title, summary, tags, topic_path, body, type, scope, updated
+        expected_columns = {"id", "title", "summary", "tags", "topic_path",
+                            "body", "type", "scope", "updated"}
+        try:
+            cursor = conn.execute("PRAGMA table_info(mneme_fts)")
+            actual_columns = {row["name"] for row in cursor.fetchall()}
+            if actual_columns and actual_columns != expected_columns:
+                # Schema mismatch — drop and let re-creation happen on next index
+                conn.execute("DROP TABLE IF EXISTS mneme_fts")
+                conn.execute("DELETE FROM mneme_files")
+                conn.execute("DELETE FROM mneme_meta WHERE key LIKE 'schema_%'")
+                conn.executescript(_MNEME_SCHEMA_SQL)
+        except Exception:
+            pass  # Table doesn't exist yet — fine
         _MNEME_CONN_CACHE[cache_key] = conn
         return conn
     except Exception:
         return None
 
 
-def _mneme_build_field_text(doc: dict) -> str:
-    """Build the search_text column with field weighting via repetition.
+def _mneme_build_field_columns(doc: dict) -> tuple[str, str, str, str, str]:
+    """Return per-field column values for FTS5 native weighting.
 
-    Repeats high-weight fields (title 3×, summary 2×) before concatenation
-    so FTS5's BM25 naturally weights them higher.
+    Returns (title, summary, tags, topic_path, body) as a tuple for direct
+    column insertion. FTS5's bm25() weights each column at query time via
+    _MNEME_FIELD_WEIGHTS, eliminating the need for text repetition.
     """
-    parts = []
     title = str(doc.get("title", "") or "")
-    if title:
-        parts.append(" ".join([title] * _MNEME_FIELD_WEIGHTS["title"]))
     summary = str(doc.get("summary", "") or "")
-    if summary:
-        parts.append(" ".join([summary] * _MNEME_FIELD_WEIGHTS["summary"]))
     tags = " ".join(str(t) for t in (doc.get("tags") or []) if t)
-    if tags:
-        parts.append(" ".join([tags] * _MNEME_FIELD_WEIGHTS["tags"]))
     topic = " ".join(str(t) for t in (doc.get("topic_path") or []) if t)
-    if topic:
-        parts.append(" ".join([topic] * _MNEME_FIELD_WEIGHTS["topic_path"]))
     body = str(doc.get("body", "") or "")
-    if body:
-        parts.append(body)
-    return " ".join(parts)
+    return (title, summary, tags, topic, body)
 
 
 def _mneme_parse_vault_file(file_path: Path) -> dict | None:
@@ -7414,6 +7678,16 @@ def _mneme_parse_vault_file(file_path: Path) -> dict | None:
     title = str(fm.get("title", "") or "")
     if not doc_id or not title:
         return None
+
+    # M2: Validate id format at parse time. Must be 1-128 chars of
+    # alphanumeric, hyphens, underscores. Reject ids with newlines,
+    # NUL bytes, or other characters that break FTS5 / GLOB matching.
+    import re as _re
+    if not _re.match(r'^[A-Za-z0-9_-]{1,128}$', doc_id):
+        return None
+
+    # Body length cap — prevent multi-MB bodies from inflating SQLite memory
+    body = body[:1048576] if len(body) > 1048576 else body
 
     return {
         "id": doc_id,
@@ -7474,7 +7748,7 @@ def _mneme_build_index(cfg: dict, force: bool = False) -> int:
             if doc is None:
                 continue
 
-            search_text = _mneme_build_field_text(doc)
+            field_cols = _mneme_build_field_columns(doc)
             now = datetime.now().astimezone().isoformat(timespec="seconds")
 
             # Remove old entry if it exists
@@ -7483,9 +7757,10 @@ def _mneme_build_index(cfg: dict, force: bool = False) -> int:
 
             # Insert new entry
             conn.execute(
-                "INSERT INTO mneme_fts (id, title, search_text, type, scope, summary, updated) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (doc["id"], doc["title"], search_text, doc["type"], doc["scope"], doc["summary"], doc["updated"]),
+                "INSERT INTO mneme_fts (id, title, summary, tags, topic_path, body, type, scope, updated) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (doc["id"], field_cols[0], field_cols[1], field_cols[2],
+                 field_cols[3], field_cols[4], doc["type"], doc["scope"], doc["updated"]),
             )
             conn.execute(
                 "INSERT INTO mneme_files (path, mtime, indexed_at) VALUES (?, ?, ?)",
@@ -7513,35 +7788,20 @@ def _mneme_search(conn, query: str, k: int = 5,
     """Search the FTS5 index. Returns top-k results as list of dicts.
 
     Uses FTS5's built-in BM25 ranking. Filters by scope and type if provided.
-    Multi-term queries use token search (implicit AND). Single-term queries
-    or explicit double-quoted phrases use exact phrase matching.
+    The user query is wrapped as an FTS5 double-quoted phrase to prevent
+    operator injection (AND, OR, NOT, NEAR, column prefixes, wildcards).
     """
     if not query or not query.strip():
         return []
 
-    # Escape FTS5 and SQL special characters.
-    # FTS5: double-quote escaping ("" → escaped quote).
-    # SQL: single-quote escaping ('' → literal single quote in string).
+    # Wrap the query as an FTS5 phrase to prevent operator injection.
+    # FTS5 double-quote escaping: embedded " → "" (two double-quotes).
     stripped = query.strip()
-    safe = stripped.replace("'", "''")
+    escaped = stripped.replace('"', '""')
+    fts_expr = f'"{escaped}"'
 
-    # Build FTS5 MATCH expression.
-    # - Quoted phrase ("...") → keep surrounding " inside MATCH string.
-    # - Multi-word bare text → token search (implicit AND).
-    # - Single-word bare text → token search.
-    if stripped.startswith('"') and stripped.endswith('"'):
-        # Explicit phrase search — keep the FTS5 phrase syntax.
-        fts_expr = safe  # already has SQL-safe quotes, FTS5 double-quotes preserved
-    elif " " in stripped:
-        # Multi-term token search.
-        fts_expr = safe
-    else:
-        # Single term.
-        fts_expr = safe
-
-    # Parameterized MATCH — FTS5 expression bound via ? to prevent
-    # operator injection (AND, NOT, NEAR, column-name prefixes, etc.).
-    # The user-supplied query is treated as literal search tokens.
+    # Parameterized MATCH — SQL injection is blocked by ? binding.
+    # FTS5 expression injection is blocked by phrase-wrapping above.
     params = [fts_expr]
 
     if scope:
@@ -7555,7 +7815,7 @@ def _mneme_search(conn, query: str, k: int = 5,
     sql = (
         "SELECT mneme_fts.id, mneme_fts.title, mneme_fts.type, mneme_fts.scope, "
         "mneme_fts.summary, mneme_fts.updated, "
-        "bm25(mneme_fts) AS score "
+        "bm25(mneme_fts, 0.0, 3.0, 2.0, 2.0, 1.0, 1.0) AS score "
         "FROM mneme_fts "
         f"WHERE mneme_fts MATCH ? {scope_clause} {type_clause} "
         "ORDER BY score "
@@ -7591,7 +7851,7 @@ def _mneme_index_document(cfg: dict, file_path: Path) -> bool:
         if doc is None:
             return False
 
-        search_text = _mneme_build_field_text(doc)
+        field_cols = _mneme_build_field_columns(doc)
         now = datetime.now().astimezone().isoformat(timespec="seconds")
         file_path_str = str(file_path.resolve())
 
@@ -7599,9 +7859,10 @@ def _mneme_index_document(cfg: dict, file_path: Path) -> bool:
         conn.execute("DELETE FROM mneme_fts WHERE id = ?", (doc["id"],))
         conn.execute("DELETE FROM mneme_files WHERE path = ?", (file_path_str,))
         conn.execute(
-            "INSERT INTO mneme_fts (id, title, search_text, type, scope, summary, updated) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (doc["id"], doc["title"], search_text, doc["type"], doc["scope"], doc["summary"], doc["updated"]),
+            "INSERT INTO mneme_fts (id, title, summary, tags, topic_path, body, type, scope, updated) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (doc["id"], field_cols[0], field_cols[1], field_cols[2],
+             field_cols[3], field_cols[4], doc["type"], doc["scope"], doc["updated"]),
         )
         conn.execute(
             "INSERT INTO mneme_files (path, mtime, indexed_at) VALUES (?, ?, ?)",
@@ -12373,7 +12634,6 @@ def cmd_mcp(args, cfg) -> int:
     if mcp_cmd == "serve":
         transport = getattr(args, "transport", "stdio")
         if transport == "sse":
-            from perseus.mcp import serve_mcp_sse
             port = getattr(args, "port", 8420)
             serve_mcp_sse(cfg, workspace=workspace, port=port)
             return 0
@@ -13760,7 +14020,12 @@ def _serve_render_endpoint(endpoint: str, cfg: dict, workspace: Path, query: dic
 
         return (404, "text/plain; charset=utf-8", f"Unknown endpoint: {endpoint}")
     except Exception as exc:
-        return (500, "text/plain; charset=utf-8", f"Internal error: {exc}")
+        # S6: Log the real exception, return a generic error to avoid leaking
+        # stack traces, file paths, or config keys in the response body.
+        import traceback
+        traceback.print_exc()
+        return (500, "application/json; charset=utf-8",
+                '{"error":"internal error","detail":"see server logs"}')
 
 
 # ───── Phase 10.1 — Perseus LSP server (task-23) ─────────────────────────────
