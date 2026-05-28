@@ -48,8 +48,8 @@ PY_VERSION=$(python3 -c 'import ast, pathlib, sys; tree = ast.parse(pathlib.Path
 [ -n "$PY_VERSION" ] || die "could not parse _PERSEUS_VERSION from perseus.py"
 [ "$PY_VERSION" = "$VERSION" ] || die "VERSION ($VERSION) != _PERSEUS_VERSION ($PY_VERSION) in perseus.py"
 
-# perseus --version (matches AC #1)
-CLI_VERSION=$(python3 "$REPO_ROOT/perseus.py" --version | awk '{print $NF}' | sed 's/^v//')
+# perseus --version (matches AC #1) — extracts "1.0.5" from "perseus v1.0.5 — Patent Pending"
+CLI_VERSION=$(python3 "$REPO_ROOT/perseus.py" --version | grep -oP 'v\K[\d.]+')
 [ "$CLI_VERSION" = "$VERSION" ] || die "'perseus --version' ($CLI_VERSION) != VERSION ($VERSION)"
 
 # CHANGELOG must reference the version (unless it's a -dev tag).
