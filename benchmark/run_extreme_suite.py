@@ -120,6 +120,21 @@ def main():
             print(f"  - {label}: {' '.join(cmd) if cmd else '(internal)'}")
         return 0
 
+    # Delete stale output files before run so merges only use current artifacts
+    _stale_outputs = [
+        ROOT / "swarm_results.json",
+        ROOT / "thrash_results.json",
+        ROOT / "adversarial_extended_results.json",
+        ROOT / "harness_results.json",
+        ROOT / "gates_results.json",
+        ROOT / "semantic_results.json",
+        ROOT / "extreme_enterprise_results.json",
+    ]
+    for _p in _stale_outputs:
+        if _p.exists():
+            _p.unlink()
+            print(f"[runner] 🗑  Removed stale {_p.name}", flush=True)
+
     timings = []
     p0 = _phase_validate_bench_shim()
     if not p0["pass"]:
@@ -142,9 +157,14 @@ def main():
         _of.unlink(missing_ok=True)
 
     for label, cmd in plan[1:]:
-        timings.append(_run(label, cmd))
+        result = _run(label, cmd)
+        timings.append(result)
+        if result["rc"] != 0:
+            print(f"[runner] ❌ Phase failed: {label} (rc={result['rc']})", file=sys.stderr)
+            print("[runner] Aborting suite — fix phase failure before proceeding.", file=sys.stderr)
+            return result["rc"]
 
-    # Merge
+    # Merge — only load files actually written by this run
     def load(p): return json.loads(p.read_text()) if p.is_file() else {}
     swarm = load(ROOT / "swarm_results.json")
     thrash = load(ROOT / "thrash_results.json")
