@@ -645,10 +645,18 @@ def _find_pythia_entry(entries: list[dict], log_id: str) -> int | None:
 def _rewrite_pythia_log(entries: list[dict]) -> None:
     log_path = _pythia_log_path()
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    payload = "\n".join(json.dumps(e, ensure_ascii=False) for e in entries) + ("\n" if entries else "")
-    tmp = log_path.with_suffix(".jsonl.tmp")
-    tmp.write_text(payload, encoding="utf-8")
-    os.replace(tmp, log_path)
+    lock_path = log_path.with_suffix(".jsonl.lock")
+    # File locking to prevent concurrent corruption (M-6)
+    import fcntl
+    with open(lock_path, "w") as lock_fh:
+        try:
+            fcntl.flock(lock_fh, fcntl.LOCK_EX)
+            payload = "\n".join(json.dumps(e, ensure_ascii=False) for e in entries) + ("\n" if entries else "")
+            tmp = log_path.with_suffix(".jsonl.tmp")
+            tmp.write_text(payload, encoding="utf-8")
+            os.replace(tmp, log_path)
+        finally:
+            fcntl.flock(lock_fh, fcntl.LOCK_UN)
 
 
 def _label_pythia_entry(log_id: str, accepted: bool) -> tuple[bool, str]:
