@@ -107,6 +107,12 @@ def audit_event(cfg: dict, event_type: str, **fields) -> None:
             record[k] = v
         except Exception:
             record[k] = repr(v)
+    # v1.0.5 review: redact secrets before persisting to disk.
+    # Audit events can contain command strings, paths, or args with tokens.
+    try:
+        record, _report = redact_value(record, cfg)
+    except Exception:
+        pass  # redaction failure must not block audit persistence
     try:
         path = _audit_log_path(cfg)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -315,24 +321,25 @@ def _extract_quoted_token(raw: str) -> tuple[str | None, str]:
     for idx in range(1, len(raw)):
         ch = raw[idx]
         if escaped:
-            # C10: handle standard escape sequences (\n, \t, \r, \0, \\, \", \')
+            # v1.0.5 review: only decode quote-escaping and literal backslash.
+            # Decoding \n, \t, \r, \0 corrupts Windows paths (C:\Users\tccon\...\n).
+            # fallback= text can use literal newlines/tabs instead.
             if _escape_buffer:
                 _escape_buffer += ch
-                if len(_escape_buffer) >= 4:  # \uNNNN or unknown
+                if len(_escape_buffer) >= 4:  # \uNNNN or \xNN or unknown
+                    # Keep the raw escape sequence as-is; don't mangle paths
                     buf.append(_escape_buffer)
                     _escape_buffer = ""
                     escaped = False
                 continue
-            if ch in {"n", "t", "r", "0"}:
-                buf.append({"n": "\n", "t": "\t", "r": "\r", "0": "\0"}[ch])
-            elif ch in {"\\", '"', "'"}:
+            if ch in {"\\", '"', "'"}:
                 buf.append(ch)
             elif ch == "u":
                 _escape_buffer = "\\u"
             elif ch == "x":
                 _escape_buffer = "\\x"
             else:
-                # H-5: unknown escape — keep literal (backslash is preserved)
+                # Unknown escape — keep literal backslash + char (preserves Windows paths)
                 buf.append("\\" + ch)
             escaped = False
             continue
@@ -382,10 +389,9 @@ def _parse_kv_modifiers(raw: str) -> dict[str, str]:
             while i < n:
                 ch = raw[i]
                 if escaped:
-                    # H-5: decode only well-known escape sequences,
-                    # keep everything else literal (backslash preserved)
-                    buf.append({'n': '\n', 't': '\t', 'r': '\r',
-                                '\\': '\\', '"': '"', "'": "'"}.get(ch, '\\' + ch))
+                    # v1.0.5 review: only decode quote-escaping and literal backslash.
+                    # Decoding \n, \t, \r corrupts Windows paths like C:\Users\tccon\...
+                    buf.append({'\\': '\\', '"': '"', "'": "'"}.get(ch, '\\' + ch))
                     escaped = False
                 elif ch == "\\":
                     escaped = True
