@@ -7637,7 +7637,7 @@ def _mneme_delete_document(cfg: dict, doc_id: str) -> bool:
         cursor = conn.execute("DELETE FROM mneme_fts WHERE id = ?", (doc_id,))
         deleted = cursor.rowcount > 0
         conn.execute(
-            "DELETE FROM mneme_files WHERE path GLOB ? ESCAPE '\\'",
+            "DELETE FROM mneme_files WHERE path GLOB ?",
             (f"*/{escaped_id}.md",)
         )
         if deleted:
