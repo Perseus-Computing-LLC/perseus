@@ -102,7 +102,9 @@ def main():
     if args.quick:
         xeb_args += ["--quick", "--skip-memory"]
     else:
-        xeb_args += ["--skip-memory"]   # memory phase requires psutil; gated separately
+        # Full run: execute memory hygiene when possible.
+        # If psutil is unavailable, XEB now marks status as PARTIAL in its own report.
+        pass
     plan.append(("phase-7 extreme_enterprise", xeb_args))
     plan.append(("phase-6 gate_runner", [sys.executable, str(ROOT / "eval/gate_runner.py"), "--dir", str(ROOT)]))
     if args.include_semantic:
@@ -189,9 +191,12 @@ def main():
         "semantic": semantic,
         "extreme_enterprise": {
             "overall_pass": xeb.get("overall_pass"),
+            "overall_status": xeb.get("overall_status"),
+            "overall_partial": xeb.get("overall_partial"),
             "total_duration_s": xeb.get("total_duration_s"),
             "hard_gates": xeb.get("phase_10", {}).get("hard", {}),
             "soft_gates": xeb.get("phase_10", {}).get("soft", {}),
+            "partial_reasons": xeb.get("phase_10", {}).get("partial_reasons", []),
             "enterprise_day_roi_pct": xeb.get("phase_7", {}).get("estimated_roi_pct"),
             "fleet_p99_ms": xeb.get("phase_7", {}).get("fleet_latency_ms", {}).get("p99"),
         } if xeb else {"skipped": True},
