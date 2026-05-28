@@ -655,6 +655,18 @@ Mnēmē is LLM-optional: deterministic assembly works zero-dependency; an option
 
 ---
 
-## License
+## IP & Legal
 
-MIT — see [LICENSE](./LICENSE). Perseus™ is a trademark of Thomas Connally. Patent pending.
+**Patent Pending.** A provisional patent application covering Perseus's
+resolve-before-context pipeline architecture is on file with the USPTO.
+See **[docs/ip/](docs/ip/)** for the public IP portfolio, including
+technical disclosures and evidence exhibits.
+
+**PERSEUS™** is a trademark of Thomas Connally. Internal subsystem names
+(Pythia, Daedalus, Agora, Mnēmē) are not independently trademarked and
+are covered under the PERSEUS mark.
+
+**License:** MIT — see [LICENSE](./LICENSE). This license does not include
+a patent grant; patent rights are reserved separately.
+
+**Third-party notices:** see [NOTICE](./NOTICE).
