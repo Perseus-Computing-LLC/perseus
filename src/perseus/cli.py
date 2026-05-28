@@ -399,7 +399,11 @@ def main():
     elif args.command == "inbox":
         cmd_inbox(args, cfg)
     elif args.command == "serve":
-        rc = cmd_serve(args, cfg)
+        # v1.0.5 review: reload with workspace so auth tokens,
+        # trust profiles, MCP SSE tokens, and tool allowlists work.
+        ws = getattr(args, "workspace", None)
+        srv_cfg = load_config(Path(ws).expanduser().resolve()) if ws else cfg
+        rc = cmd_serve(args, srv_cfg)
         if isinstance(rc, int):
             return rc
     elif args.command == "cron":
@@ -427,7 +431,11 @@ def main():
     elif args.command == "install":
         return cmd_install(args, cfg)
     elif args.command == "mcp":
-        return cmd_mcp(args, cfg)
+        # v1.0.5 review: reload with workspace so MCP SSE tokens
+        # and tool allowlists work.
+        ws = getattr(args, "workspace", None)
+        mcp_cfg = load_config(Path(ws).expanduser().resolve()) if ws else cfg
+        return cmd_mcp(args, mcp_cfg)
 
 
 # Module-level call: runs at import time so render_source() and other

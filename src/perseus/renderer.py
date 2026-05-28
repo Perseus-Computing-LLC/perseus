@@ -93,7 +93,12 @@ def _safe_cache_dir(cfg: dict) -> Path:
     S5: Prevents workspace config from pointing cache_dir at /etc/ or
     other system paths. Falls back to ~/.perseus/cache if the configured
     path resolves outside the allowed roots.
+
+    Uses Path.is_relative_to (Python 3.9+) for cross-platform safety.
+    The system temp dir is an allowed root so that tests and short-lived
+    processes can isolate their cache without polluting the shared home.
     """
+    import tempfile
     from pathlib import Path as _Path
     import tempfile as _tempfile
     raw = cfg["render"].get("cache_dir", str(PERSEUS_HOME / "cache"))
@@ -106,7 +111,7 @@ def _safe_cache_dir(cfg: dict) -> Path:
     try:
         for root in allowed_roots:
             root_resolved = root.expanduser().resolve()
-            if str(candidate).startswith(str(root_resolved) + "/") or candidate == root_resolved:
+            if candidate == root_resolved or candidate.is_relative_to(root_resolved):
                 return candidate
     except (OSError, ValueError):
         pass
@@ -166,7 +171,14 @@ def cache_set(key: str, value: str, mode: str, ttl: int | None, cfg: dict) -> No
         cache_dir = _safe_cache_dir(cfg)
         try:
             cache_dir.mkdir(parents=True, exist_ok=True)
-            entry = {"expires": time.time() + effective_ttl, "value": value}
+            # v1.0.5 review: redact secrets before persisting to cache.
+            # Cached values can contain rendered output with embedded tokens.
+            safe_value = value
+            try:
+                safe_value, _report = redact_text(value, cfg)
+            except Exception:
+                pass  # redaction failure must not block caching
+            entry = {"expires": time.time() + effective_ttl, "value": safe_value}
             # Prior #15: atomic write via tempfile + os.replace to avoid
             # partial/corrupt reads if a reader hits the file mid-write.
             import tempfile
@@ -565,7 +577,6 @@ def _render_lines(
     workspace: Path | None,
     _constraint_rows: list[str] | None = None,
     _include_depth: int = 0,
-    _include_visited: set | None = None,
     _include_path_chain: tuple = (),
     _directive_collector: list[dict] | None = None,
     _stats: dict | None = None,
@@ -583,8 +594,6 @@ def _render_lines(
         _constraint_rows = []
         if _skipped_directives is None:
             _skipped_directives = []
-    if _include_visited is None:
-        _include_visited = set()
 
     # ── File integrity pre-check (top-level only) ──
     _integrity_snapshot: dict[str, float] = {}
@@ -743,7 +752,6 @@ def _render_lines(
                 break
             rendered_block = _render_lines(block_lines, cfg, workspace, _constraint_rows,
                                            _include_depth=_include_depth,
-                                           _include_visited=_include_visited,
                                            _include_path_chain=_include_path_chain,
                                            _directive_collector=_directive_collector,
                                            _stats=_stats,
@@ -897,7 +905,6 @@ def _render_lines(
             if branch:
                 output.append(_render_lines(branch, cfg, workspace, _constraint_rows,
                                              _include_depth=_include_depth,
-                                             _include_visited=_include_visited,
                                              _include_path_chain=_include_path_chain,
                                              _directive_collector=_directive_collector,
                                              _stats=_stats,
@@ -981,7 +988,6 @@ def _render_lines(
             if directive == "@include" and spec and spec.resolver:
                 result = spec.resolver(clean_args, workspace, cfg,
                                        _depth=_include_depth,
-                                       _visited=_include_visited.copy() if _include_visited is not None else None,
                                        _path_chain=_include_path_chain,
                                        _directive_collector=_directive_collector,
                                        _stats=_stats)
@@ -1046,7 +1052,6 @@ def render_source(
     workspace: Path | None = None,
     max_tier: int = 3,
     _include_depth: int = 0,
-    _include_visited: set | None = None,
     _include_path_chain: tuple = (),
     _directive_collector: list[dict] | None = None,
     _stats: dict | None = None,
@@ -1064,6 +1069,11 @@ def render_source(
     if _include_depth == 0:
         register_plugins(cfg)
         register_hooks(cfg)
+
+        # v1.0.6: preflight permission check — surface environment issues
+        # before any directives run. Warnings are emitted at the top of
+        # the rendered output so the agent/user sees them immediately.
+        preflight_warnings = _preflight_permissions(cfg)
 
     if _stats is None:
         _stats = {
@@ -1090,7 +1100,6 @@ def render_source(
     _skipped_directives = []
     result = _render_lines(body_lines, cfg, workspace, _constraint_rows,
                          _include_depth=_include_depth,
-                         _include_visited=_include_visited,
                          _include_path_chain=_include_path_chain,
                          _directive_collector=_directive_collector,
                          _stats=_stats,
@@ -1118,6 +1127,11 @@ def render_source(
             manifest_lines.append("> ")
             manifest_lines.append("> Re-run with `perseus render --tier 3` to include on-demand context.")
         result = result + "\n".join(manifest_lines)
+
+    # v1.0.6: prepend preflight permission warnings at top of output
+    if _include_depth == 0 and preflight_warnings:
+        header = "\n".join(f"> {w}" for w in preflight_warnings) + "\n\n"
+        result = header + result
 
     if _include_depth == 0 and _render_start_ts is not None:
         _fire_hooks("on_render_complete", {

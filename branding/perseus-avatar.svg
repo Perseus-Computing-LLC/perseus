@@ -1,0 +1,171 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <radialGradient id="bgGrad" cx="50%" cy="50%" r="55%">
+      <stop offset="0%" stop-color="#1a1a3e"/>
+      <stop offset="100%" stop-color="#0a0a18"/>
+    </radialGradient>
+
+    <radialGradient id="starGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="30%" stop-color="rgba(255,255,255,0.6)"/>
+      <stop offset="100%" stop-color="rgba(255,255,255,0)"/>
+    </radialGradient>
+
+    <radialGradient id="primaryGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#f0d78c"/>
+      <stop offset="40%" stop-color="rgba(212,168,67,0.5)"/>
+      <stop offset="100%" stop-color="rgba(212,168,67,0)"/>
+    </radialGradient>
+
+    <radialGradient id="starNode" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#f5e6c8"/>
+      <stop offset="100%" stop-color="#c9a84c"/>
+    </radialGradient>
+
+    <filter id="starFilter">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+
+    <filter id="softGlow">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="512" height="512" fill="url(#bgGrad)"/>
+
+  <!-- Subtle grid -->
+  <g stroke="rgba(255,255,255,0.03)" stroke-width="0.5">
+    <line x1="0" y1="128" x2="512" y2="128"/><line x1="0" y1="256" x2="512" y2="256"/>
+    <line x1="0" y1="384" x2="512" y2="384"/>
+    <line x1="128" y1="0" x2="128" y2="512"/><line x1="256" y1="0" x2="256" y2="512"/>
+    <line x1="384" y1="0" x2="384" y2="512"/>
+  </g>
+
+  <!-- ═══════════════════════════════════════════════ -->
+  <!-- PERSEUS CONSTELLATION — Star map nodes & lines -->
+  <!-- ═══════════════════════════════════════════════ -->
+
+  <!-- Constellation lines (connect the stars) -->
+  <g stroke="#d4a843" stroke-width="1.5" opacity="0.5" stroke-linecap="round" filter="url(#softGlow)">
+    <!-- Head to shoulders -->
+    <line x1="256" y1="100" x2="232" y2="152"/>
+    <line x1="256" y1="100" x2="280" y2="152"/>
+
+    <!-- Shoulders to torso -->
+    <line x1="232" y1="152" x2="220" y2="210"/>
+    <line x1="280" y1="152" x2="292" y2="210"/>
+    <line x1="220" y1="210" x2="256" y2="195"/>
+    <line x1="292" y1="210" x2="256" y2="195"/>
+
+    <!-- Torso to belt -->
+    <line x1="256" y1="195" x2="248" y2="260"/>
+    <line x1="256" y1="195" x2="264" y2="260"/>
+
+    <!-- Belt to legs -->
+    <line x1="248" y1="260" x2="210" y2="340"/>
+    <line x1="264" y1="260" x2="306" y2="340"/>
+
+    <!-- Belt to held object (Medusa's head) — right arm -->
+    <line x1="264" y1="260" x2="340" y2="230"/>
+
+    <!-- Belt to sword arm — left arm -->
+    <line x1="248" y1="260" x2="180" y2="195"/>
+  </g>
+
+  <!-- Connecting lines to the held Medusa's head -->
+  <g stroke="#d4a843" stroke-width="1" opacity="0.35" stroke-linecap="round">
+    <line x1="340" y1="230" x2="370" y2="210"/>
+    <line x1="370" y1="210" x2="390" y2="230"/>
+    <line x1="390" y1="230" x2="380" y2="255"/>
+    <line x1="380" y1="255" x2="355" y2="248"/>
+    <line x1="355" y1="248" x2="340" y2="230"/>
+  </g>
+
+  <!-- ═══════════════════════════════════════════════ -->
+  <!-- PRIMARY STARS (bright — key constellation nodes) -->
+  <!-- ═══════════════════════════════════════════════ -->
+
+  <!-- Mirfak (α Per) — chest, brightest -->
+  <circle cx="256" cy="195" r="28" fill="url(#primaryGlow)" filter="url(#starFilter)"/>
+  <circle cx="256" cy="195" r="5" fill="url(#starNode)"/>
+
+  <!-- Algol (β Per) — demon star, the held head -->
+  <circle cx="340" cy="230" r="22" fill="url(#primaryGlow)" filter="url(#starFilter)"/>
+  <circle cx="340" cy="230" r="4" fill="url(#starNode)"/>
+
+  <!-- Shoulder stars -->
+  <circle cx="232" cy="152" r="16" fill="url(#primaryGlow)" filter="url(#starFilter)"/>
+  <circle cx="232" cy="152" r="3.5" fill="url(#starNode)"/>
+
+  <circle cx="280" cy="152" r="16" fill="url(#primaryGlow)" filter="url(#starFilter)"/>
+  <circle cx="280" cy="152" r="3.5" fill="url(#starNode)"/>
+
+  <!-- ═══════════════════════════════════════════════ -->
+  <!-- SECONDARY STARS -->
+  <!-- ═══════════════════════════════════════════════ -->
+
+  <circle cx="256" cy="100" r="12" fill="url(#starGlow)" filter="url(#starFilter)"/>
+  <circle cx="256" cy="100" r="3" fill="url(#starNode)"/>
+
+  <circle cx="220" cy="210" r="10" fill="url(#starGlow)" filter="url(#starFilter)"/>
+  <circle cx="220" cy="210" r="2.5" fill="url(#starNode)"/>
+
+  <circle cx="292" cy="210" r="10" fill="url(#starGlow)" filter="url(#starFilter)"/>
+  <circle cx="292" cy="210" r="2.5" fill="url(#starNode)"/>
+
+  <circle cx="248" cy="260" r="12" fill="url(#starGlow)" filter="url(#starFilter)"/>
+  <circle cx="248" cy="260" r="3" fill="url(#starNode)"/>
+
+  <circle cx="264" cy="260" r="10" fill="url(#starGlow)" filter="url(#starFilter)"/>
+  <circle cx="264" cy="260" r="2.5" fill="url(#starNode)"/>
+
+  <circle cx="210" cy="340" r="10" fill="url(#starGlow)" filter="url(#starFilter)"/>
+  <circle cx="210" cy="340" r="2.5" fill="url(#starNode)"/>
+
+  <circle cx="306" cy="340" r="10" fill="url(#starGlow)" filter="url(#starFilter)"/>
+  <circle cx="306" cy="340" r="2.5" fill="url(#starNode)"/>
+
+  <circle cx="180" cy="195" r="8" fill="url(#starGlow)" filter="url(#starFilter)"/>
+  <circle cx="180" cy="195" r="2" fill="url(#starNode)"/>
+
+  <!-- Medusa head cluster stars -->
+  <circle cx="370" cy="210" r="5" fill="url(#starGlow)" filter="url(#starFilter)"/>
+  <circle cx="370" cy="210" r="1.5" fill="url(#starNode)"/>
+
+  <circle cx="390" cy="230" r="5" fill="url(#starGlow)" filter="url(#starFilter)"/>
+  <circle cx="390" cy="230" r="1.5" fill="url(#starNode)"/>
+
+  <circle cx="380" cy="255" r="5" fill="url(#starGlow)" filter="url(#starFilter)"/>
+  <circle cx="380" cy="255" r="1.5" fill="url(#starNode)"/>
+
+  <circle cx="355" cy="248" r="5" fill="url(#starGlow)" filter="url(#starFilter)"/>
+  <circle cx="355" cy="248" r="1.5" fill="url(#starNode)"/>
+
+  <!-- ═══════════════════════════════════════════════ -->
+  <!-- BACKGROUND FIELD STARS -->
+  <!-- ═══════════════════════════════════════════════ -->
+  <g fill="#ffffff" opacity="0.15">
+    <circle cx="80" cy="60" r="1"/><circle cx="420" cy="90" r="0.8"/>
+    <circle cx="150" cy="400" r="1"/><circle cx="440" cy="350" r="0.8"/>
+    <circle cx="70" cy="280" r="0.8"/><circle cx="460" cy="180" r="1"/>
+    <circle cx="340" cy="420" r="0.8"/><circle cx="120" cy="130" r="0.8"/>
+    <circle cx="380" cy="80" r="1"/><circle cx="40" cy="420" r="0.8"/>
+  </g>
+
+  <!-- ═══════════════════════════════════════════════ -->
+  <!-- ORBITAL RING — subtle framing circle -->
+  <!-- ═══════════════════════════════════════════════ -->
+  <circle cx="256" cy="256" r="220" fill="none" stroke="rgba(212,168,67,0.12)" stroke-width="1"/>
+  <circle cx="256" cy="256" r="218" fill="none" stroke="rgba(212,168,67,0.06)" stroke-width="1"/>
+
+  <!-- Ring marker ticks -->
+  <g stroke="#d4a843" stroke-width="1.5" opacity="0.2">
+    <line x1="256" y1="36" x2="256" y2="48"/>
+    <line x1="256" y1="464" x2="256" y2="476"/>
+    <line x1="36" y1="256" x2="48" y2="256"/>
+    <line x1="464" y1="256" x2="476" y2="256"/>
+  </g>
+</svg>
