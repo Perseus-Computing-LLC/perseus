@@ -2457,7 +2457,7 @@ def resolve_env(args_str: str, cfg: dict | None = None, workspace: Path | None =
 # ──────────────────────────────── @include ────────────────────────────────────
 
 def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | None = None,
-                    *, _depth: int = 0, _visited: set | None = None,
+                    *, _depth: int = 0,
                     _path_chain: tuple = (),
                     _directive_collector: list[dict] | None = None,
                     _stats: dict | None = None) -> str:
@@ -2469,10 +2469,11 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
     files are resolved. Structured files (.yaml, .yml, .json, .toml) are
     wrapped in a fenced block.
 
-    Cycle detection: if a file is visited more than once in the current
-    include chain, it's a true cycle and a warning is emitted. Diamond
-    includes (A→B→D and A→C→D, same file via different branches) are
-    detected separately — the second visit skips silently.
+    Cycle detection: if a file is an ancestor in the current include
+    chain, a circular-dependency warning is emitted. Repeated includes
+    of the same file (e.g. via multiple branches in conditional blocks)
+    are intentional — each occurrence renders independently. There is
+    no deduplication; the caller controls include frequency.
     """
     file_path_str, remaining = _extract_quoted_token(args_str.strip())
     if not file_path_str:
@@ -2493,9 +2494,7 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
     if not fp.exists():
         return f"> ⚠ @include: file not found: `{file_path_str}`"
 
-    # ── Cycle / diamond detection ──
-    if _visited is None:
-        _visited = set()
+    # ── Cycle detection ──
     resolved_path = str(fp.resolve())
 
     # True cycle: file is an ancestor in the current include chain.
@@ -2504,11 +2503,6 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
         chain = " → ".join(list(_path_chain) + [resolved_path])
         return f"> ⚠ @include: circular dependency detected. Chain: {chain}"
 
-    # M-9: diamond include — already rendered in a sibling branch
-    if resolved_path in _visited:
-        return f"> ℹ @include: `{file_path_str}` already included (diamond skip)."
-
-    _visited.add(resolved_path)
     _path_chain = _path_chain + (resolved_path,)
 
     # ── Depth limit ──
@@ -2559,7 +2553,6 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
             try:
                 # Render the included file through Perseus with incremented depth
                 rendered = render_source(raw, cfg, workspace, _include_depth=_depth + 1,
-                                         _include_visited=_visited,
                                          _include_path_chain=_path_chain,
                                          _directive_collector=_directive_collector,
                                          _stats=_stats)
@@ -6083,18 +6076,24 @@ def _safe_cache_dir(cfg: dict) -> Path:
     S5: Prevents workspace config from pointing cache_dir at /etc/ or
     other system paths. Falls back to ~/.perseus/cache if the configured
     path resolves outside the allowed roots.
+
+    Uses Path.is_relative_to (Python 3.9+) for cross-platform safety.
+    The system temp dir is an allowed root so that tests and short-lived
+    processes can isolate their cache without polluting the shared home.
     """
+    import tempfile
     from pathlib import Path as _Path
     raw = cfg["render"].get("cache_dir", str(PERSEUS_HOME / "cache"))
     candidate = _Path(str(raw)).expanduser().resolve()
     allowed_roots = [
         _Path.home() / ".perseus",
         _Path.home() / ".cache",
+        _Path(tempfile.gettempdir()),
     ]
     try:
         for root in allowed_roots:
             root_resolved = root.expanduser().resolve()
-            if str(candidate).startswith(str(root_resolved) + "/") or candidate == root_resolved:
+            if candidate == root_resolved or candidate.is_relative_to(root_resolved):
                 return candidate
     except (OSError, ValueError):
         pass
@@ -6553,7 +6552,6 @@ def _render_lines(
     workspace: Path | None,
     _constraint_rows: list[str] | None = None,
     _include_depth: int = 0,
-    _include_visited: set | None = None,
     _include_path_chain: tuple = (),
     _directive_collector: list[dict] | None = None,
     _stats: dict | None = None,
@@ -6571,8 +6569,6 @@ def _render_lines(
         _constraint_rows = []
         if _skipped_directives is None:
             _skipped_directives = []
-    if _include_visited is None:
-        _include_visited = set()
 
     # ── File integrity pre-check (top-level only) ──
     _integrity_snapshot: dict[str, float] = {}
@@ -6731,7 +6727,6 @@ def _render_lines(
                 break
             rendered_block = _render_lines(block_lines, cfg, workspace, _constraint_rows,
                                            _include_depth=_include_depth,
-                                           _include_visited=_include_visited,
                                            _include_path_chain=_include_path_chain,
                                            _directive_collector=_directive_collector,
                                            _stats=_stats,
@@ -6885,7 +6880,6 @@ def _render_lines(
             if branch:
                 output.append(_render_lines(branch, cfg, workspace, _constraint_rows,
                                              _include_depth=_include_depth,
-                                             _include_visited=_include_visited,
                                              _include_path_chain=_include_path_chain,
                                              _directive_collector=_directive_collector,
                                              _stats=_stats,
@@ -6969,7 +6963,6 @@ def _render_lines(
             if directive == "@include" and spec and spec.resolver:
                 result = spec.resolver(clean_args, workspace, cfg,
                                        _depth=_include_depth,
-                                       _visited=_include_visited.copy() if _include_visited is not None else None,
                                        _path_chain=_include_path_chain,
                                        _directive_collector=_directive_collector,
                                        _stats=_stats)
@@ -7034,7 +7027,6 @@ def render_source(
     workspace: Path | None = None,
     max_tier: int = 3,
     _include_depth: int = 0,
-    _include_visited: set | None = None,
     _include_path_chain: tuple = (),
     _directive_collector: list[dict] | None = None,
     _stats: dict | None = None,
@@ -7078,7 +7070,6 @@ def render_source(
     _skipped_directives = []
     result = _render_lines(body_lines, cfg, workspace, _constraint_rows,
                          _include_depth=_include_depth,
-                         _include_visited=_include_visited,
                          _include_path_chain=_include_path_chain,
                          _directive_collector=_directive_collector,
                          _stats=_stats,
