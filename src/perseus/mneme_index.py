@@ -364,9 +364,13 @@ def _mneme_delete_document(cfg: dict, doc_id: str) -> bool:
         escaped_id = doc_id.replace("*", "\\*").replace("?", "\\?").replace("[", "\\[").replace("]", "\\]")
         cursor = conn.execute("DELETE FROM mneme_fts WHERE id = ?", (doc_id,))
         deleted = cursor.rowcount > 0
+        # M-5: cross-platform path matching — handle both / and \\ separators.
+        # GLOB doesn't have an OR operator, so we OR two separate patterns.
+        pattern_fwd = f"*/{escaped_id}.md"
+        pattern_bwd = f"*\\\\{escaped_id}.md"
         conn.execute(
-            "DELETE FROM mneme_files WHERE path GLOB ?",
-            (f"*/{escaped_id}.md",)
+            "DELETE FROM mneme_files WHERE path GLOB ? OR path GLOB ?",
+            (pattern_fwd, pattern_bwd),
         )
         if deleted:
             conn.execute("INSERT INTO mneme_fts(mneme_fts) VALUES('rebuild')")

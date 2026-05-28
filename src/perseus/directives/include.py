@@ -3,6 +3,7 @@
 
 def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | None = None,
                     *, _depth: int = 0, _visited: set | None = None,
+                    _path_chain: tuple = (),
                     _directive_collector: list[dict] | None = None,
                     _stats: dict | None = None) -> str:
     """
@@ -13,8 +14,10 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
     files are resolved. Structured files (.yaml, .yml, .json, .toml) are
     wrapped in a fenced block.
 
-    Cycle detection: if a file is visited more than once in the include
-    chain, a warning is emitted and the chain is terminated.
+    Cycle detection: if a file is visited more than once in the current
+    include chain, it's a true cycle and a warning is emitted. Diamond
+    includes (A→B→D and A→C→D, same file via different branches) are
+    detected separately — the second visit skips silently.
     """
     file_path_str, remaining = _extract_quoted_token(args_str.strip())
     if not file_path_str:
@@ -35,16 +38,23 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
     if not fp.exists():
         return f"> ⚠ @include: file not found: `{file_path_str}`"
 
-    # ── Cycle detection ──
+    # ── Cycle / diamond detection ──
     if _visited is None:
         _visited = set()
     resolved_path = str(fp.resolve())
-    if resolved_path in _visited:
-        chain = " → ".join(
-            str(p) for p in list(_visited) + [resolved_path]
-        )
+
+    # True cycle: file is an ancestor in the current include chain.
+    # _path_chain is an immutable tuple — no need to pop on return.
+    if resolved_path in _path_chain:
+        chain = " → ".join(list(_path_chain) + [resolved_path])
         return f"> ⚠ @include: circular dependency detected. Chain: {chain}"
+
+    # M-9: diamond include — already rendered in a sibling branch
+    if resolved_path in _visited:
+        return f"> ℹ @include: `{file_path_str}` already included (diamond skip)."
+
     _visited.add(resolved_path)
+    _path_chain = _path_chain + (resolved_path,)
 
     # ── Depth limit ──
     max_depth = render_cfg.get("max_include_depth", 5)
@@ -62,6 +72,10 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
             return f"> ⚠ @include: file too large for safe read ({fp.stat().st_size:,} bytes)"
     except OSError:
         pass  # stat failed, fall through to read
+
+    # ── File size limit from config ──
+    max_bytes_raw = render_cfg.get("max_include_bytes")
+    max_bytes = int(max_bytes_raw) if max_bytes_raw is not None else None
 
     try:
         data = fp.read_bytes()
@@ -90,7 +104,8 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
             try:
                 # Render the included file through Perseus with incremented depth
                 rendered = render_source(raw, cfg, workspace, _include_depth=_depth + 1,
-                                         _include_visited=_visited,  # shared set — M-8 diamond fix
+                                         _include_visited=_visited,
+                                         _include_path_chain=_path_chain,
                                          _directive_collector=_directive_collector,
                                          _stats=_stats)
                 return trunc_note + rendered
