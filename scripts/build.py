@@ -53,6 +53,10 @@ MODULE_ORDER = [
     "src/perseus/pythia.py",
     "src/perseus/lsp.py",
     "src/perseus/install.py",           # ← Phase 24: hook installer (depends on assistant_formats, before serve)
+    "src/perseus/synthesis.py",         # ← cited synthesis (extracted from serve.py)
+    "src/perseus/scheduler.py",         # ← scheduling: launchd, cron, systemd (extracted from serve.py)
+    "src/perseus/doctor.py",            # ← health, doctor, trust (extracted from serve.py)
+    "src/perseus/update.py",            # ← self-update (extracted from serve.py)
     "src/perseus/serve.py",
     "src/perseus/cli.py",  # includes _bind_registry() call before dispatch
 ]
@@ -84,7 +88,7 @@ STDLIB_REMINDER_RE = re.compile(
 )
 
 # Baseline line count for drift detection.
-BASELINE_LINES = 14957  # Phase 24 + Mnēmē + in-process BM25 + TIER2 audit + remaining patches
+BASELINE_LINES = 15206  # post-fingerprint-cache (nofingerprint/fingerprint modifiers + tests)
 
 
 def render_artifact(repo_root: Path) -> str:
@@ -189,6 +193,11 @@ def smoke_test(out_path: Path) -> None:
 def build(output_path: Path | None = None) -> None:
     repo_root = Path(__file__).resolve().parent.parent
     out_path = output_path or repo_root / "perseus.py"
+
+    # Warn on version drift (non-fatal for build, fatal for --check)
+    if _check_version_sync(repo_root):
+        print("WARNING: version drift detected — run `python scripts/build.py --check` to see details", file=sys.stderr)
+
     output = render_artifact(repo_root)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(output, encoding="utf-8")
@@ -196,10 +205,56 @@ def build(output_path: Path | None = None) -> None:
     smoke_test(out_path)
 
 
+def _check_version_sync(repo_root: Path) -> int:
+    """Validate that VERSION is synced to server.json and pyproject.toml.
+
+    Returns 0 if all in sync, 1 if drift detected.
+    """
+    version_path = repo_root / "VERSION"
+    version = version_path.read_text(encoding="utf-8").strip()
+    errors = 0
+
+    # server.json
+    server_json_path = repo_root / "server.json"
+    if server_json_path.exists():
+        import json
+        try:
+            data = json.loads(server_json_path.read_text(encoding="utf-8"))
+            sv = data.get("version", "")
+            if sv != version:
+                print(
+                    f"VERSION DRIFT: server.json version {sv!r} != VERSION {version!r}",
+                    file=sys.stderr,
+                )
+                errors += 1
+        except Exception as exc:
+            print(f"WARNING: could not parse server.json: {exc}", file=sys.stderr)
+
+    # pyproject.toml
+    pyproject_path = repo_root / "pyproject.toml"
+    if pyproject_path.exists():
+        text = pyproject_path.read_text(encoding="utf-8")
+        m = re.search(r'^version\s*=\s*"([^"]+)"', text, re.MULTILINE)
+        if m and m.group(1) != version:
+            print(
+                f"VERSION DRIFT: pyproject.toml version {m.group(1)!r} != VERSION {version!r}",
+                file=sys.stderr,
+            )
+            errors += 1
+
+    return 1 if errors else 0
+
+
 def check() -> None:
     """Verify the committed artifact matches src/ without modifying it."""
     repo_root = Path(__file__).resolve().parent.parent
     out_path = repo_root / "perseus.py"
+
+    # Check version sync first
+    if _check_version_sync(repo_root):
+        print("ERROR: version drift detected — sync VERSION to server.json / pyproject.toml", file=sys.stderr)
+        sys.exit(1)
+
     output = render_artifact(repo_root)
     try:
         current = out_path.read_text(encoding="utf-8")
