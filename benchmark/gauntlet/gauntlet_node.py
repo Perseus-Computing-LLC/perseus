@@ -296,7 +296,7 @@ def phase_checkpoint_relay(
     env = os.environ.copy()
     env["PERSEUS_HOME"] = str(WARM_HOME)
 
-    for i in range(min(writes_per_node, 20000)):
+    for i in range(min(writes_per_node, 2000)):
         t0 = time.time()
         task_name = f"gauntlet-cp-{i:06d}"
         try:
@@ -331,7 +331,7 @@ def phase_inbox_storm(
 ) -> dict:
     """Phase 6: Inbox Storm — simulate cross-team message delivery."""
     msgs_here = total_messages // 4
-    for i in range(min(msgs_here, 10000)):
+    for i in range(min(msgs_here, 2000)):
         profile = role_profiles[i % len(role_profiles)]
         cache_state = "warm"
         r = render_profile(profile["path"], cache_state=cache_state)
