@@ -138,7 +138,7 @@ def test_bug3_note_alias_accepted(tmp_path, monkeypatch):
     # Also verify the built perseus.py has the alias wired (grep argparse definition)
     import re
     src = Path(__file__).parent.parent / "perseus.py"
-    text = src.read_text()
+    text = src.read_text(encoding="utf-8")
     assert re.search(r'"--note".*dest.*notes|"--notes".*"--note"|--note.*--notes', text), \
         "--note alias not found in built perseus.py"
 
@@ -190,7 +190,6 @@ def test_feat1_workspace_modifier_tilde_expands(tmp_path):
 
 # ─────────────────────────── Feature #2 tests ─────────────────────────────────
 
-@pytest.mark.xfail(reason="pre-existing: resolve_memory may skip timestamp touch when narrative is within TTL")
 def test_feat2_touch_updated_on_fresh_render(tmp_path):
     """resolve_memory should update the 'updated' timestamp on a fresh render."""
     local = _mneme_cfg(tmp_path)
