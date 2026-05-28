@@ -138,8 +138,17 @@ class GauntletOrchestrator:
             print(f"{'='*60}")
 
             t0 = time.time()
-            result = self._execute_phase(p, name)
+            try:
+                result = self._execute_phase(p, name)
+            except Exception as exc:
+                import traceback
+                traceback.print_exc()
+                print(f"  PHASE CRASHED: {exc}")
+                result = {"phase": p, "name": name, "crash": str(exc), "failures": 1, "total": 1, "success_rate": 0.0}
             elapsed = time.time() - t0
+
+            if not isinstance(result, dict):
+                result = {"phase": p, "name": name, "bad_result": str(type(result)), "failures": 1, "total": 1, "success_rate": 0.0}
 
             result["duration_s"] = elapsed
             result["max_duration_s"] = max_dur
@@ -154,12 +163,19 @@ class GauntletOrchestrator:
 
             # Evaluate ALL gates against ALL accumulated data
             # This gives speedup gates access to both cold and warm results
-            self.gate_results = self.gate_runner.evaluate_all(
-                all_results, phases_run=run_mask,
-            )
+            try:
+                self.gate_results = self.gate_runner.evaluate_all(
+                    all_results, phases_run=run_mask,
+                )
+            except Exception as exc:
+                print(f"  GATE EVAL CRASHED: {exc}")
+                self.gate_results = self.gate_results or []
 
             # Save incremental
-            self._save_incremental()
+            try:
+                self._save_incremental()
+            except Exception as exc:
+                print(f"  SAVE FAILED: {exc}")
             print(f"  Elapsed: {elapsed:.1f}s / {max_dur:.0f}s budget")
 
         # Final report
