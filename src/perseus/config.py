@@ -320,7 +320,7 @@ DEFAULT_CONFIG["webhooks"] = {
 DEFAULT_CONFIG["foreign"] = {
     "enabled": True,
     "timeout_s": 10,
-    "verify_signatures": False,
+    "verify_signatures": True,  # Phase 26C: hardened default
     "shared_secret": "",
     "tls_verify": True,
     "max_response_bytes": 1048576,
