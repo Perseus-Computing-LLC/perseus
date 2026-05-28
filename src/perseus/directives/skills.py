@@ -3,8 +3,8 @@
 
 def resolve_skills(args_str: str, cfg: dict) -> str:
     """Scan the configured skills directory and emit a markdown summary."""
-    skill_dir = Path(cfg["pythia"]["skill_dir"])
-    stale_days = int(cfg["pythia"].get("stale_skill_days", 30))
+    skill_dir = Path(cfg.get("pythia", {}).get("skill_dir", str(PERSEUS_HOME / "skills")))
+    stale_days = int(cfg.get("pythia", {}).get("stale_skill_days", 30))
     flag_stale = "flag_stale=true" in args_str
 
     # Parse category= / include= filter (comma-separated, case-insensitive).
