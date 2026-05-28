@@ -1,6 +1,15 @@
 # Contributing to Perseus
 
-Our detailed contributing guidelines have moved to:
+Full contributor guidelines, dev setup, repo layout, and task workflow:
 👉 **[docs/CONTRIBUTING.md](docs/CONTRIBUTING.md)**
 
-Please refer to that document for instructions on development setup, the single-file build process, testing guidelines, and how to pick up tasks from the Agora board.
+Quick start:
+```bash
+git clone https://github.com/tcconnally/perseus.git
+cd perseus
+pip install -r requirements.txt
+python scripts/build.py       # regenerate perseus.py after editing src/
+python -m pytest tests/ -q    # 750+ tests
+```
+
+Edit `src/perseus/`, not `perseus.py` directly — it's a generated artifact.
