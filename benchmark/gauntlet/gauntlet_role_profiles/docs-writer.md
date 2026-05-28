@@ -35,4 +35,6 @@
 @skills flag_stale=true
 @agora status=open,in_progress
 @memory focus="recent"
+@memory
+@drift
 @synthesize

@@ -52,3 +52,5 @@
 @prefetch
 @graph @focus="architecture"
 @synthesize
+
+@mneme query="architect*"

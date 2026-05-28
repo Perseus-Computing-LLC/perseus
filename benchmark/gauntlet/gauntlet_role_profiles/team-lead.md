@@ -50,4 +50,5 @@
 @agora status=open,in_progress
 @inbox
 @memory focus="recent"
+@memory focus="decisions"
 @drift

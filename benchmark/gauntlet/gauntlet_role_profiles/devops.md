@@ -209,3 +209,5 @@
 @prefetch
 @synthesize
 @graph @focus="dependencies"
+
+@mneme query="docker container deploy"
