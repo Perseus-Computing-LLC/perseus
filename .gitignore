@@ -34,3 +34,6 @@ examples/claude-code/CLAUDE.md
 .coverage.*
 htmlcov/
 coverage.json
+
+# Attorney-client privileged material — must not be committed
+docs/ip/CIIA-ANALYSIS.md

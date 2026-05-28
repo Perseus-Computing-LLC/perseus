@@ -469,7 +469,7 @@ def print_mcp_config(cfg: dict, workspace: Path | None = None) -> None:
     import shutil
     perseus_path = shutil.which("perseus") or "perseus"
     ws = workspace or Path.cwd()
-    version = cfg.get("version", "1.0.0")
+    version = cfg.get("version", SERVER_VERSION)
     config = {
         "mcpServers": {
             "perseus": {
@@ -488,7 +488,7 @@ def print_mcp_config(cfg: dict, workspace: Path | None = None) -> None:
 
 def print_mcp_registry(cfg: dict) -> None:
     """Print Perseus's MCP registry listing metadata (for registry submission)."""
-    version = cfg.get("version", "1.0.0")
+    version = cfg.get("version", SERVER_VERSION)
     tools = _get_all_mcp_tools(cfg)
     registry_entry = {
         "name": "perseus",
