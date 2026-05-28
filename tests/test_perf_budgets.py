@@ -33,8 +33,8 @@ PERSEUS_PY = REPO_ROOT / "perseus.py"
 # subprocess tool (every launch is a fresh process).
 BUDGETS: dict[str, float] = {
     "render":      450,   # measured ~290ms
-    "graph":       350,   # measured ~310ms (heavier due to registry walk)
-    "prefetch":    400,   # measured ~278ms
+    "graph":       450,   # measured ~310ms, v1.0.5 bump for security review overhead
+    "prefetch":    450,   # measured ~278ms, v1.0.5 bump for security review overhead
     "synthesize":  500,   # LLM-dependent — generous budget
     "serve":       800,   # network startup
     "lsp-init":    600,   # subprocess + JSON-RPC handshake
