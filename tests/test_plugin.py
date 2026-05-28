@@ -58,6 +58,52 @@ def _discover_and_register(cfg_dict):
     return perseus._discover_plugins(cfg_dict)
 
 
+# ── Test: plugins-enabled default is single-sourced and cannot drift ─────────
+
+def test_plugins_enabled_default_is_single_sourced():
+    """register_plugins, _discover_plugins, and DEFAULT_CONFIG must agree on the
+    plugins-enabled default. All three read the shared PLUGINS_ENABLED_DEFAULT
+    constant; this guards against the sites silently drifting apart again (an
+    earlier bug had _discover_plugins default to False while register_plugins
+    defaulted to True)."""
+    assert perseus.PLUGINS_ENABLED_DEFAULT is True
+    assert perseus.DEFAULT_CONFIG["plugins"]["enabled"] is perseus.PLUGINS_ENABLED_DEFAULT
+
+
+def test_plugins_enabled_default_applies_when_key_absent(monkeypatch, tmp_path):
+    """With plugins.enabled omitted from cfg, BOTH discovery paths must fall back
+    to the same default (True) and find the plugin — proving the two call sites
+    share one default rather than diverging."""
+    plugin_py = """\
+from perseus_module import DirectiveSpec
+
+def _resolve_demo(args, cfg, workspace):
+    return "demo-output"
+
+REGISTER = {
+    "@demo": DirectiveSpec(
+        name="@demo",
+        resolver=_resolve_demo,
+        args=[],
+        kind="inline",
+        call_sig="acw",
+        summary="Demo",
+    )
+}
+"""
+    pdir = _setup_plugin_dir(monkeypatch, tmp_path, {"demo_plugin.py": plugin_py})
+    c = cfg()
+    c["plugins"]["dir"] = str(pdir)
+    # Bypass the orthogonal MANIFEST hash-verification gate so this test isolates
+    # the plugins-enabled DEFAULT behavior (and stays robust to the shared
+    # helper's non-UTF-8 MANIFEST comment, which fails to parse on Windows).
+    c["plugins"]["allow_unsigned"] = True
+    del c["plugins"]["enabled"]  # exercise the default branch in both functions
+    discovered = perseus._discover_plugins(c)
+    assert any(ds.name == "@demo" for ds in discovered)
+    assert perseus.register_plugins(c, force=True) >= 1
+
+
 # ── Test: Plugin with valid REGISTER → directive resolves correctly ─────────
 
 def test_plugin_valid_register_resolves(monkeypatch, tmp_path):
