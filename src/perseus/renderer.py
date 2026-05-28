@@ -564,6 +564,7 @@ def _render_lines(
     _constraint_rows: list[str] | None = None,
     _include_depth: int = 0,
     _include_visited: set | None = None,
+    _include_path_chain: tuple = (),
     _directive_collector: list[dict] | None = None,
     _stats: dict | None = None,
     max_tier: int = 3,
@@ -741,6 +742,7 @@ def _render_lines(
             rendered_block = _render_lines(block_lines, cfg, workspace, _constraint_rows,
                                            _include_depth=_include_depth,
                                            _include_visited=_include_visited,
+                                           _include_path_chain=_include_path_chain,
                                            _directive_collector=_directive_collector,
                                            _stats=_stats,
                                            max_tier=max_tier,
@@ -894,6 +896,7 @@ def _render_lines(
                 output.append(_render_lines(branch, cfg, workspace, _constraint_rows,
                                              _include_depth=_include_depth,
                                              _include_visited=_include_visited,
+                                             _include_path_chain=_include_path_chain,
                                              _directive_collector=_directive_collector,
                                              _stats=_stats,
                                              max_tier=max_tier,
@@ -977,6 +980,7 @@ def _render_lines(
                 result = spec.resolver(clean_args, workspace, cfg,
                                        _depth=_include_depth,
                                        _visited=_include_visited.copy() if _include_visited is not None else None,
+                                       _path_chain=_include_path_chain,
                                        _directive_collector=_directive_collector,
                                        _stats=_stats)
                 result = _apply_output_schema_validation(spec, clean_args, result, workspace)
@@ -1041,6 +1045,7 @@ def render_source(
     max_tier: int = 3,
     _include_depth: int = 0,
     _include_visited: set | None = None,
+    _include_path_chain: tuple = (),
     _directive_collector: list[dict] | None = None,
     _stats: dict | None = None,
 ) -> str:
@@ -1084,6 +1089,7 @@ def render_source(
     result = _render_lines(body_lines, cfg, workspace, _constraint_rows,
                          _include_depth=_include_depth,
                          _include_visited=_include_visited,
+                         _include_path_chain=_include_path_chain,
                          _directive_collector=_directive_collector,
                          _stats=_stats,
                          max_tier=max_tier,

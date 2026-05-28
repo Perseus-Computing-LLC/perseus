@@ -50,6 +50,9 @@ def _run(label: str, args: list[str]) -> dict:
     proc = subprocess.run(args, cwd=str(ROOT))
     duration = time.perf_counter() - t0
     print(f"[runner] ✓ {label} ({duration:.1f}s, rc={proc.returncode})", flush=True)
+    if proc.returncode != 0:
+        print(f"[runner] ❌ {label} failed with exit code {proc.returncode}", file=sys.stderr, flush=True)
+        sys.exit(proc.returncode)
     return {"label": label, "rc": proc.returncode, "duration_s": round(duration, 1)}
 
 
@@ -123,6 +126,20 @@ def main():
         print("[runner] ❌ Phase 0 failed: PERSEUS_BENCH shim not emitting", file=sys.stderr)
         return 2
     timings.append({"label": "phase-0 BENCH shim", "rc": 0, "duration_s": 0.1})
+
+    # P0 #2: Invalidate stale output files from prior runs so we never
+    # merge artifacts from old runs as if they were current.
+    _OUTPUT_FILES = [
+        ROOT / "swarm_results.json",
+        ROOT / "thrash_results.json",
+        ROOT / "adversarial_extended_results.json",
+        ROOT / "harness_results.json",
+        ROOT / "gates_results.json",
+        ROOT / "semantic_results.json",
+        ROOT / "extreme_enterprise_results.json",
+    ]
+    for _of in _OUTPUT_FILES:
+        _of.unlink(missing_ok=True)
 
     for label, cmd in plan[1:]:
         timings.append(_run(label, cmd))

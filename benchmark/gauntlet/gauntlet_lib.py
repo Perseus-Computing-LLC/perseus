@@ -70,10 +70,19 @@ def perseus_executable() -> str:
 
 
 def check_nfs_health(mount_path: Path | str = NFS_MOUNT_DIR) -> dict:
-    """Touch-and-remove health check for an NFS mount."""
+    """Touch-and-remove health check. Also verifies mount semantics.
+
+    P1 #9: validate that the path is actually a mount, not just a local
+    directory that happens to exist. Uses os.path.ismount() on Linux
+    and falls back to a stat-based heuristic on non-Linux platforms.
+    """
     mount_path = Path(mount_path)
     probe = mount_path / ".gauntlet_probe"
     try:
+        # P1 #9: confirm this is actually a mount point, not a local directory
+        if not os.path.ismount(str(mount_path)):
+            return {"healthy": False, "path": str(mount_path),
+                    "error": "not a mount point — is the NFS share mounted?"}
         mount_path.mkdir(parents=True, exist_ok=True)
         probe.write_text(timestamp_iso())
         probe.unlink()
@@ -93,13 +102,21 @@ def load_role_profiles(roles_dir: Path | str | None = None) -> list[dict]:
         raise FileNotFoundError(f"Role profiles directory not found: {roles_dir}")
 
     profiles: list[dict] = []
+    # Meta files to exclude from role profiles
+    _META_NAMES = {"readme", "roadmap", "agents", "contributing"}
     for f in sorted(roles_dir.iterdir()):
         if f.suffix in (".md", ".yaml", ".yml"):
+            if f.stem.lower() in _META_NAMES:
+                continue
+            dc = count_directives(f)
+            # P1 #7: exclude 0-directive profiles that dilute benchmark metrics
+            if dc == 0:
+                continue
             profiles.append(
                 {
                     "name": f.stem,
                     "path": str(f),
-                    "directive_count": count_directives(f),
+                    "directive_count": dc,
                 }
             )
     return profiles
@@ -234,16 +251,27 @@ class GateRunner:
             except Exception as exc:
                 passed, observed = False, str(exc)
 
-            # Treat "no data" as skipped
+            # Treat "no data" as skipped/fail based on severity
             if isinstance(observed, str) and observed == "no data":
-                results.append({
-                    "name": gate["name"],
-                    "pass": True,
-                    "observed": "skipped: phase not run",
-                    "threshold": gate["threshold"],
-                    "severity": gate["severity"],
-                    "skipped": True,
-                })
+                if gate["severity"] == "hard":
+                    # P1 #6: hard gates with missing data fail, don't skip
+                    results.append({
+                        "name": gate["name"],
+                        "pass": False,
+                        "observed": "no data (hard gate requires data)",
+                        "threshold": gate["threshold"],
+                        "severity": gate["severity"],
+                        "skipped": False,
+                    })
+                else:
+                    results.append({
+                        "name": gate["name"],
+                        "pass": True,
+                        "observed": "skipped: phase not run",
+                        "threshold": gate["threshold"],
+                        "severity": gate["severity"],
+                        "skipped": True,
+                    })
                 continue
 
             results.append({

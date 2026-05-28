@@ -293,7 +293,7 @@ def _measure_cell(n_directives: int, tier: int, warm: bool,
         ctx = _fresh_ctx(home, n_directives, f"t{tier}_d{n_directives}_r{rep}")
         wall, stdout, stderr, rc = _render(ctx, home, tier=tier)
 
-        if rc not in (0,) and b"TIMEOUT" not in stderr:
+        if rc != 0:
             errors += 1
             if not warm:
                 shutil.rmtree(home, ignore_errors=True)

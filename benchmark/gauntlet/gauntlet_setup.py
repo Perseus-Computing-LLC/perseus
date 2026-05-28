@@ -30,10 +30,9 @@ WARM_HOME = Path("/tmp/perseus-gauntlet/warm")
 
 
 def create_config(home: Path) -> None:
-    """Create .perseus/config.yaml with allow_query_shell=true."""
-    config_dir = home / ".perseus"
-    config_dir.mkdir(parents=True, exist_ok=True)
-    config_path = config_dir / "config.yaml"
+    """Create config.yaml with allow_query_shell=true."""
+    home.mkdir(parents=True, exist_ok=True)
+    config_path = home / "config.yaml"
     config_path.write_text("""\
 # Perseus Gauntlet config — benchmarking mode
 render:

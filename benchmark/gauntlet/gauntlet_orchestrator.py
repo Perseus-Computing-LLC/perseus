@@ -209,14 +209,13 @@ class GauntletOrchestrator:
 
         # Run full gauntlet setup (config, vault seed, checkpoints, files, narrative)
         print("  Running gauntlet setup...")
-        try:
-            import subprocess as _sp
-            setup_script = GAUNTLET_DIR / "gauntlet_setup.py"
-            _sp.run([sys.executable, "-u", str(setup_script)],
-                    check=True, timeout=120,
-                    capture_output=False)
-        except Exception as exc:
-            print(f"  Setup WARNING: {exc}")
+        import subprocess as _sp
+        setup_script = GAUNTLET_DIR / "gauntlet_setup.py"
+        result = _sp.run([sys.executable, "-u", str(setup_script)],
+                        timeout=120, capture_output=False)
+        if result.returncode != 0:
+            print(f"  Setup FAILED with exit code {result.returncode}", file=sys.stderr)
+            sys.exit(result.returncode)
 
         # NFS health
         nfs_health = check_nfs_health(self.nfs_path)
