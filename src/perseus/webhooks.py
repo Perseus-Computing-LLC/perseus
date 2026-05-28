@@ -75,6 +75,9 @@ def _webhook_worker(url, ep, wh_cfg, q):
     
     secret_raw = ep.get("secret", "")
     secret = _expand_env_vars(secret_raw)
+    # L-9: Warn if a ${VAR} placeholder resolved to empty — HMAC silently disabled
+    if secret_raw and "${" in secret_raw and not secret:
+        print(f"Perseus webhook warning: HMAC secret env var expanded to empty for {url[:80]}...", file=sys.stderr)
     extra_headers = ep.get("headers", {})
 
     while True:
@@ -124,7 +127,18 @@ def _webhook_worker(url, ep, wh_cfg, q):
                     headers["X-Perseus-Signature"] = f"t={ts_unix},v1={sig}"
                 
                 req = urllib.request.Request(url, data=body_data, headers=headers, method="POST")
-                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                # Prevent SSRF: disable redirect following (TLS verification is default)
+                class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+                    def redirect_request(self, req, fp, code, msg, hdrs, newurl):
+                        raise urllib.error.HTTPError(
+                            req.full_url, code,
+                            f"Webhook redirect blocked: {code} → {newurl}",
+                            hdrs, fp)
+                    def http_error_301(self, req, fp, code, msg, hdrs):
+                        return self.redirect_request(req, fp, code, msg, hdrs, req.full_url)
+                    http_error_302 = http_error_303 = http_error_307 = http_error_308 = http_error_301
+                opener = urllib.request.build_opener(_NoRedirectHandler)
+                with opener.open(req, timeout=timeout) as resp:
                     if 200 <= resp.status < 300:
                         success = True
                         break

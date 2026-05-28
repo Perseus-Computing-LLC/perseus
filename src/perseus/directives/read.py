@@ -62,26 +62,37 @@ def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str
             return fallback_result()
         return f"> ⚠ @read: file not found: `{file_path_str}`"
 
+    # ── Pre-read size check to prevent memory exhaustion ──
+    # Only gate truly massive files (50 MB+) to allow normal truncation path
+    _MAX_SAFE_READ_BYTES = 50 * 1024 * 1024  # 50 MB
     try:
-        content = fp.read_text(errors="replace")
+        if fp.stat().st_size > _MAX_SAFE_READ_BYTES:
+            msg = f"> ⚠ @read: file too large for safe read ({fp.stat().st_size:,} bytes)"
+            if fallback is not None:
+                return fallback_result()
+            return msg
+    except OSError:
+        pass  # stat failed, fall through to read
+
+    try:
+        data = fp.read_bytes()
+        content = data.decode(errors="replace")
     except Exception as e:
         if fallback is not None:
             return fallback_result()
         return f"> ⚠ @read: could not read `{file_path_str}`: {e}"
 
-    # ── File size limit check ──
-    max_bytes = cfg.get("render", {}).get("max_read_bytes")
-    if max_bytes is not None and len(content) > max_bytes:
-        truncated = content[:max_bytes]
+    # ── File size limit check (byte-counted, not character-counted) ──
+    if max_bytes is not None and len(data) > max_bytes:
+        content = data[:max_bytes].decode(errors="replace")
         trunc_note = (
             f"> ⚠ @read: file `{file_path_str}` exceeds max_read_bytes "
-            f"({len(content):,} > {max_bytes:,}). Output truncated to first "
+            f"({len(data):,} > {max_bytes:,}). Output truncated to first "
             f"{max_bytes:,} bytes.\n\n"
         )
         if schema_ref is not None:
             # Can't validate truncated content — skip validation for this run
             pass
-        content = truncated
     else:
         trunc_note = ""
 

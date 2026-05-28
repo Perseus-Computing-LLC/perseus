@@ -63,6 +63,8 @@ def cmd_inbox(args, cfg):
         body = getattr(args, "body", "") or ""
         recipient = getattr(args, "recipient", None) or cfg.get("inbox", {}).get("default_recipient", "anyone")
         sender = getattr(args, "from_", None) or cfg.get("inbox", {}).get("default_sender", "perseus")
+        # Sanitize sender to prevent path traversal (M-7)
+        safe_sender = re.sub(r'[^A-Za-z0-9_.@-]', '_', str(sender))[:64] or "perseus"
         now = datetime.now().astimezone()
         ts = now.strftime("%Y-%m-%dT%H%M%S")
         msg = {
@@ -75,7 +77,7 @@ def cmd_inbox(args, cfg):
             "read_at": None,
             "dismissed_at": None,
         }
-        path = _inbox_dir(workspace, cfg) / f"{ts}-{sender}.yaml"
+        path = _inbox_dir(workspace, cfg) / f"{ts}-{safe_sender}.yaml"
         _inbox_write(path, msg)
         print(f"✔ Inbox message sent: {path.stem}")
         print(f"  Recipient: {recipient}")

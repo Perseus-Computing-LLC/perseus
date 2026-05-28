@@ -42,6 +42,13 @@ def cmd_checkpoint(args, cfg):
             locked = True
             break
         except FileExistsError:
+            # Check if lock holder is still alive (PID staleness detection)
+            try:
+                stale_pid = int(lock_path.read_text().strip())
+                os.kill(stale_pid, 0)  # signal 0 = check existence only
+            except (OSError, ValueError):
+                lock_path.unlink(missing_ok=True)  # stale lock — holder is gone
+                continue
             time.sleep(0.2 * (attempt + 1))  # 0.2s, 0.4s, ..., 2.0s
     if not locked:
         print("⚠ checkpoint store is locked by another agent; try again later", file=sys.stderr)
@@ -67,7 +74,8 @@ def cmd_checkpoint(args, cfg):
                 ws_path = Path(str(cp["workspace"])).expanduser().resolve()
                 ws_hash = _workspace_hash(ws_path)
                 ws_pointer = store / f"latest-{ws_hash}.yaml"
-                ws_pointer.write_text(outfile.read_text())
+                # Write in-memory data directly instead of re-reading the file (H-5 TOCTOU fix)
+                ws_pointer.write_text(yaml.dump(cp, default_flow_style=False, allow_unicode=True))
             except Exception as exc:
                 print(f"> ⚠ Could not write per-workspace pointer: {exc}")
 

@@ -2604,6 +2604,17 @@ def _serve_trust_summary(cfg: dict) -> dict:
 
 
 def _serve_authorized(headers, token: str | None) -> bool:
+    # Host header validation for DNS rebinding protection (H-4)
+    if headers is not None:
+        try:
+            host = headers.get("Host", "") or ""
+        except AttributeError:
+            host = ""
+        if host:
+            hostname = host.split(":")[0]
+            if hostname not in ("127.0.0.1", "localhost", "::1"):
+                return False
+
     if not token:
         return True
     import hmac
@@ -2718,13 +2729,22 @@ def _serve_render_endpoint(endpoint: str, cfg: dict, workspace: Path, query: dic
             except (TypeError, ValueError):
                 limit = 20
             entries = _read_all_pythia_entries()[-limit:][::-1]
+            # M-4: Filter by workspace if provided to prevent cross-workspace data leak
+            ws_filter = query.get("workspace", "").strip()
+            if ws_filter:
+                entries = [e for e in entries if ws_filter in (e.get("task", "") or "")]
             body = json.dumps(entries, ensure_ascii=False, indent=2)
             body, _ = redact_text(body, cfg)
             return (200, "application/json; charset=utf-8", body)
 
         return (404, "text/plain; charset=utf-8", f"Unknown endpoint: {endpoint}")
     except Exception as exc:
-        return (500, "text/plain; charset=utf-8", f"Internal error: {exc}")
+        # S6: Log the real exception, return a generic error to avoid leaking
+        # stack traces, file paths, or config keys in the response body.
+        import traceback
+        traceback.print_exc()
+        return (500, "application/json; charset=utf-8",
+                '{"error":"internal error","detail":"see server logs"}')
 
 
 # ───── Phase 10.1 — Perseus LSP server (task-23) ─────────────────────────────

@@ -293,14 +293,30 @@ def _get_shell(cfg: dict) -> str | None:
     to use the platform default (COMSPEC on Windows, /bin/sh elsewhere).
     Also handles non-default shells that aren't findable — falls back to None
     rather than crashing.
+
+    Security (L-6): when a shell is explicitly configured, resolve it only if
+    it matches a trusted path; otherwise fall back to the system default.
     """
     shell = cfg["render"].get("shell", "/bin/bash")
+    # Trusted shell paths — only allow these absolute locations
+    trusted = {"/bin/bash", "/bin/sh", "/bin/zsh", "/usr/bin/bash", "/usr/bin/zsh",
+               "/usr/local/bin/bash", "/usr/local/bin/zsh"}
+    if shell in trusted:
+        resolved = shutil.which(shell)
+        if resolved and resolved in trusted:
+            return resolved
+    # For user-specified shells, only resolve if in a trusted location
     resolved = shutil.which(shell)
     if resolved is None and shell != "/bin/bash":
         # Non-default shell specified but not found — log and fall back
         return None
     if resolved is None:
         # Default /bin/bash not found (Windows) — use system default
+        return None
+    if resolved not in trusted:
+        # Shell resolved to unexpected location — refuse (trojan risk)
+        print(f"Perseus warning: shell '{shell}' resolved to untrusted path '{resolved}'. "
+              "Falling back to system default.", file=sys.stderr)
         return None
     return resolved
 
