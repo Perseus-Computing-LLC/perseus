@@ -1,6 +1,24 @@
 # stdlib imports available from build artifact header
 # ──────────────────────────────── @query ──────────────────────────────────────
 
+def _unescape_fallback(s: str) -> str:
+    """Unescape standard escape sequences without mangling non-ASCII.
+
+    Handles: \\n, \\t, \\r, \\\\, \\\", \\', \\0, \\uNNNN, \\xNN.
+    Unlike unicode_escape, preserves non-ASCII UTF-8 bytes as-is.
+    """
+    return re.sub(
+        r'\\([ntr0\\"\'"]|x[0-9a-fA-F]{2}|u[0-9a-fA-F]{4})',
+        lambda m: _FALLBACK_ESCAPE_MAP.get(m.group(1),
+                   chr(int(m.group(1)[1:], 16)) if m.group(1).startswith(("x", "u")) else m.group(0)),
+        s
+    )
+
+_FALLBACK_ESCAPE_MAP = {
+    "n": "\n", "t": "\t", "r": "\r", "0": "\0",
+    "\\": "\\", '"': '"', "'": "'",
+}
+
 def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> str:
     """
     @query "shell command" [fallback="text"] [schema="path/to/schema.yaml"] [@cache session|ttl=N]
@@ -49,8 +67,10 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
     fb_match = re.search(r'\s+fallback=(?:"((?:[^"\\]|\\.)*)"|\'((?:[^\'\\]|\\.)*)\')(\s|$)', raw)
     if fb_match:
         fallback = fb_match.group(1) if fb_match.group(1) is not None else fb_match.group(2)
-        # Unescape backslash-escapes inside the captured text
-        fallback = fallback.encode("utf-8").decode("unicode_escape", errors="replace")
+        # Unescape standard escape sequences (\n, \t, \\, \", \uNNNN)
+        # WITHOUT mangling non-ASCII characters (unicode_escape decodes
+        # UTF-8 bytes as Latin-1, corrupting characters like é → Ã©).
+        fallback = _unescape_fallback(fallback)
         raw = (raw[:fb_match.start()] + raw[fb_match.end():]).rstrip()
 
     cmd_match = re.match(r'^"((?:[^"\\]|\\.)*)"', raw)   # double-quoted

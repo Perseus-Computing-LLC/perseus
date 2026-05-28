@@ -88,3 +88,4 @@
 @inbox
 @drift
 @memory focus="recent"
+@memory focus="decisions"

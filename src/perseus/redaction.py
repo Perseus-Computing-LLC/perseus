@@ -86,7 +86,24 @@ def _compile_redaction_rules(cfg: dict) -> list[dict]:
         if not pattern:
             continue
         try:
-            regex = re.compile(str(pattern))
+            # S8: Validate pattern complexity to prevent ReDoS.
+            # Simple heuristic: patterns over 200 chars or with deeply-nested
+            # repetition groups are likely dangerous.
+            pattern_str = str(pattern)
+            if len(pattern_str) > 200:
+                continue
+            # Count nested groups — more than 10 is suspicious for ReDoS
+            nested = 0
+            for c in pattern_str:
+                if c == '(':
+                    nested += 1
+                elif c == ')':
+                    nested -= 1
+                if nested > 10:
+                    break
+            if nested > 10:
+                continue
+            regex = re.compile(pattern_str)
         except re.error:
             continue
         replacement = rule.get("replacement")

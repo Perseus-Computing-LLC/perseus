@@ -115,3 +115,5 @@
 @query "loginctl list-sessions" @cache ttl=300
 @query "cat /proc/1/cmdline" @cache ttl=300
 @query "ls -la /etc/ssl/" @cache ttl=300
+
+@mneme query="infrastructure deployment"

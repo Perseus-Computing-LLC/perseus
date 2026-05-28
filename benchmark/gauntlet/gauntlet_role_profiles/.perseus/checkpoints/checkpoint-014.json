@@ -1,0 +1,18 @@
+{
+  "session_id": "sess-003",
+  "timestamp": "2026-05-21T01:28:00+00:00",
+  "label": "Build artifact drift fix \u2014 iteration 5",
+  "workspace": "/workspace/perseus/benchmark/gauntlet/gauntlet_role_profiles",
+  "directives_used": [
+    "@query",
+    "@read",
+    "@memory",
+    "@services",
+    "@health",
+    "@agora"
+  ],
+  "files_changed": 5,
+  "duration_s": 240,
+  "exit_code": 0,
+  "checkpoint_number": 5
+}

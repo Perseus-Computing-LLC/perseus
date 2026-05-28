@@ -43,13 +43,13 @@ def resolve_agent(args_str: str, cfg: dict, workspace: Path | None = None) -> st
     strip_output = str(mods.get("strip", "true")).strip().lower() != "false"
     fallback = mods.get("fallback")
 
-    shell = render_cfg.get("shell", "/bin/bash")
+    shell = _get_shell(cfg)
 
     # task-47: audit @agent shell execution crossing the trust boundary.
     audit_event(cfg, "shell_exec",
                 directive="@agent",
                 command=cmd[:500],
-                shell=shell,
+                shell=shell or "(platform default)",
                 timeout=timeout)
 
     try:
@@ -79,6 +79,13 @@ def resolve_agent(args_str: str, cfg: dict, workspace: Path | None = None) -> st
         return f"> ⚠ @agent: command exited {result.returncode}: `{cmd}`\n\n```\n{body}\n```"
 
     output = result.stdout or ""
+    # Output size cap — prevent multi-GB stdout from inflating RAM.
+    # Reuses max_query_bytes; override with max_agent_bytes if set.
+    max_bytes = int(render_cfg.get("max_agent_bytes",
+                     render_cfg.get("max_query_bytes", 262144)))
+    if len(output) > max_bytes:
+        output = output[:max_bytes]
+        output += f"\n[truncated to {max_bytes:,} bytes] ⚠"
     if strip_output:
         output = output.strip()
     if not output:
