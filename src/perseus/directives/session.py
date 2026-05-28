@@ -139,7 +139,7 @@ def resolve_session(args_str: str, cfg: dict) -> str:
     if m:
         topic = m.group(1).lower()
 
-    sessions_dir = Path(cfg["assistant"].get("sessions_dir", SESSIONS_DIR))
+    sessions_dir = Path(cfg.get("assistant", {}).get("sessions_dir", SESSIONS_DIR))
     if not sessions_dir.exists():
         return "> ⚠ Sessions directory not found."
 

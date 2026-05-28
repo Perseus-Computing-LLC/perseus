@@ -95,7 +95,9 @@ def resolve_tool(args_str: str, cfg: dict, workspace: Path | None = None) -> str
 
     # Check arg restrictions
     for arg in args:
-        if arg not in allowed_args:
+        # Split on '=' for --flag=value form — check just the flag part
+        flag = arg.split("=", 1)[0]
+        if arg not in allowed_args and flag not in allowed_args:
             return f"> ⚠ @tool: argument {arg!r} is not allowed for {tool_name!r}."
 
     # Execute

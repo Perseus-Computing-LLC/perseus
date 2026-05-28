@@ -380,6 +380,12 @@ def serve_mcp_sse(cfg: dict, workspace: Path | None = None, port: int = 8420) ->
 
     class MCPSSEHandler(BaseHTTPRequestHandler):
         def do_GET(self):
+            if not _check_auth(self):
+                self.send_response(401)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": "unauthorized"}).encode())
+                return
             if self.path == "/sse":
                 self.send_response(200)
                 self.send_header("Content-Type", "text/event-stream")
