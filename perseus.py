@@ -2465,6 +2465,68 @@ class ConditionParseError(ValueError):
     pass
 
 
+# ── v1.0.6 Preflight Permission Check ──────────────────────────────────────
+# Verifies PERSEUS_HOME and subdirectories Perseus writes to are writable.
+# Cached per-process — only runs once. Directives call _preflight_warnings()
+# to get any pending warnings, or the renderer injects them at top level.
+
+_PREFLIGHT_WARNINGS: list[str] = []
+_PREFLIGHT_RUN = False
+
+
+def _preflight_permissions(cfg: dict) -> list[str]:
+    """Check writability of PERSEUS_HOME and all write-target subdirectories.
+
+    Returns a list of warning strings (empty = all good). Cached — runs once.
+    """
+    global _PREFLIGHT_WARNINGS, _PREFLIGHT_RUN
+    if _PREFLIGHT_RUN:
+        return _PREFLIGHT_WARNINGS
+    _PREFLIGHT_RUN = True
+
+    warnings: list[str] = []
+    home = PERSEUS_HOME
+
+    # Check PERSEUS_HOME itself
+    if not home.exists():
+        try:
+            home.mkdir(parents=True, exist_ok=True)
+        except (OSError, PermissionError) as e:
+            warnings.append(
+                f"⚠ PERSEUS_HOME not writable: {home} — {e}. "
+                "@inbox, @waypoint, and @memory will be disabled."
+            )
+            _PREFLIGHT_WARNINGS = warnings
+            return warnings
+    elif not os.access(home, os.W_OK):
+        warnings.append(
+            f"⚠ PERSEUS_HOME not writable: {home}. "
+            "@inbox, @waypoint, and @memory will be disabled."
+        )
+        _PREFLIGHT_WARNINGS = warnings
+        return warnings
+
+    # Subdirectories Perseus writes to
+    subdirs = {
+        "checkpoints": cfg.get("checkpoints", {}).get("store", str(home / "checkpoints")),
+        "inbox": cfg.get("inbox", {}).get("store", str(home / "inbox")),
+        "audit": str(home),  # audit_log.jsonl lives directly in PERSEUS_HOME
+        "memory": str(home / "memory"),  # Mnēmē vault
+    }
+
+    for name, path_str in subdirs.items():
+        path = Path(path_str)
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+        except (OSError, PermissionError):
+            pass  # Check access below — mkdir may fail on parent but the leaf may exist
+        if not os.access(path if path.is_dir() else path.parent, os.W_OK):
+            warnings.append(f"⚠ {name}/ not writable: {path}")
+
+    _PREFLIGHT_WARNINGS = warnings
+    return warnings
+
+
 # ──────────────────────────────── @env ────────────────────────────────────────
 
 def resolve_env(args_str: str, cfg: dict | None = None, workspace: Path | None = None) -> str:
@@ -4335,7 +4397,22 @@ def resolve_waypoint(args_str: str, cfg: dict) -> str:
     if m:
         ttl = int(m.group(1))
 
-    cp = load_latest_checkpoint(cfg)
+    # v1.0.6: preflight check — surface permission errors instead of silently
+    # returning "No checkpoint found."
+    preflight = _preflight_permissions(cfg)
+    cp_dir = cfg.get("checkpoints", {}).get("store", str(PERSEUS_HOME / "checkpoints"))
+    if any("PERSEUS_HOME not writable" in w for w in preflight):
+        return "> ⚠ @waypoint disabled: PERSEUS_HOME is not writable."
+    if any("checkpoints" in w for w in preflight):
+        return f"> ⚠ @waypoint disabled: checkpoint store not writable ({cp_dir})."
+
+    try:
+        cp = load_latest_checkpoint(cfg)
+    except PermissionError as e:
+        return f"> ⚠ @waypoint: cannot read checkpoint store ({cp_dir}) — {e}"
+    except OSError as e:
+        return f"> ⚠ @waypoint: error accessing checkpoint store ({cp_dir}) — {e}"
+
     if not cp:
         return "> No checkpoint found."
 
@@ -7113,6 +7190,11 @@ def render_source(
         register_plugins(cfg)
         register_hooks(cfg)
 
+        # v1.0.6: preflight permission check — surface environment issues
+        # before any directives run. Warnings are emitted at the top of
+        # the rendered output so the agent/user sees them immediately.
+        preflight_warnings = _preflight_permissions(cfg)
+
     if _stats is None:
         _stats = {
             "directive_count": 0,
@@ -7165,6 +7247,11 @@ def render_source(
             manifest_lines.append("> ")
             manifest_lines.append("> Re-run with `perseus render --tier 3` to include on-demand context.")
         result = result + "\n".join(manifest_lines)
+
+    # v1.0.6: prepend preflight permission warnings at top of output
+    if _include_depth == 0 and preflight_warnings:
+        header = "\n".join(f"> {w}" for w in preflight_warnings) + "\n\n"
+        result = header + result
 
     if _include_depth == 0 and _render_start_ts is not None:
         _fire_hooks("on_render_complete", {
@@ -9110,7 +9197,21 @@ def resolve_inbox(args_str: str, cfg: dict, workspace: Path | None = None) -> st
     except (TypeError, ValueError):
         limit = 10
 
-    items = _inbox_load_all(ws, cfg)
+    # v1.0.6: preflight check — surface permission errors instead of silently
+    # returning "_No new messages._"
+    preflight = _preflight_permissions(cfg)
+    inbox_dir = str(_inbox_dir(ws, cfg))
+    if any("PERSEUS_HOME not writable" in w for w in preflight):
+        return "> ⚠ @inbox disabled: PERSEUS_HOME is not writable."
+    if any("inbox" in w for w in preflight):
+        return f"> ⚠ @inbox disabled: inbox store not writable ({inbox_dir})."
+
+    try:
+        items = _inbox_load_all(ws, cfg)
+    except PermissionError as e:
+        return f"> ⚠ @inbox: cannot read inbox ({inbox_dir}) — {e}"
+    except OSError as e:
+        return f"> ⚠ @inbox: error accessing inbox ({inbox_dir}) — {e}"
     visible = []
     for fp, msg in items:
         if msg.get("dismissed_at"):
