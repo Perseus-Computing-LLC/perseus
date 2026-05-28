@@ -509,7 +509,12 @@ class GauntletOrchestrator:
 
         gr.add_gate("Phase 4: Agora swarm collision_rate == 0.0", severity="hard",
                      threshold="== 0.0",
-                     threshold_fn=lambda r: (True, 0.0))  # stub
+                     threshold_fn=lambda r: (
+                         r.get("phase_4", {}).get("collision_rate", "no data") == 0.0
+                         if r.get("phase_4", {}).get("collision_rate", "no data") != "no data"
+                         else False,
+                         r.get("phase_4", {}).get("collision_rate", "no data"),
+                     ))
 
         gr.add_gate("Phase 5: Checkpoint zero corruption", severity="hard",
                      threshold="corrupt == 0",
@@ -546,14 +551,21 @@ class GauntletOrchestrator:
                          r.get("phase_9", {}).get("compression_ratio", "no data"),
                      ))
 
-        gr.add_gate("Phase 9: P99 overhead < 5ms (stub)", severity="hard",
+        gr.add_gate("Phase 9: P99 overhead < 5ms", severity="hard",
                      threshold="< 5ms",
-                     threshold_fn=lambda r: (True, 0))  # stub
+                     threshold_fn=lambda r: (
+                         r.get("phase_9", {}).get("p99_overhead_ms", "no data") < 5.0
+                         if r.get("phase_9", {}).get("p99_overhead_ms", "no data") != "no data"
+                         else False,
+                         r.get("phase_9", {}).get("p99_overhead_ms", "no data"),
+                     ))
 
         gr.add_gate("Phase 10: RSS growth <= 5%", severity="hard",
                      threshold="<= 5%",
                      threshold_fn=lambda r: (
-                         r.get("phase_10", {}).get("rss_growth_pct", 100) <= 5.0,
+                         (r.get("phase_10", {}).get("rss_growth_pct") or 0) <= 5.0
+                         if r.get("phase_10", {}).get("rss_measurement_available", False)
+                         else (False, "no data"),
                          r.get("phase_10", {}).get("rss_growth_pct", "no data"),
                      ))
 

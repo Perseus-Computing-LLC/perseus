@@ -356,6 +356,15 @@ def phase_sustained_torture(
     cycle = 0
     rss_samples: list[int] = []
 
+    # Try to import psutil for cross-platform RSS sampling
+    try:
+        import psutil as _psutil
+        _proc = _psutil.Process(os.getpid())
+        _has_psutil = True
+    except ImportError:
+        _proc = None
+        _has_psutil = False
+
     while time.time() < t_end:
         if cycle % 10 == 0:
             # P1 #10: cross-platform RSS sampling via psutil.
@@ -394,8 +403,9 @@ def phase_sustained_torture(
     agg["rss_growth_pct"] = (
         ((rss_samples[-1] - rss_samples[0]) / rss_samples[0] * 100)
         if len(rss_samples) >= 2 and rss_samples[0] > 0
-        else 0
+        else None  # None signals "unsupported platform / insufficient samples" — not zero
     )
+    agg["rss_measurement_available"] = len(rss_samples) >= 2
     return agg
 
 
