@@ -332,7 +332,8 @@ def _extract_quoted_token(raw: str) -> tuple[str | None, str]:
             elif ch == "x":
                 _escape_buffer = "\\x"
             else:
-                buf.append("\\" + ch)  # unknown escape — keep literal
+                # H-5: unknown escape — keep literal (backslash is preserved)
+                buf.append("\\" + ch)
             escaped = False
             continue
         if ch == "\\":
@@ -381,7 +382,10 @@ def _parse_kv_modifiers(raw: str) -> dict[str, str]:
             while i < n:
                 ch = raw[i]
                 if escaped:
-                    buf.append(ch)
+                    # H-5: decode only well-known escape sequences,
+                    # keep everything else literal (backslash preserved)
+                    buf.append({'n': '\n', 't': '\t', 'r': '\r',
+                                '\\': '\\', '"': '"', "'": "'"}.get(ch, '\\' + ch))
                     escaped = False
                 elif ch == "\\":
                     escaped = True
@@ -693,7 +697,8 @@ def _update_latest_checkpoint_pointer(latest: Path, outfile: Path) -> None:
     try:
         latest.symlink_to(outfile.name)
     except OSError:
-        latest.write_text(outfile.read_text())
+        # L-4: use explicit UTF-8 encoding for cross-platform safety
+        latest.write_text(outfile.read_text(encoding="utf-8"), encoding="utf-8")
 
 
 def _get_tasks_dir(workspace: Path | None, cfg: dict) -> Path:
@@ -793,7 +798,9 @@ def _render_agora_table(tasks: list[tuple[Path, dict, str]]) -> str:
         return '> No tasks found.'
     rows = ['| ID | Scope | Title | Status |', '|---|---|---|---|']
     for _path, fm, _body in tasks:
-        rows.append(f"| {fm.get('id','')} | {fm.get('scope','')} | {fm.get('title','')} | {fm.get('status','')} |")
+        def _esc(v: str) -> str:
+            return str(v).replace("|", "\\|")
+        rows.append(f"| {_esc(fm.get('id',''))} | {_esc(fm.get('scope',''))} | {_esc(fm.get('title',''))} | {_esc(fm.get('status',''))} |")
     return '\n'.join(rows)
 
 
