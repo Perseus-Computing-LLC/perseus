@@ -67,10 +67,11 @@ GENERATED_HEADER = """\
 # Matches any line that is an internal cross-module import of the form:
 #   from perseus.foo import bar
 #   from perseus.foo.bar import baz
-# These are stripped from the concatenated output because every name they
-# would import is already defined earlier in the same file (by dependency
-# order concatenation).
-INTERNAL_IMPORT_RE = re.compile(r"^from\s+perseus\.[a-zA-Z_][\w.]*\s+import\s+")
+# Matches both unindented (top-level) and indented (try/except, if-block,
+# function body) imports.  Does NOT match continuation lines of multi-line
+# imports — those are handled separately by the multi-line-tracking state
+# machine in build().
+INTERNAL_IMPORT_RE = re.compile(r"^\s*from\s+perseus\.[a-zA-Z_][\w.]*\s+import\s+")
 
 # Matches the shebang line — only the first module's shebang is kept.
 SHEBANG_RE = re.compile(r"^#!.*python")
@@ -106,9 +107,23 @@ def build() -> None:
             sys.exit(1)
 
         text = path.read_text(encoding="utf-8")
+        in_multiline_import = False
         for line in text.splitlines():
             # Drop internal cross-module imports (build concatenation provides them)
             if INTERNAL_IMPORT_RE.match(line):
+                # Check if this is a multi-line import start (ends with backslash
+                # or opening paren without matching close paren)
+                stripped_no_comment = line.split("#")[0].rstrip()
+                if stripped_no_comment.endswith(("\\", "(")):
+                    in_multiline_import = True
+                continue
+            if in_multiline_import:
+                # Skip continuation lines until the import statement closes
+                stripped_no_comment = line.split("#")[0].rstrip()
+                if stripped_no_comment.endswith(")") or (
+                    not stripped_no_comment.endswith("\\") and "(" not in stripped_no_comment
+                ):
+                    in_multiline_import = False
                 continue
             # Keep shebang only from the first module (__init__.py)
             if SHEBANG_RE.match(line) and not first_module:
