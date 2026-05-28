@@ -182,12 +182,18 @@ DEFAULT_CONFIG = {
     "hooks": {
         "enabled": True,
     },
+    "webhooks": {
+        "enabled": False,
+        "url": "",
+        "secret": "",
+        "events": ["on_render_start", "on_render_complete", "on_directive_error"],
+        "timeout_s": 5,
+    },
     "tools": {
         "enabled": True,
         "allowlist": [],
     },
-    "foreign_resolver": {  # DEPRECATED: use "foreign" block (Phase 24E) for new config.
-                          # Kept for backward compatibility; code checks both paths.
+    "foreign_resolver": {
         "enabled": True,
         "allowlist": [],
         "hmackey": "",
@@ -379,10 +385,6 @@ def _get_shell(cfg: dict) -> str | None:
 
 
 # Phase 24 — task-72: Event Webhooks
-# NOTE: enabled=True but endpoints=[] means the webhook engine is active
-# (hooks fire internally) but no external delivery occurs. To actually deliver
-# events, add endpoint URLs to the endpoints list. This split allows the
-# internal hook pipeline to run without inadvertently exposing events.
 DEFAULT_CONFIG["webhooks"] = {
     "enabled": True,
     "timeout_s": 10,
@@ -575,7 +577,7 @@ from datetime import datetime, timezone
 try:
     from .serve import _PERSEUS_VERSION
 except ImportError:
-    _PERSEUS_VERSION = "1.0.5"
+    _PERSEUS_VERSION = "1.0.4"
 
 # ──────────────────────────────── Webhooks ───────────────────────────────────
 
@@ -6229,24 +6231,6 @@ def _parse_cache_modifier(line: str) -> tuple[str, str, int | None, str | None]:
     values containing spaces: @cache mock="hello world". Unquoted values
     stop at the first whitespace.
     """
-    # @cache nofingerprint (opt out of fingerprinting; checked before ttl)
-    m = re.search(r'\s*@cache\s+nofingerprint\b', line, re.IGNORECASE)
-    if m:
-        clean = line[:m.start()] + line[m.end():]
-        # After removing nofingerprint, the ttl=N may be bare (no @cache prefix)
-        m2 = re.search(r'\s*@cache\s+ttl=(\d+)|\bttl=(\d+)', clean, re.IGNORECASE)
-        ttl_val = None
-        if m2:
-            ttl_val = int(m2.group(1) or m2.group(2))
-            clean = clean[:m2.start()] + clean[m2.end():]
-        return clean.rstrip(), "nofingerprint", ttl_val, None
-
-    # @cache fingerprint (explicit)
-    m = re.search(r'\s*@cache\s+fingerprint\b', line, re.IGNORECASE)
-    if m:
-        clean = line[:m.start()] + line[m.end():]
-        return clean.rstrip(), "fingerprint", None, None
-
     # @cache ttl=N
     m = re.search(r'\s*@cache\s+ttl=(\d+)', line, re.IGNORECASE)
     if m:
@@ -6282,42 +6266,6 @@ def _parse_cache_modifier(line: str) -> tuple[str, str, int | None, str | None]:
         return clean.rstrip(), "mock", None, "(mock — directive skipped)"
 
     return line, "", None, None
-
-
-def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path) -> str:
-    """Return a stable fingerprint of all file dependencies for this directive.
-
-    Returns a hex digest that changes when any file the directive reads changes.
-    Directives with no file dependencies return "" (empty string).
-    This is concatenated to the cache key so stale entries miss automatically.
-
-    Fingerprinted directives:
-      @read <file>         → sha256 of file content
-      @include <file>      → sha256 of file content (first-level only;
-                              transitive deps handled by recursive render)
-      @env <VAR>           → no fingerprint (value changes per-process)
-      @query ...           → no fingerprint (shell output depends on system state,
-                              not static files — let TTL handle staleness)
-      @services            → no fingerprint (service health is ephemeral)
-      @perseus <url>       → no fingerprint (remote content changes independently)
-    """
-    import hashlib as _hashlib
-
-    parts: list[str] = []
-
-    if directive in ("@read", "@include"):
-        raw_path = clean_args.split()[0] if clean_args else ""
-        if raw_path:
-            fpath = (workspace / raw_path).resolve()
-            try:
-                content = fpath.read_bytes()
-                parts.append(f"{directive}:{raw_path}:{_hashlib.sha256(content).hexdigest()}")
-            except (OSError, PermissionError):
-                pass  # can't read → no fingerprint (cache miss is safe)
-
-    if not parts:
-        return ""
-    return _hashlib.sha256("|".join(parts).encode()).hexdigest()
 
 
 def _safe_cache_dir(cfg: dict) -> Path:
@@ -6364,9 +6312,9 @@ def cache_get(key: str, mode: str, ttl: int | None, cfg: dict) -> str | None:
     if mode == "session":
         return _SESSION_CACHE.get(key)
 
-    if mode in {"ttl", "persist", "fingerprint", "nofingerprint"}:
+    if mode in {"ttl", "persist"}:
         effective_ttl = ttl
-        if mode in ("persist", "fingerprint"):
+        if mode == "persist":
             effective_ttl = int(cfg.get("render", {}).get("persist_cache_ttl_s", 3600))
         if effective_ttl is None:
             return None
@@ -6395,9 +6343,9 @@ def cache_set(key: str, value: str, mode: str, ttl: int | None, cfg: dict) -> No
         _SESSION_CACHE[key] = value
         return
 
-    if mode in {"ttl", "persist", "fingerprint", "nofingerprint"}:
+    if mode in {"ttl", "persist"}:
         effective_ttl = ttl
-        if mode in ("persist", "fingerprint"):
+        if mode == "persist":
             effective_ttl = int(cfg.get("render", {}).get("persist_cache_ttl_s", 3600))
         if effective_ttl is None:
             return
@@ -7178,12 +7126,7 @@ def _render_lines(
                     raw_args = f"{raw_args} @cache ttl={m_ttl.group(1)}".strip()
 
             clean_args, cache_mode, cache_ttl, cache_mock = _parse_cache_modifier(raw_args)
-            _base_key = _cache_key(f"{directive} {clean_args}")
-            if cache_mode == "nofingerprint":
-                cache_key = _base_key
-            else:
-                _fp = _dependency_fingerprint(directive, clean_args, workspace)
-                cache_key = f"{_base_key}.{_fp}" if _fp else _base_key
+            cache_key = _cache_key(f"{directive} {clean_args}")
 
             if cache_mode == "mock":
                 output.append(cache_mock or "(mock \u2014 directive skipped)")
@@ -11801,6 +11744,410 @@ def install_target(
         print(f"  → Or `perseus render {source} --format {fmt} -o {root / FORMAT_TARGETS[fmt].default_output}`")
 
     return result
+# ──────────────────────────────── Render ──────────────────────────────────────
+
+LAUNCHD_TEMPLATE = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>{label}</string>
+    <key>ProgramArguments</key>
+    <array>
+      <string>{python}</string>
+      <string>{script}</string>
+      <string>render</string>
+      <string>{source}</string>
+      <string>--output</string>
+      <string>{output}</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>{workdir}</string>
+    <key>StartInterval</key>
+    <integer>{interval}</integer>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>{stdout_log}</string>
+    <key>StandardErrorPath</key>
+    <string>{stderr_log}</string>
+  </dict>
+</plist>
+"""
+
+# Phase 24 — internal imports (stripped by build; defined earlier in concatenated artifact)
+
+
+def cmd_render(args, cfg):
+    source_path = Path(args.source).expanduser().resolve()
+    if not source_path.exists():
+        print(f"Error: file not found: {source_path}", file=sys.stderr)
+        sys.exit(1)
+
+    workspace = _infer_workspace(source_path)
+    cfg = load_config(workspace)
+
+    text = source_path.read_text(errors="replace")
+    fmt = getattr(args, "format", "md")
+    title = source_path.stem.replace("-", " ").replace("_", " ").title()
+
+    # Determine tier: CLI --tier > config default > fallback to 3
+    max_tier = getattr(args, "tier", None)
+    if max_tier is None:
+        max_tier = cfg.get("render", {}).get("default_tier", 3)
+    if max_tier is None:
+        max_tier = 3
+
+    rendered = render_output(text, fmt, cfg, workspace, title=title, max_tier=max_tier)
+
+    is_assistant_format = fmt in ("agents-md", "claude-md", "cursorrules", "copilot-instructions")
+    output = getattr(args, "output", None)
+    # Phase 24: auto-resolve default output path for assistant formats
+    if is_assistant_format and not output:
+        output = get_default_output_path(fmt, str(workspace))
+
+    strict = getattr(args, "strict", False)
+    if strict and "⚠" in rendered:
+        print(f"Perseus: strict mode — {rendered.count('⚠')} warning(s) in rendered output", file=sys.stderr)
+        sys.exit(1)
+
+    if output:
+        out_path = Path(output)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(rendered, encoding="utf-8")
+    else:
+        print(rendered)
+
+
+class WatchTarget(NamedTuple):
+    """One watched source/output render pair."""
+    name: str
+    source: Path
+    output: Path
+
+
+def _watch_rel(path: Path, workspace: Path) -> str:
+    try:
+        return str(path.relative_to(workspace))
+    except ValueError:
+        return str(path)
+
+
+def _watch_target_key(target: WatchTarget) -> tuple[str, str]:
+    return (str(target.source), str(target.output))
+
+
+def _watch_interval_s(args, cfg) -> tuple[float | None, str | None]:
+    raw = getattr(args, "interval", None)
+    if raw is None:
+        raw = (cfg.get("watch") or {}).get("poll_interval_s", 5)
+    try:
+        interval = float(raw)
+    except (TypeError, ValueError):
+        return None, f"watch interval must be a number, got {raw!r}"
+    if interval <= 0:
+        return None, "watch interval must be greater than zero"
+    return interval, None
+
+
+def _watch_resolve_ref(ref: str, workspace: Path, cfg: dict, allow_arg: bool) -> tuple[Path, str | None]:
+    allow = allow_arg or bool(cfg.get("render", {}).get("allow_outside_workspace", False))
+    path, warning = _resolve_path(ref, workspace, allow_outside_workspace=allow)
+    if warning:
+        return path, warning.replace("> ⚠ ", "")
+    return path, None
+
+
+def _watch_target_from_refs(
+    name: str,
+    source_ref: str,
+    output_ref: str,
+    workspace: Path,
+    cfg: dict,
+    allow_arg: bool,
+) -> tuple[WatchTarget | None, list[str]]:
+    errors: list[str] = []
+    source, source_error = _watch_resolve_ref(source_ref, workspace, cfg, allow_arg)
+    output, output_error = _watch_resolve_ref(output_ref, workspace, cfg, allow_arg)
+    if source_error:
+        errors.append(f"{name}: source {source_error}")
+    if output_error:
+        errors.append(f"{name}: output {output_error}")
+    if errors:
+        return None, errors
+    return WatchTarget(name=name, source=source, output=output), []
+
+
+def _watch_targets_from_pack(
+    workspace: Path,
+    manifest: str | None,
+    cfg: dict,
+    allow_arg: bool,
+) -> tuple[list[WatchTarget], list[str]]:
+    result = validate_context_pack(workspace, manifest)
+    if not result.get("valid", False):
+        errors = result.get("errors") or ["context pack is invalid"]
+        return [], [f"context pack {err}" for err in errors]
+    targets: list[WatchTarget] = []
+    errors: list[str] = []
+    for idx, render in enumerate(result.get("renders", []), start=1):
+        name = str(render.get("name") or f"render-{idx}")
+        source_ref = render.get("source")
+        output_ref = render.get("output")
+        if not isinstance(source_ref, str) or not source_ref:
+            errors.append(f"{name}: source is required")
+            continue
+        if not isinstance(output_ref, str) or not output_ref:
+            errors.append(f"{name}: output is required")
+            continue
+        target, target_errors = _watch_target_from_refs(name, source_ref, output_ref, workspace, cfg, allow_arg)
+        if target:
+            targets.append(target)
+        errors.extend(target_errors)
+    if not targets and not errors:
+        errors.append("context pack has no render targets")
+    return targets, errors
+
+
+def _watch_targets_from_args(args, cfg, workspace: Path) -> tuple[list[WatchTarget], list[str]]:
+    allow_arg = bool(getattr(args, "allow_outside_workspace", False))
+    source_arg = getattr(args, "source", None)
+    output_arg = getattr(args, "output", None)
+    manifest_arg = getattr(args, "manifest", None)
+    explicit_single = bool(source_arg or output_arg)
+    pack_path = _pack_manifest_path(workspace, manifest_arg)
+    if not explicit_single and (manifest_arg or pack_path.exists()):
+        return _watch_targets_from_pack(workspace, manifest_arg, cfg, allow_arg)
+
+    source_ref = source_arg or ".perseus/context.md"
+    output_ref = output_arg or ".hermes.md"
+    target, errors = _watch_target_from_refs("default", source_ref, output_ref, workspace, cfg, allow_arg)
+    return ([target] if target else []), errors
+
+
+def _watch_target_mtime(target: WatchTarget, getmtime: Callable[[Path], float]) -> float | None:
+    try:
+        return float(getmtime(target.source))
+    except OSError:
+        return None
+
+
+def _watch_render_target(target: WatchTarget, cfg: dict, render_fn: Callable) -> None:
+    render_args = argparse.Namespace(source=str(target.source), output=str(target.output))
+    try:
+        render_fn(render_args, cfg)
+    except SystemExit as exc:
+        code = exc.code if isinstance(exc.code, int) else 1
+        raise RuntimeError(f"render exited with status {code}") from None
+
+
+def _watch_render_and_record(
+    target: WatchTarget,
+    cfg: dict,
+    workspace: Path,
+    last_rendered: dict[tuple[str, str], float | None],
+    pending: dict[tuple[str, str], float | None],
+    getmtime: Callable[[Path], float],
+    render_fn: Callable,
+    log_stream,
+    exit_on_error: bool,
+) -> bool:
+    key = _watch_target_key(target)
+    try:
+        _watch_render_target(target, cfg, render_fn)
+    except Exception as exc:
+        print(f"[watch] render error: {exc}", file=log_stream)
+        last_rendered[key] = _watch_target_mtime(target, getmtime)
+        pending.pop(key, None)
+        return not exit_on_error
+
+    last_rendered[key] = _watch_target_mtime(target, getmtime)
+    pending.pop(key, None)
+    print(
+        f"[watch] rendered -> {_watch_rel(target.output, workspace)} "
+        f"(changed: {_watch_rel(target.source, workspace)})",
+        file=log_stream,
+    )
+    return True
+
+
+def _watch_loop(
+    targets: list[WatchTarget],
+    cfg: dict,
+    workspace: Path,
+    interval_s: float,
+    *,
+    exit_on_error: bool = False,
+    getmtime: Callable[[Path], float] = os.path.getmtime,
+    sleep: Callable[[float], None] = time.sleep,
+    render_fn: Callable = cmd_render,
+    should_stop: Callable[[], bool] | None = None,
+    log_stream=None,
+    max_cycles: int | None = None,
+) -> int:
+    log_stream = log_stream or sys.stderr
+    should_stop = should_stop or (lambda: False)
+    last_rendered: dict[tuple[str, str], float | None] = {}
+    pending: dict[tuple[str, str], float | None] = {}
+
+    try:
+        for target in targets:
+            ok = _watch_render_and_record(
+                target, cfg, workspace, last_rendered, pending,
+                getmtime, render_fn, log_stream, exit_on_error,
+            )
+            if not ok:
+                return 1
+
+        cycles = 0
+        while True:
+            if should_stop():
+                print("[watch] stopped", file=log_stream)
+                return 0
+            if max_cycles is not None and cycles >= max_cycles:
+                return 0
+            sleep(interval_s)
+            cycles += 1
+            if should_stop():
+                print("[watch] stopped", file=log_stream)
+                return 0
+
+            for target in targets:
+                key = _watch_target_key(target)
+                current = _watch_target_mtime(target, getmtime)
+                if current == last_rendered.get(key):
+                    pending.pop(key, None)
+                    continue
+                if key in pending and pending[key] == current:
+                    ok = _watch_render_and_record(
+                        target, cfg, workspace, last_rendered, pending,
+                        getmtime, render_fn, log_stream, exit_on_error,
+                    )
+                    if not ok:
+                        return 1
+                else:
+                    pending[key] = current
+    except KeyboardInterrupt:
+        print("[watch] stopped", file=log_stream)
+        return 0
+
+
+def _watch_install_signal_handlers() -> tuple[dict, dict]:
+    state = {"stop": False, "signal": None}
+    previous = {}
+
+    def _handler(signum, _frame):
+        state["stop"] = True
+        try:
+            state["signal"] = signal.Signals(signum).name
+        except Exception:
+            state["signal"] = str(signum)
+
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        previous[sig] = signal.getsignal(sig)
+        signal.signal(sig, _handler)
+    return state, previous
+
+
+def _watch_restore_signal_handlers(previous: dict) -> None:
+    for sig, handler in previous.items():
+        signal.signal(sig, handler)
+
+
+def cmd_watch(args, cfg) -> int:
+    workspace = Path(args.workspace).expanduser().resolve() if getattr(args, "workspace", None) else Path.cwd().resolve()
+    cfg = load_config(workspace)
+    interval_s, interval_error = _watch_interval_s(args, cfg)
+    if interval_error:
+        print(f"perseus watch: {interval_error}", file=sys.stderr)
+        return 1
+
+    targets, errors = _watch_targets_from_args(args, cfg, workspace)
+    if errors:
+        for err in errors:
+            print(f"perseus watch: {err}", file=sys.stderr)
+        return 1
+    if not targets:
+        print("perseus watch: no render targets", file=sys.stderr)
+        return 1
+
+    signal_state, previous_handlers = _watch_install_signal_handlers()
+    try:
+        return _watch_loop(
+            targets,
+            cfg,
+            workspace,
+            interval_s or 5,
+            exit_on_error=bool(getattr(args, "exit_on_error", False)),
+            should_stop=lambda: bool(signal_state["stop"]),
+        )
+    finally:
+        _watch_restore_signal_handlers(previous_handlers)
+
+
+def cmd_graph(args, cfg) -> int:
+    """Print a static directive dependency graph."""
+    source_path = Path(args.source).expanduser().resolve()
+    if not source_path.exists():
+        print(f"Error: file not found: {source_path}", file=sys.stderr)
+        return 1
+    workspace = Path(args.workspace).expanduser().resolve() if getattr(args, "workspace", None) else _infer_workspace(source_path)
+    cfg = load_config(workspace)
+    # task-65: ensure plugin directives are visible in the graph
+    register_plugins(cfg)
+    graph = directive_dependency_graph(
+        source_path.read_text(errors="replace"),
+        source_name=str(source_path),
+        workspace=workspace,
+    )
+    if getattr(args, "json", False):
+        print(json.dumps(graph, indent=2))
+        return 0
+
+    print(f"Directive graph: {source_path}")
+    print(f"Nodes: {graph['summary']['node_count']}  Edges: {graph['summary']['edge_count']}")
+    for node in graph["nodes"]:
+        flags = []
+        meta = node["metadata"]
+        if meta["executes_shell"]:
+            flags.append("shell")
+        if meta["reads_files"]:
+            flags.append("files")
+        if meta["mutates_state"]:
+            flags.append("mutates")
+        if meta["cacheable"]:
+            flags.append("cacheable")
+        flag_text = f" [{' '.join(flags)}]" if flags else ""
+        resources = ", ".join(f"{r['kind']}={r['value']}" for r in node["resources"])
+        resource_text = f" -> {resources}" if resources else ""
+        print(f"- {node['id']} line {node['line']}: {node['directive']} ({node['kind']}){flag_text}{resource_text}")
+    return 0
+
+
+def cmd_prefetch(args, cfg) -> int:
+    """Run configured prefetch rules against a static directive graph."""
+    source_path = Path(args.source).expanduser().resolve()
+    if not source_path.exists():
+        print(f"Error: file not found: {source_path}", file=sys.stderr)
+        return 1
+    workspace = Path(args.workspace).expanduser().resolve() if getattr(args, "workspace", None) else _infer_workspace(source_path)
+    cfg = load_config(workspace)
+    # task-65: register plugin directives so prefetch graph rules can target them
+    register_plugins(cfg)
+    result = prefetch_source(
+        source_path.read_text(errors="replace"),
+        cfg,
+        workspace=workspace,
+        source_name=str(source_path),
+    )
+    if getattr(args, "json", False):
+        print(json.dumps(result, indent=2))
+    else:
+        print(format_prefetch_human(result))
+    return 1 if result["summary"]["failed"] else 0
+
+
 # ───────────────────────────── Cited synthesis ───────────────────────────────
 
 def _synthesis_rel_label(path: Path, workspace: Path) -> str:
@@ -11927,8 +12274,8 @@ def build_consistency_prompt(sources: list[dict], max_claims: int) -> str:
         f"- Return at most {max_claims} items across both arrays.",
         "",
         "JSON shape:",
-        '{"claims":[{"text":"...","citations":[{"source_id":"src1","line_start":1,"line_end":3,"quote":"exact source quote"}]}],',
-        '"conflicts":[{"description":"...","sources":[{"source_id":"src1","line_start":1,"line_end":2,"quote":"..."},',
+        '{"claims":[{"text":"...","citations":[{"source_id":"src1","line_start":1,"line_end":3,"quote":"exact source quote"}]}],'
+        '"conflicts":[{"description":"...","sources":[{"source_id":"src1","line_start":1,"line_end":2,"quote":"..."},'
         '{"source_id":"src2","line_start":5,"line_end":5,"quote":"..."}]}]}',
         "",
         "Sources:",
@@ -12220,39 +12567,427 @@ def cmd_synthesize(args, cfg) -> int:
     else:
         print(format_synthesis_human(result))
     return code
-# ─────────────────────────────── Scheduler ────────────────────────────────────
-# Cross-platform scheduling commands: launchd (macOS), cron (POSIX), systemd (Linux)
 
-LAUNCHD_TEMPLATE = """\
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-  <dict>
-    <key>Label</key>
-    <string>{label}</string>
-    <key>ProgramArguments</key>
-    <array>
-      <string>{python}</string>
-      <string>{script}</string>
-      <string>render</string>
-      <string>{source}</string>
-      <string>--output</string>
-      <string>{output}</string>
-    </array>
-    <key>WorkingDirectory</key>
-    <string>{workdir}</string>
-    <key>StartInterval</key>
-    <integer>{interval}</integer>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>StandardOutPath</key>
-    <string>{stdout_log}</string>
-    <key>StandardErrorPath</key>
-    <string>{stderr_log}</string>
-  </dict>
-</plist>
+
+# ───────────────────────────── Context packs ────────────────────────────────
+
+PACK_VERSION = 1
+TRUST_PROFILES = {"strict", "balanced", "power-user"}
+
+PRODUCT_PROFILES: dict[str, dict] = {
+    "generic": {
+        "label": "Generic markdown",
+        "assistant": "generic",
+        "output": "live-context.md",
+        "trust_profile": "balanced",
+        "description": "Plain markdown output for any assistant or stdin/file flow.",
+        "refresh": "Render on demand or from any scheduler into live-context.md.",
+    },
+    "hermes": {
+        "label": "Hermes Agent",
+        "assistant": "hermes",
+        "output": ".hermes.md",
+        "trust_profile": "balanced",
+        "description": "Hermes Agent reads .hermes.md at session start.",
+        "refresh": "Keep .hermes.md fresh before session start via cron, launchd, systemd, or watch.",
+    },
+    "codex": {
+        "label": "Codex / AGENTS.md",
+        "assistant": "codex",
+        "output": "AGENTS.md",
+        "trust_profile": "balanced",
+        "description": "Codex-compatible repository guidance file.",
+        "refresh": "Render AGENTS.md before starting Codex or through a workspace scheduler/watch flow.",
+    },
+    "claude-code": {
+        "label": "Claude Code",
+        "assistant": "claude-code",
+        "output": "CLAUDE.md",
+        "trust_profile": "balanced",
+        "description": "Claude Code project knowledge file.",
+        "refresh": "Render CLAUDE.md before starting Claude Code or through scheduler/watch refresh.",
+    },
+    "cursor": {
+        "label": "Cursor",
+        "assistant": "cursor",
+        "output": ".cursorrules",
+        "trust_profile": "balanced",
+        "description": "Cursor rules/context file.",
+        "refresh": "Render .cursorrules when project context changes; use watch when continuous refresh is desired.",
+    },
+    "rovodev": {
+        "label": "Rovo Dev",
+        "assistant": "rovodev",
+        "output": "AGENTS.md",
+        "trust_profile": "balanced",
+        "description": "Rovo Dev AGENTS.md flow.",
+        "refresh": "Render AGENTS.md before Rovo Dev sessions or through scheduler/watch refresh.",
+    },
+}
+
+
+def _profile_context_template(profile_name: str, profile: dict) -> str:
+    label = profile["label"]
+    return f"""@perseus v{_PERSEUS_VERSION}
+
+@prompt
+This document was rendered live by Perseus for the {label} profile. Treat the
+resolved content below as current workspace context. Do not spend initial turns
+re-discovering the same facts unless the user asks you to verify them.
+@end
+
+# Workspace Context — @date format="YYYY-MM-DD HH:mm z"
+
+**Profile:** {profile_name}
+
+---
+
+## Last Checkpoint
+@waypoint ttl=86400
+
+---
+
+## Workspace State
+
+@query "git log --oneline -5 2>/dev/null || echo '(no git repo)'" fallback="git log unavailable"
+@query "git status --short 2>/dev/null || true" fallback="clean"
+
+---
+
+## Task Board
+@agora status=open,in_progress
+
+---
+
+## Project Memory
+@memory focus=recent ttl=300
 """
 
+
+def _context_pack_manifest(profile_name: str, profile: dict, output: str | None = None, trust_profile: str | None = None) -> dict:
+    output_path = output or profile["output"]
+    trust = trust_profile or profile.get("trust_profile", "balanced")
+    return {
+        "version": PACK_VERSION,
+        "name": f"{profile_name}-context",
+        "profile": profile_name,
+        "trust_profile": trust,
+        "renders": [
+            {
+                "name": "default",
+                "source": ".perseus/context.md",
+                "output": output_path,
+                "assistant": profile["assistant"],
+            }
+        ],
+        "synthesis": [
+            {
+                "name": "project-status",
+                "question": "What is the current project status and next allowable action?",
+                "sources": ["ROADMAP.md", "HANDOFF.md", "README.md"],
+                "enabled": False,
+            }
+        ],
+    }
+
+
+def _pack_manifest_path(workspace: Path, manifest: str | None = None) -> Path:
+    if manifest:
+        raw = Path(manifest).expanduser()
+        return raw.resolve() if raw.is_absolute() else (workspace / raw).resolve()
+    return workspace / ".perseus" / "pack.yaml"
+
+
+def _load_pack_manifest(workspace: Path, manifest: str | None = None) -> tuple[dict | None, Path, list[str]]:
+    path = _pack_manifest_path(workspace, manifest)
+    if not path.exists():
+        return None, path, [f"manifest not found: {path}"]
+    try:
+        data = yaml.safe_load(path.read_text()) or {}
+    except Exception as exc:
+        return None, path, [f"could not parse manifest: {exc}"]
+    if not isinstance(data, dict):
+        return None, path, ["manifest must be a YAML mapping"]
+    return data, path, []
+
+
+def _pack_rel(path: Path, workspace: Path) -> str:
+    try:
+        return str(path.relative_to(workspace))
+    except ValueError:
+        return str(path)
+
+
+def validate_context_pack(workspace: Path, manifest: str | None = None) -> dict:
+    workspace = workspace.expanduser().resolve()
+    data, path, load_errors = _load_pack_manifest(workspace, manifest)
+    errors = list(load_errors)
+    warnings: list[str] = []
+    renders: list[dict] = []
+    synthesis: list[dict] = []
+    profile = None
+    trust_profile = None
+
+    if data is not None:
+        version = data.get("version")
+        if version != PACK_VERSION:
+            errors.append(f"version must be {PACK_VERSION}")
+
+        profile = data.get("profile")
+        if profile is not None and profile not in PRODUCT_PROFILES:
+            errors.append(f"unknown profile: {profile}")
+
+        trust_profile = data.get("trust_profile", "balanced")
+        if trust_profile not in TRUST_PROFILES:
+            errors.append(f"unknown trust_profile: {trust_profile}")
+
+        raw_renders = data.get("renders")
+        if not isinstance(raw_renders, list) or not raw_renders:
+            errors.append("renders must be a non-empty list")
+        else:
+            for idx, item in enumerate(raw_renders, start=1):
+                if not isinstance(item, dict):
+                    errors.append(f"renders[{idx}] must be a mapping")
+                    continue
+                name = str(item.get("name", f"render-{idx}"))
+                source = item.get("source")
+                output = item.get("output")
+                assistant = item.get("assistant", profile or "generic")
+                if not isinstance(source, str) or not source:
+                    errors.append(f"renders[{idx}].source is required")
+                    source_path = None
+                else:
+                    source_path = (workspace / source).resolve()
+                    if not source_path.exists():
+                        errors.append(f"renders[{idx}].source not found: {source}")
+                if not isinstance(output, str) or not output:
+                    errors.append(f"renders[{idx}].output is required")
+                renders.append({
+                    "name": name,
+                    "source": source,
+                    "output": output,
+                    "assistant": assistant,
+                    "source_exists": bool(source_path and source_path.exists()),
+                })
+
+        raw_synthesis = data.get("synthesis", [])
+        if raw_synthesis is None:
+            raw_synthesis = []
+        if not isinstance(raw_synthesis, list):
+            errors.append("synthesis must be a list when present")
+        else:
+            for idx, item in enumerate(raw_synthesis, start=1):
+                if not isinstance(item, dict):
+                    errors.append(f"synthesis[{idx}] must be a mapping")
+                    continue
+                name = str(item.get("name", f"synthesis-{idx}"))
+                question = item.get("question")
+                sources = item.get("sources")
+                if not isinstance(question, str) or not question:
+                    errors.append(f"synthesis[{idx}].question is required")
+                if not isinstance(sources, list) or not sources:
+                    errors.append(f"synthesis[{idx}].sources must be a non-empty list")
+                    source_records = []
+                else:
+                    source_records = []
+                    for source_ref in sources:
+                        if not isinstance(source_ref, str) or not source_ref:
+                            errors.append(f"synthesis[{idx}].sources entries must be strings")
+                            continue
+                        source_path = (workspace / source_ref).resolve()
+                        exists = source_path.exists()
+                        if not exists:
+                            warnings.append(f"synthesis[{idx}] source not found yet: {source_ref}")
+                        source_records.append({"path": source_ref, "exists": exists})
+                synthesis.append({
+                    "name": name,
+                    "question": question,
+                    "sources": source_records,
+                    "enabled": bool(item.get("enabled", False)),
+                })
+
+    return {
+        "version": PACK_VERSION,
+        "workspace": str(workspace),
+        "path": str(path),
+        "exists": data is not None,
+        "valid": not errors,
+        "errors": errors,
+        "warnings": warnings,
+        "profile": profile,
+        "trust_profile": trust_profile,
+        "renders": renders,
+        "synthesis": synthesis,
+    }
+
+
+def format_pack_validation(result: dict) -> str:
+    lines = [f"Context pack: {_pack_rel(Path(result['path']), Path(result['workspace']))}"]
+    if not result["exists"]:
+        lines.append("Status: missing")
+    else:
+        lines.append(f"Status: {'valid' if result['valid'] else 'invalid'}")
+    if result.get("profile"):
+        lines.append(f"Profile: {result['profile']}")
+    if result.get("trust_profile"):
+        lines.append(f"Trust profile: {result['trust_profile']}")
+    if result.get("renders"):
+        lines.append("Renders:")
+        for render in result["renders"]:
+            status = "ok" if render["source_exists"] else "missing source"
+            lines.append(f"- {render['name']}: {render['source']} -> {render['output']} ({render['assistant']}, {status})")
+    if result.get("synthesis"):
+        lines.append("Synthesis packs:")
+        for item in result["synthesis"]:
+            enabled = "enabled" if item["enabled"] else "disabled"
+            lines.append(f"- {item['name']}: {enabled}, {len(item['sources'])} sources")
+    if result["errors"]:
+        lines.append("Errors:")
+        lines.extend(f"- {err}" for err in result["errors"])
+    if result["warnings"]:
+        lines.append("Warnings:")
+        lines.extend(f"- {warning}" for warning in result["warnings"])
+    return "\n".join(lines)
+
+
+def cmd_pack(args, cfg) -> int:
+    workspace = Path(args.workspace).expanduser().resolve() if getattr(args, "workspace", None) else Path.cwd().resolve()
+    result = validate_context_pack(workspace, getattr(args, "manifest", None))
+    if getattr(args, "json", False):
+        print(json.dumps(result, indent=2))
+    else:
+        print(format_pack_validation(result))
+    return 0 if result["valid"] else 1
+
+
+# ───────────────────────────── Schema validation CLI ─────────────────────────
+
+def _validate_cli_payload(args) -> tuple[object | None, str, str | None]:
+    """Load and parse a validate command payload."""
+    payload_ref = getattr(args, "payload", "-") or "-"
+    if payload_ref == "-":
+        text = sys.stdin.read()
+        try:
+            return _parse_validation_payload_by_source(text, "<stdin>"), "<stdin>", None
+        except Exception as exc:
+            return None, "<stdin>", str(exc)
+
+    payload_path = Path(payload_ref).expanduser()
+    try:
+        text = payload_path.read_text(errors="replace")
+    except Exception as exc:
+        return None, str(payload_path), str(exc)
+    try:
+        return _parse_validation_payload_by_source(text, str(payload_path)), str(payload_path), None
+    except Exception as exc:
+        return None, str(payload_path), str(exc)
+
+
+def cmd_validate(args, cfg) -> int:
+    """Validate a payload against a Perseus schema."""
+    workspace = Path(args.workspace).expanduser().resolve() if getattr(args, "workspace", None) else Path.cwd().resolve()
+    schema_ref = args.schema
+    data, input_label, input_error = _validate_cli_payload(args)
+    if input_error:
+        payload = {"ok": False, "input": input_label, "errors": [], "error": input_error}
+        if getattr(args, "json", False):
+            print(json.dumps(payload, indent=2))
+        else:
+            print(f"Error: {payload['error']}")
+        return 2
+
+    if isinstance(schema_ref, str) and schema_ref.startswith("plugin:"):
+        validator_name = schema_ref[7:]
+        schema_label = schema_ref
+        try:
+            validator_fn = _load_plugin_validator(validator_name, workspace)
+            if not validator_fn:
+                if getattr(args, "json", False):
+                    print(json.dumps({"ok": False, "schema": schema_label, "error": f"plugin validator `{validator_name}` not found"}, indent=2))
+                else:
+                    print(f"Error: plugin validator `{validator_name}` not found")
+                return 2
+            valid, message = validator_fn(data, {})
+            errors = [] if valid else [message]
+        except Exception as e:
+            if getattr(args, "json", False):
+                print(json.dumps({"ok": False, "schema": schema_label, "error": str(e)}, indent=2))
+            else:
+                print(f"Error: {e}")
+            return 2
+    else:
+        schema_path, schema_data, schema_error = _load_schema(schema_ref, workspace)
+        schema_label = str(schema_path or schema_ref)
+        if schema_error:
+            payload = {"ok": False, "schema": schema_label, "input": input_label, "errors": [], "error": schema_error}
+            if getattr(args, "json", False):
+                print(json.dumps(payload, indent=2))
+            else:
+                print(f"Error: {payload['error']}")
+            return 2
+        errors = _validate_basic_schema(data, schema_data)
+
+    payload = {
+        "ok": not errors,
+        "schema": schema_label,
+        "input": input_label,
+        "errors": errors,
+    }
+    if getattr(args, "json", False):
+        print(json.dumps(payload, indent=2))
+    elif errors:
+        print(f"Invalid: {input_label} does not match {schema_label}")
+        for err in errors:
+            print(f"- {err}")
+    else:
+        print(f"Valid: {input_label} matches {schema_label}")
+    return 0 if not errors else 1
+
+
+# ──────────────────────────────── cmd_init ────────────────────────────────────
+
+INIT_CONTEXT_TEMPLATE = """\
+@perseus v{version}
+
+@prompt
+This document was rendered live by Perseus. All values below are current —
+do not verify services, re-scan skills, or re-read session history. Trust the
+rendered output and skip orientation. Start work immediately.
+@end
+
+# Perseus Session Context — @date format="YYYY-MM-DD HH:mm CDT"
+
+**Workspace:** `{workspace}`
+
+---
+
+## Last Session
+@waypoint ttl=86400
+
+---
+
+## Workspace State
+
+@query "git -C {workspace} log --oneline -5 2>/dev/null || echo '(no git repo)'"
+@query "git -C {workspace} status --short 2>/dev/null || echo ''"
+
+---
+
+## Available Skills
+@skills flag_stale=true
+
+---
+
+## Services
+@services
+  - name: Perseus CLI
+    command: python3 {workspace}/perseus.py --version 2>&1 || perseus --version
+
+---
+
+## Recent Sessions
+@session count=3
+"""
 
 def cmd_launchd(args, cfg):
     if sys.platform != "darwin":
@@ -12305,6 +13040,58 @@ def cmd_launchd(args, cfg):
     print(f"  1. Load it:    launchctl load {plist_path}")
     print(f"  2. Start now:  launchctl start {label}")
     print(f"  3. Check logs: tail -f {stdout_log} {stderr_log}")
+
+
+# ───────────────────────── Phase 24: install ──────────────────────────────────
+
+def cmd_install(args, cfg) -> int:
+    """Install Perseus hooks into an AI assistant."""
+    import json as _json
+
+    target = args.target
+    workspace = Path(args.workspace).expanduser().resolve() if args.workspace else None
+    dry_run = getattr(args, "dry_run", False)
+    json_out = getattr(args, "json", False)
+    perseus_cmd = getattr(args, "perseus_cmd", "perseus")
+
+    result = install_target(
+        target=target,
+        cfg=cfg,
+        workspace=workspace,
+        perseus_cmd=perseus_cmd,
+        dry_run=dry_run,
+    )
+
+    if json_out:
+        print(_json.dumps(result, indent=2))
+    return 0
+
+
+# ───────────────────────── Phase 24: mcp ────────────────────────────────────
+
+def cmd_mcp(args, cfg) -> int:
+    """Perseus MCP server — expose directives as MCP tools."""
+    import json as _json
+
+    mcp_cmd = args.mcp_command  # "serve", "config", or "register"
+    workspace = Path(args.workspace).expanduser().resolve() if getattr(args, "workspace", None) else None
+
+    if mcp_cmd == "serve":
+        transport = getattr(args, "transport", "stdio")
+        if transport == "sse":
+            port = getattr(args, "port", 8420)
+            serve_mcp_sse(cfg, workspace=workspace, port=port)
+            return 0
+        return serve_mcp(cfg, workspace=workspace)
+    elif mcp_cmd == "config":
+        print_mcp_config(cfg, workspace=workspace)
+        return 0
+    elif mcp_cmd == "register":
+        print_mcp_registry(cfg)
+        return 0
+    else:
+        print(f"Error: unknown mcp command: {mcp_cmd}", file=sys.stderr)
+        return 1
 
 
 # ─────────────────────────────── cron (POSIX) ────────────────────────────────
@@ -12488,7 +13275,9 @@ def cmd_systemd(args, cfg):
     print(service_content)
     print("# ~/.config/systemd/user/perseus-render.timer")
     print(timer_content)
-# ─────────────────────────────── Health ──────────────────────────────────────
+
+
+# ─────────────────────────────── Health (task-05) ────────────────────────────
 
 def _health_collect(cfg: dict, workspace: Path) -> list[str]:
     """Run deterministic maintenance heuristics. Returns markdown lines."""
@@ -12601,7 +13390,7 @@ def resolve_health(args_str: str, cfg: dict, workspace: Path | None = None) -> s
     return "\n".join(_health_collect(cfg, ws))
 
 
-# ─────────────────────────────── Doctor ──────────────────────────────────────
+# ───── Task-26: perseus doctor ───────────────────────────────────────────────
 
 def _find_version() -> str:
     """Read version from VERSION file in repo root if present, else use baked-in."""
@@ -13030,7 +13819,7 @@ def cmd_doctor(args, cfg) -> int:
         print(f"─ Summary: {ok} ok · {warn} warning · {err} errors  (exit {exit_code})")
 
     return exit_code
-# ─────────────────────────────── Self-Update ──────────────────────────────────
+
 
 def cmd_update(args, cfg) -> int:
     """Self-update: check for or apply Perseus updates from git.
@@ -13203,853 +13992,6 @@ def _toggle_auto_update(value, cfg):
     if enabled:
         print("  Perseus will check for updates when invoked with --apply.")
     return 0
-# ──────────────────────────────── Render ──────────────────────────────────────
-
-# Phase 24 — internal imports (stripped by build; defined earlier in concatenated artifact)
-
-
-def cmd_render(args, cfg):
-    source_path = Path(args.source).expanduser().resolve()
-    if not source_path.exists():
-        print(f"Error: file not found: {source_path}", file=sys.stderr)
-        sys.exit(1)
-
-    workspace = _infer_workspace(source_path)
-    cfg = load_config(workspace)
-
-    text = source_path.read_text(errors="replace")
-    fmt = getattr(args, "format", "md")
-    title = source_path.stem.replace("-", " ").replace("_", " ").title()
-
-    # Determine tier: CLI --tier > config default > fallback to 3
-    max_tier = getattr(args, "tier", None)
-    if max_tier is None:
-        max_tier = cfg.get("render", {}).get("default_tier", 3)
-    if max_tier is None:
-        max_tier = 3
-
-    rendered = render_output(text, fmt, cfg, workspace, title=title, max_tier=max_tier)
-
-    is_assistant_format = fmt in ("agents-md", "claude-md", "cursorrules", "copilot-instructions")
-    output = getattr(args, "output", None)
-    # Phase 24: auto-resolve default output path for assistant formats
-    if is_assistant_format and not output:
-        output = get_default_output_path(fmt, str(workspace))
-
-    strict = getattr(args, "strict", False)
-    if strict and "⚠" in rendered:
-        print(f"Perseus: strict mode — {rendered.count('⚠')} warning(s) in rendered output", file=sys.stderr)
-        sys.exit(1)
-
-    if output:
-        out_path = Path(output)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(rendered, encoding="utf-8")
-    else:
-        print(rendered)
-
-
-class WatchTarget(NamedTuple):
-    """One watched source/output render pair."""
-    name: str
-    source: Path
-    output: Path
-
-
-def _watch_rel(path: Path, workspace: Path) -> str:
-    try:
-        return str(path.relative_to(workspace))
-    except ValueError:
-        return str(path)
-
-
-def _watch_target_key(target: WatchTarget) -> tuple[str, str]:
-    return (str(target.source), str(target.output))
-
-
-def _watch_interval_s(args, cfg) -> tuple[float | None, str | None]:
-    raw = getattr(args, "interval", None)
-    if raw is None:
-        raw = (cfg.get("watch") or {}).get("poll_interval_s", 5)
-    try:
-        interval = float(raw)
-    except (TypeError, ValueError):
-        return None, f"watch interval must be a number, got {raw!r}"
-    if interval <= 0:
-        return None, "watch interval must be greater than zero"
-    return interval, None
-
-
-def _watch_resolve_ref(ref: str, workspace: Path, cfg: dict, allow_arg: bool) -> tuple[Path, str | None]:
-    allow = allow_arg or bool(cfg.get("render", {}).get("allow_outside_workspace", False))
-    path, warning = _resolve_path(ref, workspace, allow_outside_workspace=allow)
-    if warning:
-        return path, warning.replace("> ⚠ ", "")
-    return path, None
-
-
-def _watch_target_from_refs(
-    name: str,
-    source_ref: str,
-    output_ref: str,
-    workspace: Path,
-    cfg: dict,
-    allow_arg: bool,
-) -> tuple[WatchTarget | None, list[str]]:
-    errors: list[str] = []
-    source, source_error = _watch_resolve_ref(source_ref, workspace, cfg, allow_arg)
-    output, output_error = _watch_resolve_ref(output_ref, workspace, cfg, allow_arg)
-    if source_error:
-        errors.append(f"{name}: source {source_error}")
-    if output_error:
-        errors.append(f"{name}: output {output_error}")
-    if errors:
-        return None, errors
-    return WatchTarget(name=name, source=source, output=output), []
-
-
-def _watch_targets_from_pack(
-    workspace: Path,
-    manifest: str | None,
-    cfg: dict,
-    allow_arg: bool,
-) -> tuple[list[WatchTarget], list[str]]:
-    result = validate_context_pack(workspace, manifest)
-    if not result.get("valid", False):
-        errors = result.get("errors") or ["context pack is invalid"]
-        return [], [f"context pack {err}" for err in errors]
-    targets: list[WatchTarget] = []
-    errors: list[str] = []
-    for idx, render in enumerate(result.get("renders", []), start=1):
-        name = str(render.get("name") or f"render-{idx}")
-        source_ref = render.get("source")
-        output_ref = render.get("output")
-        if not isinstance(source_ref, str) or not source_ref:
-            errors.append(f"{name}: source is required")
-            continue
-        if not isinstance(output_ref, str) or not output_ref:
-            errors.append(f"{name}: output is required")
-            continue
-        target, target_errors = _watch_target_from_refs(name, source_ref, output_ref, workspace, cfg, allow_arg)
-        if target:
-            targets.append(target)
-        errors.extend(target_errors)
-    if not targets and not errors:
-        errors.append("context pack has no render targets")
-    return targets, errors
-
-
-def _watch_targets_from_args(args, cfg, workspace: Path) -> tuple[list[WatchTarget], list[str]]:
-    allow_arg = bool(getattr(args, "allow_outside_workspace", False))
-    source_arg = getattr(args, "source", None)
-    output_arg = getattr(args, "output", None)
-    manifest_arg = getattr(args, "manifest", None)
-    explicit_single = bool(source_arg or output_arg)
-    pack_path = _pack_manifest_path(workspace, manifest_arg)
-    if not explicit_single and (manifest_arg or pack_path.exists()):
-        return _watch_targets_from_pack(workspace, manifest_arg, cfg, allow_arg)
-
-    source_ref = source_arg or ".perseus/context.md"
-    output_ref = output_arg or ".hermes.md"
-    target, errors = _watch_target_from_refs("default", source_ref, output_ref, workspace, cfg, allow_arg)
-    return ([target] if target else []), errors
-
-
-def _watch_target_mtime(target: WatchTarget, getmtime: Callable[[Path], float]) -> float | None:
-    try:
-        return float(getmtime(target.source))
-    except OSError:
-        return None
-
-
-def _watch_render_target(target: WatchTarget, cfg: dict, render_fn: Callable) -> None:
-    render_args = argparse.Namespace(source=str(target.source), output=str(target.output))
-    try:
-        render_fn(render_args, cfg)
-    except SystemExit as exc:
-        code = exc.code if isinstance(exc.code, int) else 1
-        raise RuntimeError(f"render exited with status {code}") from None
-
-
-def _watch_render_and_record(
-    target: WatchTarget,
-    cfg: dict,
-    workspace: Path,
-    last_rendered: dict[tuple[str, str], float | None],
-    pending: dict[tuple[str, str], float | None],
-    getmtime: Callable[[Path], float],
-    render_fn: Callable,
-    log_stream,
-    exit_on_error: bool,
-) -> bool:
-    key = _watch_target_key(target)
-    try:
-        _watch_render_target(target, cfg, render_fn)
-    except Exception as exc:
-        print(f"[watch] render error: {exc}", file=log_stream)
-        last_rendered[key] = _watch_target_mtime(target, getmtime)
-        pending.pop(key, None)
-        return not exit_on_error
-
-    last_rendered[key] = _watch_target_mtime(target, getmtime)
-    pending.pop(key, None)
-    print(
-        f"[watch] rendered -> {_watch_rel(target.output, workspace)} "
-        f"(changed: {_watch_rel(target.source, workspace)})",
-        file=log_stream,
-    )
-    return True
-
-
-def _watch_loop(
-    targets: list[WatchTarget],
-    cfg: dict,
-    workspace: Path,
-    interval_s: float,
-    *,
-    exit_on_error: bool = False,
-    getmtime: Callable[[Path], float] = os.path.getmtime,
-    sleep: Callable[[float], None] = time.sleep,
-    render_fn: Callable = cmd_render,
-    should_stop: Callable[[], bool] | None = None,
-    log_stream=None,
-    max_cycles: int | None = None,
-) -> int:
-    log_stream = log_stream or sys.stderr
-    should_stop = should_stop or (lambda: False)
-    last_rendered: dict[tuple[str, str], float | None] = {}
-    pending: dict[tuple[str, str], float | None] = {}
-
-    try:
-        for target in targets:
-            ok = _watch_render_and_record(
-                target, cfg, workspace, last_rendered, pending,
-                getmtime, render_fn, log_stream, exit_on_error,
-            )
-            if not ok:
-                return 1
-
-        cycles = 0
-        while True:
-            if should_stop():
-                print("[watch] stopped", file=log_stream)
-                return 0
-            if max_cycles is not None and cycles >= max_cycles:
-                return 0
-            sleep(interval_s)
-            cycles += 1
-            if should_stop():
-                print("[watch] stopped", file=log_stream)
-                return 0
-
-            for target in targets:
-                key = _watch_target_key(target)
-                current = _watch_target_mtime(target, getmtime)
-                if current == last_rendered.get(key):
-                    pending.pop(key, None)
-                    continue
-                if key in pending and pending[key] == current:
-                    ok = _watch_render_and_record(
-                        target, cfg, workspace, last_rendered, pending,
-                        getmtime, render_fn, log_stream, exit_on_error,
-                    )
-                    if not ok:
-                        return 1
-                else:
-                    pending[key] = current
-    except KeyboardInterrupt:
-        print("[watch] stopped", file=log_stream)
-        return 0
-
-
-def _watch_install_signal_handlers() -> tuple[dict, dict]:
-    state = {"stop": False, "signal": None}
-    previous = {}
-
-    def _handler(signum, _frame):
-        state["stop"] = True
-        try:
-            state["signal"] = signal.Signals(signum).name
-        except Exception:
-            state["signal"] = str(signum)
-
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        previous[sig] = signal.getsignal(sig)
-        signal.signal(sig, _handler)
-    return state, previous
-
-
-def _watch_restore_signal_handlers(previous: dict) -> None:
-    for sig, handler in previous.items():
-        signal.signal(sig, handler)
-
-
-def cmd_watch(args, cfg) -> int:
-    workspace = Path(args.workspace).expanduser().resolve() if getattr(args, "workspace", None) else Path.cwd().resolve()
-    cfg = load_config(workspace)
-    interval_s, interval_error = _watch_interval_s(args, cfg)
-    if interval_error:
-        print(f"perseus watch: {interval_error}", file=sys.stderr)
-        return 1
-
-    targets, errors = _watch_targets_from_args(args, cfg, workspace)
-    if errors:
-        for err in errors:
-            print(f"perseus watch: {err}", file=sys.stderr)
-        return 1
-    if not targets:
-        print("perseus watch: no render targets", file=sys.stderr)
-        return 1
-
-    signal_state, previous_handlers = _watch_install_signal_handlers()
-    try:
-        return _watch_loop(
-            targets,
-            cfg,
-            workspace,
-            interval_s or 5,
-            exit_on_error=bool(getattr(args, "exit_on_error", False)),
-            should_stop=lambda: bool(signal_state["stop"]),
-        )
-    finally:
-        _watch_restore_signal_handlers(previous_handlers)
-
-
-def cmd_graph(args, cfg) -> int:
-    """Print a static directive dependency graph."""
-    source_path = Path(args.source).expanduser().resolve()
-    if not source_path.exists():
-        print(f"Error: file not found: {source_path}", file=sys.stderr)
-        return 1
-    workspace = Path(args.workspace).expanduser().resolve() if getattr(args, "workspace", None) else _infer_workspace(source_path)
-    cfg = load_config(workspace)
-    # task-65: ensure plugin directives are visible in the graph
-    register_plugins(cfg)
-    graph = directive_dependency_graph(
-        source_path.read_text(errors="replace"),
-        source_name=str(source_path),
-        workspace=workspace,
-    )
-    if getattr(args, "json", False):
-        print(json.dumps(graph, indent=2))
-        return 0
-
-    print(f"Directive graph: {source_path}")
-    print(f"Nodes: {graph['summary']['node_count']}  Edges: {graph['summary']['edge_count']}")
-    for node in graph["nodes"]:
-        flags = []
-        meta = node["metadata"]
-        if meta["executes_shell"]:
-            flags.append("shell")
-        if meta["reads_files"]:
-            flags.append("files")
-        if meta["mutates_state"]:
-            flags.append("mutates")
-        if meta["cacheable"]:
-            flags.append("cacheable")
-        flag_text = f" [{' '.join(flags)}]" if flags else ""
-        resources = ", ".join(f"{r['kind']}={r['value']}" for r in node["resources"])
-        resource_text = f" -> {resources}" if resources else ""
-        print(f"- {node['id']} line {node['line']}: {node['directive']} ({node['kind']}){flag_text}{resource_text}")
-    return 0
-
-
-def cmd_prefetch(args, cfg) -> int:
-    """Run configured prefetch rules against a static directive graph."""
-    source_path = Path(args.source).expanduser().resolve()
-    if not source_path.exists():
-        print(f"Error: file not found: {source_path}", file=sys.stderr)
-        return 1
-    workspace = Path(args.workspace).expanduser().resolve() if getattr(args, "workspace", None) else _infer_workspace(source_path)
-    cfg = load_config(workspace)
-    # task-65: register plugin directives so prefetch graph rules can target them
-    register_plugins(cfg)
-    result = prefetch_source(
-        source_path.read_text(errors="replace"),
-        cfg,
-        workspace=workspace,
-        source_name=str(source_path),
-    )
-    if getattr(args, "json", False):
-        print(json.dumps(result, indent=2))
-    else:
-        print(format_prefetch_human(result))
-    return 1 if result["summary"]["failed"] else 0
-
-
-
-# ───────────────────────────── Context packs ────────────────────────────────
-
-PACK_VERSION = 1
-TRUST_PROFILES = {"strict", "balanced", "power-user"}
-
-PRODUCT_PROFILES: dict[str, dict] = {
-    "generic": {
-        "label": "Generic markdown",
-        "assistant": "generic",
-        "output": "live-context.md",
-        "trust_profile": "balanced",
-        "description": "Plain markdown output for any assistant or stdin/file flow.",
-        "refresh": "Render on demand or from any scheduler into live-context.md.",
-    },
-    "hermes": {
-        "label": "Hermes Agent",
-        "assistant": "hermes",
-        "output": ".hermes.md",
-        "trust_profile": "balanced",
-        "description": "Hermes Agent reads .hermes.md at session start.",
-        "refresh": "Keep .hermes.md fresh before session start via cron, launchd, systemd, or watch.",
-    },
-    "codex": {
-        "label": "Codex / AGENTS.md",
-        "assistant": "codex",
-        "output": "AGENTS.md",
-        "trust_profile": "balanced",
-        "description": "Codex-compatible repository guidance file.",
-        "refresh": "Render AGENTS.md before starting Codex or through a workspace scheduler/watch flow.",
-    },
-    "claude-code": {
-        "label": "Claude Code",
-        "assistant": "claude-code",
-        "output": "CLAUDE.md",
-        "trust_profile": "balanced",
-        "description": "Claude Code project knowledge file.",
-        "refresh": "Render CLAUDE.md before starting Claude Code or through scheduler/watch refresh.",
-    },
-    "cursor": {
-        "label": "Cursor",
-        "assistant": "cursor",
-        "output": ".cursorrules",
-        "trust_profile": "balanced",
-        "description": "Cursor rules/context file.",
-        "refresh": "Render .cursorrules when project context changes; use watch when continuous refresh is desired.",
-    },
-    "rovodev": {
-        "label": "Rovo Dev",
-        "assistant": "rovodev",
-        "output": "AGENTS.md",
-        "trust_profile": "balanced",
-        "description": "Rovo Dev AGENTS.md flow.",
-        "refresh": "Render AGENTS.md before Rovo Dev sessions or through scheduler/watch refresh.",
-    },
-}
-
-
-def _profile_context_template(profile_name: str, profile: dict) -> str:
-    label = profile["label"]
-    return f"""@perseus v{_PERSEUS_VERSION}
-
-@prompt
-This document was rendered live by Perseus for the {label} profile. Treat the
-resolved content below as current workspace context. Do not spend initial turns
-re-discovering the same facts unless the user asks you to verify them.
-@end
-
-# Workspace Context — @date format="YYYY-MM-DD HH:mm z"
-
-**Profile:** {profile_name}
-
----
-
-## Last Checkpoint
-@waypoint ttl=86400
-
----
-
-## Workspace State
-
-@query "git log --oneline -5 2>/dev/null || echo '(no git repo)'" fallback="git log unavailable"
-@query "git status --short 2>/dev/null || true" fallback="clean"
-
----
-
-## Task Board
-@agora status=open,in_progress
-
----
-
-## Project Memory
-@memory focus=recent ttl=300
-"""
-
-
-def _context_pack_manifest(profile_name: str, profile: dict, output: str | None = None, trust_profile: str | None = None) -> dict:
-    output_path = output or profile["output"]
-    trust = trust_profile or profile.get("trust_profile", "balanced")
-    return {
-        "version": PACK_VERSION,
-        "name": f"{profile_name}-context",
-        "profile": profile_name,
-        "trust_profile": trust,
-        "renders": [
-            {
-                "name": "default",
-                "source": ".perseus/context.md",
-                "output": output_path,
-                "assistant": profile["assistant"],
-            }
-        ],
-        "synthesis": [
-            {
-                "name": "project-status",
-                "question": "What is the current project status and next allowable action?",
-                "sources": ["ROADMAP.md", "HANDOFF.md", "README.md"],
-                "enabled": False,
-            }
-        ],
-    }
-
-
-def _pack_manifest_path(workspace: Path, manifest: str | None = None) -> Path:
-    if manifest:
-        raw = Path(manifest).expanduser()
-        return raw.resolve() if raw.is_absolute() else (workspace / raw).resolve()
-    return workspace / ".perseus" / "pack.yaml"
-
-
-def _load_pack_manifest(workspace: Path, manifest: str | None = None) -> tuple[dict | None, Path, list[str]]:
-    path = _pack_manifest_path(workspace, manifest)
-    if not path.exists():
-        return None, path, [f"manifest not found: {path}"]
-    try:
-        data = yaml.safe_load(path.read_text()) or {}
-    except Exception as exc:
-        return None, path, [f"could not parse manifest: {exc}"]
-    if not isinstance(data, dict):
-        return None, path, ["manifest must be a YAML mapping"]
-    return data, path, []
-
-
-def _pack_rel(path: Path, workspace: Path) -> str:
-    try:
-        return str(path.relative_to(workspace))
-    except ValueError:
-        return str(path)
-
-
-def validate_context_pack(workspace: Path, manifest: str | None = None) -> dict:
-    workspace = workspace.expanduser().resolve()
-    data, path, load_errors = _load_pack_manifest(workspace, manifest)
-    errors = list(load_errors)
-    warnings: list[str] = []
-    renders: list[dict] = []
-    synthesis: list[dict] = []
-    profile = None
-    trust_profile = None
-
-    if data is not None:
-        version = data.get("version")
-        if version != PACK_VERSION:
-            errors.append(f"version must be {PACK_VERSION}")
-
-        profile = data.get("profile")
-        if profile is not None and profile not in PRODUCT_PROFILES:
-            errors.append(f"unknown profile: {profile}")
-
-        trust_profile = data.get("trust_profile", "balanced")
-        if trust_profile not in TRUST_PROFILES:
-            errors.append(f"unknown trust_profile: {trust_profile}")
-
-        raw_renders = data.get("renders")
-        if not isinstance(raw_renders, list) or not raw_renders:
-            errors.append("renders must be a non-empty list")
-        else:
-            for idx, item in enumerate(raw_renders, start=1):
-                if not isinstance(item, dict):
-                    errors.append(f"renders[{idx}] must be a mapping")
-                    continue
-                name = str(item.get("name", f"render-{idx}"))
-                source = item.get("source")
-                output = item.get("output")
-                assistant = item.get("assistant", profile or "generic")
-                if not isinstance(source, str) or not source:
-                    errors.append(f"renders[{idx}].source is required")
-                    source_path = None
-                else:
-                    source_path = (workspace / source).resolve()
-                    if not source_path.exists():
-                        errors.append(f"renders[{idx}].source not found: {source}")
-                if not isinstance(output, str) or not output:
-                    errors.append(f"renders[{idx}].output is required")
-                renders.append({
-                    "name": name,
-                    "source": source,
-                    "output": output,
-                    "assistant": assistant,
-                    "source_exists": bool(source_path and source_path.exists()),
-                })
-
-        raw_synthesis = data.get("synthesis", [])
-        if raw_synthesis is None:
-            raw_synthesis = []
-        if not isinstance(raw_synthesis, list):
-            errors.append("synthesis must be a list when present")
-        else:
-            for idx, item in enumerate(raw_synthesis, start=1):
-                if not isinstance(item, dict):
-                    errors.append(f"synthesis[{idx}] must be a mapping")
-                    continue
-                name = str(item.get("name", f"synthesis-{idx}"))
-                question = item.get("question")
-                sources = item.get("sources")
-                if not isinstance(question, str) or not question:
-                    errors.append(f"synthesis[{idx}].question is required")
-                if not isinstance(sources, list) or not sources:
-                    errors.append(f"synthesis[{idx}].sources must be a non-empty list")
-                    source_records = []
-                else:
-                    source_records = []
-                    for source_ref in sources:
-                        if not isinstance(source_ref, str) or not source_ref:
-                            errors.append(f"synthesis[{idx}].sources entries must be strings")
-                            continue
-                        source_path = (workspace / source_ref).resolve()
-                        exists = source_path.exists()
-                        if not exists:
-                            warnings.append(f"synthesis[{idx}] source not found yet: {source_ref}")
-                        source_records.append({"path": source_ref, "exists": exists})
-                synthesis.append({
-                    "name": name,
-                    "question": question,
-                    "sources": source_records,
-                    "enabled": bool(item.get("enabled", False)),
-                })
-
-    return {
-        "version": PACK_VERSION,
-        "workspace": str(workspace),
-        "path": str(path),
-        "exists": data is not None,
-        "valid": not errors,
-        "errors": errors,
-        "warnings": warnings,
-        "profile": profile,
-        "trust_profile": trust_profile,
-        "renders": renders,
-        "synthesis": synthesis,
-    }
-
-
-def format_pack_validation(result: dict) -> str:
-    lines = [f"Context pack: {_pack_rel(Path(result['path']), Path(result['workspace']))}"]
-    if not result["exists"]:
-        lines.append("Status: missing")
-    else:
-        lines.append(f"Status: {'valid' if result['valid'] else 'invalid'}")
-    if result.get("profile"):
-        lines.append(f"Profile: {result['profile']}")
-    if result.get("trust_profile"):
-        lines.append(f"Trust profile: {result['trust_profile']}")
-    if result.get("renders"):
-        lines.append("Renders:")
-        for render in result["renders"]:
-            status = "ok" if render["source_exists"] else "missing source"
-            lines.append(f"- {render['name']}: {render['source']} -> {render['output']} ({render['assistant']}, {status})")
-    if result.get("synthesis"):
-        lines.append("Synthesis packs:")
-        for item in result["synthesis"]:
-            enabled = "enabled" if item["enabled"] else "disabled"
-            lines.append(f"- {item['name']}: {enabled}, {len(item['sources'])} sources")
-    if result["errors"]:
-        lines.append("Errors:")
-        lines.extend(f"- {err}" for err in result["errors"])
-    if result["warnings"]:
-        lines.append("Warnings:")
-        lines.extend(f"- {warning}" for warning in result["warnings"])
-    return "\n".join(lines)
-
-
-def cmd_pack(args, cfg) -> int:
-    workspace = Path(args.workspace).expanduser().resolve() if getattr(args, "workspace", None) else Path.cwd().resolve()
-    result = validate_context_pack(workspace, getattr(args, "manifest", None))
-    if getattr(args, "json", False):
-        print(json.dumps(result, indent=2))
-    else:
-        print(format_pack_validation(result))
-    return 0 if result["valid"] else 1
-
-
-# ───────────────────────────── Schema validation CLI ─────────────────────────
-
-def _validate_cli_payload(args) -> tuple[object | None, str, str | None]:
-    """Load and parse a validate command payload."""
-    payload_ref = getattr(args, "payload", "-") or "-"
-    if payload_ref == "-":
-        text = sys.stdin.read()
-        try:
-            return _parse_validation_payload_by_source(text, "<stdin>"), "<stdin>", None
-        except Exception as exc:
-            return None, "<stdin>", str(exc)
-
-    payload_path = Path(payload_ref).expanduser()
-    try:
-        text = payload_path.read_text(errors="replace")
-    except Exception as exc:
-        return None, str(payload_path), str(exc)
-    try:
-        return _parse_validation_payload_by_source(text, str(payload_path)), str(payload_path), None
-    except Exception as exc:
-        return None, str(payload_path), str(exc)
-
-
-def cmd_validate(args, cfg) -> int:
-    """Validate a payload against a Perseus schema."""
-    workspace = Path(args.workspace).expanduser().resolve() if getattr(args, "workspace", None) else Path.cwd().resolve()
-    schema_ref = args.schema
-    data, input_label, input_error = _validate_cli_payload(args)
-    if input_error:
-        payload = {"ok": False, "input": input_label, "errors": [], "error": input_error}
-        if getattr(args, "json", False):
-            print(json.dumps(payload, indent=2))
-        else:
-            print(f"Error: {payload['error']}")
-        return 2
-
-    if isinstance(schema_ref, str) and schema_ref.startswith("plugin:"):
-        validator_name = schema_ref[7:]
-        schema_label = schema_ref
-        try:
-            validator_fn = _load_plugin_validator(validator_name, workspace)
-            if not validator_fn:
-                if getattr(args, "json", False):
-                    print(json.dumps({"ok": False, "schema": schema_label, "error": f"plugin validator `{validator_name}` not found"}, indent=2))
-                else:
-                    print(f"Error: plugin validator `{validator_name}` not found")
-                return 2
-            valid, message = validator_fn(data, {})
-            errors = [] if valid else [message]
-        except Exception as e:
-            if getattr(args, "json", False):
-                print(json.dumps({"ok": False, "schema": schema_label, "error": str(e)}, indent=2))
-            else:
-                print(f"Error: {e}")
-            return 2
-    else:
-        schema_path, schema_data, schema_error = _load_schema(schema_ref, workspace)
-        schema_label = str(schema_path or schema_ref)
-        if schema_error:
-            payload = {"ok": False, "schema": schema_label, "input": input_label, "errors": [], "error": schema_error}
-            if getattr(args, "json", False):
-                print(json.dumps(payload, indent=2))
-            else:
-                print(f"Error: {payload['error']}")
-            return 2
-        errors = _validate_basic_schema(data, schema_data)
-
-    payload = {
-        "ok": not errors,
-        "schema": schema_label,
-        "input": input_label,
-        "errors": errors,
-    }
-    if getattr(args, "json", False):
-        print(json.dumps(payload, indent=2))
-    elif errors:
-        print(f"Invalid: {input_label} does not match {schema_label}")
-        for err in errors:
-            print(f"- {err}")
-    else:
-        print(f"Valid: {input_label} matches {schema_label}")
-    return 0 if not errors else 1
-
-
-# ──────────────────────────────── cmd_init ────────────────────────────────────
-
-INIT_CONTEXT_TEMPLATE = """\
-@perseus v{version}
-
-@prompt
-This document was rendered live by Perseus. All values below are current —
-do not verify services, re-scan skills, or re-read session history. Trust the
-rendered output and skip orientation. Start work immediately.
-@end
-
-# Perseus Session Context — @date format="YYYY-MM-DD HH:mm CDT"
-
-**Workspace:** `{workspace}`
-
----
-
-## Last Session
-@waypoint ttl=86400
-
----
-
-## Workspace State
-
-@query "git -C {workspace} log --oneline -5 2>/dev/null || echo '(no git repo)'"
-@query "git -C {workspace} status --short 2>/dev/null || echo ''"
-
----
-
-## Available Skills
-@skills flag_stale=true
-
----
-
-## Services
-@services
-  - name: Perseus CLI
-    command: python3 {workspace}/perseus.py --version 2>&1 || perseus --version
-
----
-
-## Recent Sessions
-@session count=3
-"""
-
-# ───────────────────────── Phase 24: install ──────────────────────────────────
-
-def cmd_install(args, cfg) -> int:
-    """Install Perseus hooks into an AI assistant."""
-    import json as _json
-
-    target = args.target
-    workspace = Path(args.workspace).expanduser().resolve() if args.workspace else None
-    dry_run = getattr(args, "dry_run", False)
-    json_out = getattr(args, "json", False)
-    perseus_cmd = getattr(args, "perseus_cmd", "perseus")
-
-    result = install_target(
-        target=target,
-        cfg=cfg,
-        workspace=workspace,
-        perseus_cmd=perseus_cmd,
-        dry_run=dry_run,
-    )
-
-    if json_out:
-        print(_json.dumps(result, indent=2))
-    return 0
-
-
-# ───────────────────────── Phase 24: mcp ────────────────────────────────────
-
-def cmd_mcp(args, cfg) -> int:
-    """Perseus MCP server — expose directives as MCP tools."""
-    import json as _json
-
-    mcp_cmd = args.mcp_command  # "serve", "config", or "register"
-    workspace = Path(args.workspace).expanduser().resolve() if getattr(args, "workspace", None) else None
-
-    if mcp_cmd == "serve":
-        transport = getattr(args, "transport", "stdio")
-        if transport == "sse":
-            port = getattr(args, "port", 8420)
-            serve_mcp_sse(cfg, workspace=workspace, port=port)
-            return 0
-        return serve_mcp(cfg, workspace=workspace)
-    elif mcp_cmd == "config":
-        print_mcp_config(cfg, workspace=workspace)
-        return 0
-    elif mcp_cmd == "register":
-        print_mcp_registry(cfg)
-        return 0
-    else:
-        print(f"Error: unknown mcp command: {mcp_cmd}", file=sys.stderr)
-        return 1
-
-
 
 
 # ─────────────────────────────────────────────────────────────────────────────
