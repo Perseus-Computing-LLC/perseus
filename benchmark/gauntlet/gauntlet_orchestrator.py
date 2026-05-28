@@ -366,63 +366,110 @@ class GauntletOrchestrator:
         return mapping.get(phase_num, f"phase-{phase_num}")
 
     def _phase_semantic_integrity(self) -> dict:
-        """Phase 8: Semantic Integrity — judge A/B pairs via LLM."""
+        """Phase 8: Semantic Integrity — judge A/B pairs via DeepSeek."""
         result = {
             "phase": 8,
             "name": "Semantic Integrity",
             "status": "skipped",
-            "reason": "Requires GOOGLE_API_KEY",
+            "reason": "Requires DEEPSEEK_API_KEY",
         }
 
-        api_key = os.environ.get("GOOGLE_API_KEY")
+        api_key = os.environ.get("DEEPSEEK_API_KEY")
         if not api_key:
-            print("  SKIPPED: GOOGLE_API_KEY not set")
+            print("  SKIPPED: DEEPSEEK_API_KEY not set")
             return result
 
-        # Minimal semantic judge using Gemini API
         import urllib.request
         import urllib.error
 
+        deepseek_base = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+        model = os.environ.get("GAUNTLET_JUDGE_MODEL", "deepseek-chat")
         n_pairs = 10 if self.duration == "smoke" else 20
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+
+        # Semantic equivalence prompts
+        test_prompts = [
+            "List the top 3 features of a context caching system for AI assistants.",
+            "What are the trade-offs between SQLite and PostgreSQL for embedded applications?",
+            "Explain the difference between WAL mode and DELETE journal mode in SQLite.",
+            "What is the purpose of BM25 scoring in full-text search?",
+            "Describe three ways to reduce token usage when using LLM APIs.",
+            "What are the benefits of single-file deployment for CLI tools?",
+            "Explain the concept of pre-commit hooks in git workflows.",
+            "What is the difference between stdio and SSE transport in MCP?",
+            "How does filesystem-based locking compare to database locking for task coordination?",
+            "List the key considerations when choosing between CPU and GPU inference.",
+            "What is the purpose of a kill switch in adversarial testing?",
+            "Explain how cache poisoning works and how to defend against it.",
+            "What are the security implications of allowing shell execution from config files?",
+            "Describe the difference between a monorepo and polyrepo strategy.",
+            "How does Python's subprocess module handle stdin/stdout piping?",
+            "What is the benefit of NDJSON for telemetry data?",
+            "Explain the purpose of sentinel files in distributed coordination.",
+            "What is the difference between soft and hard file descriptor limits?",
+            "How does Python's os.fork() work and what are its limitations on non-Unix systems?",
+            "Describe the key metrics for evaluating a context caching system.",
+        ]
 
         judged = []
-        for i in range(n_pairs):
-            prompt_a = f"List the top 3 features of a context caching system for AI assistants."
-            prompt_b = prompt_a  # Same prompt, Perseus context in real run
-
-            payload_a = json.dumps({
-                "contents": [{"parts": [{"text": prompt_a}]}],
-                "generationConfig": {"temperature": 0.0, "maxOutputTokens": 200},
-            }).encode()
+        for i in range(min(n_pairs, len(test_prompts))):
+            prompt = test_prompts[i]
+            print(f"  Pair {i+1}/{n_pairs}: {prompt[:60]}...", end=" ", flush=True)
 
             try:
-                req = urllib.request.Request(url, data=payload_a,
-                                             headers={"Content-Type": "application/json"})
-                resp = urllib.request.urlopen(req, timeout=30)
-                resp_json = json.loads(resp.read())
+                def _call(p: str) -> str:
+                    url = f"{deepseek_base}/v1/chat/completions"
+                    payload = json.dumps({
+                        "model": model,
+                        "messages": [{"role": "user", "content": p}],
+                        "temperature": 0.0,
+                        "max_tokens": 256,
+                    }).encode()
+                    req = urllib.request.Request(url, data=payload, headers={
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {api_key}",
+                    })
+                    resp = urllib.request.urlopen(req, timeout=60)
+                    data = json.loads(resp.read())
+                    return data["choices"][0]["message"]["content"].strip()
 
-                judged.append({
-                    "pair": i,
-                    "success": True,
-                    "has_response": "candidates" in resp_json,
-                })
+                resp_a = _call(prompt)
+                resp_b = _call(prompt)
+
+                # Judge semantic equivalence
+                judge_prompt = (
+                    f"Rate whether these two responses are semantically equivalent (1-5 scale).\n"
+                    f"1=completely different, 5=identical meaning.\n\n"
+                    f"Response A: {resp_a}\n\nResponse B: {resp_b}\n\nScore (1-5):"
+                )
+                judge_raw = _call(judge_prompt)
+                score = None
+                for char in judge_raw.strip():
+                    if char in "12345":
+                        score = int(char)
+                        break
+
+                judged.append({"pair": i, "score": score, "success": score is not None})
+                print(f"Score: {score}")
             except Exception as exc:
                 judged.append({"pair": i, "success": False, "error": str(exc)[:200]})
+                print(f"ERROR: {exc}")
 
         result["status"] = "completed"
+        result["judge_model"] = model
+        result["judge_provider"] = "deepseek"
         result["pairs"] = judged
         result["successful_pairs"] = sum(1 for j in judged if j["success"])
         result["overall_pass"] = result["successful_pairs"] >= n_pairs * 0.9
         return result
 
     def _phase_token_efficiency(self) -> dict:
-        """Phase 9: Token Efficiency — measure compression ratio."""
+        """Phase 9: Token Efficiency — measure compression ratio per profile."""
         result = {
             "phase": 9,
             "name": "Token Efficiency",
             "status": "completed",
             "renders": [],
+            "per_profile": [],
         }
 
         cold_home = Path("/tmp/perseus-gauntlet/cold")
@@ -431,14 +478,17 @@ class GauntletOrchestrator:
         warm_home.mkdir(parents=True, exist_ok=True)
 
         perseus = perseus_executable()
-        sample_size = min(10, len(self.role_profiles))
+        # Sample ALL profiles for statistically meaningful results
+        sample_profiles = self.role_profiles[:25]  # all 25
 
-        for i in range(sample_size):
-            profile = self.role_profiles[i]
+        for i, profile in enumerate(sample_profiles):
             cold_env = os.environ.copy()
             cold_env["PERSEUS_HOME"] = str(cold_home)
             warm_env = os.environ.copy()
             warm_env["PERSEUS_HOME"] = str(warm_home)
+
+            cold_tokens = None
+            warm_tokens = None
 
             for state, env, label in [("cold", cold_env, "Cold"),
                                        ("warm", warm_env, "Warm")]:
@@ -447,14 +497,18 @@ class GauntletOrchestrator:
                         [sys.executable, perseus, "render", profile["path"]],
                         capture_output=True, text=True, timeout=60, env=env,
                     )
-                    # Token estimate: output chars / 4 (rough)
                     token_estimate = len(r.stdout) // 4
                     result["renders"].append({
                         "profile": profile["name"],
+                        "directive_count": profile.get("directive_count", 0),
                         "state": label,
                         "tokens": token_estimate,
                         "exit_code": r.returncode,
                     })
+                    if label == "Cold":
+                        cold_tokens = token_estimate
+                    else:
+                        warm_tokens = token_estimate
                 except Exception as exc:
                     result["renders"].append({
                         "profile": profile["name"],
@@ -462,7 +516,20 @@ class GauntletOrchestrator:
                         "error": str(exc)[:200],
                     })
 
-        # Compute compression
+            # Per-profile compression
+            if cold_tokens and warm_tokens:
+                ratio = warm_tokens / cold_tokens if cold_tokens > 0 else 1.0
+                pct = (1 - ratio) * 100
+                result["per_profile"].append({
+                    "profile": profile["name"],
+                    "directive_count": profile.get("directive_count", 0),
+                    "cold_tokens": cold_tokens,
+                    "warm_tokens": warm_tokens,
+                    "compression_ratio": round(ratio, 4),
+                    "compression_pct": round(pct, 2),
+                })
+
+        # Aggregate
         cold_tokens = [r["tokens"] for r in result["renders"]
                        if r.get("state") == "Cold" and "tokens" in r]
         warm_tokens = [r["tokens"] for r in result["renders"]
@@ -473,8 +540,15 @@ class GauntletOrchestrator:
             avg_warm = sum(warm_tokens) / len(warm_tokens)
             result["avg_cold_tokens"] = avg_cold
             result["avg_warm_tokens"] = avg_warm
-            result["compression_ratio"] = avg_warm / avg_cold if avg_cold > 0 else 1.0
-            result["compression_pct"] = (1 - avg_warm / avg_cold) * 100 if avg_cold > 0 else 0
+            result["compression_ratio"] = round(avg_warm / avg_cold, 4) if avg_cold > 0 else 1.0
+            result["compression_pct"] = round((1 - avg_warm / avg_cold) * 100, 2) if avg_cold > 0 else 0
+
+            # Per-profile stats
+            ratios = [p["compression_ratio"] for p in result["per_profile"] if "compression_ratio" in p]
+            if ratios:
+                result["min_compression_ratio"] = min(ratios)
+                result["max_compression_ratio"] = max(ratios)
+                result["median_compression_ratio"] = sorted(ratios)[len(ratios)//2]
         else:
             result["compression_ratio"] = 1.0
             result["compression_pct"] = 0.0

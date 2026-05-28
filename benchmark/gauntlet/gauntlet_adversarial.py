@@ -209,6 +209,7 @@ def scenario_a2_network_partition(
 
     if os.geteuid() != 0:
         result["setup"] = "SKIPPED: requires root"
+        result["renders"] = {}
         return result
 
     try:
@@ -267,6 +268,7 @@ def scenario_a3_clock_skew(
 
     if os.geteuid() != 0:
         result["setup"] = "SKIPPED: requires root"
+        result["renders"] = {}
         return result
 
     try:
@@ -483,7 +485,7 @@ def scenario_a7_signal_storm(
         try:
             proc.stdin.write(b"@perseus v0.8\n@query \"sleep 0.5\" @cache ttl=300\n")
             proc.stdin.close()
-        except (BrokenPipeError, OSError):
+        except (BrokenPipeError, OSError, ValueError):
             pass  # Process may have been killed by signal before we could write
 
         # Randomly send signal
@@ -911,6 +913,13 @@ def run_all_adversarial(
             result = info["fn"](**kwargs)
             results[sid] = result
 
+            # Save per-scenario result immediately (survives crash)
+            scenario_file = nfs_base / "results" / f"adversarial_{sid}.json"
+            try:
+                write_json(scenario_file, result)
+            except OSError:
+                pass
+
             # Check if renders succeeded
             renders = result.get("renders", {})
             if isinstance(renders, dict):
@@ -925,6 +934,12 @@ def run_all_adversarial(
             results[sid] = {"error": str(exc)}
             overall_pass = False
             print(f"    CRASHED: {exc}", file=sys.stderr)
+            # Save crash result too
+            scenario_file = nfs_base / "results" / f"adversarial_{sid}.json"
+            try:
+                write_json(scenario_file, {"error": str(exc), "scenario": sid})
+            except OSError:
+                pass
 
     return {
         "phase": 7,
@@ -933,7 +948,7 @@ def run_all_adversarial(
         "overall_pass": overall_pass,
         "scenarios_run": len(scenario_names),
         "scenarios_passed": sum(1 for s in results.values()
-                                if not s.get("error") and not s.get("renders", {}).get("errors")),
+                                if not s.get("error") and not (s.get("renders") or {}).get("errors")),
     }
 
 
