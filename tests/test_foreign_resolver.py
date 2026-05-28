@@ -27,7 +27,8 @@ class MockPerseusServer(http.server.BaseHTTPRequestHandler):
                 self.send_header("Content-Length", str(len(body)))
                 
                 # Signature if needed (X-Perseus-Signature)
-                secret = "test-secret"
+                # Phase 26C: HMAC secrets must be ≥32 chars for security
+                secret = "test-secret-32-bytes-long-key-ok"
                 sig = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
                 self.send_header("X-Perseus-Signature", sig)
                 
@@ -64,6 +65,7 @@ def mock_server():
 def test_foreign_resolve_success(mock_server):
     c = cfg()
     c["foreign"]["enabled"] = True
+    c["foreign"]["verify_signatures"] = False  # Phase 26C: disable HMAC for basic fetch test
     c["render"]["allow_remote_services_health"] = True
     
     url = f"{mock_server}/workspace/infra @cache ttl=300"
@@ -75,7 +77,7 @@ def test_foreign_resolve_hmac_ok(mock_server):
     c["foreign"].update({
         "enabled": True,
         "verify_signatures": True,
-        "shared_secret": "test-secret"
+        "shared_secret": "test-secret-32-bytes-long-key-ok"
     })
     c["render"]["allow_remote_services_health"] = True
     
@@ -88,7 +90,7 @@ def test_foreign_resolve_hmac_fail(mock_server):
     c["foreign"].update({
         "enabled": True,
         "verify_signatures": True,
-        "shared_secret": "wrong-secret"
+        "shared_secret": "wrong-secret-32-bytes-long-keyny"  # 32+ chars, doesn't match server
     })
     c["render"]["allow_remote_services_health"] = True
     
@@ -99,6 +101,7 @@ def test_foreign_resolve_hmac_fail(mock_server):
 def test_foreign_resolve_no_ttl_warning(mock_server):
     c = cfg()
     c["foreign"]["enabled"] = True
+    c["foreign"]["verify_signatures"] = False  # Phase 26C: disable HMAC for basic fetch test
     c["render"]["allow_remote_services_health"] = True
     
     url = f"{mock_server}/workspace/infra"
@@ -109,6 +112,8 @@ def test_foreign_resolve_no_ttl_warning(mock_server):
 def test_foreign_resolve_connection_failure():
     c = cfg()
     c["foreign"]["enabled"] = True
+    c["foreign"]["verify_signatures"] = False  # Phase 26C: disable HMAC for connection test
+    c["foreign"]["allow_internal"] = True  # Phase 26C: allow loopback for connection test
     c["render"]["allow_remote_services_health"] = True
     
     url = "http://127.0.0.1:1/workspace/infra @cache ttl=300"
@@ -119,6 +124,7 @@ def test_foreign_resolve_size_cap(mock_server):
     c = cfg()
     c["foreign"].update({
         "enabled": True,
+        "verify_signatures": False,  # Phase 26C: disable HMAC for size cap test
         "max_response_bytes": 100
     })
     c["render"]["allow_remote_services_health"] = True

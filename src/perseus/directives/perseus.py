@@ -1,6 +1,27 @@
 # stdlib imports available from build artifact header
 # ──────────────────────────────── @perseus ─────────────────────────────────────
 
+import ipaddress
+import socket
+
+
+def _is_private_host(hostname: str) -> bool:
+    """Return True if hostname resolves to a private/rfc1918/loopback/link-local address.
+    127.0.0.1 and ::1 (localhost loopback) are explicitly allowed for local testing."""
+    try:
+        addr = ipaddress.ip_address(hostname)
+    except ValueError:
+        # Not an IP literal — resolve it
+        try:
+            addr = ipaddress.ip_address(socket.gethostbyname(hostname))
+        except (socket.gaierror, ValueError):
+            return True  # Can't resolve — reject for safety
+    # Allow 127.0.0.1 and ::1 (localhost) — these are safe for local testing
+    if addr == ipaddress.IPv4Address("127.0.0.1") or addr == ipaddress.IPv6Address("::1"):
+        return False
+    return addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_multicast
+
+
 def resolve_perseus(args_str: str, cfg: dict, workspace: Path | None = None) -> str:
     """
     @perseus <url> [@cache ttl=N]
@@ -34,32 +55,58 @@ def resolve_perseus(args_str: str, cfg: dict, workspace: Path | None = None) -> 
                 pass
     
     if not has_ttl:
-        # Warning about missing TTL is handled by returning a warning alongside content?
-        # No, the spec says "render warning; default TTL of 60s is applied"
         pass
 
     # Parse URL to get base and workspace
     # Format: https://host:port/workspace/name
     try:
         parsed_url = urllib.parse.urlparse(url_str)
-        path_parts = parsed_url.path.strip("/").split("/")
-        if "workspace" in path_parts:
-            ws_idx = path_parts.index("workspace")
-            if ws_idx + 1 < len(path_parts):
-                ws_name = path_parts[ws_idx + 1]
-                # Reconstruct base URL: scheme://netloc
-                base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
-            else:
-                return f"> ⚠ @perseus: could not extract workspace name from {url_str}"
-        else:
-            return f"> ⚠ @perseus: URL must contain /workspace/<name>: {url_str}"
     except Exception as e:
         return f"> ⚠ @perseus: invalid URL {url_str} ({e})"
+
+    # C15: Only http and https schemes allowed (block file://, ftp://, etc.)
+    if parsed_url.scheme not in ("http", "https"):
+        return f"> ⚠ @perseus: unsupported URL scheme `{parsed_url.scheme}`. Only http/https allowed."
+
+    # Phase 26C: URL allowlist check (foreign_resolver.url_allowlist or foreign.url_allowlist)
+    url_allowlist = f_cfg.get("url_allowlist") or cfg.get("foreign_resolver", {}).get("url_allowlist") or []
+    if url_allowlist:
+        allowed = False
+        for prefix in url_allowlist:
+            if url_str.startswith(prefix):
+                allowed = True
+                break
+        if not allowed:
+            return f"> ⚠ @perseus: URL `{url_str}` not in foreign_resolver.url_allowlist."
+
+    # S3: Block RFC1918, loopback, link-local, multicast destinations
+    # Phase 26C: foreign_resolver.block_private_ips (default true) or foreign.allow_internal for backward compat.
+    block_private = f_cfg.get("block_private_ips")
+    if block_private is None:
+        block_private = cfg.get("foreign_resolver", {}).get("block_private_ips")
+    if block_private is None:
+        block_private = True  # default: block private IPs
+    hostname = parsed_url.hostname
+    if hostname and block_private and not f_cfg.get("allow_internal", False):
+        if _is_private_host(hostname):
+            return f"> ⚠ @perseus: internal/private host `{hostname}` blocked. Set foreign.allow_internal=true to allow."
+
+    path_parts = parsed_url.path.strip("/").split("/")
+    if "workspace" in path_parts:
+        ws_idx = path_parts.index("workspace")
+        if ws_idx + 1 < len(path_parts):
+            ws_name = path_parts[ws_idx + 1]
+            base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
+        else:
+            return f"> ⚠ @perseus: could not extract workspace name from {url_str}"
+    else:
+        return f"> ⚠ @perseus: URL must contain /workspace/<name>: {url_str}"
 
     api_url = f"{base_url}/api/context?workspace={ws_name}"
     timeout = f_cfg.get("timeout_s", 10)
     tls_verify = f_cfg.get("tls_verify", True)
     max_bytes = f_cfg.get("max_response_bytes", 1048576)
+    max_redirects = f_cfg.get("max_redirects", 2)  # S3: limit redirects
     
     headers = {
         "Accept": "text/markdown",
@@ -87,8 +134,32 @@ def resolve_perseus(args_str: str, cfg: dict, workspace: Path | None = None) -> 
 
         req = urllib.request.Request(api_url, headers=headers)
         
+        # S3: Limit redirects and re-check destination IP after each redirect
+        from urllib.request import HTTPRedirectHandler, build_opener
+        class _LimitedRedirectHandler(HTTPRedirectHandler):
+            def __init__(self, max_redirects, allow_internal):
+                self.max_redirects = max_redirects
+                self.allow_internal = allow_internal
+                self.redirect_count = 0
+            def redirect_request(self, req, fp, code, msg, hdrs, newurl):
+                self.redirect_count += 1
+                if self.redirect_count > self.max_redirects:
+                    raise urllib.error.HTTPError(
+                        req.full_url, code, f"Too many redirects (max {self.max_redirects})",
+                        hdrs, fp)
+                # Re-check destination IP (Phase 26C: respect block_private_ips)
+                if not self.allow_internal and block_private:
+                    new_parsed = urllib.parse.urlparse(newurl)
+                    if new_parsed.hostname and _is_private_host(new_parsed.hostname):
+                        raise urllib.error.URLError(
+                            f"Redirect to internal host blocked: {new_parsed.hostname}")
+                return super().redirect_request(req, fp, code, msg, hdrs, newurl)
+        
+        opener = build_opener(_LimitedRedirectHandler(max_redirects,
+                                f_cfg.get("allow_internal", False)))
+        
         # We need to read the response to verify signature, but also need to handle timeout/size.
-        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+        with opener.open(req, timeout=timeout) as resp:
             if resp.status != 200:
                 return f"> ⚠ @perseus: {url_str} returned {resp.status}"
             
@@ -98,9 +169,19 @@ def resolve_perseus(args_str: str, cfg: dict, workspace: Path | None = None) -> 
                 raw_body = raw_body[:max_bytes]
 
             # HMAC verification
-            if f_cfg.get("verify_signatures", False):
+            # Phase 26C: default verify_signatures=True (check foreign + foreign_resolver paths)
+            verify_sig = f_cfg.get("verify_signatures")
+            if verify_sig is None:
+                verify_sig = cfg.get("foreign_resolver", {}).get("verify_signatures")
+            if verify_sig is None:
+                verify_sig = True  # hardened default
+            if verify_sig:
                 sig_header = resp.getheader("X-Perseus-Signature")
                 secret = f_cfg.get("shared_secret", "")
+                # S4: Reject empty shared_secret — HMAC with empty key is forgeable
+                if not secret or len(secret) < 32:
+                    return ("> ⚠ @perseus: shared_secret is empty or too short "
+                            "(min 32 chars). HMAC signing disabled for safety.")
                 if not sig_header:
                     return f"> ⚠ @perseus: missing X-Perseus-Signature from {url_str}"
                 

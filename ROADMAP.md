@@ -55,7 +55,7 @@ checkpoints feed it.
 | **Synthesis** | Opt-in cited synthesis claims; uncited LLM output is dropped | ✅ Phase 15A |
 | **Hephaestus** | Extensibility architecture — plugin directives, macros, hooks, format adapters, pipe syntax | ✅ Phase 24 |
 | **MCP Integration** | Expose every directive as an MCP tool for universal AI client compatibility | ✅ Phase 25 |
-| **Security Hardening** | MCP SSE auth, Windows timeout, SSRF protection, build robustness | ◐ Phase 26 (5 tasks, 0/5 complete) |
+| **Security Hardening** | MCP SSE auth, Windows timeout, SSRF protection, build robustness | ✅ Phase 26 |
 
 ---
 
@@ -1090,7 +1090,7 @@ process can drive the MCP server over the SSE transport.
 **Fix:** Add bearer-token auth consistent with `serve` mode. Read token from
 `mcp.sse_bearer_token` config key. Reject unauthenticated `POST /message` with 401.
 
-**Status:** ☐ Pending
+**Status:** ✅ Complete
 
 ---
 
@@ -1106,7 +1106,7 @@ alarm handler is left installed.
 platforms. Use `concurrent.futures.ThreadPoolExecutor` to run the resolver in a
 separate thread with a `Future.result(timeout=...)`. Clean up alarm references.
 
-**Status:** ☐ Pending
+**Status:** ✅ Complete
 
 ---
 
@@ -1125,7 +1125,7 @@ context that an LLM reads — a prompt-injection vector.
 - Add `foreign_resolver.verify_signatures` defaulting to `True`.
 - Document the prompt-injection risk prominently in README.
 
-**Status:** ☐ Pending
+**Status:** ✅ Complete
 
 ---
 
@@ -1147,7 +1147,7 @@ to consume through the closing `)`. Add a build-correctness test that introduces
 a deliberate multi-line internal import in a fixture module and asserts the
 build either handles it or fails loudly.
 
-**Status:** ☐ Pending
+**Status:** ✅ Complete
 
 ---
 
@@ -1162,7 +1162,7 @@ the delete queries. Needs investigation.
 Ensure the FTS5 `rebuild` call flushes before subsequent reads. Verify GLOB
 pattern matching against the actual stored path format.
 
-**Status:** ☐ Pending
+**Status:** ✅ Complete
 
 ---
 
@@ -1256,11 +1256,11 @@ Phase 24A ─── Plugin directives (task-65) ✅ ─────────�
                                                          │
 Phase 25  ─── MCP deep integration (task-75) ✅ ─────────┘
                                                          │
-Phase 26A ─── MCP SSE authentication (task-91) ☐ ───────┤
-    ├── 26B ─── Windows MCP timeout (task-92) ☐ ─────────┤
-    ├── 26C ─── Foreign resolver SSRF (task-93) ☐ ───────┤
-    ├── 26D ─── Build multi-line import (task-94) ☐ ─────┤
-    └── 26E ─── Delete-doc GLOB test fix (task-95) ☐ ────┘
+Phase 26A ─── MCP SSE authentication (task-91) ✅ ───────┤
+    ├── 26B ─── Windows MCP timeout (task-92) ✅ ─────────┤
+    ├── 26C ─── Foreign resolver SSRF (task-93) ✅ ───────┤
+    ├── 26D ─── Build multi-line import (task-94) ✅ ─────┤
+    └── 26E ─── Delete-doc GLOB test fix (task-95) ✅ ────┘
 ```
 
 ---

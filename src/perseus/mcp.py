@@ -3,6 +3,7 @@
 # Each directive in DIRECTIVE_REGISTRY is auto-exposed as an MCP tool.
 # Legacy hardcoded tools preserved for backward compatibility.
 
+import concurrent.futures
 import json
 import sys
 import time
@@ -12,10 +13,12 @@ from typing import Any
 from perseus.registry import DIRECTIVE_REGISTRY, _call_resolver
 
 # In the built artifact, render_source is top-level. In source, import it.
+# The build script strips internal imports; try/except scaffold is kept
+# intentionally since the NameError fallback works in both environments.
 try:
-    from perseus.renderer import render_source
-except ImportError:
-    render_source = None  # Will be available at runtime in the built artifact
+    render_source  # Already imported by build concatenation; NameError if source-mode
+except NameError:
+    render_source = None
 
 # ── Protocol constants ───────────────────────────────────────────────────────
 
@@ -234,29 +237,19 @@ def _call_tool(tool_name: str, arguments: dict, cfg: dict, workspace: Path) -> s
 
     args_str = _build_tool_args_generic(tool_name, arguments)
 
-    # Timeout enforcement
+    # Timeout enforcement across all platforms.
+    # Uses ThreadPoolExecutor instead of signal.SIGALRM (Unix-only, breaks Windows).
     mcp_cfg = cfg.get("mcp", {}) if isinstance(cfg, dict) else {}
     timeout = mcp_cfg.get("tool_timeout_s", DEFAULT_TOOL_TIMEOUT_S)
 
-    import signal
-
-    def _timeout_handler(signum, frame):
-        raise TimeoutError(f"Tool {tool_name} timed out after {timeout}s")
-
     try:
-        old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
-        signal.alarm(timeout)
-        result = _call_resolver(spec, args_str, cfg, workspace)
-        signal.alarm(0)
-        signal.signal(signal.SIGALRM, old_handler)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(_call_resolver, spec, args_str, cfg, workspace)
+            result = future.result(timeout=timeout)
         return result
     except TimeoutError as exc:
-        signal.alarm(0)
-        signal.signal(signal.SIGALRM, old_handler)
-        return f"Error: {exc}"
+        return f"Error executing {directive_name}: timed out after {timeout}s"
     except Exception as exc:
-        signal.alarm(0)
-        signal.signal(signal.SIGALRM, old_handler)
         return f"Error executing {directive_name}: {exc}"
 
 
@@ -357,10 +350,33 @@ def serve_mcp(cfg: dict, workspace: Path | None = None) -> int:
 def serve_mcp_sse(cfg: dict, workspace: Path | None = None, port: int = 8420) -> None:
     """Run Perseus MCP server over HTTP with Server-Sent Events."""
     from http.server import HTTPServer, BaseHTTPRequestHandler
+    import hmac
     import threading
 
     ws = workspace or Path.cwd()
     version = cfg.get("version", SERVER_VERSION)
+    # Phase 26A: MCP SSE bearer token — check mcp.sse_bearer_token first,
+    # fall back to serve.auth_token for backward compatibility.
+    mcp_cfg = cfg.get("mcp", {}) if isinstance(cfg, dict) else {}
+    token = str(mcp_cfg.get("sse_bearer_token", "") or "").strip() or None
+    if not token:
+        token = str(cfg.get("serve", {}).get("auth_token", "") or "").strip() or None
+
+    def _check_auth(handler) -> bool:
+        """Verify Bearer token if auth is configured. Also validate Host header."""
+        # Host header validation for DNS rebinding protection
+        host = handler.headers.get("Host", "")
+        if host:
+            hostname = host.split(":")[0]
+            if hostname not in ("127.0.0.1", "localhost", "::1"):
+                return False
+        # Bearer token check
+        if not token:
+            return True
+        auth = handler.headers.get("Authorization", "") or ""
+        if not auth.startswith("Bearer "):
+            return False
+        return hmac.compare_digest(auth[7:].strip(), token)
 
     class MCPSSEHandler(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -370,11 +386,8 @@ def serve_mcp_sse(cfg: dict, workspace: Path | None = None, port: int = 8420) ->
                 self.send_header("Cache-Control", "no-cache")
                 self.send_header("Connection", "keep-alive")
                 self.end_headers()
-                # Send endpoint info
                 self.wfile.write(f"data: {json.dumps({'endpoint': f'/message', 'server': SERVER_NAME, 'version': version})}\n\n".encode())
                 self.wfile.flush()
-                # Keep connection open, reading messages from client
-                # For simplicity, SSE endpoint just announces; actual messages come via POST /message
             elif self.path == "/health":
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
@@ -386,11 +399,16 @@ def serve_mcp_sse(cfg: dict, workspace: Path | None = None, port: int = 8420) ->
 
         def do_POST(self):
             if self.path == "/message":
+                if not _check_auth(self):
+                    self.send_response(401)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"error": "unauthorized"}).encode())
+                    return
                 content_length = int(self.headers.get("Content-Length", 0))
                 body = self.rfile.read(content_length)
                 try:
                     msg = json.loads(body)
-                    # Process the JSON-RPC message and respond
                     method = msg.get("method", "")
                     msg_id = msg.get("id")
                     if method == "initialize":
