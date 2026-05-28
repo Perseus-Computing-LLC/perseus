@@ -28,19 +28,25 @@ def _reset_registry():
 
 def _setup_plugin_dir(monkeypatch, tmp_path, plugin_files=None):
     """Create a plugins dir at tmp_path/.perseus/plugins with filename→content map.
-    Also creates a minimal MANIFEST.toml to satisfy the H-3 security gate."""
+    Also creates a MANIFEST.toml with SHA-256 hashes for each plugin file."""
+    import hashlib
     home = tmp_path / ".perseus"
     home.mkdir(parents=True, exist_ok=True)
     plugins_dir = home / "plugins"
     plugins_dir.mkdir(exist_ok=True)
     monkeypatch.setattr(perseus, "PERSEUS_HOME", home)
-    # H-3: create a minimal MANIFEST.toml so plugin discovery proceeds
-    (plugins_dir / "MANIFEST.toml").write_text(
-        "# Auto-generated for tests — all plugins allowed\n"
-    )
     if plugin_files:
         for name, content in plugin_files.items():
             (plugins_dir / name).write_text(content)
+    # Build MANIFEST.toml with hashes for every .py file (v1.0.5 security: non-empty required)
+    manifest_lines = ["# Auto-generated for tests — hashes verified\n"]
+    for py_file in sorted(plugins_dir.glob("*.py")):
+        if py_file.name == "__init__.py":
+            continue
+        h = hashlib.sha256(py_file.read_bytes()).hexdigest()
+        manifest_lines.append(f"\n[plugins.{py_file.stem}]\n")
+        manifest_lines.append(f'hash = "{h}"\n')
+    (plugins_dir / "MANIFEST.toml").write_text("".join(manifest_lines))
     return plugins_dir
 
 
