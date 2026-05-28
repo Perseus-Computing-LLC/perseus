@@ -301,7 +301,9 @@ Inject the Mnēmē narrative for the current workspace inline. Reads the
 narrative file at `~/.perseus/memory/<workspace-hash>.md`. If no narrative
 exists yet, renders a warning advising the user to run `perseus memory update`.
 If the narrative is stale (age > `checkpoints.ttl_s`), renders a staleness
-warning.
+warning and preserves the stale timestamp. A fresh successful narrative render
+touches the frontmatter `updated` timestamp so callers can detect the last
+access time.
 
 ```
 @memory

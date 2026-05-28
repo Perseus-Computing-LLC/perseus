@@ -9,6 +9,7 @@ the single-file artifact to the repo root.
 Usage:
     python scripts/build.py
 """
+import argparse
 import re
 import subprocess
 import sys
@@ -86,10 +87,8 @@ STDLIB_REMINDER_RE = re.compile(
 BASELINE_LINES = 14957  # Phase 24 + Mnēmē + in-process BM25 + TIER2 audit + remaining patches
 
 
-def build() -> None:
-    repo_root = Path(__file__).resolve().parent.parent
-    out_path = repo_root / "perseus.py"
-
+def render_artifact(repo_root: Path) -> str:
+    """Return the generated single-file artifact text."""
     output_lines: list[str] = []
     first_module = True
 
@@ -166,10 +165,11 @@ def build() -> None:
         )
         sys.exit(1)
 
-    out_path.write_text(output, encoding="utf-8")
-    print(f"Built {out_path} ({actual_lines} lines)")
+    return output
 
-    # ── Smoke test ────────────────────────────────────────────────────────────
+
+def smoke_test(out_path: Path) -> None:
+    """Run the generated artifact's version command."""
     result = subprocess.run(
         [sys.executable, str(out_path), "--version"],
         capture_output=True,
@@ -186,5 +186,63 @@ def build() -> None:
     print(f"Smoke test ok: {result.stdout.strip()}")
 
 
+def build(output_path: Path | None = None) -> None:
+    repo_root = Path(__file__).resolve().parent.parent
+    out_path = output_path or repo_root / "perseus.py"
+    output = render_artifact(repo_root)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(output, encoding="utf-8")
+    print(f"Built {out_path} ({len(output.splitlines())} lines)")
+    smoke_test(out_path)
+
+
+def check() -> None:
+    """Verify the committed artifact matches src/ without modifying it."""
+    repo_root = Path(__file__).resolve().parent.parent
+    out_path = repo_root / "perseus.py"
+    output = render_artifact(repo_root)
+    try:
+        current = out_path.read_text(encoding="utf-8")
+    except Exception as exc:
+        print(
+            f"ERROR: could not read {out_path}: {exc}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    if current != output:
+        print(
+            "ERROR: perseus.py is out of sync with src/ — run "
+            "`python scripts/build.py` and commit the regenerated artifact.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    print("Build check ok: perseus.py is in sync with src/")
+    smoke_test(out_path)
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description="Build or verify the Perseus single-file artifact.")
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Verify perseus.py matches src/ without writing files.",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        help="Write the generated artifact to this path instead of perseus.py.",
+    )
+    args = parser.parse_args(argv)
+
+    if args.check and args.output:
+        parser.error("--check cannot be combined with --output")
+    if args.check:
+        check()
+    else:
+        build(args.output)
+
+
 if __name__ == "__main__":
-    build()
+    main()

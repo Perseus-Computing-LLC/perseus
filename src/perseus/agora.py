@@ -435,9 +435,13 @@ def _resolve_memory_narrative(args_stripped: str, mods: dict, cfg: dict, ws: Pat
         pass
 
     if not stale_note and body.strip():
-        # M-5: Don't side-effect fm["updated"] on read-only path.
-        # The update timestamp is maintained by memory update/compact operations only.
-        pass
+        # Touch updated timestamp on every fresh successful render so callers
+        # can detect when the narrative was last accessed (Feat #2).
+        try:
+            fm["updated"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            _save_narrative(mp, fm, body)
+        except Exception:
+            pass  # best-effort; never break the read path
 
     compact_note = ""
     threshold = int(cfg.get("memory", {}).get("compact_threshold", 20))
