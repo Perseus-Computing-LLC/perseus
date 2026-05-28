@@ -34,7 +34,7 @@ PERSEUS_PY = REPO_ROOT / "perseus.py"
 BUDGETS: dict[str, float] = {
     "render":      500,   # measured ~290ms, v1.0.6 preflight + security overhead
     "graph":       550,   # measured ~310ms, v1.0.6 preflight overhead
-    "prefetch":    450,   # measured ~278ms, v1.0.5 bump for security review overhead
+    "prefetch":    650,   # measured ~278ms, v1.0.6 preflight + CI overhead
     "synthesize":  500,   # LLM-dependent — generous budget
     "serve":       800,   # network startup
     "lsp-init":    600,   # subprocess + JSON-RPC handshake
