@@ -497,10 +497,22 @@ TEMPLATES: dict[str, list[dict]] = {
 }
 
 
-def generate_memories(count: int, perseus_home: Path) -> int:
-    """Generate synthetic memory .md files in the vault directory."""
+def generate_memories(count: int, perseus_home: Path, seed: int | None = None) -> int:
+    """Generate synthetic memory .md files in the vault directory.
+
+    Args:
+        count: Number of memory records to generate.
+        perseus_home: PERSEUS_HOME directory.
+        seed: Optional RNG seed for reproducible output. When provided,
+              two runs with the same seed produce byte-identical vault files.
+              When None, randomness is unseeded (non-reproducible).
+    """
     vault_path = perseus_home / "memory" / "vault"
     vault_path.mkdir(parents=True, exist_ok=True)
+
+    # Apply RNG seed for reproducibility
+    if seed is not None:
+        random.seed(seed)
 
     # Collect all templates
     all_templates = []
@@ -569,13 +581,20 @@ def main():
                         help="PERSEUS_HOME directory (e.g., /tmp/perseus-gauntlet/cold)")
     parser.add_argument("--count", type=int, default=75,
                         help="Number of memory records to generate (default: 75)")
+    parser.add_argument("--seed", type=int, default=42,
+                        help="RNG seed for reproducible output (default: 42; use --seed=-1 to disable)")
     args = parser.parse_args()
 
     home = Path(args.perseus_home)
     count = args.count
+    seed = args.seed if args.seed >= 0 else None
 
     print(f"Seeding {count} synthetic memory records into {home}/memory/vault/ ...")
-    written = generate_memories(count, home)
+    if seed is not None:
+        print(f"  RNG seed: {seed} (reproducible)")
+    else:
+        print(f"  RNG seed: none (non-reproducible)")
+    written = generate_memories(count, home, seed=seed)
     print(f"  ✓ Wrote {written} memory records")
     print(f"  Vault: {home}/memory/vault/ ({len(list((home/'memory'/'vault').glob('*.md')))} files)")
 
