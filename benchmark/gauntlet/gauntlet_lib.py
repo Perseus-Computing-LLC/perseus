@@ -230,7 +230,14 @@ class GateRunner:
         category: str = "engine",
         required_phase: int | None = None,
     ):
-        """Register a gate. threshold_fn(phase_results) -> (pass: bool, observed)."""
+        """Register a gate. threshold_fn(phase_results) -> (pass: bool, observed).
+
+        required_phase: if set, the gate is marked *skipped* (not failed) when
+        that phase was not in the executed set (see evaluate_all's phases_run
+        handling). Without it, gates for phases that never ran fall through to
+        their threshold_fn, return "no data", and — for hard gates — count as
+        failures, dragging partial/smoke runs to 0.0 regardless of engine health.
+        """
         self._gates.append(
             {
                 "name": name,
