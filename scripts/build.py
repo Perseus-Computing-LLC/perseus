@@ -90,9 +90,48 @@ STDLIB_REMINDER_RE = re.compile(
 # Baseline line count for drift detection.
 BASELINE_LINES = 15278  # post-serve-decomposition (serve.py + new modules: doctor/scheduler/synthesis/update)
 
+# Matches top-level function or class definitions (no leading whitespace).
+# Excludes dunder methods (__init__, __repr__, etc.) which are safely
+# duplicated across classes, and single-underscore module-level sentinels.
+TOPLEVEL_DEF_RE = re.compile(r"^(?:def|class)\s+([a-zA-Z_][\w]*)\b")
+
+
+def _check_duplicate_symbols(repo_root: Path) -> None:
+    """Fail the build if any top-level def/class name appears in two modules.
+
+    In the concat build architecture, the last definition in MODULE_ORDER
+    silently shadows earlier ones. This makes stale/divergent copies invisible
+    to the maintainer — modifying the wrong copy produces no effect. This
+    guard makes the duplicate explicit and fails the build.
+    """
+    seen: dict[str, str] = {}  # name → first module path
+    for rel_path in MODULE_ORDER:
+        path = repo_root / rel_path
+        text = path.read_text(encoding="utf-8")
+        for line in text.splitlines():
+            m = TOPLEVEL_DEF_RE.match(line)
+            if m:
+                name = m.group(1)
+                if name.startswith("__"):
+                    continue
+                if name in seen:
+                    print(
+                        f"ERROR: duplicate top-level symbol '{name}' defined in "
+                        f"{seen[name]} and {rel_path}. "
+                        f"The last definition in MODULE_ORDER silently shadows "
+                        f"earlier ones — delete the dead copy or rename to "
+                        f"resolve the conflict.",
+                        file=sys.stderr,
+                    )
+                    sys.exit(1)
+                seen[name] = rel_path
+
 
 def render_artifact(repo_root: Path) -> str:
     """Return the generated single-file artifact text."""
+    # H-2: fail fast on duplicate top-level symbols (silent shadowing risk)
+    _check_duplicate_symbols(repo_root)
+
     output_lines: list[str] = []
     first_module = True
 
