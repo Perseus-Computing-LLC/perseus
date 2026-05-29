@@ -37,7 +37,7 @@ def _setup_plugin_dir(monkeypatch, tmp_path, plugin_files=None):
     monkeypatch.setattr(perseus, "PERSEUS_HOME", home)
     if plugin_files:
         for name, content in plugin_files.items():
-            (plugins_dir / name).write_text(content)
+            (plugins_dir / name).write_text(content, encoding="utf-8")
     # Build MANIFEST.toml with hashes for every .py file (v1.0.5 security: non-empty required)
     manifest_lines = ["# Auto-generated for tests — hashes verified\n"]
     for py_file in sorted(plugins_dir.glob("*.py")):
@@ -46,7 +46,7 @@ def _setup_plugin_dir(monkeypatch, tmp_path, plugin_files=None):
         h = hashlib.sha256(py_file.read_bytes()).hexdigest()
         manifest_lines.append(f"\n[plugins.{py_file.stem}]\n")
         manifest_lines.append(f'hash = "{h}"\n')
-    (plugins_dir / "MANIFEST.toml").write_text("".join(manifest_lines))
+    (plugins_dir / "MANIFEST.toml").write_text("".join(manifest_lines), encoding="utf-8")
     return plugins_dir
 
 
