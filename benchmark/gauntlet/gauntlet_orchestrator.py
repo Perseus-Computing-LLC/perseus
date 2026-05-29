@@ -803,6 +803,17 @@ def main():
     # Propagate render timeout to gauntlet_node via env var
     os.environ["GAUNTLET_RENDER_TIMEOUT"] = str(args.render_timeout)
 
+    # Gauntlet is Linux-only — uses os.fork, /proc RSS, signal, os.path.ismount
+    if sys.platform != "linux":
+        print(
+            f"Gauntlet is Linux-only — this host is {sys.platform}. "
+            "The harness uses os.fork (adversarial phases), /proc RSS sampling "
+            "(sustained torture), os.path.ismount (NFS health), and signal kills. "
+            "Run the gauntlet on a Linux host or in a Linux container.",
+            file=sys.stderr,
+        )
+        sys.exit(0)
+
     nodes = [n.strip() for n in args.nodes.split(",") if n.strip()]
     nfs_path = Path(args.nfs_path)
     output_dir = Path(args.output_dir) if args.output_dir else GAUNTLET_DIR
