@@ -24,7 +24,6 @@ MODULE_ORDER = [
     "src/perseus/hooks.py",
     "src/perseus/webhooks.py",
     "src/perseus/registry.py",
-    "src/perseus/macros.py",
     "src/perseus/redaction.py",
     "src/perseus/audit.py",
     "src/perseus/directives/env.py",
