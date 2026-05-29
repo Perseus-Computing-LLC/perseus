@@ -134,7 +134,7 @@ def _load_perseus():
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     # Clear the module-level index cache between phases
-    mod._MNEME_INDEX_CACHE.clear()
+    mod._MNEME_CONN_CACHE.clear()
     return mod
 
 
@@ -202,7 +202,7 @@ def phase_recall() -> dict:
 
     for target in SCALES:
         # Force index rebuild for this scale
-        p._MNEME_INDEX_CACHE.clear()
+        p._MNEME_CONN_CACHE.clear()
 
         print(f"  Recall @ {target} docs...", end=" ", flush=True)
         t0 = time.perf_counter()
