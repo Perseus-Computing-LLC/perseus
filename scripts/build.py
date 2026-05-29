@@ -53,11 +53,11 @@ MODULE_ORDER = [
     "src/perseus/pythia.py",
     "src/perseus/lsp.py",
     "src/perseus/install.py",           # ← Phase 24: hook installer (depends on assistant_formats, before serve)
-    # NOTE: synthesis / scheduler / doctor / update were wired here as planned
-    # serve.py extractions, but the module files were never created — that code
-    # still lives in serve.py, so listing them aborts the build with
-    # "module not found". Re-add each line only once its file actually exists.
-    "src/perseus/serve.py",
+    "src/perseus/doctor.py",            # ← serve.py extraction: resolve_health + doctor CLI
+    "src/perseus/scheduler.py",         # ← serve.py extraction: cron scheduler
+    "src/perseus/synthesis.py",         # ← serve.py extraction: @synthesize
+    "src/perseus/update.py",            # ← serve.py extraction: self-update
+    "src/perseus/serve.py",             # ← still contains PRODUCT_PROFILES + trust CLI (not yet decomposed)
     "src/perseus/cli.py",  # includes _bind_registry() call before dispatch
 ]
 
@@ -88,7 +88,7 @@ STDLIB_REMINDER_RE = re.compile(
 )
 
 # Baseline line count for drift detection.
-BASELINE_LINES = 15206  # post-fingerprint-cache (nofingerprint/fingerprint modifiers + tests)
+BASELINE_LINES = 15278  # post-serve-decomposition (serve.py + new modules: doctor/scheduler/synthesis/update)
 
 
 def render_artifact(repo_root: Path) -> str:

@@ -477,37 +477,40 @@ def scenario_a7_signal_storm(
         if _kill_switch_triggered():
             break
 
-        proc = subprocess.Popen(
-            [sys.executable, perseus, "render", "-"],
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, env=env,
-        )
         try:
-            proc.stdin.write(b"@perseus v0.8\n@query \"sleep 0.5\" @cache ttl=300\n")
-            proc.stdin.close()
-        except (BrokenPipeError, OSError, ValueError):
-            pass  # Process may have been killed by signal before we could write
-
-        # Randomly send signal
-        sig = random.choice([signal.SIGTERM, signal.SIGINT])
-        time.sleep(random.uniform(0.05, 0.3))
-        try:
-            os.kill(proc.pid, sig)
-            signals_sent += 1
-        except (OSError, ProcessLookupError):
-            pass
-
-        try:
-            stdout, stderr = proc.communicate(timeout=5)
-            if proc.returncode == 0:
-                renders_ok += 1
-            else:
-                renders_failed += 1
-        except (subprocess.TimeoutExpired, OSError):
+            proc = subprocess.Popen(
+                [sys.executable, perseus, "render", "-"],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE, env=env,
+            )
             try:
-                proc.kill()
-            except OSError:
+                proc.stdin.write(b"@perseus v0.8\n@query \"sleep 0.5\" @cache ttl=300\n")
+                proc.stdin.close()
+            except Exception:
                 pass
+
+            # Randomly send signal
+            sig = random.choice([signal.SIGTERM, signal.SIGINT])
+            time.sleep(random.uniform(0.05, 0.3))
+            try:
+                os.kill(proc.pid, sig)
+                signals_sent += 1
+            except Exception:
+                pass
+
+            try:
+                stdout, stderr = proc.communicate(timeout=5)
+                if proc.returncode == 0:
+                    renders_ok += 1
+                else:
+                    renders_failed += 1
+            except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+                renders_failed += 1
+        except Exception:
             renders_failed += 1
 
     result["renders"] = {
