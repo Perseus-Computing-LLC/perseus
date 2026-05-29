@@ -220,11 +220,23 @@ class GauntletOrchestrator:
         print("  Pre-flight checks...")
 
         # Clear stale caches from previous runs
+        import shutil
         for d in [COLD_HOME / "cache", WARM_HOME / "cache"]:
             if d.is_dir():
-                import shutil
-                shutil.rmtree(d)
-                d.mkdir(parents=True, exist_ok=True)
+                # shutil.rmtree can fail on macOS with ENOTEMPTY when extended
+                # attributes are present. Fallback: remove children individually.
+                try:
+                    shutil.rmtree(d)
+                except OSError:
+                    for child in d.iterdir():
+                        try:
+                            if child.is_dir():
+                                shutil.rmtree(child, ignore_errors=True)
+                            else:
+                                child.unlink(missing_ok=True)
+                        except OSError:
+                            pass
+            d.mkdir(parents=True, exist_ok=True)
         print("  Caches cleared")
 
         # Run full gauntlet setup (config, vault seed, checkpoints, files, narrative)
