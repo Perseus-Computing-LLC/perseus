@@ -68,7 +68,7 @@ class TestResolveMneme:
     def test_k_clamped_to_1_20(self):
         captured = {}
 
-        def fake_recall(cfg_, query, k=5, scope=None, type_filter=None):
+        def fake_recall(cfg_, query, k=5, scope=None, type_filter=None, sensitivity=None):
             captured["k"] = k
             return []
 
@@ -83,16 +83,18 @@ class TestResolveMneme:
     def test_scope_and_type_forwarded(self):
         captured = {}
 
-        def fake_recall(cfg_, query, k=5, scope=None, type_filter=None):
+        def fake_recall(cfg_, query, k=5, scope=None, type_filter=None, sensitivity=None):
             captured["scope"] = scope
             captured["type_filter"] = type_filter
+            captured["sensitivity"] = sensitivity
             return []
 
         with patch.object(perseus, "_mneme_recall", side_effect=fake_recall):
-            perseus.resolve_mneme('query="x" scope="myproject" type="lesson"', cfg())
+            perseus.resolve_mneme('query="x" scope="myproject" type="lesson" sensitivity="private"', cfg())
 
         assert captured["scope"] == "myproject"
         assert captured["type_filter"] == "lesson"
+        assert captured["sensitivity"] == "private"
 
     def test_score_rendered_when_present(self):
         hits = [{"title": "T", "summary": "S", "score": 99}]
@@ -131,7 +133,7 @@ class TestResolveMemoryUnified:
         """@memory query=... → search mode, calls _mneme_recall."""
         called = []
 
-        def fake_mneme(cfg_, query, k=5, scope=None, type_filter=None):
+        def fake_mneme(cfg_, query, k=5, scope=None, type_filter=None, sensitivity=None):
             called.append({"query": query, "scope": scope})
             return []
 
@@ -153,7 +155,7 @@ class TestResolveMemoryUnified:
     def test_search_forwards_type_filter(self, tmp_path):
         captured = {}
 
-        def fake_mneme(cfg_, query, k=5, scope=None, type_filter=None):
+        def fake_mneme(cfg_, query, k=5, scope=None, type_filter=None, sensitivity=None):
             captured["type_filter"] = type_filter
             return []
 
@@ -165,7 +167,7 @@ class TestResolveMemoryUnified:
     def test_search_forwards_scope(self, tmp_path):
         captured = {}
 
-        def fake_mneme(cfg_, query, k=5, scope=None, type_filter=None):
+        def fake_mneme(cfg_, query, k=5, scope=None, type_filter=None, sensitivity=None):
             captured["scope"] = scope
             return []
 
@@ -177,7 +179,7 @@ class TestResolveMemoryUnified:
     def test_explicit_mode_search(self, tmp_path):
         called = []
 
-        def fake_mneme(cfg_, query, k=5, scope=None, type_filter=None):
+        def fake_mneme(cfg_, query, k=5, scope=None, type_filter=None, sensitivity=None):
             called.append(True)
             return []
 
