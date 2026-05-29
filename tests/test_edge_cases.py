@@ -441,6 +441,23 @@ class TestTransitiveInclude:
         assert "# Just a heading" in result
         assert "⚠" not in result
 
+    def test_diamond_include_does_not_trigger_false_cycle_warning(self, tmp_path):
+        # Diamond, NOT a cycle: a includes b and c; b and c both include d.
+        # d is reachable via two different branches but is never its own
+        # ancestor, so it must render normally with NO circular-dependency
+        # warning — that path belongs to the _path_chain ancestry check, not to
+        # "this file was already seen elsewhere". Repeated includes are not
+        # deduplicated (d renders once per branch), consistent with
+        # TestAtomicDrift.test_file_modified_during_render.
+        (tmp_path / "a.md").write_text('@perseus\n@include "b.md"\n@include "c.md"\n')
+        (tmp_path / "b.md").write_text('@perseus\n@include "d.md"\n')
+        (tmp_path / "c.md").write_text('@perseus\n@include "d.md"\n')
+        (tmp_path / "d.md").write_text("DIAMOND-LEAF-CONTENT")
+        source = '@perseus\n@include "a.md"\n'
+        result = perseus.render_source(source, cfg(), tmp_path)
+        assert "circular" not in result.lower()
+        assert result.count("DIAMOND-LEAF-CONTENT") == 2
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 8. INTEGRITY DRIFT DETECTION (Fix #3)
