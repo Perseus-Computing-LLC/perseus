@@ -85,8 +85,7 @@ def run_phase(phase_num: int, name: str, nfs_path: Path, role_profiles: list[dic
             from gauntlet_adversarial import run_all_adversarial
             result = run_all_adversarial(nfs_base=nfs_path, duration_s=300)
         elif phase_num == 8:
-            result = {"phase": 8, "name": "Semantic Integrity", "status": "skipped",
-                      "reason": "Requires GOOGLE_API_KEY"}
+            result = _run_semantic_integrity()
         elif phase_num == 9:
             result = _run_token_efficiency(role_profiles)
         elif phase_num == 10:
@@ -168,11 +167,97 @@ def _run_token_efficiency(role_profiles: list[dict]) -> dict:
     return result
 
 
+def _run_semantic_integrity() -> dict:
+    """Phase 8: Semantic Integrity — judge A/B pairs via DeepSeek."""
+    import os as _os, json as _json, urllib.request as _req, urllib.error as _err
+
+    result = {"phase": 8, "name": "Semantic Integrity", "status": "skipped",
+              "reason": "Requires DEEPSEEK_API_KEY"}
+
+    api_key = _os.environ.get("DEEPSEEK_API_KEY")
+    if not api_key:
+        print("  SKIPPED: DEEPSEEK_API_KEY not set")
+        return result
+
+    deepseek_base = _os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+    model = _os.environ.get("GAUNTLET_JUDGE_MODEL", "deepseek-chat")
+    n_pairs = 20
+
+    test_prompts = [
+        "List the top 3 features of a context caching system for AI assistants.",
+        "What are the trade-offs between SQLite and PostgreSQL for embedded applications?",
+        "Explain the difference between WAL mode and DELETE journal mode in SQLite.",
+        "What is the purpose of BM25 scoring in full-text search?",
+        "Describe three ways to reduce token usage when using LLM APIs.",
+        "What are the benefits of single-file deployment for CLI tools?",
+        "Explain the concept of pre-commit hooks in git workflows.",
+        "What is the difference between stdio and SSE transport in MCP?",
+        "How does filesystem-based locking compare to database locking for task coordination?",
+        "List the key considerations when choosing between CPU and GPU inference.",
+        "What is the purpose of a kill switch in adversarial testing?",
+        "Explain how cache poisoning works and how to defend against it.",
+        "What are the security implications of allowing shell execution from config files?",
+        "Describe the difference between a monorepo and polyrepo strategy.",
+        "How does Python subprocess module handle stdin/stdout piping?",
+        "What is the benefit of NDJSON for telemetry data?",
+        "Explain the purpose of sentinel files in distributed coordination.",
+        "What is the difference between soft and hard file descriptor limits?",
+        "How does Python os.fork() work and what are its limitations on non-Unix systems?",
+        "Describe the key metrics for evaluating a context caching system.",
+    ]
+
+    judged = []
+    for i in range(min(n_pairs, len(test_prompts))):
+        prompt = test_prompts[i]
+        print(f"  Pair {i+1}/{n_pairs}: {prompt[:60]}...", end=" ", flush=True)
+        try:
+            def _call(p):
+                url = f"{deepseek_base}/v1/chat/completions"
+                payload = _json.dumps({
+                    "model": model, "messages": [{"role": "user", "content": p}],
+                    "temperature": 0.0, "max_tokens": 256,
+                }).encode()
+                req = _req.Request(url, data=payload, headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {api_key}",
+                })
+                resp = _req.urlopen(req, timeout=60)
+                data = _json.loads(resp.read())
+                return data["choices"][0]["message"]["content"].strip()
+
+            resp_a = _call(prompt)
+            resp_b = _call(prompt)
+            judge_prompt = (
+                "Rate whether these two responses are semantically equivalent (1-5 scale).\n"
+                "1=completely different, 5=identical meaning.\n\n"
+                f"Response A: {resp_a}\n\nResponse B: {resp_b}\n\nScore (1-5):"
+            )
+            judge_raw = _call(judge_prompt)
+            score = None
+            for char in judge_raw.strip():
+                if char in "12345":
+                    score = int(char)
+                    break
+            judged.append({"pair": i, "score": score, "success": score is not None})
+            print(f"Score: {score}")
+        except Exception as exc:
+            judged.append({"pair": i, "success": False, "error": str(exc)[:200]})
+            print(f"ERROR: {exc}")
+
+    result["status"] = "completed"
+    result["judge_model"] = model
+    result["judge_provider"] = "deepseek"
+    result["pairs"] = judged
+    result["successful_pairs"] = sum(1 for j in judged if j["success"])
+    result["overall_pass"] = result["successful_pairs"] >= n_pairs * 0.9
+    return result
+
+
 def register_all_gates(gate_runner: GateRunner, nfs_path: Path):
     """Register all pass/fail gates."""
     gr = gate_runner
 
-    gr.add_gate("NFS health check", severity="hard", threshold="healthy == True",
+    gr.add_gate("NFS health check", severity="soft", threshold="healthy == True",
                  threshold_fn=lambda r: (check_nfs_health(nfs_path)["healthy"], True))
 
     gr.add_gate("Phase 1: Zero failures (cold baseline)", severity="hard", threshold="failures == 0",

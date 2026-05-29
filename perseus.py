@@ -188,18 +188,12 @@ DEFAULT_CONFIG = {
     "hooks": {
         "enabled": True,
     },
-    "webhooks": {
-        "enabled": False,
-        "url": "",
-        "secret": "",
-        "events": ["on_render_start", "on_render_complete", "on_directive_error"],
-        "timeout_s": 5,
-    },
     "tools": {
         "enabled": True,
         "allowlist": [],
     },
-    "foreign_resolver": {
+    "foreign_resolver": {  # DEPRECATED: use "foreign" block (Phase 24E) for new config.
+                          # Kept for backward compatibility; code checks both paths.
         "enabled": True,
         "allowlist": [],
         "hmackey": "",
@@ -391,6 +385,10 @@ def _get_shell(cfg: dict) -> str | None:
 
 
 # Phase 24 — task-72: Event Webhooks
+# NOTE: enabled=True but endpoints=[] means the webhook engine is active
+# (hooks fire internally) but no external delivery occurs. To actually deliver
+# events, add endpoint URLs to the endpoints list. This split allows the
+# internal hook pipeline to run without inadvertently exposing events.
 DEFAULT_CONFIG["webhooks"] = {
     "enabled": True,
     "timeout_s": 10,
@@ -583,7 +581,7 @@ from datetime import datetime, timezone
 try:
     from .serve import _PERSEUS_VERSION
 except ImportError:
-    _PERSEUS_VERSION = "1.0.4"
+    _PERSEUS_VERSION = "1.0.5"
 
 # ──────────────────────────────── Webhooks ───────────────────────────────────
 
@@ -6255,6 +6253,24 @@ def _parse_cache_modifier(line: str) -> tuple[str, str, int | None, str | None]:
     values containing spaces: @cache mock="hello world". Unquoted values
     stop at the first whitespace.
     """
+    # @cache nofingerprint (opt out of fingerprinting; checked before ttl)
+    m = re.search(r'\s*@cache\s+nofingerprint\b', line, re.IGNORECASE)
+    if m:
+        clean = line[:m.start()] + line[m.end():]
+        # After removing nofingerprint, the ttl=N may be bare (no @cache prefix)
+        m2 = re.search(r'\s*@cache\s+ttl=(\d+)|\bttl=(\d+)', clean, re.IGNORECASE)
+        ttl_val = None
+        if m2:
+            ttl_val = int(m2.group(1) or m2.group(2))
+            clean = clean[:m2.start()] + clean[m2.end():]
+        return clean.rstrip(), "nofingerprint", ttl_val, None
+
+    # @cache fingerprint (explicit)
+    m = re.search(r'\s*@cache\s+fingerprint\b', line, re.IGNORECASE)
+    if m:
+        clean = line[:m.start()] + line[m.end():]
+        return clean.rstrip(), "fingerprint", None, None
+
     # @cache ttl=N
     m = re.search(r'\s*@cache\s+ttl=(\d+)', line, re.IGNORECASE)
     if m:
@@ -6290,6 +6306,42 @@ def _parse_cache_modifier(line: str) -> tuple[str, str, int | None, str | None]:
         return clean.rstrip(), "mock", None, "(mock — directive skipped)"
 
     return line, "", None, None
+
+
+def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path) -> str:
+    """Return a stable fingerprint of all file dependencies for this directive.
+
+    Returns a hex digest that changes when any file the directive reads changes.
+    Directives with no file dependencies return "" (empty string).
+    This is concatenated to the cache key so stale entries miss automatically.
+
+    Fingerprinted directives:
+      @read <file>         → sha256 of file content
+      @include <file>      → sha256 of file content (first-level only;
+                              transitive deps handled by recursive render)
+      @env <VAR>           → no fingerprint (value changes per-process)
+      @query ...           → no fingerprint (shell output depends on system state,
+                              not static files — let TTL handle staleness)
+      @services            → no fingerprint (service health is ephemeral)
+      @perseus <url>       → no fingerprint (remote content changes independently)
+    """
+    import hashlib as _hashlib
+
+    parts: list[str] = []
+
+    if directive in ("@read", "@include"):
+        raw_path = clean_args.split()[0] if clean_args else ""
+        if raw_path:
+            fpath = (workspace / raw_path).resolve()
+            try:
+                content = fpath.read_bytes()
+                parts.append(f"{directive}:{raw_path}:{_hashlib.sha256(content).hexdigest()}")
+            except (OSError, PermissionError):
+                pass  # can't read → no fingerprint (cache miss is safe)
+
+    if not parts:
+        return ""
+    return _hashlib.sha256("|".join(parts).encode()).hexdigest()
 
 
 def _safe_cache_dir(cfg: dict) -> Path:
@@ -6336,9 +6388,9 @@ def cache_get(key: str, mode: str, ttl: int | None, cfg: dict) -> str | None:
     if mode == "session":
         return _SESSION_CACHE.get(key)
 
-    if mode in {"ttl", "persist"}:
+    if mode in {"ttl", "persist", "fingerprint", "nofingerprint"}:
         effective_ttl = ttl
-        if mode == "persist":
+        if mode in ("persist", "fingerprint"):
             effective_ttl = int(cfg.get("render", {}).get("persist_cache_ttl_s", 3600))
         if effective_ttl is None:
             return None
@@ -6367,9 +6419,9 @@ def cache_set(key: str, value: str, mode: str, ttl: int | None, cfg: dict) -> No
         _SESSION_CACHE[key] = value
         return
 
-    if mode in {"ttl", "persist"}:
+    if mode in {"ttl", "persist", "fingerprint", "nofingerprint"}:
         effective_ttl = ttl
-        if mode == "persist":
+        if mode in ("persist", "fingerprint"):
             effective_ttl = int(cfg.get("render", {}).get("persist_cache_ttl_s", 3600))
         if effective_ttl is None:
             return
@@ -7150,7 +7202,12 @@ def _render_lines(
                     raw_args = f"{raw_args} @cache ttl={m_ttl.group(1)}".strip()
 
             clean_args, cache_mode, cache_ttl, cache_mock = _parse_cache_modifier(raw_args)
-            cache_key = _cache_key(f"{directive} {clean_args}")
+            _base_key = _cache_key(f"{directive} {clean_args}")
+            if cache_mode == "nofingerprint":
+                cache_key = _base_key
+            else:
+                _fp = _dependency_fingerprint(directive, clean_args, workspace)
+                cache_key = f"{_base_key}.{_fp}" if _fp else _base_key
 
             if cache_mode == "mock":
                 output.append(cache_mock or "(mock \u2014 directive skipped)")
@@ -11768,1540 +11825,7 @@ def install_target(
         print(f"  → Or `perseus render {source} --format {fmt} -o {root / FORMAT_TARGETS[fmt].default_output}`")
 
     return result
-# ──────────────────────────────── Render ──────────────────────────────────────
-
-LAUNCHD_TEMPLATE = """\
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-  <dict>
-    <key>Label</key>
-    <string>{label}</string>
-    <key>ProgramArguments</key>
-    <array>
-      <string>{python}</string>
-      <string>{script}</string>
-      <string>render</string>
-      <string>{source}</string>
-      <string>--output</string>
-      <string>{output}</string>
-    </array>
-    <key>WorkingDirectory</key>
-    <string>{workdir}</string>
-    <key>StartInterval</key>
-    <integer>{interval}</integer>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>StandardOutPath</key>
-    <string>{stdout_log}</string>
-    <key>StandardErrorPath</key>
-    <string>{stderr_log}</string>
-  </dict>
-</plist>
-"""
-
-# Phase 24 — internal imports (stripped by build; defined earlier in concatenated artifact)
-
-
-def cmd_render(args, cfg):
-    source_path = Path(args.source).expanduser().resolve()
-    if not source_path.exists():
-        print(f"Error: file not found: {source_path}", file=sys.stderr)
-        sys.exit(1)
-
-    workspace = _infer_workspace(source_path)
-    cfg = load_config(workspace)
-
-    text = source_path.read_text(errors="replace")
-    fmt = getattr(args, "format", "md")
-    title = source_path.stem.replace("-", " ").replace("_", " ").title()
-
-    # Determine tier: CLI --tier > config default > fallback to 3
-    max_tier = getattr(args, "tier", None)
-    if max_tier is None:
-        max_tier = cfg.get("render", {}).get("default_tier", 3)
-    if max_tier is None:
-        max_tier = 3
-
-    rendered = render_output(text, fmt, cfg, workspace, title=title, max_tier=max_tier)
-
-    is_assistant_format = fmt in ("agents-md", "claude-md", "cursorrules", "copilot-instructions")
-    output = getattr(args, "output", None)
-    # Phase 24: auto-resolve default output path for assistant formats
-    if is_assistant_format and not output:
-        output = get_default_output_path(fmt, str(workspace))
-
-    strict = getattr(args, "strict", False)
-    if strict and "⚠" in rendered:
-        print(f"Perseus: strict mode — {rendered.count('⚠')} warning(s) in rendered output", file=sys.stderr)
-        sys.exit(1)
-
-    if output:
-        out_path = Path(output)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(rendered, encoding="utf-8")
-    else:
-        print(rendered)
-
-
-class WatchTarget(NamedTuple):
-    """One watched source/output render pair."""
-    name: str
-    source: Path
-    output: Path
-
-
-def _watch_rel(path: Path, workspace: Path) -> str:
-    try:
-        return str(path.relative_to(workspace))
-    except ValueError:
-        return str(path)
-
-
-def _watch_target_key(target: WatchTarget) -> tuple[str, str]:
-    return (str(target.source), str(target.output))
-
-
-def _watch_interval_s(args, cfg) -> tuple[float | None, str | None]:
-    raw = getattr(args, "interval", None)
-    if raw is None:
-        raw = (cfg.get("watch") or {}).get("poll_interval_s", 5)
-    try:
-        interval = float(raw)
-    except (TypeError, ValueError):
-        return None, f"watch interval must be a number, got {raw!r}"
-    if interval <= 0:
-        return None, "watch interval must be greater than zero"
-    return interval, None
-
-
-def _watch_resolve_ref(ref: str, workspace: Path, cfg: dict, allow_arg: bool) -> tuple[Path, str | None]:
-    allow = allow_arg or bool(cfg.get("render", {}).get("allow_outside_workspace", False))
-    path, warning = _resolve_path(ref, workspace, allow_outside_workspace=allow)
-    if warning:
-        return path, warning.replace("> ⚠ ", "")
-    return path, None
-
-
-def _watch_target_from_refs(
-    name: str,
-    source_ref: str,
-    output_ref: str,
-    workspace: Path,
-    cfg: dict,
-    allow_arg: bool,
-) -> tuple[WatchTarget | None, list[str]]:
-    errors: list[str] = []
-    source, source_error = _watch_resolve_ref(source_ref, workspace, cfg, allow_arg)
-    output, output_error = _watch_resolve_ref(output_ref, workspace, cfg, allow_arg)
-    if source_error:
-        errors.append(f"{name}: source {source_error}")
-    if output_error:
-        errors.append(f"{name}: output {output_error}")
-    if errors:
-        return None, errors
-    return WatchTarget(name=name, source=source, output=output), []
-
-
-def _watch_targets_from_pack(
-    workspace: Path,
-    manifest: str | None,
-    cfg: dict,
-    allow_arg: bool,
-) -> tuple[list[WatchTarget], list[str]]:
-    result = validate_context_pack(workspace, manifest)
-    if not result.get("valid", False):
-        errors = result.get("errors") or ["context pack is invalid"]
-        return [], [f"context pack {err}" for err in errors]
-    targets: list[WatchTarget] = []
-    errors: list[str] = []
-    for idx, render in enumerate(result.get("renders", []), start=1):
-        name = str(render.get("name") or f"render-{idx}")
-        source_ref = render.get("source")
-        output_ref = render.get("output")
-        if not isinstance(source_ref, str) or not source_ref:
-            errors.append(f"{name}: source is required")
-            continue
-        if not isinstance(output_ref, str) or not output_ref:
-            errors.append(f"{name}: output is required")
-            continue
-        target, target_errors = _watch_target_from_refs(name, source_ref, output_ref, workspace, cfg, allow_arg)
-        if target:
-            targets.append(target)
-        errors.extend(target_errors)
-    if not targets and not errors:
-        errors.append("context pack has no render targets")
-    return targets, errors
-
-
-def _watch_targets_from_args(args, cfg, workspace: Path) -> tuple[list[WatchTarget], list[str]]:
-    allow_arg = bool(getattr(args, "allow_outside_workspace", False))
-    source_arg = getattr(args, "source", None)
-    output_arg = getattr(args, "output", None)
-    manifest_arg = getattr(args, "manifest", None)
-    explicit_single = bool(source_arg or output_arg)
-    pack_path = _pack_manifest_path(workspace, manifest_arg)
-    if not explicit_single and (manifest_arg or pack_path.exists()):
-        return _watch_targets_from_pack(workspace, manifest_arg, cfg, allow_arg)
-
-    source_ref = source_arg or ".perseus/context.md"
-    output_ref = output_arg or ".hermes.md"
-    target, errors = _watch_target_from_refs("default", source_ref, output_ref, workspace, cfg, allow_arg)
-    return ([target] if target else []), errors
-
-
-def _watch_target_mtime(target: WatchTarget, getmtime: Callable[[Path], float]) -> float | None:
-    try:
-        return float(getmtime(target.source))
-    except OSError:
-        return None
-
-
-def _watch_render_target(target: WatchTarget, cfg: dict, render_fn: Callable) -> None:
-    render_args = argparse.Namespace(source=str(target.source), output=str(target.output))
-    try:
-        render_fn(render_args, cfg)
-    except SystemExit as exc:
-        code = exc.code if isinstance(exc.code, int) else 1
-        raise RuntimeError(f"render exited with status {code}") from None
-
-
-def _watch_render_and_record(
-    target: WatchTarget,
-    cfg: dict,
-    workspace: Path,
-    last_rendered: dict[tuple[str, str], float | None],
-    pending: dict[tuple[str, str], float | None],
-    getmtime: Callable[[Path], float],
-    render_fn: Callable,
-    log_stream,
-    exit_on_error: bool,
-) -> bool:
-    key = _watch_target_key(target)
-    try:
-        _watch_render_target(target, cfg, render_fn)
-    except Exception as exc:
-        print(f"[watch] render error: {exc}", file=log_stream)
-        last_rendered[key] = _watch_target_mtime(target, getmtime)
-        pending.pop(key, None)
-        return not exit_on_error
-
-    last_rendered[key] = _watch_target_mtime(target, getmtime)
-    pending.pop(key, None)
-    print(
-        f"[watch] rendered -> {_watch_rel(target.output, workspace)} "
-        f"(changed: {_watch_rel(target.source, workspace)})",
-        file=log_stream,
-    )
-    return True
-
-
-def _watch_loop(
-    targets: list[WatchTarget],
-    cfg: dict,
-    workspace: Path,
-    interval_s: float,
-    *,
-    exit_on_error: bool = False,
-    getmtime: Callable[[Path], float] = os.path.getmtime,
-    sleep: Callable[[float], None] = time.sleep,
-    render_fn: Callable = cmd_render,
-    should_stop: Callable[[], bool] | None = None,
-    log_stream=None,
-    max_cycles: int | None = None,
-) -> int:
-    log_stream = log_stream or sys.stderr
-    should_stop = should_stop or (lambda: False)
-    last_rendered: dict[tuple[str, str], float | None] = {}
-    pending: dict[tuple[str, str], float | None] = {}
-
-    try:
-        for target in targets:
-            ok = _watch_render_and_record(
-                target, cfg, workspace, last_rendered, pending,
-                getmtime, render_fn, log_stream, exit_on_error,
-            )
-            if not ok:
-                return 1
-
-        cycles = 0
-        while True:
-            if should_stop():
-                print("[watch] stopped", file=log_stream)
-                return 0
-            if max_cycles is not None and cycles >= max_cycles:
-                return 0
-            sleep(interval_s)
-            cycles += 1
-            if should_stop():
-                print("[watch] stopped", file=log_stream)
-                return 0
-
-            for target in targets:
-                key = _watch_target_key(target)
-                current = _watch_target_mtime(target, getmtime)
-                if current == last_rendered.get(key):
-                    pending.pop(key, None)
-                    continue
-                if key in pending and pending[key] == current:
-                    ok = _watch_render_and_record(
-                        target, cfg, workspace, last_rendered, pending,
-                        getmtime, render_fn, log_stream, exit_on_error,
-                    )
-                    if not ok:
-                        return 1
-                else:
-                    pending[key] = current
-    except KeyboardInterrupt:
-        print("[watch] stopped", file=log_stream)
-        return 0
-
-
-def _watch_install_signal_handlers() -> tuple[dict, dict]:
-    state = {"stop": False, "signal": None}
-    previous = {}
-
-    def _handler(signum, _frame):
-        state["stop"] = True
-        try:
-            state["signal"] = signal.Signals(signum).name
-        except Exception:
-            state["signal"] = str(signum)
-
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        previous[sig] = signal.getsignal(sig)
-        signal.signal(sig, _handler)
-    return state, previous
-
-
-def _watch_restore_signal_handlers(previous: dict) -> None:
-    for sig, handler in previous.items():
-        signal.signal(sig, handler)
-
-
-def cmd_watch(args, cfg) -> int:
-    workspace = Path(args.workspace).expanduser().resolve() if getattr(args, "workspace", None) else Path.cwd().resolve()
-    cfg = load_config(workspace)
-    interval_s, interval_error = _watch_interval_s(args, cfg)
-    if interval_error:
-        print(f"perseus watch: {interval_error}", file=sys.stderr)
-        return 1
-
-    targets, errors = _watch_targets_from_args(args, cfg, workspace)
-    if errors:
-        for err in errors:
-            print(f"perseus watch: {err}", file=sys.stderr)
-        return 1
-    if not targets:
-        print("perseus watch: no render targets", file=sys.stderr)
-        return 1
-
-    signal_state, previous_handlers = _watch_install_signal_handlers()
-    try:
-        return _watch_loop(
-            targets,
-            cfg,
-            workspace,
-            interval_s or 5,
-            exit_on_error=bool(getattr(args, "exit_on_error", False)),
-            should_stop=lambda: bool(signal_state["stop"]),
-        )
-    finally:
-        _watch_restore_signal_handlers(previous_handlers)
-
-
-def cmd_graph(args, cfg) -> int:
-    """Print a static directive dependency graph."""
-    source_path = Path(args.source).expanduser().resolve()
-    if not source_path.exists():
-        print(f"Error: file not found: {source_path}", file=sys.stderr)
-        return 1
-    workspace = Path(args.workspace).expanduser().resolve() if getattr(args, "workspace", None) else _infer_workspace(source_path)
-    cfg = load_config(workspace)
-    # task-65: ensure plugin directives are visible in the graph
-    register_plugins(cfg)
-    graph = directive_dependency_graph(
-        source_path.read_text(errors="replace"),
-        source_name=str(source_path),
-        workspace=workspace,
-    )
-    if getattr(args, "json", False):
-        print(json.dumps(graph, indent=2))
-        return 0
-
-    print(f"Directive graph: {source_path}")
-    print(f"Nodes: {graph['summary']['node_count']}  Edges: {graph['summary']['edge_count']}")
-    for node in graph["nodes"]:
-        flags = []
-        meta = node["metadata"]
-        if meta["executes_shell"]:
-            flags.append("shell")
-        if meta["reads_files"]:
-            flags.append("files")
-        if meta["mutates_state"]:
-            flags.append("mutates")
-        if meta["cacheable"]:
-            flags.append("cacheable")
-        flag_text = f" [{' '.join(flags)}]" if flags else ""
-        resources = ", ".join(f"{r['kind']}={r['value']}" for r in node["resources"])
-        resource_text = f" -> {resources}" if resources else ""
-        print(f"- {node['id']} line {node['line']}: {node['directive']} ({node['kind']}){flag_text}{resource_text}")
-    return 0
-
-
-def cmd_prefetch(args, cfg) -> int:
-    """Run configured prefetch rules against a static directive graph."""
-    source_path = Path(args.source).expanduser().resolve()
-    if not source_path.exists():
-        print(f"Error: file not found: {source_path}", file=sys.stderr)
-        return 1
-    workspace = Path(args.workspace).expanduser().resolve() if getattr(args, "workspace", None) else _infer_workspace(source_path)
-    cfg = load_config(workspace)
-    # task-65: register plugin directives so prefetch graph rules can target them
-    register_plugins(cfg)
-    result = prefetch_source(
-        source_path.read_text(errors="replace"),
-        cfg,
-        workspace=workspace,
-        source_name=str(source_path),
-    )
-    if getattr(args, "json", False):
-        print(json.dumps(result, indent=2))
-    else:
-        print(format_prefetch_human(result))
-    return 1 if result["summary"]["failed"] else 0
-
-
-# ───────────────────────────── Cited synthesis ───────────────────────────────
-
-def _synthesis_rel_label(path: Path, workspace: Path) -> str:
-    try:
-        return str(path.relative_to(workspace))
-    except ValueError:
-        return str(path)
-
-
-def _resolve_synthesis_source(ref: str, workspace: Path, cfg: dict) -> tuple[Path | None, str | None]:
-    raw = Path(ref).expanduser()
-    path = raw.resolve() if raw.is_absolute() else (workspace / raw).resolve()
-    if not path.exists():
-        return None, f"source not found: {ref}"
-    if path.is_dir():
-        return None, f"source is a directory: {ref}"
-    if not cfg.get("render", {}).get("allow_outside_workspace", False):
-        try:
-            path.relative_to(workspace)
-        except ValueError:
-            return None, f"source outside workspace: {path}"
-    return path, None
-
-
-def _load_synthesis_sources(refs: list[str], workspace: Path, cfg: dict) -> tuple[list[dict], list[str]]:
-    sources: list[dict] = []
-    errors: list[str] = []
-    max_source_bytes = int(cfg.get("generation", {}).get("max_source_bytes", 12000))
-    for index, ref in enumerate(refs, start=1):
-        path, error = _resolve_synthesis_source(ref, workspace, cfg)
-        if error or path is None:
-            errors.append(error or f"invalid source: {ref}")
-            continue
-        text = path.read_text(errors="replace")
-        truncated = False
-        if max_source_bytes > 0 and len(text) > max_source_bytes:
-            text = text[:max_source_bytes]
-            truncated = True
-        lines = text.splitlines()
-        sources.append({
-            "id": f"src{index}",
-            "path": str(path),
-            "label": _synthesis_rel_label(path, workspace),
-            "text": text,
-            "lines": lines,
-            "line_count": len(lines),
-            "truncated": truncated,
-        })
-    return sources, errors
-
-
-def _numbered_source_excerpt(source: dict) -> str:
-    lines = source.get("lines", [])
-    body = "\n".join(f"{idx}: {line}" for idx, line in enumerate(lines, start=1))
-    suffix = "\n[truncated]" if source.get("truncated") else ""
-    return f"### {source['id']} {source['label']}\n{body}{suffix}"
-
-
-def build_synthesis_prompt(question: str, sources: list[dict], max_claims: int) -> str:
-    source_blocks = "\n\n".join(_numbered_source_excerpt(source) for source in sources)
-    return "\n".join([
-        "You are drafting cited synthesis claims for Perseus.",
-        "Perseus is a resolver first. You are a drafter, not an authority.",
-        "",
-        "Rules:",
-        "- Return JSON only.",
-        "- Do not include uncited claims.",
-        "- Every claim must cite at least one exact quote from the source lines.",
-        "- If the sources do not support a claim, omit it.",
-        "- Prefer cross-source synthesis over obvious restatement.",
-        f"- Return at most {max_claims} claims.",
-        "",
-        "JSON shape:",
-        '{"claims":[{"text":"...","citations":[{"source_id":"src1","line_start":1,"line_end":3,"quote":"exact source quote"}]}]}',
-        "",
-        f"Question: {question}",
-        "",
-        "Sources:",
-        source_blocks,
-    ])
-
-
-def _extract_json_object(text: str) -> tuple[object | None, str | None]:
-    stripped = text.strip()
-    if stripped.startswith("```"):
-        stripped = re.sub(r"^```(?:json)?\s*", "", stripped, flags=re.IGNORECASE)
-        stripped = re.sub(r"\s*```$", "", stripped)
-    try:
-        return json.loads(stripped), None
-    except json.JSONDecodeError:
-        start = stripped.find("{")
-        end = stripped.rfind("}")
-        if start >= 0 and end > start:
-            try:
-                return json.loads(stripped[start:end + 1]), None
-            except json.JSONDecodeError as exc:
-                return None, f"could not parse JSON response: {exc}"
-        return None, "could not parse JSON response"
-
-
-def _citation_window(source: dict, start: int, end: int) -> str | None:
-    lines = source.get("lines", [])
-    if start < 1 or end < start or end > len(lines):
-        return None
-    return "\n".join(lines[start - 1:end])
-
-
-def build_consistency_prompt(sources: list[dict], max_claims: int) -> str:
-    """Build a prompt focused on detecting cross-source disagreements."""
-    source_blocks = "\n\n".join(_numbered_source_excerpt(source) for source in sources)
-    return "\n".join([
-        "You are auditing cross-source consistency for a software project.",
-        "Perseus is a resolver first. You are a drafter, not an authority.",
-        "",
-        "Rules:",
-        "- Return JSON only.",
-        "- Do not include uncited claims.",
-        "- Every claim must cite at least one exact quote from the source lines.",
-        "- Report disagreements, drift, and contradictions between sources.",
-        "- Flag: current phase/status inconsistencies, version mismatches, doc/code contradictions,",
-        "  task-file status that conflicts with roadmap or handoff, outdated README claims.",
-        "- If all sources are consistent on a topic, do not generate claims about it.",
-        "- Use 'conflicts' for disagreements between sources; use 'claims' for synthesized findings.",
-        f"- Return at most {max_claims} items across both arrays.",
-        "",
-        "JSON shape:",
-        '{"claims":[{"text":"...","citations":[{"source_id":"src1","line_start":1,"line_end":3,"quote":"exact source quote"}]}],'
-        '"conflicts":[{"description":"...","sources":[{"source_id":"src1","line_start":1,"line_end":2,"quote":"..."},'
-        '{"source_id":"src2","line_start":5,"line_end":5,"quote":"..."}]}]}',
-        "",
-        "Sources:",
-        source_blocks,
-    ])
-
-
-def _validate_consistency_conflicts(raw: object, sources: list[dict], max_items: int) -> tuple[list[dict], list[dict]]:
-    """Validate the 'conflicts' array from a consistency-mode response."""
-    source_by_id = {source["id"]: source for source in sources}
-    conflicts_raw = raw.get("conflicts", []) if isinstance(raw, dict) else []
-    if not isinstance(conflicts_raw, list):
-        return [], [{"description": "", "reason": "conflicts must be a list"}]
-
-    accepted: list[dict] = []
-    dropped: list[dict] = []
-    for entry in conflicts_raw[:max_items]:
-        if not isinstance(entry, dict):
-            dropped.append({"description": "", "reason": "conflict entry must be an object"})
-            continue
-        description = str(entry.get("description", "")).strip()
-        sources_raw = entry.get("sources", [])
-        valid_sources: list[dict] = []
-        if isinstance(sources_raw, list):
-            for ref in sources_raw:
-                if not isinstance(ref, dict):
-                    continue
-                source_id = str(ref.get("source_id", "")).strip()
-                source = source_by_id.get(source_id)
-                quote = str(ref.get("quote", "")).strip()
-                try:
-                    line_start = int(ref.get("line_start"))
-                    line_end = int(ref.get("line_end", line_start))
-                except (TypeError, ValueError):
-                    continue
-                if not source or not quote:
-                    continue
-                window = _citation_window(source, line_start, line_end)
-                if window is None or quote not in window:
-                    continue
-                valid_sources.append({
-                    "source_id": source_id,
-                    "path": source["path"],
-                    "label": source["label"],
-                    "line_start": line_start,
-                    "line_end": line_end,
-                    "quote": quote,
-                })
-        if description and len(valid_sources) >= 2:
-            accepted.append({"description": description, "sources": valid_sources})
-        elif description and len(valid_sources) == 1:
-            # Accept single-source conflict reports (e.g. internal inconsistency flagged with one cite)
-            accepted.append({"description": description, "sources": valid_sources})
-        else:
-            dropped.append({
-                "description": description,
-                "reason": "no valid cited sources" if description else "empty description",
-            })
-    return accepted, dropped
-
-
-def _validate_synthesis_claims(raw: object, sources: list[dict], max_claims: int) -> tuple[list[dict], list[dict]]:
-    source_by_id = {source["id"]: source for source in sources}
-    claims_raw = raw.get("claims", []) if isinstance(raw, dict) else []
-    if not isinstance(claims_raw, list):
-        return [], [{"text": "", "reason": "claims must be a list", "citations": []}]
-
-    accepted: list[dict] = []
-    dropped: list[dict] = []
-    for claim_raw in claims_raw[:max_claims]:
-        if not isinstance(claim_raw, dict):
-            dropped.append({"text": "", "reason": "claim must be an object", "citations": []})
-            continue
-        text = str(claim_raw.get("text", "")).strip()
-        citations_raw = claim_raw.get("citations", [])
-        valid_citations: list[dict] = []
-        if isinstance(citations_raw, list):
-            for citation in citations_raw:
-                if not isinstance(citation, dict):
-                    continue
-                source_id = str(citation.get("source_id", "")).strip()
-                source = source_by_id.get(source_id)
-                quote = str(citation.get("quote", "")).strip()
-                try:
-                    line_start = int(citation.get("line_start"))
-                    line_end = int(citation.get("line_end", line_start))
-                except (TypeError, ValueError):
-                    continue
-                if not source or not quote:
-                    continue
-                window = _citation_window(source, line_start, line_end)
-                if window is None or quote not in window:
-                    continue
-                valid_citations.append({
-                    "source_id": source_id,
-                    "path": source["path"],
-                    "label": source["label"],
-                    "line_start": line_start,
-                    "line_end": line_end,
-                    "quote": quote,
-                })
-        if text and valid_citations:
-            accepted.append({"text": text, "citations": valid_citations})
-        else:
-            dropped.append({
-                "text": text,
-                "reason": "no valid citations" if text else "empty claim text",
-                "citations": citations_raw if isinstance(citations_raw, list) else [],
-            })
-    return accepted, dropped
-
-
-def synthesize_question(
-    question: str,
-    source_refs: list[str],
-    cfg: dict,
-    workspace: Path,
-    llm: str | None = None,
-    model: str | None = None,
-    model_url: str | None = None,
-    enable_generation: bool = False,
-    consistency_mode: bool = False,
-) -> tuple[dict, int]:
-    sources, source_errors = _load_synthesis_sources(source_refs, workspace, cfg)
-    generation_cfg = cfg.get("generation", {})
-    max_claims = int(generation_cfg.get("max_claims", 6))
-    source_summary = [
-        {
-            "id": source["id"],
-            "path": source["path"],
-            "label": source["label"],
-            "line_count": source["line_count"],
-            "truncated": source["truncated"],
-        }
-        for source in sources
-    ]
-    result: dict = {
-        "version": "phase15b-cited-synthesis-v2" if consistency_mode else "phase15a-cited-synthesis-v1",
-        "question": question,
-        "consistency_mode": consistency_mode,
-        "generated": False,
-        "claims": [],
-        "dropped_claims": [],
-        "conflicts": [],
-        "dropped_conflicts": [],
-        "source_errors": source_errors,
-        "sources": source_summary,
-        "guardrails": {
-            "citation_required": True,
-            "exact_quote_required": True,
-            "uncited_claims_dropped": True,
-            "model_failure_leaves_render_unchanged": True,
-        },
-        "model": {"provider": None, "model": None},
-        "prompt": "",
-    }
-    if source_errors or not sources:
-        return result, 1
-
-    if consistency_mode:
-        prompt = build_consistency_prompt(sources, max_claims)
-    else:
-        prompt = build_synthesis_prompt(question, sources, max_claims)
-    result["prompt"] = prompt
-    if not llm:
-        return result, 0
-
-    if not (enable_generation or bool(generation_cfg.get("enabled", False))):
-        audit_event(cfg, "policy_denied",
-                    directive="@synthesize",
-                    reason="generation.enabled=false",
-                    question=str(question)[:200])
-        result["error"] = "generation is disabled; set generation.enabled=true or pass --enable-generation"
-        return result, 2
-
-    provider_used = llm.strip().lower()
-    if ":" in provider_used and not model:
-        provider_used, _, model = provider_used.partition(":")
-    model_used = model or generation_cfg.get("model") or cfg.get("llm", {}).get("model")
-    # task-47: audit the model call before it crosses the LLM trust boundary.
-    audit_event(cfg, "model_call",
-                provider=provider_used,
-                model=model_used,
-                prompt_chars=len(prompt or ""),
-                question=str(question)[:200])
-    response_text, exit_code = run_llm(provider_used, prompt, cfg, model=model_used or None, model_url=model_url)
-    result["generated"] = exit_code == 0
-    result["model"] = {"provider": provider_used, "model": model_used}
-    result["raw_response"] = response_text
-    if exit_code:
-        result["error"] = "model request failed"
-        return result, exit_code
-    parsed, parse_error = _extract_json_object(response_text)
-    if parse_error:
-        result["error"] = parse_error
-        return result, 1
-    claims, dropped = _validate_synthesis_claims(parsed, sources, max_claims)
-    result["claims"] = claims
-    result["dropped_claims"] = dropped
-    if consistency_mode:
-        conflicts, dropped_conflicts = _validate_consistency_conflicts(parsed, sources, max_claims)
-        result["conflicts"] = conflicts
-        result["dropped_conflicts"] = dropped_conflicts
-    return result, 0
-
-
-def format_synthesis_human(result: dict) -> str:
-    lines = [f"Cited synthesis: {result['question']}"]
-    if result.get("consistency_mode"):
-        lines[0] = "Cross-source consistency report"
-    if result.get("source_errors"):
-        lines.append("")
-        lines.append("Source errors:")
-        for error in result["source_errors"]:
-            lines.append(f"- {error}")
-        return "\n".join(lines)
-    lines.append("Sources:")
-    for source in result.get("sources", []):
-        suffix = " (truncated)" if source.get("truncated") else ""
-        lines.append(f"- {source['id']} {source['label']} ({source['line_count']} lines){suffix}")
-    if result.get("error"):
-        lines.append("")
-        lines.append(f"> Warning: {result['error']}")
-    if not result.get("generated"):
-        lines.append("")
-        lines.append("Generation was not run. Prompt:")
-        lines.append("")
-        lines.append(result.get("prompt", ""))
-        return "\n".join(lines)
-
-    lines.append("")
-    if not result.get("claims") and not result.get("conflicts"):
-        lines.append("_No cited claims or conflicts survived validation._")
-    for idx, claim in enumerate(result.get("claims", []), start=1):
-        lines.append(f"{idx}. {claim['text']}")
-        for citation in claim["citations"]:
-            label = citation["label"]
-            start = citation["line_start"]
-            end = citation["line_end"]
-            line_ref = f"{start}" if start == end else f"{start}-{end}"
-            lines.append(f"   - {label}:{line_ref} `{citation['quote']}`")
-    conflicts = result.get("conflicts", [])
-    if conflicts:
-        lines.append("")
-        lines.append("Source disagreements:")
-        for idx, conflict in enumerate(conflicts, start=1):
-            lines.append(f"{idx}. ⚠ {conflict['description']}")
-            for ref in conflict["sources"]:
-                label = ref["label"]
-                start = ref["line_start"]
-                end = ref["line_end"]
-                line_ref = f"{start}" if start == end else f"{start}-{end}"
-                lines.append(f"   - {label}:{line_ref} `{ref['quote']}`")
-    dropped = result.get("dropped_claims", [])
-    dropped_conflicts = result.get("dropped_conflicts", [])
-    if dropped:
-        lines.append("")
-        lines.append(f"Dropped uncited/invalid claims: {len(dropped)}")
-    if dropped_conflicts:
-        lines.append(f"Dropped uncited/invalid conflicts: {len(dropped_conflicts)}")
-    return "\n".join(lines)
-
-
-def cmd_synthesize(args, cfg) -> int:
-    workspace = Path(args.workspace).expanduser().resolve() if getattr(args, "workspace", None) else Path.cwd().resolve()
-    cfg = load_config(workspace)
-    result, code = synthesize_question(
-        args.question,
-        args.source,
-        cfg,
-        workspace,
-        llm=getattr(args, "llm", None),
-        model=getattr(args, "model", None),
-        model_url=getattr(args, "model_url", None),
-        enable_generation=getattr(args, "enable_generation", False),
-        consistency_mode=getattr(args, "consistency_mode", False),
-    )
-    # task-46: redact synthesis result before output. JSON-mode caller can
-    # inspect `result["redaction"]` to see counts without seeing secrets.
-    if isinstance(result, dict):
-        result, rep = redact_value(result, cfg)
-        result["redaction"] = {
-            "enabled": rep.get("enabled", True),
-            "total": rep.get("total", 0),
-            "counts": rep.get("counts", {}),
-        }
-    if getattr(args, "json", False):
-        print(json.dumps(result, indent=2))
-    else:
-        print(format_synthesis_human(result))
-    return code
-
-
-# ───────────────────────────── Context packs ────────────────────────────────
-
-PACK_VERSION = 1
-TRUST_PROFILES = {"strict", "balanced", "power-user"}
-
-PRODUCT_PROFILES: dict[str, dict] = {
-    "generic": {
-        "label": "Generic markdown",
-        "assistant": "generic",
-        "output": "live-context.md",
-        "trust_profile": "balanced",
-        "description": "Plain markdown output for any assistant or stdin/file flow.",
-        "refresh": "Render on demand or from any scheduler into live-context.md.",
-    },
-    "hermes": {
-        "label": "Hermes Agent",
-        "assistant": "hermes",
-        "output": ".hermes.md",
-        "trust_profile": "balanced",
-        "description": "Hermes Agent reads .hermes.md at session start.",
-        "refresh": "Keep .hermes.md fresh before session start via cron, launchd, systemd, or watch.",
-    },
-    "codex": {
-        "label": "Codex / AGENTS.md",
-        "assistant": "codex",
-        "output": "AGENTS.md",
-        "trust_profile": "balanced",
-        "description": "Codex-compatible repository guidance file.",
-        "refresh": "Render AGENTS.md before starting Codex or through a workspace scheduler/watch flow.",
-    },
-    "claude-code": {
-        "label": "Claude Code",
-        "assistant": "claude-code",
-        "output": "CLAUDE.md",
-        "trust_profile": "balanced",
-        "description": "Claude Code project knowledge file.",
-        "refresh": "Render CLAUDE.md before starting Claude Code or through scheduler/watch refresh.",
-    },
-    "cursor": {
-        "label": "Cursor",
-        "assistant": "cursor",
-        "output": ".cursorrules",
-        "trust_profile": "balanced",
-        "description": "Cursor rules/context file.",
-        "refresh": "Render .cursorrules when project context changes; use watch when continuous refresh is desired.",
-    },
-    "rovodev": {
-        "label": "Rovo Dev",
-        "assistant": "rovodev",
-        "output": "AGENTS.md",
-        "trust_profile": "balanced",
-        "description": "Rovo Dev AGENTS.md flow.",
-        "refresh": "Render AGENTS.md before Rovo Dev sessions or through scheduler/watch refresh.",
-    },
-}
-
-
-def _profile_context_template(profile_name: str, profile: dict) -> str:
-    label = profile["label"]
-    return f"""@perseus v{_PERSEUS_VERSION}
-
-@prompt
-This document was rendered live by Perseus for the {label} profile. Treat the
-resolved content below as current workspace context. Do not spend initial turns
-re-discovering the same facts unless the user asks you to verify them.
-@end
-
-# Workspace Context — @date format="YYYY-MM-DD HH:mm z"
-
-**Profile:** {profile_name}
-
----
-
-## Last Checkpoint
-@waypoint ttl=86400
-
----
-
-## Workspace State
-
-@query "git log --oneline -5 2>/dev/null || echo '(no git repo)'" fallback="git log unavailable"
-@query "git status --short 2>/dev/null || true" fallback="clean"
-
----
-
-## Task Board
-@agora status=open,in_progress
-
----
-
-## Project Memory
-@memory focus=recent ttl=300
-"""
-
-
-def _context_pack_manifest(profile_name: str, profile: dict, output: str | None = None, trust_profile: str | None = None) -> dict:
-    output_path = output or profile["output"]
-    trust = trust_profile or profile.get("trust_profile", "balanced")
-    return {
-        "version": PACK_VERSION,
-        "name": f"{profile_name}-context",
-        "profile": profile_name,
-        "trust_profile": trust,
-        "renders": [
-            {
-                "name": "default",
-                "source": ".perseus/context.md",
-                "output": output_path,
-                "assistant": profile["assistant"],
-            }
-        ],
-        "synthesis": [
-            {
-                "name": "project-status",
-                "question": "What is the current project status and next allowable action?",
-                "sources": ["ROADMAP.md", "HANDOFF.md", "README.md"],
-                "enabled": False,
-            }
-        ],
-    }
-
-
-def _pack_manifest_path(workspace: Path, manifest: str | None = None) -> Path:
-    if manifest:
-        raw = Path(manifest).expanduser()
-        return raw.resolve() if raw.is_absolute() else (workspace / raw).resolve()
-    return workspace / ".perseus" / "pack.yaml"
-
-
-def _load_pack_manifest(workspace: Path, manifest: str | None = None) -> tuple[dict | None, Path, list[str]]:
-    path = _pack_manifest_path(workspace, manifest)
-    if not path.exists():
-        return None, path, [f"manifest not found: {path}"]
-    try:
-        data = yaml.safe_load(path.read_text()) or {}
-    except Exception as exc:
-        return None, path, [f"could not parse manifest: {exc}"]
-    if not isinstance(data, dict):
-        return None, path, ["manifest must be a YAML mapping"]
-    return data, path, []
-
-
-def _pack_rel(path: Path, workspace: Path) -> str:
-    try:
-        return str(path.relative_to(workspace))
-    except ValueError:
-        return str(path)
-
-
-def validate_context_pack(workspace: Path, manifest: str | None = None) -> dict:
-    workspace = workspace.expanduser().resolve()
-    data, path, load_errors = _load_pack_manifest(workspace, manifest)
-    errors = list(load_errors)
-    warnings: list[str] = []
-    renders: list[dict] = []
-    synthesis: list[dict] = []
-    profile = None
-    trust_profile = None
-
-    if data is not None:
-        version = data.get("version")
-        if version != PACK_VERSION:
-            errors.append(f"version must be {PACK_VERSION}")
-
-        profile = data.get("profile")
-        if profile is not None and profile not in PRODUCT_PROFILES:
-            errors.append(f"unknown profile: {profile}")
-
-        trust_profile = data.get("trust_profile", "balanced")
-        if trust_profile not in TRUST_PROFILES:
-            errors.append(f"unknown trust_profile: {trust_profile}")
-
-        raw_renders = data.get("renders")
-        if not isinstance(raw_renders, list) or not raw_renders:
-            errors.append("renders must be a non-empty list")
-        else:
-            for idx, item in enumerate(raw_renders, start=1):
-                if not isinstance(item, dict):
-                    errors.append(f"renders[{idx}] must be a mapping")
-                    continue
-                name = str(item.get("name", f"render-{idx}"))
-                source = item.get("source")
-                output = item.get("output")
-                assistant = item.get("assistant", profile or "generic")
-                if not isinstance(source, str) or not source:
-                    errors.append(f"renders[{idx}].source is required")
-                    source_path = None
-                else:
-                    source_path = (workspace / source).resolve()
-                    if not source_path.exists():
-                        errors.append(f"renders[{idx}].source not found: {source}")
-                if not isinstance(output, str) or not output:
-                    errors.append(f"renders[{idx}].output is required")
-                renders.append({
-                    "name": name,
-                    "source": source,
-                    "output": output,
-                    "assistant": assistant,
-                    "source_exists": bool(source_path and source_path.exists()),
-                })
-
-        raw_synthesis = data.get("synthesis", [])
-        if raw_synthesis is None:
-            raw_synthesis = []
-        if not isinstance(raw_synthesis, list):
-            errors.append("synthesis must be a list when present")
-        else:
-            for idx, item in enumerate(raw_synthesis, start=1):
-                if not isinstance(item, dict):
-                    errors.append(f"synthesis[{idx}] must be a mapping")
-                    continue
-                name = str(item.get("name", f"synthesis-{idx}"))
-                question = item.get("question")
-                sources = item.get("sources")
-                if not isinstance(question, str) or not question:
-                    errors.append(f"synthesis[{idx}].question is required")
-                if not isinstance(sources, list) or not sources:
-                    errors.append(f"synthesis[{idx}].sources must be a non-empty list")
-                    source_records = []
-                else:
-                    source_records = []
-                    for source_ref in sources:
-                        if not isinstance(source_ref, str) or not source_ref:
-                            errors.append(f"synthesis[{idx}].sources entries must be strings")
-                            continue
-                        source_path = (workspace / source_ref).resolve()
-                        exists = source_path.exists()
-                        if not exists:
-                            warnings.append(f"synthesis[{idx}] source not found yet: {source_ref}")
-                        source_records.append({"path": source_ref, "exists": exists})
-                synthesis.append({
-                    "name": name,
-                    "question": question,
-                    "sources": source_records,
-                    "enabled": bool(item.get("enabled", False)),
-                })
-
-    return {
-        "version": PACK_VERSION,
-        "workspace": str(workspace),
-        "path": str(path),
-        "exists": data is not None,
-        "valid": not errors,
-        "errors": errors,
-        "warnings": warnings,
-        "profile": profile,
-        "trust_profile": trust_profile,
-        "renders": renders,
-        "synthesis": synthesis,
-    }
-
-
-def format_pack_validation(result: dict) -> str:
-    lines = [f"Context pack: {_pack_rel(Path(result['path']), Path(result['workspace']))}"]
-    if not result["exists"]:
-        lines.append("Status: missing")
-    else:
-        lines.append(f"Status: {'valid' if result['valid'] else 'invalid'}")
-    if result.get("profile"):
-        lines.append(f"Profile: {result['profile']}")
-    if result.get("trust_profile"):
-        lines.append(f"Trust profile: {result['trust_profile']}")
-    if result.get("renders"):
-        lines.append("Renders:")
-        for render in result["renders"]:
-            status = "ok" if render["source_exists"] else "missing source"
-            lines.append(f"- {render['name']}: {render['source']} -> {render['output']} ({render['assistant']}, {status})")
-    if result.get("synthesis"):
-        lines.append("Synthesis packs:")
-        for item in result["synthesis"]:
-            enabled = "enabled" if item["enabled"] else "disabled"
-            lines.append(f"- {item['name']}: {enabled}, {len(item['sources'])} sources")
-    if result["errors"]:
-        lines.append("Errors:")
-        lines.extend(f"- {err}" for err in result["errors"])
-    if result["warnings"]:
-        lines.append("Warnings:")
-        lines.extend(f"- {warning}" for warning in result["warnings"])
-    return "\n".join(lines)
-
-
-def cmd_pack(args, cfg) -> int:
-    workspace = Path(args.workspace).expanduser().resolve() if getattr(args, "workspace", None) else Path.cwd().resolve()
-    result = validate_context_pack(workspace, getattr(args, "manifest", None))
-    if getattr(args, "json", False):
-        print(json.dumps(result, indent=2))
-    else:
-        print(format_pack_validation(result))
-    return 0 if result["valid"] else 1
-
-
-# ───────────────────────────── Schema validation CLI ─────────────────────────
-
-def _validate_cli_payload(args) -> tuple[object | None, str, str | None]:
-    """Load and parse a validate command payload."""
-    payload_ref = getattr(args, "payload", "-") or "-"
-    if payload_ref == "-":
-        text = sys.stdin.read()
-        try:
-            return _parse_validation_payload_by_source(text, "<stdin>"), "<stdin>", None
-        except Exception as exc:
-            return None, "<stdin>", str(exc)
-
-    payload_path = Path(payload_ref).expanduser()
-    try:
-        text = payload_path.read_text(errors="replace")
-    except Exception as exc:
-        return None, str(payload_path), str(exc)
-    try:
-        return _parse_validation_payload_by_source(text, str(payload_path)), str(payload_path), None
-    except Exception as exc:
-        return None, str(payload_path), str(exc)
-
-
-def cmd_validate(args, cfg) -> int:
-    """Validate a payload against a Perseus schema."""
-    workspace = Path(args.workspace).expanduser().resolve() if getattr(args, "workspace", None) else Path.cwd().resolve()
-    schema_ref = args.schema
-    data, input_label, input_error = _validate_cli_payload(args)
-    if input_error:
-        payload = {"ok": False, "input": input_label, "errors": [], "error": input_error}
-        if getattr(args, "json", False):
-            print(json.dumps(payload, indent=2))
-        else:
-            print(f"Error: {payload['error']}")
-        return 2
-
-    if isinstance(schema_ref, str) and schema_ref.startswith("plugin:"):
-        validator_name = schema_ref[7:]
-        schema_label = schema_ref
-        try:
-            validator_fn = _load_plugin_validator(validator_name, workspace)
-            if not validator_fn:
-                if getattr(args, "json", False):
-                    print(json.dumps({"ok": False, "schema": schema_label, "error": f"plugin validator `{validator_name}` not found"}, indent=2))
-                else:
-                    print(f"Error: plugin validator `{validator_name}` not found")
-                return 2
-            valid, message = validator_fn(data, {})
-            errors = [] if valid else [message]
-        except Exception as e:
-            if getattr(args, "json", False):
-                print(json.dumps({"ok": False, "schema": schema_label, "error": str(e)}, indent=2))
-            else:
-                print(f"Error: {e}")
-            return 2
-    else:
-        schema_path, schema_data, schema_error = _load_schema(schema_ref, workspace)
-        schema_label = str(schema_path or schema_ref)
-        if schema_error:
-            payload = {"ok": False, "schema": schema_label, "input": input_label, "errors": [], "error": schema_error}
-            if getattr(args, "json", False):
-                print(json.dumps(payload, indent=2))
-            else:
-                print(f"Error: {payload['error']}")
-            return 2
-        errors = _validate_basic_schema(data, schema_data)
-
-    payload = {
-        "ok": not errors,
-        "schema": schema_label,
-        "input": input_label,
-        "errors": errors,
-    }
-    if getattr(args, "json", False):
-        print(json.dumps(payload, indent=2))
-    elif errors:
-        print(f"Invalid: {input_label} does not match {schema_label}")
-        for err in errors:
-            print(f"- {err}")
-    else:
-        print(f"Valid: {input_label} matches {schema_label}")
-    return 0 if not errors else 1
-
-
-# ──────────────────────────────── cmd_init ────────────────────────────────────
-
-INIT_CONTEXT_TEMPLATE = """\
-@perseus v{version}
-
-@prompt
-This document was rendered live by Perseus. All values below are current —
-do not verify services, re-scan skills, or re-read session history. Trust the
-rendered output and skip orientation. Start work immediately.
-@end
-
-# Perseus Session Context — @date format="YYYY-MM-DD HH:mm CDT"
-
-**Workspace:** `{workspace}`
-
----
-
-## Last Session
-@waypoint ttl=86400
-
----
-
-## Workspace State
-
-@query "git -C {workspace} log --oneline -5 2>/dev/null || echo '(no git repo)'"
-@query "git -C {workspace} status --short 2>/dev/null || echo ''"
-
----
-
-## Available Skills
-@skills flag_stale=true
-
----
-
-## Services
-@services
-  - name: Perseus CLI
-    command: python3 {workspace}/perseus.py --version 2>&1 || perseus --version
-
----
-
-## Recent Sessions
-@session count=3
-"""
-
-def cmd_launchd(args, cfg):
-    if sys.platform != "darwin":
-        print("Error: `perseus launchd` is only supported on macOS.", file=sys.stderr)
-        sys.exit(1)
-
-    source_path = Path(args.source).expanduser().resolve()
-    if not source_path.exists():
-        print(f"Error: file not found: {source_path}", file=sys.stderr)
-        sys.exit(1)
-
-    output_path = Path(args.output).expanduser().resolve()
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    launch_agents = Path.home() / "Library" / "LaunchAgents"
-    launch_agents.mkdir(parents=True, exist_ok=True)
-
-    logs_dir = PERSEUS_HOME / "logs"
-    logs_dir.mkdir(parents=True, exist_ok=True)
-
-    label = args.label or f"com.perseus.render.{source_path.stem}"
-    plist_path = launch_agents / f"{label}.plist"
-    python_path = Path(sys.executable).resolve()
-    script_path = Path(__file__).resolve()
-    workdir = _infer_workspace(source_path)
-    stdout_log = logs_dir / f"{label}.out.log"
-    stderr_log = logs_dir / f"{label}.err.log"
-
-    content = LAUNCHD_TEMPLATE.format(
-        label=label,
-        python=str(python_path),
-        script=str(script_path),
-        source=str(source_path),
-        output=str(output_path),
-        workdir=str(workdir),
-        interval=int(args.interval),
-        stdout_log=str(stdout_log),
-        stderr_log=str(stderr_log),
-    )
-
-    if plist_path.exists() and not args.force:
-        print(f"Error: {plist_path} already exists. Use --force to overwrite.", file=sys.stderr)
-        sys.exit(1)
-
-    plist_path.write_text(content)
-
-    print(f"✔ Wrote LaunchAgent plist: {plist_path}")
-    print()
-    print("Next steps:")
-    print(f"  1. Load it:    launchctl load {plist_path}")
-    print(f"  2. Start now:  launchctl start {label}")
-    print(f"  3. Check logs: tail -f {stdout_log} {stderr_log}")
-
-
-# ───────────────────────── Phase 24: install ──────────────────────────────────
-
-def cmd_install(args, cfg) -> int:
-    """Install Perseus hooks into an AI assistant."""
-    import json as _json
-
-    target = args.target
-    workspace = Path(args.workspace).expanduser().resolve() if args.workspace else None
-    dry_run = getattr(args, "dry_run", False)
-    json_out = getattr(args, "json", False)
-    perseus_cmd = getattr(args, "perseus_cmd", "perseus")
-
-    result = install_target(
-        target=target,
-        cfg=cfg,
-        workspace=workspace,
-        perseus_cmd=perseus_cmd,
-        dry_run=dry_run,
-    )
-
-    if json_out:
-        print(_json.dumps(result, indent=2))
-    return 0
-
-
-# ───────────────────────── Phase 24: mcp ────────────────────────────────────
-
-def cmd_mcp(args, cfg) -> int:
-    """Perseus MCP server — expose directives as MCP tools."""
-    import json as _json
-
-    mcp_cmd = args.mcp_command  # "serve", "config", or "register"
-    workspace = Path(args.workspace).expanduser().resolve() if getattr(args, "workspace", None) else None
-
-    if mcp_cmd == "serve":
-        transport = getattr(args, "transport", "stdio")
-        if transport == "sse":
-            port = getattr(args, "port", 8420)
-            serve_mcp_sse(cfg, workspace=workspace, port=port)
-            return 0
-        return serve_mcp(cfg, workspace=workspace)
-    elif mcp_cmd == "config":
-        print_mcp_config(cfg, workspace=workspace)
-        return 0
-    elif mcp_cmd == "register":
-        print_mcp_registry(cfg)
-        return 0
-    else:
-        print(f"Error: unknown mcp command: {mcp_cmd}", file=sys.stderr)
-        return 1
-
-
-# ─────────────────────────────── cron (POSIX) ────────────────────────────────
-
-def cmd_cron(args, cfg):
-    """Generate a crontab entry for periodic rendering.
-
-    POSIX-oriented: works on systems with crontab (macOS, Linux, BSD).
-    Recommended over launchd/systemd when portability matters.
-    """
-    try:
-        every = int(args.every)
-    except (TypeError, ValueError):
-        print(f"Error: --every must be an integer (got {args.every!r})", file=sys.stderr)
-        sys.exit(1)
-    if every <= 0:
-        print("Error: --every must be > 0", file=sys.stderr)
-        sys.exit(1)
-
-    source_path = Path(args.source).expanduser().resolve()
-    output_path = Path(args.output).expanduser().resolve()
-    python_path = Path(sys.executable).resolve()
-    script_path = Path(__file__).resolve()
-
-    # Build crontab schedule expression
-    if every == 1:
-        schedule = "* * * * *"
-    elif every < 60:
-        schedule = f"*/{every} * * * *"
-    elif every == 60:
-        schedule = "0 * * * *"
-    else:
-        hours = every // 60
-        schedule = f"0 */{hours} * * *"
-
-    cmd = f"{python_path} {script_path} render {source_path} --output {output_path}"
-    # Suppress crontab MAILTO noise; route stderr to /dev/null on success render
-    entry = f"{schedule} {cmd} >/dev/null 2>&1  # perseus-render"
-
-    if args.install:
-        try:
-            existing = subprocess.run(
-                ["crontab", "-l"],
-                capture_output=True, text=True, check=False,
-            )
-            current = existing.stdout if existing.returncode == 0 else ""
-        except FileNotFoundError:
-            print("Error: `crontab` not found in PATH. Install cron first.", file=sys.stderr)
-            sys.exit(1)
-
-        if "# perseus-render" in current:
-            print("> ⚠ A perseus-render entry already exists in crontab. Remove it first or edit by hand.")
-            print(current)
-            sys.exit(1)
-
-        new_crontab = current.rstrip() + ("\n" if current.strip() else "") + entry + "\n"
-        try:
-            proc = subprocess.run(["crontab", "-"], input=new_crontab, text=True,
-                                  capture_output=True, check=False)
-            if proc.returncode != 0:
-                print(f"Error: `crontab -` failed: {proc.stderr.strip()}", file=sys.stderr)
-                sys.exit(1)
-        except FileNotFoundError:
-            print("Error: `crontab` not found in PATH.", file=sys.stderr)
-            sys.exit(1)
-        print("✔ Installed crontab entry:")
-        print(f"  {entry}")
-        print()
-        print("Verify with: crontab -l")
-        print("Remove with: crontab -e  (delete the line tagged `# perseus-render`)")
-        return
-
-    # Default: print the entry
-    print("# Add this line to your crontab (run `crontab -e`):")
-    print(entry)
-    print()
-    print("Or install automatically with: perseus cron ... --install")
-
-
-# ─────────────────────────────── systemd (Linux) ─────────────────────────────
-
-SYSTEMD_SERVICE_TEMPLATE = """\
-[Unit]
-Description=Perseus context renderer
-After=default.target
-
-[Service]
-Type=oneshot
-ExecStart={python} {script} render {source} --output {output}
-"""
-
-SYSTEMD_TIMER_TEMPLATE = """\
-[Unit]
-Description=Perseus context render timer
-
-[Timer]
-OnBootSec=1min
-OnUnitActiveSec={interval}
-Unit=perseus-render.service
-
-[Install]
-WantedBy=timers.target
-"""
-
-
-def _parse_systemd_interval(raw: str) -> str:
-    """Accept '5m', '2h', or systemd-native like '30s'/'1h30min' — return systemd time spec.
-
-    Defaults to '5min' if empty. Raises ValueError on garbage.
-    """
-    s = (raw or "").strip().lower()
-    if not s:
-        return "5min"
-    m = re.fullmatch(r"(\d+)\s*([smh])", s)
-    if m:
-        n, unit = m.group(1), m.group(2)
-        return {"s": f"{n}s", "m": f"{n}min", "h": f"{n}h"}[unit]
-    # passthrough for already-systemd-native values
-    if re.fullmatch(r"[\d\s a-z]+", s):
-        return s
-    raise ValueError(f"unrecognised interval: {raw!r}")
-
-
-def cmd_systemd(args, cfg):
-    """Scaffold ~/.config/systemd/user/perseus-render.{service,timer} units."""
-    if sys.platform == "darwin":
-        print("Use `perseus launchd` on macOS.", file=sys.stderr)
-        sys.exit(1)
-    if sys.platform != "linux":
-        suffix = " Native Windows Task Scheduler support is deferred." if sys.platform == "win32" else ""
-        print(f"Error: `perseus systemd` is only supported on Linux.{suffix}", file=sys.stderr)
-        sys.exit(1)
-
-    source_path = Path(args.source).expanduser().resolve()
-    output_path = Path(args.output).expanduser().resolve()
-    try:
-        interval = _parse_systemd_interval(getattr(args, "interval", "5m") or "5m")
-    except ValueError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(1)
-
-    python_path = Path(sys.executable).resolve()
-    script_path = Path(__file__).resolve()
-
-    service_content = SYSTEMD_SERVICE_TEMPLATE.format(
-        python=str(python_path),
-        script=str(script_path),
-        source=str(source_path),
-        output=str(output_path),
-    )
-    timer_content = SYSTEMD_TIMER_TEMPLATE.format(interval=interval)
-
-    if getattr(args, "install", False):
-        unit_dir = Path.home() / ".config" / "systemd" / "user"
-        unit_dir.mkdir(parents=True, exist_ok=True)
-        service_path = unit_dir / "perseus-render.service"
-        timer_path = unit_dir / "perseus-render.timer"
-        service_path.write_text(service_content)
-        timer_path.write_text(timer_content)
-        print(f"✔ Wrote {service_path}")
-        print(f"✔ Wrote {timer_path}")
-        print()
-        print("Next steps:")
-        print("  systemctl --user daemon-reload")
-        print("  systemctl --user enable perseus-render.timer")
-        print("  systemctl --user start perseus-render.timer")
-        if getattr(args, "enable", False):
-            for cmd in (
-                ["systemctl", "--user", "daemon-reload"],
-                ["systemctl", "--user", "enable", "perseus-render.timer"],
-                ["systemctl", "--user", "start", "perseus-render.timer"],
-            ):
-                try:
-                    subprocess.run(cmd, check=False)
-                except Exception as exc:
-                    print(f"> ⚠ {' '.join(cmd)} failed: {exc}")
-        return
-
-    # Default: print both unit files to stdout, separated
-    print("# ~/.config/systemd/user/perseus-render.service")
-    print(service_content)
-    print("# ~/.config/systemd/user/perseus-render.timer")
-    print(timer_content)
-
-
-# ─────────────────────────────── Health (task-05) ────────────────────────────
+# ─────────────────────────────── Health ──────────────────────────────────────
 
 def _health_collect(cfg: dict, workspace: Path) -> list[str]:
     """Run deterministic maintenance heuristics. Returns markdown lines."""
@@ -13414,7 +11938,7 @@ def resolve_health(args_str: str, cfg: dict, workspace: Path | None = None) -> s
     return "\n".join(_health_collect(cfg, ws))
 
 
-# ───── Task-26: perseus doctor ───────────────────────────────────────────────
+# ─────────────────────────────── Doctor ──────────────────────────────────────
 
 def _find_version() -> str:
     """Read version from VERSION file in repo root if present, else use baked-in."""
@@ -13843,7 +12367,694 @@ def cmd_doctor(args, cfg) -> int:
         print(f"─ Summary: {ok} ok · {warn} warning · {err} errors  (exit {exit_code})")
 
     return exit_code
+# ─────────────────────────────── Scheduler ────────────────────────────────────
+# Cross-platform scheduling commands: launchd (macOS), cron (POSIX), systemd (Linux)
 
+LAUNCHD_TEMPLATE = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>{label}</string>
+    <key>ProgramArguments</key>
+    <array>
+      <string>{python}</string>
+      <string>{script}</string>
+      <string>render</string>
+      <string>{source}</string>
+      <string>--output</string>
+      <string>{output}</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>{workdir}</string>
+    <key>StartInterval</key>
+    <integer>{interval}</integer>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>{stdout_log}</string>
+    <key>StandardErrorPath</key>
+    <string>{stderr_log}</string>
+  </dict>
+</plist>
+"""
+
+
+def cmd_launchd(args, cfg):
+    if sys.platform != "darwin":
+        print("Error: `perseus launchd` is only supported on macOS.", file=sys.stderr)
+        sys.exit(1)
+
+    source_path = Path(args.source).expanduser().resolve()
+    if not source_path.exists():
+        print(f"Error: file not found: {source_path}", file=sys.stderr)
+        sys.exit(1)
+
+    output_path = Path(args.output).expanduser().resolve()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    launch_agents = Path.home() / "Library" / "LaunchAgents"
+    launch_agents.mkdir(parents=True, exist_ok=True)
+
+    logs_dir = PERSEUS_HOME / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+
+    label = args.label or f"com.perseus.render.{source_path.stem}"
+    plist_path = launch_agents / f"{label}.plist"
+    python_path = Path(sys.executable).resolve()
+    script_path = Path(__file__).resolve()
+    workdir = _infer_workspace(source_path)
+    stdout_log = logs_dir / f"{label}.out.log"
+    stderr_log = logs_dir / f"{label}.err.log"
+
+    content = LAUNCHD_TEMPLATE.format(
+        label=label,
+        python=str(python_path),
+        script=str(script_path),
+        source=str(source_path),
+        output=str(output_path),
+        workdir=str(workdir),
+        interval=int(args.interval),
+        stdout_log=str(stdout_log),
+        stderr_log=str(stderr_log),
+    )
+
+    if plist_path.exists() and not args.force:
+        print(f"Error: {plist_path} already exists. Use --force to overwrite.", file=sys.stderr)
+        sys.exit(1)
+
+    plist_path.write_text(content)
+
+    print(f"✔ Wrote LaunchAgent plist: {plist_path}")
+    print()
+    print("Next steps:")
+    print(f"  1. Load it:    launchctl load {plist_path}")
+    print(f"  2. Start now:  launchctl start {label}")
+    print(f"  3. Check logs: tail -f {stdout_log} {stderr_log}")
+
+
+# ─────────────────────────────── cron (POSIX) ────────────────────────────────
+
+def cmd_cron(args, cfg):
+    """Generate a crontab entry for periodic rendering.
+
+    POSIX-oriented: works on systems with crontab (macOS, Linux, BSD).
+    Recommended over launchd/systemd when portability matters.
+    """
+    try:
+        every = int(args.every)
+    except (TypeError, ValueError):
+        print(f"Error: --every must be an integer (got {args.every!r})", file=sys.stderr)
+        sys.exit(1)
+    if every <= 0:
+        print("Error: --every must be > 0", file=sys.stderr)
+        sys.exit(1)
+
+    source_path = Path(args.source).expanduser().resolve()
+    output_path = Path(args.output).expanduser().resolve()
+    python_path = Path(sys.executable).resolve()
+    script_path = Path(__file__).resolve()
+
+    # Build crontab schedule expression
+    if every == 1:
+        schedule = "* * * * *"
+    elif every < 60:
+        schedule = f"*/{every} * * * *"
+    elif every == 60:
+        schedule = "0 * * * *"
+    else:
+        hours = every // 60
+        schedule = f"0 */{hours} * * *"
+
+    cmd = f"{python_path} {script_path} render {source_path} --output {output_path}"
+    # Suppress crontab MAILTO noise; route stderr to /dev/null on success render
+    entry = f"{schedule} {cmd} >/dev/null 2>&1  # perseus-render"
+
+    if args.install:
+        try:
+            existing = subprocess.run(
+                ["crontab", "-l"],
+                capture_output=True, text=True, check=False,
+            )
+            current = existing.stdout if existing.returncode == 0 else ""
+        except FileNotFoundError:
+            print("Error: `crontab` not found in PATH. Install cron first.", file=sys.stderr)
+            sys.exit(1)
+
+        if "# perseus-render" in current:
+            print("> ⚠ A perseus-render entry already exists in crontab. Remove it first or edit by hand.")
+            print(current)
+            sys.exit(1)
+
+        new_crontab = current.rstrip() + ("\n" if current.strip() else "") + entry + "\n"
+        try:
+            proc = subprocess.run(["crontab", "-"], input=new_crontab, text=True,
+                                  capture_output=True, check=False)
+            if proc.returncode != 0:
+                print(f"Error: `crontab -` failed: {proc.stderr.strip()}", file=sys.stderr)
+                sys.exit(1)
+        except FileNotFoundError:
+            print("Error: `crontab` not found in PATH.", file=sys.stderr)
+            sys.exit(1)
+        print("✔ Installed crontab entry:")
+        print(f"  {entry}")
+        print()
+        print("Verify with: crontab -l")
+        print("Remove with: crontab -e  (delete the line tagged `# perseus-render`)")
+        return
+
+    # Default: print the entry
+    print("# Add this line to your crontab (run `crontab -e`):")
+    print(entry)
+    print()
+    print("Or install automatically with: perseus cron ... --install")
+
+
+# ─────────────────────────────── systemd (Linux) ─────────────────────────────
+
+SYSTEMD_SERVICE_TEMPLATE = """\
+[Unit]
+Description=Perseus context renderer
+After=default.target
+
+[Service]
+Type=oneshot
+ExecStart={python} {script} render {source} --output {output}
+"""
+
+SYSTEMD_TIMER_TEMPLATE = """\
+[Unit]
+Description=Perseus context render timer
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec={interval}
+Unit=perseus-render.service
+
+[Install]
+WantedBy=timers.target
+"""
+
+
+def _parse_systemd_interval(raw: str) -> str:
+    """Accept '5m', '2h', or systemd-native like '30s'/'1h30min' — return systemd time spec.
+
+    Defaults to '5min' if empty. Raises ValueError on garbage.
+    """
+    s = (raw or "").strip().lower()
+    if not s:
+        return "5min"
+    m = re.fullmatch(r"(\d+)\s*([smh])", s)
+    if m:
+        n, unit = m.group(1), m.group(2)
+        return {"s": f"{n}s", "m": f"{n}min", "h": f"{n}h"}[unit]
+    # passthrough for already-systemd-native values
+    if re.fullmatch(r"[\d\s a-z]+", s):
+        return s
+    raise ValueError(f"unrecognised interval: {raw!r}")
+
+
+def cmd_systemd(args, cfg):
+    """Scaffold ~/.config/systemd/user/perseus-render.{service,timer} units."""
+    if sys.platform == "darwin":
+        print("Use `perseus launchd` on macOS.", file=sys.stderr)
+        sys.exit(1)
+    if sys.platform != "linux":
+        suffix = " Native Windows Task Scheduler support is deferred." if sys.platform == "win32" else ""
+        print(f"Error: `perseus systemd` is only supported on Linux.{suffix}", file=sys.stderr)
+        sys.exit(1)
+
+    source_path = Path(args.source).expanduser().resolve()
+    output_path = Path(args.output).expanduser().resolve()
+    try:
+        interval = _parse_systemd_interval(getattr(args, "interval", "5m") or "5m")
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    python_path = Path(sys.executable).resolve()
+    script_path = Path(__file__).resolve()
+
+    service_content = SYSTEMD_SERVICE_TEMPLATE.format(
+        python=str(python_path),
+        script=str(script_path),
+        source=str(source_path),
+        output=str(output_path),
+    )
+    timer_content = SYSTEMD_TIMER_TEMPLATE.format(interval=interval)
+
+    if getattr(args, "install", False):
+        unit_dir = Path.home() / ".config" / "systemd" / "user"
+        unit_dir.mkdir(parents=True, exist_ok=True)
+        service_path = unit_dir / "perseus-render.service"
+        timer_path = unit_dir / "perseus-render.timer"
+        service_path.write_text(service_content)
+        timer_path.write_text(timer_content)
+        print(f"✔ Wrote {service_path}")
+        print(f"✔ Wrote {timer_path}")
+        print()
+        print("Next steps:")
+        print("  systemctl --user daemon-reload")
+        print("  systemctl --user enable perseus-render.timer")
+        print("  systemctl --user start perseus-render.timer")
+        if getattr(args, "enable", False):
+            for cmd in (
+                ["systemctl", "--user", "daemon-reload"],
+                ["systemctl", "--user", "enable", "perseus-render.timer"],
+                ["systemctl", "--user", "start", "perseus-render.timer"],
+            ):
+                try:
+                    subprocess.run(cmd, check=False)
+                except Exception as exc:
+                    print(f"> ⚠ {' '.join(cmd)} failed: {exc}")
+        return
+
+    # Default: print both unit files to stdout, separated
+    print("# ~/.config/systemd/user/perseus-render.service")
+    print(service_content)
+    print("# ~/.config/systemd/user/perseus-render.timer")
+    print(timer_content)
+# ───────────────────────────── Cited synthesis ───────────────────────────────
+
+def _synthesis_rel_label(path: Path, workspace: Path) -> str:
+    try:
+        return str(path.relative_to(workspace))
+    except ValueError:
+        return str(path)
+
+
+def _resolve_synthesis_source(ref: str, workspace: Path, cfg: dict) -> tuple[Path | None, str | None]:
+    raw = Path(ref).expanduser()
+    path = raw.resolve() if raw.is_absolute() else (workspace / raw).resolve()
+    if not path.exists():
+        return None, f"source not found: {ref}"
+    if path.is_dir():
+        return None, f"source is a directory: {ref}"
+    if not cfg.get("render", {}).get("allow_outside_workspace", False):
+        try:
+            path.relative_to(workspace)
+        except ValueError:
+            return None, f"source outside workspace: {path}"
+    return path, None
+
+
+def _load_synthesis_sources(refs: list[str], workspace: Path, cfg: dict) -> tuple[list[dict], list[str]]:
+    sources: list[dict] = []
+    errors: list[str] = []
+    max_source_bytes = int(cfg.get("generation", {}).get("max_source_bytes", 12000))
+    for index, ref in enumerate(refs, start=1):
+        path, error = _resolve_synthesis_source(ref, workspace, cfg)
+        if error or path is None:
+            errors.append(error or f"invalid source: {ref}")
+            continue
+        text = path.read_text(errors="replace")
+        truncated = False
+        if max_source_bytes > 0 and len(text) > max_source_bytes:
+            text = text[:max_source_bytes]
+            truncated = True
+        lines = text.splitlines()
+        sources.append({
+            "id": f"src{index}",
+            "path": str(path),
+            "label": _synthesis_rel_label(path, workspace),
+            "text": text,
+            "lines": lines,
+            "line_count": len(lines),
+            "truncated": truncated,
+        })
+    return sources, errors
+
+
+def _numbered_source_excerpt(source: dict) -> str:
+    lines = source.get("lines", [])
+    body = "\n".join(f"{idx}: {line}" for idx, line in enumerate(lines, start=1))
+    suffix = "\n[truncated]" if source.get("truncated") else ""
+    return f"### {source['id']} {source['label']}\n{body}{suffix}"
+
+
+def build_synthesis_prompt(question: str, sources: list[dict], max_claims: int) -> str:
+    source_blocks = "\n\n".join(_numbered_source_excerpt(source) for source in sources)
+    return "\n".join([
+        "You are drafting cited synthesis claims for Perseus.",
+        "Perseus is a resolver first. You are a drafter, not an authority.",
+        "",
+        "Rules:",
+        "- Return JSON only.",
+        "- Do not include uncited claims.",
+        "- Every claim must cite at least one exact quote from the source lines.",
+        "- If the sources do not support a claim, omit it.",
+        "- Prefer cross-source synthesis over obvious restatement.",
+        f"- Return at most {max_claims} claims.",
+        "",
+        "JSON shape:",
+        '{"claims":[{"text":"...","citations":[{"source_id":"src1","line_start":1,"line_end":3,"quote":"exact source quote"}]}]}',
+        "",
+        f"Question: {question}",
+        "",
+        "Sources:",
+        source_blocks,
+    ])
+
+
+def _extract_json_object(text: str) -> tuple[object | None, str | None]:
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        stripped = re.sub(r"^```(?:json)?\s*", "", stripped, flags=re.IGNORECASE)
+        stripped = re.sub(r"\s*```$", "", stripped)
+    try:
+        return json.loads(stripped), None
+    except json.JSONDecodeError:
+        start = stripped.find("{")
+        end = stripped.rfind("}")
+        if start >= 0 and end > start:
+            try:
+                return json.loads(stripped[start:end + 1]), None
+            except json.JSONDecodeError as exc:
+                return None, f"could not parse JSON response: {exc}"
+        return None, "could not parse JSON response"
+
+
+def _citation_window(source: dict, start: int, end: int) -> str | None:
+    lines = source.get("lines", [])
+    if start < 1 or end < start or end > len(lines):
+        return None
+    return "\n".join(lines[start - 1:end])
+
+
+def build_consistency_prompt(sources: list[dict], max_claims: int) -> str:
+    """Build a prompt focused on detecting cross-source disagreements."""
+    source_blocks = "\n\n".join(_numbered_source_excerpt(source) for source in sources)
+    return "\n".join([
+        "You are auditing cross-source consistency for a software project.",
+        "Perseus is a resolver first. You are a drafter, not an authority.",
+        "",
+        "Rules:",
+        "- Return JSON only.",
+        "- Do not include uncited claims.",
+        "- Every claim must cite at least one exact quote from the source lines.",
+        "- Report disagreements, drift, and contradictions between sources.",
+        "- Flag: current phase/status inconsistencies, version mismatches, doc/code contradictions,",
+        "  task-file status that conflicts with roadmap or handoff, outdated README claims.",
+        "- If all sources are consistent on a topic, do not generate claims about it.",
+        "- Use 'conflicts' for disagreements between sources; use 'claims' for synthesized findings.",
+        f"- Return at most {max_claims} items across both arrays.",
+        "",
+        "JSON shape:",
+        '{"claims":[{"text":"...","citations":[{"source_id":"src1","line_start":1,"line_end":3,"quote":"exact source quote"}]}],',
+        '"conflicts":[{"description":"...","sources":[{"source_id":"src1","line_start":1,"line_end":2,"quote":"..."},',
+        '{"source_id":"src2","line_start":5,"line_end":5,"quote":"..."}]}]}',
+        "",
+        "Sources:",
+        source_blocks,
+    ])
+
+
+def _validate_consistency_conflicts(raw: object, sources: list[dict], max_items: int) -> tuple[list[dict], list[dict]]:
+    """Validate the 'conflicts' array from a consistency-mode response."""
+    source_by_id = {source["id"]: source for source in sources}
+    conflicts_raw = raw.get("conflicts", []) if isinstance(raw, dict) else []
+    if not isinstance(conflicts_raw, list):
+        return [], [{"description": "", "reason": "conflicts must be a list"}]
+
+    accepted: list[dict] = []
+    dropped: list[dict] = []
+    for entry in conflicts_raw[:max_items]:
+        if not isinstance(entry, dict):
+            dropped.append({"description": "", "reason": "conflict entry must be an object"})
+            continue
+        description = str(entry.get("description", "")).strip()
+        sources_raw = entry.get("sources", [])
+        valid_sources: list[dict] = []
+        if isinstance(sources_raw, list):
+            for ref in sources_raw:
+                if not isinstance(ref, dict):
+                    continue
+                source_id = str(ref.get("source_id", "")).strip()
+                source = source_by_id.get(source_id)
+                quote = str(ref.get("quote", "")).strip()
+                try:
+                    line_start = int(ref.get("line_start"))
+                    line_end = int(ref.get("line_end", line_start))
+                except (TypeError, ValueError):
+                    continue
+                if not source or not quote:
+                    continue
+                window = _citation_window(source, line_start, line_end)
+                if window is None or quote not in window:
+                    continue
+                valid_sources.append({
+                    "source_id": source_id,
+                    "path": source["path"],
+                    "label": source["label"],
+                    "line_start": line_start,
+                    "line_end": line_end,
+                    "quote": quote,
+                })
+        if description and len(valid_sources) >= 2:
+            accepted.append({"description": description, "sources": valid_sources})
+        elif description and len(valid_sources) == 1:
+            # Accept single-source conflict reports (e.g. internal inconsistency flagged with one cite)
+            accepted.append({"description": description, "sources": valid_sources})
+        else:
+            dropped.append({
+                "description": description,
+                "reason": "no valid cited sources" if description else "empty description",
+            })
+    return accepted, dropped
+
+
+def _validate_synthesis_claims(raw: object, sources: list[dict], max_claims: int) -> tuple[list[dict], list[dict]]:
+    source_by_id = {source["id"]: source for source in sources}
+    claims_raw = raw.get("claims", []) if isinstance(raw, dict) else []
+    if not isinstance(claims_raw, list):
+        return [], [{"text": "", "reason": "claims must be a list", "citations": []}]
+
+    accepted: list[dict] = []
+    dropped: list[dict] = []
+    for claim_raw in claims_raw[:max_claims]:
+        if not isinstance(claim_raw, dict):
+            dropped.append({"text": "", "reason": "claim must be an object", "citations": []})
+            continue
+        text = str(claim_raw.get("text", "")).strip()
+        citations_raw = claim_raw.get("citations", [])
+        valid_citations: list[dict] = []
+        if isinstance(citations_raw, list):
+            for citation in citations_raw:
+                if not isinstance(citation, dict):
+                    continue
+                source_id = str(citation.get("source_id", "")).strip()
+                source = source_by_id.get(source_id)
+                quote = str(citation.get("quote", "")).strip()
+                try:
+                    line_start = int(citation.get("line_start"))
+                    line_end = int(citation.get("line_end", line_start))
+                except (TypeError, ValueError):
+                    continue
+                if not source or not quote:
+                    continue
+                window = _citation_window(source, line_start, line_end)
+                if window is None or quote not in window:
+                    continue
+                valid_citations.append({
+                    "source_id": source_id,
+                    "path": source["path"],
+                    "label": source["label"],
+                    "line_start": line_start,
+                    "line_end": line_end,
+                    "quote": quote,
+                })
+        if text and valid_citations:
+            accepted.append({"text": text, "citations": valid_citations})
+        else:
+            dropped.append({
+                "text": text,
+                "reason": "no valid citations" if text else "empty claim text",
+                "citations": citations_raw if isinstance(citations_raw, list) else [],
+            })
+    return accepted, dropped
+
+
+def synthesize_question(
+    question: str,
+    source_refs: list[str],
+    cfg: dict,
+    workspace: Path,
+    llm: str | None = None,
+    model: str | None = None,
+    model_url: str | None = None,
+    enable_generation: bool = False,
+    consistency_mode: bool = False,
+) -> tuple[dict, int]:
+    sources, source_errors = _load_synthesis_sources(source_refs, workspace, cfg)
+    generation_cfg = cfg.get("generation", {})
+    max_claims = int(generation_cfg.get("max_claims", 6))
+    source_summary = [
+        {
+            "id": source["id"],
+            "path": source["path"],
+            "label": source["label"],
+            "line_count": source["line_count"],
+            "truncated": source["truncated"],
+        }
+        for source in sources
+    ]
+    result: dict = {
+        "version": "phase15b-cited-synthesis-v2" if consistency_mode else "phase15a-cited-synthesis-v1",
+        "question": question,
+        "consistency_mode": consistency_mode,
+        "generated": False,
+        "claims": [],
+        "dropped_claims": [],
+        "conflicts": [],
+        "dropped_conflicts": [],
+        "source_errors": source_errors,
+        "sources": source_summary,
+        "guardrails": {
+            "citation_required": True,
+            "exact_quote_required": True,
+            "uncited_claims_dropped": True,
+            "model_failure_leaves_render_unchanged": True,
+        },
+        "model": {"provider": None, "model": None},
+        "prompt": "",
+    }
+    if source_errors or not sources:
+        return result, 1
+
+    if consistency_mode:
+        prompt = build_consistency_prompt(sources, max_claims)
+    else:
+        prompt = build_synthesis_prompt(question, sources, max_claims)
+    result["prompt"] = prompt
+    if not llm:
+        return result, 0
+
+    if not (enable_generation or bool(generation_cfg.get("enabled", False))):
+        audit_event(cfg, "policy_denied",
+                    directive="@synthesize",
+                    reason="generation.enabled=false",
+                    question=str(question)[:200])
+        result["error"] = "generation is disabled; set generation.enabled=true or pass --enable-generation"
+        return result, 2
+
+    provider_used = llm.strip().lower()
+    if ":" in provider_used and not model:
+        provider_used, _, model = provider_used.partition(":")
+    model_used = model or generation_cfg.get("model") or cfg.get("llm", {}).get("model")
+    # task-47: audit the model call before it crosses the LLM trust boundary.
+    audit_event(cfg, "model_call",
+                provider=provider_used,
+                model=model_used,
+                prompt_chars=len(prompt or ""),
+                question=str(question)[:200])
+    response_text, exit_code = run_llm(provider_used, prompt, cfg, model=model_used or None, model_url=model_url)
+    result["generated"] = exit_code == 0
+    result["model"] = {"provider": provider_used, "model": model_used}
+    result["raw_response"] = response_text
+    if exit_code:
+        result["error"] = "model request failed"
+        return result, exit_code
+    parsed, parse_error = _extract_json_object(response_text)
+    if parse_error:
+        result["error"] = parse_error
+        return result, 1
+    claims, dropped = _validate_synthesis_claims(parsed, sources, max_claims)
+    result["claims"] = claims
+    result["dropped_claims"] = dropped
+    if consistency_mode:
+        conflicts, dropped_conflicts = _validate_consistency_conflicts(parsed, sources, max_claims)
+        result["conflicts"] = conflicts
+        result["dropped_conflicts"] = dropped_conflicts
+    return result, 0
+
+
+def format_synthesis_human(result: dict) -> str:
+    lines = [f"Cited synthesis: {result['question']}"]
+    if result.get("consistency_mode"):
+        lines[0] = "Cross-source consistency report"
+    if result.get("source_errors"):
+        lines.append("")
+        lines.append("Source errors:")
+        for error in result["source_errors"]:
+            lines.append(f"- {error}")
+        return "\n".join(lines)
+    lines.append("Sources:")
+    for source in result.get("sources", []):
+        suffix = " (truncated)" if source.get("truncated") else ""
+        lines.append(f"- {source['id']} {source['label']} ({source['line_count']} lines){suffix}")
+    if result.get("error"):
+        lines.append("")
+        lines.append(f"> Warning: {result['error']}")
+    if not result.get("generated"):
+        lines.append("")
+        lines.append("Generation was not run. Prompt:")
+        lines.append("")
+        lines.append(result.get("prompt", ""))
+        return "\n".join(lines)
+
+    lines.append("")
+    if not result.get("claims") and not result.get("conflicts"):
+        lines.append("_No cited claims or conflicts survived validation._")
+    for idx, claim in enumerate(result.get("claims", []), start=1):
+        lines.append(f"{idx}. {claim['text']}")
+        for citation in claim["citations"]:
+            label = citation["label"]
+            start = citation["line_start"]
+            end = citation["line_end"]
+            line_ref = f"{start}" if start == end else f"{start}-{end}"
+            lines.append(f"   - {label}:{line_ref} `{citation['quote']}`")
+    conflicts = result.get("conflicts", [])
+    if conflicts:
+        lines.append("")
+        lines.append("Source disagreements:")
+        for idx, conflict in enumerate(conflicts, start=1):
+            lines.append(f"{idx}. ⚠ {conflict['description']}")
+            for ref in conflict["sources"]:
+                label = ref["label"]
+                start = ref["line_start"]
+                end = ref["line_end"]
+                line_ref = f"{start}" if start == end else f"{start}-{end}"
+                lines.append(f"   - {label}:{line_ref} `{ref['quote']}`")
+    dropped = result.get("dropped_claims", [])
+    dropped_conflicts = result.get("dropped_conflicts", [])
+    if dropped:
+        lines.append("")
+        lines.append(f"Dropped uncited/invalid claims: {len(dropped)}")
+    if dropped_conflicts:
+        lines.append(f"Dropped uncited/invalid conflicts: {len(dropped_conflicts)}")
+    return "\n".join(lines)
+
+
+def cmd_synthesize(args, cfg) -> int:
+    workspace = Path(args.workspace).expanduser().resolve() if getattr(args, "workspace", None) else Path.cwd().resolve()
+    cfg = load_config(workspace)
+    result, code = synthesize_question(
+        args.question,
+        args.source,
+        cfg,
+        workspace,
+        llm=getattr(args, "llm", None),
+        model=getattr(args, "model", None),
+        model_url=getattr(args, "model_url", None),
+        enable_generation=getattr(args, "enable_generation", False),
+        consistency_mode=getattr(args, "consistency_mode", False),
+    )
+    # task-46: redact synthesis result before output. JSON-mode caller can
+    # inspect `result["redaction"]` to see counts without seeing secrets.
+    if isinstance(result, dict):
+        result, rep = redact_value(result, cfg)
+        result["redaction"] = {
+            "enabled": rep.get("enabled", True),
+            "total": rep.get("total", 0),
+            "counts": rep.get("counts", {}),
+        }
+    if getattr(args, "json", False):
+        print(json.dumps(result, indent=2))
+    else:
+        print(format_synthesis_human(result))
+    return code
+# ─────────────────────────────── Self-Update ──────────────────────────────────
 
 def cmd_update(args, cfg) -> int:
     """Self-update: check for or apply Perseus updates from git.
@@ -14016,6 +13227,853 @@ def _toggle_auto_update(value, cfg):
     if enabled:
         print("  Perseus will check for updates when invoked with --apply.")
     return 0
+# ──────────────────────────────── Render ──────────────────────────────────────
+
+# Phase 24 — internal imports (stripped by build; defined earlier in concatenated artifact)
+
+
+def cmd_render(args, cfg):
+    source_path = Path(args.source).expanduser().resolve()
+    if not source_path.exists():
+        print(f"Error: file not found: {source_path}", file=sys.stderr)
+        sys.exit(1)
+
+    workspace = _infer_workspace(source_path)
+    cfg = load_config(workspace)
+
+    text = source_path.read_text(errors="replace")
+    fmt = getattr(args, "format", "md")
+    title = source_path.stem.replace("-", " ").replace("_", " ").title()
+
+    # Determine tier: CLI --tier > config default > fallback to 3
+    max_tier = getattr(args, "tier", None)
+    if max_tier is None:
+        max_tier = cfg.get("render", {}).get("default_tier", 3)
+    if max_tier is None:
+        max_tier = 3
+
+    rendered = render_output(text, fmt, cfg, workspace, title=title, max_tier=max_tier)
+
+    is_assistant_format = fmt in ("agents-md", "claude-md", "cursorrules", "copilot-instructions")
+    output = getattr(args, "output", None)
+    # Phase 24: auto-resolve default output path for assistant formats
+    if is_assistant_format and not output:
+        output = get_default_output_path(fmt, str(workspace))
+
+    strict = getattr(args, "strict", False)
+    if strict and "⚠" in rendered:
+        print(f"Perseus: strict mode — {rendered.count('⚠')} warning(s) in rendered output", file=sys.stderr)
+        sys.exit(1)
+
+    if output:
+        out_path = Path(output)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(rendered, encoding="utf-8")
+    else:
+        print(rendered)
+
+
+class WatchTarget(NamedTuple):
+    """One watched source/output render pair."""
+    name: str
+    source: Path
+    output: Path
+
+
+def _watch_rel(path: Path, workspace: Path) -> str:
+    try:
+        return str(path.relative_to(workspace))
+    except ValueError:
+        return str(path)
+
+
+def _watch_target_key(target: WatchTarget) -> tuple[str, str]:
+    return (str(target.source), str(target.output))
+
+
+def _watch_interval_s(args, cfg) -> tuple[float | None, str | None]:
+    raw = getattr(args, "interval", None)
+    if raw is None:
+        raw = (cfg.get("watch") or {}).get("poll_interval_s", 5)
+    try:
+        interval = float(raw)
+    except (TypeError, ValueError):
+        return None, f"watch interval must be a number, got {raw!r}"
+    if interval <= 0:
+        return None, "watch interval must be greater than zero"
+    return interval, None
+
+
+def _watch_resolve_ref(ref: str, workspace: Path, cfg: dict, allow_arg: bool) -> tuple[Path, str | None]:
+    allow = allow_arg or bool(cfg.get("render", {}).get("allow_outside_workspace", False))
+    path, warning = _resolve_path(ref, workspace, allow_outside_workspace=allow)
+    if warning:
+        return path, warning.replace("> ⚠ ", "")
+    return path, None
+
+
+def _watch_target_from_refs(
+    name: str,
+    source_ref: str,
+    output_ref: str,
+    workspace: Path,
+    cfg: dict,
+    allow_arg: bool,
+) -> tuple[WatchTarget | None, list[str]]:
+    errors: list[str] = []
+    source, source_error = _watch_resolve_ref(source_ref, workspace, cfg, allow_arg)
+    output, output_error = _watch_resolve_ref(output_ref, workspace, cfg, allow_arg)
+    if source_error:
+        errors.append(f"{name}: source {source_error}")
+    if output_error:
+        errors.append(f"{name}: output {output_error}")
+    if errors:
+        return None, errors
+    return WatchTarget(name=name, source=source, output=output), []
+
+
+def _watch_targets_from_pack(
+    workspace: Path,
+    manifest: str | None,
+    cfg: dict,
+    allow_arg: bool,
+) -> tuple[list[WatchTarget], list[str]]:
+    result = validate_context_pack(workspace, manifest)
+    if not result.get("valid", False):
+        errors = result.get("errors") or ["context pack is invalid"]
+        return [], [f"context pack {err}" for err in errors]
+    targets: list[WatchTarget] = []
+    errors: list[str] = []
+    for idx, render in enumerate(result.get("renders", []), start=1):
+        name = str(render.get("name") or f"render-{idx}")
+        source_ref = render.get("source")
+        output_ref = render.get("output")
+        if not isinstance(source_ref, str) or not source_ref:
+            errors.append(f"{name}: source is required")
+            continue
+        if not isinstance(output_ref, str) or not output_ref:
+            errors.append(f"{name}: output is required")
+            continue
+        target, target_errors = _watch_target_from_refs(name, source_ref, output_ref, workspace, cfg, allow_arg)
+        if target:
+            targets.append(target)
+        errors.extend(target_errors)
+    if not targets and not errors:
+        errors.append("context pack has no render targets")
+    return targets, errors
+
+
+def _watch_targets_from_args(args, cfg, workspace: Path) -> tuple[list[WatchTarget], list[str]]:
+    allow_arg = bool(getattr(args, "allow_outside_workspace", False))
+    source_arg = getattr(args, "source", None)
+    output_arg = getattr(args, "output", None)
+    manifest_arg = getattr(args, "manifest", None)
+    explicit_single = bool(source_arg or output_arg)
+    pack_path = _pack_manifest_path(workspace, manifest_arg)
+    if not explicit_single and (manifest_arg or pack_path.exists()):
+        return _watch_targets_from_pack(workspace, manifest_arg, cfg, allow_arg)
+
+    source_ref = source_arg or ".perseus/context.md"
+    output_ref = output_arg or ".hermes.md"
+    target, errors = _watch_target_from_refs("default", source_ref, output_ref, workspace, cfg, allow_arg)
+    return ([target] if target else []), errors
+
+
+def _watch_target_mtime(target: WatchTarget, getmtime: Callable[[Path], float]) -> float | None:
+    try:
+        return float(getmtime(target.source))
+    except OSError:
+        return None
+
+
+def _watch_render_target(target: WatchTarget, cfg: dict, render_fn: Callable) -> None:
+    render_args = argparse.Namespace(source=str(target.source), output=str(target.output))
+    try:
+        render_fn(render_args, cfg)
+    except SystemExit as exc:
+        code = exc.code if isinstance(exc.code, int) else 1
+        raise RuntimeError(f"render exited with status {code}") from None
+
+
+def _watch_render_and_record(
+    target: WatchTarget,
+    cfg: dict,
+    workspace: Path,
+    last_rendered: dict[tuple[str, str], float | None],
+    pending: dict[tuple[str, str], float | None],
+    getmtime: Callable[[Path], float],
+    render_fn: Callable,
+    log_stream,
+    exit_on_error: bool,
+) -> bool:
+    key = _watch_target_key(target)
+    try:
+        _watch_render_target(target, cfg, render_fn)
+    except Exception as exc:
+        print(f"[watch] render error: {exc}", file=log_stream)
+        last_rendered[key] = _watch_target_mtime(target, getmtime)
+        pending.pop(key, None)
+        return not exit_on_error
+
+    last_rendered[key] = _watch_target_mtime(target, getmtime)
+    pending.pop(key, None)
+    print(
+        f"[watch] rendered -> {_watch_rel(target.output, workspace)} "
+        f"(changed: {_watch_rel(target.source, workspace)})",
+        file=log_stream,
+    )
+    return True
+
+
+def _watch_loop(
+    targets: list[WatchTarget],
+    cfg: dict,
+    workspace: Path,
+    interval_s: float,
+    *,
+    exit_on_error: bool = False,
+    getmtime: Callable[[Path], float] = os.path.getmtime,
+    sleep: Callable[[float], None] = time.sleep,
+    render_fn: Callable = cmd_render,
+    should_stop: Callable[[], bool] | None = None,
+    log_stream=None,
+    max_cycles: int | None = None,
+) -> int:
+    log_stream = log_stream or sys.stderr
+    should_stop = should_stop or (lambda: False)
+    last_rendered: dict[tuple[str, str], float | None] = {}
+    pending: dict[tuple[str, str], float | None] = {}
+
+    try:
+        for target in targets:
+            ok = _watch_render_and_record(
+                target, cfg, workspace, last_rendered, pending,
+                getmtime, render_fn, log_stream, exit_on_error,
+            )
+            if not ok:
+                return 1
+
+        cycles = 0
+        while True:
+            if should_stop():
+                print("[watch] stopped", file=log_stream)
+                return 0
+            if max_cycles is not None and cycles >= max_cycles:
+                return 0
+            sleep(interval_s)
+            cycles += 1
+            if should_stop():
+                print("[watch] stopped", file=log_stream)
+                return 0
+
+            for target in targets:
+                key = _watch_target_key(target)
+                current = _watch_target_mtime(target, getmtime)
+                if current == last_rendered.get(key):
+                    pending.pop(key, None)
+                    continue
+                if key in pending and pending[key] == current:
+                    ok = _watch_render_and_record(
+                        target, cfg, workspace, last_rendered, pending,
+                        getmtime, render_fn, log_stream, exit_on_error,
+                    )
+                    if not ok:
+                        return 1
+                else:
+                    pending[key] = current
+    except KeyboardInterrupt:
+        print("[watch] stopped", file=log_stream)
+        return 0
+
+
+def _watch_install_signal_handlers() -> tuple[dict, dict]:
+    state = {"stop": False, "signal": None}
+    previous = {}
+
+    def _handler(signum, _frame):
+        state["stop"] = True
+        try:
+            state["signal"] = signal.Signals(signum).name
+        except Exception:
+            state["signal"] = str(signum)
+
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        previous[sig] = signal.getsignal(sig)
+        signal.signal(sig, _handler)
+    return state, previous
+
+
+def _watch_restore_signal_handlers(previous: dict) -> None:
+    for sig, handler in previous.items():
+        signal.signal(sig, handler)
+
+
+def cmd_watch(args, cfg) -> int:
+    workspace = Path(args.workspace).expanduser().resolve() if getattr(args, "workspace", None) else Path.cwd().resolve()
+    cfg = load_config(workspace)
+    interval_s, interval_error = _watch_interval_s(args, cfg)
+    if interval_error:
+        print(f"perseus watch: {interval_error}", file=sys.stderr)
+        return 1
+
+    targets, errors = _watch_targets_from_args(args, cfg, workspace)
+    if errors:
+        for err in errors:
+            print(f"perseus watch: {err}", file=sys.stderr)
+        return 1
+    if not targets:
+        print("perseus watch: no render targets", file=sys.stderr)
+        return 1
+
+    signal_state, previous_handlers = _watch_install_signal_handlers()
+    try:
+        return _watch_loop(
+            targets,
+            cfg,
+            workspace,
+            interval_s or 5,
+            exit_on_error=bool(getattr(args, "exit_on_error", False)),
+            should_stop=lambda: bool(signal_state["stop"]),
+        )
+    finally:
+        _watch_restore_signal_handlers(previous_handlers)
+
+
+def cmd_graph(args, cfg) -> int:
+    """Print a static directive dependency graph."""
+    source_path = Path(args.source).expanduser().resolve()
+    if not source_path.exists():
+        print(f"Error: file not found: {source_path}", file=sys.stderr)
+        return 1
+    workspace = Path(args.workspace).expanduser().resolve() if getattr(args, "workspace", None) else _infer_workspace(source_path)
+    cfg = load_config(workspace)
+    # task-65: ensure plugin directives are visible in the graph
+    register_plugins(cfg)
+    graph = directive_dependency_graph(
+        source_path.read_text(errors="replace"),
+        source_name=str(source_path),
+        workspace=workspace,
+    )
+    if getattr(args, "json", False):
+        print(json.dumps(graph, indent=2))
+        return 0
+
+    print(f"Directive graph: {source_path}")
+    print(f"Nodes: {graph['summary']['node_count']}  Edges: {graph['summary']['edge_count']}")
+    for node in graph["nodes"]:
+        flags = []
+        meta = node["metadata"]
+        if meta["executes_shell"]:
+            flags.append("shell")
+        if meta["reads_files"]:
+            flags.append("files")
+        if meta["mutates_state"]:
+            flags.append("mutates")
+        if meta["cacheable"]:
+            flags.append("cacheable")
+        flag_text = f" [{' '.join(flags)}]" if flags else ""
+        resources = ", ".join(f"{r['kind']}={r['value']}" for r in node["resources"])
+        resource_text = f" -> {resources}" if resources else ""
+        print(f"- {node['id']} line {node['line']}: {node['directive']} ({node['kind']}){flag_text}{resource_text}")
+    return 0
+
+
+def cmd_prefetch(args, cfg) -> int:
+    """Run configured prefetch rules against a static directive graph."""
+    source_path = Path(args.source).expanduser().resolve()
+    if not source_path.exists():
+        print(f"Error: file not found: {source_path}", file=sys.stderr)
+        return 1
+    workspace = Path(args.workspace).expanduser().resolve() if getattr(args, "workspace", None) else _infer_workspace(source_path)
+    cfg = load_config(workspace)
+    # task-65: register plugin directives so prefetch graph rules can target them
+    register_plugins(cfg)
+    result = prefetch_source(
+        source_path.read_text(errors="replace"),
+        cfg,
+        workspace=workspace,
+        source_name=str(source_path),
+    )
+    if getattr(args, "json", False):
+        print(json.dumps(result, indent=2))
+    else:
+        print(format_prefetch_human(result))
+    return 1 if result["summary"]["failed"] else 0
+
+
+
+# ───────────────────────────── Context packs ────────────────────────────────
+
+PACK_VERSION = 1
+TRUST_PROFILES = {"strict", "balanced", "power-user"}
+
+PRODUCT_PROFILES: dict[str, dict] = {
+    "generic": {
+        "label": "Generic markdown",
+        "assistant": "generic",
+        "output": "live-context.md",
+        "trust_profile": "balanced",
+        "description": "Plain markdown output for any assistant or stdin/file flow.",
+        "refresh": "Render on demand or from any scheduler into live-context.md.",
+    },
+    "hermes": {
+        "label": "Hermes Agent",
+        "assistant": "hermes",
+        "output": ".hermes.md",
+        "trust_profile": "balanced",
+        "description": "Hermes Agent reads .hermes.md at session start.",
+        "refresh": "Keep .hermes.md fresh before session start via cron, launchd, systemd, or watch.",
+    },
+    "codex": {
+        "label": "Codex / AGENTS.md",
+        "assistant": "codex",
+        "output": "AGENTS.md",
+        "trust_profile": "balanced",
+        "description": "Codex-compatible repository guidance file.",
+        "refresh": "Render AGENTS.md before starting Codex or through a workspace scheduler/watch flow.",
+    },
+    "claude-code": {
+        "label": "Claude Code",
+        "assistant": "claude-code",
+        "output": "CLAUDE.md",
+        "trust_profile": "balanced",
+        "description": "Claude Code project knowledge file.",
+        "refresh": "Render CLAUDE.md before starting Claude Code or through scheduler/watch refresh.",
+    },
+    "cursor": {
+        "label": "Cursor",
+        "assistant": "cursor",
+        "output": ".cursorrules",
+        "trust_profile": "balanced",
+        "description": "Cursor rules/context file.",
+        "refresh": "Render .cursorrules when project context changes; use watch when continuous refresh is desired.",
+    },
+    "rovodev": {
+        "label": "Rovo Dev",
+        "assistant": "rovodev",
+        "output": "AGENTS.md",
+        "trust_profile": "balanced",
+        "description": "Rovo Dev AGENTS.md flow.",
+        "refresh": "Render AGENTS.md before Rovo Dev sessions or through scheduler/watch refresh.",
+    },
+}
+
+
+def _profile_context_template(profile_name: str, profile: dict) -> str:
+    label = profile["label"]
+    return f"""@perseus v{_PERSEUS_VERSION}
+
+@prompt
+This document was rendered live by Perseus for the {label} profile. Treat the
+resolved content below as current workspace context. Do not spend initial turns
+re-discovering the same facts unless the user asks you to verify them.
+@end
+
+# Workspace Context — @date format="YYYY-MM-DD HH:mm z"
+
+**Profile:** {profile_name}
+
+---
+
+## Last Checkpoint
+@waypoint ttl=86400
+
+---
+
+## Workspace State
+
+@query "git log --oneline -5 2>/dev/null || echo '(no git repo)'" fallback="git log unavailable"
+@query "git status --short 2>/dev/null || true" fallback="clean"
+
+---
+
+## Task Board
+@agora status=open,in_progress
+
+---
+
+## Project Memory
+@memory focus=recent ttl=300
+"""
+
+
+def _context_pack_manifest(profile_name: str, profile: dict, output: str | None = None, trust_profile: str | None = None) -> dict:
+    output_path = output or profile["output"]
+    trust = trust_profile or profile.get("trust_profile", "balanced")
+    return {
+        "version": PACK_VERSION,
+        "name": f"{profile_name}-context",
+        "profile": profile_name,
+        "trust_profile": trust,
+        "renders": [
+            {
+                "name": "default",
+                "source": ".perseus/context.md",
+                "output": output_path,
+                "assistant": profile["assistant"],
+            }
+        ],
+        "synthesis": [
+            {
+                "name": "project-status",
+                "question": "What is the current project status and next allowable action?",
+                "sources": ["ROADMAP.md", "HANDOFF.md", "README.md"],
+                "enabled": False,
+            }
+        ],
+    }
+
+
+def _pack_manifest_path(workspace: Path, manifest: str | None = None) -> Path:
+    if manifest:
+        raw = Path(manifest).expanduser()
+        return raw.resolve() if raw.is_absolute() else (workspace / raw).resolve()
+    return workspace / ".perseus" / "pack.yaml"
+
+
+def _load_pack_manifest(workspace: Path, manifest: str | None = None) -> tuple[dict | None, Path, list[str]]:
+    path = _pack_manifest_path(workspace, manifest)
+    if not path.exists():
+        return None, path, [f"manifest not found: {path}"]
+    try:
+        data = yaml.safe_load(path.read_text()) or {}
+    except Exception as exc:
+        return None, path, [f"could not parse manifest: {exc}"]
+    if not isinstance(data, dict):
+        return None, path, ["manifest must be a YAML mapping"]
+    return data, path, []
+
+
+def _pack_rel(path: Path, workspace: Path) -> str:
+    try:
+        return str(path.relative_to(workspace))
+    except ValueError:
+        return str(path)
+
+
+def validate_context_pack(workspace: Path, manifest: str | None = None) -> dict:
+    workspace = workspace.expanduser().resolve()
+    data, path, load_errors = _load_pack_manifest(workspace, manifest)
+    errors = list(load_errors)
+    warnings: list[str] = []
+    renders: list[dict] = []
+    synthesis: list[dict] = []
+    profile = None
+    trust_profile = None
+
+    if data is not None:
+        version = data.get("version")
+        if version != PACK_VERSION:
+            errors.append(f"version must be {PACK_VERSION}")
+
+        profile = data.get("profile")
+        if profile is not None and profile not in PRODUCT_PROFILES:
+            errors.append(f"unknown profile: {profile}")
+
+        trust_profile = data.get("trust_profile", "balanced")
+        if trust_profile not in TRUST_PROFILES:
+            errors.append(f"unknown trust_profile: {trust_profile}")
+
+        raw_renders = data.get("renders")
+        if not isinstance(raw_renders, list) or not raw_renders:
+            errors.append("renders must be a non-empty list")
+        else:
+            for idx, item in enumerate(raw_renders, start=1):
+                if not isinstance(item, dict):
+                    errors.append(f"renders[{idx}] must be a mapping")
+                    continue
+                name = str(item.get("name", f"render-{idx}"))
+                source = item.get("source")
+                output = item.get("output")
+                assistant = item.get("assistant", profile or "generic")
+                if not isinstance(source, str) or not source:
+                    errors.append(f"renders[{idx}].source is required")
+                    source_path = None
+                else:
+                    source_path = (workspace / source).resolve()
+                    if not source_path.exists():
+                        errors.append(f"renders[{idx}].source not found: {source}")
+                if not isinstance(output, str) or not output:
+                    errors.append(f"renders[{idx}].output is required")
+                renders.append({
+                    "name": name,
+                    "source": source,
+                    "output": output,
+                    "assistant": assistant,
+                    "source_exists": bool(source_path and source_path.exists()),
+                })
+
+        raw_synthesis = data.get("synthesis", [])
+        if raw_synthesis is None:
+            raw_synthesis = []
+        if not isinstance(raw_synthesis, list):
+            errors.append("synthesis must be a list when present")
+        else:
+            for idx, item in enumerate(raw_synthesis, start=1):
+                if not isinstance(item, dict):
+                    errors.append(f"synthesis[{idx}] must be a mapping")
+                    continue
+                name = str(item.get("name", f"synthesis-{idx}"))
+                question = item.get("question")
+                sources = item.get("sources")
+                if not isinstance(question, str) or not question:
+                    errors.append(f"synthesis[{idx}].question is required")
+                if not isinstance(sources, list) or not sources:
+                    errors.append(f"synthesis[{idx}].sources must be a non-empty list")
+                    source_records = []
+                else:
+                    source_records = []
+                    for source_ref in sources:
+                        if not isinstance(source_ref, str) or not source_ref:
+                            errors.append(f"synthesis[{idx}].sources entries must be strings")
+                            continue
+                        source_path = (workspace / source_ref).resolve()
+                        exists = source_path.exists()
+                        if not exists:
+                            warnings.append(f"synthesis[{idx}] source not found yet: {source_ref}")
+                        source_records.append({"path": source_ref, "exists": exists})
+                synthesis.append({
+                    "name": name,
+                    "question": question,
+                    "sources": source_records,
+                    "enabled": bool(item.get("enabled", False)),
+                })
+
+    return {
+        "version": PACK_VERSION,
+        "workspace": str(workspace),
+        "path": str(path),
+        "exists": data is not None,
+        "valid": not errors,
+        "errors": errors,
+        "warnings": warnings,
+        "profile": profile,
+        "trust_profile": trust_profile,
+        "renders": renders,
+        "synthesis": synthesis,
+    }
+
+
+def format_pack_validation(result: dict) -> str:
+    lines = [f"Context pack: {_pack_rel(Path(result['path']), Path(result['workspace']))}"]
+    if not result["exists"]:
+        lines.append("Status: missing")
+    else:
+        lines.append(f"Status: {'valid' if result['valid'] else 'invalid'}")
+    if result.get("profile"):
+        lines.append(f"Profile: {result['profile']}")
+    if result.get("trust_profile"):
+        lines.append(f"Trust profile: {result['trust_profile']}")
+    if result.get("renders"):
+        lines.append("Renders:")
+        for render in result["renders"]:
+            status = "ok" if render["source_exists"] else "missing source"
+            lines.append(f"- {render['name']}: {render['source']} -> {render['output']} ({render['assistant']}, {status})")
+    if result.get("synthesis"):
+        lines.append("Synthesis packs:")
+        for item in result["synthesis"]:
+            enabled = "enabled" if item["enabled"] else "disabled"
+            lines.append(f"- {item['name']}: {enabled}, {len(item['sources'])} sources")
+    if result["errors"]:
+        lines.append("Errors:")
+        lines.extend(f"- {err}" for err in result["errors"])
+    if result["warnings"]:
+        lines.append("Warnings:")
+        lines.extend(f"- {warning}" for warning in result["warnings"])
+    return "\n".join(lines)
+
+
+def cmd_pack(args, cfg) -> int:
+    workspace = Path(args.workspace).expanduser().resolve() if getattr(args, "workspace", None) else Path.cwd().resolve()
+    result = validate_context_pack(workspace, getattr(args, "manifest", None))
+    if getattr(args, "json", False):
+        print(json.dumps(result, indent=2))
+    else:
+        print(format_pack_validation(result))
+    return 0 if result["valid"] else 1
+
+
+# ───────────────────────────── Schema validation CLI ─────────────────────────
+
+def _validate_cli_payload(args) -> tuple[object | None, str, str | None]:
+    """Load and parse a validate command payload."""
+    payload_ref = getattr(args, "payload", "-") or "-"
+    if payload_ref == "-":
+        text = sys.stdin.read()
+        try:
+            return _parse_validation_payload_by_source(text, "<stdin>"), "<stdin>", None
+        except Exception as exc:
+            return None, "<stdin>", str(exc)
+
+    payload_path = Path(payload_ref).expanduser()
+    try:
+        text = payload_path.read_text(errors="replace")
+    except Exception as exc:
+        return None, str(payload_path), str(exc)
+    try:
+        return _parse_validation_payload_by_source(text, str(payload_path)), str(payload_path), None
+    except Exception as exc:
+        return None, str(payload_path), str(exc)
+
+
+def cmd_validate(args, cfg) -> int:
+    """Validate a payload against a Perseus schema."""
+    workspace = Path(args.workspace).expanduser().resolve() if getattr(args, "workspace", None) else Path.cwd().resolve()
+    schema_ref = args.schema
+    data, input_label, input_error = _validate_cli_payload(args)
+    if input_error:
+        payload = {"ok": False, "input": input_label, "errors": [], "error": input_error}
+        if getattr(args, "json", False):
+            print(json.dumps(payload, indent=2))
+        else:
+            print(f"Error: {payload['error']}")
+        return 2
+
+    if isinstance(schema_ref, str) and schema_ref.startswith("plugin:"):
+        validator_name = schema_ref[7:]
+        schema_label = schema_ref
+        try:
+            validator_fn = _load_plugin_validator(validator_name, workspace)
+            if not validator_fn:
+                if getattr(args, "json", False):
+                    print(json.dumps({"ok": False, "schema": schema_label, "error": f"plugin validator `{validator_name}` not found"}, indent=2))
+                else:
+                    print(f"Error: plugin validator `{validator_name}` not found")
+                return 2
+            valid, message = validator_fn(data, {})
+            errors = [] if valid else [message]
+        except Exception as e:
+            if getattr(args, "json", False):
+                print(json.dumps({"ok": False, "schema": schema_label, "error": str(e)}, indent=2))
+            else:
+                print(f"Error: {e}")
+            return 2
+    else:
+        schema_path, schema_data, schema_error = _load_schema(schema_ref, workspace)
+        schema_label = str(schema_path or schema_ref)
+        if schema_error:
+            payload = {"ok": False, "schema": schema_label, "input": input_label, "errors": [], "error": schema_error}
+            if getattr(args, "json", False):
+                print(json.dumps(payload, indent=2))
+            else:
+                print(f"Error: {payload['error']}")
+            return 2
+        errors = _validate_basic_schema(data, schema_data)
+
+    payload = {
+        "ok": not errors,
+        "schema": schema_label,
+        "input": input_label,
+        "errors": errors,
+    }
+    if getattr(args, "json", False):
+        print(json.dumps(payload, indent=2))
+    elif errors:
+        print(f"Invalid: {input_label} does not match {schema_label}")
+        for err in errors:
+            print(f"- {err}")
+    else:
+        print(f"Valid: {input_label} matches {schema_label}")
+    return 0 if not errors else 1
+
+
+# ──────────────────────────────── cmd_init ────────────────────────────────────
+
+INIT_CONTEXT_TEMPLATE = """\
+@perseus v{version}
+
+@prompt
+This document was rendered live by Perseus. All values below are current —
+do not verify services, re-scan skills, or re-read session history. Trust the
+rendered output and skip orientation. Start work immediately.
+@end
+
+# Perseus Session Context — @date format="YYYY-MM-DD HH:mm CDT"
+
+**Workspace:** `{workspace}`
+
+---
+
+## Last Session
+@waypoint ttl=86400
+
+---
+
+## Workspace State
+
+@query "git -C {workspace} log --oneline -5 2>/dev/null || echo '(no git repo)'"
+@query "git -C {workspace} status --short 2>/dev/null || echo ''"
+
+---
+
+## Available Skills
+@skills flag_stale=true
+
+---
+
+## Services
+@services
+  - name: Perseus CLI
+    command: python3 {workspace}/perseus.py --version 2>&1 || perseus --version
+
+---
+
+## Recent Sessions
+@session count=3
+"""
+
+# ───────────────────────── Phase 24: install ──────────────────────────────────
+
+def cmd_install(args, cfg) -> int:
+    """Install Perseus hooks into an AI assistant."""
+    import json as _json
+
+    target = args.target
+    workspace = Path(args.workspace).expanduser().resolve() if args.workspace else None
+    dry_run = getattr(args, "dry_run", False)
+    json_out = getattr(args, "json", False)
+    perseus_cmd = getattr(args, "perseus_cmd", "perseus")
+
+    result = install_target(
+        target=target,
+        cfg=cfg,
+        workspace=workspace,
+        perseus_cmd=perseus_cmd,
+        dry_run=dry_run,
+    )
+
+    if json_out:
+        print(_json.dumps(result, indent=2))
+    return 0
+
+
+# ───────────────────────── Phase 24: mcp ────────────────────────────────────
+
+def cmd_mcp(args, cfg) -> int:
+    """Perseus MCP server — expose directives as MCP tools."""
+    import json as _json
+
+    mcp_cmd = args.mcp_command  # "serve", "config", or "register"
+    workspace = Path(args.workspace).expanduser().resolve() if getattr(args, "workspace", None) else None
+
+    if mcp_cmd == "serve":
+        transport = getattr(args, "transport", "stdio")
+        if transport == "sse":
+            port = getattr(args, "port", 8420)
+            serve_mcp_sse(cfg, workspace=workspace, port=port)
+            return 0
+        return serve_mcp(cfg, workspace=workspace)
+    elif mcp_cmd == "config":
+        print_mcp_config(cfg, workspace=workspace)
+        return 0
+    elif mcp_cmd == "register":
+        print_mcp_registry(cfg)
+        return 0
+    else:
+        print(f"Error: unknown mcp command: {mcp_cmd}", file=sys.stderr)
+        return 1
+
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
