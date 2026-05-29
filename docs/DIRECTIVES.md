@@ -45,7 +45,19 @@ Any directive accepts a `@cache` modifier:
 @services @cache mock="(stubbed in CI)"           ← bypass execution entirely
 @skills flag_stale=true @cache persist             ← survives across processes
 @skills flag_stale=true @cache ttl=3600            ← cache to disk for 1 hour
+@read config.yaml @cache fingerprint               ← auto-invalidates when config.yaml changes
+@read archive.json @cache nofingerprint ttl=86400  ← opt-out: pure TTL, ignores file changes
 ```
+
+**New in v1.0.5+:** `@cache ttl=N` and `@cache persist` now include a **dependency fingerprint** by default. When a directive reads a file (e.g., `@read data.txt`), the cache key includes a hash of that file's content. If the file changes, the cache invalidates automatically — no need to wait for TTL expiry. Use `@cache nofingerprint` to opt out and keep pure TTL-based caching.
+
+| Modifier | Behavior |
+|----------|----------|
+| `@cache session` | In-memory only, this process. No fingerprint. |
+| `@cache ttl=N` | Disk cache, N seconds TTL. **Includes fingerprint** for @read/@include. |
+| `@cache persist` | Disk cache with `persist_cache_ttl_s` TTL. **Includes fingerprint.** |
+| `@cache fingerprint` | Explicit opt-in (same as ttl/persist default). |
+| `@cache nofingerprint [ttl=N]` | Opt out of fingerprinting. Pure TTL-based expiry. |
 
 ## Safety Gates
 
