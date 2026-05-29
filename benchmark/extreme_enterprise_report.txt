@@ -1,0 +1,142 @@
+========================================================================
+  Perseus Extreme Enterprise Benchmark  --  PASS
+========================================================================
+  Generated : 2026-05-28T23:35:50Z
+  Total time: 190.2s
+  N_REPS=5  Directives=[1, 5, 15, 30, 60, 120]
+  Concurrency=[1, 10, 50, 100, 250]  Devs=50
+
+========================================================================
+  Gate Summary
+========================================================================
+  [PASS] BENCH shim emits telemetry
+       observed=True  threshold=True
+  [PASS] No cold renders fully timed out
+       observed=False  threshold=False
+  [PASS] [info] ENV profile warm/cold drift (informational)
+       observed=1/18 regressions  threshold=non-blocking
+       NOTE: @env directives often run warm≈cold by design; cacheability gates use a separate profile.
+  [PASS] Cacheable profile emits warm cache hits
+       observed=70  threshold=> 0
+  [PASS] Cacheable profile warm speedup >=1% (tier3, directives>=30)
+       observed=0.8769  threshold=< 0.99 (ratio warm/cold)
+  [PASS] Zero errors at concurrency=1 (cold)
+       observed=0  threshold=== 0
+  [PASS] [soft] Error rate <=1% at peak concurrency (250) [cold path]
+       observed=0.0  threshold=<= 0.01
+       NOTE: At conc=250 macOS/Linux RLIMIT_NPROC may cause fork failures; run `ulimit -u unlimited` before benchmarking at extreme concurrency
+  [PASS] [soft] Error rate <=1% at peak concurrency (250) [warm path]
+       observed=0.0  threshold=<= 0.01
+       NOTE: At conc=250 macOS/Linux RLIMIT_NPROC may cause fork failures; run `ulimit -u unlimited` before benchmarking at extreme concurrency
+  [PASS] [soft] Throughput does not collapse at 250 concurrent (>=10% of tps@10)
+       observed=9.6  threshold=>= 2.88
+  [PASS] [soft] Tier 1 produces <= tokens than tier 3 (all directive counts)
+       observed=6/6  threshold=== 6
+  [PASS] [info] No overhead-dominant scenarios detected
+       observed=[]  threshold=[]
+       NOTE: overhead_detected=True means Perseus adds more cost than benefit in specific edge cases
+  [PASS] Single-shot cold render <= 2000ms
+       observed=171.833  threshold=<= 2000ms
+  [FAIL] [soft] Warm 1-directive faster than cold 1-directive
+       observed={'warm_ms': 174.655, 'cold_ms': 167.399}  threshold=warm < cold
+       NOTE: @env warm≈cold by design; this gate catches regressions when caching is active
+  [PASS] Enterprise day cost ROI positive
+       observed=90.0  threshold=> 0%
+       NOTE: Assumes context re-description cost = 10x Perseus output tokens
+  [PASS] Fleet P99 render latency <= 2000ms
+       observed=1398.734  threshold=<= 2000ms
+  [PASS] TTL cliff graceful (cold-after-expiry < 10x warm)
+       observed=0.9022  threshold=< 10.0
+  [PASS] Rapid invalidation wave2 success >= 88%
+       observed=1.0  threshold=>= 0.88
+  [PASS] Cache integrity: zero corrupt entries
+       observed=0  threshold=== 0
+  [PASS] Determinism: same input -> same output
+       observed=1  threshold=== 1
+  [PASS] Cache-activity sanity in cache-focused phases
+       observed={'phase_8_wave1_lookups': 10, 'phase_8_wave2_lookups': 10, 'phase_3b_avg_warm_cache_hits': 70}  threshold=lookups > 0 or warm cache hits > 0
+  [PASS] RSS growth <= 20% over 30 renders
+       observed=-0.03  threshold=<= 20%
+  [PASS] Zero orphan subprocesses
+       observed=0  threshold=== 0
+
+  Hard: 15/15  Soft: 4/5  Info: 2
+------------------------------------------------------------------------
+  Cold vs. Warm (mean render latency ms, all cells)
+------------------------------------------------------------------------
+    Directives  Tier    Cold ms    Warm ms   Speedup%  Regression
+             1     1    177.192      175.1        1.2          no
+             5     1    175.839    174.208        0.9          no
+            15     1    175.909    174.762        0.6          no
+            30     1    180.189    179.575        0.3          no
+            60     1     182.27    173.592        4.8          no
+           120     1    178.549    175.954        1.4          no
+             1     2    175.011    174.893        0.1          no
+             5     2    179.112    176.147        1.7          no
+            15     2    178.646    175.393        1.8          no
+            30     2    165.037     176.82       -7.1      !! YES
+            60     2    170.402    176.161       -3.4          no
+           120     2    177.756    179.249       -0.8          no
+             1     3    177.528    177.345        0.1          no
+             5     3    177.987     172.24        3.2          no
+            15     3    179.071    176.263        1.6          no
+            30     3    180.458    177.202        1.8          no
+            60     3    175.628     176.01       -0.2          no
+           120     3    175.732    181.685       -3.4          no
+
+------------------------------------------------------------------------
+  Cacheable Profile Warm/Cold (tier 3, directives >=30)
+------------------------------------------------------------------------
+  avg_ratio=0.8769 avg_warm_cache_hits=70 regressions=0
+    directives= 30 cold=190.732ms warm=182.185ms speedup=4.5% hits=30
+    directives= 60 cold=218.258ms warm=185.868ms speedup=14.8% hits=60
+    directives=120 cold=240.734ms warm=198.316ms speedup=17.6% hits=120
+
+------------------------------------------------------------------------
+  Regression Probes  (honest overhead report -- nothing hidden)
+------------------------------------------------------------------------
+  [A_tiny_cold]  1 directive, cold — overhead likely dominates
+       mean=167.399ms  p99=174.851ms  cv=0.0364
+  [B_massive_cold]  120 directives, cold — I/O and parse overhead
+       mean=171.688ms  p99=176.005ms  cv=0.0242
+  [C_single_shot]  Single-shot renders (10 runs), one process per render, zero prior state
+       mean=171.833ms  p99=178.133ms  cv=0.0224
+  [D_single_dir_warm]  1 directive warm — best case, minimal content
+       mean=174.655ms  p99=177.631ms  cv=0.0131
+  [E_cache_miss_storm]  20 renders, each with 5 unique directive keys — sustained cache miss
+       mean=171.93ms  p99=181.43ms  cv=0.0285
+  [F_state_a_baseline]  Empty context — State A baseline, overhead = 0, token savings = 0
+       mean=173.725ms  p99=180.385ms  cv=0.0289
+
+  [OK] No overhead-dominant scenarios
+
+------------------------------------------------------------------------
+  Enterprise Day Simulation
+------------------------------------------------------------------------
+  Devs: 50  Renders: 1200  Wall: 49.44s
+  Fleet P99: 1398.734ms
+  Cost w/ Perseus: $0.579600
+  Cost est. w/o:   $5.796000
+  ROI: 90.0%  (positive)
+
+------------------------------------------------------------------------
+  Concurrency Stress (warm, tier 3, 15 directives)
+------------------------------------------------------------------------
+   Concurrency    mean ms     p99 ms      TPS   Errors       CV
+             1    176.971    176.971     5.65        0      0.0
+            10    347.453    355.602    28.78        0   0.0157
+            50   1435.478   1668.872    34.83        0   0.1078
+           100   3757.294   4134.076    26.61        0   0.0623
+           250  26033.584  28260.611      9.6        0    0.062
+
+------------------------------------------------------------------------
+  Cache Pathology
+------------------------------------------------------------------------
+  [PASS] TTL cliff: {"warm_ms": 201.07, "cold_after_expiry_ms": 181.4, "ratio_cold_after_warm": 0.9022, "graceful": true}
+  [PASS] Rapid invalidation: {"wave1_success_rate": 1.0, "wave2_success_rate": 1.0, "wave1_cache_diff": {"hits": 0, "misses": 10, "touched_entries": 
+  [PASS] Integrity audit: {"total": 30, "corrupt": 0, "collision_rate": 0.9666666666666667, "collisions": [["/var/folders/s7/cp7_fkdn6yq_c6ydlz5y4
+  [PASS] Determinism: {"n_runs": 5, "unique_outputs": 1, "deterministic": true}
+
+========================================================================
+                              OVERALL: PASS                             
+========================================================================

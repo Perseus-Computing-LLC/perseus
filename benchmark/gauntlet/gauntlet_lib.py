@@ -69,7 +69,7 @@ def perseus_executable() -> str:
     )
 
 
-def check_nfs_health(mount_path: Path | str = NFS_MOUNT_DIR) -> dict:
+def check_nfs_health(mount_path: Path | str = NFS_MOUNT_DIR, require_mount: bool = True) -> dict:
     """Health check for an NFS (or shared) mount.
 
     Validates that the path is an actual mount point (not a bare local dir
@@ -80,11 +80,11 @@ def check_nfs_health(mount_path: Path | str = NFS_MOUNT_DIR) -> dict:
     import os
     mount_path = Path(mount_path)
 
-    # Gate 1: path must exist and be a mount point
+    # Gate 1: path must exist (and be a mount point when required)
     if not mount_path.exists():
         return {"healthy": False, "path": str(mount_path),
                 "error": "path does not exist"}
-    if not os.path.ismount(mount_path):
+    if require_mount and not os.path.ismount(mount_path):
         return {"healthy": False, "path": str(mount_path),
                 "error": "path is not a mount point"}
 
@@ -226,6 +226,7 @@ class GateRunner:
         threshold: Any = None,
         threshold_fn=None,
         category: str = "engine",
+        required_phase: int | None = None,
     ):
         """Register a gate. threshold_fn(phase_results) -> (pass: bool, observed)."""
         self._gates.append(
@@ -235,6 +236,7 @@ class GateRunner:
                 "threshold": threshold,
                 "threshold_fn": threshold_fn,
                 "category": category,
+                "required_phase": required_phase,
             }
         )
 
