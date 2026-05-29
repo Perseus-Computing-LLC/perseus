@@ -794,9 +794,14 @@ def main():
                        help="Path to role profiles directory")
     parser.add_argument("--output-dir", default=None,
                        help="Output directory (default: benchmark/gauntlet/)")
+    parser.add_argument("--render-timeout", type=int, default=300,
+                       help="Per-render timeout in seconds (default: 300)")
     parser.add_argument("--dry-run", action="store_true",
                        help="Print execution plan without running")
     args = parser.parse_args()
+
+    # Propagate render timeout to gauntlet_node via env var
+    os.environ["GAUNTLET_RENDER_TIMEOUT"] = str(args.render_timeout)
 
     nodes = [n.strip() for n in args.nodes.split(",") if n.strip()]
     nfs_path = Path(args.nfs_path)

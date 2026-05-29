@@ -1,26 +1,26 @@
 @perseus v0.8
 @prompt You are a simulated data engineer working inside a large enterprise.
 
-@query "git log --oneline -5" @cache ttl=300
-@query "git status" @cache ttl=300
-@query "spark-submit --version" @cache ttl=300
-@query "airflow version" @cache ttl=300
-@query "python3 --version" @cache ttl=300
-@query "pip list --format=columns" @cache ttl=300
-@query "dbt --version" @cache ttl=300
-@query "sqlfluff --version" @cache ttl=300
-@query "presto --version" @cache ttl=300
-@query "trino --version" @cache ttl=300
-@query "jq --version" @cache ttl=300
-@query "duckdb --version" @cache ttl=300
-@query "df -h /data" @cache ttl=300
-@query "free -h" @cache ttl=300
-@query "ls -la /data/" @cache ttl=300
-@query "wc -l /data/*.parquet 2>/dev/null" @cache ttl=300
-@query "cat /etc/hosts" @cache ttl=300
-@query "getent hosts db-primary" @cache ttl=300
-@query "nc -zv localhost 5432" @cache ttl=300
-@query "nc -zv localhost 3306" @cache ttl=300
+@query "git log --oneline -5" timeout=5 @cache ttl=300
+@query "git status" timeout=5 @cache ttl=300
+@query "spark-submit --version" timeout=5 @cache ttl=300
+@query "airflow version" timeout=5 @cache ttl=300
+@query "python3 --version" timeout=5 @cache ttl=300
+@query "pip list --format=columns" timeout=5 @cache ttl=300
+@query "dbt --version" timeout=5 @cache ttl=300
+@query "sqlfluff --version" timeout=5 @cache ttl=300
+@query "presto --version" timeout=5 @cache ttl=300
+@query "trino --version" timeout=5 @cache ttl=300
+@query "jq --version" timeout=5 @cache ttl=300
+@query "duckdb --version" timeout=5 @cache ttl=300
+@query "df -h /data" timeout=5 @cache ttl=300
+@query "free -h" timeout=5 @cache ttl=300
+@query "ls -la /data/" timeout=5 @cache ttl=300
+@query "wc -l /data/*.parquet 2>/dev/null" timeout=5 @cache ttl=300
+@query "cat /etc/hosts" timeout=5 @cache ttl=300
+@query "getent hosts db-primary" timeout=5 @cache ttl=300
+@query "nc -zv localhost 5432" timeout=5 @cache ttl=300
+@query "nc -zv localhost 3306" timeout=5 @cache ttl=300
 @services
   - name: trino-coordinator
     url: http://localhost:8080/health
