@@ -157,8 +157,6 @@ def resolve_inbox(args_str: str, cfg: dict, workspace: Path | None = None) -> st
     # returning "_No new messages._"
     preflight = _preflight_permissions(cfg)
     inbox_dir = str(_inbox_dir(ws, cfg))
-    if any("PERSEUS_HOME not writable" in w for w in preflight):
-        return "> ⚠ @inbox disabled: PERSEUS_HOME is not writable."
     if any("inbox" in w for w in preflight):
         return f"> ⚠ @inbox disabled: inbox store not writable ({inbox_dir})."
 
@@ -189,5 +187,4 @@ def resolve_inbox(args_str: str, cfg: dict, workspace: Path | None = None) -> st
             for bl in body.splitlines():
                 lines.append(f"  > {bl}")
     return "\n".join(lines)
-
 
