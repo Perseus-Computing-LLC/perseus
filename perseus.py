@@ -526,36 +526,10 @@ def _fire_shell_hook(cmd_template: str, payload: dict, event: str) -> None:
     except Exception as e:
         print(f"Perseus hook shell error ({event}): {e}", file=sys.stderr)
 
-
-def _fire_webhook(event: str, payload: dict, cfg: dict) -> None:
-    """POST render lifecycle event to configured webhook URL (fire-and-forget)."""
-    wh = cfg.get("webhooks", {})
-    if not wh or not wh.get("enabled") or not wh.get("url"):
-        return
-    if event not in wh.get("events", []):
-        return
-    try:
-        body = json.dumps({
-            "event": event,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "workspace_hash": hashlib.sha256(
-                (payload.get("workspace") or "").encode()
-            ).hexdigest()[:16] if payload.get("workspace") else None,
-            "data": payload,
-        })
-        data = body.encode("utf-8")
-        req = urllib.request.Request(
-            wh["url"], data=data,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        secret = wh.get("secret", "")
-        if secret:
-            sig = hashlib.sha256(secret.encode() + data).hexdigest()
-            req.add_header("X-Perseus-Signature", f"sha256={sig}")
-        urllib.request.urlopen(req, timeout=wh.get("timeout_s", 5))
-    except Exception as e:
-        print(f"Perseus webhook error ({event}): {e}", file=sys.stderr)
+# _fire_webhook is defined in webhooks.py (multi-endpoint, URL allowlisting,
+# queued delivery with retry). The legacy single-URL fire-and-forget copy that
+# lived here was dead code — MODULE_ORDER places webhooks.py after hooks.py,
+# so webhooks.py's definition shadowed this one at runtime.
 
 
 def _reset_hooks_cache() -> None:
@@ -1299,129 +1273,11 @@ MACRO_START_RE = re.compile(r'^@macro\s+([\w-]+)\s*(.*)$', re.IGNORECASE)
 MACRO_END_RE = re.compile(r'^@endmacro\s*$', re.IGNORECASE)
 MACRO_PARAM_RE = re.compile(r'%(\w+)%')
 MAX_MACRO_DEPTH = 10
-
-def _parse_macros_from_lines(lines: list[str], start: int = 0) -> dict[str, tuple[list[str], list[str]]]:
-    """Parse @macro ... @endmacro blocks from lines, starting at index start.
-
-    Returns: {macro_name: (body_lines, param_names)} where param_names are
-    the ordered %tokens% found in the macro body.
-    """
-    macros: dict[str, tuple[list[str], list[str]]] = {}
-    i = start
-    while i < len(lines):
-        m = MACRO_START_RE.match(lines[i])
-        if m:
-            name = m.group(1).lower()
-            raw_params = (m.group(2) or "").strip()
-            # Parse %param% tokens from the macro header line or infer from body
-            header_params = [p for p in MACRO_PARAM_RE.findall(raw_params)]
-            i += 1
-            body: list[str] = []
-            while i < len(lines) and not MACRO_END_RE.match(lines[i]):
-                body.append(lines[i])
-                i += 1
-            # Infer params from body if not declared in header
-            if not header_params:
-                all_body = "\n".join(body)
-                body_params = []
-                seen = set()
-                for param in MACRO_PARAM_RE.findall(all_body):
-                    if param not in seen:
-                        body_params.append(param)
-                        seen.add(param)
-                header_params = body_params
-            macros[name] = (body, header_params)
-            if i < len(lines) and MACRO_END_RE.match(lines[i]):
-                i += 1
-        else:
-            i += 1
-    return macros
-
-
-def _load_macros(source_lines: list[str], workspace: Path | None, cfg: dict) -> dict[str, tuple[list[str], list[str]]]:
-    """Load macros from shared macros file, then overlay source-document macros.
-
-    Shared macros are loaded first; source-document macros can shadow them.
-    """
-    macros: dict[str, tuple[list[str], list[str]]] = {}
-
-    # Load shared macros file if it exists
-    # Config key 'macros.file' per spec, default ~/.perseus/macros.md
-    macros_file = cfg.get("macros", {}).get("file")
-    if not macros_file:
-        macros_path = PERSEUS_HOME / "macros.md"
-    else:
-        macros_path = Path(macros_file)
-
-    try:
-        if macros_path.is_file():
-            file_lines = macros_path.read_text().splitlines()
-            macros.update(_parse_macros_from_lines(file_lines))
-    except (OSError, ValueError):
-        pass
-
-    # Source-document macros override shared macros
-    source_macros = _parse_macros_from_lines(source_lines)
-    macros.update(source_macros)
-
-    return macros
-
-
-def _expand_macros(lines: list[str], macros: dict[str, tuple[list[str], list[str]]]) -> list[str]:
-    """Walk lines, expand macro invocations in place. Recursive up to MAX_MACRO_DEPTH.
-
-    A macro invocation is a line that exactly (case-insensitively) matches
-    a macro name (e.g. ``@project-health``).
-
-    Returns the expanded lines (macro definitions stripped, invocations replaced).
-    """
-    # Strip macro definition blocks first
-    current_lines = [l for l in _strip_macro_defs(lines)]
-    if not macros:
-        return current_lines
-
-    depth = 0
-    while depth < MAX_MACRO_DEPTH:
-        next_lines = []
-        changed = False
-        for line in current_lines:
-            stripped = line.strip()
-            if stripped.startswith("@"):
-                # Check for macro invocation (whole line)
-                parts = stripped.split(None, 1)
-                if parts:
-                    invocation = parts[0][1:].lower()
-                    if invocation in macros:
-                        body, _ = macros[invocation]
-                        next_lines.extend(body)
-                        changed = True
-                        continue
-            next_lines.append(line)
-
-        current_lines = next_lines
-        if not changed:
-            break
-        depth += 1
-    else:
-        # MAX_MACRO_DEPTH exceeded
-        current_lines.append(f"> ⚠ Macro expansion depth exceeded (max {MAX_MACRO_DEPTH})")
-
-    return current_lines
-
-
-def _strip_macro_defs(lines: list[str]) -> "iter":
-    """Generator: yield lines, skipping @macro...@endmacro definition blocks."""
-    i = 0
-    while i < len(lines):
-        if MACRO_START_RE.match(lines[i]):
-            i += 1
-            while i < len(lines) and not MACRO_END_RE.match(lines[i]):
-                i += 1
-            if i < len(lines):
-                i += 1  # skip @endmacro
-            continue
-        yield lines[i]
-        i += 1
+# Note: _parse_macros_from_lines, _load_macros, _expand_macros, and
+# _strip_macro_defs are defined in renderer.py (parameterized macros
+# with fork-bomb width caps). The older non-parameterized copies that
+# lived here were dead code — MODULE_ORDER placed renderer.py after
+# macros.py, so renderer's definitions always shadowed these.
 # ─────────────────────────── Phase 17B redaction (task-46) ───────────────────
 #
 # Goal: deterministic, opt-out redaction of common secret shapes before they
@@ -2311,13 +2167,18 @@ def _validate_basic_schema(data: object, schema: object, prefix: str = "") -> li
 
 
 def _resolve_path(file_path_str: str, workspace: Path | None = None, allow_outside_workspace: bool = False) -> tuple[Path, str | None]:
-    """Resolve a path relative to workspace and optionally block escapes."""
+    """Resolve a path relative to workspace and optionally block escapes.
+
+    When workspace is None, falls back to cwd so the boundary check still
+    applies. A None workspace = unrestricted reads would be a defense gap
+    for programmatic consumers that don't pass an explicit workspace.
+    """
     fp = Path(file_path_str).expanduser()
-    if not fp.is_absolute() and workspace:
-        fp = workspace / fp
+    ws = (workspace or Path.cwd()).expanduser().resolve()
+    if not fp.is_absolute():
+        fp = ws / fp
     fp = fp.resolve(strict=False)
-    if workspace and not allow_outside_workspace:
-        ws = workspace.expanduser().resolve()
+    if not allow_outside_workspace:
         try:
             fp.relative_to(ws)
         except ValueError:
@@ -3040,7 +2901,7 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
         schema_path = schema_match.group(1) if schema_match.group(1) is not None else schema_match.group(2)
         raw = (raw[:schema_match.start()] + raw[schema_match.end():]).rstrip()
 
-    # task-14: extract fallback="..." (or fallback='...') BEFORE command parsing,
+    # task-14: extract fallback=\"...\" (or fallback='...') BEFORE command parsing,
     # so a command containing the literal substring `fallback=` is not mis-parsed.
     fallback = None
     fb_match = re.search(r'\s+fallback=(?:"((?:[^"\\]|\\.)*)"|\'((?:[^\'\\]|\\.)*)\')(\s|$)', raw)
@@ -3051,6 +2912,14 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
         # UTF-8 bytes as Latin-1, corrupting characters like é → Ã©).
         fallback = _unescape_fallback(fallback)
         raw = (raw[:fb_match.start()] + raw[fb_match.end():]).rstrip()
+
+    # Extract timeout=N modifier BEFORE command parsing so the token can't
+    # leak into unquoted commands. Same principle as schema=/fallback= above.
+    timeout = int(cfg["render"].get("query_timeout_s", 30))
+    tm_match = re.search(r'\s+timeout=(\d+)(?:\s|$)', raw)
+    if tm_match:
+        timeout = int(tm_match.group(1))
+        raw = (raw[:tm_match.start()] + raw[tm_match.end():]).rstrip()
 
     cmd_match = re.match(r'^"((?:[^"\\]|\\.)*)"', raw)   # double-quoted
     if not cmd_match:
@@ -3073,13 +2942,6 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
                 command=cmd[:500],
                 shell=shell,
                 cwd=str(workspace) if workspace else None)
-
-    # Extract timeout=N modifier (per-directive override, default 30s)
-    timeout = int(cfg["render"].get("query_timeout_s", 30))
-    tm_match = re.search(r'\s+timeout=(\d+)(?:\s|$)', raw)
-    if tm_match:
-        timeout = int(tm_match.group(1))
-        raw = (raw[:tm_match.start()] + raw[tm_match.end():]).rstrip()
 
     # v1.0.5 review: run from workspace by default for safety.
     # allow_outside_workspace does not sandbox — it only controls cwd.
@@ -6329,6 +6191,8 @@ def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path) ->
       @read <file>         → sha256 of file content
       @include <file>      → sha256 of file content (first-level only;
                               transitive deps handled by recursive render)
+      @list <dir>          → sha256 of directory listing (file names + mtimes)
+      @tree <dir>          → sha256 of recursive directory listing
       @env <VAR>           → no fingerprint (value changes per-process)
       @query ...           → no fingerprint (shell output depends on system state,
                               not static files — let TTL handle staleness)
@@ -6346,6 +6210,20 @@ def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path) ->
             try:
                 content = fpath.read_bytes()
                 parts.append(f"{directive}:{raw_path}:{_hashlib.sha256(content).hexdigest()}")
+            except (OSError, PermissionError):
+                pass  # can't read → no fingerprint (cache miss is safe)
+
+    if directive in ("@list", "@tree"):
+        raw_path = clean_args.split()[0] if clean_args else ""
+        if raw_path:
+            dpath = (workspace / raw_path).resolve()
+            try:
+                entries = sorted(dpath.iterdir()) if directive == "@list" else sorted(dpath.rglob("*"))
+                listing_data = "|".join(
+                    f"{p.name}:{p.stat().st_mtime_ns if p.exists() else 0}:{int(p.is_dir())}"
+                    for p in entries
+                )
+                parts.append(f"{directive}:{raw_path}:{_hashlib.sha256(listing_data.encode()).hexdigest()}")
             except (OSError, PermissionError):
                 pass  # can't read → no fingerprint (cache miss is safe)
 
