@@ -207,8 +207,13 @@ class GauntletMetrics:
 class GateRunner:
     """Evaluates pass/fail conditions and produces a gate report.
 
-    Gates are registered with add_gate(name, severity, threshold_fn).
+    Gates are registered with add_gate(name, severity, threshold_fn, category).
     evaluate_all() runs them against the provided phase_results dict.
+
+    Categories: "engine" (Perseus bug), "environment" (setup/config issue),
+    "performance" (speed/p99/etc.). Environment failures are scored separately
+    from engine failures in make_report() so operators can distinguish
+    "Perseus is broken" from "API key not set."
     """
 
     def __init__(self):
@@ -220,6 +225,7 @@ class GateRunner:
         severity: str = "hard",
         threshold: Any = None,
         threshold_fn=None,
+        category: str = "engine",
     ):
         """Register a gate. threshold_fn(phase_results) -> (pass: bool, observed)."""
         self._gates.append(
@@ -228,6 +234,7 @@ class GateRunner:
                 "severity": severity,
                 "threshold": threshold,
                 "threshold_fn": threshold_fn,
+                "category": category,
             }
         )
 
@@ -249,6 +256,7 @@ class GateRunner:
                     "observed": "skipped: phase not run",
                     "threshold": gate["threshold"],
                     "severity": gate["severity"],
+                    "category": gate.get("category", "engine"),
                     "skipped": True,
                 })
                 continue
@@ -258,16 +266,26 @@ class GateRunner:
             except Exception as exc:
                 passed, observed = False, str(exc)
 
+            # Detect environment failures from error messages
+            category = gate.get("category", "engine")
+            if not passed and isinstance(observed, str):
+                env_patterns = [
+                    "PermissionError", "permission denied", "GOOGLE_API_KEY",
+                    "API key", "api_key", "env var",
+                ]
+                if any(p.lower() in observed.lower() for p in env_patterns):
+                    category = "environment"
+
             # Treat "no data" as skipped/fail based on severity
             if isinstance(observed, str) and observed == "no data":
                 if gate["severity"] == "hard":
-                    # P1 #6: hard gates with missing data fail, don't skip
                     results.append({
                         "name": gate["name"],
                         "pass": False,
                         "observed": "no data (hard gate requires data)",
                         "threshold": gate["threshold"],
                         "severity": gate["severity"],
+                        "category": category,
                         "skipped": False,
                     })
                 else:
@@ -277,6 +295,7 @@ class GateRunner:
                         "observed": "skipped: phase not run",
                         "threshold": gate["threshold"],
                         "severity": gate["severity"],
+                        "category": category,
                         "skipped": True,
                     })
                 continue
@@ -287,6 +306,7 @@ class GateRunner:
                 "observed": observed,
                 "threshold": gate["threshold"],
                 "severity": gate["severity"],
+                "category": category,
                 "skipped": False,
             })
         return results
@@ -298,12 +318,25 @@ class GateRunner:
         hard_failed = [
             g for g in gate_results if not g["pass"] and g["severity"] == "hard"
         ]
+        # Separate by category
+        by_category = {}
+        for g in gate_results:
+            cat = g.get("category", "engine")
+            if cat not in by_category:
+                by_category[cat] = {"passed": 0, "failed": 0, "total": 0}
+            by_category[cat]["total"] += 1
+            if g["pass"]:
+                by_category[cat]["passed"] += 1
+            else:
+                by_category[cat]["failed"] += 1
+
         return {
             "total": total,
             "passed": passed,
             "failed": [g for g in gate_results if not g["pass"]],
             "hard_failed": hard_failed,
             "pass": len(hard_failed) == 0,
+            "by_category": by_category,
         }
 
 
