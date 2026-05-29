@@ -69,12 +69,13 @@ def render_profile(
         env.update(env_extra)
 
     t0 = time.time()
+    render_timeout = int(os.environ.get("GAUNTLET_RENDER_TIMEOUT", 300))
     try:
         result = subprocess.run(
             [sys.executable, perseus, "render", str(profile_path)],
             capture_output=True,
             text=True,
-            timeout=300,
+            timeout=render_timeout,
             env=env,
         )
         elapsed = time.time() - t0
