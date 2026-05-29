@@ -34,8 +34,6 @@ def resolve_waypoint(args_str: str, cfg: dict) -> str:
     # returning "No checkpoint found."
     preflight = _preflight_permissions(cfg)
     cp_dir = cfg.get("checkpoints", {}).get("store", str(PERSEUS_HOME / "checkpoints"))
-    if any("PERSEUS_HOME not writable" in w for w in preflight):
-        return "> ⚠ @waypoint disabled: PERSEUS_HOME is not writable."
     if any("checkpoints" in w for w in preflight):
         return f"> ⚠ @waypoint disabled: checkpoint store not writable ({cp_dir})."
 
@@ -65,5 +63,4 @@ def resolve_waypoint(args_str: str, cfg: dict) -> str:
         if val:
             lines.append(f"**{field.capitalize()}:** {val}")
     return "\n".join(lines)
-
 
