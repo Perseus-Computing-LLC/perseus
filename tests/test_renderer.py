@@ -679,6 +679,61 @@ def test_query_fallback_with_cache_modifier_stripped_first(monkeypatch):
     assert out == "cached fallback"
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Dependency-fingerprinted cache invalidation
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_cache_fingerprint_read_invalidates_on_file_change(tmp_path):
+    """Changing a @read file within TTL invalidates the cache."""
+    src = tmp_path / "src.md"
+    data_file = tmp_path / "data.txt"
+    data_file.write_text("v1")
+    src.write_text(f'@perseus v0.4\n@read {data_file} @cache ttl=3600')
+
+    c = cfg()
+    c["render"]["cache_dir"] = str(tmp_path / "cache")
+
+    r1 = perseus.render_source(src.read_text(), c, tmp_path)
+    assert "v1" in r1
+
+    # Change the file — cache must invalidate
+    data_file.write_text("v2")
+    r2 = perseus.render_source(src.read_text(), c, tmp_path)
+    assert "v2" in r2
+
+
+def test_cache_fingerprint_no_deps_still_caches(tmp_path):
+    """@query with no file deps caches and returns consistent output."""
+    src = tmp_path / "src.md"
+    src.write_text('@perseus v0.4\n@query "echo hello" @cache ttl=3600')
+
+    c = cfg()
+    c["render"]["cache_dir"] = str(tmp_path / "cache")
+
+    r1 = perseus.render_source(src.read_text(), c, tmp_path)
+    r2 = perseus.render_source(src.read_text(), c, tmp_path)
+    assert r1 == r2  # cached output matches
+
+
+def test_cache_nofingerprint_ignores_file_change(tmp_path):
+    """@cache nofingerprint keeps TTL-only behavior, ignores file changes."""
+    src = tmp_path / "src.md"
+    data_file = tmp_path / "data.txt"
+    data_file.write_text("v1")
+    src.write_text(f'@perseus v0.4\n@read {data_file} @cache nofingerprint ttl=3600')
+
+    c = cfg()
+    c["render"]["cache_dir"] = str(tmp_path / "cache")
+
+    r1 = perseus.render_source(src.read_text(), c, tmp_path)
+    assert "v1" in r1
+
+    data_file.write_text("v2")
+    r2 = perseus.render_source(src.read_text(), c, tmp_path)
+    # With nofingerprint, cache is NOT invalidated by file change
+    assert "v1" in r2
+
+
 def test_query_fallback_unescapes_simple_escapes():
     out = perseus.resolve_query(r'"false" fallback="line one\nline two"', cfg())
     assert "line one\nline two" == out

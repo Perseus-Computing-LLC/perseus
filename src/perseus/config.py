@@ -125,18 +125,12 @@ DEFAULT_CONFIG = {
     "hooks": {
         "enabled": True,
     },
-    "webhooks": {
-        "enabled": False,
-        "url": "",
-        "secret": "",
-        "events": ["on_render_start", "on_render_complete", "on_directive_error"],
-        "timeout_s": 5,
-    },
     "tools": {
         "enabled": True,
         "allowlist": [],
     },
-    "foreign_resolver": {
+    "foreign_resolver": {  # DEPRECATED: use "foreign" block (Phase 24E) for new config.
+                          # Kept for backward compatibility; code checks both paths.
         "enabled": True,
         "allowlist": [],
         "hmackey": "",
@@ -328,6 +322,10 @@ def _get_shell(cfg: dict) -> str | None:
 
 
 # Phase 24 — task-72: Event Webhooks
+# NOTE: enabled=True but endpoints=[] means the webhook engine is active
+# (hooks fire internally) but no external delivery occurs. To actually deliver
+# events, add endpoint URLs to the endpoints list. This split allows the
+# internal hook pipeline to run without inadvertently exposing events.
 DEFAULT_CONFIG["webhooks"] = {
     "enabled": True,
     "timeout_s": 10,
