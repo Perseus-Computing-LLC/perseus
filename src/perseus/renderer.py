@@ -585,6 +585,21 @@ def _capture_file_snapshot(lines: list[str], workspace: Path | None) -> dict[str
             pass
     return snap
 
+def _uses_preflight_sensitive_directive(lines: list[str]) -> bool:
+    """Return True when a render references directives gated by preflight writes.
+
+    Preflight warnings are most actionable when a document uses directives that
+    rely on writable Perseus state (checkpoint/inbox/memory surfaces).
+    """
+    if not INLINE_DIRECTIVE_RE:
+        return False
+    sensitive = {"@waypoint", "@inbox", "@memory", "@mneme"}
+    for raw in lines:
+        m = INLINE_DIRECTIVE_RE.match(raw.strip())
+        if m and m.group(1).lower() in sensitive:
+            return True
+    return False
+
 def _check_directive_tier(
     line: str,
     directive_name: str,
@@ -1129,11 +1144,7 @@ def render_source(
     if _include_depth == 0:
         register_plugins(cfg)
         register_hooks(cfg)
-
-        # v1.0.6: preflight permission check — surface environment issues
-        # before any directives run. Warnings are emitted at the top of
-        # the rendered output so the agent/user sees them immediately.
-        preflight_warnings = _preflight_permissions(cfg)
+        preflight_warnings = []
 
     if _stats is None:
         _stats = {
@@ -1155,6 +1166,11 @@ def render_source(
     macros = _load_macros(body_lines, workspace, cfg)
     if macros:
         body_lines = _expand_macros(body_lines, macros)
+
+    # v1.0.6: preflight permission check — surface environment issues before
+    # directives that depend on writable Perseus state.
+    if _include_depth == 0 and _uses_preflight_sensitive_directive(body_lines):
+        preflight_warnings = _preflight_permissions(cfg)
 
     _constraint_rows = []
     if _skipped_directives is None:
