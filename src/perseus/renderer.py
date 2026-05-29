@@ -50,6 +50,24 @@ def _parse_cache_modifier(line: str) -> tuple[str, str, int | None, str | None]:
     values containing spaces: @cache mock="hello world". Unquoted values
     stop at the first whitespace.
     """
+    # @cache nofingerprint (opt out of fingerprinting; checked before ttl)
+    m = re.search(r'\s*@cache\s+nofingerprint\b', line, re.IGNORECASE)
+    if m:
+        clean = line[:m.start()] + line[m.end():]
+        # After removing nofingerprint, the ttl=N may be bare (no @cache prefix)
+        m2 = re.search(r'\s*@cache\s+ttl=(\d+)|\bttl=(\d+)', clean, re.IGNORECASE)
+        ttl_val = None
+        if m2:
+            ttl_val = int(m2.group(1) or m2.group(2))
+            clean = clean[:m2.start()] + clean[m2.end():]
+        return clean.rstrip(), "nofingerprint", ttl_val, None
+
+    # @cache fingerprint (explicit)
+    m = re.search(r'\s*@cache\s+fingerprint\b', line, re.IGNORECASE)
+    if m:
+        clean = line[:m.start()] + line[m.end():]
+        return clean.rstrip(), "fingerprint", None, None
+
     # @cache ttl=N
     m = re.search(r'\s*@cache\s+ttl=(\d+)', line, re.IGNORECASE)
     if m:
@@ -85,6 +103,42 @@ def _parse_cache_modifier(line: str) -> tuple[str, str, int | None, str | None]:
         return clean.rstrip(), "mock", None, "(mock — directive skipped)"
 
     return line, "", None, None
+
+
+def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path) -> str:
+    """Return a stable fingerprint of all file dependencies for this directive.
+
+    Returns a hex digest that changes when any file the directive reads changes.
+    Directives with no file dependencies return "" (empty string).
+    This is concatenated to the cache key so stale entries miss automatically.
+
+    Fingerprinted directives:
+      @read <file>         → sha256 of file content
+      @include <file>      → sha256 of file content (first-level only;
+                              transitive deps handled by recursive render)
+      @env <VAR>           → no fingerprint (value changes per-process)
+      @query ...           → no fingerprint (shell output depends on system state,
+                              not static files — let TTL handle staleness)
+      @services            → no fingerprint (service health is ephemeral)
+      @perseus <url>       → no fingerprint (remote content changes independently)
+    """
+    import hashlib as _hashlib
+
+    parts: list[str] = []
+
+    if directive in ("@read", "@include"):
+        raw_path = clean_args.split()[0] if clean_args else ""
+        if raw_path:
+            fpath = (workspace / raw_path).resolve()
+            try:
+                content = fpath.read_bytes()
+                parts.append(f"{directive}:{raw_path}:{_hashlib.sha256(content).hexdigest()}")
+            except (OSError, PermissionError):
+                pass  # can't read → no fingerprint (cache miss is safe)
+
+    if not parts:
+        return ""
+    return _hashlib.sha256("|".join(parts).encode()).hexdigest()
 
 
 def _safe_cache_dir(cfg: dict) -> Path:
@@ -131,9 +185,9 @@ def cache_get(key: str, mode: str, ttl: int | None, cfg: dict) -> str | None:
     if mode == "session":
         return _SESSION_CACHE.get(key)
 
-    if mode in {"ttl", "persist"}:
+    if mode in {"ttl", "persist", "fingerprint", "nofingerprint"}:
         effective_ttl = ttl
-        if mode == "persist":
+        if mode in ("persist", "fingerprint"):
             effective_ttl = int(cfg.get("render", {}).get("persist_cache_ttl_s", 3600))
         if effective_ttl is None:
             return None
@@ -162,9 +216,9 @@ def cache_set(key: str, value: str, mode: str, ttl: int | None, cfg: dict) -> No
         _SESSION_CACHE[key] = value
         return
 
-    if mode in {"ttl", "persist"}:
+    if mode in {"ttl", "persist", "fingerprint", "nofingerprint"}:
         effective_ttl = ttl
-        if mode == "persist":
+        if mode in ("persist", "fingerprint"):
             effective_ttl = int(cfg.get("render", {}).get("persist_cache_ttl_s", 3600))
         if effective_ttl is None:
             return
@@ -945,7 +999,12 @@ def _render_lines(
                     raw_args = f"{raw_args} @cache ttl={m_ttl.group(1)}".strip()
 
             clean_args, cache_mode, cache_ttl, cache_mock = _parse_cache_modifier(raw_args)
-            cache_key = _cache_key(f"{directive} {clean_args}")
+            _base_key = _cache_key(f"{directive} {clean_args}")
+            if cache_mode == "nofingerprint":
+                cache_key = _base_key
+            else:
+                _fp = _dependency_fingerprint(directive, clean_args, workspace)
+                cache_key = f"{_base_key}.{_fp}" if _fp else _base_key
 
             if cache_mode == "mock":
                 output.append(cache_mock or "(mock \u2014 directive skipped)")
