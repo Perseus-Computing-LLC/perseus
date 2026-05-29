@@ -897,3 +897,25 @@ def test_date_format_backreference_correctly_pairs_quotes():
     # format="YYYY' — mismatched quotes should fall through
     result = perseus.resolve_date("format=\"YYYY'")
     assert len(result) > 10, f"unpaired quotes should fall through: got {result!r}"
+
+
+# ── Regression: #37 / #38 — max_bytes NameError on malformed config ──────────
+
+def test_include_survives_malformed_max_include_bytes(tmp_path):
+    """#37: resolve_include must not raise NameError when max_include_bytes is a non-integer."""
+    c = cfg()
+    c["render"]["max_include_bytes"] = "not-an-int"
+    f = tmp_path / "hello.md"
+    f.write_text("# hello\n")
+    result = perseus.resolve_include(f'"{f.name}"', tmp_path, c)
+    assert "# hello" in result
+
+
+def test_read_survives_malformed_max_read_bytes(tmp_path):
+    """#38: resolve_read must not raise NameError when max_read_bytes is a non-integer."""
+    c = cfg()
+    c["render"]["max_read_bytes"] = "not-an-int"
+    f = tmp_path / "hello.txt"
+    f.write_text("hello")
+    result = perseus.resolve_read(f'"{f.name}"', c, tmp_path)
+    assert "hello" in result
