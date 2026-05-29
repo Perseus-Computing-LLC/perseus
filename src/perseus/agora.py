@@ -344,6 +344,7 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path) -> str:
 
     scope = (mods.get("scope") or "").strip() or None
     type_filter = (mods.get("type") or "").strip().lower() or None
+    sensitivity = (mods.get("sensitivity") or "").strip().lower() or None
     render_template = (mods.get("render") or "default").strip().lower()
 
     try:
@@ -351,7 +352,7 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path) -> str:
     except (ValueError, TypeError):
         k = 5
 
-    hits = _mneme_recall(cfg, query, k=k, scope=scope, type_filter=type_filter)
+    hits = _mneme_recall(cfg, query, k=k, scope=scope, type_filter=type_filter, sensitivity=sensitivity)
     if not hits:
         return "> \u2139\ufe0f No Mn\u0113m\u0113 memories matched.\n"
 
