@@ -59,10 +59,19 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
         )
 
     # ── Pre-read size check to prevent memory exhaustion ──
-    # Only gate truly massive files (50 MB+) to allow normal truncation path
-    _MAX_SAFE_READ_BYTES = 50 * 1024 * 1024  # 50 MB
+    # Gate truly massive files before their bytes hit memory. Config-driven via
+    # render.max_safe_read_bytes (default 50 MB), kept well above the byte
+    # truncation cap (max_include_bytes) so normal files still take the
+    # truncation path below. Set it to null to disable the guard.
+    #
+    # TOCTOU: stat() and read_bytes() are separate syscalls, so the file could
+    # grow between them. Acceptable here — Perseus renders in a local, single-
+    # process context over the operator's own workspace files (not a multi-
+    # writer server), and the decode+truncate path below bounds the output.
+    max_safe_raw = render_cfg.get("max_safe_read_bytes", 50 * 1024 * 1024)
+    max_safe_bytes = int(max_safe_raw) if max_safe_raw is not None else None
     try:
-        if fp.stat().st_size > _MAX_SAFE_READ_BYTES:
+        if max_safe_bytes is not None and fp.stat().st_size > max_safe_bytes:
             return f"> ⚠ @include: file too large for safe read ({fp.stat().st_size:,} bytes)"
     except OSError:
         pass  # stat failed, fall through to read
