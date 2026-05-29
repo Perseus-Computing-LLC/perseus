@@ -329,6 +329,46 @@ def _doctor_check_mcp(cfg: dict, workspace: Path) -> DoctorResult:
         return DoctorResult("mcp_server", "error", "mcp_server", str(exc), "Check mcp.py")
 
 
+def _doctor_check_mneme_index(_cfg: dict, _workspace: Path) -> DoctorResult:
+    """Check Mnēmē FTS5 index health — existence, population, orphans."""
+    try:
+        stats = _mneme_index_stats(_cfg)
+        if not stats["available"]:
+            return DoctorResult("mneme_fts_index", "warn", "Mnēmē FTS index",
+                                "index not available (vault may be empty)",
+                                "Add memory files to trigger indexing, or run `perseus memory index rebuild`")
+
+        doc_count = stats["doc_count"]
+        file_count = stats["indexed_files"]
+        index_path = stats["index_path"]
+
+        # Orphan check: files in index that no longer exist in vault
+        orphans = 0
+        try:
+            conn = _mneme_open_index(_cfg)
+            if conn:
+                rows = conn.execute("SELECT file_path FROM mneme_files").fetchall()
+                for (fp,) in rows:
+                    if not Path(fp).exists():
+                        orphans += 1
+        except Exception:
+            pass
+
+        parts = [f"{doc_count} docs, {file_count} files tracked"]
+        if orphans > 0:
+            parts.append(f"{orphans} orphaned entries")
+            return DoctorResult("mneme_fts_index", "warn", "Mnēmē FTS index",
+                                ", ".join(parts),
+                                f"{orphans} orphaned entries — run `perseus memory index rebuild`")
+        if doc_count == 0:
+            return DoctorResult("mneme_fts_index", "warn", "Mnēmē FTS index",
+                                "index exists but is empty",
+                                "Run `perseus memory index rebuild`")
+        return DoctorResult("mneme_fts_index", "ok", "Mnēmē FTS index", ", ".join(parts), "")
+    except Exception as exc:
+        return DoctorResult("mneme_fts_index", "error", "Mnēmē FTS index", str(exc), "Check mneme_index.py")
+
+
 # Ordered list of doctor checks — adding a check is one function + one line here.
 _DOCTOR_CHECKS = [
     _doctor_check_config,
@@ -337,6 +377,7 @@ _DOCTOR_CHECKS = [
     _doctor_check_render_outside_workspace,
     _doctor_check_latest_checkpoint,
     _doctor_check_mneme,
+    _doctor_check_mneme_index,
     _doctor_check_federation,
     _doctor_check_pythia_log,
     _doctor_check_serve_loopback,

@@ -7316,6 +7316,7 @@ def render_source(
     _include_path_chain: tuple = (),
     _directive_collector: list[dict] | None = None,
     _stats: dict | None = None,
+    _skipped_directives: list[dict] | None = None,
 ) -> str:
     """
     Parse and resolve a @perseus source document.
@@ -7358,7 +7359,8 @@ def render_source(
         body_lines = _expand_macros(body_lines, macros)
 
     _constraint_rows = []
-    _skipped_directives = []
+    if _skipped_directives is None:
+        _skipped_directives = []
     result = _render_lines(body_lines, cfg, workspace, _constraint_rows,
                          _include_depth=_include_depth,
                          _include_path_chain=_include_path_chain,
@@ -7973,7 +7975,8 @@ def _mneme_index_path(cfg: dict) -> Path:
 
 def _mneme_recall(cfg: dict, query: str, k: int = 5,
                    scope: str | None = None,
-                   type_filter: str | None = None) -> list[dict]:
+                   type_filter: str | None = None,
+                   sensitivity: str | None = None) -> list[dict]:
     """Recall memories via SQLite FTS5 BM25 index.
 
     Uses a process-lifetime cached connection (WAL mode handles concurrency).
@@ -7992,7 +7995,7 @@ def _mneme_recall(cfg: dict, query: str, k: int = 5,
             if count == 0:
                 return []
 
-        return _mneme_search(conn, query, k, scope, type_filter)
+        return _mneme_search(conn, query, k, scope, type_filter, sensitivity)
     except Exception:
         return []
 # ─────────────────────── Mnēmē v2 — SQLite FTS5 Index ────────────────────────
@@ -8022,6 +8025,9 @@ CREATE VIRTUAL TABLE IF NOT EXISTS mneme_fts USING fts5(
     body,
     type,
     scope,
+    sensitivity,
+    confidence,
+    source_path,
     updated,
     tokenize='porter unicode61'
 );
@@ -8031,6 +8037,12 @@ CREATE TABLE IF NOT EXISTS mneme_meta (
     value TEXT
 );
 """
+
+# Schema migration: add sensitivity column to mneme_files if it doesn't exist.
+# Runs lazily on first index open — idempotent, safe with existing databases.
+_MNEME_MIGRATIONS = [
+    "ALTER TABLE mneme_files ADD COLUMN sensitivity TEXT DEFAULT 'team'",
+]
 
 # Per-column BM25 weights for FTS5 native weighting (bm25() positional args).
 # Column order in CREATE VIRTUAL TABLE: id, title, summary, tags, topic_path, body, type, scope, updated
@@ -8085,12 +8097,20 @@ def _mneme_open_index(cfg: dict):
         # Create tables if needed
         conn.executescript(_MNEME_SCHEMA_SQL)
 
+        # Run schema migrations (idempotent)
+        for migration_sql in _MNEME_MIGRATIONS:
+            try:
+                conn.execute(migration_sql)
+            except (sqlite3.OperationalError, sqlite3.IntegrityError):
+                pass  # Column already exists — fine
+
         # M1: Schema migration check — verify the FTS5 table columns match
         # expected schema. If they don't, drop and rebuild.
         # v1 schema: id, title, search_text, type, scope, summary, updated
         # v2 schema: id, title, summary, tags, topic_path, body, type, scope, updated
         expected_columns = {"id", "title", "summary", "tags", "topic_path",
-                            "body", "type", "scope", "updated"}
+                            "body", "type", "scope", "sensitivity",
+                            "confidence", "source_path", "updated"}
         try:
             cursor = conn.execute("PRAGMA table_info(mneme_fts)")
             actual_columns = {row["name"] for row in cursor.fetchall()}
@@ -8220,14 +8240,16 @@ def _mneme_build_index(cfg: dict, force: bool = False) -> int:
 
             # Insert new entry
             conn.execute(
-                "INSERT INTO mneme_fts (id, title, summary, tags, topic_path, body, type, scope, updated) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO mneme_fts (id, title, summary, tags, topic_path, body, type, scope, sensitivity, confidence, source_path, updated) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (doc["id"], field_cols[0], field_cols[1], field_cols[2],
-                 field_cols[3], field_cols[4], doc["type"], doc["scope"], doc["updated"]),
+                 field_cols[3], field_cols[4], doc["type"], doc["scope"],
+                 doc.get("sensitivity", "team"), str(doc.get("confidence", 1.0)),
+                 file_path_str, doc["updated"]),
             )
             conn.execute(
-                "INSERT INTO mneme_files (path, mtime, indexed_at) VALUES (?, ?, ?)",
-                (file_path_str, mtime, now),
+                "INSERT INTO mneme_files (path, mtime, indexed_at, sensitivity) VALUES (?, ?, ?, ?)",
+                (file_path_str, mtime, now, doc.get("sensitivity", "team")),
             )
             count += 1
 
@@ -8247,12 +8269,13 @@ def _mneme_build_index(cfg: dict, force: bool = False) -> int:
 
 def _mneme_search(conn, query: str, k: int = 5,
                    scope: str | None = None,
-                   type_filter: str | None = None) -> list[dict]:
+                   type_filter: str | None = None,
+                   sensitivity: str | None = None) -> list[dict]:
     """Search the FTS5 index. Returns top-k results as list of dicts.
 
-    Uses FTS5's built-in BM25 ranking. Filters by scope and type if provided.
-    The user query is wrapped as an FTS5 double-quoted phrase to prevent
-    operator injection (AND, OR, NOT, NEAR, column prefixes, wildcards).
+    Uses FTS5's built-in BM25 ranking. Filters by scope, type, and sensitivity
+    if provided. The user query is wrapped as an FTS5 double-quoted phrase to
+    prevent operator injection (AND, OR, NOT, NEAR, column prefixes, wildcards).
     """
     if not query or not query.strip():
         return []
@@ -8271,16 +8294,21 @@ def _mneme_search(conn, query: str, k: int = 5,
         params.append(scope)
     if type_filter:
         params.append(type_filter)
+    if sensitivity:
+        params.append(sensitivity)
 
     scope_clause = "AND mneme_fts.scope = ?" if scope else ""
     type_clause = "AND mneme_fts.type = ?" if type_filter else ""
+    sensitivity_clause = "AND mneme_fts.sensitivity = ?" if sensitivity else ""
 
     sql = (
         "SELECT mneme_fts.id, mneme_fts.title, mneme_fts.type, mneme_fts.scope, "
-        "mneme_fts.summary, mneme_fts.updated, "
+        "mneme_fts.summary, mneme_fts.updated, mneme_fts.sensitivity, "
+        "mneme_fts.confidence, mneme_fts.source_path, "
+        "snippet(mneme_fts, 5, '<mark>', '</mark>', '…', 40) AS snippet, "
         "bm25(mneme_fts, 0.0, 3.0, 2.0, 2.0, 1.0, 1.0) AS score "
         "FROM mneme_fts "
-        f"WHERE mneme_fts MATCH ? {scope_clause} {type_clause} "
+        f"WHERE mneme_fts MATCH ? {scope_clause} {type_clause} {sensitivity_clause} "
         "ORDER BY score "
         f"LIMIT {max(1, min(k, 100))}"
     )
@@ -8298,6 +8326,11 @@ def _mneme_search(conn, query: str, k: int = 5,
             "type": row["type"] or "",
             "scope": row["scope"] or "",
             "summary": row["summary"] or "",
+            "sensitivity": row["sensitivity"] or "team",
+            "confidence": float(row["confidence"] or 1.0),
+            "source_path": row["source_path"] or "",
+            "updated": row["updated"] or "",
+            "snippet": row["snippet"] or "",
             "score": round(float(row["score"]), 2) if row["score"] is not None else 0.0,
         })
     return results
@@ -8322,14 +8355,16 @@ def _mneme_index_document(cfg: dict, file_path: Path) -> bool:
         conn.execute("DELETE FROM mneme_fts WHERE id = ?", (doc["id"],))
         conn.execute("DELETE FROM mneme_files WHERE path = ?", (file_path_str,))
         conn.execute(
-            "INSERT INTO mneme_fts (id, title, summary, tags, topic_path, body, type, scope, updated) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO mneme_fts (id, title, summary, tags, topic_path, body, type, scope, sensitivity, confidence, source_path, updated) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (doc["id"], field_cols[0], field_cols[1], field_cols[2],
-             field_cols[3], field_cols[4], doc["type"], doc["scope"], doc["updated"]),
+             field_cols[3], field_cols[4], doc["type"], doc["scope"],
+             doc.get("sensitivity", "team"), str(doc.get("confidence", 1.0)),
+             file_path_str, doc["updated"]),
         )
         conn.execute(
-            "INSERT INTO mneme_files (path, mtime, indexed_at) VALUES (?, ?, ?)",
-            (file_path_str, file_path.stat().st_mtime, now),
+            "INSERT INTO mneme_files (path, mtime, indexed_at, sensitivity) VALUES (?, ?, ?, ?)",
+            (file_path_str, file_path.stat().st_mtime, now, doc.get("sensitivity", "team")),
         )
         conn.execute("INSERT INTO mneme_fts(mneme_fts) VALUES('rebuild')")
         conn.commit()
@@ -8409,16 +8444,25 @@ def _mneme_index_stats(cfg: dict) -> dict:
 def _cmd_memory_index(args, cfg) -> None:
     """Handle `perseus memory index {stats,rebuild,search}`."""
     sub = getattr(args, "index_command", None)
+    use_json = getattr(args, "json", False)
 
     if sub == "stats":
         stats = _mneme_index_stats(cfg)
+        if use_json:
+            import json as _json
+            try:
+                size_bytes = Path(stats["index_path"]).stat().st_size if stats["available"] else 0
+                stats["index_size_bytes"] = size_bytes
+            except Exception:
+                stats["index_size_bytes"] = 0
+            print(_json.dumps(stats, indent=2))
+            return
         if not stats["available"]:
             print("Index not available. Vault may not exist yet.")
             return
         print(f"Index: {stats['index_path']}")
         print(f"Documents: {stats['doc_count']}")
         print(f"Files tracked: {stats['indexed_files']}")
-        # Get file size
         try:
             size_bytes = Path(stats["index_path"]).stat().st_size
             print(f"Index size: {_mneme_fmt_bytes(size_bytes)}")
@@ -8428,11 +8472,21 @@ def _cmd_memory_index(args, cfg) -> None:
 
     if sub == "rebuild":
         force = getattr(args, "force", False)
-        print(f"{'Force-rebuilding' if force else 'Rebuilding'} Mnēmē FTS5 index...")
+        if not use_json:
+            print(f"{'Force-rebuilding' if force else 'Rebuilding'} Mnēmē FTS5 index...")
         count = _mneme_build_index(cfg, force=force)
-        print(f"Indexed {count} document{'s' if count != 1 else ''}.")
         stats = _mneme_index_stats(cfg)
-        print(f"Total indexed: {stats['doc_count']}")
+        if use_json:
+            import json as _json
+            print(_json.dumps({
+                "indexed": count,
+                "total": stats["doc_count"],
+                "force": force,
+                "available": stats["available"],
+            }, indent=2))
+        else:
+            print(f"Indexed {count} document{'s' if count != 1 else ''}.")
+            print(f"Total indexed: {stats['doc_count']}")
         return
 
     if sub == "search":
@@ -8443,7 +8497,20 @@ def _cmd_memory_index(args, cfg) -> None:
         k = max(1, min(20, int(getattr(args, "k", 5) or 5)))
         scope = getattr(args, "scope", None) or None
         type_filter = getattr(args, "type", None) or None
-        results = _mneme_recall(cfg, query, k=k, scope=scope, type_filter=type_filter)
+        sensitivity = getattr(args, "sensitivity", None) or None
+        results = _mneme_recall(cfg, query, k=k, scope=scope, type_filter=type_filter, sensitivity=sensitivity)
+        if use_json:
+            import json as _json
+            print(_json.dumps({
+                "query": query,
+                "k": k,
+                "scope": scope,
+                "type": type_filter,
+                "sensitivity": sensitivity,
+                "count": len(results),
+                "results": results,
+            }, indent=2, default=str))
+            return
         if not results:
             print("No results.")
             return
@@ -9720,6 +9787,7 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path) -> str:
 
     scope = (mods.get("scope") or "").strip() or None
     type_filter = (mods.get("type") or "").strip().lower() or None
+    sensitivity = (mods.get("sensitivity") or "").strip().lower() or None
     render_template = (mods.get("render") or "default").strip().lower()
 
     try:
@@ -9727,7 +9795,7 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path) -> str:
     except (ValueError, TypeError):
         k = 5
 
-    hits = _mneme_recall(cfg, query, k=k, scope=scope, type_filter=type_filter)
+    hits = _mneme_recall(cfg, query, k=k, scope=scope, type_filter=type_filter, sensitivity=sensitivity)
     if not hits:
         return "> \u2139\ufe0f No Mn\u0113m\u0113 memories matched.\n"
 
@@ -9738,13 +9806,28 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path) -> str:
         score = h.get("score", 0)
         mem_type = h.get("type", "")
         mem_scope = h.get("scope", "")
+        snippet = h.get("snippet", "")
+        source_path = h.get("source_path", "")
+        updated = h.get("updated", "")
+        confidence = h.get("confidence", 1.0)
 
         if render_template == "compact":
             lines.append(f"  - **{title}**")
         elif render_template == "full":
             lines.append(f"### {title}")
+            meta_parts = []
             if mem_type:
-                lines.append(f"_{mem_type}_  `{mem_scope}`  score: {score:.0f}")
+                meta_parts.append(f"_{mem_type}_")
+            if mem_scope:
+                meta_parts.append(f"`{mem_scope}`")
+            meta_parts.append(f"score: {score:.0f}")
+            if confidence < 1.0:
+                meta_parts.append(f"confidence: {confidence:.0%}")
+            lines.append("  ".join(meta_parts))
+            if source_path:
+                lines.append(f"  *{source_path}*")
+            if snippet:
+                lines.append(f"  > {snippet}")
             lines.append(f"\n{summary}\n")
         else:
             parts = [f"  - **{title}**"]
@@ -9753,8 +9836,14 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path) -> str:
             if mem_scope:
                 parts.append(f"`{mem_scope}`")
             parts.append(summary)
+            meta = []
             if score:
-                parts.append(f"(score: {score:.0f})")
+                meta.append(f"score: {score:.0f}")
+            if snippet:
+                meta.append(f"\"…{snippet}…\"")
+            if source_path:
+                meta.append(f"`{Path(source_path).name}`")
+            parts.append("(" + " · ".join(meta) + ")")
             lines.append(" ".join(parts))
     return "\n".join(lines) + "\n"
 
@@ -12155,6 +12244,46 @@ def _doctor_check_mcp(cfg: dict, workspace: Path) -> DoctorResult:
         return DoctorResult("mcp_server", "error", "mcp_server", str(exc), "Check mcp.py")
 
 
+def _doctor_check_mneme_index(_cfg: dict, _workspace: Path) -> DoctorResult:
+    """Check Mnēmē FTS5 index health — existence, population, orphans."""
+    try:
+        stats = _mneme_index_stats(_cfg)
+        if not stats["available"]:
+            return DoctorResult("mneme_fts_index", "warn", "Mnēmē FTS index",
+                                "index not available (vault may be empty)",
+                                "Add memory files to trigger indexing, or run `perseus memory index rebuild`")
+
+        doc_count = stats["doc_count"]
+        file_count = stats["indexed_files"]
+        index_path = stats["index_path"]
+
+        # Orphan check: files in index that no longer exist in vault
+        orphans = 0
+        try:
+            conn = _mneme_open_index(_cfg)
+            if conn:
+                rows = conn.execute("SELECT file_path FROM mneme_files").fetchall()
+                for (fp,) in rows:
+                    if not Path(fp).exists():
+                        orphans += 1
+        except Exception:
+            pass
+
+        parts = [f"{doc_count} docs, {file_count} files tracked"]
+        if orphans > 0:
+            parts.append(f"{orphans} orphaned entries")
+            return DoctorResult("mneme_fts_index", "warn", "Mnēmē FTS index",
+                                ", ".join(parts),
+                                f"{orphans} orphaned entries — run `perseus memory index rebuild`")
+        if doc_count == 0:
+            return DoctorResult("mneme_fts_index", "warn", "Mnēmē FTS index",
+                                "index exists but is empty",
+                                "Run `perseus memory index rebuild`")
+        return DoctorResult("mneme_fts_index", "ok", "Mnēmē FTS index", ", ".join(parts), "")
+    except Exception as exc:
+        return DoctorResult("mneme_fts_index", "error", "Mnēmē FTS index", str(exc), "Check mneme_index.py")
+
+
 # Ordered list of doctor checks — adding a check is one function + one line here.
 _DOCTOR_CHECKS = [
     _doctor_check_config,
@@ -12163,6 +12292,7 @@ _DOCTOR_CHECKS = [
     _doctor_check_render_outside_workspace,
     _doctor_check_latest_checkpoint,
     _doctor_check_mneme,
+    _doctor_check_mneme_index,
     _doctor_check_federation,
     _doctor_check_pythia_log,
     _doctor_check_serve_loopback,
@@ -13250,6 +13380,33 @@ def cmd_render(args, cfg):
         max_tier = cfg.get("render", {}).get("default_tier", 3)
     if max_tier is None:
         max_tier = 3
+
+    # --explain: emit directive execution manifest instead of rendered output
+    if getattr(args, "explain", False):
+        import json as _json
+        _stats: dict = {"directive_count": 0, "cache_hits": 0, "cache_misses": 0}
+        _directives = []
+        _skipped = []
+        rendered = render_source(text, cfg, workspace, max_tier=max_tier,
+                                 _directive_collector=_directives,
+                                 _stats=_stats,
+                                 _skipped_directives=_skipped)
+        manifest = {
+            "source": str(source_path),
+            "workspace": str(workspace),
+            "version": _PERSEUS_VERSION,
+            "tier": max_tier,
+            "summary": {
+                "directive_count": _stats["directive_count"],
+                "cache_hits": _stats["cache_hits"],
+                "cache_misses": _stats["cache_misses"],
+                "skipped": len(_skipped),
+            },
+            "directives": _directives,
+            "skipped": _skipped,
+        }
+        print(_json.dumps(manifest, indent=2, default=str))
+        return
 
     rendered = render_output(text, fmt, cfg, workspace, title=title, max_tier=max_tier)
 
@@ -14848,6 +15005,12 @@ def main():
              "Directives above this tier are skipped and reported in a manifest. "
              "(default: 3 — everything resolves)",
     )
+    p_render.add_argument(
+        "--explain", action="store_true",
+        help="Emit a directive execution manifest (JSON) instead of rendered output. "
+             "Shows directives, cache hits/misses, durations, warnings, and skipped "
+             "tiered directives.",
+    )
 
     # watch (Phase 20C)
     p_watch = sub.add_parser("watch", help="Poll and refresh render outputs when context sources change")
@@ -15014,13 +15177,17 @@ def main():
     p_mem_idx = mem_sub.add_parser("index", help="Manage the FTS5 search index")
     idx_sub = p_mem_idx.add_subparsers(dest="index_command", required=True)
     p_idx_stats = idx_sub.add_parser("stats", help="Show index statistics")
+    p_idx_stats.add_argument("--json", action="store_true", help="Machine-readable JSON output")
     p_idx_rebuild = idx_sub.add_parser("rebuild", help="Rebuild index from vault")
     p_idx_rebuild.add_argument("--force", action="store_true", help="Re-index all files even if unchanged")
+    p_idx_rebuild.add_argument("--json", action="store_true", help="Machine-readable JSON output")
     p_idx_search = idx_sub.add_parser("search", help="Debug: search the index directly")
     p_idx_search.add_argument("--query", required=True, help="Search query")
     p_idx_search.add_argument("--k", type=int, default=5, help="Max results (1-20)")
     p_idx_search.add_argument("--scope", default=None, help="Filter by scope")
     p_idx_search.add_argument("--type", default=None, help="Filter by memory type")
+    p_idx_search.add_argument("--sensitivity", default=None, help="Filter by sensitivity (team, private, public)")
+    p_idx_search.add_argument("--json", action="store_true", help="Machine-readable JSON output")
 
     # init
     p_init = sub.add_parser("init", help="Scaffold .perseus/context.md for a new workspace")
