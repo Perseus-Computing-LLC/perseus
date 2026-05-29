@@ -27,6 +27,8 @@ CREATE VIRTUAL TABLE IF NOT EXISTS mneme_fts USING fts5(
     type,
     scope,
     sensitivity,
+    confidence,
+    source_path,
     updated,
     tokenize='porter unicode61'
 );
@@ -108,7 +110,8 @@ def _mneme_open_index(cfg: dict):
         # v1 schema: id, title, search_text, type, scope, summary, updated
         # v2 schema: id, title, summary, tags, topic_path, body, type, scope, updated
         expected_columns = {"id", "title", "summary", "tags", "topic_path",
-                            "body", "type", "scope", "sensitivity", "updated"}
+                            "body", "type", "scope", "sensitivity",
+                            "confidence", "source_path", "updated"}
         try:
             cursor = conn.execute("PRAGMA table_info(mneme_fts)")
             actual_columns = {row["name"] for row in cursor.fetchall()}
@@ -238,11 +241,12 @@ def _mneme_build_index(cfg: dict, force: bool = False) -> int:
 
             # Insert new entry
             conn.execute(
-                "INSERT INTO mneme_fts (id, title, summary, tags, topic_path, body, type, scope, sensitivity, updated) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO mneme_fts (id, title, summary, tags, topic_path, body, type, scope, sensitivity, confidence, source_path, updated) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (doc["id"], field_cols[0], field_cols[1], field_cols[2],
                  field_cols[3], field_cols[4], doc["type"], doc["scope"],
-                 doc.get("sensitivity", "team"), doc["updated"]),
+                 doc.get("sensitivity", "team"), str(doc.get("confidence", 1.0)),
+                 file_path_str, doc["updated"]),
             )
             conn.execute(
                 "INSERT INTO mneme_files (path, mtime, indexed_at, sensitivity) VALUES (?, ?, ?, ?)",
@@ -301,6 +305,8 @@ def _mneme_search(conn, query: str, k: int = 5,
     sql = (
         "SELECT mneme_fts.id, mneme_fts.title, mneme_fts.type, mneme_fts.scope, "
         "mneme_fts.summary, mneme_fts.updated, mneme_fts.sensitivity, "
+        "mneme_fts.confidence, mneme_fts.source_path, "
+        "snippet(mneme_fts, 5, '<mark>', '</mark>', '…', 40) AS snippet, "
         "bm25(mneme_fts, 0.0, 3.0, 2.0, 2.0, 1.0, 1.0) AS score "
         "FROM mneme_fts "
         f"WHERE mneme_fts MATCH ? {scope_clause} {type_clause} {sensitivity_clause} "
@@ -322,6 +328,10 @@ def _mneme_search(conn, query: str, k: int = 5,
             "scope": row["scope"] or "",
             "summary": row["summary"] or "",
             "sensitivity": row["sensitivity"] or "team",
+            "confidence": float(row["confidence"] or 1.0),
+            "source_path": row["source_path"] or "",
+            "updated": row["updated"] or "",
+            "snippet": row["snippet"] or "",
             "score": round(float(row["score"]), 2) if row["score"] is not None else 0.0,
         })
     return results
@@ -346,11 +356,12 @@ def _mneme_index_document(cfg: dict, file_path: Path) -> bool:
         conn.execute("DELETE FROM mneme_fts WHERE id = ?", (doc["id"],))
         conn.execute("DELETE FROM mneme_files WHERE path = ?", (file_path_str,))
         conn.execute(
-            "INSERT INTO mneme_fts (id, title, summary, tags, topic_path, body, type, scope, sensitivity, updated) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO mneme_fts (id, title, summary, tags, topic_path, body, type, scope, sensitivity, confidence, source_path, updated) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (doc["id"], field_cols[0], field_cols[1], field_cols[2],
              field_cols[3], field_cols[4], doc["type"], doc["scope"],
-             doc.get("sensitivity", "team"), doc["updated"]),
+             doc.get("sensitivity", "team"), str(doc.get("confidence", 1.0)),
+             file_path_str, doc["updated"]),
         )
         conn.execute(
             "INSERT INTO mneme_files (path, mtime, indexed_at, sensitivity) VALUES (?, ?, ?, ?)",

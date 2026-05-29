@@ -363,13 +363,28 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path) -> str:
         score = h.get("score", 0)
         mem_type = h.get("type", "")
         mem_scope = h.get("scope", "")
+        snippet = h.get("snippet", "")
+        source_path = h.get("source_path", "")
+        updated = h.get("updated", "")
+        confidence = h.get("confidence", 1.0)
 
         if render_template == "compact":
             lines.append(f"  - **{title}**")
         elif render_template == "full":
             lines.append(f"### {title}")
+            meta_parts = []
             if mem_type:
-                lines.append(f"_{mem_type}_  `{mem_scope}`  score: {score:.0f}")
+                meta_parts.append(f"_{mem_type}_")
+            if mem_scope:
+                meta_parts.append(f"`{mem_scope}`")
+            meta_parts.append(f"score: {score:.0f}")
+            if confidence < 1.0:
+                meta_parts.append(f"confidence: {confidence:.0%}")
+            lines.append("  ".join(meta_parts))
+            if source_path:
+                lines.append(f"  *{source_path}*")
+            if snippet:
+                lines.append(f"  > {snippet}")
             lines.append(f"\n{summary}\n")
         else:
             parts = [f"  - **{title}**"]
@@ -378,8 +393,14 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path) -> str:
             if mem_scope:
                 parts.append(f"`{mem_scope}`")
             parts.append(summary)
+            meta = []
             if score:
-                parts.append(f"(score: {score:.0f})")
+                meta.append(f"score: {score:.0f}")
+            if snippet:
+                meta.append(f"\"…{snippet}…\"")
+            if source_path:
+                meta.append(f"`{Path(source_path).name}`")
+            parts.append("(" + " · ".join(meta) + ")")
             lines.append(" ".join(parts))
     return "\n".join(lines) + "\n"
 

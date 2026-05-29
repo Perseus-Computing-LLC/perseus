@@ -7316,6 +7316,7 @@ def render_source(
     _include_path_chain: tuple = (),
     _directive_collector: list[dict] | None = None,
     _stats: dict | None = None,
+    _skipped_directives: list[dict] | None = None,
 ) -> str:
     """
     Parse and resolve a @perseus source document.
@@ -7358,7 +7359,8 @@ def render_source(
         body_lines = _expand_macros(body_lines, macros)
 
     _constraint_rows = []
-    _skipped_directives = []
+    if _skipped_directives is None:
+        _skipped_directives = []
     result = _render_lines(body_lines, cfg, workspace, _constraint_rows,
                          _include_depth=_include_depth,
                          _include_path_chain=_include_path_chain,
@@ -8024,6 +8026,8 @@ CREATE VIRTUAL TABLE IF NOT EXISTS mneme_fts USING fts5(
     type,
     scope,
     sensitivity,
+    confidence,
+    source_path,
     updated,
     tokenize='porter unicode61'
 );
@@ -8105,7 +8109,8 @@ def _mneme_open_index(cfg: dict):
         # v1 schema: id, title, search_text, type, scope, summary, updated
         # v2 schema: id, title, summary, tags, topic_path, body, type, scope, updated
         expected_columns = {"id", "title", "summary", "tags", "topic_path",
-                            "body", "type", "scope", "sensitivity", "updated"}
+                            "body", "type", "scope", "sensitivity",
+                            "confidence", "source_path", "updated"}
         try:
             cursor = conn.execute("PRAGMA table_info(mneme_fts)")
             actual_columns = {row["name"] for row in cursor.fetchall()}
@@ -8235,11 +8240,12 @@ def _mneme_build_index(cfg: dict, force: bool = False) -> int:
 
             # Insert new entry
             conn.execute(
-                "INSERT INTO mneme_fts (id, title, summary, tags, topic_path, body, type, scope, sensitivity, updated) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO mneme_fts (id, title, summary, tags, topic_path, body, type, scope, sensitivity, confidence, source_path, updated) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (doc["id"], field_cols[0], field_cols[1], field_cols[2],
                  field_cols[3], field_cols[4], doc["type"], doc["scope"],
-                 doc.get("sensitivity", "team"), doc["updated"]),
+                 doc.get("sensitivity", "team"), str(doc.get("confidence", 1.0)),
+                 file_path_str, doc["updated"]),
             )
             conn.execute(
                 "INSERT INTO mneme_files (path, mtime, indexed_at, sensitivity) VALUES (?, ?, ?, ?)",
@@ -8298,6 +8304,8 @@ def _mneme_search(conn, query: str, k: int = 5,
     sql = (
         "SELECT mneme_fts.id, mneme_fts.title, mneme_fts.type, mneme_fts.scope, "
         "mneme_fts.summary, mneme_fts.updated, mneme_fts.sensitivity, "
+        "mneme_fts.confidence, mneme_fts.source_path, "
+        "snippet(mneme_fts, 5, '<mark>', '</mark>', '…', 40) AS snippet, "
         "bm25(mneme_fts, 0.0, 3.0, 2.0, 2.0, 1.0, 1.0) AS score "
         "FROM mneme_fts "
         f"WHERE mneme_fts MATCH ? {scope_clause} {type_clause} {sensitivity_clause} "
@@ -8319,6 +8327,10 @@ def _mneme_search(conn, query: str, k: int = 5,
             "scope": row["scope"] or "",
             "summary": row["summary"] or "",
             "sensitivity": row["sensitivity"] or "team",
+            "confidence": float(row["confidence"] or 1.0),
+            "source_path": row["source_path"] or "",
+            "updated": row["updated"] or "",
+            "snippet": row["snippet"] or "",
             "score": round(float(row["score"]), 2) if row["score"] is not None else 0.0,
         })
     return results
@@ -8343,11 +8355,12 @@ def _mneme_index_document(cfg: dict, file_path: Path) -> bool:
         conn.execute("DELETE FROM mneme_fts WHERE id = ?", (doc["id"],))
         conn.execute("DELETE FROM mneme_files WHERE path = ?", (file_path_str,))
         conn.execute(
-            "INSERT INTO mneme_fts (id, title, summary, tags, topic_path, body, type, scope, sensitivity, updated) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO mneme_fts (id, title, summary, tags, topic_path, body, type, scope, sensitivity, confidence, source_path, updated) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (doc["id"], field_cols[0], field_cols[1], field_cols[2],
              field_cols[3], field_cols[4], doc["type"], doc["scope"],
-             doc.get("sensitivity", "team"), doc["updated"]),
+             doc.get("sensitivity", "team"), str(doc.get("confidence", 1.0)),
+             file_path_str, doc["updated"]),
         )
         conn.execute(
             "INSERT INTO mneme_files (path, mtime, indexed_at, sensitivity) VALUES (?, ?, ?, ?)",
@@ -9793,13 +9806,28 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path) -> str:
         score = h.get("score", 0)
         mem_type = h.get("type", "")
         mem_scope = h.get("scope", "")
+        snippet = h.get("snippet", "")
+        source_path = h.get("source_path", "")
+        updated = h.get("updated", "")
+        confidence = h.get("confidence", 1.0)
 
         if render_template == "compact":
             lines.append(f"  - **{title}**")
         elif render_template == "full":
             lines.append(f"### {title}")
+            meta_parts = []
             if mem_type:
-                lines.append(f"_{mem_type}_  `{mem_scope}`  score: {score:.0f}")
+                meta_parts.append(f"_{mem_type}_")
+            if mem_scope:
+                meta_parts.append(f"`{mem_scope}`")
+            meta_parts.append(f"score: {score:.0f}")
+            if confidence < 1.0:
+                meta_parts.append(f"confidence: {confidence:.0%}")
+            lines.append("  ".join(meta_parts))
+            if source_path:
+                lines.append(f"  *{source_path}*")
+            if snippet:
+                lines.append(f"  > {snippet}")
             lines.append(f"\n{summary}\n")
         else:
             parts = [f"  - **{title}**"]
@@ -9808,8 +9836,14 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path) -> str:
             if mem_scope:
                 parts.append(f"`{mem_scope}`")
             parts.append(summary)
+            meta = []
             if score:
-                parts.append(f"(score: {score:.0f})")
+                meta.append(f"score: {score:.0f}")
+            if snippet:
+                meta.append(f"\"…{snippet}…\"")
+            if source_path:
+                meta.append(f"`{Path(source_path).name}`")
+            parts.append("(" + " · ".join(meta) + ")")
             lines.append(" ".join(parts))
     return "\n".join(lines) + "\n"
 
@@ -13347,6 +13381,33 @@ def cmd_render(args, cfg):
     if max_tier is None:
         max_tier = 3
 
+    # --explain: emit directive execution manifest instead of rendered output
+    if getattr(args, "explain", False):
+        import json as _json
+        _stats: dict = {"directive_count": 0, "cache_hits": 0, "cache_misses": 0}
+        _directives = []
+        _skipped = []
+        rendered = render_source(text, cfg, workspace, max_tier=max_tier,
+                                 _directive_collector=_directives,
+                                 _stats=_stats,
+                                 _skipped_directives=_skipped)
+        manifest = {
+            "source": str(source_path),
+            "workspace": str(workspace),
+            "version": _PERSEUS_VERSION,
+            "tier": max_tier,
+            "summary": {
+                "directive_count": _stats["directive_count"],
+                "cache_hits": _stats["cache_hits"],
+                "cache_misses": _stats["cache_misses"],
+                "skipped": len(_skipped),
+            },
+            "directives": _directives,
+            "skipped": _skipped,
+        }
+        print(_json.dumps(manifest, indent=2, default=str))
+        return
+
     rendered = render_output(text, fmt, cfg, workspace, title=title, max_tier=max_tier)
 
     is_assistant_format = fmt in ("agents-md", "claude-md", "cursorrules", "copilot-instructions")
@@ -14943,6 +15004,12 @@ def main():
         help="Context tier limit: 1=always (minimal), 2=conditional, 3=all. "
              "Directives above this tier are skipped and reported in a manifest. "
              "(default: 3 — everything resolves)",
+    )
+    p_render.add_argument(
+        "--explain", action="store_true",
+        help="Emit a directive execution manifest (JSON) instead of rendered output. "
+             "Shows directives, cache hits/misses, durations, warnings, and skipped "
+             "tiered directives.",
     )
 
     # watch (Phase 20C)
