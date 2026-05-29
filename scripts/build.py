@@ -24,7 +24,6 @@ MODULE_ORDER = [
     "src/perseus/hooks.py",
     "src/perseus/webhooks.py",
     "src/perseus/registry.py",
-    "src/perseus/macros.py",
     "src/perseus/redaction.py",
     "src/perseus/audit.py",
     "src/perseus/directives/env.py",
@@ -88,7 +87,38 @@ STDLIB_REMINDER_RE = re.compile(
 )
 
 # Baseline line count for drift detection.
-BASELINE_LINES = 15278  # post-serve-decomposition (serve.py + new modules: doctor/scheduler/synthesis/update)
+BASELINE_LINES = 15315  # after removing dead macros.py + hooks._fire_webhook duplicates
+
+# Matches a top-level (column-0) def/class definition.
+TOPLEVEL_DEF_RE = re.compile(r"^(?:def|class)\s+([A-Za-z_]\w*)")
+
+
+def _check_duplicate_symbols(repo_root: Path) -> list[str]:
+    """Detect top-level def/class names defined in more than one source module.
+
+    The build concatenates 28 modules into one global namespace, so two modules
+    defining the same top-level name silently shadow each other — the one later
+    in MODULE_ORDER wins, with no error. That has masked divergent dead copies
+    (e.g. an older _expand_macros / _fire_webhook). This guard makes such a
+    collision a build failure so duplicates are caught at build time, not by
+    chance of ordering.
+
+    Returns a list of human-readable collision descriptions (empty = clean).
+    """
+    seen: dict[str, list[str]] = {}
+    for rel_path in MODULE_ORDER:
+        path = repo_root / rel_path
+        if not path.exists():
+            continue
+        for line in path.read_text(encoding="utf-8").splitlines():
+            m = TOPLEVEL_DEF_RE.match(line)
+            if m:
+                seen.setdefault(m.group(1), []).append(rel_path)
+    collisions = []
+    for name, modules in sorted(seen.items()):
+        if len(modules) > 1:
+            collisions.append(f"  {name!r} defined in: {', '.join(modules)}")
+    return collisions
 
 
 def render_artifact(repo_root: Path) -> str:
@@ -198,6 +228,17 @@ def build(output_path: Path | None = None) -> None:
     if _check_version_sync(repo_root):
         print("WARNING: version drift detected — run `python scripts/build.py --check` to see details", file=sys.stderr)
 
+    # Fatal: duplicate top-level symbols would silently shadow across modules.
+    dupes = _check_duplicate_symbols(repo_root)
+    if dupes:
+        print(
+            "ERROR: duplicate top-level def/class names across modules "
+            "(concatenation would silently shadow one of each):",
+            file=sys.stderr,
+        )
+        print("\n".join(dupes), file=sys.stderr)
+        sys.exit(1)
+
     output = render_artifact(repo_root)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(output, encoding="utf-8")
@@ -253,6 +294,13 @@ def check() -> None:
     # Check version sync first
     if _check_version_sync(repo_root):
         print("ERROR: version drift detected — sync VERSION to server.json / pyproject.toml", file=sys.stderr)
+        sys.exit(1)
+
+    # Fatal: duplicate top-level symbols would silently shadow across modules.
+    dupes = _check_duplicate_symbols(repo_root)
+    if dupes:
+        print("ERROR: duplicate top-level def/class names across modules:", file=sys.stderr)
+        print("\n".join(dupes), file=sys.stderr)
         sys.exit(1)
 
     output = render_artifact(repo_root)

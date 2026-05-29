@@ -116,35 +116,10 @@ def _fire_shell_hook(cmd_template: str, payload: dict, event: str) -> None:
         print(f"Perseus hook shell error ({event}): {e}", file=sys.stderr)
 
 
-def _fire_webhook(event: str, payload: dict, cfg: dict) -> None:
-    """POST render lifecycle event to configured webhook URL (fire-and-forget)."""
-    wh = cfg.get("webhooks", {})
-    if not wh or not wh.get("enabled") or not wh.get("url"):
-        return
-    if event not in wh.get("events", []):
-        return
-    try:
-        body = json.dumps({
-            "event": event,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "workspace_hash": hashlib.sha256(
-                (payload.get("workspace") or "").encode()
-            ).hexdigest()[:16] if payload.get("workspace") else None,
-            "data": payload,
-        })
-        data = body.encode("utf-8")
-        req = urllib.request.Request(
-            wh["url"], data=data,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        secret = wh.get("secret", "")
-        if secret:
-            sig = hashlib.sha256(secret.encode() + data).hexdigest()
-            req.add_header("X-Perseus-Signature", f"sha256={sig}")
-        urllib.request.urlopen(req, timeout=wh.get("timeout_s", 5))
-    except Exception as e:
-        print(f"Perseus webhook error ({event}): {e}", file=sys.stderr)
+# NOTE: _fire_webhook lives in webhooks.py (multi-endpoint version). An older
+# single-URL copy used to be defined here too; in the concatenated artifact the
+# webhooks.py definition (later in MODULE_ORDER) silently won, leaving this copy
+# dead. Removed to eliminate the shadowing — see scripts/build.py duplicate guard.
 
 
 def _reset_hooks_cache() -> None:
