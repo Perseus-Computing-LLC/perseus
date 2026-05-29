@@ -116,6 +116,8 @@ def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path) ->
       @read <file>         → sha256 of file content
       @include <file>      → sha256 of file content (first-level only;
                               transitive deps handled by recursive render)
+      @list <dir>          → sha256 of directory listing (file names + mtimes)
+      @tree <dir>          → sha256 of recursive directory listing
       @env <VAR>           → no fingerprint (value changes per-process)
       @query ...           → no fingerprint (shell output depends on system state,
                               not static files — let TTL handle staleness)
@@ -133,6 +135,20 @@ def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path) ->
             try:
                 content = fpath.read_bytes()
                 parts.append(f"{directive}:{raw_path}:{_hashlib.sha256(content).hexdigest()}")
+            except (OSError, PermissionError):
+                pass  # can't read → no fingerprint (cache miss is safe)
+
+    if directive in ("@list", "@tree"):
+        raw_path = clean_args.split()[0] if clean_args else ""
+        if raw_path:
+            dpath = (workspace / raw_path).resolve()
+            try:
+                entries = sorted(dpath.iterdir()) if directive == "@list" else sorted(dpath.rglob("*"))
+                listing_data = "|".join(
+                    f"{p.name}:{p.stat().st_mtime_ns if p.exists() else 0}:{int(p.is_dir())}"
+                    for p in entries
+                )
+                parts.append(f"{directive}:{raw_path}:{_hashlib.sha256(listing_data.encode()).hexdigest()}")
             except (OSError, PermissionError):
                 pass  # can't read → no fingerprint (cache miss is safe)
 
