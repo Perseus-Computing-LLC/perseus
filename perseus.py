@@ -13429,6 +13429,29 @@ def cmd_render(args, cfg):
         print(rendered)
 
 
+def cmd_warmup(args, cfg):
+    """Pre-populate the render cache for a context file without writing output."""
+    source_path = Path(args.source).expanduser().resolve()
+    if not source_path.exists():
+        print(f"Error: file not found: {source_path}", file=sys.stderr)
+        sys.exit(1)
+
+    workspace = _infer_workspace(source_path)
+    cfg = load_config(workspace)
+    text = source_path.read_text(errors="replace")
+
+    _stats = {"directive_count": 0, "cache_hits": 0, "cache_misses": 0}
+    render_source(text, cfg, workspace, _stats=_stats)
+
+    total_dirs = _stats["directive_count"]
+    cached = _stats["cache_hits"] + _stats["cache_misses"]
+    if cached > 0:
+        print(f"Warmup complete: {total_dirs} directives, "
+              f"{_stats['cache_hits']} cached, {_stats['cache_misses']} newly cached")
+    else:
+        print(f"Warmup complete: {total_dirs} directives resolved (no @cache directives found)")
+
+
 class WatchTarget(NamedTuple):
     """One watched source/output render pair."""
     name: str
@@ -15307,6 +15330,11 @@ def main():
     p_update.add_argument("--auto", default=None, metavar="on|off",
                           help="Toggle auto-update on/off and persist to config")
 
+    # warmup (pre-populate cache)
+    p_warmup = sub.add_parser("warmup", help="Pre-populate render cache for a context file")
+    p_warmup.add_argument("source", help="Path to .md file with @perseus header")
+    p_warmup.add_argument("--workspace", default=None, help="Workspace path (default: inferred)")
+
     # oracle (Daedalus dataset / labeling)
     p_oracle = sub.add_parser("oracle", help="Pythia log labeling and dataset export")
     oracle_sub = p_oracle.add_subparsers(dest="oracle_command", required=True)
@@ -15400,6 +15428,8 @@ def main():
         return cmd_trust(args, cfg)
     elif args.command == "update":
         return cmd_update(args, cfg)
+    elif args.command == "warmup":
+        cmd_warmup(args, cfg)
     elif args.command == "oracle":
         rc = cmd_oracle(args, cfg)
         if isinstance(rc, int):
