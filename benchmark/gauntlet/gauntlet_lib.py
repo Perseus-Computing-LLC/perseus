@@ -554,18 +554,38 @@ def generate_final_report(
 
 
 def _compute_gauntlet_score(
-    gate_report: dict, phase_results: list[dict]
+    gate_report: dict, phase_results: list[dict], gate_results: list[dict] | None = None,
 ) -> float:
-    """Compute overall Gauntlet score 0–100."""
+    """Compute overall Gauntlet score 0–100.
+
+    If gate_results is provided, gates marked as skipped (phase not run)
+    are excluded from both the pass-rate base and hard-fail penalty.
+    This makes smoke/partial runs produce meaningful scores instead of
+    always scoring 0.0 from skipped-phase gate penalties.
+    """
     if gate_report["total"] == 0:
         return 0.0
-    # Base: gate pass rate * 70
-    base = (gate_report["passed"] / gate_report["total"]) * 70.0
+
+    # Exclude skipped gates from scoring (they have no data to evaluate)
+    skipped = set()
+    if gate_results:
+        skipped = {g["name"] for g in gate_results if g.get("skipped")}
+
+    active_total = gate_report["total"] - len(skipped)
+    if active_total <= 0:
+        # All gates skipped — score 100 (nothing to evaluate, no failures)
+        return 100.0
+
+    # Base: gate pass rate among active (non-skipped) gates * 70
+    base = (gate_report["passed"] / active_total) * 70.0
     # Phases completed bonus: up to 20
     completed = sum(1 for pr in phase_results if pr.get("failures", 1) == 0)
     phase_bonus = (completed / max(len(phase_results), 1)) * 20.0
-    # Hard-fail penalty: -10 per failed hard gate
-    penalty = len(gate_report.get("hard_failed", [])) * 10.0
+    # Hard-fail penalty: -10 per failed hard gate, skipping skipped gates
+    penalty = len([
+        g for g in gate_report.get("hard_failed", [])
+        if not gate_results or g["name"] not in skipped
+    ]) * 10.0
     return max(0.0, min(100.0, base + phase_bonus - penalty))
 
 
