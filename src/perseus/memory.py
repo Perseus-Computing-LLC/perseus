@@ -32,7 +32,8 @@ def _mneme_index_path(cfg: dict) -> Path:
 
 def _mneme_recall(cfg: dict, query: str, k: int = 5,
                    scope: str | None = None,
-                   type_filter: str | None = None) -> list[dict]:
+                   type_filter: str | None = None,
+                   sensitivity: str | None = None) -> list[dict]:
     """Recall memories via SQLite FTS5 BM25 index.
 
     Uses a process-lifetime cached connection (WAL mode handles concurrency).
@@ -51,6 +52,6 @@ def _mneme_recall(cfg: dict, query: str, k: int = 5,
             if count == 0:
                 return []
 
-        return _mneme_search(conn, query, k, scope, type_filter)
+        return _mneme_search(conn, query, k, scope, type_filter, sensitivity)
     except Exception:
         return []
