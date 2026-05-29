@@ -291,7 +291,7 @@ def _discover_plugins(cfg: dict) -> list["DirectiveSpec"]:
     Set plugins.allow_unsigned: true to skip manifest verification (opt-in).
     """
     plugins_cfg = cfg.get("plugins", {})
-    if not plugins_cfg.get("enabled", True):
+    if not plugins_cfg.get("enabled", PLUGINS_ENABLED_DEFAULT):
         return []
     plugins_dir = Path(plugins_cfg.get("dir", str(PERSEUS_HOME / "plugins")))
     if not plugins_dir.is_dir():
@@ -487,7 +487,7 @@ def register_plugins(cfg: dict, force: bool = False) -> int:
     collision cases warn to stderr. Returns the count of new directives added.
     """
     plugins_cfg = cfg.get("plugins") or {}
-    if not plugins_cfg.get("enabled", True):
+    if not plugins_cfg.get("enabled", PLUGINS_ENABLED_DEFAULT):
         return 0
     plugins_dir = str(Path(plugins_cfg.get("dir", str(PERSEUS_HOME / "plugins"))))
     if not force and plugins_dir in _PLUGIN_LOADED_DIRS:
