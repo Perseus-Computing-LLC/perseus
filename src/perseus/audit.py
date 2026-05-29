@@ -687,13 +687,18 @@ def _validate_basic_schema(data: object, schema: object, prefix: str = "") -> li
 
 
 def _resolve_path(file_path_str: str, workspace: Path | None = None, allow_outside_workspace: bool = False) -> tuple[Path, str | None]:
-    """Resolve a path relative to workspace and optionally block escapes."""
+    """Resolve a path relative to workspace and optionally block escapes.
+
+    When workspace is None, falls back to cwd so the boundary check still
+    applies. A None workspace = unrestricted reads would be a defense gap
+    for programmatic consumers that don't pass an explicit workspace.
+    """
     fp = Path(file_path_str).expanduser()
-    if not fp.is_absolute() and workspace:
-        fp = workspace / fp
+    ws = (workspace or Path.cwd()).expanduser().resolve()
+    if not fp.is_absolute():
+        fp = ws / fp
     fp = fp.resolve(strict=False)
-    if workspace and not allow_outside_workspace:
-        ws = workspace.expanduser().resolve()
+    if not allow_outside_workspace:
         try:
             fp.relative_to(ws)
         except ValueError:
