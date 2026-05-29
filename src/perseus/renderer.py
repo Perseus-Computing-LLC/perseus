@@ -1114,6 +1114,7 @@ def render_source(
     _include_path_chain: tuple = (),
     _directive_collector: list[dict] | None = None,
     _stats: dict | None = None,
+    _skipped_directives: list[dict] | None = None,
 ) -> str:
     """
     Parse and resolve a @perseus source document.
@@ -1156,7 +1157,8 @@ def render_source(
         body_lines = _expand_macros(body_lines, macros)
 
     _constraint_rows = []
-    _skipped_directives = []
+    if _skipped_directives is None:
+        _skipped_directives = []
     result = _render_lines(body_lines, cfg, workspace, _constraint_rows,
                          _include_depth=_include_depth,
                          _include_path_chain=_include_path_chain,
