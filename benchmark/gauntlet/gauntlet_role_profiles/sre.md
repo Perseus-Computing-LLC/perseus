@@ -1,62 +1,62 @@
 @perseus v0.8
 @prompt You are a simulated sre working inside a large enterprise.
 
-@query "git log --oneline -5" @cache ttl=300
-@query "kubectl version --short" @cache ttl=300
-@query "kubectl get nodes -o wide" @cache ttl=300
-@query "kubectl top nodes" @cache ttl=300
-@query "kubectl top pods -A" @cache ttl=300
-@query "kubectl describe nodes" @cache ttl=300
-@query "kubectl get events -A --sort-by=.lastTimestamp" @cache ttl=300
-@query "kubectl get hpa -A" @cache ttl=300
-@query "kubectl get pdb -A" @cache ttl=300
-@query "kubectl get networkpolicies -A" @cache ttl=300
-@query "kubectl get crd" @cache ttl=300
-@query "terraform version" @cache ttl=300
-@query "terraform plan -detailed-exitcode" @cache ttl=300
-@query "promtool check rules /etc/prometheus/rules/*.yml" @cache ttl=300
-@query "promtool test rules /etc/prometheus/rules/test/*.yml" @cache ttl=300
-@query "amtool --version" @cache ttl=300
-@query "amtool silence list" @cache ttl=300
-@query "curl -s http://localhost:9090/api/v1/status/runtimeinfo" @cache ttl=300
-@query "curl -s http://localhost:9090/api/v1/status/buildinfo" @cache ttl=300
-@query "curl -s http://localhost:9090/api/v1/alerts | head -100" @cache ttl=300
-@query "curl -s http://localhost:9090/api/v1/targets | head -100" @cache ttl=300
-@query "curl -s http://localhost:9093/api/v2/alerts | head -100" @cache ttl=300
-@query "curl -s http://localhost:3000/api/health" @cache ttl=300
-@query "curl -s http://localhost:3100/ready" @cache ttl=300
-@query "curl -s http://localhost:9090/api/v1/query?query=up" @cache ttl=300
-@query "curl -s http://localhost:9090/api/v1/query?query=node_load1" @cache ttl=300
-@query "curl -s http://localhost:9090/api/v1/query?query=node_memory_MemAvailable_bytes" @cache ttl=300
-@query "curl -s http://localhost:9090/api/v1/query?query=node_filesystem_free_bytes" @cache ttl=300
-@query "df -h" @cache ttl=300
-@query "df -i /" @cache ttl=300
-@query "free -m" @cache ttl=300
-@query "uptime" @cache ttl=300
-@query "uname -a" @cache ttl=300
-@query "hostnamectl" @cache ttl=300
-@query "timedatectl" @cache ttl=300
-@query "ip addr show" @cache ttl=300
-@query "ss -tlnp" @cache ttl=300
-@query "ss -ulnp" @cache ttl=300
-@query "ping -c 3 localhost" @cache ttl=300
-@query "journalctl -n 20 --no-pager -u kubelet" @cache ttl=300
-@query "journalctl -n 20 --no-pager -u docker" @cache ttl=300
-@query "systemctl list-units --type=service --state=running" @cache ttl=300
-@query "systemctl status prometheus" @cache ttl=300
-@query "systemctl status alertmanager" @cache ttl=300
-@query "systemctl status grafana-server" @cache ttl=300
-@query "ps aux --sort=-%cpu | head -20" @cache ttl=300
-@query "ps aux --sort=-%mem | head -20" @cache ttl=300
-@query "top -bn1 | head -30" @cache ttl=300
-@query "vmstat 1 1" @cache ttl=300
-@query "iostat -x 1 1" @cache ttl=300
-@query "sar -u 1 1" @cache ttl=300
-@query "sar -r 1 1" @cache ttl=300
-@query "cat /proc/cpuinfo | grep 'model name' | head -1" @cache ttl=300
-@query "cat /proc/meminfo | head -10" @cache ttl=300
-@query "cat /proc/loadavg" @cache ttl=300
-@query "cat /proc/uptime" @cache ttl=300
+@query "git log --oneline -5" timeout=5 @cache ttl=300
+@query "kubectl version --short" timeout=5 @cache ttl=300
+@query "kubectl get nodes -o wide" timeout=5 @cache ttl=300
+@query "kubectl top nodes" timeout=5 @cache ttl=300
+@query "kubectl top pods -A" timeout=5 @cache ttl=300
+@query "kubectl describe nodes" timeout=5 @cache ttl=300
+@query "kubectl get events -A --sort-by=.lastTimestamp" timeout=5 @cache ttl=300
+@query "kubectl get hpa -A" timeout=5 @cache ttl=300
+@query "kubectl get pdb -A" timeout=5 @cache ttl=300
+@query "kubectl get networkpolicies -A" timeout=5 @cache ttl=300
+@query "kubectl get crd" timeout=5 @cache ttl=300
+@query "terraform version" timeout=5 @cache ttl=300
+@query "terraform plan -detailed-exitcode" timeout=5 @cache ttl=300
+@query "promtool check rules /etc/prometheus/rules/*.yml" timeout=5 @cache ttl=300
+@query "promtool test rules /etc/prometheus/rules/test/*.yml" timeout=5 @cache ttl=300
+@query "amtool --version" timeout=5 @cache ttl=300
+@query "amtool silence list" timeout=5 @cache ttl=300
+@query "curl -s http://localhost:9090/api/v1/status/runtimeinfo" timeout=5 @cache ttl=300
+@query "curl -s http://localhost:9090/api/v1/status/buildinfo" timeout=5 @cache ttl=300
+@query "curl -s http://localhost:9090/api/v1/alerts | head -100" timeout=5 @cache ttl=300
+@query "curl -s http://localhost:9090/api/v1/targets | head -100" timeout=5 @cache ttl=300
+@query "curl -s http://localhost:9093/api/v2/alerts | head -100" timeout=5 @cache ttl=300
+@query "curl -s http://localhost:3000/api/health" timeout=5 @cache ttl=300
+@query "curl -s http://localhost:3100/ready" timeout=5 @cache ttl=300
+@query "curl -s http://localhost:9090/api/v1/query?query=up" timeout=5 @cache ttl=300
+@query "curl -s http://localhost:9090/api/v1/query?query=node_load1" timeout=5 @cache ttl=300
+@query "curl -s http://localhost:9090/api/v1/query?query=node_memory_MemAvailable_bytes" timeout=5 @cache ttl=300
+@query "curl -s http://localhost:9090/api/v1/query?query=node_filesystem_free_bytes" timeout=5 @cache ttl=300
+@query "df -h" timeout=5 @cache ttl=300
+@query "df -i /" timeout=5 @cache ttl=300
+@query "free -m" timeout=5 @cache ttl=300
+@query "uptime" timeout=5 @cache ttl=300
+@query "uname -a" timeout=5 @cache ttl=300
+@query "hostnamectl" timeout=5 @cache ttl=300
+@query "timedatectl" timeout=5 @cache ttl=300
+@query "ip addr show" timeout=5 @cache ttl=300
+@query "ss -tlnp" timeout=5 @cache ttl=300
+@query "ss -ulnp" timeout=5 @cache ttl=300
+@query "ping -c 3 localhost" timeout=5 @cache ttl=300
+@query "journalctl -n 20 --no-pager -u kubelet" timeout=5 @cache ttl=300
+@query "journalctl -n 20 --no-pager -u docker" timeout=5 @cache ttl=300
+@query "systemctl list-units --type=service --state=running" timeout=5 @cache ttl=300
+@query "systemctl status prometheus" timeout=5 @cache ttl=300
+@query "systemctl status alertmanager" timeout=5 @cache ttl=300
+@query "systemctl status grafana-server" timeout=5 @cache ttl=300
+@query "ps aux --sort=-%cpu | head -20" timeout=5 @cache ttl=300
+@query "ps aux --sort=-%mem | head -20" timeout=5 @cache ttl=300
+@query "top -bn1 | head -30" timeout=5 @cache ttl=300
+@query "vmstat 1 1" timeout=5 @cache ttl=300
+@query "iostat -x 1 1" timeout=5 @cache ttl=300
+@query "sar -u 1 1" timeout=5 @cache ttl=300
+@query "sar -r 1 1" timeout=5 @cache ttl=300
+@query "cat /proc/cpuinfo | grep 'model name' | head -1" timeout=5 @cache ttl=300
+@query "cat /proc/meminfo | head -10" timeout=5 @cache ttl=300
+@query "cat /proc/loadavg" timeout=5 @cache ttl=300
+@query "cat /proc/uptime" timeout=5 @cache ttl=300
 @services
   - name: prom-0
     url: http://localhost:9090/health

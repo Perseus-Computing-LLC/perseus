@@ -1,47 +1,47 @@
 @perseus v0.8
 @prompt You are a simulated devtools working inside a large enterprise.
 
-@query "git log --oneline -5" @cache ttl=300
-@query "bazel --version 2>/dev/null" @cache ttl=300
-@query "make --version" @cache ttl=300
-@query "cmake --version" @cache ttl=300
-@query "ninja --version" @cache ttl=300
-@query "mvn --version" @cache ttl=300
-@query "gradle --version" @cache ttl=300
-@query "sbt --version" @cache ttl=300
-@query "cargo --version" @cache ttl=300
-@query "go version" @cache ttl=300
-@query "rustc --version" @cache ttl=300
-@query "clang --version" @cache ttl=300
-@query "gcc --version" @cache ttl=300
-@query "g++ --version" @cache ttl=300
-@query "ccache --version" @cache ttl=300
-@query "sccache --version" @cache ttl=300
-@query "distcc --version" @cache ttl=300
-@query "buck2 --version 2>/dev/null" @cache ttl=300
-@query "pants --version 2>/dev/null" @cache ttl=300
-@query "please --version 2>/dev/null" @cache ttl=300
-@query "pre-commit --version" @cache ttl=300
-@query "act --version" @cache ttl=300
-@query "earthly --version" @cache ttl=300
-@query "dagger --version" @cache ttl=300
-@query "ls -la .bazelversion 2>/dev/null" @cache ttl=300
-@query "cat Makefile | head -30" @cache ttl=300
-@query "cat CMakeLists.txt | head -30" @cache ttl=300
-@query "ls -la build/ 2>/dev/null" @cache ttl=300
-@query "ls -la dist/ 2>/dev/null" @cache ttl=300
-@query "ls -la target/ 2>/dev/null" @cache ttl=300
-@query "ls -la bazel-bin/ 2>/dev/null" @cache ttl=300
-@query "du -sh build/ 2>/dev/null" @cache ttl=300
-@query "du -sh target/ 2>/dev/null" @cache ttl=300
-@query "cat .bazelrc 2>/dev/null" @cache ttl=300
-@query "cat .bazelversion 2>/dev/null" @cache ttl=300
-@query "cat BUILD 2>/dev/null | head -30" @cache ttl=300
-@query "cat WORKSPACE 2>/dev/null | head -30" @cache ttl=300
-@query "cat pom.xml | head -30" @cache ttl=300
-@query "cat build.gradle | head -30" @cache ttl=300
-@query "cat Cargo.toml | head -30" @cache ttl=300
-@query "cat go.mod | head -30" @cache ttl=300
+@query "git log --oneline -5" timeout=5 @cache ttl=300
+@query "bazel --version 2>/dev/null" timeout=5 @cache ttl=300
+@query "make --version" timeout=5 @cache ttl=300
+@query "cmake --version" timeout=5 @cache ttl=300
+@query "ninja --version" timeout=5 @cache ttl=300
+@query "mvn --version" timeout=5 @cache ttl=300
+@query "gradle --version" timeout=5 @cache ttl=300
+@query "sbt --version" timeout=5 @cache ttl=300
+@query "cargo --version" timeout=5 @cache ttl=300
+@query "go version" timeout=5 @cache ttl=300
+@query "rustc --version" timeout=5 @cache ttl=300
+@query "clang --version" timeout=5 @cache ttl=300
+@query "gcc --version" timeout=5 @cache ttl=300
+@query "g++ --version" timeout=5 @cache ttl=300
+@query "ccache --version" timeout=5 @cache ttl=300
+@query "sccache --version" timeout=5 @cache ttl=300
+@query "distcc --version" timeout=5 @cache ttl=300
+@query "buck2 --version 2>/dev/null" timeout=5 @cache ttl=300
+@query "pants --version 2>/dev/null" timeout=5 @cache ttl=300
+@query "please --version 2>/dev/null" timeout=5 @cache ttl=300
+@query "pre-commit --version" timeout=5 @cache ttl=300
+@query "act --version" timeout=5 @cache ttl=300
+@query "earthly --version" timeout=5 @cache ttl=300
+@query "dagger --version" timeout=5 @cache ttl=300
+@query "ls -la .bazelversion 2>/dev/null" timeout=5 @cache ttl=300
+@query "cat Makefile | head -30" timeout=5 @cache ttl=300
+@query "cat CMakeLists.txt | head -30" timeout=5 @cache ttl=300
+@query "ls -la build/ 2>/dev/null" timeout=5 @cache ttl=300
+@query "ls -la dist/ 2>/dev/null" timeout=5 @cache ttl=300
+@query "ls -la target/ 2>/dev/null" timeout=5 @cache ttl=300
+@query "ls -la bazel-bin/ 2>/dev/null" timeout=5 @cache ttl=300
+@query "du -sh build/ 2>/dev/null" timeout=5 @cache ttl=300
+@query "du -sh target/ 2>/dev/null" timeout=5 @cache ttl=300
+@query "cat .bazelrc 2>/dev/null" timeout=5 @cache ttl=300
+@query "cat .bazelversion 2>/dev/null" timeout=5 @cache ttl=300
+@query "cat BUILD 2>/dev/null | head -30" timeout=5 @cache ttl=300
+@query "cat WORKSPACE 2>/dev/null | head -30" timeout=5 @cache ttl=300
+@query "cat pom.xml | head -30" timeout=5 @cache ttl=300
+@query "cat build.gradle | head -30" timeout=5 @cache ttl=300
+@query "cat Cargo.toml | head -30" timeout=5 @cache ttl=300
+@query "cat go.mod | head -30" timeout=5 @cache ttl=300
 @services
   - name: build-artifactory
     url: http://localhost:8081/health
