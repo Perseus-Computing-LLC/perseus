@@ -76,10 +76,6 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
     except OSError:
         pass  # stat failed, fall through to read
 
-    # ── File size limit from config ──
-    max_bytes_raw = render_cfg.get("max_include_bytes")
-    max_bytes = int(max_bytes_raw) if max_bytes_raw is not None else None
-
     try:
         data = fp.read_bytes()
         raw = data.decode(errors="replace").rstrip()
