@@ -177,6 +177,20 @@ def test_query_can_be_disabled_by_config():
     assert "@query is disabled by config" in out
 
 
+def test_query_timeout_modifier_not_leaked_into_unquoted_command():
+    # Regression: timeout=N was stripped AFTER command extraction, so an
+    # unquoted command swallowed the modifier and ran `echo hello timeout=5`.
+    out = perseus.resolve_query("echo hello timeout=5", cfg())
+    assert "hello" in out
+    assert "timeout=5" not in out
+
+
+def test_query_timeout_modifier_quoted_command_unaffected():
+    out = perseus.resolve_query('"echo hello" timeout=5', cfg())
+    assert "hello" in out
+    assert "timeout=5" not in out
+
+
 def test_query_with_schema_validation(tmp_path):
     workspace = tmp_path
     schemas_dir = workspace / ".perseus" / "schemas"
