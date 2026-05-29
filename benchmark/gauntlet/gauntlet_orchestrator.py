@@ -227,8 +227,15 @@ class GauntletOrchestrator:
         print("  Running gauntlet setup...")
         import subprocess as _sp
         setup_script = GAUNTLET_DIR / "gauntlet_setup.py"
-        result = _sp.run([sys.executable, "-u", str(setup_script)],
-                        timeout=120, capture_output=False)
+        try:
+            result = _sp.run([sys.executable, "-u", str(setup_script)],
+                            timeout=120, capture_output=False)
+        except _sp.TimeoutExpired:
+            # Setup overran its budget — fail pre-flight cleanly with a specific
+            # message and exit code rather than letting TimeoutExpired bubble up
+            # as a generic "Gauntlet failed" from main()'s catch-all handler.
+            print("  Setup TIMED OUT after 120s — aborting pre-flight.", file=sys.stderr)
+            sys.exit(1)
         if result.returncode != 0:
             print(f"  Setup FAILED with exit code {result.returncode}", file=sys.stderr)
             sys.exit(result.returncode)

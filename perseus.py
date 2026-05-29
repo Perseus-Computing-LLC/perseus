@@ -73,6 +73,11 @@ LEGACY_PYTHIA_LOG_NAME = LEGACY_PYTHIA_CONFIG_KEY + "_log.jsonl"
 PYTHIA_HWM_KEY = "pythia_entries_processed"
 LEGACY_PYTHIA_HWM_KEY = LEGACY_PYTHIA_CONFIG_KEY + "_entries_processed"
 
+# Single source of truth for the plugins-enabled default. Referenced by
+# DEFAULT_CONFIG below and by registry.register_plugins / _discover_plugins so
+# the three sites can never silently drift apart again (see test_plugin.py).
+PLUGINS_ENABLED_DEFAULT = True
+
 DEFAULT_CONFIG = {
     "render": {
         "cache_dir": str(PERSEUS_HOME / "cache"),
@@ -84,6 +89,7 @@ DEFAULT_CONFIG = {
         "max_query_bytes": 262144,    # 256 KB stdout cap
         "max_read_bytes": 524288,    # 512 KB file size cap for @read (None = unlimited)
         "max_include_bytes": 524288, # 512 KB file size cap for @include (None = unlimited)
+        "max_safe_read_bytes": 52428800,  # 50 MB hard pre-read guard for @read/@include before bytes hit memory (None = disabled)
         "max_include_depth": 5,      # max depth for transitive @include recursion
         "integrity_check": False,    # opt-in: detect files modified during render
         "parallel_services": False,   # opt-in: concurrent @services health checks
@@ -176,7 +182,7 @@ DEFAULT_CONFIG = {
         "default_sender": "perseus",
     },
     "plugins": {
-        "enabled": True,
+        "enabled": PLUGINS_ENABLED_DEFAULT,
         "dir": str(PERSEUS_HOME / "plugins"),
     },
     "hooks": {
@@ -1054,7 +1060,7 @@ def _discover_plugins(cfg: dict) -> list["DirectiveSpec"]:
     Set plugins.allow_unsigned: true to skip manifest verification (opt-in).
     """
     plugins_cfg = cfg.get("plugins", {})
-    if not plugins_cfg.get("enabled", True):
+    if not plugins_cfg.get("enabled", PLUGINS_ENABLED_DEFAULT):
         return []
     plugins_dir = Path(plugins_cfg.get("dir", str(PERSEUS_HOME / "plugins")))
     if not plugins_dir.is_dir():
@@ -1250,7 +1256,7 @@ def register_plugins(cfg: dict, force: bool = False) -> int:
     collision cases warn to stderr. Returns the count of new directives added.
     """
     plugins_cfg = cfg.get("plugins") or {}
-    if not plugins_cfg.get("enabled", True):
+    if not plugins_cfg.get("enabled", PLUGINS_ENABLED_DEFAULT):
         return 0
     plugins_dir = str(Path(plugins_cfg.get("dir", str(PERSEUS_HOME / "plugins"))))
     if not force and plugins_dir in _PLUGIN_LOADED_DIRS:
@@ -2678,10 +2684,19 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
         )
 
     # ── Pre-read size check to prevent memory exhaustion ──
-    # Only gate truly massive files (50 MB+) to allow normal truncation path
-    _MAX_SAFE_READ_BYTES = 50 * 1024 * 1024  # 50 MB
+    # Gate truly massive files before their bytes hit memory. Config-driven via
+    # render.max_safe_read_bytes (default 50 MB), kept well above the byte
+    # truncation cap (max_include_bytes) so normal files still take the
+    # truncation path below. Set it to null to disable the guard.
+    #
+    # TOCTOU: stat() and read_bytes() are separate syscalls, so the file could
+    # grow between them. Acceptable here — Perseus renders in a local, single-
+    # process context over the operator's own workspace files (not a multi-
+    # writer server), and the decode+truncate path below bounds the output.
+    max_safe_raw = render_cfg.get("max_safe_read_bytes", 50 * 1024 * 1024)
+    max_safe_bytes = int(max_safe_raw) if max_safe_raw is not None else None
     try:
-        if fp.stat().st_size > _MAX_SAFE_READ_BYTES:
+        if max_safe_bytes is not None and fp.stat().st_size > max_safe_bytes:
             return f"> ⚠ @include: file too large for safe read ({fp.stat().st_size:,} bytes)"
     except OSError:
         pass  # stat failed, fall through to read
@@ -2812,10 +2827,19 @@ def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str
         return f"> ⚠ @read: file not found: `{file_path_str}`"
 
     # ── Pre-read size check to prevent memory exhaustion ──
-    # Only gate truly massive files (50 MB+) to allow normal truncation path
-    _MAX_SAFE_READ_BYTES = 50 * 1024 * 1024  # 50 MB
+    # Gate truly massive files before their bytes hit memory. Config-driven via
+    # render.max_safe_read_bytes (default 50 MB), kept well above the byte
+    # truncation cap (max_read_bytes) so normal files still take the truncation
+    # path below. Set it to null to disable the guard.
+    #
+    # TOCTOU: stat() and read_bytes() are separate syscalls, so the file could
+    # grow between them. Acceptable here — Perseus renders in a local, single-
+    # process context over the operator's own workspace files (not a multi-
+    # writer server), and the decode+truncate path below bounds the output.
+    max_safe_raw = cfg["render"].get("max_safe_read_bytes", 50 * 1024 * 1024)
+    max_safe_bytes = int(max_safe_raw) if max_safe_raw is not None else None
     try:
-        if fp.stat().st_size > _MAX_SAFE_READ_BYTES:
+        if max_safe_bytes is not None and fp.stat().st_size > max_safe_bytes:
             msg = f"> ⚠ @read: file too large for safe read ({fp.stat().st_size:,} bytes)"
             if fallback is not None:
                 return fallback_result()

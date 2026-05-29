@@ -10,6 +10,11 @@ LEGACY_PYTHIA_LOG_NAME = LEGACY_PYTHIA_CONFIG_KEY + "_log.jsonl"
 PYTHIA_HWM_KEY = "pythia_entries_processed"
 LEGACY_PYTHIA_HWM_KEY = LEGACY_PYTHIA_CONFIG_KEY + "_entries_processed"
 
+# Single source of truth for the plugins-enabled default. Referenced by
+# DEFAULT_CONFIG below and by registry.register_plugins / _discover_plugins so
+# the three sites can never silently drift apart again (see test_plugin.py).
+PLUGINS_ENABLED_DEFAULT = True
+
 DEFAULT_CONFIG = {
     "render": {
         "cache_dir": str(PERSEUS_HOME / "cache"),
@@ -21,6 +26,7 @@ DEFAULT_CONFIG = {
         "max_query_bytes": 262144,    # 256 KB stdout cap
         "max_read_bytes": 524288,    # 512 KB file size cap for @read (None = unlimited)
         "max_include_bytes": 524288, # 512 KB file size cap for @include (None = unlimited)
+        "max_safe_read_bytes": 52428800,  # 50 MB hard pre-read guard for @read/@include before bytes hit memory (None = disabled)
         "max_include_depth": 5,      # max depth for transitive @include recursion
         "integrity_check": False,    # opt-in: detect files modified during render
         "parallel_services": False,   # opt-in: concurrent @services health checks
@@ -113,7 +119,7 @@ DEFAULT_CONFIG = {
         "default_sender": "perseus",
     },
     "plugins": {
-        "enabled": True,
+        "enabled": PLUGINS_ENABLED_DEFAULT,
         "dir": str(PERSEUS_HOME / "plugins"),
     },
     "hooks": {
