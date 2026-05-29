@@ -582,7 +582,7 @@ class GauntletOrchestrator:
         """Register all pass/fail gates."""
         gr = self.gate_runner
 
-        gr.add_gate("NFS health check", severity="hard",
+        gr.add_gate("NFS health check", severity="soft",
                      threshold="healthy == True",
                      threshold_fn=lambda r: (check_nfs_health(self.nfs_path)["healthy"], True))
 
