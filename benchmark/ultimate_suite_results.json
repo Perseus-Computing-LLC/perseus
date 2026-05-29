@@ -1,8 +1,8 @@
 {
-  "suite_version": "ultimate-v1",
-  "generated_at_utc": "2026-05-26T03:12:14Z",
+  "suite_version": "ultimate-v2",
+  "generated_at_utc": "2026-05-29T00:12:02Z",
   "pass": true,
-  "semantic_pass": true,
+  "semantic_pass": null,
   "phase_0_bench_shim": {
     "phase": 0,
     "bench_shim_emits": true,
@@ -13,17 +13,17 @@
       {
         "phase": 1,
         "n_agents": 10,
-        "p50_warm_ms": 361,
-        "p95_warm_ms": 418,
-        "p99_warm_ms": 418,
-        "latency_cv": 0.08899688151438487,
-        "avg_effective_prompt_tokens": 35
+        "p50_warm_ms": 348,
+        "p95_warm_ms": 380,
+        "p99_warm_ms": 380,
+        "latency_cv": 0.04357330711710919,
+        "avg_effective_prompt_tokens": 174
       },
       {
         "phase": 2,
         "n_agents": 10,
-        "p95_warm_ms": 473,
-        "latency_cv": 0.12174841143618802,
+        "p95_warm_ms": 367,
+        "latency_cv": 0.02451223784984178,
         "cache_total": 0,
         "corrupt_entries": 0
       },
@@ -34,24 +34,24 @@
         "corrupt_entries": 0,
         "determinism_violations": [],
         "p50_warm_ms": 395,
-        "p95_warm_ms": 477,
-        "p99_warm_ms": 477,
-        "latency_cv": 0.10026968034803187
+        "p95_warm_ms": 439,
+        "p99_warm_ms": 439,
+        "latency_cv": 0.04720581143871054
       },
       {
         "phase": 1,
         "n_agents": 50,
-        "p50_warm_ms": 847,
-        "p95_warm_ms": 1198,
-        "p99_warm_ms": 1371,
-        "latency_cv": 0.2967715807897111,
-        "avg_effective_prompt_tokens": 35.8
+        "p50_warm_ms": 1050,
+        "p95_warm_ms": 1228,
+        "p99_warm_ms": 1313,
+        "latency_cv": 0.29111897070798787,
+        "avg_effective_prompt_tokens": 174.8
       },
       {
         "phase": 2,
         "n_agents": 50,
-        "p95_warm_ms": 1377,
-        "latency_cv": 0.33520311420893945,
+        "p95_warm_ms": 1284,
+        "latency_cv": 0.29810295051518665,
         "cache_total": 0,
         "corrupt_entries": 0
       },
@@ -61,25 +61,25 @@
         "collision_rate": 0.0,
         "corrupt_entries": 0,
         "determinism_violations": [],
-        "p50_warm_ms": 1430,
-        "p95_warm_ms": 2422,
-        "p99_warm_ms": 2510,
-        "latency_cv": 0.3700972219006989
+        "p50_warm_ms": 1015,
+        "p95_warm_ms": 1174,
+        "p99_warm_ms": 1208,
+        "latency_cv": 0.2481107345289805
       },
       {
         "phase": 1,
         "n_agents": 100,
-        "p50_warm_ms": 1847,
-        "p95_warm_ms": 3931,
-        "p99_warm_ms": 4324,
-        "latency_cv": 0.4055721865205527,
-        "avg_effective_prompt_tokens": 35.9
+        "p50_warm_ms": 1163,
+        "p95_warm_ms": 1326,
+        "p99_warm_ms": 1402,
+        "latency_cv": 0.19975969180340608,
+        "avg_effective_prompt_tokens": 174.9
       },
       {
         "phase": 2,
         "n_agents": 100,
-        "p95_warm_ms": 2848,
-        "latency_cv": 0.3188463161981624,
+        "p95_warm_ms": 1343,
+        "latency_cv": 0.23188139620597162,
         "cache_total": 0,
         "corrupt_entries": 0
       },
@@ -89,10 +89,10 @@
         "collision_rate": 0.0,
         "corrupt_entries": 0,
         "determinism_violations": [],
-        "p50_warm_ms": 1720,
-        "p95_warm_ms": 2493,
-        "p99_warm_ms": 2732,
-        "latency_cv": 0.2605178500218501
+        "p50_warm_ms": 1138,
+        "p95_warm_ms": 1346,
+        "p99_warm_ms": 1546,
+        "latency_cv": 0.22105824782608324
       },
       {
         "phase": 4,
@@ -103,11 +103,11 @@
           50,
           200
         ],
-        "latency_cv": 0.29507305384124205,
+        "latency_cv": 0.2036261603204742,
         "compression_ratio_at_n": {
-          "5": 0.122,
-          "50": 0.123,
-          "200": 0.123
+          "5": 0.41,
+          "50": 0.41,
+          "200": 0.41
         }
       }
     ],
@@ -120,13 +120,13 @@
   "thrash": {
     "T1": {
       "test": "T1_ttl_cliff",
-      "cold_total_us": 6743,
-      "warm_total_us": 2999,
-      "cold_total_s": 0.006743,
-      "warm_total_s": 0.002999,
-      "cold_wall_s": 0.2956,
-      "warm_wall_s": 0.2906,
-      "speedup": 2.25,
+      "cold_total_us": 59190,
+      "warm_total_us": 26543,
+      "cold_total_s": 0.05919,
+      "warm_total_s": 0.026543,
+      "cold_wall_s": 0.2348,
+      "warm_wall_s": 0.1945,
+      "speedup": 2.23,
       "cache_hits_warm": 100,
       "cache_misses_cold": 100,
       "output_consistent": true
@@ -152,28 +152,28 @@
         10000
       ],
       "warm_per_directive_us": {
-        "100": 13.84,
-        "1000": 10.39,
-        "10000": 10.38
+        "100": 14.04,
+        "1000": 9.01,
+        "10000": 10.3
       },
-      "smallest_scale_per_directive_us": 13.84,
-      "largest_scale_per_directive_us": 10.38,
-      "growth_factor": 0.75,
+      "smallest_scale_per_directive_us": 14.04,
+      "largest_scale_per_directive_us": 10.3,
+      "growth_factor": 0.73,
       "linear_ok": true
     },
     "T5": {
       "test": "T5_cache_efficiency_correlation",
-      "avg_warm_prompt_tokens": 46.0,
-      "avg_cold_prompt_tokens": 455.0,
-      "warm_compression_ratio": 0.1010989010989011,
+      "avg_warm_prompt_tokens": 175.0,
+      "avg_cold_prompt_tokens": 1743.0,
+      "warm_compression_ratio": 0.10040160642570281,
       "cold_compression_ratio": 1.0,
-      "delta": -0.8989010989010989,
+      "delta": -0.8995983935742972,
       "warm_n": 5,
       "cold_n": 5,
       "avg_warm_cache_hits": 50,
       "avg_cold_cache_hits": 0,
-      "avg_warm_assemble_us": 1566,
-      "avg_cold_assemble_us": 3459.2,
+      "avg_warm_assemble_us": 12387.6,
+      "avg_cold_assemble_us": 31676.4,
       "warm_faster": true,
       "warm_compression_ratio_lt_cold": true
     }
@@ -185,19 +185,19 @@
         {
           "depth": 10,
           "rc": 0,
-          "time_to_failure_ms": 536,
+          "time_to_failure_ms": 193,
           "error_class": "clean"
         },
         {
           "depth": 100,
           "rc": 0,
-          "time_to_failure_ms": 546,
+          "time_to_failure_ms": 184,
           "error_class": "clean"
         },
         {
           "depth": 1000,
           "rc": 0,
-          "time_to_failure_ms": 559,
+          "time_to_failure_ms": 223,
           "error_class": "clean"
         }
       ],
@@ -274,7 +274,7 @@
     "C3": {
       "test": "C3_infinite_output",
       "completed": true,
-      "wall_s": 0.34,
+      "wall_s": 0.18,
       "output_bytes_captured": 71,
       "bounded": true
     },
@@ -287,9 +287,9 @@
       "test": "C5_concurrent_adversarial",
       "n_agents": 50,
       "orphan_count": 0,
-      "baseline_ms": 1153.3,
-      "normal_avg_ms": 1227.6,
-      "normal_agent_slowdown_factor": 1.06,
+      "baseline_ms": 677.2,
+      "normal_avg_ms": 610.2,
+      "normal_agent_slowdown_factor": 0.9,
       "traceback_count": 0,
       "advrs_completed": 10,
       "advrs_total": 10
@@ -302,15 +302,15 @@
   },
   "harness": {
     "n_requests": 200,
-    "compression_ratio": 0.0553,
+    "compression_ratio": 0.3439,
     "avg_state_a_prompt_tokens": 488.5,
-    "avg_state_b_prompt_tokens": 27,
+    "avg_state_b_prompt_tokens": 168,
     "p99_latency_a_ms": 1,
     "p99_latency_b_ms": 1,
     "p99_latency_overhead_ms": 0,
     "cost_a_usd": 0.113702,
-    "cost_b_usd": 0.0214,
-    "cost_savings_usd": 0.092302,
+    "cost_b_usd": 0.0496,
+    "cost_savings_usd": 0.064102,
     "cost_roi_positive": true,
     "error_rate_a": 0.0,
     "error_rate_b": 0.0,
@@ -323,125 +323,293 @@
       {
         "name": "compression_ratio < 0.85",
         "pass": true,
-        "observed": 0.0553,
+        "observed": 0.3439,
         "threshold": "< 0.85",
-        "severity": "hard"
+        "severity": "hard",
+        "note": ""
       },
       {
         "name": "P99 latency overhead < 150ms",
         "pass": true,
         "observed": 0,
         "threshold": "< 150ms",
-        "severity": "hard"
+        "severity": "hard",
+        "note": ""
       },
       {
         "name": "error_rate delta < 0.1%",
         "pass": true,
         "observed": 0.0,
         "threshold": "< 0.001",
-        "severity": "hard"
+        "severity": "hard",
+        "note": ""
       },
       {
         "name": "context_truncation_rate == 0",
         "pass": true,
         "observed": 0.0,
         "threshold": "== 0",
-        "severity": "hard"
+        "severity": "hard",
+        "note": ""
       },
       {
         "name": "fallback_trigger_rate < 5%",
         "pass": true,
         "observed": 0.0,
         "threshold": "< 0.05",
-        "severity": "hard"
+        "severity": "hard",
+        "note": ""
       },
       {
         "name": "cost_roi_positive",
         "pass": true,
         "observed": true,
         "threshold": "True",
-        "severity": "hard"
+        "severity": "hard",
+        "note": ""
       },
       {
         "name": "collision_rate == 0.0",
         "pass": true,
         "observed": 0.0,
         "threshold": "== 0.0 (max across scales)",
-        "severity": "hard"
+        "severity": "hard",
+        "note": ""
       },
       {
         "name": "determinism_violations == 0",
         "pass": true,
         "observed": 0,
         "threshold": "== 0 (sum across scales)",
-        "severity": "hard"
+        "severity": "hard",
+        "note": ""
       },
       {
         "name": "latency_cv warm < 0.15",
         "pass": true,
-        "observed": 0.10026968034803187,
+        "observed": 0.04720581143871054,
         "threshold": "< 0.15 (at N=10)",
-        "severity": "hard"
+        "severity": "hard",
+        "note": ""
       },
       {
         "name": "graceful_adversarial_rate == 1.0",
         "pass": true,
         "observed": 1.0,
         "threshold": "== 1.0",
-        "severity": "hard"
+        "severity": "hard",
+        "note": ""
       },
       {
         "name": "orphan_count == 0",
         "pass": true,
         "observed": 0,
         "threshold": "== 0",
-        "severity": "hard"
+        "severity": "hard",
+        "note": ""
       },
       {
         "name": "normal_agent_slowdown_factor < 1.2x (C5)",
         "pass": true,
-        "observed": 1.06,
+        "observed": 0.9,
         "threshold": "< 1.2",
-        "severity": "hard"
+        "severity": "hard",
+        "note": ""
       },
       {
         "name": "cache_warm_compression_ratio < cache_cold_compression_ratio",
         "pass": true,
         "observed": {
-          "warm": 0.1010989010989011,
+          "warm": 0.10040160642570281,
           "cold": 1.0
         },
         "threshold": "warm < cold",
-        "severity": "hard"
+        "severity": "hard",
+        "note": ""
       },
       {
         "name": "drift_detected (T3)",
         "pass": true,
         "observed": true,
         "threshold": "True",
-        "severity": "hard"
+        "severity": "hard",
+        "note": ""
+      },
+      {
+        "name": "XEB: BENCH shim emits telemetry",
+        "pass": true,
+        "observed": true,
+        "threshold": "True",
+        "severity": "hard",
+        "note": ""
+      },
+      {
+        "name": "XEB: No cold renders fully timed out",
+        "pass": true,
+        "observed": false,
+        "threshold": "False",
+        "severity": "hard",
+        "note": ""
+      },
+      {
+        "name": "XEB: Cacheable profile emits warm cache hits",
+        "pass": true,
+        "observed": 70,
+        "threshold": "> 0",
+        "severity": "hard",
+        "note": ""
+      },
+      {
+        "name": "XEB: Cacheable profile warm speedup >=1% (tier3, directives>=30)",
+        "pass": true,
+        "observed": 0.8769,
+        "threshold": "< 0.99 (ratio warm/cold)",
+        "severity": "hard",
+        "note": ""
+      },
+      {
+        "name": "XEB: Zero errors at concurrency=1 (cold)",
+        "pass": true,
+        "observed": 0,
+        "threshold": "== 0",
+        "severity": "hard",
+        "note": ""
+      },
+      {
+        "name": "XEB: Single-shot cold render <= 2000ms",
+        "pass": true,
+        "observed": 171.833,
+        "threshold": "<= 2000ms",
+        "severity": "hard",
+        "note": ""
+      },
+      {
+        "name": "XEB: Enterprise day cost ROI positive",
+        "pass": true,
+        "observed": 90.0,
+        "threshold": "> 0%",
+        "severity": "hard",
+        "note": ""
+      },
+      {
+        "name": "XEB: Fleet P99 render latency <= 2000ms",
+        "pass": true,
+        "observed": 1398.734,
+        "threshold": "<= 2000ms",
+        "severity": "hard",
+        "note": ""
+      },
+      {
+        "name": "XEB: TTL cliff graceful (cold-after-expiry < 10x warm)",
+        "pass": true,
+        "observed": 0.9022,
+        "threshold": "< 10.0",
+        "severity": "hard",
+        "note": ""
+      },
+      {
+        "name": "XEB: Rapid invalidation wave2 success >= 88%",
+        "pass": true,
+        "observed": 1.0,
+        "threshold": ">= 0.88",
+        "severity": "hard",
+        "note": ""
+      },
+      {
+        "name": "XEB: Cache integrity: zero corrupt entries",
+        "pass": true,
+        "observed": 0,
+        "threshold": "== 0",
+        "severity": "hard",
+        "note": ""
+      },
+      {
+        "name": "XEB: Determinism: same input -> same output",
+        "pass": true,
+        "observed": 1,
+        "threshold": "== 1",
+        "severity": "hard",
+        "note": ""
+      },
+      {
+        "name": "XEB: Cache-activity sanity in cache-focused phases",
+        "pass": true,
+        "observed": {
+          "phase_8_wave1_lookups": 10,
+          "phase_8_wave2_lookups": 10,
+          "phase_3b_avg_warm_cache_hits": 70
+        },
+        "threshold": "lookups > 0 or warm cache hits > 0",
+        "severity": "hard",
+        "note": ""
+      },
+      {
+        "name": "XEB: RSS growth <= 20% over 30 renders",
+        "pass": true,
+        "observed": -0.03,
+        "threshold": "<= 20%",
+        "severity": "hard",
+        "note": ""
+      },
+      {
+        "name": "XEB: Zero orphan subprocesses",
+        "pass": true,
+        "observed": 0,
+        "threshold": "== 0",
+        "severity": "hard",
+        "note": ""
+      },
+      {
+        "name": "XEB soft gates (4/5 passing)",
+        "pass": true,
+        "observed": "4/5",
+        "threshold": ">= 2",
+        "severity": "soft",
+        "note": ""
+      },
+      {
+        "name": "XEB status reported",
+        "pass": true,
+        "observed": "PASS",
+        "threshold": "PASS|PARTIAL",
+        "severity": "informational",
+        "note": ""
       }
     ],
-    "total": 14,
-    "passed": 14,
+    "total": 31,
+    "passed": 31,
     "failed": [],
     "pass": true
   },
   "semantic": {
-    "semantic_equivalence_score": 1.0,
-    "raw_score": 1.0,
-    "control_error_rate": 0.0,
+    "semantic_equivalence_score": null,
     "threshold": 0.95,
-    "pass": true,
-    "skipped": false,
-    "reason": null,
+    "pass": null,
+    "skipped": true,
+    "reason": "live LLM judge not enabled (pass --enable)",
     "judge_model": "gemini-2.5-flash",
-    "n_pairs": 20,
-    "control_n": 5,
-    "equivalent_count": 20,
-    "not_equivalent_count": 0,
-    "skipped_pairs": 0,
-    "elapsed_s": 147.2
+    "n_pairs": 0
+  },
+  "extreme_enterprise": {
+    "overall_pass": true,
+    "overall_status": "PASS",
+    "overall_partial": false,
+    "total_duration_s": 190.15,
+    "hard_gates": {
+      "total": 15,
+      "passed": 15,
+      "failed": []
+    },
+    "soft_gates": {
+      "total": 5,
+      "passed": 4,
+      "failed": [
+        "Warm 1-directive faster than cold 1-directive"
+      ]
+    },
+    "partial_reasons": [],
+    "enterprise_day_roi_pct": 90.0,
+    "fleet_p99_ms": 1398.734
   },
   "timings": [
     {
@@ -452,22 +620,27 @@
     {
       "label": "phase-3 cache_thrash",
       "rc": 0,
-      "duration_s": 11.0
+      "duration_s": 8.1
     },
     {
       "label": "phase-2 swarm_chaos",
       "rc": 0,
-      "duration_s": 628.3
+      "duration_s": 255.8
     },
     {
       "label": "phase-4 adversarial_extended",
       "rc": 0,
-      "duration_s": 15.4
+      "duration_s": 8.7
     },
     {
       "label": "phase-5 harness replayer",
       "rc": 0,
-      "duration_s": 76.2
+      "duration_s": 36.5
+    },
+    {
+      "label": "phase-7 extreme_enterprise",
+      "rc": 0,
+      "duration_s": 190.2
     },
     {
       "label": "phase-6 gate_runner",
@@ -477,13 +650,14 @@
     {
       "label": "phase-6 semantic_judge",
       "rc": 0,
-      "duration_s": 147.9
+      "duration_s": 0.1
     }
   ],
   "summary": {
     "pass": true,
-    "gates_passed": 14,
-    "gates_total": 14,
-    "failed_gates": []
+    "gates_passed": 31,
+    "gates_total": 31,
+    "failed_gates": [],
+    "xeb_hard_pass": true
   }
 }
