@@ -33,6 +33,12 @@ def main():
              "Directives above this tier are skipped and reported in a manifest. "
              "(default: 3 — everything resolves)",
     )
+    p_render.add_argument(
+        "--explain", action="store_true",
+        help="Emit a directive execution manifest (JSON) instead of rendered output. "
+             "Shows directives, cache hits/misses, durations, warnings, and skipped "
+             "tiered directives.",
+    )
 
     # watch (Phase 20C)
     p_watch = sub.add_parser("watch", help="Poll and refresh render outputs when context sources change")
@@ -199,13 +205,17 @@ def main():
     p_mem_idx = mem_sub.add_parser("index", help="Manage the FTS5 search index")
     idx_sub = p_mem_idx.add_subparsers(dest="index_command", required=True)
     p_idx_stats = idx_sub.add_parser("stats", help="Show index statistics")
+    p_idx_stats.add_argument("--json", action="store_true", help="Machine-readable JSON output")
     p_idx_rebuild = idx_sub.add_parser("rebuild", help="Rebuild index from vault")
     p_idx_rebuild.add_argument("--force", action="store_true", help="Re-index all files even if unchanged")
+    p_idx_rebuild.add_argument("--json", action="store_true", help="Machine-readable JSON output")
     p_idx_search = idx_sub.add_parser("search", help="Debug: search the index directly")
     p_idx_search.add_argument("--query", required=True, help="Search query")
     p_idx_search.add_argument("--k", type=int, default=5, help="Max results (1-20)")
     p_idx_search.add_argument("--scope", default=None, help="Filter by scope")
     p_idx_search.add_argument("--type", default=None, help="Filter by memory type")
+    p_idx_search.add_argument("--sensitivity", default=None, help="Filter by sensitivity (team, private, public)")
+    p_idx_search.add_argument("--json", action="store_true", help="Machine-readable JSON output")
 
     # init
     p_init = sub.add_parser("init", help="Scaffold .perseus/context.md for a new workspace")
