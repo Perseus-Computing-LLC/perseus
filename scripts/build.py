@@ -53,10 +53,10 @@ MODULE_ORDER = [
     "src/perseus/pythia.py",
     "src/perseus/lsp.py",
     "src/perseus/install.py",           # ← Phase 24: hook installer (depends on assistant_formats, before serve)
-    "src/perseus/synthesis.py",         # ← cited synthesis (extracted from serve.py)
-    "src/perseus/scheduler.py",         # ← scheduling: launchd, cron, systemd (extracted from serve.py)
-    "src/perseus/doctor.py",            # ← health, doctor, trust (extracted from serve.py)
-    "src/perseus/update.py",            # ← self-update (extracted from serve.py)
+    # NOTE: synthesis / scheduler / doctor / update were wired here as planned
+    # serve.py extractions, but the module files were never created — that code
+    # still lives in serve.py, so listing them aborts the build with
+    # "module not found". Re-add each line only once its file actually exists.
     "src/perseus/serve.py",
     "src/perseus/cli.py",  # includes _bind_registry() call before dispatch
 ]
