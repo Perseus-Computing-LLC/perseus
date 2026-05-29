@@ -61,7 +61,7 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
         schema_path = schema_match.group(1) if schema_match.group(1) is not None else schema_match.group(2)
         raw = (raw[:schema_match.start()] + raw[schema_match.end():]).rstrip()
 
-    # task-14: extract fallback="..." (or fallback='...') BEFORE command parsing,
+    # task-14: extract fallback=\"...\" (or fallback='...') BEFORE command parsing,
     # so a command containing the literal substring `fallback=` is not mis-parsed.
     fallback = None
     fb_match = re.search(r'\s+fallback=(?:"((?:[^"\\]|\\.)*)"|\'((?:[^\'\\]|\\.)*)\')(\s|$)', raw)
@@ -72,6 +72,14 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
         # UTF-8 bytes as Latin-1, corrupting characters like é → Ã©).
         fallback = _unescape_fallback(fallback)
         raw = (raw[:fb_match.start()] + raw[fb_match.end():]).rstrip()
+
+    # Extract timeout=N modifier BEFORE command parsing so the token can't
+    # leak into unquoted commands. Same principle as schema=/fallback= above.
+    timeout = int(cfg["render"].get("query_timeout_s", 30))
+    tm_match = re.search(r'\s+timeout=(\d+)(?:\s|$)', raw)
+    if tm_match:
+        timeout = int(tm_match.group(1))
+        raw = (raw[:tm_match.start()] + raw[tm_match.end():]).rstrip()
 
     cmd_match = re.match(r'^"((?:[^"\\]|\\.)*)"', raw)   # double-quoted
     if not cmd_match:
@@ -94,13 +102,6 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
                 command=cmd[:500],
                 shell=shell,
                 cwd=str(workspace) if workspace else None)
-
-    # Extract timeout=N modifier (per-directive override, default 30s)
-    timeout = int(cfg["render"].get("query_timeout_s", 30))
-    tm_match = re.search(r'\s+timeout=(\d+)(?:\s|$)', raw)
-    if tm_match:
-        timeout = int(tm_match.group(1))
-        raw = (raw[:tm_match.start()] + raw[tm_match.end():]).rstrip()
 
     # v1.0.5 review: run from workspace by default for safety.
     # allow_outside_workspace does not sandbox — it only controls cwd.
