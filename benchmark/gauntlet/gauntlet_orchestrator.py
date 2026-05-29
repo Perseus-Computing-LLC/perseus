@@ -389,24 +389,37 @@ class GauntletOrchestrator:
         return mapping.get(phase_num, f"phase-{phase_num}")
 
     def _phase_semantic_integrity(self) -> dict:
-        """Phase 8: Semantic Integrity — judge A/B pairs via DeepSeek."""
+        """Phase 8: Semantic Integrity — judge A/B pairs via configurable LLM.
+
+        Uses GAUNTLET_JUDGE_API_KEY (or DEEPSEEK_API_KEY for backward compat),
+        GAUNTLET_JUDGE_BASE_URL (any OpenAI-compatible endpoint), and
+        GAUNTLET_JUDGE_MODEL env vars. Works with OpenAI, DeepSeek, Ollama,
+        or any provider exposing a /v1/chat/completions endpoint.
+        """
         result = {
             "phase": 8,
             "name": "Semantic Integrity",
             "status": "skipped",
-            "reason": "Requires DEEPSEEK_API_KEY",
+            "reason": "Requires GAUNTLET_JUDGE_API_KEY (or DEEPSEEK_API_KEY)",
         }
 
-        api_key = os.environ.get("DEEPSEEK_API_KEY")
+        # Support both new generic and legacy provider-specific env vars
+        api_key = os.environ.get("GAUNTLET_JUDGE_API_KEY") or os.environ.get("DEEPSEEK_API_KEY")
         if not api_key:
-            print("  SKIPPED: DEEPSEEK_API_KEY not set")
+            print("  SKIPPED: GAUNTLET_JUDGE_API_KEY (or DEEPSEEK_API_KEY) not set")
             return result
 
         import urllib.request
         import urllib.error
 
-        deepseek_base = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+        base_url = os.environ.get("GAUNTLET_JUDGE_BASE_URL",
+                                  os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com"))
         model = os.environ.get("GAUNTLET_JUDGE_MODEL", "deepseek-chat")
+        # Detect provider from URL for result metadata
+        provider = "deepseek" if "deepseek" in base_url else \
+                   "openai" if "openai" in base_url else \
+                   "ollama" if "ollama" in base_url or "localhost" in base_url else \
+                   "custom"
         n_pairs = 10 if self.duration == "smoke" else 20
 
         # Semantic equivalence prompts
@@ -440,7 +453,7 @@ class GauntletOrchestrator:
 
             try:
                 def _call(p: str) -> str:
-                    url = f"{deepseek_base}/v1/chat/completions"
+                    url = f"{base_url}/v1/chat/completions"
                     payload = json.dumps({
                         "model": model,
                         "messages": [{"role": "user", "content": p}],
@@ -479,7 +492,7 @@ class GauntletOrchestrator:
 
         result["status"] = "completed"
         result["judge_model"] = model
-        result["judge_provider"] = "deepseek"
+        result["judge_provider"] = provider
         result["pairs"] = judged
         result["successful_pairs"] = sum(1 for j in judged if j["success"])
         result["overall_pass"] = result["successful_pairs"] >= n_pairs * 0.9
