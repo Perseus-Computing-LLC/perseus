@@ -73,6 +73,16 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
         fallback = _unescape_fallback(fallback)
         raw = (raw[:fb_match.start()] + raw[fb_match.end():]).rstrip()
 
+    # Extract timeout=N modifier (per-directive override, default 30s) BEFORE
+    # command parsing. If stripped after, an *unquoted* command swallows the
+    # whole remainder (`@query echo hi timeout=5` would run `echo hi timeout=5`).
+    # Quoted commands were unaffected, but unquoted ones leaked the token.
+    timeout = int(cfg["render"].get("query_timeout_s", 30))
+    tm_match = re.search(r'\s+timeout=(\d+)(?:\s|$)', raw)
+    if tm_match:
+        timeout = int(tm_match.group(1))
+        raw = (raw[:tm_match.start()] + raw[tm_match.end():]).rstrip()
+
     cmd_match = re.match(r'^"((?:[^"\\]|\\.)*)"', raw)   # double-quoted
     if not cmd_match:
         cmd_match = re.match(r"^'((?:[^'\\]|\\.)*)'", raw)  # single-quoted
@@ -94,13 +104,6 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
                 command=cmd[:500],
                 shell=shell,
                 cwd=str(workspace) if workspace else None)
-
-    # Extract timeout=N modifier (per-directive override, default 30s)
-    timeout = int(cfg["render"].get("query_timeout_s", 30))
-    tm_match = re.search(r'\s+timeout=(\d+)(?:\s|$)', raw)
-    if tm_match:
-        timeout = int(tm_match.group(1))
-        raw = (raw[:tm_match.start()] + raw[tm_match.end():]).rstrip()
 
     # v1.0.5 review: run from workspace by default for safety.
     # allow_outside_workspace does not sandbox — it only controls cwd.
