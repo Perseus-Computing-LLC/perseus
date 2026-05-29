@@ -27,6 +27,33 @@ def cmd_render(args, cfg):
     if max_tier is None:
         max_tier = 3
 
+    # --explain: emit directive execution manifest instead of rendered output
+    if getattr(args, "explain", False):
+        import json as _json
+        _stats: dict = {"directive_count": 0, "cache_hits": 0, "cache_misses": 0}
+        _directives = []
+        _skipped = []
+        rendered = render_source(text, cfg, workspace, max_tier=max_tier,
+                                 _directive_collector=_directives,
+                                 _stats=_stats,
+                                 _skipped_directives=_skipped)
+        manifest = {
+            "source": str(source_path),
+            "workspace": str(workspace),
+            "version": _PERSEUS_VERSION,
+            "tier": max_tier,
+            "summary": {
+                "directive_count": _stats["directive_count"],
+                "cache_hits": _stats["cache_hits"],
+                "cache_misses": _stats["cache_misses"],
+                "skipped": len(_skipped),
+            },
+            "directives": _directives,
+            "skipped": _skipped,
+        }
+        print(_json.dumps(manifest, indent=2, default=str))
+        return
+
     rendered = render_output(text, fmt, cfg, workspace, title=title, max_tier=max_tier)
 
     is_assistant_format = fmt in ("agents-md", "claude-md", "cursorrules", "copilot-instructions")
@@ -46,6 +73,29 @@ def cmd_render(args, cfg):
         out_path.write_text(rendered, encoding="utf-8")
     else:
         print(rendered)
+
+
+def cmd_warmup(args, cfg):
+    """Pre-populate the render cache for a context file without writing output."""
+    source_path = Path(args.source).expanduser().resolve()
+    if not source_path.exists():
+        print(f"Error: file not found: {source_path}", file=sys.stderr)
+        sys.exit(1)
+
+    workspace = _infer_workspace(source_path)
+    cfg = load_config(workspace)
+    text = source_path.read_text(errors="replace")
+
+    _stats = {"directive_count": 0, "cache_hits": 0, "cache_misses": 0}
+    render_source(text, cfg, workspace, _stats=_stats)
+
+    total_dirs = _stats["directive_count"]
+    cached = _stats["cache_hits"] + _stats["cache_misses"]
+    if cached > 0:
+        print(f"Warmup complete: {total_dirs} directives, "
+              f"{_stats['cache_hits']} cached, {_stats['cache_misses']} newly cached")
+    else:
+        print(f"Warmup complete: {total_dirs} directives resolved (no @cache directives found)")
 
 
 class WatchTarget(NamedTuple):

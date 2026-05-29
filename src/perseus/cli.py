@@ -325,6 +325,11 @@ def main():
     p_update.add_argument("--auto", default=None, metavar="on|off",
                           help="Toggle auto-update on/off and persist to config")
 
+    # warmup (pre-populate cache)
+    p_warmup = sub.add_parser("warmup", help="Pre-populate render cache for a context file")
+    p_warmup.add_argument("source", help="Path to .md file with @perseus header")
+    p_warmup.add_argument("--workspace", default=None, help="Workspace path (default: inferred)")
+
     # oracle (Daedalus dataset / labeling)
     p_oracle = sub.add_parser("oracle", help="Pythia log labeling and dataset export")
     oracle_sub = p_oracle.add_subparsers(dest="oracle_command", required=True)
@@ -418,6 +423,8 @@ def main():
         return cmd_trust(args, cfg)
     elif args.command == "update":
         return cmd_update(args, cfg)
+    elif args.command == "warmup":
+        cmd_warmup(args, cfg)
     elif args.command == "oracle":
         rc = cmd_oracle(args, cfg)
         if isinstance(rc, int):
