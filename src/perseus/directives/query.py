@@ -73,6 +73,14 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
         fallback = _unescape_fallback(fallback)
         raw = (raw[:fb_match.start()] + raw[fb_match.end():]).rstrip()
 
+    # Defense-in-depth: detect shell metacharacters for operator visibility.
+    # When render.query_shell_meta_warning is enabled (default: false),
+    # commands containing ; | & $() or backticks emit a visible warning
+    # in the rendered output but still execute. This does not break
+    # legitimate pipelines — it only surfaces a warning.
+    _shell_meta_warn = bool(cfg["render"].get("query_shell_meta_warning", False))
+    _meta_prefix = ""
+
     # Extract timeout=N modifier BEFORE command parsing so the token can't
     # leak into unquoted commands. Same principle as schema=/fallback= above.
     timeout = int(cfg["render"].get("query_timeout_s", 30))
@@ -95,6 +103,11 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
 
     # Detect language hint for syntax highlighting (best-effort)
     lang = _guess_lang(cmd)
+
+    # Shell metacharacter defense-in-depth warning (config-gated, default off).
+    if _shell_meta_warn and re.search(r'[;&|]|\$[({]|`', cmd):
+        _meta_prefix = f"> ⚠ @query: shell metacharacters detected in command. "
+        _meta_prefix += "Set render.query_shell_meta_warning=false to suppress.\n\n"
 
     # task-47: audit the shell-execution decision crossing the trust boundary.
     audit_event(cfg, "shell_exec",
@@ -129,7 +142,7 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
                 return fallback
             header = f"> ⚠ `@query` exited {exit_code}: `{cmd}`\n\n"
             body = stdout or stderr or "(no output)"
-            return header + f"```{lang}\n{body}\n```"
+            return _meta_prefix + header + f"```{lang}\n{body}\n```"
 
         if not stdout:
             if fallback is not None:
@@ -164,16 +177,16 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
             if warning:
                 return warning
 
-        return f"```{lang}\n{stdout}\n```"
+        return _meta_prefix + f"```{lang}\n{stdout}\n```"
 
     except subprocess.TimeoutExpired:
         if fallback is not None:
             return fallback
-        return f"> ⚠ `@query` timed out ({timeout}s): `{cmd}`"
+        return _meta_prefix + f"> ⚠ `@query` timed out ({timeout}s): `{cmd}`"
     except Exception as exc:
         if fallback is not None:
             return fallback
-        return f"> ⚠ `@query` error: {exc}"
+        return _meta_prefix + f"> ⚠ `@query` error: {exc}"
 
 
 def _guess_lang(cmd: str) -> str:
