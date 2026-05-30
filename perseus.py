@@ -53,7 +53,7 @@ from typing import NamedTuple, Callable
 # ── Version (injected by scripts/build.py at build time) ──────────────────
 # All other modules reference _PERSEUS_VERSION; the build script's
 # _VERSION_RE replaces the literal "0.0.0" with the VERSION file value.
-_PERSEUS_VERSION = "1.0.5"  # injected by scripts/build.py
+_PERSEUS_VERSION = "1.0.6"  # injected by scripts/build.py
 
 # Register as 'perseus' so plugins can import from us (task-65)
 import sys as _sys
@@ -100,6 +100,7 @@ DEFAULT_CONFIG = {
         "allow_services_command": False,
         "allow_remote_services_health": False,
         "allow_outside_workspace": False,
+        "query_shell_meta_warning": False,
         "default_tier": 3,            # task-76: context tier for rendering (1=always, 2=conditional, 3=all). Set to 1 or 2 for smaller context windows.
     },
     "checkpoints": {
@@ -1027,7 +1028,11 @@ def _call_resolver(spec: DirectiveSpec, args_str: str, cfg: dict, workspace: "Pa
             "error": str(e),
             "traceback_truncated": traceback.format_exc()[-1000:],
         }, cfg)
-        return f"> \u26a0 {spec.name} error: {e}"
+        # PERSEUS_DEBUG: re-raise so programming errors (NameError,
+        # AttributeError, TypeError) are not silently swallowed.
+        if os.environ.get("PERSEUS_DEBUG"):
+            raise
+        return f"> ⚠ {spec.name} error: {e}"
 
 
 # Built at import time from the registry (after _bind_registry is called).
@@ -2708,11 +2713,7 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
         return f"> ⚠ @include: could not read `{file_path_str}`: {e}"
 
     # ── File size limit check (byte-counted, not character-counted) ──
-    _mb = render_cfg.get("max_include_bytes")
-    try:
-        max_bytes: int | None = int(_mb) if _mb is not None else None
-    except (ValueError, TypeError):
-        max_bytes = None
+    max_bytes = _resolve_max_bytes(cfg, "max_include_bytes")
     if max_bytes is not None and len(data) > max_bytes:
         raw = data[:max_bytes].decode(errors="replace").rstrip()
         actual_size = len(data)
@@ -2757,6 +2758,16 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
         return trunc_note + f"```text\n{raw}\n```"
 # ──────────────────────────────── @read ───────────────────────────────────────
 
+def _resolve_max_bytes(cfg: dict, key: str) -> int | None:
+    """Resolve a render.max_*_bytes config key as int or None.
+
+    Used by @read and @include to avoid duplicated parsing logic."""
+    raw = cfg.get("render", {}).get(key)
+    try:
+        return int(raw) if raw is not None else None
+    except (ValueError, TypeError):
+        return None
+
 def _parse_read_content_for_validation(content: str, ext: str) -> object:
     """Parse @read content for schema validation."""
     ext = ext.lower()
@@ -2797,11 +2808,8 @@ def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str
     env_key = modifiers.get("key")
     fallback = modifiers.get("fallback")
     schema_ref = modifiers.get("schema")
-    _mb = cfg["render"].get("max_read_bytes")
-    try:
-        max_bytes: int | None = int(_mb) if _mb is not None else None
-    except (ValueError, TypeError):
-        max_bytes = None
+    _mb = _resolve_max_bytes(cfg, "max_read_bytes")
+    max_bytes = _mb
 
     def fallback_result() -> str:
         warning = _validate_against_schema_ref(fallback, schema_ref, workspace, "@read")
@@ -2853,11 +2861,7 @@ def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str
         return f"> ⚠ @read: could not read `{file_path_str}`: {e}"
 
     # ── File size limit check (byte-counted, not character-counted) ──
-    max_bytes_raw = cfg["render"].get("max_read_bytes")
-    try:
-        max_bytes = int(max_bytes_raw) if max_bytes_raw is not None else None
-    except (ValueError, TypeError):
-        max_bytes = None
+    max_bytes = _resolve_max_bytes(cfg, "max_read_bytes")
     if max_bytes is not None and len(data) > max_bytes:
         content = data[:max_bytes].decode(errors="replace")
         trunc_note = (
@@ -3041,6 +3045,14 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
         fallback = _unescape_fallback(fallback)
         raw = (raw[:fb_match.start()] + raw[fb_match.end():]).rstrip()
 
+    # Defense-in-depth: detect shell metacharacters for operator visibility.
+    # When render.query_shell_meta_warning is enabled (default: false),
+    # commands containing ; | & $() or backticks emit a visible warning
+    # in the rendered output but still execute. This does not break
+    # legitimate pipelines — it only surfaces a warning.
+    _shell_meta_warn = bool(cfg["render"].get("query_shell_meta_warning", False))
+    _meta_prefix = ""
+
     # Extract timeout=N modifier BEFORE command parsing so the token can't
     # leak into unquoted commands. Same principle as schema=/fallback= above.
     timeout = int(cfg["render"].get("query_timeout_s", 30))
@@ -3063,6 +3075,11 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
 
     # Detect language hint for syntax highlighting (best-effort)
     lang = _guess_lang(cmd)
+
+    # Shell metacharacter defense-in-depth warning (config-gated, default off).
+    if _shell_meta_warn and re.search(r'[;&|]|\$[({]|`', cmd):
+        _meta_prefix = f"> ⚠ @query: shell metacharacters detected in command. "
+        _meta_prefix += "Set render.query_shell_meta_warning=false to suppress.\n\n"
 
     # task-47: audit the shell-execution decision crossing the trust boundary.
     audit_event(cfg, "shell_exec",
@@ -3097,7 +3114,7 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
                 return fallback
             header = f"> ⚠ `@query` exited {exit_code}: `{cmd}`\n\n"
             body = stdout or stderr or "(no output)"
-            return header + f"```{lang}\n{body}\n```"
+            return _meta_prefix + header + f"```{lang}\n{body}\n```"
 
         if not stdout:
             if fallback is not None:
@@ -3132,16 +3149,16 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
             if warning:
                 return warning
 
-        return f"```{lang}\n{stdout}\n```"
+        return _meta_prefix + f"```{lang}\n{stdout}\n```"
 
     except subprocess.TimeoutExpired:
         if fallback is not None:
             return fallback
-        return f"> ⚠ `@query` timed out ({timeout}s): `{cmd}`"
+        return _meta_prefix + f"> ⚠ `@query` timed out ({timeout}s): `{cmd}`"
     except Exception as exc:
         if fallback is not None:
             return fallback
-        return f"> ⚠ `@query` error: {exc}"
+        return _meta_prefix + f"> ⚠ `@query` error: {exc}"
 
 
 def _guess_lang(cmd: str) -> str:
@@ -6229,8 +6246,10 @@ def _cache_key(directive_line: str) -> str:
     distinct directives from colliding on the same cache key.
     """
     import re as _re
-    # Split into quoted and unquoted segments, normalize unquoted only
-    parts = _re.split(r'(\"[^\"]*\"|\'[^\']*\')', directive_line)
+    # Split into quoted and unquoted segments, normalize unquoted only.
+    # Handle escaped quotes (\\\" and \\') inside quoted strings, matching the
+    # _extract_quoted_token behaviour used by directive resolvers.
+    parts = _re.split(r'("(?:[^"\\\\]|\\\\.)*"|\'(?:[^\'\\\\]|\\\\.)*\')', directive_line)
     normalised_parts = []
     for part in parts:
         if part.startswith(('"', "'")):
@@ -6444,10 +6463,23 @@ def cache_set(key: str, value: str, mode: str, ttl: int | None, cfg: dict) -> No
         cache_dir = _safe_cache_dir(cfg)
         try:
             # task-62: Create cache directory with owner-only permissions.
-            # Python's mkdir respects umask, so we explicitly chmod afterward
-            # to guarantee 0o700 regardless of system umask.
-            cache_dir.mkdir(parents=True, exist_ok=True)
-            os.chmod(cache_dir, 0o700)
+            # Walk the parent chain (stopping at home) and chmod each
+            # level so intermediate dirs aren't left world-readable by
+            # the system umask. Permission failures on parent dirs are
+            # non-fatal — the leaf is what matters.
+            home = Path.home()
+            p: Path = cache_dir
+            while p != home and p.parent != p:
+                if not p.exists():
+                    try:
+                        p.mkdir(mode=0o700, exist_ok=True)
+                    except Exception:
+                        pass  # parent may not be writable (test envs)
+                try:
+                    os.chmod(p, 0o700)
+                except Exception:
+                    pass  # parent may not be ownable (test envs, /tmp, /)
+                p = p.parent
             # v1.0.5 review: redact secrets before persisting to cache.
             # Cached values can contain rendered output with embedded tokens.
             safe_value = value
@@ -6746,7 +6778,10 @@ def _execute_pipe(stages: list[str], cfg: dict, workspace, line_index: int, quer
         directive = m.group(1).lower()
         raw_args = (m.group(2) or "").strip()
         if idx > 0 and prev_output:
-            raw_args = f'"{prev_output}" {raw_args}'
+            # Escape embedded double-quotes so prev_output doesn't
+            # prematurely terminate the quoting. FTS5-style: " → ""
+            escaped = prev_output.replace('"', '""')
+            raw_args = f'"{escaped}" {raw_args}'
         # C11: check @cache on the original stage args (before prev_output prepend,
         # which could contain "@cache " substring from previous stage stdout).
         if idx < resolve_count - 1:
@@ -8418,8 +8453,8 @@ def _mneme_index_document(cfg: dict, file_path: Path) -> bool:
         except Exception:
             pass
         return False
-    finally:
-        conn.close()
+    # Connection is cached for process lifetime; do not close.
+    # (Unlike other mneme_index functions, commit() already happened above.)
 
 
 def _mneme_delete_document(cfg: dict, doc_id: str) -> bool:
@@ -12077,7 +12112,7 @@ def _find_version() -> str:
             return candidate.read_text().strip()
     return _PERSEUS_VERSION  # fallback to build-time injected literal
 
-_PERSEUS_VERSION = "1.0.5"  # injected by scripts/build.py at build time
+_PERSEUS_VERSION = "1.0.6"  # injected by scripts/build.py at build time
 _PERSEUS_VERSION = _find_version()
 
 
