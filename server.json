@@ -3,12 +3,12 @@
   "name": "io.github.tcconnally/perseus",
   "title": "Perseus — MCP Server + Live Context Engine",
   "description": "MCP server with 24 tools for workspace state resolution. Compile-before-context engine: pre-resolves git status, service health, file queries, memory federation, and multi-agent coordination into live markdown before the AI sees it.",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "perseus-ctx",
-      "version": "1.0.5",
+      "version": "1.0.6",
       "packageArguments": [
         {"type": "positional", "value": "mcp"},
         {"type": "positional", "value": "serve"}
