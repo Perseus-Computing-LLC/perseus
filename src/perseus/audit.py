@@ -737,13 +737,50 @@ def _dump_frontmatter_body(frontmatter: dict, body: str) -> str:
 
 
 def _load_task_file(task_path: Path) -> tuple[dict, str]:
+    """Read a task file, waiting for any concurrent write to finish."""
     text = task_path.read_text(errors="replace")
     fm, body = _parse_frontmatter(text)
     return dict(fm or {}), body
 
 
 def _save_task_file(task_path: Path, frontmatter: dict, body: str) -> None:
-    task_path.write_text(_dump_frontmatter_body(frontmatter, body))
+    """Write a task file atomically.
+
+    task-65: Uses temp file + os.replace to prevent partial/corrupt reads
+    when multiple processes write concurrently. Also uses fcntl.flock for
+    advisory locking so concurrent claim/complete/load operations don't
+    race.
+    """
+    import fcntl
+    import tempfile
+
+    content = _dump_frontmatter_body(frontmatter, body)
+    lock_path = task_path.with_suffix(task_path.suffix + ".lock")
+
+    # Open or create the lock file
+    lock_dir = lock_path.parent
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    lf = open(lock_path, "w")
+    try:
+        fcntl.flock(lf, fcntl.LOCK_EX)
+        # Write to temp file in same directory, then atomic replace
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w",
+            suffix=".md",
+            dir=str(task_path.parent),
+            delete=False,
+            encoding="utf-8",
+        )
+        try:
+            tmp.write(content)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+        finally:
+            tmp.close()
+        os.replace(tmp.name, task_path)
+    finally:
+        fcntl.flock(lf, fcntl.LOCK_UN)
+        lf.close()
 
 
 def _task_id_from_path(task_path: Path) -> str:

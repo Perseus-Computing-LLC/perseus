@@ -4,6 +4,7 @@
 def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | None = None,
                     *, _depth: int = 0,
                     _path_chain: tuple = (),
+                    _inode_chain: tuple = (),
                     _directive_collector: list[dict] | None = None,
                     _stats: dict | None = None) -> str:
     """
@@ -19,6 +20,9 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
     of the same file (e.g. via multiple branches in conditional blocks)
     are intentional — each occurrence renders independently. There is
     no deduplication; the caller controls include frequency.
+
+    Inode tracking (task-63): hard links bypass path-based cycle detection.
+    _inode_chain tracks (st_dev, st_ino) pairs for every file visited.
     """
     file_path_str, remaining = _extract_quoted_token(args_str.strip())
     if not file_path_str:
@@ -39,7 +43,7 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
     if not fp.exists():
         return f"> ⚠ @include: file not found: `{file_path_str}`"
 
-    # ── Cycle detection ──
+    # ── Cycle detection (path + inode) ──
     resolved_path = str(fp.resolve())
 
     # True cycle: file is an ancestor in the current include chain.
@@ -48,7 +52,20 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
         chain = " → ".join(list(_path_chain) + [resolved_path])
         return f"> ⚠ @include: circular dependency detected. Chain: {chain}"
 
+    # Inode-based detection (task-63): catch hard-link loops where different
+    # paths resolve to the same underlying file (same device + inode).
+    try:
+        st = fp.stat()
+        inode_pair = (st.st_dev, st.st_ino)
+    except OSError:
+        inode_pair = None
+
+    if inode_pair is not None and inode_pair in _inode_chain:
+        chain = " → ".join(list(_path_chain) + [resolved_path])
+        return f"> ⚠ @include: circular dependency detected (hard link). Chain: {chain}"
+
     _path_chain = _path_chain + (resolved_path,)
+    _inode_chain = _inode_chain + ((inode_pair,) if inode_pair is not None else ())
 
     # ── Depth limit ──
     max_depth = render_cfg.get("max_include_depth", 5)
@@ -109,6 +126,7 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
                 # Render the included file through Perseus with incremented depth
                 rendered = render_source(raw, cfg, workspace, _include_depth=_depth + 1,
                                          _include_path_chain=_path_chain,
+                                         _include_inode_chain=_inode_chain,
                                          _directive_collector=_directive_collector,
                                          _stats=_stats)
                 return trunc_note + rendered
