@@ -211,16 +211,32 @@ class GauntletOrchestrator:
         else:
             return PHASE_DEFINITIONS[1:]  # Phases 1-11
 
+    def _requires_shared_mount(self) -> bool:
+        """Whether this run requires a true shared mount (multi-node mode)."""
+        return not (len(self.nodes) == 1 and self.nodes[0] == "local")
+
     def _phase_preflight(self) -> dict:
         """Phase 0: Pre-Flight checks."""
         print("  Pre-flight checks...")
 
         # Clear stale caches from previous runs
+        import shutil
         for d in [COLD_HOME / "cache", WARM_HOME / "cache"]:
             if d.is_dir():
-                import shutil
-                shutil.rmtree(d)
-                d.mkdir(parents=True, exist_ok=True)
+                # shutil.rmtree can fail on macOS with ENOTEMPTY when extended
+                # attributes are present. Fallback: remove children individually.
+                try:
+                    shutil.rmtree(d)
+                except OSError:
+                    for child in d.iterdir():
+                        try:
+                            if child.is_dir():
+                                shutil.rmtree(child, ignore_errors=True)
+                            else:
+                                child.unlink(missing_ok=True)
+                        except OSError:
+                            pass
+            d.mkdir(parents=True, exist_ok=True)
         print("  Caches cleared")
 
         # Run full gauntlet setup (config, vault seed, checkpoints, files, narrative)
@@ -241,7 +257,10 @@ class GauntletOrchestrator:
             sys.exit(result.returncode)
 
         # NFS health
-        nfs_health = check_nfs_health(self.nfs_path)
+        nfs_health = check_nfs_health(
+            self.nfs_path,
+            require_mount=self._requires_shared_mount(),
+        )
         print(f"  NFS health: {'OK' if nfs_health['healthy'] else 'FAIL'} {nfs_health}")
 
         # Perseus availability
@@ -592,9 +611,16 @@ class GauntletOrchestrator:
         """Register all pass/fail gates."""
         gr = self.gate_runner
 
+        def _nfs_gate(_results):
+            health = check_nfs_health(
+                self.nfs_path,
+                require_mount=self._requires_shared_mount(),
+            )
+            return (health["healthy"], health)
+
         gr.add_gate("NFS health check", severity="soft",
                      threshold="healthy == True",
-                     threshold_fn=lambda r: (check_nfs_health(self.nfs_path)["healthy"], True),
+                     threshold_fn=_nfs_gate,
                      required_phase=0)
 
         gr.add_gate("Phase 1: Zero failures (cold baseline)", severity="hard",

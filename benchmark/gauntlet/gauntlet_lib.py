@@ -69,7 +69,7 @@ def perseus_executable() -> str:
     )
 
 
-def check_nfs_health(mount_path: Path | str = NFS_MOUNT_DIR) -> dict:
+def check_nfs_health(mount_path: Path | str = NFS_MOUNT_DIR, require_mount: bool = True) -> dict:
     """Health check for an NFS (or shared) mount.
 
     Validates that the path is an actual mount point (not a bare local dir
@@ -80,21 +80,14 @@ def check_nfs_health(mount_path: Path | str = NFS_MOUNT_DIR) -> dict:
     import os
     mount_path = Path(mount_path)
 
-    # Gate 1: path must exist and be a mount point. Single-node local gauntlets
-    # intentionally use /tmp/perseus-gauntlet instead of a real NFS mount.
+    # Gate 1: path must exist (and be a mount point when required).
+    # Single-node local gauntlets pass require_mount=False.
     if not mount_path.exists():
         return {"healthy": False, "path": str(mount_path),
                 "error": "path does not exist"}
-    if not os.path.ismount(mount_path):
-        tmp_root = Path(os.environ.get("TMPDIR", "/tmp")).resolve()
-        try:
-            resolved = mount_path.resolve()
-            if not (resolved == tmp_root or resolved.is_relative_to(tmp_root)):
-                return {"healthy": False, "path": str(mount_path),
-                        "error": "path is not a mount point"}
-        except (OSError, ValueError):
-            return {"healthy": False, "path": str(mount_path),
-                    "error": "path is not a mount point"}
+    if require_mount and not os.path.ismount(mount_path):
+        return {"healthy": False, "path": str(mount_path),
+                "error": "path is not a mount point"}
 
     # Gate 2: read/write probe
     probe = mount_path / ".gauntlet_probe"

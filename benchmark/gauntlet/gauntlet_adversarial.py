@@ -512,6 +512,10 @@ def scenario_a7_signal_storm(
                 renders_failed += 1
         except Exception:
             renders_failed += 1
+        except (BrokenPipeError, ValueError):
+            # communicate() raises ValueError if stdin was already closed,
+            # or BrokenPipeError if the process exited before we could write.
+            renders_failed += 1
 
     result["renders"] = {
         "duration_s": time.time() - t0,
@@ -673,6 +677,9 @@ def scenario_a10_symlink_race(
         chain.append(link)
 
     result["setup"] = f"created {len(chain)} symlink chain entries"
+
+    # Create context.md BEFORE the render loop so renders have a file to read
+    (race_dir / "context.md").write_text("@perseus v0.8\n@prompt symlink race\n")
 
     # Run renders while modifying symlinks
     perseus = perseus_executable()

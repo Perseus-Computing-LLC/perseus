@@ -901,64 +901,78 @@ class ConditionParseError(ValueError):
 
 
 # ── v1.0.6 Preflight Permission Check ──────────────────────────────────────
-# Verifies PERSEUS_HOME and subdirectories Perseus writes to are writable.
-# Cached per-process — only runs once. Directives call _preflight_warnings()
-# to get any pending warnings, or the renderer injects them at top level.
+# Verifies PERSEUS_HOME and writable targets are writable.
+# Cached per effective write-path configuration (not globally once-per-process),
+# so tests and callers can safely change cfg paths without stale warnings.
 
-_PREFLIGHT_WARNINGS: list[str] = []
-_PREFLIGHT_RUN = False
+_PREFLIGHT_CACHE: dict[tuple[str, str, str, str, str], list[str]] = {}
 
 
 def _preflight_permissions(cfg: dict) -> list[str]:
-    """Check writability of PERSEUS_HOME and all write-target subdirectories.
+    """Check writability of PERSEUS_HOME and configured write targets.
 
-    Returns a list of warning strings (empty = all good). Cached — runs once.
+    Returns a list of warning strings (empty = all good). Results are cached
+    by effective write-path tuple to avoid cross-config leakage.
     """
-    global _PREFLIGHT_WARNINGS, _PREFLIGHT_RUN
-    if _PREFLIGHT_RUN:
-        return _PREFLIGHT_WARNINGS
-    _PREFLIGHT_RUN = True
+    home = PERSEUS_HOME
+    checkpoints_path = Path(
+        cfg.get("checkpoints", {}).get("store", str(home / "checkpoints"))
+    ).expanduser()
+    inbox_path = Path(
+        cfg.get("inbox", {}).get("store", str(home / "inbox"))
+    ).expanduser()
+    audit_log = Path(
+        cfg.get("audit", {}).get("log_path", str(home / "audit_log.jsonl"))
+    ).expanduser()
+    memory_path = Path(
+        cfg.get("memory", {}).get("store", str(home / "memory"))
+    ).expanduser()
+
+    cache_key = (
+        str(home),
+        str(checkpoints_path),
+        str(inbox_path),
+        str(audit_log),
+        str(memory_path),
+    )
+    cached = _PREFLIGHT_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
 
     warnings: list[str] = []
-    home = PERSEUS_HOME
 
-    # Check PERSEUS_HOME itself
+    # Check PERSEUS_HOME itself (informational; directives decide whether to gate).
     if not home.exists():
         try:
             home.mkdir(parents=True, exist_ok=True)
         except (OSError, PermissionError) as e:
             warnings.append(
                 f"⚠ PERSEUS_HOME not writable: {home} — {e}. "
-                "@inbox, @waypoint, and @memory will be disabled."
+                "Defaults under PERSEUS_HOME may be unavailable."
             )
-            _PREFLIGHT_WARNINGS = warnings
-            return warnings
     elif not os.access(home, os.W_OK):
         warnings.append(
             f"⚠ PERSEUS_HOME not writable: {home}. "
-            "@inbox, @waypoint, and @memory will be disabled."
+            "Defaults under PERSEUS_HOME may be unavailable."
         )
-        _PREFLIGHT_WARNINGS = warnings
-        return warnings
 
-    # Subdirectories Perseus writes to
-    subdirs = {
-        "checkpoints": cfg.get("checkpoints", {}).get("store", str(home / "checkpoints")),
-        "inbox": cfg.get("inbox", {}).get("store", str(home / "inbox")),
-        "audit": str(home),  # audit_log.jsonl lives directly in PERSEUS_HOME
-        "memory": str(home / "memory"),  # Mnēmē vault
+    # Subdirectories/files Perseus writes to
+    targets = {
+        "checkpoints": checkpoints_path,
+        "inbox": inbox_path,
+        "audit": audit_log.parent,
+        "memory": memory_path,
     }
 
-    for name, path_str in subdirs.items():
-        path = Path(path_str)
+    for name, path in targets.items():
         try:
             path.mkdir(parents=True, exist_ok=True)
         except (OSError, PermissionError):
-            pass  # Check access below — mkdir may fail on parent but the leaf may exist
-        if not os.access(path if path.is_dir() else path.parent, os.W_OK):
+            pass
+        probe = path if path.is_dir() else path.parent
+        if not os.access(probe, os.W_OK):
             warnings.append(f"⚠ {name}/ not writable: {path}")
 
-    _PREFLIGHT_WARNINGS = warnings
+    _PREFLIGHT_CACHE[cache_key] = warnings
     return warnings
-
 
