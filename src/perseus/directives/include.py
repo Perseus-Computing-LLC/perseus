@@ -100,11 +100,7 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
         return f"> ⚠ @include: could not read `{file_path_str}`: {e}"
 
     # ── File size limit check (byte-counted, not character-counted) ──
-    _mb = render_cfg.get("max_include_bytes")
-    try:
-        max_bytes: int | None = int(_mb) if _mb is not None else None
-    except (ValueError, TypeError):
-        max_bytes = None
+    max_bytes = _resolve_max_bytes(cfg, "max_include_bytes")
     if max_bytes is not None and len(data) > max_bytes:
         raw = data[:max_bytes].decode(errors="replace").rstrip()
         actual_size = len(data)
