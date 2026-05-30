@@ -26,8 +26,10 @@ def _cache_key(directive_line: str) -> str:
     distinct directives from colliding on the same cache key.
     """
     import re as _re
-    # Split into quoted and unquoted segments, normalize unquoted only
-    parts = _re.split(r'(\"[^\"]*\"|\'[^\']*\')', directive_line)
+    # Split into quoted and unquoted segments, normalize unquoted only.
+    # Handle escaped quotes (\\\" and \\') inside quoted strings, matching the
+    # _extract_quoted_token behaviour used by directive resolvers.
+    parts = _re.split(r'("(?:[^"\\\\]|\\\\.)*"|\'(?:[^\'\\\\]|\\\\.)*\')', directive_line)
     normalised_parts = []
     for part in parts:
         if part.startswith(('"', "'")):
@@ -241,10 +243,23 @@ def cache_set(key: str, value: str, mode: str, ttl: int | None, cfg: dict) -> No
         cache_dir = _safe_cache_dir(cfg)
         try:
             # task-62: Create cache directory with owner-only permissions.
-            # Python's mkdir respects umask, so we explicitly chmod afterward
-            # to guarantee 0o700 regardless of system umask.
-            cache_dir.mkdir(parents=True, exist_ok=True)
-            os.chmod(cache_dir, 0o700)
+            # Walk the parent chain (stopping at home) and chmod each
+            # level so intermediate dirs aren't left world-readable by
+            # the system umask. Permission failures on parent dirs are
+            # non-fatal — the leaf is what matters.
+            home = Path.home()
+            p: Path = cache_dir
+            while p != home and p.parent != p:
+                if not p.exists():
+                    try:
+                        p.mkdir(mode=0o700, exist_ok=True)
+                    except Exception:
+                        pass  # parent may not be writable (test envs)
+                try:
+                    os.chmod(p, 0o700)
+                except Exception:
+                    pass  # parent may not be ownable (test envs, /tmp, /)
+                p = p.parent
             # v1.0.5 review: redact secrets before persisting to cache.
             # Cached values can contain rendered output with embedded tokens.
             safe_value = value
@@ -543,7 +558,10 @@ def _execute_pipe(stages: list[str], cfg: dict, workspace, line_index: int, quer
         directive = m.group(1).lower()
         raw_args = (m.group(2) or "").strip()
         if idx > 0 and prev_output:
-            raw_args = f'"{prev_output}" {raw_args}'
+            # Escape embedded double-quotes so prev_output doesn't
+            # prematurely terminate the quoting. FTS5-style: " → ""
+            escaped = prev_output.replace('"', '""')
+            raw_args = f'"{escaped}" {raw_args}'
         # C11: check @cache on the original stage args (before prev_output prepend,
         # which could contain "@cache " substring from previous stage stdout).
         if idx < resolve_count - 1:
