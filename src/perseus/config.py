@@ -184,6 +184,27 @@ DEFAULT_CONFIG = {
         # DEFAULT_REDACTION_RULES for the shape of the default set.
         "patterns": [],
     },
+    "env": {                          # task-61 — @env directive deny-list
+        # Glob patterns for environment variable NAMES that must not be
+        # rendered into context files. Variables matching any pattern are
+        # replaced with a denial marker regardless of whether redaction
+        # would catch their values.
+        "deny_list": [
+            "*_SECRET*",
+            "*_KEY*",
+            "*TOKEN*",
+            "*PASSWORD*",
+            "*_PASS",
+            "*_CREDENTIAL*",
+            "*_PRIVATE_KEY*",
+            "*_CERTIFICATE*",
+            "AWS_ACCESS_KEY_ID",
+            "AWS_SECRET_ACCESS_KEY",
+            "DOCKER_AUTH*",
+            "NPM_TOKEN",
+            "COCOAPODS_TRUNK_TOKEN",
+        ],
+    },
     "audit": {                        # Phase 17C — task-47
         # Append-only JSONL log of sensitive operations and policy denials.
         # File is rotated when it exceeds max_log_bytes (one rotation kept,
