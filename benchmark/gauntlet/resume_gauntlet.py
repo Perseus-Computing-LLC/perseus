@@ -116,25 +116,21 @@ def run_phase(phase_num: int, name: str, nfs_path: Path, role_profiles: list[dic
 
 def _run_token_efficiency(role_profiles: list[dict]) -> dict:
     """Phase 9: Token Efficiency."""
-    import os, subprocess
+    import os, shutil, subprocess
     result = {"phase": 9, "name": "Token Efficiency", "status": "completed", "renders": []}
-
-    cold_home = Path("/tmp/perseus-gauntlet/cold")
-    warm_home = Path("/tmp/perseus-gauntlet/warm")
-    cold_home.mkdir(parents=True, exist_ok=True)
-    warm_home.mkdir(parents=True, exist_ok=True)
 
     perseus = perseus_executable()
     sample_size = min(10, len(role_profiles))
 
     for i in range(sample_size):
         profile = role_profiles[i]
-        cold_env = os.environ.copy()
-        cold_env["PERSEUS_HOME"] = str(cold_home)
-        warm_env = os.environ.copy()
-        warm_env["PERSEUS_HOME"] = str(warm_home)
+        profile_home = Path("/tmp/perseus-gauntlet/token-efficiency") / profile["name"]
+        shutil.rmtree(profile_home, ignore_errors=True)
+        profile_home.mkdir(parents=True, exist_ok=True)
+        env = os.environ.copy()
+        env["PERSEUS_HOME"] = str(profile_home)
 
-        for state, env, label in [("cold", cold_env, "Cold"), ("warm", warm_env, "Warm")]:
+        for label in ["Cold", "Warm"]:
             try:
                 r = subprocess.run(
                     [sys.executable, perseus, "render", profile["path"]],
@@ -172,14 +168,18 @@ def _run_semantic_integrity() -> dict:
     import os as _os, json as _json, urllib.request as _req, urllib.error as _err
 
     result = {"phase": 8, "name": "Semantic Integrity", "status": "skipped",
-              "reason": "Requires DEEPSEEK_API_KEY"}
+              "reason": "Requires DEEPSEEK_API_KEY or GAUNTLET_JUDGE_API_KEY"}
 
-    api_key = _os.environ.get("DEEPSEEK_API_KEY")
+    api_key = _os.environ.get("DEEPSEEK_API_KEY") or _os.environ.get("GAUNTLET_JUDGE_API_KEY")
     if not api_key:
-        print("  SKIPPED: DEEPSEEK_API_KEY not set")
+        print("  SKIPPED: DEEPSEEK_API_KEY or GAUNTLET_JUDGE_API_KEY not set")
         return result
 
-    deepseek_base = _os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+    deepseek_base = (
+        _os.environ.get("GAUNTLET_JUDGE_BASE_URL")
+        or _os.environ.get("DEEPSEEK_BASE_URL")
+        or "https://api.deepseek.com"
+    )
     model = _os.environ.get("GAUNTLET_JUDGE_MODEL", "deepseek-chat")
     n_pairs = 20
 
@@ -264,7 +264,7 @@ def register_all_gates(gate_runner: GateRunner, nfs_path: Path):
     gr.add_gate("NFS health check", severity="soft", threshold="healthy == True",
                  threshold_fn=_nfs_gate, required_phase=0)
 
-    gr.add_gate("Phase 1: Zero failures (cold baseline)", severity="hard", threshold="failures == 0",
+    gr.add_gate("Phase 1: Zero failures (cold baseline)", severity="hard", threshold="failures == 0", required_phase=1,
                  threshold_fn=lambda r: (r.get("phase_1", {}).get("failures", 999) == 0,
                                           r.get("phase_1", {}).get("failures", "no data")),
                  required_phase=1)
@@ -273,7 +273,7 @@ def register_all_gates(gate_runner: GateRunner, nfs_path: Path):
                  threshold_fn=lambda r: _check_speedup_gate(r, "phase_2", 0.95),
                  required_phase=2)
 
-    gr.add_gate("Phase 3: Enterprise week zero failures", severity="hard", threshold="failures == 0",
+    gr.add_gate("Phase 3: Enterprise week zero failures", severity="hard", threshold="failures == 0", required_phase=3,
                  threshold_fn=lambda r: (r.get("phase_3", {}).get("failures", 999) == 0,
                                           r.get("phase_3", {}).get("failures", "no data")),
                  required_phase=3)
@@ -282,26 +282,30 @@ def register_all_gates(gate_runner: GateRunner, nfs_path: Path):
                  threshold_fn=lambda r: (True, 0.0), required_phase=4)
 
     gr.add_gate("Phase 5: Checkpoint zero corruption", severity="hard", threshold="corrupt == 0",
-                 threshold_fn=lambda r: (r.get("phase_5", {}).get("cache_integrity", {}).get("corrupt", 0) == 0,
-                                          r.get("phase_5", {}).get("cache_integrity", {}).get("corrupt", "no data")),
+                 threshold_fn=lambda r: (r.get("phase_5", {}).get("checkpoint_integrity", {}).get("corrupt", 0) == 0,
+                                          r.get("phase_5", {}).get("checkpoint_integrity", {}).get("corrupt", "no data")),
                  required_phase=5)
 
-    gr.add_gate("Phase 6: Inbox delivery >= 99.9%", severity="hard", threshold=">= 0.999",
+    gr.add_gate("Phase 6: Inbox delivery >= 99.9%", severity="hard", threshold=">= 0.999", required_phase=6,
                  threshold_fn=lambda r: (r.get("phase_6", {}).get("success_rate", 0) >= 0.999,
                                           r.get("phase_6", {}).get("success_rate", "no data")),
                  required_phase=6)
 
-    gr.add_gate("Phase 7: Adversarial overall_pass", severity="hard", threshold="True",
+    gr.add_gate("Phase 7: Adversarial overall_pass", severity="hard", threshold="True", required_phase=7,
                  threshold_fn=lambda r: (r.get("phase_7", {}).get("overall_pass", False),
                                           r.get("phase_7", {}).get("overall_pass", "no data")),
                  required_phase=7)
 
-    gr.add_gate("Phase 7: All adversarial scenarios complete", severity="hard", threshold="12 scenarios",
+    gr.add_gate("Phase 7: All adversarial scenarios complete", severity="hard", threshold="12 scenarios", required_phase=7,
                  threshold_fn=lambda r: (r.get("phase_7", {}).get("scenarios_run", 0) >= 12,
                                           r.get("phase_7", {}).get("scenarios_run", "no data")),
                  required_phase=7)
 
-    gr.add_gate("Phase 9: Compression ratio <= 1.0 (no inflation)", severity="hard", threshold="<= 1.0",
+    gr.add_gate("Phase 8: Semantic integrity overall_pass", severity="hard", threshold="True", required_phase=8,
+                 threshold_fn=lambda r: (r.get("phase_8", {}).get("overall_pass", False),
+                                          r.get("phase_8", {}).get("overall_pass", "no data")))
+
+    gr.add_gate("Phase 9: Compression ratio <= 1.0 (no inflation)", severity="hard", threshold="<= 1.0", required_phase=9,
                  threshold_fn=lambda r: (r.get("phase_9", {}).get("compression_ratio", 1.0) <= 1.0,
                                           r.get("phase_9", {}).get("compression_ratio", "no data")),
                  required_phase=9)
@@ -309,12 +313,12 @@ def register_all_gates(gate_runner: GateRunner, nfs_path: Path):
     gr.add_gate("Phase 9: P99 overhead < 5ms (stub)", severity="hard", threshold="< 5ms",
                  threshold_fn=lambda r: (True, 0), required_phase=9)
 
-    gr.add_gate("Phase 10: RSS growth <= 5%", severity="hard", threshold="<= 5%",
+    gr.add_gate("Phase 10: RSS growth <= 5%", severity="hard", threshold="<= 5%", required_phase=10,
                  threshold_fn=lambda r: (r.get("phase_10", {}).get("rss_growth_pct", 100) <= 5.0,
                                           r.get("phase_10", {}).get("rss_growth_pct", "no data")),
                  required_phase=10)
 
-    gr.add_gate("Phase 10: Error rate <= 0.01%", severity="hard", threshold="<= 0.0001",
+    gr.add_gate("Phase 10: Error rate <= 0.01%", severity="hard", threshold="<= 0.0001", required_phase=10,
                  threshold_fn=lambda r: ((r.get("phase_10", {}).get("failures", 0) /
                                           max(r.get("phase_10", {}).get("total", 1), 1)) <= 0.0001,
                                           r.get("phase_10", {}).get("failures", "no data")),

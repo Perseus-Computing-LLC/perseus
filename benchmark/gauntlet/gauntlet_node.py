@@ -318,6 +318,7 @@ def phase_checkpoint_relay(
             metrics.record(operation="checkpoint_write", task=task_name, success=False, elapsed_s=time.time() - t0)
 
     agg = metrics.aggregate()
+    agg["checkpoint_integrity"] = verify_cache_integrity(WARM_HOME / "checkpoints")
     write_json(nfs_base / "results" / f"phase5_node_{NODE_ID}.json", agg)
     write_json(nfs_base / "sentinels" / f"phase5_{NODE_ID}_done", {"done": True})
     return agg
@@ -353,9 +354,16 @@ def phase_sustained_torture(
     concurrent_renders: int = 50,
 ) -> dict:
     """Phase 10: Sustained Torture — continuous renders for 2h with memory monitoring."""
+    import statistics
+
     t_end = time.time() + duration_s
+    t_start = time.time()
     cycle = 0
     rss_samples: list[int] = []
+    times: list[float] = []
+    total = 0
+    failures = 0
+    sample_records: list[dict] = []
 
     # Try to import psutil for cross-platform RSS sampling
     try:
@@ -395,11 +403,43 @@ def phase_sustained_torture(
             r = render_profile(profile["path"], cache_state=cache_state)
             r["cycle"] = cycle
             r["torture_elapsed_s"] = time.time() - (t_end - duration_s)
-            metrics.record(**r)
+            total += 1
+            failures += 0 if r.get("success", True) else 1
+            if r.get("elapsed_s") is not None:
+                times.append(float(r.get("elapsed_s", 0)))
+            if len(sample_records) < 200:
+                sample = dict(r)
+                sample["output"] = sample.get("output", "")[:200]
+                sample["stderr"] = sample.get("stderr", "")[:200]
+                sample_records.append(sample)
 
         cycle += 1
 
-    agg = metrics.aggregate()
+    agg = {
+        "phase": metrics.phase_number,
+        "name": metrics.phase_name,
+        "total": total,
+        "failures": failures,
+        "success_rate": (total - failures) / total if total else 1.0,
+        "timestamp": timestamp_iso(),
+        "records": sample_records,
+    }
+    if times:
+        sorted_times = sorted(times)
+        n = len(sorted_times)
+        mean = statistics.mean(sorted_times)
+        agg.update({
+            "mean_s": mean,
+            "median_s": statistics.median(sorted_times),
+            "min_s": sorted_times[0],
+            "max_s": sorted_times[-1],
+            "p50_s": sorted_times[n // 2],
+            "p95_s": sorted_times[min(int(n * 0.95), n - 1)],
+            "p99_s": sorted_times[min(int(n * 0.99), n - 1)],
+            "stddev_s": statistics.stdev(sorted_times) if n >= 2 else 0.0,
+            "cv": statistics.stdev(sorted_times) / mean if n >= 2 and mean > 0 else 0.0,
+            "total_s": time.time() - t_start,
+        })
     agg["rss_samples"] = rss_samples
     agg["rss_growth_pct"] = (
         ((rss_samples[-1] - rss_samples[0]) / rss_samples[0] * 100)

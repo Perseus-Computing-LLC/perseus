@@ -2,7 +2,7 @@
   "session_id": "sess-004",
   "timestamp": "2026-05-21T06:21:00+00:00",
   "label": "Gauntlet benchmark design \u2014 iteration 4",
-  "workspace": "/Users/tconnally/Documents/perseus/benchmark/gauntlet/gauntlet_role_profiles",
+  "workspace": "/workspace/perseus/benchmark/gauntlet/gauntlet_role_profiles",
   "directives_used": [
     "@query",
     "@read",

@@ -5,19 +5,19 @@
       {
         "depth": 10,
         "rc": 0,
-        "time_to_failure_ms": 193,
+        "time_to_failure_ms": 536,
         "error_class": "clean"
       },
       {
         "depth": 100,
         "rc": 0,
-        "time_to_failure_ms": 184,
+        "time_to_failure_ms": 546,
         "error_class": "clean"
       },
       {
         "depth": 1000,
         "rc": 0,
-        "time_to_failure_ms": 223,
+        "time_to_failure_ms": 559,
         "error_class": "clean"
       }
     ],
@@ -94,7 +94,7 @@
   "C3": {
     "test": "C3_infinite_output",
     "completed": true,
-    "wall_s": 0.18,
+    "wall_s": 0.34,
     "output_bytes_captured": 71,
     "bounded": true
   },
@@ -107,9 +107,9 @@
     "test": "C5_concurrent_adversarial",
     "n_agents": 50,
     "orphan_count": 0,
-    "baseline_ms": 677.2,
-    "normal_avg_ms": 610.2,
-    "normal_agent_slowdown_factor": 0.9,
+    "baseline_ms": 1153.3,
+    "normal_avg_ms": 1227.6,
+    "normal_agent_slowdown_factor": 1.06,
     "traceback_count": 0,
     "advrs_completed": 10,
     "advrs_total": 10
