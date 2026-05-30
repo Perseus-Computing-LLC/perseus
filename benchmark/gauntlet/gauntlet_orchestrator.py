@@ -519,6 +519,8 @@ class GauntletOrchestrator:
 
     def _phase_token_efficiency(self) -> dict:
         """Phase 9: Token Efficiency — measure compression ratio per profile."""
+        import shutil
+
         result = {
             "phase": 9,
             "name": "Token Efficiency",
@@ -527,26 +529,21 @@ class GauntletOrchestrator:
             "per_profile": [],
         }
 
-        cold_home = Path("/tmp/perseus-gauntlet/cold")
-        warm_home = Path("/tmp/perseus-gauntlet/warm")
-        cold_home.mkdir(parents=True, exist_ok=True)
-        warm_home.mkdir(parents=True, exist_ok=True)
-
         perseus = perseus_executable()
         # Sample ALL profiles for statistically meaningful results
         sample_profiles = self.role_profiles[:25]  # all 25
 
         for i, profile in enumerate(sample_profiles):
-            cold_env = os.environ.copy()
-            cold_env["PERSEUS_HOME"] = str(cold_home)
-            warm_env = os.environ.copy()
-            warm_env["PERSEUS_HOME"] = str(warm_home)
+            profile_home = Path("/tmp/perseus-gauntlet/token-efficiency") / profile["name"]
+            shutil.rmtree(profile_home, ignore_errors=True)
+            profile_home.mkdir(parents=True, exist_ok=True)
+            env = os.environ.copy()
+            env["PERSEUS_HOME"] = str(profile_home)
 
             cold_tokens = None
             warm_tokens = None
 
-            for state, env, label in [("cold", cold_env, "Cold"),
-                                       ("warm", warm_env, "Warm")]:
+            for label in ["Cold", "Warm"]:
                 try:
                     r = subprocess.run(
                         [sys.executable, perseus, "render", profile["path"]],
@@ -660,8 +657,8 @@ class GauntletOrchestrator:
         gr.add_gate("Phase 5: Checkpoint zero corruption", severity="hard",
                      threshold="corrupt == 0",
                      threshold_fn=lambda r: (
-                         r.get("phase_5", {}).get("cache_integrity", {}).get("corrupt", 0) == 0,
-                         r.get("phase_5", {}).get("cache_integrity", {}).get("corrupt", "no data"),
+                         r.get("phase_5", {}).get("checkpoint_integrity", {}).get("corrupt", 0) == 0,
+                         r.get("phase_5", {}).get("checkpoint_integrity", {}).get("corrupt", "no data"),
                      ),
                      required_phase=5)
 
@@ -688,6 +685,14 @@ class GauntletOrchestrator:
                          r.get("phase_7", {}).get("scenarios_run", "no data"),
                      ),
                      required_phase=7)
+
+        gr.add_gate("Phase 8: Semantic integrity overall_pass", severity="hard",
+                     threshold="True",
+                     threshold_fn=lambda r: (
+                         r.get("phase_8", {}).get("overall_pass", False),
+                         r.get("phase_8", {}).get("overall_pass", "no data"),
+                     ),
+                     required_phase=8)
 
         gr.add_gate("Phase 9: Compression ratio ≤ 1.0 (no inflation)", severity="hard",
                      threshold="≤ 1.0",
