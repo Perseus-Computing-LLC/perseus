@@ -151,8 +151,8 @@ def create_referenced_files(profile_dir: Path) -> None:
     print(f"  ✓ Created {count} referenced files + .perseus/context.md")
 
 
-def build_narrative(home: Path, workspace: Path) -> None:
-    """Run `perseus memory update` for the target workspace narrative."""
+def build_narrative(home: Path) -> None:
+    """Run perseus memory update to build narrative from checkpoints."""
     env = os.environ.copy()
     env["PERSEUS_HOME"] = str(home)
 
@@ -165,14 +165,7 @@ def build_narrative(home: Path, workspace: Path) -> None:
         print(f"  WARNING: No checkpoints in {home}")
 
     result = subprocess.run(
-        [
-            sys.executable,
-            str(REPO_ROOT / "perseus.py"),
-            "memory",
-            "update",
-            "--workspace",
-            str(workspace),
-        ],
+        [sys.executable, str(REPO_ROOT / "perseus.py"), "memory", "update"],
         capture_output=True, text=True, timeout=30, env=env,
     )
     if result.returncode == 0:
@@ -251,8 +244,8 @@ def main():
 
     # 5. Build narratives
     print("\n5. Building narratives...")
-    build_narrative(COLD_HOME, PROFILES_DIR)
-    build_narrative(WARM_HOME, PROFILES_DIR)
+    build_narrative(COLD_HOME)
+    build_narrative(WARM_HOME)
 
     # 6. Verify
     print("\n6. Verifying render...")

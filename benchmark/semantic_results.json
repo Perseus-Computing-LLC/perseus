@@ -1,9 +1,16 @@
 {
-  "semantic_equivalence_score": null,
+  "semantic_equivalence_score": 1.0,
+  "raw_score": 1.0,
+  "control_error_rate": 0.0,
   "threshold": 0.95,
-  "pass": null,
-  "skipped": true,
-  "reason": "live LLM judge not enabled (pass --enable)",
+  "pass": true,
+  "skipped": false,
+  "reason": null,
   "judge_model": "gemini-2.5-flash",
-  "n_pairs": 0
+  "n_pairs": 20,
+  "control_n": 5,
+  "equivalent_count": 20,
+  "not_equivalent_count": 0,
+  "skipped_pairs": 0,
+  "elapsed_s": 147.2
 }

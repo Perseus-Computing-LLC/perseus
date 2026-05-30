@@ -80,7 +80,8 @@ def check_nfs_health(mount_path: Path | str = NFS_MOUNT_DIR, require_mount: bool
     import os
     mount_path = Path(mount_path)
 
-    # Gate 1: path must exist (and be a mount point when required)
+    # Gate 1: path must exist (and be a mount point when required).
+    # Single-node local gauntlets pass require_mount=False.
     if not mount_path.exists():
         return {"healthy": False, "path": str(mount_path),
                 "error": "path does not exist"}
@@ -93,7 +94,8 @@ def check_nfs_health(mount_path: Path | str = NFS_MOUNT_DIR, require_mount: bool
     try:
         probe.write_text(timestamp_iso())
         probe.unlink()
-        return {"healthy": True, "path": str(mount_path)}
+        mode = "mount" if os.path.ismount(mount_path) else "local-tmp"
+        return {"healthy": True, "path": str(mount_path), "mode": mode}
     except OSError as exc:
         return {"healthy": False, "path": str(mount_path), "error": str(exc)}
 
