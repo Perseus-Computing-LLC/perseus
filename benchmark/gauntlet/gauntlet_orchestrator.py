@@ -122,7 +122,7 @@ class GauntletOrchestrator:
 
         # Determine which phases to run
         phases = self._get_phase_sequence()
-        run_mask: set[int] = set()  # track which phases actually executed
+        run_mask: set[int] = {0}  # track phases executed; Phase 0 runs first
 
         for pd in phases:
             p = pd["phase"]
@@ -715,11 +715,10 @@ class GauntletOrchestrator:
         gr.add_gate("Phase 10: RSS growth <= 5%", severity="hard",
                      threshold="<= 5%",
                      threshold_fn=lambda r: (
-                         (r.get("phase_10", {}).get("rss_growth_pct") or 0) <= 5.0
-                         if r.get("phase_10", {}).get("rss_measurement_available", False)
-                         else (False, "no data"),
+                         (r.get("phase_10", {}).get("rss_growth_pct") or 0) <= 5.0,
                          r.get("phase_10", {}).get("rss_growth_pct", "no data"),
-                     ),
+                     ) if r.get("phase_10", {}).get("rss_measurement_available", False)
+                     else (False, "no data"),
                      required_phase=10)
 
         gr.add_gate("Phase 10: Error rate <= 0.01%", severity="hard",

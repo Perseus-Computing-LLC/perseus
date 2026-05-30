@@ -542,8 +542,8 @@ def generate_final_report(
             f"{g.get('threshold', '')} | {g['severity']} |"
         )
 
-    # Score
-    score = _compute_gauntlet_score(gate_report, phase_results)
+    # Score — pass gate_results so skipped gates (phases not run) are excluded
+    score = _compute_gauntlet_score(gate_report, phase_results, gate_results)
     lines.extend(
         [
             f"",
@@ -580,8 +580,19 @@ def _compute_gauntlet_score(
         # All gates skipped — score 100 (nothing to evaluate, no failures)
         return 100.0
 
+    # Count passed among non-skipped gates only.
+    # gate_report["passed"] includes skipped gates (they have pass=True),
+    # so when gate_results is available, count from the raw list instead.
+    if gate_results:
+        non_skipped_passed = sum(
+            1 for g in gate_results
+            if g["pass"] and not g.get("skipped")
+        )
+    else:
+        non_skipped_passed = gate_report["passed"]
+
     # Base: gate pass rate among active (non-skipped) gates * 70
-    base = (gate_report["passed"] / active_total) * 70.0
+    base = (non_skipped_passed / active_total) * 70.0
     # Phases completed bonus: up to 20
     completed = sum(1 for pr in phase_results if pr.get("failures", 1) == 0)
     phase_bonus = (completed / max(len(phase_results), 1)) * 20.0
