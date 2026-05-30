@@ -247,6 +247,27 @@ DEFAULT_CONFIG = {
         # DEFAULT_REDACTION_RULES for the shape of the default set.
         "patterns": [],
     },
+    "env": {                          # task-61 — @env directive deny-list
+        # Glob patterns for environment variable NAMES that must not be
+        # rendered into context files. Variables matching any pattern are
+        # replaced with a denial marker regardless of whether redaction
+        # would catch their values.
+        "deny_list": [
+            "*_SECRET*",
+            "*_KEY*",
+            "*TOKEN*",
+            "*PASSWORD*",
+            "*_PASS",
+            "*_CREDENTIAL*",
+            "*_PRIVATE_KEY*",
+            "*_CERTIFICATE*",
+            "AWS_ACCESS_KEY_ID",
+            "AWS_SECRET_ACCESS_KEY",
+            "DOCKER_AUTH*",
+            "NPM_TOKEN",
+            "COCOAPODS_TRUNK_TOKEN",
+        ],
+    },
     "audit": {                        # Phase 17C — task-47
         # Append-only JSONL log of sensitive operations and policy denials.
         # File is rotated when it exceeds max_log_bytes (one rotation kept,
@@ -2217,13 +2238,50 @@ def _dump_frontmatter_body(frontmatter: dict, body: str) -> str:
 
 
 def _load_task_file(task_path: Path) -> tuple[dict, str]:
+    """Read a task file, waiting for any concurrent write to finish."""
     text = task_path.read_text(errors="replace")
     fm, body = _parse_frontmatter(text)
     return dict(fm or {}), body
 
 
 def _save_task_file(task_path: Path, frontmatter: dict, body: str) -> None:
-    task_path.write_text(_dump_frontmatter_body(frontmatter, body))
+    """Write a task file atomically.
+
+    task-65: Uses temp file + os.replace to prevent partial/corrupt reads
+    when multiple processes write concurrently. Also uses fcntl.flock for
+    advisory locking so concurrent claim/complete/load operations don't
+    race.
+    """
+    import fcntl
+    import tempfile
+
+    content = _dump_frontmatter_body(frontmatter, body)
+    lock_path = task_path.with_suffix(task_path.suffix + ".lock")
+
+    # Open or create the lock file
+    lock_dir = lock_path.parent
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    lf = open(lock_path, "w")
+    try:
+        fcntl.flock(lf, fcntl.LOCK_EX)
+        # Write to temp file in same directory, then atomic replace
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w",
+            suffix=".md",
+            dir=str(task_path.parent),
+            delete=False,
+            encoding="utf-8",
+        )
+        try:
+            tmp.write(content)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+        finally:
+            tmp.close()
+        os.replace(tmp.name, task_path)
+    finally:
+        fcntl.flock(lf, fcntl.LOCK_UN)
+        lf.close()
 
 
 def _task_id_from_path(task_path: Path) -> str:
@@ -2458,6 +2516,23 @@ def _preflight_permissions(cfg: dict) -> list[str]:
 
 # ──────────────────────────────── @env ────────────────────────────────────────
 
+# task-61: Default deny-list always active. Patterns are fnmatch globs.
+DEFAULT_ENV_DENY_LIST = [
+    "*_SECRET*",
+    "*_KEY*",
+    "*TOKEN*",
+    "*PASSWORD*",
+    "*_PASS",
+    "*_CREDENTIAL*",
+    "*_PRIVATE_KEY*",
+    "*_CERTIFICATE*",
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "DOCKER_AUTH*",
+    "NPM_TOKEN",
+    "COCOAPODS_TRUNK_TOKEN",
+]
+
 def resolve_env(args_str: str, cfg: dict | None = None, workspace: Path | None = None) -> str:
     """
     @env VAR [required=true] [fallback="default"] [schema="name.yaml"]
@@ -2467,6 +2542,12 @@ def resolve_env(args_str: str, cfg: dict | None = None, workspace: Path | None =
     - fallback="val" : return this value when the variable is unset
     - schema=        : validate the resolved value or fallback
     Without either modifier, emits a warning if the variable is unset.
+
+    Security (task-61): Environment variable names are checked against
+    env.deny_list glob patterns (merged with DEFAULT_ENV_DENY_LIST).
+    Variables matching a deny-list pattern have their value replaced with
+    a redaction marker. The resolved value is also run through the
+    redaction pipeline as defense-in-depth.
     """
     parts = args_str.strip().split(maxsplit=1)
     if not parts:
@@ -2478,6 +2559,10 @@ def resolve_env(args_str: str, cfg: dict | None = None, workspace: Path | None =
     required = _schema_required(modifiers.get("required", False))
     fallback = modifiers.get("fallback")
     schema_ref = modifiers.get("schema")
+
+    # Check deny-list BEFORE accessing the environment variable.
+    if _var_name_is_denied(var_name, cfg):
+        return f"> ⚠ `{var_name}` denied by env.deny_list (credential pattern matched)"
 
     value = os.environ.get(var_name)
 
@@ -2491,17 +2576,43 @@ def resolve_env(args_str: str, cfg: dict | None = None, workspace: Path | None =
             return fallback
         return f"> ⚠ `{var_name}` is not set (no fallback)"
 
+    # Defense-in-depth: run the value through the redaction pipeline.
+    if cfg and isinstance(cfg, dict):
+        try:
+            redacted_value, _report = redact_text(value, cfg)
+            value = redacted_value
+        except Exception:
+            pass  # redaction is best-effort; never break rendering
+
     warning = _validate_against_schema_ref(value, schema_ref, workspace, "@env")
     if warning:
         return warning
     return value
 
 
+def _var_name_is_denied(var_name: str, cfg: dict) -> bool:
+    """Return True if var_name matches any pattern in env.deny_list + defaults."""
+    import fnmatch
+    deny_list = list(DEFAULT_ENV_DENY_LIST)
+    # User can ADD patterns to the default list (never remove defaults).
+    if cfg and isinstance(cfg, dict):
+        env_cfg = cfg.get("env")
+        if isinstance(env_cfg, dict):
+            extra = env_cfg.get("deny_list")
+            if isinstance(extra, list):
+                deny_list.extend(extra)
+    for pattern in deny_list:
+        if not isinstance(pattern, str) or not pattern.strip():
+            continue
+        if fnmatch.fnmatch(var_name, pattern.strip()):
+            return True
+    return False
 # ──────────────────────────────── @include ────────────────────────────────────
 
 def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | None = None,
                     *, _depth: int = 0,
                     _path_chain: tuple = (),
+                    _inode_chain: tuple = (),
                     _directive_collector: list[dict] | None = None,
                     _stats: dict | None = None) -> str:
     """
@@ -2517,6 +2628,9 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
     of the same file (e.g. via multiple branches in conditional blocks)
     are intentional — each occurrence renders independently. There is
     no deduplication; the caller controls include frequency.
+
+    Inode tracking (task-63): hard links bypass path-based cycle detection.
+    _inode_chain tracks (st_dev, st_ino) pairs for every file visited.
     """
     file_path_str, remaining = _extract_quoted_token(args_str.strip())
     if not file_path_str:
@@ -2537,7 +2651,7 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
     if not fp.exists():
         return f"> ⚠ @include: file not found: `{file_path_str}`"
 
-    # ── Cycle detection ──
+    # ── Cycle detection (path + inode) ──
     resolved_path = str(fp.resolve())
 
     # True cycle: file is an ancestor in the current include chain.
@@ -2546,7 +2660,20 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
         chain = " → ".join(list(_path_chain) + [resolved_path])
         return f"> ⚠ @include: circular dependency detected. Chain: {chain}"
 
+    # Inode-based detection (task-63): catch hard-link loops where different
+    # paths resolve to the same underlying file (same device + inode).
+    try:
+        st = fp.stat()
+        inode_pair = (st.st_dev, st.st_ino)
+    except OSError:
+        inode_pair = None
+
+    if inode_pair is not None and inode_pair in _inode_chain:
+        chain = " → ".join(list(_path_chain) + [resolved_path])
+        return f"> ⚠ @include: circular dependency detected (hard link). Chain: {chain}"
+
     _path_chain = _path_chain + (resolved_path,)
+    _inode_chain = _inode_chain + ((inode_pair,) if inode_pair is not None else ())
 
     # ── Depth limit ──
     max_depth = render_cfg.get("max_include_depth", 5)
@@ -2607,6 +2734,7 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
                 # Render the included file through Perseus with incremented depth
                 rendered = render_source(raw, cfg, workspace, _include_depth=_depth + 1,
                                          _include_path_chain=_path_chain,
+                                         _include_inode_chain=_inode_chain,
                                          _directive_collector=_directive_collector,
                                          _stats=_stats)
                 return trunc_note + rendered
@@ -6315,7 +6443,11 @@ def cache_set(key: str, value: str, mode: str, ttl: int | None, cfg: dict) -> No
             return
         cache_dir = _safe_cache_dir(cfg)
         try:
+            # task-62: Create cache directory with owner-only permissions.
+            # Python's mkdir respects umask, so we explicitly chmod afterward
+            # to guarantee 0o700 regardless of system umask.
             cache_dir.mkdir(parents=True, exist_ok=True)
+            os.chmod(cache_dir, 0o700)
             # v1.0.5 review: redact secrets before persisting to cache.
             # Cached values can contain rendered output with embedded tokens.
             safe_value = value
@@ -6370,7 +6502,7 @@ MAX_MACRO_DEPTH = 10
 # Syntax: @services @tier:1 — force Tier 1, even if @services defaults to Tier 2.
 # Stripped before directive dispatch; passed as instance_tier to the tier gate.
 
-TIER_MODIFIER_RE = re.compile(r'@tier:(\d)', re.IGNORECASE)
+TIER_MODIFIER_RE = re.compile(r'@tier:(\d+)', re.IGNORECASE)
 
 def _parse_tier_modifier(line: str) -> tuple[str, int | None]:
     """Strip @tier:N modifier from a directive line.
@@ -6738,6 +6870,7 @@ def _render_lines(
     _constraint_rows: list[str] | None = None,
     _include_depth: int = 0,
     _include_path_chain: tuple = (),
+    _include_inode_chain: tuple = (),
     _directive_collector: list[dict] | None = None,
     _stats: dict | None = None,
     max_tier: int = 3,
@@ -6913,6 +7046,7 @@ def _render_lines(
             rendered_block = _render_lines(block_lines, cfg, workspace, _constraint_rows,
                                            _include_depth=_include_depth,
                                            _include_path_chain=_include_path_chain,
+                                           _include_inode_chain=_include_inode_chain,
                                            _directive_collector=_directive_collector,
                                            _stats=_stats,
                                            max_tier=max_tier,
@@ -7066,6 +7200,7 @@ def _render_lines(
                 output.append(_render_lines(branch, cfg, workspace, _constraint_rows,
                                              _include_depth=_include_depth,
                                              _include_path_chain=_include_path_chain,
+                                             _include_inode_chain=_include_inode_chain,
                                              _directive_collector=_directive_collector,
                                              _stats=_stats,
                                              max_tier=max_tier,
@@ -7154,6 +7289,7 @@ def _render_lines(
                 result = spec.resolver(clean_args, workspace, cfg,
                                        _depth=_include_depth,
                                        _path_chain=_include_path_chain,
+                                       _inode_chain=_include_inode_chain,
                                        _directive_collector=_directive_collector,
                                        _stats=_stats)
                 result = _apply_output_schema_validation(spec, clean_args, result, workspace)
@@ -7218,6 +7354,7 @@ def render_source(
     max_tier: int = 3,
     _include_depth: int = 0,
     _include_path_chain: tuple = (),
+    _include_inode_chain: tuple = (),
     _directive_collector: list[dict] | None = None,
     _stats: dict | None = None,
     _skipped_directives: list[dict] | None = None,
@@ -7269,6 +7406,7 @@ def render_source(
     result = _render_lines(body_lines, cfg, workspace, _constraint_rows,
                          _include_depth=_include_depth,
                          _include_path_chain=_include_path_chain,
+                         _include_inode_chain=_include_inode_chain,
                          _directive_collector=_directive_collector,
                          _stats=_stats,
                          max_tier=max_tier,

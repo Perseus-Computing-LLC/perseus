@@ -240,7 +240,11 @@ def cache_set(key: str, value: str, mode: str, ttl: int | None, cfg: dict) -> No
             return
         cache_dir = _safe_cache_dir(cfg)
         try:
+            # task-62: Create cache directory with owner-only permissions.
+            # Python's mkdir respects umask, so we explicitly chmod afterward
+            # to guarantee 0o700 regardless of system umask.
             cache_dir.mkdir(parents=True, exist_ok=True)
+            os.chmod(cache_dir, 0o700)
             # v1.0.5 review: redact secrets before persisting to cache.
             # Cached values can contain rendered output with embedded tokens.
             safe_value = value
@@ -295,7 +299,7 @@ MAX_MACRO_DEPTH = 10
 # Syntax: @services @tier:1 — force Tier 1, even if @services defaults to Tier 2.
 # Stripped before directive dispatch; passed as instance_tier to the tier gate.
 
-TIER_MODIFIER_RE = re.compile(r'@tier:(\d)', re.IGNORECASE)
+TIER_MODIFIER_RE = re.compile(r'@tier:(\d+)', re.IGNORECASE)
 
 def _parse_tier_modifier(line: str) -> tuple[str, int | None]:
     """Strip @tier:N modifier from a directive line.
@@ -663,6 +667,7 @@ def _render_lines(
     _constraint_rows: list[str] | None = None,
     _include_depth: int = 0,
     _include_path_chain: tuple = (),
+    _include_inode_chain: tuple = (),
     _directive_collector: list[dict] | None = None,
     _stats: dict | None = None,
     max_tier: int = 3,
@@ -838,6 +843,7 @@ def _render_lines(
             rendered_block = _render_lines(block_lines, cfg, workspace, _constraint_rows,
                                            _include_depth=_include_depth,
                                            _include_path_chain=_include_path_chain,
+                                           _include_inode_chain=_include_inode_chain,
                                            _directive_collector=_directive_collector,
                                            _stats=_stats,
                                            max_tier=max_tier,
@@ -991,6 +997,7 @@ def _render_lines(
                 output.append(_render_lines(branch, cfg, workspace, _constraint_rows,
                                              _include_depth=_include_depth,
                                              _include_path_chain=_include_path_chain,
+                                             _include_inode_chain=_include_inode_chain,
                                              _directive_collector=_directive_collector,
                                              _stats=_stats,
                                              max_tier=max_tier,
@@ -1079,6 +1086,7 @@ def _render_lines(
                 result = spec.resolver(clean_args, workspace, cfg,
                                        _depth=_include_depth,
                                        _path_chain=_include_path_chain,
+                                       _inode_chain=_include_inode_chain,
                                        _directive_collector=_directive_collector,
                                        _stats=_stats)
                 result = _apply_output_schema_validation(spec, clean_args, result, workspace)
@@ -1143,6 +1151,7 @@ def render_source(
     max_tier: int = 3,
     _include_depth: int = 0,
     _include_path_chain: tuple = (),
+    _include_inode_chain: tuple = (),
     _directive_collector: list[dict] | None = None,
     _stats: dict | None = None,
     _skipped_directives: list[dict] | None = None,
@@ -1194,6 +1203,7 @@ def render_source(
     result = _render_lines(body_lines, cfg, workspace, _constraint_rows,
                          _include_depth=_include_depth,
                          _include_path_chain=_include_path_chain,
+                         _include_inode_chain=_include_inode_chain,
                          _directive_collector=_directive_collector,
                          _stats=_stats,
                          max_tier=max_tier,
