@@ -43,12 +43,12 @@ def test_agent_fallback_on_failure(tmp_path):
 
 
 def test_agent_timeout(tmp_path):
-    out = perseus.resolve_agent('"sleep 5" timeout=1', cfg(), tmp_path)
+    out = perseus.resolve_agent(f"'{sys.executable} -c \"import time; time.sleep(5)\"' timeout=1", cfg(), tmp_path)
     assert "timed out" in out
 
 
 def test_agent_timeout_with_fallback(tmp_path):
-    out = perseus.resolve_agent('"sleep 5" timeout=1 fallback="(busy)"', cfg(), tmp_path)
+    out = perseus.resolve_agent(f"'{sys.executable} -c \"import time; time.sleep(5)\"' timeout=1 fallback=\"(busy)\"", cfg(), tmp_path)
     assert out == "(busy)"
 
 
@@ -65,7 +65,11 @@ def test_agent_through_render(tmp_path):
 
 
 def test_agent_strip_false_preserves_trailing_newline(tmp_path):
-    out = perseus.resolve_agent('"printf hello\\\\n" strip=false', cfg(), tmp_path)
+    out = perseus.resolve_agent(
+        f"'{sys.executable} -c \"import sys; sys.stdout.write(chr(104)+chr(101)+chr(108)+chr(108)+chr(111)+chr(10))\"' strip=false",
+        cfg(),
+        tmp_path,
+    )
     assert out.endswith("\n") or out == "hello\n"
 
 

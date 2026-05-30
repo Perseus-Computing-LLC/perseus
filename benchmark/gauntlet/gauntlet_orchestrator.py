@@ -500,6 +500,8 @@ class GauntletOrchestrator:
 
     def _phase_token_efficiency(self) -> dict:
         """Phase 9: Token Efficiency — measure compression ratio per profile."""
+        import shutil
+
         result = {
             "phase": 9,
             "name": "Token Efficiency",
@@ -508,26 +510,21 @@ class GauntletOrchestrator:
             "per_profile": [],
         }
 
-        cold_home = Path("/tmp/perseus-gauntlet/cold")
-        warm_home = Path("/tmp/perseus-gauntlet/warm")
-        cold_home.mkdir(parents=True, exist_ok=True)
-        warm_home.mkdir(parents=True, exist_ok=True)
-
         perseus = perseus_executable()
         # Sample ALL profiles for statistically meaningful results
         sample_profiles = self.role_profiles[:25]  # all 25
 
         for i, profile in enumerate(sample_profiles):
-            cold_env = os.environ.copy()
-            cold_env["PERSEUS_HOME"] = str(cold_home)
-            warm_env = os.environ.copy()
-            warm_env["PERSEUS_HOME"] = str(warm_home)
+            profile_home = Path("/tmp/perseus-gauntlet/token-efficiency") / profile["name"]
+            shutil.rmtree(profile_home, ignore_errors=True)
+            profile_home.mkdir(parents=True, exist_ok=True)
+            env = os.environ.copy()
+            env["PERSEUS_HOME"] = str(profile_home)
 
             cold_tokens = None
             warm_tokens = None
 
-            for state, env, label in [("cold", cold_env, "Cold"),
-                                       ("warm", warm_env, "Warm")]:
+            for label in ["Cold", "Warm"]:
                 try:
                     r = subprocess.run(
                         [sys.executable, perseus, "render", profile["path"]],
@@ -597,25 +594,29 @@ class GauntletOrchestrator:
 
         gr.add_gate("NFS health check", severity="soft",
                      threshold="healthy == True",
-                     threshold_fn=lambda r: (check_nfs_health(self.nfs_path)["healthy"], True))
+                     threshold_fn=lambda r: (check_nfs_health(self.nfs_path)["healthy"], True),
+                     required_phase=0)
 
         gr.add_gate("Phase 1: Zero failures (cold baseline)", severity="hard",
                      threshold="failures == 0",
                      threshold_fn=lambda r: (
                          r.get("phase_1", {}).get("failures", 999) == 0,
                          r.get("phase_1", {}).get("failures", "no data"),
-                     ))
+                     ),
+                     required_phase=1)
 
         gr.add_gate("Phase 2: Warm not slower than cold (5% tolerance)", severity="hard",
                      threshold="speedup >= 0.95",
-                     threshold_fn=lambda r: self._check_speedup_gate(r, "phase_2", 0.95))
+                     threshold_fn=lambda r: self._check_speedup_gate(r, "phase_2", 0.95),
+                     required_phase=2)
 
         gr.add_gate("Phase 3: Enterprise week zero failures", severity="hard",
                      threshold="failures == 0",
                      threshold_fn=lambda r: (
                          r.get("phase_3", {}).get("failures", 999) == 0,
                          r.get("phase_3", {}).get("failures", "no data"),
-                     ))
+                     ),
+                     required_phase=3)
 
         gr.add_gate("Phase 4: Agora swarm collision_rate == 0.0", severity="hard",
                      threshold="== 0.0",
@@ -624,42 +625,56 @@ class GauntletOrchestrator:
                          if r.get("phase_4", {}).get("collision_rate", "no data") != "no data"
                          else False,
                          r.get("phase_4", {}).get("collision_rate", "no data"),
-                     ))
+                     ),
+                     required_phase=4)
 
         gr.add_gate("Phase 5: Checkpoint zero corruption", severity="hard",
                      threshold="corrupt == 0",
                      threshold_fn=lambda r: (
-                         r.get("phase_5", {}).get("cache_integrity", {}).get("corrupt", 0) == 0,
-                         r.get("phase_5", {}).get("cache_integrity", {}).get("corrupt", "no data"),
-                     ))
+                         r.get("phase_5", {}).get("checkpoint_integrity", {}).get("corrupt", 0) == 0,
+                         r.get("phase_5", {}).get("checkpoint_integrity", {}).get("corrupt", "no data"),
+                     ),
+                     required_phase=5)
 
         gr.add_gate("Phase 6: Inbox delivery >= 99.9%", severity="hard",
                      threshold=">= 0.999",
                      threshold_fn=lambda r: (
                          r.get("phase_6", {}).get("success_rate", 0) >= 0.999,
                          r.get("phase_6", {}).get("success_rate", "no data"),
-                     ))
+                     ),
+                     required_phase=6)
 
         gr.add_gate("Phase 7: Adversarial overall_pass", severity="hard",
                      threshold="True",
                      threshold_fn=lambda r: (
                          r.get("phase_7", {}).get("overall_pass", False),
                          r.get("phase_7", {}).get("overall_pass", "no data"),
-                     ))
+                     ),
+                     required_phase=7)
 
         gr.add_gate("Phase 7: All adversarial scenarios complete", severity="hard",
                      threshold="12 scenarios",
                      threshold_fn=lambda r: (
                          r.get("phase_7", {}).get("scenarios_run", 0) >= 12,
                          r.get("phase_7", {}).get("scenarios_run", "no data"),
-                     ))
+                     ),
+                     required_phase=7)
+
+        gr.add_gate("Phase 8: Semantic integrity overall_pass", severity="hard",
+                     threshold="True",
+                     threshold_fn=lambda r: (
+                         r.get("phase_8", {}).get("overall_pass", False),
+                         r.get("phase_8", {}).get("overall_pass", "no data"),
+                     ),
+                     required_phase=8)
 
         gr.add_gate("Phase 9: Compression ratio ≤ 1.0 (no inflation)", severity="hard",
                      threshold="≤ 1.0",
                      threshold_fn=lambda r: (
                          r.get("phase_9", {}).get("compression_ratio", 1.0) <= 1.0,
                          r.get("phase_9", {}).get("compression_ratio", "no data"),
-                     ))
+                     ),
+                     required_phase=9)
 
         gr.add_gate("Phase 9: P99 overhead < 5ms", severity="hard",
                      threshold="< 5ms",
@@ -668,7 +683,8 @@ class GauntletOrchestrator:
                          if r.get("phase_9", {}).get("p99_overhead_ms", "no data") != "no data"
                          else False,
                          r.get("phase_9", {}).get("p99_overhead_ms", "no data"),
-                     ))
+                     ),
+                     required_phase=9)
 
         gr.add_gate("Phase 10: RSS growth <= 5%", severity="hard",
                      threshold="<= 5%",
@@ -677,7 +693,8 @@ class GauntletOrchestrator:
                          if r.get("phase_10", {}).get("rss_measurement_available", False)
                          else (False, "no data"),
                          r.get("phase_10", {}).get("rss_growth_pct", "no data"),
-                     ))
+                     ),
+                     required_phase=10)
 
         gr.add_gate("Phase 10: Error rate <= 0.01%", severity="hard",
                      threshold="<= 0.0001",
@@ -685,7 +702,8 @@ class GauntletOrchestrator:
                          (r.get("phase_10", {}).get("failures", 0) /
                           max(r.get("phase_10", {}).get("total", 1), 1)) <= 0.0001,
                          r.get("phase_10", {}).get("failures", "no data"),
-                     ))
+                     ),
+                     required_phase=10)
 
     def _check_speedup_gate(self, results: dict, phase_key: str, threshold: float) -> tuple:
         """Compute cold/warm speedup from phase results.

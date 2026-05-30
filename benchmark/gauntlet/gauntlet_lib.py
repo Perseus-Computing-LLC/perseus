@@ -80,20 +80,29 @@ def check_nfs_health(mount_path: Path | str = NFS_MOUNT_DIR) -> dict:
     import os
     mount_path = Path(mount_path)
 
-    # Gate 1: path must exist and be a mount point
+    # Gate 1: path must exist and be a mount point. Single-node local gauntlets
+    # intentionally use /tmp/perseus-gauntlet instead of a real NFS mount.
     if not mount_path.exists():
         return {"healthy": False, "path": str(mount_path),
                 "error": "path does not exist"}
     if not os.path.ismount(mount_path):
-        return {"healthy": False, "path": str(mount_path),
-                "error": "path is not a mount point"}
+        tmp_root = Path(os.environ.get("TMPDIR", "/tmp")).resolve()
+        try:
+            resolved = mount_path.resolve()
+            if not (resolved == tmp_root or resolved.is_relative_to(tmp_root)):
+                return {"healthy": False, "path": str(mount_path),
+                        "error": "path is not a mount point"}
+        except (OSError, ValueError):
+            return {"healthy": False, "path": str(mount_path),
+                    "error": "path is not a mount point"}
 
     # Gate 2: read/write probe
     probe = mount_path / ".gauntlet_probe"
     try:
         probe.write_text(timestamp_iso())
         probe.unlink()
-        return {"healthy": True, "path": str(mount_path)}
+        mode = "mount" if os.path.ismount(mount_path) else "local-tmp"
+        return {"healthy": True, "path": str(mount_path), "mode": mode}
     except OSError as exc:
         return {"healthy": False, "path": str(mount_path), "error": str(exc)}
 
@@ -226,6 +235,7 @@ class GateRunner:
         threshold: Any = None,
         threshold_fn=None,
         category: str = "engine",
+        required_phase: int | None = None,
     ):
         """Register a gate. threshold_fn(phase_results) -> (pass: bool, observed)."""
         self._gates.append(
@@ -235,6 +245,7 @@ class GateRunner:
                 "threshold": threshold,
                 "threshold_fn": threshold_fn,
                 "category": category,
+                "required_phase": required_phase,
             }
         )
 
