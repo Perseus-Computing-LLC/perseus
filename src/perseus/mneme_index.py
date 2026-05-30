@@ -376,8 +376,8 @@ def _mneme_index_document(cfg: dict, file_path: Path) -> bool:
         except Exception:
             pass
         return False
-    finally:
-        conn.close()
+    # Connection is cached for process lifetime; do not close.
+    # (Unlike other mneme_index functions, commit() already happened above.)
 
 
 def _mneme_delete_document(cfg: dict, doc_id: str) -> bool:

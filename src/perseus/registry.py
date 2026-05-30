@@ -265,7 +265,11 @@ def _call_resolver(spec: DirectiveSpec, args_str: str, cfg: dict, workspace: "Pa
             "error": str(e),
             "traceback_truncated": traceback.format_exc()[-1000:],
         }, cfg)
-        return f"> \u26a0 {spec.name} error: {e}"
+        # PERSEUS_DEBUG: re-raise so programming errors (NameError,
+        # AttributeError, TypeError) are not silently swallowed.
+        if os.environ.get("PERSEUS_DEBUG"):
+            raise
+        return f"> ⚠ {spec.name} error: {e}"
 
 
 # Built at import time from the registry (after _bind_registry is called).

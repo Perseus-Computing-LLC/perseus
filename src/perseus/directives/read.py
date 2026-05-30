@@ -1,6 +1,16 @@
 # stdlib imports available from build artifact header
 # ──────────────────────────────── @read ───────────────────────────────────────
 
+def _resolve_max_bytes(cfg: dict, key: str) -> int | None:
+    """Resolve a render.max_*_bytes config key as int or None.
+
+    Used by @read and @include to avoid duplicated parsing logic."""
+    raw = cfg.get("render", {}).get(key)
+    try:
+        return int(raw) if raw is not None else None
+    except (ValueError, TypeError):
+        return None
+
 def _parse_read_content_for_validation(content: str, ext: str) -> object:
     """Parse @read content for schema validation."""
     ext = ext.lower()
@@ -41,11 +51,8 @@ def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str
     env_key = modifiers.get("key")
     fallback = modifiers.get("fallback")
     schema_ref = modifiers.get("schema")
-    _mb = cfg["render"].get("max_read_bytes")
-    try:
-        max_bytes: int | None = int(_mb) if _mb is not None else None
-    except (ValueError, TypeError):
-        max_bytes = None
+    _mb = _resolve_max_bytes(cfg, "max_read_bytes")
+    max_bytes = _mb
 
     def fallback_result() -> str:
         warning = _validate_against_schema_ref(fallback, schema_ref, workspace, "@read")
@@ -97,11 +104,7 @@ def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str
         return f"> ⚠ @read: could not read `{file_path_str}`: {e}"
 
     # ── File size limit check (byte-counted, not character-counted) ──
-    max_bytes_raw = cfg["render"].get("max_read_bytes")
-    try:
-        max_bytes = int(max_bytes_raw) if max_bytes_raw is not None else None
-    except (ValueError, TypeError):
-        max_bytes = None
+    max_bytes = _resolve_max_bytes(cfg, "max_read_bytes")
     if max_bytes is not None and len(data) > max_bytes:
         content = data[:max_bytes].decode(errors="replace")
         trunc_note = (
