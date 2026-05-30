@@ -2,7 +2,7 @@
   "session_id": "sess-002",
   "timestamp": "2026-05-20T15:00:00+00:00",
   "label": "FTS5 index optimization \u2014 iteration 1",
-  "workspace": "/Users/tconnally/Documents/perseus/benchmark/gauntlet/gauntlet_role_profiles",
+  "workspace": "/workspace/perseus/benchmark/gauntlet/gauntlet_role_profiles",
   "directives_used": [
     "@query",
     "@read"

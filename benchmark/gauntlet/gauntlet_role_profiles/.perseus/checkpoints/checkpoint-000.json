@@ -2,7 +2,7 @@
   "session_id": "sess-001",
   "timestamp": "2026-05-20T09:00:00+00:00",
   "label": "Mn\u0113m\u0113 v2 initial implementation \u2014 iteration 1",
-  "workspace": "/Users/tconnally/Documents/perseus/benchmark/gauntlet/gauntlet_role_profiles",
+  "workspace": "/workspace/perseus/benchmark/gauntlet/gauntlet_role_profiles",
   "directives_used": [
     "@query",
     "@read"
