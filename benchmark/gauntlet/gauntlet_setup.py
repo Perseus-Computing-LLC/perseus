@@ -27,6 +27,10 @@ GAUNTLET_DIR = Path(__file__).resolve().parent
 PROFILES_DIR = GAUNTLET_DIR / "gauntlet_role_profiles"
 COLD_HOME = Path("/tmp/perseus-gauntlet/cold")
 WARM_HOME = Path("/tmp/perseus-gauntlet/warm")
+PROFILE_WORKSPACE_LABEL = os.environ.get(
+    "GAUNTLET_PROFILE_WORKSPACE_LABEL",
+    "/workspace/perseus/benchmark/gauntlet/gauntlet_role_profiles",
+)
 
 
 def create_config(home: Path) -> None:
@@ -38,7 +42,7 @@ def create_config(home: Path) -> None:
 render:
   allow_query_shell: true
   cache:
-    ttl: 3600
+    ttl: 86400
 memory:
   mneme_vault_path: ""
   mneme_index_path: ""
@@ -83,7 +87,7 @@ def create_checkpoints(profile_dir: Path) -> int:
                 "session_id": session["id"],
                 "timestamp": ts.isoformat(),
                 "label": f"{session['label']} — iteration {ci+1}",
-                "workspace": str(profile_dir),
+                "workspace": PROFILE_WORKSPACE_LABEL,
                 "directives_used": [
                     "@query", "@read", "@memory", "@services",
                     "@health", "@agora", "@inbox", "@drift",
@@ -108,7 +112,7 @@ def create_checkpoints(profile_dir: Path) -> int:
                     "session_id": session["id"],
                     "timestamp": ts.isoformat(),
                     "label": f"{session['label']} — iteration {ci+1}",
-                    "workspace": str(profile_dir),
+                    "workspace": PROFILE_WORKSPACE_LABEL,
                     "directives_used": ["@query", "@read", "@memory"],
                     "files_changed": ci + 1,
                     "duration_s": 120 + ci * 30,
