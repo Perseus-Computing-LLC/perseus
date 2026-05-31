@@ -146,7 +146,7 @@ Published as [`io.github.tcconnally/perseus`](https://registry.modelcontextproto
 
 ### MCP Tools
 
-22 MCP tools resolve live state at invocation time. Two sensitive tools (`perseus_query` and `perseus_agent`) require explicit `mcp.tool_allowlist` opt-in because they execute commands in the user's local shell — **not sandboxed, full user permissions apply**:
+24 MCP tools resolve live state at invocation time. Two sensitive tools (`perseus_query` and `perseus_agent`) require explicit `mcp.tool_allowlist` opt-in because they execute commands in the user's local shell — **not sandboxed, full user permissions apply**:
 
 | Tool | Description |
 |---|---|
@@ -245,8 +245,8 @@ Perseus delivers verified, up-to-date context, eliminating the need for AI assis
 ### Performance & Efficiency
 
 - **1,190× cold→warm gap** — Real-world scenario using the Perseus repo itself as the benchmark target. At the 1,408 directive scale, the cold render took **578.7s**, while the warm render took **0.486s**. [Raw data →](benchmark/real_deltas.json)
-- **Mnēmē persistent memory** — In-process BM25 recall, zero daemon. **37ms search P50 at 10,000 docs**, flat across all scales. Perseus `@mneme` renders: **54× cold→warm speedup** with @cache. **2,700 docs/sec** write throughput, **0.4ms P50** saves. [Full results →](benchmark/mneme_hardcore.json)
-- **93% token reduction, 0ms overhead** — live 200-request A/B harness: 488 → 27 avg prompt tokens per request. P99 latency overhead: **0ms** — Perseus adds nothing to response time. [Full harness results →](benchmark/ultimate_suite_results.json)
+- **Mnēmē persistent memory** — In-process BM25 recall, zero daemon. **37ms search P50 at 10,000 docs**, flat across all scales. Perseus `@mneme` renders: **51× cold→warm speedup** with @cache. **2,700 docs/sec** write throughput, **0.4ms P50** saves. [Full results →](benchmark/mneme_hardcore.json)
+- **94% token reduction, 0ms overhead** — live 200-request A/B harness: 488 → 27 avg prompt tokens per request. P99 latency overhead: **0ms** — Perseus adds nothing to response time. [Full harness results →](benchmark/ultimate_suite_results.json)
 - **Enterprise Ready** — Cost analysis shows that for a 500-developer team, Perseus can save significant token costs per year. [Cost analysis →](benchmark/titan_cost.json)
 - **Extreme Enterprise Benchmark** — 10-phase suite (reps=10, 50 devs, 250 concurrent agents): **10/10 hard gates · 6/6 soft gates · 0 errors at 250 concurrent · 90% enterprise ROI · fleet P99 1,169ms**. The benchmark is designed to surface regressions, not hide them. [Full methodology →](benchmark/README_EXTREME.md) · [Raw results →](benchmark/extreme_enterprise_results_full.json)
 
@@ -341,8 +341,8 @@ Next: run pytest tests/test_webhook.py
 
 ## Project Memory
 ### Recent
-- 2026-05-26: Shipped MCP deep integration (Phase 25). 22 directives exposed as MCP tools by default.
-- 2026-05-25: Deployed Perseus v1.0.5 to PyPI. Test suite at 757 tests — all passing (Linux, Python 3.10–3.12).
+- 2026-05-27: Shipped MCP deep integration (Phase 25). 24 directives exposed as MCP tools by default.
+- 2026-05-26: Deployed Perseus v1.0.6 to PyPI. Test suite at 812 tests — all passing (Linux, Python 3.10–3.12).
 - 2026-05-24: Completed Hephaestus extensibility — plugin directives, macros, hooks, pipes.
 ```
 
