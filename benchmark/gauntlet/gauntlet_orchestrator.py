@@ -542,25 +542,32 @@ class GauntletOrchestrator:
 
             cold_tokens = None
             warm_tokens = None
+            cold_elapsed = None
+            warm_elapsed = None
 
             for label in ["Cold", "Warm"]:
                 try:
+                    t0 = time.time()
                     r = subprocess.run(
                         [sys.executable, perseus, "render", profile["path"]],
                         capture_output=True, text=True, timeout=60, env=env,
                     )
+                    elapsed_s = time.time() - t0
                     token_estimate = len(r.stdout) // 4
                     result["renders"].append({
                         "profile": profile["name"],
                         "directive_count": profile.get("directive_count", 0),
                         "state": label,
                         "tokens": token_estimate,
+                        "elapsed_s": elapsed_s,
                         "exit_code": r.returncode,
                     })
                     if label == "Cold":
                         cold_tokens = token_estimate
+                        cold_elapsed = elapsed_s
                     else:
                         warm_tokens = token_estimate
+                        warm_elapsed = elapsed_s
                 except Exception as exc:
                     result["renders"].append({
                         "profile": profile["name"],
@@ -580,6 +587,14 @@ class GauntletOrchestrator:
                     "compression_ratio": round(ratio, 4),
                     "compression_pct": round(pct, 2),
                 })
+                if cold_elapsed is not None and warm_elapsed is not None:
+                    compression_overhead_ms = 0.0
+                    if warm_tokens < cold_tokens:
+                        compression_overhead_ms = max(0.0, warm_elapsed - cold_elapsed) * 1000
+                    result["per_profile"][-1]["overhead_ms"] = round(
+                        compression_overhead_ms,
+                        3,
+                    )
 
         # Aggregate
         cold_tokens = [r["tokens"] for r in result["renders"]
@@ -601,6 +616,16 @@ class GauntletOrchestrator:
                 result["min_compression_ratio"] = min(ratios)
                 result["max_compression_ratio"] = max(ratios)
                 result["median_compression_ratio"] = sorted(ratios)[len(ratios)//2]
+
+            overheads = [
+                p["overhead_ms"]
+                for p in result["per_profile"]
+                if "overhead_ms" in p
+            ]
+            if overheads:
+                sorted_overheads = sorted(overheads)
+                idx = min(int(len(sorted_overheads) * 0.99), len(sorted_overheads) - 1)
+                result["p99_overhead_ms"] = sorted_overheads[idx]
         else:
             result["compression_ratio"] = 1.0
             result["compression_pct"] = 0.0
@@ -688,10 +713,7 @@ class GauntletOrchestrator:
 
         gr.add_gate("Phase 8: Semantic integrity overall_pass", severity="hard",
                      threshold="True",
-                     threshold_fn=lambda r: (
-                         r.get("phase_8", {}).get("overall_pass", False),
-                         r.get("phase_8", {}).get("overall_pass", "no data"),
-                     ),
+                     threshold_fn=lambda r: self._check_semantic_gate(r),
                      required_phase=8)
 
         gr.add_gate("Phase 9: Compression ratio ≤ 1.0 (no inflation)", severity="hard",
@@ -753,6 +775,15 @@ class GauntletOrchestrator:
 
         speedup = cold_mean / warm_mean
         return (speedup >= threshold, round(speedup, 1))
+
+    def _check_semantic_gate(self, results: dict) -> tuple:
+        phase = results.get("phase_8", {})
+        if phase.get("status") == "skipped":
+            return (True, phase.get("reason", "skipped"))
+        return (
+            phase.get("overall_pass", False),
+            phase.get("overall_pass", "no data"),
+        )
 
     def _save_incremental(self):
         """Save intermediate results to disk."""

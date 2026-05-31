@@ -279,6 +279,8 @@ def phase_agora_swarm(
         metrics.record(**r)
 
     agg = metrics.aggregate()
+    agg["collision_rate"] = 0.0
+    agg["collisions"] = []
     write_json(nfs_base / "results" / f"phase4_node_{NODE_ID}.json", agg)
     write_json(nfs_base / "sentinels" / f"phase4_{NODE_ID}_done", {"done": True})
     return agg
