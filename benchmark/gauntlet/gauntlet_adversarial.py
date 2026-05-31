@@ -30,6 +30,7 @@ from gauntlet_lib import perseus_executable, timestamp_iso, write_json
 
 SENTINEL_DIR: Path | None = None
 MAX_ERROR_SAMPLES = 50
+A1_DEFAULT_MAX_FILL_BYTES = 10 * 1024**3
 
 
 def _record_error(result: dict, message: str) -> None:
@@ -171,13 +172,34 @@ def scenario_a1_disk_full(
     filler_path = nfs_base / ".gauntlet_filler"
     result: dict = {"scenario": "A1_disk_full", "setup": None, "renders": None, "cleanup": None}
 
-    # Setup: create a large filler file to consume ~95% of available space
+    # Setup: create a bounded filler file. The original 95% target can be
+    # enormous on developer machines and CI hosts, so cap normal runs at 10 GB.
     try:
+        if filler_path.exists():
+            filler_path.unlink()
+
         stat = os.statvfs(str(nfs_base))
         total_bytes = stat.f_frsize * stat.f_blocks
         free_bytes = stat.f_frsize * stat.f_bfree
         target_free = int(total_bytes * 0.05)  # leave 5% free
-        fill_size = max(0, free_bytes - target_free - 10 * 1024**2)  # minus 10MB safety margin
+        target_fill_size = max(0, free_bytes - target_free - 10 * 1024**2)  # minus 10MB safety margin
+
+        max_fill_bytes = A1_DEFAULT_MAX_FILL_BYTES
+        max_fill_gb = os.environ.get("GAUNTLET_A1_MAX_FILL_GB")
+        allow_large_fill = os.environ.get("GAUNTLET_A1_ALLOW_LARGE_FILL") == "1"
+        if max_fill_gb:
+            try:
+                requested_max = int(float(max_fill_gb) * 1024**3)
+                if requested_max <= A1_DEFAULT_MAX_FILL_BYTES or allow_large_fill:
+                    max_fill_bytes = max(0, requested_max)
+            except ValueError:
+                result["max_fill_warning"] = f"invalid GAUNTLET_A1_MAX_FILL_GB={max_fill_gb!r}; using 10GB"
+
+        fill_size = min(target_fill_size, max_fill_bytes)
+        result["target_fill_gb"] = round(target_fill_size / 1024**3, 3)
+        result["max_fill_gb"] = round(max_fill_bytes / 1024**3, 3)
+        if target_fill_size > fill_size:
+            result["cap"] = "capped by GAUNTLET_A1_MAX_FILL_GB/10GB default"
 
         if fill_size > 0:
             with open(filler_path, "wb") as f:
