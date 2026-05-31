@@ -219,6 +219,55 @@ def verify_render(profile_name: str = "architect") -> bool:
     return all_pass
 
 
+def prewarm_npx_cache(profiles_dir: Path) -> int:
+    """Pre-run every unique `npx <package>` command found in role profiles.
+
+    On the first gauntlet run on a fresh machine, npx downloads packages
+    from the npm registry before executing them.  This inflates Phase 1
+    cold-baseline tail latency (p99/max) and contaminates Phase 2 warm
+    speedup measurements with npm-cache benefit rather than Perseus-cache
+    benefit.  Running each unique npx command once here — during setup,
+    not during benchmarking — eliminates that noise.
+
+    Returns the number of unique npx commands executed.
+    """
+    import re
+    seen: set[str] = set()
+    pattern = re.compile(r'@query\s+"npx\s+([\w@/-]+)')
+
+    for f in sorted(profiles_dir.iterdir()):
+        if f.suffix not in (".md", ".yaml", ".yml"):
+            continue
+        text = f.read_text(encoding="utf-8", errors="replace")
+        for m in pattern.finditer(text):
+            pkg = m.group(1)
+            if pkg not in seen:
+                seen.add(pkg)
+
+    if not seen:
+        return 0
+
+    print(f"  Pre-warming npm cache for {len(seen)} npx package(s)...")
+    warmed = 0
+    for pkg in sorted(seen):
+        try:
+            result = subprocess.run(
+                ["npx", pkg, "--version"],
+                capture_output=True, text=True, timeout=30,
+            )
+            status = "ok" if result.returncode == 0 else f"exit {result.returncode}"
+        except FileNotFoundError:
+            status = "npx not found"
+        except subprocess.TimeoutExpired:
+            status = "timeout"
+        except Exception as exc:
+            status = str(exc)[:40]
+        print(f"    npx {pkg}: {status}")
+        warmed += 1
+
+    return warmed
+
+
 def main():
     print("=" * 60)
     print("Perseus Gauntlet — Environment Setup")
@@ -247,8 +296,14 @@ def main():
     build_narrative(COLD_HOME)
     build_narrative(WARM_HOME)
 
-    # 6. Verify
-    print("\n6. Verifying render...")
+    # 6. Pre-warm npm cache (eliminates first-run npx download latency from Phase 1)
+    print("\n6. Pre-warming npx cache...")
+    n_warmed = prewarm_npx_cache(PROFILES_DIR)
+    if n_warmed == 0:
+        print("  (no npx commands found or npx not installed — skipping)")
+
+    # 7. Verify
+    print("\n7. Verifying render...")
     ok = verify_render("architect")
     if not ok:
         print("\n⚠ Some directives still not resolving optimally.")
