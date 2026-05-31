@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 try:
     from .serve import _PERSEUS_VERSION
 except ImportError:
-    _PERSEUS_VERSION = "1.0.5"
+    _PERSEUS_VERSION = "1.0.6"
 
 # ──────────────────────────────── Webhooks ───────────────────────────────────
 
