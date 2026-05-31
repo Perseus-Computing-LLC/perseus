@@ -1,2 +1,2 @@
-Perseus Gauntlet Score: 0.0/100
-Overall: FAIL
+Perseus Gauntlet Score: 100.0/100
+Overall: PASS
