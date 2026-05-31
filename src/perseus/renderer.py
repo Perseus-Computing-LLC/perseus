@@ -187,7 +187,17 @@ def _safe_cache_dir(cfg: dict) -> Path:
                 return candidate
     except (OSError, ValueError):
         pass
-    # Fall back to safe default
+    # Fall back to safe default — warn operator their config was overridden
+    print(
+        f"Perseus: configured cache_dir {raw!r} is outside allowed roots; "
+        f"falling back to {PERSEUS_HOME / 'cache'}",
+        file=sys.stderr,
+    )
+    audit_event(cfg, "config_override",
+                key="render.cache_dir",
+                configured=raw,
+                fallback=str(PERSEUS_HOME / "cache"),
+                reason="outside allowed roots")
     return PERSEUS_HOME / "cache"
 
 

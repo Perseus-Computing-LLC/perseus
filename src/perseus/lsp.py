@@ -181,16 +181,25 @@ def _lsp_diagnostics_for(text: str, cfg: dict, workspace: Path) -> list[dict]:
                 d["range"] = {"start": {"line": lineno, "character": 0}, "end": {"line": lineno, "character": len(raw)}}
                 diagnostics.append(d)
 
-        # Cross-cutting diagnostic: @cache ttl= must be integer
+        # Cross-cutting diagnostic: @cache ttl= must be non-negative integer
         if "@cache" in args_str:
             mm = re.search(r"ttl=([^\s]+)", args_str)
-            if mm and not mm.group(1).isdigit():
-                diagnostics.append({
-                    "range": {"start": {"line": lineno, "character": 0}, "end": {"line": lineno, "character": len(raw)}},
-                    "severity": 2,
-                    "source": "perseus",
-                    "message": f"@cache ttl= must be a non-negative integer, got `{mm.group(1)}`",
-                })
+            if mm:
+                val = mm.group(1)
+                if not val.lstrip('-').isdigit():
+                    diagnostics.append({
+                        "range": {"start": {"line": lineno, "character": 0}, "end": {"line": lineno, "character": len(raw)}},
+                        "severity": 2,
+                        "source": "perseus",
+                        "message": f"@cache ttl= must be a non-negative integer, got `{val}`",
+                    })
+                elif int(val) < 0:
+                    diagnostics.append({
+                        "range": {"start": {"line": lineno, "character": 0}, "end": {"line": lineno, "character": len(raw)}},
+                        "severity": 2,
+                        "source": "perseus",
+                        "message": f"@cache ttl= must be a non-negative integer, got `{val}`",
+                    })
 
     if if_depth > 0:
         diagnostics.append({

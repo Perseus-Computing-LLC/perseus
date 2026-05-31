@@ -1013,3 +1013,103 @@ def _preflight_permissions(cfg: dict) -> list[str]:
     _PREFLIGHT_CACHE[cache_key] = warnings
     return warnings
 
+
+
+# ─────────────────────────────── Audit CLI ────────────────────────────────────
+
+def cmd_audit(args, cfg) -> int | None:
+    """perseus audit — query and inspect the audit log."""
+    audit_cfg = cfg.get("audit") or {}
+    if not audit_cfg.get("enabled", True):
+        print("Audit logging is disabled (audit.enabled=false in config).")
+        return 0
+
+    sub = getattr(args, "audit_command", None)
+
+    if sub == "show":
+        since_arg = getattr(args, "since", None)
+        event_arg = getattr(args, "event", None)
+        tail = int(getattr(args, "tail", 20) or 20)
+
+        entries = _read_audit_entries(cfg)
+        if not entries:
+            print("No audit entries found.")
+            return 0
+
+        # Apply filters
+        if since_arg:
+            try:
+                # Parse --since as a duration string (e.g. "24h", "7d", "30m")
+                import re as _re
+                dur_match = _re.match(r'^(\d+)\s*(h|d|m|s)$', since_arg.strip().lower())
+                if dur_match:
+                    val = int(dur_match.group(1))
+                    unit = dur_match.group(2)
+                    multiplier = {"s": 1, "m": 60, "h": 3600, "d": 86400}[unit]
+                    cutoff = datetime.now(timezone.utc).timestamp() - val * multiplier
+                else:
+                    cutoff = datetime.fromisoformat(since_arg).timestamp()
+            except Exception:
+                print(f"Invalid --since value: {since_arg!r}")
+                return 1
+            entries = [e for e in entries if _entry_ts(e) >= cutoff]
+
+        if event_arg:
+            entries = [e for e in entries
+                       if str(e.get("event_type", "")).lower() == event_arg.strip().lower()]
+
+        if not entries:
+            print("No audit entries match the filters.")
+            return 0
+
+        # Show most recent (tail)
+        for e in entries[-tail:]:
+            ts = e.get("ts", "?")
+            ev = e.get("event_type", "?")
+            other = {k: v for k, v in e.items() if k not in ("ts", "event_type", "perseus_version", "pid")}
+            print(f"{ts}  {ev}")
+            for k, v in other.items():
+                v_str = str(v)[:120]
+                print(f"    {k}: {v_str}")
+            print()
+
+    elif sub == "stats":
+        entries = _read_audit_entries(cfg)
+        if not entries:
+            print("No audit entries found.")
+            return 0
+
+        counts: dict[str, int] = {}
+        for e in entries:
+            t = str(e.get("event_type") or "?")
+            counts[t] = counts.get(t, 0) + 1
+
+        print(f"Total audit events: {len(entries)}")
+        log_path = _audit_log_path(cfg)
+        print(f"Log path: {log_path}")
+        print()
+        for event_type, count in sorted(counts.items(), key=lambda x: -x[1]):
+            print(f"  {count:>6}  {event_type}")
+
+    else:
+        # Default: show recent entries
+        entries = _read_audit_entries(cfg, limit=20)
+        if not entries:
+            print("No audit entries found.")
+            return 0
+        print(f"Recent audit events (last {len(entries)}):\n")
+        for e in entries:
+            ts = e.get("ts", "?")
+            ev = e.get("event_type", "?")
+            print(f"  {ts}  {ev}")
+
+    return 0
+
+
+def _entry_ts(entry: dict) -> float:
+    """Extract a Unix timestamp from an audit entry for comparison."""
+    ts = entry.get("ts", "")
+    try:
+        return datetime.fromisoformat(str(ts)).timestamp()
+    except Exception:
+        return 0.0

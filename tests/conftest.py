@@ -64,6 +64,16 @@ def _clear_session_cache():
         perseus._SESSION_CACHE.clear()
 
 
+@pytest.fixture(autouse=True)
+def _allow_dangerous_env(monkeypatch):
+    """Set PERSEUS_ALLOW_DANGEROUS=1 for all tests.
+
+    The defense-in-depth gate (issue #94/#95) requires this env var even
+    when allow_query_shell=True.  Tests that verify the gated (denied)
+    behaviour can override this with monkeypatch.delenv."""
+    monkeypatch.setenv("PERSEUS_ALLOW_DANGEROUS", "1")
+
+
 def pytest_addoption(parser):
     parser.addoption(
         "--update-golden",

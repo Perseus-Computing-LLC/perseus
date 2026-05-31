@@ -252,6 +252,12 @@ def cmd_diff(args, cfg):
             old_fp = _resolve_checkpoint_selector(str(a_sel), files)
             new_fp = _resolve_checkpoint_selector(str(b_sel), files)
         else:
+            if len(files) == 0:
+                if target_ws:
+                    print(f"No checkpoints found for workspace {target_ws}.")
+                else:
+                    print("No checkpoints found.")
+                return
             if len(files) < 2:
                 print("Need at least two checkpoints to diff.")
                 return
