@@ -146,6 +146,7 @@ Published as [`io.github.tcconnally/perseus`](https://registry.modelcontextproto
 
 ### MCP Tools
 
+<!-- test-count: 813 -->
 24 MCP tools resolve live state at invocation time. Two sensitive tools (`perseus_query` and `perseus_agent`) require explicit `mcp.tool_allowlist` opt-in because they execute commands in the user's local shell — **not sandboxed, full user permissions apply**:
 
 | Tool | Description |
@@ -342,7 +343,7 @@ Next: run pytest tests/test_webhook.py
 ## Project Memory
 ### Recent
 - 2026-05-27: Shipped MCP deep integration (Phase 25). 24 directives exposed as MCP tools by default.
-- 2026-05-26: Deployed Perseus v1.0.6 to PyPI. Test suite at 812 tests — all passing (Linux, Python 3.10–3.12).
+- 2026-05-26: Deployed Perseus v1.0.6 to PyPI. Test suite at 813 tests — all passing (Linux, Python 3.10–3.12).
 - 2026-05-24: Completed Hephaestus extensibility — plugin directives, macros, hooks, pipes.
 ```
 
