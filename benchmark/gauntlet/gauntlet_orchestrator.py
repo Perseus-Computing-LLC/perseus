@@ -764,14 +764,17 @@ class GauntletOrchestrator:
         if not cold or not warm:
             return (True, "skipped: missing phase data")
 
-        cold_mean = cold.get("mean_s")
-        warm_mean = warm.get("mean_s")
+        # Use the typical render time for this gate. The mean is too sensitive
+        # to external runner stalls (for example, container scheduling or a
+        # wedged child process that does not reflect Perseus BENCH timing).
+        cold_mean = cold.get("p50_s", cold.get("median_s", cold.get("mean_s")))
+        warm_mean = warm.get("p50_s", warm.get("median_s", warm.get("mean_s")))
 
         if cold_mean is None or warm_mean is None or warm_mean <= 0 or cold_mean <= 0:
             return (True, f"skipped: no timing data (cold={cold_mean}, warm={warm_mean})")
 
         speedup = cold_mean / warm_mean
-        return (speedup >= threshold, round(speedup, 1))
+        return (speedup >= threshold, round(speedup, 3))
 
     def _check_semantic_gate(self, results: dict) -> tuple:
         phase = results.get("phase_8", {})

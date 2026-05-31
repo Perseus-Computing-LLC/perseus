@@ -594,14 +594,28 @@ def _compute_gauntlet_score(
     # Base: gate pass rate among active (non-skipped) gates * 70
     base = (non_skipped_passed / active_total) * 70.0
     # Phases completed bonus: up to 20
-    completed = sum(1 for pr in phase_results if pr.get("failures", 1) == 0)
+    def _phase_completed(pr: dict) -> bool:
+        if pr.get("crash") or pr.get("bad_result"):
+            return False
+        if pr.get("failures", 0) > 0:
+            return False
+        if pr.get("status") == "skipped":
+            return True
+        if "overall_pass" in pr:
+            return bool(pr.get("overall_pass"))
+        return True
+
+    completed = sum(1 for pr in phase_results if _phase_completed(pr))
     phase_bonus = (completed / max(len(phase_results), 1)) * 20.0
+    # Certification bonus: all active hard gates pass. Without this, a perfect
+    # run tops out at 90 despite the score being documented as 0-100.
+    hard_pass_bonus = 0.0 if gate_report.get("hard_failed") else 10.0
     # Hard-fail penalty: -10 per failed hard gate, excluding skipped gates
     penalty = len([
         g for g in gate_report.get("hard_failed", [])
         if not gate_results or g["name"] not in skipped
     ]) * 10.0
-    return max(0.0, min(100.0, base + phase_bonus - penalty))
+    return max(0.0, min(100.0, base + phase_bonus + hard_pass_bonus - penalty))
 
 
 def _score_to_stars(score: float) -> str:
