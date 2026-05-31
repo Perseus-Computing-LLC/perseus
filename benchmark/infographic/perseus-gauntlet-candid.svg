@@ -1,0 +1,66 @@
+<svg width="1200" height="860" viewBox="0 0 1200 860" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="What The Gauntlet Exposed">
+<style>
+text { font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; letter-spacing: 0; }
+.title { font-size: 34px; font-weight: 760; fill: #f2f5f7; }
+.subtitle { font-size: 16px; fill: #aab4c0; }
+.section { font-size: 18px; font-weight: 720; fill: #f2f5f7; }
+.label { font-size: 13px; fill: #aab4c0; }
+.small { font-size: 11px; fill: #8d98a6; }
+.metric { font-size: 40px; font-weight: 780; fill: #f2f5f7; }
+.metric2 { font-size: 28px; font-weight: 760; fill: #f2f5f7; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+</style>
+<rect width="1200" height="860" fill="#10131a"/>
+<text x="44" y="58" class="title">What The Gauntlet Exposed</text>
+<text x="44" y="86" class="subtitle">The useful version includes the blemishes: harness bugs, environment gaps, and budget pressure.</text>
+<rect x="44" y="124" width="520" height="278" rx="8" fill="#171c24" stroke="#2d3542" stroke-width="1"/>
+<text x="62" y="158" class="section">Bugs Found During Certification</text>
+<circle cx="76" cy="176" r="7" fill="#ef6461"/>
+<text x="98" y="172" class="section">A1 disk fill</text>
+<text x="98" y="198" class="label">main still wrote past 50 GB before stop</text>
+<circle cx="76" cy="242" r="7" fill="#f5b84b"/>
+<text x="98" y="238" class="section">Speedup gate</text>
+<text x="98" y="264" class="label">mean failed on one 1038s wall-clock outlier</text>
+<circle cx="76" cy="308" r="7" fill="#f5b84b"/>
+<text x="98" y="304" class="section">Score math</text>
+<text x="98" y="330" class="label">all gates passing could not naturally reach 100</text>
+<rect x="596" y="124" width="520" height="278" rx="8" fill="#171c24" stroke="#2d3542" stroke-width="1"/>
+<text x="614" y="158" class="section">Not Product Failures, But Real Signals</text>
+<text x="626" y="172" class="section">Phase 7</text>
+<rect x="748" y="158" width="220" height="14" rx="7" fill="#1f2630"/>
+<rect x="748" y="158" width="220.0" height="14" rx="7" fill="#ef6461"/>
+<text x="986" y="170" class="small">74m / 60m</text>
+<text x="626" y="200" class="label">adversarial over budget</text>
+<text x="626" y="238" class="section">Phase 10</text>
+<rect x="748" y="224" width="220" height="14" rx="7" fill="#1f2630"/>
+<rect x="748" y="224" width="220.0" height="14" rx="7" fill="#ef6461"/>
+<text x="986" y="236" class="small">120m / 120m</text>
+<text x="626" y="266" class="label">sustained at budget edge</text>
+<text x="626" y="304" class="section">Phase 8</text>
+<rect x="748" y="290" width="220" height="14" rx="7" fill="#1f2630"/>
+<rect x="748" y="290" width="3.0" height="14" rx="7" fill="#f5b84b"/>
+<text x="986" y="302" class="small">0s / 30m</text>
+<text x="626" y="332" class="label">judge skipped: no API key</text>
+<rect x="44" y="446" width="1072" height="220" rx="8" fill="#171c24" stroke="#2d3542" stroke-width="1"/>
+<text x="62" y="480" class="section">Distribution Beats Anecdote</text>
+<text x="74" y="514" class="label">Cold p50</text>
+<rect x="184" y="501" width="740" height="14" rx="7" fill="#1f2630"/>
+<rect x="184" y="501" width="3.0" height="14" rx="7" fill="#7aa2f7"/>
+<text x="944" y="514" class="small">0.115s</text>
+<text x="74" y="546" class="label">Warm p50</text>
+<rect x="184" y="533" width="740" height="14" rx="7" fill="#1f2630"/>
+<rect x="184" y="533" width="3.0" height="14" rx="7" fill="#3ddc97"/>
+<text x="944" y="546" class="small">0.119s</text>
+<text x="74" y="578" class="label">Warm p99</text>
+<rect x="184" y="565" width="740" height="14" rx="7" fill="#1f2630"/>
+<rect x="184" y="565" width="3.0" height="14" rx="7" fill="#37c7d4"/>
+<text x="944" y="578" class="small">0.504s</text>
+<text x="74" y="610" class="label">Warm max</text>
+<rect x="184" y="597" width="740" height="14" rx="7" fill="#1f2630"/>
+<rect x="184" y="597" width="740.0" height="14" rx="7" fill="#ef6461"/>
+<text x="944" y="610" class="small">1038.837s</text>
+<text x="74" y="646" class="small">One external warm wall-clock outlier dominated the mean, while BENCH reported cached render time around 10ms.</text>
+<rect x="44" y="708" width="1072" height="98" rx="8" fill="#171c24" stroke="#2d3542" stroke-width="1"/>
+<text x="62" y="742" class="section">Honest Bottom Line</text>
+<text x="74" y="764" class="label">Perseus certified, but the benchmark also proved why certification needs adversarial runs: the engine looked strong, the harness needed calibration, and environment-dependent gates must stay explicit.</text>
+</svg>

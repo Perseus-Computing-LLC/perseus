@@ -1,0 +1,102 @@
+<svg width="1200" height="860" viewBox="0 0 1200 860" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Perseus Gauntlet Certification">
+<style>
+text { font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; letter-spacing: 0; }
+.title { font-size: 34px; font-weight: 760; fill: #f2f5f7; }
+.subtitle { font-size: 16px; fill: #aab4c0; }
+.section { font-size: 18px; font-weight: 720; fill: #f2f5f7; }
+.label { font-size: 13px; fill: #aab4c0; }
+.small { font-size: 11px; fill: #8d98a6; }
+.metric { font-size: 40px; font-weight: 780; fill: #f2f5f7; }
+.metric2 { font-size: 28px; font-weight: 760; fill: #f2f5f7; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+</style>
+<rect width="1200" height="860" fill="#10131a"/>
+<text x="44" y="58" class="title">Perseus Gauntlet Certification</text>
+<text x="44" y="86" class="subtitle">Full 2026-05-31 run: all phases completed, all active gates passed.</text>
+<rect x="44" y="122" width="250" height="118" rx="8" fill="#171c24" stroke="#2d3542" stroke-width="1"/>
+<text x="62" y="152" class="label">Gauntlet score</text>
+<text x="62" y="200" class="metric" fill="#3ddc97" style="fill:#3ddc97">100/100</text>
+<text x="62" y="223" class="small">overall PASS</text>
+<rect x="318" y="122" width="250" height="118" rx="8" fill="#171c24" stroke="#2d3542" stroke-width="1"/>
+<text x="336" y="152" class="label">Gate result</text>
+<text x="336" y="200" class="metric" fill="#37c7d4" style="fill:#37c7d4">14/14</text>
+<text x="336" y="223" class="small">zero failed gates</text>
+<rect x="592" y="122" width="250" height="118" rx="8" fill="#171c24" stroke="#2d3542" stroke-width="1"/>
+<text x="610" y="152" class="label">Phase failures</text>
+<text x="610" y="200" class="metric" fill="#7aa2f7" style="fill:#7aa2f7">0</text>
+<text x="610" y="223" class="small">12 phases completed</text>
+<rect x="866" y="122" width="250" height="118" rx="8" fill="#171c24" stroke="#2d3542" stroke-width="1"/>
+<text x="884" y="152" class="label">Typical p50</text>
+<text x="884" y="200" class="metric" fill="#b98cff" style="fill:#b98cff">0.12s</text>
+<text x="884" y="223" class="small">render-heavy phases</text>
+<rect x="44" y="280" width="1072" height="318" rx="8" fill="#171c24" stroke="#2d3542" stroke-width="1"/>
+<text x="62" y="314" class="section">Phase Timeline</text>
+<text x="64" y="345" class="small">0: Preflight</text>
+<rect x="190" y="334" width="760" height="12" rx="6" fill="#1f2630"/>
+<rect x="190" y="334" width="3.0" height="12" rx="6" fill="#3ddc97"/>
+<text x="968" y="345" class="small">0s / OK</text>
+<text x="64" y="365" class="small">1: Cold</text>
+<rect x="190" y="354" width="760" height="12" rx="6" fill="#1f2630"/>
+<rect x="190" y="354" width="21.1" height="12" rx="6" fill="#3ddc97"/>
+<text x="968" y="365" class="small">3m / OK</text>
+<text x="64" y="385" class="small">2: Warm</text>
+<rect x="190" y="374" width="760" height="12" rx="6" fill="#1f2630"/>
+<rect x="190" y="374" width="116.5" height="12" rx="6" fill="#f5b84b"/>
+<text x="968" y="385" class="small">18m / OK</text>
+<text x="64" y="405" class="small">3: Week</text>
+<rect x="190" y="394" width="760" height="12" rx="6" fill="#1f2630"/>
+<rect x="190" y="394" width="92.6" height="12" rx="6" fill="#3ddc97"/>
+<text x="968" y="405" class="small">15m / OK</text>
+<text x="64" y="425" class="small">4: Swarm</text>
+<rect x="190" y="414" width="760" height="12" rx="6" fill="#1f2630"/>
+<rect x="190" y="414" width="24.8" height="12" rx="6" fill="#3ddc97"/>
+<text x="968" y="425" class="small">4m / OK</text>
+<text x="64" y="445" class="small">5: Relay</text>
+<rect x="190" y="434" width="760" height="12" rx="6" fill="#1f2630"/>
+<rect x="190" y="434" width="23.8" height="12" rx="6" fill="#3ddc97"/>
+<text x="968" y="445" class="small">4m / OK</text>
+<text x="64" y="465" class="small">6: Inbox</text>
+<rect x="190" y="454" width="760" height="12" rx="6" fill="#1f2630"/>
+<rect x="190" y="454" width="25.7" height="12" rx="6" fill="#3ddc97"/>
+<text x="968" y="465" class="small">4m / OK</text>
+<text x="64" y="485" class="small">7: Adversarial</text>
+<rect x="190" y="474" width="760" height="12" rx="6" fill="#1f2630"/>
+<rect x="190" y="474" width="471.7" height="12" rx="6" fill="#f5b84b"/>
+<text x="968" y="485" class="small">74m / OK</text>
+<text x="64" y="505" class="small">8: Semantic</text>
+<rect x="190" y="494" width="760" height="12" rx="6" fill="#1f2630"/>
+<rect x="190" y="494" width="3.0" height="12" rx="6" fill="#3ddc97"/>
+<text x="968" y="505" class="small">0s / OK</text>
+<text x="64" y="525" class="small">9: Tokens</text>
+<rect x="190" y="514" width="760" height="12" rx="6" fill="#1f2630"/>
+<rect x="190" y="514" width="3.0" height="12" rx="6" fill="#3ddc97"/>
+<text x="968" y="525" class="small">7s / OK</text>
+<text x="64" y="545" class="small">10: Torture</text>
+<rect x="190" y="534" width="760" height="12" rx="6" fill="#1f2630"/>
+<rect x="190" y="534" width="760.0" height="12" rx="6" fill="#f5b84b"/>
+<text x="968" y="545" class="small">120m / OK</text>
+<text x="64" y="565" class="small">11: Report</text>
+<rect x="190" y="554" width="760" height="12" rx="6" fill="#1f2630"/>
+<rect x="190" y="554" width="3.0" height="12" rx="6" fill="#3ddc97"/>
+<text x="968" y="565" class="small">0s / OK</text>
+<rect x="44" y="628" width="520" height="168" rx="8" fill="#171c24" stroke="#2d3542" stroke-width="1"/>
+<text x="62" y="662" class="section">What Certified</text>
+<circle cx="70" cy="671" r="5" fill="#3ddc97"/>
+<text x="88" y="676" class="label">Cache integrity</text>
+<text x="300" y="676" class="label" fill="#f2f5f7" style="fill:#f2f5f7">664 entries, 0 corrupt</text>
+<circle cx="70" cy="699" r="5" fill="#3ddc97"/>
+<text x="88" y="704" class="label">Coordination</text>
+<text x="300" y="704" class="label" fill="#f2f5f7" style="fill:#f2f5f7">0 swarm collisions</text>
+<circle cx="70" cy="727" r="5" fill="#3ddc97"/>
+<text x="88" y="732" class="label">Inbox delivery</text>
+<text x="300" y="732" class="label" fill="#f2f5f7" style="fill:#f2f5f7">99.9%+ gate passed</text>
+<circle cx="70" cy="755" r="5" fill="#3ddc97"/>
+<text x="88" y="760" class="label">Sustained memory</text>
+<text x="300" y="760" class="label" fill="#f2f5f7" style="fill:#f2f5f7">RSS growth about 1.02%</text>
+<rect x="596" y="628" width="520" height="168" rx="8" fill="#171c24" stroke="#2d3542" stroke-width="1"/>
+<text x="614" y="662" class="section">Reading The Result</text>
+<text x="622" y="676" class="label">The useful signal is not only PASS.</text>
+<text x="622" y="704" class="label">It is fast, repeatable context under stress.</text>
+<text x="622" y="732" class="label">Adversarial failures became harness fixes, not product failures.</text>
+<text x="622" y="760" class="label">Missing judge key remains an environment limitation.</text>
+</svg>

@@ -1,0 +1,80 @@
+<svg width="1200" height="860" viewBox="0 0 1200 860" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Perseus As Workspace Infrastructure">
+<style>
+text { font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; letter-spacing: 0; }
+.title { font-size: 34px; font-weight: 760; fill: #f2f5f7; }
+.subtitle { font-size: 16px; fill: #aab4c0; }
+.section { font-size: 18px; font-weight: 720; fill: #f2f5f7; }
+.label { font-size: 13px; fill: #aab4c0; }
+.small { font-size: 11px; fill: #8d98a6; }
+.metric { font-size: 40px; font-weight: 780; fill: #f2f5f7; }
+.metric2 { font-size: 28px; font-weight: 760; fill: #f2f5f7; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+</style>
+<rect width="1200" height="860" fill="#10131a"/>
+<text x="44" y="58" class="title">Perseus As Workspace Infrastructure</text>
+<text x="44" y="86" class="subtitle">Why the gauntlet is evidence for usefulness, not just a test trophy.</text>
+<rect x="44" y="124" width="342" height="256" rx="8" fill="#171c24" stroke="#2d3542" stroke-width="1"/>
+<text x="62" y="158" class="section">Practical Latency</text>
+<text x="74" y="176" class="label">Cold</text>
+<rect x="74" y="184" width="210" height="12" rx="6" fill="#1f2630"/>
+<rect x="74" y="184" width="202.2" height="12" rx="6" fill="#7aa2f7"/>
+<text x="296" y="195" class="small">0.115s</text>
+<text x="74" y="218" class="label">Warm</text>
+<rect x="74" y="226" width="210" height="12" rx="6" fill="#1f2630"/>
+<rect x="74" y="226" width="210.0" height="12" rx="6" fill="#3ddc97"/>
+<text x="296" y="237" class="small">0.119s</text>
+<text x="74" y="260" class="label">Enterprise</text>
+<rect x="74" y="268" width="210" height="12" rx="6" fill="#1f2630"/>
+<rect x="74" y="268" width="204.3" height="12" rx="6" fill="#37c7d4"/>
+<text x="296" y="279" class="small">0.116s</text>
+<text x="74" y="302" class="label">Sustained</text>
+<rect x="74" y="310" width="210" height="12" rx="6" fill="#1f2630"/>
+<rect x="74" y="310" width="207.3" height="12" rx="6" fill="#b98cff"/>
+<text x="296" y="321" class="small">0.117s</text>
+<text x="74" y="342" class="small">Context compilation stays below human-visible wait time.</text>
+<rect x="428" y="124" width="342" height="256" rx="8" fill="#171c24" stroke="#2d3542" stroke-width="1"/>
+<text x="446" y="158" class="section">Operational Surface</text>
+<text x="458" y="190" class="metric2" fill="#3ddc97" style="fill:#3ddc97">25</text>
+<text x="458" y="214" class="small">Roles exercised</text>
+<text x="608" y="190" class="metric2" fill="#3ddc97" style="fill:#3ddc97">500</text>
+<text x="608" y="214" class="small">Developers simulated</text>
+<text x="458" y="274" class="metric2" fill="#3ddc97" style="fill:#3ddc97">12</text>
+<text x="458" y="298" class="small">Adversarial scenarios</text>
+<text x="608" y="274" class="metric2" fill="#3ddc97" style="fill:#3ddc97">120m</text>
+<text x="608" y="298" class="small">Sustained phase</text>
+<rect x="812" y="124" width="342" height="256" rx="8" fill="#171c24" stroke="#2d3542" stroke-width="1"/>
+<text x="830" y="158" class="section">Assistant Value</text>
+<rect x="842" y="170" width="10" height="10" rx="2" fill="#3ddc97"/>
+<text x="862" y="180" class="label">Pre-resolved repo state</text>
+<rect x="842" y="204" width="10" height="10" rx="2" fill="#37c7d4"/>
+<text x="862" y="214" class="label">Live cacheable commands</text>
+<rect x="842" y="238" width="10" height="10" rx="2" fill="#7aa2f7"/>
+<text x="862" y="248" class="label">Memory and checkpoints</text>
+<rect x="842" y="272" width="10" height="10" rx="2" fill="#f5b84b"/>
+<text x="862" y="282" class="label">Coordination primitives</text>
+<rect x="842" y="306" width="10" height="10" rx="2" fill="#b98cff"/>
+<text x="862" y="316" class="label">Low-latency repeated renders</text>
+<rect x="44" y="424" width="1110" height="252" rx="8" fill="#171c24" stroke="#2d3542" stroke-width="1"/>
+<text x="62" y="458" class="section">From Prompt File To Runtime</text>
+<rect x="78" y="500" width="205" height="84" rx="8" fill="#1f2630" stroke="#ef6461" stroke-width="2"/>
+<text x="96" y="534" class="section" fill="#ef6461" style="fill:#ef6461">Static files</text>
+<text x="96" y="562" class="small">Rot; require assistant rediscovery</text>
+<path d="M 294 542 L 322 542" stroke="#aab4c0" stroke-width="2"/>
+<path d="M 322 542 L 314 536 M 322 542 L 314 548" stroke="#aab4c0" stroke-width="2"/>
+<rect x="338" y="500" width="205" height="84" rx="8" fill="#1f2630" stroke="#37c7d4" stroke-width="2"/>
+<text x="356" y="534" class="section" fill="#37c7d4" style="fill:#37c7d4">Perseus render</text>
+<text x="356" y="562" class="small">Compiles current facts on demand</text>
+<path d="M 554 542 L 582 542" stroke="#aab4c0" stroke-width="2"/>
+<path d="M 582 542 L 574 536 M 582 542 L 574 548" stroke="#aab4c0" stroke-width="2"/>
+<rect x="598" y="500" width="205" height="84" rx="8" fill="#1f2630" stroke="#3ddc97" stroke-width="2"/>
+<text x="616" y="534" class="section" fill="#3ddc97" style="fill:#3ddc97">Warm context</text>
+<text x="616" y="562" class="small">Reuses expensive discoveries</text>
+<path d="M 814 542 L 842 542" stroke="#aab4c0" stroke-width="2"/>
+<path d="M 842 542 L 834 536 M 842 542 L 834 548" stroke="#aab4c0" stroke-width="2"/>
+<rect x="858" y="500" width="205" height="84" rx="8" fill="#1f2630" stroke="#7aa2f7" stroke-width="2"/>
+<text x="876" y="534" class="section" fill="#7aa2f7" style="fill:#7aa2f7">Assistant</text>
+<text x="876" y="562" class="small">Starts closer to useful work</text>
+<rect x="44" y="714" width="1110" height="96" rx="8" fill="#171c24" stroke="#2d3542" stroke-width="1"/>
+<text x="62" y="748" class="section">Product Takeaway</text>
+<text x="74" y="770" class="label">Perseus looks viable when positioned as a context runtime: fast enough to sit in front of assistants, resilient enough for messy workspaces, and measurable enough to catch regressions.</text>
+</svg>
