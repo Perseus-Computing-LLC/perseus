@@ -65,6 +65,7 @@ def render_profile(
     home = WARM_HOME if cache_state == "warm" else COLD_HOME
     env = os.environ.copy()
     env["PERSEUS_HOME"] = str(home)
+    env["PERSEUS_BENCH"] = "1"  # enables BENCH| line on stderr for cache_hits/cache_misses
     if env_extra:
         env.update(env_extra)
 
@@ -79,14 +80,20 @@ def render_profile(
             env=env,
         )
         elapsed = time.time() - t0
+        # Parse BENCH line written by Perseus when PERSEUS_BENCH=1 is set.
+        # Format: BENCH|...|cache_hits=M|cache_misses=P|...
+        import re as _re
+        _bench = _re.search(r"cache_hits=(\d+)\|cache_misses=(\d+)", result.stderr)
+        cache_hits = int(_bench.group(1)) if _bench else 0
+        cache_misses = int(_bench.group(2)) if _bench else 0
         return {
             "success": result.returncode == 0,
             "elapsed_s": elapsed,
             "output": result.stdout[:1000],
             "stderr": result.stderr[:500],
             "exit_code": result.returncode,
-            "cache_hits": result.stderr.count("cache_hit"),
-            "cache_misses": result.stderr.count("cache_miss"),
+            "cache_hits": cache_hits,
+            "cache_misses": cache_misses,
         }
     except subprocess.TimeoutExpired:
         return {

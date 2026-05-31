@@ -596,7 +596,7 @@ def _compute_gauntlet_score(
     # Phases completed bonus: up to 20
     completed = sum(1 for pr in phase_results if pr.get("failures", 1) == 0)
     phase_bonus = (completed / max(len(phase_results), 1)) * 20.0
-    # Hard-fail penalty: -10 per failed hard gate, skipping skipped gates
+    # Hard-fail penalty: -10 per failed hard gate, excluding skipped gates
     penalty = len([
         g for g in gate_report.get("hard_failed", [])
         if not gate_results or g["name"] not in skipped
