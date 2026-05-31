@@ -29,6 +29,17 @@ from gauntlet_lib import perseus_executable, timestamp_iso, write_json
 # ─── Sentinel / kill-switch helpers ──────────────────────────────────────────
 
 SENTINEL_DIR: Path | None = None
+MAX_ERROR_SAMPLES = 50
+
+
+def _record_error(result: dict, message: str) -> None:
+    """Record an error count while keeping result JSON bounded."""
+    result["error_count"] = result.get("error_count", 0) + 1
+    errors = result.setdefault("errors", [])
+    if len(errors) < MAX_ERROR_SAMPLES:
+        errors.append(message[:200])
+    elif len(errors) == MAX_ERROR_SAMPLES:
+        errors.append(f"... additional errors omitted ({result['error_count']} total so far)")
 
 
 def _init_sentinels(base: Path) -> Path:
@@ -92,7 +103,7 @@ def run_scenario(
 
     while time.time() - t0 < duration_s:
         if _kill_switch_triggered():
-            result["errors"].append("Kill switch triggered")
+            _record_error(result, "Kill switch triggered")
             break
 
         if not role_profile or not role_profile.is_file():
@@ -103,7 +114,8 @@ def run_scenario(
                     "@perseus v0.8\n@prompt adversarial test\n@query \"echo adversarial\" @cache ttl=300\n"
                 )
             except OSError as exc:
-                result["errors"].append(f"Cannot write context file: {exc}")
+                _record_error(result, f"Cannot write context file: {exc}")
+                time.sleep(0.05)
                 continue
             target = ctx
         else:
@@ -118,11 +130,11 @@ def run_scenario(
             if r.returncode == 0:
                 result["renders_successful"] += 1
             else:
-                result["errors"].append(f"Render failed: exit {r.returncode} — {r.stderr[:200]}")
+                _record_error(result, f"Render failed: exit {r.returncode} — {r.stderr[:200]}")
         except subprocess.TimeoutExpired:
-            result["errors"].append("Render timed out (30s)")
+            _record_error(result, "Render timed out (30s)")
         except Exception as exc:
-            result["errors"].append(str(exc)[:200])
+            _record_error(result, str(exc))
 
         # Kill switch check every 30s
         if time.time() - last_check > 30:
@@ -530,17 +542,21 @@ def scenario_a7_signal_storm(
 
 def scenario_a8_fd_exhaustion(
     duration_s: int = 300,
+    perseus_home: Path = Path("/tmp/perseus-gauntlet/adversarial"),
 ) -> dict:
     """A8: Exhaust file descriptors, then verify graceful degradation."""
     result: dict = {"scenario": "A8_fd_exhaustion", "setup": None, "renders": None, "cleanup": None}
+    perseus_home.mkdir(parents=True, exist_ok=True)
+    ctx_file = perseus_home / "_a8_fd_exhaustion_ctx.md"
+    ctx_file.write_text("@perseus v0.8\n@prompt fd exhaustion\n@query \"echo fd-ok\" @cache ttl=86400\n")
 
     # Setup: open many file descriptors, but reserve ~100 for Perseus
     fds: list[int] = []
     try:
         import resource
         soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
-        # Only consume FDs up to soft limit minus 200 (leave room for Perseus)
-        target = max(0, soft - 200)
+        # Match the scenario contract (50K FDs) while leaving room for Perseus.
+        target = min(50_000, max(0, soft - 200))
         for i in range(target):
             try:
                 fd = os.open("/dev/null", os.O_RDONLY)
@@ -554,7 +570,12 @@ def scenario_a8_fd_exhaustion(
 
     # Run renders with FD pressure — cleanup ALWAYS runs
     try:
-        result["renders"] = run_scenario("A8_fd_exhaustion", duration_s)
+        result["renders"] = run_scenario(
+            "A8_fd_exhaustion",
+            duration_s,
+            perseus_home=perseus_home,
+            role_profile=ctx_file,
+        )
     except Exception as exc:
         result["renders"] = {"error": str(exc)[:200], "renders_attempted": 0, "renders_successful": 0, "errors": []}
     finally:
@@ -915,7 +936,8 @@ def run_all_adversarial(
         try:
             # Compat: respect each scenario's actual signature (not all accept nfs_base/perseus_home)
             sig = inspect.signature(info["fn"])
-            kwargs = {"duration_s": info["duration"]}
+            scenario_duration = duration_s if duration_s is not None else info["duration"]
+            kwargs = {"duration_s": scenario_duration}
             if "nfs_base" in sig.parameters:
                 kwargs["nfs_base"] = nfs_base
             if "perseus_home" in sig.parameters:
@@ -975,6 +997,7 @@ if __name__ == "__main__":
     result = run_all_adversarial(
         nfs_base=nfs_base,
         duration_s=args.duration,
+        scenarios=args.scenarios,
     )
 
     output = json.dumps(result, indent=2, default=str)
