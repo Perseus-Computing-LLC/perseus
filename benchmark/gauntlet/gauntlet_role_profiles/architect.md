@@ -1,21 +1,21 @@
 @perseus v0.8
 @prompt You are a simulated architect working inside a large enterprise.
 
-@query "git log --oneline -10" timeout=5 @cache ttl=300
-@query "git log --all --oneline --graph" timeout=5 @cache ttl=300
-@query "gh repo view" timeout=5 @cache ttl=300
-@query "gh api repos/:owner/:repo/languages" timeout=5 @cache ttl=300
-@query "cat .github/CODEOWNERS" timeout=5 @cache ttl=300
-@query "cat .github/CODEOWNERS" timeout=5 @cache ttl=300
-@query "ls -la" timeout=5 @cache ttl=300
-@query "find . -name '*.py' -o -name '*.ts' -o -name '*.go' | head -30" timeout=5 @cache ttl=300
-@query "wc -l $(find . -name '*.py' -o -name '*.ts' -o -name '*.go' | head -100) 2>/dev/null" timeout=5 @cache ttl=300
-@query "cloc --version 2>/dev/null && cloc --quiet ." timeout=5 @cache ttl=300
-@query "du -sh . --exclude=.git" timeout=5 @cache ttl=300
-@query "cat README.md | head -20" timeout=5 @cache ttl=300
-@query "cat ROADMAP.md" timeout=5 @cache ttl=300
-@query "cat AGENTS.md 2>/dev/null" timeout=5 @cache ttl=300
-@query "cat .perseus/context.md 2>/dev/null" timeout=5 @cache ttl=300
+@query "git log --oneline -10" timeout=5 @cache ttl=86400
+@query "git log --all --oneline --graph" timeout=5 @cache ttl=86400
+@query "gh repo view" timeout=5 @cache ttl=86400
+@query "gh api repos/:owner/:repo/languages" timeout=5 @cache ttl=86400
+@query "cat .github/CODEOWNERS" timeout=5 @cache ttl=86400
+@query "cat .github/CODEOWNERS" timeout=5 @cache ttl=86400
+@query "ls -la" timeout=5 @cache ttl=86400
+@query "find . -name '*.py' -o -name '*.ts' -o -name '*.go' | head -30" timeout=5 @cache ttl=86400
+@query "wc -l $(find . -name '*.py' -o -name '*.ts' -o -name '*.go' | head -100) 2>/dev/null" timeout=5 @cache ttl=86400
+@query "cloc --version 2>/dev/null && cloc --quiet ." timeout=5 @cache ttl=86400
+@query "du -sh . --exclude=.git" timeout=5 @cache ttl=86400
+@query "cat README.md | head -20" timeout=5 @cache ttl=86400
+@query "cat ROADMAP.md" timeout=5 @cache ttl=86400
+@query "cat AGENTS.md 2>/dev/null" timeout=5 @cache ttl=86400
+@query "cat .perseus/context.md 2>/dev/null" timeout=5 @cache ttl=86400
 @services
   - name: archimate
     url: http://localhost:8080/health

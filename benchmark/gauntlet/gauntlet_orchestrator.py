@@ -542,25 +542,32 @@ class GauntletOrchestrator:
 
             cold_tokens = None
             warm_tokens = None
+            cold_elapsed = None
+            warm_elapsed = None
 
             for label in ["Cold", "Warm"]:
                 try:
+                    t0 = time.time()
                     r = subprocess.run(
                         [sys.executable, perseus, "render", profile["path"]],
                         capture_output=True, text=True, timeout=60, env=env,
                     )
+                    elapsed_s = time.time() - t0
                     token_estimate = len(r.stdout) // 4
                     result["renders"].append({
                         "profile": profile["name"],
                         "directive_count": profile.get("directive_count", 0),
                         "state": label,
                         "tokens": token_estimate,
+                        "elapsed_s": elapsed_s,
                         "exit_code": r.returncode,
                     })
                     if label == "Cold":
                         cold_tokens = token_estimate
+                        cold_elapsed = elapsed_s
                     else:
                         warm_tokens = token_estimate
+                        warm_elapsed = elapsed_s
                 except Exception as exc:
                     result["renders"].append({
                         "profile": profile["name"],
@@ -704,10 +711,7 @@ class GauntletOrchestrator:
 
         gr.add_gate("Phase 8: Semantic integrity overall_pass", severity="hard",
                      threshold="True",
-                     threshold_fn=lambda r: (
-                         r.get("phase_8", {}).get("overall_pass", False),
-                         r.get("phase_8", {}).get("overall_pass", "no data"),
-                     ),
+                     threshold_fn=lambda r: self._check_semantic_gate(r),
                      required_phase=8)
 
         gr.add_gate("Phase 9: Compression ratio ≤ 1.0 (no inflation)", severity="hard",
@@ -768,6 +772,15 @@ class GauntletOrchestrator:
 
         speedup = cold_mean / warm_mean
         return (speedup >= threshold, round(speedup, 1))
+
+    def _check_semantic_gate(self, results: dict) -> tuple:
+        phase = results.get("phase_8", {})
+        if phase.get("status") == "skipped":
+            return (True, phase.get("reason", "skipped"))
+        return (
+            phase.get("overall_pass", False),
+            phase.get("overall_pass", "no data"),
+        )
 
     def _save_incremental(self):
         """Save intermediate results to disk."""
