@@ -1,29 +1,29 @@
 @perseus v0.8
 @prompt You are a simulated ml engineer working inside a large enterprise.
 
-@query "git log --oneline -5" timeout=5 @cache ttl=300
-@query "nvidia-smi" timeout=5 @cache ttl=300
-@query "pip list --format=columns" timeout=5 @cache ttl=300
-@query "python3 --version" timeout=5 @cache ttl=300
-@query "nvcc --version" timeout=5 @cache ttl=300
-@query "torch --version" timeout=5 @cache ttl=300
-@query "tensorflow --version" timeout=5 @cache ttl=300
-@query "jax --version" timeout=5 @cache ttl=300
-@query "transformers --version" timeout=5 @cache ttl=300
-@query "accelerate --version" timeout=5 @cache ttl=300
-@query "deepspeed --version" timeout=5 @cache ttl=300
-@query "flash-attn --version" timeout=5 @cache ttl=300
-@query "vllm --version" timeout=5 @cache ttl=300
-@query "triton --version" timeout=5 @cache ttl=300
-@query "wandb --version" timeout=5 @cache ttl=300
-@query "mlflow --version" timeout=5 @cache ttl=300
-@query "dvc --version" timeout=5 @cache ttl=300
-@query "cat /proc/cpuinfo | grep -c processor" timeout=5 @cache ttl=300
-@query "free -h" timeout=5 @cache ttl=300
-@query "df -h /workspace" timeout=5 @cache ttl=300
-@query "ls -la /workspace/data/" timeout=5 @cache ttl=300
-@query "ls /workspace/models/" timeout=5 @cache ttl=300
-@query "du -sh /workspace/models/" timeout=5 @cache ttl=300
+@query "git log --oneline -5" timeout=5 @cache ttl=86400
+@query "nvidia-smi" timeout=5 @cache ttl=86400
+@query "pip list --format=columns" timeout=5 @cache ttl=86400
+@query "python3 --version" timeout=5 @cache ttl=86400
+@query "nvcc --version" timeout=5 @cache ttl=86400
+@query "torch --version" timeout=5 @cache ttl=86400
+@query "tensorflow --version" timeout=5 @cache ttl=86400
+@query "jax --version" timeout=5 @cache ttl=86400
+@query "transformers --version" timeout=5 @cache ttl=86400
+@query "accelerate --version" timeout=5 @cache ttl=86400
+@query "deepspeed --version" timeout=5 @cache ttl=86400
+@query "flash-attn --version" timeout=5 @cache ttl=86400
+@query "vllm --version" timeout=5 @cache ttl=86400
+@query "triton --version" timeout=5 @cache ttl=86400
+@query "wandb --version" timeout=5 @cache ttl=86400
+@query "mlflow --version" timeout=5 @cache ttl=86400
+@query "dvc --version" timeout=5 @cache ttl=86400
+@query "cat /proc/cpuinfo | grep -c processor" timeout=5 @cache ttl=86400
+@query "free -h" timeout=5 @cache ttl=86400
+@query "df -h /workspace" timeout=5 @cache ttl=86400
+@query "ls -la /workspace/data/" timeout=5 @cache ttl=86400
+@query "ls /workspace/models/" timeout=5 @cache ttl=86400
+@query "du -sh /workspace/models/" timeout=5 @cache ttl=86400
 @services
   - name: mlflow
     url: http://localhost:5000/health
