@@ -218,8 +218,11 @@ def _mneme_build_index(cfg: dict, force: bool = False) -> int:
             indexed[row["path"]] = row["mtime"]
 
         count = 0
+        current_paths: set[str] = set()
+        changed = False
         for md_file in sorted(vault_path.rglob("*.md")):
             file_path_str = str(md_file.resolve())
+            current_paths.add(file_path_str)
             try:
                 mtime = md_file.stat().st_mtime
             except Exception:
@@ -230,12 +233,21 @@ def _mneme_build_index(cfg: dict, force: bool = False) -> int:
 
             doc = _mneme_parse_vault_file(md_file)
             if doc is None:
+                # A previously-valid memory can become corrupt or lose required
+                # fields. Remove rows tied to this path so stale recall cannot
+                # keep returning the old content.
+                if file_path_str in indexed:
+                    conn.execute("DELETE FROM mneme_fts WHERE source_path = ?", (file_path_str,))
+                    conn.execute("DELETE FROM mneme_files WHERE path = ?", (file_path_str,))
+                    changed = True
                 continue
 
             field_cols = _mneme_build_field_columns(doc)
             now = datetime.now().astimezone().isoformat(timespec="seconds")
 
-            # Remove old entry if it exists
+            # Remove old entries. Delete by source_path as well as id so a file
+            # whose frontmatter id changes does not leave the previous id behind.
+            conn.execute("DELETE FROM mneme_fts WHERE source_path = ?", (file_path_str,))
             conn.execute("DELETE FROM mneme_fts WHERE id = ?", (doc["id"],))
             conn.execute("DELETE FROM mneme_files WHERE path = ?", (file_path_str,))
 
@@ -253,9 +265,17 @@ def _mneme_build_index(cfg: dict, force: bool = False) -> int:
                 (file_path_str, mtime, now, doc.get("sensitivity", "team")),
             )
             count += 1
+            changed = True
+
+        # Prune deleted or renamed files during normal incremental builds.
+        stale_paths = set(indexed) - current_paths
+        for stale_path in sorted(stale_paths):
+            conn.execute("DELETE FROM mneme_fts WHERE source_path = ?", (stale_path,))
+            conn.execute("DELETE FROM mneme_files WHERE path = ?", (stale_path,))
+            changed = True
 
         # Rebuild FTS5 index (necessary after DELETE + INSERT)
-        if count > 0:
+        if changed:
             conn.execute("INSERT INTO mneme_fts(mneme_fts) VALUES('rebuild')")
 
         conn.commit()

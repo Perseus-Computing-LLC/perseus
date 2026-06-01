@@ -108,7 +108,7 @@ def _parse_cache_modifier(line: str) -> tuple[str, str, int | None, str | None]:
     return line, "", None, None
 
 
-def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path) -> str:
+def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path | None, cfg: dict) -> str:
     """Return a stable fingerprint of all file dependencies for this directive.
 
     NOTE: TOCTOU risk exists between hash and use. This is acceptable because
@@ -137,27 +137,38 @@ def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path) ->
 
     parts: list[str] = []
 
-    if directive in ("@read", "@include"):
-        raw_path = clean_args.split()[0] if clean_args else ""
+    def _safe_dependency_path() -> Path | None:
+        raw_path, _remaining = _extract_quoted_token(clean_args)
         if raw_path:
-            fpath = (workspace / raw_path).resolve()
+            path, warning = _resolve_path(
+                raw_path,
+                workspace,
+                allow_outside_workspace=bool(cfg["render"].get("allow_outside_workspace", False)),
+            )
+            if warning:
+                return None
+            return path
+        return None
+
+    if directive in ("@read", "@include"):
+        fpath = _safe_dependency_path()
+        if fpath is not None:
             try:
                 content = fpath.read_bytes()
-                parts.append(f"{directive}:{raw_path}:{_hashlib.sha256(content).hexdigest()}")
+                parts.append(f"{directive}:{fpath}:{_hashlib.sha256(content).hexdigest()}")
             except (OSError, PermissionError):
                 pass  # can't read → no fingerprint (cache miss is safe)
 
     if directive in ("@list", "@tree"):
-        raw_path = clean_args.split()[0] if clean_args else ""
-        if raw_path:
-            dpath = (workspace / raw_path).resolve()
+        dpath = _safe_dependency_path()
+        if dpath is not None:
             try:
                 entries = sorted(dpath.iterdir()) if directive == "@list" else sorted(dpath.rglob("*"))
                 listing_data = "|".join(
                     f"{p.name}:{p.stat().st_mtime_ns if p.exists() else 0}:{int(p.is_dir())}"
                     for p in entries
                 )
-                parts.append(f"{directive}:{raw_path}:{_hashlib.sha256(listing_data.encode()).hexdigest()}")
+                parts.append(f"{directive}:{dpath}:{_hashlib.sha256(listing_data.encode()).hexdigest()}")
             except (OSError, PermissionError):
                 pass  # can't read → no fingerprint (cache miss is safe)
 
@@ -1089,10 +1100,11 @@ def _render_lines(
 
             clean_args, cache_mode, cache_ttl, cache_mock = _parse_cache_modifier(raw_args)
             _base_key = _cache_key(f"{directive} {clean_args}")
+            _fp = ""
             if cache_mode == "nofingerprint":
                 cache_key = _base_key
             else:
-                _fp = _dependency_fingerprint(directive, clean_args, workspace)
+                _fp = _dependency_fingerprint(directive, clean_args, workspace, cfg)
                 cache_key = f"{_base_key}.{_fp}" if _fp else _base_key
 
             if cache_mode == "mock":
@@ -1166,6 +1178,12 @@ def _render_lines(
 
             if cache_mode:
                 cache_set(cache_key, result, cache_mode, cache_ttl, cfg)
+                if _fp:
+                    # Keep a TTL fallback under the base key. If a dependency is
+                    # deleted or temporarily unreadable later, fingerprinting has
+                    # no content hash to recreate the old key, so this preserves
+                    # the existing "serve cached output until TTL" contract.
+                    cache_set(_base_key, result, cache_mode, cache_ttl, cfg)
 
             output.append(result)
             i += 1

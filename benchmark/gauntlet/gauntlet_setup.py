@@ -2,7 +2,7 @@
 """
 gauntlet_setup.py — Full environment setup for the Perseus Gauntlet.
 
-1. Creates PERSEUS_HOME configs with allow_query_shell=true
+1. Creates PERSEUS_HOME configs with allow_query_shell=true and render env opt-in
 2. Seeds Mnēmē vault with 75 synthetic memory records
 3. Creates workspace checkpoints for @memory narrative data
 4. Creates referenced files for @read directives
@@ -159,6 +159,7 @@ def build_narrative(home: Path) -> None:
     """Run perseus memory update to build narrative from checkpoints."""
     env = os.environ.copy()
     env["PERSEUS_HOME"] = str(home)
+    env["PERSEUS_ALLOW_DANGEROUS"] = "1"
 
     # First verify checkpoints exist
     cp_dir = home / ".perseus" / "checkpoints"
@@ -187,6 +188,7 @@ def verify_render(profile_name: str = "architect") -> bool:
 
     env = os.environ.copy()
     env["PERSEUS_HOME"] = str(COLD_HOME)
+    env["PERSEUS_ALLOW_DANGEROUS"] = "1"
 
     result = subprocess.run(
         [sys.executable, str(REPO_ROOT / "perseus.py"), "render", str(profile_path)],
@@ -199,6 +201,7 @@ def verify_render(profile_name: str = "architect") -> bool:
 
     checks = {
         "@query disabled": "disabled by config" not in output,
+        "@query env gate": "PERSEUS_ALLOW_DANGEROUS=1 is not set" not in output,
         "@memory narrative": "No Mnēmē narrative" not in output,
         "@read missing": "file not found" not in output,
         "@services": "URLError" not in output if "services" in output.lower() else None,

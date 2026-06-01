@@ -65,6 +65,7 @@ def render_profile(
     home = WARM_HOME if cache_state == "warm" else COLD_HOME
     env = os.environ.copy()
     env["PERSEUS_HOME"] = str(home)
+    env["PERSEUS_ALLOW_DANGEROUS"] = "1"
     env["PERSEUS_BENCH"] = "1"  # enables BENCH| line on stderr for cache_hits/cache_misses
     if env_extra:
         env.update(env_extra)
@@ -305,6 +306,7 @@ def phase_checkpoint_relay(
     perseus = perseus_executable()
     env = os.environ.copy()
     env["PERSEUS_HOME"] = str(WARM_HOME)
+    env["PERSEUS_ALLOW_DANGEROUS"] = "1"
 
     for i in range(min(writes_per_node, 2000)):
         t0 = time.time()

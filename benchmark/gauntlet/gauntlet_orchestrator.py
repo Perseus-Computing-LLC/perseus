@@ -539,6 +539,7 @@ class GauntletOrchestrator:
             profile_home.mkdir(parents=True, exist_ok=True)
             env = os.environ.copy()
             env["PERSEUS_HOME"] = str(profile_home)
+            env["PERSEUS_ALLOW_DANGEROUS"] = "1"
 
             cold_tokens = None
             warm_tokens = None
@@ -779,7 +780,7 @@ class GauntletOrchestrator:
     def _check_semantic_gate(self, results: dict) -> tuple:
         phase = results.get("phase_8", {})
         if phase.get("status") == "skipped":
-            return (True, phase.get("reason", "skipped"))
+            return (True, f"skipped: {phase.get('reason', 'semantic judge did not run')}")
         return (
             phase.get("overall_pass", False),
             phase.get("overall_pass", "no data"),
