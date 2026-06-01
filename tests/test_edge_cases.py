@@ -308,9 +308,14 @@ class TestLargeObjectPressure:
         source = f'@perseus\n@read "{expensive.name}" @cache ttl=300\n'
         result1 = perseus.render_source(source, c, tmp_path)
         assert "costly computation" in result1
-        expensive.unlink()
+        # Rerender without changing the file — cache should hit
         result2 = perseus.render_source(source, c, tmp_path)
         assert "costly computation" in result2
+        # Now change the file — content-addressed fingerprint should invalidate
+        expensive.write_text("updated content")
+        result3 = perseus.render_source(source, c, tmp_path)
+        assert "updated content" in result3
+        assert "costly computation" not in result3
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
