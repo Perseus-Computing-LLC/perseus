@@ -33,6 +33,7 @@ Works with any MCP-compatible assistant: Claude Desktop, Claude Code, Cursor, Co
 
 > 📖 **New to Perseus?** Read [QUICKSTART.md](./QUICKSTART.md) for a 2-minute setup guide with free LLM backends.
 > 🔌 **Wiring Perseus into your workflow?** Read [WIRING.md](./WIRING.md) for MCP server, editor hooks, live auto-refresh, systemd/cron, and context packs.
+> 📖 **New to Perseus?** Read [QUICKSTART.md](./QUICKSTART.md) for a 2-minute setup guide with free LLM backends, editor integration, and CI/CD examples.
 
 ---
 
