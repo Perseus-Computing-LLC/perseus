@@ -7,6 +7,61 @@ def cmd_update(args, cfg) -> int:
     automatically updates the CLI. No reinstall needed.
     """
     import subprocess as _sp
+# ── GPG signature verification ──────────────────────────────────────────────
+# Trusted public key fingerprint for Perseus releases.
+# To generate: gpg --detach-sign --armor perseus.py
+# To verify:   gpg --verify perseus.py.asc perseus.py
+PERSEUS_GPG_FINGERPRINT = None  # Set to your GPG key fingerprint (40-char hex)
+
+PERSEUS_GPG_FINGERPRINT_SHORT = None  # Set to your GPG key ID (16-char hex)
+
+
+def _gpg_verify_signature(repo: Path, args) -> tuple[bool, str]:
+    """Verify the GPG signature on the current HEAD or latest tag.
+
+    Returns (verified: bool, message: str).
+    Requires git and gpg to be installed. Non-fatal on missing tools —
+    just reports that verification was skipped.
+    """
+    update_cfg = {}
+    try:
+        update_cfg = cfg.get("update", {}) if "cfg" in dir() else {}
+    except Exception:
+        pass
+    skip = getattr(args, "skip_signature_check", False)
+    if skip:
+        return True, "signature check skipped (--skip-signature-check)"
+
+    fingerprint = update_cfg.get("gpg_fingerprint") or PERSEUS_GPG_FINGERPRINT
+    if not fingerprint:
+        return True, "no GPG fingerprint configured — set update.gpg_fingerprint in config"
+
+    import subprocess as _sp
+
+    # Check for gpg binary
+    try:
+        _sp.run(["gpg", "--version"], capture_output=True, check=True)
+    except Exception:
+        return True, "gpg not found — signature verification skipped"
+
+    # Try verifying the latest signed tag
+    try:
+        result = _sp.run(
+            ["git", "verify-commit", "HEAD"],
+            capture_output=True, text=True, timeout=30, cwd=str(repo),
+        )
+        output = (result.stdout + result.stderr).strip()
+        if result.returncode == 0:
+            return True, f"GPG signature verified: {output.split(chr(10))[0] if output else 'ok'}"
+        # Check if the problem is just "no signature" vs "bad signature"
+        if "NO VALID" in output.upper() or "CANNOT CHECK" in output.upper():
+            return True, f"GPG: commit not signed — {output[:100]}"
+        return False, f"GPG verification failed: {output[:200]}"
+    except _sp.TimeoutExpired:
+        return True, "GPG verification timed out — proceeding"
+    except Exception as exc:
+        return True, f"GPG verification error (non-fatal): {exc}"
+
 
     update_cfg = cfg.get("update", {})
     repo_path_str = update_cfg.get("repo_path", "")
@@ -88,6 +143,16 @@ def cmd_update(args, cfg) -> int:
     check_only = getattr(args, "check", False)
 
     if apply_update:
+        # GPG signature verification before applying update
+        verified, gpg_msg = _gpg_verify_signature(repo, args)
+        if not verified:
+            print(f"\u26a0 GPG signature verification FAILED: {gpg_msg}", file=sys.stderr)
+            print("  Use --skip-signature-check to bypass.", file=sys.stderr)
+            return 1
+        if "verification skipped" in gpg_msg.lower():
+            pass  # Non-fatal
+        print(f"\u2713 GPG: {gpg_msg}")
+
         print("Applying update …")
         try:
             result = _sp.run(

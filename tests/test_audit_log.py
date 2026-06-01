@@ -171,6 +171,7 @@ def test_shell_exec_emitted_for_query(tmp_path, monkeypatch):
     cfg = json.loads(json.dumps(perseus.DEFAULT_CONFIG))
     cfg["render"]["allow_query_shell"] = True  # explicit opt-in for audit test
     cfg["audit"] = {"enabled": True, "log_path": str(home / "a.jsonl"), "max_log_bytes": 1_048_576}
+    monkeypatch.setenv("PERSEUS_ALLOW_DANGEROUS", "1")  # required by defense-in-depth gate
     perseus.resolve_query("\"echo hello\"", cfg)
     entries = perseus._read_audit_entries(cfg)
     types = [e["event_type"] for e in entries]

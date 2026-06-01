@@ -1,16 +1,6 @@
 # stdlib imports available from build artifact header
 # ──────────────────────────────── @read ───────────────────────────────────────
 
-def _resolve_max_bytes(cfg: dict, key: str) -> int | None:
-    """Resolve a render.max_*_bytes config key as int or None.
-
-    Used by @read and @include to avoid duplicated parsing logic."""
-    raw = cfg.get("render", {}).get(key)
-    try:
-        return int(raw) if raw is not None else None
-    except (ValueError, TypeError):
-        return None
-
 def _parse_read_content_for_validation(content: str, ext: str) -> object:
     """Parse @read content for schema validation."""
     ext = ext.lower()

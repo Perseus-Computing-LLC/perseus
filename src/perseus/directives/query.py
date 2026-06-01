@@ -48,6 +48,20 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
                     args=args_str[:200])
         return "> ⚠ @query is disabled by config (`render.allow_query_shell=false`)."
 
+    # Defense-in-depth: even with allow_query_shell=true, require explicit
+    # operator opt-in via PERSEUS_ALLOW_DANGEROUS=1 env var. This prevents
+    # accidental exposure from copied configs or misconfigured automation.
+    if not os.environ.get("PERSEUS_ALLOW_DANGEROUS"):
+        audit_event(cfg, "policy_denied",
+                    directive="@query",
+                    reason="PERSEUS_ALLOW_DANGEROUS not set",
+                    args=args_str[:200])
+        return (
+            "> ⚠ @query is enabled in config but PERSEUS_ALLOW_DANGEROUS=1 is not set.\n"
+            "> This is a defense-in-depth gate to prevent accidental shell execution.\n"
+            "> Set the environment variable to acknowledge the risk."
+        )
+
     # Strip @cache modifier first, then extract the command string.
     # Use the opening quote character to find the correct closing quote,
     # so commands containing the other quote type (e.g. "bash -c 'foo'")
