@@ -6593,6 +6593,11 @@ def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path | N
 
     def _safe_dependency_path() -> Path | None:
         raw_path, _remaining = _extract_quoted_token(clean_args)
+    if directive in ("@read", "@include"):
+        raw_path = clean_args.split()[0] if clean_args else ""
+        # Strip surrounding quotes from the path argument so file resolution works
+        if raw_path and len(raw_path) >= 2 and raw_path[0] == raw_path[-1] and raw_path[0] in ('"', "'"):
+            raw_path = raw_path[1:-1]
         if raw_path:
             path, warning = _resolve_path(
                 raw_path,
@@ -6610,12 +6615,20 @@ def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path | N
             try:
                 content = fpath.read_bytes()
                 parts.append(f"{directive}:{fpath}:{_hashlib.sha256(content).hexdigest()}")
+                file_content = fpath.read_bytes()
+                parts.append(f"{directive}:{str(fpath)}:{_hashlib.sha256(file_content).hexdigest()}")
             except (OSError, PermissionError):
                 pass  # can't read → no fingerprint (cache miss is safe)
 
     if directive in ("@list", "@tree"):
         dpath = _safe_dependency_path()
         if dpath is not None:
+        raw_path = clean_args.split()[0] if clean_args else ""
+        # Strip surrounding quotes from the path argument
+        if raw_path and len(raw_path) >= 2 and raw_path[0] == raw_path[-1] and raw_path[0] in ('"', "'"):
+            raw_path = raw_path[1:-1]
+        if raw_path:
+            dpath = (workspace / raw_path).resolve()
             try:
                 entries = sorted(dpath.iterdir()) if directive == "@list" else sorted(dpath.rglob("*"))
                 listing_data = "|".join(
@@ -6623,6 +6636,7 @@ def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path | N
                     for p in entries
                 )
                 parts.append(f"{directive}:{dpath}:{_hashlib.sha256(listing_data.encode()).hexdigest()}")
+                parts.append(f"{directive}:{str(dpath)}:{_hashlib.sha256(listing_data.encode()).hexdigest()}")
             except (OSError, PermissionError):
                 pass  # can't read → no fingerprint (cache miss is safe)
 
@@ -7570,6 +7584,15 @@ def _render_lines(
                 _stats["directive_count"] += 1
 
             spec = DIRECTIVE_REGISTRY.get(directive)
+
+            # Track A10: auto-cache for cacheable directives without explicit
+            # @cache modifier. Uses fingerprint mode (content-addressed, TTL from
+            # persist_cache_ttl_s) so cached results invalidate when source files
+            # change. Directives with cacheable=False (e.g. @env, @date, @tool)
+            # still re-resolve every render.
+            if not cache_mode and spec and spec.cacheable:
+                cache_mode = "fingerprint"
+
             cached = cache_get(cache_key, cache_mode, cache_ttl, cfg)
             if cached is not None:
                 if _stats is not None: _stats["cache_hits"] += 1
@@ -12707,6 +12730,101 @@ def _doctor_check_mneme_index(_cfg: dict, _workspace: Path) -> DoctorResult:
         return DoctorResult("mneme_fts_index", "error", "Mnēmē FTS index", str(exc), "Check mneme_index.py")
 
 
+def _doctor_check_llm_reachable(cfg: dict, workspace: Path) -> DoctorResult:
+    """Check whether the configured LLM backend is reachable."""
+    llm_cfg = cfg.get("llm", {})
+    provider = str(llm_cfg.get("provider", "ollama")).strip().lower()
+    url = str(llm_cfg.get("url", "")).strip()
+
+    if not url:
+        return DoctorResult("llm_reachable", "ok", "LLM backend",
+                           f"provider={provider} — no URL configured (skipped)", "")
+
+    # For openai-compat/llamacpp, check /v1/models
+    check_url = url.rstrip("/") + "/v1/models"
+    if provider == "ollama":
+        check_url = url.rstrip("/") + "/api/tags"
+
+    try:
+        req = urllib.request.Request(check_url)
+        start = time.time()
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            status = resp.getcode()
+        elapsed_ms = int((time.time() - start) * 1000)
+        if 200 <= status < 300:
+            return DoctorResult("llm_reachable", "ok", "LLM backend",
+                               f"{provider} @ {url} — reachable ({elapsed_ms}ms)", "")
+        else:
+            return DoctorResult("llm_reachable", "warn", "LLM backend",
+                               f"{provider} @ {url} — HTTP {status}",
+                               "Check LLM server is running")
+    except Exception as exc:
+        return DoctorResult("llm_reachable", "warn", "LLM backend",
+                           f"{provider} @ {url} — unreachable ({exc})",
+                           "Start LLM server or set llm.url")
+
+
+def _doctor_check_llm_functional(cfg: dict, workspace: Path) -> DoctorResult:
+    """Check whether the LLM backend can actually complete a request."""
+    llm_cfg = cfg.get("llm", {})
+    provider = str(llm_cfg.get("provider", "ollama")).strip().lower()
+
+    # Only test if generation is enabled
+    gen_enabled = bool(cfg.get("generation", {}).get("enabled", False))
+    if not gen_enabled:
+        return DoctorResult("llm_functional", "ok", "LLM functional",
+                           "generation not enabled (skipped)", "")
+
+    try:
+        start = time.time()
+        text, code = run_llm(provider, "Reply with the single word: pong.", cfg)
+        elapsed_ms = int((time.time() - start) * 1000)
+        if code == 0 and text.strip():
+            return DoctorResult("llm_functional", "ok", "LLM functional",
+                               f"{elapsed_ms}ms — response ok", "")
+        else:
+            return DoctorResult("llm_functional", "warn", "LLM functional",
+                               f"call failed: {text[:60] or 'empty response'}",
+                               "Verify LLM server is running and model is available")
+    except Exception as exc:
+        return DoctorResult("llm_functional", "warn", "LLM functional",
+                           str(exc), "Check LLM configuration")
+
+
+def _doctor_check_cache_writable(cfg: dict, workspace: Path) -> DoctorResult:
+    """Check whether the render cache directory is writable."""
+    cache_dir = Path(cfg.get("render", {}).get("cache_dir", str(PERSEUS_HOME / "cache")))
+    try:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        test_file = cache_dir / ".doctor_test"
+        test_file.write_text("ok")
+        test_file.unlink()
+        # Count cache entries
+        entries = len([f for f in cache_dir.iterdir() if f.suffix == ".json"])
+        return DoctorResult("cache_writable", "ok", "Cache",
+                           f"{entries} entries, writable", "")
+    except Exception as exc:
+        return DoctorResult("cache_writable", "error", "Cache",
+                           f"not writable: {exc}",
+                           f"Check permissions on {cache_dir}")
+
+
+def _doctor_check_sessions(cfg: dict, workspace: Path) -> DoctorResult:
+    """Check whether the sessions store is accessible."""
+    sessions_dir = SESSIONS_DIR  # from config.py
+    sessions_path = Path(sessions_dir)
+    if not sessions_path.exists():
+        return DoctorResult("sessions_store", "ok", "Session store",
+                           "directory does not exist (will be created on first write)", "")
+    try:
+        session_files = list(sessions_path.glob("*.json"))
+        return DoctorResult("sessions_store", "ok", "Session store",
+                           f"{len(session_files)} sessions", "")
+    except Exception as exc:
+        return DoctorResult("sessions_store", "warn", "Session store",
+                           str(exc), "Check SESSIONS_DIR permissions")
+
+
 # Ordered list of doctor checks — adding a check is one function + one line here.
 _DOCTOR_CHECKS = [
     _doctor_check_config,
@@ -12721,6 +12839,10 @@ _DOCTOR_CHECKS = [
     _doctor_check_serve_loopback,
     _doctor_check_registry,
     _doctor_check_mcp,
+    _doctor_check_llm_reachable,
+    _doctor_check_llm_functional,
+    _doctor_check_cache_writable,
+    _doctor_check_sessions,
 ]
 
 
@@ -13902,6 +14024,266 @@ def _toggle_auto_update(value, cfg):
     print(f"  Config: {config_path}")
     if enabled:
         print("  Perseus will check for updates when invoked with --apply.")
+    return 0
+# ──────────────────────────────── Quickstart ──────────────────────────────────
+
+QUICKSTART_CONTEXT_TEMPLATE = """\
+@perseus v{version}
+
+@prompt
+This document was rendered live by Perseus. All values below are current —
+do not verify services, re-scan skills, or re-read session history. Trust the
+rendered output and skip orientation. Start work immediately.
+@end
+
+# Perseus Session Context — @date format="YYYY-MM-DD HH:mm z"
+
+**Workspace:** `{workspace}`
+
+---
+
+## Workspace State
+
+@query "git -C {workspace} log --oneline -5 2>/dev/null || echo '(no git repo)'"
+@query "git -C {workspace} status --short 2>/dev/null || echo ''"
+
+---
+
+## Available Skills
+@skills flag_stale=true
+
+---
+
+## Services
+@services
+"""
+
+
+def _quickstart_write_config(workspace: Path, generation: dict | None = None) -> Path:
+    """Write a minimal .perseus/config.yaml with safe defaults.
+
+    If generation is provided, the 'generation' and 'llm' blocks are
+    populated so pythia/synthesis can use the configured LLM backend.
+    """
+    perseus_dir = workspace / ".perseus"
+    perseus_dir.mkdir(parents=True, exist_ok=True)
+    config_path = perseus_dir / "config.yaml"
+
+    config: dict = {
+        "render": {
+            "allow_query_shell": False,
+        },
+        "permissions": {
+            "profile": "balanced",
+        },
+    }
+    if generation:
+        config["generation"] = {
+            "enabled": generation.get("enabled", True),
+            "model": generation.get("model"),
+            "provider": generation.get("provider"),
+        }
+        config["llm"] = {
+            "provider": generation.get("provider", "openai-compat"),
+            "model": generation.get("model", "mistral"),
+            "url": generation.get("model_url", "http://localhost:11434"),
+        }
+
+    with open(config_path, "w") as f:
+        yaml.safe_dump(config, f, sort_keys=False)
+    return config_path
+
+
+def _quickstart_detect_llm_backends() -> list[dict]:
+    """Scan environment for known LLM API keys and return available backends."""
+    backends: list[dict] = []
+    for name, env_var, provider, model, url in [
+        ("Gemini", "GEMINI_API_KEY", "openai-compat", "gemini-2.5-flash",
+         "https://generativelanguage.googleapis.com/v1beta"),
+        ("Groq", "GROQ_API_KEY", "openai-compat", "llama-3.3-70b",
+         "https://api.groq.com/openai"),
+        ("DeepSeek", "DEEPSEEK_API_KEY", "openai-compat", "deepseek-chat",
+         "https://api.deepseek.com"),
+        ("OpenAI", "OPENAI_API_KEY", "openai-compat", "gpt-4o-mini",
+         "https://api.openai.com"),
+    ]:
+        key = os.environ.get(env_var, "")
+        if key:
+            backends.append({
+                "name": name,
+                "provider": provider,
+                "model": model,
+                "url": url,
+                "key_env": env_var,
+                "key": key,
+            })
+    return backends
+
+
+def _quickstart_configure_llm(workspace: Path) -> dict | None:
+    """Prompt the user to choose a free LLM backend, or auto-detect one.
+
+    Returns a generation config dict to merge into config.yaml, or None
+    if the user skips.
+    """
+    # Auto-detect any already-set keys
+    existing = _quickstart_detect_llm_backends()
+    if existing:
+        print(f"✓ Detected existing LLM key: {existing[0]['name']} ({existing[0]['key_env']})")
+        return {
+            "enabled": True,
+            "provider": existing[0]["provider"],
+            "model": existing[0]["model"],
+            "model_url": existing[0]["url"],
+            "api_key_env": existing[0]["key_env"],
+        }
+
+    print()
+    print("No LLM backend detected. Pythia and Synthesis need one.")
+    print()
+    print("Options:")
+    print("  [1] Gemini free tier (recommended — no credit card, 15 req/min)")
+    print("      → Get key at https://aistudio.google.com/apikey")
+    print("  [2] Groq free tier (no credit card, fast)")
+    print("      → Get key at https://console.groq.com/keys")
+    print("  [3] OpenAI (requires billing)")
+    print("  [4] Local llama.cpp (no network needed)")
+    print("  [5] Skip — I'll configure later")
+    print()
+
+    try:
+        choice = input("Choice [1-5]: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print("\nSkipping LLM configuration.")
+        return None
+
+    if choice == "1":
+        provider = "openai-compat"
+        model = "gemini-2.5-flash"
+        url = "https://generativelanguage.googleapis.com/v1beta"
+    elif choice == "2":
+        provider = "openai-compat"
+        model = "llama-3.3-70b"
+        url = "https://api.groq.com/openai"
+    elif choice == "3":
+        provider = "openai-compat"
+        model = "gpt-4o-mini"
+        url = "https://api.openai.com"
+    elif choice == "4":
+        provider = "llamacpp"
+        model = "llama-3.2-3b"
+        url = "http://127.0.0.1:8080"
+    else:
+        print("Skipping LLM configuration.")
+        return None
+
+    return {
+        "enabled": True,
+        "provider": provider,
+        "model": model,
+        "model_url": url,
+        "api_key_env": "",  # user will configure manually
+    }
+
+
+def cmd_quickstart(args, cfg) -> int:
+    """`perseus quickstart` — one command from zero to working Perseus.
+
+    Detects workspace, scaffolds .perseus/context.md, writes config,
+    offers free LLM backend setup, and verifies everything works with
+    a render + doctor run.
+    """
+    workspace_arg = getattr(args, "workspace", None)
+    if workspace_arg:
+        workspace = Path(workspace_arg).expanduser().resolve()
+    else:
+        workspace = Path.cwd().resolve()
+
+    # Detect git repo root as workspace
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, cwd=str(workspace),
+        )
+        if result.returncode == 0:
+            workspace = Path(result.stdout.strip()).resolve()
+    except Exception:
+        pass
+
+    non_interactive = getattr(args, "non_interactive", False)
+    no_llm = getattr(args, "no_llm", False)
+
+    print(f"Perseus quickstart — v{_PERSEUS_VERSION}")
+    print(f"Workspace: {workspace}")
+    print()
+
+    # Step 1: Scaffold context.md (idempotent — init handles that)
+    perseus_dir = workspace / ".perseus"
+    context_file = perseus_dir / "context.md"
+    config_file = perseus_dir / "config.yaml"
+
+    if context_file.exists():
+        print(f"✓ Context file already exists: {context_file}")
+    else:
+        # Build a fake args namespace for cmd_init
+        init_args = argparse.Namespace(
+            workspace=str(workspace),
+            force=False,
+            profile=None,
+            template=None,
+            output=None,
+            trust_profile=None,
+            no_pack=True,
+            list_templates=False,
+            list_profiles=False,
+        )
+        cmd_init(init_args, cfg)
+        print()
+
+    # Step 2: Write config if missing
+    if config_file.exists():
+        print(f"✓ Config already exists: {config_file}")
+    else:
+        gen_config = None
+        if not no_llm and not non_interactive:
+            gen_config = _quickstart_configure_llm(workspace)
+        elif not no_llm:
+            # Non-interactive: just check for existing keys
+            existing = _quickstart_detect_llm_backends()
+            if existing:
+                gen_config = {
+                    "enabled": True,
+                    "provider": existing[0]["provider"],
+                    "model": existing[0]["model"],
+                    "model_url": existing[0]["url"],
+                    "api_key_env": existing[0]["key_env"],
+                }
+                print(f"✓ Auto-detected LLM: {existing[0]['name']} ({existing[0]['key_env']})")
+        path = _quickstart_write_config(workspace, gen_config)
+        print(f"✓ Wrote config: {path}")
+        if gen_config:
+            print(f"  LLM backend: {gen_config['provider']} / {gen_config['model']} / {gen_config['model_url']}")
+        print()
+
+    # Step 3: Reload config from workspace so permission profile is applied
+    cfg = load_config(workspace)
+
+    # Step 4: Verify with a render
+    text = context_file.read_text(errors="replace")
+    _stats = {"directive_count": 0, "cache_hits": 0, "cache_misses": 0}
+    render_source(text, cfg, workspace, _stats=_stats)
+    print(f"✓ Render verified — {_stats['directive_count']} directives resolved "
+          f"({_stats['cache_hits']} cached, {_stats['cache_misses']} resolved)")
+    print()
+
+    # Step 5: Print next steps
+    print("Perseus ready! Next steps:")
+    print(f"  perseus render {context_file}        — refresh context")
+    print(f"  perseus serve                         — start LSP for your editor")
+    print(f"  perseus suggest \"<task>\"             — get task suggestions")
+    print(f"  perseus doctor --workspace {workspace}  — health check")
+    print()
+
     return 0
 # ──────────────────────────────── Render ──────────────────────────────────────
 
@@ -15941,7 +16323,15 @@ def main():
     p_oracle_drift = oracle_sub.add_parser("drift", help="Report drift in recent Pythia behavior vs baseline")
     p_oracle_drift.add_argument("--json", action="store_true", help="Machine-readable JSON output")
 
-    # `perseus llm ping` — verify the configured LLM provider is reachable.
+    # quickstart (Track B — one-command bootstrap)
+    p_quickstart = sub.add_parser("quickstart", help="One-command bootstrap: scaffold, configure, verify")
+    p_quickstart.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
+    p_quickstart.add_argument("--non-interactive", action="store_true",
+                              help="Skip interactive LLM prompts — auto-detect env keys only")
+    p_quickstart.add_argument("--no-llm", action="store_true",
+                              help="Skip LLM backend detection entirely")
+
+    # llm ping — verify the configured LLM provider is reachable.
     p_llm = sub.add_parser("llm", help="LLM provider utilities (ping)")
     llm_sub = p_llm.add_subparsers(dest="llm_sub")
     p_llm_ping = llm_sub.add_parser("ping", help="Send a no-op prompt to verify reachability")
@@ -16023,6 +16413,8 @@ def main():
         return cmd_llm(args, cfg)
     elif args.command == "init":
         cmd_init(args, cfg)
+    elif args.command == "quickstart":
+        return cmd_quickstart(args, cfg)
     elif args.command == "launchd":
         cmd_launchd(args, cfg)
     elif args.command == "install":
