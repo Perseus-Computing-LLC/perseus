@@ -62,6 +62,8 @@ def _clear_session_cache():
     cross-test cache pollution (flaky prefetch tests when ran > 0)."""
     if perseus is not None:
         perseus._SESSION_CACHE.clear()
+        if hasattr(perseus, "_WARNED_CACHE_DIR_OVERRIDES"):
+            perseus._WARNED_CACHE_DIR_OVERRIDES.clear()
 
 
 @pytest.fixture(autouse=True)
