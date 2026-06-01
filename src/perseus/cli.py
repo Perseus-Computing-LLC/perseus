@@ -277,35 +277,47 @@ def main():
     p_serve.add_argument("--allow-lsp-mutations", action="store_true", dest="allow_lsp_mutations", help="Allow LSP executeCommand handlers that mutate Perseus state")
 
     # cron (POSIX scheduling)
-    p_cron = sub.add_parser("cron", help="Generate a POSIX crontab entry for periodic rendering")
-    p_cron.add_argument("source", help="Path to Perseus source file")
-    p_cron.add_argument("--output", "-o", required=True, help="Rendered output path")
-    p_cron.add_argument("--every", default="5",
+    p_cron = sub.add_parser("cron", help="Generate or remove a POSIX crontab entry for periodic rendering")
+    cron_sub = p_cron.add_subparsers(dest="cron_command")
+    p_cron_create = cron_sub.add_parser("create", help="Generate a crontab entry")
+    p_cron_create.add_argument("source", help="Path to Perseus source file")
+    p_cron_create.add_argument("--output", "-o", required=True, help="Rendered output path")
+    p_cron_create.add_argument("--every", default="5",
                         help="Minutes between renders (default: 5). Accepts '5', '15', '60'.")
-    p_cron.add_argument("--install", action="store_true",
+    p_cron_create.add_argument("--install", action="store_true",
                         help="Append the entry to the current user's crontab (uses `crontab -l` + `crontab -`)")
+    p_cron_uninstall = cron_sub.add_parser("uninstall", help="Remove a crontab entry")
+    p_cron_uninstall.add_argument("source", help="Path to Perseus source file to remove from crontab")
 
     # launchd
-    p_launchd = sub.add_parser("launchd", help="Scaffold a macOS LaunchAgent for periodic rendering")
-    p_launchd.add_argument("source", help="Path to Perseus source file")
-    p_launchd.add_argument("--output", "-o", required=True, help="Rendered output path")
-    p_launchd.add_argument("--interval", type=int, default=300,
+    p_launchd = sub.add_parser("launchd", help="Scaffold or remove a macOS LaunchAgent for periodic rendering")
+    launchd_sub = p_launchd.add_subparsers(dest="launchd_command")
+    p_launchd_create = launchd_sub.add_parser("create", help="Create a LaunchAgent plist")
+    p_launchd_create.add_argument("source", help="Path to Perseus source file")
+    p_launchd_create.add_argument("--output", "-o", required=True, help="Rendered output path")
+    p_launchd_create.add_argument("--interval", type=int, default=300,
                            help="Render interval in seconds (default: 300)")
-    p_launchd.add_argument("--label", default=None,
+    p_launchd_create.add_argument("--label", default=None,
                            help="launchd label (default: com.perseus.render.<source-stem>)")
-    p_launchd.add_argument("--force", action="store_true",
+    p_launchd_create.add_argument("--force", action="store_true",
                            help="Overwrite existing plist")
+    p_launchd_uninstall = launchd_sub.add_parser("uninstall", help="Remove a LaunchAgent plist")
+    p_launchd_uninstall.add_argument("--label", required=True, help="launchd label to remove")
 
     # systemd (Linux)
-    p_systemd = sub.add_parser("systemd", help="Scaffold a user-space systemd timer for periodic rendering")
-    p_systemd.add_argument("source", help="Path to Perseus source file")
-    p_systemd.add_argument("--output", "-o", required=True, help="Rendered output path")
-    p_systemd.add_argument("--interval", default="5m",
+    p_systemd = sub.add_parser("systemd", help="Scaffold or remove a user-space systemd timer for periodic rendering")
+    systemd_sub = p_systemd.add_subparsers(dest="systemd_command")
+    p_systemd_create = systemd_sub.add_parser("create", help="Create systemd timer + service units")
+    p_systemd_create.add_argument("source", help="Path to Perseus source file")
+    p_systemd_create.add_argument("--output", "-o", required=True, help="Rendered output path")
+    p_systemd_create.add_argument("--interval", default="5m",
                            help="Render interval (e.g. '5m', '2h'); systemd time spec also accepted")
-    p_systemd.add_argument("--install", action="store_true",
+    p_systemd_create.add_argument("--install", action="store_true",
                            help="Write unit files to ~/.config/systemd/user/ and print activation commands")
-    p_systemd.add_argument("--enable", action="store_true",
+    p_systemd_create.add_argument("--enable", action="store_true",
                            help="When combined with --install, run systemctl --user daemon-reload/enable/start")
+    p_systemd_uninstall = systemd_sub.add_parser("uninstall", help="Remove systemd timer + service units")
+    p_systemd_uninstall.add_argument("source", help="Path to Perseus source file")
 
     # health (Daedalus v1)
     p_health = sub.add_parser("health", help="Context maintenance heuristics report")
@@ -437,6 +449,16 @@ def main():
             return rc
     elif args.command == "cron":
         cmd_cron(args, cfg)
+    elif args.command == "launchd":
+        if getattr(args, "launchd_command", None) == "uninstall":
+            cmd_launchd_uninstall(args, cfg)
+        else:
+            cmd_launchd(args, cfg)
+    elif args.command == "systemd":
+        if getattr(args, "systemd_command", None) == "uninstall":
+            cmd_systemd_uninstall(args, cfg)
+        else:
+            cmd_systemd(args, cfg)
     elif args.command == "systemd":
         cmd_systemd(args, cfg)
     elif args.command == "health":
