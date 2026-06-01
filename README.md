@@ -25,11 +25,13 @@ Perseus is a **live context engine and MCP server** for AI assistants, eliminati
 
 ```bash
 pip install perseus-ctx
-perseus init /workspace/myproject
-perseus render .perseus/context.md --output CLAUDE.md
+cd your-project
+perseus quickstart                  # One command from zero to working
 ```
 
 Works with any MCP-compatible assistant: Claude Desktop, Claude Code, Cursor, Codex, Hermes Agent, and Rovo Dev.
+
+> 📖 **New to Perseus?** Read [QUICKSTART.md](./QUICKSTART.md) for a 2-minute setup guide with free LLM backends, editor integration, and CI/CD examples.
 
 ---
 

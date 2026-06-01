@@ -57,6 +57,7 @@ MODULE_ORDER = [
     "src/perseus/scheduler.py",         # ← serve.py extraction: cron scheduler
     "src/perseus/synthesis.py",         # ← serve.py extraction: @synthesize
     "src/perseus/update.py",            # ← serve.py extraction: self-update
+    "src/perseus/quickstart.py",        # ← Track B: perseus quickstart bootstrap + LLM auto-config
     "src/perseus/serve.py",             # ← still contains PRODUCT_PROFILES + trust CLI (not yet decomposed)
     "src/perseus/cli.py",  # includes _bind_registry() call before dispatch
 ]
