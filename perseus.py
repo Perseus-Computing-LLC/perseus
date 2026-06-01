@@ -1056,6 +1056,13 @@ def _discover_plugins(cfg: dict) -> list["DirectiveSpec"]:
 
     Security: by default, plugins require a MANIFEST.toml with hash entries.
     Set plugins.allow_unsigned: true to skip manifest verification (opt-in).
+
+    An optional plugins.allowlist restricts which plugins may be loaded.
+    When set, only plugins whose stem name appears in the allowlist are
+    imported — all others are skipped with a warning. This provides an
+    additional defense-in-depth layer: even if a malicious plugin passes
+    hash verification (compromised signing key), it won't execute unless
+    its name is also in the allowlist.
     """
     plugins_cfg = cfg.get("plugins", {})
     if not plugins_cfg.get("enabled", PLUGINS_ENABLED_DEFAULT):
@@ -1063,6 +1070,14 @@ def _discover_plugins(cfg: dict) -> list["DirectiveSpec"]:
     plugins_dir = Path(plugins_cfg.get("dir", str(PERSEUS_HOME / "plugins")))
     if not plugins_dir.is_dir():
         return []
+    # Optional allowlist gate — defense-in-depth for plugin execution
+    allowlist = plugins_cfg.get("allowlist", None)
+    if allowlist is not None:
+        if isinstance(allowlist, str):
+            allowlist = [n.strip() for n in allowlist.split(",") if n.strip()]
+        if not isinstance(allowlist, list):
+            print("Perseus plugin config: plugins.allowlist must be a list or comma-separated string; ignoring.", file=sys.stderr)
+            allowlist = None
     # H-3: require manifest unless explicitly opted in
     manifest_path = plugins_dir / "MANIFEST.toml"
     allow_unsigned = plugins_cfg.get("allow_unsigned", False)
@@ -1105,6 +1120,13 @@ def _discover_plugins(cfg: dict) -> list["DirectiveSpec"]:
     specs: list["DirectiveSpec"] = []
     for py_file in sorted(plugins_dir.glob("*.py")):
         if py_file.name == "__init__.py":
+            continue
+        # Allowlist check: skip plugins not explicitly approved
+        if allowlist is not None and py_file.stem not in allowlist:
+            print(
+                f"Perseus plugin security: {py_file.name} not in plugins.allowlist — skipping",
+                file=sys.stderr,
+            )
             continue
         # v1.0.5 review: verify file hash against manifest (required when manifest exists)
         if manifest_seen:
@@ -2519,6 +2541,106 @@ def _preflight_permissions(cfg: dict) -> list[str]:
     _PREFLIGHT_CACHE[cache_key] = warnings
     return warnings
 
+
+
+# ─────────────────────────────── Audit CLI ────────────────────────────────────
+
+def cmd_audit(args, cfg) -> int | None:
+    """perseus audit — query and inspect the audit log."""
+    audit_cfg = cfg.get("audit") or {}
+    if not audit_cfg.get("enabled", True):
+        print("Audit logging is disabled (audit.enabled=false in config).")
+        return 0
+
+    sub = getattr(args, "audit_command", None)
+
+    if sub == "show":
+        since_arg = getattr(args, "since", None)
+        event_arg = getattr(args, "event", None)
+        tail = int(getattr(args, "tail", 20) or 20)
+
+        entries = _read_audit_entries(cfg)
+        if not entries:
+            print("No audit entries found.")
+            return 0
+
+        # Apply filters
+        if since_arg:
+            try:
+                # Parse --since as a duration string (e.g. "24h", "7d", "30m")
+                import re as _re
+                dur_match = _re.match(r'^(\d+)\s*(h|d|m|s)$', since_arg.strip().lower())
+                if dur_match:
+                    val = int(dur_match.group(1))
+                    unit = dur_match.group(2)
+                    multiplier = {"s": 1, "m": 60, "h": 3600, "d": 86400}[unit]
+                    cutoff = datetime.now(timezone.utc).timestamp() - val * multiplier
+                else:
+                    cutoff = datetime.fromisoformat(since_arg).timestamp()
+            except Exception:
+                print(f"Invalid --since value: {since_arg!r}")
+                return 1
+            entries = [e for e in entries if _entry_ts(e) >= cutoff]
+
+        if event_arg:
+            entries = [e for e in entries
+                       if str(e.get("event_type", "")).lower() == event_arg.strip().lower()]
+
+        if not entries:
+            print("No audit entries match the filters.")
+            return 0
+
+        # Show most recent (tail)
+        for e in entries[-tail:]:
+            ts = e.get("ts", "?")
+            ev = e.get("event_type", "?")
+            other = {k: v for k, v in e.items() if k not in ("ts", "event_type", "perseus_version", "pid")}
+            print(f"{ts}  {ev}")
+            for k, v in other.items():
+                v_str = str(v)[:120]
+                print(f"    {k}: {v_str}")
+            print()
+
+    elif sub == "stats":
+        entries = _read_audit_entries(cfg)
+        if not entries:
+            print("No audit entries found.")
+            return 0
+
+        counts: dict[str, int] = {}
+        for e in entries:
+            t = str(e.get("event_type") or "?")
+            counts[t] = counts.get(t, 0) + 1
+
+        print(f"Total audit events: {len(entries)}")
+        log_path = _audit_log_path(cfg)
+        print(f"Log path: {log_path}")
+        print()
+        for event_type, count in sorted(counts.items(), key=lambda x: -x[1]):
+            print(f"  {count:>6}  {event_type}")
+
+    else:
+        # Default: show recent entries
+        entries = _read_audit_entries(cfg, limit=20)
+        if not entries:
+            print("No audit entries found.")
+            return 0
+        print(f"Recent audit events (last {len(entries)}):\n")
+        for e in entries:
+            ts = e.get("ts", "?")
+            ev = e.get("event_type", "?")
+            print(f"  {ts}  {ev}")
+
+    return 0
+
+
+def _entry_ts(entry: dict) -> float:
+    """Extract a Unix timestamp from an audit entry for comparison."""
+    ts = entry.get("ts", "")
+    try:
+        return datetime.fromisoformat(str(ts)).timestamp()
+    except Exception:
+        return 0.0
 # ──────────────────────────────── @env ────────────────────────────────────────
 
 # task-61: Default deny-list always active. Patterns are fnmatch globs.
@@ -2613,6 +2735,17 @@ def _var_name_is_denied(var_name: str, cfg: dict) -> bool:
             return True
     return False
 # ──────────────────────────────── @include ────────────────────────────────────
+
+def _resolve_max_bytes(cfg: dict, key: str) -> int | None:
+    """Resolve a render.max_*_bytes config key as int or None.
+
+    Used by @read and @include to avoid duplicated parsing logic.
+    Defined here so it is available to resolve_include in the concatenated artifact."""
+    raw = cfg.get("render", {}).get(key)
+    try:
+        return int(raw) if raw is not None else None
+    except (ValueError, TypeError):
+        return None
 
 def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | None = None,
                     *, _depth: int = 0,
@@ -2757,16 +2890,6 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
     else:
         return trunc_note + f"```text\n{raw}\n```"
 # ──────────────────────────────── @read ───────────────────────────────────────
-
-def _resolve_max_bytes(cfg: dict, key: str) -> int | None:
-    """Resolve a render.max_*_bytes config key as int or None.
-
-    Used by @read and @include to avoid duplicated parsing logic."""
-    raw = cfg.get("render", {}).get(key)
-    try:
-        return int(raw) if raw is not None else None
-    except (ValueError, TypeError):
-        return None
 
 def _parse_read_content_for_validation(content: str, ext: str) -> object:
     """Parse @read content for schema validation."""
@@ -3019,6 +3142,20 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
                     reason="render.allow_query_shell=false",
                     args=args_str[:200])
         return "> ⚠ @query is disabled by config (`render.allow_query_shell=false`)."
+
+    # Defense-in-depth: even with allow_query_shell=true, require explicit
+    # operator opt-in via PERSEUS_ALLOW_DANGEROUS=1 env var. This prevents
+    # accidental exposure from copied configs or misconfigured automation.
+    if not os.environ.get("PERSEUS_ALLOW_DANGEROUS"):
+        audit_event(cfg, "policy_denied",
+                    directive="@query",
+                    reason="PERSEUS_ALLOW_DANGEROUS not set",
+                    args=args_str[:200])
+        return (
+            "> ⚠ @query is enabled in config but PERSEUS_ALLOW_DANGEROUS=1 is not set.\n"
+            "> This is a defense-in-depth gate to prevent accidental shell execution.\n"
+            "> Set the environment variable to acknowledge the risk."
+        )
 
     # Strip @cache modifier first, then extract the command string.
     # Use the opening quote character to find the correct closing quote,
@@ -4814,6 +4951,15 @@ def _check_one_service(svc: dict, index: int, timeout: float, cfg: dict) -> tupl
                         service=name,
                         command=command[:300])
             return index, f"| {name} | ⚠ command checks disabled by config | — |"
+        # Defense-in-depth: even with allow_services_command=true, require the
+        # PERSEUS_ALLOW_DANGEROUS env var gate (same gate as @query shell exec).
+        if not os.environ.get("PERSEUS_ALLOW_DANGEROUS"):
+            audit_event(cfg, "policy_denied",
+                        directive="@services",
+                        reason="PERSEUS_ALLOW_DANGEROUS not set",
+                        service=name,
+                        command=command[:300])
+            return index, f"| {name} | ⚠ PERSEUS_ALLOW_DANGEROUS not set | — |"
         # Run arbitrary shell command; success = exit 0
         audit_event(cfg, "shell_exec",
                     directive="@services",
@@ -6407,7 +6553,17 @@ def _safe_cache_dir(cfg: dict) -> Path:
                 return candidate
     except (OSError, ValueError):
         pass
-    # Fall back to safe default
+    # Fall back to safe default — warn operator their config was overridden
+    print(
+        f"Perseus: configured cache_dir {raw!r} is outside allowed roots; "
+        f"falling back to {PERSEUS_HOME / 'cache'}",
+        file=sys.stderr,
+    )
+    audit_event(cfg, "config_override",
+                key="render.cache_dir",
+                configured=raw,
+                fallback=str(PERSEUS_HOME / "cache"),
+                reason="outside allowed roots")
     return PERSEUS_HOME / "cache"
 
 
@@ -7894,6 +8050,12 @@ def cmd_diff(args, cfg):
             old_fp = _resolve_checkpoint_selector(str(a_sel), files)
             new_fp = _resolve_checkpoint_selector(str(b_sel), files)
         else:
+            if len(files) == 0:
+                if target_ws:
+                    print(f"No checkpoints found for workspace {target_ws}.")
+                else:
+                    print("No checkpoints found.")
+                return
             if len(files) < 2:
                 print("Need at least two checkpoints to diff.")
                 return
@@ -11488,16 +11650,25 @@ def _lsp_diagnostics_for(text: str, cfg: dict, workspace: Path) -> list[dict]:
                 d["range"] = {"start": {"line": lineno, "character": 0}, "end": {"line": lineno, "character": len(raw)}}
                 diagnostics.append(d)
 
-        # Cross-cutting diagnostic: @cache ttl= must be integer
+        # Cross-cutting diagnostic: @cache ttl= must be non-negative integer
         if "@cache" in args_str:
             mm = re.search(r"ttl=([^\s]+)", args_str)
-            if mm and not mm.group(1).isdigit():
-                diagnostics.append({
-                    "range": {"start": {"line": lineno, "character": 0}, "end": {"line": lineno, "character": len(raw)}},
-                    "severity": 2,
-                    "source": "perseus",
-                    "message": f"@cache ttl= must be a non-negative integer, got `{mm.group(1)}`",
-                })
+            if mm:
+                val = mm.group(1)
+                if not val.lstrip('-').isdigit():
+                    diagnostics.append({
+                        "range": {"start": {"line": lineno, "character": 0}, "end": {"line": lineno, "character": len(raw)}},
+                        "severity": 2,
+                        "source": "perseus",
+                        "message": f"@cache ttl= must be a non-negative integer, got `{val}`",
+                    })
+                elif int(val) < 0:
+                    diagnostics.append({
+                        "range": {"start": {"line": lineno, "character": 0}, "end": {"line": lineno, "character": len(raw)}},
+                        "severity": 2,
+                        "source": "perseus",
+                        "message": f"@cache ttl= must be a non-negative integer, got `{val}`",
+                    })
 
     if if_depth > 0:
         diagnostics.append({
@@ -13267,6 +13438,61 @@ def cmd_update(args, cfg) -> int:
     automatically updates the CLI. No reinstall needed.
     """
     import subprocess as _sp
+# ── GPG signature verification ──────────────────────────────────────────────
+# Trusted public key fingerprint for Perseus releases.
+# To generate: gpg --detach-sign --armor perseus.py
+# To verify:   gpg --verify perseus.py.asc perseus.py
+PERSEUS_GPG_FINGERPRINT = None  # Set to your GPG key fingerprint (40-char hex)
+
+PERSEUS_GPG_FINGERPRINT_SHORT = None  # Set to your GPG key ID (16-char hex)
+
+
+def _gpg_verify_signature(repo: Path, args) -> tuple[bool, str]:
+    """Verify the GPG signature on the current HEAD or latest tag.
+
+    Returns (verified: bool, message: str).
+    Requires git and gpg to be installed. Non-fatal on missing tools —
+    just reports that verification was skipped.
+    """
+    update_cfg = {}
+    try:
+        update_cfg = cfg.get("update", {}) if "cfg" in dir() else {}
+    except Exception:
+        pass
+    skip = getattr(args, "skip_signature_check", False)
+    if skip:
+        return True, "signature check skipped (--skip-signature-check)"
+
+    fingerprint = update_cfg.get("gpg_fingerprint") or PERSEUS_GPG_FINGERPRINT
+    if not fingerprint:
+        return True, "no GPG fingerprint configured — set update.gpg_fingerprint in config"
+
+    import subprocess as _sp
+
+    # Check for gpg binary
+    try:
+        _sp.run(["gpg", "--version"], capture_output=True, check=True)
+    except Exception:
+        return True, "gpg not found — signature verification skipped"
+
+    # Try verifying the latest signed tag
+    try:
+        result = _sp.run(
+            ["git", "verify-commit", "HEAD"],
+            capture_output=True, text=True, timeout=30, cwd=str(repo),
+        )
+        output = (result.stdout + result.stderr).strip()
+        if result.returncode == 0:
+            return True, f"GPG signature verified: {output.split(chr(10))[0] if output else 'ok'}"
+        # Check if the problem is just "no signature" vs "bad signature"
+        if "NO VALID" in output.upper() or "CANNOT CHECK" in output.upper():
+            return True, f"GPG: commit not signed — {output[:100]}"
+        return False, f"GPG verification failed: {output[:200]}"
+    except _sp.TimeoutExpired:
+        return True, "GPG verification timed out — proceeding"
+    except Exception as exc:
+        return True, f"GPG verification error (non-fatal): {exc}"
+
 
     update_cfg = cfg.get("update", {})
     repo_path_str = update_cfg.get("repo_path", "")
@@ -13348,6 +13574,16 @@ def cmd_update(args, cfg) -> int:
     check_only = getattr(args, "check", False)
 
     if apply_update:
+        # GPG signature verification before applying update
+        verified, gpg_msg = _gpg_verify_signature(repo, args)
+        if not verified:
+            print(f"\u26a0 GPG signature verification FAILED: {gpg_msg}", file=sys.stderr)
+            print("  Use --skip-signature-check to bypass.", file=sys.stderr)
+            return 1
+        if "verification skipped" in gpg_msg.lower():
+            pass  # Non-fatal
+        print(f"\u2713 GPG: {gpg_msg}")
+
         print("Applying update …")
         try:
             result = _sp.run(
@@ -15396,6 +15632,18 @@ def main():
     p_trust_audit.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     p_trust.add_argument("--json", action="store_true", help="Output machine-readable JSON")
 
+
+    # audit (Phase 26 — audit log viewer)
+    p_audit = sub.add_parser("audit", help="Query and inspect the Perseus audit log")
+    audit_sub = p_audit.add_subparsers(dest="audit_command", required=False)
+    p_audit_show = audit_sub.add_parser("show", help="Show recent audit entries")
+    p_audit_show.add_argument("--since", default=None, metavar="DURATION",
+                              help="Show entries since: 24h, 7d, 30m, or ISO timestamp")
+    p_audit_show.add_argument("--event", default=None, metavar="TYPE",
+                              help="Filter by event type (e.g. shell_exec, policy_denied)")
+    p_audit_show.add_argument("--tail", type=int, default=20,
+                              help="Number of entries to show (default: 20)")
+    p_audit_stats = audit_sub.add_parser("stats", help="Show audit event type counts")
     # update (self-update from git)
     p_update = sub.add_parser("update", help="Check for and apply Perseus updates from git")
     p_update.add_argument("--apply", action="store_true",
@@ -15404,6 +15652,8 @@ def main():
                           help="Dry run: show available updates without applying")
     p_update.add_argument("--auto", default=None, metavar="on|off",
                           help="Toggle auto-update on/off and persist to config")
+    p_update.add_argument("--skip-signature-check", action="store_true",
+                          help="Skip GPG signature verification during update (dev only)")
 
     # warmup (pre-populate cache)
     p_warmup = sub.add_parser("warmup", help="Pre-populate render cache for a context file")
@@ -15501,6 +15751,8 @@ def main():
         return cmd_doctor(args, cfg)
     elif args.command == "trust":
         return cmd_trust(args, cfg)
+    elif args.command == "audit":
+        return cmd_audit(args, cfg)
     elif args.command == "update":
         return cmd_update(args, cfg)
     elif args.command == "warmup":
