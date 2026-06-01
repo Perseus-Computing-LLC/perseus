@@ -369,6 +369,101 @@ def _doctor_check_mneme_index(_cfg: dict, _workspace: Path) -> DoctorResult:
         return DoctorResult("mneme_fts_index", "error", "Mnēmē FTS index", str(exc), "Check mneme_index.py")
 
 
+def _doctor_check_llm_reachable(cfg: dict, workspace: Path) -> DoctorResult:
+    """Check whether the configured LLM backend is reachable."""
+    llm_cfg = cfg.get("llm", {})
+    provider = str(llm_cfg.get("provider", "ollama")).strip().lower()
+    url = str(llm_cfg.get("url", "")).strip()
+
+    if not url:
+        return DoctorResult("llm_reachable", "ok", "LLM backend",
+                           f"provider={provider} — no URL configured (skipped)", "")
+
+    # For openai-compat/llamacpp, check /v1/models
+    check_url = url.rstrip("/") + "/v1/models"
+    if provider == "ollama":
+        check_url = url.rstrip("/") + "/api/tags"
+
+    try:
+        req = urllib.request.Request(check_url)
+        start = time.time()
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            status = resp.getcode()
+        elapsed_ms = int((time.time() - start) * 1000)
+        if 200 <= status < 300:
+            return DoctorResult("llm_reachable", "ok", "LLM backend",
+                               f"{provider} @ {url} — reachable ({elapsed_ms}ms)", "")
+        else:
+            return DoctorResult("llm_reachable", "warn", "LLM backend",
+                               f"{provider} @ {url} — HTTP {status}",
+                               "Check LLM server is running")
+    except Exception as exc:
+        return DoctorResult("llm_reachable", "warn", "LLM backend",
+                           f"{provider} @ {url} — unreachable ({exc})",
+                           "Start LLM server or set llm.url")
+
+
+def _doctor_check_llm_functional(cfg: dict, workspace: Path) -> DoctorResult:
+    """Check whether the LLM backend can actually complete a request."""
+    llm_cfg = cfg.get("llm", {})
+    provider = str(llm_cfg.get("provider", "ollama")).strip().lower()
+
+    # Only test if generation is enabled
+    gen_enabled = bool(cfg.get("generation", {}).get("enabled", False))
+    if not gen_enabled:
+        return DoctorResult("llm_functional", "ok", "LLM functional",
+                           "generation not enabled (skipped)", "")
+
+    try:
+        start = time.time()
+        text, code = run_llm(provider, "Reply with the single word: pong.", cfg)
+        elapsed_ms = int((time.time() - start) * 1000)
+        if code == 0 and text.strip():
+            return DoctorResult("llm_functional", "ok", "LLM functional",
+                               f"{elapsed_ms}ms — response ok", "")
+        else:
+            return DoctorResult("llm_functional", "warn", "LLM functional",
+                               f"call failed: {text[:60] or 'empty response'}",
+                               "Verify LLM server is running and model is available")
+    except Exception as exc:
+        return DoctorResult("llm_functional", "warn", "LLM functional",
+                           str(exc), "Check LLM configuration")
+
+
+def _doctor_check_cache_writable(cfg: dict, workspace: Path) -> DoctorResult:
+    """Check whether the render cache directory is writable."""
+    cache_dir = Path(cfg.get("render", {}).get("cache_dir", str(PERSEUS_HOME / "cache")))
+    try:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        test_file = cache_dir / ".doctor_test"
+        test_file.write_text("ok")
+        test_file.unlink()
+        # Count cache entries
+        entries = len([f for f in cache_dir.iterdir() if f.suffix == ".json"])
+        return DoctorResult("cache_writable", "ok", "Cache",
+                           f"{entries} entries, writable", "")
+    except Exception as exc:
+        return DoctorResult("cache_writable", "error", "Cache",
+                           f"not writable: {exc}",
+                           f"Check permissions on {cache_dir}")
+
+
+def _doctor_check_sessions(cfg: dict, workspace: Path) -> DoctorResult:
+    """Check whether the sessions store is accessible."""
+    sessions_dir = SESSIONS_DIR  # from config.py
+    sessions_path = Path(sessions_dir)
+    if not sessions_path.exists():
+        return DoctorResult("sessions_store", "ok", "Session store",
+                           "directory does not exist (will be created on first write)", "")
+    try:
+        session_files = list(sessions_path.glob("*.json"))
+        return DoctorResult("sessions_store", "ok", "Session store",
+                           f"{len(session_files)} sessions", "")
+    except Exception as exc:
+        return DoctorResult("sessions_store", "warn", "Session store",
+                           str(exc), "Check SESSIONS_DIR permissions")
+
+
 # Ordered list of doctor checks — adding a check is one function + one line here.
 _DOCTOR_CHECKS = [
     _doctor_check_config,
@@ -383,6 +478,10 @@ _DOCTOR_CHECKS = [
     _doctor_check_serve_loopback,
     _doctor_check_registry,
     _doctor_check_mcp,
+    _doctor_check_llm_reachable,
+    _doctor_check_llm_functional,
+    _doctor_check_cache_writable,
+    _doctor_check_sessions,
 ]
 
 
