@@ -1,6 +1,17 @@
 # stdlib imports available from build artifact header
 # ──────────────────────────────── @include ────────────────────────────────────
 
+def _resolve_max_bytes(cfg: dict, key: str) -> int | None:
+    """Resolve a render.max_*_bytes config key as int or None.
+
+    Used by @read and @include to avoid duplicated parsing logic.
+    Defined here so it is available to resolve_include in the concatenated artifact."""
+    raw = cfg.get("render", {}).get(key)
+    try:
+        return int(raw) if raw is not None else None
+    except (ValueError, TypeError):
+        return None
+
 def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | None = None,
                     *, _depth: int = 0,
                     _path_chain: tuple = (),
