@@ -16,6 +16,7 @@
 #                              (command + args, whitespace-normalised)
 
 _SESSION_CACHE: dict[str, str] = {}  # in-memory store for @cache session
+_WARNED_CACHE_DIR_OVERRIDES: set[str] = set()
 
 
 def _cache_key(directive_line: str) -> str:
@@ -173,7 +174,8 @@ def _safe_cache_dir(cfg: dict) -> Path:
     import tempfile
     from pathlib import Path as _Path
     import tempfile as _tempfile
-    raw = cfg["render"].get("cache_dir", str(PERSEUS_HOME / "cache"))
+    fallback_dir = PERSEUS_HOME / "cache"
+    raw = cfg["render"].get("cache_dir", str(fallback_dir))
     candidate = _Path(str(raw)).expanduser().resolve()
     allowed_roots = [
         _Path.home() / ".perseus",
@@ -187,8 +189,21 @@ def _safe_cache_dir(cfg: dict) -> Path:
                 return candidate
     except (OSError, ValueError):
         pass
-    # Fall back to safe default
-    return PERSEUS_HOME / "cache"
+    warning_key = f"{raw}->{fallback_dir}"
+    if warning_key not in _WARNED_CACHE_DIR_OVERRIDES:
+        _WARNED_CACHE_DIR_OVERRIDES.add(warning_key)
+        sys.stderr.write(
+            "perseus cache: rejected render.cache_dir outside allowed roots "
+            f"({candidate}); using {fallback_dir}\n"
+        )
+        audit_event(
+            cfg,
+            "cache_dir_override_rejected",
+            configured_path=str(raw),
+            resolved_path=str(candidate),
+            fallback_path=str(fallback_dir),
+        )
+    return fallback_dir
 
 
 def cache_get(key: str, mode: str, ttl: int | None, cfg: dict) -> str | None:
