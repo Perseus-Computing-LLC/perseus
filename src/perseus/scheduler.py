@@ -266,3 +266,62 @@ def cmd_systemd(args, cfg):
     print(service_content)
     print("# ~/.config/systemd/user/perseus-render.timer")
     print(timer_content)
+
+
+def cmd_launchd_uninstall(args, cfg):
+    """Remove a Perseus LaunchAgent plist."""
+    if sys.platform != "darwin":
+        print("Error: `perseus launchd` is only supported on macOS.", file=sys.stderr)
+        sys.exit(1)
+    launch_agents = Path.home() / "Library" / "LaunchAgents"
+    label = args.label
+    plist_path = launch_agents / f"{label}.plist"
+    if not plist_path.exists():
+        print(f"Error: {plist_path} does not exist.", file=sys.stderr)
+        sys.exit(1)
+    # Unload first if loaded
+    import subprocess as _sp
+    _sp.run(["launchctl", "unload", str(plist_path)], capture_output=True)
+    plist_path.unlink()
+    print(f"✔ Removed LaunchAgent: {plist_path}")
+
+
+def cmd_cron_uninstall(args, cfg):
+    """Remove the Perseus crontab entry."""
+    import subprocess as _sp
+    try:
+        result = _sp.run(["crontab", "-l"], capture_output=True, text=True)
+        if result.returncode != 0:
+            print("No crontab found.")
+            return
+        lines = result.stdout.split("\n")
+        source = Path(args.source).expanduser().resolve()
+        marker = f"perseus render {source}"
+        filtered = [l for l in lines if marker not in l]
+        if len(filtered) == len(lines):
+            print("No matching crontab entry found.")
+            return
+        _sp.run(["crontab", "-"], input="\n".join(filtered) + "\n", text=True)
+        print(f"✔ Removed crontab entry for {source}")
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_systemd_uninstall(args, cfg):
+    """Remove a user-space systemd timer and service unit."""
+    if sys.platform == "darwin" or sys.platform == "win32":
+        print("Error: `perseus systemd` is only supported on Linux.", file=sys.stderr)
+        sys.exit(1)
+    source_path = Path(args.source).expanduser().resolve()
+    label = f"perseus-render-{source_path.stem}"
+    user_units = Path.home() / ".config" / "systemd" / "user"
+    timer_path = user_units / f"{label}.timer"
+    service_path = user_units / f"{label}.service"
+    import subprocess as _sp
+    for p in [timer_path, service_path]:
+        if p.exists():
+            p.unlink()
+            print(f"✔ Removed: {p}")
+    _sp.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
+    print("Run: systemctl --user stop {label}.timer  # if still running")

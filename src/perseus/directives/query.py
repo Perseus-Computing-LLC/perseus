@@ -197,7 +197,7 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
         if fallback is not None:
             return fallback
         return _meta_prefix + f"> ⚠ `@query` timed out ({timeout}s): `{cmd}`"
-    except Exception as exc:
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
         if fallback is not None:
             return fallback
         return _meta_prefix + f"> ⚠ `@query` error: {exc}"
