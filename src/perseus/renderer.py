@@ -139,16 +139,22 @@ def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path) ->
 
     if directive in ("@read", "@include"):
         raw_path = clean_args.split()[0] if clean_args else ""
+        # Strip surrounding quotes from the path argument so file resolution works
+        if raw_path and len(raw_path) >= 2 and raw_path[0] == raw_path[-1] and raw_path[0] in ('"', "'"):
+            raw_path = raw_path[1:-1]
         if raw_path:
             fpath = (workspace / raw_path).resolve()
             try:
-                content = fpath.read_bytes()
-                parts.append(f"{directive}:{raw_path}:{_hashlib.sha256(content).hexdigest()}")
+                file_content = fpath.read_bytes()
+                parts.append(f"{directive}:{str(fpath)}:{_hashlib.sha256(file_content).hexdigest()}")
             except (OSError, PermissionError):
                 pass  # can't read → no fingerprint (cache miss is safe)
 
     if directive in ("@list", "@tree"):
         raw_path = clean_args.split()[0] if clean_args else ""
+        # Strip surrounding quotes from the path argument
+        if raw_path and len(raw_path) >= 2 and raw_path[0] == raw_path[-1] and raw_path[0] in ('"', "'"):
+            raw_path = raw_path[1:-1]
         if raw_path:
             dpath = (workspace / raw_path).resolve()
             try:
@@ -157,7 +163,7 @@ def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path) ->
                     f"{p.name}:{p.stat().st_mtime_ns if p.exists() else 0}:{int(p.is_dir())}"
                     for p in entries
                 )
-                parts.append(f"{directive}:{raw_path}:{_hashlib.sha256(listing_data.encode()).hexdigest()}")
+                parts.append(f"{directive}:{str(dpath)}:{_hashlib.sha256(listing_data.encode()).hexdigest()}")
             except (OSError, PermissionError):
                 pass  # can't read → no fingerprint (cache miss is safe)
 
@@ -1104,6 +1110,15 @@ def _render_lines(
                 _stats["directive_count"] += 1
 
             spec = DIRECTIVE_REGISTRY.get(directive)
+
+            # Track A10: auto-cache for cacheable directives without explicit
+            # @cache modifier. Uses fingerprint mode (content-addressed, TTL from
+            # persist_cache_ttl_s) so cached results invalidate when source files
+            # change. Directives with cacheable=False (e.g. @env, @date, @tool)
+            # still re-resolve every render.
+            if not cache_mode and spec and spec.cacheable:
+                cache_mode = "fingerprint"
+
             cached = cache_get(cache_key, cache_mode, cache_ttl, cfg)
             if cached is not None:
                 if _stats is not None: _stats["cache_hits"] += 1

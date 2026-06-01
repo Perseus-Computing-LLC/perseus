@@ -115,6 +115,12 @@ Edit `.perseus/config.yaml` manually, or re-run `perseus quickstart` later.
 
 ## Editor Integration
 
+For full wiring instructions — MCP server, editor hooks, live auto-refresh,
+systemd timers, cron, context packs, and trust configuration — see
+**[WIRING.md](./WIRING.md)**.
+
+### Quick Editor Hooks
+
 ### Claude Code / Cursor / Copilot / Gemini CLI
 
 ```bash
