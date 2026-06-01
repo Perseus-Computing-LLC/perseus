@@ -258,6 +258,14 @@ def _call_resolver(spec: DirectiveSpec, args_str: str, cfg: dict, workspace: "Pa
         else:
             raise ValueError(f"Unknown call_sig {sig!r} for {spec.name}")
     except Exception as e:
+        # Log full traceback to stderr for diagnostics.
+        # Without this, resolver bugs (NameError, AttributeError, etc.)
+        # are invisible in production — the render just shows a terse
+        # warning block with no hint about which file or line failed.
+        sys.stderr.write(
+            f"Perseus directive error ({spec.name}): {e}\n"
+            f"{traceback.format_exc()}\n"
+        )
         # task-67: on_directive_error hook
         _fire_hooks("on_directive_error", {
             "name": spec.name,

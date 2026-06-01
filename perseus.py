@@ -53,7 +53,7 @@ from typing import NamedTuple, Callable
 # ── Version (injected by scripts/build.py at build time) ──────────────────
 # All other modules reference _PERSEUS_VERSION; the build script's
 # _VERSION_RE replaces the literal "0.0.0" with the VERSION file value.
-_PERSEUS_VERSION = "1.0.6"  # injected by scripts/build.py
+_PERSEUS_VERSION = "1.0.6"  # replaced at build time by scripts/build.py — see VERSION file for canonical value
 
 # Register as 'perseus' so plugins can import from us (task-65)
 import sys as _sys
@@ -532,11 +532,16 @@ def _fire_hooks(event: str, payload: dict, cfg: dict) -> None:
 
 
 def _fire_shell_hook(cmd_template: str, payload: dict, event: str) -> None:
-    """Run a shell hook with {{var}} substitution. Timeout 5s."""
+    """Run a shell hook with {{var}} substitution. Timeout 5s.
+
+    All payload values are shell-escaped with shlex.quote() to prevent
+    command injection via shell metacharacters (;, |, &, $(), etc.).
+    """
     try:
+        import shlex as _shlex
         cmd = cmd_template
         for key, val in payload.items():
-            cmd = cmd.replace(f"{{{{{key}}}}}", str(val))
+            cmd = cmd.replace(f"{{{{{key}}}}}", _shlex.quote(str(val)))
 
         # Use shell=True as per spec trust consideration
         subprocess.run(
@@ -545,7 +550,7 @@ def _fire_shell_hook(cmd_template: str, payload: dict, event: str) -> None:
         )
     except subprocess.TimeoutExpired:
         print(f"Perseus hook timeout ({event}): {cmd_template[:80]}", file=sys.stderr)
-    except Exception as e:
+    except (OSError, subprocess.TimeoutExpired, ValueError, subprocess.SubprocessError) as e:
         print(f"Perseus hook shell error ({event}): {e}", file=sys.stderr)
 
 # _fire_webhook is defined in webhooks.py (multi-endpoint, URL allowlisting,
@@ -1021,6 +1026,14 @@ def _call_resolver(spec: DirectiveSpec, args_str: str, cfg: dict, workspace: "Pa
         else:
             raise ValueError(f"Unknown call_sig {sig!r} for {spec.name}")
     except Exception as e:
+        # Log full traceback to stderr for diagnostics.
+        # Without this, resolver bugs (NameError, AttributeError, etc.)
+        # are invisible in production — the render just shows a terse
+        # warning block with no hint about which file or line failed.
+        sys.stderr.write(
+            f"Perseus directive error ({spec.name}): {e}\n"
+            f"{traceback.format_exc()}\n"
+        )
         # task-67: on_directive_error hook
         _fire_hooks("on_directive_error", {
             "name": spec.name,
@@ -3292,7 +3305,7 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
         if fallback is not None:
             return fallback
         return _meta_prefix + f"> ⚠ `@query` timed out ({timeout}s): `{cmd}`"
-    except Exception as exc:
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
         if fallback is not None:
             return fallback
         return _meta_prefix + f"> ⚠ `@query` error: {exc}"
@@ -4983,7 +4996,7 @@ def _check_one_service(svc: dict, index: int, timeout: float, cfg: dict) -> tupl
                 status = f"❌ {first_line}" if first_line else f"❌ exit {result.returncode}"
         except subprocess.TimeoutExpired:
             status = "⚠ timeout"
-        except Exception as exc:
+        except subprocess.SubprocessError as exc:
             status = f"⚠ {exc}"
         return index, f"| {name} | {status} | — |"
     else:
@@ -5000,7 +5013,21 @@ def resolve_services(block_content: str, cfg: dict) -> str:
     timeout = float(cfg["render"].get("services_timeout_s", 3))
     parallel = bool(cfg["render"].get("parallel_services", False))
     try:
-        services = yaml.safe_load(block_content) or []
+        # Use safe_load_all when the block contains YAML document separators
+        # (---) so multi-document streams parse correctly. Otherwise, use
+        # safe_load to preserve the existing mapping-format detection.
+        if "\\n---" in block_content or block_content.startswith("---"):
+            docs = list(yaml.safe_load_all(block_content))
+            services = []
+            for doc in docs:
+                if isinstance(doc, list):
+                    services.extend(doc)
+                elif isinstance(doc, dict):
+                    services.append(doc)
+            if not services:
+                services = []
+        else:
+            services = yaml.safe_load(block_content) or []
     except yaml.YAMLError as e:
         return f"> ⚠ Invalid @services YAML: {e}"
 
@@ -5062,17 +5089,28 @@ def _structured_load(fp: Path) -> object:
 
 
 def _walk_dot_path(obj: object, dot: str) -> object:
+    """Traverse a dot-notation path into a nested dict/list structure.
+
+    Supports:
+      - Dictionary key access:  "foo.bar.baz"
+      - List index access:      "items.0.name"  (numeric path segments)
+    Returns None if any segment cannot be resolved.
+    """
     cur = obj
     if not dot:
         return cur
     for part in dot.split("."):
         if isinstance(cur, dict) and part in cur:
             cur = cur[part]
+        elif isinstance(cur, list) and part.isdigit():
+            idx = int(part)
+            if 0 <= idx < len(cur):
+                cur = cur[idx]
+            else:
+                return None
         else:
             return None
     return cur
-
-
 def _render_struct_as_table(value: object, columns: str | None) -> str:
     """Render a dict-of-scalars or list-of-dicts as a markdown table."""
     # Parse columns="key:Label,value:Label"
@@ -5281,7 +5319,16 @@ def resolve_tree(args_str: str, cfg: dict, workspace: Path | None = None) -> str
 # ──────────────────────────────── @date ───────────────────────────────────────
 
 def resolve_date(args_str: str) -> str:
-    """Resolve @date with optional format."""
+    """Resolve @date with optional format, offset, and days-ago modifiers.
+
+    Modifiers:
+      format="..."   — strftime-style format with human tokens (YYYY, MM, DD, HH, mm, ss, z)
+      offset="-24h"  — offset from now (e.g. -24h, +7d, -30m); suffix: h=hours, d=days, m=minutes
+      days-ago=7     — shorthand for offset=-Nd where N is an integer
+    """
+    from datetime import timedelta
+
+    # Original regex-based format parsing (preserved for backreference tests)
     fmt_match = re.search(r'format=(["\'])([^"\']*)\1', args_str)
     if fmt_match:
         fmt = fmt_match.group(2)
@@ -5289,8 +5336,38 @@ def resolve_date(args_str: str) -> str:
         fmt_match = re.search(r"format='([^']+)'", args_str)
         fmt = fmt_match.group(1) if fmt_match else "YYYY-MM-DD HH:mm z"
 
-    now = datetime.now()
-    # Map common tokens
+    # Parse offset and days-ago from the remaining args
+    # Strip format="..." before parsing modifiers so format="" isn't misparsed
+    remaining = args_str.strip()
+    remaining = re.sub(r'format=(["\'])(?:[^"\']*)\1', '', remaining)
+    remaining = re.sub(r"format='[^']*'", "", remaining)
+    remaining = re.sub(r'format=\S+', '', remaining)
+    mods = _parse_kv_modifiers(remaining)
+
+    offset_str = mods.get("offset")
+    days_ago = mods.get("days-ago")
+    delta = timedelta()
+    if offset_str:
+        m = re.match(r'^([+-])(\d+)([hdm])$', offset_str.strip())
+        if m:
+            sign = 1 if m.group(1) == '+' else -1
+            val = int(m.group(2))
+            unit = m.group(3)
+            if unit == 'h':
+                delta = timedelta(hours=sign * val)
+            elif unit == 'd':
+                delta = timedelta(days=sign * val)
+            elif unit == 'm':
+                delta = timedelta(minutes=sign * val)
+    elif days_ago:
+        try:
+            delta = timedelta(days=-int(days_ago))
+        except (ValueError, TypeError):
+            pass
+
+    now = datetime.now() + delta
+
+    # Map human tokens to strftime
     result = fmt
     result = result.replace("YYYY", now.strftime("%Y"))
     result = result.replace("MM", now.strftime("%m"))
@@ -5300,10 +5377,6 @@ def resolve_date(args_str: str) -> str:
     result = result.replace("ss", now.strftime("%S"))
     result = result.replace("z", now.astimezone().strftime("%Z"))
     return result
-
-
-# ─────────────────────────────── @prompt block ────────────────────────────────
-
 def resolve_prompt_block(content: str) -> str:
     """@prompt...@end blocks are included as an AI instruction callout."""
     return f"> 📌 **Perseus prompt:** {content.strip()}"
@@ -5353,6 +5426,9 @@ def _replace_inline_date_outside_code(line: str, workspace: Path | None = None) 
 
 # ─────────────────────────────── HTML Template ────────────────────────────────
 # Phase 23: Self-contained HTML output for perseus render --format html.
+# Known limitations: custom parser is minimal — no tables, footnotes,
+# or nested list rendering. Full CommonMark requires mistune or markdown-it.
+
 # Zero external dependencies — all CSS is inline, no CDN, no fonts beyond system stack.
 # Design matches the perseus.observer landing page aesthetic: dark, museum-quality.
 
@@ -6475,6 +6551,12 @@ def _parse_cache_modifier(line: str) -> tuple[str, str, int | None, str | None]:
 
 def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path) -> str:
     """Return a stable fingerprint of all file dependencies for this directive.
+
+    NOTE: TOCTOU risk exists between hash and use. This is acceptable because
+    Perseus renders in a local, single-process context over the operator's own
+    workspace files — not a multi-writer server. A file changing between
+    fingerprint and render produces a stale cache hit, not incorrect output,
+    since the next render will pick up the change.
 
     Returns a hex digest that changes when any file the directive reads changes.
     Directives with no file dependencies return "" (empty string).
@@ -11765,6 +11847,7 @@ def _run_lsp_server(args, cfg) -> int:
                 "capabilities": {
                     "textDocumentSync": 1,  # full
                     "hoverProvider": True,
+                    "definitionProvider": True,
                     "completionProvider": {"triggerCharacters": ["@", " ", "="]},
                     "codeLensProvider": {"resolveProvider": False},
                     "executeCommandProvider": {"commands": ["perseus.render", "perseus.openCheckpoint", "perseus.compactMemory"]},
@@ -11802,6 +11885,30 @@ def _run_lsp_server(args, cfg) -> int:
                     name, args_str = parsed
                     preview = _lsp_resolve_directive_for_hover(name, args_str, cfg, server_state["workspace"])
             respond(req_id, {"contents": {"kind": "markdown", "value": f"```\n{preview[:2000]}\n```"}})
+
+        elif method == "textDocument/definition":
+            uri = params["textDocument"]["uri"]
+            line_no = params["position"]["line"]
+            text = documents.get(uri, "")
+            lines = text.splitlines()
+            result = None
+            if 0 <= line_no < len(lines):
+                parsed = _lsp_parse_directive_at_line(lines[line_no])
+                if parsed and parsed[0] in ("@include", "@read"):
+                    # Resolve the file path relative to workspace
+                    path_str, _ = _extract_quoted_token(parsed[1].strip())
+                    if path_str:
+                        ws = server_state["workspace"]
+                        fp, _ = _resolve_path(path_str, ws, allow_outside_workspace=True)
+                        if fp.exists():
+                            result = {"uri": fp.as_uri(), "range": {
+                                "start": {"line": 0, "character": 0},
+                                "end": {"line": 0, "character": 0},
+                            }}
+            if result:
+                respond(req_id, result)
+            else:
+                respond(req_id, None)
         elif method == "textDocument/completion":
             uri = params["textDocument"]["uri"]
             line_no = params["position"]["line"]
@@ -11814,7 +11921,12 @@ def _run_lsp_server(args, cfg) -> int:
             # If line starts with @ but no directive complete yet, offer directive names
             if "@" in prefix and not any(prefix.lstrip().lower().startswith(d) for d in _LSP_DIRECTIVE_NAMES):
                 for d in _LSP_DIRECTIVE_NAMES:
-                    items.append({"label": d, "kind": 14})  # Keyword
+                    items.append({
+                        "label": d,
+                        "kind": 14,  # Keyword
+                        "insertText": d + " $0",
+                        "insertTextFormat": 2,  # Snippet
+                    })
             else:
                 # offer arg keys for the directive on this line
                 parsed = _lsp_parse_directive_at_line(cur_line)
@@ -13010,6 +13122,65 @@ def cmd_systemd(args, cfg):
     print(service_content)
     print("# ~/.config/systemd/user/perseus-render.timer")
     print(timer_content)
+
+
+def cmd_launchd_uninstall(args, cfg):
+    """Remove a Perseus LaunchAgent plist."""
+    if sys.platform != "darwin":
+        print("Error: `perseus launchd` is only supported on macOS.", file=sys.stderr)
+        sys.exit(1)
+    launch_agents = Path.home() / "Library" / "LaunchAgents"
+    label = args.label
+    plist_path = launch_agents / f"{label}.plist"
+    if not plist_path.exists():
+        print(f"Error: {plist_path} does not exist.", file=sys.stderr)
+        sys.exit(1)
+    # Unload first if loaded
+    import subprocess as _sp
+    _sp.run(["launchctl", "unload", str(plist_path)], capture_output=True)
+    plist_path.unlink()
+    print(f"✔ Removed LaunchAgent: {plist_path}")
+
+
+def cmd_cron_uninstall(args, cfg):
+    """Remove the Perseus crontab entry."""
+    import subprocess as _sp
+    try:
+        result = _sp.run(["crontab", "-l"], capture_output=True, text=True)
+        if result.returncode != 0:
+            print("No crontab found.")
+            return
+        lines = result.stdout.split("\n")
+        source = Path(args.source).expanduser().resolve()
+        marker = f"perseus render {source}"
+        filtered = [l for l in lines if marker not in l]
+        if len(filtered) == len(lines):
+            print("No matching crontab entry found.")
+            return
+        _sp.run(["crontab", "-"], input="\n".join(filtered) + "\n", text=True)
+        print(f"✔ Removed crontab entry for {source}")
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_systemd_uninstall(args, cfg):
+    """Remove a user-space systemd timer and service unit."""
+    if sys.platform == "darwin" or sys.platform == "win32":
+        print("Error: `perseus systemd` is only supported on Linux.", file=sys.stderr)
+        sys.exit(1)
+    source_path = Path(args.source).expanduser().resolve()
+    label = f"perseus-render-{source_path.stem}"
+    user_units = Path.home() / ".config" / "systemd" / "user"
+    timer_path = user_units / f"{label}.timer"
+    service_path = user_units / f"{label}.service"
+    import subprocess as _sp
+    for p in [timer_path, service_path]:
+        if p.exists():
+            p.unlink()
+            print(f"✔ Removed: {p}")
+    _sp.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
+    print("Run: systemctl --user stop {label}.timer  # if still running")
 # ───────────────────────────── Cited synthesis ───────────────────────────────
 
 def _synthesis_rel_label(path: Path, workspace: Path) -> str:
@@ -15583,35 +15754,47 @@ def main():
     p_serve.add_argument("--allow-lsp-mutations", action="store_true", dest="allow_lsp_mutations", help="Allow LSP executeCommand handlers that mutate Perseus state")
 
     # cron (POSIX scheduling)
-    p_cron = sub.add_parser("cron", help="Generate a POSIX crontab entry for periodic rendering")
-    p_cron.add_argument("source", help="Path to Perseus source file")
-    p_cron.add_argument("--output", "-o", required=True, help="Rendered output path")
-    p_cron.add_argument("--every", default="5",
+    p_cron = sub.add_parser("cron", help="Generate or remove a POSIX crontab entry for periodic rendering")
+    cron_sub = p_cron.add_subparsers(dest="cron_command")
+    p_cron_create = cron_sub.add_parser("create", help="Generate a crontab entry")
+    p_cron_create.add_argument("source", help="Path to Perseus source file")
+    p_cron_create.add_argument("--output", "-o", required=True, help="Rendered output path")
+    p_cron_create.add_argument("--every", default="5",
                         help="Minutes between renders (default: 5). Accepts '5', '15', '60'.")
-    p_cron.add_argument("--install", action="store_true",
+    p_cron_create.add_argument("--install", action="store_true",
                         help="Append the entry to the current user's crontab (uses `crontab -l` + `crontab -`)")
+    p_cron_uninstall = cron_sub.add_parser("uninstall", help="Remove a crontab entry")
+    p_cron_uninstall.add_argument("source", help="Path to Perseus source file to remove from crontab")
 
     # launchd
-    p_launchd = sub.add_parser("launchd", help="Scaffold a macOS LaunchAgent for periodic rendering")
-    p_launchd.add_argument("source", help="Path to Perseus source file")
-    p_launchd.add_argument("--output", "-o", required=True, help="Rendered output path")
-    p_launchd.add_argument("--interval", type=int, default=300,
+    p_launchd = sub.add_parser("launchd", help="Scaffold or remove a macOS LaunchAgent for periodic rendering")
+    launchd_sub = p_launchd.add_subparsers(dest="launchd_command")
+    p_launchd_create = launchd_sub.add_parser("create", help="Create a LaunchAgent plist")
+    p_launchd_create.add_argument("source", help="Path to Perseus source file")
+    p_launchd_create.add_argument("--output", "-o", required=True, help="Rendered output path")
+    p_launchd_create.add_argument("--interval", type=int, default=300,
                            help="Render interval in seconds (default: 300)")
-    p_launchd.add_argument("--label", default=None,
+    p_launchd_create.add_argument("--label", default=None,
                            help="launchd label (default: com.perseus.render.<source-stem>)")
-    p_launchd.add_argument("--force", action="store_true",
+    p_launchd_create.add_argument("--force", action="store_true",
                            help="Overwrite existing plist")
+    p_launchd_uninstall = launchd_sub.add_parser("uninstall", help="Remove a LaunchAgent plist")
+    p_launchd_uninstall.add_argument("--label", required=True, help="launchd label to remove")
 
     # systemd (Linux)
-    p_systemd = sub.add_parser("systemd", help="Scaffold a user-space systemd timer for periodic rendering")
-    p_systemd.add_argument("source", help="Path to Perseus source file")
-    p_systemd.add_argument("--output", "-o", required=True, help="Rendered output path")
-    p_systemd.add_argument("--interval", default="5m",
+    p_systemd = sub.add_parser("systemd", help="Scaffold or remove a user-space systemd timer for periodic rendering")
+    systemd_sub = p_systemd.add_subparsers(dest="systemd_command")
+    p_systemd_create = systemd_sub.add_parser("create", help="Create systemd timer + service units")
+    p_systemd_create.add_argument("source", help="Path to Perseus source file")
+    p_systemd_create.add_argument("--output", "-o", required=True, help="Rendered output path")
+    p_systemd_create.add_argument("--interval", default="5m",
                            help="Render interval (e.g. '5m', '2h'); systemd time spec also accepted")
-    p_systemd.add_argument("--install", action="store_true",
+    p_systemd_create.add_argument("--install", action="store_true",
                            help="Write unit files to ~/.config/systemd/user/ and print activation commands")
-    p_systemd.add_argument("--enable", action="store_true",
+    p_systemd_create.add_argument("--enable", action="store_true",
                            help="When combined with --install, run systemctl --user daemon-reload/enable/start")
+    p_systemd_uninstall = systemd_sub.add_parser("uninstall", help="Remove systemd timer + service units")
+    p_systemd_uninstall.add_argument("source", help="Path to Perseus source file")
 
     # health (Daedalus v1)
     p_health = sub.add_parser("health", help="Context maintenance heuristics report")
@@ -15743,6 +15926,16 @@ def main():
             return rc
     elif args.command == "cron":
         cmd_cron(args, cfg)
+    elif args.command == "launchd":
+        if getattr(args, "launchd_command", None) == "uninstall":
+            cmd_launchd_uninstall(args, cfg)
+        else:
+            cmd_launchd(args, cfg)
+    elif args.command == "systemd":
+        if getattr(args, "systemd_command", None) == "uninstall":
+            cmd_systemd_uninstall(args, cfg)
+        else:
+            cmd_systemd(args, cfg)
     elif args.command == "systemd":
         cmd_systemd(args, cfg)
     elif args.command == "health":
