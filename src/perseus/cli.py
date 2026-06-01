@@ -326,6 +326,18 @@ def main():
     p_trust_audit.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     p_trust.add_argument("--json", action="store_true", help="Output machine-readable JSON")
 
+
+    # audit (Phase 26 — audit log viewer)
+    p_audit = sub.add_parser("audit", help="Query and inspect the Perseus audit log")
+    audit_sub = p_audit.add_subparsers(dest="audit_command", required=False)
+    p_audit_show = audit_sub.add_parser("show", help="Show recent audit entries")
+    p_audit_show.add_argument("--since", default=None, metavar="DURATION",
+                              help="Show entries since: 24h, 7d, 30m, or ISO timestamp")
+    p_audit_show.add_argument("--event", default=None, metavar="TYPE",
+                              help="Filter by event type (e.g. shell_exec, policy_denied)")
+    p_audit_show.add_argument("--tail", type=int, default=20,
+                              help="Number of entries to show (default: 20)")
+    p_audit_stats = audit_sub.add_parser("stats", help="Show audit event type counts")
     # update (self-update from git)
     p_update = sub.add_parser("update", help="Check for and apply Perseus updates from git")
     p_update.add_argument("--apply", action="store_true",
@@ -334,6 +346,8 @@ def main():
                           help="Dry run: show available updates without applying")
     p_update.add_argument("--auto", default=None, metavar="on|off",
                           help="Toggle auto-update on/off and persist to config")
+    p_update.add_argument("--skip-signature-check", action="store_true",
+                          help="Skip GPG signature verification during update (dev only)")
 
     # warmup (pre-populate cache)
     p_warmup = sub.add_parser("warmup", help="Pre-populate render cache for a context file")
@@ -431,6 +445,8 @@ def main():
         return cmd_doctor(args, cfg)
     elif args.command == "trust":
         return cmd_trust(args, cfg)
+    elif args.command == "audit":
+        return cmd_audit(args, cfg)
     elif args.command == "update":
         return cmd_update(args, cfg)
     elif args.command == "warmup":
