@@ -118,6 +118,36 @@ def test_services_allows_localhost_url():
     assert "remote blocked" not in out, f"localhost should not be blocked, got: {out}"
 
 
+def test_safe_cache_dir_warns_and_audits_when_override_is_rejected(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path / ".perseus")
+    c = cfg()
+    c["render"]["cache_dir"] = "/etc/perseus-cache"
+    c["audit"]["log_path"] = str(tmp_path / ".perseus" / "audit_log.jsonl")
+
+    resolved = perseus._safe_cache_dir(c)
+    second = perseus._safe_cache_dir(c)
+
+    assert resolved == tmp_path / ".perseus" / "cache"
+    assert second == resolved
+
+    stderr = capsys.readouterr().err
+    assert "rejected render.cache_dir outside allowed roots" in stderr
+    assert stderr.count("rejected render.cache_dir outside allowed roots") == 1
+
+    audit_log = tmp_path / ".perseus" / "audit_log.jsonl"
+    records = [
+        json.loads(line)
+        for line in audit_log.read_text().splitlines()
+        if line.strip()
+    ]
+    assert any(
+        record["event_type"] == "cache_dir_override_rejected"
+        and record["configured_path"] == "/etc/perseus-cache"
+        and record["fallback_path"] == str(tmp_path / ".perseus" / "cache")
+        for record in records
+    )
+
+
 def test_services_respects_allow_remote_enabled():
     """@services must allow remote URLs when allow_remote_services_health is True."""
     c = cfg()
