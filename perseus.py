@@ -53,7 +53,7 @@ from typing import NamedTuple, Callable
 # ── Version (injected by scripts/build.py at build time) ──────────────────
 # All other modules reference _PERSEUS_VERSION; the build script's
 # _VERSION_RE replaces the literal "0.0.0" with the VERSION file value.
-_PERSEUS_VERSION = "1.0.6"  # injected by scripts/build.py
+_PERSEUS_VERSION = "1.0.6"  # replaced at build time by scripts/build.py — see VERSION file for canonical value
 
 # Register as 'perseus' so plugins can import from us (task-65)
 import sys as _sys
@@ -532,11 +532,16 @@ def _fire_hooks(event: str, payload: dict, cfg: dict) -> None:
 
 
 def _fire_shell_hook(cmd_template: str, payload: dict, event: str) -> None:
-    """Run a shell hook with {{var}} substitution. Timeout 5s."""
+    """Run a shell hook with {{var}} substitution. Timeout 5s.
+
+    All payload values are shell-escaped with shlex.quote() to prevent
+    command injection via shell metacharacters (;, |, &, $(), etc.).
+    """
     try:
+        import shlex as _shlex
         cmd = cmd_template
         for key, val in payload.items():
-            cmd = cmd.replace(f"{{{{{key}}}}}", str(val))
+            cmd = cmd.replace(f"{{{{{key}}}}}", _shlex.quote(str(val)))
 
         # Use shell=True as per spec trust consideration
         subprocess.run(
@@ -545,7 +550,7 @@ def _fire_shell_hook(cmd_template: str, payload: dict, event: str) -> None:
         )
     except subprocess.TimeoutExpired:
         print(f"Perseus hook timeout ({event}): {cmd_template[:80]}", file=sys.stderr)
-    except Exception as e:
+    except (OSError, subprocess.TimeoutExpired, ValueError, subprocess.SubprocessError) as e:
         print(f"Perseus hook shell error ({event}): {e}", file=sys.stderr)
 
 # _fire_webhook is defined in webhooks.py (multi-endpoint, URL allowlisting,
@@ -1021,6 +1026,14 @@ def _call_resolver(spec: DirectiveSpec, args_str: str, cfg: dict, workspace: "Pa
         else:
             raise ValueError(f"Unknown call_sig {sig!r} for {spec.name}")
     except Exception as e:
+        # Log full traceback to stderr for diagnostics.
+        # Without this, resolver bugs (NameError, AttributeError, etc.)
+        # are invisible in production — the render just shows a terse
+        # warning block with no hint about which file or line failed.
+        sys.stderr.write(
+            f"Perseus directive error ({spec.name}): {e}\n"
+            f"{traceback.format_exc()}\n"
+        )
         # task-67: on_directive_error hook
         _fire_hooks("on_directive_error", {
             "name": spec.name,
@@ -1056,6 +1069,13 @@ def _discover_plugins(cfg: dict) -> list["DirectiveSpec"]:
 
     Security: by default, plugins require a MANIFEST.toml with hash entries.
     Set plugins.allow_unsigned: true to skip manifest verification (opt-in).
+
+    An optional plugins.allowlist restricts which plugins may be loaded.
+    When set, only plugins whose stem name appears in the allowlist are
+    imported — all others are skipped with a warning. This provides an
+    additional defense-in-depth layer: even if a malicious plugin passes
+    hash verification (compromised signing key), it won't execute unless
+    its name is also in the allowlist.
     """
     plugins_cfg = cfg.get("plugins", {})
     if not plugins_cfg.get("enabled", PLUGINS_ENABLED_DEFAULT):
@@ -1063,6 +1083,14 @@ def _discover_plugins(cfg: dict) -> list["DirectiveSpec"]:
     plugins_dir = Path(plugins_cfg.get("dir", str(PERSEUS_HOME / "plugins")))
     if not plugins_dir.is_dir():
         return []
+    # Optional allowlist gate — defense-in-depth for plugin execution
+    allowlist = plugins_cfg.get("allowlist", None)
+    if allowlist is not None:
+        if isinstance(allowlist, str):
+            allowlist = [n.strip() for n in allowlist.split(",") if n.strip()]
+        if not isinstance(allowlist, list):
+            print("Perseus plugin config: plugins.allowlist must be a list or comma-separated string; ignoring.", file=sys.stderr)
+            allowlist = None
     # H-3: require manifest unless explicitly opted in
     manifest_path = plugins_dir / "MANIFEST.toml"
     allow_unsigned = plugins_cfg.get("allow_unsigned", False)
@@ -1105,6 +1133,13 @@ def _discover_plugins(cfg: dict) -> list["DirectiveSpec"]:
     specs: list["DirectiveSpec"] = []
     for py_file in sorted(plugins_dir.glob("*.py")):
         if py_file.name == "__init__.py":
+            continue
+        # Allowlist check: skip plugins not explicitly approved
+        if allowlist is not None and py_file.stem not in allowlist:
+            print(
+                f"Perseus plugin security: {py_file.name} not in plugins.allowlist — skipping",
+                file=sys.stderr,
+            )
             continue
         # v1.0.5 review: verify file hash against manifest (required when manifest exists)
         if manifest_seen:
@@ -2519,6 +2554,106 @@ def _preflight_permissions(cfg: dict) -> list[str]:
     _PREFLIGHT_CACHE[cache_key] = warnings
     return warnings
 
+
+
+# ─────────────────────────────── Audit CLI ────────────────────────────────────
+
+def cmd_audit(args, cfg) -> int | None:
+    """perseus audit — query and inspect the audit log."""
+    audit_cfg = cfg.get("audit") or {}
+    if not audit_cfg.get("enabled", True):
+        print("Audit logging is disabled (audit.enabled=false in config).")
+        return 0
+
+    sub = getattr(args, "audit_command", None)
+
+    if sub == "show":
+        since_arg = getattr(args, "since", None)
+        event_arg = getattr(args, "event", None)
+        tail = int(getattr(args, "tail", 20) or 20)
+
+        entries = _read_audit_entries(cfg)
+        if not entries:
+            print("No audit entries found.")
+            return 0
+
+        # Apply filters
+        if since_arg:
+            try:
+                # Parse --since as a duration string (e.g. "24h", "7d", "30m")
+                import re as _re
+                dur_match = _re.match(r'^(\d+)\s*(h|d|m|s)$', since_arg.strip().lower())
+                if dur_match:
+                    val = int(dur_match.group(1))
+                    unit = dur_match.group(2)
+                    multiplier = {"s": 1, "m": 60, "h": 3600, "d": 86400}[unit]
+                    cutoff = datetime.now(timezone.utc).timestamp() - val * multiplier
+                else:
+                    cutoff = datetime.fromisoformat(since_arg).timestamp()
+            except Exception:
+                print(f"Invalid --since value: {since_arg!r}")
+                return 1
+            entries = [e for e in entries if _entry_ts(e) >= cutoff]
+
+        if event_arg:
+            entries = [e for e in entries
+                       if str(e.get("event_type", "")).lower() == event_arg.strip().lower()]
+
+        if not entries:
+            print("No audit entries match the filters.")
+            return 0
+
+        # Show most recent (tail)
+        for e in entries[-tail:]:
+            ts = e.get("ts", "?")
+            ev = e.get("event_type", "?")
+            other = {k: v for k, v in e.items() if k not in ("ts", "event_type", "perseus_version", "pid")}
+            print(f"{ts}  {ev}")
+            for k, v in other.items():
+                v_str = str(v)[:120]
+                print(f"    {k}: {v_str}")
+            print()
+
+    elif sub == "stats":
+        entries = _read_audit_entries(cfg)
+        if not entries:
+            print("No audit entries found.")
+            return 0
+
+        counts: dict[str, int] = {}
+        for e in entries:
+            t = str(e.get("event_type") or "?")
+            counts[t] = counts.get(t, 0) + 1
+
+        print(f"Total audit events: {len(entries)}")
+        log_path = _audit_log_path(cfg)
+        print(f"Log path: {log_path}")
+        print()
+        for event_type, count in sorted(counts.items(), key=lambda x: -x[1]):
+            print(f"  {count:>6}  {event_type}")
+
+    else:
+        # Default: show recent entries
+        entries = _read_audit_entries(cfg, limit=20)
+        if not entries:
+            print("No audit entries found.")
+            return 0
+        print(f"Recent audit events (last {len(entries)}):\n")
+        for e in entries:
+            ts = e.get("ts", "?")
+            ev = e.get("event_type", "?")
+            print(f"  {ts}  {ev}")
+
+    return 0
+
+
+def _entry_ts(entry: dict) -> float:
+    """Extract a Unix timestamp from an audit entry for comparison."""
+    ts = entry.get("ts", "")
+    try:
+        return datetime.fromisoformat(str(ts)).timestamp()
+    except Exception:
+        return 0.0
 # ──────────────────────────────── @env ────────────────────────────────────────
 
 # task-61: Default deny-list always active. Patterns are fnmatch globs.
@@ -2613,6 +2748,17 @@ def _var_name_is_denied(var_name: str, cfg: dict) -> bool:
             return True
     return False
 # ──────────────────────────────── @include ────────────────────────────────────
+
+def _resolve_max_bytes(cfg: dict, key: str) -> int | None:
+    """Resolve a render.max_*_bytes config key as int or None.
+
+    Used by @read and @include to avoid duplicated parsing logic.
+    Defined here so it is available to resolve_include in the concatenated artifact."""
+    raw = cfg.get("render", {}).get(key)
+    try:
+        return int(raw) if raw is not None else None
+    except (ValueError, TypeError):
+        return None
 
 def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | None = None,
                     *, _depth: int = 0,
@@ -2757,16 +2903,6 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
     else:
         return trunc_note + f"```text\n{raw}\n```"
 # ──────────────────────────────── @read ───────────────────────────────────────
-
-def _resolve_max_bytes(cfg: dict, key: str) -> int | None:
-    """Resolve a render.max_*_bytes config key as int or None.
-
-    Used by @read and @include to avoid duplicated parsing logic."""
-    raw = cfg.get("render", {}).get(key)
-    try:
-        return int(raw) if raw is not None else None
-    except (ValueError, TypeError):
-        return None
 
 def _parse_read_content_for_validation(content: str, ext: str) -> object:
     """Parse @read content for schema validation."""
@@ -3020,6 +3156,20 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
                     args=args_str[:200])
         return "> ⚠ @query is disabled by config (`render.allow_query_shell=false`)."
 
+    # Defense-in-depth: even with allow_query_shell=true, require explicit
+    # operator opt-in via PERSEUS_ALLOW_DANGEROUS=1 env var. This prevents
+    # accidental exposure from copied configs or misconfigured automation.
+    if not os.environ.get("PERSEUS_ALLOW_DANGEROUS"):
+        audit_event(cfg, "policy_denied",
+                    directive="@query",
+                    reason="PERSEUS_ALLOW_DANGEROUS not set",
+                    args=args_str[:200])
+        return (
+            "> ⚠ @query is enabled in config but PERSEUS_ALLOW_DANGEROUS=1 is not set.\n"
+            "> This is a defense-in-depth gate to prevent accidental shell execution.\n"
+            "> Set the environment variable to acknowledge the risk."
+        )
+
     # Strip @cache modifier first, then extract the command string.
     # Use the opening quote character to find the correct closing quote,
     # so commands containing the other quote type (e.g. "bash -c 'foo'")
@@ -3155,7 +3305,7 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
         if fallback is not None:
             return fallback
         return _meta_prefix + f"> ⚠ `@query` timed out ({timeout}s): `{cmd}`"
-    except Exception as exc:
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
         if fallback is not None:
             return fallback
         return _meta_prefix + f"> ⚠ `@query` error: {exc}"
@@ -4814,6 +4964,15 @@ def _check_one_service(svc: dict, index: int, timeout: float, cfg: dict) -> tupl
                         service=name,
                         command=command[:300])
             return index, f"| {name} | ⚠ command checks disabled by config | — |"
+        # Defense-in-depth: even with allow_services_command=true, require the
+        # PERSEUS_ALLOW_DANGEROUS env var gate (same gate as @query shell exec).
+        if not os.environ.get("PERSEUS_ALLOW_DANGEROUS"):
+            audit_event(cfg, "policy_denied",
+                        directive="@services",
+                        reason="PERSEUS_ALLOW_DANGEROUS not set",
+                        service=name,
+                        command=command[:300])
+            return index, f"| {name} | ⚠ PERSEUS_ALLOW_DANGEROUS not set | — |"
         # Run arbitrary shell command; success = exit 0
         audit_event(cfg, "shell_exec",
                     directive="@services",
@@ -4837,7 +4996,7 @@ def _check_one_service(svc: dict, index: int, timeout: float, cfg: dict) -> tupl
                 status = f"❌ {first_line}" if first_line else f"❌ exit {result.returncode}"
         except subprocess.TimeoutExpired:
             status = "⚠ timeout"
-        except Exception as exc:
+        except subprocess.SubprocessError as exc:
             status = f"⚠ {exc}"
         return index, f"| {name} | {status} | — |"
     else:
@@ -4854,7 +5013,21 @@ def resolve_services(block_content: str, cfg: dict) -> str:
     timeout = float(cfg["render"].get("services_timeout_s", 3))
     parallel = bool(cfg["render"].get("parallel_services", False))
     try:
-        services = yaml.safe_load(block_content) or []
+        # Use safe_load_all when the block contains YAML document separators
+        # (---) so multi-document streams parse correctly. Otherwise, use
+        # safe_load to preserve the existing mapping-format detection.
+        if "\\n---" in block_content or block_content.startswith("---"):
+            docs = list(yaml.safe_load_all(block_content))
+            services = []
+            for doc in docs:
+                if isinstance(doc, list):
+                    services.extend(doc)
+                elif isinstance(doc, dict):
+                    services.append(doc)
+            if not services:
+                services = []
+        else:
+            services = yaml.safe_load(block_content) or []
     except yaml.YAMLError as e:
         return f"> ⚠ Invalid @services YAML: {e}"
 
@@ -4916,17 +5089,28 @@ def _structured_load(fp: Path) -> object:
 
 
 def _walk_dot_path(obj: object, dot: str) -> object:
+    """Traverse a dot-notation path into a nested dict/list structure.
+
+    Supports:
+      - Dictionary key access:  "foo.bar.baz"
+      - List index access:      "items.0.name"  (numeric path segments)
+    Returns None if any segment cannot be resolved.
+    """
     cur = obj
     if not dot:
         return cur
     for part in dot.split("."):
         if isinstance(cur, dict) and part in cur:
             cur = cur[part]
+        elif isinstance(cur, list) and part.isdigit():
+            idx = int(part)
+            if 0 <= idx < len(cur):
+                cur = cur[idx]
+            else:
+                return None
         else:
             return None
     return cur
-
-
 def _render_struct_as_table(value: object, columns: str | None) -> str:
     """Render a dict-of-scalars or list-of-dicts as a markdown table."""
     # Parse columns="key:Label,value:Label"
@@ -5135,7 +5319,16 @@ def resolve_tree(args_str: str, cfg: dict, workspace: Path | None = None) -> str
 # ──────────────────────────────── @date ───────────────────────────────────────
 
 def resolve_date(args_str: str) -> str:
-    """Resolve @date with optional format."""
+    """Resolve @date with optional format, offset, and days-ago modifiers.
+
+    Modifiers:
+      format="..."   — strftime-style format with human tokens (YYYY, MM, DD, HH, mm, ss, z)
+      offset="-24h"  — offset from now (e.g. -24h, +7d, -30m); suffix: h=hours, d=days, m=minutes
+      days-ago=7     — shorthand for offset=-Nd where N is an integer
+    """
+    from datetime import timedelta
+
+    # Original regex-based format parsing (preserved for backreference tests)
     fmt_match = re.search(r'format=(["\'])([^"\']*)\1', args_str)
     if fmt_match:
         fmt = fmt_match.group(2)
@@ -5143,8 +5336,38 @@ def resolve_date(args_str: str) -> str:
         fmt_match = re.search(r"format='([^']+)'", args_str)
         fmt = fmt_match.group(1) if fmt_match else "YYYY-MM-DD HH:mm z"
 
-    now = datetime.now()
-    # Map common tokens
+    # Parse offset and days-ago from the remaining args
+    # Strip format="..." before parsing modifiers so format="" isn't misparsed
+    remaining = args_str.strip()
+    remaining = re.sub(r'format=(["\'])(?:[^"\']*)\1', '', remaining)
+    remaining = re.sub(r"format='[^']*'", "", remaining)
+    remaining = re.sub(r'format=\S+', '', remaining)
+    mods = _parse_kv_modifiers(remaining)
+
+    offset_str = mods.get("offset")
+    days_ago = mods.get("days-ago")
+    delta = timedelta()
+    if offset_str:
+        m = re.match(r'^([+-])(\d+)([hdm])$', offset_str.strip())
+        if m:
+            sign = 1 if m.group(1) == '+' else -1
+            val = int(m.group(2))
+            unit = m.group(3)
+            if unit == 'h':
+                delta = timedelta(hours=sign * val)
+            elif unit == 'd':
+                delta = timedelta(days=sign * val)
+            elif unit == 'm':
+                delta = timedelta(minutes=sign * val)
+    elif days_ago:
+        try:
+            delta = timedelta(days=-int(days_ago))
+        except (ValueError, TypeError):
+            pass
+
+    now = datetime.now() + delta
+
+    # Map human tokens to strftime
     result = fmt
     result = result.replace("YYYY", now.strftime("%Y"))
     result = result.replace("MM", now.strftime("%m"))
@@ -5154,10 +5377,6 @@ def resolve_date(args_str: str) -> str:
     result = result.replace("ss", now.strftime("%S"))
     result = result.replace("z", now.astimezone().strftime("%Z"))
     return result
-
-
-# ─────────────────────────────── @prompt block ────────────────────────────────
-
 def resolve_prompt_block(content: str) -> str:
     """@prompt...@end blocks are included as an AI instruction callout."""
     return f"> 📌 **Perseus prompt:** {content.strip()}"
@@ -5207,6 +5426,9 @@ def _replace_inline_date_outside_code(line: str, workspace: Path | None = None) 
 
 # ─────────────────────────────── HTML Template ────────────────────────────────
 # Phase 23: Self-contained HTML output for perseus render --format html.
+# Known limitations: custom parser is minimal — no tables, footnotes,
+# or nested list rendering. Full CommonMark requires mistune or markdown-it.
+
 # Zero external dependencies — all CSS is inline, no CDN, no fonts beyond system stack.
 # Design matches the perseus.observer landing page aesthetic: dark, museum-quality.
 
@@ -6331,6 +6553,12 @@ def _parse_cache_modifier(line: str) -> tuple[str, str, int | None, str | None]:
 def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path) -> str:
     """Return a stable fingerprint of all file dependencies for this directive.
 
+    NOTE: TOCTOU risk exists between hash and use. This is acceptable because
+    Perseus renders in a local, single-process context over the operator's own
+    workspace files — not a multi-writer server. A file changing between
+    fingerprint and render produces a stale cache hit, not incorrect output,
+    since the next render will pick up the change.
+
     Returns a hex digest that changes when any file the directive reads changes.
     Directives with no file dependencies return "" (empty string).
     This is concatenated to the cache key so stale entries miss automatically.
@@ -6424,6 +6652,18 @@ def _safe_cache_dir(cfg: dict) -> Path:
             fallback_path=str(fallback_dir),
         )
     return fallback_dir
+    # Fall back to safe default — warn operator their config was overridden
+    print(
+        f"Perseus: configured cache_dir {raw!r} is outside allowed roots; "
+        f"falling back to {PERSEUS_HOME / 'cache'}",
+        file=sys.stderr,
+    )
+    audit_event(cfg, "config_override",
+                key="render.cache_dir",
+                configured=raw,
+                fallback=str(PERSEUS_HOME / "cache"),
+                reason="outside allowed roots")
+    return PERSEUS_HOME / "cache"
 
 
 def cache_get(key: str, mode: str, ttl: int | None, cfg: dict) -> str | None:
@@ -7909,6 +8149,12 @@ def cmd_diff(args, cfg):
             old_fp = _resolve_checkpoint_selector(str(a_sel), files)
             new_fp = _resolve_checkpoint_selector(str(b_sel), files)
         else:
+            if len(files) == 0:
+                if target_ws:
+                    print(f"No checkpoints found for workspace {target_ws}.")
+                else:
+                    print("No checkpoints found.")
+                return
             if len(files) < 2:
                 print("Need at least two checkpoints to diff.")
                 return
@@ -11503,16 +11749,25 @@ def _lsp_diagnostics_for(text: str, cfg: dict, workspace: Path) -> list[dict]:
                 d["range"] = {"start": {"line": lineno, "character": 0}, "end": {"line": lineno, "character": len(raw)}}
                 diagnostics.append(d)
 
-        # Cross-cutting diagnostic: @cache ttl= must be integer
+        # Cross-cutting diagnostic: @cache ttl= must be non-negative integer
         if "@cache" in args_str:
             mm = re.search(r"ttl=([^\s]+)", args_str)
-            if mm and not mm.group(1).isdigit():
-                diagnostics.append({
-                    "range": {"start": {"line": lineno, "character": 0}, "end": {"line": lineno, "character": len(raw)}},
-                    "severity": 2,
-                    "source": "perseus",
-                    "message": f"@cache ttl= must be a non-negative integer, got `{mm.group(1)}`",
-                })
+            if mm:
+                val = mm.group(1)
+                if not val.lstrip('-').isdigit():
+                    diagnostics.append({
+                        "range": {"start": {"line": lineno, "character": 0}, "end": {"line": lineno, "character": len(raw)}},
+                        "severity": 2,
+                        "source": "perseus",
+                        "message": f"@cache ttl= must be a non-negative integer, got `{val}`",
+                    })
+                elif int(val) < 0:
+                    diagnostics.append({
+                        "range": {"start": {"line": lineno, "character": 0}, "end": {"line": lineno, "character": len(raw)}},
+                        "severity": 2,
+                        "source": "perseus",
+                        "message": f"@cache ttl= must be a non-negative integer, got `{val}`",
+                    })
 
     if if_depth > 0:
         diagnostics.append({
@@ -11609,6 +11864,7 @@ def _run_lsp_server(args, cfg) -> int:
                 "capabilities": {
                     "textDocumentSync": 1,  # full
                     "hoverProvider": True,
+                    "definitionProvider": True,
                     "completionProvider": {"triggerCharacters": ["@", " ", "="]},
                     "codeLensProvider": {"resolveProvider": False},
                     "executeCommandProvider": {"commands": ["perseus.render", "perseus.openCheckpoint", "perseus.compactMemory"]},
@@ -11646,6 +11902,30 @@ def _run_lsp_server(args, cfg) -> int:
                     name, args_str = parsed
                     preview = _lsp_resolve_directive_for_hover(name, args_str, cfg, server_state["workspace"])
             respond(req_id, {"contents": {"kind": "markdown", "value": f"```\n{preview[:2000]}\n```"}})
+
+        elif method == "textDocument/definition":
+            uri = params["textDocument"]["uri"]
+            line_no = params["position"]["line"]
+            text = documents.get(uri, "")
+            lines = text.splitlines()
+            result = None
+            if 0 <= line_no < len(lines):
+                parsed = _lsp_parse_directive_at_line(lines[line_no])
+                if parsed and parsed[0] in ("@include", "@read"):
+                    # Resolve the file path relative to workspace
+                    path_str, _ = _extract_quoted_token(parsed[1].strip())
+                    if path_str:
+                        ws = server_state["workspace"]
+                        fp, _ = _resolve_path(path_str, ws, allow_outside_workspace=True)
+                        if fp.exists():
+                            result = {"uri": fp.as_uri(), "range": {
+                                "start": {"line": 0, "character": 0},
+                                "end": {"line": 0, "character": 0},
+                            }}
+            if result:
+                respond(req_id, result)
+            else:
+                respond(req_id, None)
         elif method == "textDocument/completion":
             uri = params["textDocument"]["uri"]
             line_no = params["position"]["line"]
@@ -11658,7 +11938,12 @@ def _run_lsp_server(args, cfg) -> int:
             # If line starts with @ but no directive complete yet, offer directive names
             if "@" in prefix and not any(prefix.lstrip().lower().startswith(d) for d in _LSP_DIRECTIVE_NAMES):
                 for d in _LSP_DIRECTIVE_NAMES:
-                    items.append({"label": d, "kind": 14})  # Keyword
+                    items.append({
+                        "label": d,
+                        "kind": 14,  # Keyword
+                        "insertText": d + " $0",
+                        "insertTextFormat": 2,  # Snippet
+                    })
             else:
                 # offer arg keys for the directive on this line
                 parsed = _lsp_parse_directive_at_line(cur_line)
@@ -12854,6 +13139,65 @@ def cmd_systemd(args, cfg):
     print(service_content)
     print("# ~/.config/systemd/user/perseus-render.timer")
     print(timer_content)
+
+
+def cmd_launchd_uninstall(args, cfg):
+    """Remove a Perseus LaunchAgent plist."""
+    if sys.platform != "darwin":
+        print("Error: `perseus launchd` is only supported on macOS.", file=sys.stderr)
+        sys.exit(1)
+    launch_agents = Path.home() / "Library" / "LaunchAgents"
+    label = args.label
+    plist_path = launch_agents / f"{label}.plist"
+    if not plist_path.exists():
+        print(f"Error: {plist_path} does not exist.", file=sys.stderr)
+        sys.exit(1)
+    # Unload first if loaded
+    import subprocess as _sp
+    _sp.run(["launchctl", "unload", str(plist_path)], capture_output=True)
+    plist_path.unlink()
+    print(f"✔ Removed LaunchAgent: {plist_path}")
+
+
+def cmd_cron_uninstall(args, cfg):
+    """Remove the Perseus crontab entry."""
+    import subprocess as _sp
+    try:
+        result = _sp.run(["crontab", "-l"], capture_output=True, text=True)
+        if result.returncode != 0:
+            print("No crontab found.")
+            return
+        lines = result.stdout.split("\n")
+        source = Path(args.source).expanduser().resolve()
+        marker = f"perseus render {source}"
+        filtered = [l for l in lines if marker not in l]
+        if len(filtered) == len(lines):
+            print("No matching crontab entry found.")
+            return
+        _sp.run(["crontab", "-"], input="\n".join(filtered) + "\n", text=True)
+        print(f"✔ Removed crontab entry for {source}")
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_systemd_uninstall(args, cfg):
+    """Remove a user-space systemd timer and service unit."""
+    if sys.platform == "darwin" or sys.platform == "win32":
+        print("Error: `perseus systemd` is only supported on Linux.", file=sys.stderr)
+        sys.exit(1)
+    source_path = Path(args.source).expanduser().resolve()
+    label = f"perseus-render-{source_path.stem}"
+    user_units = Path.home() / ".config" / "systemd" / "user"
+    timer_path = user_units / f"{label}.timer"
+    service_path = user_units / f"{label}.service"
+    import subprocess as _sp
+    for p in [timer_path, service_path]:
+        if p.exists():
+            p.unlink()
+            print(f"✔ Removed: {p}")
+    _sp.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
+    print("Run: systemctl --user stop {label}.timer  # if still running")
 # ───────────────────────────── Cited synthesis ───────────────────────────────
 
 def _synthesis_rel_label(path: Path, workspace: Path) -> str:
@@ -13282,6 +13626,61 @@ def cmd_update(args, cfg) -> int:
     automatically updates the CLI. No reinstall needed.
     """
     import subprocess as _sp
+# ── GPG signature verification ──────────────────────────────────────────────
+# Trusted public key fingerprint for Perseus releases.
+# To generate: gpg --detach-sign --armor perseus.py
+# To verify:   gpg --verify perseus.py.asc perseus.py
+PERSEUS_GPG_FINGERPRINT = None  # Set to your GPG key fingerprint (40-char hex)
+
+PERSEUS_GPG_FINGERPRINT_SHORT = None  # Set to your GPG key ID (16-char hex)
+
+
+def _gpg_verify_signature(repo: Path, args) -> tuple[bool, str]:
+    """Verify the GPG signature on the current HEAD or latest tag.
+
+    Returns (verified: bool, message: str).
+    Requires git and gpg to be installed. Non-fatal on missing tools —
+    just reports that verification was skipped.
+    """
+    update_cfg = {}
+    try:
+        update_cfg = cfg.get("update", {}) if "cfg" in dir() else {}
+    except Exception:
+        pass
+    skip = getattr(args, "skip_signature_check", False)
+    if skip:
+        return True, "signature check skipped (--skip-signature-check)"
+
+    fingerprint = update_cfg.get("gpg_fingerprint") or PERSEUS_GPG_FINGERPRINT
+    if not fingerprint:
+        return True, "no GPG fingerprint configured — set update.gpg_fingerprint in config"
+
+    import subprocess as _sp
+
+    # Check for gpg binary
+    try:
+        _sp.run(["gpg", "--version"], capture_output=True, check=True)
+    except Exception:
+        return True, "gpg not found — signature verification skipped"
+
+    # Try verifying the latest signed tag
+    try:
+        result = _sp.run(
+            ["git", "verify-commit", "HEAD"],
+            capture_output=True, text=True, timeout=30, cwd=str(repo),
+        )
+        output = (result.stdout + result.stderr).strip()
+        if result.returncode == 0:
+            return True, f"GPG signature verified: {output.split(chr(10))[0] if output else 'ok'}"
+        # Check if the problem is just "no signature" vs "bad signature"
+        if "NO VALID" in output.upper() or "CANNOT CHECK" in output.upper():
+            return True, f"GPG: commit not signed — {output[:100]}"
+        return False, f"GPG verification failed: {output[:200]}"
+    except _sp.TimeoutExpired:
+        return True, "GPG verification timed out — proceeding"
+    except Exception as exc:
+        return True, f"GPG verification error (non-fatal): {exc}"
+
 
     update_cfg = cfg.get("update", {})
     repo_path_str = update_cfg.get("repo_path", "")
@@ -13363,6 +13762,16 @@ def cmd_update(args, cfg) -> int:
     check_only = getattr(args, "check", False)
 
     if apply_update:
+        # GPG signature verification before applying update
+        verified, gpg_msg = _gpg_verify_signature(repo, args)
+        if not verified:
+            print(f"\u26a0 GPG signature verification FAILED: {gpg_msg}", file=sys.stderr)
+            print("  Use --skip-signature-check to bypass.", file=sys.stderr)
+            return 1
+        if "verification skipped" in gpg_msg.lower():
+            pass  # Non-fatal
+        print(f"\u2713 GPG: {gpg_msg}")
+
         print("Applying update …")
         try:
             result = _sp.run(
@@ -15362,35 +15771,47 @@ def main():
     p_serve.add_argument("--allow-lsp-mutations", action="store_true", dest="allow_lsp_mutations", help="Allow LSP executeCommand handlers that mutate Perseus state")
 
     # cron (POSIX scheduling)
-    p_cron = sub.add_parser("cron", help="Generate a POSIX crontab entry for periodic rendering")
-    p_cron.add_argument("source", help="Path to Perseus source file")
-    p_cron.add_argument("--output", "-o", required=True, help="Rendered output path")
-    p_cron.add_argument("--every", default="5",
+    p_cron = sub.add_parser("cron", help="Generate or remove a POSIX crontab entry for periodic rendering")
+    cron_sub = p_cron.add_subparsers(dest="cron_command")
+    p_cron_create = cron_sub.add_parser("create", help="Generate a crontab entry")
+    p_cron_create.add_argument("source", help="Path to Perseus source file")
+    p_cron_create.add_argument("--output", "-o", required=True, help="Rendered output path")
+    p_cron_create.add_argument("--every", default="5",
                         help="Minutes between renders (default: 5). Accepts '5', '15', '60'.")
-    p_cron.add_argument("--install", action="store_true",
+    p_cron_create.add_argument("--install", action="store_true",
                         help="Append the entry to the current user's crontab (uses `crontab -l` + `crontab -`)")
+    p_cron_uninstall = cron_sub.add_parser("uninstall", help="Remove a crontab entry")
+    p_cron_uninstall.add_argument("source", help="Path to Perseus source file to remove from crontab")
 
     # launchd
-    p_launchd = sub.add_parser("launchd", help="Scaffold a macOS LaunchAgent for periodic rendering")
-    p_launchd.add_argument("source", help="Path to Perseus source file")
-    p_launchd.add_argument("--output", "-o", required=True, help="Rendered output path")
-    p_launchd.add_argument("--interval", type=int, default=300,
+    p_launchd = sub.add_parser("launchd", help="Scaffold or remove a macOS LaunchAgent for periodic rendering")
+    launchd_sub = p_launchd.add_subparsers(dest="launchd_command")
+    p_launchd_create = launchd_sub.add_parser("create", help="Create a LaunchAgent plist")
+    p_launchd_create.add_argument("source", help="Path to Perseus source file")
+    p_launchd_create.add_argument("--output", "-o", required=True, help="Rendered output path")
+    p_launchd_create.add_argument("--interval", type=int, default=300,
                            help="Render interval in seconds (default: 300)")
-    p_launchd.add_argument("--label", default=None,
+    p_launchd_create.add_argument("--label", default=None,
                            help="launchd label (default: com.perseus.render.<source-stem>)")
-    p_launchd.add_argument("--force", action="store_true",
+    p_launchd_create.add_argument("--force", action="store_true",
                            help="Overwrite existing plist")
+    p_launchd_uninstall = launchd_sub.add_parser("uninstall", help="Remove a LaunchAgent plist")
+    p_launchd_uninstall.add_argument("--label", required=True, help="launchd label to remove")
 
     # systemd (Linux)
-    p_systemd = sub.add_parser("systemd", help="Scaffold a user-space systemd timer for periodic rendering")
-    p_systemd.add_argument("source", help="Path to Perseus source file")
-    p_systemd.add_argument("--output", "-o", required=True, help="Rendered output path")
-    p_systemd.add_argument("--interval", default="5m",
+    p_systemd = sub.add_parser("systemd", help="Scaffold or remove a user-space systemd timer for periodic rendering")
+    systemd_sub = p_systemd.add_subparsers(dest="systemd_command")
+    p_systemd_create = systemd_sub.add_parser("create", help="Create systemd timer + service units")
+    p_systemd_create.add_argument("source", help="Path to Perseus source file")
+    p_systemd_create.add_argument("--output", "-o", required=True, help="Rendered output path")
+    p_systemd_create.add_argument("--interval", default="5m",
                            help="Render interval (e.g. '5m', '2h'); systemd time spec also accepted")
-    p_systemd.add_argument("--install", action="store_true",
+    p_systemd_create.add_argument("--install", action="store_true",
                            help="Write unit files to ~/.config/systemd/user/ and print activation commands")
-    p_systemd.add_argument("--enable", action="store_true",
+    p_systemd_create.add_argument("--enable", action="store_true",
                            help="When combined with --install, run systemctl --user daemon-reload/enable/start")
+    p_systemd_uninstall = systemd_sub.add_parser("uninstall", help="Remove systemd timer + service units")
+    p_systemd_uninstall.add_argument("source", help="Path to Perseus source file")
 
     # health (Daedalus v1)
     p_health = sub.add_parser("health", help="Context maintenance heuristics report")
@@ -15411,6 +15832,18 @@ def main():
     p_trust_audit.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     p_trust.add_argument("--json", action="store_true", help="Output machine-readable JSON")
 
+
+    # audit (Phase 26 — audit log viewer)
+    p_audit = sub.add_parser("audit", help="Query and inspect the Perseus audit log")
+    audit_sub = p_audit.add_subparsers(dest="audit_command", required=False)
+    p_audit_show = audit_sub.add_parser("show", help="Show recent audit entries")
+    p_audit_show.add_argument("--since", default=None, metavar="DURATION",
+                              help="Show entries since: 24h, 7d, 30m, or ISO timestamp")
+    p_audit_show.add_argument("--event", default=None, metavar="TYPE",
+                              help="Filter by event type (e.g. shell_exec, policy_denied)")
+    p_audit_show.add_argument("--tail", type=int, default=20,
+                              help="Number of entries to show (default: 20)")
+    p_audit_stats = audit_sub.add_parser("stats", help="Show audit event type counts")
     # update (self-update from git)
     p_update = sub.add_parser("update", help="Check for and apply Perseus updates from git")
     p_update.add_argument("--apply", action="store_true",
@@ -15419,6 +15852,8 @@ def main():
                           help="Dry run: show available updates without applying")
     p_update.add_argument("--auto", default=None, metavar="on|off",
                           help="Toggle auto-update on/off and persist to config")
+    p_update.add_argument("--skip-signature-check", action="store_true",
+                          help="Skip GPG signature verification during update (dev only)")
 
     # warmup (pre-populate cache)
     p_warmup = sub.add_parser("warmup", help="Pre-populate render cache for a context file")
@@ -15508,6 +15943,16 @@ def main():
             return rc
     elif args.command == "cron":
         cmd_cron(args, cfg)
+    elif args.command == "launchd":
+        if getattr(args, "launchd_command", None) == "uninstall":
+            cmd_launchd_uninstall(args, cfg)
+        else:
+            cmd_launchd(args, cfg)
+    elif args.command == "systemd":
+        if getattr(args, "systemd_command", None) == "uninstall":
+            cmd_systemd_uninstall(args, cfg)
+        else:
+            cmd_systemd(args, cfg)
     elif args.command == "systemd":
         cmd_systemd(args, cfg)
     elif args.command == "health":
@@ -15516,6 +15961,8 @@ def main():
         return cmd_doctor(args, cfg)
     elif args.command == "trust":
         return cmd_trust(args, cfg)
+    elif args.command == "audit":
+        return cmd_audit(args, cfg)
     elif args.command == "update":
         return cmd_update(args, cfg)
     elif args.command == "warmup":

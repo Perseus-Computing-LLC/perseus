@@ -111,6 +111,12 @@ def _parse_cache_modifier(line: str) -> tuple[str, str, int | None, str | None]:
 def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path) -> str:
     """Return a stable fingerprint of all file dependencies for this directive.
 
+    NOTE: TOCTOU risk exists between hash and use. This is acceptable because
+    Perseus renders in a local, single-process context over the operator's own
+    workspace files — not a multi-writer server. A file changing between
+    fingerprint and render produces a stale cache hit, not incorrect output,
+    since the next render will pick up the change.
+
     Returns a hex digest that changes when any file the directive reads changes.
     Directives with no file dependencies return "" (empty string).
     This is concatenated to the cache key so stale entries miss automatically.
@@ -204,6 +210,18 @@ def _safe_cache_dir(cfg: dict) -> Path:
             fallback_path=str(fallback_dir),
         )
     return fallback_dir
+    # Fall back to safe default — warn operator their config was overridden
+    print(
+        f"Perseus: configured cache_dir {raw!r} is outside allowed roots; "
+        f"falling back to {PERSEUS_HOME / 'cache'}",
+        file=sys.stderr,
+    )
+    audit_event(cfg, "config_override",
+                key="render.cache_dir",
+                configured=raw,
+                fallback=str(PERSEUS_HOME / "cache"),
+                reason="outside allowed roots")
+    return PERSEUS_HOME / "cache"
 
 
 def cache_get(key: str, mode: str, ttl: int | None, cfg: dict) -> str | None:

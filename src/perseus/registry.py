@@ -258,6 +258,14 @@ def _call_resolver(spec: DirectiveSpec, args_str: str, cfg: dict, workspace: "Pa
         else:
             raise ValueError(f"Unknown call_sig {sig!r} for {spec.name}")
     except Exception as e:
+        # Log full traceback to stderr for diagnostics.
+        # Without this, resolver bugs (NameError, AttributeError, etc.)
+        # are invisible in production — the render just shows a terse
+        # warning block with no hint about which file or line failed.
+        sys.stderr.write(
+            f"Perseus directive error ({spec.name}): {e}\n"
+            f"{traceback.format_exc()}\n"
+        )
         # task-67: on_directive_error hook
         _fire_hooks("on_directive_error", {
             "name": spec.name,
@@ -293,6 +301,13 @@ def _discover_plugins(cfg: dict) -> list["DirectiveSpec"]:
 
     Security: by default, plugins require a MANIFEST.toml with hash entries.
     Set plugins.allow_unsigned: true to skip manifest verification (opt-in).
+
+    An optional plugins.allowlist restricts which plugins may be loaded.
+    When set, only plugins whose stem name appears in the allowlist are
+    imported — all others are skipped with a warning. This provides an
+    additional defense-in-depth layer: even if a malicious plugin passes
+    hash verification (compromised signing key), it won't execute unless
+    its name is also in the allowlist.
     """
     plugins_cfg = cfg.get("plugins", {})
     if not plugins_cfg.get("enabled", PLUGINS_ENABLED_DEFAULT):
@@ -300,6 +315,14 @@ def _discover_plugins(cfg: dict) -> list["DirectiveSpec"]:
     plugins_dir = Path(plugins_cfg.get("dir", str(PERSEUS_HOME / "plugins")))
     if not plugins_dir.is_dir():
         return []
+    # Optional allowlist gate — defense-in-depth for plugin execution
+    allowlist = plugins_cfg.get("allowlist", None)
+    if allowlist is not None:
+        if isinstance(allowlist, str):
+            allowlist = [n.strip() for n in allowlist.split(",") if n.strip()]
+        if not isinstance(allowlist, list):
+            print("Perseus plugin config: plugins.allowlist must be a list or comma-separated string; ignoring.", file=sys.stderr)
+            allowlist = None
     # H-3: require manifest unless explicitly opted in
     manifest_path = plugins_dir / "MANIFEST.toml"
     allow_unsigned = plugins_cfg.get("allow_unsigned", False)
@@ -342,6 +365,13 @@ def _discover_plugins(cfg: dict) -> list["DirectiveSpec"]:
     specs: list["DirectiveSpec"] = []
     for py_file in sorted(plugins_dir.glob("*.py")):
         if py_file.name == "__init__.py":
+            continue
+        # Allowlist check: skip plugins not explicitly approved
+        if allowlist is not None and py_file.stem not in allowlist:
+            print(
+                f"Perseus plugin security: {py_file.name} not in plugins.allowlist — skipping",
+                file=sys.stderr,
+            )
             continue
         # v1.0.5 review: verify file hash against manifest (required when manifest exists)
         if manifest_seen:
