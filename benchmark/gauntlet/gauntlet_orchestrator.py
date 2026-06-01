@@ -531,7 +531,7 @@ class GauntletOrchestrator:
 
         perseus = perseus_executable()
         # Sample ALL profiles for statistically meaningful results
-        sample_profiles = self.role_profiles[:25]  # all 25
+        sample_profiles = self.role_profiles  # all available profiles
 
         for i, profile in enumerate(sample_profiles):
             profile_home = Path("/tmp/perseus-gauntlet/token-efficiency") / profile["name"]

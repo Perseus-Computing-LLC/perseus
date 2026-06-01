@@ -1,0 +1,8 @@
+{
+  "type": "object",
+  "required": ["version", "status"],
+  "properties": {
+    "version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$"},
+    "status": {"enum": ["ok", "warn", "error"]}
+  }
+}
