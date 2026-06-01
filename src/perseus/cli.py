@@ -399,7 +399,15 @@ def main():
     p_oracle_drift = oracle_sub.add_parser("drift", help="Report drift in recent Pythia behavior vs baseline")
     p_oracle_drift.add_argument("--json", action="store_true", help="Machine-readable JSON output")
 
-    # `perseus llm ping` — verify the configured LLM provider is reachable.
+    # quickstart (Track B — one-command bootstrap)
+    p_quickstart = sub.add_parser("quickstart", help="One-command bootstrap: scaffold, configure, verify")
+    p_quickstart.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
+    p_quickstart.add_argument("--non-interactive", action="store_true",
+                              help="Skip interactive LLM prompts — auto-detect env keys only")
+    p_quickstart.add_argument("--no-llm", action="store_true",
+                              help="Skip LLM backend detection entirely")
+
+    # llm ping — verify the configured LLM provider is reachable.
     p_llm = sub.add_parser("llm", help="LLM provider utilities (ping)")
     llm_sub = p_llm.add_subparsers(dest="llm_sub")
     p_llm_ping = llm_sub.add_parser("ping", help="Send a no-op prompt to verify reachability")
@@ -481,6 +489,8 @@ def main():
         return cmd_llm(args, cfg)
     elif args.command == "init":
         cmd_init(args, cfg)
+    elif args.command == "quickstart":
+        return cmd_quickstart(args, cfg)
     elif args.command == "launchd":
         cmd_launchd(args, cfg)
     elif args.command == "install":
