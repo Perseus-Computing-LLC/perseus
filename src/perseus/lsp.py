@@ -296,6 +296,7 @@ def _run_lsp_server(args, cfg) -> int:
                 "capabilities": {
                     "textDocumentSync": 1,  # full
                     "hoverProvider": True,
+                    "definitionProvider": True,
                     "completionProvider": {"triggerCharacters": ["@", " ", "="]},
                     "codeLensProvider": {"resolveProvider": False},
                     "executeCommandProvider": {"commands": ["perseus.render", "perseus.openCheckpoint", "perseus.compactMemory"]},
@@ -333,6 +334,30 @@ def _run_lsp_server(args, cfg) -> int:
                     name, args_str = parsed
                     preview = _lsp_resolve_directive_for_hover(name, args_str, cfg, server_state["workspace"])
             respond(req_id, {"contents": {"kind": "markdown", "value": f"```\n{preview[:2000]}\n```"}})
+
+        elif method == "textDocument/definition":
+            uri = params["textDocument"]["uri"]
+            line_no = params["position"]["line"]
+            text = documents.get(uri, "")
+            lines = text.splitlines()
+            result = None
+            if 0 <= line_no < len(lines):
+                parsed = _lsp_parse_directive_at_line(lines[line_no])
+                if parsed and parsed[0] in ("@include", "@read"):
+                    # Resolve the file path relative to workspace
+                    path_str, _ = _extract_quoted_token(parsed[1].strip())
+                    if path_str:
+                        ws = server_state["workspace"]
+                        fp, _ = _resolve_path(path_str, ws, allow_outside_workspace=True)
+                        if fp.exists():
+                            result = {"uri": fp.as_uri(), "range": {
+                                "start": {"line": 0, "character": 0},
+                                "end": {"line": 0, "character": 0},
+                            }}
+            if result:
+                respond(req_id, result)
+            else:
+                respond(req_id, None)
         elif method == "textDocument/completion":
             uri = params["textDocument"]["uri"]
             line_no = params["position"]["line"]
@@ -345,7 +370,12 @@ def _run_lsp_server(args, cfg) -> int:
             # If line starts with @ but no directive complete yet, offer directive names
             if "@" in prefix and not any(prefix.lstrip().lower().startswith(d) for d in _LSP_DIRECTIVE_NAMES):
                 for d in _LSP_DIRECTIVE_NAMES:
-                    items.append({"label": d, "kind": 14})  # Keyword
+                    items.append({
+                        "label": d,
+                        "kind": 14,  # Keyword
+                        "insertText": d + " $0",
+                        "insertTextFormat": 2,  # Snippet
+                    })
             else:
                 # offer arg keys for the directive on this line
                 parsed = _lsp_parse_directive_at_line(cur_line)

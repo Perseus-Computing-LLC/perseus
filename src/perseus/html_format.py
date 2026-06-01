@@ -1,5 +1,8 @@
 # ─────────────────────────────── HTML Template ────────────────────────────────
 # Phase 23: Self-contained HTML output for perseus render --format html.
+# Known limitations: custom parser is minimal — no tables, footnotes,
+# or nested list rendering. Full CommonMark requires mistune or markdown-it.
+
 # Zero external dependencies — all CSS is inline, no CDN, no fonts beyond system stack.
 # Design matches the perseus.observer landing page aesthetic: dark, museum-quality.
 

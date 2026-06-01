@@ -88,7 +88,7 @@ STDLIB_REMINDER_RE = re.compile(
 )
 
 # Baseline line count for drift detection.
-BASELINE_LINES = 15801  # post-audit-cli + gpg-verification + all-issue-fixes
+BASELINE_LINES = 15989  # post-13-remaining-issues (hooks, services, LSP, scheduler, dates, etc.)
 
 # Matches top-level function or class definitions (no leading whitespace).
 # Excludes dunder methods (__init__, __repr__, etc.) which are safely

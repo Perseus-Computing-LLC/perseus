@@ -99,11 +99,16 @@ def _fire_hooks(event: str, payload: dict, cfg: dict) -> None:
 
 
 def _fire_shell_hook(cmd_template: str, payload: dict, event: str) -> None:
-    """Run a shell hook with {{var}} substitution. Timeout 5s."""
+    """Run a shell hook with {{var}} substitution. Timeout 5s.
+
+    All payload values are shell-escaped with shlex.quote() to prevent
+    command injection via shell metacharacters (;, |, &, $(), etc.).
+    """
     try:
+        import shlex as _shlex
         cmd = cmd_template
         for key, val in payload.items():
-            cmd = cmd.replace(f"{{{{{key}}}}}", str(val))
+            cmd = cmd.replace(f"{{{{{key}}}}}", _shlex.quote(str(val)))
 
         # Use shell=True as per spec trust consideration
         subprocess.run(
@@ -112,7 +117,7 @@ def _fire_shell_hook(cmd_template: str, payload: dict, event: str) -> None:
         )
     except subprocess.TimeoutExpired:
         print(f"Perseus hook timeout ({event}): {cmd_template[:80]}", file=sys.stderr)
-    except Exception as e:
+    except (OSError, subprocess.TimeoutExpired, ValueError, subprocess.SubprocessError) as e:
         print(f"Perseus hook shell error ({event}): {e}", file=sys.stderr)
 
 # _fire_webhook is defined in webhooks.py (multi-endpoint, URL allowlisting,

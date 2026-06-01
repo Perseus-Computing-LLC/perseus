@@ -92,7 +92,7 @@ def _check_one_service(svc: dict, index: int, timeout: float, cfg: dict) -> tupl
                 status = f"❌ {first_line}" if first_line else f"❌ exit {result.returncode}"
         except subprocess.TimeoutExpired:
             status = "⚠ timeout"
-        except Exception as exc:
+        except subprocess.SubprocessError as exc:
             status = f"⚠ {exc}"
         return index, f"| {name} | {status} | — |"
     else:
@@ -109,7 +109,21 @@ def resolve_services(block_content: str, cfg: dict) -> str:
     timeout = float(cfg["render"].get("services_timeout_s", 3))
     parallel = bool(cfg["render"].get("parallel_services", False))
     try:
-        services = yaml.safe_load(block_content) or []
+        # Use safe_load_all when the block contains YAML document separators
+        # (---) so multi-document streams parse correctly. Otherwise, use
+        # safe_load to preserve the existing mapping-format detection.
+        if "\\n---" in block_content or block_content.startswith("---"):
+            docs = list(yaml.safe_load_all(block_content))
+            services = []
+            for doc in docs:
+                if isinstance(doc, list):
+                    services.extend(doc)
+                elif isinstance(doc, dict):
+                    services.append(doc)
+            if not services:
+                services = []
+        else:
+            services = yaml.safe_load(block_content) or []
     except yaml.YAMLError as e:
         return f"> ⚠ Invalid @services YAML: {e}"
 
