@@ -43,6 +43,7 @@ from gauntlet_lib import (
     wait_for_file,
     verify_cache_integrity,
     compute_cost_projection,
+    budget_gate_threshold,
 )
 
 
@@ -646,6 +647,11 @@ class GauntletOrchestrator:
                      threshold="healthy == True",
                      threshold_fn=_nfs_gate,
                      required_phase=0)
+
+        gr.add_gate("Phase time budgets", severity="hard",
+                     threshold="within_time_budget == True",
+                     threshold_fn=budget_gate_threshold,
+                     category="performance")
 
         gr.add_gate("Phase 1: Zero failures (cold baseline)", severity="hard",
                      threshold="failures == 0",

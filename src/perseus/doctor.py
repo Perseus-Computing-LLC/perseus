@@ -637,6 +637,16 @@ def cmd_doctor(args, cfg) -> int:
     """Run readiness checks and report status."""
     workspace = Path(getattr(args, "workspace", None) or os.getcwd()).resolve()
     use_json = getattr(args, "json", False)
+    try:
+        cfg = load_config(workspace)
+    except Exception:
+        # Keep going so doctor can report config/parser failures as checks.
+        pass
+
+    cfg = dict(cfg)
+    cfg["render"] = dict(cfg.get("render", {}))
+    if cfg["render"].get("cache_dir") == DEFAULT_CONFIG.get("render", {}).get("cache_dir"):
+        cfg["render"]["cache_dir"] = str(PERSEUS_HOME / "cache")
 
     results: list[DoctorResult] = []
     for check_fn in _DOCTOR_CHECKS:

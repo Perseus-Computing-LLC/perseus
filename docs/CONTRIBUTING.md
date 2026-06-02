@@ -125,7 +125,7 @@ Tests live under `tests/`. There's one file per subsystem. Add new tests to the 
 
 ## Running the Perseus Gauntlet
 
-The Perseus Gauntlet (`benchmark/gauntlet/`) is the enterprise torture test — 12 orchestrated phases, 25 role profiles, and 14 registered gates. It requires Linux (the orchestrator uses Linux-specific filesystem features for adversarial scenarios). Smoke mode takes ~20 minutes; full mode takes ~6–8 hours. Full certification requires no failed hard gates, no skipped hard gates, and no unexplained budget overruns.
+The Perseus Gauntlet (`benchmark/gauntlet/`) is the enterprise torture test — 12 orchestrated phases, 25 role profiles, and 15 registered gates. It requires Linux (the orchestrator uses Linux-specific filesystem features for adversarial scenarios). Smoke mode takes ~20 minutes; full mode takes ~6–8 hours. Full certification requires no failed hard gates, no skipped hard gates, and no unexplained budget overruns.
 
 ### On Linux
 

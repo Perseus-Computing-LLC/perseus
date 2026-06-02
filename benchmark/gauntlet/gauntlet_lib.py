@@ -369,6 +369,42 @@ class GateRunner:
         }
 
 
+def phase_budget_overruns(phase_results: dict[str, Any] | list[dict[str, Any]]) -> list[dict]:
+    """Return phase time-budget overruns from a gauntlet result collection."""
+    if isinstance(phase_results, dict):
+        phases = phase_results.values()
+    else:
+        phases = phase_results
+
+    overruns: list[dict] = []
+    for phase in phases:
+        if not isinstance(phase, dict):
+            continue
+        if phase.get("within_time_budget") is not False:
+            continue
+
+        duration_s = phase.get("duration_s")
+        max_duration_s = phase.get("max_duration_s")
+        item = {
+            "phase": phase.get("phase", "?"),
+            "name": phase.get("name", ""),
+            "duration_s": round(duration_s, 3) if isinstance(duration_s, (int, float)) else duration_s,
+            "max_duration_s": round(max_duration_s, 3) if isinstance(max_duration_s, (int, float)) else max_duration_s,
+        }
+        if isinstance(duration_s, (int, float)) and isinstance(max_duration_s, (int, float)):
+            item["over_by_s"] = round(max(0.0, duration_s - max_duration_s), 3)
+        overruns.append(item)
+    return overruns
+
+
+def budget_gate_threshold(phase_results: dict[str, Any] | list[dict[str, Any]]) -> tuple[bool, Any]:
+    """Gate threshold: every executed phase must stay within its time budget."""
+    overruns = phase_budget_overruns(phase_results)
+    if overruns:
+        return False, overruns
+    return True, "all executed phases within time budget"
+
+
 # ─── NFS Probe
 
 class TelemetrySink:
@@ -506,8 +542,8 @@ def generate_final_report(
     lines: list[str] = [
         f"# Perseus Gauntlet — Final Report",
         f"",
-        f"**Version:** {GAUNTLET_VERSION}  ",
-        f"**Date:** {timestamp_iso()}  ",
+        f"**Version:** {GAUNTLET_VERSION}",
+        f"**Date:** {timestamp_iso()}",
         f"",
         f"## Summary",
         f"",
@@ -516,17 +552,17 @@ def generate_final_report(
         f"| Phases | {len(phase_results)} |",
         f"| Gates passed | {gate_report['passed']}/{gate_report.get('active_total', gate_report['total'])} active |",
         f"| Gates skipped | {gate_report.get('skipped_count', 0)} |",
-        f"| Overall | {'**PASS**  ' if gate_report['pass'] else '**FAIL**  '} |",
+        f"| Overall | {'**PASS**' if gate_report['pass'] else '**FAIL**'} |",
         f"",
     ]
 
     if meta:
         lines.extend(
             [
-                f"**Host:** {meta.get('hostname', 'unknown')}  ",
-                f"**Perseus:** {meta.get('perseus_version', '?')}  ",
-                f"**Developers per node:** {meta.get('developers_per_node', '?')}  ",
-                f"**Nodes:** {meta.get('nodes', '?')}  ",
+                f"**Host:** {meta.get('hostname', 'unknown')}",
+                f"**Perseus:** {meta.get('perseus_version', '?')}",
+                f"**Developers per node:** {meta.get('developers_per_node', '?')}",
+                f"**Nodes:** {meta.get('nodes', '?')}",
             ]
         )
 

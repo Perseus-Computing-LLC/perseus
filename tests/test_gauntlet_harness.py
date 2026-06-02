@@ -9,7 +9,7 @@ from types import SimpleNamespace
 GAUNTLET_DIR = Path(__file__).resolve().parents[1] / "benchmark" / "gauntlet"
 sys.path.insert(0, str(GAUNTLET_DIR))
 
-from gauntlet_lib import GateRunner, _compute_gauntlet_score  # noqa: E402
+from gauntlet_lib import GateRunner, _compute_gauntlet_score, budget_gate_threshold  # noqa: E402
 import gauntlet_adversarial  # noqa: E402
 import gauntlet_node  # noqa: E402
 
@@ -53,6 +53,43 @@ def test_skipped_hard_gate_does_not_score_as_perfect_certification():
     )
 
     assert score == 0.0
+
+
+def test_budget_overrun_is_hard_gate_failure():
+    runner = GateRunner()
+    runner.add_gate(
+        "Phase time budgets",
+        severity="hard",
+        threshold="within_time_budget == True",
+        threshold_fn=budget_gate_threshold,
+        category="performance",
+    )
+
+    results = runner.evaluate_all({
+        "phase_2": {
+            "phase": 2,
+            "name": "Warm Baseline",
+            "duration_s": 902.4,
+            "max_duration_s": 900,
+            "within_time_budget": False,
+        }
+    })
+    report = GateRunner.make_report(results)
+
+    assert report["pass"] is False
+    assert report["hard_failed"][0]["name"] == "Phase time budgets"
+    assert report["hard_failed"][0]["observed"][0]["over_by_s"] == 2.4
+    assert report["by_category"]["performance"]["failed"] == 1
+
+
+def test_budget_gate_passes_when_all_executed_phases_are_in_budget():
+    passed, observed = budget_gate_threshold({
+        "phase_1": {"phase": 1, "within_time_budget": True},
+        "phase_2": {"phase": 2},
+    })
+
+    assert passed is True
+    assert observed == "all executed phases within time budget"
 
 
 def test_render_profile_sets_dangerous_env(monkeypatch, tmp_path):

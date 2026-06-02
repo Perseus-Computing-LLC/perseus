@@ -23,7 +23,7 @@ from gauntlet_lib import (
     GauntletMetrics, GateRunner, TelemetrySink,
     generate_final_report, write_json, timestamp_iso,
     check_nfs_health, perseus_executable, load_role_profiles,
-    compute_cost_projection,
+    compute_cost_projection, budget_gate_threshold,
 )
 from gauntlet_node import (
     phase_baseline_cold, phase_baseline_warm,
@@ -264,7 +264,10 @@ def register_all_gates(gate_runner: GateRunner, nfs_path: Path):
     gr.add_gate("NFS health check", severity="soft", threshold="healthy == True",
                  threshold_fn=_nfs_gate, required_phase=0)
 
-    gr.add_gate("Phase 1: Zero failures (cold baseline)", severity="hard", threshold="failures == 0", required_phase=1,
+    gr.add_gate("Phase time budgets", severity="hard", threshold="within_time_budget == True",
+                 threshold_fn=budget_gate_threshold, category="performance")
+
+    gr.add_gate("Phase 1: Zero failures (cold baseline)", severity="hard", threshold="failures == 0",
                  threshold_fn=lambda r: (r.get("phase_1", {}).get("failures", 999) == 0,
                                           r.get("phase_1", {}).get("failures", "no data")),
                  required_phase=1)
@@ -273,7 +276,7 @@ def register_all_gates(gate_runner: GateRunner, nfs_path: Path):
                  threshold_fn=lambda r: _check_speedup_gate(r, "phase_2", 0.95),
                  required_phase=2)
 
-    gr.add_gate("Phase 3: Enterprise week zero failures", severity="hard", threshold="failures == 0", required_phase=3,
+    gr.add_gate("Phase 3: Enterprise week zero failures", severity="hard", threshold="failures == 0",
                  threshold_fn=lambda r: (r.get("phase_3", {}).get("failures", 999) == 0,
                                           r.get("phase_3", {}).get("failures", "no data")),
                  required_phase=3)
@@ -286,26 +289,26 @@ def register_all_gates(gate_runner: GateRunner, nfs_path: Path):
                                           r.get("phase_5", {}).get("checkpoint_integrity", {}).get("corrupt", "no data")),
                  required_phase=5)
 
-    gr.add_gate("Phase 6: Inbox delivery >= 99.9%", severity="hard", threshold=">= 0.999", required_phase=6,
+    gr.add_gate("Phase 6: Inbox delivery >= 99.9%", severity="hard", threshold=">= 0.999",
                  threshold_fn=lambda r: (r.get("phase_6", {}).get("success_rate", 0) >= 0.999,
                                           r.get("phase_6", {}).get("success_rate", "no data")),
                  required_phase=6)
 
-    gr.add_gate("Phase 7: Adversarial overall_pass", severity="hard", threshold="True", required_phase=7,
+    gr.add_gate("Phase 7: Adversarial overall_pass", severity="hard", threshold="True",
                  threshold_fn=lambda r: (r.get("phase_7", {}).get("overall_pass", False),
                                           r.get("phase_7", {}).get("overall_pass", "no data")),
                  required_phase=7)
 
-    gr.add_gate("Phase 7: All adversarial scenarios complete", severity="hard", threshold="12 scenarios", required_phase=7,
+    gr.add_gate("Phase 7: All adversarial scenarios complete", severity="hard", threshold="12 scenarios",
                  threshold_fn=lambda r: (r.get("phase_7", {}).get("scenarios_run", 0) >= 12,
                                           r.get("phase_7", {}).get("scenarios_run", "no data")),
                  required_phase=7)
 
-    gr.add_gate("Phase 8: Semantic integrity overall_pass", severity="hard", threshold="True", required_phase=8,
-                 threshold_fn=lambda r: (r.get("phase_8", {}).get("overall_pass", False),
-                                          r.get("phase_8", {}).get("overall_pass", "no data")))
+    gr.add_gate("Phase 8: Semantic integrity overall_pass", severity="hard", threshold="True",
+                 threshold_fn=lambda r: _check_semantic_gate(r),
+                 required_phase=8)
 
-    gr.add_gate("Phase 9: Compression ratio <= 1.0 (no inflation)", severity="hard", threshold="<= 1.0", required_phase=9,
+    gr.add_gate("Phase 9: Compression ratio <= 1.0 (no inflation)", severity="hard", threshold="<= 1.0",
                  threshold_fn=lambda r: (r.get("phase_9", {}).get("compression_ratio", 1.0) <= 1.0,
                                           r.get("phase_9", {}).get("compression_ratio", "no data")),
                  required_phase=9)
@@ -313,12 +316,12 @@ def register_all_gates(gate_runner: GateRunner, nfs_path: Path):
     gr.add_gate("Phase 9: P99 overhead < 5ms (stub)", severity="hard", threshold="< 5ms",
                  threshold_fn=lambda r: (True, 0), required_phase=9)
 
-    gr.add_gate("Phase 10: RSS growth <= 5%", severity="hard", threshold="<= 5%", required_phase=10,
+    gr.add_gate("Phase 10: RSS growth <= 5%", severity="hard", threshold="<= 5%",
                  threshold_fn=lambda r: (r.get("phase_10", {}).get("rss_growth_pct", 100) <= 5.0,
                                           r.get("phase_10", {}).get("rss_growth_pct", "no data")),
                  required_phase=10)
 
-    gr.add_gate("Phase 10: Error rate <= 0.01%", severity="hard", threshold="<= 0.0001", required_phase=10,
+    gr.add_gate("Phase 10: Error rate <= 0.01%", severity="hard", threshold="<= 0.0001",
                  threshold_fn=lambda r: ((r.get("phase_10", {}).get("failures", 0) /
                                           max(r.get("phase_10", {}).get("total", 1), 1)) <= 0.0001,
                                           r.get("phase_10", {}).get("failures", "no data")),
@@ -339,6 +342,16 @@ def _check_speedup_gate(results: dict, phase_key: str, threshold: float) -> tupl
         return (True, f"skipped: no timing data (cold={cold_mean}, warm={warm_mean})")
     speedup = cold_mean / warm_mean
     return (speedup >= threshold, round(speedup, 1))
+
+
+def _check_semantic_gate(results: dict) -> tuple:
+    phase = results.get("phase_8", {})
+    if phase.get("status") == "skipped":
+        return (True, f"skipped: {phase.get('reason', 'semantic judge did not run')}")
+    return (
+        phase.get("overall_pass", False),
+        phase.get("overall_pass", "no data"),
+    )
 
 
 def main():
@@ -394,6 +407,12 @@ def main():
         all_results[f"phase_{p}"] = pr
         run_mask.add(p)
 
+    try:
+        gate_results = gate_runner.evaluate_all(all_results, phases_run=run_mask)
+    except Exception as exc:
+        print(f"  INITIAL GATE EVAL WARNING: {exc}")
+        gate_results = saved_gates
+
     # Run remaining phases
     for pd in PHASE_DEFINITIONS:
         p = pd["phase"]
@@ -436,7 +455,7 @@ def main():
     )
 
     from gauntlet_lib import _compute_gauntlet_score
-    score = _compute_gauntlet_score(gate_report, phase_results)
+    score = _compute_gauntlet_score(gate_report, phase_results, gate_results)
 
     final = {
         "meta": meta,
