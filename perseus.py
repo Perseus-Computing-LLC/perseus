@@ -2451,7 +2451,6 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
         return f"> ⚠ @include: could not read `{file_path_str}`: {e}"
 
     # ── File size limit check (byte-counted, not character-counted) ──
-    max_bytes = render_cfg.get("max_include_bytes")
     if max_bytes is not None and len(data) > max_bytes:
         raw = data[:max_bytes].decode(errors="replace").rstrip()
         actual_size = len(data)
@@ -2577,7 +2576,6 @@ def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str
         return f"> ⚠ @read: could not read `{file_path_str}`: {e}"
 
     # ── File size limit check (byte-counted, not character-counted) ──
-    max_bytes = render_cfg.get("max_read_bytes")
     if max_bytes is not None and len(data) > max_bytes:
         content = data[:max_bytes].decode(errors="replace")
         trunc_note = (
@@ -2689,6 +2687,105 @@ def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str
 
 # ──────────────────────────────── @query ──────────────────────────────────────
 
+# ── #139: subprocess tracking for MCP timeout cancellation ───────────────────
+#
+# The MCP _call_tool wrapper enforces a wall-clock deadline via
+# ThreadPoolExecutor.future.result(timeout=...). Pre-1.0.6, that mechanism
+# only abandoned the future — the worker thread continued running, and the
+# subprocess it had spawned ran to completion, leaking CPU and any side
+# effects (network, file writes). Worse, executor.shutdown(wait=True) in a
+# `with` block defeated the entire timeout by blocking on the leaked thread.
+#
+# We now track every active @query subprocess in a module-level list
+# (thread-safe via a mutex) so the MCP wrapper can iterate, identify the
+# subprocess belonging to the abandoned worker, and kill its process group.
+#
+# Design note: we use a list-of-popens rather than threading.local because
+# the killer thread is NOT the worker thread — it's the MCP main thread
+# that needs to reach into the worker thread's subprocess. A list keyed by
+# thread ident gives us that visibility.
+
+_ACTIVE_SUBPROCESSES_LOCK = threading.Lock()
+_ACTIVE_SUBPROCESSES: dict[int, "subprocess.Popen"] = {}
+
+
+def _record_active_subprocess(proc: "subprocess.Popen") -> None:
+    """Register a subprocess as belonging to the current thread."""
+    with _ACTIVE_SUBPROCESSES_LOCK:
+        _ACTIVE_SUBPROCESSES[threading.get_ident()] = proc
+
+
+def _clear_active_subprocess(proc: "subprocess.Popen") -> None:
+    """Unregister a subprocess (called after communicate() returns)."""
+    with _ACTIVE_SUBPROCESSES_LOCK:
+        # Only clear if it's still the one we registered — guards against
+        # a recursive @query nest unregistering its parent's process.
+        tid = threading.get_ident()
+        if _ACTIVE_SUBPROCESSES.get(tid) is proc:
+            del _ACTIVE_SUBPROCESSES[tid]
+
+
+def _kill_subprocess_tree(proc: "subprocess.Popen") -> None:
+    """Kill a subprocess and all descendants (process group on POSIX).
+
+    On POSIX, the subprocess was started with start_new_session=True so it
+    has its own PGID. We send SIGTERM to the group, wait briefly, then
+    SIGKILL stragglers.
+
+    On Windows, we fall back to taskkill /T (kill tree) if available,
+    then proc.kill(). Best-effort — Windows has no exact equivalent.
+    """
+    if proc.poll() is not None:
+        return  # already exited
+    try:
+        if os.name == "nt":
+            try:
+                import subprocess as _sp
+                _sp.run(
+                    ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                    capture_output=True, timeout=3,
+                )
+            except Exception:
+                proc.kill()
+            return
+        # POSIX: kill the process group
+        pgid = os.getpgid(proc.pid)
+        try:
+            os.killpg(pgid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+        # Give children a moment to clean up.
+        for _ in range(20):  # up to 1s
+            if proc.poll() is not None:
+                return
+            time.sleep(0.05)
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except ProcessLookupError:
+            return
+    except Exception:
+        # Last-ditch: kill just the immediate child.
+        try:
+            proc.kill()
+        except Exception:
+            pass
+
+
+def kill_active_subprocess_for_thread(thread_id: int) -> bool:
+    """Kill the subprocess belonging to the given thread, if any.
+
+    Returns True if a subprocess was found and a kill was attempted;
+    False if no subprocess was registered for the thread. Called by
+    mcp._call_tool() when its wall-clock deadline fires.
+    """
+    with _ACTIVE_SUBPROCESSES_LOCK:
+        proc = _ACTIVE_SUBPROCESSES.get(thread_id)
+    if proc is None:
+        return False
+    _kill_subprocess_tree(proc)
+    return True
+
+
 def _unescape_fallback(s: str) -> str:
     """Unescape standard escape sequences without mangling non-ASCII.
 
@@ -2790,14 +2887,53 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
         raw = (raw[:tm_match.start()] + raw[tm_match.end():]).rstrip()
 
     try:
-        result = subprocess.run(
-            cmd,
-            shell=True,
-            executable=shell,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
+        # #139: when invoked under MCP's _call_tool timeout wrapper, the
+        # wrapper needs to kill this subprocess (and any descendants) if
+        # the wall-clock deadline fires. We put the child in its own
+        # process group via start_new_session=True so the wrapper can
+        # os.killpg() the whole tree, and we record the popen handle in
+        # a thread-local that the wrapper inspects.
+        #
+        # On POSIX, start_new_session=True calls setsid() in the child
+        # before exec. The child gets a fresh PGID == its PID. The MCP
+        # wrapper can then os.killpg(pid, SIGTERM) to take down the
+        # whole subprocess tree atomically.
+        #
+        # On Windows, start_new_session has no effect; the wrapper falls
+        # back to popen.kill() which only terminates the direct child.
+        popen_kwargs = {
+            "shell": True,
+            "executable": shell,
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.PIPE,
+            "text": True,
+        }
+        if os.name != "nt":
+            popen_kwargs["start_new_session"] = True
+        proc = subprocess.Popen(cmd, **popen_kwargs)
+        # Stash the popen in the thread-local so an upstream timeout
+        # wrapper (mcp._call_tool) can find and kill it.
+        _record_active_subprocess(proc)
+        try:
+            stdout_raw, stderr_raw = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            _kill_subprocess_tree(proc)
+            try:
+                stdout_raw, stderr_raw = proc.communicate(timeout=2)
+            except subprocess.TimeoutExpired:
+                stdout_raw, stderr_raw = "", ""
+            raise
+        finally:
+            _clear_active_subprocess(proc)
+
+        # Build a CompletedProcess-shaped object for the rest of the
+        # function to consume without refactoring downstream.
+        class _Result:
+            pass
+        result = _Result()
+        result.stdout = stdout_raw or ""
+        result.stderr = stderr_raw or ""
+        result.returncode = proc.returncode
         stdout = (result.stdout or "").rstrip("\n")
         stderr = result.stderr.strip()
         exit_code = result.returncode
@@ -5395,6 +5531,7 @@ def get_default_output_path(fmt_name: str, workspace_dir: str | None = None) -> 
 import concurrent.futures
 import json
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -5625,20 +5762,85 @@ def _call_tool(tool_name: str, arguments: dict, cfg: dict, workspace: Path) -> s
 
     args_str = _build_tool_args_generic(tool_name, arguments)
 
-    # Timeout enforcement across all platforms.
-    # Uses ThreadPoolExecutor instead of signal.SIGALRM (Unix-only, breaks Windows).
+    # #139 — Timeout enforcement across all platforms.
+    #
+    # Pre-1.0.6 used a context-managed ThreadPoolExecutor:
+    #     with ThreadPoolExecutor(max_workers=1) as executor:
+    #         future = executor.submit(...)
+    #         result = future.result(timeout=timeout)
+    #
+    # That had two bugs:
+    #   1. future.result(timeout=) only abandons the future — the worker
+    #      thread (and any subprocess it spawned) kept running.
+    #   2. `with` block calls executor.shutdown(wait=True) on exit, which
+    #      BLOCKS until the abandoned worker finishes — defeating the
+    #      entire timeout mechanism. A 5s timeout on `sleep 600` blocked
+    #      the MCP response for ~600s.
+    #
+    # Fix:
+    #   - Use a non-context-managed executor and call
+    #     shutdown(wait=False, cancel_futures=True) on timeout.
+    #   - Identify the abandoned worker's thread ID and ask query.py to
+    #     kill its tracked subprocess (process group on POSIX, taskkill /T
+    #     on Windows). This makes timeout enforcement actually kill the
+    #     subprocess tree atomically, freeing CPU and any locks held.
+    #   - On success, shutdown(wait=False) is still fine — the worker has
+    #     already returned, so there's nothing to wait for.
     mcp_cfg = cfg.get("mcp", {}) if isinstance(cfg, dict) else {}
     timeout = mcp_cfg.get("tool_timeout_s", DEFAULT_TOOL_TIMEOUT_S)
 
+    # Track the worker thread ident so we can ask query.py to kill its
+    # subprocess on timeout.
+    worker_tid_holder: dict = {}
+    def _wrapped_resolver():
+        worker_tid_holder["tid"] = threading.get_ident()
+        return _call_resolver(spec, args_str, cfg, workspace)
+
+    executor = concurrent.futures.ThreadPoolExecutor(
+        max_workers=1, thread_name_prefix=f"mcp-{tool_name}",
+    )
     try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(_call_resolver, spec, args_str, cfg, workspace)
+        future = executor.submit(_wrapped_resolver)
+        try:
             result = future.result(timeout=timeout)
+        except concurrent.futures.TimeoutError:
+            # Try to kill the in-flight subprocess (if any) belonging to
+            # the worker thread. This is a cross-module reach into
+            # directives.query because that's where the subprocess was
+            # spawned. Best-effort; if query.py isn't loaded or the
+            # worker hadn't started subprocess yet, we just abandon.
+            killed = False
+            tid = worker_tid_holder.get("tid")
+            if tid is not None:
+                # Look up the killer function. In the built single-file
+                # artifact every module's top-level symbol is at the
+                # global scope; in source-tree development we need an
+                # explicit module import. globals() lookup covers both.
+                killer = globals().get("kill_active_subprocess_for_thread")
+                if killer is None:
+                    try:
+                        import perseus.directives.query as _q
+                        killer = getattr(_q, "kill_active_subprocess_for_thread", None)
+                    except ImportError:
+                        killer = None
+                if killer is not None:
+                    try:
+                        killed = bool(killer(tid))
+                    except Exception:
+                        killed = False
+            suffix = " (subprocess killed)" if killed else ""
+            return (
+                f"Error executing {directive_name}: "
+                f"timed out after {timeout}s{suffix}"
+            )
+        except Exception as exc:
+            return f"Error executing {directive_name}: {exc}"
         return result
-    except TimeoutError as exc:
-        return f"Error executing {directive_name}: timed out after {timeout}s"
-    except Exception as exc:
-        return f"Error executing {directive_name}: {exc}"
+    finally:
+        # NEVER wait — on timeout the worker may be stuck for arbitrarily
+        # long, even after we killed its subprocess (cleanup, finally
+        # blocks, retries etc.).
+        executor.shutdown(wait=False, cancel_futures=True)
 
 
 # ── JSON-RPC 2.0 message handling ────────────────────────────────────────────
