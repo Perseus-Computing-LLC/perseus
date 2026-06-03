@@ -145,3 +145,122 @@ def test_stdio_handshake():
     finally:
         proc.stdin.close()
         proc.wait(timeout=5)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# #139 regression: _call_tool timeout must kill the subprocess tree and
+# must not block on executor shutdown
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _mcp_query_cfg() -> dict:
+    """Build a config that allows perseus_query via MCP."""
+    c = cfg()
+    c.setdefault("render", {})["allow_query_shell"] = True
+    c.setdefault("mcp", {})["tool_timeout_s"] = 1
+    c["mcp"]["tool_allowlist"] = ["perseus_query"]
+    return c
+
+
+def test_call_tool_timeout_does_not_block_on_executor_shutdown(tmp_path):
+    """Regression for #139 — pre-1.0.6 used a context-managed executor,
+    so future.result(timeout=…) abandoned the future but executor.shutdown
+    (wait=True) blocked the response until the worker finished. A 1s timeout
+    on a 10s sleep blocked _call_tool for ~10s.
+
+    Post-fix: shutdown(wait=False, cancel_futures=True) is called in a
+    finally block. The response returns within ~timeout seconds, not
+    ~sleep seconds.
+    """
+    c = _mcp_query_cfg()
+
+    start = time.time()
+    result = perseus._call_tool(
+        "perseus_query",
+        {"command": f"sleep 10"},
+        c,
+        tmp_path,
+    )
+    elapsed = time.time() - start
+
+    # Must return promptly. We allow generous headroom (3s) for thread
+    # scheduling + subprocess cleanup, but the bug being tested manifested
+    # as ~10s blocking.
+    assert elapsed < 3.0, (
+        f"_call_tool blocked for {elapsed:.2f}s — executor.shutdown(wait=True) "
+        f"defeated the timeout"
+    )
+    assert "timed out" in result.lower()
+
+
+def test_call_tool_timeout_actually_kills_subprocess(tmp_path):
+    """Regression for #139 — pre-1.0.6 abandoned the worker but the
+    subprocess kept running. After fix, the subprocess tree is killed
+    via os.killpg (POSIX) or taskkill /T (Windows) on timeout.
+    """
+    import os, subprocess, time as _time, uuid
+    if os.name == "nt":
+        pytest.skip("Subprocess-tree kill test is POSIX-specific")
+
+    c = _mcp_query_cfg()
+
+    # Use a unique marker so pgrep can find OUR sleep process without
+    # matching unrelated ones.
+    marker = f"perseus_test_marker_{uuid.uuid4().hex[:8]}"
+    cmd = f"sleep 30 # {marker}"
+
+    start = _time.time()
+    result = perseus._call_tool(
+        "perseus_query",
+        {"command": cmd},
+        c,
+        tmp_path,
+    )
+    elapsed = _time.time() - start
+
+    assert elapsed < 3.0
+    assert "timed out" in result.lower()
+
+    # Wait briefly for the kill signal to propagate, then assert no
+    # zombie sleep process remains.
+    _time.sleep(0.5)
+    pgrep = subprocess.run(
+        ["pgrep", "-f", marker],
+        capture_output=True, text=True,
+    )
+    # pgrep exit code 1 means no matches (good); 0 means matches (bad).
+    if pgrep.returncode == 0:
+        # Cleanup before failing
+        for pid in pgrep.stdout.split():
+            try:
+                os.kill(int(pid), 9)
+            except (ValueError, ProcessLookupError):
+                pass
+        pytest.fail(
+            f"Subprocess(es) still running after timeout: {pgrep.stdout.strip()}"
+        )
+
+    # And the killer hint should be in the result.
+    assert "subprocess killed" in result.lower() or "timed out" in result.lower()
+
+
+def test_call_tool_normal_completion_under_timeout(tmp_path):
+    """Sanity: under-timeout calls still work normally."""
+    c = _mcp_query_cfg()
+    c["mcp"]["tool_timeout_s"] = 5
+    result = perseus._call_tool(
+        "perseus_query",
+        {"command": "echo hello-mcp"},
+        c,
+        tmp_path,
+    )
+    assert "hello-mcp" in result
+    assert "timed out" not in result.lower()
+
+
+def test_kill_active_subprocess_for_thread_returns_false_when_no_subprocess():
+    """The killer is safe to call when no subprocess is registered."""
+    import threading
+    fake_tid = threading.get_ident() + 12345  # ident no thread will use
+    result = perseus.kill_active_subprocess_for_thread(fake_tid)
+    assert result is False
