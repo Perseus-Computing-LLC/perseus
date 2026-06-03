@@ -405,6 +405,17 @@ def budget_gate_threshold(phase_results: dict[str, Any] | list[dict[str, Any]]) 
     return True, "all executed phases within time budget"
 
 
+def rss_growth_threshold(phase_results: dict[str, Any]) -> tuple[bool, Any]:
+    """Gate threshold: Phase 10 must have a real RSS signal and stay <= 5%."""
+    phase = phase_results.get("phase_10", {}) if isinstance(phase_results, dict) else {}
+    if not phase.get("rss_measurement_available", False):
+        return False, "no data"
+    growth = phase.get("rss_growth_pct")
+    if not isinstance(growth, (int, float)):
+        return False, "no data" if growth is None else growth
+    return growth <= 5.0, growth
+
+
 # ─── NFS Probe
 
 class TelemetrySink:
@@ -538,6 +549,9 @@ def generate_final_report(
 ) -> str:
     """Generate a human-readable gauntlet report in markdown."""
     gate_report = GateRunner.make_report(gate_results)
+    is_smoke = bool(meta and meta.get("duration") == "smoke")
+    run_pass = len(gate_report.get("failed", [])) == 0
+    overall_pass = run_pass if is_smoke else gate_report["pass"]
 
     lines: list[str] = [
         f"# Perseus Gauntlet — Final Report",
@@ -552,7 +566,7 @@ def generate_final_report(
         f"| Phases | {len(phase_results)} |",
         f"| Gates passed | {gate_report['passed']}/{gate_report.get('active_total', gate_report['total'])} active |",
         f"| Gates skipped | {gate_report.get('skipped_count', 0)} |",
-        f"| Overall | {'**PASS**' if gate_report['pass'] else '**FAIL**'} |",
+        f"| Overall | {'**PASS**' if overall_pass else '**FAIL**'} |",
         f"",
     ]
 
@@ -565,6 +579,13 @@ def generate_final_report(
                 f"**Nodes:** {meta.get('nodes', '?')}",
             ]
         )
+        if is_smoke:
+            lines.extend(
+                [
+                    f"**Smoke run:** {'PASS' if run_pass else 'FAIL'}",
+                    f"**Full certification:** {'PASS' if gate_report['pass'] else 'not evaluated'}",
+                ]
+            )
 
     # Phase results table
     lines.extend(

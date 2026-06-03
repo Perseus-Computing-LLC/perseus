@@ -372,7 +372,9 @@ def _mneme_index_document(cfg: dict, file_path: Path) -> bool:
         now = datetime.now().astimezone().isoformat(timespec="seconds")
         file_path_str = str(file_path.resolve())
 
-        # Upsert
+        # Upsert. Delete by source_path as well as id so changing the
+        # frontmatter id in-place cannot leave the previous id searchable.
+        conn.execute("DELETE FROM mneme_fts WHERE source_path = ?", (file_path_str,))
         conn.execute("DELETE FROM mneme_fts WHERE id = ?", (doc["id"],))
         conn.execute("DELETE FROM mneme_files WHERE path = ?", (file_path_str,))
         conn.execute(

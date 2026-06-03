@@ -23,7 +23,7 @@ from gauntlet_lib import (
     GauntletMetrics, GateRunner, TelemetrySink,
     generate_final_report, write_json, timestamp_iso,
     check_nfs_health, perseus_executable, load_role_profiles,
-    compute_cost_projection, budget_gate_threshold,
+    compute_cost_projection, budget_gate_threshold, rss_growth_threshold,
 )
 from gauntlet_node import (
     phase_baseline_cold, phase_baseline_warm,
@@ -317,8 +317,7 @@ def register_all_gates(gate_runner: GateRunner, nfs_path: Path):
                  threshold_fn=lambda r: (True, 0), required_phase=9)
 
     gr.add_gate("Phase 10: RSS growth <= 5%", severity="hard", threshold="<= 5%",
-                 threshold_fn=lambda r: (r.get("phase_10", {}).get("rss_growth_pct", 100) <= 5.0,
-                                          r.get("phase_10", {}).get("rss_growth_pct", "no data")),
+                 threshold_fn=rss_growth_threshold,
                  required_phase=10)
 
     gr.add_gate("Phase 10: Error rate <= 0.01%", severity="hard", threshold="<= 0.0001",

@@ -8753,7 +8753,9 @@ def _mneme_index_document(cfg: dict, file_path: Path) -> bool:
         now = datetime.now().astimezone().isoformat(timespec="seconds")
         file_path_str = str(file_path.resolve())
 
-        # Upsert
+        # Upsert. Delete by source_path as well as id so changing the
+        # frontmatter id in-place cannot leave the previous id searchable.
+        conn.execute("DELETE FROM mneme_fts WHERE source_path = ?", (file_path_str,))
         conn.execute("DELETE FROM mneme_fts WHERE id = ?", (doc["id"],))
         conn.execute("DELETE FROM mneme_files WHERE path = ?", (file_path_str,))
         conn.execute(
@@ -12515,7 +12517,7 @@ def _doctor_check_context_file(cfg: dict, workspace: Path) -> DoctorResult:
 
 def _doctor_check_render_shell(cfg: dict, workspace: Path) -> DoctorResult:
     """Informational: is @query shell execution enabled?"""
-    enabled = cfg.get("render", {}).get("allow_query_shell", True)
+    enabled = cfg.get("render", {}).get("allow_query_shell", False)
     val = f"allow_query_shell={str(enabled).lower()}"
     return DoctorResult("render_shell", "ok", "render: shell execution", val, "")
 
@@ -12870,8 +12872,8 @@ def _effective_profile_summary(cfg: dict) -> dict:
         },
         "effective": {
             "render": {
-                "allow_query_shell": bool(render_cfg.get("allow_query_shell", True)),
-                "allow_agent_shell": bool(render_cfg.get("allow_agent_shell", True)),
+                "allow_query_shell": bool(render_cfg.get("allow_query_shell", False)),
+                "allow_agent_shell": bool(render_cfg.get("allow_agent_shell", False)),
                 "allow_services_command": bool(render_cfg.get("allow_services_command", False)),
                 "allow_outside_workspace": bool(render_cfg.get("allow_outside_workspace", False)),
             },

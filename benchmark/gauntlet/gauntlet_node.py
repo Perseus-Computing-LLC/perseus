@@ -451,13 +451,17 @@ def phase_sustained_torture(
             "cv": statistics.stdev(sorted_times) / mean if n >= 2 and mean > 0 else 0.0,
             "total_s": time.time() - t_start,
         })
+    valid_rss_samples = [
+        sample for sample in rss_samples
+        if isinstance(sample, int) and sample > 0
+    ]
     agg["rss_samples"] = rss_samples
     agg["rss_growth_pct"] = (
-        ((rss_samples[-1] - rss_samples[0]) / rss_samples[0] * 100)
-        if len(rss_samples) >= 2 and rss_samples[0] > 0
+        ((valid_rss_samples[-1] - valid_rss_samples[0]) / valid_rss_samples[0] * 100)
+        if len(valid_rss_samples) >= 2
         else None  # None signals "unsupported platform / insufficient samples" — not zero
     )
-    agg["rss_measurement_available"] = len(rss_samples) >= 2
+    agg["rss_measurement_available"] = len(valid_rss_samples) >= 2
     return agg
 
 

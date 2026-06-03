@@ -44,6 +44,7 @@ from gauntlet_lib import (
     verify_cache_integrity,
     compute_cost_projection,
     budget_gate_threshold,
+    rss_growth_threshold,
 )
 
 
@@ -70,6 +71,30 @@ PHASE_DEFINITIONS = [
 ]
 
 
+def _select_smoke_role_profiles(role_profiles: list[dict], max_profiles: int = 5) -> list[dict]:
+    """Return lightweight profiles for smoke runs.
+
+    Full gauntlet runs intentionally exercise npm-backed profiles. Smoke mode is
+    a plumbing check and should not spend minutes timing out `npx` downloads on
+    machines without npm registry access.
+    """
+    eligible: list[dict] = []
+    for profile in role_profiles:
+        try:
+            text = Path(profile["path"]).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if "npx " in text:
+            continue
+        eligible.append(profile)
+
+    pool = eligible or role_profiles
+    return sorted(
+        pool,
+        key=lambda item: (int(item.get("directive_count", 0)), str(item.get("name", ""))),
+    )[:max_profiles]
+
+
 # ─── Orchestrator ─────────────────────────────────────────────────────────────
 
 class GauntletOrchestrator:
@@ -92,7 +117,7 @@ class GauntletOrchestrator:
         self.output_dir = output_dir or GAUNTLET_DIR
         self.phase_results: list[dict] = []
         self.gate_results: list[dict] = []
-        self.telemetry = TelemetrySink(GAUNTLET_DIR / "gauntlet_telemetry.ndjson")
+        self.telemetry = TelemetrySink(self.output_dir / "gauntlet_telemetry.ndjson")
         self.gate_runner = GateRunner()
         self.meta: dict = {}
 
@@ -244,9 +269,13 @@ class GauntletOrchestrator:
         print("  Running gauntlet setup...")
         import subprocess as _sp
         setup_script = GAUNTLET_DIR / "gauntlet_setup.py"
+        setup_env = os.environ.copy()
+        if self.duration == "smoke":
+            setup_env["GAUNTLET_SKIP_NPX_PREWARM"] = "1"
+            setup_env["GAUNTLET_SMOKE"] = "1"
         try:
             result = _sp.run([sys.executable, "-u", str(setup_script)],
-                            timeout=120, capture_output=False)
+                            timeout=120, capture_output=False, env=setup_env)
         except _sp.TimeoutExpired:
             # Setup overran its budget — fail pre-flight cleanly with a specific
             # message and exit code rather than letting TimeoutExpired bubble up
@@ -741,11 +770,7 @@ class GauntletOrchestrator:
 
         gr.add_gate("Phase 10: RSS growth <= 5%", severity="hard",
                      threshold="<= 5%",
-                     threshold_fn=lambda r: (
-                         (r.get("phase_10", {}).get("rss_growth_pct") or 0) <= 5.0,
-                         r.get("phase_10", {}).get("rss_growth_pct", "no data"),
-                     ) if r.get("phase_10", {}).get("rss_measurement_available", False)
-                     else (False, "no data"),
+                     threshold_fn=rss_growth_threshold,
                      required_phase=10)
 
         gr.add_gate("Phase 10: Error rate <= 0.01%", severity="hard",
@@ -810,6 +835,9 @@ class GauntletOrchestrator:
 
         # Gate runner final report
         gate_report = GateRunner.make_report(self.gate_results)
+        run_pass = len(gate_report.get("failed", [])) == 0
+        certification_pass = gate_report["pass"]
+        overall_pass = run_pass if self.duration == "smoke" else certification_pass
 
         # Cost projection
         total_directives = sum(
@@ -825,7 +853,9 @@ class GauntletOrchestrator:
             "gate_results": self.gate_results,
             "gate_report": gate_report,
             "cost_projection": cost_projection,
-            "overall_pass": gate_report["pass"],
+            "run_pass": run_pass,
+            "certification_pass": certification_pass,
+            "overall_pass": overall_pass,
             "score": None,  # computed below
         }
 
@@ -844,6 +874,7 @@ class GauntletOrchestrator:
         (self.output_dir / "gauntlet_score.txt").write_text(
             f"Perseus Gauntlet Score: {final['score']:.1f}/100\n"
             f"Overall: {'PASS' if final['overall_pass'] else 'FAIL'}\n"
+            f"Full certification: {'PASS' if final['certification_pass'] else 'not evaluated'}\n"
         )
 
         self.telemetry.close()
@@ -859,6 +890,23 @@ class GauntletOrchestrator:
 
 
 # ─── CLI entry point ──────────────────────────────────────────────────────────
+
+def _gauntlet_platform_warning(duration: str, platform: str = sys.platform) -> str | None:
+    """Return a platform warning, or None when the requested run is supported."""
+    if platform == "linux":
+        return None
+    if duration == "smoke":
+        return (
+            f"Gauntlet smoke mode running on {platform}. "
+            "Full adversarial mode remains Linux-only."
+        )
+    return (
+        f"Gauntlet full mode is Linux-only — this host is {platform}. "
+        "The harness uses os.fork (adversarial phases), /proc RSS sampling "
+        "(sustained torture), os.path.ismount (NFS health), and signal kills. "
+        "Run the full gauntlet on a Linux host or in a Linux container."
+    )
+
 
 def main():
     import argparse
@@ -885,16 +933,11 @@ def main():
     # Propagate render timeout to gauntlet_node via env var
     os.environ["GAUNTLET_RENDER_TIMEOUT"] = str(args.render_timeout)
 
-    # Gauntlet is Linux-only — uses os.fork, /proc RSS, signal, os.path.ismount
-    if sys.platform != "linux":
-        print(
-            f"Gauntlet is Linux-only — this host is {sys.platform}. "
-            "The harness uses os.fork (adversarial phases), /proc RSS sampling "
-            "(sustained torture), os.path.ismount (NFS health), and signal kills. "
-            "Run the gauntlet on a Linux host or in a Linux container.",
-            file=sys.stderr,
-        )
-        sys.exit(0)
+    platform_warning = _gauntlet_platform_warning(args.duration)
+    if platform_warning:
+        print(platform_warning, file=sys.stderr)
+        if args.duration != "smoke":
+            sys.exit(0)
 
     nodes = [n.strip() for n in args.nodes.split(",") if n.strip()]
     nfs_path = Path(args.nfs_path)
@@ -903,6 +946,8 @@ def main():
 
     # Load role profiles
     role_profiles = load_role_profiles(roles_dir)
+    if args.duration == "smoke":
+        role_profiles = _select_smoke_role_profiles(role_profiles)
 
     if not role_profiles:
         print(f"ERROR: No role profiles found in {roles_dir}")

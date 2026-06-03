@@ -294,6 +294,35 @@ class TestDocumentCRUD:
         assert len(results) >= 1
         assert results[0]["title"] == "Updated Title"
 
+    def test_index_document_prunes_old_id_when_frontmatter_id_changes(self, tmp_path):
+        c = _index_cfg(tmp_path)
+        vault = Path(c["memory"]["mneme_vault_path"])
+        file_path = _write_memory(vault, "old_id", "Obsolete Title", "Obsolete summary")
+        perseus._mneme_index_document(c, file_path)
+
+        file_path.write_text("""---
+schema: 2
+id: new_id
+title: New Title
+type: decision
+summary: New summary
+scope: test
+created: '2026-05-27'
+tags: [test]
+---
+New body
+""")
+        assert perseus._mneme_index_document(c, file_path)
+
+        conn = perseus._mneme_open_index(c)
+        old_results = perseus._mneme_search(conn, "obsolete", k=5)
+        new_results = perseus._mneme_search(conn, "new", k=5)
+        conn.close()
+
+        assert old_results == []
+        assert len(new_results) >= 1
+        assert new_results[0]["id"] == "new_id"
+
     def test_delete_document_removes(self, tmp_path):
         c = _index_cfg(tmp_path)
         vault = Path(c["memory"]["mneme_vault_path"])
