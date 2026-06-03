@@ -1540,12 +1540,63 @@ def _audit_rotate_if_needed(path: Path, max_bytes: int) -> None:
         return
 
 
+# Audit field names that NEVER get redacted (they are structural metadata,
+# never user-supplied secrets). Adding to this allowlist is a security
+# decision — review carefully.
+_AUDIT_NEVER_REDACT_KEYS = frozenset({
+    "ts", "event_type", "perseus_version", "pid",
+    "directive", "exit_code", "duration_ms", "bytes_in", "bytes_out",
+    "schema_ref", "schema_ok", "policy", "decision", "trust_profile",
+    "permission", "session_id", "workspace_hash",
+})
+
+
+def _audit_redact_value(value, cfg):
+    """Apply render-time redaction rules to an audit field value.
+
+    Regression for #137: pre-1.0.6, `audit_event` wrote field values verbatim
+    to ``audit_log.jsonl``. When a user wrote
+    ``@query "curl -H 'Authorization: Bearer ghp_…'"``, the rendered output
+    was correctly redacted, but the audit log retained the raw bearer token
+    forever. We now pipe every string-shaped audit field through
+    ``redact_text`` before writing.
+
+    Lists, dicts, and nested structures are walked recursively. Non-string
+    leaves (ints, bools, None) pass through. If ``redact_text`` is unavailable
+    or raises (older builds, malformed rules), we fall back to the raw value
+    rather than dropping the audit entry — observability beats perfect
+    redaction here, and rendered output is the primary defense.
+    """
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, str):
+        try:
+            redacted, _ = redact_text(value, cfg)
+            return redacted
+        except Exception:
+            return value
+    if isinstance(value, dict):
+        return {k: _audit_redact_value(v, cfg) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_audit_redact_value(v, cfg) for v in value]
+    # Bytes, sets, custom objects — stringify then redact.
+    try:
+        as_str = str(value)
+        redacted, _ = redact_text(as_str, cfg)
+        return redacted
+    except Exception:
+        return repr(value)
+
+
 def audit_event(cfg: dict, event_type: str, **fields) -> None:
     """Append a structured audit event to the configured JSONL log.
 
     AC #1: sensitive operations emit structured events.
     AC #4: logging failures warn but do not break normal render.
     AC #5: callers can disable via `audit.enabled = false`.
+    AC #6 (1.0.6, #137): user-supplied field values are passed through the
+        same redaction rules used for render output. Structural metadata
+        keys (in ``_AUDIT_NEVER_REDACT_KEYS``) are exempt.
 
     Caller passes any JSON-serializable fields. We always stamp:
         ts        — UTC ISO-8601
@@ -1562,7 +1613,12 @@ def audit_event(cfg: dict, event_type: str, **fields) -> None:
         "perseus_version": _PERSEUS_VERSION,
         "pid": os.getpid(),
     }
+    # Allow operators to opt out of audit redaction (e.g. for forensic mode
+    # where the audit log is itself the secured artifact). Default ON.
+    redact_audit = bool(audit_cfg.get("redact_fields", True))
     for k, v in fields.items():
+        if redact_audit and k not in _AUDIT_NEVER_REDACT_KEYS:
+            v = _audit_redact_value(v, cfg)
         # Defensive: stringify any non-JSON-safe value rather than crashing.
         try:
             json.dumps(v)
@@ -2451,7 +2507,6 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
         return f"> ⚠ @include: could not read `{file_path_str}`: {e}"
 
     # ── File size limit check (byte-counted, not character-counted) ──
-    max_bytes = render_cfg.get("max_include_bytes")
     if max_bytes is not None and len(data) > max_bytes:
         raw = data[:max_bytes].decode(errors="replace").rstrip()
         actual_size = len(data)
@@ -2577,7 +2632,6 @@ def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str
         return f"> ⚠ @read: could not read `{file_path_str}`: {e}"
 
     # ── File size limit check (byte-counted, not character-counted) ──
-    max_bytes = render_cfg.get("max_read_bytes")
     if max_bytes is not None and len(data) > max_bytes:
         content = data[:max_bytes].decode(errors="replace")
         trunc_note = (
@@ -2805,14 +2859,22 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
         if exit_code != 0:
             if fallback is not None:
                 return fallback
-            header = f"> ⚠ `@query` exited {exit_code}: `{cmd}`\n\n"
-            body = stdout or stderr or "(no output)"
-            return header + f"```{lang}\n{body}\n```"
+            # #137: redact secrets out of `cmd` and `stderr` before interpolating
+            # them into render output. Without this, a command like
+            # `@query "curl -H 'Authorization: Bearer ghp_…'"` leaks the bearer
+            # token in the exit-nonzero header. Render-time redaction only runs
+            # later in the pipeline and only on the final assembled output, but
+            # by then this string has been logged elsewhere.
+            safe_cmd, _ = redact_text(cmd, cfg)
+            safe_body, _ = redact_text(stdout or stderr or "(no output)", cfg)
+            header = f"> ⚠ `@query` exited {exit_code}: `{safe_cmd}`\n\n"
+            return header + f"```{lang}\n{safe_body}\n```"
 
         if not stdout:
             if fallback is not None:
                 return fallback
-            return f"> (no output from `{cmd}`)"
+            safe_cmd, _ = redact_text(cmd, cfg)
+            return f"> (no output from `{safe_cmd}`)"
 
         # Apply stdout size cap (default 256 KB).
         # Truncate at the nearest preceding newline to avoid mid-line cuts.
@@ -2847,11 +2909,14 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
     except subprocess.TimeoutExpired:
         if fallback is not None:
             return fallback
-        return f"> ⚠ `@query` timed out ({timeout}s): `{cmd}`"
+        safe_cmd, _ = redact_text(cmd, cfg)
+        return f"> ⚠ `@query` timed out ({timeout}s): `{safe_cmd}`"
     except Exception as exc:
         if fallback is not None:
             return fallback
-        return f"> ⚠ `@query` error: {exc}"
+        # exc.args often includes argv[0] which contains the full cmd; redact.
+        safe_err, _ = redact_text(str(exc), cfg)
+        return f"> ⚠ `@query` error: {safe_err}"
 
 
 def _guess_lang(cmd: str) -> str:
