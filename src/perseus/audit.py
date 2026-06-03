@@ -78,12 +78,63 @@ def _audit_rotate_if_needed(path: Path, max_bytes: int) -> None:
         return
 
 
+# Audit field names that NEVER get redacted (they are structural metadata,
+# never user-supplied secrets). Adding to this allowlist is a security
+# decision — review carefully.
+_AUDIT_NEVER_REDACT_KEYS = frozenset({
+    "ts", "event_type", "perseus_version", "pid",
+    "directive", "exit_code", "duration_ms", "bytes_in", "bytes_out",
+    "schema_ref", "schema_ok", "policy", "decision", "trust_profile",
+    "permission", "session_id", "workspace_hash",
+})
+
+
+def _audit_redact_value(value, cfg):
+    """Apply render-time redaction rules to an audit field value.
+
+    Regression for #137: pre-1.0.6, `audit_event` wrote field values verbatim
+    to ``audit_log.jsonl``. When a user wrote
+    ``@query "curl -H 'Authorization: Bearer ghp_…'"``, the rendered output
+    was correctly redacted, but the audit log retained the raw bearer token
+    forever. We now pipe every string-shaped audit field through
+    ``redact_text`` before writing.
+
+    Lists, dicts, and nested structures are walked recursively. Non-string
+    leaves (ints, bools, None) pass through. If ``redact_text`` is unavailable
+    or raises (older builds, malformed rules), we fall back to the raw value
+    rather than dropping the audit entry — observability beats perfect
+    redaction here, and rendered output is the primary defense.
+    """
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, str):
+        try:
+            redacted, _ = redact_text(value, cfg)
+            return redacted
+        except Exception:
+            return value
+    if isinstance(value, dict):
+        return {k: _audit_redact_value(v, cfg) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_audit_redact_value(v, cfg) for v in value]
+    # Bytes, sets, custom objects — stringify then redact.
+    try:
+        as_str = str(value)
+        redacted, _ = redact_text(as_str, cfg)
+        return redacted
+    except Exception:
+        return repr(value)
+
+
 def audit_event(cfg: dict, event_type: str, **fields) -> None:
     """Append a structured audit event to the configured JSONL log.
 
     AC #1: sensitive operations emit structured events.
     AC #4: logging failures warn but do not break normal render.
     AC #5: callers can disable via `audit.enabled = false`.
+    AC #6 (1.0.6, #137): user-supplied field values are passed through the
+        same redaction rules used for render output. Structural metadata
+        keys (in ``_AUDIT_NEVER_REDACT_KEYS``) are exempt.
 
     Caller passes any JSON-serializable fields. We always stamp:
         ts        — UTC ISO-8601
@@ -100,7 +151,12 @@ def audit_event(cfg: dict, event_type: str, **fields) -> None:
         "perseus_version": _PERSEUS_VERSION,
         "pid": os.getpid(),
     }
+    # Allow operators to opt out of audit redaction (e.g. for forensic mode
+    # where the audit log is itself the secured artifact). Default ON.
+    redact_audit = bool(audit_cfg.get("redact_fields", True))
     for k, v in fields.items():
+        if redact_audit and k not in _AUDIT_NEVER_REDACT_KEYS:
+            v = _audit_redact_value(v, cfg)
         # Defensive: stringify any non-JSON-safe value rather than crashing.
         try:
             json.dumps(v)
