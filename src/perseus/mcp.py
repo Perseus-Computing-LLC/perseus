@@ -187,8 +187,48 @@ def _build_tool_args_generic(tool_name: str, arguments: dict) -> str:
     return " ".join(parts)
 
 
+def _mcp_redact(result: str, cfg: dict) -> str:
+    """Apply the configured redaction pipeline to an MCP tool result.
+
+    #166 (v1.0.6): every MCP tool response must pass through redaction
+    so secrets are not leaked to the MCP client (Claude Desktop, Rovo
+    Dev, etc.). Before 1.0.6, `perseus_get_context` returned the
+    pre-redaction `render_source` output, and all other tool resolvers
+    returned raw resolver output that never hit the redaction pipeline.
+
+    Returns the original string unchanged if:
+      - `redaction.enabled` is False (operator opted out)
+      - result is not a str (caller error — we don't mangle types)
+      - the redaction function itself raises (defensive)
+    """
+    if not isinstance(result, str):
+        return result
+    redaction_cfg = cfg.get("redaction", {}) if isinstance(cfg, dict) else {}
+    if not redaction_cfg.get("enabled", True):
+        return result
+    redactor = globals().get("redact_text")
+    if redactor is None:
+        try:
+            from perseus.redaction import redact_text as _rt
+            redactor = _rt
+        except ImportError:
+            return result
+    try:
+        redacted, _counts = redactor(result, cfg)
+        return redacted
+    except Exception:
+        return result
+
+
 def _call_tool(tool_name: str, arguments: dict, cfg: dict, workspace: Path) -> str:
-    """Resolve an MCP tool call through the Perseus directive resolver."""
+    """Resolve an MCP tool call through the Perseus directive resolver.
+
+    #166 (v1.0.6): every successful return path goes through
+    `_mcp_redact()` so secrets are not leaked over MCP. Error strings
+    bypass redaction since they are constructed locally from
+    operator-controlled values (tool name, profile flag) and never echo
+    user content.
+    """
     allowed, reason = _mcp_tool_allowed(tool_name, cfg)
     if not allowed:
         return f"Error: {reason}"
@@ -202,6 +242,12 @@ def _call_tool(tool_name: str, arguments: dict, cfg: dict, workspace: Path) -> s
                 # render_source is a top-level function in the built artifact
                 # In source module context, import from the parent module
                 result = render_source(source, cfg, workspace)
+                # #166: redact BEFORE serialization so the JSON shape
+                # carries already-redacted text. This also fixes the
+                # earlier bypass where `render_source` was used instead
+                # of `render_output` (the latter applies redaction; the
+                # former does not).
+                result = _mcp_redact(result, cfg)
                 fmt = arguments.get("format", "markdown")
                 if fmt == "json":
                     return json.dumps({"resolved": result, "workspace": str(workspace)})
@@ -213,7 +259,7 @@ def _call_tool(tool_name: str, arguments: dict, cfg: dict, workspace: Path) -> s
     if tool_name == "perseus_get_health":
         spec = DIRECTIVE_REGISTRY.get("@health")
         if spec and spec.resolver:
-            return _call_resolver(spec, "", cfg, workspace)
+            return _mcp_redact(_call_resolver(spec, "", cfg, workspace), cfg)
         return "Error: @health directive not registered"
 
     # Trust gate: block shell execution for sensitive tools
@@ -246,11 +292,15 @@ def _call_tool(tool_name: str, arguments: dict, cfg: dict, workspace: Path) -> s
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(_call_resolver, spec, args_str, cfg, workspace)
             result = future.result(timeout=timeout)
-        return result
+        # #166: redact the tool result before returning to the MCP client.
+        return _mcp_redact(result, cfg)
     except TimeoutError as exc:
         return f"Error executing {directive_name}: timed out after {timeout}s"
     except Exception as exc:
-        return f"Error executing {directive_name}: {exc}"
+        # Error strings may include resolver-thrown exception messages,
+        # which can echo user content (e.g. argparse complaining about
+        # the command string). Redact defensively.
+        return _mcp_redact(f"Error executing {directive_name}: {exc}", cfg)
 
 
 # ── JSON-RPC 2.0 message handling ────────────────────────────────────────────
