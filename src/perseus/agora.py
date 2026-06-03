@@ -269,8 +269,79 @@ def cmd_memory(args, cfg):
         _cmd_memory_index(args, cfg)
         return
 
+    if sub == "doctor":
+        cmd_memory_doctor(args, cfg)
+        return
+
     print(f"perseus memory: unknown subcommand '{sub}'.", file=sys.stderr)
     sys.exit(2)
+
+
+def cmd_memory_doctor(args, cfg) -> None:
+    """Mnēmē doctor — scan and optionally migrate legacy MD5-named narratives.
+
+    Regression for #128: pre-1.0.3 narratives are named after an MD5 hash of
+    the workspace path; v1.0.3+ uses SHA-256. _mneme_path() auto-migrates on
+    first access, but that requires the operator to actually open the
+    workspace. ``memory doctor`` lets an operator scan and migrate all
+    workspaces at once, and surface diagnostic info for files that can't be
+    auto-migrated (e.g. missing frontmatter, cross-device renames).
+    """
+    do_migrate = bool(getattr(args, "migrate", False))
+    use_json = bool(getattr(args, "json", False))
+    scan = _mneme_doctor_scan(cfg)
+
+    if do_migrate:
+        result = _mneme_doctor_migrate(cfg)
+        if use_json:
+            import json as _json
+            print(_json.dumps({"scan_before": scan, "migrate": result}, indent=2))
+            return
+        print(f"Mnēmē doctor — store: {scan['store']}")
+        print(f"  Narrative files:  {len(scan['narrative_files'])}")
+        print(f"  Legacy MD5 found: {len(scan['legacy_md5_files'])}")
+        print(f"  Migrated:         {len(result['migrated'])}")
+        for old, new in result["migrated"]:
+            print(f"    ✓ {Path(old).name} → {Path(new).name}")
+        if result["skipped"]:
+            print(f"  Skipped:          {len(result['skipped'])}")
+            for old, new, reason in result["skipped"]:
+                print(f"    ⚠ {Path(old).name}: {reason}")
+        if result["errors"]:
+            print(f"  Errors:           {len(result['errors'])}")
+            for old, exc_str in result["errors"]:
+                print(f"    ✗ {Path(old).name}: {exc_str}")
+        return
+
+    # Read-only scan
+    if use_json:
+        import json as _json
+        print(_json.dumps(scan, indent=2))
+        return
+    print(f"Mnēmē doctor — store: {scan['store']}")
+    print(f"  Narrative files:  {len(scan['narrative_files'])}")
+    print(f"  SHA-256 (current):{len(scan['sha256_files'])}")
+    print(f"  Legacy MD5:       {len(scan['legacy_md5_files'])}")
+    print(f"  Orphan:           {len(scan['orphan_files'])}")
+    print(f"  Unknown stems:    {len(scan['unknown_files'])}")
+    if scan["legacy_md5_files"]:
+        print()
+        print("Legacy MD5-named narratives detected. Run:")
+        print("  perseus memory doctor --migrate")
+        print("to rename them to their SHA-256 paths in place. Operation is")
+        print("idempotent and uses atomic os.replace.")
+    if scan["orphan_files"]:
+        print()
+        print("⚠ Orphan files (frontmatter workspace doesn't match filename):")
+        for fp in scan["orphan_files"]:
+            print(f"  - {fp}")
+        print("These were likely written under a different store, OR the")
+        print("workspace path moved. Review manually before deleting.")
+    if scan["unknown_files"]:
+        print()
+        print("Files with non-standard names (skipped by Mnēmē):")
+        for fp in scan["unknown_files"]:
+            print(f"  - {fp}")
 
 def _memory_federation_diagnostic(name: str, args_str: str, cfg: dict, workspace: object) -> list[dict]:
     """Per-directive LSP diagnostic for @memory: warn on unsubscribed federation alias.
