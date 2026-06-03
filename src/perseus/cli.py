@@ -195,6 +195,16 @@ def main():
     p_fed_pull = fed_sub.add_parser("pull", help="Re-read all subscribed narratives (read-only, manual)")
     p_fed_pull.add_argument("--json", action="store_true", help="Machine-readable JSON output")
 
+    # memory doctor (#128 — legacy MD5 → SHA-256 narrative migration)
+    p_mem_doc = mem_sub.add_parser(
+        "doctor",
+        help="Scan/repair the Mnēmē memory store (legacy MD5 → SHA-256 narrative migration)",
+    )
+    p_mem_doc.add_argument("--migrate", action="store_true",
+                           help="Rename legacy MD5-named narratives to their SHA-256 paths (atomic, idempotent)")
+    p_mem_doc.add_argument("--json", action="store_true",
+                           help="Machine-readable JSON output")
+
     # memory index (Mnēmē v2)
     p_mem_idx = mem_sub.add_parser("index", help="Manage the FTS5 search index")
     idx_sub = p_mem_idx.add_subparsers(dest="index_command", required=True)

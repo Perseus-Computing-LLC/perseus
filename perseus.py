@@ -2451,7 +2451,6 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
         return f"> ⚠ @include: could not read `{file_path_str}`: {e}"
 
     # ── File size limit check (byte-counted, not character-counted) ──
-    max_bytes = render_cfg.get("max_include_bytes")
     if max_bytes is not None and len(data) > max_bytes:
         raw = data[:max_bytes].decode(errors="replace").rstrip()
         actual_size = len(data)
@@ -2577,7 +2576,6 @@ def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str
         return f"> ⚠ @read: could not read `{file_path_str}`: {e}"
 
     # ── File size limit check (byte-counted, not character-counted) ──
-    max_bytes = render_cfg.get("max_read_bytes")
     if max_bytes is not None and len(data) > max_bytes:
         content = data[:max_bytes].decode(errors="replace")
         trunc_note = (
@@ -8115,10 +8113,154 @@ def _workspace_hash(workspace: Path) -> str:
     return hashlib.sha256(str(canonical).encode()).hexdigest()[:12]
 
 
+def _workspace_hash_legacy_md5(workspace: Path) -> str:
+    """12-char MD5 hex digest — the pre-1.0.3 narrative file name scheme.
+
+    Regression for #128: prior to v1.0.3, Mnēmē derived narrative file names
+    from an MD5 hash. v1.0.3+ switched to SHA-256. Without an explicit
+    migration, every existing narrative file on disk was silently orphaned
+    on upgrade. ``_mneme_path`` calls this function as a one-shot fallback
+    to locate and rename legacy files. Once migrated, this code path is
+    never re-entered for that workspace.
+
+    We intentionally use ``usedforsecurity=False`` (Py3.9+) so FIPS-mode
+    Pythons don't reject the call — this is a file-naming hash, not a
+    security primitive. We fall back to the no-kwarg call for older Pythons.
+    """
+    canonical = str(workspace.expanduser().resolve()).encode()
+    try:
+        return hashlib.md5(canonical, usedforsecurity=False).hexdigest()[:12]
+    except TypeError:
+        # Python < 3.9: no `usedforsecurity` kwarg.
+        return hashlib.md5(canonical).hexdigest()[:12]
+
+
 def _mneme_path(workspace: Path, cfg: dict) -> Path:
-    """Return the per-workspace narrative file path."""
+    """Return the per-workspace narrative file path.
+
+    Regression for #128: if a SHA-256 path doesn't exist but a legacy MD5
+    path does, transparently rename the legacy file in place. This makes
+    upgrades from pre-1.0.3 lossless.
+
+    The rename uses ``os.replace`` (atomic on POSIX/NTFS) and is best-effort:
+    if rename fails (cross-device, permission, etc.), we leave both files in
+    place and return the SHA-256 path. The caller will then see "no
+    narrative yet" and recreate — non-fatal but loses prior content.
+    Operators can also run ``perseus memory doctor --migrate`` to surface
+    and act on these cases explicitly.
+    """
     store = Path(cfg.get("memory", {}).get("store", str(PERSEUS_HOME / "memory")))
-    return store / f"{_workspace_hash(workspace)}.md"
+    new_path = store / f"{_workspace_hash(workspace)}.md"
+    if new_path.exists():
+        return new_path
+    legacy_path = store / f"{_workspace_hash_legacy_md5(workspace)}.md"
+    if legacy_path.exists() and legacy_path != new_path:
+        try:
+            store.mkdir(parents=True, exist_ok=True)
+            os.replace(legacy_path, new_path)
+        except OSError:
+            # Cross-device / permission denied. Leave the legacy file in
+            # place so the operator can recover it manually; the caller will
+            # create a fresh narrative at the new path.
+            pass
+    return new_path
+
+
+def _mneme_doctor_scan(cfg: dict) -> dict:
+    """Scan the memory store and report on narrative file inventory.
+
+    Returns a dict with:
+        {
+          "store": str,                     # path to memory store
+          "narrative_files": [path, ...],   # all *.md in store
+          "legacy_md5_files": [path, ...],  # files whose name matches legacy MD5 of a known workspace
+          "sha256_files": [path, ...],      # files that look like current-scheme files
+          "orphan_files": [path, ...],      # files whose embedded `workspace` frontmatter no longer resolves to their filename
+          "unknown_files": [path, ...],     # files whose stem isn't a 12-char hex hash
+        }
+
+    "Known workspace" inference: we re-derive the SHA-256 and legacy MD5
+    hashes from each file's ``workspace:`` frontmatter field, then match
+    against the actual filename stem.
+
+    Used by ``perseus memory doctor`` to surface migration candidates.
+    """
+    store = Path(cfg.get("memory", {}).get("store", str(PERSEUS_HOME / "memory")))
+    out: dict = {
+        "store": str(store),
+        "narrative_files": [],
+        "legacy_md5_files": [],
+        "sha256_files": [],
+        "orphan_files": [],
+        "unknown_files": [],
+    }
+    if not store.exists():
+        return out
+    hex_re = re.compile(r"^[a-f0-9]{12}$")
+    for fp in sorted(store.glob("*.md")):
+        out["narrative_files"].append(str(fp))
+        stem = fp.stem
+        if not hex_re.match(stem):
+            out["unknown_files"].append(str(fp))
+            continue
+        # Try to read the workspace from frontmatter and classify.
+        try:
+            fm, _ = _load_narrative(fp)
+        except Exception:
+            out["unknown_files"].append(str(fp))
+            continue
+        ws_raw = str(fm.get("workspace", "")).strip() if isinstance(fm, dict) else ""
+        if not ws_raw:
+            # No workspace metadata — can't classify; treat as unknown.
+            out["unknown_files"].append(str(fp))
+            continue
+        try:
+            ws = Path(ws_raw).expanduser()
+            expected_sha = _workspace_hash(ws)
+            expected_md5 = _workspace_hash_legacy_md5(ws)
+        except Exception:
+            out["unknown_files"].append(str(fp))
+            continue
+        if stem == expected_sha:
+            out["sha256_files"].append(str(fp))
+        elif stem == expected_md5:
+            out["legacy_md5_files"].append(str(fp))
+        else:
+            out["orphan_files"].append(str(fp))
+    return out
+
+
+def _mneme_doctor_migrate(cfg: dict) -> dict:
+    """Rename legacy MD5-named narrative files to their SHA-256 names.
+
+    Returns a dict:
+        {
+          "migrated": [(old, new), ...],
+          "skipped":  [(old, new, reason), ...],
+          "errors":   [(old, exc_str), ...],
+        }
+
+    Idempotent: re-running after a successful migration is a no-op.
+    """
+    report: dict = {"migrated": [], "skipped": [], "errors": []}
+    scan = _mneme_doctor_scan(cfg)
+    store = Path(scan["store"])
+    for legacy_fp_str in scan["legacy_md5_files"]:
+        legacy_fp = Path(legacy_fp_str)
+        try:
+            fm, _ = _load_narrative(legacy_fp)
+            ws = Path(str(fm.get("workspace", "")).strip()).expanduser()
+            new_fp = store / f"{_workspace_hash(ws)}.md"
+            if new_fp.exists():
+                report["skipped"].append(
+                    (str(legacy_fp), str(new_fp), "destination already exists")
+                )
+                continue
+            os.replace(legacy_fp, new_fp)
+            report["migrated"].append((str(legacy_fp), str(new_fp)))
+        except Exception as exc:  # pragma: no cover - defensive
+            report["errors"].append((str(legacy_fp), str(exc)))
+    return report
 
 
 def _load_narrative(path: Path) -> tuple[dict, str]:
@@ -9236,8 +9378,79 @@ def cmd_memory(args, cfg):
         _cmd_memory_index(args, cfg)
         return
 
+    if sub == "doctor":
+        cmd_memory_doctor(args, cfg)
+        return
+
     print(f"perseus memory: unknown subcommand '{sub}'.", file=sys.stderr)
     sys.exit(2)
+
+
+def cmd_memory_doctor(args, cfg) -> None:
+    """Mnēmē doctor — scan and optionally migrate legacy MD5-named narratives.
+
+    Regression for #128: pre-1.0.3 narratives are named after an MD5 hash of
+    the workspace path; v1.0.3+ uses SHA-256. _mneme_path() auto-migrates on
+    first access, but that requires the operator to actually open the
+    workspace. ``memory doctor`` lets an operator scan and migrate all
+    workspaces at once, and surface diagnostic info for files that can't be
+    auto-migrated (e.g. missing frontmatter, cross-device renames).
+    """
+    do_migrate = bool(getattr(args, "migrate", False))
+    use_json = bool(getattr(args, "json", False))
+    scan = _mneme_doctor_scan(cfg)
+
+    if do_migrate:
+        result = _mneme_doctor_migrate(cfg)
+        if use_json:
+            import json as _json
+            print(_json.dumps({"scan_before": scan, "migrate": result}, indent=2))
+            return
+        print(f"Mnēmē doctor — store: {scan['store']}")
+        print(f"  Narrative files:  {len(scan['narrative_files'])}")
+        print(f"  Legacy MD5 found: {len(scan['legacy_md5_files'])}")
+        print(f"  Migrated:         {len(result['migrated'])}")
+        for old, new in result["migrated"]:
+            print(f"    ✓ {Path(old).name} → {Path(new).name}")
+        if result["skipped"]:
+            print(f"  Skipped:          {len(result['skipped'])}")
+            for old, new, reason in result["skipped"]:
+                print(f"    ⚠ {Path(old).name}: {reason}")
+        if result["errors"]:
+            print(f"  Errors:           {len(result['errors'])}")
+            for old, exc_str in result["errors"]:
+                print(f"    ✗ {Path(old).name}: {exc_str}")
+        return
+
+    # Read-only scan
+    if use_json:
+        import json as _json
+        print(_json.dumps(scan, indent=2))
+        return
+    print(f"Mnēmē doctor — store: {scan['store']}")
+    print(f"  Narrative files:  {len(scan['narrative_files'])}")
+    print(f"  SHA-256 (current):{len(scan['sha256_files'])}")
+    print(f"  Legacy MD5:       {len(scan['legacy_md5_files'])}")
+    print(f"  Orphan:           {len(scan['orphan_files'])}")
+    print(f"  Unknown stems:    {len(scan['unknown_files'])}")
+    if scan["legacy_md5_files"]:
+        print()
+        print("Legacy MD5-named narratives detected. Run:")
+        print("  perseus memory doctor --migrate")
+        print("to rename them to their SHA-256 paths in place. Operation is")
+        print("idempotent and uses atomic os.replace.")
+    if scan["orphan_files"]:
+        print()
+        print("⚠ Orphan files (frontmatter workspace doesn't match filename):")
+        for fp in scan["orphan_files"]:
+            print(f"  - {fp}")
+        print("These were likely written under a different store, OR the")
+        print("workspace path moved. Review manually before deleting.")
+    if scan["unknown_files"]:
+        print()
+        print("Files with non-standard names (skipped by Mnēmē):")
+        for fp in scan["unknown_files"]:
+            print(f"  - {fp}")
 
 def _memory_federation_diagnostic(name: str, args_str: str, cfg: dict, workspace: object) -> list[dict]:
     """Per-directive LSP diagnostic for @memory: warn on unsubscribed federation alias.
@@ -14568,6 +14781,16 @@ def main():
     p_fed_unsub.add_argument("alias", help="Alias to remove")
     p_fed_pull = fed_sub.add_parser("pull", help="Re-read all subscribed narratives (read-only, manual)")
     p_fed_pull.add_argument("--json", action="store_true", help="Machine-readable JSON output")
+
+    # memory doctor (#128 — legacy MD5 → SHA-256 narrative migration)
+    p_mem_doc = mem_sub.add_parser(
+        "doctor",
+        help="Scan/repair the Mnēmē memory store (legacy MD5 → SHA-256 narrative migration)",
+    )
+    p_mem_doc.add_argument("--migrate", action="store_true",
+                           help="Rename legacy MD5-named narratives to their SHA-256 paths (atomic, idempotent)")
+    p_mem_doc.add_argument("--json", action="store_true",
+                           help="Machine-readable JSON output")
 
     # memory index (Mnēmē v2)
     p_mem_idx = mem_sub.add_parser("index", help="Manage the FTS5 search index")
