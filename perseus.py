@@ -448,13 +448,61 @@ _PYTHON_HOOKS: dict[str, list] = {
 _HOOKS_LOADED_DIRS: set[str] = set()
 
 
+def _hooks_workspace_sourced(cfg: dict) -> bool:
+    """Return True if the hooks config was sourced from the workspace.
+
+    #168 (v1.0.6): set by `load_config` when workspace `.perseus/config.yaml`
+    contains a `hooks:` section. Used to refuse workspace-sourced hooks
+    unless the operator has explicitly opted in via `hooks.allow_workspace_sourced`
+    in global config AND `PERSEUS_ALLOW_DANGEROUS=1`.
+    """
+    return bool(cfg.get("_provenance", {}).get("hooks_workspace_sourced", False))
+
+
+def _hooks_workspace_allowed(cfg: dict) -> bool:
+    """True iff workspace-sourced hooks are explicitly allowed.
+
+    Defense in depth:
+      1. Global config must set `hooks.allow_workspace_sourced: true`
+      2. Env must set `PERSEUS_ALLOW_DANGEROUS=1`
+    """
+    hooks_cfg = cfg.get("hooks", {})
+    global_opt_in = bool(hooks_cfg.get("allow_workspace_sourced", False))
+    env_opt_in = os.environ.get("PERSEUS_ALLOW_DANGEROUS", "") == "1"
+    return global_opt_in and env_opt_in
+
+
 def register_hooks(cfg: dict, force: bool = False) -> int:
     """Discover Python hooks from ~/.perseus/hooks/*.py. Idempotent.
 
     Hook modules are imported and any function matching a lifecycle event
     name (e.g. on_render_start) is registered as a callback.
+
+    #168 (v1.0.6): if `hooks.dir` was sourced from the workspace
+    `.perseus/config.yaml`, refuse to load Python hooks from it unless
+    workspace-sourced hooks are explicitly allowed (global config +
+    PERSEUS_ALLOW_DANGEROUS=1). Workspace-shipped Python plugin files
+    can pwn the user via top-level module code that runs at import time.
     """
     if not cfg.get("hooks", {}).get("enabled", True):
+        return 0
+
+    if _hooks_workspace_sourced(cfg) and not _hooks_workspace_allowed(cfg):
+        # Refuse with a single stderr warning per workspace.
+        try:
+            audit_event(cfg, "hooks_workspace_refused",
+                        reason="hooks.* sourced from workspace config without opt-in",
+                        hint=("Set hooks.allow_workspace_sourced: true in global "
+                              "~/.perseus/config.yaml AND export "
+                              "PERSEUS_ALLOW_DANGEROUS=1 to enable workspace hooks."))
+        except Exception:
+            pass
+        print(
+            "⚠ Perseus: workspace-sourced hooks refused (see #168). "
+            "Set hooks.allow_workspace_sourced: true in global config + "
+            "PERSEUS_ALLOW_DANGEROUS=1 to enable.",
+            file=sys.stderr,
+        )
         return 0
 
     hooks_dir = Path(cfg.get("hooks", {}).get("dir", str(PERSEUS_HOME / "hooks")))
@@ -509,7 +557,14 @@ def _fire_hooks(event: str, payload: dict, cfg: dict) -> None:
         except Exception as e:
             print(f"Perseus Python hook error ({event}): {e}", file=sys.stderr)
 
-    # Fire Shell hooks (configured in config.yaml)
+    # Fire Shell hooks (configured in config.yaml).
+    # #168 (v1.0.6): refuse workspace-sourced shell hooks unless explicitly
+    # allowed. This blocks the "git clone a malicious workspace and get pwned
+    # on first `perseus render`" attack.
+    workspace_sourced = _hooks_workspace_sourced(cfg)
+    allowed = _hooks_workspace_allowed(cfg)
+    refuse_workspace_shell = workspace_sourced and not allowed
+
     commands = []
     if isinstance(event_cfg, list):
         commands = event_cfg
@@ -525,6 +580,23 @@ def _fire_hooks(event: str, payload: dict, cfg: dict) -> None:
             cmd = hook.get("command") or hook.get("cmd")
 
         if cmd:
+            if refuse_workspace_shell:
+                # Audit + stderr warning so the operator sees what was blocked.
+                try:
+                    audit_event(cfg, "hooks_workspace_shell_refused",
+                                event=event,
+                                cmd_preview=cmd[:80],
+                                hint=("Workspace-sourced hooks require "
+                                      "hooks.allow_workspace_sourced: true "
+                                      "in GLOBAL config + PERSEUS_ALLOW_DANGEROUS=1."))
+                except Exception:
+                    pass
+                print(
+                    f"⚠ Perseus: workspace-sourced shell hook refused for "
+                    f"event '{event}' (#168). See ~/.perseus/audit_log.jsonl.",
+                    file=sys.stderr,
+                )
+                continue
             _fire_shell_hook(cmd, payload, event)
 
     # Fire webhooks (Phase 25 / task-72)
@@ -1133,8 +1205,6 @@ def _discover_plugins(cfg: dict) -> list["DirectiveSpec"]:
             "PERSEUS_ALLOW_DANGEROUS=1 to enable.",
             file=sys.stderr,
         )
-        return []
-    if not plugins_cfg.get("enabled", PLUGINS_ENABLED_DEFAULT):
         return []
     plugins_dir = Path(plugins_cfg.get("dir", str(PERSEUS_HOME / "plugins")))
     if not plugins_dir.is_dir():
@@ -1854,16 +1924,33 @@ def load_config(workspace: Path | None = None) -> dict:
     if effective_profile:
         _apply_permission_profile(cfg, effective_profile)
 
+<<<<<<< HEAD
     # #168/#169 (v1.0.6): track per-section workspace provenance for
     # hooks.py / registry.py consumers (gate against malicious workspaces).
     # Workspace source is identified as the local file under
     # <workspace>/.perseus/config.yaml — the LAST entry in loaded_sources
     # when `workspace` was scanned.
+=======
+    # #168 (v1.0.6): track per-section whether the value was sourced from
+    # the workspace (vs. global / defaults). hooks.py consults this
+    # provenance map to refuse dangerous workspace-sourced config without
+    # an explicit opt-in. Same mechanism will gate #169 (plugins) once
+    # plugin discovery learns to consult it.
+    #
+    # Workspace source is identified as the local file under
+    # <workspace>/.perseus/config.yaml. We loaded global FIRST then
+    # workspace, so the workspace source is the LAST entry — but only
+    # when `workspace` was provided.
+>>>>>>> cbb5f46 (fix(hooks): refuse workspace-sourced shell/python hooks without opt-in (#168))
     _provenance: dict[str, bool] = {}
     workspace_src: dict | None = None
     if workspace:
         local_cfg_path = workspace / ".perseus" / "config.yaml"
         if local_cfg_path.exists() and loaded_sources:
+<<<<<<< HEAD
+=======
+            # loaded_sources[-1] is the workspace src when workspace was scanned
+>>>>>>> cbb5f46 (fix(hooks): refuse workspace-sourced shell/python hooks without opt-in (#168))
             workspace_src = loaded_sources[-1]
     if isinstance(workspace_src, dict):
         for section in ("hooks", "plugins", "webhooks"):
@@ -3071,7 +3158,10 @@ def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str
         return f"> ⚠ @read: could not read `{file_path_str}`: {e}"
 
     # ── File size limit check (byte-counted, not character-counted) ──
+<<<<<<< HEAD
     max_bytes = _resolve_max_bytes(cfg, "max_read_bytes")
+=======
+>>>>>>> 6f438ea (fix(hooks): refuse workspace-sourced shell/python hooks without opt-in (#168))
     if max_bytes is not None and len(data) > max_bytes:
         content = data[:max_bytes].decode(errors="replace")
         trunc_note = (
