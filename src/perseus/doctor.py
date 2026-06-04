@@ -162,7 +162,7 @@ def _doctor_check_context_file(cfg: dict, workspace: Path) -> DoctorResult:
 
 def _doctor_check_render_shell(cfg: dict, workspace: Path) -> DoctorResult:
     """Informational: is @query shell execution enabled?"""
-    enabled = cfg.get("render", {}).get("allow_query_shell", True)
+    enabled = cfg.get("render", {}).get("allow_query_shell", False)
     val = f"allow_query_shell={str(enabled).lower()}"
     return DoctorResult("render_shell", "ok", "render: shell execution", val, "")
 
@@ -517,8 +517,8 @@ def _effective_profile_summary(cfg: dict) -> dict:
         },
         "effective": {
             "render": {
-                "allow_query_shell": bool(render_cfg.get("allow_query_shell", True)),
-                "allow_agent_shell": bool(render_cfg.get("allow_agent_shell", True)),
+                "allow_query_shell": bool(render_cfg.get("allow_query_shell", False)),
+                "allow_agent_shell": bool(render_cfg.get("allow_agent_shell", False)),
                 "allow_services_command": bool(render_cfg.get("allow_services_command", False)),
                 "allow_outside_workspace": bool(render_cfg.get("allow_outside_workspace", False)),
             },
@@ -637,6 +637,16 @@ def cmd_doctor(args, cfg) -> int:
     """Run readiness checks and report status."""
     workspace = Path(getattr(args, "workspace", None) or os.getcwd()).resolve()
     use_json = getattr(args, "json", False)
+    try:
+        cfg = load_config(workspace)
+    except Exception:
+        # Keep going so doctor can report config/parser failures as checks.
+        pass
+
+    cfg = dict(cfg)
+    cfg["render"] = dict(cfg.get("render", {}))
+    if cfg["render"].get("cache_dir") == DEFAULT_CONFIG.get("render", {}).get("cache_dir"):
+        cfg["render"]["cache_dir"] = str(PERSEUS_HOME / "cache")
 
     results: list[DoctorResult] = []
     for check_fn in _DOCTOR_CHECKS:

@@ -45,6 +45,7 @@ def _quickstart_write_config(workspace: Path, generation: dict | None = None) ->
     config: dict = {
         "render": {
             "allow_query_shell": False,
+            "cache_dir": str(perseus_dir / "cache"),
         },
         "permissions": {
             "profile": "balanced",
