@@ -57,7 +57,10 @@ def test_cli_version_matches_version_file():
     version = VERSION_FILE.read_text().strip()
     out = _run([sys.executable, str(PERSEUS_PY), "--version"])
     assert out.returncode == 0, f"perseus --version failed: {out.stderr}"
-    cli_version = out.stdout.strip().split()[-1].lstrip("v")
+    # Extract version number from output like "perseus v1.0.5 — Patent Pending"
+    m = re.search(r"v([\d.]+)", out.stdout)
+    assert m, f"Could not find version number in --version output: {out.stdout!r}"
+    cli_version = m.group(1)
     assert cli_version == version, (
         f"'perseus --version' reports '{cli_version}' but VERSION says '{version}'"
     )
@@ -70,7 +73,9 @@ def test_py_source_version_matches_version_file():
         [sys.executable, str(PERSEUS_PY), "--version"],
         capture_output=True, text=True, check=True,
     )
-    cli_version = out.stdout.strip().split()[-1].lstrip("v")
+    m = re.search(r"v([\d.]+)", out.stdout)
+    assert m, f"Could not find version number in --version output: {out.stdout!r}"
+    cli_version = m.group(1)
     assert cli_version == version, (
         f"'perseus --version' reports '{cli_version}' but VERSION says '{version}'"
     )

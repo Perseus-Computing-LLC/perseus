@@ -41,6 +41,8 @@ def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str
     env_key = modifiers.get("key")
     fallback = modifiers.get("fallback")
     schema_ref = modifiers.get("schema")
+    _mb = _resolve_max_bytes(cfg, "max_read_bytes")
+    max_bytes = _mb
 
     def fallback_result() -> str:
         warning = _validate_against_schema_ref(fallback, schema_ref, workspace, "@read")
@@ -63,10 +65,19 @@ def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str
         return f"> ⚠ @read: file not found: `{file_path_str}`"
 
     # ── Pre-read size check to prevent memory exhaustion ──
-    # Only gate truly massive files (50 MB+) to allow normal truncation path
-    _MAX_SAFE_READ_BYTES = 50 * 1024 * 1024  # 50 MB
+    # Gate truly massive files before their bytes hit memory. Config-driven via
+    # render.max_safe_read_bytes (default 50 MB), kept well above the byte
+    # truncation cap (max_read_bytes) so normal files still take the truncation
+    # path below. Set it to null to disable the guard.
+    #
+    # TOCTOU: stat() and read_bytes() are separate syscalls, so the file could
+    # grow between them. Acceptable here — Perseus renders in a local, single-
+    # process context over the operator's own workspace files (not a multi-
+    # writer server), and the decode+truncate path below bounds the output.
+    max_safe_raw = cfg["render"].get("max_safe_read_bytes", 50 * 1024 * 1024)
+    max_safe_bytes = int(max_safe_raw) if max_safe_raw is not None else None
     try:
-        if fp.stat().st_size > _MAX_SAFE_READ_BYTES:
+        if max_safe_bytes is not None and fp.stat().st_size > max_safe_bytes:
             msg = f"> ⚠ @read: file too large for safe read ({fp.stat().st_size:,} bytes)"
             if fallback is not None:
                 return fallback_result()
@@ -83,6 +94,7 @@ def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str
         return f"> ⚠ @read: could not read `{file_path_str}`: {e}"
 
     # ── File size limit check (byte-counted, not character-counted) ──
+    max_bytes = _resolve_max_bytes(cfg, "max_read_bytes")
     if max_bytes is not None and len(data) > max_bytes:
         content = data[:max_bytes].decode(errors="replace")
         trunc_note = (

@@ -361,6 +361,15 @@ def serve_mcp_sse(cfg: dict, workspace: Path | None = None, port: int = 8420) ->
     token = str(mcp_cfg.get("sse_bearer_token", "") or "").strip() or None
     if not token:
         token = str(cfg.get("serve", {}).get("auth_token", "") or "").strip() or None
+    # C-1: refuse to start without auth unless explicitly opted in
+    if not token and not mcp_cfg.get("allow_no_auth", False):
+        print(
+            "Perseus MCP SSE refusing to bind without authentication.\n"
+            "  Set mcp.sse_bearer_token in config.yaml to require a Bearer token, or\n"
+            "  set mcp.allow_no_auth: true to explicitly opt in to unauthenticated mode.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
 
     def _check_auth(handler) -> bool:
         """Verify Bearer token if auth is configured. Also validate Host header."""
@@ -370,9 +379,9 @@ def serve_mcp_sse(cfg: dict, workspace: Path | None = None, port: int = 8420) ->
             hostname = host.split(":")[0]
             if hostname not in ("127.0.0.1", "localhost", "::1"):
                 return False
-        # Bearer token check
+        # Bearer token check — token is now guaranteed non-None after startup gate
         if not token:
-            return True
+            return True  # only reachable if allow_no_auth is set
         auth = handler.headers.get("Authorization", "") or ""
         if not auth.startswith("Bearer "):
             return False
@@ -460,7 +469,7 @@ def print_mcp_config(cfg: dict, workspace: Path | None = None) -> None:
     import shutil
     perseus_path = shutil.which("perseus") or "perseus"
     ws = workspace or Path.cwd()
-    version = cfg.get("version", "1.0.0")
+    version = cfg.get("version", SERVER_VERSION)
     config = {
         "mcpServers": {
             "perseus": {
@@ -479,7 +488,7 @@ def print_mcp_config(cfg: dict, workspace: Path | None = None) -> None:
 
 def print_mcp_registry(cfg: dict) -> None:
     """Print Perseus's MCP registry listing metadata (for registry submission)."""
-    version = cfg.get("version", "1.0.0")
+    version = cfg.get("version", SERVER_VERSION)
     tools = _get_all_mcp_tools(cfg)
     registry_entry = {
         "name": "perseus",

@@ -43,12 +43,12 @@ def test_agent_fallback_on_failure(tmp_path):
 
 
 def test_agent_timeout(tmp_path):
-    out = perseus.resolve_agent('"sleep 5" timeout=1', cfg(), tmp_path)
+    out = perseus.resolve_agent(f"'{sys.executable} -c \"import time; time.sleep(5)\"' timeout=1", cfg(), tmp_path)
     assert "timed out" in out
 
 
 def test_agent_timeout_with_fallback(tmp_path):
-    out = perseus.resolve_agent('"sleep 5" timeout=1 fallback="(busy)"', cfg(), tmp_path)
+    out = perseus.resolve_agent(f"'{sys.executable} -c \"import time; time.sleep(5)\"' timeout=1 fallback=\"(busy)\"", cfg(), tmp_path)
     assert out == "(busy)"
 
 
@@ -59,13 +59,27 @@ def test_agent_security_gate(tmp_path):
     assert "disabled by config" in out
 
 
+def test_agent_requires_dangerous_env_gate(tmp_path, monkeypatch):
+    local = cfg()
+    local["render"]["allow_agent_shell"] = True
+    monkeypatch.delenv("PERSEUS_ALLOW_DANGEROUS", raising=False)
+
+    out = perseus.resolve_agent('"echo nope"', local, tmp_path)
+
+    assert "PERSEUS_ALLOW_DANGEROUS=1 is not set" in out
+
+
 def test_agent_through_render(tmp_path):
     out = perseus._render_lines(['@agent "echo via-render"'], cfg(), workspace=tmp_path)
     assert "via-render" in out
 
 
 def test_agent_strip_false_preserves_trailing_newline(tmp_path):
-    out = perseus.resolve_agent('"printf hello\\\\n" strip=false', cfg(), tmp_path)
+    out = perseus.resolve_agent(
+        f"'{sys.executable} -c \"import sys; sys.stdout.write(chr(104)+chr(101)+chr(108)+chr(108)+chr(111)+chr(10))\"' strip=false",
+        cfg(),
+        tmp_path,
+    )
     assert out.endswith("\n") or out == "hello\n"
 
 

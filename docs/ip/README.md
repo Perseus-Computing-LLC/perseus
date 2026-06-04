@@ -4,7 +4,7 @@ This directory contains public IP evidence and artifacts for the Perseus project
 
 **Status:** Patent pending. Trademark filed.
 
-## Exhibits
+## Exhibits and Disclosures
 
 The `exhibits/` directory is populated by running the IP evidence test suite:
 
@@ -14,6 +14,11 @@ python -m pytest tests/test_ip_evidence.py -v --save-exhibits
 
 Generated exhibits include timestamped JSON/MD benchmark and evidence artifacts
 documenting reduction-to-practice.
+
+Public technical disclosures are at **[docs/disclosures/](../disclosures/)** —
+six documents covering the resolve-before-context pipeline, implicit
+reinforcement signals, trust boundary architecture, citation gate, dependency
+graph, and Agora multi-agent coordination.
 
 ### What NOT to commit
 

@@ -252,3 +252,10 @@ def test_cmd_trust_json_unknown_profile_shows_applied_none(capsys, monkeypatch, 
     payload = json.loads(capsys.readouterr().out)
     assert payload["permissions"]["configured_profile"] == "yolo"
     assert payload["permissions"]["applied_profile"] is None
+
+
+def test_trust_summary_partial_config_fails_closed():
+    payload = perseus._effective_profile_summary({})
+
+    assert payload["effective"]["render"]["allow_query_shell"] is False
+    assert payload["effective"]["render"]["allow_agent_shell"] is False

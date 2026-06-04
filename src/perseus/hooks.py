@@ -99,11 +99,16 @@ def _fire_hooks(event: str, payload: dict, cfg: dict) -> None:
 
 
 def _fire_shell_hook(cmd_template: str, payload: dict, event: str) -> None:
-    """Run a shell hook with {{var}} substitution. Timeout 5s."""
+    """Run a shell hook with {{var}} substitution. Timeout 5s.
+
+    All payload values are shell-escaped with shlex.quote() to prevent
+    command injection via shell metacharacters (;, |, &, $(), etc.).
+    """
     try:
+        import shlex as _shlex
         cmd = cmd_template
         for key, val in payload.items():
-            cmd = cmd.replace(f"{{{{{key}}}}}", str(val))
+            cmd = cmd.replace(f"{{{{{key}}}}}", _shlex.quote(str(val)))
 
         # Use shell=True as per spec trust consideration
         subprocess.run(
@@ -112,39 +117,13 @@ def _fire_shell_hook(cmd_template: str, payload: dict, event: str) -> None:
         )
     except subprocess.TimeoutExpired:
         print(f"Perseus hook timeout ({event}): {cmd_template[:80]}", file=sys.stderr)
-    except Exception as e:
+    except (OSError, subprocess.TimeoutExpired, ValueError, subprocess.SubprocessError) as e:
         print(f"Perseus hook shell error ({event}): {e}", file=sys.stderr)
 
-
-def _fire_webhook(event: str, payload: dict, cfg: dict) -> None:
-    """POST render lifecycle event to configured webhook URL (fire-and-forget)."""
-    wh = cfg.get("webhooks", {})
-    if not wh or not wh.get("enabled") or not wh.get("url"):
-        return
-    if event not in wh.get("events", []):
-        return
-    try:
-        body = json.dumps({
-            "event": event,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "workspace_hash": hashlib.sha256(
-                (payload.get("workspace") or "").encode()
-            ).hexdigest()[:16] if payload.get("workspace") else None,
-            "data": payload,
-        })
-        data = body.encode("utf-8")
-        req = urllib.request.Request(
-            wh["url"], data=data,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        secret = wh.get("secret", "")
-        if secret:
-            sig = hashlib.sha256(secret.encode() + data).hexdigest()
-            req.add_header("X-Perseus-Signature", f"sha256={sig}")
-        urllib.request.urlopen(req, timeout=wh.get("timeout_s", 5))
-    except Exception as e:
-        print(f"Perseus webhook error ({event}): {e}", file=sys.stderr)
+# _fire_webhook is defined in webhooks.py (multi-endpoint, URL allowlisting,
+# queued delivery with retry). The legacy single-URL fire-and-forget copy that
+# lived here was dead code — MODULE_ORDER places webhooks.py after hooks.py,
+# so webhooks.py's definition shadowed this one at runtime.
 
 
 def _reset_hooks_cache() -> None:
