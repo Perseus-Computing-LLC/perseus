@@ -10,14 +10,14 @@ Source documents start with `@perseus v0.4` on line 1. The value after `@perseus
 
 | Directive | What it does |
 |---|---|
-| `@query "shell cmd" [fallback="text"] [schema="name"]` | Runs a shell command, embeds stdout as a fenced block; `fallback=` emits literal text on failure or empty output; `schema=` validates YAML stdout |
+| `@query "shell cmd" [fallback="text"] [schema="name"]` | Runs a shell command, embeds stdout as a fenced block; requires `render.allow_query_shell=true` and `PERSEUS_ALLOW_DANGEROUS=1`; `fallback=` emits literal text on failure or empty output; `schema=` validates YAML stdout |
 | `@read <file> [path="key"] [schema="name"]` | Reads a file; dot-notation path for JSON/YAML/TOML; `key=` for `.env` files; `schema=` validates full or extracted output |
 | `@env VAR [fallback="x"] [schema="name"]` | Injects an environment variable; `required=true` emits a visible warning if unset; `schema=` validates the value or fallback |
 | `@include <file>` | Embeds a file inline; markdown raw, structured files fenced |
 | `@if <cond>` / `@else` / `@endif` | Conditional blocks: `file.exists/missing`, `env.set/unset/eq/neq`, `query("cmd") [not] matches /regex/[i]` |
 | `@constraint id="..." severity="..."` | Machine-readable rules rendered as a `\| ID \| Severity \| Rule \|` table |
 | `@skills [flag_stale=true]` | Scans the assistant's skills dir, reads frontmatter, flags stale entries |
-| `@services` (YAML block or `@services ... @end`) | HTTP health checks (`url:`), Docker container status (`docker:`), or optional shell exit check (`command:`) |
+| `@services` (YAML block or `@services ... @end`) | HTTP health checks (`url:`), Docker container status (`docker:`), or optional shell exit check (`command:`); command checks also require `PERSEUS_ALLOW_DANGEROUS=1` |
 | `@session [count=N] [topic="..."]` | Recent session digest from the sessions directory |
 | `@date format="YYYY-MM-DD HH:mm z"` | Live date/time, inline or standalone |
 | `@waypoint [ttl=N]` | Latest checkpoint rendered inline; `ttl=` skips it if too old |
@@ -28,7 +28,7 @@ Source documents start with `@perseus v0.4` on line 1. The value after `@perseus
 | `@health` | Maintenance suggestions (stale checkpoints, near-duplicates, large context, old completed tasks) |
 | `@list <path> [type] [depth] [path] [columns] [as]` | Directory listing OR structured-file table from `path="dot.key"` of JSON/YAML |
 | `@tree <path> [depth] [match] [exclude]` | Fenced directory tree with plain indentation |
-| `@agent "command" [timeout=N] [strip=true] [fallback="text"]` | Run a local subprocess, embed stdout inline (gated by `render.allow_agent_shell`) |
+| `@agent "command" [timeout=N] [strip=true] [fallback="text"]` | Run a local subprocess, embed stdout inline; requires `render.allow_agent_shell=true` and `PERSEUS_ALLOW_DANGEROUS=1` |
 | `@inbox [unread=true] [limit=N]` | Render pending point-to-point messages from `perseus inbox send` |
 | `@memory federation [alias=name]` | Render digest of subscribed cross-workspace narratives (see `perseus memory federation`) |
 | `@memory include_federation=true` | Local narrative + appended `## Federated Context` digest |
@@ -66,13 +66,20 @@ Shell-backed features can be gated in `~/.perseus/config.yaml`:
 ```yaml
 render:
   allow_query_shell: true
+  allow_agent_shell: false
   allow_services_command: false
   allow_outside_workspace: false
 ```
 
 - `allow_query_shell`: enables or disables `@query` command execution
+- `allow_agent_shell`: enables or disables `@agent` command execution
 - `allow_services_command`: enables or disables `command:` checks inside `@services`
 - `allow_outside_workspace`: controls whether `@read` / `@include` may escape the workspace
+
+Even when the config enables ad-hoc shell execution, `@query`, `@agent`, and
+`@services command:` require `PERSEUS_ALLOW_DANGEROUS=1` in the process
+environment. This second gate is intentional friction for copied configs and
+automation profiles.
 
 ---
 

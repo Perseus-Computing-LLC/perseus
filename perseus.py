@@ -4132,6 +4132,19 @@ def resolve_agent(args_str: str, cfg: dict, workspace: Path | None = None) -> st
                     args=args_str[:200])
         return "> ⚠ @agent is disabled by config (`render.allow_agent_shell=false`)."
 
+    # Defense-in-depth: @agent is an ad-hoc shell execution surface, so require
+    # the same explicit operator acknowledgement used by @query and @services.
+    if not os.environ.get("PERSEUS_ALLOW_DANGEROUS"):
+        audit_event(cfg, "policy_denied",
+                    directive="@agent",
+                    reason="PERSEUS_ALLOW_DANGEROUS not set",
+                    args=args_str[:200])
+        return (
+            "> ⚠ @agent is enabled in config but PERSEUS_ALLOW_DANGEROUS=1 is not set.\n"
+            "> This is a defense-in-depth gate to prevent accidental shell execution.\n"
+            "> Set the environment variable to acknowledge the risk."
+        )
+
     raw = args_str.strip()
     # Extract command (double or single quoted, else first whitespace-delimited token)
     cmd_match = re.match(r'^"((?:[^"\\]|\\.)*)"', raw)
@@ -4204,7 +4217,6 @@ def resolve_agent(args_str: str, cfg: dict, workspace: Path | None = None) -> st
             return fallback
         return f"> (no output from `{cmd}`)"
     return output
-
 
 # ──────────────────────────────── @tool ───────────────────────────────────────
 
@@ -6550,7 +6562,7 @@ def _parse_cache_modifier(line: str) -> tuple[str, str, int | None, str | None]:
     return line, "", None, None
 
 
-def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path) -> str:
+def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path | None, cfg: dict) -> str:
     """Return a stable fingerprint of all file dependencies for this directive.
 
     NOTE: TOCTOU risk exists between hash and use. This is acceptable because
@@ -6576,36 +6588,47 @@ def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path) ->
       @perseus <url>       → no fingerprint (remote content changes independently)
     """
     import hashlib as _hashlib
+    import stat as _stat
 
     parts: list[str] = []
 
+    def _safe_dependency_path() -> Path | None:
+        raw_path, _remaining = _extract_quoted_token(clean_args)
+        if not raw_path:
+            return None
+        path, warning = _resolve_path(
+            raw_path,
+            workspace,
+            allow_outside_workspace=bool(cfg["render"].get("allow_outside_workspace", False)),
+        )
+        if warning:
+            return None
+        return path
+
     if directive in ("@read", "@include"):
-        raw_path = clean_args.split()[0] if clean_args else ""
-        # Strip surrounding quotes from the path argument so file resolution works
-        if raw_path and len(raw_path) >= 2 and raw_path[0] == raw_path[-1] and raw_path[0] in ('"', "'"):
-            raw_path = raw_path[1:-1]
-        if raw_path:
-            fpath = (workspace / raw_path).resolve()
+        fpath = _safe_dependency_path()
+        if fpath is not None:
             try:
-                file_content = fpath.read_bytes()
-                parts.append(f"{directive}:{str(fpath)}:{_hashlib.sha256(file_content).hexdigest()}")
+                content = fpath.read_bytes()
+                parts.append(f"{directive}:{fpath}:{_hashlib.sha256(content).hexdigest()}")
             except (OSError, PermissionError):
                 pass  # can't read → no fingerprint (cache miss is safe)
 
     if directive in ("@list", "@tree"):
-        raw_path = clean_args.split()[0] if clean_args else ""
-        # Strip surrounding quotes from the path argument
-        if raw_path and len(raw_path) >= 2 and raw_path[0] == raw_path[-1] and raw_path[0] in ('"', "'"):
-            raw_path = raw_path[1:-1]
-        if raw_path:
-            dpath = (workspace / raw_path).resolve()
+        dpath = _safe_dependency_path()
+        if dpath is not None:
             try:
                 entries = sorted(dpath.iterdir()) if directive == "@list" else sorted(dpath.rglob("*"))
                 listing_data = "|".join(
-                    f"{p.name}:{p.stat().st_mtime_ns if p.exists() else 0}:{int(p.is_dir())}"
+                    (
+                        f"{p.relative_to(dpath)}:"
+                        f"{(st := p.lstat()).st_mtime_ns}:"
+                        f"{st.st_size}:"
+                        f"{int(_stat.S_ISDIR(st.st_mode))}"
+                    )
                     for p in entries
                 )
-                parts.append(f"{directive}:{str(dpath)}:{_hashlib.sha256(listing_data.encode()).hexdigest()}")
+                parts.append(f"{directive}:{dpath}:{_hashlib.sha256(listing_data.encode()).hexdigest()}")
             except (OSError, PermissionError):
                 pass  # can't read → no fingerprint (cache miss is safe)
 
@@ -7537,10 +7560,11 @@ def _render_lines(
 
             clean_args, cache_mode, cache_ttl, cache_mock = _parse_cache_modifier(raw_args)
             _base_key = _cache_key(f"{directive} {clean_args}")
+            _fp = ""
             if cache_mode == "nofingerprint":
                 cache_key = _base_key
             else:
-                _fp = _dependency_fingerprint(directive, clean_args, workspace)
+                _fp = _dependency_fingerprint(directive, clean_args, workspace, cfg)
                 cache_key = f"{_base_key}.{_fp}" if _fp else _base_key
 
             if cache_mode == "mock":
@@ -7623,6 +7647,12 @@ def _render_lines(
 
             if cache_mode:
                 cache_set(cache_key, result, cache_mode, cache_ttl, cfg)
+                if _fp:
+                    # Keep a TTL fallback under the base key. If a dependency is
+                    # deleted or temporarily unreadable later, fingerprinting has
+                    # no content hash to recreate the old key, so this preserves
+                    # the existing "serve cached output until TTL" contract.
+                    cache_set(_base_key, result, cache_mode, cache_ttl, cfg)
 
             output.append(result)
             i += 1
@@ -8334,20 +8364,18 @@ def _mneme_recall(cfg: dict, query: str, k: int = 5,
     """Recall memories via SQLite FTS5 BM25 index.
 
     Uses a process-lifetime cached connection (WAL mode handles concurrency).
-    Lazily builds the index if empty (first-call initialization).
+    Refreshes the incremental index before searching so newly added, changed,
+    corrupt, renamed, or deleted vault files cannot leave recall stale.
     Falls back to empty list on any failure.
     """
     conn = _mneme_open_index(cfg)
     if conn is None:
         return []
     try:
-        # Lazy init: build index if no documents indexed yet
+        _mneme_build_index(cfg)
         count = conn.execute("SELECT COUNT(*) FROM mneme_fts").fetchone()[0]
         if count == 0:
-            _mneme_build_index(cfg)
-            count = conn.execute("SELECT COUNT(*) FROM mneme_fts").fetchone()[0]
-            if count == 0:
-                return []
+            return []
 
         return _mneme_search(conn, query, k, scope, type_filter, sensitivity)
     except Exception:
@@ -8571,8 +8599,11 @@ def _mneme_build_index(cfg: dict, force: bool = False) -> int:
             indexed[row["path"]] = row["mtime"]
 
         count = 0
+        current_paths: set[str] = set()
+        changed = False
         for md_file in sorted(vault_path.rglob("*.md")):
             file_path_str = str(md_file.resolve())
+            current_paths.add(file_path_str)
             try:
                 mtime = md_file.stat().st_mtime
             except Exception:
@@ -8583,12 +8614,21 @@ def _mneme_build_index(cfg: dict, force: bool = False) -> int:
 
             doc = _mneme_parse_vault_file(md_file)
             if doc is None:
+                # A previously-valid memory can become corrupt or lose required
+                # fields. Remove rows tied to this path so stale recall cannot
+                # keep returning the old content.
+                if file_path_str in indexed:
+                    conn.execute("DELETE FROM mneme_fts WHERE source_path = ?", (file_path_str,))
+                    conn.execute("DELETE FROM mneme_files WHERE path = ?", (file_path_str,))
+                    changed = True
                 continue
 
             field_cols = _mneme_build_field_columns(doc)
             now = datetime.now().astimezone().isoformat(timespec="seconds")
 
-            # Remove old entry if it exists
+            # Remove old entries. Delete by source_path as well as id so a file
+            # whose frontmatter id changes does not leave the previous id behind.
+            conn.execute("DELETE FROM mneme_fts WHERE source_path = ?", (file_path_str,))
             conn.execute("DELETE FROM mneme_fts WHERE id = ?", (doc["id"],))
             conn.execute("DELETE FROM mneme_files WHERE path = ?", (file_path_str,))
 
@@ -8606,9 +8646,17 @@ def _mneme_build_index(cfg: dict, force: bool = False) -> int:
                 (file_path_str, mtime, now, doc.get("sensitivity", "team")),
             )
             count += 1
+            changed = True
+
+        # Prune deleted or renamed files during normal incremental builds.
+        stale_paths = set(indexed) - current_paths
+        for stale_path in sorted(stale_paths):
+            conn.execute("DELETE FROM mneme_fts WHERE source_path = ?", (stale_path,))
+            conn.execute("DELETE FROM mneme_files WHERE path = ?", (stale_path,))
+            changed = True
 
         # Rebuild FTS5 index (necessary after DELETE + INSERT)
-        if count > 0:
+        if changed:
             conn.execute("INSERT INTO mneme_fts(mneme_fts) VALUES('rebuild')")
 
         conn.commit()
@@ -8705,7 +8753,9 @@ def _mneme_index_document(cfg: dict, file_path: Path) -> bool:
         now = datetime.now().astimezone().isoformat(timespec="seconds")
         file_path_str = str(file_path.resolve())
 
-        # Upsert
+        # Upsert. Delete by source_path as well as id so changing the
+        # frontmatter id in-place cannot leave the previous id searchable.
+        conn.execute("DELETE FROM mneme_fts WHERE source_path = ?", (file_path_str,))
         conn.execute("DELETE FROM mneme_fts WHERE id = ?", (doc["id"],))
         conn.execute("DELETE FROM mneme_files WHERE path = ?", (file_path_str,))
         conn.execute(
@@ -12467,7 +12517,7 @@ def _doctor_check_context_file(cfg: dict, workspace: Path) -> DoctorResult:
 
 def _doctor_check_render_shell(cfg: dict, workspace: Path) -> DoctorResult:
     """Informational: is @query shell execution enabled?"""
-    enabled = cfg.get("render", {}).get("allow_query_shell", True)
+    enabled = cfg.get("render", {}).get("allow_query_shell", False)
     val = f"allow_query_shell={str(enabled).lower()}"
     return DoctorResult("render_shell", "ok", "render: shell execution", val, "")
 
@@ -12822,8 +12872,8 @@ def _effective_profile_summary(cfg: dict) -> dict:
         },
         "effective": {
             "render": {
-                "allow_query_shell": bool(render_cfg.get("allow_query_shell", True)),
-                "allow_agent_shell": bool(render_cfg.get("allow_agent_shell", True)),
+                "allow_query_shell": bool(render_cfg.get("allow_query_shell", False)),
+                "allow_agent_shell": bool(render_cfg.get("allow_agent_shell", False)),
                 "allow_services_command": bool(render_cfg.get("allow_services_command", False)),
                 "allow_outside_workspace": bool(render_cfg.get("allow_outside_workspace", False)),
             },
@@ -12942,6 +12992,16 @@ def cmd_doctor(args, cfg) -> int:
     """Run readiness checks and report status."""
     workspace = Path(getattr(args, "workspace", None) or os.getcwd()).resolve()
     use_json = getattr(args, "json", False)
+    try:
+        cfg = load_config(workspace)
+    except Exception:
+        # Keep going so doctor can report config/parser failures as checks.
+        pass
+
+    cfg = dict(cfg)
+    cfg["render"] = dict(cfg.get("render", {}))
+    if cfg["render"].get("cache_dir") == DEFAULT_CONFIG.get("render", {}).get("cache_dir"):
+        cfg["render"]["cache_dir"] = str(PERSEUS_HOME / "cache")
 
     results: list[DoctorResult] = []
     for check_fn in _DOCTOR_CHECKS:
@@ -14016,6 +14076,7 @@ def _quickstart_write_config(workspace: Path, generation: dict | None = None) ->
     config: dict = {
         "render": {
             "allow_query_shell": False,
+            "cache_dir": str(perseus_dir / "cache"),
         },
         "permissions": {
             "profile": "balanced",
