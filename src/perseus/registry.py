@@ -293,6 +293,30 @@ def _build_inline_directive_re():
 
 # ── Plugin Discovery (task-65) ──────────────────────────────────────────────
 
+def _plugins_workspace_sourced(cfg: dict) -> bool:
+    """True if `plugins.*` was sourced from <workspace>/.perseus/config.yaml.
+
+    Set by `load_config` (audit.py). Used by `_discover_plugins` to refuse
+    workspace-sourced plugin configuration without explicit opt-in
+    (#169 — workspace plugins can ship arbitrary Python that runs at
+    import time).
+    """
+    return bool(cfg.get("_provenance", {}).get("plugins_workspace_sourced", False))
+
+
+def _plugins_workspace_allowed(cfg: dict) -> bool:
+    """True iff workspace-sourced plugins are explicitly allowed.
+
+    Defense in depth:
+      1. Global `~/.perseus/config.yaml` sets `plugins.allow_workspace_sourced: true`
+      2. Env var `PERSEUS_ALLOW_DANGEROUS=1`
+    """
+    plugins_cfg = cfg.get("plugins", {})
+    global_opt_in = bool(plugins_cfg.get("allow_workspace_sourced", False))
+    env_opt_in = os.environ.get("PERSEUS_ALLOW_DANGEROUS", "") == "1"
+    return global_opt_in and env_opt_in
+
+
 def _discover_plugins(cfg: dict) -> list["DirectiveSpec"]:
     """Scan plugins dir, import Python modules, collect REGISTER entries.
 
@@ -308,8 +332,40 @@ def _discover_plugins(cfg: dict) -> list["DirectiveSpec"]:
     additional defense-in-depth layer: even if a malicious plugin passes
     hash verification (compromised signing key), it won't execute unless
     its name is also in the allowlist.
+
+    #169 (v1.0.6): workspace-sourced plugin configuration is refused unless
+    explicitly opted in. A workspace `.perseus/config.yaml` that sets
+    `plugins.dir: /path/to/attacker/code` would otherwise cause arbitrary
+    Python to execute at startup (top-level module code runs at
+    `spec.loader.exec_module(mod)`), bypassing every directive trust gate.
     """
     plugins_cfg = cfg.get("plugins", {})
+    if not plugins_cfg.get("enabled", PLUGINS_ENABLED_DEFAULT):
+        return []
+
+    if _plugins_workspace_sourced(cfg) and not _plugins_workspace_allowed(cfg):
+        plugins_dir_preview = str(plugins_cfg.get("dir", ""))[:200]
+        try:
+            audit_event(
+                cfg,
+                "plugins_workspace_refused",
+                reason="plugins.* sourced from workspace config without opt-in",
+                dir=plugins_dir_preview,
+                hint=(
+                    "Set plugins.allow_workspace_sourced: true in global "
+                    "~/.perseus/config.yaml AND export "
+                    "PERSEUS_ALLOW_DANGEROUS=1 to enable workspace plugins."
+                ),
+            )
+        except Exception:
+            pass
+        print(
+            "⚠ Perseus: workspace-sourced plugin config refused (see #169). "
+            "Set plugins.allow_workspace_sourced: true in global config + "
+            "PERSEUS_ALLOW_DANGEROUS=1 to enable.",
+            file=sys.stderr,
+        )
+        return []
     if not plugins_cfg.get("enabled", PLUGINS_ENABLED_DEFAULT):
         return []
     plugins_dir = Path(plugins_cfg.get("dir", str(PERSEUS_HOME / "plugins")))

@@ -257,6 +257,24 @@ def load_config(workspace: Path | None = None) -> dict:
     if effective_profile:
         _apply_permission_profile(cfg, effective_profile)
 
+    # #168/#169 (v1.0.6): track per-section workspace provenance for
+    # hooks.py / registry.py consumers (gate against malicious workspaces).
+    # Workspace source is identified as the local file under
+    # <workspace>/.perseus/config.yaml — the LAST entry in loaded_sources
+    # when `workspace` was scanned.
+    _provenance: dict[str, bool] = {}
+    workspace_src: dict | None = None
+    if workspace:
+        local_cfg_path = workspace / ".perseus" / "config.yaml"
+        if local_cfg_path.exists() and loaded_sources:
+            workspace_src = loaded_sources[-1]
+    if isinstance(workspace_src, dict):
+        for section in ("hooks", "plugins", "webhooks"):
+            sec_val = workspace_src.get(section)
+            if isinstance(sec_val, dict) and sec_val:
+                _provenance[f"{section}_workspace_sourced"] = True
+    cfg["_provenance"] = _provenance
+
     def merge_loaded(loaded: dict) -> None:
         loaded = _normalize_loaded_config(loaded or {}, warn_legacy=False)
         for section, vals in loaded.items():
