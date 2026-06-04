@@ -16,6 +16,7 @@
 #                              (command + args, whitespace-normalised)
 
 _SESSION_CACHE: dict[str, str] = {}  # in-memory store for @cache session
+_WARNED_CACHE_DIR_OVERRIDES: set[str] = set()
 
 
 def _cache_key(directive_line: str) -> str:
@@ -26,8 +27,10 @@ def _cache_key(directive_line: str) -> str:
     distinct directives from colliding on the same cache key.
     """
     import re as _re
-    # Split into quoted and unquoted segments, normalize unquoted only
-    parts = _re.split(r'(\"[^\"]*\"|\'[^\']*\')', directive_line)
+    # Split into quoted and unquoted segments, normalize unquoted only.
+    # Handle escaped quotes (\\\" and \\') inside quoted strings, matching the
+    # _extract_quoted_token behaviour used by directive resolvers.
+    parts = _re.split(r'("(?:[^"\\\\]|\\\\.)*"|\'(?:[^\'\\\\]|\\\\.)*\')', directive_line)
     normalised_parts = []
     for part in parts:
         if part.startswith(('"', "'")):
@@ -50,6 +53,24 @@ def _parse_cache_modifier(line: str) -> tuple[str, str, int | None, str | None]:
     values containing spaces: @cache mock="hello world". Unquoted values
     stop at the first whitespace.
     """
+    # @cache nofingerprint (opt out of fingerprinting; checked before ttl)
+    m = re.search(r'\s*@cache\s+nofingerprint\b', line, re.IGNORECASE)
+    if m:
+        clean = line[:m.start()] + line[m.end():]
+        # After removing nofingerprint, the ttl=N may be bare (no @cache prefix)
+        m2 = re.search(r'\s*@cache\s+ttl=(\d+)|\bttl=(\d+)', clean, re.IGNORECASE)
+        ttl_val = None
+        if m2:
+            ttl_val = int(m2.group(1) or m2.group(2))
+            clean = clean[:m2.start()] + clean[m2.end():]
+        return clean.rstrip(), "nofingerprint", ttl_val, None
+
+    # @cache fingerprint (explicit)
+    m = re.search(r'\s*@cache\s+fingerprint\b', line, re.IGNORECASE)
+    if m:
+        clean = line[:m.start()] + line[m.end():]
+        return clean.rstrip(), "fingerprint", None, None
+
     # @cache ttl=N
     m = re.search(r'\s*@cache\s+ttl=(\d+)', line, re.IGNORECASE)
     if m:
@@ -87,28 +108,136 @@ def _parse_cache_modifier(line: str) -> tuple[str, str, int | None, str | None]:
     return line, "", None, None
 
 
+def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path | None, cfg: dict) -> str:
+    """Return a stable fingerprint of all file dependencies for this directive.
+
+    NOTE: TOCTOU risk exists between hash and use. This is acceptable because
+    Perseus renders in a local, single-process context over the operator's own
+    workspace files — not a multi-writer server. A file changing between
+    fingerprint and render produces a stale cache hit, not incorrect output,
+    since the next render will pick up the change.
+
+    Returns a hex digest that changes when any file the directive reads changes.
+    Directives with no file dependencies return "" (empty string).
+    This is concatenated to the cache key so stale entries miss automatically.
+
+    Fingerprinted directives:
+      @read <file>         → sha256 of file content
+      @include <file>      → sha256 of file content (first-level only;
+                              transitive deps handled by recursive render)
+      @list <dir>          → sha256 of directory listing (file names + mtimes)
+      @tree <dir>          → sha256 of recursive directory listing
+      @env <VAR>           → no fingerprint (value changes per-process)
+      @query ...           → no fingerprint (shell output depends on system state,
+                              not static files — let TTL handle staleness)
+      @services            → no fingerprint (service health is ephemeral)
+      @perseus <url>       → no fingerprint (remote content changes independently)
+    """
+    import hashlib as _hashlib
+    import stat as _stat
+
+    parts: list[str] = []
+
+    def _safe_dependency_path() -> Path | None:
+        raw_path, _remaining = _extract_quoted_token(clean_args)
+        if not raw_path:
+            return None
+        path, warning = _resolve_path(
+            raw_path,
+            workspace,
+            allow_outside_workspace=bool(cfg["render"].get("allow_outside_workspace", False)),
+        )
+        if warning:
+            return None
+        return path
+
+    if directive in ("@read", "@include"):
+        fpath = _safe_dependency_path()
+        if fpath is not None:
+            try:
+                content = fpath.read_bytes()
+                parts.append(f"{directive}:{fpath}:{_hashlib.sha256(content).hexdigest()}")
+            except (OSError, PermissionError):
+                pass  # can't read → no fingerprint (cache miss is safe)
+
+    if directive in ("@list", "@tree"):
+        dpath = _safe_dependency_path()
+        if dpath is not None:
+            try:
+                entries = sorted(dpath.iterdir()) if directive == "@list" else sorted(dpath.rglob("*"))
+                listing_data = "|".join(
+                    (
+                        f"{p.relative_to(dpath)}:"
+                        f"{(st := p.lstat()).st_mtime_ns}:"
+                        f"{st.st_size}:"
+                        f"{int(_stat.S_ISDIR(st.st_mode))}"
+                    )
+                    for p in entries
+                )
+                parts.append(f"{directive}:{dpath}:{_hashlib.sha256(listing_data.encode()).hexdigest()}")
+            except (OSError, PermissionError):
+                pass  # can't read → no fingerprint (cache miss is safe)
+
+    if not parts:
+        return ""
+    return _hashlib.sha256("|".join(parts).encode()).hexdigest()
+
+
 def _safe_cache_dir(cfg: dict) -> Path:
     """Return the cache directory, constrained to a safe location.
 
     S5: Prevents workspace config from pointing cache_dir at /etc/ or
     other system paths. Falls back to ~/.perseus/cache if the configured
     path resolves outside the allowed roots.
+
+    Uses Path.is_relative_to (Python 3.9+) for cross-platform safety.
+    The system temp dir is an allowed root so that tests and short-lived
+    processes can isolate their cache without polluting the shared home.
     """
+    import tempfile
     from pathlib import Path as _Path
-    raw = cfg["render"].get("cache_dir", str(PERSEUS_HOME / "cache"))
+    import tempfile as _tempfile
+    fallback_dir = PERSEUS_HOME / "cache"
+    raw = cfg["render"].get("cache_dir", str(fallback_dir))
     candidate = _Path(str(raw)).expanduser().resolve()
     allowed_roots = [
         _Path.home() / ".perseus",
         _Path.home() / ".cache",
+        _Path(_tempfile.gettempdir()).resolve(),  # allow pytest tmp_path and CI temp dirs
     ]
     try:
         for root in allowed_roots:
             root_resolved = root.expanduser().resolve()
-            if str(candidate).startswith(str(root_resolved) + "/") or candidate == root_resolved:
+            if candidate == root_resolved or candidate.is_relative_to(root_resolved):
                 return candidate
     except (OSError, ValueError):
         pass
-    # Fall back to safe default
+    warning_key = f"{raw}->{fallback_dir}"
+    if warning_key not in _WARNED_CACHE_DIR_OVERRIDES:
+        _WARNED_CACHE_DIR_OVERRIDES.add(warning_key)
+        sys.stderr.write(
+            "perseus cache: rejected render.cache_dir outside allowed roots "
+            f"({candidate}); using {fallback_dir}\n"
+        )
+        audit_event(
+            cfg,
+            "cache_dir_override_rejected",
+            configured_path=str(raw),
+            resolved_path=str(candidate),
+            fallback_path=str(fallback_dir),
+        )
+    return fallback_dir
+    # Fall back to safe default — warn operator their config was overridden
+    print(
+        f"Perseus: configured cache_dir {raw!r} is outside allowed roots; "
+        f"falling back to {PERSEUS_HOME / 'cache'}",
+        file=sys.stderr,
+    )
+    audit_event(cfg, "config_override",
+                key="render.cache_dir",
+                configured=raw,
+                fallback=str(PERSEUS_HOME / "cache"),
+                reason="outside allowed roots")
     return PERSEUS_HOME / "cache"
 
 
@@ -124,9 +253,9 @@ def cache_get(key: str, mode: str, ttl: int | None, cfg: dict) -> str | None:
     if mode == "session":
         return _SESSION_CACHE.get(key)
 
-    if mode in {"ttl", "persist"}:
+    if mode in {"ttl", "persist", "fingerprint", "nofingerprint"}:
         effective_ttl = ttl
-        if mode == "persist":
+        if mode in ("persist", "fingerprint"):
             effective_ttl = int(cfg.get("render", {}).get("persist_cache_ttl_s", 3600))
         if effective_ttl is None:
             return None
@@ -155,16 +284,40 @@ def cache_set(key: str, value: str, mode: str, ttl: int | None, cfg: dict) -> No
         _SESSION_CACHE[key] = value
         return
 
-    if mode in {"ttl", "persist"}:
+    if mode in {"ttl", "persist", "fingerprint", "nofingerprint"}:
         effective_ttl = ttl
-        if mode == "persist":
+        if mode in ("persist", "fingerprint"):
             effective_ttl = int(cfg.get("render", {}).get("persist_cache_ttl_s", 3600))
         if effective_ttl is None:
             return
         cache_dir = _safe_cache_dir(cfg)
         try:
-            cache_dir.mkdir(parents=True, exist_ok=True)
-            entry = {"expires": time.time() + effective_ttl, "value": value}
+            # task-62: Create cache directory with owner-only permissions.
+            # Walk the parent chain (stopping at home) and chmod each
+            # level so intermediate dirs aren't left world-readable by
+            # the system umask. Permission failures on parent dirs are
+            # non-fatal — the leaf is what matters.
+            home = Path.home()
+            p: Path = cache_dir
+            while p != home and p.parent != p:
+                if not p.exists():
+                    try:
+                        p.mkdir(mode=0o700, exist_ok=True)
+                    except Exception:
+                        pass  # parent may not be writable (test envs)
+                try:
+                    os.chmod(p, 0o700)
+                except Exception:
+                    pass  # parent may not be ownable (test envs, /tmp, /)
+                p = p.parent
+            # v1.0.5 review: redact secrets before persisting to cache.
+            # Cached values can contain rendered output with embedded tokens.
+            safe_value = value
+            try:
+                safe_value, _report = redact_text(value, cfg)
+            except Exception:
+                pass  # redaction failure must not block caching
+            entry = {"expires": time.time() + effective_ttl, "value": safe_value}
             # Prior #15: atomic write via tempfile + os.replace to avoid
             # partial/corrupt reads if a reader hits the file mid-write.
             import tempfile
@@ -211,7 +364,7 @@ MAX_MACRO_DEPTH = 10
 # Syntax: @services @tier:1 — force Tier 1, even if @services defaults to Tier 2.
 # Stripped before directive dispatch; passed as instance_tier to the tier gate.
 
-TIER_MODIFIER_RE = re.compile(r'@tier:(\d)', re.IGNORECASE)
+TIER_MODIFIER_RE = re.compile(r'@tier:(\d+)', re.IGNORECASE)
 
 def _parse_tier_modifier(line: str) -> tuple[str, int | None]:
     """Strip @tier:N modifier from a directive line.
@@ -455,7 +608,10 @@ def _execute_pipe(stages: list[str], cfg: dict, workspace, line_index: int, quer
         directive = m.group(1).lower()
         raw_args = (m.group(2) or "").strip()
         if idx > 0 and prev_output:
-            raw_args = f'"{prev_output}" {raw_args}'
+            # Escape embedded double-quotes so prev_output doesn't
+            # prematurely terminate the quoting. FTS5-style: " → ""
+            escaped = prev_output.replace('"', '""')
+            raw_args = f'"{escaped}" {raw_args}'
         # C11: check @cache on the original stage args (before prev_output prepend,
         # which could contain "@cache " substring from previous stage stdout).
         if idx < resolve_count - 1:
@@ -517,6 +673,21 @@ def _capture_file_snapshot(lines: list[str], workspace: Path | None) -> dict[str
             pass
     return snap
 
+def _uses_preflight_sensitive_directive(lines: list[str]) -> bool:
+    """Return True when a render references directives gated by preflight writes.
+
+    Preflight warnings are most actionable when a document uses directives that
+    rely on writable Perseus state (checkpoint/inbox/memory surfaces).
+    """
+    if not INLINE_DIRECTIVE_RE:
+        return False
+    sensitive = {"@waypoint", "@inbox", "@memory", "@mneme"}
+    for raw in lines:
+        m = INLINE_DIRECTIVE_RE.match(raw.strip())
+        if m and m.group(1).lower() in sensitive:
+            return True
+    return False
+
 def _check_directive_tier(
     line: str,
     directive_name: str,
@@ -563,7 +734,8 @@ def _render_lines(
     workspace: Path | None,
     _constraint_rows: list[str] | None = None,
     _include_depth: int = 0,
-    _include_visited: set | None = None,
+    _include_path_chain: tuple = (),
+    _include_inode_chain: tuple = (),
     _directive_collector: list[dict] | None = None,
     _stats: dict | None = None,
     max_tier: int = 3,
@@ -580,8 +752,6 @@ def _render_lines(
         _constraint_rows = []
         if _skipped_directives is None:
             _skipped_directives = []
-    if _include_visited is None:
-        _include_visited = set()
 
     # ── File integrity pre-check (top-level only) ──
     _integrity_snapshot: dict[str, float] = {}
@@ -740,7 +910,8 @@ def _render_lines(
                 break
             rendered_block = _render_lines(block_lines, cfg, workspace, _constraint_rows,
                                            _include_depth=_include_depth,
-                                           _include_visited=_include_visited,
+                                           _include_path_chain=_include_path_chain,
+                                           _include_inode_chain=_include_inode_chain,
                                            _directive_collector=_directive_collector,
                                            _stats=_stats,
                                            max_tier=max_tier,
@@ -893,7 +1064,8 @@ def _render_lines(
             if branch:
                 output.append(_render_lines(branch, cfg, workspace, _constraint_rows,
                                              _include_depth=_include_depth,
-                                             _include_visited=_include_visited,
+                                             _include_path_chain=_include_path_chain,
+                                             _include_inode_chain=_include_inode_chain,
                                              _directive_collector=_directive_collector,
                                              _stats=_stats,
                                              max_tier=max_tier,
@@ -933,7 +1105,13 @@ def _render_lines(
                     raw_args = f"{raw_args} @cache ttl={m_ttl.group(1)}".strip()
 
             clean_args, cache_mode, cache_ttl, cache_mock = _parse_cache_modifier(raw_args)
-            cache_key = _cache_key(f"{directive} {clean_args}")
+            _base_key = _cache_key(f"{directive} {clean_args}")
+            _fp = ""
+            if cache_mode == "nofingerprint":
+                cache_key = _base_key
+            else:
+                _fp = _dependency_fingerprint(directive, clean_args, workspace, cfg)
+                cache_key = f"{_base_key}.{_fp}" if _fp else _base_key
 
             if cache_mode == "mock":
                 output.append(cache_mock or "(mock \u2014 directive skipped)")
@@ -944,6 +1122,15 @@ def _render_lines(
                 _stats["directive_count"] += 1
 
             spec = DIRECTIVE_REGISTRY.get(directive)
+
+            # Track A10: auto-cache for cacheable directives without explicit
+            # @cache modifier. Uses fingerprint mode (content-addressed, TTL from
+            # persist_cache_ttl_s) so cached results invalidate when source files
+            # change. Directives with cacheable=False (e.g. @env, @date, @tool)
+            # still re-resolve every render.
+            if not cache_mode and spec and spec.cacheable:
+                cache_mode = "fingerprint"
+
             cached = cache_get(cache_key, cache_mode, cache_ttl, cfg)
             if cached is not None:
                 if _stats is not None: _stats["cache_hits"] += 1
@@ -976,7 +1163,8 @@ def _render_lines(
             if directive == "@include" and spec and spec.resolver:
                 result = spec.resolver(clean_args, workspace, cfg,
                                        _depth=_include_depth,
-                                       _visited=_include_visited.copy() if _include_visited is not None else None,
+                                       _path_chain=_include_path_chain,
+                                       _inode_chain=_include_inode_chain,
                                        _directive_collector=_directive_collector,
                                        _stats=_stats)
                 result = _apply_output_schema_validation(spec, clean_args, result, workspace)
@@ -1005,6 +1193,12 @@ def _render_lines(
 
             if cache_mode:
                 cache_set(cache_key, result, cache_mode, cache_ttl, cfg)
+                if _fp:
+                    # Keep a TTL fallback under the base key. If a dependency is
+                    # deleted or temporarily unreadable later, fingerprinting has
+                    # no content hash to recreate the old key, so this preserves
+                    # the existing "serve cached output until TTL" contract.
+                    cache_set(_base_key, result, cache_mode, cache_ttl, cfg)
 
             output.append(result)
             i += 1
@@ -1040,9 +1234,11 @@ def render_source(
     workspace: Path | None = None,
     max_tier: int = 3,
     _include_depth: int = 0,
-    _include_visited: set | None = None,
+    _include_path_chain: tuple = (),
+    _include_inode_chain: tuple = (),
     _directive_collector: list[dict] | None = None,
     _stats: dict | None = None,
+    _skipped_directives: list[dict] | None = None,
 ) -> str:
     """
     Parse and resolve a @perseus source document.
@@ -1057,6 +1253,7 @@ def render_source(
     if _include_depth == 0:
         register_plugins(cfg)
         register_hooks(cfg)
+        preflight_warnings = []
 
     if _stats is None:
         _stats = {
@@ -1079,11 +1276,18 @@ def render_source(
     if macros:
         body_lines = _expand_macros(body_lines, macros)
 
+    # v1.0.6: preflight permission check — surface environment issues before
+    # directives that depend on writable Perseus state.
+    if _include_depth == 0 and _uses_preflight_sensitive_directive(body_lines):
+        preflight_warnings = _preflight_permissions(cfg)
+
     _constraint_rows = []
-    _skipped_directives = []
+    if _skipped_directives is None:
+        _skipped_directives = []
     result = _render_lines(body_lines, cfg, workspace, _constraint_rows,
                          _include_depth=_include_depth,
-                         _include_visited=_include_visited,
+                         _include_path_chain=_include_path_chain,
+                         _include_inode_chain=_include_inode_chain,
                          _directive_collector=_directive_collector,
                          _stats=_stats,
                          max_tier=max_tier,
@@ -1110,6 +1314,11 @@ def render_source(
             manifest_lines.append("> ")
             manifest_lines.append("> Re-run with `perseus render --tier 3` to include on-demand context.")
         result = result + "\n".join(manifest_lines)
+
+    # v1.0.6: prepend preflight permission warnings at top of output
+    if _include_depth == 0 and preflight_warnings:
+        header = "\n".join(f"> {w}" for w in preflight_warnings) + "\n\n"
+        result = header + result
 
     if _include_depth == 0 and _render_start_ts is not None:
         _fire_hooks("on_render_complete", {

@@ -157,6 +157,13 @@ def evaluate(bench_dir: Path) -> dict:
                 f">= {total_soft // 2}",
                 severity="soft",
             )
+        gate(
+            "XEB status reported",
+            p10.get("status") in {"PASS", "PARTIAL"},
+            p10.get("status", "unknown"),
+            "PASS|PARTIAL",
+            severity="informational",
+        )
     else:
         # XEB results not present — not a hard failure (phase may have been skipped)
         gate(

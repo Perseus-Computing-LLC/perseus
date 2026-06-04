@@ -2,7 +2,7 @@
 """
 gauntlet_setup.py — Full environment setup for the Perseus Gauntlet.
 
-1. Creates PERSEUS_HOME configs with allow_query_shell=true
+1. Creates PERSEUS_HOME configs with allow_query_shell=true and render env opt-in
 2. Seeds Mnēmē vault with 75 synthetic memory records
 3. Creates workspace checkpoints for @memory narrative data
 4. Creates referenced files for @read directives
@@ -27,19 +27,30 @@ GAUNTLET_DIR = Path(__file__).resolve().parent
 PROFILES_DIR = GAUNTLET_DIR / "gauntlet_role_profiles"
 COLD_HOME = Path("/tmp/perseus-gauntlet/cold")
 WARM_HOME = Path("/tmp/perseus-gauntlet/warm")
+PROFILE_WORKSPACE_LABEL = os.environ.get(
+    "GAUNTLET_PROFILE_WORKSPACE_LABEL",
+    "/workspace/perseus/benchmark/gauntlet/gauntlet_role_profiles",
+)
 
 
 def create_config(home: Path) -> None:
-    """Create .perseus/config.yaml with allow_query_shell=true."""
-    config_dir = home / ".perseus"
-    config_dir.mkdir(parents=True, exist_ok=True)
-    config_path = config_dir / "config.yaml"
-    config_path.write_text("""\
+    """Create config.yaml with allow_query_shell=true."""
+    home.mkdir(parents=True, exist_ok=True)
+    config_path = home / "config.yaml"
+    smoke_timeouts = ""
+    if os.environ.get("GAUNTLET_SMOKE") == "1":
+        smoke_timeouts = """\
+  services_timeout_s: 0.2
+  query_timeout_s: 5
+  parallel_services: true
+"""
+    config_path.write_text(f"""\
 # Perseus Gauntlet config — benchmarking mode
 render:
   allow_query_shell: true
   cache:
-    ttl: 3600
+    ttl: 86400
+{smoke_timeouts.rstrip()}
 memory:
   mneme_vault_path: ""
   mneme_index_path: ""
@@ -84,7 +95,7 @@ def create_checkpoints(profile_dir: Path) -> int:
                 "session_id": session["id"],
                 "timestamp": ts.isoformat(),
                 "label": f"{session['label']} — iteration {ci+1}",
-                "workspace": str(profile_dir),
+                "workspace": PROFILE_WORKSPACE_LABEL,
                 "directives_used": [
                     "@query", "@read", "@memory", "@services",
                     "@health", "@agora", "@inbox", "@drift",
@@ -109,7 +120,7 @@ def create_checkpoints(profile_dir: Path) -> int:
                     "session_id": session["id"],
                     "timestamp": ts.isoformat(),
                     "label": f"{session['label']} — iteration {ci+1}",
-                    "workspace": str(profile_dir),
+                    "workspace": PROFILE_WORKSPACE_LABEL,
                     "directives_used": ["@query", "@read", "@memory"],
                     "files_changed": ci + 1,
                     "duration_s": 120 + ci * 30,
@@ -156,6 +167,7 @@ def build_narrative(home: Path) -> None:
     """Run perseus memory update to build narrative from checkpoints."""
     env = os.environ.copy()
     env["PERSEUS_HOME"] = str(home)
+    env["PERSEUS_ALLOW_DANGEROUS"] = "1"
 
     # First verify checkpoints exist
     cp_dir = home / ".perseus" / "checkpoints"
@@ -184,6 +196,7 @@ def verify_render(profile_name: str = "architect") -> bool:
 
     env = os.environ.copy()
     env["PERSEUS_HOME"] = str(COLD_HOME)
+    env["PERSEUS_ALLOW_DANGEROUS"] = "1"
 
     result = subprocess.run(
         [sys.executable, str(REPO_ROOT / "perseus.py"), "render", str(profile_path)],
@@ -196,6 +209,7 @@ def verify_render(profile_name: str = "architect") -> bool:
 
     checks = {
         "@query disabled": "disabled by config" not in output,
+        "@query env gate": "PERSEUS_ALLOW_DANGEROUS=1 is not set" not in output,
         "@memory narrative": "No Mnēmē narrative" not in output,
         "@read missing": "file not found" not in output,
         "@services": "URLError" not in output if "services" in output.lower() else None,
@@ -218,6 +232,60 @@ def verify_render(profile_name: str = "architect") -> bool:
             print(f"  {line[:120]}")
 
     return all_pass
+
+
+def prewarm_npx_cache(profiles_dir: Path) -> int:
+    """Pre-run every unique `npx <package>` command found in role profiles.
+
+    On the first gauntlet run on a fresh machine, npx downloads packages
+    from the npm registry before executing them.  This inflates Phase 1
+    cold-baseline tail latency (p99/max) and contaminates Phase 2 warm
+    speedup measurements with npm-cache benefit rather than Perseus-cache
+    benefit.  Running each unique npx command once here — during setup,
+    not during benchmarking — eliminates that noise.
+
+    Returns the number of unique npx commands executed.
+    """
+    import re
+    seen: set[str] = set()
+    pattern = re.compile(r'@query\s+"npx\s+([\w@/-]+)')
+
+    for f in sorted(profiles_dir.iterdir()):
+        if f.suffix not in (".md", ".yaml", ".yml"):
+            continue
+        text = f.read_text(encoding="utf-8", errors="replace")
+        for m in pattern.finditer(text):
+            pkg = m.group(1)
+            if pkg not in seen:
+                seen.add(pkg)
+
+    if not seen:
+        return 0
+
+    print(f"  Pre-warming npm cache for {len(seen)} npx package(s)...")
+    warmed = 0
+    for pkg in sorted(seen):
+        try:
+            result = subprocess.run(
+                ["npx", pkg, "--version"],
+                capture_output=True, text=True, timeout=30,
+            )
+            status = "ok" if result.returncode == 0 else f"exit {result.returncode}"
+        except FileNotFoundError:
+            status = "npx not found"
+        except subprocess.TimeoutExpired:
+            status = "timeout"
+        except Exception as exc:
+            status = str(exc)[:40]
+        print(f"    npx {pkg}: {status}")
+        warmed += 1
+
+    return warmed
+
+
+def should_skip_npx_prewarm() -> bool:
+    """Whether setup should skip npm package-manager prewarming."""
+    return os.environ.get("GAUNTLET_SKIP_NPX_PREWARM") == "1"
 
 
 def main():
@@ -248,8 +316,17 @@ def main():
     build_narrative(COLD_HOME)
     build_narrative(WARM_HOME)
 
-    # 6. Verify
-    print("\n6. Verifying render...")
+    # 6. Pre-warm npm cache (eliminates first-run npx download latency from Phase 1)
+    print("\n6. Pre-warming npx cache...")
+    if should_skip_npx_prewarm():
+        print("  skipped by GAUNTLET_SKIP_NPX_PREWARM=1")
+    else:
+        n_warmed = prewarm_npx_cache(PROFILES_DIR)
+        if n_warmed == 0:
+            print("  (no npx commands found or npx not installed — skipping)")
+
+    # 7. Verify
+    print("\n7. Verifying render...")
     ok = verify_render("architect")
     if not ok:
         print("\n⚠ Some directives still not resolving optimally.")

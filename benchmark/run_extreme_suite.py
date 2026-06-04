@@ -50,6 +50,9 @@ def _run(label: str, args: list[str]) -> dict:
     proc = subprocess.run(args, cwd=str(ROOT))
     duration = time.perf_counter() - t0
     print(f"[runner] ✓ {label} ({duration:.1f}s, rc={proc.returncode})", flush=True)
+    if proc.returncode != 0:
+        print(f"[runner] ❌ {label} failed with exit code {proc.returncode}", file=sys.stderr, flush=True)
+        sys.exit(proc.returncode)
     return {"label": label, "rc": proc.returncode, "duration_s": round(duration, 1)}
 
 
@@ -99,7 +102,9 @@ def main():
     if args.quick:
         xeb_args += ["--quick", "--skip-memory"]
     else:
-        xeb_args += ["--skip-memory"]   # memory phase requires psutil; gated separately
+        # Full run: execute memory hygiene when possible.
+        # If psutil is unavailable, XEB now marks status as PARTIAL in its own report.
+        pass
     plan.append(("phase-7 extreme_enterprise", xeb_args))
     plan.append(("phase-6 gate_runner", [sys.executable, str(ROOT / "eval/gate_runner.py"), "--dir", str(ROOT)]))
     if args.include_semantic:
@@ -117,6 +122,21 @@ def main():
             print(f"  - {label}: {' '.join(cmd) if cmd else '(internal)'}")
         return 0
 
+    # Delete stale output files before run so merges only use current artifacts
+    _stale_outputs = [
+        ROOT / "swarm_results.json",
+        ROOT / "thrash_results.json",
+        ROOT / "adversarial_extended_results.json",
+        ROOT / "harness_results.json",
+        ROOT / "gates_results.json",
+        ROOT / "semantic_results.json",
+        ROOT / "extreme_enterprise_results.json",
+    ]
+    for _p in _stale_outputs:
+        if _p.exists():
+            _p.unlink()
+            print(f"[runner] 🗑  Removed stale {_p.name}", flush=True)
+
     timings = []
     p0 = _phase_validate_bench_shim()
     if not p0["pass"]:
@@ -124,10 +144,29 @@ def main():
         return 2
     timings.append({"label": "phase-0 BENCH shim", "rc": 0, "duration_s": 0.1})
 
-    for label, cmd in plan[1:]:
-        timings.append(_run(label, cmd))
+    # P0 #2: Invalidate stale output files from prior runs so we never
+    # merge artifacts from old runs as if they were current.
+    _OUTPUT_FILES = [
+        ROOT / "swarm_results.json",
+        ROOT / "thrash_results.json",
+        ROOT / "adversarial_extended_results.json",
+        ROOT / "harness_results.json",
+        ROOT / "gates_results.json",
+        ROOT / "semantic_results.json",
+        ROOT / "extreme_enterprise_results.json",
+    ]
+    for _of in _OUTPUT_FILES:
+        _of.unlink(missing_ok=True)
 
-    # Merge
+    for label, cmd in plan[1:]:
+        result = _run(label, cmd)
+        timings.append(result)
+        if result["rc"] != 0:
+            print(f"[runner] ❌ Phase failed: {label} (rc={result['rc']})", file=sys.stderr)
+            print("[runner] Aborting suite — fix phase failure before proceeding.", file=sys.stderr)
+            return result["rc"]
+
+    # Merge — only load files actually written by this run
     def load(p): return json.loads(p.read_text()) if p.is_file() else {}
     swarm = load(ROOT / "swarm_results.json")
     thrash = load(ROOT / "thrash_results.json")
@@ -152,9 +191,12 @@ def main():
         "semantic": semantic,
         "extreme_enterprise": {
             "overall_pass": xeb.get("overall_pass"),
+            "overall_status": xeb.get("overall_status"),
+            "overall_partial": xeb.get("overall_partial"),
             "total_duration_s": xeb.get("total_duration_s"),
             "hard_gates": xeb.get("phase_10", {}).get("hard", {}),
             "soft_gates": xeb.get("phase_10", {}).get("soft", {}),
+            "partial_reasons": xeb.get("phase_10", {}).get("partial_reasons", []),
             "enterprise_day_roi_pct": xeb.get("phase_7", {}).get("estimated_roi_pct"),
             "fleet_p99_ms": xeb.get("phase_7", {}).get("fleet_latency_ms", {}).get("p99"),
         } if xeb else {"skipped": True},

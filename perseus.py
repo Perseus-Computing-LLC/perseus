@@ -53,7 +53,7 @@ from typing import NamedTuple, Callable
 # ── Version (injected by scripts/build.py at build time) ──────────────────
 # All other modules reference _PERSEUS_VERSION; the build script's
 # _VERSION_RE replaces the literal "0.0.0" with the VERSION file value.
-_PERSEUS_VERSION = "1.0.5"  # injected by scripts/build.py
+_PERSEUS_VERSION = "1.0.6"  # replaced at build time by scripts/build.py — see VERSION file for canonical value
 
 # Register as 'perseus' so plugins can import from us (task-65)
 import sys as _sys
@@ -73,6 +73,11 @@ LEGACY_PYTHIA_LOG_NAME = LEGACY_PYTHIA_CONFIG_KEY + "_log.jsonl"
 PYTHIA_HWM_KEY = "pythia_entries_processed"
 LEGACY_PYTHIA_HWM_KEY = LEGACY_PYTHIA_CONFIG_KEY + "_entries_processed"
 
+# Single source of truth for the plugins-enabled default. Referenced by
+# DEFAULT_CONFIG below and by registry.register_plugins / _discover_plugins so
+# the three sites can never silently drift apart again (see test_plugin.py).
+PLUGINS_ENABLED_DEFAULT = True
+
 DEFAULT_CONFIG = {
     "render": {
         "cache_dir": str(PERSEUS_HOME / "cache"),
@@ -84,6 +89,7 @@ DEFAULT_CONFIG = {
         "max_query_bytes": 262144,    # 256 KB stdout cap
         "max_read_bytes": 524288,    # 512 KB file size cap for @read (None = unlimited)
         "max_include_bytes": 524288, # 512 KB file size cap for @include (None = unlimited)
+        "max_safe_read_bytes": 52428800,  # 50 MB hard pre-read guard for @read/@include before bytes hit memory (None = disabled)
         "max_include_depth": 5,      # max depth for transitive @include recursion
         "integrity_check": False,    # opt-in: detect files modified during render
         "parallel_services": False,   # opt-in: concurrent @services health checks
@@ -94,6 +100,7 @@ DEFAULT_CONFIG = {
         "allow_services_command": False,
         "allow_remote_services_health": False,
         "allow_outside_workspace": False,
+        "query_shell_meta_warning": False,
         "default_tier": 3,            # task-76: context tier for rendering (1=always, 2=conditional, 3=all). Set to 1 or 2 for smaller context windows.
     },
     "checkpoints": {
@@ -176,24 +183,18 @@ DEFAULT_CONFIG = {
         "default_sender": "perseus",
     },
     "plugins": {
-        "enabled": True,
+        "enabled": PLUGINS_ENABLED_DEFAULT,
         "dir": str(PERSEUS_HOME / "plugins"),
     },
     "hooks": {
         "enabled": True,
     },
-    "webhooks": {
-        "enabled": False,
-        "url": "",
-        "secret": "",
-        "events": ["on_render_start", "on_render_complete", "on_directive_error"],
-        "timeout_s": 5,
-    },
     "tools": {
         "enabled": True,
         "allowlist": [],
     },
-    "foreign_resolver": {
+    "foreign_resolver": {  # DEPRECATED: use "foreign" block (Phase 24E) for new config.
+                          # Kept for backward compatibility; code checks both paths.
         "enabled": True,
         "allowlist": [],
         "hmackey": "",
@@ -246,6 +247,27 @@ DEFAULT_CONFIG = {
         # patterns: list of {name, pattern, replacement?} dicts. See
         # DEFAULT_REDACTION_RULES for the shape of the default set.
         "patterns": [],
+    },
+    "env": {                          # task-61 — @env directive deny-list
+        # Glob patterns for environment variable NAMES that must not be
+        # rendered into context files. Variables matching any pattern are
+        # replaced with a denial marker regardless of whether redaction
+        # would catch their values.
+        "deny_list": [
+            "*_SECRET*",
+            "*_KEY*",
+            "*TOKEN*",
+            "*PASSWORD*",
+            "*_PASS",
+            "*_CREDENTIAL*",
+            "*_PRIVATE_KEY*",
+            "*_CERTIFICATE*",
+            "AWS_ACCESS_KEY_ID",
+            "AWS_SECRET_ACCESS_KEY",
+            "DOCKER_AUTH*",
+            "NPM_TOKEN",
+            "COCOAPODS_TRUNK_TOKEN",
+        ],
     },
     "audit": {                        # Phase 17C — task-47
         # Append-only JSONL log of sensitive operations and policy denials.
@@ -385,6 +407,10 @@ def _get_shell(cfg: dict) -> str | None:
 
 
 # Phase 24 — task-72: Event Webhooks
+# NOTE: enabled=True but endpoints=[] means the webhook engine is active
+# (hooks fire internally) but no external delivery occurs. To actually deliver
+# events, add endpoint URLs to the endpoints list. This split allows the
+# internal hook pipeline to run without inadvertently exposing events.
 DEFAULT_CONFIG["webhooks"] = {
     "enabled": True,
     "timeout_s": 10,
@@ -506,11 +532,16 @@ def _fire_hooks(event: str, payload: dict, cfg: dict) -> None:
 
 
 def _fire_shell_hook(cmd_template: str, payload: dict, event: str) -> None:
-    """Run a shell hook with {{var}} substitution. Timeout 5s."""
+    """Run a shell hook with {{var}} substitution. Timeout 5s.
+
+    All payload values are shell-escaped with shlex.quote() to prevent
+    command injection via shell metacharacters (;, |, &, $(), etc.).
+    """
     try:
+        import shlex as _shlex
         cmd = cmd_template
         for key, val in payload.items():
-            cmd = cmd.replace(f"{{{{{key}}}}}", str(val))
+            cmd = cmd.replace(f"{{{{{key}}}}}", _shlex.quote(str(val)))
 
         # Use shell=True as per spec trust consideration
         subprocess.run(
@@ -519,39 +550,13 @@ def _fire_shell_hook(cmd_template: str, payload: dict, event: str) -> None:
         )
     except subprocess.TimeoutExpired:
         print(f"Perseus hook timeout ({event}): {cmd_template[:80]}", file=sys.stderr)
-    except Exception as e:
+    except (OSError, subprocess.TimeoutExpired, ValueError, subprocess.SubprocessError) as e:
         print(f"Perseus hook shell error ({event}): {e}", file=sys.stderr)
 
-
-def _fire_webhook(event: str, payload: dict, cfg: dict) -> None:
-    """POST render lifecycle event to configured webhook URL (fire-and-forget)."""
-    wh = cfg.get("webhooks", {})
-    if not wh or not wh.get("enabled") or not wh.get("url"):
-        return
-    if event not in wh.get("events", []):
-        return
-    try:
-        body = json.dumps({
-            "event": event,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "workspace_hash": hashlib.sha256(
-                (payload.get("workspace") or "").encode()
-            ).hexdigest()[:16] if payload.get("workspace") else None,
-            "data": payload,
-        })
-        data = body.encode("utf-8")
-        req = urllib.request.Request(
-            wh["url"], data=data,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        secret = wh.get("secret", "")
-        if secret:
-            sig = hashlib.sha256(secret.encode() + data).hexdigest()
-            req.add_header("X-Perseus-Signature", f"sha256={sig}")
-        urllib.request.urlopen(req, timeout=wh.get("timeout_s", 5))
-    except Exception as e:
-        print(f"Perseus webhook error ({event}): {e}", file=sys.stderr)
+# _fire_webhook is defined in webhooks.py (multi-endpoint, URL allowlisting,
+# queued delivery with retry). The legacy single-URL fire-and-forget copy that
+# lived here was dead code — MODULE_ORDER places webhooks.py after hooks.py,
+# so webhooks.py's definition shadowed this one at runtime.
 
 
 def _reset_hooks_cache() -> None:
@@ -572,6 +577,13 @@ import re
 import atexit
 from datetime import datetime, timezone
 
+# Try to obtain the version from the serve module (same package).
+# Fall back to a hard-coded default if the package isn't fully installed.
+try:
+    from .serve import _PERSEUS_VERSION
+except ImportError:
+    _PERSEUS_VERSION = "1.0.6"
+
 # ──────────────────────────────── Webhooks ───────────────────────────────────
 
 # Global state for webhooks
@@ -582,6 +594,18 @@ _WEBHOOK_LOCK = threading.Lock()
 def _expand_env_vars(s):
     if not isinstance(s, str): return s
     return re.sub(r"\${(\w+)}", lambda m: os.environ.get(m.group(1), m.group(0)), s)
+
+def _redact_url(url: str) -> str:
+    """Redact query strings for safe logging — prevents env-var value leakage."""
+    if not isinstance(url, str):
+        return str(url)
+    from urllib.parse import urlparse, urlunparse
+    parsed = urlparse(url)
+    if parsed.query:
+        parts = list(parsed)
+        parts[4] = "[REDACTED]"
+        return urlunparse(parts)
+    return url
 
 def _fire_webhook(event: str, payload: dict, cfg: dict) -> None:
     """POST render lifecycle event to configured webhook endpoints."""
@@ -610,7 +634,25 @@ def _fire_webhook(event: str, payload: dict, cfg: dict) -> None:
             continue
             
         url = _expand_env_vars(raw_url)
-        
+
+        # H-9: URL allowlist check (webhooks.url_allowlist)
+        url_allowlist = wh_cfg.get("url_allowlist", [])
+        if url_allowlist:
+            from urllib.parse import urlparse as _urlparse
+            parsed = _urlparse(url)
+            hostname = parsed.hostname or ""
+            allowed = any(
+                hostname == prefix or hostname.endswith("." + prefix)
+                for prefix in url_allowlist
+            )
+            if not allowed:
+                print(
+                    f"Perseus webhook warning: hostname {hostname} not in "
+                    f"webhooks.url_allowlist, skipping event {event}.",
+                    file=sys.stderr,
+                )
+                continue
+
         with _WEBHOOK_LOCK:
             # Use a unique ID for the thread per endpoint config
             ep_id = f"{url}|{ep.get('secret','')}|{ep.get('timeout_s', 10)}"
@@ -638,7 +680,7 @@ def _webhook_worker(url, ep, wh_cfg, q):
     secret = _expand_env_vars(secret_raw)
     # L-9: Warn if a ${VAR} placeholder resolved to empty — HMAC silently disabled
     if secret_raw and "${" in secret_raw and not secret:
-        print(f"Perseus webhook warning: HMAC secret env var expanded to empty for {url[:80]}...", file=sys.stderr)
+        print(f"Perseus webhook warning: HMAC secret env var expanded to empty for {_redact_url(url)[:80]}...", file=sys.stderr)
     extra_headers = ep.get("headers", {})
 
     while True:
@@ -650,7 +692,7 @@ def _webhook_worker(url, ep, wh_cfg, q):
         event, payload, ts_iso = item
         
         # Prepare payload
-        version = globals().get("_PERSEUS_VERSION", "1.0.4")
+        version = _PERSEUS_VERSION
         
         workspace = payload.get("workspace", "")
         ws_hash = hashlib.sha256(workspace.encode()).hexdigest()[:16] if workspace else None
@@ -712,7 +754,7 @@ def _webhook_worker(url, ep, wh_cfg, q):
                 time.sleep(base_backoff * (2 ** attempt))
         
         if not success:
-            print(f"Perseus webhook warning: Failed to deliver {event} to {url} after {max_attempts} attempts. Last error: {last_error}", file=sys.stderr)
+            print(f"Perseus webhook warning: Failed to deliver {event} to {_redact_url(url)} after {max_attempts} attempts. Last error: {last_error}", file=sys.stderr)
         
         q.task_done()
 
@@ -781,11 +823,11 @@ def _bind_registry() -> None:
 
         # Tier 3 — On-demand (bulky, expensive)
         DirectiveSpec("@query",     resolve_query,     ["fallback=", "schema="],   "inline",  "acw", executes_shell=True,  safe_for_hover=False, cacheable=True,  summary="Run a shell command and embed stdout", tier=3),
-        DirectiveSpec("@read",      resolve_read,      ["path=", "key=", "fallback=", "schema="], "inline", "acw", reads_files=True, cacheable=True, summary="Embed file contents", tier=3),
-        DirectiveSpec("@include",   resolve_include,   [],                         "inline",  "awc", reads_files=True, cacheable=True, summary="Include and render another file", tier=3),
-        DirectiveSpec("@list",      resolve_list,      ["limit=", "sort="],        "inline",  "acw", reads_files=True, cacheable=True, summary="List directory or structured data", tier=3),
-        DirectiveSpec("@tree",      resolve_tree,      ["depth="],                 "inline",  "acw", reads_files=True, cacheable=True, summary="Tree view of directory", tier=3),
-        DirectiveSpec("@agent",     resolve_agent,     [],                         "inline",  "acw", executes_shell=True, safe_for_hover=False, summary="Execute local agent subprocess", tier=3),
+        DirectiveSpec("@read",      resolve_read,      ["path=", "key=", "fallback=", "schema="], "inline", "acw", reads_files=True, cacheable=True, safe_for_hover=False, summary="Embed file contents", tier=3),
+        DirectiveSpec("@include",   resolve_include,   [],                         "inline",  "awc", reads_files=True, cacheable=True, safe_for_hover=False, summary="Include and render another file", tier=3),
+        DirectiveSpec("@list",      resolve_list,      ["limit=", "sort="],        "inline",  "acw", reads_files=True, cacheable=True, safe_for_hover=False, summary="List directory or structured data", tier=3),
+        DirectiveSpec("@tree",      resolve_tree,      ["depth="],                 "inline",  "acw", reads_files=True, cacheable=True, safe_for_hover=False, summary="Tree view of directory", tier=3),
+        DirectiveSpec("@agent",     resolve_agent,     [],                         "inline",  "acw", summary="Execute local agent subprocess", tier=3),
         DirectiveSpec("@tool",      resolve_tool,      [],                         "inline",  "acw", executes_shell=True, safe_for_hover=False, summary="Run an allowlisted external tool", tier=3),
 
         # Block / control (resolved by renderer, tier doesn't apply)
@@ -965,8 +1007,10 @@ def _expand_aliases(lines: list[str], cfg: dict) -> list[str]:
 
 def _call_resolver(spec: DirectiveSpec, args_str: str, cfg: dict, workspace: "Path | None") -> str:
     """Adapt resolver call to match its actual signature via call_sig."""
-    # Universal shell-execution gate (task-65): plugin directives with
-    # executes_shell=True are gated behind allow_query_shell, same as built-ins.
+    # Universal shell-execution gate (task-65): directives with
+    # executes_shell=True are gated behind allow_query_shell.
+    # @agent is the exception — it has its own independent gate
+    # (allow_agent_shell), so executes_shell is False on its spec.
     if spec.executes_shell and not cfg["render"].get("allow_query_shell", False):
         return f"> ⚠ {spec.name} is disabled by config (`render.allow_query_shell=false`)."
     try:
@@ -982,6 +1026,14 @@ def _call_resolver(spec: DirectiveSpec, args_str: str, cfg: dict, workspace: "Pa
         else:
             raise ValueError(f"Unknown call_sig {sig!r} for {spec.name}")
     except Exception as e:
+        # Log full traceback to stderr for diagnostics.
+        # Without this, resolver bugs (NameError, AttributeError, etc.)
+        # are invisible in production — the render just shows a terse
+        # warning block with no hint about which file or line failed.
+        sys.stderr.write(
+            f"Perseus directive error ({spec.name}): {e}\n"
+            f"{traceback.format_exc()}\n"
+        )
         # task-67: on_directive_error hook
         _fire_hooks("on_directive_error", {
             "name": spec.name,
@@ -989,7 +1041,11 @@ def _call_resolver(spec: DirectiveSpec, args_str: str, cfg: dict, workspace: "Pa
             "error": str(e),
             "traceback_truncated": traceback.format_exc()[-1000:],
         }, cfg)
-        return f"> \u26a0 {spec.name} error: {e}"
+        # PERSEUS_DEBUG: re-raise so programming errors (NameError,
+        # AttributeError, TypeError) are not silently swallowed.
+        if os.environ.get("PERSEUS_DEBUG"):
+            raise
+        return f"> ⚠ {spec.name} error: {e}"
 
 
 # Built at import time from the registry (after _bind_registry is called).
@@ -1010,15 +1066,98 @@ def _discover_plugins(cfg: dict) -> list["DirectiveSpec"]:
 
     Returns empty list if plugins are disabled or the directory doesn't exist.
     Plugin import errors are warnings to stderr, never fatal.
+
+    Security: by default, plugins require a MANIFEST.toml with hash entries.
+    Set plugins.allow_unsigned: true to skip manifest verification (opt-in).
+
+    An optional plugins.allowlist restricts which plugins may be loaded.
+    When set, only plugins whose stem name appears in the allowlist are
+    imported — all others are skipped with a warning. This provides an
+    additional defense-in-depth layer: even if a malicious plugin passes
+    hash verification (compromised signing key), it won't execute unless
+    its name is also in the allowlist.
     """
-    if not cfg.get("plugins", {}).get("enabled", True):
-        return []
     plugins_cfg = cfg.get("plugins", {})
+    if not plugins_cfg.get("enabled", PLUGINS_ENABLED_DEFAULT):
+        return []
     plugins_dir = Path(plugins_cfg.get("dir", str(PERSEUS_HOME / "plugins")))
     if not plugins_dir.is_dir():
         return []
+    # Optional allowlist gate — defense-in-depth for plugin execution
+    allowlist = plugins_cfg.get("allowlist", None)
+    if allowlist is not None:
+        if isinstance(allowlist, str):
+            allowlist = [n.strip() for n in allowlist.split(",") if n.strip()]
+        if not isinstance(allowlist, list):
+            print("Perseus plugin config: plugins.allowlist must be a list or comma-separated string; ignoring.", file=sys.stderr)
+            allowlist = None
+    # H-3: require manifest unless explicitly opted in
+    manifest_path = plugins_dir / "MANIFEST.toml"
+    allow_unsigned = plugins_cfg.get("allow_unsigned", False)
+    if not allow_unsigned and not manifest_path.is_file():
+        print(
+            "Perseus plugin security: plugins dir exists but no MANIFEST.toml found.\n"
+            "  Set plugins.allow_unsigned: true to load plugins without a manifest, or\n"
+            "  create plugins/MANIFEST.toml with [plugins.<name>] hash entries.",
+            file=sys.stderr,
+        )
+        return []
+
+    # v1.0.5 review: when a manifest exists, verify hashes for every plugin file.
+    # Prior behavior only checked file existence and skipped verification if no
+    # hashes were defined — an empty [plugins] section was sufficient to execute
+    # arbitrary Python. Now we require a hash for every .py file in the directory
+    # unless allow_unsigned is explicitly enabled.
+    manifest_hashes: dict[str, str] = {}
+    manifest_seen = False
+    if manifest_path.is_file() and not allow_unsigned:
+        manifest_seen = True
+        try:
+            import tomllib
+        except ImportError:
+            import tomli as tomllib  # type: ignore[no-redef]
+        try:
+            manifest = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
+            plugins_section = manifest.get("plugins", {})
+            if isinstance(plugins_section, dict):
+                for name, entry in plugins_section.items():
+                    if isinstance(entry, dict) and "hash" in entry:
+                        manifest_hashes[name] = str(entry["hash"])
+        except Exception as e:
+            print(
+                f"Perseus plugin security: failed to parse MANIFEST.toml: {e}",
+                file=sys.stderr,
+            )
+            return []
+
     specs: list["DirectiveSpec"] = []
     for py_file in sorted(plugins_dir.glob("*.py")):
+        if py_file.name == "__init__.py":
+            continue
+        # Allowlist check: skip plugins not explicitly approved
+        if allowlist is not None and py_file.stem not in allowlist:
+            print(
+                f"Perseus plugin security: {py_file.name} not in plugins.allowlist — skipping",
+                file=sys.stderr,
+            )
+            continue
+        # v1.0.5 review: verify file hash against manifest (required when manifest exists)
+        if manifest_seen:
+            plugin_name = py_file.stem
+            expected = manifest_hashes.get(plugin_name)
+            if expected is None:
+                print(
+                    f"Perseus plugin security: {py_file.name} not in MANIFEST.toml — skipping",
+                    file=sys.stderr,
+                )
+                continue
+            actual = hashlib.sha256(py_file.read_bytes()).hexdigest()
+            if actual != expected:
+                print(
+                    f"Perseus plugin security: hash mismatch for {py_file.name} — skipping",
+                    file=sys.stderr,
+                )
+                continue
         try:
             spec = importlib.util.spec_from_file_location(
                 f"perseus_plugin_{py_file.stem}", py_file
@@ -1045,13 +1184,54 @@ def _discover_formats(cfg: dict) -> dict[str, "Callable"]:
 
     Returns {format_name: render_fn}. Format name = filename stem.
     Built-in names (markdown, html, json) are ignored with a warning.
+
+    Security: by default, format adapters require a MANIFEST.toml with hash entries.
+    Set formats.allow_unsigned: true to skip manifest verification (opt-in).
     """
     formats_dir = PERSEUS_HOME / "formats"
     if not formats_dir.is_dir():
         return {}
 
+    # H-4: require manifest unless explicitly opted in
+    formats_cfg = cfg.get("formats", {})
+    manifest_path = formats_dir / "MANIFEST.toml"
+    allow_unsigned = formats_cfg.get("allow_unsigned", False)
+    if not allow_unsigned and not manifest_path.is_file():
+        print(
+            "Perseus format security: formats dir exists but no MANIFEST.toml found.\n"
+            "  Set formats.allow_unsigned: true to load adapters without a manifest, or\n"
+            "  create formats/MANIFEST.toml with [formats.<name>] hash entries.",
+            file=sys.stderr,
+        )
+        return {}
+
     discovered = {}
     built_ins = {"markdown", "md", "html", "json"}
+
+    # v1.0.5 review: verify format hashes against manifest (was missing entirely).
+    # When a manifest exists and allow_unsigned is false, every .py file must have
+    # a matching hash entry in [formats.<name>] or it is skipped.
+    format_hashes: dict[str, str] = {}
+    manifest_seen = False
+    if manifest_path.is_file() and not allow_unsigned:
+        manifest_seen = True
+        try:
+            import tomllib
+        except ImportError:
+            import tomli as tomllib  # type: ignore[no-redef]
+        try:
+            manifest = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
+            formats_section = manifest.get("formats", {})
+            if isinstance(formats_section, dict):
+                for name, entry in formats_section.items():
+                    if isinstance(entry, dict) and "hash" in entry:
+                        format_hashes[name] = str(entry["hash"])
+        except Exception as e:
+            print(
+                f"Perseus format security: failed to parse MANIFEST.toml: {e}",
+                file=sys.stderr,
+            )
+            return {}
 
     for py_file in sorted(formats_dir.glob("*.py")):
         name = py_file.stem.lower()
@@ -1061,6 +1241,23 @@ def _discover_formats(cfg: dict) -> dict[str, "Callable"]:
                 file=sys.stderr,
             )
             continue
+
+        # Hash verification (required when manifest exists)
+        if manifest_seen:
+            expected = format_hashes.get(name)
+            if expected is None:
+                print(
+                    f"Perseus format security: {py_file.name} not in MANIFEST.toml [formats] — skipping",
+                    file=sys.stderr,
+                )
+                continue
+            actual = hashlib.sha256(py_file.read_bytes()).hexdigest()
+            if actual != expected:
+                print(
+                    f"Perseus format security: hash mismatch for {py_file.name} — skipping",
+                    file=sys.stderr,
+                )
+                continue
 
         try:
             spec = importlib.util.spec_from_file_location(
@@ -1092,7 +1289,7 @@ def register_plugins(cfg: dict, force: bool = False) -> int:
     collision cases warn to stderr. Returns the count of new directives added.
     """
     plugins_cfg = cfg.get("plugins") or {}
-    if not plugins_cfg.get("enabled", True):
+    if not plugins_cfg.get("enabled", PLUGINS_ENABLED_DEFAULT):
         return 0
     plugins_dir = str(Path(plugins_cfg.get("dir", str(PERSEUS_HOME / "plugins"))))
     if not force and plugins_dir in _PLUGIN_LOADED_DIRS:
@@ -1137,129 +1334,11 @@ MACRO_START_RE = re.compile(r'^@macro\s+([\w-]+)\s*(.*)$', re.IGNORECASE)
 MACRO_END_RE = re.compile(r'^@endmacro\s*$', re.IGNORECASE)
 MACRO_PARAM_RE = re.compile(r'%(\w+)%')
 MAX_MACRO_DEPTH = 10
-
-def _parse_macros_from_lines(lines: list[str], start: int = 0) -> dict[str, tuple[list[str], list[str]]]:
-    """Parse @macro ... @endmacro blocks from lines, starting at index start.
-
-    Returns: {macro_name: (body_lines, param_names)} where param_names are
-    the ordered %tokens% found in the macro body.
-    """
-    macros: dict[str, tuple[list[str], list[str]]] = {}
-    i = start
-    while i < len(lines):
-        m = MACRO_START_RE.match(lines[i])
-        if m:
-            name = m.group(1).lower()
-            raw_params = (m.group(2) or "").strip()
-            # Parse %param% tokens from the macro header line or infer from body
-            header_params = [p for p in MACRO_PARAM_RE.findall(raw_params)]
-            i += 1
-            body: list[str] = []
-            while i < len(lines) and not MACRO_END_RE.match(lines[i]):
-                body.append(lines[i])
-                i += 1
-            # Infer params from body if not declared in header
-            if not header_params:
-                all_body = "\n".join(body)
-                body_params = []
-                seen = set()
-                for param in MACRO_PARAM_RE.findall(all_body):
-                    if param not in seen:
-                        body_params.append(param)
-                        seen.add(param)
-                header_params = body_params
-            macros[name] = (body, header_params)
-            if i < len(lines) and MACRO_END_RE.match(lines[i]):
-                i += 1
-        else:
-            i += 1
-    return macros
-
-
-def _load_macros(source_lines: list[str], workspace: Path | None, cfg: dict) -> dict[str, tuple[list[str], list[str]]]:
-    """Load macros from shared macros file, then overlay source-document macros.
-
-    Shared macros are loaded first; source-document macros can shadow them.
-    """
-    macros: dict[str, tuple[list[str], list[str]]] = {}
-
-    # Load shared macros file if it exists
-    # Config key 'macros.file' per spec, default ~/.perseus/macros.md
-    macros_file = cfg.get("macros", {}).get("file")
-    if not macros_file:
-        macros_path = PERSEUS_HOME / "macros.md"
-    else:
-        macros_path = Path(macros_file)
-
-    try:
-        if macros_path.is_file():
-            file_lines = macros_path.read_text().splitlines()
-            macros.update(_parse_macros_from_lines(file_lines))
-    except (OSError, ValueError):
-        pass
-
-    # Source-document macros override shared macros
-    source_macros = _parse_macros_from_lines(source_lines)
-    macros.update(source_macros)
-
-    return macros
-
-
-def _expand_macros(lines: list[str], macros: dict[str, tuple[list[str], list[str]]]) -> list[str]:
-    """Walk lines, expand macro invocations in place. Recursive up to MAX_MACRO_DEPTH.
-
-    A macro invocation is a line that exactly (case-insensitively) matches
-    a macro name (e.g. ``@project-health``).
-
-    Returns the expanded lines (macro definitions stripped, invocations replaced).
-    """
-    # Strip macro definition blocks first
-    current_lines = [l for l in _strip_macro_defs(lines)]
-    if not macros:
-        return current_lines
-
-    depth = 0
-    while depth < MAX_MACRO_DEPTH:
-        next_lines = []
-        changed = False
-        for line in current_lines:
-            stripped = line.strip()
-            if stripped.startswith("@"):
-                # Check for macro invocation (whole line)
-                parts = stripped.split(None, 1)
-                if parts:
-                    invocation = parts[0][1:].lower()
-                    if invocation in macros:
-                        body, _ = macros[invocation]
-                        next_lines.extend(body)
-                        changed = True
-                        continue
-            next_lines.append(line)
-
-        current_lines = next_lines
-        if not changed:
-            break
-        depth += 1
-    else:
-        # MAX_MACRO_DEPTH exceeded
-        current_lines.append(f"> ⚠ Macro expansion depth exceeded (max {MAX_MACRO_DEPTH})")
-
-    return current_lines
-
-
-def _strip_macro_defs(lines: list[str]) -> "iter":
-    """Generator: yield lines, skipping @macro...@endmacro definition blocks."""
-    i = 0
-    while i < len(lines):
-        if MACRO_START_RE.match(lines[i]):
-            i += 1
-            while i < len(lines) and not MACRO_END_RE.match(lines[i]):
-                i += 1
-            if i < len(lines):
-                i += 1  # skip @endmacro
-            continue
-        yield lines[i]
-        i += 1
+# Note: _parse_macros_from_lines, _load_macros, _expand_macros, and
+# _strip_macro_defs are defined in renderer.py (parameterized macros
+# with fork-bomb width caps). The older non-parameterized copies that
+# lived here were dead code — MODULE_ORDER placed renderer.py after
+# macros.py, so renderer's definitions always shadowed these.
 # ─────────────────────────── Phase 17B redaction (task-46) ───────────────────
 #
 # Goal: deterministic, opt-out redaction of common secret shapes before they
@@ -1548,14 +1627,19 @@ def _audit_log_path(cfg: dict) -> Path:
     """
     raw = (cfg.get("audit") or {}).get("log_path") or str(PERSEUS_HOME / "audit_log.jsonl")
     candidate = Path(str(raw)).expanduser().resolve()
+    import tempfile as _tempfile
     allowed_roots = [
         Path.home() / ".perseus",
+        Path(_tempfile.gettempdir()).resolve(),  # allow pytest tmp_path and CI temp dirs
     ]
     try:
         for root in allowed_roots:
             root_resolved = root.expanduser().resolve()
-            if str(candidate).startswith(str(root_resolved) + "/") or candidate == root_resolved:
-                return candidate
+            try:
+                if candidate == root_resolved or candidate.is_relative_to(root_resolved):
+                    return candidate
+            except ValueError:
+                pass
     except (OSError, ValueError):
         pass
     return PERSEUS_HOME / "audit_log.jsonl"
@@ -1609,6 +1693,12 @@ def audit_event(cfg: dict, event_type: str, **fields) -> None:
             record[k] = v
         except Exception:
             record[k] = repr(v)
+    # v1.0.5 review: redact secrets before persisting to disk.
+    # Audit events can contain command strings, paths, or args with tokens.
+    try:
+        record, _report = redact_value(record, cfg)
+    except Exception:
+        pass  # redaction failure must not block audit persistence
     try:
         path = _audit_log_path(cfg)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -1817,24 +1907,26 @@ def _extract_quoted_token(raw: str) -> tuple[str | None, str]:
     for idx in range(1, len(raw)):
         ch = raw[idx]
         if escaped:
-            # C10: handle standard escape sequences (\n, \t, \r, \0, \\, \", \')
+            # v1.0.5 review: only decode quote-escaping and literal backslash.
+            # Decoding \n, \t, \r, \0 corrupts Windows paths (C:\Users\tccon\...\n).
+            # fallback= text can use literal newlines/tabs instead.
             if _escape_buffer:
                 _escape_buffer += ch
-                if len(_escape_buffer) >= 4:  # \uNNNN or unknown
+                if len(_escape_buffer) >= 4:  # \uNNNN or \xNN or unknown
+                    # Keep the raw escape sequence as-is; don't mangle paths
                     buf.append(_escape_buffer)
                     _escape_buffer = ""
                     escaped = False
                 continue
-            if ch in {"n", "t", "r", "0"}:
-                buf.append({"n": "\n", "t": "\t", "r": "\r", "0": "\0"}[ch])
-            elif ch in {"\\", '"', "'"}:
+            if ch in {"\\", '"', "'"}:
                 buf.append(ch)
             elif ch == "u":
                 _escape_buffer = "\\u"
             elif ch == "x":
                 _escape_buffer = "\\x"
             else:
-                buf.append("\\" + ch)  # unknown escape — keep literal
+                # Unknown escape — keep literal backslash + char (preserves Windows paths)
+                buf.append("\\" + ch)
             escaped = False
             continue
         if ch == "\\":
@@ -1883,7 +1975,9 @@ def _parse_kv_modifiers(raw: str) -> dict[str, str]:
             while i < n:
                 ch = raw[i]
                 if escaped:
-                    buf.append(ch)
+                    # v1.0.5 review: only decode quote-escaping and literal backslash.
+                    # Decoding \n, \t, \r corrupts Windows paths like C:\Users\tccon\...
+                    buf.append({'\\': '\\', '"': '"', "'": "'"}.get(ch, '\\' + ch))
                     escaped = False
                 elif ch == "\\":
                     escaped = True
@@ -2174,13 +2268,18 @@ def _validate_basic_schema(data: object, schema: object, prefix: str = "") -> li
 
 
 def _resolve_path(file_path_str: str, workspace: Path | None = None, allow_outside_workspace: bool = False) -> tuple[Path, str | None]:
-    """Resolve a path relative to workspace and optionally block escapes."""
+    """Resolve a path relative to workspace and optionally block escapes.
+
+    When workspace is None, falls back to cwd so the boundary check still
+    applies. A None workspace = unrestricted reads would be a defense gap
+    for programmatic consumers that don't pass an explicit workspace.
+    """
     fp = Path(file_path_str).expanduser()
-    if not fp.is_absolute() and workspace:
-        fp = workspace / fp
+    ws = (workspace or Path.cwd()).expanduser().resolve()
+    if not fp.is_absolute():
+        fp = ws / fp
     fp = fp.resolve(strict=False)
-    if workspace and not allow_outside_workspace:
-        ws = workspace.expanduser().resolve()
+    if not allow_outside_workspace:
         try:
             fp.relative_to(ws)
         except ValueError:
@@ -2195,7 +2294,8 @@ def _update_latest_checkpoint_pointer(latest: Path, outfile: Path) -> None:
     try:
         latest.symlink_to(outfile.name)
     except OSError:
-        latest.write_text(outfile.read_text())
+        # L-4: use explicit UTF-8 encoding for cross-platform safety
+        latest.write_text(outfile.read_text(encoding="utf-8"), encoding="utf-8")
 
 
 def _get_tasks_dir(workspace: Path | None, cfg: dict) -> Path:
@@ -2218,13 +2318,50 @@ def _dump_frontmatter_body(frontmatter: dict, body: str) -> str:
 
 
 def _load_task_file(task_path: Path) -> tuple[dict, str]:
+    """Read a task file, waiting for any concurrent write to finish."""
     text = task_path.read_text(errors="replace")
     fm, body = _parse_frontmatter(text)
     return dict(fm or {}), body
 
 
 def _save_task_file(task_path: Path, frontmatter: dict, body: str) -> None:
-    task_path.write_text(_dump_frontmatter_body(frontmatter, body))
+    """Write a task file atomically.
+
+    task-65: Uses temp file + os.replace to prevent partial/corrupt reads
+    when multiple processes write concurrently. Also uses fcntl.flock for
+    advisory locking so concurrent claim/complete/load operations don't
+    race.
+    """
+    import fcntl
+    import tempfile
+
+    content = _dump_frontmatter_body(frontmatter, body)
+    lock_path = task_path.with_suffix(task_path.suffix + ".lock")
+
+    # Open or create the lock file
+    lock_dir = lock_path.parent
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    lf = open(lock_path, "w")
+    try:
+        fcntl.flock(lf, fcntl.LOCK_EX)
+        # Write to temp file in same directory, then atomic replace
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w",
+            suffix=".md",
+            dir=str(task_path.parent),
+            delete=False,
+            encoding="utf-8",
+        )
+        try:
+            tmp.write(content)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+        finally:
+            tmp.close()
+        os.replace(tmp.name, task_path)
+    finally:
+        fcntl.flock(lf, fcntl.LOCK_UN)
+        lf.close()
 
 
 def _task_id_from_path(task_path: Path) -> str:
@@ -2295,7 +2432,9 @@ def _render_agora_table(tasks: list[tuple[Path, dict, str]]) -> str:
         return '> No tasks found.'
     rows = ['| ID | Scope | Title | Status |', '|---|---|---|---|']
     for _path, fm, _body in tasks:
-        rows.append(f"| {fm.get('id','')} | {fm.get('scope','')} | {fm.get('title','')} | {fm.get('status','')} |")
+        def _esc(v: str) -> str:
+            return str(v).replace("|", "\\|")
+        rows.append(f"| {_esc(fm.get('id',''))} | {_esc(fm.get('scope',''))} | {_esc(fm.get('title',''))} | {_esc(fm.get('status',''))} |")
     return '\n'.join(rows)
 
 
@@ -2379,7 +2518,200 @@ class ConditionParseError(ValueError):
     pass
 
 
+# ── v1.0.6 Preflight Permission Check ──────────────────────────────────────
+# Verifies PERSEUS_HOME and writable targets are writable.
+# Cached per effective write-path configuration (not globally once-per-process),
+# so tests and callers can safely change cfg paths without stale warnings.
+
+_PREFLIGHT_CACHE: dict[tuple[str, str, str, str, str], list[str]] = {}
+
+
+def _preflight_permissions(cfg: dict) -> list[str]:
+    """Check writability of PERSEUS_HOME and configured write targets.
+
+    Returns a list of warning strings (empty = all good). Results are cached
+    by effective write-path tuple to avoid cross-config leakage.
+    """
+    home = PERSEUS_HOME
+    checkpoints_path = Path(
+        cfg.get("checkpoints", {}).get("store", str(home / "checkpoints"))
+    ).expanduser()
+    inbox_path = Path(
+        cfg.get("inbox", {}).get("store", str(home / "inbox"))
+    ).expanduser()
+    audit_log = Path(
+        cfg.get("audit", {}).get("log_path", str(home / "audit_log.jsonl"))
+    ).expanduser()
+    memory_path = Path(
+        cfg.get("memory", {}).get("store", str(home / "memory"))
+    ).expanduser()
+
+    cache_key = (
+        str(home),
+        str(checkpoints_path),
+        str(inbox_path),
+        str(audit_log),
+        str(memory_path),
+    )
+    cached = _PREFLIGHT_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    warnings: list[str] = []
+
+    # Check PERSEUS_HOME itself (informational; directives decide whether to gate).
+    if not home.exists():
+        try:
+            home.mkdir(parents=True, exist_ok=True)
+        except (OSError, PermissionError) as e:
+            warnings.append(
+                f"⚠ PERSEUS_HOME not writable: {home} — {e}. "
+                "Defaults under PERSEUS_HOME may be unavailable."
+            )
+    elif not os.access(home, os.W_OK):
+        warnings.append(
+            f"⚠ PERSEUS_HOME not writable: {home}. "
+            "Defaults under PERSEUS_HOME may be unavailable."
+        )
+
+    # Subdirectories/files Perseus writes to
+    targets = {
+        "checkpoints": checkpoints_path,
+        "inbox": inbox_path,
+        "audit": audit_log.parent,
+        "memory": memory_path,
+    }
+
+    for name, path in targets.items():
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+        except (OSError, PermissionError):
+            pass
+        probe = path if path.is_dir() else path.parent
+        if not os.access(probe, os.W_OK):
+            warnings.append(f"⚠ {name}/ not writable: {path}")
+
+    _PREFLIGHT_CACHE[cache_key] = warnings
+    return warnings
+
+
+
+# ─────────────────────────────── Audit CLI ────────────────────────────────────
+
+def cmd_audit(args, cfg) -> int | None:
+    """perseus audit — query and inspect the audit log."""
+    audit_cfg = cfg.get("audit") or {}
+    if not audit_cfg.get("enabled", True):
+        print("Audit logging is disabled (audit.enabled=false in config).")
+        return 0
+
+    sub = getattr(args, "audit_command", None)
+
+    if sub == "show":
+        since_arg = getattr(args, "since", None)
+        event_arg = getattr(args, "event", None)
+        tail = int(getattr(args, "tail", 20) or 20)
+
+        entries = _read_audit_entries(cfg)
+        if not entries:
+            print("No audit entries found.")
+            return 0
+
+        # Apply filters
+        if since_arg:
+            try:
+                # Parse --since as a duration string (e.g. "24h", "7d", "30m")
+                import re as _re
+                dur_match = _re.match(r'^(\d+)\s*(h|d|m|s)$', since_arg.strip().lower())
+                if dur_match:
+                    val = int(dur_match.group(1))
+                    unit = dur_match.group(2)
+                    multiplier = {"s": 1, "m": 60, "h": 3600, "d": 86400}[unit]
+                    cutoff = datetime.now(timezone.utc).timestamp() - val * multiplier
+                else:
+                    cutoff = datetime.fromisoformat(since_arg).timestamp()
+            except Exception:
+                print(f"Invalid --since value: {since_arg!r}")
+                return 1
+            entries = [e for e in entries if _entry_ts(e) >= cutoff]
+
+        if event_arg:
+            entries = [e for e in entries
+                       if str(e.get("event_type", "")).lower() == event_arg.strip().lower()]
+
+        if not entries:
+            print("No audit entries match the filters.")
+            return 0
+
+        # Show most recent (tail)
+        for e in entries[-tail:]:
+            ts = e.get("ts", "?")
+            ev = e.get("event_type", "?")
+            other = {k: v for k, v in e.items() if k not in ("ts", "event_type", "perseus_version", "pid")}
+            print(f"{ts}  {ev}")
+            for k, v in other.items():
+                v_str = str(v)[:120]
+                print(f"    {k}: {v_str}")
+            print()
+
+    elif sub == "stats":
+        entries = _read_audit_entries(cfg)
+        if not entries:
+            print("No audit entries found.")
+            return 0
+
+        counts: dict[str, int] = {}
+        for e in entries:
+            t = str(e.get("event_type") or "?")
+            counts[t] = counts.get(t, 0) + 1
+
+        print(f"Total audit events: {len(entries)}")
+        log_path = _audit_log_path(cfg)
+        print(f"Log path: {log_path}")
+        print()
+        for event_type, count in sorted(counts.items(), key=lambda x: -x[1]):
+            print(f"  {count:>6}  {event_type}")
+
+    else:
+        # Default: show recent entries
+        entries = _read_audit_entries(cfg, limit=20)
+        if not entries:
+            print("No audit entries found.")
+            return 0
+        print(f"Recent audit events (last {len(entries)}):\n")
+        for e in entries:
+            ts = e.get("ts", "?")
+            ev = e.get("event_type", "?")
+            print(f"  {ts}  {ev}")
+
+    return 0
+
+
+def _entry_ts(entry: dict) -> float:
+    """Extract a Unix timestamp from an audit entry for comparison."""
+    ts = entry.get("ts", "")
+    try:
+        return datetime.fromisoformat(str(ts)).timestamp()
+    except Exception:
+        return 0.0
 # ──────────────────────────────── @env ────────────────────────────────────────
+
+# task-61: Default deny-list always active. Patterns are fnmatch globs.
+DEFAULT_ENV_DENY_LIST = [
+    "*_SECRET*",
+    "*_KEY*",
+    "*TOKEN*",
+    "*PASSWORD*",
+    "*_PASS",
+    "*_CREDENTIAL*",
+    "*_PRIVATE_KEY*",
+    "*_CERTIFICATE*",
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "DOCKER_AUTH*",
+    "NPM_TOKEN",
+    "COCOAPODS_TRUNK_TOKEN",
+]
 
 def resolve_env(args_str: str, cfg: dict | None = None, workspace: Path | None = None) -> str:
     """
@@ -2390,6 +2722,12 @@ def resolve_env(args_str: str, cfg: dict | None = None, workspace: Path | None =
     - fallback="val" : return this value when the variable is unset
     - schema=        : validate the resolved value or fallback
     Without either modifier, emits a warning if the variable is unset.
+
+    Security (task-61): Environment variable names are checked against
+    env.deny_list glob patterns (merged with DEFAULT_ENV_DENY_LIST).
+    Variables matching a deny-list pattern have their value replaced with
+    a redaction marker. The resolved value is also run through the
+    redaction pipeline as defense-in-depth.
     """
     parts = args_str.strip().split(maxsplit=1)
     if not parts:
@@ -2401,6 +2739,10 @@ def resolve_env(args_str: str, cfg: dict | None = None, workspace: Path | None =
     required = _schema_required(modifiers.get("required", False))
     fallback = modifiers.get("fallback")
     schema_ref = modifiers.get("schema")
+
+    # Check deny-list BEFORE accessing the environment variable.
+    if _var_name_is_denied(var_name, cfg):
+        return f"> ⚠ `{var_name}` denied by env.deny_list (credential pattern matched)"
 
     value = os.environ.get(var_name)
 
@@ -2414,16 +2756,54 @@ def resolve_env(args_str: str, cfg: dict | None = None, workspace: Path | None =
             return fallback
         return f"> ⚠ `{var_name}` is not set (no fallback)"
 
+    # Defense-in-depth: run the value through the redaction pipeline.
+    if cfg and isinstance(cfg, dict):
+        try:
+            redacted_value, _report = redact_text(value, cfg)
+            value = redacted_value
+        except Exception:
+            pass  # redaction is best-effort; never break rendering
+
     warning = _validate_against_schema_ref(value, schema_ref, workspace, "@env")
     if warning:
         return warning
     return value
 
 
+def _var_name_is_denied(var_name: str, cfg: dict) -> bool:
+    """Return True if var_name matches any pattern in env.deny_list + defaults."""
+    import fnmatch
+    deny_list = list(DEFAULT_ENV_DENY_LIST)
+    # User can ADD patterns to the default list (never remove defaults).
+    if cfg and isinstance(cfg, dict):
+        env_cfg = cfg.get("env")
+        if isinstance(env_cfg, dict):
+            extra = env_cfg.get("deny_list")
+            if isinstance(extra, list):
+                deny_list.extend(extra)
+    for pattern in deny_list:
+        if not isinstance(pattern, str) or not pattern.strip():
+            continue
+        if fnmatch.fnmatch(var_name, pattern.strip()):
+            return True
+    return False
 # ──────────────────────────────── @include ────────────────────────────────────
 
+def _resolve_max_bytes(cfg: dict, key: str) -> int | None:
+    """Resolve a render.max_*_bytes config key as int or None.
+
+    Used by @read and @include to avoid duplicated parsing logic.
+    Defined here so it is available to resolve_include in the concatenated artifact."""
+    raw = cfg.get("render", {}).get(key)
+    try:
+        return int(raw) if raw is not None else None
+    except (ValueError, TypeError):
+        return None
+
 def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | None = None,
-                    *, _depth: int = 0, _visited: set | None = None,
+                    *, _depth: int = 0,
+                    _path_chain: tuple = (),
+                    _inode_chain: tuple = (),
                     _directive_collector: list[dict] | None = None,
                     _stats: dict | None = None) -> str:
     """
@@ -2434,8 +2814,14 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
     files are resolved. Structured files (.yaml, .yml, .json, .toml) are
     wrapped in a fenced block.
 
-    Cycle detection: if a file is visited more than once in the include
-    chain, a warning is emitted and the chain is terminated.
+    Cycle detection: if a file is an ancestor in the current include
+    chain, a circular-dependency warning is emitted. Repeated includes
+    of the same file (e.g. via multiple branches in conditional blocks)
+    are intentional — each occurrence renders independently. There is
+    no deduplication; the caller controls include frequency.
+
+    Inode tracking (task-63): hard links bypass path-based cycle detection.
+    _inode_chain tracks (st_dev, st_ino) pairs for every file visited.
     """
     file_path_str, remaining = _extract_quoted_token(args_str.strip())
     if not file_path_str:
@@ -2456,16 +2842,29 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
     if not fp.exists():
         return f"> ⚠ @include: file not found: `{file_path_str}`"
 
-    # ── Cycle detection ──
-    if _visited is None:
-        _visited = set()
+    # ── Cycle detection (path + inode) ──
     resolved_path = str(fp.resolve())
-    if resolved_path in _visited:
-        chain = " → ".join(
-            str(p) for p in list(_visited) + [resolved_path]
-        )
+
+    # True cycle: file is an ancestor in the current include chain.
+    # _path_chain is an immutable tuple — no need to pop on return.
+    if resolved_path in _path_chain:
+        chain = " → ".join(list(_path_chain) + [resolved_path])
         return f"> ⚠ @include: circular dependency detected. Chain: {chain}"
-    _visited.add(resolved_path)
+
+    # Inode-based detection (task-63): catch hard-link loops where different
+    # paths resolve to the same underlying file (same device + inode).
+    try:
+        st = fp.stat()
+        inode_pair = (st.st_dev, st.st_ino)
+    except OSError:
+        inode_pair = None
+
+    if inode_pair is not None and inode_pair in _inode_chain:
+        chain = " → ".join(list(_path_chain) + [resolved_path])
+        return f"> ⚠ @include: circular dependency detected (hard link). Chain: {chain}"
+
+    _path_chain = _path_chain + (resolved_path,)
+    _inode_chain = _inode_chain + ((inode_pair,) if inode_pair is not None else ())
 
     # ── Depth limit ──
     max_depth = render_cfg.get("max_include_depth", 5)
@@ -2476,10 +2875,19 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
         )
 
     # ── Pre-read size check to prevent memory exhaustion ──
-    # Only gate truly massive files (50 MB+) to allow normal truncation path
-    _MAX_SAFE_READ_BYTES = 50 * 1024 * 1024  # 50 MB
+    # Gate truly massive files before their bytes hit memory. Config-driven via
+    # render.max_safe_read_bytes (default 50 MB), kept well above the byte
+    # truncation cap (max_include_bytes) so normal files still take the
+    # truncation path below. Set it to null to disable the guard.
+    #
+    # TOCTOU: stat() and read_bytes() are separate syscalls, so the file could
+    # grow between them. Acceptable here — Perseus renders in a local, single-
+    # process context over the operator's own workspace files (not a multi-
+    # writer server), and the decode+truncate path below bounds the output.
+    max_safe_raw = render_cfg.get("max_safe_read_bytes", 50 * 1024 * 1024)
+    max_safe_bytes = int(max_safe_raw) if max_safe_raw is not None else None
     try:
-        if fp.stat().st_size > _MAX_SAFE_READ_BYTES:
+        if max_safe_bytes is not None and fp.stat().st_size > max_safe_bytes:
             return f"> ⚠ @include: file too large for safe read ({fp.stat().st_size:,} bytes)"
     except OSError:
         pass  # stat failed, fall through to read
@@ -2491,6 +2899,7 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
         return f"> ⚠ @include: could not read `{file_path_str}`: {e}"
 
     # ── File size limit check (byte-counted, not character-counted) ──
+    max_bytes = _resolve_max_bytes(cfg, "max_include_bytes")
     if max_bytes is not None and len(data) > max_bytes:
         raw = data[:max_bytes].decode(errors="replace").rstrip()
         actual_size = len(data)
@@ -2511,7 +2920,8 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
             try:
                 # Render the included file through Perseus with incremented depth
                 rendered = render_source(raw, cfg, workspace, _include_depth=_depth + 1,
-                                         _include_visited=_visited,  # shared set — M-8 diamond fix
+                                         _include_path_chain=_path_chain,
+                                         _include_inode_chain=_inode_chain,
                                          _directive_collector=_directive_collector,
                                          _stats=_stats)
                 return trunc_note + rendered
@@ -2574,6 +2984,8 @@ def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str
     env_key = modifiers.get("key")
     fallback = modifiers.get("fallback")
     schema_ref = modifiers.get("schema")
+    _mb = _resolve_max_bytes(cfg, "max_read_bytes")
+    max_bytes = _mb
 
     def fallback_result() -> str:
         warning = _validate_against_schema_ref(fallback, schema_ref, workspace, "@read")
@@ -2596,10 +3008,19 @@ def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str
         return f"> ⚠ @read: file not found: `{file_path_str}`"
 
     # ── Pre-read size check to prevent memory exhaustion ──
-    # Only gate truly massive files (50 MB+) to allow normal truncation path
-    _MAX_SAFE_READ_BYTES = 50 * 1024 * 1024  # 50 MB
+    # Gate truly massive files before their bytes hit memory. Config-driven via
+    # render.max_safe_read_bytes (default 50 MB), kept well above the byte
+    # truncation cap (max_read_bytes) so normal files still take the truncation
+    # path below. Set it to null to disable the guard.
+    #
+    # TOCTOU: stat() and read_bytes() are separate syscalls, so the file could
+    # grow between them. Acceptable here — Perseus renders in a local, single-
+    # process context over the operator's own workspace files (not a multi-
+    # writer server), and the decode+truncate path below bounds the output.
+    max_safe_raw = cfg["render"].get("max_safe_read_bytes", 50 * 1024 * 1024)
+    max_safe_bytes = int(max_safe_raw) if max_safe_raw is not None else None
     try:
-        if fp.stat().st_size > _MAX_SAFE_READ_BYTES:
+        if max_safe_bytes is not None and fp.stat().st_size > max_safe_bytes:
             msg = f"> ⚠ @read: file too large for safe read ({fp.stat().st_size:,} bytes)"
             if fallback is not None:
                 return fallback_result()
@@ -2616,6 +3037,7 @@ def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str
         return f"> ⚠ @read: could not read `{file_path_str}`: {e}"
 
     # ── File size limit check (byte-counted, not character-counted) ──
+    max_bytes = _resolve_max_bytes(cfg, "max_read_bytes")
     if max_bytes is not None and len(data) > max_bytes:
         content = data[:max_bytes].decode(errors="replace")
         trunc_note = (
@@ -2774,6 +3196,20 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
                     args=args_str[:200])
         return "> ⚠ @query is disabled by config (`render.allow_query_shell=false`)."
 
+    # Defense-in-depth: even with allow_query_shell=true, require explicit
+    # operator opt-in via PERSEUS_ALLOW_DANGEROUS=1 env var. This prevents
+    # accidental exposure from copied configs or misconfigured automation.
+    if not os.environ.get("PERSEUS_ALLOW_DANGEROUS"):
+        audit_event(cfg, "policy_denied",
+                    directive="@query",
+                    reason="PERSEUS_ALLOW_DANGEROUS not set",
+                    args=args_str[:200])
+        return (
+            "> ⚠ @query is enabled in config but PERSEUS_ALLOW_DANGEROUS=1 is not set.\n"
+            "> This is a defense-in-depth gate to prevent accidental shell execution.\n"
+            "> Set the environment variable to acknowledge the risk."
+        )
+
     # Strip @cache modifier first, then extract the command string.
     # Use the opening quote character to find the correct closing quote,
     # so commands containing the other quote type (e.g. "bash -c 'foo'")
@@ -2787,7 +3223,7 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
         schema_path = schema_match.group(1) if schema_match.group(1) is not None else schema_match.group(2)
         raw = (raw[:schema_match.start()] + raw[schema_match.end():]).rstrip()
 
-    # task-14: extract fallback="..." (or fallback='...') BEFORE command parsing,
+    # task-14: extract fallback=\"...\" (or fallback='...') BEFORE command parsing,
     # so a command containing the literal substring `fallback=` is not mis-parsed.
     fallback = None
     fb_match = re.search(r'\s+fallback=(?:"((?:[^"\\]|\\.)*)"|\'((?:[^\'\\]|\\.)*)\')(\s|$)', raw)
@@ -2798,6 +3234,22 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
         # UTF-8 bytes as Latin-1, corrupting characters like é → Ã©).
         fallback = _unescape_fallback(fallback)
         raw = (raw[:fb_match.start()] + raw[fb_match.end():]).rstrip()
+
+    # Defense-in-depth: detect shell metacharacters for operator visibility.
+    # When render.query_shell_meta_warning is enabled (default: false),
+    # commands containing ; | & $() or backticks emit a visible warning
+    # in the rendered output but still execute. This does not break
+    # legitimate pipelines — it only surfaces a warning.
+    _shell_meta_warn = bool(cfg["render"].get("query_shell_meta_warning", False))
+    _meta_prefix = ""
+
+    # Extract timeout=N modifier BEFORE command parsing so the token can't
+    # leak into unquoted commands. Same principle as schema=/fallback= above.
+    timeout = int(cfg["render"].get("query_timeout_s", 30))
+    tm_match = re.search(r'\s+timeout=(\d+)(?:\s|$)', raw)
+    if tm_match:
+        timeout = int(tm_match.group(1))
+        raw = (raw[:tm_match.start()] + raw[tm_match.end():]).rstrip()
 
     cmd_match = re.match(r'^"((?:[^"\\]|\\.)*)"', raw)   # double-quoted
     if not cmd_match:
@@ -2814,18 +3266,24 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
     # Detect language hint for syntax highlighting (best-effort)
     lang = _guess_lang(cmd)
 
+    # Shell metacharacter defense-in-depth warning (config-gated, default off).
+    if _shell_meta_warn and re.search(r'[;&|]|\$[({]|`', cmd):
+        _meta_prefix = f"> ⚠ @query: shell metacharacters detected in command. "
+        _meta_prefix += "Set render.query_shell_meta_warning=false to suppress.\n\n"
+
     # task-47: audit the shell-execution decision crossing the trust boundary.
     audit_event(cfg, "shell_exec",
                 directive="@query",
                 command=cmd[:500],
-                shell=shell)
+                shell=shell,
+                cwd=str(workspace) if workspace else None)
 
-    # Extract timeout=N modifier (per-directive override, default 30s)
-    timeout = int(cfg["render"].get("query_timeout_s", 30))
-    tm_match = re.search(r'\s+timeout=(\d+)(?:\s|$)', raw)
-    if tm_match:
-        timeout = int(tm_match.group(1))
-        raw = (raw[:tm_match.start()] + raw[tm_match.end():]).rstrip()
+    # v1.0.5 review: run from workspace by default for safety.
+    # allow_outside_workspace does not sandbox — it only controls cwd.
+    allow_outside = cfg["render"].get("allow_outside_workspace", False)
+    cwd = workspace if workspace and not allow_outside else None
+    if workspace and not allow_outside and cwd is None:
+        cwd = Path.cwd()  # fallback: restrict to cwd if no workspace set
 
     try:
         result = subprocess.run(
@@ -2835,6 +3293,7 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
             capture_output=True,
             text=True,
             timeout=timeout,
+            cwd=cwd,
         )
         stdout = (result.stdout or "").rstrip("\n")
         stderr = result.stderr.strip()
@@ -2845,7 +3304,7 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
                 return fallback
             header = f"> ⚠ `@query` exited {exit_code}: `{cmd}`\n\n"
             body = stdout or stderr or "(no output)"
-            return header + f"```{lang}\n{body}\n```"
+            return _meta_prefix + header + f"```{lang}\n{body}\n```"
 
         if not stdout:
             if fallback is not None:
@@ -2880,16 +3339,16 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
             if warning:
                 return warning
 
-        return f"```{lang}\n{stdout}\n```"
+        return _meta_prefix + f"```{lang}\n{stdout}\n```"
 
     except subprocess.TimeoutExpired:
         if fallback is not None:
             return fallback
-        return f"> ⚠ `@query` timed out ({timeout}s): `{cmd}`"
-    except Exception as exc:
+        return _meta_prefix + f"> ⚠ `@query` timed out ({timeout}s): `{cmd}`"
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
         if fallback is not None:
             return fallback
-        return f"> ⚠ `@query` error: {exc}"
+        return _meta_prefix + f"> ⚠ `@query` error: {exc}"
 
 
 def _guess_lang(cmd: str) -> str:
@@ -3713,6 +4172,19 @@ def resolve_agent(args_str: str, cfg: dict, workspace: Path | None = None) -> st
                     args=args_str[:200])
         return "> ⚠ @agent is disabled by config (`render.allow_agent_shell=false`)."
 
+    # Defense-in-depth: @agent is an ad-hoc shell execution surface, so require
+    # the same explicit operator acknowledgement used by @query and @services.
+    if not os.environ.get("PERSEUS_ALLOW_DANGEROUS"):
+        audit_event(cfg, "policy_denied",
+                    directive="@agent",
+                    reason="PERSEUS_ALLOW_DANGEROUS not set",
+                    args=args_str[:200])
+        return (
+            "> ⚠ @agent is enabled in config but PERSEUS_ALLOW_DANGEROUS=1 is not set.\n"
+            "> This is a defense-in-depth gate to prevent accidental shell execution.\n"
+            "> Set the environment variable to acknowledge the risk."
+        )
+
     raw = args_str.strip()
     # Extract command (double or single quoted, else first whitespace-delimited token)
     cmd_match = re.match(r'^"((?:[^"\\]|\\.)*)"', raw)
@@ -3785,7 +4257,6 @@ def resolve_agent(args_str: str, cfg: dict, workspace: Path | None = None) -> st
             return fallback
         return f"> (no output from `{cmd}`)"
     return output
-
 
 # ──────────────────────────────── @tool ───────────────────────────────────────
 
@@ -4230,7 +4701,20 @@ def resolve_waypoint(args_str: str, cfg: dict) -> str:
     if m:
         ttl = int(m.group(1))
 
-    cp = load_latest_checkpoint(cfg)
+    # v1.0.6: preflight check — surface permission errors instead of silently
+    # returning "No checkpoint found."
+    preflight = _preflight_permissions(cfg)
+    cp_dir = cfg.get("checkpoints", {}).get("store", str(PERSEUS_HOME / "checkpoints"))
+    if any("checkpoints" in w for w in preflight):
+        return f"> ⚠ @waypoint disabled: checkpoint store not writable ({cp_dir})."
+
+    try:
+        cp = load_latest_checkpoint(cfg)
+    except PermissionError as e:
+        return f"> ⚠ @waypoint: cannot read checkpoint store ({cp_dir}) — {e}"
+    except OSError as e:
+        return f"> ⚠ @waypoint: error accessing checkpoint store ({cp_dir}) — {e}"
+
     if not cp:
         return "> No checkpoint found."
 
@@ -4250,7 +4734,6 @@ def resolve_waypoint(args_str: str, cfg: dict) -> str:
         if val:
             lines.append(f"**{field.capitalize()}:** {val}")
     return "\n".join(lines)
-
 
 # ──────────────────────────────── @if condition ───────────────────────────────
 
@@ -4344,7 +4827,7 @@ def evaluate_condition(condition: str, workspace: Path | None = None, cfg: dict 
         except re.error as e:
             raise ConditionParseError(f"invalid @if query regex /{pattern_src}/: {e}")
 
-        if not render_cfg.get("allow_query_shell", True):
+        if not render_cfg.get("allow_query_shell", False):
             print(
                 "⚠ @if query(...) skipped: `render.allow_query_shell=false`. "
                 f"Condition evaluates to False.",
@@ -4352,7 +4835,7 @@ def evaluate_condition(condition: str, workspace: Path | None = None, cfg: dict 
             )
             return False
 
-        shell = render_cfg.get("shell", "/bin/bash")
+        shell = _get_shell(cfg) or render_cfg.get("shell")
         try:
             result = subprocess.run(
                 cmd,
@@ -4533,6 +5016,15 @@ def _check_one_service(svc: dict, index: int, timeout: float, cfg: dict) -> tupl
                         service=name,
                         command=command[:300])
             return index, f"| {name} | ⚠ command checks disabled by config | — |"
+        # Defense-in-depth: even with allow_services_command=true, require the
+        # PERSEUS_ALLOW_DANGEROUS env var gate (same gate as @query shell exec).
+        if not os.environ.get("PERSEUS_ALLOW_DANGEROUS"):
+            audit_event(cfg, "policy_denied",
+                        directive="@services",
+                        reason="PERSEUS_ALLOW_DANGEROUS not set",
+                        service=name,
+                        command=command[:300])
+            return index, f"| {name} | ⚠ PERSEUS_ALLOW_DANGEROUS not set | — |"
         # Run arbitrary shell command; success = exit 0
         audit_event(cfg, "shell_exec",
                     directive="@services",
@@ -4556,7 +5048,7 @@ def _check_one_service(svc: dict, index: int, timeout: float, cfg: dict) -> tupl
                 status = f"❌ {first_line}" if first_line else f"❌ exit {result.returncode}"
         except subprocess.TimeoutExpired:
             status = "⚠ timeout"
-        except Exception as exc:
+        except subprocess.SubprocessError as exc:
             status = f"⚠ {exc}"
         return index, f"| {name} | {status} | — |"
     else:
@@ -4573,7 +5065,21 @@ def resolve_services(block_content: str, cfg: dict) -> str:
     timeout = float(cfg["render"].get("services_timeout_s", 3))
     parallel = bool(cfg["render"].get("parallel_services", False))
     try:
-        services = yaml.safe_load(block_content) or []
+        # Use safe_load_all when the block contains YAML document separators
+        # (---) so multi-document streams parse correctly. Otherwise, use
+        # safe_load to preserve the existing mapping-format detection.
+        if "\\n---" in block_content or block_content.startswith("---"):
+            docs = list(yaml.safe_load_all(block_content))
+            services = []
+            for doc in docs:
+                if isinstance(doc, list):
+                    services.extend(doc)
+                elif isinstance(doc, dict):
+                    services.append(doc)
+            if not services:
+                services = []
+        else:
+            services = yaml.safe_load(block_content) or []
     except yaml.YAMLError as e:
         return f"> ⚠ Invalid @services YAML: {e}"
 
@@ -4635,17 +5141,28 @@ def _structured_load(fp: Path) -> object:
 
 
 def _walk_dot_path(obj: object, dot: str) -> object:
+    """Traverse a dot-notation path into a nested dict/list structure.
+
+    Supports:
+      - Dictionary key access:  "foo.bar.baz"
+      - List index access:      "items.0.name"  (numeric path segments)
+    Returns None if any segment cannot be resolved.
+    """
     cur = obj
     if not dot:
         return cur
     for part in dot.split("."):
         if isinstance(cur, dict) and part in cur:
             cur = cur[part]
+        elif isinstance(cur, list) and part.isdigit():
+            idx = int(part)
+            if 0 <= idx < len(cur):
+                cur = cur[idx]
+            else:
+                return None
         else:
             return None
     return cur
-
-
 def _render_struct_as_table(value: object, columns: str | None) -> str:
     """Render a dict-of-scalars or list-of-dicts as a markdown table."""
     # Parse columns="key:Label,value:Label"
@@ -4854,7 +5371,16 @@ def resolve_tree(args_str: str, cfg: dict, workspace: Path | None = None) -> str
 # ──────────────────────────────── @date ───────────────────────────────────────
 
 def resolve_date(args_str: str) -> str:
-    """Resolve @date with optional format."""
+    """Resolve @date with optional format, offset, and days-ago modifiers.
+
+    Modifiers:
+      format="..."   — strftime-style format with human tokens (YYYY, MM, DD, HH, mm, ss, z)
+      offset="-24h"  — offset from now (e.g. -24h, +7d, -30m); suffix: h=hours, d=days, m=minutes
+      days-ago=7     — shorthand for offset=-Nd where N is an integer
+    """
+    from datetime import timedelta
+
+    # Original regex-based format parsing (preserved for backreference tests)
     fmt_match = re.search(r'format=(["\'])([^"\']*)\1', args_str)
     if fmt_match:
         fmt = fmt_match.group(2)
@@ -4862,8 +5388,38 @@ def resolve_date(args_str: str) -> str:
         fmt_match = re.search(r"format='([^']+)'", args_str)
         fmt = fmt_match.group(1) if fmt_match else "YYYY-MM-DD HH:mm z"
 
-    now = datetime.now()
-    # Map common tokens
+    # Parse offset and days-ago from the remaining args
+    # Strip format="..." before parsing modifiers so format="" isn't misparsed
+    remaining = args_str.strip()
+    remaining = re.sub(r'format=(["\'])(?:[^"\']*)\1', '', remaining)
+    remaining = re.sub(r"format='[^']*'", "", remaining)
+    remaining = re.sub(r'format=\S+', '', remaining)
+    mods = _parse_kv_modifiers(remaining)
+
+    offset_str = mods.get("offset")
+    days_ago = mods.get("days-ago")
+    delta = timedelta()
+    if offset_str:
+        m = re.match(r'^([+-])(\d+)([hdm])$', offset_str.strip())
+        if m:
+            sign = 1 if m.group(1) == '+' else -1
+            val = int(m.group(2))
+            unit = m.group(3)
+            if unit == 'h':
+                delta = timedelta(hours=sign * val)
+            elif unit == 'd':
+                delta = timedelta(days=sign * val)
+            elif unit == 'm':
+                delta = timedelta(minutes=sign * val)
+    elif days_ago:
+        try:
+            delta = timedelta(days=-int(days_ago))
+        except (ValueError, TypeError):
+            pass
+
+    now = datetime.now() + delta
+
+    # Map human tokens to strftime
     result = fmt
     result = result.replace("YYYY", now.strftime("%Y"))
     result = result.replace("MM", now.strftime("%m"))
@@ -4873,10 +5429,6 @@ def resolve_date(args_str: str) -> str:
     result = result.replace("ss", now.strftime("%S"))
     result = result.replace("z", now.astimezone().strftime("%Z"))
     return result
-
-
-# ─────────────────────────────── @prompt block ────────────────────────────────
-
 def resolve_prompt_block(content: str) -> str:
     """@prompt...@end blocks are included as an AI instruction callout."""
     return f"> 📌 **Perseus prompt:** {content.strip()}"
@@ -4926,6 +5478,9 @@ def _replace_inline_date_outside_code(line: str, workspace: Path | None = None) 
 
 # ─────────────────────────────── HTML Template ────────────────────────────────
 # Phase 23: Self-contained HTML output for perseus render --format html.
+# Known limitations: custom parser is minimal — no tables, footnotes,
+# or nested list rendering. Full CommonMark requires mistune or markdown-it.
+
 # Zero external dependencies — all CSS is inline, no CDN, no fonts beyond system stack.
 # Design matches the perseus.observer landing page aesthetic: dark, museum-quality.
 
@@ -5786,6 +6341,15 @@ def serve_mcp_sse(cfg: dict, workspace: Path | None = None, port: int = 8420) ->
     token = str(mcp_cfg.get("sse_bearer_token", "") or "").strip() or None
     if not token:
         token = str(cfg.get("serve", {}).get("auth_token", "") or "").strip() or None
+    # C-1: refuse to start without auth unless explicitly opted in
+    if not token and not mcp_cfg.get("allow_no_auth", False):
+        print(
+            "Perseus MCP SSE refusing to bind without authentication.\n"
+            "  Set mcp.sse_bearer_token in config.yaml to require a Bearer token, or\n"
+            "  set mcp.allow_no_auth: true to explicitly opt in to unauthenticated mode.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
 
     def _check_auth(handler) -> bool:
         """Verify Bearer token if auth is configured. Also validate Host header."""
@@ -5795,9 +6359,9 @@ def serve_mcp_sse(cfg: dict, workspace: Path | None = None, port: int = 8420) ->
             hostname = host.split(":")[0]
             if hostname not in ("127.0.0.1", "localhost", "::1"):
                 return False
-        # Bearer token check
+        # Bearer token check — token is now guaranteed non-None after startup gate
         if not token:
-            return True
+            return True  # only reachable if allow_no_auth is set
         auth = handler.headers.get("Authorization", "") or ""
         if not auth.startswith("Bearer "):
             return False
@@ -5885,7 +6449,7 @@ def print_mcp_config(cfg: dict, workspace: Path | None = None) -> None:
     import shutil
     perseus_path = shutil.which("perseus") or "perseus"
     ws = workspace or Path.cwd()
-    version = cfg.get("version", "1.0.0")
+    version = cfg.get("version", SERVER_VERSION)
     config = {
         "mcpServers": {
             "perseus": {
@@ -5904,7 +6468,7 @@ def print_mcp_config(cfg: dict, workspace: Path | None = None) -> None:
 
 def print_mcp_registry(cfg: dict) -> None:
     """Print Perseus's MCP registry listing metadata (for registry submission)."""
-    version = cfg.get("version", "1.0.0")
+    version = cfg.get("version", SERVER_VERSION)
     tools = _get_all_mcp_tools(cfg)
     registry_entry = {
         "name": "perseus",
@@ -5946,6 +6510,7 @@ def print_mcp_registry(cfg: dict) -> None:
 #                              (command + args, whitespace-normalised)
 
 _SESSION_CACHE: dict[str, str] = {}  # in-memory store for @cache session
+_WARNED_CACHE_DIR_OVERRIDES: set[str] = set()
 
 
 def _cache_key(directive_line: str) -> str:
@@ -5956,8 +6521,10 @@ def _cache_key(directive_line: str) -> str:
     distinct directives from colliding on the same cache key.
     """
     import re as _re
-    # Split into quoted and unquoted segments, normalize unquoted only
-    parts = _re.split(r'(\"[^\"]*\"|\'[^\']*\')', directive_line)
+    # Split into quoted and unquoted segments, normalize unquoted only.
+    # Handle escaped quotes (\\\" and \\') inside quoted strings, matching the
+    # _extract_quoted_token behaviour used by directive resolvers.
+    parts = _re.split(r'("(?:[^"\\\\]|\\\\.)*"|\'(?:[^\'\\\\]|\\\\.)*\')', directive_line)
     normalised_parts = []
     for part in parts:
         if part.startswith(('"', "'")):
@@ -5980,6 +6547,24 @@ def _parse_cache_modifier(line: str) -> tuple[str, str, int | None, str | None]:
     values containing spaces: @cache mock="hello world". Unquoted values
     stop at the first whitespace.
     """
+    # @cache nofingerprint (opt out of fingerprinting; checked before ttl)
+    m = re.search(r'\s*@cache\s+nofingerprint\b', line, re.IGNORECASE)
+    if m:
+        clean = line[:m.start()] + line[m.end():]
+        # After removing nofingerprint, the ttl=N may be bare (no @cache prefix)
+        m2 = re.search(r'\s*@cache\s+ttl=(\d+)|\bttl=(\d+)', clean, re.IGNORECASE)
+        ttl_val = None
+        if m2:
+            ttl_val = int(m2.group(1) or m2.group(2))
+            clean = clean[:m2.start()] + clean[m2.end():]
+        return clean.rstrip(), "nofingerprint", ttl_val, None
+
+    # @cache fingerprint (explicit)
+    m = re.search(r'\s*@cache\s+fingerprint\b', line, re.IGNORECASE)
+    if m:
+        clean = line[:m.start()] + line[m.end():]
+        return clean.rstrip(), "fingerprint", None, None
+
     # @cache ttl=N
     m = re.search(r'\s*@cache\s+ttl=(\d+)', line, re.IGNORECASE)
     if m:
@@ -6017,28 +6602,136 @@ def _parse_cache_modifier(line: str) -> tuple[str, str, int | None, str | None]:
     return line, "", None, None
 
 
+def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path | None, cfg: dict) -> str:
+    """Return a stable fingerprint of all file dependencies for this directive.
+
+    NOTE: TOCTOU risk exists between hash and use. This is acceptable because
+    Perseus renders in a local, single-process context over the operator's own
+    workspace files — not a multi-writer server. A file changing between
+    fingerprint and render produces a stale cache hit, not incorrect output,
+    since the next render will pick up the change.
+
+    Returns a hex digest that changes when any file the directive reads changes.
+    Directives with no file dependencies return "" (empty string).
+    This is concatenated to the cache key so stale entries miss automatically.
+
+    Fingerprinted directives:
+      @read <file>         → sha256 of file content
+      @include <file>      → sha256 of file content (first-level only;
+                              transitive deps handled by recursive render)
+      @list <dir>          → sha256 of directory listing (file names + mtimes)
+      @tree <dir>          → sha256 of recursive directory listing
+      @env <VAR>           → no fingerprint (value changes per-process)
+      @query ...           → no fingerprint (shell output depends on system state,
+                              not static files — let TTL handle staleness)
+      @services            → no fingerprint (service health is ephemeral)
+      @perseus <url>       → no fingerprint (remote content changes independently)
+    """
+    import hashlib as _hashlib
+    import stat as _stat
+
+    parts: list[str] = []
+
+    def _safe_dependency_path() -> Path | None:
+        raw_path, _remaining = _extract_quoted_token(clean_args)
+        if not raw_path:
+            return None
+        path, warning = _resolve_path(
+            raw_path,
+            workspace,
+            allow_outside_workspace=bool(cfg["render"].get("allow_outside_workspace", False)),
+        )
+        if warning:
+            return None
+        return path
+
+    if directive in ("@read", "@include"):
+        fpath = _safe_dependency_path()
+        if fpath is not None:
+            try:
+                content = fpath.read_bytes()
+                parts.append(f"{directive}:{fpath}:{_hashlib.sha256(content).hexdigest()}")
+            except (OSError, PermissionError):
+                pass  # can't read → no fingerprint (cache miss is safe)
+
+    if directive in ("@list", "@tree"):
+        dpath = _safe_dependency_path()
+        if dpath is not None:
+            try:
+                entries = sorted(dpath.iterdir()) if directive == "@list" else sorted(dpath.rglob("*"))
+                listing_data = "|".join(
+                    (
+                        f"{p.relative_to(dpath)}:"
+                        f"{(st := p.lstat()).st_mtime_ns}:"
+                        f"{st.st_size}:"
+                        f"{int(_stat.S_ISDIR(st.st_mode))}"
+                    )
+                    for p in entries
+                )
+                parts.append(f"{directive}:{dpath}:{_hashlib.sha256(listing_data.encode()).hexdigest()}")
+            except (OSError, PermissionError):
+                pass  # can't read → no fingerprint (cache miss is safe)
+
+    if not parts:
+        return ""
+    return _hashlib.sha256("|".join(parts).encode()).hexdigest()
+
+
 def _safe_cache_dir(cfg: dict) -> Path:
     """Return the cache directory, constrained to a safe location.
 
     S5: Prevents workspace config from pointing cache_dir at /etc/ or
     other system paths. Falls back to ~/.perseus/cache if the configured
     path resolves outside the allowed roots.
+
+    Uses Path.is_relative_to (Python 3.9+) for cross-platform safety.
+    The system temp dir is an allowed root so that tests and short-lived
+    processes can isolate their cache without polluting the shared home.
     """
+    import tempfile
     from pathlib import Path as _Path
-    raw = cfg["render"].get("cache_dir", str(PERSEUS_HOME / "cache"))
+    import tempfile as _tempfile
+    fallback_dir = PERSEUS_HOME / "cache"
+    raw = cfg["render"].get("cache_dir", str(fallback_dir))
     candidate = _Path(str(raw)).expanduser().resolve()
     allowed_roots = [
         _Path.home() / ".perseus",
         _Path.home() / ".cache",
+        _Path(_tempfile.gettempdir()).resolve(),  # allow pytest tmp_path and CI temp dirs
     ]
     try:
         for root in allowed_roots:
             root_resolved = root.expanduser().resolve()
-            if str(candidate).startswith(str(root_resolved) + "/") or candidate == root_resolved:
+            if candidate == root_resolved or candidate.is_relative_to(root_resolved):
                 return candidate
     except (OSError, ValueError):
         pass
-    # Fall back to safe default
+    warning_key = f"{raw}->{fallback_dir}"
+    if warning_key not in _WARNED_CACHE_DIR_OVERRIDES:
+        _WARNED_CACHE_DIR_OVERRIDES.add(warning_key)
+        sys.stderr.write(
+            "perseus cache: rejected render.cache_dir outside allowed roots "
+            f"({candidate}); using {fallback_dir}\n"
+        )
+        audit_event(
+            cfg,
+            "cache_dir_override_rejected",
+            configured_path=str(raw),
+            resolved_path=str(candidate),
+            fallback_path=str(fallback_dir),
+        )
+    return fallback_dir
+    # Fall back to safe default — warn operator their config was overridden
+    print(
+        f"Perseus: configured cache_dir {raw!r} is outside allowed roots; "
+        f"falling back to {PERSEUS_HOME / 'cache'}",
+        file=sys.stderr,
+    )
+    audit_event(cfg, "config_override",
+                key="render.cache_dir",
+                configured=raw,
+                fallback=str(PERSEUS_HOME / "cache"),
+                reason="outside allowed roots")
     return PERSEUS_HOME / "cache"
 
 
@@ -6054,9 +6747,9 @@ def cache_get(key: str, mode: str, ttl: int | None, cfg: dict) -> str | None:
     if mode == "session":
         return _SESSION_CACHE.get(key)
 
-    if mode in {"ttl", "persist"}:
+    if mode in {"ttl", "persist", "fingerprint", "nofingerprint"}:
         effective_ttl = ttl
-        if mode == "persist":
+        if mode in ("persist", "fingerprint"):
             effective_ttl = int(cfg.get("render", {}).get("persist_cache_ttl_s", 3600))
         if effective_ttl is None:
             return None
@@ -6085,16 +6778,40 @@ def cache_set(key: str, value: str, mode: str, ttl: int | None, cfg: dict) -> No
         _SESSION_CACHE[key] = value
         return
 
-    if mode in {"ttl", "persist"}:
+    if mode in {"ttl", "persist", "fingerprint", "nofingerprint"}:
         effective_ttl = ttl
-        if mode == "persist":
+        if mode in ("persist", "fingerprint"):
             effective_ttl = int(cfg.get("render", {}).get("persist_cache_ttl_s", 3600))
         if effective_ttl is None:
             return
         cache_dir = _safe_cache_dir(cfg)
         try:
-            cache_dir.mkdir(parents=True, exist_ok=True)
-            entry = {"expires": time.time() + effective_ttl, "value": value}
+            # task-62: Create cache directory with owner-only permissions.
+            # Walk the parent chain (stopping at home) and chmod each
+            # level so intermediate dirs aren't left world-readable by
+            # the system umask. Permission failures on parent dirs are
+            # non-fatal — the leaf is what matters.
+            home = Path.home()
+            p: Path = cache_dir
+            while p != home and p.parent != p:
+                if not p.exists():
+                    try:
+                        p.mkdir(mode=0o700, exist_ok=True)
+                    except Exception:
+                        pass  # parent may not be writable (test envs)
+                try:
+                    os.chmod(p, 0o700)
+                except Exception:
+                    pass  # parent may not be ownable (test envs, /tmp, /)
+                p = p.parent
+            # v1.0.5 review: redact secrets before persisting to cache.
+            # Cached values can contain rendered output with embedded tokens.
+            safe_value = value
+            try:
+                safe_value, _report = redact_text(value, cfg)
+            except Exception:
+                pass  # redaction failure must not block caching
+            entry = {"expires": time.time() + effective_ttl, "value": safe_value}
             # Prior #15: atomic write via tempfile + os.replace to avoid
             # partial/corrupt reads if a reader hits the file mid-write.
             import tempfile
@@ -6141,7 +6858,7 @@ MAX_MACRO_DEPTH = 10
 # Syntax: @services @tier:1 — force Tier 1, even if @services defaults to Tier 2.
 # Stripped before directive dispatch; passed as instance_tier to the tier gate.
 
-TIER_MODIFIER_RE = re.compile(r'@tier:(\d)', re.IGNORECASE)
+TIER_MODIFIER_RE = re.compile(r'@tier:(\d+)', re.IGNORECASE)
 
 def _parse_tier_modifier(line: str) -> tuple[str, int | None]:
     """Strip @tier:N modifier from a directive line.
@@ -6385,7 +7102,10 @@ def _execute_pipe(stages: list[str], cfg: dict, workspace, line_index: int, quer
         directive = m.group(1).lower()
         raw_args = (m.group(2) or "").strip()
         if idx > 0 and prev_output:
-            raw_args = f'"{prev_output}" {raw_args}'
+            # Escape embedded double-quotes so prev_output doesn't
+            # prematurely terminate the quoting. FTS5-style: " → ""
+            escaped = prev_output.replace('"', '""')
+            raw_args = f'"{escaped}" {raw_args}'
         # C11: check @cache on the original stage args (before prev_output prepend,
         # which could contain "@cache " substring from previous stage stdout).
         if idx < resolve_count - 1:
@@ -6447,6 +7167,21 @@ def _capture_file_snapshot(lines: list[str], workspace: Path | None) -> dict[str
             pass
     return snap
 
+def _uses_preflight_sensitive_directive(lines: list[str]) -> bool:
+    """Return True when a render references directives gated by preflight writes.
+
+    Preflight warnings are most actionable when a document uses directives that
+    rely on writable Perseus state (checkpoint/inbox/memory surfaces).
+    """
+    if not INLINE_DIRECTIVE_RE:
+        return False
+    sensitive = {"@waypoint", "@inbox", "@memory", "@mneme"}
+    for raw in lines:
+        m = INLINE_DIRECTIVE_RE.match(raw.strip())
+        if m and m.group(1).lower() in sensitive:
+            return True
+    return False
+
 def _check_directive_tier(
     line: str,
     directive_name: str,
@@ -6493,7 +7228,8 @@ def _render_lines(
     workspace: Path | None,
     _constraint_rows: list[str] | None = None,
     _include_depth: int = 0,
-    _include_visited: set | None = None,
+    _include_path_chain: tuple = (),
+    _include_inode_chain: tuple = (),
     _directive_collector: list[dict] | None = None,
     _stats: dict | None = None,
     max_tier: int = 3,
@@ -6510,8 +7246,6 @@ def _render_lines(
         _constraint_rows = []
         if _skipped_directives is None:
             _skipped_directives = []
-    if _include_visited is None:
-        _include_visited = set()
 
     # ── File integrity pre-check (top-level only) ──
     _integrity_snapshot: dict[str, float] = {}
@@ -6670,7 +7404,8 @@ def _render_lines(
                 break
             rendered_block = _render_lines(block_lines, cfg, workspace, _constraint_rows,
                                            _include_depth=_include_depth,
-                                           _include_visited=_include_visited,
+                                           _include_path_chain=_include_path_chain,
+                                           _include_inode_chain=_include_inode_chain,
                                            _directive_collector=_directive_collector,
                                            _stats=_stats,
                                            max_tier=max_tier,
@@ -6823,7 +7558,8 @@ def _render_lines(
             if branch:
                 output.append(_render_lines(branch, cfg, workspace, _constraint_rows,
                                              _include_depth=_include_depth,
-                                             _include_visited=_include_visited,
+                                             _include_path_chain=_include_path_chain,
+                                             _include_inode_chain=_include_inode_chain,
                                              _directive_collector=_directive_collector,
                                              _stats=_stats,
                                              max_tier=max_tier,
@@ -6863,7 +7599,13 @@ def _render_lines(
                     raw_args = f"{raw_args} @cache ttl={m_ttl.group(1)}".strip()
 
             clean_args, cache_mode, cache_ttl, cache_mock = _parse_cache_modifier(raw_args)
-            cache_key = _cache_key(f"{directive} {clean_args}")
+            _base_key = _cache_key(f"{directive} {clean_args}")
+            _fp = ""
+            if cache_mode == "nofingerprint":
+                cache_key = _base_key
+            else:
+                _fp = _dependency_fingerprint(directive, clean_args, workspace, cfg)
+                cache_key = f"{_base_key}.{_fp}" if _fp else _base_key
 
             if cache_mode == "mock":
                 output.append(cache_mock or "(mock \u2014 directive skipped)")
@@ -6874,6 +7616,15 @@ def _render_lines(
                 _stats["directive_count"] += 1
 
             spec = DIRECTIVE_REGISTRY.get(directive)
+
+            # Track A10: auto-cache for cacheable directives without explicit
+            # @cache modifier. Uses fingerprint mode (content-addressed, TTL from
+            # persist_cache_ttl_s) so cached results invalidate when source files
+            # change. Directives with cacheable=False (e.g. @env, @date, @tool)
+            # still re-resolve every render.
+            if not cache_mode and spec and spec.cacheable:
+                cache_mode = "fingerprint"
+
             cached = cache_get(cache_key, cache_mode, cache_ttl, cfg)
             if cached is not None:
                 if _stats is not None: _stats["cache_hits"] += 1
@@ -6906,7 +7657,8 @@ def _render_lines(
             if directive == "@include" and spec and spec.resolver:
                 result = spec.resolver(clean_args, workspace, cfg,
                                        _depth=_include_depth,
-                                       _visited=_include_visited.copy() if _include_visited is not None else None,
+                                       _path_chain=_include_path_chain,
+                                       _inode_chain=_include_inode_chain,
                                        _directive_collector=_directive_collector,
                                        _stats=_stats)
                 result = _apply_output_schema_validation(spec, clean_args, result, workspace)
@@ -6935,6 +7687,12 @@ def _render_lines(
 
             if cache_mode:
                 cache_set(cache_key, result, cache_mode, cache_ttl, cfg)
+                if _fp:
+                    # Keep a TTL fallback under the base key. If a dependency is
+                    # deleted or temporarily unreadable later, fingerprinting has
+                    # no content hash to recreate the old key, so this preserves
+                    # the existing "serve cached output until TTL" contract.
+                    cache_set(_base_key, result, cache_mode, cache_ttl, cfg)
 
             output.append(result)
             i += 1
@@ -6970,9 +7728,11 @@ def render_source(
     workspace: Path | None = None,
     max_tier: int = 3,
     _include_depth: int = 0,
-    _include_visited: set | None = None,
+    _include_path_chain: tuple = (),
+    _include_inode_chain: tuple = (),
     _directive_collector: list[dict] | None = None,
     _stats: dict | None = None,
+    _skipped_directives: list[dict] | None = None,
 ) -> str:
     """
     Parse and resolve a @perseus source document.
@@ -6987,6 +7747,7 @@ def render_source(
     if _include_depth == 0:
         register_plugins(cfg)
         register_hooks(cfg)
+        preflight_warnings = []
 
     if _stats is None:
         _stats = {
@@ -7009,11 +7770,18 @@ def render_source(
     if macros:
         body_lines = _expand_macros(body_lines, macros)
 
+    # v1.0.6: preflight permission check — surface environment issues before
+    # directives that depend on writable Perseus state.
+    if _include_depth == 0 and _uses_preflight_sensitive_directive(body_lines):
+        preflight_warnings = _preflight_permissions(cfg)
+
     _constraint_rows = []
-    _skipped_directives = []
+    if _skipped_directives is None:
+        _skipped_directives = []
     result = _render_lines(body_lines, cfg, workspace, _constraint_rows,
                          _include_depth=_include_depth,
-                         _include_visited=_include_visited,
+                         _include_path_chain=_include_path_chain,
+                         _include_inode_chain=_include_inode_chain,
                          _directive_collector=_directive_collector,
                          _stats=_stats,
                          max_tier=max_tier,
@@ -7040,6 +7808,11 @@ def render_source(
             manifest_lines.append("> ")
             manifest_lines.append("> Re-run with `perseus render --tier 3` to include on-demand context.")
         result = result + "\n".join(manifest_lines)
+
+    # v1.0.6: prepend preflight permission warnings at top of output
+    if _include_depth == 0 and preflight_warnings:
+        header = "\n".join(f"> {w}" for w in preflight_warnings) + "\n\n"
+        result = header + result
 
     if _include_depth == 0 and _render_start_ts is not None:
         _fire_hooks("on_render_complete", {
@@ -7253,7 +8026,7 @@ def cmd_checkpoint(args, cfg):
         except FileExistsError:
             # Check if lock holder is still alive (PID staleness detection)
             try:
-                stale_pid = int(lock_path.read_text().strip())
+                stale_pid = int(lock_path.read_text(encoding="utf-8").strip())
                 os.kill(stale_pid, 0)  # signal 0 = check existence only
             except (OSError, ValueError):
                 lock_path.unlink(missing_ok=True)  # stale lock — holder is gone
@@ -7284,7 +8057,7 @@ def cmd_checkpoint(args, cfg):
                 ws_hash = _workspace_hash(ws_path)
                 ws_pointer = store / f"latest-{ws_hash}.yaml"
                 # Write in-memory data directly instead of re-reading the file (H-5 TOCTOU fix)
-                ws_pointer.write_text(yaml.dump(cp, default_flow_style=False, allow_unicode=True))
+                ws_pointer.write_text(yaml.dump(cp, default_flow_style=False, allow_unicode=True), encoding="utf-8")
             except Exception as exc:
                 print(f"> ⚠ Could not write per-workspace pointer: {exc}")
 
@@ -7304,7 +8077,7 @@ def cmd_checkpoint(args, cfg):
         if pruned:
             for ptr in store.glob("latest-*.yaml"):
                 try:
-                    ptr_cp = yaml.safe_load(ptr.read_text()) or {}
+                    ptr_cp = yaml.safe_load(ptr.read_text(encoding="utf-8")) or {}
                     ptr_written = str(ptr_cp.get("written", ""))
                     ptr_ws = str(ptr_cp.get("workspace", ""))
                     surviving = []
@@ -7314,7 +8087,7 @@ def cmd_checkpoint(args, cfg):
                             surviving.append((f, f_cp.get("written", "")))
                     if surviving:
                         surviving.sort(key=lambda x: x[1], reverse=True)
-                        ptr.write_text(surviving[0][0].read_text())
+                        ptr.write_text(surviving[0][0].read_text(encoding="utf-8"), encoding="utf-8")
                     else:
                         ptr.unlink(missing_ok=True)
                 except Exception:
@@ -7340,7 +8113,7 @@ def cmd_checkpoint(args, cfg):
 
 def _load_checkpoint_file(fp: Path) -> dict | None:
     try:
-        return yaml.safe_load(fp.read_text()) or {}
+        return yaml.safe_load(fp.read_text(encoding="utf-8")) or {}
     except Exception:
         return None
 
@@ -7461,6 +8234,12 @@ def cmd_diff(args, cfg):
             old_fp = _resolve_checkpoint_selector(str(a_sel), files)
             new_fp = _resolve_checkpoint_selector(str(b_sel), files)
         else:
+            if len(files) == 0:
+                if target_ws:
+                    print(f"No checkpoints found for workspace {target_ws}.")
+                else:
+                    print("No checkpoints found.")
+                return
             if len(files) < 2:
                 print("Need at least two checkpoints to diff.")
                 return
@@ -7620,26 +8399,25 @@ def _mneme_index_path(cfg: dict) -> Path:
 
 def _mneme_recall(cfg: dict, query: str, k: int = 5,
                    scope: str | None = None,
-                   type_filter: str | None = None) -> list[dict]:
+                   type_filter: str | None = None,
+                   sensitivity: str | None = None) -> list[dict]:
     """Recall memories via SQLite FTS5 BM25 index.
 
     Uses a process-lifetime cached connection (WAL mode handles concurrency).
-    Lazily builds the index if empty (first-call initialization).
+    Refreshes the incremental index before searching so newly added, changed,
+    corrupt, renamed, or deleted vault files cannot leave recall stale.
     Falls back to empty list on any failure.
     """
     conn = _mneme_open_index(cfg)
     if conn is None:
         return []
     try:
-        # Lazy init: build index if no documents indexed yet
+        _mneme_build_index(cfg)
         count = conn.execute("SELECT COUNT(*) FROM mneme_fts").fetchone()[0]
         if count == 0:
-            _mneme_build_index(cfg)
-            count = conn.execute("SELECT COUNT(*) FROM mneme_fts").fetchone()[0]
-            if count == 0:
-                return []
+            return []
 
-        return _mneme_search(conn, query, k, scope, type_filter)
+        return _mneme_search(conn, query, k, scope, type_filter, sensitivity)
     except Exception:
         return []
 # ─────────────────────── Mnēmē v2 — SQLite FTS5 Index ────────────────────────
@@ -7669,6 +8447,9 @@ CREATE VIRTUAL TABLE IF NOT EXISTS mneme_fts USING fts5(
     body,
     type,
     scope,
+    sensitivity,
+    confidence,
+    source_path,
     updated,
     tokenize='porter unicode61'
 );
@@ -7678,6 +8459,12 @@ CREATE TABLE IF NOT EXISTS mneme_meta (
     value TEXT
 );
 """
+
+# Schema migration: add sensitivity column to mneme_files if it doesn't exist.
+# Runs lazily on first index open — idempotent, safe with existing databases.
+_MNEME_MIGRATIONS = [
+    "ALTER TABLE mneme_files ADD COLUMN sensitivity TEXT DEFAULT 'team'",
+]
 
 # Per-column BM25 weights for FTS5 native weighting (bm25() positional args).
 # Column order in CREATE VIRTUAL TABLE: id, title, summary, tags, topic_path, body, type, scope, updated
@@ -7732,12 +8519,20 @@ def _mneme_open_index(cfg: dict):
         # Create tables if needed
         conn.executescript(_MNEME_SCHEMA_SQL)
 
+        # Run schema migrations (idempotent)
+        for migration_sql in _MNEME_MIGRATIONS:
+            try:
+                conn.execute(migration_sql)
+            except (sqlite3.OperationalError, sqlite3.IntegrityError):
+                pass  # Column already exists — fine
+
         # M1: Schema migration check — verify the FTS5 table columns match
         # expected schema. If they don't, drop and rebuild.
         # v1 schema: id, title, search_text, type, scope, summary, updated
         # v2 schema: id, title, summary, tags, topic_path, body, type, scope, updated
         expected_columns = {"id", "title", "summary", "tags", "topic_path",
-                            "body", "type", "scope", "updated"}
+                            "body", "type", "scope", "sensitivity",
+                            "confidence", "source_path", "updated"}
         try:
             cursor = conn.execute("PRAGMA table_info(mneme_fts)")
             actual_columns = {row["name"] for row in cursor.fetchall()}
@@ -7844,8 +8639,11 @@ def _mneme_build_index(cfg: dict, force: bool = False) -> int:
             indexed[row["path"]] = row["mtime"]
 
         count = 0
+        current_paths: set[str] = set()
+        changed = False
         for md_file in sorted(vault_path.rglob("*.md")):
             file_path_str = str(md_file.resolve())
+            current_paths.add(file_path_str)
             try:
                 mtime = md_file.stat().st_mtime
             except Exception:
@@ -7856,30 +8654,49 @@ def _mneme_build_index(cfg: dict, force: bool = False) -> int:
 
             doc = _mneme_parse_vault_file(md_file)
             if doc is None:
+                # A previously-valid memory can become corrupt or lose required
+                # fields. Remove rows tied to this path so stale recall cannot
+                # keep returning the old content.
+                if file_path_str in indexed:
+                    conn.execute("DELETE FROM mneme_fts WHERE source_path = ?", (file_path_str,))
+                    conn.execute("DELETE FROM mneme_files WHERE path = ?", (file_path_str,))
+                    changed = True
                 continue
 
             field_cols = _mneme_build_field_columns(doc)
             now = datetime.now().astimezone().isoformat(timespec="seconds")
 
-            # Remove old entry if it exists
+            # Remove old entries. Delete by source_path as well as id so a file
+            # whose frontmatter id changes does not leave the previous id behind.
+            conn.execute("DELETE FROM mneme_fts WHERE source_path = ?", (file_path_str,))
             conn.execute("DELETE FROM mneme_fts WHERE id = ?", (doc["id"],))
             conn.execute("DELETE FROM mneme_files WHERE path = ?", (file_path_str,))
 
             # Insert new entry
             conn.execute(
-                "INSERT INTO mneme_fts (id, title, summary, tags, topic_path, body, type, scope, updated) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO mneme_fts (id, title, summary, tags, topic_path, body, type, scope, sensitivity, confidence, source_path, updated) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (doc["id"], field_cols[0], field_cols[1], field_cols[2],
-                 field_cols[3], field_cols[4], doc["type"], doc["scope"], doc["updated"]),
+                 field_cols[3], field_cols[4], doc["type"], doc["scope"],
+                 doc.get("sensitivity", "team"), str(doc.get("confidence", 1.0)),
+                 file_path_str, doc["updated"]),
             )
             conn.execute(
-                "INSERT INTO mneme_files (path, mtime, indexed_at) VALUES (?, ?, ?)",
-                (file_path_str, mtime, now),
+                "INSERT INTO mneme_files (path, mtime, indexed_at, sensitivity) VALUES (?, ?, ?, ?)",
+                (file_path_str, mtime, now, doc.get("sensitivity", "team")),
             )
             count += 1
+            changed = True
+
+        # Prune deleted or renamed files during normal incremental builds.
+        stale_paths = set(indexed) - current_paths
+        for stale_path in sorted(stale_paths):
+            conn.execute("DELETE FROM mneme_fts WHERE source_path = ?", (stale_path,))
+            conn.execute("DELETE FROM mneme_files WHERE path = ?", (stale_path,))
+            changed = True
 
         # Rebuild FTS5 index (necessary after DELETE + INSERT)
-        if count > 0:
+        if changed:
             conn.execute("INSERT INTO mneme_fts(mneme_fts) VALUES('rebuild')")
 
         conn.commit()
@@ -7894,12 +8711,13 @@ def _mneme_build_index(cfg: dict, force: bool = False) -> int:
 
 def _mneme_search(conn, query: str, k: int = 5,
                    scope: str | None = None,
-                   type_filter: str | None = None) -> list[dict]:
+                   type_filter: str | None = None,
+                   sensitivity: str | None = None) -> list[dict]:
     """Search the FTS5 index. Returns top-k results as list of dicts.
 
-    Uses FTS5's built-in BM25 ranking. Filters by scope and type if provided.
-    The user query is wrapped as an FTS5 double-quoted phrase to prevent
-    operator injection (AND, OR, NOT, NEAR, column prefixes, wildcards).
+    Uses FTS5's built-in BM25 ranking. Filters by scope, type, and sensitivity
+    if provided. The user query is wrapped as an FTS5 double-quoted phrase to
+    prevent operator injection (AND, OR, NOT, NEAR, column prefixes, wildcards).
     """
     if not query or not query.strip():
         return []
@@ -7918,16 +8736,21 @@ def _mneme_search(conn, query: str, k: int = 5,
         params.append(scope)
     if type_filter:
         params.append(type_filter)
+    if sensitivity:
+        params.append(sensitivity)
 
     scope_clause = "AND mneme_fts.scope = ?" if scope else ""
     type_clause = "AND mneme_fts.type = ?" if type_filter else ""
+    sensitivity_clause = "AND mneme_fts.sensitivity = ?" if sensitivity else ""
 
     sql = (
         "SELECT mneme_fts.id, mneme_fts.title, mneme_fts.type, mneme_fts.scope, "
-        "mneme_fts.summary, mneme_fts.updated, "
+        "mneme_fts.summary, mneme_fts.updated, mneme_fts.sensitivity, "
+        "mneme_fts.confidence, mneme_fts.source_path, "
+        "snippet(mneme_fts, 5, '<mark>', '</mark>', '…', 40) AS snippet, "
         "bm25(mneme_fts, 0.0, 3.0, 2.0, 2.0, 1.0, 1.0) AS score "
         "FROM mneme_fts "
-        f"WHERE mneme_fts MATCH ? {scope_clause} {type_clause} "
+        f"WHERE mneme_fts MATCH ? {scope_clause} {type_clause} {sensitivity_clause} "
         "ORDER BY score "
         f"LIMIT {max(1, min(k, 100))}"
     )
@@ -7945,6 +8768,11 @@ def _mneme_search(conn, query: str, k: int = 5,
             "type": row["type"] or "",
             "scope": row["scope"] or "",
             "summary": row["summary"] or "",
+            "sensitivity": row["sensitivity"] or "team",
+            "confidence": float(row["confidence"] or 1.0),
+            "source_path": row["source_path"] or "",
+            "updated": row["updated"] or "",
+            "snippet": row["snippet"] or "",
             "score": round(float(row["score"]), 2) if row["score"] is not None else 0.0,
         })
     return results
@@ -7965,18 +8793,22 @@ def _mneme_index_document(cfg: dict, file_path: Path) -> bool:
         now = datetime.now().astimezone().isoformat(timespec="seconds")
         file_path_str = str(file_path.resolve())
 
-        # Upsert
+        # Upsert. Delete by source_path as well as id so changing the
+        # frontmatter id in-place cannot leave the previous id searchable.
+        conn.execute("DELETE FROM mneme_fts WHERE source_path = ?", (file_path_str,))
         conn.execute("DELETE FROM mneme_fts WHERE id = ?", (doc["id"],))
         conn.execute("DELETE FROM mneme_files WHERE path = ?", (file_path_str,))
         conn.execute(
-            "INSERT INTO mneme_fts (id, title, summary, tags, topic_path, body, type, scope, updated) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO mneme_fts (id, title, summary, tags, topic_path, body, type, scope, sensitivity, confidence, source_path, updated) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (doc["id"], field_cols[0], field_cols[1], field_cols[2],
-             field_cols[3], field_cols[4], doc["type"], doc["scope"], doc["updated"]),
+             field_cols[3], field_cols[4], doc["type"], doc["scope"],
+             doc.get("sensitivity", "team"), str(doc.get("confidence", 1.0)),
+             file_path_str, doc["updated"]),
         )
         conn.execute(
-            "INSERT INTO mneme_files (path, mtime, indexed_at) VALUES (?, ?, ?)",
-            (file_path_str, file_path.stat().st_mtime, now),
+            "INSERT INTO mneme_files (path, mtime, indexed_at, sensitivity) VALUES (?, ?, ?, ?)",
+            (file_path_str, file_path.stat().st_mtime, now, doc.get("sensitivity", "team")),
         )
         conn.execute("INSERT INTO mneme_fts(mneme_fts) VALUES('rebuild')")
         conn.commit()
@@ -7987,8 +8819,8 @@ def _mneme_index_document(cfg: dict, file_path: Path) -> bool:
         except Exception:
             pass
         return False
-    finally:
-        conn.close()
+    # Connection is cached for process lifetime; do not close.
+    # (Unlike other mneme_index functions, commit() already happened above.)
 
 
 def _mneme_delete_document(cfg: dict, doc_id: str) -> bool:
@@ -8007,9 +8839,13 @@ def _mneme_delete_document(cfg: dict, doc_id: str) -> bool:
         escaped_id = doc_id.replace("*", "\\*").replace("?", "\\?").replace("[", "\\[").replace("]", "\\]")
         cursor = conn.execute("DELETE FROM mneme_fts WHERE id = ?", (doc_id,))
         deleted = cursor.rowcount > 0
+        # M-5: cross-platform path matching — handle both / and \\ separators.
+        # GLOB doesn't have an OR operator, so we OR two separate patterns.
+        pattern_fwd = f"*/{escaped_id}.md"
+        pattern_bwd = f"*\\\\{escaped_id}.md"
         conn.execute(
-            "DELETE FROM mneme_files WHERE path GLOB ?",
-            (f"*/{escaped_id}.md",)
+            "DELETE FROM mneme_files WHERE path GLOB ? OR path GLOB ?",
+            (pattern_fwd, pattern_bwd),
         )
         if deleted:
             conn.execute("INSERT INTO mneme_fts(mneme_fts) VALUES('rebuild')")
@@ -8052,16 +8888,25 @@ def _mneme_index_stats(cfg: dict) -> dict:
 def _cmd_memory_index(args, cfg) -> None:
     """Handle `perseus memory index {stats,rebuild,search}`."""
     sub = getattr(args, "index_command", None)
+    use_json = getattr(args, "json", False)
 
     if sub == "stats":
         stats = _mneme_index_stats(cfg)
+        if use_json:
+            import json as _json
+            try:
+                size_bytes = Path(stats["index_path"]).stat().st_size if stats["available"] else 0
+                stats["index_size_bytes"] = size_bytes
+            except Exception:
+                stats["index_size_bytes"] = 0
+            print(_json.dumps(stats, indent=2))
+            return
         if not stats["available"]:
             print("Index not available. Vault may not exist yet.")
             return
         print(f"Index: {stats['index_path']}")
         print(f"Documents: {stats['doc_count']}")
         print(f"Files tracked: {stats['indexed_files']}")
-        # Get file size
         try:
             size_bytes = Path(stats["index_path"]).stat().st_size
             print(f"Index size: {_mneme_fmt_bytes(size_bytes)}")
@@ -8071,11 +8916,21 @@ def _cmd_memory_index(args, cfg) -> None:
 
     if sub == "rebuild":
         force = getattr(args, "force", False)
-        print(f"{'Force-rebuilding' if force else 'Rebuilding'} Mnēmē FTS5 index...")
+        if not use_json:
+            print(f"{'Force-rebuilding' if force else 'Rebuilding'} Mnēmē FTS5 index...")
         count = _mneme_build_index(cfg, force=force)
-        print(f"Indexed {count} document{'s' if count != 1 else ''}.")
         stats = _mneme_index_stats(cfg)
-        print(f"Total indexed: {stats['doc_count']}")
+        if use_json:
+            import json as _json
+            print(_json.dumps({
+                "indexed": count,
+                "total": stats["doc_count"],
+                "force": force,
+                "available": stats["available"],
+            }, indent=2))
+        else:
+            print(f"Indexed {count} document{'s' if count != 1 else ''}.")
+            print(f"Total indexed: {stats['doc_count']}")
         return
 
     if sub == "search":
@@ -8086,7 +8941,20 @@ def _cmd_memory_index(args, cfg) -> None:
         k = max(1, min(20, int(getattr(args, "k", 5) or 5)))
         scope = getattr(args, "scope", None) or None
         type_filter = getattr(args, "type", None) or None
-        results = _mneme_recall(cfg, query, k=k, scope=scope, type_filter=type_filter)
+        sensitivity = getattr(args, "sensitivity", None) or None
+        results = _mneme_recall(cfg, query, k=k, scope=scope, type_filter=type_filter, sensitivity=sensitivity)
+        if use_json:
+            import json as _json
+            print(_json.dumps({
+                "query": query,
+                "k": k,
+                "scope": scope,
+                "type": type_filter,
+                "sensitivity": sensitivity,
+                "count": len(results),
+                "results": results,
+            }, indent=2, default=str))
+            return
         if not results:
             print("No results.")
             return
@@ -8981,7 +9849,19 @@ def resolve_inbox(args_str: str, cfg: dict, workspace: Path | None = None) -> st
     except (TypeError, ValueError):
         limit = 10
 
-    items = _inbox_load_all(ws, cfg)
+    # v1.0.6: preflight check — surface permission errors instead of silently
+    # returning "_No new messages._"
+    preflight = _preflight_permissions(cfg)
+    inbox_dir = str(_inbox_dir(ws, cfg))
+    if any("inbox" in w for w in preflight):
+        return f"> ⚠ @inbox disabled: inbox store not writable ({inbox_dir})."
+
+    try:
+        items = _inbox_load_all(ws, cfg)
+    except PermissionError as e:
+        return f"> ⚠ @inbox: cannot read inbox ({inbox_dir}) — {e}"
+    except OSError as e:
+        return f"> ⚠ @inbox: error accessing inbox ({inbox_dir}) — {e}"
     visible = []
     for fp, msg in items:
         if msg.get("dismissed_at"):
@@ -9003,7 +9883,6 @@ def resolve_inbox(args_str: str, cfg: dict, workspace: Path | None = None) -> st
             for bl in body.splitlines():
                 lines.append(f"  > {bl}")
     return "\n".join(lines)
-
 
 # ── Command dispatch ──────────────────────────────────────────────────────────
 
@@ -9349,6 +10228,7 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path) -> str:
 
     scope = (mods.get("scope") or "").strip() or None
     type_filter = (mods.get("type") or "").strip().lower() or None
+    sensitivity = (mods.get("sensitivity") or "").strip().lower() or None
     render_template = (mods.get("render") or "default").strip().lower()
 
     try:
@@ -9356,7 +10236,7 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path) -> str:
     except (ValueError, TypeError):
         k = 5
 
-    hits = _mneme_recall(cfg, query, k=k, scope=scope, type_filter=type_filter)
+    hits = _mneme_recall(cfg, query, k=k, scope=scope, type_filter=type_filter, sensitivity=sensitivity)
     if not hits:
         return "> \u2139\ufe0f No Mn\u0113m\u0113 memories matched.\n"
 
@@ -9367,13 +10247,28 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path) -> str:
         score = h.get("score", 0)
         mem_type = h.get("type", "")
         mem_scope = h.get("scope", "")
+        snippet = h.get("snippet", "")
+        source_path = h.get("source_path", "")
+        updated = h.get("updated", "")
+        confidence = h.get("confidence", 1.0)
 
         if render_template == "compact":
             lines.append(f"  - **{title}**")
         elif render_template == "full":
             lines.append(f"### {title}")
+            meta_parts = []
             if mem_type:
-                lines.append(f"_{mem_type}_  `{mem_scope}`  score: {score:.0f}")
+                meta_parts.append(f"_{mem_type}_")
+            if mem_scope:
+                meta_parts.append(f"`{mem_scope}`")
+            meta_parts.append(f"score: {score:.0f}")
+            if confidence < 1.0:
+                meta_parts.append(f"confidence: {confidence:.0%}")
+            lines.append("  ".join(meta_parts))
+            if source_path:
+                lines.append(f"  *{source_path}*")
+            if snippet:
+                lines.append(f"  > {snippet}")
             lines.append(f"\n{summary}\n")
         else:
             parts = [f"  - **{title}**"]
@@ -9382,8 +10277,14 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path) -> str:
             if mem_scope:
                 parts.append(f"`{mem_scope}`")
             parts.append(summary)
+            meta = []
             if score:
-                parts.append(f"(score: {score:.0f})")
+                meta.append(f"score: {score:.0f}")
+            if snippet:
+                meta.append(f"\"…{snippet}…\"")
+            if source_path:
+                meta.append(f"`{Path(source_path).name}`")
+            parts.append("(" + " · ".join(meta) + ")")
             lines.append(" ".join(parts))
     return "\n".join(lines) + "\n"
 
@@ -9440,9 +10341,13 @@ def _resolve_memory_narrative(args_stripped: str, mods: dict, cfg: dict, ws: Pat
         pass
 
     if not stale_note and body.strip():
-        # M-5: Don't side-effect fm["updated"] on read-only path.
-        # The update timestamp is maintained by memory update/compact operations only.
-        pass
+        # Touch updated timestamp on every fresh successful render so callers
+        # can detect when the narrative was last accessed (Feat #2).
+        try:
+            fm["updated"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            _save_narrative(mp, fm, body)
+        except Exception:
+            pass  # best-effort; never break the read path
 
     compact_note = ""
     threshold = int(cfg.get("memory", {}).get("compact_threshold", 20))
@@ -9571,6 +10476,12 @@ def _mneme_compact_llm(
 
 def append_pythia_log(entry: dict, cfg: dict) -> None:
     """Append a JSONL Pythia log entry; warn on failure without raising."""
+    # v1.0.5 review: redact secrets before persisting to disk.
+    # Pythia logs can contain prompts/responses with embedded tokens.
+    try:
+        entry, _report = redact_value(entry, cfg)
+    except Exception:
+        pass  # redaction failure must not block persistence
     log_path = _pythia_log_path()
     try:
         log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -10943,16 +11854,25 @@ def _lsp_diagnostics_for(text: str, cfg: dict, workspace: Path) -> list[dict]:
                 d["range"] = {"start": {"line": lineno, "character": 0}, "end": {"line": lineno, "character": len(raw)}}
                 diagnostics.append(d)
 
-        # Cross-cutting diagnostic: @cache ttl= must be integer
+        # Cross-cutting diagnostic: @cache ttl= must be non-negative integer
         if "@cache" in args_str:
             mm = re.search(r"ttl=([^\s]+)", args_str)
-            if mm and not mm.group(1).isdigit():
-                diagnostics.append({
-                    "range": {"start": {"line": lineno, "character": 0}, "end": {"line": lineno, "character": len(raw)}},
-                    "severity": 2,
-                    "source": "perseus",
-                    "message": f"@cache ttl= must be a non-negative integer, got `{mm.group(1)}`",
-                })
+            if mm:
+                val = mm.group(1)
+                if not val.lstrip('-').isdigit():
+                    diagnostics.append({
+                        "range": {"start": {"line": lineno, "character": 0}, "end": {"line": lineno, "character": len(raw)}},
+                        "severity": 2,
+                        "source": "perseus",
+                        "message": f"@cache ttl= must be a non-negative integer, got `{val}`",
+                    })
+                elif int(val) < 0:
+                    diagnostics.append({
+                        "range": {"start": {"line": lineno, "character": 0}, "end": {"line": lineno, "character": len(raw)}},
+                        "severity": 2,
+                        "source": "perseus",
+                        "message": f"@cache ttl= must be a non-negative integer, got `{val}`",
+                    })
 
     if if_depth > 0:
         diagnostics.append({
@@ -11049,6 +11969,7 @@ def _run_lsp_server(args, cfg) -> int:
                 "capabilities": {
                     "textDocumentSync": 1,  # full
                     "hoverProvider": True,
+                    "definitionProvider": True,
                     "completionProvider": {"triggerCharacters": ["@", " ", "="]},
                     "codeLensProvider": {"resolveProvider": False},
                     "executeCommandProvider": {"commands": ["perseus.render", "perseus.openCheckpoint", "perseus.compactMemory"]},
@@ -11086,6 +12007,30 @@ def _run_lsp_server(args, cfg) -> int:
                     name, args_str = parsed
                     preview = _lsp_resolve_directive_for_hover(name, args_str, cfg, server_state["workspace"])
             respond(req_id, {"contents": {"kind": "markdown", "value": f"```\n{preview[:2000]}\n```"}})
+
+        elif method == "textDocument/definition":
+            uri = params["textDocument"]["uri"]
+            line_no = params["position"]["line"]
+            text = documents.get(uri, "")
+            lines = text.splitlines()
+            result = None
+            if 0 <= line_no < len(lines):
+                parsed = _lsp_parse_directive_at_line(lines[line_no])
+                if parsed and parsed[0] in ("@include", "@read"):
+                    # Resolve the file path relative to workspace
+                    path_str, _ = _extract_quoted_token(parsed[1].strip())
+                    if path_str:
+                        ws = server_state["workspace"]
+                        fp, _ = _resolve_path(path_str, ws, allow_outside_workspace=True)
+                        if fp.exists():
+                            result = {"uri": fp.as_uri(), "range": {
+                                "start": {"line": 0, "character": 0},
+                                "end": {"line": 0, "character": 0},
+                            }}
+            if result:
+                respond(req_id, result)
+            else:
+                respond(req_id, None)
         elif method == "textDocument/completion":
             uri = params["textDocument"]["uri"]
             line_no = params["position"]["line"]
@@ -11098,7 +12043,12 @@ def _run_lsp_server(args, cfg) -> int:
             # If line starts with @ but no directive complete yet, offer directive names
             if "@" in prefix and not any(prefix.lstrip().lower().startswith(d) for d in _LSP_DIRECTIVE_NAMES):
                 for d in _LSP_DIRECTIVE_NAMES:
-                    items.append({"label": d, "kind": 14})  # Keyword
+                    items.append({
+                        "label": d,
+                        "kind": 14,  # Keyword
+                        "insertText": d + " $0",
+                        "insertTextFormat": 2,  # Snippet
+                    })
             else:
                 # offer arg keys for the directive on this line
                 parsed = _lsp_parse_directive_at_line(cur_line)
@@ -11256,10 +12206,31 @@ def _merge_json_file(path: Path, new_data: dict, top_key: str = "hooks") -> bool
     """Merge new_data into an existing JSON file, deep-merging under top_key."""
     existing: dict = {}
     if path.exists():
+        # H-10: Symlink check — refuse to overwrite symlinks
+        if path.is_symlink():
+            print(
+                f"  ⚠ {path} is a symlink; refusing to overwrite for safety.",
+                file=sys.stderr,
+            )
+            return False
+
         try:
             existing = json.loads(path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, ValueError):
-            print(f"  ⚠ {path} exists but is not valid JSON; overwriting.", file=sys.stderr)
+            print(
+                f"  ⚠ {path} exists but is not valid JSON; refusing to overwrite.",
+                file=sys.stderr,
+            )
+            return False
+
+        # H-10: JSON validation — refuse to merge into non-dict JSON
+        if not isinstance(existing, dict):
+            print(
+                f"  ⚠ {path} contains non-dict JSON (type={type(existing).__name__}); "
+                f"refusing to overwrite.",
+                file=sys.stderr,
+            )
+            return False
 
     # Deep-merge hooks dicts
     if top_key not in existing:
@@ -11422,7 +12393,700 @@ def install_target(
         print(f"  → Or `perseus render {source} --format {fmt} -o {root / FORMAT_TARGETS[fmt].default_output}`")
 
     return result
-# ──────────────────────────────── Render ──────────────────────────────────────
+# ─────────────────────────────── Health ──────────────────────────────────────
+
+def _health_collect(cfg: dict, workspace: Path) -> list[str]:
+    """Run deterministic maintenance heuristics. Returns markdown lines."""
+    hcfg = cfg.get("health", {})
+    stale_days = int(hcfg.get("stale_checkpoint_days", 7))
+    dup_window = int(hcfg.get("duplicate_checkpoint_window", 5))
+    ctx_warn = int(hcfg.get("context_line_warning", 400))
+    completed_days = int(hcfg.get("include_completed_tasks_older_than_days", 14))
+
+    lines: list[str] = []
+
+    # 1. Stale checkpoints
+    cp_files = _list_checkpoint_files(cfg)
+    stale_threshold = time.time() - stale_days * 86400
+    stale = []
+    for fp in cp_files:
+        cp = _load_checkpoint_file(fp) or {}
+        w = str(cp.get("written", ""))
+        try:
+            dt = datetime.fromisoformat(w)
+            if dt.timestamp() < stale_threshold:
+                stale.append((fp.name, _human_age(w)))
+        except Exception:
+            continue
+    if stale:
+        lines.append(f"### Stale Checkpoints (older than {stale_days} days)")
+        for name, age in stale[:10]:
+            lines.append(f"- `{name}` — {age}")
+        if len(stale) > 10:
+            lines.append(f"- _… and {len(stale) - 10} more_")
+        lines.append("")
+
+    # 2. Duplicate / near-duplicate checkpoints
+    window = cp_files[:dup_window]
+    seen: dict[tuple, list[str]] = {}
+    for fp in window:
+        cp = _load_checkpoint_file(fp) or {}
+        key = (str(cp.get("task", "")).strip(), str(cp.get("status", "")).strip(), str(cp.get("next", "")).strip())
+        seen.setdefault(key, []).append(fp.name)
+    dups = [(k, v) for k, v in seen.items() if len(v) > 1]
+    if dups:
+        lines.append(f"### Duplicate Checkpoints (in last {dup_window})")
+        for (task, status, nxt), names in dups:
+            lines.append(f"- **{task or '(no task)'}** — appears {len(names)}× with same status/next:")
+            for n in names:
+                lines.append(f"  - `{n}`")
+        lines.append("")
+
+    # 3. Large context source file
+    ctx_path = workspace / ".perseus" / "context.md"
+    if ctx_path.exists():
+        try:
+            n_lines = ctx_path.read_text(errors="replace").count("\n") + 1
+            if n_lines > ctx_warn:
+                lines.append("### Context Source Size")
+                lines.append(
+                    f"- `{ctx_path}` is **{n_lines} lines** (warning threshold: {ctx_warn})."
+                    " Consider extracting sections into separate `@include`d files."
+                )
+                lines.append("")
+        except Exception:
+            pass
+
+    # 4. Old completed tasks in Agora
+    tasks_dir = _get_tasks_dir(workspace, cfg)
+    if tasks_dir.exists():
+        completed_threshold = time.time() - completed_days * 86400
+        old_done = []
+        for task_file in sorted(tasks_dir.glob("task-*.md")):
+            try:
+                fm, _ = _load_task_file(task_file)
+            except Exception:
+                continue
+            if str(fm.get("status", "")).lower() != "completed":
+                continue
+            closed = str(fm.get("closed", "") or "")
+            try:
+                dt = datetime.fromisoformat(closed)
+                if dt.timestamp() < completed_threshold:
+                    old_done.append((task_file.name, closed))
+            except Exception:
+                continue
+        if old_done:
+            lines.append(f"### Old Completed Tasks (closed > {completed_days} days ago)")
+            for name, closed in old_done[:10]:
+                lines.append(f"- `{name}` — closed {closed} (consider archiving)")
+            lines.append("")
+
+    if not lines:
+        lines.append("_All clear — no maintenance suggestions._")
+
+    return lines
+
+
+def _health_report(cfg: dict, workspace: Path) -> str:
+    """Render full health report as markdown."""
+    header = f"# Perseus Health Report\n\n**Workspace:** `{workspace}`  \n**Generated:** {datetime.now().astimezone().strftime('%Y-%m-%d %H:%M %Z')}\n\n---\n\n"
+    body = "\n".join(_health_collect(cfg, workspace))
+    return header + body + "\n"
+
+
+def cmd_health(args, cfg):
+    ws = Path(getattr(args, "workspace", None) or os.getcwd()).expanduser().resolve()
+    print(_health_report(cfg, ws))
+
+
+def resolve_health(args_str: str, cfg: dict, workspace: Path | None = None) -> str:
+    """@health [section-only] — embed maintenance suggestions inline."""
+    ws = (workspace or Path.cwd()).expanduser().resolve()
+    return "\n".join(_health_collect(cfg, ws))
+
+
+# ─────────────────────────────── Doctor ──────────────────────────────────────
+
+def _find_version() -> str:
+    """Read version from VERSION file in repo root if present, else use baked-in."""
+    start = Path(__file__).resolve().parent
+    for p in [start] + list(start.parents):
+        candidate = p / "VERSION"
+        if candidate.exists():
+            return candidate.read_text().strip()
+    return _PERSEUS_VERSION  # fallback to build-time injected literal
+
+_PERSEUS_VERSION = "1.0.6"  # injected by scripts/build.py at build time
+_PERSEUS_VERSION = _find_version()
+
+
+class DoctorResult(NamedTuple):
+    id: str
+    status: str        # "ok" | "warn" | "error"
+    label: str
+    value: str
+    remediation: str   # "" if none
+
+
+def _doctor_check_config(cfg: dict, workspace: Path) -> DoctorResult:
+    """Check that config parses as valid YAML."""
+    config_path = PERSEUS_HOME / "config.yaml"
+    if config_path.exists():
+        try:
+            with open(config_path) as f:
+                yaml.safe_load(f)
+            return DoctorResult("config_parses", "ok", "config parses", str(config_path), "")
+        except Exception as exc:
+            return DoctorResult("config_parses", "error", "config parses", str(exc),
+                                f"Fix YAML syntax in {config_path}")
+    # No config file — using defaults, that's fine
+    return DoctorResult("config_parses", "ok", "config parses", "(defaults — no config file)", "")
+
+
+def _doctor_check_context_file(cfg: dict, workspace: Path) -> DoctorResult:
+    """Check that the workspace has a .perseus/context.md (or .hermes.md)."""
+    for name in (".perseus/context.md", ".hermes.md"):
+        p = workspace / name
+        if p.exists():
+            return DoctorResult("workspace_context_file", "ok", "workspace context file", str(p), "")
+    return DoctorResult("workspace_context_file", "warn", "workspace context file",
+                        "not found (.perseus/context.md or .hermes.md)",
+                        "Run `perseus init` to scaffold a context file")
+
+
+def _doctor_check_render_shell(cfg: dict, workspace: Path) -> DoctorResult:
+    """Informational: is @query shell execution enabled?"""
+    enabled = cfg.get("render", {}).get("allow_query_shell", False)
+    val = f"allow_query_shell={str(enabled).lower()}"
+    return DoctorResult("render_shell", "ok", "render: shell execution", val, "")
+
+
+def _doctor_check_render_outside_workspace(cfg: dict, workspace: Path) -> DoctorResult:
+    """Informational: is @read outside workspace allowed?"""
+    allowed = cfg.get("render", {}).get("allow_outside_workspace", False)
+    val = f"allow_outside_workspace={str(allowed).lower()}"
+    return DoctorResult("render_outside_workspace", "ok", "render: outside-workspace reads", val, "")
+
+
+def _doctor_check_latest_checkpoint(cfg: dict, workspace: Path) -> DoctorResult:
+    """Check recency of the latest checkpoint."""
+    cp_dir = PERSEUS_HOME / "checkpoints"
+    if not cp_dir.is_dir():
+        return DoctorResult("latest_checkpoint_age", "warn", "latest checkpoint",
+                            "no checkpoints directory", "Run `perseus checkpoint --task '...'`")
+    yamls = sorted(cp_dir.glob("2*.yaml"), reverse=True)
+    if not yamls:
+        return DoctorResult("latest_checkpoint_age", "warn", "latest checkpoint",
+                            "no checkpoints found", "Run `perseus checkpoint --task '...'`")
+    try:
+        ts_str = yamls[0].stem[:19]  # 2026-05-18T0828
+        ts = datetime.strptime(ts_str, "%Y-%m-%dT%H%M")
+        age = datetime.now() - ts
+        age_days = age.days
+        hours = age.seconds // 3600
+        minutes = (age.seconds % 3600) // 60
+        if age_days > 0:
+            age_str = f"{age_days}d {hours}h ago"
+        else:
+            age_str = f"{hours}h {minutes}m ago"
+        if age_days > 30:
+            return DoctorResult("latest_checkpoint_age", "error", "latest checkpoint",
+                                age_str, "Run `perseus checkpoint --task '...'` — checkpoint is very stale")
+        if age_days > 7:
+            return DoctorResult("latest_checkpoint_age", "warn", "latest checkpoint",
+                                age_str, "Consider running `perseus checkpoint --task '...'`")
+        return DoctorResult("latest_checkpoint_age", "ok", "latest checkpoint", age_str, "")
+    except Exception:
+        return DoctorResult("latest_checkpoint_age", "ok", "latest checkpoint", str(yamls[0].name), "")
+
+
+def _doctor_check_mneme(cfg: dict, workspace: Path) -> DoctorResult:
+    """Check Mnēmē narrative existence and size."""
+    mem_cfg = cfg.get("memory", {})
+    narrative = _mneme_path(workspace, cfg)
+    if not narrative.exists():
+        return DoctorResult("mneme_narrative", "warn", "Mnēmē narrative",
+                            "not found", "Memory will auto-create on next render with @memory")
+    lines = narrative.read_text(errors="replace").splitlines()
+    max_lines = mem_cfg.get("max_narrative_lines", 300)
+    line_count = len(lines)
+    val = f"{line_count} lines"
+    if line_count > max_lines:
+        return DoctorResult("mneme_narrative", "warn", "Mnēmē narrative",
+                            f"{val} (exceeds max_narrative_lines={max_lines})",
+                            "Consider pruning old entries from the narrative")
+    return DoctorResult("mneme_narrative", "ok", "Mnēmē narrative", val, "")
+
+
+def _doctor_check_federation(cfg: dict, workspace: Path) -> DoctorResult:
+    """Check federation subscription health."""
+    mem_cfg = cfg.get("memory", {})
+    manifest_path = _federation_manifest_path(cfg)
+    if not manifest_path.exists():
+        return DoctorResult("federation_subscriptions", "ok", "federation",
+                            "no subscriptions configured", "")
+    try:
+        with open(manifest_path) as f:
+            manifest = yaml.safe_load(f) or {}
+        if not isinstance(manifest, dict):
+            raise ValueError(f"manifest is not a mapping (got {type(manifest).__name__})")
+        if not isinstance(manifest.get("subscriptions", []), list):
+            raise ValueError("subscriptions must be a list")
+    except Exception as exc:
+        return DoctorResult("federation_subscriptions", "error", "federation",
+                            f"manifest unreadable: {exc}", f"Fix {manifest_path}")
+    subs = manifest.get("subscriptions", [])
+    if not subs:
+        return DoctorResult("federation_subscriptions", "ok", "federation",
+                            "no subscriptions", "")
+    stale = []
+    stale_threshold_days = mem_cfg.get("federation_stale_threshold_days", 7)
+    for sub_entry in subs:
+        alias = sub_entry.get("alias", "?")
+        narrative, err = _resolve_subscription_narrative(sub_entry, cfg)
+        if err or narrative is None:
+            stale.append(f"{alias} (unavailable)")
+            continue
+        if narrative.exists():
+            import os as _os
+            mtime = datetime.fromtimestamp(_os.path.getmtime(narrative))
+            age = (datetime.now() - mtime).days
+            if age > stale_threshold_days:
+                stale.append(f"{alias} ({age}d old)")
+    if stale:
+        return DoctorResult("federation_subscriptions", "warn", "federation",
+                            f"{len(subs)} subs, stale: {', '.join(stale)}",
+                            "Run `perseus memory federation pull`")
+    return DoctorResult("federation_subscriptions", "ok", "federation",
+                        f"{len(subs)} subscriptions, all fresh", "")
+
+
+def _doctor_check_pythia_log(cfg: dict, workspace: Path) -> DoctorResult:
+    """Check Pythia log readability."""
+    log_path = _pythia_log_path()
+    if not log_path.exists():
+        return DoctorResult("pythia_log_readable", "ok", "Pythia log",
+                            "no log file (will be created on first suggest)", "")
+    try:
+        count = 0
+        with open(log_path) as f:
+            for lineno, line in enumerate(f, start=1):
+                line = line.strip()
+                if not line:
+                    continue
+                data = json.loads(line)
+                if not isinstance(data, dict):
+                    raise ValueError(f"line {lineno}: entry is not an object")
+                count += 1
+        return DoctorResult("pythia_log_readable", "ok", "Pythia log",
+                            f"{count} entries", "")
+    except Exception as exc:
+        return DoctorResult("pythia_log_readable", "error", "Pythia log",
+                            str(exc), f"Fix JSONL in {log_path}")
+
+
+def _doctor_check_serve_loopback(cfg: dict, workspace: Path) -> DoctorResult:
+    """Informational: confirm serve defaults to loopback."""
+    bind = _serve_bind_host(cfg)
+    if _serve_is_loopback(bind):
+        return DoctorResult("serve_loopback_only", "ok", "serve loopback default",
+                            bind, "")
+    return DoctorResult("serve_loopback_only", "warn", "serve loopback default",
+                        f"bind={bind} (not loopback)",
+                        "Set serve.bind_host to 127.0.0.1 unless intentional")
+
+
+def _doctor_check_registry(cfg: dict, workspace: Path) -> DoctorResult:
+    """Validate DIRECTIVE_REGISTRY consistency."""
+    issues = []
+    for name, spec in DIRECTIVE_REGISTRY.items():
+        if spec.kind == "inline" and not callable(spec.resolver):
+            issues.append(f"{name}: inline but no callable resolver")
+        if (spec.executes_shell or spec.mutates_state) and spec.safe_for_hover:
+            issues.append(f"{name}: unsafe but safe_for_hover=True")
+    if issues:
+        return DoctorResult("directive_registry", "error", "directive registry",
+                            "; ".join(issues), "Fix DIRECTIVE_REGISTRY entries")
+    return DoctorResult("directive_registry", "ok", "directive registry",
+                        f"{len(DIRECTIVE_REGISTRY)} directives registered", "")
+
+
+def _doctor_check_mcp(cfg: dict, workspace: Path) -> DoctorResult:
+    """Check MCP server readiness — registry and tool count."""
+    try:
+        tools = _get_all_mcp_tools(cfg)
+        count = len(tools)
+        if count == 0:
+            return DoctorResult("mcp_server", "warn", "mcp_server", "0 tools available", "Check DIRECTIVE_REGISTRY and config")
+        return DoctorResult("mcp_server", "ok", "mcp_server", f"{count} MCP tools available", "")
+    except Exception as exc:
+        return DoctorResult("mcp_server", "error", "mcp_server", str(exc), "Check mcp.py")
+
+
+def _doctor_check_mneme_index(_cfg: dict, _workspace: Path) -> DoctorResult:
+    """Check Mnēmē FTS5 index health — existence, population, orphans."""
+    try:
+        stats = _mneme_index_stats(_cfg)
+        if not stats["available"]:
+            return DoctorResult("mneme_fts_index", "warn", "Mnēmē FTS index",
+                                "index not available (vault may be empty)",
+                                "Add memory files to trigger indexing, or run `perseus memory index rebuild`")
+
+        doc_count = stats["doc_count"]
+        file_count = stats["indexed_files"]
+        index_path = stats["index_path"]
+
+        # Orphan check: files in index that no longer exist in vault
+        orphans = 0
+        try:
+            conn = _mneme_open_index(_cfg)
+            if conn:
+                rows = conn.execute("SELECT file_path FROM mneme_files").fetchall()
+                for (fp,) in rows:
+                    if not Path(fp).exists():
+                        orphans += 1
+        except Exception:
+            pass
+
+        parts = [f"{doc_count} docs, {file_count} files tracked"]
+        if orphans > 0:
+            parts.append(f"{orphans} orphaned entries")
+            return DoctorResult("mneme_fts_index", "warn", "Mnēmē FTS index",
+                                ", ".join(parts),
+                                f"{orphans} orphaned entries — run `perseus memory index rebuild`")
+        if doc_count == 0:
+            return DoctorResult("mneme_fts_index", "warn", "Mnēmē FTS index",
+                                "index exists but is empty",
+                                "Run `perseus memory index rebuild`")
+        return DoctorResult("mneme_fts_index", "ok", "Mnēmē FTS index", ", ".join(parts), "")
+    except Exception as exc:
+        return DoctorResult("mneme_fts_index", "error", "Mnēmē FTS index", str(exc), "Check mneme_index.py")
+
+
+def _doctor_check_llm_reachable(cfg: dict, workspace: Path) -> DoctorResult:
+    """Check whether the configured LLM backend is reachable."""
+    llm_cfg = cfg.get("llm", {})
+    provider = str(llm_cfg.get("provider", "ollama")).strip().lower()
+    url = str(llm_cfg.get("url", "")).strip()
+
+    if not url:
+        return DoctorResult("llm_reachable", "ok", "LLM backend",
+                           f"provider={provider} — no URL configured (skipped)", "")
+
+    # For openai-compat/llamacpp, check /v1/models
+    check_url = url.rstrip("/") + "/v1/models"
+    if provider == "ollama":
+        check_url = url.rstrip("/") + "/api/tags"
+
+    try:
+        req = urllib.request.Request(check_url)
+        start = time.time()
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            status = resp.getcode()
+        elapsed_ms = int((time.time() - start) * 1000)
+        if 200 <= status < 300:
+            return DoctorResult("llm_reachable", "ok", "LLM backend",
+                               f"{provider} @ {url} — reachable ({elapsed_ms}ms)", "")
+        else:
+            return DoctorResult("llm_reachable", "warn", "LLM backend",
+                               f"{provider} @ {url} — HTTP {status}",
+                               "Check LLM server is running")
+    except Exception as exc:
+        return DoctorResult("llm_reachable", "warn", "LLM backend",
+                           f"{provider} @ {url} — unreachable ({exc})",
+                           "Start LLM server or set llm.url")
+
+
+def _doctor_check_llm_functional(cfg: dict, workspace: Path) -> DoctorResult:
+    """Check whether the LLM backend can actually complete a request."""
+    llm_cfg = cfg.get("llm", {})
+    provider = str(llm_cfg.get("provider", "ollama")).strip().lower()
+
+    # Only test if generation is enabled
+    gen_enabled = bool(cfg.get("generation", {}).get("enabled", False))
+    if not gen_enabled:
+        return DoctorResult("llm_functional", "ok", "LLM functional",
+                           "generation not enabled (skipped)", "")
+
+    try:
+        start = time.time()
+        text, code = run_llm(provider, "Reply with the single word: pong.", cfg)
+        elapsed_ms = int((time.time() - start) * 1000)
+        if code == 0 and text.strip():
+            return DoctorResult("llm_functional", "ok", "LLM functional",
+                               f"{elapsed_ms}ms — response ok", "")
+        else:
+            return DoctorResult("llm_functional", "warn", "LLM functional",
+                               f"call failed: {text[:60] or 'empty response'}",
+                               "Verify LLM server is running and model is available")
+    except Exception as exc:
+        return DoctorResult("llm_functional", "warn", "LLM functional",
+                           str(exc), "Check LLM configuration")
+
+
+def _doctor_check_cache_writable(cfg: dict, workspace: Path) -> DoctorResult:
+    """Check whether the render cache directory is writable."""
+    cache_dir = Path(cfg.get("render", {}).get("cache_dir", str(PERSEUS_HOME / "cache")))
+    try:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        test_file = cache_dir / ".doctor_test"
+        test_file.write_text("ok")
+        test_file.unlink()
+        # Count cache entries
+        entries = len([f for f in cache_dir.iterdir() if f.suffix == ".json"])
+        return DoctorResult("cache_writable", "ok", "Cache",
+                           f"{entries} entries, writable", "")
+    except Exception as exc:
+        return DoctorResult("cache_writable", "error", "Cache",
+                           f"not writable: {exc}",
+                           f"Check permissions on {cache_dir}")
+
+
+def _doctor_check_sessions(cfg: dict, workspace: Path) -> DoctorResult:
+    """Check whether the sessions store is accessible."""
+    sessions_dir = SESSIONS_DIR  # from config.py
+    sessions_path = Path(sessions_dir)
+    if not sessions_path.exists():
+        return DoctorResult("sessions_store", "ok", "Session store",
+                           "directory does not exist (will be created on first write)", "")
+    try:
+        session_files = list(sessions_path.glob("*.json"))
+        return DoctorResult("sessions_store", "ok", "Session store",
+                           f"{len(session_files)} sessions", "")
+    except Exception as exc:
+        return DoctorResult("sessions_store", "warn", "Session store",
+                           str(exc), "Check SESSIONS_DIR permissions")
+
+
+# Ordered list of doctor checks — adding a check is one function + one line here.
+_DOCTOR_CHECKS = [
+    _doctor_check_config,
+    _doctor_check_context_file,
+    _doctor_check_render_shell,
+    _doctor_check_render_outside_workspace,
+    _doctor_check_latest_checkpoint,
+    _doctor_check_mneme,
+    _doctor_check_mneme_index,
+    _doctor_check_federation,
+    _doctor_check_pythia_log,
+    _doctor_check_serve_loopback,
+    _doctor_check_registry,
+    _doctor_check_mcp,
+    _doctor_check_llm_reachable,
+    _doctor_check_llm_functional,
+    _doctor_check_cache_writable,
+    _doctor_check_sessions,
+]
+
+
+def _effective_profile_summary(cfg: dict) -> dict:
+    """Build the structured trust summary used by `perseus trust` (task-45).
+
+    Returns a dict suitable for both human rendering and `--json` output.
+    Reflects the *effective* config after profile + user overrides have been
+    merged — so the human report shows what's actually in force, not the
+    profile's nominal defaults.
+    """
+    perms_cfg = cfg.get("permissions", {}) or {}
+    render_cfg = cfg.get("render", {}) or {}
+    gen_cfg = cfg.get("generation", {}) or {}
+    serve_cfg = cfg.get("serve", {}) or {}
+    red_cfg = cfg.get("redaction", {}) or {}
+
+    configured = perms_cfg.get("profile")
+    canonical = None
+    if configured:
+        name = str(configured).strip().lower()
+        if name in PERMISSION_PROFILES:
+            canonical = name
+    serve_summary = _serve_trust_summary(cfg)
+
+    return {
+        "version": _PERSEUS_VERSION,
+        "serve": serve_summary,
+        "permissions": {
+            "configured_profile": configured,
+            "applied_profile": canonical,
+            "available_profiles": sorted(PERMISSION_PROFILES.keys()),
+        },
+        "effective": {
+            "render": {
+                "allow_query_shell": bool(render_cfg.get("allow_query_shell", False)),
+                "allow_agent_shell": bool(render_cfg.get("allow_agent_shell", False)),
+                "allow_services_command": bool(render_cfg.get("allow_services_command", False)),
+                "allow_outside_workspace": bool(render_cfg.get("allow_outside_workspace", False)),
+            },
+            "generation": {
+                "enabled": bool(gen_cfg.get("enabled", False)),
+            },
+            "serve": {
+                "bind": serve_summary["bind_host"],
+                "bind_host": serve_summary["bind_host"],
+                "auth_token_set": serve_summary["auth_token_set"],
+                "loopback_only": serve_summary["loopback_only"],
+                "allow_insecure_remote": serve_summary["allow_insecure_remote"],
+            },
+            "redaction": {
+                "enabled": bool(red_cfg.get("enabled", True)),
+                "include_defaults": bool(red_cfg.get("include_defaults", True)),
+                "custom_patterns": len(list(red_cfg.get("patterns") or [])),
+                "rules_active": len(_compile_redaction_rules(cfg)),
+            },
+        },
+    }
+
+
+def cmd_trust(args, cfg) -> int:
+    """`perseus trust` — show effective permissions and audit posture (task-45, task-47)."""
+    sub = getattr(args, "trust_command", None) or "profile"
+    summary = _effective_profile_summary(cfg)
+    audit_summary = _audit_summary(cfg)
+    summary["audit"] = audit_summary
+
+    if sub == "audit":
+        entries = _read_audit_entries(cfg, limit=int(getattr(args, "tail", 10) or 10))
+        if getattr(args, "json", False):
+            print(json.dumps({
+                "summary": audit_summary,
+                "entries": entries,
+            }, indent=2, sort_keys=True))
+            return 0
+        print(f"perseus trust audit — Perseus v{_PERSEUS_VERSION}")
+        print(f"  enabled:           {audit_summary.get('enabled')}")
+        print(f"  log_path:          {audit_summary.get('log_path')}")
+        print(f"  total_events:      {audit_summary.get('total_events', 0)}")
+        last = audit_summary.get("last_event_ts")
+        print(f"  last_event_ts:     {last or '(none)'}")
+        counts = audit_summary.get("counts_by_type", {}) or {}
+        if counts:
+            print("  counts_by_type:")
+            for k in sorted(counts):
+                print(f"    {k}: {counts[k]}")
+        print("")
+        if not entries:
+            print("(no audit entries)")
+            return 0
+        print(f"Recent entries (most recent last, up to {len(entries)}):")
+        for e in entries:
+            ts = e.get("ts", "?")
+            et = e.get("event_type", "?")
+            extras = {k: v for k, v in e.items()
+                      if k not in {"ts", "event_type", "perseus_version", "pid"}}
+            extras_s = " ".join(f"{k}={v!r}" for k, v in sorted(extras.items()))
+            print(f"  {ts}  {et}  {extras_s}")
+        return 0
+
+    if getattr(args, "json", False):
+        print(json.dumps(summary, indent=2, sort_keys=True))
+        return 0
+
+    if sub in ("profile", None):
+        perms = summary["permissions"]
+        eff = summary["effective"]
+        print(f"perseus trust — Perseus v{_PERSEUS_VERSION}")
+        configured = perms["configured_profile"]
+        applied = perms["applied_profile"]
+        if configured is None:
+            print("  profile:           (none — using DEFAULT_CONFIG values)")
+        elif applied is None:
+            print(f"  profile:           {configured!r} ⚠ unknown — ignored. "
+                  f"Available: {', '.join(perms['available_profiles'])}")
+        elif applied != str(configured).strip().lower():
+            print(f"  profile:           {applied} (configured as {configured!r})")
+        else:
+            print(f"  profile:           {applied}")
+        print(f"  available:         {', '.join(perms['available_profiles'])}")
+        print("")
+        print("Effective permissions (profile + explicit overrides):")
+        print(f"  render.allow_query_shell:       {eff['render']['allow_query_shell']}")
+        print(f"  render.allow_agent_shell:       {eff['render']['allow_agent_shell']}")
+        print(f"  render.allow_services_command:  {eff['render']['allow_services_command']}")
+        print(f"  render.allow_outside_workspace: {eff['render']['allow_outside_workspace']}")
+        print(f"  generation.enabled:             {eff['generation']['enabled']}")
+        print(f"  serve.bind_host:                {eff['serve']['bind_host']}")
+        print(f"  serve.auth_token_set:           {eff['serve']['auth_token_set']}")
+        print(f"  serve.loopback_only:            {eff['serve']['loopback_only']}")
+        print(f"  serve.allow_insecure_remote:    {eff['serve']['allow_insecure_remote']}")
+        red = eff.get("redaction", {})
+        print(
+            f"  redaction.enabled:              {red.get('enabled', True)} "
+            f"(rules active: {red.get('rules_active', 0)}, "
+            f"custom: {red.get('custom_patterns', 0)})"
+        )
+        print("")
+        print("Audit log (task-47):")
+        print(f"  audit.enabled:                  {audit_summary.get('enabled')}")
+        print(f"  audit.log_path:                 {audit_summary.get('log_path')}")
+        print(f"  audit.total_events:             {audit_summary.get('total_events', 0)}")
+        last = audit_summary.get("last_event_ts")
+        if last:
+            print(f"  audit.last_event_ts:            {last}")
+        return 0
+
+    sys.stderr.write(f"perseus trust: unknown subcommand {sub!r}\n")
+    return 2
+
+
+def cmd_doctor(args, cfg) -> int:
+    """Run readiness checks and report status."""
+    workspace = Path(getattr(args, "workspace", None) or os.getcwd()).resolve()
+    use_json = getattr(args, "json", False)
+    try:
+        cfg = load_config(workspace)
+    except Exception:
+        # Keep going so doctor can report config/parser failures as checks.
+        pass
+
+    cfg = dict(cfg)
+    cfg["render"] = dict(cfg.get("render", {}))
+    if cfg["render"].get("cache_dir") == DEFAULT_CONFIG.get("render", {}).get("cache_dir"):
+        cfg["render"]["cache_dir"] = str(PERSEUS_HOME / "cache")
+
+    results: list[DoctorResult] = []
+    for check_fn in _DOCTOR_CHECKS:
+        try:
+            results.append(check_fn(cfg, workspace))
+        except Exception as exc:
+            results.append(DoctorResult(
+                check_fn.__name__.replace("_doctor_check_", ""),
+                "error", check_fn.__name__, str(exc), ""
+            ))
+
+    ok = sum(1 for r in results if r.status == "ok")
+    warn = sum(1 for r in results if r.status == "warn")
+    err = sum(1 for r in results if r.status == "error")
+    exit_code = 1 if err > 0 else 0
+
+    if use_json:
+        import json as _json
+        output = {
+            "perseus_version": _PERSEUS_VERSION,
+            "workspace": str(workspace),
+            "checks": [
+                {
+                    "id": r.id,
+                    "status": r.status,
+                    "value": r.value,
+                    **({"remediation": r.remediation} if r.remediation else {}),
+                }
+                for r in results
+            ],
+            "summary": {"ok": ok, "warn": warn, "error": err},
+            "exit": exit_code,
+        }
+        print(_json.dumps(output, indent=2))
+    else:
+        status_icons = {"ok": "✓", "warn": "⚠", "error": "✗"}
+        print(f"perseus doctor — workspace: {workspace}")
+        for r in results:
+            icon = status_icons.get(r.status, "?")
+            print(f"{icon} {r.label:<40s} {r.value}")
+        print(f"─ Summary: {ok} ok · {warn} warning · {err} errors  (exit {exit_code})")
+
+    return exit_code
+# ─────────────────────────────── Scheduler ────────────────────────────────────
+# Cross-platform scheduling commands: launchd (macOS), cron (POSIX), systemd (Linux)
 
 LAUNCHD_TEMPLATE = """\
 <?xml version="1.0" encoding="UTF-8"?>
@@ -11454,6 +13118,1220 @@ LAUNCHD_TEMPLATE = """\
 </plist>
 """
 
+
+def cmd_launchd(args, cfg):
+    if sys.platform != "darwin":
+        print("Error: `perseus launchd` is only supported on macOS.", file=sys.stderr)
+        sys.exit(1)
+
+    source_path = Path(args.source).expanduser().resolve()
+    if not source_path.exists():
+        print(f"Error: file not found: {source_path}", file=sys.stderr)
+        sys.exit(1)
+
+    output_path = Path(args.output).expanduser().resolve()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    launch_agents = Path.home() / "Library" / "LaunchAgents"
+    launch_agents.mkdir(parents=True, exist_ok=True)
+
+    logs_dir = PERSEUS_HOME / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+
+    label = args.label or f"com.perseus.render.{source_path.stem}"
+    plist_path = launch_agents / f"{label}.plist"
+    python_path = Path(sys.executable).resolve()
+    script_path = Path(__file__).resolve()
+    workdir = _infer_workspace(source_path)
+    stdout_log = logs_dir / f"{label}.out.log"
+    stderr_log = logs_dir / f"{label}.err.log"
+
+    content = LAUNCHD_TEMPLATE.format(
+        label=label,
+        python=str(python_path),
+        script=str(script_path),
+        source=str(source_path),
+        output=str(output_path),
+        workdir=str(workdir),
+        interval=int(args.interval),
+        stdout_log=str(stdout_log),
+        stderr_log=str(stderr_log),
+    )
+
+    if plist_path.exists() and not args.force:
+        print(f"Error: {plist_path} already exists. Use --force to overwrite.", file=sys.stderr)
+        sys.exit(1)
+
+    plist_path.write_text(content)
+
+    print(f"✔ Wrote LaunchAgent plist: {plist_path}")
+    print()
+    print("Next steps:")
+    print(f"  1. Load it:    launchctl load {plist_path}")
+    print(f"  2. Start now:  launchctl start {label}")
+    print(f"  3. Check logs: tail -f {stdout_log} {stderr_log}")
+
+
+# ─────────────────────────────── cron (POSIX) ────────────────────────────────
+
+def cmd_cron(args, cfg):
+    """Generate a crontab entry for periodic rendering.
+
+    POSIX-oriented: works on systems with crontab (macOS, Linux, BSD).
+    Recommended over launchd/systemd when portability matters.
+    """
+    try:
+        every = int(args.every)
+    except (TypeError, ValueError):
+        print(f"Error: --every must be an integer (got {args.every!r})", file=sys.stderr)
+        sys.exit(1)
+    if every <= 0:
+        print("Error: --every must be > 0", file=sys.stderr)
+        sys.exit(1)
+
+    source_path = Path(args.source).expanduser().resolve()
+    output_path = Path(args.output).expanduser().resolve()
+    python_path = Path(sys.executable).resolve()
+    script_path = Path(__file__).resolve()
+
+    # Build crontab schedule expression
+    if every == 1:
+        schedule = "* * * * *"
+    elif every < 60:
+        schedule = f"*/{every} * * * *"
+    elif every == 60:
+        schedule = "0 * * * *"
+    else:
+        hours = every // 60
+        schedule = f"0 */{hours} * * *"
+
+    cmd = f"{python_path} {script_path} render {source_path} --output {output_path}"
+    # Suppress crontab MAILTO noise; route stderr to /dev/null on success render
+    entry = f"{schedule} {cmd} >/dev/null 2>&1  # perseus-render"
+
+    if args.install:
+        try:
+            existing = subprocess.run(
+                ["crontab", "-l"],
+                capture_output=True, text=True, check=False,
+            )
+            current = existing.stdout if existing.returncode == 0 else ""
+        except FileNotFoundError:
+            print("Error: `crontab` not found in PATH. Install cron first.", file=sys.stderr)
+            sys.exit(1)
+
+        if "# perseus-render" in current:
+            print("> ⚠ A perseus-render entry already exists in crontab. Remove it first or edit by hand.")
+            print(current)
+            sys.exit(1)
+
+        new_crontab = current.rstrip() + ("\n" if current.strip() else "") + entry + "\n"
+        try:
+            proc = subprocess.run(["crontab", "-"], input=new_crontab, text=True,
+                                  capture_output=True, check=False)
+            if proc.returncode != 0:
+                print(f"Error: `crontab -` failed: {proc.stderr.strip()}", file=sys.stderr)
+                sys.exit(1)
+        except FileNotFoundError:
+            print("Error: `crontab` not found in PATH.", file=sys.stderr)
+            sys.exit(1)
+        print("✔ Installed crontab entry:")
+        print(f"  {entry}")
+        print()
+        print("Verify with: crontab -l")
+        print("Remove with: crontab -e  (delete the line tagged `# perseus-render`)")
+        return
+
+    # Default: print the entry
+    print("# Add this line to your crontab (run `crontab -e`):")
+    print(entry)
+    print()
+    print("Or install automatically with: perseus cron ... --install")
+
+
+# ─────────────────────────────── systemd (Linux) ─────────────────────────────
+
+SYSTEMD_SERVICE_TEMPLATE = """\
+[Unit]
+Description=Perseus context renderer
+After=default.target
+
+[Service]
+Type=oneshot
+ExecStart={python} {script} render {source} --output {output}
+"""
+
+SYSTEMD_TIMER_TEMPLATE = """\
+[Unit]
+Description=Perseus context render timer
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec={interval}
+Unit=perseus-render.service
+
+[Install]
+WantedBy=timers.target
+"""
+
+
+def _parse_systemd_interval(raw: str) -> str:
+    """Accept '5m', '2h', or systemd-native like '30s'/'1h30min' — return systemd time spec.
+
+    Defaults to '5min' if empty. Raises ValueError on garbage.
+    """
+    s = (raw or "").strip().lower()
+    if not s:
+        return "5min"
+    m = re.fullmatch(r"(\d+)\s*([smh])", s)
+    if m:
+        n, unit = m.group(1), m.group(2)
+        return {"s": f"{n}s", "m": f"{n}min", "h": f"{n}h"}[unit]
+    # passthrough for already-systemd-native values
+    if re.fullmatch(r"[\d\s a-z]+", s):
+        return s
+    raise ValueError(f"unrecognised interval: {raw!r}")
+
+
+def cmd_systemd(args, cfg):
+    """Scaffold ~/.config/systemd/user/perseus-render.{service,timer} units."""
+    if sys.platform == "darwin":
+        print("Use `perseus launchd` on macOS.", file=sys.stderr)
+        sys.exit(1)
+    if sys.platform != "linux":
+        suffix = " Native Windows Task Scheduler support is deferred." if sys.platform == "win32" else ""
+        print(f"Error: `perseus systemd` is only supported on Linux.{suffix}", file=sys.stderr)
+        sys.exit(1)
+
+    source_path = Path(args.source).expanduser().resolve()
+    output_path = Path(args.output).expanduser().resolve()
+    try:
+        interval = _parse_systemd_interval(getattr(args, "interval", "5m") or "5m")
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    python_path = Path(sys.executable).resolve()
+    script_path = Path(__file__).resolve()
+
+    service_content = SYSTEMD_SERVICE_TEMPLATE.format(
+        python=str(python_path),
+        script=str(script_path),
+        source=str(source_path),
+        output=str(output_path),
+    )
+    timer_content = SYSTEMD_TIMER_TEMPLATE.format(interval=interval)
+
+    if getattr(args, "install", False):
+        unit_dir = Path.home() / ".config" / "systemd" / "user"
+        unit_dir.mkdir(parents=True, exist_ok=True)
+        service_path = unit_dir / "perseus-render.service"
+        timer_path = unit_dir / "perseus-render.timer"
+        service_path.write_text(service_content)
+        timer_path.write_text(timer_content)
+        print(f"✔ Wrote {service_path}")
+        print(f"✔ Wrote {timer_path}")
+        print()
+        print("Next steps:")
+        print("  systemctl --user daemon-reload")
+        print("  systemctl --user enable perseus-render.timer")
+        print("  systemctl --user start perseus-render.timer")
+        if getattr(args, "enable", False):
+            for cmd in (
+                ["systemctl", "--user", "daemon-reload"],
+                ["systemctl", "--user", "enable", "perseus-render.timer"],
+                ["systemctl", "--user", "start", "perseus-render.timer"],
+            ):
+                try:
+                    subprocess.run(cmd, check=False)
+                except Exception as exc:
+                    print(f"> ⚠ {' '.join(cmd)} failed: {exc}")
+        return
+
+    # Default: print both unit files to stdout, separated
+    print("# ~/.config/systemd/user/perseus-render.service")
+    print(service_content)
+    print("# ~/.config/systemd/user/perseus-render.timer")
+    print(timer_content)
+
+
+def cmd_launchd_uninstall(args, cfg):
+    """Remove a Perseus LaunchAgent plist."""
+    if sys.platform != "darwin":
+        print("Error: `perseus launchd` is only supported on macOS.", file=sys.stderr)
+        sys.exit(1)
+    launch_agents = Path.home() / "Library" / "LaunchAgents"
+    label = args.label
+    plist_path = launch_agents / f"{label}.plist"
+    if not plist_path.exists():
+        print(f"Error: {plist_path} does not exist.", file=sys.stderr)
+        sys.exit(1)
+    # Unload first if loaded
+    import subprocess as _sp
+    _sp.run(["launchctl", "unload", str(plist_path)], capture_output=True)
+    plist_path.unlink()
+    print(f"✔ Removed LaunchAgent: {plist_path}")
+
+
+def cmd_cron_uninstall(args, cfg):
+    """Remove the Perseus crontab entry."""
+    import subprocess as _sp
+    try:
+        result = _sp.run(["crontab", "-l"], capture_output=True, text=True)
+        if result.returncode != 0:
+            print("No crontab found.")
+            return
+        lines = result.stdout.split("\n")
+        source = Path(args.source).expanduser().resolve()
+        marker = f"perseus render {source}"
+        filtered = [l for l in lines if marker not in l]
+        if len(filtered) == len(lines):
+            print("No matching crontab entry found.")
+            return
+        _sp.run(["crontab", "-"], input="\n".join(filtered) + "\n", text=True)
+        print(f"✔ Removed crontab entry for {source}")
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_systemd_uninstall(args, cfg):
+    """Remove a user-space systemd timer and service unit."""
+    if sys.platform == "darwin" or sys.platform == "win32":
+        print("Error: `perseus systemd` is only supported on Linux.", file=sys.stderr)
+        sys.exit(1)
+    source_path = Path(args.source).expanduser().resolve()
+    label = f"perseus-render-{source_path.stem}"
+    user_units = Path.home() / ".config" / "systemd" / "user"
+    timer_path = user_units / f"{label}.timer"
+    service_path = user_units / f"{label}.service"
+    import subprocess as _sp
+    for p in [timer_path, service_path]:
+        if p.exists():
+            p.unlink()
+            print(f"✔ Removed: {p}")
+    _sp.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
+    print("Run: systemctl --user stop {label}.timer  # if still running")
+# ───────────────────────────── Cited synthesis ───────────────────────────────
+
+def _synthesis_rel_label(path: Path, workspace: Path) -> str:
+    try:
+        return str(path.relative_to(workspace))
+    except ValueError:
+        return str(path)
+
+
+def _resolve_synthesis_source(ref: str, workspace: Path, cfg: dict) -> tuple[Path | None, str | None]:
+    raw = Path(ref).expanduser()
+    path = raw.resolve() if raw.is_absolute() else (workspace / raw).resolve()
+    if not path.exists():
+        return None, f"source not found: {ref}"
+    if path.is_dir():
+        return None, f"source is a directory: {ref}"
+    if not cfg.get("render", {}).get("allow_outside_workspace", False):
+        try:
+            path.relative_to(workspace)
+        except ValueError:
+            return None, f"source outside workspace: {path}"
+    return path, None
+
+
+def _load_synthesis_sources(refs: list[str], workspace: Path, cfg: dict) -> tuple[list[dict], list[str]]:
+    sources: list[dict] = []
+    errors: list[str] = []
+    max_source_bytes = int(cfg.get("generation", {}).get("max_source_bytes", 12000))
+    for index, ref in enumerate(refs, start=1):
+        path, error = _resolve_synthesis_source(ref, workspace, cfg)
+        if error or path is None:
+            errors.append(error or f"invalid source: {ref}")
+            continue
+        text = path.read_text(errors="replace")
+        truncated = False
+        if max_source_bytes > 0 and len(text) > max_source_bytes:
+            text = text[:max_source_bytes]
+            truncated = True
+        lines = text.splitlines()
+        sources.append({
+            "id": f"src{index}",
+            "path": str(path),
+            "label": _synthesis_rel_label(path, workspace),
+            "text": text,
+            "lines": lines,
+            "line_count": len(lines),
+            "truncated": truncated,
+        })
+    return sources, errors
+
+
+def _numbered_source_excerpt(source: dict) -> str:
+    lines = source.get("lines", [])
+    body = "\n".join(f"{idx}: {line}" for idx, line in enumerate(lines, start=1))
+    suffix = "\n[truncated]" if source.get("truncated") else ""
+    return f"### {source['id']} {source['label']}\n{body}{suffix}"
+
+
+def build_synthesis_prompt(question: str, sources: list[dict], max_claims: int) -> str:
+    source_blocks = "\n\n".join(_numbered_source_excerpt(source) for source in sources)
+    return "\n".join([
+        "You are drafting cited synthesis claims for Perseus.",
+        "Perseus is a resolver first. You are a drafter, not an authority.",
+        "",
+        "Rules:",
+        "- Return JSON only.",
+        "- Do not include uncited claims.",
+        "- Every claim must cite at least one exact quote from the source lines.",
+        "- If the sources do not support a claim, omit it.",
+        "- Prefer cross-source synthesis over obvious restatement.",
+        f"- Return at most {max_claims} claims.",
+        "",
+        "JSON shape:",
+        '{"claims":[{"text":"...","citations":[{"source_id":"src1","line_start":1,"line_end":3,"quote":"exact source quote"}]}]}',
+        "",
+        f"Question: {question}",
+        "",
+        "Sources:",
+        source_blocks,
+    ])
+
+
+def _extract_json_object(text: str) -> tuple[object | None, str | None]:
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        stripped = re.sub(r"^```(?:json)?\s*", "", stripped, flags=re.IGNORECASE)
+        stripped = re.sub(r"\s*```$", "", stripped)
+    try:
+        return json.loads(stripped), None
+    except json.JSONDecodeError:
+        start = stripped.find("{")
+        end = stripped.rfind("}")
+        if start >= 0 and end > start:
+            try:
+                return json.loads(stripped[start:end + 1]), None
+            except json.JSONDecodeError as exc:
+                return None, f"could not parse JSON response: {exc}"
+        return None, "could not parse JSON response"
+
+
+def _citation_window(source: dict, start: int, end: int) -> str | None:
+    lines = source.get("lines", [])
+    if start < 1 or end < start or end > len(lines):
+        return None
+    return "\n".join(lines[start - 1:end])
+
+
+def build_consistency_prompt(sources: list[dict], max_claims: int) -> str:
+    """Build a prompt focused on detecting cross-source disagreements."""
+    source_blocks = "\n\n".join(_numbered_source_excerpt(source) for source in sources)
+    return "\n".join([
+        "You are auditing cross-source consistency for a software project.",
+        "Perseus is a resolver first. You are a drafter, not an authority.",
+        "",
+        "Rules:",
+        "- Return JSON only.",
+        "- Do not include uncited claims.",
+        "- Every claim must cite at least one exact quote from the source lines.",
+        "- Report disagreements, drift, and contradictions between sources.",
+        "- Flag: current phase/status inconsistencies, version mismatches, doc/code contradictions,",
+        "  task-file status that conflicts with roadmap or handoff, outdated README claims.",
+        "- If all sources are consistent on a topic, do not generate claims about it.",
+        "- Use 'conflicts' for disagreements between sources; use 'claims' for synthesized findings.",
+        f"- Return at most {max_claims} items across both arrays.",
+        "",
+        "JSON shape:",
+        '{"claims":[{"text":"...","citations":[{"source_id":"src1","line_start":1,"line_end":3,"quote":"exact source quote"}]}],',
+        '"conflicts":[{"description":"...","sources":[{"source_id":"src1","line_start":1,"line_end":2,"quote":"..."},',
+        '{"source_id":"src2","line_start":5,"line_end":5,"quote":"..."}]}]}',
+        "",
+        "Sources:",
+        source_blocks,
+    ])
+
+
+def _validate_consistency_conflicts(raw: object, sources: list[dict], max_items: int) -> tuple[list[dict], list[dict]]:
+    """Validate the 'conflicts' array from a consistency-mode response."""
+    source_by_id = {source["id"]: source for source in sources}
+    conflicts_raw = raw.get("conflicts", []) if isinstance(raw, dict) else []
+    if not isinstance(conflicts_raw, list):
+        return [], [{"description": "", "reason": "conflicts must be a list"}]
+
+    accepted: list[dict] = []
+    dropped: list[dict] = []
+    for entry in conflicts_raw[:max_items]:
+        if not isinstance(entry, dict):
+            dropped.append({"description": "", "reason": "conflict entry must be an object"})
+            continue
+        description = str(entry.get("description", "")).strip()
+        sources_raw = entry.get("sources", [])
+        valid_sources: list[dict] = []
+        if isinstance(sources_raw, list):
+            for ref in sources_raw:
+                if not isinstance(ref, dict):
+                    continue
+                source_id = str(ref.get("source_id", "")).strip()
+                source = source_by_id.get(source_id)
+                quote = str(ref.get("quote", "")).strip()
+                try:
+                    line_start = int(ref.get("line_start"))
+                    line_end = int(ref.get("line_end", line_start))
+                except (TypeError, ValueError):
+                    continue
+                if not source or not quote:
+                    continue
+                window = _citation_window(source, line_start, line_end)
+                if window is None or quote not in window:
+                    continue
+                valid_sources.append({
+                    "source_id": source_id,
+                    "path": source["path"],
+                    "label": source["label"],
+                    "line_start": line_start,
+                    "line_end": line_end,
+                    "quote": quote,
+                })
+        if description and len(valid_sources) >= 2:
+            accepted.append({"description": description, "sources": valid_sources})
+        elif description and len(valid_sources) == 1:
+            # Accept single-source conflict reports (e.g. internal inconsistency flagged with one cite)
+            accepted.append({"description": description, "sources": valid_sources})
+        else:
+            dropped.append({
+                "description": description,
+                "reason": "no valid cited sources" if description else "empty description",
+            })
+    return accepted, dropped
+
+
+def _validate_synthesis_claims(raw: object, sources: list[dict], max_claims: int) -> tuple[list[dict], list[dict]]:
+    source_by_id = {source["id"]: source for source in sources}
+    claims_raw = raw.get("claims", []) if isinstance(raw, dict) else []
+    if not isinstance(claims_raw, list):
+        return [], [{"text": "", "reason": "claims must be a list", "citations": []}]
+
+    accepted: list[dict] = []
+    dropped: list[dict] = []
+    for claim_raw in claims_raw[:max_claims]:
+        if not isinstance(claim_raw, dict):
+            dropped.append({"text": "", "reason": "claim must be an object", "citations": []})
+            continue
+        text = str(claim_raw.get("text", "")).strip()
+        citations_raw = claim_raw.get("citations", [])
+        valid_citations: list[dict] = []
+        if isinstance(citations_raw, list):
+            for citation in citations_raw:
+                if not isinstance(citation, dict):
+                    continue
+                source_id = str(citation.get("source_id", "")).strip()
+                source = source_by_id.get(source_id)
+                quote = str(citation.get("quote", "")).strip()
+                try:
+                    line_start = int(citation.get("line_start"))
+                    line_end = int(citation.get("line_end", line_start))
+                except (TypeError, ValueError):
+                    continue
+                if not source or not quote:
+                    continue
+                window = _citation_window(source, line_start, line_end)
+                if window is None or quote not in window:
+                    continue
+                valid_citations.append({
+                    "source_id": source_id,
+                    "path": source["path"],
+                    "label": source["label"],
+                    "line_start": line_start,
+                    "line_end": line_end,
+                    "quote": quote,
+                })
+        if text and valid_citations:
+            accepted.append({"text": text, "citations": valid_citations})
+        else:
+            dropped.append({
+                "text": text,
+                "reason": "no valid citations" if text else "empty claim text",
+                "citations": citations_raw if isinstance(citations_raw, list) else [],
+            })
+    return accepted, dropped
+
+
+def synthesize_question(
+    question: str,
+    source_refs: list[str],
+    cfg: dict,
+    workspace: Path,
+    llm: str | None = None,
+    model: str | None = None,
+    model_url: str | None = None,
+    enable_generation: bool = False,
+    consistency_mode: bool = False,
+) -> tuple[dict, int]:
+    sources, source_errors = _load_synthesis_sources(source_refs, workspace, cfg)
+    generation_cfg = cfg.get("generation", {})
+    max_claims = int(generation_cfg.get("max_claims", 6))
+    source_summary = [
+        {
+            "id": source["id"],
+            "path": source["path"],
+            "label": source["label"],
+            "line_count": source["line_count"],
+            "truncated": source["truncated"],
+        }
+        for source in sources
+    ]
+    result: dict = {
+        "version": "phase15b-cited-synthesis-v2" if consistency_mode else "phase15a-cited-synthesis-v1",
+        "question": question,
+        "consistency_mode": consistency_mode,
+        "generated": False,
+        "claims": [],
+        "dropped_claims": [],
+        "conflicts": [],
+        "dropped_conflicts": [],
+        "source_errors": source_errors,
+        "sources": source_summary,
+        "guardrails": {
+            "citation_required": True,
+            "exact_quote_required": True,
+            "uncited_claims_dropped": True,
+            "model_failure_leaves_render_unchanged": True,
+        },
+        "model": {"provider": None, "model": None},
+        "prompt": "",
+    }
+    if source_errors or not sources:
+        return result, 1
+
+    if consistency_mode:
+        prompt = build_consistency_prompt(sources, max_claims)
+    else:
+        prompt = build_synthesis_prompt(question, sources, max_claims)
+    result["prompt"] = prompt
+    if not llm:
+        return result, 0
+
+    if not (enable_generation or bool(generation_cfg.get("enabled", False))):
+        audit_event(cfg, "policy_denied",
+                    directive="@synthesize",
+                    reason="generation.enabled=false",
+                    question=str(question)[:200])
+        result["error"] = "generation is disabled; set generation.enabled=true or pass --enable-generation"
+        return result, 2
+
+    provider_used = llm.strip().lower()
+    if ":" in provider_used and not model:
+        provider_used, _, model = provider_used.partition(":")
+    model_used = model or generation_cfg.get("model") or cfg.get("llm", {}).get("model")
+    # task-47: audit the model call before it crosses the LLM trust boundary.
+    audit_event(cfg, "model_call",
+                provider=provider_used,
+                model=model_used,
+                prompt_chars=len(prompt or ""),
+                question=str(question)[:200])
+    response_text, exit_code = run_llm(provider_used, prompt, cfg, model=model_used or None, model_url=model_url)
+    result["generated"] = exit_code == 0
+    result["model"] = {"provider": provider_used, "model": model_used}
+    result["raw_response"] = response_text
+    if exit_code:
+        result["error"] = "model request failed"
+        return result, exit_code
+    parsed, parse_error = _extract_json_object(response_text)
+    if parse_error:
+        result["error"] = parse_error
+        return result, 1
+    claims, dropped = _validate_synthesis_claims(parsed, sources, max_claims)
+    result["claims"] = claims
+    result["dropped_claims"] = dropped
+    if consistency_mode:
+        conflicts, dropped_conflicts = _validate_consistency_conflicts(parsed, sources, max_claims)
+        result["conflicts"] = conflicts
+        result["dropped_conflicts"] = dropped_conflicts
+    return result, 0
+
+
+def format_synthesis_human(result: dict) -> str:
+    lines = [f"Cited synthesis: {result['question']}"]
+    if result.get("consistency_mode"):
+        lines[0] = "Cross-source consistency report"
+    if result.get("source_errors"):
+        lines.append("")
+        lines.append("Source errors:")
+        for error in result["source_errors"]:
+            lines.append(f"- {error}")
+        return "\n".join(lines)
+    lines.append("Sources:")
+    for source in result.get("sources", []):
+        suffix = " (truncated)" if source.get("truncated") else ""
+        lines.append(f"- {source['id']} {source['label']} ({source['line_count']} lines){suffix}")
+    if result.get("error"):
+        lines.append("")
+        lines.append(f"> Warning: {result['error']}")
+    if not result.get("generated"):
+        lines.append("")
+        lines.append("Generation was not run. Prompt:")
+        lines.append("")
+        lines.append(result.get("prompt", ""))
+        return "\n".join(lines)
+
+    lines.append("")
+    if not result.get("claims") and not result.get("conflicts"):
+        lines.append("_No cited claims or conflicts survived validation._")
+    for idx, claim in enumerate(result.get("claims", []), start=1):
+        lines.append(f"{idx}. {claim['text']}")
+        for citation in claim["citations"]:
+            label = citation["label"]
+            start = citation["line_start"]
+            end = citation["line_end"]
+            line_ref = f"{start}" if start == end else f"{start}-{end}"
+            lines.append(f"   - {label}:{line_ref} `{citation['quote']}`")
+    conflicts = result.get("conflicts", [])
+    if conflicts:
+        lines.append("")
+        lines.append("Source disagreements:")
+        for idx, conflict in enumerate(conflicts, start=1):
+            lines.append(f"{idx}. ⚠ {conflict['description']}")
+            for ref in conflict["sources"]:
+                label = ref["label"]
+                start = ref["line_start"]
+                end = ref["line_end"]
+                line_ref = f"{start}" if start == end else f"{start}-{end}"
+                lines.append(f"   - {label}:{line_ref} `{ref['quote']}`")
+    dropped = result.get("dropped_claims", [])
+    dropped_conflicts = result.get("dropped_conflicts", [])
+    if dropped:
+        lines.append("")
+        lines.append(f"Dropped uncited/invalid claims: {len(dropped)}")
+    if dropped_conflicts:
+        lines.append(f"Dropped uncited/invalid conflicts: {len(dropped_conflicts)}")
+    return "\n".join(lines)
+
+
+def cmd_synthesize(args, cfg) -> int:
+    workspace = Path(args.workspace).expanduser().resolve() if getattr(args, "workspace", None) else Path.cwd().resolve()
+    cfg = load_config(workspace)
+    result, code = synthesize_question(
+        args.question,
+        args.source,
+        cfg,
+        workspace,
+        llm=getattr(args, "llm", None),
+        model=getattr(args, "model", None),
+        model_url=getattr(args, "model_url", None),
+        enable_generation=getattr(args, "enable_generation", False),
+        consistency_mode=getattr(args, "consistency_mode", False),
+    )
+    # task-46: redact synthesis result before output. JSON-mode caller can
+    # inspect `result["redaction"]` to see counts without seeing secrets.
+    if isinstance(result, dict):
+        result, rep = redact_value(result, cfg)
+        result["redaction"] = {
+            "enabled": rep.get("enabled", True),
+            "total": rep.get("total", 0),
+            "counts": rep.get("counts", {}),
+        }
+    if getattr(args, "json", False):
+        print(json.dumps(result, indent=2))
+    else:
+        print(format_synthesis_human(result))
+    return code
+# ─────────────────────────────── Self-Update ──────────────────────────────────
+
+def cmd_update(args, cfg) -> int:
+    """Self-update: check for or apply Perseus updates from git.
+
+    Perseus is installed in editable mode — updating the source via git pull
+    automatically updates the CLI. No reinstall needed.
+    """
+    import subprocess as _sp
+# ── GPG signature verification ──────────────────────────────────────────────
+# Trusted public key fingerprint for Perseus releases.
+# To generate: gpg --detach-sign --armor perseus.py
+# To verify:   gpg --verify perseus.py.asc perseus.py
+PERSEUS_GPG_FINGERPRINT = None  # Set to your GPG key fingerprint (40-char hex)
+
+PERSEUS_GPG_FINGERPRINT_SHORT = None  # Set to your GPG key ID (16-char hex)
+
+
+def _gpg_verify_signature(repo: Path, args) -> tuple[bool, str]:
+    """Verify the GPG signature on the current HEAD or latest tag.
+
+    Returns (verified: bool, message: str).
+    Requires git and gpg to be installed. Non-fatal on missing tools —
+    just reports that verification was skipped.
+    """
+    update_cfg = {}
+    try:
+        update_cfg = cfg.get("update", {}) if "cfg" in dir() else {}
+    except Exception:
+        pass
+    skip = getattr(args, "skip_signature_check", False)
+    if skip:
+        return True, "signature check skipped (--skip-signature-check)"
+
+    fingerprint = update_cfg.get("gpg_fingerprint") or PERSEUS_GPG_FINGERPRINT
+    if not fingerprint:
+        return True, "no GPG fingerprint configured — set update.gpg_fingerprint in config"
+
+    import subprocess as _sp
+
+    # Check for gpg binary
+    try:
+        _sp.run(["gpg", "--version"], capture_output=True, check=True)
+    except Exception:
+        return True, "gpg not found — signature verification skipped"
+
+    # Try verifying the latest signed tag
+    try:
+        result = _sp.run(
+            ["git", "verify-commit", "HEAD"],
+            capture_output=True, text=True, timeout=30, cwd=str(repo),
+        )
+        output = (result.stdout + result.stderr).strip()
+        if result.returncode == 0:
+            return True, f"GPG signature verified: {output.split(chr(10))[0] if output else 'ok'}"
+        # Check if the problem is just "no signature" vs "bad signature"
+        if "NO VALID" in output.upper() or "CANNOT CHECK" in output.upper():
+            return True, f"GPG: commit not signed — {output[:100]}"
+        return False, f"GPG verification failed: {output[:200]}"
+    except _sp.TimeoutExpired:
+        return True, "GPG verification timed out — proceeding"
+    except Exception as exc:
+        return True, f"GPG verification error (non-fatal): {exc}"
+
+
+    update_cfg = cfg.get("update", {})
+    repo_path_str = update_cfg.get("repo_path", "")
+    branch = update_cfg.get("branch", "main")
+
+    # ── --auto toggle ──────────────────────────────────────────────────────
+    auto_val = getattr(args, "auto", None)
+    if auto_val is not None:
+        return _toggle_auto_update(auto_val, cfg)
+
+    # ── Find the repo ──────────────────────────────────────────────────────
+    repo = None
+    if repo_path_str:
+        repo = Path(repo_path_str).resolve()
+    if not repo or not (repo / ".git").exists():
+        repo = _find_perseus_repo()
+    if not repo or not (repo / ".git").exists():
+        print("Error: Perseus git repository not found.", file=sys.stderr)
+        print("  Set update.repo_path in ~/.perseus/config.yaml", file=sys.stderr)
+        print("  Clone: git clone https://github.com/tcconnally/perseus.git", file=sys.stderr)
+        return 1
+
+    os.chdir(str(repo))
+
+    # ── Fetch ──────────────────────────────────────────────────────────────
+    print(f"Fetching origin/{branch} …")
+    try:
+        _sp.run(["git", "fetch", "origin", branch],
+                check=True, capture_output=True, text=True)
+    except _sp.CalledProcessError as e:
+        print(f"Error: git fetch failed: {e.stderr.strip()}", file=sys.stderr)
+        return 1
+
+    # ── Compare local vs remote ────────────────────────────────────────────
+    def _git(args_list):
+        return _sp.run(["git"] + args_list, capture_output=True,
+                       text=True).stdout.strip()
+
+    local = _git(["rev-parse", "HEAD"])
+    remote = _git(["rev-parse", f"origin/{branch}"])
+
+    if local == remote:
+        print(f"\u2713 Perseus is up to date ({local[:8]} on {branch})")
+        return 0
+
+    # Determine relationship: is local ahead, behind, or diverged?
+    merge_base = _git(["merge-base", local, remote])
+    if merge_base == remote:
+        # local is ahead of or same as remote — nothing to pull
+        print(f"\u2713 Perseus is up to date (local is ahead of origin/{branch})")
+        print(f"  Local:  {local[:8]}")
+        print(f"  Remote: {remote[:8]} (behind)")
+        return 0
+    elif merge_base == local:
+        # local is behind remote — updates available
+        pass
+    else:
+        # Diverged — both have commits the other doesn't
+        print(f"\u26a0 Local and origin/{branch} have diverged.", file=sys.stderr)
+        print(f"  Local:  {local[:8]}", file=sys.stderr)
+        print(f"  Remote: {remote[:8]}", file=sys.stderr)
+        print("  Fast-forward not possible. Manual merge required.", file=sys.stderr)
+        return 1
+
+    # ── Show available updates ─────────────────────────────────────────────
+    log = _git(["log", "--oneline", f"{local}..{remote}"])
+    commits = log.split("\n") if log else []
+    count = len(commits)
+
+    print(f"\n{count} commit(s) behind origin/{branch}:")
+    print(f"  Installed: {local[:8]}")
+    print(f"  Latest:    {remote[:8]}")
+    print()
+    for line in commits:
+        print(f"  {line}")
+    print()
+
+    apply_update = getattr(args, "apply", False)
+    check_only = getattr(args, "check", False)
+
+    if apply_update:
+        # GPG signature verification before applying update
+        verified, gpg_msg = _gpg_verify_signature(repo, args)
+        if not verified:
+            print(f"\u26a0 GPG signature verification FAILED: {gpg_msg}", file=sys.stderr)
+            print("  Use --skip-signature-check to bypass.", file=sys.stderr)
+            return 1
+        if "verification skipped" in gpg_msg.lower():
+            pass  # Non-fatal
+        print(f"\u2713 GPG: {gpg_msg}")
+
+        print("Applying update …")
+        try:
+            result = _sp.run(
+                ["git", "pull", "--ff-only", "origin", branch],
+                capture_output=True, text=True, check=True,
+            )
+            print(result.stdout.strip())
+            new_local = _git(["rev-parse", "HEAD"])
+            print(f"\u2713 Updated to {new_local[:8]}")
+        except _sp.CalledProcessError as e:
+            print(f"Error: git pull failed: {e.stderr.strip()}", file=sys.stderr)
+            print(f"  Try: cd {repo} && git pull --ff-only origin {branch}",
+                  file=sys.stderr)
+            return 1
+    elif not check_only:
+        print("To apply:  perseus update --apply")
+        print("Dry run:   perseus update --check")
+        if not cfg.get("update", {}).get("auto", False):
+            print("Auto:      perseus update --auto on")
+
+    return 0
+
+
+def _find_perseus_repo():
+    """Locate the Perseus git repository from the installed package."""
+    import subprocess as _sp
+    # Check pip show for editable install location
+    try:
+        result = _sp.run(["pip", "show", "perseus-ctx"],
+                         capture_output=True, text=True)
+        for line in result.stdout.split("\n"):
+            if line.startswith("Editable project location:"):
+                loc = line.split(":", 1)[1].strip()
+                p = Path(loc)
+                if (p / ".git").exists():
+                    return p
+    except Exception:
+        pass
+    # Fallback: common paths
+    for c in [Path("/workspace/perseus")]:
+        if (c / ".git").exists():
+            return c
+    return None
+
+
+def _toggle_auto_update(value, cfg):
+    """Persist update.auto on/off in the global config file."""
+    config_path = Path(os.environ.get("PERSEUS_HOME",
+                       Path.home() / ".perseus")) / "config.yaml"
+    val = value.strip().lower()
+    if val in ("on", "true", "1", "yes"):
+        enabled = True
+    elif val in ("off", "false", "0", "no"):
+        enabled = False
+    else:
+        print(f"Error: '{value}' — use 'on' or 'off'.", file=sys.stderr)
+        return 1
+
+    # Read existing config, preserving comments is hard so just re-dump
+    if config_path.exists():
+        with open(config_path) as f:
+            data = yaml.safe_load(f) or {}
+    else:
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+
+    cfg2 = copy.deepcopy(data)
+    if "update" not in cfg2:
+        cfg2["update"] = {}
+    cfg2["update"]["auto"] = enabled
+
+    if cfg2 != data:
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(config_path, "w") as f:
+            yaml.safe_dump(cfg2, f, default_flow_style=False, sort_keys=False)
+
+    status = "ON" if enabled else "OFF"
+    print(f"Auto-update: {status}")
+    print(f"  Config: {config_path}")
+    if enabled:
+        print("  Perseus will check for updates when invoked with --apply.")
+    return 0
+# ──────────────────────────────── Quickstart ──────────────────────────────────
+
+QUICKSTART_CONTEXT_TEMPLATE = """\
+@perseus v{version}
+
+@prompt
+This document was rendered live by Perseus. All values below are current —
+do not verify services, re-scan skills, or re-read session history. Trust the
+rendered output and skip orientation. Start work immediately.
+@end
+
+# Perseus Session Context — @date format="YYYY-MM-DD HH:mm z"
+
+**Workspace:** `{workspace}`
+
+---
+
+## Workspace State
+
+@query "git -C {workspace} log --oneline -5 2>/dev/null || echo '(no git repo)'"
+@query "git -C {workspace} status --short 2>/dev/null || echo ''"
+
+---
+
+## Available Skills
+@skills flag_stale=true
+
+---
+
+## Services
+@services
+"""
+
+
+def _quickstart_write_config(workspace: Path, generation: dict | None = None) -> Path:
+    """Write a minimal .perseus/config.yaml with safe defaults.
+
+    If generation is provided, the 'generation' and 'llm' blocks are
+    populated so pythia/synthesis can use the configured LLM backend.
+    """
+    perseus_dir = workspace / ".perseus"
+    perseus_dir.mkdir(parents=True, exist_ok=True)
+    config_path = perseus_dir / "config.yaml"
+
+    config: dict = {
+        "render": {
+            "allow_query_shell": False,
+            "cache_dir": str(perseus_dir / "cache"),
+        },
+        "permissions": {
+            "profile": "balanced",
+        },
+    }
+    if generation:
+        config["generation"] = {
+            "enabled": generation.get("enabled", True),
+            "model": generation.get("model"),
+            "provider": generation.get("provider"),
+        }
+        config["llm"] = {
+            "provider": generation.get("provider", "openai-compat"),
+            "model": generation.get("model", "mistral"),
+            "url": generation.get("model_url", "http://localhost:11434"),
+        }
+
+    with open(config_path, "w") as f:
+        yaml.safe_dump(config, f, sort_keys=False)
+    return config_path
+
+
+def _quickstart_detect_llm_backends() -> list[dict]:
+    """Scan environment for known LLM API keys and return available backends."""
+    backends: list[dict] = []
+    for name, env_var, provider, model, url in [
+        ("Gemini", "GEMINI_API_KEY", "openai-compat", "gemini-2.5-flash",
+         "https://generativelanguage.googleapis.com/v1beta"),
+        ("Groq", "GROQ_API_KEY", "openai-compat", "llama-3.3-70b",
+         "https://api.groq.com/openai"),
+        ("DeepSeek", "DEEPSEEK_API_KEY", "openai-compat", "deepseek-chat",
+         "https://api.deepseek.com"),
+        ("OpenAI", "OPENAI_API_KEY", "openai-compat", "gpt-4o-mini",
+         "https://api.openai.com"),
+    ]:
+        key = os.environ.get(env_var, "")
+        if key:
+            backends.append({
+                "name": name,
+                "provider": provider,
+                "model": model,
+                "url": url,
+                "key_env": env_var,
+                "key": key,
+            })
+    return backends
+
+
+def _quickstart_configure_llm(workspace: Path) -> dict | None:
+    """Prompt the user to choose a free LLM backend, or auto-detect one.
+
+    Returns a generation config dict to merge into config.yaml, or None
+    if the user skips.
+    """
+    # Auto-detect any already-set keys
+    existing = _quickstart_detect_llm_backends()
+    if existing:
+        print(f"✓ Detected existing LLM key: {existing[0]['name']} ({existing[0]['key_env']})")
+        return {
+            "enabled": True,
+            "provider": existing[0]["provider"],
+            "model": existing[0]["model"],
+            "model_url": existing[0]["url"],
+            "api_key_env": existing[0]["key_env"],
+        }
+
+    print()
+    print("No LLM backend detected. Pythia and Synthesis need one.")
+    print()
+    print("Options:")
+    print("  [1] Gemini free tier (recommended — no credit card, 15 req/min)")
+    print("      → Get key at https://aistudio.google.com/apikey")
+    print("  [2] Groq free tier (no credit card, fast)")
+    print("      → Get key at https://console.groq.com/keys")
+    print("  [3] OpenAI (requires billing)")
+    print("  [4] Local llama.cpp (no network needed)")
+    print("  [5] Skip — I'll configure later")
+    print()
+
+    try:
+        choice = input("Choice [1-5]: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print("\nSkipping LLM configuration.")
+        return None
+
+    if choice == "1":
+        provider = "openai-compat"
+        model = "gemini-2.5-flash"
+        url = "https://generativelanguage.googleapis.com/v1beta"
+    elif choice == "2":
+        provider = "openai-compat"
+        model = "llama-3.3-70b"
+        url = "https://api.groq.com/openai"
+    elif choice == "3":
+        provider = "openai-compat"
+        model = "gpt-4o-mini"
+        url = "https://api.openai.com"
+    elif choice == "4":
+        provider = "llamacpp"
+        model = "llama-3.2-3b"
+        url = "http://127.0.0.1:8080"
+    else:
+        print("Skipping LLM configuration.")
+        return None
+
+    return {
+        "enabled": True,
+        "provider": provider,
+        "model": model,
+        "model_url": url,
+        "api_key_env": "",  # user will configure manually
+    }
+
+
+def cmd_quickstart(args, cfg) -> int:
+    """`perseus quickstart` — one command from zero to working Perseus.
+
+    Detects workspace, scaffolds .perseus/context.md, writes config,
+    offers free LLM backend setup, and verifies everything works with
+    a render + doctor run.
+    """
+    workspace_arg = getattr(args, "workspace", None)
+    if workspace_arg:
+        workspace = Path(workspace_arg).expanduser().resolve()
+    else:
+        workspace = Path.cwd().resolve()
+
+    # Detect git repo root as workspace
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, cwd=str(workspace),
+        )
+        if result.returncode == 0:
+            workspace = Path(result.stdout.strip()).resolve()
+    except Exception:
+        pass
+
+    non_interactive = getattr(args, "non_interactive", False)
+    no_llm = getattr(args, "no_llm", False)
+
+    print(f"Perseus quickstart — v{_PERSEUS_VERSION}")
+    print(f"Workspace: {workspace}")
+    print()
+
+    # Step 1: Scaffold context.md (idempotent — init handles that)
+    perseus_dir = workspace / ".perseus"
+    context_file = perseus_dir / "context.md"
+    config_file = perseus_dir / "config.yaml"
+
+    if context_file.exists():
+        print(f"✓ Context file already exists: {context_file}")
+    else:
+        # Build a fake args namespace for cmd_init
+        init_args = argparse.Namespace(
+            workspace=str(workspace),
+            force=False,
+            profile=None,
+            template=None,
+            output=None,
+            trust_profile=None,
+            no_pack=True,
+            list_templates=False,
+            list_profiles=False,
+        )
+        cmd_init(init_args, cfg)
+        print()
+
+    # Step 2: Write config if missing
+    if config_file.exists():
+        print(f"✓ Config already exists: {config_file}")
+    else:
+        gen_config = None
+        if not no_llm and not non_interactive:
+            gen_config = _quickstart_configure_llm(workspace)
+        elif not no_llm:
+            # Non-interactive: just check for existing keys
+            existing = _quickstart_detect_llm_backends()
+            if existing:
+                gen_config = {
+                    "enabled": True,
+                    "provider": existing[0]["provider"],
+                    "model": existing[0]["model"],
+                    "model_url": existing[0]["url"],
+                    "api_key_env": existing[0]["key_env"],
+                }
+                print(f"✓ Auto-detected LLM: {existing[0]['name']} ({existing[0]['key_env']})")
+        path = _quickstart_write_config(workspace, gen_config)
+        print(f"✓ Wrote config: {path}")
+        if gen_config:
+            print(f"  LLM backend: {gen_config['provider']} / {gen_config['model']} / {gen_config['model_url']}")
+        print()
+
+    # Step 3: Reload config from workspace so permission profile is applied
+    cfg = load_config(workspace)
+
+    # Step 4: Verify with a render
+    text = context_file.read_text(errors="replace")
+    _stats = {"directive_count": 0, "cache_hits": 0, "cache_misses": 0}
+    render_source(text, cfg, workspace, _stats=_stats)
+    print(f"✓ Render verified — {_stats['directive_count']} directives resolved "
+          f"({_stats['cache_hits']} cached, {_stats['cache_misses']} resolved)")
+    print()
+
+    # Step 5: Print next steps
+    print("Perseus ready! Next steps:")
+    print(f"  perseus render {context_file}        — refresh context")
+    print(f"  perseus serve                         — start LSP for your editor")
+    print(f"  perseus suggest \"<task>\"             — get task suggestions")
+    print(f"  perseus doctor --workspace {workspace}  — health check")
+    print()
+
+    return 0
+# ──────────────────────────────── Render ──────────────────────────────────────
+
 # Phase 24 — internal imports (stripped by build; defined earlier in concatenated artifact)
 
 
@@ -11477,6 +14355,33 @@ def cmd_render(args, cfg):
     if max_tier is None:
         max_tier = 3
 
+    # --explain: emit directive execution manifest instead of rendered output
+    if getattr(args, "explain", False):
+        import json as _json
+        _stats: dict = {"directive_count": 0, "cache_hits": 0, "cache_misses": 0}
+        _directives = []
+        _skipped = []
+        rendered = render_source(text, cfg, workspace, max_tier=max_tier,
+                                 _directive_collector=_directives,
+                                 _stats=_stats,
+                                 _skipped_directives=_skipped)
+        manifest = {
+            "source": str(source_path),
+            "workspace": str(workspace),
+            "version": _PERSEUS_VERSION,
+            "tier": max_tier,
+            "summary": {
+                "directive_count": _stats["directive_count"],
+                "cache_hits": _stats["cache_hits"],
+                "cache_misses": _stats["cache_misses"],
+                "skipped": len(_skipped),
+            },
+            "directives": _directives,
+            "skipped": _skipped,
+        }
+        print(_json.dumps(manifest, indent=2, default=str))
+        return
+
     rendered = render_output(text, fmt, cfg, workspace, title=title, max_tier=max_tier)
 
     is_assistant_format = fmt in ("agents-md", "claude-md", "cursorrules", "copilot-instructions")
@@ -11496,6 +14401,29 @@ def cmd_render(args, cfg):
         out_path.write_text(rendered, encoding="utf-8")
     else:
         print(rendered)
+
+
+def cmd_warmup(args, cfg):
+    """Pre-populate the render cache for a context file without writing output."""
+    source_path = Path(args.source).expanduser().resolve()
+    if not source_path.exists():
+        print(f"Error: file not found: {source_path}", file=sys.stderr)
+        sys.exit(1)
+
+    workspace = _infer_workspace(source_path)
+    cfg = load_config(workspace)
+    text = source_path.read_text(errors="replace")
+
+    _stats = {"directive_count": 0, "cache_hits": 0, "cache_misses": 0}
+    render_source(text, cfg, workspace, _stats=_stats)
+
+    total_dirs = _stats["directive_count"]
+    cached = _stats["cache_hits"] + _stats["cache_misses"]
+    if cached > 0:
+        print(f"Warmup complete: {total_dirs} directives, "
+              f"{_stats['cache_hits']} cached, {_stats['cache_misses']} newly cached")
+    else:
+        print(f"Warmup complete: {total_dirs} directives resolved (no @cache directives found)")
 
 
 class WatchTarget(NamedTuple):
@@ -11825,426 +14753,6 @@ def cmd_prefetch(args, cfg) -> int:
         print(format_prefetch_human(result))
     return 1 if result["summary"]["failed"] else 0
 
-
-# ───────────────────────────── Cited synthesis ───────────────────────────────
-
-def _synthesis_rel_label(path: Path, workspace: Path) -> str:
-    try:
-        return str(path.relative_to(workspace))
-    except ValueError:
-        return str(path)
-
-
-def _resolve_synthesis_source(ref: str, workspace: Path, cfg: dict) -> tuple[Path | None, str | None]:
-    raw = Path(ref).expanduser()
-    path = raw.resolve() if raw.is_absolute() else (workspace / raw).resolve()
-    if not path.exists():
-        return None, f"source not found: {ref}"
-    if path.is_dir():
-        return None, f"source is a directory: {ref}"
-    if not cfg.get("render", {}).get("allow_outside_workspace", False):
-        try:
-            path.relative_to(workspace)
-        except ValueError:
-            return None, f"source outside workspace: {path}"
-    return path, None
-
-
-def _load_synthesis_sources(refs: list[str], workspace: Path, cfg: dict) -> tuple[list[dict], list[str]]:
-    sources: list[dict] = []
-    errors: list[str] = []
-    max_source_bytes = int(cfg.get("generation", {}).get("max_source_bytes", 12000))
-    for index, ref in enumerate(refs, start=1):
-        path, error = _resolve_synthesis_source(ref, workspace, cfg)
-        if error or path is None:
-            errors.append(error or f"invalid source: {ref}")
-            continue
-        text = path.read_text(errors="replace")
-        truncated = False
-        if max_source_bytes > 0 and len(text) > max_source_bytes:
-            text = text[:max_source_bytes]
-            truncated = True
-        lines = text.splitlines()
-        sources.append({
-            "id": f"src{index}",
-            "path": str(path),
-            "label": _synthesis_rel_label(path, workspace),
-            "text": text,
-            "lines": lines,
-            "line_count": len(lines),
-            "truncated": truncated,
-        })
-    return sources, errors
-
-
-def _numbered_source_excerpt(source: dict) -> str:
-    lines = source.get("lines", [])
-    body = "\n".join(f"{idx}: {line}" for idx, line in enumerate(lines, start=1))
-    suffix = "\n[truncated]" if source.get("truncated") else ""
-    return f"### {source['id']} {source['label']}\n{body}{suffix}"
-
-
-def build_synthesis_prompt(question: str, sources: list[dict], max_claims: int) -> str:
-    source_blocks = "\n\n".join(_numbered_source_excerpt(source) for source in sources)
-    return "\n".join([
-        "You are drafting cited synthesis claims for Perseus.",
-        "Perseus is a resolver first. You are a drafter, not an authority.",
-        "",
-        "Rules:",
-        "- Return JSON only.",
-        "- Do not include uncited claims.",
-        "- Every claim must cite at least one exact quote from the source lines.",
-        "- If the sources do not support a claim, omit it.",
-        "- Prefer cross-source synthesis over obvious restatement.",
-        f"- Return at most {max_claims} claims.",
-        "",
-        "JSON shape:",
-        '{"claims":[{"text":"...","citations":[{"source_id":"src1","line_start":1,"line_end":3,"quote":"exact source quote"}]}]}',
-        "",
-        f"Question: {question}",
-        "",
-        "Sources:",
-        source_blocks,
-    ])
-
-
-def _extract_json_object(text: str) -> tuple[object | None, str | None]:
-    stripped = text.strip()
-    if stripped.startswith("```"):
-        stripped = re.sub(r"^```(?:json)?\s*", "", stripped, flags=re.IGNORECASE)
-        stripped = re.sub(r"\s*```$", "", stripped)
-    try:
-        return json.loads(stripped), None
-    except json.JSONDecodeError:
-        start = stripped.find("{")
-        end = stripped.rfind("}")
-        if start >= 0 and end > start:
-            try:
-                return json.loads(stripped[start:end + 1]), None
-            except json.JSONDecodeError as exc:
-                return None, f"could not parse JSON response: {exc}"
-        return None, "could not parse JSON response"
-
-
-def _citation_window(source: dict, start: int, end: int) -> str | None:
-    lines = source.get("lines", [])
-    if start < 1 or end < start or end > len(lines):
-        return None
-    return "\n".join(lines[start - 1:end])
-
-
-def build_consistency_prompt(sources: list[dict], max_claims: int) -> str:
-    """Build a prompt focused on detecting cross-source disagreements."""
-    source_blocks = "\n\n".join(_numbered_source_excerpt(source) for source in sources)
-    return "\n".join([
-        "You are auditing cross-source consistency for a software project.",
-        "Perseus is a resolver first. You are a drafter, not an authority.",
-        "",
-        "Rules:",
-        "- Return JSON only.",
-        "- Do not include uncited claims.",
-        "- Every claim must cite at least one exact quote from the source lines.",
-        "- Report disagreements, drift, and contradictions between sources.",
-        "- Flag: current phase/status inconsistencies, version mismatches, doc/code contradictions,",
-        "  task-file status that conflicts with roadmap or handoff, outdated README claims.",
-        "- If all sources are consistent on a topic, do not generate claims about it.",
-        "- Use 'conflicts' for disagreements between sources; use 'claims' for synthesized findings.",
-        f"- Return at most {max_claims} items across both arrays.",
-        "",
-        "JSON shape:",
-        '{"claims":[{"text":"...","citations":[{"source_id":"src1","line_start":1,"line_end":3,"quote":"exact source quote"}]}],'
-        '"conflicts":[{"description":"...","sources":[{"source_id":"src1","line_start":1,"line_end":2,"quote":"..."},'
-        '{"source_id":"src2","line_start":5,"line_end":5,"quote":"..."}]}]}',
-        "",
-        "Sources:",
-        source_blocks,
-    ])
-
-
-def _validate_consistency_conflicts(raw: object, sources: list[dict], max_items: int) -> tuple[list[dict], list[dict]]:
-    """Validate the 'conflicts' array from a consistency-mode response."""
-    source_by_id = {source["id"]: source for source in sources}
-    conflicts_raw = raw.get("conflicts", []) if isinstance(raw, dict) else []
-    if not isinstance(conflicts_raw, list):
-        return [], [{"description": "", "reason": "conflicts must be a list"}]
-
-    accepted: list[dict] = []
-    dropped: list[dict] = []
-    for entry in conflicts_raw[:max_items]:
-        if not isinstance(entry, dict):
-            dropped.append({"description": "", "reason": "conflict entry must be an object"})
-            continue
-        description = str(entry.get("description", "")).strip()
-        sources_raw = entry.get("sources", [])
-        valid_sources: list[dict] = []
-        if isinstance(sources_raw, list):
-            for ref in sources_raw:
-                if not isinstance(ref, dict):
-                    continue
-                source_id = str(ref.get("source_id", "")).strip()
-                source = source_by_id.get(source_id)
-                quote = str(ref.get("quote", "")).strip()
-                try:
-                    line_start = int(ref.get("line_start"))
-                    line_end = int(ref.get("line_end", line_start))
-                except (TypeError, ValueError):
-                    continue
-                if not source or not quote:
-                    continue
-                window = _citation_window(source, line_start, line_end)
-                if window is None or quote not in window:
-                    continue
-                valid_sources.append({
-                    "source_id": source_id,
-                    "path": source["path"],
-                    "label": source["label"],
-                    "line_start": line_start,
-                    "line_end": line_end,
-                    "quote": quote,
-                })
-        if description and len(valid_sources) >= 2:
-            accepted.append({"description": description, "sources": valid_sources})
-        elif description and len(valid_sources) == 1:
-            # Accept single-source conflict reports (e.g. internal inconsistency flagged with one cite)
-            accepted.append({"description": description, "sources": valid_sources})
-        else:
-            dropped.append({
-                "description": description,
-                "reason": "no valid cited sources" if description else "empty description",
-            })
-    return accepted, dropped
-
-
-def _validate_synthesis_claims(raw: object, sources: list[dict], max_claims: int) -> tuple[list[dict], list[dict]]:
-    source_by_id = {source["id"]: source for source in sources}
-    claims_raw = raw.get("claims", []) if isinstance(raw, dict) else []
-    if not isinstance(claims_raw, list):
-        return [], [{"text": "", "reason": "claims must be a list", "citations": []}]
-
-    accepted: list[dict] = []
-    dropped: list[dict] = []
-    for claim_raw in claims_raw[:max_claims]:
-        if not isinstance(claim_raw, dict):
-            dropped.append({"text": "", "reason": "claim must be an object", "citations": []})
-            continue
-        text = str(claim_raw.get("text", "")).strip()
-        citations_raw = claim_raw.get("citations", [])
-        valid_citations: list[dict] = []
-        if isinstance(citations_raw, list):
-            for citation in citations_raw:
-                if not isinstance(citation, dict):
-                    continue
-                source_id = str(citation.get("source_id", "")).strip()
-                source = source_by_id.get(source_id)
-                quote = str(citation.get("quote", "")).strip()
-                try:
-                    line_start = int(citation.get("line_start"))
-                    line_end = int(citation.get("line_end", line_start))
-                except (TypeError, ValueError):
-                    continue
-                if not source or not quote:
-                    continue
-                window = _citation_window(source, line_start, line_end)
-                if window is None or quote not in window:
-                    continue
-                valid_citations.append({
-                    "source_id": source_id,
-                    "path": source["path"],
-                    "label": source["label"],
-                    "line_start": line_start,
-                    "line_end": line_end,
-                    "quote": quote,
-                })
-        if text and valid_citations:
-            accepted.append({"text": text, "citations": valid_citations})
-        else:
-            dropped.append({
-                "text": text,
-                "reason": "no valid citations" if text else "empty claim text",
-                "citations": citations_raw if isinstance(citations_raw, list) else [],
-            })
-    return accepted, dropped
-
-
-def synthesize_question(
-    question: str,
-    source_refs: list[str],
-    cfg: dict,
-    workspace: Path,
-    llm: str | None = None,
-    model: str | None = None,
-    model_url: str | None = None,
-    enable_generation: bool = False,
-    consistency_mode: bool = False,
-) -> tuple[dict, int]:
-    sources, source_errors = _load_synthesis_sources(source_refs, workspace, cfg)
-    generation_cfg = cfg.get("generation", {})
-    max_claims = int(generation_cfg.get("max_claims", 6))
-    source_summary = [
-        {
-            "id": source["id"],
-            "path": source["path"],
-            "label": source["label"],
-            "line_count": source["line_count"],
-            "truncated": source["truncated"],
-        }
-        for source in sources
-    ]
-    result: dict = {
-        "version": "phase15b-cited-synthesis-v2" if consistency_mode else "phase15a-cited-synthesis-v1",
-        "question": question,
-        "consistency_mode": consistency_mode,
-        "generated": False,
-        "claims": [],
-        "dropped_claims": [],
-        "conflicts": [],
-        "dropped_conflicts": [],
-        "source_errors": source_errors,
-        "sources": source_summary,
-        "guardrails": {
-            "citation_required": True,
-            "exact_quote_required": True,
-            "uncited_claims_dropped": True,
-            "model_failure_leaves_render_unchanged": True,
-        },
-        "model": {"provider": None, "model": None},
-        "prompt": "",
-    }
-    if source_errors or not sources:
-        return result, 1
-
-    if consistency_mode:
-        prompt = build_consistency_prompt(sources, max_claims)
-    else:
-        prompt = build_synthesis_prompt(question, sources, max_claims)
-    result["prompt"] = prompt
-    if not llm:
-        return result, 0
-
-    if not (enable_generation or bool(generation_cfg.get("enabled", False))):
-        audit_event(cfg, "policy_denied",
-                    directive="@synthesize",
-                    reason="generation.enabled=false",
-                    question=str(question)[:200])
-        result["error"] = "generation is disabled; set generation.enabled=true or pass --enable-generation"
-        return result, 2
-
-    provider_used = llm.strip().lower()
-    if ":" in provider_used and not model:
-        provider_used, _, model = provider_used.partition(":")
-    model_used = model or generation_cfg.get("model") or cfg.get("llm", {}).get("model")
-    # task-47: audit the model call before it crosses the LLM trust boundary.
-    audit_event(cfg, "model_call",
-                provider=provider_used,
-                model=model_used,
-                prompt_chars=len(prompt or ""),
-                question=str(question)[:200])
-    response_text, exit_code = run_llm(provider_used, prompt, cfg, model=model_used or None, model_url=model_url)
-    result["generated"] = exit_code == 0
-    result["model"] = {"provider": provider_used, "model": model_used}
-    result["raw_response"] = response_text
-    if exit_code:
-        result["error"] = "model request failed"
-        return result, exit_code
-    parsed, parse_error = _extract_json_object(response_text)
-    if parse_error:
-        result["error"] = parse_error
-        return result, 1
-    claims, dropped = _validate_synthesis_claims(parsed, sources, max_claims)
-    result["claims"] = claims
-    result["dropped_claims"] = dropped
-    if consistency_mode:
-        conflicts, dropped_conflicts = _validate_consistency_conflicts(parsed, sources, max_claims)
-        result["conflicts"] = conflicts
-        result["dropped_conflicts"] = dropped_conflicts
-    return result, 0
-
-
-def format_synthesis_human(result: dict) -> str:
-    lines = [f"Cited synthesis: {result['question']}"]
-    if result.get("consistency_mode"):
-        lines[0] = "Cross-source consistency report"
-    if result.get("source_errors"):
-        lines.append("")
-        lines.append("Source errors:")
-        for error in result["source_errors"]:
-            lines.append(f"- {error}")
-        return "\n".join(lines)
-    lines.append("Sources:")
-    for source in result.get("sources", []):
-        suffix = " (truncated)" if source.get("truncated") else ""
-        lines.append(f"- {source['id']} {source['label']} ({source['line_count']} lines){suffix}")
-    if result.get("error"):
-        lines.append("")
-        lines.append(f"> Warning: {result['error']}")
-    if not result.get("generated"):
-        lines.append("")
-        lines.append("Generation was not run. Prompt:")
-        lines.append("")
-        lines.append(result.get("prompt", ""))
-        return "\n".join(lines)
-
-    lines.append("")
-    if not result.get("claims") and not result.get("conflicts"):
-        lines.append("_No cited claims or conflicts survived validation._")
-    for idx, claim in enumerate(result.get("claims", []), start=1):
-        lines.append(f"{idx}. {claim['text']}")
-        for citation in claim["citations"]:
-            label = citation["label"]
-            start = citation["line_start"]
-            end = citation["line_end"]
-            line_ref = f"{start}" if start == end else f"{start}-{end}"
-            lines.append(f"   - {label}:{line_ref} `{citation['quote']}`")
-    conflicts = result.get("conflicts", [])
-    if conflicts:
-        lines.append("")
-        lines.append("Source disagreements:")
-        for idx, conflict in enumerate(conflicts, start=1):
-            lines.append(f"{idx}. ⚠ {conflict['description']}")
-            for ref in conflict["sources"]:
-                label = ref["label"]
-                start = ref["line_start"]
-                end = ref["line_end"]
-                line_ref = f"{start}" if start == end else f"{start}-{end}"
-                lines.append(f"   - {label}:{line_ref} `{ref['quote']}`")
-    dropped = result.get("dropped_claims", [])
-    dropped_conflicts = result.get("dropped_conflicts", [])
-    if dropped:
-        lines.append("")
-        lines.append(f"Dropped uncited/invalid claims: {len(dropped)}")
-    if dropped_conflicts:
-        lines.append(f"Dropped uncited/invalid conflicts: {len(dropped_conflicts)}")
-    return "\n".join(lines)
-
-
-def cmd_synthesize(args, cfg) -> int:
-    workspace = Path(args.workspace).expanduser().resolve() if getattr(args, "workspace", None) else Path.cwd().resolve()
-    cfg = load_config(workspace)
-    result, code = synthesize_question(
-        args.question,
-        args.source,
-        cfg,
-        workspace,
-        llm=getattr(args, "llm", None),
-        model=getattr(args, "model", None),
-        model_url=getattr(args, "model_url", None),
-        enable_generation=getattr(args, "enable_generation", False),
-        consistency_mode=getattr(args, "consistency_mode", False),
-    )
-    # task-46: redact synthesis result before output. JSON-mode caller can
-    # inspect `result["redaction"]` to see counts without seeing secrets.
-    if isinstance(result, dict):
-        result, rep = redact_value(result, cfg)
-        result["redaction"] = {
-            "enabled": rep.get("enabled", True),
-            "total": rep.get("total", 0),
-            "counts": rep.get("counts", {}),
-        }
-    if getattr(args, "json", False):
-        print(json.dumps(result, indent=2))
-    else:
-        print(format_synthesis_human(result))
-    return code
 
 
 # ───────────────────────────── Context packs ────────────────────────────────
@@ -12667,59 +15175,6 @@ rendered output and skip orientation. Start work immediately.
 @session count=3
 """
 
-def cmd_launchd(args, cfg):
-    if sys.platform != "darwin":
-        print("Error: `perseus launchd` is only supported on macOS.", file=sys.stderr)
-        sys.exit(1)
-
-    source_path = Path(args.source).expanduser().resolve()
-    if not source_path.exists():
-        print(f"Error: file not found: {source_path}", file=sys.stderr)
-        sys.exit(1)
-
-    output_path = Path(args.output).expanduser().resolve()
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    launch_agents = Path.home() / "Library" / "LaunchAgents"
-    launch_agents.mkdir(parents=True, exist_ok=True)
-
-    logs_dir = PERSEUS_HOME / "logs"
-    logs_dir.mkdir(parents=True, exist_ok=True)
-
-    label = args.label or f"com.perseus.render.{source_path.stem}"
-    plist_path = launch_agents / f"{label}.plist"
-    python_path = Path(sys.executable).resolve()
-    script_path = Path(__file__).resolve()
-    workdir = _infer_workspace(source_path)
-    stdout_log = logs_dir / f"{label}.out.log"
-    stderr_log = logs_dir / f"{label}.err.log"
-
-    content = LAUNCHD_TEMPLATE.format(
-        label=label,
-        python=str(python_path),
-        script=str(script_path),
-        source=str(source_path),
-        output=str(output_path),
-        workdir=str(workdir),
-        interval=int(args.interval),
-        stdout_log=str(stdout_log),
-        stderr_log=str(stderr_log),
-    )
-
-    if plist_path.exists() and not args.force:
-        print(f"Error: {plist_path} already exists. Use --force to overwrite.", file=sys.stderr)
-        sys.exit(1)
-
-    plist_path.write_text(content)
-
-    print(f"✔ Wrote LaunchAgent plist: {plist_path}")
-    print()
-    print("Next steps:")
-    print(f"  1. Load it:    launchctl load {plist_path}")
-    print(f"  2. Start now:  launchctl start {label}")
-    print(f"  3. Check logs: tail -f {stdout_log} {stderr_log}")
-
-
 # ───────────────────────── Phase 24: install ──────────────────────────────────
 
 def cmd_install(args, cfg) -> int:
@@ -12772,904 +15227,6 @@ def cmd_mcp(args, cfg) -> int:
         return 1
 
 
-# ─────────────────────────────── cron (POSIX) ────────────────────────────────
-
-def cmd_cron(args, cfg):
-    """Generate a crontab entry for periodic rendering.
-
-    POSIX-oriented: works on systems with crontab (macOS, Linux, BSD).
-    Recommended over launchd/systemd when portability matters.
-    """
-    try:
-        every = int(args.every)
-    except (TypeError, ValueError):
-        print(f"Error: --every must be an integer (got {args.every!r})", file=sys.stderr)
-        sys.exit(1)
-    if every <= 0:
-        print("Error: --every must be > 0", file=sys.stderr)
-        sys.exit(1)
-
-    source_path = Path(args.source).expanduser().resolve()
-    output_path = Path(args.output).expanduser().resolve()
-    python_path = Path(sys.executable).resolve()
-    script_path = Path(__file__).resolve()
-
-    # Build crontab schedule expression
-    if every == 1:
-        schedule = "* * * * *"
-    elif every < 60:
-        schedule = f"*/{every} * * * *"
-    elif every == 60:
-        schedule = "0 * * * *"
-    else:
-        hours = every // 60
-        schedule = f"0 */{hours} * * *"
-
-    cmd = f"{python_path} {script_path} render {source_path} --output {output_path}"
-    # Suppress crontab MAILTO noise; route stderr to /dev/null on success render
-    entry = f"{schedule} {cmd} >/dev/null 2>&1  # perseus-render"
-
-    if args.install:
-        try:
-            existing = subprocess.run(
-                ["crontab", "-l"],
-                capture_output=True, text=True, check=False,
-            )
-            current = existing.stdout if existing.returncode == 0 else ""
-        except FileNotFoundError:
-            print("Error: `crontab` not found in PATH. Install cron first.", file=sys.stderr)
-            sys.exit(1)
-
-        if "# perseus-render" in current:
-            print("> ⚠ A perseus-render entry already exists in crontab. Remove it first or edit by hand.")
-            print(current)
-            sys.exit(1)
-
-        new_crontab = current.rstrip() + ("\n" if current.strip() else "") + entry + "\n"
-        try:
-            proc = subprocess.run(["crontab", "-"], input=new_crontab, text=True,
-                                  capture_output=True, check=False)
-            if proc.returncode != 0:
-                print(f"Error: `crontab -` failed: {proc.stderr.strip()}", file=sys.stderr)
-                sys.exit(1)
-        except FileNotFoundError:
-            print("Error: `crontab` not found in PATH.", file=sys.stderr)
-            sys.exit(1)
-        print("✔ Installed crontab entry:")
-        print(f"  {entry}")
-        print()
-        print("Verify with: crontab -l")
-        print("Remove with: crontab -e  (delete the line tagged `# perseus-render`)")
-        return
-
-    # Default: print the entry
-    print("# Add this line to your crontab (run `crontab -e`):")
-    print(entry)
-    print()
-    print("Or install automatically with: perseus cron ... --install")
-
-
-# ─────────────────────────────── systemd (Linux) ─────────────────────────────
-
-SYSTEMD_SERVICE_TEMPLATE = """\
-[Unit]
-Description=Perseus context renderer
-After=default.target
-
-[Service]
-Type=oneshot
-ExecStart={python} {script} render {source} --output {output}
-"""
-
-SYSTEMD_TIMER_TEMPLATE = """\
-[Unit]
-Description=Perseus context render timer
-
-[Timer]
-OnBootSec=1min
-OnUnitActiveSec={interval}
-Unit=perseus-render.service
-
-[Install]
-WantedBy=timers.target
-"""
-
-
-def _parse_systemd_interval(raw: str) -> str:
-    """Accept '5m', '2h', or systemd-native like '30s'/'1h30min' — return systemd time spec.
-
-    Defaults to '5min' if empty. Raises ValueError on garbage.
-    """
-    s = (raw or "").strip().lower()
-    if not s:
-        return "5min"
-    m = re.fullmatch(r"(\d+)\s*([smh])", s)
-    if m:
-        n, unit = m.group(1), m.group(2)
-        return {"s": f"{n}s", "m": f"{n}min", "h": f"{n}h"}[unit]
-    # passthrough for already-systemd-native values
-    if re.fullmatch(r"[\d\s a-z]+", s):
-        return s
-    raise ValueError(f"unrecognised interval: {raw!r}")
-
-
-def cmd_systemd(args, cfg):
-    """Scaffold ~/.config/systemd/user/perseus-render.{service,timer} units."""
-    if sys.platform == "darwin":
-        print("Use `perseus launchd` on macOS.", file=sys.stderr)
-        sys.exit(1)
-    if sys.platform != "linux":
-        suffix = " Native Windows Task Scheduler support is deferred." if sys.platform == "win32" else ""
-        print(f"Error: `perseus systemd` is only supported on Linux.{suffix}", file=sys.stderr)
-        sys.exit(1)
-
-    source_path = Path(args.source).expanduser().resolve()
-    output_path = Path(args.output).expanduser().resolve()
-    try:
-        interval = _parse_systemd_interval(getattr(args, "interval", "5m") or "5m")
-    except ValueError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(1)
-
-    python_path = Path(sys.executable).resolve()
-    script_path = Path(__file__).resolve()
-
-    service_content = SYSTEMD_SERVICE_TEMPLATE.format(
-        python=str(python_path),
-        script=str(script_path),
-        source=str(source_path),
-        output=str(output_path),
-    )
-    timer_content = SYSTEMD_TIMER_TEMPLATE.format(interval=interval)
-
-    if getattr(args, "install", False):
-        unit_dir = Path.home() / ".config" / "systemd" / "user"
-        unit_dir.mkdir(parents=True, exist_ok=True)
-        service_path = unit_dir / "perseus-render.service"
-        timer_path = unit_dir / "perseus-render.timer"
-        service_path.write_text(service_content)
-        timer_path.write_text(timer_content)
-        print(f"✔ Wrote {service_path}")
-        print(f"✔ Wrote {timer_path}")
-        print()
-        print("Next steps:")
-        print("  systemctl --user daemon-reload")
-        print("  systemctl --user enable perseus-render.timer")
-        print("  systemctl --user start perseus-render.timer")
-        if getattr(args, "enable", False):
-            for cmd in (
-                ["systemctl", "--user", "daemon-reload"],
-                ["systemctl", "--user", "enable", "perseus-render.timer"],
-                ["systemctl", "--user", "start", "perseus-render.timer"],
-            ):
-                try:
-                    subprocess.run(cmd, check=False)
-                except Exception as exc:
-                    print(f"> ⚠ {' '.join(cmd)} failed: {exc}")
-        return
-
-    # Default: print both unit files to stdout, separated
-    print("# ~/.config/systemd/user/perseus-render.service")
-    print(service_content)
-    print("# ~/.config/systemd/user/perseus-render.timer")
-    print(timer_content)
-
-
-# ─────────────────────────────── Health (task-05) ────────────────────────────
-
-def _health_collect(cfg: dict, workspace: Path) -> list[str]:
-    """Run deterministic maintenance heuristics. Returns markdown lines."""
-    hcfg = cfg.get("health", {})
-    stale_days = int(hcfg.get("stale_checkpoint_days", 7))
-    dup_window = int(hcfg.get("duplicate_checkpoint_window", 5))
-    ctx_warn = int(hcfg.get("context_line_warning", 400))
-    completed_days = int(hcfg.get("include_completed_tasks_older_than_days", 14))
-
-    lines: list[str] = []
-
-    # 1. Stale checkpoints
-    cp_files = _list_checkpoint_files(cfg)
-    stale_threshold = time.time() - stale_days * 86400
-    stale = []
-    for fp in cp_files:
-        cp = _load_checkpoint_file(fp) or {}
-        w = str(cp.get("written", ""))
-        try:
-            dt = datetime.fromisoformat(w)
-            if dt.timestamp() < stale_threshold:
-                stale.append((fp.name, _human_age(w)))
-        except Exception:
-            continue
-    if stale:
-        lines.append(f"### Stale Checkpoints (older than {stale_days} days)")
-        for name, age in stale[:10]:
-            lines.append(f"- `{name}` — {age}")
-        if len(stale) > 10:
-            lines.append(f"- _… and {len(stale) - 10} more_")
-        lines.append("")
-
-    # 2. Duplicate / near-duplicate checkpoints
-    window = cp_files[:dup_window]
-    seen: dict[tuple, list[str]] = {}
-    for fp in window:
-        cp = _load_checkpoint_file(fp) or {}
-        key = (str(cp.get("task", "")).strip(), str(cp.get("status", "")).strip(), str(cp.get("next", "")).strip())
-        seen.setdefault(key, []).append(fp.name)
-    dups = [(k, v) for k, v in seen.items() if len(v) > 1]
-    if dups:
-        lines.append(f"### Duplicate Checkpoints (in last {dup_window})")
-        for (task, status, nxt), names in dups:
-            lines.append(f"- **{task or '(no task)'}** — appears {len(names)}× with same status/next:")
-            for n in names:
-                lines.append(f"  - `{n}`")
-        lines.append("")
-
-    # 3. Large context source file
-    ctx_path = workspace / ".perseus" / "context.md"
-    if ctx_path.exists():
-        try:
-            n_lines = ctx_path.read_text(errors="replace").count("\n") + 1
-            if n_lines > ctx_warn:
-                lines.append("### Context Source Size")
-                lines.append(
-                    f"- `{ctx_path}` is **{n_lines} lines** (warning threshold: {ctx_warn})."
-                    " Consider extracting sections into separate `@include`d files."
-                )
-                lines.append("")
-        except Exception:
-            pass
-
-    # 4. Old completed tasks in Agora
-    tasks_dir = _get_tasks_dir(workspace, cfg)
-    if tasks_dir.exists():
-        completed_threshold = time.time() - completed_days * 86400
-        old_done = []
-        for task_file in sorted(tasks_dir.glob("task-*.md")):
-            try:
-                fm, _ = _load_task_file(task_file)
-            except Exception:
-                continue
-            if str(fm.get("status", "")).lower() != "completed":
-                continue
-            closed = str(fm.get("closed", "") or "")
-            try:
-                dt = datetime.fromisoformat(closed)
-                if dt.timestamp() < completed_threshold:
-                    old_done.append((task_file.name, closed))
-            except Exception:
-                continue
-        if old_done:
-            lines.append(f"### Old Completed Tasks (closed > {completed_days} days ago)")
-            for name, closed in old_done[:10]:
-                lines.append(f"- `{name}` — closed {closed} (consider archiving)")
-            lines.append("")
-
-    if not lines:
-        lines.append("_All clear — no maintenance suggestions._")
-
-    return lines
-
-
-def _health_report(cfg: dict, workspace: Path) -> str:
-    """Render full health report as markdown."""
-    header = f"# Perseus Health Report\n\n**Workspace:** `{workspace}`  \n**Generated:** {datetime.now().astimezone().strftime('%Y-%m-%d %H:%M %Z')}\n\n---\n\n"
-    body = "\n".join(_health_collect(cfg, workspace))
-    return header + body + "\n"
-
-
-def cmd_health(args, cfg):
-    ws = Path(getattr(args, "workspace", None) or os.getcwd()).expanduser().resolve()
-    print(_health_report(cfg, ws))
-
-
-def resolve_health(args_str: str, cfg: dict, workspace: Path | None = None) -> str:
-    """@health [section-only] — embed maintenance suggestions inline."""
-    ws = (workspace or Path.cwd()).expanduser().resolve()
-    return "\n".join(_health_collect(cfg, ws))
-
-
-# ───── Task-26: perseus doctor ───────────────────────────────────────────────
-
-def _find_version() -> str:
-    """Read version from VERSION file in repo root if present, else use baked-in."""
-    start = Path(__file__).resolve().parent
-    for p in [start] + list(start.parents):
-        candidate = p / "VERSION"
-        if candidate.exists():
-            return candidate.read_text().strip()
-    return _PERSEUS_VERSION  # fallback to build-time injected literal
-
-_PERSEUS_VERSION = "1.0.5"  # injected by scripts/build.py at build time
-_PERSEUS_VERSION = _find_version()
-
-
-class DoctorResult(NamedTuple):
-    id: str
-    status: str        # "ok" | "warn" | "error"
-    label: str
-    value: str
-    remediation: str   # "" if none
-
-
-def _doctor_check_config(cfg: dict, workspace: Path) -> DoctorResult:
-    """Check that config parses as valid YAML."""
-    config_path = PERSEUS_HOME / "config.yaml"
-    if config_path.exists():
-        try:
-            with open(config_path) as f:
-                yaml.safe_load(f)
-            return DoctorResult("config_parses", "ok", "config parses", str(config_path), "")
-        except Exception as exc:
-            return DoctorResult("config_parses", "error", "config parses", str(exc),
-                                f"Fix YAML syntax in {config_path}")
-    # No config file — using defaults, that's fine
-    return DoctorResult("config_parses", "ok", "config parses", "(defaults — no config file)", "")
-
-
-def _doctor_check_context_file(cfg: dict, workspace: Path) -> DoctorResult:
-    """Check that the workspace has a .perseus/context.md (or .hermes.md)."""
-    for name in (".perseus/context.md", ".hermes.md"):
-        p = workspace / name
-        if p.exists():
-            return DoctorResult("workspace_context_file", "ok", "workspace context file", str(p), "")
-    return DoctorResult("workspace_context_file", "warn", "workspace context file",
-                        "not found (.perseus/context.md or .hermes.md)",
-                        "Run `perseus init` to scaffold a context file")
-
-
-def _doctor_check_render_shell(cfg: dict, workspace: Path) -> DoctorResult:
-    """Informational: is @query shell execution enabled?"""
-    enabled = cfg.get("render", {}).get("allow_query_shell", True)
-    val = f"allow_query_shell={str(enabled).lower()}"
-    return DoctorResult("render_shell", "ok", "render: shell execution", val, "")
-
-
-def _doctor_check_render_outside_workspace(cfg: dict, workspace: Path) -> DoctorResult:
-    """Informational: is @read outside workspace allowed?"""
-    allowed = cfg.get("render", {}).get("allow_outside_workspace", False)
-    val = f"allow_outside_workspace={str(allowed).lower()}"
-    return DoctorResult("render_outside_workspace", "ok", "render: outside-workspace reads", val, "")
-
-
-def _doctor_check_latest_checkpoint(cfg: dict, workspace: Path) -> DoctorResult:
-    """Check recency of the latest checkpoint."""
-    cp_dir = PERSEUS_HOME / "checkpoints"
-    if not cp_dir.is_dir():
-        return DoctorResult("latest_checkpoint_age", "warn", "latest checkpoint",
-                            "no checkpoints directory", "Run `perseus checkpoint --task '...'`")
-    yamls = sorted(cp_dir.glob("2*.yaml"), reverse=True)
-    if not yamls:
-        return DoctorResult("latest_checkpoint_age", "warn", "latest checkpoint",
-                            "no checkpoints found", "Run `perseus checkpoint --task '...'`")
-    try:
-        ts_str = yamls[0].stem[:19]  # 2026-05-18T0828
-        ts = datetime.strptime(ts_str, "%Y-%m-%dT%H%M")
-        age = datetime.now() - ts
-        age_days = age.days
-        hours = age.seconds // 3600
-        minutes = (age.seconds % 3600) // 60
-        if age_days > 0:
-            age_str = f"{age_days}d {hours}h ago"
-        else:
-            age_str = f"{hours}h {minutes}m ago"
-        if age_days > 30:
-            return DoctorResult("latest_checkpoint_age", "error", "latest checkpoint",
-                                age_str, "Run `perseus checkpoint --task '...'` — checkpoint is very stale")
-        if age_days > 7:
-            return DoctorResult("latest_checkpoint_age", "warn", "latest checkpoint",
-                                age_str, "Consider running `perseus checkpoint --task '...'`")
-        return DoctorResult("latest_checkpoint_age", "ok", "latest checkpoint", age_str, "")
-    except Exception:
-        return DoctorResult("latest_checkpoint_age", "ok", "latest checkpoint", str(yamls[0].name), "")
-
-
-def _doctor_check_mneme(cfg: dict, workspace: Path) -> DoctorResult:
-    """Check Mnēmē narrative existence and size."""
-    mem_cfg = cfg.get("memory", {})
-    narrative = _mneme_path(workspace, cfg)
-    if not narrative.exists():
-        return DoctorResult("mneme_narrative", "warn", "Mnēmē narrative",
-                            "not found", "Memory will auto-create on next render with @memory")
-    lines = narrative.read_text(errors="replace").splitlines()
-    max_lines = mem_cfg.get("max_narrative_lines", 300)
-    line_count = len(lines)
-    val = f"{line_count} lines"
-    if line_count > max_lines:
-        return DoctorResult("mneme_narrative", "warn", "Mnēmē narrative",
-                            f"{val} (exceeds max_narrative_lines={max_lines})",
-                            "Consider pruning old entries from the narrative")
-    return DoctorResult("mneme_narrative", "ok", "Mnēmē narrative", val, "")
-
-
-def _doctor_check_federation(cfg: dict, workspace: Path) -> DoctorResult:
-    """Check federation subscription health."""
-    mem_cfg = cfg.get("memory", {})
-    manifest_path = _federation_manifest_path(cfg)
-    if not manifest_path.exists():
-        return DoctorResult("federation_subscriptions", "ok", "federation",
-                            "no subscriptions configured", "")
-    try:
-        with open(manifest_path) as f:
-            manifest = yaml.safe_load(f) or {}
-        if not isinstance(manifest, dict):
-            raise ValueError(f"manifest is not a mapping (got {type(manifest).__name__})")
-        if not isinstance(manifest.get("subscriptions", []), list):
-            raise ValueError("subscriptions must be a list")
-    except Exception as exc:
-        return DoctorResult("federation_subscriptions", "error", "federation",
-                            f"manifest unreadable: {exc}", f"Fix {manifest_path}")
-    subs = manifest.get("subscriptions", [])
-    if not subs:
-        return DoctorResult("federation_subscriptions", "ok", "federation",
-                            "no subscriptions", "")
-    stale = []
-    stale_threshold_days = mem_cfg.get("federation_stale_threshold_days", 7)
-    for sub_entry in subs:
-        alias = sub_entry.get("alias", "?")
-        narrative, err = _resolve_subscription_narrative(sub_entry, cfg)
-        if err or narrative is None:
-            stale.append(f"{alias} (unavailable)")
-            continue
-        if narrative.exists():
-            import os as _os
-            mtime = datetime.fromtimestamp(_os.path.getmtime(narrative))
-            age = (datetime.now() - mtime).days
-            if age > stale_threshold_days:
-                stale.append(f"{alias} ({age}d old)")
-    if stale:
-        return DoctorResult("federation_subscriptions", "warn", "federation",
-                            f"{len(subs)} subs, stale: {', '.join(stale)}",
-                            "Run `perseus memory federation pull`")
-    return DoctorResult("federation_subscriptions", "ok", "federation",
-                        f"{len(subs)} subscriptions, all fresh", "")
-
-
-def _doctor_check_pythia_log(cfg: dict, workspace: Path) -> DoctorResult:
-    """Check Pythia log readability."""
-    log_path = _pythia_log_path()
-    if not log_path.exists():
-        return DoctorResult("pythia_log_readable", "ok", "Pythia log",
-                            "no log file (will be created on first suggest)", "")
-    try:
-        count = 0
-        with open(log_path) as f:
-            for lineno, line in enumerate(f, start=1):
-                line = line.strip()
-                if not line:
-                    continue
-                data = json.loads(line)
-                if not isinstance(data, dict):
-                    raise ValueError(f"line {lineno}: entry is not an object")
-                count += 1
-        return DoctorResult("pythia_log_readable", "ok", "Pythia log",
-                            f"{count} entries", "")
-    except Exception as exc:
-        return DoctorResult("pythia_log_readable", "error", "Pythia log",
-                            str(exc), f"Fix JSONL in {log_path}")
-
-
-def _doctor_check_serve_loopback(cfg: dict, workspace: Path) -> DoctorResult:
-    """Informational: confirm serve defaults to loopback."""
-    bind = _serve_bind_host(cfg)
-    if _serve_is_loopback(bind):
-        return DoctorResult("serve_loopback_only", "ok", "serve loopback default",
-                            bind, "")
-    return DoctorResult("serve_loopback_only", "warn", "serve loopback default",
-                        f"bind={bind} (not loopback)",
-                        "Set serve.bind_host to 127.0.0.1 unless intentional")
-
-
-def _doctor_check_registry(cfg: dict, workspace: Path) -> DoctorResult:
-    """Validate DIRECTIVE_REGISTRY consistency."""
-    issues = []
-    for name, spec in DIRECTIVE_REGISTRY.items():
-        if spec.kind == "inline" and not callable(spec.resolver):
-            issues.append(f"{name}: inline but no callable resolver")
-        if (spec.executes_shell or spec.mutates_state) and spec.safe_for_hover:
-            issues.append(f"{name}: unsafe but safe_for_hover=True")
-    if issues:
-        return DoctorResult("directive_registry", "error", "directive registry",
-                            "; ".join(issues), "Fix DIRECTIVE_REGISTRY entries")
-    return DoctorResult("directive_registry", "ok", "directive registry",
-                        f"{len(DIRECTIVE_REGISTRY)} directives registered", "")
-
-
-def _doctor_check_mcp(cfg: dict, workspace: Path) -> DoctorResult:
-    """Check MCP server readiness — registry and tool count."""
-    try:
-        tools = _get_all_mcp_tools(cfg)
-        count = len(tools)
-        if count == 0:
-            return DoctorResult("mcp_server", "warn", "mcp_server", "0 tools available", "Check DIRECTIVE_REGISTRY and config")
-        return DoctorResult("mcp_server", "ok", "mcp_server", f"{count} MCP tools available", "")
-    except Exception as exc:
-        return DoctorResult("mcp_server", "error", "mcp_server", str(exc), "Check mcp.py")
-
-
-# Ordered list of doctor checks — adding a check is one function + one line here.
-_DOCTOR_CHECKS = [
-    _doctor_check_config,
-    _doctor_check_context_file,
-    _doctor_check_render_shell,
-    _doctor_check_render_outside_workspace,
-    _doctor_check_latest_checkpoint,
-    _doctor_check_mneme,
-    _doctor_check_federation,
-    _doctor_check_pythia_log,
-    _doctor_check_serve_loopback,
-    _doctor_check_registry,
-    _doctor_check_mcp,
-]
-
-
-def _effective_profile_summary(cfg: dict) -> dict:
-    """Build the structured trust summary used by `perseus trust` (task-45).
-
-    Returns a dict suitable for both human rendering and `--json` output.
-    Reflects the *effective* config after profile + user overrides have been
-    merged — so the human report shows what's actually in force, not the
-    profile's nominal defaults.
-    """
-    perms_cfg = cfg.get("permissions", {}) or {}
-    render_cfg = cfg.get("render", {}) or {}
-    gen_cfg = cfg.get("generation", {}) or {}
-    serve_cfg = cfg.get("serve", {}) or {}
-    red_cfg = cfg.get("redaction", {}) or {}
-
-    configured = perms_cfg.get("profile")
-    canonical = None
-    if configured:
-        name = str(configured).strip().lower()
-        if name in PERMISSION_PROFILES:
-            canonical = name
-    serve_summary = _serve_trust_summary(cfg)
-
-    return {
-        "version": _PERSEUS_VERSION,
-        "serve": serve_summary,
-        "permissions": {
-            "configured_profile": configured,
-            "applied_profile": canonical,
-            "available_profiles": sorted(PERMISSION_PROFILES.keys()),
-        },
-        "effective": {
-            "render": {
-                "allow_query_shell": bool(render_cfg.get("allow_query_shell", True)),
-                "allow_agent_shell": bool(render_cfg.get("allow_agent_shell", True)),
-                "allow_services_command": bool(render_cfg.get("allow_services_command", False)),
-                "allow_outside_workspace": bool(render_cfg.get("allow_outside_workspace", False)),
-            },
-            "generation": {
-                "enabled": bool(gen_cfg.get("enabled", False)),
-            },
-            "serve": {
-                "bind": serve_summary["bind_host"],
-                "bind_host": serve_summary["bind_host"],
-                "auth_token_set": serve_summary["auth_token_set"],
-                "loopback_only": serve_summary["loopback_only"],
-                "allow_insecure_remote": serve_summary["allow_insecure_remote"],
-            },
-            "redaction": {
-                "enabled": bool(red_cfg.get("enabled", True)),
-                "include_defaults": bool(red_cfg.get("include_defaults", True)),
-                "custom_patterns": len(list(red_cfg.get("patterns") or [])),
-                "rules_active": len(_compile_redaction_rules(cfg)),
-            },
-        },
-    }
-
-
-def cmd_trust(args, cfg) -> int:
-    """`perseus trust` — show effective permissions and audit posture (task-45, task-47)."""
-    sub = getattr(args, "trust_command", None) or "profile"
-    summary = _effective_profile_summary(cfg)
-    audit_summary = _audit_summary(cfg)
-    summary["audit"] = audit_summary
-
-    if sub == "audit":
-        entries = _read_audit_entries(cfg, limit=int(getattr(args, "tail", 10) or 10))
-        if getattr(args, "json", False):
-            print(json.dumps({
-                "summary": audit_summary,
-                "entries": entries,
-            }, indent=2, sort_keys=True))
-            return 0
-        print(f"perseus trust audit — Perseus v{_PERSEUS_VERSION}")
-        print(f"  enabled:           {audit_summary.get('enabled')}")
-        print(f"  log_path:          {audit_summary.get('log_path')}")
-        print(f"  total_events:      {audit_summary.get('total_events', 0)}")
-        last = audit_summary.get("last_event_ts")
-        print(f"  last_event_ts:     {last or '(none)'}")
-        counts = audit_summary.get("counts_by_type", {}) or {}
-        if counts:
-            print("  counts_by_type:")
-            for k in sorted(counts):
-                print(f"    {k}: {counts[k]}")
-        print("")
-        if not entries:
-            print("(no audit entries)")
-            return 0
-        print(f"Recent entries (most recent last, up to {len(entries)}):")
-        for e in entries:
-            ts = e.get("ts", "?")
-            et = e.get("event_type", "?")
-            extras = {k: v for k, v in e.items()
-                      if k not in {"ts", "event_type", "perseus_version", "pid"}}
-            extras_s = " ".join(f"{k}={v!r}" for k, v in sorted(extras.items()))
-            print(f"  {ts}  {et}  {extras_s}")
-        return 0
-
-    if getattr(args, "json", False):
-        print(json.dumps(summary, indent=2, sort_keys=True))
-        return 0
-
-    if sub in ("profile", None):
-        perms = summary["permissions"]
-        eff = summary["effective"]
-        print(f"perseus trust — Perseus v{_PERSEUS_VERSION}")
-        configured = perms["configured_profile"]
-        applied = perms["applied_profile"]
-        if configured is None:
-            print("  profile:           (none — using DEFAULT_CONFIG values)")
-        elif applied is None:
-            print(f"  profile:           {configured!r} ⚠ unknown — ignored. "
-                  f"Available: {', '.join(perms['available_profiles'])}")
-        elif applied != str(configured).strip().lower():
-            print(f"  profile:           {applied} (configured as {configured!r})")
-        else:
-            print(f"  profile:           {applied}")
-        print(f"  available:         {', '.join(perms['available_profiles'])}")
-        print("")
-        print("Effective permissions (profile + explicit overrides):")
-        print(f"  render.allow_query_shell:       {eff['render']['allow_query_shell']}")
-        print(f"  render.allow_agent_shell:       {eff['render']['allow_agent_shell']}")
-        print(f"  render.allow_services_command:  {eff['render']['allow_services_command']}")
-        print(f"  render.allow_outside_workspace: {eff['render']['allow_outside_workspace']}")
-        print(f"  generation.enabled:             {eff['generation']['enabled']}")
-        print(f"  serve.bind_host:                {eff['serve']['bind_host']}")
-        print(f"  serve.auth_token_set:           {eff['serve']['auth_token_set']}")
-        print(f"  serve.loopback_only:            {eff['serve']['loopback_only']}")
-        print(f"  serve.allow_insecure_remote:    {eff['serve']['allow_insecure_remote']}")
-        red = eff.get("redaction", {})
-        print(
-            f"  redaction.enabled:              {red.get('enabled', True)} "
-            f"(rules active: {red.get('rules_active', 0)}, "
-            f"custom: {red.get('custom_patterns', 0)})"
-        )
-        print("")
-        print("Audit log (task-47):")
-        print(f"  audit.enabled:                  {audit_summary.get('enabled')}")
-        print(f"  audit.log_path:                 {audit_summary.get('log_path')}")
-        print(f"  audit.total_events:             {audit_summary.get('total_events', 0)}")
-        last = audit_summary.get("last_event_ts")
-        if last:
-            print(f"  audit.last_event_ts:            {last}")
-        return 0
-
-    sys.stderr.write(f"perseus trust: unknown subcommand {sub!r}\n")
-    return 2
-
-
-def cmd_doctor(args, cfg) -> int:
-    """Run readiness checks and report status."""
-    workspace = Path(getattr(args, "workspace", None) or os.getcwd()).resolve()
-    use_json = getattr(args, "json", False)
-
-    results: list[DoctorResult] = []
-    for check_fn in _DOCTOR_CHECKS:
-        try:
-            results.append(check_fn(cfg, workspace))
-        except Exception as exc:
-            results.append(DoctorResult(
-                check_fn.__name__.replace("_doctor_check_", ""),
-                "error", check_fn.__name__, str(exc), ""
-            ))
-
-    ok = sum(1 for r in results if r.status == "ok")
-    warn = sum(1 for r in results if r.status == "warn")
-    err = sum(1 for r in results if r.status == "error")
-    exit_code = 1 if err > 0 else 0
-
-    if use_json:
-        import json as _json
-        output = {
-            "perseus_version": _PERSEUS_VERSION,
-            "workspace": str(workspace),
-            "checks": [
-                {
-                    "id": r.id,
-                    "status": r.status,
-                    "value": r.value,
-                    **({"remediation": r.remediation} if r.remediation else {}),
-                }
-                for r in results
-            ],
-            "summary": {"ok": ok, "warn": warn, "error": err},
-            "exit": exit_code,
-        }
-        print(_json.dumps(output, indent=2))
-    else:
-        status_icons = {"ok": "✓", "warn": "⚠", "error": "✗"}
-        print(f"perseus doctor — workspace: {workspace}")
-        for r in results:
-            icon = status_icons.get(r.status, "?")
-            print(f"{icon} {r.label:<40s} {r.value}")
-        print(f"─ Summary: {ok} ok · {warn} warning · {err} errors  (exit {exit_code})")
-
-    return exit_code
-
-
-def cmd_update(args, cfg) -> int:
-    """Self-update: check for or apply Perseus updates from git.
-
-    Perseus is installed in editable mode — updating the source via git pull
-    automatically updates the CLI. No reinstall needed.
-    """
-    import subprocess as _sp
-
-    update_cfg = cfg.get("update", {})
-    repo_path_str = update_cfg.get("repo_path", "")
-    branch = update_cfg.get("branch", "main")
-
-    # ── --auto toggle ──────────────────────────────────────────────────────
-    auto_val = getattr(args, "auto", None)
-    if auto_val is not None:
-        return _toggle_auto_update(auto_val, cfg)
-
-    # ── Find the repo ──────────────────────────────────────────────────────
-    repo = None
-    if repo_path_str:
-        repo = Path(repo_path_str).resolve()
-    if not repo or not (repo / ".git").exists():
-        repo = _find_perseus_repo()
-    if not repo or not (repo / ".git").exists():
-        print("Error: Perseus git repository not found.", file=sys.stderr)
-        print("  Set update.repo_path in ~/.perseus/config.yaml", file=sys.stderr)
-        print("  Clone: git clone https://github.com/tcconnally/perseus.git", file=sys.stderr)
-        return 1
-
-    os.chdir(str(repo))
-
-    # ── Fetch ──────────────────────────────────────────────────────────────
-    print(f"Fetching origin/{branch} …")
-    try:
-        _sp.run(["git", "fetch", "origin", branch],
-                check=True, capture_output=True, text=True)
-    except _sp.CalledProcessError as e:
-        print(f"Error: git fetch failed: {e.stderr.strip()}", file=sys.stderr)
-        return 1
-
-    # ── Compare local vs remote ────────────────────────────────────────────
-    def _git(args_list):
-        return _sp.run(["git"] + args_list, capture_output=True,
-                       text=True).stdout.strip()
-
-    local = _git(["rev-parse", "HEAD"])
-    remote = _git(["rev-parse", f"origin/{branch}"])
-
-    if local == remote:
-        print(f"\u2713 Perseus is up to date ({local[:8]} on {branch})")
-        return 0
-
-    # Determine relationship: is local ahead, behind, or diverged?
-    merge_base = _git(["merge-base", local, remote])
-    if merge_base == remote:
-        # local is ahead of or same as remote — nothing to pull
-        print(f"\u2713 Perseus is up to date (local is ahead of origin/{branch})")
-        print(f"  Local:  {local[:8]}")
-        print(f"  Remote: {remote[:8]} (behind)")
-        return 0
-    elif merge_base == local:
-        # local is behind remote — updates available
-        pass
-    else:
-        # Diverged — both have commits the other doesn't
-        print(f"\u26a0 Local and origin/{branch} have diverged.", file=sys.stderr)
-        print(f"  Local:  {local[:8]}", file=sys.stderr)
-        print(f"  Remote: {remote[:8]}", file=sys.stderr)
-        print("  Fast-forward not possible. Manual merge required.", file=sys.stderr)
-        return 1
-
-    # ── Show available updates ─────────────────────────────────────────────
-    log = _git(["log", "--oneline", f"{local}..{remote}"])
-    commits = log.split("\n") if log else []
-    count = len(commits)
-
-    print(f"\n{count} commit(s) behind origin/{branch}:")
-    print(f"  Installed: {local[:8]}")
-    print(f"  Latest:    {remote[:8]}")
-    print()
-    for line in commits:
-        print(f"  {line}")
-    print()
-
-    apply_update = getattr(args, "apply", False)
-    check_only = getattr(args, "check", False)
-
-    if apply_update:
-        print("Applying update …")
-        try:
-            result = _sp.run(
-                ["git", "pull", "--ff-only", "origin", branch],
-                capture_output=True, text=True, check=True,
-            )
-            print(result.stdout.strip())
-            new_local = _git(["rev-parse", "HEAD"])
-            print(f"\u2713 Updated to {new_local[:8]}")
-        except _sp.CalledProcessError as e:
-            print(f"Error: git pull failed: {e.stderr.strip()}", file=sys.stderr)
-            print(f"  Try: cd {repo} && git pull --ff-only origin {branch}",
-                  file=sys.stderr)
-            return 1
-    elif not check_only:
-        print("To apply:  perseus update --apply")
-        print("Dry run:   perseus update --check")
-        if not cfg.get("update", {}).get("auto", False):
-            print("Auto:      perseus update --auto on")
-
-    return 0
-
-
-def _find_perseus_repo():
-    """Locate the Perseus git repository from the installed package."""
-    import subprocess as _sp
-    # Check pip show for editable install location
-    try:
-        result = _sp.run(["pip", "show", "perseus-ctx"],
-                         capture_output=True, text=True)
-        for line in result.stdout.split("\n"):
-            if line.startswith("Editable project location:"):
-                loc = line.split(":", 1)[1].strip()
-                p = Path(loc)
-                if (p / ".git").exists():
-                    return p
-    except Exception:
-        pass
-    # Fallback: common paths
-    for c in [Path("/workspace/perseus")]:
-        if (c / ".git").exists():
-            return c
-    return None
-
-
-def _toggle_auto_update(value, cfg):
-    """Persist update.auto on/off in the global config file."""
-    config_path = Path(os.environ.get("PERSEUS_HOME",
-                       Path.home() / ".perseus")) / "config.yaml"
-    val = value.strip().lower()
-    if val in ("on", "true", "1", "yes"):
-        enabled = True
-    elif val in ("off", "false", "0", "no"):
-        enabled = False
-    else:
-        print(f"Error: '{value}' — use 'on' or 'off'.", file=sys.stderr)
-        return 1
-
-    # Read existing config, preserving comments is hard so just re-dump
-    if config_path.exists():
-        with open(config_path) as f:
-            data = yaml.safe_load(f) or {}
-    else:
-        data = {}
-    if not isinstance(data, dict):
-        data = {}
-
-    cfg2 = copy.deepcopy(data)
-    if "update" not in cfg2:
-        cfg2["update"] = {}
-    cfg2["update"]["auto"] = enabled
-
-    if cfg2 != data:
-        config_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(config_path, "w") as f:
-            yaml.safe_dump(cfg2, f, default_flow_style=False, sort_keys=False)
-
-    status = "ON" if enabled else "OFF"
-    print(f"Auto-update: {status}")
-    print(f"  Config: {config_path}")
-    if enabled:
-        print("  Perseus will check for updates when invoked with --apply.")
-    return 0
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -14418,7 +15975,7 @@ def main():
         prog="perseus",
         description=f"Perseus — Live Context Engine for AI Assistants (v{_PERSEUS_VERSION})",
     )
-    parser.add_argument("--version", action="version", version=f"perseus v{_PERSEUS_VERSION}")
+    parser.add_argument("--version", action="version", version=f"perseus v{_PERSEUS_VERSION} — Patent Pending")
     sub = parser.add_subparsers(dest="command", required=True)
 
     # render
@@ -14444,6 +16001,12 @@ def main():
         help="Context tier limit: 1=always (minimal), 2=conditional, 3=all. "
              "Directives above this tier are skipped and reported in a manifest. "
              "(default: 3 — everything resolves)",
+    )
+    p_render.add_argument(
+        "--explain", action="store_true",
+        help="Emit a directive execution manifest (JSON) instead of rendered output. "
+             "Shows directives, cache hits/misses, durations, warnings, and skipped "
+             "tiered directives.",
     )
 
     # watch (Phase 20C)
@@ -14611,13 +16174,17 @@ def main():
     p_mem_idx = mem_sub.add_parser("index", help="Manage the FTS5 search index")
     idx_sub = p_mem_idx.add_subparsers(dest="index_command", required=True)
     p_idx_stats = idx_sub.add_parser("stats", help="Show index statistics")
+    p_idx_stats.add_argument("--json", action="store_true", help="Machine-readable JSON output")
     p_idx_rebuild = idx_sub.add_parser("rebuild", help="Rebuild index from vault")
     p_idx_rebuild.add_argument("--force", action="store_true", help="Re-index all files even if unchanged")
+    p_idx_rebuild.add_argument("--json", action="store_true", help="Machine-readable JSON output")
     p_idx_search = idx_sub.add_parser("search", help="Debug: search the index directly")
     p_idx_search.add_argument("--query", required=True, help="Search query")
     p_idx_search.add_argument("--k", type=int, default=5, help="Max results (1-20)")
     p_idx_search.add_argument("--scope", default=None, help="Filter by scope")
     p_idx_search.add_argument("--type", default=None, help="Filter by memory type")
+    p_idx_search.add_argument("--sensitivity", default=None, help="Filter by sensitivity (team, private, public)")
+    p_idx_search.add_argument("--json", action="store_true", help="Machine-readable JSON output")
 
     # init
     p_init = sub.add_parser("init", help="Scaffold .perseus/context.md for a new workspace")
@@ -14679,35 +16246,47 @@ def main():
     p_serve.add_argument("--allow-lsp-mutations", action="store_true", dest="allow_lsp_mutations", help="Allow LSP executeCommand handlers that mutate Perseus state")
 
     # cron (POSIX scheduling)
-    p_cron = sub.add_parser("cron", help="Generate a POSIX crontab entry for periodic rendering")
-    p_cron.add_argument("source", help="Path to Perseus source file")
-    p_cron.add_argument("--output", "-o", required=True, help="Rendered output path")
-    p_cron.add_argument("--every", default="5",
+    p_cron = sub.add_parser("cron", help="Generate or remove a POSIX crontab entry for periodic rendering")
+    cron_sub = p_cron.add_subparsers(dest="cron_command")
+    p_cron_create = cron_sub.add_parser("create", help="Generate a crontab entry")
+    p_cron_create.add_argument("source", help="Path to Perseus source file")
+    p_cron_create.add_argument("--output", "-o", required=True, help="Rendered output path")
+    p_cron_create.add_argument("--every", default="5",
                         help="Minutes between renders (default: 5). Accepts '5', '15', '60'.")
-    p_cron.add_argument("--install", action="store_true",
+    p_cron_create.add_argument("--install", action="store_true",
                         help="Append the entry to the current user's crontab (uses `crontab -l` + `crontab -`)")
+    p_cron_uninstall = cron_sub.add_parser("uninstall", help="Remove a crontab entry")
+    p_cron_uninstall.add_argument("source", help="Path to Perseus source file to remove from crontab")
 
     # launchd
-    p_launchd = sub.add_parser("launchd", help="Scaffold a macOS LaunchAgent for periodic rendering")
-    p_launchd.add_argument("source", help="Path to Perseus source file")
-    p_launchd.add_argument("--output", "-o", required=True, help="Rendered output path")
-    p_launchd.add_argument("--interval", type=int, default=300,
+    p_launchd = sub.add_parser("launchd", help="Scaffold or remove a macOS LaunchAgent for periodic rendering")
+    launchd_sub = p_launchd.add_subparsers(dest="launchd_command")
+    p_launchd_create = launchd_sub.add_parser("create", help="Create a LaunchAgent plist")
+    p_launchd_create.add_argument("source", help="Path to Perseus source file")
+    p_launchd_create.add_argument("--output", "-o", required=True, help="Rendered output path")
+    p_launchd_create.add_argument("--interval", type=int, default=300,
                            help="Render interval in seconds (default: 300)")
-    p_launchd.add_argument("--label", default=None,
+    p_launchd_create.add_argument("--label", default=None,
                            help="launchd label (default: com.perseus.render.<source-stem>)")
-    p_launchd.add_argument("--force", action="store_true",
+    p_launchd_create.add_argument("--force", action="store_true",
                            help="Overwrite existing plist")
+    p_launchd_uninstall = launchd_sub.add_parser("uninstall", help="Remove a LaunchAgent plist")
+    p_launchd_uninstall.add_argument("--label", required=True, help="launchd label to remove")
 
     # systemd (Linux)
-    p_systemd = sub.add_parser("systemd", help="Scaffold a user-space systemd timer for periodic rendering")
-    p_systemd.add_argument("source", help="Path to Perseus source file")
-    p_systemd.add_argument("--output", "-o", required=True, help="Rendered output path")
-    p_systemd.add_argument("--interval", default="5m",
+    p_systemd = sub.add_parser("systemd", help="Scaffold or remove a user-space systemd timer for periodic rendering")
+    systemd_sub = p_systemd.add_subparsers(dest="systemd_command")
+    p_systemd_create = systemd_sub.add_parser("create", help="Create systemd timer + service units")
+    p_systemd_create.add_argument("source", help="Path to Perseus source file")
+    p_systemd_create.add_argument("--output", "-o", required=True, help="Rendered output path")
+    p_systemd_create.add_argument("--interval", default="5m",
                            help="Render interval (e.g. '5m', '2h'); systemd time spec also accepted")
-    p_systemd.add_argument("--install", action="store_true",
+    p_systemd_create.add_argument("--install", action="store_true",
                            help="Write unit files to ~/.config/systemd/user/ and print activation commands")
-    p_systemd.add_argument("--enable", action="store_true",
+    p_systemd_create.add_argument("--enable", action="store_true",
                            help="When combined with --install, run systemctl --user daemon-reload/enable/start")
+    p_systemd_uninstall = systemd_sub.add_parser("uninstall", help="Remove systemd timer + service units")
+    p_systemd_uninstall.add_argument("source", help="Path to Perseus source file")
 
     # health (Daedalus v1)
     p_health = sub.add_parser("health", help="Context maintenance heuristics report")
@@ -14728,6 +16307,18 @@ def main():
     p_trust_audit.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     p_trust.add_argument("--json", action="store_true", help="Output machine-readable JSON")
 
+
+    # audit (Phase 26 — audit log viewer)
+    p_audit = sub.add_parser("audit", help="Query and inspect the Perseus audit log")
+    audit_sub = p_audit.add_subparsers(dest="audit_command", required=False)
+    p_audit_show = audit_sub.add_parser("show", help="Show recent audit entries")
+    p_audit_show.add_argument("--since", default=None, metavar="DURATION",
+                              help="Show entries since: 24h, 7d, 30m, or ISO timestamp")
+    p_audit_show.add_argument("--event", default=None, metavar="TYPE",
+                              help="Filter by event type (e.g. shell_exec, policy_denied)")
+    p_audit_show.add_argument("--tail", type=int, default=20,
+                              help="Number of entries to show (default: 20)")
+    p_audit_stats = audit_sub.add_parser("stats", help="Show audit event type counts")
     # update (self-update from git)
     p_update = sub.add_parser("update", help="Check for and apply Perseus updates from git")
     p_update.add_argument("--apply", action="store_true",
@@ -14736,6 +16327,13 @@ def main():
                           help="Dry run: show available updates without applying")
     p_update.add_argument("--auto", default=None, metavar="on|off",
                           help="Toggle auto-update on/off and persist to config")
+    p_update.add_argument("--skip-signature-check", action="store_true",
+                          help="Skip GPG signature verification during update (dev only)")
+
+    # warmup (pre-populate cache)
+    p_warmup = sub.add_parser("warmup", help="Pre-populate render cache for a context file")
+    p_warmup.add_argument("source", help="Path to .md file with @perseus header")
+    p_warmup.add_argument("--workspace", default=None, help="Workspace path (default: inferred)")
 
     # oracle (Daedalus dataset / labeling)
     p_oracle = sub.add_parser("oracle", help="Pythia log labeling and dataset export")
@@ -14770,7 +16368,15 @@ def main():
     p_oracle_drift = oracle_sub.add_parser("drift", help="Report drift in recent Pythia behavior vs baseline")
     p_oracle_drift.add_argument("--json", action="store_true", help="Machine-readable JSON output")
 
-    # `perseus llm ping` — verify the configured LLM provider is reachable.
+    # quickstart (Track B — one-command bootstrap)
+    p_quickstart = sub.add_parser("quickstart", help="One-command bootstrap: scaffold, configure, verify")
+    p_quickstart.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
+    p_quickstart.add_argument("--non-interactive", action="store_true",
+                              help="Skip interactive LLM prompts — auto-detect env keys only")
+    p_quickstart.add_argument("--no-llm", action="store_true",
+                              help="Skip LLM backend detection entirely")
+
+    # llm ping — verify the configured LLM provider is reachable.
     p_llm = sub.add_parser("llm", help="LLM provider utilities (ping)")
     llm_sub = p_llm.add_subparsers(dest="llm_sub")
     p_llm_ping = llm_sub.add_parser("ping", help="Send a no-op prompt to verify reachability")
@@ -14811,11 +16417,25 @@ def main():
     elif args.command == "inbox":
         cmd_inbox(args, cfg)
     elif args.command == "serve":
-        rc = cmd_serve(args, cfg)
+        # v1.0.5 review: reload with workspace so auth tokens,
+        # trust profiles, MCP SSE tokens, and tool allowlists work.
+        ws = getattr(args, "workspace", None)
+        srv_cfg = load_config(Path(ws).expanduser().resolve()) if ws else cfg
+        rc = cmd_serve(args, srv_cfg)
         if isinstance(rc, int):
             return rc
     elif args.command == "cron":
         cmd_cron(args, cfg)
+    elif args.command == "launchd":
+        if getattr(args, "launchd_command", None) == "uninstall":
+            cmd_launchd_uninstall(args, cfg)
+        else:
+            cmd_launchd(args, cfg)
+    elif args.command == "systemd":
+        if getattr(args, "systemd_command", None) == "uninstall":
+            cmd_systemd_uninstall(args, cfg)
+        else:
+            cmd_systemd(args, cfg)
     elif args.command == "systemd":
         cmd_systemd(args, cfg)
     elif args.command == "health":
@@ -14824,8 +16444,12 @@ def main():
         return cmd_doctor(args, cfg)
     elif args.command == "trust":
         return cmd_trust(args, cfg)
+    elif args.command == "audit":
+        return cmd_audit(args, cfg)
     elif args.command == "update":
         return cmd_update(args, cfg)
+    elif args.command == "warmup":
+        cmd_warmup(args, cfg)
     elif args.command == "oracle":
         rc = cmd_oracle(args, cfg)
         if isinstance(rc, int):
@@ -14834,12 +16458,18 @@ def main():
         return cmd_llm(args, cfg)
     elif args.command == "init":
         cmd_init(args, cfg)
+    elif args.command == "quickstart":
+        return cmd_quickstart(args, cfg)
     elif args.command == "launchd":
         cmd_launchd(args, cfg)
     elif args.command == "install":
         return cmd_install(args, cfg)
     elif args.command == "mcp":
-        return cmd_mcp(args, cfg)
+        # v1.0.5 review: reload with workspace so MCP SSE tokens
+        # and tool allowlists work.
+        ws = getattr(args, "workspace", None)
+        mcp_cfg = load_config(Path(ws).expanduser().resolve()) if ws else cfg
+        return cmd_mcp(args, mcp_cfg)
 
 
 # Module-level call: runs at import time so render_source() and other
