@@ -1134,20 +1134,6 @@ def _discover_plugins(cfg: dict) -> list["DirectiveSpec"]:
             file=sys.stderr,
         )
         return []
-<<<<<<< HEAD
-=======
-
-    # Security: by default, plugins require a MANIFEST.toml with hash entries.
-    # Set plugins.allow_unsigned: true to skip manifest verification (opt-in).
-    #
-    # An optional plugins.allowlist restricts which plugins may be loaded.
-    # When set, only plugins whose stem name appears in the allowlist are
-    # imported — all others are skipped with a warning. This provides an
-    # additional defense-in-depth layer: even if a malicious plugin passes
-    # hash verification (compromised signing key), it won't execute unless
-    # its name is also in the allowlist.
-    plugins_cfg = cfg.get("plugins", {})
->>>>>>> 8044e7b (fix: reconcile plugin trust gate with byte-limit guards)
     if not plugins_cfg.get("enabled", PLUGINS_ENABLED_DEFAULT):
         return []
     plugins_dir = Path(plugins_cfg.get("dir", str(PERSEUS_HOME / "plugins")))
