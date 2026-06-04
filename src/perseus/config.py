@@ -10,6 +10,11 @@ LEGACY_PYTHIA_LOG_NAME = LEGACY_PYTHIA_CONFIG_KEY + "_log.jsonl"
 PYTHIA_HWM_KEY = "pythia_entries_processed"
 LEGACY_PYTHIA_HWM_KEY = LEGACY_PYTHIA_CONFIG_KEY + "_entries_processed"
 
+# Single source of truth for the plugins-enabled default. Referenced by
+# DEFAULT_CONFIG below and by registry.register_plugins / _discover_plugins so
+# the three sites can never silently drift apart again (see test_plugin.py).
+PLUGINS_ENABLED_DEFAULT = True
+
 DEFAULT_CONFIG = {
     "render": {
         "cache_dir": str(PERSEUS_HOME / "cache"),
@@ -21,6 +26,7 @@ DEFAULT_CONFIG = {
         "max_query_bytes": 262144,    # 256 KB stdout cap
         "max_read_bytes": 524288,    # 512 KB file size cap for @read (None = unlimited)
         "max_include_bytes": 524288, # 512 KB file size cap for @include (None = unlimited)
+        "max_safe_read_bytes": 52428800,  # 50 MB hard pre-read guard for @read/@include before bytes hit memory (None = disabled)
         "max_include_depth": 5,      # max depth for transitive @include recursion
         "integrity_check": False,    # opt-in: detect files modified during render
         "parallel_services": False,   # opt-in: concurrent @services health checks
@@ -31,6 +37,7 @@ DEFAULT_CONFIG = {
         "allow_services_command": False,
         "allow_remote_services_health": False,
         "allow_outside_workspace": False,
+        "query_shell_meta_warning": False,
         "default_tier": 3,            # task-76: context tier for rendering (1=always, 2=conditional, 3=all). Set to 1 or 2 for smaller context windows.
     },
     "checkpoints": {
@@ -113,24 +120,18 @@ DEFAULT_CONFIG = {
         "default_sender": "perseus",
     },
     "plugins": {
-        "enabled": True,
+        "enabled": PLUGINS_ENABLED_DEFAULT,
         "dir": str(PERSEUS_HOME / "plugins"),
     },
     "hooks": {
         "enabled": True,
     },
-    "webhooks": {
-        "enabled": False,
-        "url": "",
-        "secret": "",
-        "events": ["on_render_start", "on_render_complete", "on_directive_error"],
-        "timeout_s": 5,
-    },
     "tools": {
         "enabled": True,
         "allowlist": [],
     },
-    "foreign_resolver": {
+    "foreign_resolver": {  # DEPRECATED: use "foreign" block (Phase 24E) for new config.
+                          # Kept for backward compatibility; code checks both paths.
         "enabled": True,
         "allowlist": [],
         "hmackey": "",
@@ -183,6 +184,27 @@ DEFAULT_CONFIG = {
         # patterns: list of {name, pattern, replacement?} dicts. See
         # DEFAULT_REDACTION_RULES for the shape of the default set.
         "patterns": [],
+    },
+    "env": {                          # task-61 — @env directive deny-list
+        # Glob patterns for environment variable NAMES that must not be
+        # rendered into context files. Variables matching any pattern are
+        # replaced with a denial marker regardless of whether redaction
+        # would catch their values.
+        "deny_list": [
+            "*_SECRET*",
+            "*_KEY*",
+            "*TOKEN*",
+            "*PASSWORD*",
+            "*_PASS",
+            "*_CREDENTIAL*",
+            "*_PRIVATE_KEY*",
+            "*_CERTIFICATE*",
+            "AWS_ACCESS_KEY_ID",
+            "AWS_SECRET_ACCESS_KEY",
+            "DOCKER_AUTH*",
+            "NPM_TOKEN",
+            "COCOAPODS_TRUNK_TOKEN",
+        ],
     },
     "audit": {                        # Phase 17C — task-47
         # Append-only JSONL log of sensitive operations and policy denials.
@@ -322,6 +344,10 @@ def _get_shell(cfg: dict) -> str | None:
 
 
 # Phase 24 — task-72: Event Webhooks
+# NOTE: enabled=True but endpoints=[] means the webhook engine is active
+# (hooks fire internally) but no external delivery occurs. To actually deliver
+# events, add endpoint URLs to the endpoints list. This split allows the
+# internal hook pipeline to run without inadvertently exposing events.
 DEFAULT_CONFIG["webhooks"] = {
     "enabled": True,
     "timeout_s": 10,

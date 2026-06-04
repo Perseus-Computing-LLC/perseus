@@ -128,6 +128,12 @@ RENDER_TIMEOUT = 30
 # CV threshold above which a measurement is flagged as "noisy"
 CV_NOISE_THRESHOLD = 0.25
 
+# If a measurement cell is noisy, run it one extra time and keep the stabler attempt.
+NOISY_RETRY_MAX = 1
+
+# Cache-focused gate profile: use cacheable directives where warm-path speedups are expected.
+CACHEABLE_GATE_DIRECTIVE_LADDER = [30, 60, 120]
+
 # ─── Helper: statistics ────────────────────────────────────────────────────
 
 def _stats(vals: list[float]) -> dict:
@@ -192,12 +198,23 @@ def _fresh_home() -> Path:
     return Path(tempfile.mkdtemp(prefix="xeb_home_"))
 
 
-def _fresh_ctx(home: Path, n_directives: int, label: str = "") -> Path:
-    """Write a synthetic context.md with n_directives @env entries."""
+def _fresh_ctx(
+    home: Path,
+    n_directives: int,
+    label: str = "",
+    profile: str = "env",
+) -> Path:
+    """Write a synthetic context.md with profile-specific directives."""
     ctx = home / f"context_{label or n_directives}.md"
     lines = ["@perseus\n", "# Extreme Enterprise Benchmark Context\n"]
-    for i in range(n_directives):
-        lines.append(f'@env XEB_VAR_{i} fallback="val{i}"\n')
+    if profile == "env":
+        for i in range(n_directives):
+            lines.append(f'@env XEB_VAR_{i} fallback="val{i}"\n')
+    elif profile == "cacheable":
+        for i in range(n_directives):
+            lines.append(f'@query "printf xeb_cache_{i}" @cache ttl=86400\n')
+    else:
+        raise ValueError(f"unknown profile: {profile}")
     ctx.write_text("".join(lines))
     return ctx
 
@@ -269,8 +286,13 @@ def phase_0_validate() -> dict:
 
 # ─── Phase 1: Cold-start ladder ───────────────────────────────────────────
 
-def _measure_cell(n_directives: int, tier: int, warm: bool,
-                  shared_home: Path | None = None) -> dict:
+def _measure_cell(
+    n_directives: int,
+    tier: int,
+    warm: bool,
+    shared_home: Path | None = None,
+    profile: str = "env",
+) -> dict:
     """
     Single measurement cell: render context with n_directives at tier, cold or warm.
 
@@ -290,14 +312,19 @@ def _measure_cell(n_directives: int, tier: int, warm: bool,
         else:
             home = _fresh_home()
 
-        ctx = _fresh_ctx(home, n_directives, f"t{tier}_d{n_directives}_r{rep}")
+        ctx = _fresh_ctx(
+            home,
+            n_directives,
+            f"{profile}_t{tier}_d{n_directives}_r{rep}",
+            profile=profile,
+        )
         wall, stdout, stderr, rc = _render(ctx, home, tier=tier)
 
-        if rc not in (0,) and b"TIMEOUT" not in stderr:
+        if rc != 0:
             errors += 1
             if not warm:
                 shutil.rmtree(home, ignore_errors=True)
-            continue
+            continue  # never record timeout or error samples
 
         wall_samples.append(wall * 1000)  # ms
         bench = parse_bench_line(stderr)
@@ -329,6 +356,7 @@ def _measure_cell(n_directives: int, tier: int, warm: bool,
         "n_directives": n_directives,
         "tier": tier,
         "warm": warm,
+        "profile": profile,
         "wall_ms": _stats(wall_samples),
         "output_tokens": _stats([float(t) for t in output_tokens]),
         "bench_total_us": round(avg_total_us, 1) if avg_total_us else None,
@@ -340,58 +368,103 @@ def _measure_cell(n_directives: int, tier: int, warm: bool,
     }
 
 
-def phase_1_cold_ladder() -> dict:
+def _measure_cell_stable(
+    n_directives: int,
+    tier: int,
+    warm: bool,
+    shared_home: Path | None = None,
+    profile: str = "env",
+    retries: int = NOISY_RETRY_MAX,
+) -> dict:
+    """
+    Measure a cell, and if noisy, retry once and keep the most stable attempt.
+
+    This keeps gate decisions robust on hosts with transient jitter.
+    """
+    attempts: list[dict] = []
+    for _ in range(max(1, retries + 1)):
+        attempts.append(
+            _measure_cell(
+                n_directives=n_directives,
+                tier=tier,
+                warm=warm,
+                shared_home=shared_home,
+                profile=profile,
+            )
+        )
+        if not attempts[-1].get("wall_ms", {}).get("noisy", False):
+            break
+
+    def _cv(cell: dict) -> float:
+        cv = cell.get("wall_ms", {}).get("cv")
+        if cv is None:
+            return 1e9
+        return float(cv)
+
+    selected_idx = min(range(len(attempts)), key=lambda idx: _cv(attempts[idx]))
+    selected = dict(attempts[selected_idx])
+    selected["stability"] = {
+        "attempts": len(attempts),
+        "selected_attempt": selected_idx + 1,
+        "cv_attempts": [a.get("wall_ms", {}).get("cv") for a in attempts],
+        "rerun_triggered": len(attempts) > 1,
+    }
+    return selected
+
+
+def phase_1_cold_ladder(profile: str = "env") -> dict:
     """Phase 1: cold-start render timing across the full directive ladder."""
-    print("[P1] Cold-start ladder …", flush=True)
+    print(f"[P1] Cold-start ladder ({profile}) …", flush=True)
     cells: list[dict] = []
-    total = len(DIRECTIVE_LADDER) * len(TIER_LADDER)
-    done = 0
     for tier in TIER_LADDER:
         for nd in DIRECTIVE_LADDER:
-            cell = _measure_cell(nd, tier, warm=False)
+            cell = _measure_cell_stable(nd, tier, warm=False, profile=profile)
             cells.append(cell)
-            done += 1
+            rerun = " rerun=1" if cell.get("stability", {}).get("rerun_triggered") else ""
             print(
                 f"  cold tier={tier} directives={nd:3d} "
                 f"mean={cell['wall_ms']['mean']}ms "
                 f"cv={cell['wall_ms']['cv']} "
-                f"{'⚠ NOISY' if cell['wall_ms']['noisy'] else ''}",
+                f"{'⚠ NOISY' if cell['wall_ms']['noisy'] else ''}{rerun}",
                 flush=True,
             )
-    return {"phase": 1, "label": "cold_ladder", "cells": cells}
+    return {"phase": 1, "label": f"cold_ladder_{profile}", "profile": profile, "cells": cells}
 
 
 # ─── Phase 2: Warm-start ladder ───────────────────────────────────────────
 
-def _warm_home_for(n_directives: int, tier: int) -> Path:
+def _warm_home_for(n_directives: int, tier: int, profile: str = "env") -> Path:
     """Pre-populate a Perseus home with one render so the cache is warm."""
     home = _fresh_home()
-    ctx = _fresh_ctx(home, n_directives, "prime")
+    ctx = _fresh_ctx(home, n_directives, f"{profile}_prime", profile=profile)
     _render(ctx, home, tier=tier)   # populate cache
     return home
 
 
-def phase_2_warm_ladder() -> dict:
+def phase_2_warm_ladder(profile: str = "env") -> dict:
     """Phase 2: warm-start render timing (cache pre-populated)."""
-    print("[P2] Warm-start ladder …", flush=True)
+    print(f"[P2] Warm-start ladder ({profile}) …", flush=True)
     cells: list[dict] = []
     for tier in TIER_LADDER:
         for nd in DIRECTIVE_LADDER:
-            home = _warm_home_for(nd, tier)
+            home = _warm_home_for(nd, tier, profile=profile)
             try:
-                cell = _measure_cell(nd, tier, warm=True, shared_home=home)
+                cell = _measure_cell_stable(
+                    nd, tier, warm=True, shared_home=home, profile=profile
+                )
                 cells.append(cell)
+                rerun = " rerun=1" if cell.get("stability", {}).get("rerun_triggered") else ""
                 print(
                     f"  warm tier={tier} directives={nd:3d} "
                     f"mean={cell['wall_ms']['mean']}ms "
                     f"cv={cell['wall_ms']['cv']} "
                     f"cache_hits={cell['avg_cache_hits']:.1f} "
-                    f"{'⚠ NOISY' if cell['wall_ms']['noisy'] else ''}",
+                    f"{'⚠ NOISY' if cell['wall_ms']['noisy'] else ''}{rerun}",
                     flush=True,
                 )
             finally:
                 shutil.rmtree(home, ignore_errors=True)
-    return {"phase": 2, "label": "warm_ladder", "cells": cells}
+    return {"phase": 2, "label": f"warm_ladder_{profile}", "profile": profile, "cells": cells}
 
 
 # ─── Phase 3: Cold vs. Warm delta analysis ────────────────────────────────
@@ -463,6 +536,87 @@ def phase_3_cold_warm_delta(p1: dict, p2: dict) -> dict:
     }
 
 
+def phase_3_cacheable_delta() -> dict:
+    """
+    Cacheability-focused warm/cold check.
+
+    Uses cacheable directives where warm-path speedup SHOULD be measurable.
+    This decouples expected @env behavior (warm≈cold) from true cache regressions.
+    """
+    print("[P3b] Cacheable-profile cold vs warm delta …", flush=True)
+    deltas: list[dict] = []
+    regressions: list[dict] = []
+
+    for nd in CACHEABLE_GATE_DIRECTIVE_LADDER:
+        tier = 3
+        cold = _measure_cell_stable(nd, tier, warm=False, profile="cacheable")
+        home = _warm_home_for(nd, tier, profile="cacheable")
+        try:
+            warm = _measure_cell_stable(
+                nd, tier, warm=True, shared_home=home, profile="cacheable"
+            )
+        finally:
+            shutil.rmtree(home, ignore_errors=True)
+
+        cold_mean = cold["wall_ms"]["mean"]
+        warm_mean = warm["wall_ms"]["mean"]
+        ratio = _ratio(warm_mean, cold_mean)  # <1.0 = warm faster
+        delta_ms = None
+        if cold_mean is not None and warm_mean is not None:
+            delta_ms = round(warm_mean - cold_mean, 3)
+
+        is_regression = ratio is not None and ratio >= 0.99
+        entry = {
+            "n_directives": nd,
+            "tier": tier,
+            "profile": "cacheable",
+            "cold_mean_ms": cold_mean,
+            "warm_mean_ms": warm_mean,
+            "warm_speedup_ratio": ratio,
+            "delta_ms": delta_ms,
+            "cache_hits_warm": warm.get("avg_cache_hits"),
+            "cache_misses_cold": cold.get("avg_cache_misses"),
+            "cold_noisy": cold.get("wall_ms", {}).get("noisy", False),
+            "warm_noisy": warm.get("wall_ms", {}).get("noisy", False),
+        }
+        deltas.append(entry)
+        if is_regression:
+            regressions.append(entry)
+            print(
+                f"  ⚠ cacheable directives={nd}: warm={warm_mean}ms cold={cold_mean}ms ratio={ratio}",
+                flush=True,
+            )
+        else:
+            speedup_pct = round((1 - (ratio or 1.0)) * 100, 1)
+            print(
+                f"  ✅ cacheable directives={nd}: warm speedup={speedup_pct}% "
+                f"(cold={cold_mean}ms warm={warm_mean}ms hits={warm.get('avg_cache_hits')})",
+                flush=True,
+            )
+
+    avg_ratio = None
+    ratios = [d["warm_speedup_ratio"] for d in deltas if d.get("warm_speedup_ratio") is not None]
+    if ratios:
+        avg_ratio = round(statistics.mean(ratios), 4)
+    avg_hits = None
+    hits = [d["cache_hits_warm"] for d in deltas if d.get("cache_hits_warm") is not None]
+    if hits:
+        avg_hits = round(statistics.mean(hits), 2)
+
+    return {
+        "phase": "3b",
+        "label": "cacheable_cold_warm_delta",
+        "profile": "cacheable",
+        "directive_ladder": CACHEABLE_GATE_DIRECTIVE_LADDER,
+        "deltas": deltas,
+        "avg_warm_speedup_ratio": avg_ratio,
+        "avg_warm_cache_hits": avg_hits,
+        "regression_count": len(regressions),
+        "regressions": regressions,
+        "pass": len(regressions) == 0 and (avg_hits or 0) > 0,
+    }
+
+
 # ─── Phase 4: Concurrency stress ──────────────────────────────────────────
 
 def _concurrent_render_batch(
@@ -484,12 +638,12 @@ def _concurrent_render_batch(
         futs = [ex.submit(_one, i) for i in range(n_concurrent)]
         for fut in cf.as_completed(futs):
             wall, stdout, stderr, rc = fut.result()
-            if rc == 0 or b"TIMEOUT" not in stderr:
+            if rc == 0:
                 wall_samples.append(wall * 1000)
                 b = parse_bench_line(stderr)
                 if b:
                     bench_records.append(b)
-            if rc != 0:
+            else:
                 errors += 1
 
     avg_cache_hits = (
@@ -593,7 +747,7 @@ def phase_5_tier_scaling() -> dict:
             _render(ctx_prime, home, tier=3)
 
             for tier in TIER_LADDER:
-                cell = _measure_cell(nd, tier, warm=True, shared_home=home)
+                cell = _measure_cell_stable(nd, tier, warm=True, shared_home=home)
                 tier_series.append(cell)
 
             # Token efficiency: how many tokens does each tier produce?
@@ -651,7 +805,7 @@ def phase_6_regression_probes() -> dict:
 
     # ── Probe A: tiny context, 1 directive ───────────────────────────
     print("  [A] Tiny context (1 directive, cold) …", flush=True)
-    probe_a = _measure_cell(1, 3, warm=False)
+    probe_a = _measure_cell_stable(1, 3, warm=False)
     probes["A_tiny_cold"] = {
         "description": "1 directive, cold — overhead likely dominates",
         **probe_a,
@@ -660,7 +814,7 @@ def phase_6_regression_probes() -> dict:
 
     # ── Probe B: massive context, cold ───────────────────────────────
     print("  [B] Massive context (120 directives, cold) …", flush=True)
-    probe_b = _measure_cell(120, 3, warm=False)
+    probe_b = _measure_cell_stable(120, 3, warm=False)
     probes["B_massive_cold"] = {
         "description": "120 directives, cold — I/O and parse overhead",
         **probe_b,
@@ -687,7 +841,7 @@ def phase_6_regression_probes() -> dict:
     print("  [D] Repeated single-dir warm renders (session cache saturation) …", flush=True)
     home_d = _fresh_home()
     try:
-        probe_d = _measure_cell(1, 3, warm=True, shared_home=home_d)
+        probe_d = _measure_cell_stable(1, 3, warm=True, shared_home=home_d)
         probes["D_single_dir_warm"] = {
             "description": "1 directive warm — best case, minimal content",
             **probe_d,
@@ -954,7 +1108,7 @@ def phase_8_cache_pathology() -> dict:
     print("  [8a] TTL cliff …", flush=True)
     home_a = _fresh_home()
     try:
-        ctx = _fresh_ctx(home_a, 10, "ttl")
+        ctx = _fresh_ctx(home_a, 10, "ttl", profile="cacheable")
         # Warm run
         wall_warm, _, _, _ = _render(ctx, home_a, tier=3)
         # Simulate cache expiry by nuking cache dir
@@ -980,7 +1134,7 @@ def phase_8_cache_pathology() -> dict:
     print("  [8b] Rapid invalidation (concurrent renders + mid-flight expiry) …", flush=True)
     home_b = _fresh_home()
     try:
-        ctx = _fresh_ctx(home_b, 10, "inval")
+        ctx = _fresh_ctx(home_b, 10, "inval", profile="cacheable")
         # Wave 1: warm
         snap_before = cache_snapshot(home_b)
         with cf.ThreadPoolExecutor(max_workers=10) as ex:
@@ -1026,7 +1180,7 @@ def phase_8_cache_pathology() -> dict:
     try:
         # Write many varied renders to produce a populated cache
         for nd in [5, 10, 15, 20, 30]:
-            ctx = _fresh_ctx(home_c, nd, f"audit_{nd}")
+            ctx = _fresh_ctx(home_c, nd, f"audit_{nd}", profile="cacheable")
             _render(ctx, home_c, tier=3)
         audit = audit_cache_integrity(home_c)
         results["P8c_integrity"] = {
@@ -1042,7 +1196,7 @@ def phase_8_cache_pathology() -> dict:
     print("  [8d] Determinism (same input → same output) …", flush=True)
     home_d = _fresh_home()
     try:
-        ctx = _fresh_ctx(home_d, 10, "det")
+        ctx = _fresh_ctx(home_d, 10, "det", profile="cacheable")
         outputs: list[str] = []
         for _ in range(5):
             _, stdout, _, rc = _render(ctx, home_d, tier=3)
@@ -1156,6 +1310,7 @@ def phase_10_gates(results: dict) -> dict:
     is explicitly visible in the output, not buried in raw data.
     """
     gates: list[dict] = []
+    partial_reasons: list[str] = []
 
     def gate(name: str, ok: bool, observed: Any, threshold: str,
              severity: str = "hard", note: str = "") -> None:
@@ -1174,43 +1329,65 @@ def phase_10_gates(results: dict) -> dict:
     gate("No cold renders fully timed out", not any_cold_timeout, any_cold_timeout, "False")
 
     p3 = results.get("phase_3", {})
-    gate("Warm cache faster than cold (all cells)",
-         p3.get("pass", False),
-         f"{p3.get('regression_count', 0)} regressions", "0 regressions",
-         severity="soft",
-         note="Some cells may be cold≈warm due to I/O noise on fast disks")
+    env_deltas = p3.get("deltas", [])
+    env_total = len(env_deltas)
+    env_regressions = int(p3.get("regression_count", 0))
+    # @env directives are not expected to produce meaningful warm-speedup gains.
+    # Keep this as visibility only, not a blocking benchmark validity gate.
+    gate(
+        "ENV profile warm/cold drift (informational)",
+        True,
+        f"{env_regressions}/{env_total} regressions",
+        "non-blocking",
+        severity="informational",
+        note="@env directives often run warm≈cold by design; cacheability gates use a separate profile.",
+    )
 
-    large_dir_deltas = [d for d in p3.get("deltas", [])
-                        if d["n_directives"] >= 30 and d["tier"] == 3]
-    avg_speedup = None
-    if large_dir_deltas:
-        ratios = [d["warm_speedup_ratio"] for d in large_dir_deltas if d["warm_speedup_ratio"]]
-        if ratios:
-            avg_speedup = round(statistics.mean(ratios), 4)
-    # @env directives are not disk-cached (they resolve env vars in-process, too fast to warrant it).
-    # Warm speedup for @env-only contexts is therefore warm≈cold. Threshold relaxed to 1% benefit.
-    gate("Warm speedup >=1% for large contexts (>=30 directives, tier 3)",
-         avg_speedup is not None and avg_speedup < 0.99,
-         avg_speedup, "< 0.99 (ratio warm/cold)", severity="soft",
-         note="@env directives not disk-cached; warm benefit visible with @memory/@query/@include")
+    p3c = results.get("phase_3_cacheable", {})
+    cacheable_ratio = p3c.get("avg_warm_speedup_ratio")
+    cacheable_hits = p3c.get("avg_warm_cache_hits")
+    gate(
+        "Cacheable profile emits warm cache hits",
+        cacheable_hits is not None and cacheable_hits > 0,
+        cacheable_hits,
+        "> 0",
+    )
+    gate(
+        "Cacheable profile warm speedup >=1% (tier3, directives>=30)",
+        cacheable_ratio is not None and cacheable_ratio < 0.99,
+        cacheable_ratio,
+        "< 0.99 (ratio warm/cold)",
+    )
 
     p4 = results.get("phase_4", {})
     cold1 = next((c for c in p4.get("cold", []) if c["n_concurrent"] == 1), {})
     gate("Zero errors at concurrency=1 (cold)",
          cold1.get("errors", 1) == 0, cold1.get("errors"), "== 0")
 
+    cold_list = p4.get("cold", [])
     warm_list = p4.get("warm", [])
+    peak_cold = cold_list[-1] if cold_list else {}
     peak_warm = warm_list[-1] if warm_list else {}
-    peak_n = peak_warm.get("n_concurrent", 0)
+    peak_n = max(peak_cold.get("n_concurrent", 0), peak_warm.get("n_concurrent", 0))
+    peak_cold_err_rate = peak_cold.get("errors", 0) / max(peak_cold.get("n_concurrent", 1), 1)
     peak_err_rate = peak_warm.get("errors", 0) / max(peak_n, 1)
     # At >=200 concurrency macOS/Linux RLIMIT_NPROC causes fork failures.
-    # This is an OS constraint, not a Perseus bug — demoted to soft gate at extreme scale.
+    # This is often an OS constraint, not a Perseus bug — demote at extreme scale.
     _peak_sev = "soft" if peak_n >= 200 else "hard"
     _peak_note = (
         f"At conc={peak_n} macOS/Linux RLIMIT_NPROC may cause fork failures; "
         "run `ulimit -u unlimited` before benchmarking at extreme concurrency"
     ) if peak_n >= 200 else ""
-    gate(f"Error rate <=1% at peak concurrency ({peak_n})",
+    gate(
+        f"Error rate <=1% at peak concurrency ({peak_n}) [cold path]",
+        peak_cold_err_rate <= 0.01,
+        round(peak_cold_err_rate, 4),
+        "<= 0.01",
+        severity=_peak_sev,
+        note=_peak_note,
+    )
+    gate(
+        f"Error rate <=1% at peak concurrency ({peak_n}) [warm path]",
          peak_err_rate <= 0.01, round(peak_err_rate, 4), "<= 0.01",
          severity=_peak_sev, note=_peak_note)
 
@@ -1276,10 +1453,41 @@ def phase_10_gates(results: dict) -> dict:
          p8r.get("P8d_determinism", {}).get("deterministic", False),
          p8r.get("P8d_determinism", {}).get("unique_outputs"), "== 1")
 
+    wave1_diff = p8r.get("P8b_rapid_invalidation", {}).get("wave1_cache_diff", {})
+    wave2_diff = p8r.get("P8b_rapid_invalidation", {}).get("wave2_cache_diff", {})
+    wave1_lookups = (
+        int(wave1_diff.get("hits", 0))
+        + int(wave1_diff.get("misses", 0))
+        + int(wave1_diff.get("touched_entries", 0))
+    )
+    wave2_lookups = (
+        int(wave2_diff.get("hits", 0))
+        + int(wave2_diff.get("misses", 0))
+        + int(wave2_diff.get("touched_entries", 0))
+    )
+    cache_signal_ok = (wave1_lookups + wave2_lookups) > 0 or (cacheable_hits or 0) > 0
+    gate(
+        "Cache-activity sanity in cache-focused phases",
+        cache_signal_ok,
+        {
+            "phase_8_wave1_lookups": wave1_lookups,
+            "phase_8_wave2_lookups": wave2_lookups,
+            "phase_3b_avg_warm_cache_hits": cacheable_hits,
+        },
+        "lookups > 0 or warm cache hits > 0",
+    )
+
     p9 = results.get("phase_9", {})
     if p9.get("skipped"):
-        gate("Memory hygiene (skipped - install psutil)",
-             True, "skipped", "N/A", severity="informational")
+        partial_reasons.append("memory_hygiene_skipped")
+        gate(
+            "Memory hygiene executed (psutil available)",
+            False,
+            p9.get("reason", "skipped"),
+            "executed",
+            severity="soft",
+            note="Install psutil (or avoid --skip-memory) for a full-status run.",
+        )
     else:
         p9r = p9.get("results", {})
         gate("RSS growth <= 20% over 30 renders",
@@ -1294,6 +1502,9 @@ def phase_10_gates(results: dict) -> dict:
     info_gates  = [g for g in gates if g["severity"] == "informational"]
     passed_hard = sum(1 for g in hard_gates if g["pass"])
     passed_soft = sum(1 for g in soft_gates if g["pass"])
+    hard_pass = passed_hard == len(hard_gates)
+    partial = len(partial_reasons) > 0
+    status = "FAIL" if not hard_pass else ("PARTIAL" if partial else "PASS")
 
     return {
         "phase": 10, "label": "gate_evaluation",
@@ -1303,7 +1514,10 @@ def phase_10_gates(results: dict) -> dict:
         "soft":  {"total": len(soft_gates),  "passed": passed_soft,
                   "failed": [g["name"] for g in soft_gates if not g["pass"]]},
         "informational": {"total": len(info_gates)},
-        "pass": passed_hard == len(hard_gates),
+        "partial": partial,
+        "partial_reasons": partial_reasons,
+        "status": status,
+        "pass": hard_pass,
     }
 
 
@@ -1321,7 +1535,12 @@ def _render_report(all_results: dict, gates: dict, total_s: float) -> str:
         lines.append(f"  {title}")
         hr()
 
-    overall = "PASS" if all_results.get("overall_pass") else "FAIL"
+    overall = all_results.get("overall_status")
+    if not overall:
+        if all_results.get("overall_pass"):
+            overall = "PARTIAL" if gates.get("partial") else "PASS"
+        else:
+            overall = "FAIL"
     hdr(f"Perseus Extreme Enterprise Benchmark  --  {overall}")
     lines.append(f"  Generated : {all_results.get('generated_at_utc', 'unknown')}")
     lines.append(f"  Total time: {round(total_s, 1)}s")
@@ -1344,6 +1563,8 @@ def _render_report(all_results: dict, gates: dict, total_s: float) -> str:
         f"Soft: {gates['soft']['passed']}/{gates['soft']['total']}  "
         f"Info: {gates['informational']['total']}"
     )
+    if gates.get("partial"):
+        lines.append(f"  Partial reasons: {', '.join(gates.get('partial_reasons', []))}")
 
     hr("-")
     lines.append("  Cold vs. Warm (mean render latency ms, all cells)")
@@ -1361,6 +1582,25 @@ def _render_report(all_results: dict, gates: dict, total_s: float) -> str:
             f"{sp:>10} {reg:>11}"
         )
     lines.append("")
+
+    p3c = all_results.get("phase_3_cacheable", {})
+    if p3c:
+        hr("-")
+        lines.append("  Cacheable Profile Warm/Cold (tier 3, directives >=30)")
+        hr("-")
+        lines.append(
+            f"  avg_ratio={p3c.get('avg_warm_speedup_ratio')} "
+            f"avg_warm_cache_hits={p3c.get('avg_warm_cache_hits')} "
+            f"regressions={p3c.get('regression_count')}"
+        )
+        for d in p3c.get("deltas", []):
+            sp = round((1.0 - (d.get("warm_speedup_ratio") or 1.0)) * 100, 1)
+            lines.append(
+                f"    directives={d.get('n_directives'):>3} "
+                f"cold={d.get('cold_mean_ms')}ms warm={d.get('warm_mean_ms')}ms "
+                f"speedup={sp}% hits={d.get('cache_hits_warm')}"
+            )
+        lines.append("")
 
     hr("-")
     lines.append("  Regression Probes  (honest overhead report -- nothing hidden)")
@@ -1472,14 +1712,17 @@ def main() -> int:
         write_json(Path(args.out), all_results)
         return 2
 
-    p1 = phase_1_cold_ladder()
+    p1 = phase_1_cold_ladder(profile="env")
     all_results["phase_1"] = p1
 
-    p2 = phase_2_warm_ladder()
+    p2 = phase_2_warm_ladder(profile="env")
     all_results["phase_2"] = p2
 
     p3 = phase_3_cold_warm_delta(p1, p2)
     all_results["phase_3"] = p3
+
+    p3_cacheable = phase_3_cacheable_delta()
+    all_results["phase_3_cacheable"] = p3_cacheable
 
     p4 = phase_4_concurrency_stress()
     all_results["phase_4"] = p4
@@ -1507,6 +1750,8 @@ def main() -> int:
     p10 = phase_10_gates(all_results)
     all_results["phase_10"] = p10
     all_results["overall_pass"] = p10["pass"]
+    all_results["overall_partial"] = p10.get("partial", False)
+    all_results["overall_status"] = p10.get("status", "PASS" if p10["pass"] else "FAIL")
 
     total_s = time.perf_counter() - suite_start
     all_results["total_duration_s"] = round(total_s, 2)

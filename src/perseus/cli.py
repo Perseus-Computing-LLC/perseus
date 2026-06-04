@@ -6,7 +6,7 @@ def main():
         prog="perseus",
         description=f"Perseus — Live Context Engine for AI Assistants (v{_PERSEUS_VERSION})",
     )
-    parser.add_argument("--version", action="version", version=f"perseus v{_PERSEUS_VERSION}")
+    parser.add_argument("--version", action="version", version=f"perseus v{_PERSEUS_VERSION} — Patent Pending")
     sub = parser.add_subparsers(dest="command", required=True)
 
     # render
@@ -32,6 +32,12 @@ def main():
         help="Context tier limit: 1=always (minimal), 2=conditional, 3=all. "
              "Directives above this tier are skipped and reported in a manifest. "
              "(default: 3 — everything resolves)",
+    )
+    p_render.add_argument(
+        "--explain", action="store_true",
+        help="Emit a directive execution manifest (JSON) instead of rendered output. "
+             "Shows directives, cache hits/misses, durations, warnings, and skipped "
+             "tiered directives.",
     )
 
     # watch (Phase 20C)
@@ -199,13 +205,17 @@ def main():
     p_mem_idx = mem_sub.add_parser("index", help="Manage the FTS5 search index")
     idx_sub = p_mem_idx.add_subparsers(dest="index_command", required=True)
     p_idx_stats = idx_sub.add_parser("stats", help="Show index statistics")
+    p_idx_stats.add_argument("--json", action="store_true", help="Machine-readable JSON output")
     p_idx_rebuild = idx_sub.add_parser("rebuild", help="Rebuild index from vault")
     p_idx_rebuild.add_argument("--force", action="store_true", help="Re-index all files even if unchanged")
+    p_idx_rebuild.add_argument("--json", action="store_true", help="Machine-readable JSON output")
     p_idx_search = idx_sub.add_parser("search", help="Debug: search the index directly")
     p_idx_search.add_argument("--query", required=True, help="Search query")
     p_idx_search.add_argument("--k", type=int, default=5, help="Max results (1-20)")
     p_idx_search.add_argument("--scope", default=None, help="Filter by scope")
     p_idx_search.add_argument("--type", default=None, help="Filter by memory type")
+    p_idx_search.add_argument("--sensitivity", default=None, help="Filter by sensitivity (team, private, public)")
+    p_idx_search.add_argument("--json", action="store_true", help="Machine-readable JSON output")
 
     # init
     p_init = sub.add_parser("init", help="Scaffold .perseus/context.md for a new workspace")
@@ -267,35 +277,47 @@ def main():
     p_serve.add_argument("--allow-lsp-mutations", action="store_true", dest="allow_lsp_mutations", help="Allow LSP executeCommand handlers that mutate Perseus state")
 
     # cron (POSIX scheduling)
-    p_cron = sub.add_parser("cron", help="Generate a POSIX crontab entry for periodic rendering")
-    p_cron.add_argument("source", help="Path to Perseus source file")
-    p_cron.add_argument("--output", "-o", required=True, help="Rendered output path")
-    p_cron.add_argument("--every", default="5",
+    p_cron = sub.add_parser("cron", help="Generate or remove a POSIX crontab entry for periodic rendering")
+    cron_sub = p_cron.add_subparsers(dest="cron_command")
+    p_cron_create = cron_sub.add_parser("create", help="Generate a crontab entry")
+    p_cron_create.add_argument("source", help="Path to Perseus source file")
+    p_cron_create.add_argument("--output", "-o", required=True, help="Rendered output path")
+    p_cron_create.add_argument("--every", default="5",
                         help="Minutes between renders (default: 5). Accepts '5', '15', '60'.")
-    p_cron.add_argument("--install", action="store_true",
+    p_cron_create.add_argument("--install", action="store_true",
                         help="Append the entry to the current user's crontab (uses `crontab -l` + `crontab -`)")
+    p_cron_uninstall = cron_sub.add_parser("uninstall", help="Remove a crontab entry")
+    p_cron_uninstall.add_argument("source", help="Path to Perseus source file to remove from crontab")
 
     # launchd
-    p_launchd = sub.add_parser("launchd", help="Scaffold a macOS LaunchAgent for periodic rendering")
-    p_launchd.add_argument("source", help="Path to Perseus source file")
-    p_launchd.add_argument("--output", "-o", required=True, help="Rendered output path")
-    p_launchd.add_argument("--interval", type=int, default=300,
+    p_launchd = sub.add_parser("launchd", help="Scaffold or remove a macOS LaunchAgent for periodic rendering")
+    launchd_sub = p_launchd.add_subparsers(dest="launchd_command")
+    p_launchd_create = launchd_sub.add_parser("create", help="Create a LaunchAgent plist")
+    p_launchd_create.add_argument("source", help="Path to Perseus source file")
+    p_launchd_create.add_argument("--output", "-o", required=True, help="Rendered output path")
+    p_launchd_create.add_argument("--interval", type=int, default=300,
                            help="Render interval in seconds (default: 300)")
-    p_launchd.add_argument("--label", default=None,
+    p_launchd_create.add_argument("--label", default=None,
                            help="launchd label (default: com.perseus.render.<source-stem>)")
-    p_launchd.add_argument("--force", action="store_true",
+    p_launchd_create.add_argument("--force", action="store_true",
                            help="Overwrite existing plist")
+    p_launchd_uninstall = launchd_sub.add_parser("uninstall", help="Remove a LaunchAgent plist")
+    p_launchd_uninstall.add_argument("--label", required=True, help="launchd label to remove")
 
     # systemd (Linux)
-    p_systemd = sub.add_parser("systemd", help="Scaffold a user-space systemd timer for periodic rendering")
-    p_systemd.add_argument("source", help="Path to Perseus source file")
-    p_systemd.add_argument("--output", "-o", required=True, help="Rendered output path")
-    p_systemd.add_argument("--interval", default="5m",
+    p_systemd = sub.add_parser("systemd", help="Scaffold or remove a user-space systemd timer for periodic rendering")
+    systemd_sub = p_systemd.add_subparsers(dest="systemd_command")
+    p_systemd_create = systemd_sub.add_parser("create", help="Create systemd timer + service units")
+    p_systemd_create.add_argument("source", help="Path to Perseus source file")
+    p_systemd_create.add_argument("--output", "-o", required=True, help="Rendered output path")
+    p_systemd_create.add_argument("--interval", default="5m",
                            help="Render interval (e.g. '5m', '2h'); systemd time spec also accepted")
-    p_systemd.add_argument("--install", action="store_true",
+    p_systemd_create.add_argument("--install", action="store_true",
                            help="Write unit files to ~/.config/systemd/user/ and print activation commands")
-    p_systemd.add_argument("--enable", action="store_true",
+    p_systemd_create.add_argument("--enable", action="store_true",
                            help="When combined with --install, run systemctl --user daemon-reload/enable/start")
+    p_systemd_uninstall = systemd_sub.add_parser("uninstall", help="Remove systemd timer + service units")
+    p_systemd_uninstall.add_argument("source", help="Path to Perseus source file")
 
     # health (Daedalus v1)
     p_health = sub.add_parser("health", help="Context maintenance heuristics report")
@@ -316,6 +338,18 @@ def main():
     p_trust_audit.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     p_trust.add_argument("--json", action="store_true", help="Output machine-readable JSON")
 
+
+    # audit (Phase 26 — audit log viewer)
+    p_audit = sub.add_parser("audit", help="Query and inspect the Perseus audit log")
+    audit_sub = p_audit.add_subparsers(dest="audit_command", required=False)
+    p_audit_show = audit_sub.add_parser("show", help="Show recent audit entries")
+    p_audit_show.add_argument("--since", default=None, metavar="DURATION",
+                              help="Show entries since: 24h, 7d, 30m, or ISO timestamp")
+    p_audit_show.add_argument("--event", default=None, metavar="TYPE",
+                              help="Filter by event type (e.g. shell_exec, policy_denied)")
+    p_audit_show.add_argument("--tail", type=int, default=20,
+                              help="Number of entries to show (default: 20)")
+    p_audit_stats = audit_sub.add_parser("stats", help="Show audit event type counts")
     # update (self-update from git)
     p_update = sub.add_parser("update", help="Check for and apply Perseus updates from git")
     p_update.add_argument("--apply", action="store_true",
@@ -324,6 +358,13 @@ def main():
                           help="Dry run: show available updates without applying")
     p_update.add_argument("--auto", default=None, metavar="on|off",
                           help="Toggle auto-update on/off and persist to config")
+    p_update.add_argument("--skip-signature-check", action="store_true",
+                          help="Skip GPG signature verification during update (dev only)")
+
+    # warmup (pre-populate cache)
+    p_warmup = sub.add_parser("warmup", help="Pre-populate render cache for a context file")
+    p_warmup.add_argument("source", help="Path to .md file with @perseus header")
+    p_warmup.add_argument("--workspace", default=None, help="Workspace path (default: inferred)")
 
     # oracle (Daedalus dataset / labeling)
     p_oracle = sub.add_parser("oracle", help="Pythia log labeling and dataset export")
@@ -358,7 +399,15 @@ def main():
     p_oracle_drift = oracle_sub.add_parser("drift", help="Report drift in recent Pythia behavior vs baseline")
     p_oracle_drift.add_argument("--json", action="store_true", help="Machine-readable JSON output")
 
-    # `perseus llm ping` — verify the configured LLM provider is reachable.
+    # quickstart (Track B — one-command bootstrap)
+    p_quickstart = sub.add_parser("quickstart", help="One-command bootstrap: scaffold, configure, verify")
+    p_quickstart.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
+    p_quickstart.add_argument("--non-interactive", action="store_true",
+                              help="Skip interactive LLM prompts — auto-detect env keys only")
+    p_quickstart.add_argument("--no-llm", action="store_true",
+                              help="Skip LLM backend detection entirely")
+
+    # llm ping — verify the configured LLM provider is reachable.
     p_llm = sub.add_parser("llm", help="LLM provider utilities (ping)")
     llm_sub = p_llm.add_subparsers(dest="llm_sub")
     p_llm_ping = llm_sub.add_parser("ping", help="Send a no-op prompt to verify reachability")
@@ -399,11 +448,25 @@ def main():
     elif args.command == "inbox":
         cmd_inbox(args, cfg)
     elif args.command == "serve":
-        rc = cmd_serve(args, cfg)
+        # v1.0.5 review: reload with workspace so auth tokens,
+        # trust profiles, MCP SSE tokens, and tool allowlists work.
+        ws = getattr(args, "workspace", None)
+        srv_cfg = load_config(Path(ws).expanduser().resolve()) if ws else cfg
+        rc = cmd_serve(args, srv_cfg)
         if isinstance(rc, int):
             return rc
     elif args.command == "cron":
         cmd_cron(args, cfg)
+    elif args.command == "launchd":
+        if getattr(args, "launchd_command", None) == "uninstall":
+            cmd_launchd_uninstall(args, cfg)
+        else:
+            cmd_launchd(args, cfg)
+    elif args.command == "systemd":
+        if getattr(args, "systemd_command", None) == "uninstall":
+            cmd_systemd_uninstall(args, cfg)
+        else:
+            cmd_systemd(args, cfg)
     elif args.command == "systemd":
         cmd_systemd(args, cfg)
     elif args.command == "health":
@@ -412,8 +475,12 @@ def main():
         return cmd_doctor(args, cfg)
     elif args.command == "trust":
         return cmd_trust(args, cfg)
+    elif args.command == "audit":
+        return cmd_audit(args, cfg)
     elif args.command == "update":
         return cmd_update(args, cfg)
+    elif args.command == "warmup":
+        cmd_warmup(args, cfg)
     elif args.command == "oracle":
         rc = cmd_oracle(args, cfg)
         if isinstance(rc, int):
@@ -422,12 +489,18 @@ def main():
         return cmd_llm(args, cfg)
     elif args.command == "init":
         cmd_init(args, cfg)
+    elif args.command == "quickstart":
+        return cmd_quickstart(args, cfg)
     elif args.command == "launchd":
         cmd_launchd(args, cfg)
     elif args.command == "install":
         return cmd_install(args, cfg)
     elif args.command == "mcp":
-        return cmd_mcp(args, cfg)
+        # v1.0.5 review: reload with workspace so MCP SSE tokens
+        # and tool allowlists work.
+        ws = getattr(args, "workspace", None)
+        mcp_cfg = load_config(Path(ws).expanduser().resolve()) if ws else cfg
+        return cmd_mcp(args, mcp_cfg)
 
 
 # Module-level call: runs at import time so render_source() and other

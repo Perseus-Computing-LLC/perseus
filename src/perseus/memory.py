@@ -32,25 +32,24 @@ def _mneme_index_path(cfg: dict) -> Path:
 
 def _mneme_recall(cfg: dict, query: str, k: int = 5,
                    scope: str | None = None,
-                   type_filter: str | None = None) -> list[dict]:
+                   type_filter: str | None = None,
+                   sensitivity: str | None = None) -> list[dict]:
     """Recall memories via SQLite FTS5 BM25 index.
 
     Uses a process-lifetime cached connection (WAL mode handles concurrency).
-    Lazily builds the index if empty (first-call initialization).
+    Refreshes the incremental index before searching so newly added, changed,
+    corrupt, renamed, or deleted vault files cannot leave recall stale.
     Falls back to empty list on any failure.
     """
     conn = _mneme_open_index(cfg)
     if conn is None:
         return []
     try:
-        # Lazy init: build index if no documents indexed yet
+        _mneme_build_index(cfg)
         count = conn.execute("SELECT COUNT(*) FROM mneme_fts").fetchone()[0]
         if count == 0:
-            _mneme_build_index(cfg)
-            count = conn.execute("SELECT COUNT(*) FROM mneme_fts").fetchone()[0]
-            if count == 0:
-                return []
+            return []
 
-        return _mneme_search(conn, query, k, scope, type_filter)
+        return _mneme_search(conn, query, k, scope, type_filter, sensitivity)
     except Exception:
         return []

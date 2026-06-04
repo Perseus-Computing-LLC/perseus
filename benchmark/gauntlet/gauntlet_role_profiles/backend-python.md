@@ -1,39 +1,39 @@
 @perseus v0.8
 @prompt You are a simulated backend python working inside a large enterprise.
 
-@query "git log --oneline -5" @cache ttl=300
-@query "python3 --version" @cache ttl=300
-@query "pip --version" @cache ttl=300
-@query "pytest --version" @cache ttl=300
-@query "mypy --version" @cache ttl=300
-@query "ruff --version" @cache ttl=300
-@query "black --version" @cache ttl=300
-@query "isort --version" @cache ttl=300
-@query "flake8 --version" @cache ttl=300
-@query "bandit --version" @cache ttl=300
-@query "safety --version" @cache ttl=300
-@query "poetry --version" @cache ttl=300
-@query "pip-compile --version" @cache ttl=300
-@query "pip-sync --version" @cache ttl=300
-@query "uv --version" @cache ttl=300
-@query "nox --version" @cache ttl=300
-@query "tox --version" @cache ttl=300
-@query "coverage --version" @cache ttl=300
-@query "pypistats --version" @cache ttl=300
-@query "ls -la src/" @cache ttl=300
-@query "ls -la tests/" @cache ttl=300
-@query "wc -l src/**/*.py 2>/dev/null" @cache ttl=300
-@query "wc -l tests/**/*.py 2>/dev/null" @cache ttl=300
-@query "cat pyproject.toml | head -30" @cache ttl=300
-@query "cat setup.cfg 2>/dev/null" @cache ttl=300
-@query "cat setup.py 2>/dev/null" @cache ttl=300
-@query "cat pyproject.toml" @cache ttl=300
-@query "cat .pre-commit-config.yaml" @cache ttl=300
-@query "pip list --format=columns | head -30" @cache ttl=300
-@query "pip list --outdated --format=columns | head -20" @cache ttl=300
-@query "pytest --collect-only -q tests/" @cache ttl=300
-@query "mypy src/" @cache ttl=300
-@query "ruff check src/" @cache ttl=300
+@query "git log --oneline -5" timeout=5 @cache ttl=86400
+@query "python3 --version" timeout=5 @cache ttl=86400
+@query "pip --version" timeout=5 @cache ttl=86400
+@query "pytest --version" timeout=5 @cache ttl=86400
+@query "mypy --version" timeout=5 @cache ttl=86400
+@query "ruff --version" timeout=5 @cache ttl=86400
+@query "black --version" timeout=5 @cache ttl=86400
+@query "isort --version" timeout=5 @cache ttl=86400
+@query "flake8 --version" timeout=5 @cache ttl=86400
+@query "bandit --version" timeout=5 @cache ttl=86400
+@query "safety --version" timeout=5 @cache ttl=86400
+@query "poetry --version" timeout=5 @cache ttl=86400
+@query "pip-compile --version" timeout=5 @cache ttl=86400
+@query "pip-sync --version" timeout=5 @cache ttl=86400
+@query "uv --version" timeout=5 @cache ttl=86400
+@query "nox --version" timeout=5 @cache ttl=86400
+@query "tox --version" timeout=5 @cache ttl=86400
+@query "coverage --version" timeout=5 @cache ttl=86400
+@query "pypistats --version" timeout=5 @cache ttl=86400
+@query "ls -la src/" timeout=5 @cache ttl=86400
+@query "ls -la tests/" timeout=5 @cache ttl=86400
+@query "wc -l src/**/*.py 2>/dev/null" timeout=5 @cache ttl=86400
+@query "wc -l tests/**/*.py 2>/dev/null" timeout=5 @cache ttl=86400
+@query "cat pyproject.toml | head -30" timeout=5 @cache ttl=86400
+@query "cat setup.cfg 2>/dev/null" timeout=5 @cache ttl=86400
+@query "cat setup.py 2>/dev/null" timeout=5 @cache ttl=86400
+@query "cat pyproject.toml" timeout=5 @cache ttl=86400
+@query "cat .pre-commit-config.yaml" timeout=5 @cache ttl=86400
+@query "pip list --format=columns | head -30" timeout=5 @cache ttl=86400
+@query "pip list --outdated --format=columns | head -20" timeout=5 @cache ttl=86400
+@query "pytest --collect-only -q tests/" timeout=5 @cache ttl=86400
+@query "mypy src/" timeout=5 @cache ttl=86400
+@query "ruff check src/" timeout=5 @cache ttl=86400
 @services
   - name: api-blue
     url: http://localhost:8000/health

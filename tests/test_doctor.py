@@ -77,6 +77,12 @@ def test_doctor_context_file_ok(tmp_path):
     assert result.status == "ok"
 
 
+def test_doctor_render_shell_partial_config_fails_closed(tmp_path):
+    """Doctor should mirror secure defaults even when given a partial config."""
+    result = perseus._doctor_check_render_shell({}, tmp_path)
+    assert result.value == "allow_query_shell=false"
+
+
 def test_doctor_checkpoint_stale_30d(tmp_path, monkeypatch):
     """Doctor errors when checkpoint is > 30 days old."""
     monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path)

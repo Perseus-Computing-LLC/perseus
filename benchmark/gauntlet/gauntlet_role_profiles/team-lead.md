@@ -1,33 +1,33 @@
 @perseus v0.8
 @prompt You are a simulated team lead working inside a large enterprise.
 
-@query "git log --oneline -10" @cache ttl=300
-@query "git shortlog -sn --all" @cache ttl=300
-@query "git branch -a" @cache ttl=300
-@query "gh --version" @cache ttl=300
-@query "jira --version 2>/dev/null" @cache ttl=300
-@query "cat .github/CODEOWNERS" @cache ttl=300
-@query "cat CONTRIBUTING.md" @cache ttl=300
-@query "cat CODE_OF_CONDUCT.md" @cache ttl=300
-@query "ls -la .github/" @cache ttl=300
-@query "cat .github/ISSUE_TEMPLATE/" @cache ttl=300
-@query "gh pr list --state open --limit 10" @cache ttl=300
-@query "gh pr list --state merged --limit 5" @cache ttl=300
-@query "gh issue list --state open --limit 10" @cache ttl=300
-@query "gh issue list --label blocked --limit 5" @cache ttl=300
-@query "gh release list --limit 5" @cache ttl=300
-@query "gh api repos/:owner/:repo/branches" @cache ttl=300
-@query "gh api repos/:owner/:repo/stats/contributors" @cache ttl=300
-@query "gh api repos/:owner/:repo/stats/code_frequency" @cache ttl=300
-@query "gh api repos/:owner/:repo/stats/commit_activity" @cache ttl=300
-@query "gh api repos/:owner/:repo/stats/participation" @cache ttl=300
-@query "curl -s https://api.github.com/repos/tcconnally/perseus" @cache ttl=300
-@query "gh run list --limit 10" @cache ttl=300
-@query "gh run list --status failed --limit 5" @cache ttl=300
-@query "cat ROADMAP.md" @cache ttl=300
-@query "ls -la tasks/" @cache ttl=300
-@query "wc -l tasks/*.md 2>/dev/null" @cache ttl=300
-@query "cat .github/milestones.yml 2>/dev/null" @cache ttl=300
+@query "git log --oneline -10" timeout=5 @cache ttl=86400
+@query "git shortlog -sn --all" timeout=5 @cache ttl=86400
+@query "git branch -a" timeout=5 @cache ttl=86400
+@query "gh --version" timeout=5 @cache ttl=86400
+@query "jira --version 2>/dev/null" timeout=5 @cache ttl=86400
+@query "cat .github/CODEOWNERS" timeout=5 @cache ttl=86400
+@query "cat CONTRIBUTING.md" timeout=5 @cache ttl=86400
+@query "cat CODE_OF_CONDUCT.md" timeout=5 @cache ttl=86400
+@query "ls -la .github/" timeout=5 @cache ttl=86400
+@query "cat .github/ISSUE_TEMPLATE/" timeout=5 @cache ttl=86400
+@query "gh pr list --state open --limit 10" timeout=5 @cache ttl=86400
+@query "gh pr list --state merged --limit 5" timeout=5 @cache ttl=86400
+@query "gh issue list --state open --limit 10" timeout=5 @cache ttl=86400
+@query "gh issue list --label blocked --limit 5" timeout=5 @cache ttl=86400
+@query "gh release list --limit 5" timeout=5 @cache ttl=86400
+@query "gh api repos/:owner/:repo/branches" timeout=5 @cache ttl=86400
+@query "gh api repos/:owner/:repo/stats/contributors" timeout=5 @cache ttl=86400
+@query "gh api repos/:owner/:repo/stats/code_frequency" timeout=5 @cache ttl=86400
+@query "gh api repos/:owner/:repo/stats/commit_activity" timeout=5 @cache ttl=86400
+@query "gh api repos/:owner/:repo/stats/participation" timeout=5 @cache ttl=86400
+@query "curl -s https://api.github.com/repos/tcconnally/perseus" timeout=5 @cache ttl=86400
+@query "gh run list --limit 10" timeout=5 @cache ttl=86400
+@query "gh run list --status failed --limit 5" timeout=5 @cache ttl=86400
+@query "cat ROADMAP.md" timeout=5 @cache ttl=86400
+@query "ls -la tasks/" timeout=5 @cache ttl=86400
+@query "wc -l tasks/*.md 2>/dev/null" timeout=5 @cache ttl=86400
+@query "cat .github/milestones.yml 2>/dev/null" timeout=5 @cache ttl=86400
 @services
   - name: jira
     url: http://localhost:8080/health

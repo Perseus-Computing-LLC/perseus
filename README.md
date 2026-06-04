@@ -25,11 +25,15 @@ Perseus is a **live context engine and MCP server** for AI assistants, eliminati
 
 ```bash
 pip install perseus-ctx
-perseus init /workspace/myproject
-perseus render .perseus/context.md --output CLAUDE.md
+cd your-project
+perseus quickstart                  # One command from zero to working
 ```
 
 Works with any MCP-compatible assistant: Claude Desktop, Claude Code, Cursor, Codex, Hermes Agent, and Rovo Dev.
+
+> 📖 **New to Perseus?** Read [QUICKSTART.md](./QUICKSTART.md) for a 2-minute setup guide with free LLM backends.
+> 🔌 **Wiring Perseus into your workflow?** Read [WIRING.md](./WIRING.md) for MCP server, editor hooks, live auto-refresh, systemd/cron, and context packs.
+> 📖 **New to Perseus?** Read [QUICKSTART.md](./QUICKSTART.md) for a 2-minute setup guide with free LLM backends, editor integration, and CI/CD examples.
 
 ---
 
@@ -146,7 +150,8 @@ Published as [`io.github.tcconnally/perseus`](https://registry.modelcontextproto
 
 ### MCP Tools
 
-All 24 MCP tools resolve live state at invocation time:
+<!-- test-count: 813 -->
+24 MCP tools resolve live state at invocation time. Two sensitive tools (`perseus_query` and `perseus_agent`) require explicit `mcp.tool_allowlist` opt-in because they execute commands in the user's local shell — **not sandboxed, full user permissions apply**:
 
 | Tool | Description |
 |---|---|
@@ -245,8 +250,8 @@ Perseus delivers verified, up-to-date context, eliminating the need for AI assis
 ### Performance & Efficiency
 
 - **1,190× cold→warm gap** — Real-world scenario using the Perseus repo itself as the benchmark target. At the 1,408 directive scale, the cold render took **578.7s**, while the warm render took **0.486s**. [Raw data →](benchmark/real_deltas.json)
-- **Mnēmē persistent memory** — In-process BM25 recall, zero daemon. **37ms search P50 at 10,000 docs**, flat across all scales. Perseus `@mneme` renders: **54× cold→warm speedup** with @cache. **2,700 docs/sec** write throughput, **0.4ms P50** saves. [Full results →](benchmark/mneme_hardcore.json)
-- **93% token reduction, 0ms overhead** — live 200-request A/B harness: 488 → 27 avg prompt tokens per request. P99 latency overhead: **0ms** — Perseus adds nothing to response time. [Full harness results →](benchmark/ultimate_suite_results.json)
+- **Mnēmē persistent memory** — In-process BM25 recall, zero daemon. **37ms search P50 at 10,000 docs**, flat across all scales. Perseus `@mneme` renders: **51× cold→warm speedup** with @cache. **2,700 docs/sec** write throughput, **0.4ms P50** saves. [Full results →](benchmark/mneme_hardcore.json)
+- **94% token reduction, 0ms overhead** — live 200-request A/B harness: 488 → 27 avg prompt tokens per request. P99 latency overhead: **0ms** — Perseus adds nothing to response time. [Full harness results →](benchmark/ultimate_suite_results.json)
 - **Enterprise Ready** — Cost analysis shows that for a 500-developer team, Perseus can save significant token costs per year. [Cost analysis →](benchmark/titan_cost.json)
 - **Extreme Enterprise Benchmark** — 10-phase suite (reps=10, 50 devs, 250 concurrent agents): **10/10 hard gates · 6/6 soft gates · 0 errors at 250 concurrent · 90% enterprise ROI · fleet P99 1,169ms**. The benchmark is designed to surface regressions, not hide them. [Full methodology →](benchmark/README_EXTREME.md) · [Raw results →](benchmark/extreme_enterprise_results_full.json)
 
@@ -258,6 +263,8 @@ Perseus is tested against edge cases that challenge the "resolve before context"
 
 - **MCP SSE bearer-token auth** — `POST /message` requires Bearer token via `mcp.sse_bearer_token` config key (falls back to `serve.auth_token` for backward compat). Unauthenticated requests receive 401.
 - **Platform-portable MCP timeout** — `_call_tool()` uses `ThreadPoolExecutor` + `Future.result(timeout=...)` instead of Unix-only SIGALRM. Works on Windows, macOS, and Linux.
+
+**Platform support:** Perseus is developed and CI-tested on Linux (Ubuntu, Python 3.10–3.12). macOS is supported but not in CI. Windows is supported with caveats: the MCP transport and core render pipeline work cross-platform, but approximately 8% of the test suite currently fails on Windows due to POSIX-specific shell assumptions, path handling differences, and missing `select` support in the LSP module. Native Windows scheduling (Task Scheduler) is deferred — use WSL cron or invoke `perseus render` from your own scheduler. Windows improvements are tracked but not the primary target.
 - **Foreign resolver SSRF protection** — URL allowlist via `foreign_resolver.url_allowlist`, private-IP blocking (`block_private_ips`, default true), HMAC signature verification (`verify_signatures` now defaults to true, minimum 32-char secret). Redirects re-check destination IPs. Localhost (127.0.0.1, ::1) explicitly allowed for local testing.
 
 - **14/14 hard gates passed** — The ultimate benchmark suite, including swarm chaos, cache thrash, and adversarial tests, passed all gates. [Full results →](benchmark/ultimate_suite_results.json)
@@ -339,8 +346,8 @@ Next: run pytest tests/test_webhook.py
 
 ## Project Memory
 ### Recent
-- 2026-05-26: Shipped MCP deep integration (Phase 25). All 24 directives exposed as MCP tools.
-- 2026-05-25: Deployed Perseus v1.0.5 to PyPI. Edge-case test suite at 753 tests.
+- 2026-05-27: Shipped MCP deep integration (Phase 25). 24 directives exposed as MCP tools by default.
+- 2026-05-26: Deployed Perseus v1.0.6 to PyPI. Test suite at 813 tests — all passing (Linux, Python 3.10–3.12).
 - 2026-05-24: Completed Hephaestus extensibility — plugin directives, macros, hooks, pipes.
 ```
 
@@ -655,6 +662,18 @@ Mnēmē is LLM-optional: deterministic assembly works zero-dependency; an option
 
 ---
 
-## License
+## IP & Legal
 
-MIT — see [LICENSE](./LICENSE). Perseus™ is a trademark of Thomas Connally. Patent pending.
+**Patent Pending.** A provisional patent application covering Perseus's
+resolve-before-context pipeline architecture is on file with the USPTO.
+See **[docs/ip/](docs/ip/)** for the public IP portfolio, including
+technical disclosures and evidence exhibits.
+
+**PERSEUS™** is a trademark of Thomas Connally. Internal subsystem names
+(Pythia, Daedalus, Agora, Mnēmē) are not independently trademarked and
+are covered under the PERSEUS mark.
+
+**License:** MIT — see [LICENSE](./LICENSE). This license does not include
+a patent grant; patent rights are reserved separately.
+
+**Third-party notices:** see [NOTICE](./NOTICE).

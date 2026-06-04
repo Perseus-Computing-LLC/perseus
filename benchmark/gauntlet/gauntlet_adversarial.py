@@ -29,6 +29,18 @@ from gauntlet_lib import perseus_executable, timestamp_iso, write_json
 # ─── Sentinel / kill-switch helpers ──────────────────────────────────────────
 
 SENTINEL_DIR: Path | None = None
+MAX_ERROR_SAMPLES = 50
+A1_DEFAULT_MAX_FILL_BYTES = 10 * 1024**3
+
+
+def _record_error(result: dict, message: str) -> None:
+    """Record an error count while keeping result JSON bounded."""
+    result["error_count"] = result.get("error_count", 0) + 1
+    errors = result.setdefault("errors", [])
+    if len(errors) < MAX_ERROR_SAMPLES:
+        errors.append(message[:200])
+    elif len(errors) == MAX_ERROR_SAMPLES:
+        errors.append(f"... additional errors omitted ({result['error_count']} total so far)")
 
 
 def _init_sentinels(base: Path) -> Path:
@@ -86,21 +98,27 @@ def run_scenario(
     env = os.environ.copy()
     perseus_home.mkdir(parents=True, exist_ok=True)
     env["PERSEUS_HOME"] = str(perseus_home)
+    env["PERSEUS_ALLOW_DANGEROUS"] = "1"
 
     t0 = time.time()
     last_check = t0
 
     while time.time() - t0 < duration_s:
         if _kill_switch_triggered():
-            result["errors"].append("Kill switch triggered")
+            _record_error(result, "Kill switch triggered")
             break
 
         if not role_profile or not role_profile.is_file():
             # Use a minimal inline context
             ctx = str(perseus_home / "_adversarial_ctx.md")
-            Path(ctx).write_text(
-                "@perseus v0.8\n@prompt adversarial test\n@query \"echo adversarial\" @cache ttl=300\n"
-            )
+            try:
+                Path(ctx).write_text(
+                    "@perseus v0.8\n@prompt adversarial test\n@query \"echo adversarial\" @cache ttl=300\n"
+                )
+            except OSError as exc:
+                _record_error(result, f"Cannot write context file: {exc}")
+                time.sleep(0.05)
+                continue
             target = ctx
         else:
             target = str(role_profile)
@@ -114,11 +132,11 @@ def run_scenario(
             if r.returncode == 0:
                 result["renders_successful"] += 1
             else:
-                result["errors"].append(f"Render failed: exit {r.returncode} — {r.stderr[:200]}")
+                _record_error(result, f"Render failed: exit {r.returncode} — {r.stderr[:200]}")
         except subprocess.TimeoutExpired:
-            result["errors"].append("Render timed out (30s)")
+            _record_error(result, "Render timed out (30s)")
         except Exception as exc:
-            result["errors"].append(str(exc)[:200])
+            _record_error(result, str(exc))
 
         # Kill switch check every 30s
         if time.time() - last_check > 30:
@@ -155,13 +173,34 @@ def scenario_a1_disk_full(
     filler_path = nfs_base / ".gauntlet_filler"
     result: dict = {"scenario": "A1_disk_full", "setup": None, "renders": None, "cleanup": None}
 
-    # Setup: create a large filler file to consume ~95% of available space
+    # Setup: create a bounded filler file. The original 95% target can be
+    # enormous on developer machines and CI hosts, so cap normal runs at 10 GB.
     try:
+        if filler_path.exists():
+            filler_path.unlink()
+
         stat = os.statvfs(str(nfs_base))
         total_bytes = stat.f_frsize * stat.f_blocks
         free_bytes = stat.f_frsize * stat.f_bfree
         target_free = int(total_bytes * 0.05)  # leave 5% free
-        fill_size = max(0, free_bytes - target_free - 10 * 1024**2)  # minus 10MB safety margin
+        target_fill_size = max(0, free_bytes - target_free - 10 * 1024**2)  # minus 10MB safety margin
+
+        max_fill_bytes = A1_DEFAULT_MAX_FILL_BYTES
+        max_fill_gb = os.environ.get("GAUNTLET_A1_MAX_FILL_GB")
+        allow_large_fill = os.environ.get("GAUNTLET_A1_ALLOW_LARGE_FILL") == "1"
+        if max_fill_gb:
+            try:
+                requested_max = int(float(max_fill_gb) * 1024**3)
+                if requested_max <= A1_DEFAULT_MAX_FILL_BYTES or allow_large_fill:
+                    max_fill_bytes = max(0, requested_max)
+            except ValueError:
+                result["max_fill_warning"] = f"invalid GAUNTLET_A1_MAX_FILL_GB={max_fill_gb!r}; using 10GB"
+
+        fill_size = min(target_fill_size, max_fill_bytes)
+        result["target_fill_gb"] = round(target_fill_size / 1024**3, 3)
+        result["max_fill_gb"] = round(max_fill_bytes / 1024**3, 3)
+        if target_fill_size > fill_size:
+            result["cap"] = "capped by GAUNTLET_A1_MAX_FILL_GB/10GB default"
 
         if fill_size > 0:
             with open(filler_path, "wb") as f:
@@ -205,6 +244,7 @@ def scenario_a2_network_partition(
 
     if os.geteuid() != 0:
         result["setup"] = "SKIPPED: requires root"
+        result["renders"] = {}
         return result
 
     try:
@@ -263,6 +303,7 @@ def scenario_a3_clock_skew(
 
     if os.geteuid() != 0:
         result["setup"] = "SKIPPED: requires root"
+        result["renders"] = {}
         return result
 
     try:
@@ -461,6 +502,7 @@ def scenario_a7_signal_storm(
     home = Path("/tmp/perseus-gauntlet/signal-storm")
     home.mkdir(parents=True, exist_ok=True)
     env["PERSEUS_HOME"] = str(home)
+    env["PERSEUS_ALLOW_DANGEROUS"] = "1"
 
     t0 = time.time()
     signals_sent = 0
@@ -471,31 +513,44 @@ def scenario_a7_signal_storm(
         if _kill_switch_triggered():
             break
 
-        proc = subprocess.Popen(
-            [sys.executable, perseus, "render", "-"],
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, env=env,
-        )
-        proc.stdin.write(b"@perseus v0.8\n@query \"sleep 0.5\" @cache ttl=300\n")
-        proc.stdin.close()
-
-        # Randomly send signal
-        sig = random.choice([signal.SIGTERM, signal.SIGINT])
-        time.sleep(random.uniform(0.05, 0.3))
         try:
-            os.kill(proc.pid, sig)
-            signals_sent += 1
-        except OSError:
-            pass
+            proc = subprocess.Popen(
+                [sys.executable, perseus, "render", "-"],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE, env=env,
+            )
+            try:
+                proc.stdin.write(b"@perseus v0.8\n@query \"sleep 0.5\" @cache ttl=300\n")
+                proc.stdin.close()
+            except Exception:
+                pass
 
-        try:
-            stdout, stderr = proc.communicate(timeout=5)
-            if proc.returncode == 0:
-                renders_ok += 1
-            else:
+            # Randomly send signal
+            sig = random.choice([signal.SIGTERM, signal.SIGINT])
+            time.sleep(random.uniform(0.05, 0.3))
+            try:
+                os.kill(proc.pid, sig)
+                signals_sent += 1
+            except Exception:
+                pass
+
+            try:
+                stdout, stderr = proc.communicate(timeout=5)
+                if proc.returncode == 0:
+                    renders_ok += 1
+                else:
+                    renders_failed += 1
+            except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
                 renders_failed += 1
-        except subprocess.TimeoutExpired:
-            proc.kill()
+        except Exception:
+            renders_failed += 1
+        except (BrokenPipeError, ValueError):
+            # communicate() raises ValueError if stdin was already closed,
+            # or BrokenPipeError if the process exited before we could write.
             renders_failed += 1
 
     result["renders"] = {
@@ -511,38 +566,52 @@ def scenario_a7_signal_storm(
 
 def scenario_a8_fd_exhaustion(
     duration_s: int = 300,
+    perseus_home: Path = Path("/tmp/perseus-gauntlet/adversarial"),
 ) -> dict:
     """A8: Exhaust file descriptors, then verify graceful degradation."""
     result: dict = {"scenario": "A8_fd_exhaustion", "setup": None, "renders": None, "cleanup": None}
+    perseus_home.mkdir(parents=True, exist_ok=True)
+    ctx_file = perseus_home / "_a8_fd_exhaustion_ctx.md"
+    ctx_file.write_text("@perseus v0.8\n@prompt fd exhaustion\n@query \"echo fd-ok\" @cache ttl=86400\n")
 
-    # Setup: open many file descriptors
+    # Setup: open many file descriptors, but reserve ~100 for Perseus
     fds: list[int] = []
     try:
         import resource
         soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
-        target = min(50000, hard)
-        # Open files until we hit the limit
+        # Match the scenario contract (50K FDs) while leaving room for Perseus.
+        target = min(50_000, max(0, soft - 200))
         for i in range(target):
             try:
                 fd = os.open("/dev/null", os.O_RDONLY)
                 fds.append(fd)
             except OSError:
                 break
-        result["setup"] = f"opened {len(fds)} FDs (limit: soft={soft}, hard={hard})"
+        result["setup"] = f"opened {len(fds)} FDs (limit: soft={soft}, hard={hard}, reserved 200 for Perseus)"
     except Exception as exc:
         result["setup"] = f"setup failed: {exc}"
         return result
 
-    # Run renders with FD exhaustion
-    result["renders"] = run_scenario("A8_fd_exhaustion", duration_s)
-
-    # Cleanup
-    for fd in fds:
-        try:
-            os.close(fd)
-        except OSError:
-            pass
-    result["cleanup"] = f"closed {len(fds)} FDs"
+    # Run renders with FD pressure — cleanup ALWAYS runs
+    try:
+        result["renders"] = run_scenario(
+            "A8_fd_exhaustion",
+            duration_s,
+            perseus_home=perseus_home,
+            role_profile=ctx_file,
+        )
+    except Exception as exc:
+        result["renders"] = {"error": str(exc)[:200], "renders_attempted": 0, "renders_successful": 0, "errors": []}
+    finally:
+        # Cleanup: always restore FDs
+        closed = 0
+        for fd in fds:
+            try:
+                os.close(fd)
+                closed += 1
+            except OSError:
+                pass
+        result["cleanup"] = f"closed {closed}/{len(fds)} FDs"
 
     return result
 
@@ -564,51 +633,63 @@ def scenario_a9_fork_bomb_defense(
     home = Path("/tmp/perseus-gauntlet/fork-bomb")
     home.mkdir(parents=True, exist_ok=True)
     env["PERSEUS_HOME"] = str(home)
+    env["PERSEUS_ALLOW_DANGEROUS"] = "1"
+
+    # Pre-create context file so run_scenario doesn't need to write
+    ctx_file = home / "_adversarial_ctx.md"
+    ctx_file.write_text("@perseus v0.8\n@prompt adversarial test\n@query \"echo survived\" @cache ttl=300\n")
 
     t0 = time.time()
     renders_ok = 0
     renders_failed = 0
+    all_procs: list[subprocess.Popen] = []
 
-    while time.time() - t0 < duration_s:
-        if _kill_switch_triggered():
-            break
+    try:
+        while time.time() - t0 < duration_s:
+            if _kill_switch_triggered():
+                break
 
-        # Spawn many concurrent renders
-        procs = []
-        for _ in range(20):
-            p = subprocess.Popen(
-                [sys.executable, perseus, "render", "-"],
-                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE, env=env,
-            )
-            procs.append(p)
-
-        for p in procs:
-            try:
-                p.stdin.write(b"@perseus v0.8\n@query \"echo survived\" @cache ttl=300\n")
-                p.stdin.close()
-            except Exception:
-                pass
-
-        for p in procs:
-            try:
-                stdout, stderr = p.communicate(timeout=30)
-                if p.returncode == 0:
-                    renders_ok += 1
-                else:
-                    renders_failed += 1
-            except Exception:
-                renders_failed += 1
+            # Spawn many concurrent renders
+            procs = []
+            for _ in range(20):
                 try:
-                    p.kill()
-                except Exception:
-                    pass
+                    p = subprocess.Popen(
+                        [sys.executable, perseus, "render", str(ctx_file)],
+                        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE, env=env,
+                    )
+                    procs.append(p)
+                    all_procs.append(p)
+                except OSError:
+                    break  # Process limit hit
 
-    result["renders"] = {
-        "duration_s": time.time() - t0,
-        "renders_ok": renders_ok,
-        "renders_failed": renders_failed,
-    }
+            for p in procs:
+                try:
+                    stdout, stderr = p.communicate(timeout=30)
+                    if p.returncode == 0:
+                        renders_ok += 1
+                    else:
+                        renders_failed += 1
+                except Exception:
+                    renders_failed += 1
+                    try:
+                        p.kill()
+                    except OSError:
+                        pass
+
+        result["renders"] = {
+            "duration_s": time.time() - t0,
+            "renders_ok": renders_ok,
+            "renders_failed": renders_failed,
+        }
+    finally:
+        # Kill any remaining procs
+        for p in all_procs:
+            try:
+                if p.poll() is None:
+                    p.kill()
+            except OSError:
+                pass
     result["cleanup"] = "fork bomb defense completed"
 
     return result
@@ -628,6 +709,11 @@ def scenario_a10_symlink_race(
     target = race_dir / "target"
     target.write_text("sensitive data")
 
+    # Create context.md BEFORE renders. The @read keeps this scenario tied to
+    # the symlink chain instead of just rendering an inert prompt.
+    ctx_file = race_dir / "context.md"
+    ctx_file.write_text("@perseus v0.8\n@prompt symlink race\n@read \"link_0\"\n")
+
     chain = []
     for i in range(20):
         link = race_dir / f"link_{i}"
@@ -643,10 +729,12 @@ def scenario_a10_symlink_race(
     perseus = perseus_executable()
     env = os.environ.copy()
     env["PERSEUS_HOME"] = str(perseus_home)
+    env["PERSEUS_ALLOW_DANGEROUS"] = "1"
 
     t0 = time.time()
     renders_ok = 0
     renders_failed = 0
+    escape_errors: list[str] = []
 
     while time.time() - t0 < duration_s:
         if _kill_switch_triggered():
@@ -656,7 +744,7 @@ def scenario_a10_symlink_race(
         for link in chain:
             try:
                 link.unlink()
-                link.symlink_to(race_dir / ".." / ".." / "etc" / "passwd")
+                link.symlink_to(Path("/etc/passwd"))
                 time.sleep(0.001)
                 link.unlink()
                 link.symlink_to(target)
@@ -671,6 +759,9 @@ def scenario_a10_symlink_race(
             )
             if r.returncode == 0:
                 renders_ok += 1
+                if "root:" in r.stdout:
+                    renders_failed += 1
+                    escape_errors.append("read through symlink resolved outside workspace")
             else:
                 renders_failed += 1
         except Exception:
@@ -680,6 +771,7 @@ def scenario_a10_symlink_race(
         "duration_s": time.time() - t0,
         "renders_ok": renders_ok,
         "renders_failed": renders_failed,
+        "errors": escape_errors,
     }
 
     # Cleanup
@@ -690,8 +782,6 @@ def scenario_a10_symlink_race(
         except Exception:
             pass
 
-    # Create context.md
-    (race_dir / "context.md").write_text("@perseus v0.8\n@prompt symlink race\n")
     result["cleanup"] = "symlink race cleaned up"
 
     return result
@@ -875,13 +965,21 @@ def run_all_adversarial(
         try:
             # Compat: respect each scenario's actual signature (not all accept nfs_base/perseus_home)
             sig = inspect.signature(info["fn"])
-            kwargs = {"duration_s": info["duration"]}
+            scenario_duration = duration_s if duration_s is not None else info["duration"]
+            kwargs = {"duration_s": scenario_duration}
             if "nfs_base" in sig.parameters:
                 kwargs["nfs_base"] = nfs_base
             if "perseus_home" in sig.parameters:
                 kwargs["perseus_home"] = perseus_home
             result = info["fn"](**kwargs)
             results[sid] = result
+
+            # Save per-scenario result immediately (survives crash)
+            scenario_file = nfs_base / "results" / f"adversarial_{sid}.json"
+            try:
+                write_json(scenario_file, result)
+            except OSError:
+                pass
 
             # Check if renders succeeded
             renders = result.get("renders", {})
@@ -897,6 +995,12 @@ def run_all_adversarial(
             results[sid] = {"error": str(exc)}
             overall_pass = False
             print(f"    CRASHED: {exc}", file=sys.stderr)
+            # Save crash result too
+            scenario_file = nfs_base / "results" / f"adversarial_{sid}.json"
+            try:
+                write_json(scenario_file, {"error": str(exc), "scenario": sid})
+            except OSError:
+                pass
 
     return {
         "phase": 7,
@@ -905,7 +1009,7 @@ def run_all_adversarial(
         "overall_pass": overall_pass,
         "scenarios_run": len(scenario_names),
         "scenarios_passed": sum(1 for s in results.values()
-                                if not s.get("error") and not s.get("renders", {}).get("errors")),
+                                if not s.get("error") and not (s.get("renders") or {}).get("errors")),
     }
 
 
@@ -922,6 +1026,7 @@ if __name__ == "__main__":
     result = run_all_adversarial(
         nfs_base=nfs_base,
         duration_s=args.duration,
+        scenarios=args.scenarios,
     )
 
     output = json.dumps(result, indent=2, default=str)

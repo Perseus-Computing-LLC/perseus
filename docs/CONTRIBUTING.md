@@ -32,7 +32,7 @@ git config core.hooksPath .githooks
 pip install -r requirements.txt   # pyyaml + pytest
 
 python -m pytest tests/ -q        # 753 tests
-python perseus.py --version        # perseus v1.0.5
+python perseus.py --version        # perseus v1.0.6
 ```
 
 ---
@@ -120,6 +120,57 @@ Follow these conventions when writing new tests:
 - Every early-exit path must respect `--json`. Audit all `return` statements in any function that supports `--json`.
 
 Tests live under `tests/`. There's one file per subsystem. Add new tests to the most relevant file; if you're adding a new subsystem, add `tests/test_<subsystem>.py`.
+
+---
+
+## Running the Perseus Gauntlet
+
+The Perseus Gauntlet (`benchmark/gauntlet/`) is the enterprise torture test — 12 orchestrated phases, 25 role profiles, and 15 registered gates. It requires Linux (the orchestrator uses Linux-specific filesystem features for adversarial scenarios). Smoke mode takes ~20 minutes; full mode takes ~6–8 hours. Full certification requires no failed hard gates, no skipped hard gates, and no unexplained budget overruns.
+
+### On Linux
+
+```bash
+pip install pyyaml
+python benchmark/gauntlet/gauntlet_setup.py
+python benchmark/gauntlet/gauntlet_orchestrator.py \
+    --nodes local \
+    --nfs-path /tmp/perseus-gauntlet \
+    --developers-per-node 500 \
+    --duration smoke \
+    --output-dir /tmp/perseus-gauntlet-output
+```
+
+### On macOS / Non-Linux (via Docker)
+
+```bash
+# From repo root, using a Linux Python image:
+docker run --rm \
+  -v "$PWD:/workspace" \
+  -w /workspace \
+  python:3.12-slim \
+  bash -lc '
+    apt-get update >/dev/null &&
+    apt-get install -y git >/dev/null &&
+    pip install --no-cache-dir pyyaml >/dev/null &&
+    python benchmark/gauntlet/gauntlet_setup.py &&
+    mkdir -p /tmp/perseus-gauntlet-output &&
+    python benchmark/gauntlet/gauntlet_orchestrator.py \
+      --nodes local \
+      --nfs-path /tmp/perseus-gauntlet \
+      --developers-per-node 500 \
+      --duration smoke \
+      --output-dir /tmp/perseus-gauntlet-output
+  '
+```
+
+Verify results:
+
+```bash
+cat /tmp/perseus-gauntlet-output/gauntlet_score.txt
+cat /tmp/perseus-gauntlet-output/gauntlet_report.md
+```
+
+Expected smoke target: ≥ 90/100.
 
 ---
 

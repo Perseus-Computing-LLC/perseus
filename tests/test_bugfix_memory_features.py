@@ -138,7 +138,7 @@ def test_bug3_note_alias_accepted(tmp_path, monkeypatch):
     # Also verify the built perseus.py has the alias wired (grep argparse definition)
     import re
     src = Path(__file__).parent.parent / "perseus.py"
-    text = src.read_text()
+    text = src.read_text(encoding="utf-8")
     assert re.search(r'"--note".*dest.*notes|"--notes".*"--note"|--note.*--notes', text), \
         "--note alias not found in built perseus.py"
 
