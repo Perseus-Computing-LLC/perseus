@@ -272,13 +272,27 @@ class GateRunner:
 
             # Detect environment failures from error messages
             category = gate.get("category", "engine")
-            if not passed and isinstance(observed, str):
+            if isinstance(observed, str):
                 env_patterns = [
                     "PermissionError", "permission denied", "GOOGLE_API_KEY",
                     "API key", "api_key", "env var",
                 ]
                 if any(p.lower() in observed.lower() for p in env_patterns):
                     category = "environment"
+
+            # Treat explicit skips as skips, not passes. A skipped hard gate
+            # means the run is incomplete and cannot be certified.
+            if isinstance(observed, str) and observed.startswith("skipped:"):
+                results.append({
+                    "name": gate["name"],
+                    "pass": gate["severity"] != "hard",
+                    "observed": observed,
+                    "threshold": gate["threshold"],
+                    "severity": gate["severity"],
+                    "category": category,
+                    "skipped": True,
+                })
+                continue
 
             # Treat "no data" as skipped/fail based on severity
             if isinstance(observed, str) and observed == "no data":
@@ -318,30 +332,88 @@ class GateRunner:
     @staticmethod
     def make_report(gate_results: list[dict]) -> dict:
         total = len(gate_results)
-        passed = sum(1 for g in gate_results if g["pass"])
+        active = [g for g in gate_results if not g.get("skipped")]
+        skipped = [g for g in gate_results if g.get("skipped")]
+        passed = sum(1 for g in active if g["pass"])
         hard_failed = [
-            g for g in gate_results if not g["pass"] and g["severity"] == "hard"
+            g for g in active if not g["pass"] and g["severity"] == "hard"
+        ]
+        hard_skipped = [
+            g for g in skipped if g["severity"] == "hard"
         ]
         # Separate by category
         by_category = {}
         for g in gate_results:
             cat = g.get("category", "engine")
             if cat not in by_category:
-                by_category[cat] = {"passed": 0, "failed": 0, "total": 0}
+                by_category[cat] = {"passed": 0, "failed": 0, "skipped": 0, "total": 0}
             by_category[cat]["total"] += 1
-            if g["pass"]:
+            if g.get("skipped"):
+                by_category[cat]["skipped"] += 1
+            elif g["pass"]:
                 by_category[cat]["passed"] += 1
             else:
                 by_category[cat]["failed"] += 1
 
         return {
             "total": total,
+            "active_total": len(active),
             "passed": passed,
-            "failed": [g for g in gate_results if not g["pass"]],
+            "skipped": skipped,
+            "skipped_count": len(skipped),
+            "hard_skipped": hard_skipped,
+            "failed": [g for g in active if not g["pass"]],
             "hard_failed": hard_failed,
-            "pass": len(hard_failed) == 0,
+            "pass": len(hard_failed) == 0 and len(hard_skipped) == 0,
             "by_category": by_category,
         }
+
+
+def phase_budget_overruns(phase_results: dict[str, Any] | list[dict[str, Any]]) -> list[dict]:
+    """Return phase time-budget overruns from a gauntlet result collection."""
+    if isinstance(phase_results, dict):
+        phases = phase_results.values()
+    else:
+        phases = phase_results
+
+    overruns: list[dict] = []
+    for phase in phases:
+        if not isinstance(phase, dict):
+            continue
+        if phase.get("within_time_budget") is not False:
+            continue
+
+        duration_s = phase.get("duration_s")
+        max_duration_s = phase.get("max_duration_s")
+        item = {
+            "phase": phase.get("phase", "?"),
+            "name": phase.get("name", ""),
+            "duration_s": round(duration_s, 3) if isinstance(duration_s, (int, float)) else duration_s,
+            "max_duration_s": round(max_duration_s, 3) if isinstance(max_duration_s, (int, float)) else max_duration_s,
+        }
+        if isinstance(duration_s, (int, float)) and isinstance(max_duration_s, (int, float)):
+            item["over_by_s"] = round(max(0.0, duration_s - max_duration_s), 3)
+        overruns.append(item)
+    return overruns
+
+
+def budget_gate_threshold(phase_results: dict[str, Any] | list[dict[str, Any]]) -> tuple[bool, Any]:
+    """Gate threshold: every executed phase must stay within its time budget."""
+    overruns = phase_budget_overruns(phase_results)
+    if overruns:
+        return False, overruns
+    return True, "all executed phases within time budget"
+
+
+def rss_growth_threshold(phase_results: dict[str, Any]) -> tuple[bool, Any]:
+    """Gate threshold: Phase 10 must have a real RSS signal and stay <= 5%."""
+    phase = phase_results.get("phase_10", {}) if isinstance(phase_results, dict) else {}
+    if not phase.get("rss_measurement_available", False):
+        return False, "no data"
+    growth = phase.get("rss_growth_pct")
+    if not isinstance(growth, (int, float)):
+        return False, "no data" if growth is None else growth
+    return growth <= 5.0, growth
 
 
 # ─── NFS Probe
@@ -477,32 +549,43 @@ def generate_final_report(
 ) -> str:
     """Generate a human-readable gauntlet report in markdown."""
     gate_report = GateRunner.make_report(gate_results)
+    is_smoke = bool(meta and meta.get("duration") == "smoke")
+    run_pass = len(gate_report.get("failed", [])) == 0
+    overall_pass = run_pass if is_smoke else gate_report["pass"]
 
     lines: list[str] = [
         f"# Perseus Gauntlet — Final Report",
         f"",
-        f"**Version:** {GAUNTLET_VERSION}  ",
-        f"**Date:** {timestamp_iso()}  ",
+        f"**Version:** {GAUNTLET_VERSION}",
+        f"**Date:** {timestamp_iso()}",
         f"",
         f"## Summary",
         f"",
         f"| Metric | Result |",
         f"|--------|--------|",
         f"| Phases | {len(phase_results)} |",
-        f"| Gates passed | {gate_report['passed']}/{gate_report['total']} |",
-        f"| Overall | {'**PASS**  ' if gate_report['pass'] else '**FAIL**  '} |",
+        f"| Gates passed | {gate_report['passed']}/{gate_report.get('active_total', gate_report['total'])} active |",
+        f"| Gates skipped | {gate_report.get('skipped_count', 0)} |",
+        f"| Overall | {'**PASS**' if overall_pass else '**FAIL**'} |",
         f"",
     ]
 
     if meta:
         lines.extend(
             [
-                f"**Host:** {meta.get('hostname', 'unknown')}  ",
-                f"**Perseus:** {meta.get('perseus_version', '?')}  ",
-                f"**Developers per node:** {meta.get('developers_per_node', '?')}  ",
-                f"**Nodes:** {meta.get('nodes', '?')}  ",
+                f"**Host:** {meta.get('hostname', 'unknown')}",
+                f"**Perseus:** {meta.get('perseus_version', '?')}",
+                f"**Developers per node:** {meta.get('developers_per_node', '?')}",
+                f"**Nodes:** {meta.get('nodes', '?')}",
             ]
         )
+        if is_smoke:
+            lines.extend(
+                [
+                    f"**Smoke run:** {'PASS' if run_pass else 'FAIL'}",
+                    f"**Full certification:** {'PASS' if gate_report['pass'] else 'not evaluated'}",
+                ]
+            )
 
     # Phase results table
     lines.extend(
@@ -528,7 +611,7 @@ def generate_final_report(
     lines.extend(
         [
             f"",
-            f"## Gate Results ({gate_report['passed']}/{gate_report['total']} passed)",
+            f"## Gate Results ({gate_report['passed']}/{gate_report.get('active_total', gate_report['total'])} active passed; {gate_report.get('skipped_count', 0)} skipped)",
             f"",
             f"| Gate | Pass | Observed | Threshold | Severity |",
             f"|------|------|----------|-----------|----------|",
@@ -538,7 +621,7 @@ def generate_final_report(
         obs = g.get("observed", "")
         obs_str = json.dumps(obs) if not isinstance(obs, str) else str(obs)[:80]
         lines.append(
-            f"| {g['name']} | {'✅' if g['pass'] else '❌'} | {obs_str} | "
+            f"| {g['name']} | {'SKIP' if g.get('skipped') else ('✅' if g['pass'] else '❌')} | {obs_str} | "
             f"{g.get('threshold', '')} | {g['severity']} |"
         )
 
@@ -570,15 +653,16 @@ def _compute_gauntlet_score(
     if gate_report["total"] == 0:
         return 0.0
 
-    # Exclude skipped gates from scoring (they have no data to evaluate)
+    # Exclude skipped gates from active pass-rate scoring. Skipped hard gates
+    # still prevent certification and the certification bonus.
     skipped = set()
     if gate_results:
         skipped = {g["name"] for g in gate_results if g.get("skipped")}
 
-    active_total = gate_report["total"] - len(skipped)
+    active_total = gate_report.get("active_total", gate_report["total"] - len(skipped))
     if active_total <= 0:
-        # All gates skipped — score 100 (nothing to evaluate, no failures)
-        return 100.0
+        # All gates skipped: no evidence, no score.
+        return 0.0
 
     # Count passed among non-skipped gates only.
     # gate_report["passed"] includes skipped gates (they have pass=True),
@@ -600,7 +684,7 @@ def _compute_gauntlet_score(
         if pr.get("failures", 0) > 0:
             return False
         if pr.get("status") == "skipped":
-            return True
+            return False
         if "overall_pass" in pr:
             return bool(pr.get("overall_pass"))
         return True
@@ -609,7 +693,7 @@ def _compute_gauntlet_score(
     phase_bonus = (completed / max(len(phase_results), 1)) * 20.0
     # Certification bonus: all active hard gates pass. Without this, a perfect
     # run tops out at 90 despite the score being documented as 0-100.
-    hard_pass_bonus = 0.0 if gate_report.get("hard_failed") else 10.0
+    hard_pass_bonus = 0.0 if (gate_report.get("hard_failed") or gate_report.get("hard_skipped")) else 10.0
     # Hard-fail penalty: -10 per failed hard gate, excluding skipped gates
     penalty = len([
         g for g in gate_report.get("hard_failed", [])
