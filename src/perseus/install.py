@@ -103,10 +103,31 @@ def _merge_json_file(path: Path, new_data: dict, top_key: str = "hooks") -> bool
     """Merge new_data into an existing JSON file, deep-merging under top_key."""
     existing: dict = {}
     if path.exists():
+        # H-10: Symlink check — refuse to overwrite symlinks
+        if path.is_symlink():
+            print(
+                f"  ⚠ {path} is a symlink; refusing to overwrite for safety.",
+                file=sys.stderr,
+            )
+            return False
+
         try:
             existing = json.loads(path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, ValueError):
-            print(f"  ⚠ {path} exists but is not valid JSON; overwriting.", file=sys.stderr)
+            print(
+                f"  ⚠ {path} exists but is not valid JSON; refusing to overwrite.",
+                file=sys.stderr,
+            )
+            return False
+
+        # H-10: JSON validation — refuse to merge into non-dict JSON
+        if not isinstance(existing, dict):
+            print(
+                f"  ⚠ {path} contains non-dict JSON (type={type(existing).__name__}); "
+                f"refusing to overwrite.",
+                file=sys.stderr,
+            )
+            return False
 
     # Deep-merge hooks dicts
     if top_key not in existing:

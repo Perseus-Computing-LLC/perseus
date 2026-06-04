@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "perseus render .perseus/context.md"
+            "command": "perseus render .perseus/context.md --output AGENTS.md"
           }
         ]
       }
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "perseus render .perseus/context.md"
+            "command": "perseus render .perseus/context.md --output AGENTS.md"
           }
         ]
       }

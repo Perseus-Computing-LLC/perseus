@@ -118,6 +118,36 @@ def test_services_allows_localhost_url():
     assert "remote blocked" not in out, f"localhost should not be blocked, got: {out}"
 
 
+def test_safe_cache_dir_warns_and_audits_when_override_is_rejected(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path / ".perseus")
+    c = cfg()
+    c["render"]["cache_dir"] = "/etc/perseus-cache"
+    c["audit"]["log_path"] = str(tmp_path / ".perseus" / "audit_log.jsonl")
+
+    resolved = perseus._safe_cache_dir(c)
+    second = perseus._safe_cache_dir(c)
+
+    assert resolved == tmp_path / ".perseus" / "cache"
+    assert second == resolved
+
+    stderr = capsys.readouterr().err
+    assert "rejected render.cache_dir outside allowed roots" in stderr
+    assert stderr.count("rejected render.cache_dir outside allowed roots") == 1
+
+    audit_log = tmp_path / ".perseus" / "audit_log.jsonl"
+    records = [
+        json.loads(line)
+        for line in audit_log.read_text().splitlines()
+        if line.strip()
+    ]
+    assert any(
+        record["event_type"] == "cache_dir_override_rejected"
+        and record["configured_path"] == "/etc/perseus-cache"
+        and record["fallback_path"] == str(tmp_path / ".perseus" / "cache")
+        for record in records
+    )
+
+
 def test_services_respects_allow_remote_enabled():
     """@services must allow remote URLs when allow_remote_services_health is True."""
     c = cfg()
@@ -679,6 +709,106 @@ def test_query_fallback_with_cache_modifier_stripped_first(monkeypatch):
     assert out == "cached fallback"
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Dependency-fingerprinted cache invalidation
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_cache_fingerprint_read_invalidates_on_file_change(tmp_path):
+    """Changing a @read file within TTL invalidates the cache."""
+    src = tmp_path / "src.md"
+    data_file = tmp_path / "data.txt"
+    data_file.write_text("v1")
+    src.write_text(f'@perseus v0.4\n@read {data_file} @cache ttl=3600')
+
+    c = cfg()
+    c["render"]["cache_dir"] = str(tmp_path / "cache")
+
+    r1 = perseus.render_source(src.read_text(), c, tmp_path)
+    assert "v1" in r1
+
+    # Change the file — cache must invalidate
+    data_file.write_text("v2")
+    r2 = perseus.render_source(src.read_text(), c, tmp_path)
+    assert "v2" in r2
+
+
+def test_cache_fingerprint_handles_quoted_paths_with_spaces(tmp_path):
+    """Quoted file paths with spaces still participate in dependency invalidation."""
+    src = tmp_path / "src.md"
+    data_file = tmp_path / "data file.txt"
+    data_file.write_text("v1")
+    src.write_text('@perseus v0.4\n@read "data file.txt" @cache ttl=3600')
+
+    c = cfg()
+    c["render"]["cache_dir"] = str(tmp_path / "cache")
+
+    r1 = perseus.render_source(src.read_text(), c, tmp_path)
+    assert "v1" in r1
+
+    data_file.write_text("v2")
+    r2 = perseus.render_source(src.read_text(), c, tmp_path)
+    assert "v2" in r2
+
+
+def test_cache_fingerprint_respects_workspace_boundary(monkeypatch, tmp_path):
+    """Fingerprinting must not read paths that the resolver would block."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    outside = tmp_path / "outside.txt"
+    outside.write_text("secret")
+
+    original_read_bytes = Path.read_bytes
+
+    def guarded_read_bytes(self):
+        if self.resolve(strict=False) == outside.resolve():
+            raise AssertionError("fingerprint read escaped workspace")
+        return original_read_bytes(self)
+
+    monkeypatch.setattr(Path, "read_bytes", guarded_read_bytes)
+
+    c = cfg()
+    c["render"]["cache_dir"] = str(tmp_path / "cache")
+    out = perseus.render_source(
+        f"@perseus v0.4\n@read {outside} @cache ttl=3600",
+        c,
+        workspace,
+    )
+
+    assert "path escapes workspace" in out
+
+
+def test_cache_fingerprint_no_deps_still_caches(tmp_path):
+    """@query with no file deps caches and returns consistent output."""
+    src = tmp_path / "src.md"
+    src.write_text('@perseus v0.4\n@query "echo hello" @cache ttl=3600')
+
+    c = cfg()
+    c["render"]["cache_dir"] = str(tmp_path / "cache")
+
+    r1 = perseus.render_source(src.read_text(), c, tmp_path)
+    r2 = perseus.render_source(src.read_text(), c, tmp_path)
+    assert r1 == r2  # cached output matches
+
+
+def test_cache_nofingerprint_ignores_file_change(tmp_path):
+    """@cache nofingerprint keeps TTL-only behavior, ignores file changes."""
+    src = tmp_path / "src.md"
+    data_file = tmp_path / "data.txt"
+    data_file.write_text("v1")
+    src.write_text(f'@perseus v0.4\n@read {data_file} @cache nofingerprint ttl=3600')
+
+    c = cfg()
+    c["render"]["cache_dir"] = str(tmp_path / "cache")
+
+    r1 = perseus.render_source(src.read_text(), c, tmp_path)
+    assert "v1" in r1
+
+    data_file.write_text("v2")
+    r2 = perseus.render_source(src.read_text(), c, tmp_path)
+    # With nofingerprint, cache is NOT invalidated by file change
+    assert "v1" in r2
+
+
 def test_query_fallback_unescapes_simple_escapes():
     out = perseus.resolve_query(r'"false" fallback="line one\nline two"', cfg())
     assert "line one\nline two" == out
@@ -842,3 +972,25 @@ def test_date_format_backreference_correctly_pairs_quotes():
     # format="YYYY' — mismatched quotes should fall through
     result = perseus.resolve_date("format=\"YYYY'")
     assert len(result) > 10, f"unpaired quotes should fall through: got {result!r}"
+
+
+# ── Regression: #37 / #38 — max_bytes NameError on malformed config ──────────
+
+def test_include_survives_malformed_max_include_bytes(tmp_path):
+    """#37: resolve_include must not raise NameError when max_include_bytes is a non-integer."""
+    c = cfg()
+    c["render"]["max_include_bytes"] = "not-an-int"
+    f = tmp_path / "hello.md"
+    f.write_text("# hello\n")
+    result = perseus.resolve_include(f'"{f.name}"', tmp_path, c)
+    assert "# hello" in result
+
+
+def test_read_survives_malformed_max_read_bytes(tmp_path):
+    """#38: resolve_read must not raise NameError when max_read_bytes is a non-integer."""
+    c = cfg()
+    c["render"]["max_read_bytes"] = "not-an-int"
+    f = tmp_path / "hello.txt"
+    f.write_text("hello")
+    result = perseus.resolve_read(f'"{f.name}"', c, tmp_path)
+    assert "hello" in result

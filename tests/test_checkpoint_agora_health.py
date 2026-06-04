@@ -253,8 +253,9 @@ def test_parse_cache_modifier_returns_four_tuple():
     assert mock == "(mock — directive skipped)"
 
 
-def test_cache_persist_writes_and_reads_disk(tmp_path):
+def test_cache_persist_writes_and_reads_disk(tmp_path, monkeypatch):
     local = cfg()
+    monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path)
     local["render"]["cache_dir"] = str(tmp_path / "cache")
     local["render"]["persist_cache_ttl_s"] = 3600
     perseus.cache_set("k1", "v1", "persist", None, local)

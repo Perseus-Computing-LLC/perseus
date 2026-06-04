@@ -30,7 +30,20 @@ def resolve_waypoint(args_str: str, cfg: dict) -> str:
     if m:
         ttl = int(m.group(1))
 
-    cp = load_latest_checkpoint(cfg)
+    # v1.0.6: preflight check — surface permission errors instead of silently
+    # returning "No checkpoint found."
+    preflight = _preflight_permissions(cfg)
+    cp_dir = cfg.get("checkpoints", {}).get("store", str(PERSEUS_HOME / "checkpoints"))
+    if any("checkpoints" in w for w in preflight):
+        return f"> ⚠ @waypoint disabled: checkpoint store not writable ({cp_dir})."
+
+    try:
+        cp = load_latest_checkpoint(cfg)
+    except PermissionError as e:
+        return f"> ⚠ @waypoint: cannot read checkpoint store ({cp_dir}) — {e}"
+    except OSError as e:
+        return f"> ⚠ @waypoint: error accessing checkpoint store ({cp_dir}) — {e}"
+
     if not cp:
         return "> No checkpoint found."
 
@@ -50,5 +63,4 @@ def resolve_waypoint(args_str: str, cfg: dict) -> str:
         if val:
             lines.append(f"**{field.capitalize()}:** {val}")
     return "\n".join(lines)
-
 

@@ -153,7 +153,19 @@ def resolve_inbox(args_str: str, cfg: dict, workspace: Path | None = None) -> st
     except (TypeError, ValueError):
         limit = 10
 
-    items = _inbox_load_all(ws, cfg)
+    # v1.0.6: preflight check — surface permission errors instead of silently
+    # returning "_No new messages._"
+    preflight = _preflight_permissions(cfg)
+    inbox_dir = str(_inbox_dir(ws, cfg))
+    if any("inbox" in w for w in preflight):
+        return f"> ⚠ @inbox disabled: inbox store not writable ({inbox_dir})."
+
+    try:
+        items = _inbox_load_all(ws, cfg)
+    except PermissionError as e:
+        return f"> ⚠ @inbox: cannot read inbox ({inbox_dir}) — {e}"
+    except OSError as e:
+        return f"> ⚠ @inbox: error accessing inbox ({inbox_dir}) — {e}"
     visible = []
     for fp, msg in items:
         if msg.get("dismissed_at"):
@@ -175,5 +187,4 @@ def resolve_inbox(args_str: str, cfg: dict, workspace: Path | None = None) -> st
             for bl in body.splitlines():
                 lines.append(f"  > {bl}")
     return "\n".join(lines)
-
 

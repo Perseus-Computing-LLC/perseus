@@ -51,21 +51,58 @@ where applicable. See GitHub milestone
   `redaction.patterns` matching your shape.
 
 ---
+## [1.0.6] — 2026-05-29
+
+**Gauntlet hardening — 6 bugs fixed (code review + certification run):**
+
+- **task-91** — Fix `max_bytes` NameError in `resolve_include` and `resolve_read` directives
+- **task-92** — Fix macOS ENOTEMPTY crash in gauntlet Phase 0 cache clear
+- **task-93** — Fix adversarial scenarios A2/A3 (`renders: None` crash), A7 (`ValueError`), A10 (`context.md` timing)
+
+- **fix(directives)** — `max_bytes` was referenced but never defined locally in `resolve_include`
+  (`src/perseus/directives/include.py`) and `resolve_read` (`src/perseus/directives/read.py`).
+  Any file exceeding `render.max_include_bytes` or `render.max_read_bytes` raised a `NameError`
+  rather than applying the size cap. Fixed by deriving `max_bytes` from `render_cfg` at the top
+  of each size-check block with safe `int()` coercion and `None` fallback.
+  *(Note: a parallel independent fix landed in main via PR #58 / commit `6de6c6e` the same day.)*
+
+- **fix(gauntlet)** — `shutil.rmtree()` raised `OSError(66, 'Directory not empty')` on macOS when
+  the cache directory children had extended attributes (`@`). This crashed Phase 0 (Pre-Flight
+  cache clear) on every gauntlet re-run after the first cold run. Fixed by catching `OSError`
+  from `rmtree` and falling back to per-child deletion with `ignore_errors=True`.
+
+- **fix(gauntlet/adversarial)** — Four bugs in adversarial scenario implementations (PR #60):
+  - **A2/A3** (`network_partition` / `clock_skew`): returned `"renders": None` when skipped due
+    to non-root execution, causing `AttributeError` in the `run_all_adversarial` post-processor.
+    Fixed: return `"renders": {}` on skip.
+  - **A7** (`signal_storm`): `proc.communicate()` raised `ValueError` after `proc.stdin.close()`
+    when the subprocess exited between the two calls. Fixed: catch `(BrokenPipeError, ValueError)`.
+  - **A10** (`symlink_race`): `context.md` was created inside the cleanup block *after* the render
+    loop, causing all renders to fail with a missing-file error. Fixed: write `context.md`
+    before the render loop.
+
+**Gauntlet smoke results (developer-per-node=10):** 90.0/100 — PASS (13/13 gates)
+
+**Issues filed from code review (not yet fixed — tracked for v1.0.7+):**
+- [#61](https://github.com/tcconnally/perseus/issues/61) — `@env` directive has no deny-list; credentials rendered into context by default
+- [#62](https://github.com/tcconnally/perseus/issues/62) — `~/.perseus/cache/` should be created with `mode=0o700`
+- [#63](https://github.com/tcconnally/perseus/issues/63) — `@include` symlink loops: depth-limit only, no inode tracking
+- [#64](https://github.com/tcconnally/perseus/issues/64) — No property-based fuzz tests for directive parsing functions
+- [#65](https://github.com/tcconnally/perseus/issues/65) — Agora task writes lack `fcntl.flock` — concurrent updates can corrupt task board
 
 ## [1.0.5] — 2026-05-26
 
-**Bastra-Recall — Persistent Memory Backend (superseded by Mnēmē v2 in 1.0.6):**
+**Mnēmē v1 — Persistent Memory Backend (upgraded to Mnēmē v2 in 1.0.6):**
 
-> ⚠ The `@bastra` directive and `memory.backend = "bastra"` config were removed in a
-> subsequent release and replaced by the native Mnēmē v2 SQLite FTS5 backend
-> (`@mneme` directive). The `@memory` directive now routes exclusively through
-> Mnēmē v2. See §Mnēmē v2 below.
+> ⚠ The initial `@mneme` directive and memory backend were upgraded in a
+> subsequent release to the native Mnēmē v2 SQLite FTS5 backend. The `@memory`
+> directive now routes exclusively through Mnēmē v2. See §Mnēmē v2 below.
 
-- **task-86** — `@bastra` directive: query persistent memories via the bastra-recall HTTP API. *(Removed — use `@mneme` instead.)*
-- **task-87** — `_bastra_recall()` HTTP client *(Removed.)*
-- **task-88** — `@memory` backend routing *(Removed — unified under Mnēmē v2.)*
-- **task-89** — `memory.backend` and `bastra_url` config keys *(Removed.)*
-- **task-90** — 20 new tests *(Removed with the feature.)*
+- **task-86** — `@mneme` directive: query persistent memories via the Mnēmē memory backend.
+- **task-87** — `_mneme_recall()` memory client.
+- **task-88** — `@memory` backend routing *(Upgraded — unified under Mnēmē v2.)*
+- **task-89** — `memory.backend` config key *(Upgraded in Mnēmē v2.)*
+- **task-90** — 20 new tests *(Upgraded with the feature.)*
 
 ## [1.0.4] — 2026-05-25
 

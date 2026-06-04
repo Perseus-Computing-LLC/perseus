@@ -86,7 +86,7 @@ session start warm instead of cold.
 The part I think you'd find most interesting: the multi-agent swarm.
 120 agents writing to the same checkpoint store simultaneously —
 150 concurrent writes in 9.7s, zero collisions, zero corruption.
-Filesystem-based with atomic O_CREAT|O_EXCL locking, 33 edge cases
+Filesystem-based with atomic O_CREAT|O_EXCL locking, 34 edge cases
 tested. No server. No database. Just flat files.
 
 Each agent reads pre-rendered context, does its work, writes a

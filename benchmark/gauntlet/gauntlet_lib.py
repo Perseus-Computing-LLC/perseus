@@ -69,15 +69,33 @@ def perseus_executable() -> str:
     )
 
 
-def check_nfs_health(mount_path: Path | str = NFS_MOUNT_DIR) -> dict:
-    """Touch-and-remove health check for an NFS mount."""
+def check_nfs_health(mount_path: Path | str = NFS_MOUNT_DIR, require_mount: bool = True) -> dict:
+    """Health check for an NFS (or shared) mount.
+
+    Validates that the path is an actual mount point (not a bare local dir
+    that happens to be writable) before performing the read/write probe.
+    A missing or non-mounted path is treated as unhealthy regardless of
+    whether local directory creation would succeed.
+    """
+    import os
     mount_path = Path(mount_path)
+
+    # Gate 1: path must exist (and be a mount point when required).
+    # Single-node local gauntlets pass require_mount=False.
+    if not mount_path.exists():
+        return {"healthy": False, "path": str(mount_path),
+                "error": "path does not exist"}
+    if require_mount and not os.path.ismount(mount_path):
+        return {"healthy": False, "path": str(mount_path),
+                "error": "path is not a mount point"}
+
+    # Gate 2: read/write probe
     probe = mount_path / ".gauntlet_probe"
     try:
-        mount_path.mkdir(parents=True, exist_ok=True)
         probe.write_text(timestamp_iso())
         probe.unlink()
-        return {"healthy": True, "path": str(mount_path)}
+        mode = "mount" if os.path.ismount(mount_path) else "local-tmp"
+        return {"healthy": True, "path": str(mount_path), "mode": mode}
     except OSError as exc:
         return {"healthy": False, "path": str(mount_path), "error": str(exc)}
 
@@ -93,13 +111,21 @@ def load_role_profiles(roles_dir: Path | str | None = None) -> list[dict]:
         raise FileNotFoundError(f"Role profiles directory not found: {roles_dir}")
 
     profiles: list[dict] = []
+    # Meta files to exclude from role profiles
+    _META_NAMES = {"readme", "roadmap", "agents", "contributing"}
     for f in sorted(roles_dir.iterdir()):
         if f.suffix in (".md", ".yaml", ".yml"):
+            if f.stem.lower() in _META_NAMES:
+                continue
+            dc = count_directives(f)
+            # P1 #7: exclude 0-directive profiles that dilute benchmark metrics
+            if dc == 0:
+                continue
             profiles.append(
                 {
                     "name": f.stem,
                     "path": str(f),
-                    "directive_count": count_directives(f),
+                    "directive_count": dc,
                 }
             )
     return profiles
@@ -183,8 +209,13 @@ class GauntletMetrics:
 class GateRunner:
     """Evaluates pass/fail conditions and produces a gate report.
 
-    Gates are registered with add_gate(name, severity, threshold_fn).
+    Gates are registered with add_gate(name, severity, threshold_fn, category).
     evaluate_all() runs them against the provided phase_results dict.
+
+    Categories: "engine" (Perseus bug), "environment" (setup/config issue),
+    "performance" (speed/p99/etc.). Environment failures are scored separately
+    from engine failures in make_report() so operators can distinguish
+    "Perseus is broken" from "API key not set."
     """
 
     def __init__(self):
@@ -196,6 +227,8 @@ class GateRunner:
         severity: str = "hard",
         threshold: Any = None,
         threshold_fn=None,
+        category: str = "engine",
+        required_phase: int | None = None,
     ):
         """Register a gate. threshold_fn(phase_results) -> (pass: bool, observed)."""
         self._gates.append(
@@ -204,6 +237,8 @@ class GateRunner:
                 "severity": severity,
                 "threshold": threshold,
                 "threshold_fn": threshold_fn,
+                "category": category,
+                "required_phase": required_phase,
             }
         )
 
@@ -225,6 +260,7 @@ class GateRunner:
                     "observed": "skipped: phase not run",
                     "threshold": gate["threshold"],
                     "severity": gate["severity"],
+                    "category": gate.get("category", "engine"),
                     "skipped": True,
                 })
                 continue
@@ -234,16 +270,52 @@ class GateRunner:
             except Exception as exc:
                 passed, observed = False, str(exc)
 
-            # Treat "no data" as skipped
-            if isinstance(observed, str) and observed == "no data":
+            # Detect environment failures from error messages
+            category = gate.get("category", "engine")
+            if isinstance(observed, str):
+                env_patterns = [
+                    "PermissionError", "permission denied", "GOOGLE_API_KEY",
+                    "API key", "api_key", "env var",
+                ]
+                if any(p.lower() in observed.lower() for p in env_patterns):
+                    category = "environment"
+
+            # Treat explicit skips as skips, not passes. A skipped hard gate
+            # means the run is incomplete and cannot be certified.
+            if isinstance(observed, str) and observed.startswith("skipped:"):
                 results.append({
                     "name": gate["name"],
-                    "pass": True,
-                    "observed": "skipped: phase not run",
+                    "pass": gate["severity"] != "hard",
+                    "observed": observed,
                     "threshold": gate["threshold"],
                     "severity": gate["severity"],
+                    "category": category,
                     "skipped": True,
                 })
+                continue
+
+            # Treat "no data" as skipped/fail based on severity
+            if isinstance(observed, str) and observed == "no data":
+                if gate["severity"] == "hard":
+                    results.append({
+                        "name": gate["name"],
+                        "pass": False,
+                        "observed": "no data (hard gate requires data)",
+                        "threshold": gate["threshold"],
+                        "severity": gate["severity"],
+                        "category": category,
+                        "skipped": False,
+                    })
+                else:
+                    results.append({
+                        "name": gate["name"],
+                        "pass": True,
+                        "observed": "skipped: phase not run",
+                        "threshold": gate["threshold"],
+                        "severity": gate["severity"],
+                        "category": category,
+                        "skipped": True,
+                    })
                 continue
 
             results.append({
@@ -252,6 +324,7 @@ class GateRunner:
                 "observed": observed,
                 "threshold": gate["threshold"],
                 "severity": gate["severity"],
+                "category": category,
                 "skipped": False,
             })
         return results
@@ -259,17 +332,88 @@ class GateRunner:
     @staticmethod
     def make_report(gate_results: list[dict]) -> dict:
         total = len(gate_results)
-        passed = sum(1 for g in gate_results if g["pass"])
+        active = [g for g in gate_results if not g.get("skipped")]
+        skipped = [g for g in gate_results if g.get("skipped")]
+        passed = sum(1 for g in active if g["pass"])
         hard_failed = [
-            g for g in gate_results if not g["pass"] and g["severity"] == "hard"
+            g for g in active if not g["pass"] and g["severity"] == "hard"
         ]
+        hard_skipped = [
+            g for g in skipped if g["severity"] == "hard"
+        ]
+        # Separate by category
+        by_category = {}
+        for g in gate_results:
+            cat = g.get("category", "engine")
+            if cat not in by_category:
+                by_category[cat] = {"passed": 0, "failed": 0, "skipped": 0, "total": 0}
+            by_category[cat]["total"] += 1
+            if g.get("skipped"):
+                by_category[cat]["skipped"] += 1
+            elif g["pass"]:
+                by_category[cat]["passed"] += 1
+            else:
+                by_category[cat]["failed"] += 1
+
         return {
             "total": total,
+            "active_total": len(active),
             "passed": passed,
-            "failed": [g for g in gate_results if not g["pass"]],
+            "skipped": skipped,
+            "skipped_count": len(skipped),
+            "hard_skipped": hard_skipped,
+            "failed": [g for g in active if not g["pass"]],
             "hard_failed": hard_failed,
-            "pass": len(hard_failed) == 0,
+            "pass": len(hard_failed) == 0 and len(hard_skipped) == 0,
+            "by_category": by_category,
         }
+
+
+def phase_budget_overruns(phase_results: dict[str, Any] | list[dict[str, Any]]) -> list[dict]:
+    """Return phase time-budget overruns from a gauntlet result collection."""
+    if isinstance(phase_results, dict):
+        phases = phase_results.values()
+    else:
+        phases = phase_results
+
+    overruns: list[dict] = []
+    for phase in phases:
+        if not isinstance(phase, dict):
+            continue
+        if phase.get("within_time_budget") is not False:
+            continue
+
+        duration_s = phase.get("duration_s")
+        max_duration_s = phase.get("max_duration_s")
+        item = {
+            "phase": phase.get("phase", "?"),
+            "name": phase.get("name", ""),
+            "duration_s": round(duration_s, 3) if isinstance(duration_s, (int, float)) else duration_s,
+            "max_duration_s": round(max_duration_s, 3) if isinstance(max_duration_s, (int, float)) else max_duration_s,
+        }
+        if isinstance(duration_s, (int, float)) and isinstance(max_duration_s, (int, float)):
+            item["over_by_s"] = round(max(0.0, duration_s - max_duration_s), 3)
+        overruns.append(item)
+    return overruns
+
+
+def budget_gate_threshold(phase_results: dict[str, Any] | list[dict[str, Any]]) -> tuple[bool, Any]:
+    """Gate threshold: every executed phase must stay within its time budget."""
+    overruns = phase_budget_overruns(phase_results)
+    if overruns:
+        return False, overruns
+    return True, "all executed phases within time budget"
+
+
+def rss_growth_threshold(phase_results: dict[str, Any]) -> tuple[bool, Any]:
+    """Gate threshold: Phase 10 must have a real RSS signal and stay <= 5%."""
+    phase = phase_results.get("phase_10", {}) if isinstance(phase_results, dict) else {}
+    if not phase.get("rss_measurement_available", False):
+        return False, "no data"
+    growth = phase.get("rss_growth_pct")
+    if not isinstance(growth, (int, float)):
+        return False, "no data" if growth is None else growth
+    return growth <= 5.0, growth
 
 
 # ─── NFS Probe
@@ -405,32 +549,43 @@ def generate_final_report(
 ) -> str:
     """Generate a human-readable gauntlet report in markdown."""
     gate_report = GateRunner.make_report(gate_results)
+    is_smoke = bool(meta and meta.get("duration") == "smoke")
+    run_pass = len(gate_report.get("failed", [])) == 0
+    overall_pass = run_pass if is_smoke else gate_report["pass"]
 
     lines: list[str] = [
         f"# Perseus Gauntlet — Final Report",
         f"",
-        f"**Version:** {GAUNTLET_VERSION}  ",
-        f"**Date:** {timestamp_iso()}  ",
+        f"**Version:** {GAUNTLET_VERSION}",
+        f"**Date:** {timestamp_iso()}",
         f"",
         f"## Summary",
         f"",
         f"| Metric | Result |",
         f"|--------|--------|",
         f"| Phases | {len(phase_results)} |",
-        f"| Gates passed | {gate_report['passed']}/{gate_report['total']} |",
-        f"| Overall | {'**PASS**  ' if gate_report['pass'] else '**FAIL**  '} |",
+        f"| Gates passed | {gate_report['passed']}/{gate_report.get('active_total', gate_report['total'])} active |",
+        f"| Gates skipped | {gate_report.get('skipped_count', 0)} |",
+        f"| Overall | {'**PASS**' if overall_pass else '**FAIL**'} |",
         f"",
     ]
 
     if meta:
         lines.extend(
             [
-                f"**Host:** {meta.get('hostname', 'unknown')}  ",
-                f"**Perseus:** {meta.get('perseus_version', '?')}  ",
-                f"**Developers per node:** {meta.get('developers_per_node', '?')}  ",
-                f"**Nodes:** {meta.get('nodes', '?')}  ",
+                f"**Host:** {meta.get('hostname', 'unknown')}",
+                f"**Perseus:** {meta.get('perseus_version', '?')}",
+                f"**Developers per node:** {meta.get('developers_per_node', '?')}",
+                f"**Nodes:** {meta.get('nodes', '?')}",
             ]
         )
+        if is_smoke:
+            lines.extend(
+                [
+                    f"**Smoke run:** {'PASS' if run_pass else 'FAIL'}",
+                    f"**Full certification:** {'PASS' if gate_report['pass'] else 'not evaluated'}",
+                ]
+            )
 
     # Phase results table
     lines.extend(
@@ -456,7 +611,7 @@ def generate_final_report(
     lines.extend(
         [
             f"",
-            f"## Gate Results ({gate_report['passed']}/{gate_report['total']} passed)",
+            f"## Gate Results ({gate_report['passed']}/{gate_report.get('active_total', gate_report['total'])} active passed; {gate_report.get('skipped_count', 0)} skipped)",
             f"",
             f"| Gate | Pass | Observed | Threshold | Severity |",
             f"|------|------|----------|-----------|----------|",
@@ -466,12 +621,12 @@ def generate_final_report(
         obs = g.get("observed", "")
         obs_str = json.dumps(obs) if not isinstance(obs, str) else str(obs)[:80]
         lines.append(
-            f"| {g['name']} | {'✅' if g['pass'] else '❌'} | {obs_str} | "
+            f"| {g['name']} | {'SKIP' if g.get('skipped') else ('✅' if g['pass'] else '❌')} | {obs_str} | "
             f"{g.get('threshold', '')} | {g['severity']} |"
         )
 
-    # Score
-    score = _compute_gauntlet_score(gate_report, phase_results)
+    # Score — pass gate_results so skipped gates (phases not run) are excluded
+    score = _compute_gauntlet_score(gate_report, phase_results, gate_results)
     lines.extend(
         [
             f"",
@@ -486,19 +641,65 @@ def generate_final_report(
 
 
 def _compute_gauntlet_score(
-    gate_report: dict, phase_results: list[dict]
+    gate_report: dict, phase_results: list[dict], gate_results: list[dict] | None = None,
 ) -> float:
-    """Compute overall Gauntlet score 0–100."""
+    """Compute overall Gauntlet score 0–100.
+
+    If gate_results is provided, gates marked as skipped (phase not run)
+    are excluded from both the pass-rate base and hard-fail penalty.
+    This makes smoke/partial runs produce meaningful scores instead of
+    always scoring 0.0 from skipped-phase gate penalties.
+    """
     if gate_report["total"] == 0:
         return 0.0
-    # Base: gate pass rate * 70
-    base = (gate_report["passed"] / gate_report["total"]) * 70.0
+
+    # Exclude skipped gates from active pass-rate scoring. Skipped hard gates
+    # still prevent certification and the certification bonus.
+    skipped = set()
+    if gate_results:
+        skipped = {g["name"] for g in gate_results if g.get("skipped")}
+
+    active_total = gate_report.get("active_total", gate_report["total"] - len(skipped))
+    if active_total <= 0:
+        # All gates skipped: no evidence, no score.
+        return 0.0
+
+    # Count passed among non-skipped gates only.
+    # gate_report["passed"] includes skipped gates (they have pass=True),
+    # so when gate_results is available, count from the raw list instead.
+    if gate_results:
+        non_skipped_passed = sum(
+            1 for g in gate_results
+            if g["pass"] and not g.get("skipped")
+        )
+    else:
+        non_skipped_passed = gate_report["passed"]
+
+    # Base: gate pass rate among active (non-skipped) gates * 70
+    base = (non_skipped_passed / active_total) * 70.0
     # Phases completed bonus: up to 20
-    completed = sum(1 for pr in phase_results if pr.get("failures", 1) == 0)
+    def _phase_completed(pr: dict) -> bool:
+        if pr.get("crash") or pr.get("bad_result"):
+            return False
+        if pr.get("failures", 0) > 0:
+            return False
+        if pr.get("status") == "skipped":
+            return False
+        if "overall_pass" in pr:
+            return bool(pr.get("overall_pass"))
+        return True
+
+    completed = sum(1 for pr in phase_results if _phase_completed(pr))
     phase_bonus = (completed / max(len(phase_results), 1)) * 20.0
-    # Hard-fail penalty: -10 per failed hard gate
-    penalty = len(gate_report.get("hard_failed", [])) * 10.0
-    return max(0.0, min(100.0, base + phase_bonus - penalty))
+    # Certification bonus: all active hard gates pass. Without this, a perfect
+    # run tops out at 90 despite the score being documented as 0-100.
+    hard_pass_bonus = 0.0 if (gate_report.get("hard_failed") or gate_report.get("hard_skipped")) else 10.0
+    # Hard-fail penalty: -10 per failed hard gate, excluding skipped gates
+    penalty = len([
+        g for g in gate_report.get("hard_failed", [])
+        if not gate_results or g["name"] not in skipped
+    ]) * 10.0
+    return max(0.0, min(100.0, base + phase_bonus + hard_pass_bonus - penalty))
 
 
 def _score_to_stars(score: float) -> str:

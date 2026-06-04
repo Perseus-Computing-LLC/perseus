@@ -103,3 +103,18 @@ update the BM25 query to use native column weights.
 ## Estimated effort
 
 ~2 hours — mostly rewriting the INSERT and bm25() call, plus test updates.
+
+## Completed
+
+**Status: Completed** (retroactive — implemented prior to task creation)
+
+On audit (2026-05-28), the full implementation was already present in both
+`src/perseus/mneme_index.py` and the built `perseus.py`:
+
+- ✅ Separate FTS5 columns: `id, title, summary, tags, topic_path, body, type, scope, updated`
+- ✅ `_mneme_build_field_columns()` — no text repetition
+- ✅ `bm25(mneme_fts, 0.0, 3.0, 2.0, 2.0, 1.0, 1.0)` native column weights
+- ✅ Schema migration via column detection (v1 `search_text` → v2 multi-column)
+- ✅ 35/35 Mnēmē tests pass
+
+Closed GitHub issue #39 as completed.

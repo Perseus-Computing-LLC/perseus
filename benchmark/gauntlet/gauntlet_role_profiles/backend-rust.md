@@ -1,32 +1,32 @@
 @perseus v0.8
 @prompt You are a simulated backend rust working inside a large enterprise.
 
-@query "git log --oneline -5" @cache ttl=300
-@query "rustc --version" @cache ttl=300
-@query "cargo --version" @cache ttl=300
-@query "cargo build --release 2>&1 | tail -5" @cache ttl=300
-@query "cargo check" @cache ttl=300
-@query "cargo test --no-run --quiet" @cache ttl=300
-@query "cargo clippy --version" @cache ttl=300
-@query "cargo fmt -- --check" @cache ttl=300
-@query "cargo audit --version" @cache ttl=300
-@query "cargo deny --version" @cache ttl=300
-@query "cargo outdated --version" @cache ttl=300
-@query "cargo udeps --version" @cache ttl=300
-@query "cargo nextest --version" @cache ttl=300
-@query "cargo tarpaulin --version" @cache ttl=300
-@query "rustup show" @cache ttl=300
-@query "rustup toolchain list" @cache ttl=300
-@query "ls -la src/" @cache ttl=300
-@query "ls -la bin/" @cache ttl=300
-@query "wc -l src/**/*.rs 2>/dev/null" @cache ttl=300
-@query "cat Cargo.toml" @cache ttl=300
-@query "cat Cargo.lock | head -30" @cache ttl=300
-@query "cat .rustfmt.toml 2>/dev/null" @cache ttl=300
-@query "cat .clippy.toml 2>/dev/null" @cache ttl=300
-@query "cat cross.toml 2>/dev/null" @cache ttl=300
-@query "cat build.rs 2>/dev/null" @cache ttl=300
-@query "cat rust-toolchain.toml 2>/dev/null" @cache ttl=300
+@query "git log --oneline -5" timeout=5 @cache ttl=86400
+@query "rustc --version" timeout=5 @cache ttl=86400
+@query "cargo --version" timeout=5 @cache ttl=86400
+@query "cargo build --release 2>&1 | tail -5" timeout=5 @cache ttl=86400
+@query "cargo check" timeout=5 @cache ttl=86400
+@query "cargo test --no-run --quiet" timeout=5 @cache ttl=86400
+@query "cargo clippy --version" timeout=5 @cache ttl=86400
+@query "cargo fmt -- --check" timeout=5 @cache ttl=86400
+@query "cargo audit --version" timeout=5 @cache ttl=86400
+@query "cargo deny --version" timeout=5 @cache ttl=86400
+@query "cargo outdated --version" timeout=5 @cache ttl=86400
+@query "cargo udeps --version" timeout=5 @cache ttl=86400
+@query "cargo nextest --version" timeout=5 @cache ttl=86400
+@query "cargo tarpaulin --version" timeout=5 @cache ttl=86400
+@query "rustup show" timeout=5 @cache ttl=86400
+@query "rustup toolchain list" timeout=5 @cache ttl=86400
+@query "ls -la src/" timeout=5 @cache ttl=86400
+@query "ls -la bin/" timeout=5 @cache ttl=86400
+@query "wc -l src/**/*.rs 2>/dev/null" timeout=5 @cache ttl=86400
+@query "cat Cargo.toml" timeout=5 @cache ttl=86400
+@query "cat Cargo.lock | head -30" timeout=5 @cache ttl=86400
+@query "cat .rustfmt.toml 2>/dev/null" timeout=5 @cache ttl=86400
+@query "cat .clippy.toml 2>/dev/null" timeout=5 @cache ttl=86400
+@query "cat cross.toml 2>/dev/null" timeout=5 @cache ttl=86400
+@query "cat build.rs 2>/dev/null" timeout=5 @cache ttl=86400
+@query "cat rust-toolchain.toml 2>/dev/null" timeout=5 @cache ttl=86400
 @services
   - name: actix-api
     url: http://localhost:8080/health

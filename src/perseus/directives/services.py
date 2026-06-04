@@ -60,6 +60,15 @@ def _check_one_service(svc: dict, index: int, timeout: float, cfg: dict) -> tupl
                         service=name,
                         command=command[:300])
             return index, f"| {name} | ⚠ command checks disabled by config | — |"
+        # Defense-in-depth: even with allow_services_command=true, require the
+        # PERSEUS_ALLOW_DANGEROUS env var gate (same gate as @query shell exec).
+        if not os.environ.get("PERSEUS_ALLOW_DANGEROUS"):
+            audit_event(cfg, "policy_denied",
+                        directive="@services",
+                        reason="PERSEUS_ALLOW_DANGEROUS not set",
+                        service=name,
+                        command=command[:300])
+            return index, f"| {name} | ⚠ PERSEUS_ALLOW_DANGEROUS not set | — |"
         # Run arbitrary shell command; success = exit 0
         audit_event(cfg, "shell_exec",
                     directive="@services",
@@ -83,7 +92,7 @@ def _check_one_service(svc: dict, index: int, timeout: float, cfg: dict) -> tupl
                 status = f"❌ {first_line}" if first_line else f"❌ exit {result.returncode}"
         except subprocess.TimeoutExpired:
             status = "⚠ timeout"
-        except Exception as exc:
+        except subprocess.SubprocessError as exc:
             status = f"⚠ {exc}"
         return index, f"| {name} | {status} | — |"
     else:
@@ -100,7 +109,21 @@ def resolve_services(block_content: str, cfg: dict) -> str:
     timeout = float(cfg["render"].get("services_timeout_s", 3))
     parallel = bool(cfg["render"].get("parallel_services", False))
     try:
-        services = yaml.safe_load(block_content) or []
+        # Use safe_load_all when the block contains YAML document separators
+        # (---) so multi-document streams parse correctly. Otherwise, use
+        # safe_load to preserve the existing mapping-format detection.
+        if "\\n---" in block_content or block_content.startswith("---"):
+            docs = list(yaml.safe_load_all(block_content))
+            services = []
+            for doc in docs:
+                if isinstance(doc, list):
+                    services.extend(doc)
+                elif isinstance(doc, dict):
+                    services.append(doc)
+            if not services:
+                services = []
+        else:
+            services = yaml.safe_load(block_content) or []
     except yaml.YAMLError as e:
         return f"> ⚠ Invalid @services YAML: {e}"
 

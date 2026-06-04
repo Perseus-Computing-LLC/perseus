@@ -16,7 +16,7 @@ If you run local models, you know the pain: every token spent on orientation ("w
 
 **The multi-agent swarm (this is the cool part):**
 
-Perseus's coordination layer handles 120 agents writing to the same task board simultaneously — 150 concurrent writers, zero collisions. The filesystem-based protocol uses atomic `O_CREAT|O_EXCL` locking tested across 33 edge cases (crash recovery, stale claims, TTL expiry). No server. No database. Just flat files and atomic locks.
+Perseus's coordination layer handles 120 agents writing to the same task board simultaneously — 150 concurrent writers, zero collisions. The filesystem-based protocol uses atomic `O_CREAT|O_EXCL` locking tested across 34 edge cases (crash recovery, stale claims, TTL expiry). No server. No database. Just flat files and atomic locks.
 
 ```
 dev-01: [architect → implementer → reviewer → tester]  ─┐

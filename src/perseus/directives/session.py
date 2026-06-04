@@ -91,7 +91,7 @@ def evaluate_condition(condition: str, workspace: Path | None = None, cfg: dict 
         except re.error as e:
             raise ConditionParseError(f"invalid @if query regex /{pattern_src}/: {e}")
 
-        if not render_cfg.get("allow_query_shell", True):
+        if not render_cfg.get("allow_query_shell", False):
             print(
                 "⚠ @if query(...) skipped: `render.allow_query_shell=false`. "
                 f"Condition evaluates to False.",
@@ -99,7 +99,7 @@ def evaluate_condition(condition: str, workspace: Path | None = None, cfg: dict 
             )
             return False
 
-        shell = render_cfg.get("shell", "/bin/bash")
+        shell = _get_shell(cfg) or render_cfg.get("shell")
         try:
             result = subprocess.run(
                 cmd,

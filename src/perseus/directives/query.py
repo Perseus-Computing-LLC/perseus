@@ -48,6 +48,20 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
                     args=args_str[:200])
         return "> ⚠ @query is disabled by config (`render.allow_query_shell=false`)."
 
+    # Defense-in-depth: even with allow_query_shell=true, require explicit
+    # operator opt-in via PERSEUS_ALLOW_DANGEROUS=1 env var. This prevents
+    # accidental exposure from copied configs or misconfigured automation.
+    if not os.environ.get("PERSEUS_ALLOW_DANGEROUS"):
+        audit_event(cfg, "policy_denied",
+                    directive="@query",
+                    reason="PERSEUS_ALLOW_DANGEROUS not set",
+                    args=args_str[:200])
+        return (
+            "> ⚠ @query is enabled in config but PERSEUS_ALLOW_DANGEROUS=1 is not set.\n"
+            "> This is a defense-in-depth gate to prevent accidental shell execution.\n"
+            "> Set the environment variable to acknowledge the risk."
+        )
+
     # Strip @cache modifier first, then extract the command string.
     # Use the opening quote character to find the correct closing quote,
     # so commands containing the other quote type (e.g. "bash -c 'foo'")
@@ -61,7 +75,7 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
         schema_path = schema_match.group(1) if schema_match.group(1) is not None else schema_match.group(2)
         raw = (raw[:schema_match.start()] + raw[schema_match.end():]).rstrip()
 
-    # task-14: extract fallback="..." (or fallback='...') BEFORE command parsing,
+    # task-14: extract fallback=\"...\" (or fallback='...') BEFORE command parsing,
     # so a command containing the literal substring `fallback=` is not mis-parsed.
     fallback = None
     fb_match = re.search(r'\s+fallback=(?:"((?:[^"\\]|\\.)*)"|\'((?:[^\'\\]|\\.)*)\')(\s|$)', raw)
@@ -72,6 +86,22 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
         # UTF-8 bytes as Latin-1, corrupting characters like é → Ã©).
         fallback = _unescape_fallback(fallback)
         raw = (raw[:fb_match.start()] + raw[fb_match.end():]).rstrip()
+
+    # Defense-in-depth: detect shell metacharacters for operator visibility.
+    # When render.query_shell_meta_warning is enabled (default: false),
+    # commands containing ; | & $() or backticks emit a visible warning
+    # in the rendered output but still execute. This does not break
+    # legitimate pipelines — it only surfaces a warning.
+    _shell_meta_warn = bool(cfg["render"].get("query_shell_meta_warning", False))
+    _meta_prefix = ""
+
+    # Extract timeout=N modifier BEFORE command parsing so the token can't
+    # leak into unquoted commands. Same principle as schema=/fallback= above.
+    timeout = int(cfg["render"].get("query_timeout_s", 30))
+    tm_match = re.search(r'\s+timeout=(\d+)(?:\s|$)', raw)
+    if tm_match:
+        timeout = int(tm_match.group(1))
+        raw = (raw[:tm_match.start()] + raw[tm_match.end():]).rstrip()
 
     cmd_match = re.match(r'^"((?:[^"\\]|\\.)*)"', raw)   # double-quoted
     if not cmd_match:
@@ -88,18 +118,24 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
     # Detect language hint for syntax highlighting (best-effort)
     lang = _guess_lang(cmd)
 
+    # Shell metacharacter defense-in-depth warning (config-gated, default off).
+    if _shell_meta_warn and re.search(r'[;&|]|\$[({]|`', cmd):
+        _meta_prefix = f"> ⚠ @query: shell metacharacters detected in command. "
+        _meta_prefix += "Set render.query_shell_meta_warning=false to suppress.\n\n"
+
     # task-47: audit the shell-execution decision crossing the trust boundary.
     audit_event(cfg, "shell_exec",
                 directive="@query",
                 command=cmd[:500],
-                shell=shell)
+                shell=shell,
+                cwd=str(workspace) if workspace else None)
 
-    # Extract timeout=N modifier (per-directive override, default 30s)
-    timeout = int(cfg["render"].get("query_timeout_s", 30))
-    tm_match = re.search(r'\s+timeout=(\d+)(?:\s|$)', raw)
-    if tm_match:
-        timeout = int(tm_match.group(1))
-        raw = (raw[:tm_match.start()] + raw[tm_match.end():]).rstrip()
+    # v1.0.5 review: run from workspace by default for safety.
+    # allow_outside_workspace does not sandbox — it only controls cwd.
+    allow_outside = cfg["render"].get("allow_outside_workspace", False)
+    cwd = workspace if workspace and not allow_outside else None
+    if workspace and not allow_outside and cwd is None:
+        cwd = Path.cwd()  # fallback: restrict to cwd if no workspace set
 
     try:
         result = subprocess.run(
@@ -109,6 +145,7 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
             capture_output=True,
             text=True,
             timeout=timeout,
+            cwd=cwd,
         )
         stdout = (result.stdout or "").rstrip("\n")
         stderr = result.stderr.strip()
@@ -119,7 +156,7 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
                 return fallback
             header = f"> ⚠ `@query` exited {exit_code}: `{cmd}`\n\n"
             body = stdout or stderr or "(no output)"
-            return header + f"```{lang}\n{body}\n```"
+            return _meta_prefix + header + f"```{lang}\n{body}\n```"
 
         if not stdout:
             if fallback is not None:
@@ -154,16 +191,16 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
             if warning:
                 return warning
 
-        return f"```{lang}\n{stdout}\n```"
+        return _meta_prefix + f"```{lang}\n{stdout}\n```"
 
     except subprocess.TimeoutExpired:
         if fallback is not None:
             return fallback
-        return f"> ⚠ `@query` timed out ({timeout}s): `{cmd}`"
-    except Exception as exc:
+        return _meta_prefix + f"> ⚠ `@query` timed out ({timeout}s): `{cmd}`"
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
         if fallback is not None:
             return fallback
-        return f"> ⚠ `@query` error: {exc}"
+        return _meta_prefix + f"> ⚠ `@query` error: {exc}"
 
 
 def _guess_lang(cmd: str) -> str:
