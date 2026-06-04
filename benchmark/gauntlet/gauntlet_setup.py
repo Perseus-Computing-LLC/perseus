@@ -2,7 +2,7 @@
 """
 gauntlet_setup.py — Full environment setup for the Perseus Gauntlet.
 
-1. Creates PERSEUS_HOME configs with allow_query_shell=true
+1. Creates PERSEUS_HOME configs with allow_query_shell=true and render env opt-in
 2. Seeds Mnēmē vault with 75 synthetic memory records
 3. Creates workspace checkpoints for @memory narrative data
 4. Creates referenced files for @read directives
@@ -37,12 +37,20 @@ def create_config(home: Path) -> None:
     """Create config.yaml with allow_query_shell=true."""
     home.mkdir(parents=True, exist_ok=True)
     config_path = home / "config.yaml"
-    config_path.write_text("""\
+    smoke_timeouts = ""
+    if os.environ.get("GAUNTLET_SMOKE") == "1":
+        smoke_timeouts = """\
+  services_timeout_s: 0.2
+  query_timeout_s: 5
+  parallel_services: true
+"""
+    config_path.write_text(f"""\
 # Perseus Gauntlet config — benchmarking mode
 render:
   allow_query_shell: true
   cache:
     ttl: 86400
+{smoke_timeouts.rstrip()}
 memory:
   mneme_vault_path: ""
   mneme_index_path: ""
@@ -159,6 +167,7 @@ def build_narrative(home: Path) -> None:
     """Run perseus memory update to build narrative from checkpoints."""
     env = os.environ.copy()
     env["PERSEUS_HOME"] = str(home)
+    env["PERSEUS_ALLOW_DANGEROUS"] = "1"
 
     # First verify checkpoints exist
     cp_dir = home / ".perseus" / "checkpoints"
@@ -187,6 +196,7 @@ def verify_render(profile_name: str = "architect") -> bool:
 
     env = os.environ.copy()
     env["PERSEUS_HOME"] = str(COLD_HOME)
+    env["PERSEUS_ALLOW_DANGEROUS"] = "1"
 
     result = subprocess.run(
         [sys.executable, str(REPO_ROOT / "perseus.py"), "render", str(profile_path)],
@@ -199,6 +209,7 @@ def verify_render(profile_name: str = "architect") -> bool:
 
     checks = {
         "@query disabled": "disabled by config" not in output,
+        "@query env gate": "PERSEUS_ALLOW_DANGEROUS=1 is not set" not in output,
         "@memory narrative": "No Mnēmē narrative" not in output,
         "@read missing": "file not found" not in output,
         "@services": "URLError" not in output if "services" in output.lower() else None,
@@ -272,6 +283,11 @@ def prewarm_npx_cache(profiles_dir: Path) -> int:
     return warmed
 
 
+def should_skip_npx_prewarm() -> bool:
+    """Whether setup should skip npm package-manager prewarming."""
+    return os.environ.get("GAUNTLET_SKIP_NPX_PREWARM") == "1"
+
+
 def main():
     print("=" * 60)
     print("Perseus Gauntlet — Environment Setup")
@@ -302,9 +318,12 @@ def main():
 
     # 6. Pre-warm npm cache (eliminates first-run npx download latency from Phase 1)
     print("\n6. Pre-warming npx cache...")
-    n_warmed = prewarm_npx_cache(PROFILES_DIR)
-    if n_warmed == 0:
-        print("  (no npx commands found or npx not installed — skipping)")
+    if should_skip_npx_prewarm():
+        print("  skipped by GAUNTLET_SKIP_NPX_PREWARM=1")
+    else:
+        n_warmed = prewarm_npx_cache(PROFILES_DIR)
+        if n_warmed == 0:
+            print("  (no npx commands found or npx not installed — skipping)")
 
     # 7. Verify
     print("\n7. Verifying render...")

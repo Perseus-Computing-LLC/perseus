@@ -98,6 +98,7 @@ def run_scenario(
     env = os.environ.copy()
     perseus_home.mkdir(parents=True, exist_ok=True)
     env["PERSEUS_HOME"] = str(perseus_home)
+    env["PERSEUS_ALLOW_DANGEROUS"] = "1"
 
     t0 = time.time()
     last_check = t0
@@ -501,6 +502,7 @@ def scenario_a7_signal_storm(
     home = Path("/tmp/perseus-gauntlet/signal-storm")
     home.mkdir(parents=True, exist_ok=True)
     env["PERSEUS_HOME"] = str(home)
+    env["PERSEUS_ALLOW_DANGEROUS"] = "1"
 
     t0 = time.time()
     signals_sent = 0
@@ -631,6 +633,7 @@ def scenario_a9_fork_bomb_defense(
     home = Path("/tmp/perseus-gauntlet/fork-bomb")
     home.mkdir(parents=True, exist_ok=True)
     env["PERSEUS_HOME"] = str(home)
+    env["PERSEUS_ALLOW_DANGEROUS"] = "1"
 
     # Pre-create context file so run_scenario doesn't need to write
     ctx_file = home / "_adversarial_ctx.md"
@@ -706,9 +709,10 @@ def scenario_a10_symlink_race(
     target = race_dir / "target"
     target.write_text("sensitive data")
 
-    # Create context.md BEFORE renders
+    # Create context.md BEFORE renders. The @read keeps this scenario tied to
+    # the symlink chain instead of just rendering an inert prompt.
     ctx_file = race_dir / "context.md"
-    ctx_file.write_text("@perseus v0.8\n@prompt symlink race\n@query \"echo test\" @cache ttl=300\n")
+    ctx_file.write_text("@perseus v0.8\n@prompt symlink race\n@read \"link_0\"\n")
 
     chain = []
     for i in range(20):
@@ -721,17 +725,16 @@ def scenario_a10_symlink_race(
 
     result["setup"] = f"created {len(chain)} symlink chain entries"
 
-    # Create context.md BEFORE the render loop so renders have a file to read
-    (race_dir / "context.md").write_text("@perseus v0.8\n@prompt symlink race\n")
-
     # Run renders while modifying symlinks
     perseus = perseus_executable()
     env = os.environ.copy()
     env["PERSEUS_HOME"] = str(perseus_home)
+    env["PERSEUS_ALLOW_DANGEROUS"] = "1"
 
     t0 = time.time()
     renders_ok = 0
     renders_failed = 0
+    escape_errors: list[str] = []
 
     while time.time() - t0 < duration_s:
         if _kill_switch_triggered():
@@ -741,7 +744,7 @@ def scenario_a10_symlink_race(
         for link in chain:
             try:
                 link.unlink()
-                link.symlink_to(race_dir / ".." / ".." / "etc" / "passwd")
+                link.symlink_to(Path("/etc/passwd"))
                 time.sleep(0.001)
                 link.unlink()
                 link.symlink_to(target)
@@ -756,6 +759,9 @@ def scenario_a10_symlink_race(
             )
             if r.returncode == 0:
                 renders_ok += 1
+                if "root:" in r.stdout:
+                    renders_failed += 1
+                    escape_errors.append("read through symlink resolved outside workspace")
             else:
                 renders_failed += 1
         except Exception:
@@ -765,6 +771,7 @@ def scenario_a10_symlink_race(
         "duration_s": time.time() - t0,
         "renders_ok": renders_ok,
         "renders_failed": renders_failed,
+        "errors": escape_errors,
     }
 
     # Cleanup
