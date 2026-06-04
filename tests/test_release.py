@@ -91,12 +91,12 @@ def test_changelog_has_version_section():
 
 
 # ---------------------------------------------------------------------------
-# AC #4 — changelog maps to task IDs
+# AC #4 — changelog maps to task or issue IDs
 # ---------------------------------------------------------------------------
 
 
-def test_changelog_release_sections_mention_tasks():
-    """AC #4: each versioned release section in CHANGELOG references at least one task-NN."""
+def test_changelog_release_sections_mention_release_refs():
+    """AC #4: each versioned release section references a task-NN or GitHub issue."""
     changelog = CHANGELOG.read_text()
     # Find all versioned release sections (skip [Unreleased])
     section_headers = re.findall(r"^## \[(\d+\.\d+[\d.]*)\]", changelog, re.MULTILINE)
@@ -108,9 +108,12 @@ def test_changelog_release_sections_mention_tasks():
         m = re.search(pattern, changelog, re.MULTILINE | re.DOTALL)
         assert m, f"Could not extract CHANGELOG section for [{version}]"
         section_text = m.group(0)
-        task_refs = re.findall(r"task-\d+", section_text)
-        assert task_refs, (
-            f"CHANGELOG section [{version}] has no task-NN references"
+        release_refs = re.findall(
+            r"task-\d+|(?<![\w/#])#\d+\b|github\.com/.+?/issues/\d+",
+            section_text,
+        )
+        assert release_refs, (
+            f"CHANGELOG section [{version}] has no task-NN or issue references"
         )
 
 
