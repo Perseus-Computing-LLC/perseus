@@ -1206,6 +1206,8 @@ def _discover_plugins(cfg: dict) -> list["DirectiveSpec"]:
             file=sys.stderr,
         )
         return []
+    if not plugins_cfg.get("enabled", PLUGINS_ENABLED_DEFAULT):
+        return []
     plugins_dir = Path(plugins_cfg.get("dir", str(PERSEUS_HOME / "plugins")))
     if not plugins_dir.is_dir():
         return []
@@ -1924,33 +1926,20 @@ def load_config(workspace: Path | None = None) -> dict:
     if effective_profile:
         _apply_permission_profile(cfg, effective_profile)
 
-<<<<<<< HEAD
     # #168/#169 (v1.0.6): track per-section workspace provenance for
-    # hooks.py / registry.py consumers (gate against malicious workspaces).
-    # Workspace source is identified as the local file under
-    # <workspace>/.perseus/config.yaml — the LAST entry in loaded_sources
-    # when `workspace` was scanned.
-=======
-    # #168 (v1.0.6): track per-section whether the value was sourced from
-    # the workspace (vs. global / defaults). hooks.py consults this
-    # provenance map to refuse dangerous workspace-sourced config without
-    # an explicit opt-in. Same mechanism will gate #169 (plugins) once
-    # plugin discovery learns to consult it.
+    # hooks.py / registry.py consumers so dangerous workspace-sourced
+    # config can be refused unless explicitly opted in.
     #
     # Workspace source is identified as the local file under
     # <workspace>/.perseus/config.yaml. We loaded global FIRST then
     # workspace, so the workspace source is the LAST entry — but only
     # when `workspace` was provided.
->>>>>>> cbb5f46 (fix(hooks): refuse workspace-sourced shell/python hooks without opt-in (#168))
     _provenance: dict[str, bool] = {}
     workspace_src: dict | None = None
     if workspace:
         local_cfg_path = workspace / ".perseus" / "config.yaml"
         if local_cfg_path.exists() and loaded_sources:
-<<<<<<< HEAD
-=======
             # loaded_sources[-1] is the workspace src when workspace was scanned
->>>>>>> cbb5f46 (fix(hooks): refuse workspace-sourced shell/python hooks without opt-in (#168))
             workspace_src = loaded_sources[-1]
     if isinstance(workspace_src, dict):
         for section in ("hooks", "plugins", "webhooks"):
@@ -3158,10 +3147,7 @@ def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str
         return f"> ⚠ @read: could not read `{file_path_str}`: {e}"
 
     # ── File size limit check (byte-counted, not character-counted) ──
-<<<<<<< HEAD
     max_bytes = _resolve_max_bytes(cfg, "max_read_bytes")
-=======
->>>>>>> 6f438ea (fix(hooks): refuse workspace-sourced shell/python hooks without opt-in (#168))
     if max_bytes is not None and len(data) > max_bytes:
         content = data[:max_bytes].decode(errors="replace")
         trunc_note = (

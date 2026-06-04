@@ -257,7 +257,6 @@ def load_config(workspace: Path | None = None) -> dict:
     if effective_profile:
         _apply_permission_profile(cfg, effective_profile)
 
-<<<<<<< HEAD
     # #168/#169 (v1.0.6): track per-section workspace provenance for
     # hooks.py / registry.py consumers so dangerous workspace-sourced
     # config can be refused unless explicitly opted in.
