@@ -732,6 +732,51 @@ def test_cache_fingerprint_read_invalidates_on_file_change(tmp_path):
     assert "v2" in r2
 
 
+def test_cache_fingerprint_handles_quoted_paths_with_spaces(tmp_path):
+    """Quoted file paths with spaces still participate in dependency invalidation."""
+    src = tmp_path / "src.md"
+    data_file = tmp_path / "data file.txt"
+    data_file.write_text("v1")
+    src.write_text('@perseus v0.4\n@read "data file.txt" @cache ttl=3600')
+
+    c = cfg()
+    c["render"]["cache_dir"] = str(tmp_path / "cache")
+
+    r1 = perseus.render_source(src.read_text(), c, tmp_path)
+    assert "v1" in r1
+
+    data_file.write_text("v2")
+    r2 = perseus.render_source(src.read_text(), c, tmp_path)
+    assert "v2" in r2
+
+
+def test_cache_fingerprint_respects_workspace_boundary(monkeypatch, tmp_path):
+    """Fingerprinting must not read paths that the resolver would block."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    outside = tmp_path / "outside.txt"
+    outside.write_text("secret")
+
+    original_read_bytes = Path.read_bytes
+
+    def guarded_read_bytes(self):
+        if self.resolve(strict=False) == outside.resolve():
+            raise AssertionError("fingerprint read escaped workspace")
+        return original_read_bytes(self)
+
+    monkeypatch.setattr(Path, "read_bytes", guarded_read_bytes)
+
+    c = cfg()
+    c["render"]["cache_dir"] = str(tmp_path / "cache")
+    out = perseus.render_source(
+        f"@perseus v0.4\n@read {outside} @cache ttl=3600",
+        c,
+        workspace,
+    )
+
+    assert "path escapes workspace" in out
+
+
 def test_cache_fingerprint_no_deps_still_caches(tmp_path):
     """@query with no file deps caches and returns consistent output."""
     src = tmp_path / "src.md"

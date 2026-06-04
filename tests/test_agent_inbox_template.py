@@ -59,6 +59,16 @@ def test_agent_security_gate(tmp_path):
     assert "disabled by config" in out
 
 
+def test_agent_requires_dangerous_env_gate(tmp_path, monkeypatch):
+    local = cfg()
+    local["render"]["allow_agent_shell"] = True
+    monkeypatch.delenv("PERSEUS_ALLOW_DANGEROUS", raising=False)
+
+    out = perseus.resolve_agent('"echo nope"', local, tmp_path)
+
+    assert "PERSEUS_ALLOW_DANGEROUS=1 is not set" in out
+
+
 def test_agent_through_render(tmp_path):
     out = perseus._render_lines(['@agent "echo via-render"'], cfg(), workspace=tmp_path)
     assert "via-render" in out
