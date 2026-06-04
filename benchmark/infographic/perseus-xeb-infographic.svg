@@ -1,0 +1,188 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 700" width="1000" height="700">
+<defs>
+  <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+    <feGaussianBlur in="SourceGraphic" stdDeviation="2.5" result="blur"/>
+    <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+  </filter>
+</defs>
+<rect x="0" y="0" width="1000" height="700" rx="0" fill="#0d1117" stroke="none" stroke-width="1" opacity="1.0"/>
+<rect x="0" y="0" width="1000" height="0" rx="0" fill="#0d1117" stroke="none" stroke-width="1" opacity="1.0"/>
+<text x="20" y="686" fill="#8b949e" font-size="9" text-anchor="start" font-weight="normal" font-family="monospace">Perseus Extreme Enterprise Benchmark  ·  2026-05-26T15:58:28Z  ·  duration=63.17s  ·  ROI≈90.0%  ·  overall=PASS</text>
+<rect x="920" y="674" width="72" height="18" rx="4" fill="#3fb950" stroke="none" stroke-width="1" opacity="0.2"/>
+<text x="956" y="687" fill="#3fb950" font-size="11" text-anchor="middle" font-weight="bold" font-family="monospace">PASS</text>
+<rect x="20" y="20" width="460" height="300" rx="8" fill="#161b22" stroke="#30363d" stroke-width="1" opacity="1.0"/>
+<text x="250" y="42" fill="#e6edf3" font-size="13" text-anchor="middle" font-weight="bold" font-family="monospace">Cold vs. Warm Latency</text>
+<text x="250" y="58" fill="#8b949e" font-size="10" text-anchor="middle" font-weight="normal" font-family="monospace">tier 3 · mean render time (ms)</text>
+<line x1="72" y1="72" x2="464" y2="72" stroke="#30363d" stroke-width="1" stroke-dasharray="4,4"/>
+<text x="66" y="76" fill="#8b949e" font-size="9" text-anchor="end" font-weight="normal" font-family="monospace">229</text>
+<line x1="72" y1="125" x2="464" y2="125" stroke="#30363d" stroke-width="1" stroke-dasharray="4,4"/>
+<text x="66" y="129" fill="#8b949e" font-size="9" text-anchor="end" font-weight="normal" font-family="monospace">171</text>
+<line x1="72" y1="178" x2="464" y2="178" stroke="#30363d" stroke-width="1" stroke-dasharray="4,4"/>
+<text x="66" y="182" fill="#8b949e" font-size="9" text-anchor="end" font-weight="normal" font-family="monospace">114</text>
+<line x1="72" y1="231" x2="464" y2="231" stroke="#30363d" stroke-width="1" stroke-dasharray="4,4"/>
+<text x="66" y="235" fill="#8b949e" font-size="9" text-anchor="end" font-weight="normal" font-family="monospace">57</text>
+<line x1="72" y1="284" x2="464" y2="284" stroke="#30363d" stroke-width="1" stroke-dasharray="4,4"/>
+<text x="66" y="288" fill="#8b949e" font-size="9" text-anchor="end" font-weight="normal" font-family="monospace">0</text>
+<text x="72.0" y="300" fill="#8b949e" font-size="9" text-anchor="middle" font-weight="normal" font-family="monospace">1</text>
+<text x="126.06896551724138" y="300" fill="#8b949e" font-size="9" text-anchor="middle" font-weight="normal" font-family="monospace">5</text>
+<text x="261.2413793103448" y="300" fill="#8b949e" font-size="9" text-anchor="middle" font-weight="normal" font-family="monospace">15</text>
+<text x="464.0" y="300" fill="#8b949e" font-size="9" text-anchor="middle" font-weight="normal" font-family="monospace">30</text>
+<text x="268" y="314" fill="#8b949e" font-size="9" text-anchor="middle" font-weight="normal" font-family="monospace">Directive count</text>
+<text x="34" y="178" fill="#8b949e" font-size="9" text-anchor="middle" font-weight="normal" font-family="monospace">ms</text>
+<polyline points="72.0,108.9 126.1,112.7 261.2,108.8 464.0,105.4" fill="none" stroke="#ff6b6b" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="72.0" cy="108.9" r="4" fill="#ff6b6b" stroke="#0d1117" stroke-width="1.5"/>
+<circle cx="126.1" cy="112.7" r="4" fill="#ff6b6b" stroke="#0d1117" stroke-width="1.5"/>
+<circle cx="261.2" cy="108.8" r="4" fill="#ff6b6b" stroke="#0d1117" stroke-width="1.5"/>
+<circle cx="464.0" cy="105.4" r="4" fill="#ff6b6b" stroke="#0d1117" stroke-width="1.5"/>
+<polyline points="72.0,110.8 126.1,114.5 261.2,99.7 464.0,108.5" fill="none" stroke="#2ed573" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="72.0" cy="110.8" r="4" fill="#2ed573" stroke="#0d1117" stroke-width="1.5"/>
+<circle cx="126.1" cy="114.5" r="4" fill="#2ed573" stroke="#0d1117" stroke-width="1.5"/>
+<circle cx="261.2" cy="99.7" r="4" fill="#2ed573" stroke="#0d1117" stroke-width="1.5"/>
+<circle cx="464.0" cy="108.5" r="4" fill="#2ed573" stroke="#0d1117" stroke-width="1.5"/>
+<rect x="253.24137931034483" y="95.65217391304347" width="16" height="17.14961976746872" rx="3" fill="#f85149" stroke="#f85149" stroke-width="0" opacity="0.25"/>
+<text x="261.2413793103448" y="90.65217391304347" fill="#f85149" font-size="9" text-anchor="middle" font-weight="bold" font-family="monospace">!</text>
+<rect x="350" y="78" width="108" height="36" rx="4" fill="#0d1117" stroke="#30363d" stroke-width="1" opacity="1.0"/>
+<line x1="354" y1="88" x2="372" y2="88" stroke="#ff6b6b" stroke-width="2" />
+<line x1="354" y1="102" x2="372" y2="102" stroke="#2ed573" stroke-width="2" />
+<text x="376" y="92" fill="#ff6b6b" font-size="9" text-anchor="start" font-weight="normal" font-family="monospace">Cold</text>
+<text x="376" y="106" fill="#2ed573" font-size="9" text-anchor="start" font-weight="normal" font-family="monospace">Warm</text>
+<rect x="492" y="20" width="488" height="300" rx="8" fill="#161b22" stroke="#30363d" stroke-width="1" opacity="1.0"/>
+<text x="736" y="42" fill="#e6edf3" font-size="13" text-anchor="middle" font-weight="bold" font-family="monospace">Concurrency Throughput</text>
+<text x="736" y="58" fill="#8b949e" font-size="10" text-anchor="middle" font-weight="normal" font-family="monospace">warm · renders per second vs concurrent agents</text>
+<line x1="544" y1="72" x2="964" y2="72" stroke="#30363d" stroke-width="1" stroke-dasharray="4,4"/>
+<text x="538" y="76" fill="#8b949e" font-size="9" text-anchor="end" font-weight="normal" font-family="monospace">24</text>
+<line x1="544" y1="125" x2="964" y2="125" stroke="#30363d" stroke-width="1" stroke-dasharray="4,4"/>
+<text x="538" y="129" fill="#8b949e" font-size="9" text-anchor="end" font-weight="normal" font-family="monospace">18</text>
+<line x1="544" y1="178" x2="964" y2="178" stroke="#30363d" stroke-width="1" stroke-dasharray="4,4"/>
+<text x="538" y="182" fill="#8b949e" font-size="9" text-anchor="end" font-weight="normal" font-family="monospace">12</text>
+<line x1="544" y1="231" x2="964" y2="231" stroke="#30363d" stroke-width="1" stroke-dasharray="4,4"/>
+<text x="538" y="235" fill="#8b949e" font-size="9" text-anchor="end" font-weight="normal" font-family="monospace">6</text>
+<line x1="544" y1="284" x2="964" y2="284" stroke="#30363d" stroke-width="1" stroke-dasharray="4,4"/>
+<text x="538" y="288" fill="#8b949e" font-size="9" text-anchor="end" font-weight="normal" font-family="monospace">0</text>
+<text x="544.0" y="300" fill="#8b949e" font-size="9" text-anchor="middle" font-weight="normal" font-family="monospace">1</text>
+<text x="791.2086022284672" y="300" fill="#8b949e" font-size="9" text-anchor="middle" font-weight="normal" font-family="monospace">10</text>
+<text x="964.0" y="300" fill="#8b949e" font-size="9" text-anchor="middle" font-weight="normal" font-family="monospace">50</text>
+<text x="754" y="314" fill="#8b949e" font-size="9" text-anchor="middle" font-weight="normal" font-family="monospace">Concurrent agents (log scale)</text>
+<polyline points="544.0,234.0 791.2,107.3 964.0,139.8" fill="none" stroke="#58a6ff" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="544.0" cy="234.0" r="5" fill="#58a6ff" stroke="#0d1117" stroke-width="1.5"/>
+<line x1="544.0" y1="234.04352921479995" x2="544.0" y2="-1292.9563033651432" stroke="#58a6ff" stroke-width="1.5" stroke-dasharray="2,2"/>
+<circle cx="791.2" cy="107.3" r="5" fill="#58a6ff" stroke="#0d1117" stroke-width="1.5"/>
+<line x1="791.2086022284672" y1="107.33333333333331" x2="791.2086022284672" y2="-4305.402477816842" stroke="#58a6ff" stroke-width="1.5" stroke-dasharray="2,2"/>
+<circle cx="964.0" cy="139.8" r="5" fill="#58a6ff" stroke="#0d1117" stroke-width="1.5"/>
+<line x1="964.0" y1="139.80947597522183" x2="964.0" y2="-28555.84396450695" stroke="#58a6ff" stroke-width="1.5" stroke-dasharray="2,2"/>
+<text x="506" y="178" fill="#8b949e" font-size="9" text-anchor="middle" font-weight="normal" font-family="monospace">TPS</text>
+<rect x="850" y="78" width="130" height="50" rx="4" fill="#0d1117" stroke="#30363d" stroke-width="1" opacity="1.0"/>
+<line x1="854" y1="88" x2="872" y2="88" stroke="#58a6ff" stroke-width="2" />
+<text x="876" y="92" fill="#58a6ff" font-size="9" text-anchor="start" font-weight="normal" font-family="monospace">TPS (warm)</text>
+<circle cx="863" cy="106" r="4" fill="#f85149" stroke="#0d1117" stroke-width="1.5"/>
+<text x="876" y="110" fill="#f85149" font-size="9" text-anchor="start" font-weight="normal" font-family="monospace">Error rate >1%</text>
+<line x1="854" y1="120" x2="872" y2="120" stroke="#58a6ff" stroke-width="1.5" stroke-dasharray="2,2"/>
+<text x="876" y="124" fill="#8b949e" font-size="9" text-anchor="start" font-weight="normal" font-family="monospace">P99 range</text>
+<rect x="20" y="332" width="460" height="348" rx="8" fill="#161b22" stroke="#30363d" stroke-width="1" opacity="1.0"/>
+<text x="250" y="354" fill="#e6edf3" font-size="13" text-anchor="middle" font-weight="bold" font-family="monospace">Regression Probes</text>
+<text x="250" y="370" fill="#8b949e" font-size="10" text-anchor="middle" font-weight="normal" font-family="monospace">mean render latency (ms) — nothing hidden</text>
+<line x1="170" y1="382" x2="170" y2="656" stroke="#30363d" stroke-width="1" stroke-dasharray="3,3"/>
+<text x="170" y="670" fill="#8b949e" font-size="9" text-anchor="middle" font-weight="normal" font-family="monospace">0</text>
+<line x1="242" y1="382" x2="242" y2="656" stroke="#30363d" stroke-width="1" stroke-dasharray="3,3"/>
+<text x="242" y="670" fill="#8b949e" font-size="9" text-anchor="middle" font-weight="normal" font-family="monospace">75</text>
+<line x1="315" y1="382" x2="315" y2="656" stroke="#30363d" stroke-width="1" stroke-dasharray="3,3"/>
+<text x="315" y="670" fill="#8b949e" font-size="9" text-anchor="middle" font-weight="normal" font-family="monospace">151</text>
+<line x1="387" y1="382" x2="387" y2="656" stroke="#30363d" stroke-width="1" stroke-dasharray="3,3"/>
+<text x="387" y="670" fill="#8b949e" font-size="9" text-anchor="middle" font-weight="normal" font-family="monospace">227</text>
+<line x1="460" y1="382" x2="460" y2="656" stroke="#30363d" stroke-width="1" stroke-dasharray="3,3"/>
+<text x="460" y="670" fill="#8b949e" font-size="9" text-anchor="middle" font-weight="normal" font-family="monospace">302</text>
+<text x="315" y="682" fill="#8b949e" font-size="9" text-anchor="middle" font-weight="normal" font-family="monospace">ms</text>
+<rect x="170" y="392.275" width="225.5488291468706" height="25.116666666666667" rx="3" fill="#f0883e" stroke="none" stroke-width="0" opacity="0.2"/>
+<rect x="170" y="396.04249999999996" width="220.32649653051195" height="17.581666666666667" rx="3" fill="#f0883e" stroke="none" stroke-width="0" opacity="1.0"/>
+<text x="164" y="408.8333333333333" fill="#e6edf3" font-size="9" text-anchor="end" font-weight="normal" font-family="monospace">A: tiny cold (1 dir)</text>
+<text x="394.3264965305119" y="408.8333333333333" fill="#f0883e" font-size="9" text-anchor="start" font-weight="normal" font-family="monospace">230.016ms</text>
+<rect x="170" y="437.94166666666666" width="238.1123131153519" height="25.116666666666667" rx="3" fill="#f0883e" stroke="none" stroke-width="0" opacity="0.2"/>
+<rect x="170" y="441.70916666666665" width="226.73180434518366" height="17.581666666666667" rx="3" fill="#f0883e" stroke="none" stroke-width="0" opacity="1.0"/>
+<text x="164" y="454.5" fill="#e6edf3" font-size="9" text-anchor="end" font-weight="normal" font-family="monospace">B: massive cold (120 dir)</text>
+<text x="400.73180434518366" y="454.5" fill="#f0883e" font-size="9" text-anchor="start" font-weight="normal" font-family="monospace">236.703ms</text>
+<rect x="170" y="483.6083333333333" width="251.7984261789125" height="25.116666666666667" rx="3" fill="#f0883e" stroke="none" stroke-width="0" opacity="0.2"/>
+<rect x="170" y="487.3758333333333" width="221.14260573614976" height="17.581666666666667" rx="3" fill="#f0883e" stroke="none" stroke-width="0" opacity="1.0"/>
+<text x="164" y="500.16666666666663" fill="#e6edf3" font-size="9" text-anchor="end" font-weight="normal" font-family="monospace">C: single-shot</text>
+<text x="395.1426057361498" y="500.16666666666663" fill="#f0883e" font-size="9" text-anchor="start" font-weight="normal" font-family="monospace">230.868ms</text>
+<rect x="170" y="529.275" width="232.93595848240946" height="25.116666666666667" rx="3" fill="#f0883e" stroke="none" stroke-width="0" opacity="0.2"/>
+<rect x="170" y="533.0425" width="226.61973301060664" height="17.581666666666667" rx="3" fill="#f0883e" stroke="none" stroke-width="0" opacity="1.0"/>
+<text x="164" y="545.8333333333333" fill="#e6edf3" font-size="9" text-anchor="end" font-weight="normal" font-family="monospace">D: 1 dir warm</text>
+<text x="400.61973301060664" y="545.8333333333333" fill="#f0883e" font-size="9" text-anchor="start" font-weight="normal" font-family="monospace">236.586ms</text>
+<rect x="170" y="574.9416666666666" width="252.17391304347825" height="25.116666666666667" rx="3" fill="#f0883e" stroke="none" stroke-width="0" opacity="0.2"/>
+<rect x="170" y="578.7091666666666" width="219.0055873819502" height="17.581666666666667" rx="3" fill="#f0883e" stroke="none" stroke-width="0" opacity="1.0"/>
+<text x="164" y="591.4999999999999" fill="#e6edf3" font-size="9" text-anchor="end" font-weight="normal" font-family="monospace">E: cache-miss storm</text>
+<text x="393.0055873819502" y="591.4999999999999" fill="#f0883e" font-size="9" text-anchor="start" font-weight="normal" font-family="monospace">228.637ms</text>
+<rect x="170" y="620.6083333333332" width="221.1272797416777" height="25.116666666666667" rx="3" fill="#8b949e" stroke="none" stroke-width="0" opacity="0.2"/>
+<rect x="170" y="624.3758333333333" width="215.73061393819924" height="17.581666666666667" rx="3" fill="#8b949e" stroke="none" stroke-width="0" opacity="1.0"/>
+<text x="164" y="637.1666666666665" fill="#8b949e" font-size="9" text-anchor="end" font-weight="normal" font-family="monospace">F: state-A baseline</text>
+<text x="389.7306139381992" y="637.1666666666665" fill="#8b949e" font-size="9" text-anchor="start" font-weight="normal" font-family="monospace">225.218ms</text>
+<text x="250" y="674" fill="#2ed573" font-size="9" text-anchor="middle" font-weight="normal" font-family="monospace">✓ No overhead-dominant scenarios</text>
+<rect x="492" y="332" width="488" height="348" rx="8" fill="#161b22" stroke="#30363d" stroke-width="1" opacity="1.0"/>
+<text x="736" y="354" fill="#e6edf3" font-size="13" text-anchor="middle" font-weight="bold" font-family="monospace">Gate Scorecard</text>
+<text x="736" y="370" fill="#8b949e" font-size="10" text-anchor="middle" font-weight="normal" font-family="monospace">hard gates block PASS · soft are advisory</text>
+<path d="M 736.0 419.0 A 58 58 0 1 1 735.9 419.0" fill="none" stroke="#30363d" stroke-width="14" stroke-linecap="round"/>
+<path d="M 736.0 439.0 A 38 38 0 1 1 735.9 439.0" fill="none" stroke="#30363d" stroke-width="10" stroke-linecap="round"/>
+<path d="M 736.0 419.0 A 58 58 0 1 1 735.9 419.0" fill="none" stroke="#3fb950" stroke-width="14" stroke-linecap="round"/>
+<path d="M 736.0 439.0 A 38 38 0 0 1 758.3 507.7" fill="none" stroke="#d29922" stroke-width="10" stroke-linecap="round"/>
+<text x="736" y="469" fill="#3fb950" font-size="16" text-anchor="middle" font-weight="bold" font-family="monospace">PASS</text>
+<text x="736" y="489" fill="#e6edf3" font-size="10" text-anchor="middle" font-weight="normal" font-family="monospace">11/11 hard</text>
+<text x="736" y="503" fill="#8b949e" font-size="9" text-anchor="middle" font-weight="normal" font-family="monospace">2/5 soft</text>
+<circle cx="512" cy="555" r="5" fill="#3fb950" stroke="#0d1117" stroke-width="1.5"/>
+<text x="520" y="559" fill="#e6edf3" font-size="9" text-anchor="start" font-weight="normal" font-family="monospace">Hard gates</text>
+<circle cx="592" cy="555" r="5" fill="#d29922" stroke="#0d1117" stroke-width="1.5"/>
+<text x="600" y="559" fill="#e6edf3" font-size="9" text-anchor="start" font-weight="normal" font-family="monospace">Soft gates</text>
+<text x="502" y="580.9583333333334" fill="#3fb950" font-size="9" text-anchor="start" font-weight="normal" font-family="monospace">●</text>
+<text x="514" y="580.9583333333334" fill="#e6edf3" font-size="8" text-anchor="start" font-weight="normal" font-family="monospace">BENCH shim emits telemetry</text>
+<text x="972" y="580.9583333333334" fill="#3fb950" font-size="8" text-anchor="end" font-weight="normal" font-family="monospace">ok</text>
+<text x="502" y="586.2361111111112" fill="#3fb950" font-size="9" text-anchor="start" font-weight="normal" font-family="monospace">●</text>
+<text x="514" y="586.2361111111112" fill="#e6edf3" font-size="8" text-anchor="start" font-weight="normal" font-family="monospace">No cold renders fully timed out</text>
+<text x="972" y="586.2361111111112" fill="#3fb950" font-size="8" text-anchor="end" font-weight="normal" font-family="monospace">ok</text>
+<text x="502" y="591.5138888888889" fill="#d29922" font-size="9" text-anchor="start" font-weight="normal" font-family="monospace">○</text>
+<text x="514" y="591.5138888888889" fill="#f85149" font-size="8" text-anchor="start" font-weight="normal" font-family="monospace">Warm cache faster than cold (all cells…</text>
+<text x="972" y="591.5138888888889" fill="#f85149" font-size="8" text-anchor="end" font-weight="normal" font-family="monospace">FAIL</text>
+<text x="502" y="596.7916666666667" fill="#d29922" font-size="9" text-anchor="start" font-weight="normal" font-family="monospace">○</text>
+<text x="514" y="596.7916666666667" fill="#f85149" font-size="8" text-anchor="start" font-weight="normal" font-family="monospace">Warm speedup >=5% for large contexts (…</text>
+<text x="972" y="596.7916666666667" fill="#f85149" font-size="8" text-anchor="end" font-weight="normal" font-family="monospace">FAIL</text>
+<text x="502" y="602.0694444444445" fill="#3fb950" font-size="9" text-anchor="start" font-weight="normal" font-family="monospace">●</text>
+<text x="514" y="602.0694444444445" fill="#e6edf3" font-size="8" text-anchor="start" font-weight="normal" font-family="monospace">Zero errors at concurrency=1 (cold)</text>
+<text x="972" y="602.0694444444445" fill="#3fb950" font-size="8" text-anchor="end" font-weight="normal" font-family="monospace">ok</text>
+<text x="502" y="607.3472222222223" fill="#3fb950" font-size="9" text-anchor="start" font-weight="normal" font-family="monospace">●</text>
+<text x="514" y="607.3472222222223" fill="#e6edf3" font-size="8" text-anchor="start" font-weight="normal" font-family="monospace">Error rate <=1% at peak concurrency (5…</text>
+<text x="972" y="607.3472222222223" fill="#3fb950" font-size="8" text-anchor="end" font-weight="normal" font-family="monospace">ok</text>
+<text x="502" y="612.625" fill="#d29922" font-size="9" text-anchor="start" font-weight="normal" font-family="monospace">○</text>
+<text x="514" y="612.625" fill="#e6edf3" font-size="8" text-anchor="start" font-weight="normal" font-family="monospace">Throughput does not collapse at 50 con…</text>
+<text x="972" y="612.625" fill="#3fb950" font-size="8" text-anchor="end" font-weight="normal" font-family="monospace">ok</text>
+<text x="502" y="617.9027777777778" fill="#d29922" font-size="9" text-anchor="start" font-weight="normal" font-family="monospace">○</text>
+<text x="514" y="617.9027777777778" fill="#e6edf3" font-size="8" text-anchor="start" font-weight="normal" font-family="monospace">Tier 1 produces <= tokens than tier 3 …</text>
+<text x="972" y="617.9027777777778" fill="#3fb950" font-size="8" text-anchor="end" font-weight="normal" font-family="monospace">ok</text>
+<text x="502" y="623.1805555555555" fill="#8b949e" font-size="9" text-anchor="start" font-weight="normal" font-family="monospace">○</text>
+<text x="514" y="623.1805555555555" fill="#e6edf3" font-size="8" text-anchor="start" font-weight="normal" font-family="monospace">No overhead-dominant scenarios detecte…</text>
+<text x="972" y="623.1805555555555" fill="#3fb950" font-size="8" text-anchor="end" font-weight="normal" font-family="monospace">ok</text>
+<text x="502" y="628.4583333333334" fill="#3fb950" font-size="9" text-anchor="start" font-weight="normal" font-family="monospace">●</text>
+<text x="514" y="628.4583333333334" fill="#e6edf3" font-size="8" text-anchor="start" font-weight="normal" font-family="monospace">Single-shot cold render <= 2000ms</text>
+<text x="972" y="628.4583333333334" fill="#3fb950" font-size="8" text-anchor="end" font-weight="normal" font-family="monospace">ok</text>
+<text x="502" y="633.7361111111112" fill="#d29922" font-size="9" text-anchor="start" font-weight="normal" font-family="monospace">○</text>
+<text x="514" y="633.7361111111112" fill="#f85149" font-size="8" text-anchor="start" font-weight="normal" font-family="monospace">Warm 1-directive faster than cold 1-di…</text>
+<text x="972" y="633.7361111111112" fill="#f85149" font-size="8" text-anchor="end" font-weight="normal" font-family="monospace">FAIL</text>
+<text x="502" y="639.0138888888889" fill="#3fb950" font-size="9" text-anchor="start" font-weight="normal" font-family="monospace">●</text>
+<text x="514" y="639.0138888888889" fill="#e6edf3" font-size="8" text-anchor="start" font-weight="normal" font-family="monospace">Enterprise day cost ROI positive</text>
+<text x="972" y="639.0138888888889" fill="#3fb950" font-size="8" text-anchor="end" font-weight="normal" font-family="monospace">ok</text>
+<text x="502" y="644.2916666666667" fill="#3fb950" font-size="9" text-anchor="start" font-weight="normal" font-family="monospace">●</text>
+<text x="514" y="644.2916666666667" fill="#e6edf3" font-size="8" text-anchor="start" font-weight="normal" font-family="monospace">Fleet P99 render latency <= 2000ms</text>
+<text x="972" y="644.2916666666667" fill="#3fb950" font-size="8" text-anchor="end" font-weight="normal" font-family="monospace">ok</text>
+<text x="502" y="649.5694444444445" fill="#3fb950" font-size="9" text-anchor="start" font-weight="normal" font-family="monospace">●</text>
+<text x="514" y="649.5694444444445" fill="#e6edf3" font-size="8" text-anchor="start" font-weight="normal" font-family="monospace">TTL cliff graceful (cold-after-expiry …</text>
+<text x="972" y="649.5694444444445" fill="#3fb950" font-size="8" text-anchor="end" font-weight="normal" font-family="monospace">ok</text>
+<text x="502" y="654.8472222222223" fill="#3fb950" font-size="9" text-anchor="start" font-weight="normal" font-family="monospace">●</text>
+<text x="514" y="654.8472222222223" fill="#e6edf3" font-size="8" text-anchor="start" font-weight="normal" font-family="monospace">Rapid invalidation wave2 success >= 88…</text>
+<text x="972" y="654.8472222222223" fill="#3fb950" font-size="8" text-anchor="end" font-weight="normal" font-family="monospace">ok</text>
+<text x="502" y="660.125" fill="#3fb950" font-size="9" text-anchor="start" font-weight="normal" font-family="monospace">●</text>
+<text x="514" y="660.125" fill="#e6edf3" font-size="8" text-anchor="start" font-weight="normal" font-family="monospace">Cache integrity: zero corrupt entries</text>
+<text x="972" y="660.125" fill="#3fb950" font-size="8" text-anchor="end" font-weight="normal" font-family="monospace">ok</text>
+<text x="502" y="665.4027777777778" fill="#3fb950" font-size="9" text-anchor="start" font-weight="normal" font-family="monospace">●</text>
+<text x="514" y="665.4027777777778" fill="#e6edf3" font-size="8" text-anchor="start" font-weight="normal" font-family="monospace">Determinism: same input -> same output</text>
+<text x="972" y="665.4027777777778" fill="#3fb950" font-size="8" text-anchor="end" font-weight="normal" font-family="monospace">ok</text>
+<text x="502" y="670.6805555555555" fill="#8b949e" font-size="9" text-anchor="start" font-weight="normal" font-family="monospace">○</text>
+<text x="514" y="670.6805555555555" fill="#e6edf3" font-size="8" text-anchor="start" font-weight="normal" font-family="monospace">Memory hygiene (skipped - install psut…</text>
+<text x="972" y="670.6805555555555" fill="#3fb950" font-size="8" text-anchor="end" font-weight="normal" font-family="monospace">ok</text>
+</svg>
