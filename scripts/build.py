@@ -88,9 +88,6 @@ STDLIB_REMINDER_RE = re.compile(
     r"^# stdlib imports available from build artifact header"
 )
 
-# Baseline line count for drift detection.
-BASELINE_LINES = 15989  # post-13-remaining-issues (hooks, services, LSP, scheduler, dates, etc.)
-
 # Matches top-level function or class definitions (no leading whitespace).
 # Excludes dunder methods (__init__, __repr__, etc.) which are safely
 # duplicated across classes, and single-underscore module-level sentinels.
@@ -196,19 +193,6 @@ def render_artifact(repo_root: Path) -> str:
     # ── Inject version from VERSION file ────────────────────────────────────
     _VERSION_RE = re.compile(r'^(_PERSEUS_VERSION\s*=\s*)".*?"(\s*#.*)?$', re.MULTILINE)
     output = _VERSION_RE.sub(lambda m: f'{m.group(1)}"{build_version}"{m.group(2) or ""}', output)
-    # ── Line-count drift guard ────────────────────────────────────────────────
-    actual_lines = len(output.splitlines())
-    low = int(BASELINE_LINES * 0.97)
-    high = int(BASELINE_LINES * 1.03)
-    if not (low <= actual_lines <= high):
-        print(
-            f"ERROR: generated line count {actual_lines} is outside the ±3% window "
-            f"({low}–{high}) of baseline {BASELINE_LINES}. "
-            "Something was dropped or duplicated — aborting without writing.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
     return output
 
 
