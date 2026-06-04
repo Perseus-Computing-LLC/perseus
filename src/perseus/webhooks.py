@@ -11,6 +11,13 @@ import re
 import atexit
 from datetime import datetime, timezone
 
+# Try to obtain the version from the serve module (same package).
+# Fall back to a hard-coded default if the package isn't fully installed.
+try:
+    from .serve import _PERSEUS_VERSION
+except ImportError:
+    _PERSEUS_VERSION = "1.0.6"
+
 # ──────────────────────────────── Webhooks ───────────────────────────────────
 
 # Global state for webhooks
@@ -21,6 +28,18 @@ _WEBHOOK_LOCK = threading.Lock()
 def _expand_env_vars(s):
     if not isinstance(s, str): return s
     return re.sub(r"\${(\w+)}", lambda m: os.environ.get(m.group(1), m.group(0)), s)
+
+def _redact_url(url: str) -> str:
+    """Redact query strings for safe logging — prevents env-var value leakage."""
+    if not isinstance(url, str):
+        return str(url)
+    from urllib.parse import urlparse, urlunparse
+    parsed = urlparse(url)
+    if parsed.query:
+        parts = list(parsed)
+        parts[4] = "[REDACTED]"
+        return urlunparse(parts)
+    return url
 
 def _fire_webhook(event: str, payload: dict, cfg: dict) -> None:
     """POST render lifecycle event to configured webhook endpoints."""
@@ -49,7 +68,25 @@ def _fire_webhook(event: str, payload: dict, cfg: dict) -> None:
             continue
             
         url = _expand_env_vars(raw_url)
-        
+
+        # H-9: URL allowlist check (webhooks.url_allowlist)
+        url_allowlist = wh_cfg.get("url_allowlist", [])
+        if url_allowlist:
+            from urllib.parse import urlparse as _urlparse
+            parsed = _urlparse(url)
+            hostname = parsed.hostname or ""
+            allowed = any(
+                hostname == prefix or hostname.endswith("." + prefix)
+                for prefix in url_allowlist
+            )
+            if not allowed:
+                print(
+                    f"Perseus webhook warning: hostname {hostname} not in "
+                    f"webhooks.url_allowlist, skipping event {event}.",
+                    file=sys.stderr,
+                )
+                continue
+
         with _WEBHOOK_LOCK:
             # Use a unique ID for the thread per endpoint config
             ep_id = f"{url}|{ep.get('secret','')}|{ep.get('timeout_s', 10)}"
@@ -77,7 +114,7 @@ def _webhook_worker(url, ep, wh_cfg, q):
     secret = _expand_env_vars(secret_raw)
     # L-9: Warn if a ${VAR} placeholder resolved to empty — HMAC silently disabled
     if secret_raw and "${" in secret_raw and not secret:
-        print(f"Perseus webhook warning: HMAC secret env var expanded to empty for {url[:80]}...", file=sys.stderr)
+        print(f"Perseus webhook warning: HMAC secret env var expanded to empty for {_redact_url(url)[:80]}...", file=sys.stderr)
     extra_headers = ep.get("headers", {})
 
     while True:
@@ -89,7 +126,7 @@ def _webhook_worker(url, ep, wh_cfg, q):
         event, payload, ts_iso = item
         
         # Prepare payload
-        version = globals().get("_PERSEUS_VERSION", "1.0.4")
+        version = _PERSEUS_VERSION
         
         workspace = payload.get("workspace", "")
         ws_hash = hashlib.sha256(workspace.encode()).hexdigest()[:16] if workspace else None
@@ -151,7 +188,7 @@ def _webhook_worker(url, ep, wh_cfg, q):
                 time.sleep(base_backoff * (2 ** attempt))
         
         if not success:
-            print(f"Perseus webhook warning: Failed to deliver {event} to {url} after {max_attempts} attempts. Last error: {last_error}", file=sys.stderr)
+            print(f"Perseus webhook warning: Failed to deliver {event} to {_redact_url(url)} after {max_attempts} attempts. Last error: {last_error}", file=sys.stderr)
         
         q.task_done()
 

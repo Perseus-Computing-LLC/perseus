@@ -4,6 +4,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 # Also make src/perseus importable for build tests (test_build.py).
 # Append (not insert at 0) to avoid shadowing the importlib-loaded perseus_module.
 _SRC_PATH = str(Path(__file__).resolve().parents[1] / "src")
@@ -52,6 +54,26 @@ def _capture_json(monkeypatch, fn, *a, **kw):
 
 def pytest_configure(config):
     config.addinivalue_line("markers", "slow: advisory slow/performance checks")
+
+
+@pytest.fixture(autouse=True)
+def _clear_session_cache():
+    """Clear the @cache session store before each test to prevent
+    cross-test cache pollution (flaky prefetch tests when ran > 0)."""
+    if perseus is not None:
+        perseus._SESSION_CACHE.clear()
+        if hasattr(perseus, "_WARNED_CACHE_DIR_OVERRIDES"):
+            perseus._WARNED_CACHE_DIR_OVERRIDES.clear()
+
+
+@pytest.fixture(autouse=True)
+def _allow_dangerous_env(monkeypatch):
+    """Set PERSEUS_ALLOW_DANGEROUS=1 for all tests.
+
+    The defense-in-depth gate (issue #94/#95) requires this env var even
+    when allow_query_shell=True.  Tests that verify the gated (denied)
+    behaviour can override this with monkeypatch.delenv."""
+    monkeypatch.setenv("PERSEUS_ALLOW_DANGEROUS", "1")
 
 
 def pytest_addoption(parser):

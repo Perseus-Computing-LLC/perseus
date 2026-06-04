@@ -1,50 +1,50 @@
 @perseus v0.8
 @prompt You are a simulated network engineer working inside a large enterprise.
 
-@query "git log --oneline -5" @cache ttl=300
-@query "ip addr show" @cache ttl=300
-@query "ip route show" @cache ttl=300
-@query "ip neigh show" @cache ttl=300
-@query "ss -tlnp" @cache ttl=300
-@query "ss -ulnp" @cache ttl=300
-@query "ss -s" @cache ttl=300
-@query "iptables -L -n -v" @cache ttl=300
-@query "iptables -t nat -L -n -v" @cache ttl=300
-@query "nft list ruleset 2>/dev/null" @cache ttl=300
-@query "ping -c 5 8.8.8.8" @cache ttl=300
-@query "traceroute -q 1 8.8.8.8" @cache ttl=300
-@query "mtr -r -c 3 8.8.8.8" @cache ttl=300
-@query "nslookup google.com" @cache ttl=300
-@query "dig +short google.com" @cache ttl=300
-@query "dig +trace google.com | head -20" @cache ttl=300
-@query "host google.com" @cache ttl=300
-@query "whois google.com | head -10" @cache ttl=300
-@query "curl -sI https://google.com" @cache ttl=300
-@query "curl -s https://ifconfig.me" @cache ttl=300
-@query "curl -s http://localhost:9090/metrics" @cache ttl=300
-@query "nc -zv localhost 443" @cache ttl=300
-@query "nc -zv localhost 80" @cache ttl=300
-@query "tcpdump --version" @cache ttl=300
-@query "tshark --version" @cache ttl=300
-@query "tc qdisc show" @cache ttl=300
-@query "tc class show dev lo" @cache ttl=300
-@query "tc filter show dev lo" @cache ttl=300
-@query "ethtool --version" @cache ttl=300
-@query "ethtool lo" @cache ttl=300
-@query "bridge link show" @cache ttl=300
-@query "ip link show" @cache ttl=300
-@query "ip netns list" @cache ttl=300
-@query "ip maddr show" @cache ttl=300
-@query "ip tunnel show" @cache ttl=300
-@query "cat /proc/net/dev" @cache ttl=300
-@query "cat /proc/net/tcp" @cache ttl=300
-@query "cat /proc/net/udp" @cache ttl=300
-@query "cat /proc/net/route" @cache ttl=300
-@query "cat /etc/iproute2/rt_tables" @cache ttl=300
-@query "cat /etc/resolv.conf" @cache ttl=300
-@query "cat /etc/hosts" @cache ttl=300
-@query "cat /etc/nsswitch.conf" @cache ttl=300
-@query "cat /etc/sysctl.d/*.conf 2>/dev/null" @cache ttl=300
+@query "git log --oneline -5" timeout=5 @cache ttl=86400
+@query "ip addr show" timeout=5 @cache ttl=86400
+@query "ip route show" timeout=5 @cache ttl=86400
+@query "ip neigh show" timeout=5 @cache ttl=86400
+@query "ss -tlnp" timeout=5 @cache ttl=86400
+@query "ss -ulnp" timeout=5 @cache ttl=86400
+@query "ss -s" timeout=5 @cache ttl=86400
+@query "iptables -L -n -v" timeout=5 @cache ttl=86400
+@query "iptables -t nat -L -n -v" timeout=5 @cache ttl=86400
+@query "nft list ruleset 2>/dev/null" timeout=5 @cache ttl=86400
+@query "ping -c 5 8.8.8.8" timeout=5 @cache ttl=86400
+@query "traceroute -q 1 8.8.8.8" timeout=5 @cache ttl=86400
+@query "mtr -r -c 3 8.8.8.8" timeout=5 @cache ttl=86400
+@query "nslookup google.com" timeout=5 @cache ttl=86400
+@query "dig +short google.com" timeout=5 @cache ttl=86400
+@query "dig +trace google.com | head -20" timeout=5 @cache ttl=86400
+@query "host google.com" timeout=5 @cache ttl=86400
+@query "whois google.com | head -10" timeout=5 @cache ttl=86400
+@query "curl -sI https://google.com" timeout=5 @cache ttl=86400
+@query "curl -s https://ifconfig.me" timeout=5 @cache ttl=86400
+@query "curl -s http://localhost:9090/metrics" timeout=5 @cache ttl=86400
+@query "nc -zv localhost 443" timeout=5 @cache ttl=86400
+@query "nc -zv localhost 80" timeout=5 @cache ttl=86400
+@query "tcpdump --version" timeout=5 @cache ttl=86400
+@query "tshark --version" timeout=5 @cache ttl=86400
+@query "tc qdisc show" timeout=5 @cache ttl=86400
+@query "tc class show dev lo" timeout=5 @cache ttl=86400
+@query "tc filter show dev lo" timeout=5 @cache ttl=86400
+@query "ethtool --version" timeout=5 @cache ttl=86400
+@query "ethtool lo" timeout=5 @cache ttl=86400
+@query "bridge link show" timeout=5 @cache ttl=86400
+@query "ip link show" timeout=5 @cache ttl=86400
+@query "ip netns list" timeout=5 @cache ttl=86400
+@query "ip maddr show" timeout=5 @cache ttl=86400
+@query "ip tunnel show" timeout=5 @cache ttl=86400
+@query "cat /proc/net/dev" timeout=5 @cache ttl=86400
+@query "cat /proc/net/tcp" timeout=5 @cache ttl=86400
+@query "cat /proc/net/udp" timeout=5 @cache ttl=86400
+@query "cat /proc/net/route" timeout=5 @cache ttl=86400
+@query "cat /etc/iproute2/rt_tables" timeout=5 @cache ttl=86400
+@query "cat /etc/resolv.conf" timeout=5 @cache ttl=86400
+@query "cat /etc/hosts" timeout=5 @cache ttl=86400
+@query "cat /etc/nsswitch.conf" timeout=5 @cache ttl=86400
+@query "cat /etc/sysctl.d/*.conf 2>/dev/null" timeout=5 @cache ttl=86400
 @services
   - name: net-0
     url: http://localhost:8000/health

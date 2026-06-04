@@ -1,37 +1,37 @@
 @perseus v0.8
 @prompt You are a simulated full stack working inside a large enterprise.
 
-@query "git log --oneline -5" @cache ttl=300
-@query "node --version" @cache ttl=300
-@query "npm --version" @cache ttl=300
-@query "python3 --version" @cache ttl=300
-@query "java --version" @cache ttl=300
-@query "npx next --version" @cache ttl=300
-@query "npx nest --version" @cache ttl=300
-@query "npx prisma --version" @cache ttl=300
-@query "npx drizzle-kit --version" @cache ttl=300
-@query "npx tsc --version" @cache ttl=300
-@query "npx eslint --version" @cache ttl=300
-@query "npx prettier --version" @cache ttl=300
-@query "npx jest --version" @cache ttl=300
-@query "npx playwright --version" @cache ttl=300
-@query "npx cypress --version" @cache ttl=300
-@query "npx swagger --version" @cache ttl=300
-@query "npx graphql --version" @cache ttl=300
-@query "ls -la src/" @cache ttl=300
-@query "ls -la api/" @cache ttl=300
-@query "ls -la web/" @cache ttl=300
-@query "ls -la shared/" @cache ttl=300
-@query "ls -la e2e/" @cache ttl=300
-@query "wc -l **/*.{ts,js,py} 2>/dev/null | tail -5" @cache ttl=300
-@query "cat package.json" @cache ttl=300
-@query "cat tsconfig.json" @cache ttl=300
-@query "cat turbo.json 2>/dev/null" @cache ttl=300
-@query "cat nx.json 2>/dev/null" @cache ttl=300
-@query "cat docker-compose.yml 2>/dev/null | head -30" @cache ttl=300
-@query "cat .github/workflows/ci.yml" @cache ttl=300
-@query "cat .env.example" @cache ttl=300
-@query "cat Dockerfile" @cache ttl=300
+@query "git log --oneline -5" timeout=5 @cache ttl=86400
+@query "node --version" timeout=5 @cache ttl=86400
+@query "npm --version" timeout=5 @cache ttl=86400
+@query "python3 --version" timeout=5 @cache ttl=86400
+@query "java --version" timeout=5 @cache ttl=86400
+@query "npx next --version" timeout=5 @cache ttl=86400
+@query "npx nest --version" timeout=5 @cache ttl=86400
+@query "npx prisma --version" timeout=5 @cache ttl=86400
+@query "npx drizzle-kit --version" timeout=5 @cache ttl=86400
+@query "npx tsc --version" timeout=5 @cache ttl=86400
+@query "npx eslint --version" timeout=5 @cache ttl=86400
+@query "npx prettier --version" timeout=5 @cache ttl=86400
+@query "npx jest --version" timeout=5 @cache ttl=86400
+@query "npx playwright --version" timeout=5 @cache ttl=86400
+@query "npx cypress --version" timeout=5 @cache ttl=86400
+@query "npx swagger --version" timeout=5 @cache ttl=86400
+@query "npx graphql --version" timeout=5 @cache ttl=86400
+@query "ls -la src/" timeout=5 @cache ttl=86400
+@query "ls -la api/" timeout=5 @cache ttl=86400
+@query "ls -la web/" timeout=5 @cache ttl=86400
+@query "ls -la shared/" timeout=5 @cache ttl=86400
+@query "ls -la e2e/" timeout=5 @cache ttl=86400
+@query "wc -l **/*.{ts,js,py} 2>/dev/null | tail -5" timeout=5 @cache ttl=86400
+@query "cat package.json" timeout=5 @cache ttl=86400
+@query "cat tsconfig.json" timeout=5 @cache ttl=86400
+@query "cat turbo.json 2>/dev/null" timeout=5 @cache ttl=86400
+@query "cat nx.json 2>/dev/null" timeout=5 @cache ttl=86400
+@query "cat docker-compose.yml 2>/dev/null | head -30" timeout=5 @cache ttl=86400
+@query "cat .github/workflows/ci.yml" timeout=5 @cache ttl=86400
+@query "cat .env.example" timeout=5 @cache ttl=86400
+@query "cat Dockerfile" timeout=5 @cache ttl=86400
 @services
   - name: api
     url: http://localhost:3001/health
