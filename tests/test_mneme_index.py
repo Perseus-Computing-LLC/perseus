@@ -133,6 +133,54 @@ class TestBuildIndex:
         assert count1 == 1
         assert count2 == 1  # re-indexed same file
 
+    def test_build_prunes_deleted_files(self, tmp_path):
+        c = _index_cfg(tmp_path)
+        vault = Path(c["memory"]["mneme_vault_path"])
+        file_path = _write_memory(vault, "stale", "Stale Memory", "delete-me token")
+        perseus._mneme_build_index(c)
+        file_path.unlink()
+
+        count = perseus._mneme_build_index(c)
+        results = perseus._mneme_recall(c, "delete-me", k=5)
+
+        assert count == 0
+        assert results == []
+
+    def test_build_removes_corrupt_changed_file(self, tmp_path):
+        c = _index_cfg(tmp_path)
+        vault = Path(c["memory"]["mneme_vault_path"])
+        file_path = _write_memory(vault, "corrupt", "Corrupt Memory", "corrupt-token")
+        perseus._mneme_build_index(c)
+        file_path.write_text("---\nschema: 2\nid:\ntitle:\n---\ncorrupt-token\n")
+
+        perseus._mneme_build_index(c)
+        results = perseus._mneme_recall(c, "corrupt-token", k=5)
+
+        assert results == []
+
+    def test_build_removes_previous_id_when_frontmatter_id_changes(self, tmp_path):
+        c = _index_cfg(tmp_path)
+        vault = Path(c["memory"]["mneme_vault_path"])
+        file_path = _write_memory(vault, "old-id", "Old Title", "old-token")
+        perseus._mneme_build_index(c)
+        file_path.write_text("""---
+schema: 2
+id: new-id
+title: New Title
+type: decision
+summary: new-token
+scope: test
+---
+body
+""")
+
+        perseus._mneme_build_index(c)
+        old_results = perseus._mneme_recall(c, "old-token", k=5)
+        new_results = perseus._mneme_recall(c, "new-token", k=5)
+
+        assert old_results == []
+        assert [r["id"] for r in new_results] == ["new-id"]
+
 
 # ---------------------------------------------------------------------------
 # Search
@@ -246,6 +294,35 @@ class TestDocumentCRUD:
         assert len(results) >= 1
         assert results[0]["title"] == "Updated Title"
 
+    def test_index_document_prunes_old_id_when_frontmatter_id_changes(self, tmp_path):
+        c = _index_cfg(tmp_path)
+        vault = Path(c["memory"]["mneme_vault_path"])
+        file_path = _write_memory(vault, "old_id", "Obsolete Title", "Obsolete summary")
+        perseus._mneme_index_document(c, file_path)
+
+        file_path.write_text("""---
+schema: 2
+id: new_id
+title: New Title
+type: decision
+summary: New summary
+scope: test
+created: '2026-05-27'
+tags: [test]
+---
+New body
+""")
+        assert perseus._mneme_index_document(c, file_path)
+
+        conn = perseus._mneme_open_index(c)
+        old_results = perseus._mneme_search(conn, "obsolete", k=5)
+        new_results = perseus._mneme_search(conn, "new", k=5)
+        conn.close()
+
+        assert old_results == []
+        assert len(new_results) >= 1
+        assert new_results[0]["id"] == "new_id"
+
     def test_delete_document_removes(self, tmp_path):
         c = _index_cfg(tmp_path)
         vault = Path(c["memory"]["mneme_vault_path"])
@@ -327,6 +404,17 @@ class TestRecallEndToEnd:
         for r in results:
             assert r["scope"] == "alpha"
             assert r["type"] == "decision"
+
+    def test_recall_refreshes_non_empty_index_for_new_files(self, tmp_path):
+        c = _index_cfg(tmp_path)
+        vault = Path(c["memory"]["mneme_vault_path"])
+        _write_memory(vault, "existing", "Existing Memory", "existing-token")
+        perseus._mneme_build_index(c)
+        _write_memory(vault, "fresh", "Fresh Memory", "fresh-token")
+
+        results = perseus._mneme_recall(c, "fresh-token", k=5)
+
+        assert [r["id"] for r in results] == ["fresh"]
 
 
 # ---------------------------------------------------------------------------

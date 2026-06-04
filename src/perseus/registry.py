@@ -55,11 +55,11 @@ def _bind_registry() -> None:
 
         # Tier 3 — On-demand (bulky, expensive)
         DirectiveSpec("@query",     resolve_query,     ["fallback=", "schema="],   "inline",  "acw", executes_shell=True,  safe_for_hover=False, cacheable=True,  summary="Run a shell command and embed stdout", tier=3),
-        DirectiveSpec("@read",      resolve_read,      ["path=", "key=", "fallback=", "schema="], "inline", "acw", reads_files=True, cacheable=True, summary="Embed file contents", tier=3),
-        DirectiveSpec("@include",   resolve_include,   [],                         "inline",  "awc", reads_files=True, cacheable=True, summary="Include and render another file", tier=3),
-        DirectiveSpec("@list",      resolve_list,      ["limit=", "sort="],        "inline",  "acw", reads_files=True, cacheable=True, summary="List directory or structured data", tier=3),
-        DirectiveSpec("@tree",      resolve_tree,      ["depth="],                 "inline",  "acw", reads_files=True, cacheable=True, summary="Tree view of directory", tier=3),
-        DirectiveSpec("@agent",     resolve_agent,     [],                         "inline",  "acw", executes_shell=True, safe_for_hover=False, summary="Execute local agent subprocess", tier=3),
+        DirectiveSpec("@read",      resolve_read,      ["path=", "key=", "fallback=", "schema="], "inline", "acw", reads_files=True, cacheable=True, safe_for_hover=False, summary="Embed file contents", tier=3),
+        DirectiveSpec("@include",   resolve_include,   [],                         "inline",  "awc", reads_files=True, cacheable=True, safe_for_hover=False, summary="Include and render another file", tier=3),
+        DirectiveSpec("@list",      resolve_list,      ["limit=", "sort="],        "inline",  "acw", reads_files=True, cacheable=True, safe_for_hover=False, summary="List directory or structured data", tier=3),
+        DirectiveSpec("@tree",      resolve_tree,      ["depth="],                 "inline",  "acw", reads_files=True, cacheable=True, safe_for_hover=False, summary="Tree view of directory", tier=3),
+        DirectiveSpec("@agent",     resolve_agent,     [],                         "inline",  "acw", summary="Execute local agent subprocess", tier=3),
         DirectiveSpec("@tool",      resolve_tool,      [],                         "inline",  "acw", executes_shell=True, safe_for_hover=False, summary="Run an allowlisted external tool", tier=3),
 
         # Block / control (resolved by renderer, tier doesn't apply)
@@ -239,8 +239,10 @@ def _expand_aliases(lines: list[str], cfg: dict) -> list[str]:
 
 def _call_resolver(spec: DirectiveSpec, args_str: str, cfg: dict, workspace: "Path | None") -> str:
     """Adapt resolver call to match its actual signature via call_sig."""
-    # Universal shell-execution gate (task-65): plugin directives with
-    # executes_shell=True are gated behind allow_query_shell, same as built-ins.
+    # Universal shell-execution gate (task-65): directives with
+    # executes_shell=True are gated behind allow_query_shell.
+    # @agent is the exception — it has its own independent gate
+    # (allow_agent_shell), so executes_shell is False on its spec.
     if spec.executes_shell and not cfg["render"].get("allow_query_shell", False):
         return f"> ⚠ {spec.name} is disabled by config (`render.allow_query_shell=false`)."
     try:
@@ -256,6 +258,14 @@ def _call_resolver(spec: DirectiveSpec, args_str: str, cfg: dict, workspace: "Pa
         else:
             raise ValueError(f"Unknown call_sig {sig!r} for {spec.name}")
     except Exception as e:
+        # Log full traceback to stderr for diagnostics.
+        # Without this, resolver bugs (NameError, AttributeError, etc.)
+        # are invisible in production — the render just shows a terse
+        # warning block with no hint about which file or line failed.
+        sys.stderr.write(
+            f"Perseus directive error ({spec.name}): {e}\n"
+            f"{traceback.format_exc()}\n"
+        )
         # task-67: on_directive_error hook
         _fire_hooks("on_directive_error", {
             "name": spec.name,
@@ -263,7 +273,11 @@ def _call_resolver(spec: DirectiveSpec, args_str: str, cfg: dict, workspace: "Pa
             "error": str(e),
             "traceback_truncated": traceback.format_exc()[-1000:],
         }, cfg)
-        return f"> \u26a0 {spec.name} error: {e}"
+        # PERSEUS_DEBUG: re-raise so programming errors (NameError,
+        # AttributeError, TypeError) are not silently swallowed.
+        if os.environ.get("PERSEUS_DEBUG"):
+            raise
+        return f"> ⚠ {spec.name} error: {e}"
 
 
 # Built at import time from the registry (after _bind_registry is called).
@@ -284,15 +298,98 @@ def _discover_plugins(cfg: dict) -> list["DirectiveSpec"]:
 
     Returns empty list if plugins are disabled or the directory doesn't exist.
     Plugin import errors are warnings to stderr, never fatal.
+
+    Security: by default, plugins require a MANIFEST.toml with hash entries.
+    Set plugins.allow_unsigned: true to skip manifest verification (opt-in).
+
+    An optional plugins.allowlist restricts which plugins may be loaded.
+    When set, only plugins whose stem name appears in the allowlist are
+    imported — all others are skipped with a warning. This provides an
+    additional defense-in-depth layer: even if a malicious plugin passes
+    hash verification (compromised signing key), it won't execute unless
+    its name is also in the allowlist.
     """
-    if not cfg.get("plugins", {}).get("enabled", True):
-        return []
     plugins_cfg = cfg.get("plugins", {})
+    if not plugins_cfg.get("enabled", PLUGINS_ENABLED_DEFAULT):
+        return []
     plugins_dir = Path(plugins_cfg.get("dir", str(PERSEUS_HOME / "plugins")))
     if not plugins_dir.is_dir():
         return []
+    # Optional allowlist gate — defense-in-depth for plugin execution
+    allowlist = plugins_cfg.get("allowlist", None)
+    if allowlist is not None:
+        if isinstance(allowlist, str):
+            allowlist = [n.strip() for n in allowlist.split(",") if n.strip()]
+        if not isinstance(allowlist, list):
+            print("Perseus plugin config: plugins.allowlist must be a list or comma-separated string; ignoring.", file=sys.stderr)
+            allowlist = None
+    # H-3: require manifest unless explicitly opted in
+    manifest_path = plugins_dir / "MANIFEST.toml"
+    allow_unsigned = plugins_cfg.get("allow_unsigned", False)
+    if not allow_unsigned and not manifest_path.is_file():
+        print(
+            "Perseus plugin security: plugins dir exists but no MANIFEST.toml found.\n"
+            "  Set plugins.allow_unsigned: true to load plugins without a manifest, or\n"
+            "  create plugins/MANIFEST.toml with [plugins.<name>] hash entries.",
+            file=sys.stderr,
+        )
+        return []
+
+    # v1.0.5 review: when a manifest exists, verify hashes for every plugin file.
+    # Prior behavior only checked file existence and skipped verification if no
+    # hashes were defined — an empty [plugins] section was sufficient to execute
+    # arbitrary Python. Now we require a hash for every .py file in the directory
+    # unless allow_unsigned is explicitly enabled.
+    manifest_hashes: dict[str, str] = {}
+    manifest_seen = False
+    if manifest_path.is_file() and not allow_unsigned:
+        manifest_seen = True
+        try:
+            import tomllib
+        except ImportError:
+            import tomli as tomllib  # type: ignore[no-redef]
+        try:
+            manifest = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
+            plugins_section = manifest.get("plugins", {})
+            if isinstance(plugins_section, dict):
+                for name, entry in plugins_section.items():
+                    if isinstance(entry, dict) and "hash" in entry:
+                        manifest_hashes[name] = str(entry["hash"])
+        except Exception as e:
+            print(
+                f"Perseus plugin security: failed to parse MANIFEST.toml: {e}",
+                file=sys.stderr,
+            )
+            return []
+
     specs: list["DirectiveSpec"] = []
     for py_file in sorted(plugins_dir.glob("*.py")):
+        if py_file.name == "__init__.py":
+            continue
+        # Allowlist check: skip plugins not explicitly approved
+        if allowlist is not None and py_file.stem not in allowlist:
+            print(
+                f"Perseus plugin security: {py_file.name} not in plugins.allowlist — skipping",
+                file=sys.stderr,
+            )
+            continue
+        # v1.0.5 review: verify file hash against manifest (required when manifest exists)
+        if manifest_seen:
+            plugin_name = py_file.stem
+            expected = manifest_hashes.get(plugin_name)
+            if expected is None:
+                print(
+                    f"Perseus plugin security: {py_file.name} not in MANIFEST.toml — skipping",
+                    file=sys.stderr,
+                )
+                continue
+            actual = hashlib.sha256(py_file.read_bytes()).hexdigest()
+            if actual != expected:
+                print(
+                    f"Perseus plugin security: hash mismatch for {py_file.name} — skipping",
+                    file=sys.stderr,
+                )
+                continue
         try:
             spec = importlib.util.spec_from_file_location(
                 f"perseus_plugin_{py_file.stem}", py_file
@@ -319,13 +416,54 @@ def _discover_formats(cfg: dict) -> dict[str, "Callable"]:
 
     Returns {format_name: render_fn}. Format name = filename stem.
     Built-in names (markdown, html, json) are ignored with a warning.
+
+    Security: by default, format adapters require a MANIFEST.toml with hash entries.
+    Set formats.allow_unsigned: true to skip manifest verification (opt-in).
     """
     formats_dir = PERSEUS_HOME / "formats"
     if not formats_dir.is_dir():
         return {}
 
+    # H-4: require manifest unless explicitly opted in
+    formats_cfg = cfg.get("formats", {})
+    manifest_path = formats_dir / "MANIFEST.toml"
+    allow_unsigned = formats_cfg.get("allow_unsigned", False)
+    if not allow_unsigned and not manifest_path.is_file():
+        print(
+            "Perseus format security: formats dir exists but no MANIFEST.toml found.\n"
+            "  Set formats.allow_unsigned: true to load adapters without a manifest, or\n"
+            "  create formats/MANIFEST.toml with [formats.<name>] hash entries.",
+            file=sys.stderr,
+        )
+        return {}
+
     discovered = {}
     built_ins = {"markdown", "md", "html", "json"}
+
+    # v1.0.5 review: verify format hashes against manifest (was missing entirely).
+    # When a manifest exists and allow_unsigned is false, every .py file must have
+    # a matching hash entry in [formats.<name>] or it is skipped.
+    format_hashes: dict[str, str] = {}
+    manifest_seen = False
+    if manifest_path.is_file() and not allow_unsigned:
+        manifest_seen = True
+        try:
+            import tomllib
+        except ImportError:
+            import tomli as tomllib  # type: ignore[no-redef]
+        try:
+            manifest = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
+            formats_section = manifest.get("formats", {})
+            if isinstance(formats_section, dict):
+                for name, entry in formats_section.items():
+                    if isinstance(entry, dict) and "hash" in entry:
+                        format_hashes[name] = str(entry["hash"])
+        except Exception as e:
+            print(
+                f"Perseus format security: failed to parse MANIFEST.toml: {e}",
+                file=sys.stderr,
+            )
+            return {}
 
     for py_file in sorted(formats_dir.glob("*.py")):
         name = py_file.stem.lower()
@@ -335,6 +473,23 @@ def _discover_formats(cfg: dict) -> dict[str, "Callable"]:
                 file=sys.stderr,
             )
             continue
+
+        # Hash verification (required when manifest exists)
+        if manifest_seen:
+            expected = format_hashes.get(name)
+            if expected is None:
+                print(
+                    f"Perseus format security: {py_file.name} not in MANIFEST.toml [formats] — skipping",
+                    file=sys.stderr,
+                )
+                continue
+            actual = hashlib.sha256(py_file.read_bytes()).hexdigest()
+            if actual != expected:
+                print(
+                    f"Perseus format security: hash mismatch for {py_file.name} — skipping",
+                    file=sys.stderr,
+                )
+                continue
 
         try:
             spec = importlib.util.spec_from_file_location(
@@ -366,7 +521,7 @@ def register_plugins(cfg: dict, force: bool = False) -> int:
     collision cases warn to stderr. Returns the count of new directives added.
     """
     plugins_cfg = cfg.get("plugins") or {}
-    if not plugins_cfg.get("enabled", True):
+    if not plugins_cfg.get("enabled", PLUGINS_ENABLED_DEFAULT):
         return 0
     plugins_dir = str(Path(plugins_cfg.get("dir", str(PERSEUS_HOME / "plugins"))))
     if not force and plugins_dir in _PLUGIN_LOADED_DIRS:

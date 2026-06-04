@@ -344,6 +344,7 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path) -> str:
 
     scope = (mods.get("scope") or "").strip() or None
     type_filter = (mods.get("type") or "").strip().lower() or None
+    sensitivity = (mods.get("sensitivity") or "").strip().lower() or None
     render_template = (mods.get("render") or "default").strip().lower()
 
     try:
@@ -351,7 +352,7 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path) -> str:
     except (ValueError, TypeError):
         k = 5
 
-    hits = _mneme_recall(cfg, query, k=k, scope=scope, type_filter=type_filter)
+    hits = _mneme_recall(cfg, query, k=k, scope=scope, type_filter=type_filter, sensitivity=sensitivity)
     if not hits:
         return "> \u2139\ufe0f No Mn\u0113m\u0113 memories matched.\n"
 
@@ -362,13 +363,28 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path) -> str:
         score = h.get("score", 0)
         mem_type = h.get("type", "")
         mem_scope = h.get("scope", "")
+        snippet = h.get("snippet", "")
+        source_path = h.get("source_path", "")
+        updated = h.get("updated", "")
+        confidence = h.get("confidence", 1.0)
 
         if render_template == "compact":
             lines.append(f"  - **{title}**")
         elif render_template == "full":
             lines.append(f"### {title}")
+            meta_parts = []
             if mem_type:
-                lines.append(f"_{mem_type}_  `{mem_scope}`  score: {score:.0f}")
+                meta_parts.append(f"_{mem_type}_")
+            if mem_scope:
+                meta_parts.append(f"`{mem_scope}`")
+            meta_parts.append(f"score: {score:.0f}")
+            if confidence < 1.0:
+                meta_parts.append(f"confidence: {confidence:.0%}")
+            lines.append("  ".join(meta_parts))
+            if source_path:
+                lines.append(f"  *{source_path}*")
+            if snippet:
+                lines.append(f"  > {snippet}")
             lines.append(f"\n{summary}\n")
         else:
             parts = [f"  - **{title}**"]
@@ -377,8 +393,14 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path) -> str:
             if mem_scope:
                 parts.append(f"`{mem_scope}`")
             parts.append(summary)
+            meta = []
             if score:
-                parts.append(f"(score: {score:.0f})")
+                meta.append(f"score: {score:.0f}")
+            if snippet:
+                meta.append(f"\"…{snippet}…\"")
+            if source_path:
+                meta.append(f"`{Path(source_path).name}`")
+            parts.append("(" + " · ".join(meta) + ")")
             lines.append(" ".join(parts))
     return "\n".join(lines) + "\n"
 
@@ -435,9 +457,13 @@ def _resolve_memory_narrative(args_stripped: str, mods: dict, cfg: dict, ws: Pat
         pass
 
     if not stale_note and body.strip():
-        # M-5: Don't side-effect fm["updated"] on read-only path.
-        # The update timestamp is maintained by memory update/compact operations only.
-        pass
+        # Touch updated timestamp on every fresh successful render so callers
+        # can detect when the narrative was last accessed (Feat #2).
+        try:
+            fm["updated"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            _save_narrative(mp, fm, body)
+        except Exception:
+            pass  # best-effort; never break the read path
 
     compact_note = ""
     threshold = int(cfg.get("memory", {}).get("compact_threshold", 20))

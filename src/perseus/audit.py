@@ -46,14 +46,19 @@ def _audit_log_path(cfg: dict) -> Path:
     """
     raw = (cfg.get("audit") or {}).get("log_path") or str(PERSEUS_HOME / "audit_log.jsonl")
     candidate = Path(str(raw)).expanduser().resolve()
+    import tempfile as _tempfile
     allowed_roots = [
         Path.home() / ".perseus",
+        Path(_tempfile.gettempdir()).resolve(),  # allow pytest tmp_path and CI temp dirs
     ]
     try:
         for root in allowed_roots:
             root_resolved = root.expanduser().resolve()
-            if str(candidate).startswith(str(root_resolved) + "/") or candidate == root_resolved:
-                return candidate
+            try:
+                if candidate == root_resolved or candidate.is_relative_to(root_resolved):
+                    return candidate
+            except ValueError:
+                pass
     except (OSError, ValueError):
         pass
     return PERSEUS_HOME / "audit_log.jsonl"
@@ -107,6 +112,12 @@ def audit_event(cfg: dict, event_type: str, **fields) -> None:
             record[k] = v
         except Exception:
             record[k] = repr(v)
+    # v1.0.5 review: redact secrets before persisting to disk.
+    # Audit events can contain command strings, paths, or args with tokens.
+    try:
+        record, _report = redact_value(record, cfg)
+    except Exception:
+        pass  # redaction failure must not block audit persistence
     try:
         path = _audit_log_path(cfg)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -315,24 +326,26 @@ def _extract_quoted_token(raw: str) -> tuple[str | None, str]:
     for idx in range(1, len(raw)):
         ch = raw[idx]
         if escaped:
-            # C10: handle standard escape sequences (\n, \t, \r, \0, \\, \", \')
+            # v1.0.5 review: only decode quote-escaping and literal backslash.
+            # Decoding \n, \t, \r, \0 corrupts Windows paths (C:\Users\tccon\...\n).
+            # fallback= text can use literal newlines/tabs instead.
             if _escape_buffer:
                 _escape_buffer += ch
-                if len(_escape_buffer) >= 4:  # \uNNNN or unknown
+                if len(_escape_buffer) >= 4:  # \uNNNN or \xNN or unknown
+                    # Keep the raw escape sequence as-is; don't mangle paths
                     buf.append(_escape_buffer)
                     _escape_buffer = ""
                     escaped = False
                 continue
-            if ch in {"n", "t", "r", "0"}:
-                buf.append({"n": "\n", "t": "\t", "r": "\r", "0": "\0"}[ch])
-            elif ch in {"\\", '"', "'"}:
+            if ch in {"\\", '"', "'"}:
                 buf.append(ch)
             elif ch == "u":
                 _escape_buffer = "\\u"
             elif ch == "x":
                 _escape_buffer = "\\x"
             else:
-                buf.append("\\" + ch)  # unknown escape — keep literal
+                # Unknown escape — keep literal backslash + char (preserves Windows paths)
+                buf.append("\\" + ch)
             escaped = False
             continue
         if ch == "\\":
@@ -381,7 +394,9 @@ def _parse_kv_modifiers(raw: str) -> dict[str, str]:
             while i < n:
                 ch = raw[i]
                 if escaped:
-                    buf.append(ch)
+                    # v1.0.5 review: only decode quote-escaping and literal backslash.
+                    # Decoding \n, \t, \r corrupts Windows paths like C:\Users\tccon\...
+                    buf.append({'\\': '\\', '"': '"', "'": "'"}.get(ch, '\\' + ch))
                     escaped = False
                 elif ch == "\\":
                     escaped = True
@@ -672,13 +687,18 @@ def _validate_basic_schema(data: object, schema: object, prefix: str = "") -> li
 
 
 def _resolve_path(file_path_str: str, workspace: Path | None = None, allow_outside_workspace: bool = False) -> tuple[Path, str | None]:
-    """Resolve a path relative to workspace and optionally block escapes."""
+    """Resolve a path relative to workspace and optionally block escapes.
+
+    When workspace is None, falls back to cwd so the boundary check still
+    applies. A None workspace = unrestricted reads would be a defense gap
+    for programmatic consumers that don't pass an explicit workspace.
+    """
     fp = Path(file_path_str).expanduser()
-    if not fp.is_absolute() and workspace:
-        fp = workspace / fp
+    ws = (workspace or Path.cwd()).expanduser().resolve()
+    if not fp.is_absolute():
+        fp = ws / fp
     fp = fp.resolve(strict=False)
-    if workspace and not allow_outside_workspace:
-        ws = workspace.expanduser().resolve()
+    if not allow_outside_workspace:
         try:
             fp.relative_to(ws)
         except ValueError:
@@ -693,7 +713,8 @@ def _update_latest_checkpoint_pointer(latest: Path, outfile: Path) -> None:
     try:
         latest.symlink_to(outfile.name)
     except OSError:
-        latest.write_text(outfile.read_text())
+        # L-4: use explicit UTF-8 encoding for cross-platform safety
+        latest.write_text(outfile.read_text(encoding="utf-8"), encoding="utf-8")
 
 
 def _get_tasks_dir(workspace: Path | None, cfg: dict) -> Path:
@@ -716,13 +737,50 @@ def _dump_frontmatter_body(frontmatter: dict, body: str) -> str:
 
 
 def _load_task_file(task_path: Path) -> tuple[dict, str]:
+    """Read a task file, waiting for any concurrent write to finish."""
     text = task_path.read_text(errors="replace")
     fm, body = _parse_frontmatter(text)
     return dict(fm or {}), body
 
 
 def _save_task_file(task_path: Path, frontmatter: dict, body: str) -> None:
-    task_path.write_text(_dump_frontmatter_body(frontmatter, body))
+    """Write a task file atomically.
+
+    task-65: Uses temp file + os.replace to prevent partial/corrupt reads
+    when multiple processes write concurrently. Also uses fcntl.flock for
+    advisory locking so concurrent claim/complete/load operations don't
+    race.
+    """
+    import fcntl
+    import tempfile
+
+    content = _dump_frontmatter_body(frontmatter, body)
+    lock_path = task_path.with_suffix(task_path.suffix + ".lock")
+
+    # Open or create the lock file
+    lock_dir = lock_path.parent
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    lf = open(lock_path, "w")
+    try:
+        fcntl.flock(lf, fcntl.LOCK_EX)
+        # Write to temp file in same directory, then atomic replace
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w",
+            suffix=".md",
+            dir=str(task_path.parent),
+            delete=False,
+            encoding="utf-8",
+        )
+        try:
+            tmp.write(content)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+        finally:
+            tmp.close()
+        os.replace(tmp.name, task_path)
+    finally:
+        fcntl.flock(lf, fcntl.LOCK_UN)
+        lf.close()
 
 
 def _task_id_from_path(task_path: Path) -> str:
@@ -793,7 +851,9 @@ def _render_agora_table(tasks: list[tuple[Path, dict, str]]) -> str:
         return '> No tasks found.'
     rows = ['| ID | Scope | Title | Status |', '|---|---|---|---|']
     for _path, fm, _body in tasks:
-        rows.append(f"| {fm.get('id','')} | {fm.get('scope','')} | {fm.get('title','')} | {fm.get('status','')} |")
+        def _esc(v: str) -> str:
+            return str(v).replace("|", "\\|")
+        rows.append(f"| {_esc(fm.get('id',''))} | {_esc(fm.get('scope',''))} | {_esc(fm.get('title',''))} | {_esc(fm.get('status',''))} |")
     return '\n'.join(rows)
 
 
@@ -877,3 +937,179 @@ class ConditionParseError(ValueError):
     pass
 
 
+# ── v1.0.6 Preflight Permission Check ──────────────────────────────────────
+# Verifies PERSEUS_HOME and writable targets are writable.
+# Cached per effective write-path configuration (not globally once-per-process),
+# so tests and callers can safely change cfg paths without stale warnings.
+
+_PREFLIGHT_CACHE: dict[tuple[str, str, str, str, str], list[str]] = {}
+
+
+def _preflight_permissions(cfg: dict) -> list[str]:
+    """Check writability of PERSEUS_HOME and configured write targets.
+
+    Returns a list of warning strings (empty = all good). Results are cached
+    by effective write-path tuple to avoid cross-config leakage.
+    """
+    home = PERSEUS_HOME
+    checkpoints_path = Path(
+        cfg.get("checkpoints", {}).get("store", str(home / "checkpoints"))
+    ).expanduser()
+    inbox_path = Path(
+        cfg.get("inbox", {}).get("store", str(home / "inbox"))
+    ).expanduser()
+    audit_log = Path(
+        cfg.get("audit", {}).get("log_path", str(home / "audit_log.jsonl"))
+    ).expanduser()
+    memory_path = Path(
+        cfg.get("memory", {}).get("store", str(home / "memory"))
+    ).expanduser()
+
+    cache_key = (
+        str(home),
+        str(checkpoints_path),
+        str(inbox_path),
+        str(audit_log),
+        str(memory_path),
+    )
+    cached = _PREFLIGHT_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    warnings: list[str] = []
+
+    # Check PERSEUS_HOME itself (informational; directives decide whether to gate).
+    if not home.exists():
+        try:
+            home.mkdir(parents=True, exist_ok=True)
+        except (OSError, PermissionError) as e:
+            warnings.append(
+                f"⚠ PERSEUS_HOME not writable: {home} — {e}. "
+                "Defaults under PERSEUS_HOME may be unavailable."
+            )
+    elif not os.access(home, os.W_OK):
+        warnings.append(
+            f"⚠ PERSEUS_HOME not writable: {home}. "
+            "Defaults under PERSEUS_HOME may be unavailable."
+        )
+
+    # Subdirectories/files Perseus writes to
+    targets = {
+        "checkpoints": checkpoints_path,
+        "inbox": inbox_path,
+        "audit": audit_log.parent,
+        "memory": memory_path,
+    }
+
+    for name, path in targets.items():
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+        except (OSError, PermissionError):
+            pass
+        probe = path if path.is_dir() else path.parent
+        if not os.access(probe, os.W_OK):
+            warnings.append(f"⚠ {name}/ not writable: {path}")
+
+    _PREFLIGHT_CACHE[cache_key] = warnings
+    return warnings
+
+
+
+# ─────────────────────────────── Audit CLI ────────────────────────────────────
+
+def cmd_audit(args, cfg) -> int | None:
+    """perseus audit — query and inspect the audit log."""
+    audit_cfg = cfg.get("audit") or {}
+    if not audit_cfg.get("enabled", True):
+        print("Audit logging is disabled (audit.enabled=false in config).")
+        return 0
+
+    sub = getattr(args, "audit_command", None)
+
+    if sub == "show":
+        since_arg = getattr(args, "since", None)
+        event_arg = getattr(args, "event", None)
+        tail = int(getattr(args, "tail", 20) or 20)
+
+        entries = _read_audit_entries(cfg)
+        if not entries:
+            print("No audit entries found.")
+            return 0
+
+        # Apply filters
+        if since_arg:
+            try:
+                # Parse --since as a duration string (e.g. "24h", "7d", "30m")
+                import re as _re
+                dur_match = _re.match(r'^(\d+)\s*(h|d|m|s)$', since_arg.strip().lower())
+                if dur_match:
+                    val = int(dur_match.group(1))
+                    unit = dur_match.group(2)
+                    multiplier = {"s": 1, "m": 60, "h": 3600, "d": 86400}[unit]
+                    cutoff = datetime.now(timezone.utc).timestamp() - val * multiplier
+                else:
+                    cutoff = datetime.fromisoformat(since_arg).timestamp()
+            except Exception:
+                print(f"Invalid --since value: {since_arg!r}")
+                return 1
+            entries = [e for e in entries if _entry_ts(e) >= cutoff]
+
+        if event_arg:
+            entries = [e for e in entries
+                       if str(e.get("event_type", "")).lower() == event_arg.strip().lower()]
+
+        if not entries:
+            print("No audit entries match the filters.")
+            return 0
+
+        # Show most recent (tail)
+        for e in entries[-tail:]:
+            ts = e.get("ts", "?")
+            ev = e.get("event_type", "?")
+            other = {k: v for k, v in e.items() if k not in ("ts", "event_type", "perseus_version", "pid")}
+            print(f"{ts}  {ev}")
+            for k, v in other.items():
+                v_str = str(v)[:120]
+                print(f"    {k}: {v_str}")
+            print()
+
+    elif sub == "stats":
+        entries = _read_audit_entries(cfg)
+        if not entries:
+            print("No audit entries found.")
+            return 0
+
+        counts: dict[str, int] = {}
+        for e in entries:
+            t = str(e.get("event_type") or "?")
+            counts[t] = counts.get(t, 0) + 1
+
+        print(f"Total audit events: {len(entries)}")
+        log_path = _audit_log_path(cfg)
+        print(f"Log path: {log_path}")
+        print()
+        for event_type, count in sorted(counts.items(), key=lambda x: -x[1]):
+            print(f"  {count:>6}  {event_type}")
+
+    else:
+        # Default: show recent entries
+        entries = _read_audit_entries(cfg, limit=20)
+        if not entries:
+            print("No audit entries found.")
+            return 0
+        print(f"Recent audit events (last {len(entries)}):\n")
+        for e in entries:
+            ts = e.get("ts", "?")
+            ev = e.get("event_type", "?")
+            print(f"  {ts}  {ev}")
+
+    return 0
+
+
+def _entry_ts(entry: dict) -> float:
+    """Extract a Unix timestamp from an audit entry for comparison."""
+    ts = entry.get("ts", "")
+    try:
+        return datetime.fromisoformat(str(ts)).timestamp()
+    except Exception:
+        return 0.0

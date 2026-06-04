@@ -9,6 +9,7 @@ the single-file artifact to the repo root.
 Usage:
     python scripts/build.py
 """
+import argparse
 import re
 import subprocess
 import sys
@@ -52,7 +53,12 @@ MODULE_ORDER = [
     "src/perseus/pythia.py",
     "src/perseus/lsp.py",
     "src/perseus/install.py",           # ← Phase 24: hook installer (depends on assistant_formats, before serve)
-    "src/perseus/serve.py",
+    "src/perseus/doctor.py",            # ← serve.py extraction: resolve_health + doctor CLI
+    "src/perseus/scheduler.py",         # ← serve.py extraction: cron scheduler
+    "src/perseus/synthesis.py",         # ← serve.py extraction: @synthesize
+    "src/perseus/update.py",            # ← serve.py extraction: self-update
+    "src/perseus/quickstart.py",        # ← Track B: perseus quickstart bootstrap + LLM auto-config
+    "src/perseus/serve.py",             # ← still contains PRODUCT_PROFILES + trust CLI (not yet decomposed)
     "src/perseus/cli.py",  # includes _bind_registry() call before dispatch
 ]
 
@@ -83,12 +89,49 @@ STDLIB_REMINDER_RE = re.compile(
 )
 
 # Baseline line count for drift detection.
-BASELINE_LINES = 14400  # Phase 24 + bastra-recall integration + in-process BM25
+BASELINE_LINES = 15989  # post-13-remaining-issues (hooks, services, LSP, scheduler, dates, etc.)
+
+# Matches top-level function or class definitions (no leading whitespace).
+# Excludes dunder methods (__init__, __repr__, etc.) which are safely
+# duplicated across classes, and single-underscore module-level sentinels.
+TOPLEVEL_DEF_RE = re.compile(r"^(?:def|class)\s+([a-zA-Z_][\w]*)\b")
 
 
-def build() -> None:
-    repo_root = Path(__file__).resolve().parent.parent
-    out_path = repo_root / "perseus.py"
+def _check_duplicate_symbols(repo_root: Path) -> None:
+    """Fail the build if any top-level def/class name appears in two modules.
+
+    In the concat build architecture, the last definition in MODULE_ORDER
+    silently shadows earlier ones. This makes stale/divergent copies invisible
+    to the maintainer — modifying the wrong copy produces no effect. This
+    guard makes the duplicate explicit and fails the build.
+    """
+    seen: dict[str, str] = {}  # name → first module path
+    for rel_path in MODULE_ORDER:
+        path = repo_root / rel_path
+        text = path.read_text(encoding="utf-8")
+        for line in text.splitlines():
+            m = TOPLEVEL_DEF_RE.match(line)
+            if m:
+                name = m.group(1)
+                if name.startswith("__"):
+                    continue
+                if name in seen:
+                    print(
+                        f"ERROR: duplicate top-level symbol '{name}' defined in "
+                        f"{seen[name]} and {rel_path}. "
+                        f"The last definition in MODULE_ORDER silently shadows "
+                        f"earlier ones — delete the dead copy or rename to "
+                        f"resolve the conflict.",
+                        file=sys.stderr,
+                    )
+                    sys.exit(1)
+                seen[name] = rel_path
+
+
+def render_artifact(repo_root: Path) -> str:
+    """Return the generated single-file artifact text."""
+    # H-2: fail fast on duplicate top-level symbols (silent shadowing risk)
+    _check_duplicate_symbols(repo_root)
 
     output_lines: list[str] = []
     first_module = True
@@ -99,6 +142,14 @@ def build() -> None:
         build_version = version_path.read_text(encoding="utf-8").strip()
     else:
         build_version = "0.0.0"
+    # H-1: validate semver to prevent code injection via VERSION file
+    if not re.fullmatch(r'\d+(\.\d+){0,3}([\-+][\w.]+)?', build_version):
+        print(
+            f"ERROR: VERSION file content {build_version!r} is not a valid "
+            "semver. Refusing to inject — would corrupt the artifact.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     for rel_path in MODULE_ORDER:
         path = repo_root / rel_path
@@ -120,9 +171,7 @@ def build() -> None:
             if in_multiline_import:
                 # Skip continuation lines until the import statement closes
                 stripped_no_comment = line.split("#")[0].rstrip()
-                if stripped_no_comment.endswith(")") or (
-                    not stripped_no_comment.endswith("\\") and "(" not in stripped_no_comment
-                ):
+                if stripped_no_comment.endswith(")"):
                     in_multiline_import = False
                 continue
             # Keep shebang only from the first module (__init__.py)
@@ -146,24 +195,25 @@ def build() -> None:
     output = shebang_line + "\n" + GENERATED_HEADER + "\n".join(body_lines) + "\n"
     # ── Inject version from VERSION file ────────────────────────────────────
     _VERSION_RE = re.compile(r'^(_PERSEUS_VERSION\s*=\s*)".*?"(\s*#.*)?$', re.MULTILINE)
-    output = _VERSION_RE.sub(rf'\g<1>"{build_version}"\g<2>', output)
+    output = _VERSION_RE.sub(lambda m: f'{m.group(1)}"{build_version}"{m.group(2) or ""}', output)
     # ── Line-count drift guard ────────────────────────────────────────────────
     actual_lines = len(output.splitlines())
-    low = int(BASELINE_LINES * 0.95)   # 9486
-    high = int(BASELINE_LINES * 1.05)  # 10485
+    low = int(BASELINE_LINES * 0.97)
+    high = int(BASELINE_LINES * 1.03)
     if not (low <= actual_lines <= high):
         print(
-            f"ERROR: generated line count {actual_lines} is outside the ±5% window "
+            f"ERROR: generated line count {actual_lines} is outside the ±3% window "
             f"({low}–{high}) of baseline {BASELINE_LINES}. "
             "Something was dropped or duplicated — aborting without writing.",
             file=sys.stderr,
         )
         sys.exit(1)
 
-    out_path.write_text(output, encoding="utf-8")
-    print(f"Built {out_path} ({actual_lines} lines)")
+    return output
 
-    # ── Smoke test ────────────────────────────────────────────────────────────
+
+def smoke_test(out_path: Path) -> None:
+    """Run the generated artifact's version command."""
     result = subprocess.run(
         [sys.executable, str(out_path), "--version"],
         capture_output=True,
@@ -180,5 +230,114 @@ def build() -> None:
     print(f"Smoke test ok: {result.stdout.strip()}")
 
 
+def build(output_path: Path | None = None) -> None:
+    repo_root = Path(__file__).resolve().parent.parent
+    out_path = output_path or repo_root / "perseus.py"
+
+    # Warn on version drift (non-fatal for build, fatal for --check)
+    if _check_version_sync(repo_root):
+        print("WARNING: version drift detected — run `python scripts/build.py --check` to see details", file=sys.stderr)
+
+    output = render_artifact(repo_root)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(output, encoding="utf-8")
+    print(f"Built {out_path} ({len(output.splitlines())} lines)")
+    smoke_test(out_path)
+
+
+def _check_version_sync(repo_root: Path) -> int:
+    """Validate that VERSION is synced to server.json and pyproject.toml.
+
+    Returns 0 if all in sync, 1 if drift detected.
+    """
+    version_path = repo_root / "VERSION"
+    version = version_path.read_text(encoding="utf-8").strip()
+    errors = 0
+
+    # server.json
+    server_json_path = repo_root / "server.json"
+    if server_json_path.exists():
+        import json
+        try:
+            data = json.loads(server_json_path.read_text(encoding="utf-8"))
+            sv = data.get("version", "")
+            if sv != version:
+                print(
+                    f"VERSION DRIFT: server.json version {sv!r} != VERSION {version!r}",
+                    file=sys.stderr,
+                )
+                errors += 1
+        except Exception as exc:
+            print(f"WARNING: could not parse server.json: {exc}", file=sys.stderr)
+
+    # pyproject.toml
+    pyproject_path = repo_root / "pyproject.toml"
+    if pyproject_path.exists():
+        text = pyproject_path.read_text(encoding="utf-8")
+        m = re.search(r'^version\s*=\s*"([^"]+)"', text, re.MULTILINE)
+        if m and m.group(1) != version:
+            print(
+                f"VERSION DRIFT: pyproject.toml version {m.group(1)!r} != VERSION {version!r}",
+                file=sys.stderr,
+            )
+            errors += 1
+
+    return 1 if errors else 0
+
+
+def check() -> None:
+    """Verify the committed artifact matches src/ without modifying it."""
+    repo_root = Path(__file__).resolve().parent.parent
+    out_path = repo_root / "perseus.py"
+
+    # Check version sync first
+    if _check_version_sync(repo_root):
+        print("ERROR: version drift detected — sync VERSION to server.json / pyproject.toml", file=sys.stderr)
+        sys.exit(1)
+
+    output = render_artifact(repo_root)
+    try:
+        current = out_path.read_text(encoding="utf-8")
+    except Exception as exc:
+        print(
+            f"ERROR: could not read {out_path}: {exc}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    if current != output:
+        print(
+            "ERROR: perseus.py is out of sync with src/ — run "
+            "`python scripts/build.py` and commit the regenerated artifact.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    print("Build check ok: perseus.py is in sync with src/")
+    smoke_test(out_path)
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description="Build or verify the Perseus single-file artifact.")
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Verify perseus.py matches src/ without writing files.",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        help="Write the generated artifact to this path instead of perseus.py.",
+    )
+    args = parser.parse_args(argv)
+
+    if args.check and args.output:
+        parser.error("--check cannot be combined with --output")
+    if args.check:
+        check()
+    else:
+        build(args.output)
+
+
 if __name__ == "__main__":
-    build()
+    main()

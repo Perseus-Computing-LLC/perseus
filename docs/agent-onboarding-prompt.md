@@ -21,7 +21,7 @@ pip install perseus
 Verify:
 ```bash
 perseus --version
-# Should print: perseus v1.0.5 or later
+# Should print: perseus v1.0.6 or later
 ```
 
 ## Step 2 — Configure for shared coordination

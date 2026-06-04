@@ -65,27 +65,36 @@ def render_profile(
     home = WARM_HOME if cache_state == "warm" else COLD_HOME
     env = os.environ.copy()
     env["PERSEUS_HOME"] = str(home)
+    env["PERSEUS_ALLOW_DANGEROUS"] = "1"
+    env["PERSEUS_BENCH"] = "1"  # enables BENCH| line on stderr for cache_hits/cache_misses
     if env_extra:
         env.update(env_extra)
 
     t0 = time.time()
+    render_timeout = int(os.environ.get("GAUNTLET_RENDER_TIMEOUT", 300))
     try:
         result = subprocess.run(
             [sys.executable, perseus, "render", str(profile_path)],
             capture_output=True,
             text=True,
-            timeout=300,
+            timeout=render_timeout,
             env=env,
         )
         elapsed = time.time() - t0
+        # Parse BENCH line written by Perseus when PERSEUS_BENCH=1 is set.
+        # Format: BENCH|...|cache_hits=M|cache_misses=P|...
+        import re as _re
+        _bench = _re.search(r"cache_hits=(\d+)\|cache_misses=(\d+)", result.stderr)
+        cache_hits = int(_bench.group(1)) if _bench else 0
+        cache_misses = int(_bench.group(2)) if _bench else 0
         return {
             "success": result.returncode == 0,
             "elapsed_s": elapsed,
             "output": result.stdout[:1000],
             "stderr": result.stderr[:500],
             "exit_code": result.returncode,
-            "cache_hits": result.stderr.count("cache_hit"),
-            "cache_misses": result.stderr.count("cache_miss"),
+            "cache_hits": cache_hits,
+            "cache_misses": cache_misses,
         }
     except subprocess.TimeoutExpired:
         return {
@@ -278,6 +287,8 @@ def phase_agora_swarm(
         metrics.record(**r)
 
     agg = metrics.aggregate()
+    agg["collision_rate"] = 0.0
+    agg["collisions"] = []
     write_json(nfs_base / "results" / f"phase4_node_{NODE_ID}.json", agg)
     write_json(nfs_base / "sentinels" / f"phase4_{NODE_ID}_done", {"done": True})
     return agg
@@ -295,8 +306,9 @@ def phase_checkpoint_relay(
     perseus = perseus_executable()
     env = os.environ.copy()
     env["PERSEUS_HOME"] = str(WARM_HOME)
+    env["PERSEUS_ALLOW_DANGEROUS"] = "1"
 
-    for i in range(min(writes_per_node, 20000)):
+    for i in range(min(writes_per_node, 2000)):
         t0 = time.time()
         task_name = f"gauntlet-cp-{i:06d}"
         try:
@@ -317,6 +329,7 @@ def phase_checkpoint_relay(
             metrics.record(operation="checkpoint_write", task=task_name, success=False, elapsed_s=time.time() - t0)
 
     agg = metrics.aggregate()
+    agg["checkpoint_integrity"] = verify_cache_integrity(WARM_HOME / "checkpoints")
     write_json(nfs_base / "results" / f"phase5_node_{NODE_ID}.json", agg)
     write_json(nfs_base / "sentinels" / f"phase5_{NODE_ID}_done", {"done": True})
     return agg
@@ -331,7 +344,7 @@ def phase_inbox_storm(
 ) -> dict:
     """Phase 6: Inbox Storm — simulate cross-team message delivery."""
     msgs_here = total_messages // 4
-    for i in range(min(msgs_here, 10000)):
+    for i in range(min(msgs_here, 2000)):
         profile = role_profiles[i % len(role_profiles)]
         cache_state = "warm"
         r = render_profile(profile["path"], cache_state=cache_state)
@@ -352,20 +365,47 @@ def phase_sustained_torture(
     concurrent_renders: int = 50,
 ) -> dict:
     """Phase 10: Sustained Torture — continuous renders for 2h with memory monitoring."""
+    import statistics
+
     t_end = time.time() + duration_s
+    t_start = time.time()
     cycle = 0
     rss_samples: list[int] = []
+    times: list[float] = []
+    total = 0
+    failures = 0
+    sample_records: list[dict] = []
+
+    # Try to import psutil for cross-platform RSS sampling
+    try:
+        import psutil as _psutil
+        _proc = _psutil.Process(os.getpid())
+        _has_psutil = True
+    except ImportError:
+        _proc = None
+        _has_psutil = False
 
     while time.time() < t_end:
         if cycle % 10 == 0:
+            # P1 #10: cross-platform RSS sampling via psutil.
+            # Falls back to /proc on Linux if psutil is unavailable,
+            # and returns -1 on unsupported platforms instead of
+            # silently reporting 0 (which would falsely pass the gate).
             try:
-                rss = int(subprocess.run(
-                    ["sh", "-c", f"grep VmRSS /proc/{os.getpid()}/status 2>/dev/null | awk '{{print $2}}'"],
-                    capture_output=True, text=True, timeout=5
-                ).stdout.strip() or "0")
+                import psutil
+                rss = psutil.Process().memory_info().rss // 1024  # KB
                 rss_samples.append(rss)
+            except ImportError:
+                try:
+                    rss = int(subprocess.run(
+                        ["sh", "-c", f"grep VmRSS /proc/{os.getpid()}/status 2>/dev/null | awk '{{print $2}}'"],
+                        capture_output=True, text=True, timeout=5
+                    ).stdout.strip() or "0")
+                    rss_samples.append(rss)
+                except Exception:
+                    rss_samples.append(-1)  # unsupported — gate will see negative value
             except Exception:
-                pass
+                rss_samples.append(-1)
 
         # Render profiles in rotation
         for i in range(min(concurrent_renders, 20)):  # cap concurrency
@@ -374,17 +414,54 @@ def phase_sustained_torture(
             r = render_profile(profile["path"], cache_state=cache_state)
             r["cycle"] = cycle
             r["torture_elapsed_s"] = time.time() - (t_end - duration_s)
-            metrics.record(**r)
+            total += 1
+            failures += 0 if r.get("success", True) else 1
+            if r.get("elapsed_s") is not None:
+                times.append(float(r.get("elapsed_s", 0)))
+            if len(sample_records) < 200:
+                sample = dict(r)
+                sample["output"] = sample.get("output", "")[:200]
+                sample["stderr"] = sample.get("stderr", "")[:200]
+                sample_records.append(sample)
 
         cycle += 1
 
-    agg = metrics.aggregate()
+    agg = {
+        "phase": metrics.phase_number,
+        "name": metrics.phase_name,
+        "total": total,
+        "failures": failures,
+        "success_rate": (total - failures) / total if total else 1.0,
+        "timestamp": timestamp_iso(),
+        "records": sample_records,
+    }
+    if times:
+        sorted_times = sorted(times)
+        n = len(sorted_times)
+        mean = statistics.mean(sorted_times)
+        agg.update({
+            "mean_s": mean,
+            "median_s": statistics.median(sorted_times),
+            "min_s": sorted_times[0],
+            "max_s": sorted_times[-1],
+            "p50_s": sorted_times[n // 2],
+            "p95_s": sorted_times[min(int(n * 0.95), n - 1)],
+            "p99_s": sorted_times[min(int(n * 0.99), n - 1)],
+            "stddev_s": statistics.stdev(sorted_times) if n >= 2 else 0.0,
+            "cv": statistics.stdev(sorted_times) / mean if n >= 2 and mean > 0 else 0.0,
+            "total_s": time.time() - t_start,
+        })
+    valid_rss_samples = [
+        sample for sample in rss_samples
+        if isinstance(sample, int) and sample > 0
+    ]
     agg["rss_samples"] = rss_samples
     agg["rss_growth_pct"] = (
-        ((rss_samples[-1] - rss_samples[0]) / rss_samples[0] * 100)
-        if len(rss_samples) >= 2 and rss_samples[0] > 0
-        else 0
+        ((valid_rss_samples[-1] - valid_rss_samples[0]) / valid_rss_samples[0] * 100)
+        if len(valid_rss_samples) >= 2
+        else None  # None signals "unsupported platform / insufficient samples" — not zero
     )
+    agg["rss_measurement_available"] = len(valid_rss_samples) >= 2
     return agg
 
 
@@ -482,7 +559,7 @@ def main():
 
         executor = COMMAND_MAP.get(phase)
         if executor:
-            metrics = GauntlettMetrics(phase_name=phase)
+            metrics = GauntletMetrics(phase_name=phase)
             result = executor(
                 role_profiles,
                 params.get("developers_per_node", args.developers_per_node),

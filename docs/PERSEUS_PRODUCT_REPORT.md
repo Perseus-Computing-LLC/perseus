@@ -1,8 +1,8 @@
 # Perseus Product Report
 
 **Date:** 2026-05-27  
-**Status:** All major development phases complete. Perseus v1.0.5 released.  
-**Current baseline:** 753 tests passing, 1 skipped (TCP LSP smoke — expected in sandbox/CI)
+**Status:** All major development phases complete. Perseus v1.0.6 released.  
+**Test suite:** 813 tests — all passing (Linux, Python 3.10–3.12). Windows support is deferred; see the README for platform details.
 
 ---
 
@@ -128,7 +128,7 @@ Claude Code, Cursor, Rovo Dev, or any assistant that can read a file or stdin.
 
 ## Status
 
-All major development phases shipped. Perseus v1.0.0 is released on PyPI as `perseus-ctx`. The deployment targets below are all operational.
+All major development phases shipped. Perseus v1.0.6 is released on PyPI as `perseus-ctx`. The deployment targets below are all operational.
 
 ---
 
