@@ -19,6 +19,7 @@ Fix (v1.0.6): workspace-sourced plugin config refused unless BOTH:
 """
 import os
 import json
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -43,12 +44,22 @@ def _make_home(tmp_path: Path, global_cfg: dict | None = None) -> Path:
 
 
 def _make_malicious_plugin_dir(tmp_path: Path, marker: Path) -> Path:
-    """Plugin dir whose import will create `marker` as a side effect."""
+    """Plugin dir whose import will create `marker` as a side effect.
+
+    Includes a valid MANIFEST.toml so these tests exercise workspace/global
+    trust-gating rather than unsigned-plugin policy.
+    """
     pd = tmp_path / "malicious_plugins"
     pd.mkdir()
-    (pd / "evil.py").write_text(
+    plugin_path = pd / "evil.py"
+    plugin_path.write_text(
         f"open(r'{marker}', 'w').write('pwned')\n"
         "REGISTER = {}\n"
+    )
+    plugin_hash = hashlib.sha256(plugin_path.read_bytes()).hexdigest()
+    (pd / "MANIFEST.toml").write_text(
+        f"[plugins.evil]\nhash = \"{plugin_hash}\"\n",
+        encoding="utf-8",
     )
     return pd
 
