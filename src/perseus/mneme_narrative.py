@@ -37,10 +37,154 @@ def _workspace_hash(workspace: Path) -> str:
     return hashlib.sha256(str(canonical).encode()).hexdigest()[:12]
 
 
+def _workspace_hash_legacy_md5(workspace: Path) -> str:
+    """12-char MD5 hex digest — the pre-1.0.3 narrative file name scheme.
+
+    Regression for #128: prior to v1.0.3, Mnēmē derived narrative file names
+    from an MD5 hash. v1.0.3+ switched to SHA-256. Without an explicit
+    migration, every existing narrative file on disk was silently orphaned
+    on upgrade. ``_mneme_path`` calls this function as a one-shot fallback
+    to locate and rename legacy files. Once migrated, this code path is
+    never re-entered for that workspace.
+
+    We intentionally use ``usedforsecurity=False`` (Py3.9+) so FIPS-mode
+    Pythons don't reject the call — this is a file-naming hash, not a
+    security primitive. We fall back to the no-kwarg call for older Pythons.
+    """
+    canonical = str(workspace.expanduser().resolve()).encode()
+    try:
+        return hashlib.md5(canonical, usedforsecurity=False).hexdigest()[:12]
+    except TypeError:
+        # Python < 3.9: no `usedforsecurity` kwarg.
+        return hashlib.md5(canonical).hexdigest()[:12]
+
+
 def _mneme_path(workspace: Path, cfg: dict) -> Path:
-    """Return the per-workspace narrative file path."""
+    """Return the per-workspace narrative file path.
+
+    Regression for #128: if a SHA-256 path doesn't exist but a legacy MD5
+    path does, transparently rename the legacy file in place. This makes
+    upgrades from pre-1.0.3 lossless.
+
+    The rename uses ``os.replace`` (atomic on POSIX/NTFS) and is best-effort:
+    if rename fails (cross-device, permission, etc.), we leave both files in
+    place and return the SHA-256 path. The caller will then see "no
+    narrative yet" and recreate — non-fatal but loses prior content.
+    Operators can also run ``perseus memory doctor --migrate`` to surface
+    and act on these cases explicitly.
+    """
     store = Path(cfg.get("memory", {}).get("store", str(PERSEUS_HOME / "memory")))
-    return store / f"{_workspace_hash(workspace)}.md"
+    new_path = store / f"{_workspace_hash(workspace)}.md"
+    if new_path.exists():
+        return new_path
+    legacy_path = store / f"{_workspace_hash_legacy_md5(workspace)}.md"
+    if legacy_path.exists() and legacy_path != new_path:
+        try:
+            store.mkdir(parents=True, exist_ok=True)
+            os.replace(legacy_path, new_path)
+        except OSError:
+            # Cross-device / permission denied. Leave the legacy file in
+            # place so the operator can recover it manually; the caller will
+            # create a fresh narrative at the new path.
+            pass
+    return new_path
+
+
+def _mneme_doctor_scan(cfg: dict) -> dict:
+    """Scan the memory store and report on narrative file inventory.
+
+    Returns a dict with:
+        {
+          "store": str,                     # path to memory store
+          "narrative_files": [path, ...],   # all *.md in store
+          "legacy_md5_files": [path, ...],  # files whose name matches legacy MD5 of a known workspace
+          "sha256_files": [path, ...],      # files that look like current-scheme files
+          "orphan_files": [path, ...],      # files whose embedded `workspace` frontmatter no longer resolves to their filename
+          "unknown_files": [path, ...],     # files whose stem isn't a 12-char hex hash
+        }
+
+    "Known workspace" inference: we re-derive the SHA-256 and legacy MD5
+    hashes from each file's ``workspace:`` frontmatter field, then match
+    against the actual filename stem.
+
+    Used by ``perseus memory doctor`` to surface migration candidates.
+    """
+    store = Path(cfg.get("memory", {}).get("store", str(PERSEUS_HOME / "memory")))
+    out: dict = {
+        "store": str(store),
+        "narrative_files": [],
+        "legacy_md5_files": [],
+        "sha256_files": [],
+        "orphan_files": [],
+        "unknown_files": [],
+    }
+    if not store.exists():
+        return out
+    hex_re = re.compile(r"^[a-f0-9]{12}$")
+    for fp in sorted(store.glob("*.md")):
+        out["narrative_files"].append(str(fp))
+        stem = fp.stem
+        if not hex_re.match(stem):
+            out["unknown_files"].append(str(fp))
+            continue
+        # Try to read the workspace from frontmatter and classify.
+        try:
+            fm, _ = _load_narrative(fp)
+        except Exception:
+            out["unknown_files"].append(str(fp))
+            continue
+        ws_raw = str(fm.get("workspace", "")).strip() if isinstance(fm, dict) else ""
+        if not ws_raw:
+            # No workspace metadata — can't classify; treat as unknown.
+            out["unknown_files"].append(str(fp))
+            continue
+        try:
+            ws = Path(ws_raw).expanduser()
+            expected_sha = _workspace_hash(ws)
+            expected_md5 = _workspace_hash_legacy_md5(ws)
+        except Exception:
+            out["unknown_files"].append(str(fp))
+            continue
+        if stem == expected_sha:
+            out["sha256_files"].append(str(fp))
+        elif stem == expected_md5:
+            out["legacy_md5_files"].append(str(fp))
+        else:
+            out["orphan_files"].append(str(fp))
+    return out
+
+
+def _mneme_doctor_migrate(cfg: dict) -> dict:
+    """Rename legacy MD5-named narrative files to their SHA-256 names.
+
+    Returns a dict:
+        {
+          "migrated": [(old, new), ...],
+          "skipped":  [(old, new, reason), ...],
+          "errors":   [(old, exc_str), ...],
+        }
+
+    Idempotent: re-running after a successful migration is a no-op.
+    """
+    report: dict = {"migrated": [], "skipped": [], "errors": []}
+    scan = _mneme_doctor_scan(cfg)
+    store = Path(scan["store"])
+    for legacy_fp_str in scan["legacy_md5_files"]:
+        legacy_fp = Path(legacy_fp_str)
+        try:
+            fm, _ = _load_narrative(legacy_fp)
+            ws = Path(str(fm.get("workspace", "")).strip()).expanduser()
+            new_fp = store / f"{_workspace_hash(ws)}.md"
+            if new_fp.exists():
+                report["skipped"].append(
+                    (str(legacy_fp), str(new_fp), "destination already exists")
+                )
+                continue
+            os.replace(legacy_fp, new_fp)
+            report["migrated"].append((str(legacy_fp), str(new_fp)))
+        except Exception as exc:  # pragma: no cover - defensive
+            report["errors"].append((str(legacy_fp), str(exc)))
+    return report
 
 
 def _load_narrative(path: Path) -> tuple[dict, str]:

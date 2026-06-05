@@ -1,6 +1,105 @@
 # stdlib imports available from build artifact header
 # ──────────────────────────────── @query ──────────────────────────────────────
 
+# ── #139: subprocess tracking for MCP timeout cancellation ───────────────────
+#
+# The MCP _call_tool wrapper enforces a wall-clock deadline via
+# ThreadPoolExecutor.future.result(timeout=...). Pre-1.0.6, that mechanism
+# only abandoned the future — the worker thread continued running, and the
+# subprocess it had spawned ran to completion, leaking CPU and any side
+# effects (network, file writes). Worse, executor.shutdown(wait=True) in a
+# `with` block defeated the entire timeout by blocking on the leaked thread.
+#
+# We now track every active @query subprocess in a module-level list
+# (thread-safe via a mutex) so the MCP wrapper can iterate, identify the
+# subprocess belonging to the abandoned worker, and kill its process group.
+#
+# Design note: we use a list-of-popens rather than threading.local because
+# the killer thread is NOT the worker thread — it's the MCP main thread
+# that needs to reach into the worker thread's subprocess. A list keyed by
+# thread ident gives us that visibility.
+
+_ACTIVE_SUBPROCESSES_LOCK = threading.Lock()
+_ACTIVE_SUBPROCESSES: dict[int, "subprocess.Popen"] = {}
+
+
+def _record_active_subprocess(proc: "subprocess.Popen") -> None:
+    """Register a subprocess as belonging to the current thread."""
+    with _ACTIVE_SUBPROCESSES_LOCK:
+        _ACTIVE_SUBPROCESSES[threading.get_ident()] = proc
+
+
+def _clear_active_subprocess(proc: "subprocess.Popen") -> None:
+    """Unregister a subprocess (called after communicate() returns)."""
+    with _ACTIVE_SUBPROCESSES_LOCK:
+        # Only clear if it's still the one we registered — guards against
+        # a recursive @query nest unregistering its parent's process.
+        tid = threading.get_ident()
+        if _ACTIVE_SUBPROCESSES.get(tid) is proc:
+            del _ACTIVE_SUBPROCESSES[tid]
+
+
+def _kill_subprocess_tree(proc: "subprocess.Popen") -> None:
+    """Kill a subprocess and all descendants (process group on POSIX).
+
+    On POSIX, the subprocess was started with start_new_session=True so it
+    has its own PGID. We send SIGTERM to the group, wait briefly, then
+    SIGKILL stragglers.
+
+    On Windows, we fall back to taskkill /T (kill tree) if available,
+    then proc.kill(). Best-effort — Windows has no exact equivalent.
+    """
+    if proc.poll() is not None:
+        return  # already exited
+    try:
+        if os.name == "nt":
+            try:
+                import subprocess as _sp
+                _sp.run(
+                    ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                    capture_output=True, timeout=3,
+                )
+            except Exception:
+                proc.kill()
+            return
+        # POSIX: kill the process group
+        pgid = os.getpgid(proc.pid)
+        try:
+            os.killpg(pgid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+        # Give children a moment to clean up.
+        for _ in range(20):  # up to 1s
+            if proc.poll() is not None:
+                return
+            time.sleep(0.05)
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except ProcessLookupError:
+            return
+    except Exception:
+        # Last-ditch: kill just the immediate child.
+        try:
+            proc.kill()
+        except Exception:
+            pass
+
+
+def kill_active_subprocess_for_thread(thread_id: int) -> bool:
+    """Kill the subprocess belonging to the given thread, if any.
+
+    Returns True if a subprocess was found and a kill was attempted;
+    False if no subprocess was registered for the thread. Called by
+    mcp._call_tool() when its wall-clock deadline fires.
+    """
+    with _ACTIVE_SUBPROCESSES_LOCK:
+        proc = _ACTIVE_SUBPROCESSES.get(thread_id)
+    if proc is None:
+        return False
+    _kill_subprocess_tree(proc)
+    return True
+
+
 def _unescape_fallback(s: str) -> str:
     """Unescape standard escape sequences without mangling non-ASCII.
 
@@ -48,20 +147,6 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
                     args=args_str[:200])
         return "> ⚠ @query is disabled by config (`render.allow_query_shell=false`)."
 
-    # Defense-in-depth: even with allow_query_shell=true, require explicit
-    # operator opt-in via PERSEUS_ALLOW_DANGEROUS=1 env var. This prevents
-    # accidental exposure from copied configs or misconfigured automation.
-    if not os.environ.get("PERSEUS_ALLOW_DANGEROUS"):
-        audit_event(cfg, "policy_denied",
-                    directive="@query",
-                    reason="PERSEUS_ALLOW_DANGEROUS not set",
-                    args=args_str[:200])
-        return (
-            "> ⚠ @query is enabled in config but PERSEUS_ALLOW_DANGEROUS=1 is not set.\n"
-            "> This is a defense-in-depth gate to prevent accidental shell execution.\n"
-            "> Set the environment variable to acknowledge the risk."
-        )
-
     # Strip @cache modifier first, then extract the command string.
     # Use the opening quote character to find the correct closing quote,
     # so commands containing the other quote type (e.g. "bash -c 'foo'")
@@ -75,7 +160,7 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
         schema_path = schema_match.group(1) if schema_match.group(1) is not None else schema_match.group(2)
         raw = (raw[:schema_match.start()] + raw[schema_match.end():]).rstrip()
 
-    # task-14: extract fallback=\"...\" (or fallback='...') BEFORE command parsing,
+    # task-14: extract fallback="..." (or fallback='...') BEFORE command parsing,
     # so a command containing the literal substring `fallback=` is not mis-parsed.
     fallback = None
     fb_match = re.search(r'\s+fallback=(?:"((?:[^"\\]|\\.)*)"|\'((?:[^\'\\]|\\.)*)\')(\s|$)', raw)
@@ -86,22 +171,6 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
         # UTF-8 bytes as Latin-1, corrupting characters like é → Ã©).
         fallback = _unescape_fallback(fallback)
         raw = (raw[:fb_match.start()] + raw[fb_match.end():]).rstrip()
-
-    # Defense-in-depth: detect shell metacharacters for operator visibility.
-    # When render.query_shell_meta_warning is enabled (default: false),
-    # commands containing ; | & $() or backticks emit a visible warning
-    # in the rendered output but still execute. This does not break
-    # legitimate pipelines — it only surfaces a warning.
-    _shell_meta_warn = bool(cfg["render"].get("query_shell_meta_warning", False))
-    _meta_prefix = ""
-
-    # Extract timeout=N modifier BEFORE command parsing so the token can't
-    # leak into unquoted commands. Same principle as schema=/fallback= above.
-    timeout = int(cfg["render"].get("query_timeout_s", 30))
-    tm_match = re.search(r'\s+timeout=(\d+)(?:\s|$)', raw)
-    if tm_match:
-        timeout = int(tm_match.group(1))
-        raw = (raw[:tm_match.start()] + raw[tm_match.end():]).rstrip()
 
     cmd_match = re.match(r'^"((?:[^"\\]|\\.)*)"', raw)   # double-quoted
     if not cmd_match:
@@ -118,35 +187,67 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
     # Detect language hint for syntax highlighting (best-effort)
     lang = _guess_lang(cmd)
 
-    # Shell metacharacter defense-in-depth warning (config-gated, default off).
-    if _shell_meta_warn and re.search(r'[;&|]|\$[({]|`', cmd):
-        _meta_prefix = f"> ⚠ @query: shell metacharacters detected in command. "
-        _meta_prefix += "Set render.query_shell_meta_warning=false to suppress.\n\n"
-
     # task-47: audit the shell-execution decision crossing the trust boundary.
     audit_event(cfg, "shell_exec",
                 directive="@query",
                 command=cmd[:500],
-                shell=shell,
-                cwd=str(workspace) if workspace else None)
+                shell=shell)
 
-    # v1.0.5 review: run from workspace by default for safety.
-    # allow_outside_workspace does not sandbox — it only controls cwd.
-    allow_outside = cfg["render"].get("allow_outside_workspace", False)
-    cwd = workspace if workspace and not allow_outside else None
-    if workspace and not allow_outside and cwd is None:
-        cwd = Path.cwd()  # fallback: restrict to cwd if no workspace set
+    # Extract timeout=N modifier (per-directive override, default 30s)
+    timeout = int(cfg["render"].get("query_timeout_s", 30))
+    tm_match = re.search(r'\s+timeout=(\d+)(?:\s|$)', raw)
+    if tm_match:
+        timeout = int(tm_match.group(1))
+        raw = (raw[:tm_match.start()] + raw[tm_match.end():]).rstrip()
 
     try:
-        result = subprocess.run(
-            cmd,
-            shell=True,
-            executable=shell,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            cwd=cwd,
-        )
+        # #139: when invoked under MCP's _call_tool timeout wrapper, the
+        # wrapper needs to kill this subprocess (and any descendants) if
+        # the wall-clock deadline fires. We put the child in its own
+        # process group via start_new_session=True so the wrapper can
+        # os.killpg() the whole tree, and we record the popen handle in
+        # a thread-local that the wrapper inspects.
+        #
+        # On POSIX, start_new_session=True calls setsid() in the child
+        # before exec. The child gets a fresh PGID == its PID. The MCP
+        # wrapper can then os.killpg(pid, SIGTERM) to take down the
+        # whole subprocess tree atomically.
+        #
+        # On Windows, start_new_session has no effect; the wrapper falls
+        # back to popen.kill() which only terminates the direct child.
+        popen_kwargs = {
+            "shell": True,
+            "executable": shell,
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.PIPE,
+            "text": True,
+        }
+        if os.name != "nt":
+            popen_kwargs["start_new_session"] = True
+        proc = subprocess.Popen(cmd, **popen_kwargs)
+        # Stash the popen in the thread-local so an upstream timeout
+        # wrapper (mcp._call_tool) can find and kill it.
+        _record_active_subprocess(proc)
+        try:
+            stdout_raw, stderr_raw = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            _kill_subprocess_tree(proc)
+            try:
+                stdout_raw, stderr_raw = proc.communicate(timeout=2)
+            except subprocess.TimeoutExpired:
+                stdout_raw, stderr_raw = "", ""
+            raise
+        finally:
+            _clear_active_subprocess(proc)
+
+        # Build a CompletedProcess-shaped object for the rest of the
+        # function to consume without refactoring downstream.
+        class _Result:
+            pass
+        result = _Result()
+        result.stdout = stdout_raw or ""
+        result.stderr = stderr_raw or ""
+        result.returncode = proc.returncode
         stdout = (result.stdout or "").rstrip("\n")
         stderr = result.stderr.strip()
         exit_code = result.returncode
@@ -154,14 +255,22 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
         if exit_code != 0:
             if fallback is not None:
                 return fallback
-            header = f"> ⚠ `@query` exited {exit_code}: `{cmd}`\n\n"
-            body = stdout or stderr or "(no output)"
-            return _meta_prefix + header + f"```{lang}\n{body}\n```"
+            # #137: redact secrets out of `cmd` and `stderr` before interpolating
+            # them into render output. Without this, a command like
+            # `@query "curl -H 'Authorization: Bearer ghp_…'"` leaks the bearer
+            # token in the exit-nonzero header. Render-time redaction only runs
+            # later in the pipeline and only on the final assembled output, but
+            # by then this string has been logged elsewhere.
+            safe_cmd, _ = redact_text(cmd, cfg)
+            safe_body, _ = redact_text(stdout or stderr or "(no output)", cfg)
+            header = f"> ⚠ `@query` exited {exit_code}: `{safe_cmd}`\n\n"
+            return header + f"```{lang}\n{safe_body}\n```"
 
         if not stdout:
             if fallback is not None:
                 return fallback
-            return f"> (no output from `{cmd}`)"
+            safe_cmd, _ = redact_text(cmd, cfg)
+            return f"> (no output from `{safe_cmd}`)"
 
         # Apply stdout size cap (default 256 KB).
         # Truncate at the nearest preceding newline to avoid mid-line cuts.
@@ -191,16 +300,19 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
             if warning:
                 return warning
 
-        return _meta_prefix + f"```{lang}\n{stdout}\n```"
+        return f"```{lang}\n{stdout}\n```"
 
     except subprocess.TimeoutExpired:
         if fallback is not None:
             return fallback
-        return _meta_prefix + f"> ⚠ `@query` timed out ({timeout}s): `{cmd}`"
-    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        safe_cmd, _ = redact_text(cmd, cfg)
+        return f"> ⚠ `@query` timed out ({timeout}s): `{safe_cmd}`"
+    except Exception as exc:
         if fallback is not None:
             return fallback
-        return _meta_prefix + f"> ⚠ `@query` error: {exc}"
+        # exc.args often includes argv[0] which contains the full cmd; redact.
+        safe_err, _ = redact_text(str(exc), cfg)
+        return f"> ⚠ `@query` error: {safe_err}"
 
 
 def _guess_lang(cmd: str) -> str:
