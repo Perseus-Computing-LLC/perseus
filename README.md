@@ -15,8 +15,6 @@
 
 ![Perseus Efficiency — Cold vs Warm Render Speed](https://raw.githubusercontent.com/tcconnally/perseus/main/benchmark/infographic/perseus-efficiency.svg)
 
-![Perseus Extreme Enterprise Benchmark — Cold/Warm · Concurrency · Gates](https://raw.githubusercontent.com/tcconnally/perseus/main/benchmark/infographic/perseus-xeb-infographic-full.svg)
-
 ---
 
 ### TL;DR
