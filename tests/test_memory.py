@@ -42,9 +42,9 @@ def _write_checkpoint(store: Path, ts: str, task: str, status: str = "", notes: 
     return fp
 
 
-def test_workspace_hash_is_stable_and_12_hex(tmp_path):
+def test_workspace_hash_is_stable_and_16_hex(tmp_path):
     h = perseus._workspace_hash(tmp_path)
-    assert len(h) == 12
+    assert len(h) == 16
     assert all(c in "0123456789abcdef" for c in h)
     assert perseus._workspace_hash(tmp_path) == h
 
@@ -220,9 +220,9 @@ def test_checkpoint_auto_update_failure_does_not_abort(tmp_path, monkeypatch, ca
     monkeypatch.setattr(perseus, "_memory_do_update", boom)
     args = argparse.Namespace(task="t", status="", next="", workspace=str(tmp_path), notes="")
     perseus.cmd_checkpoint(args, local)
-    out = capsys.readouterr().out
-    assert "Checkpoint written" in out
-    assert "Mnēmē update failed" in out
+    captured = capsys.readouterr()
+    assert "Checkpoint written" in captured.out
+    assert "Mnēmē update failed" in captured.err  # #149: errors now go to stderr
 
 
 def test_checkpoint_auto_update_can_be_disabled(tmp_path):
