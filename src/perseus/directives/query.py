@@ -172,6 +172,17 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
         fallback = _unescape_fallback(fallback)
         raw = (raw[:fb_match.start()] + raw[fb_match.end():]).rstrip()
 
+    # #138: strip timeout=N modifier BEFORE command extraction to prevent
+    # it from leaking into the executed shell command.
+
+    # Extract timeout=N modifier (per-directive override, default 30s)
+    timeout = int(cfg["render"].get("query_timeout_s", 30))
+    tm_match = re.search(r'\s+timeout=(\d+)(?:\s|$)', raw)
+    if tm_match:
+        timeout = int(tm_match.group(1))
+        raw = (raw[:tm_match.start()] + raw[tm_match.end():]).rstrip()
+
+
     cmd_match = re.match(r'^"((?:[^"\\]|\\.)*)"', raw)   # double-quoted
     if not cmd_match:
         cmd_match = re.match(r"^'((?:[^'\\]|\\.)*)'", raw)  # single-quoted
@@ -192,13 +203,6 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
                 directive="@query",
                 command=cmd[:500],
                 shell=shell)
-
-    # Extract timeout=N modifier (per-directive override, default 30s)
-    timeout = int(cfg["render"].get("query_timeout_s", 30))
-    tm_match = re.search(r'\s+timeout=(\d+)(?:\s|$)', raw)
-    if tm_match:
-        timeout = int(tm_match.group(1))
-        raw = (raw[:tm_match.start()] + raw[tm_match.end():]).rstrip()
 
     try:
         # #139: when invoked under MCP's _call_tool timeout wrapper, the
@@ -257,7 +261,7 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
                 return fallback
             # #137: redact secrets out of `cmd` and `stderr` before interpolating
             # them into render output. Without this, a command like
-            # `@query "curl -H 'Authorization: Bearer ghp_…'"` leaks the bearer
+            # `@query "curl -H 'Authorization: Bearer *** leaks the bearer
             # token in the exit-nonzero header. Render-time redaction only runs
             # later in the pipeline and only on the final assembled output, but
             # by then this string has been logged elsewhere.
@@ -1113,4 +1117,3 @@ def format_prefetch_human(result: dict) -> str:
         trigger = entry.get("trigger") or "no-trigger"
         lines.append(f"- {entry['status']}: {entry['rule']} {trigger} -> {target}{reason}")
     return "\n".join(lines)
-
