@@ -199,9 +199,9 @@ def _legacy_md5_name(workspace: Path) -> str:
     import hashlib as _h
     canonical = str(workspace.expanduser().resolve()).encode()
     try:
-        return _h.md5(canonical, usedforsecurity=False).hexdigest()[:12]
+        return _h.md5(canonical, usedforsecurity=False).hexdigest()[:16]
     except TypeError:
-        return _h.md5(canonical).hexdigest()[:12]
+        return _h.md5(canonical).hexdigest()[:16]
 
 
 def test_mneme_path_auto_migrates_legacy_md5_file(tmp_path):
