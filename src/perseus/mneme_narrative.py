@@ -202,6 +202,21 @@ def _load_narrative(path: Path) -> tuple[dict, str]:
     return fm, body
 
 
+
+def _safe_fsync(path):
+    """Fsync file + parent directory for durability (#140)."""
+    try:
+        with open(path, "rb") as f:
+            os.fsync(f.fileno())
+    except OSError:
+        pass
+    try:
+        fd = os.open(str(path.parent), os.O_RDONLY)
+        os.fsync(fd)
+        os.close(fd)
+    except OSError:
+        pass
+
 def _save_narrative(path: Path, frontmatter: dict, body: str) -> None:
     """Atomically write the narrative file (temp + rename)."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -209,6 +224,9 @@ def _save_narrative(path: Path, frontmatter: dict, body: str) -> None:
     payload = f"---\n{fm_yaml}\n---\n\n{body.rstrip()}\n"
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(payload, encoding="utf-8")
+    # #140: fsync temp file + parent directory before atomic rename to
+    # prevent narrative loss on system crash / power loss.
+    _safe_fsync(tmp)
     os.replace(tmp, path)
 
 
