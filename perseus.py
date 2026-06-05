@@ -3119,10 +3119,7 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
         return f"> ⚠ @include: could not read `{file_path_str}`: {e}"
 
     # ── File size limit check (byte-counted, not character-counted) ──
-<<<<<<< HEAD
     max_bytes = _resolve_max_bytes(cfg, "max_include_bytes")
-=======
->>>>>>> 41590c8 (fix(mcp): apply redaction to all _call_tool return paths (#166))
     if max_bytes is not None and len(data) > max_bytes:
         raw = data[:max_bytes].decode(errors="replace").rstrip()
         actual_size = len(data)
@@ -3260,10 +3257,7 @@ def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str
         return f"> ⚠ @read: could not read `{file_path_str}`: {e}"
 
     # ── File size limit check (byte-counted, not character-counted) ──
-<<<<<<< HEAD
     max_bytes = _resolve_max_bytes(cfg, "max_read_bytes")
-=======
->>>>>>> 41590c8 (fix(mcp): apply redaction to all _call_tool return paths (#166))
     if max_bytes is not None and len(data) > max_bytes:
         content = data[:max_bytes].decode(errors="replace")
         trunc_note = (
