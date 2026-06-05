@@ -270,8 +270,8 @@ def _read_all_pythia_entries() -> list[dict]:
                     continue
                 try:
                     entries.append(json.loads(line))
-                except Exception:
-                    continue
+                except Exception as exc:
+                    sys.stderr.write(f"> ⚠ Pythia: skipping malformed JSONL line: {exc}\n")
     except Exception:
         return []
     return entries
@@ -511,7 +511,7 @@ def _deterministic_narrative(
         f"> Run `perseus memory compact` for a full re-distillation.\n"
     )
 
-    return "\n".join([
+    result = "\n".join([
         title,
         preamble,
         arc_section,
@@ -520,5 +520,36 @@ def _deterministic_narrative(
         patterns_section,
         recent_section,
     ]).rstrip() + "\n"
+
+    # #145: preserve operator-added sections from existing body.
+    # The deterministic rebuild only covers standard headings; any
+    # custom section the operator manually added would be lost.
+    # We scan existing_body for headings not in our standard set
+    # and append them after the rebuilt content.
+    if existing_body.strip():
+        import re as _re
+        _std_headings = {
+            "project arc", "key decisions", "task history",
+            "patterns & anti-patterns", "recent activity", "mnēmē",
+            "project arc:", "key decisions:", "task history:",
+            "patterns & anti-patterns:", "recent activity:",
+        }
+        _custom_sections: list[str] = []
+        _in_custom = False
+        for _line in existing_body.split("\n"):
+            if _line.startswith("## "):
+                _h_name = _line[3:].strip().lower().rstrip(":")
+                _in_custom = _h_name not in _std_headings
+                if _in_custom:
+                    _custom_sections.append("")
+            if _in_custom or _line.startswith("## "):
+                _custom_sections.append(_line)
+        if _custom_sections:
+            result += "\n---\n## Operator-Added Sections\n\n"
+            result += "\n".join(_custom_sections).strip() + "\n"
+            result += "\n> ⚠ Above sections preserved from prior narrative by operator.\n"
+            result += "> Review after deterministic update to ensure accuracy.\n"
+
+    return result
 
 
