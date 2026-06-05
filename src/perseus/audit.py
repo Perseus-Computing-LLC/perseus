@@ -170,10 +170,13 @@ def audit_event(cfg: dict, event_type: str, **fields) -> None:
             record[k] = repr(v)
     # v1.0.5 review: redact secrets before persisting to disk.
     # Audit events can contain command strings, paths, or args with tokens.
-    try:
-        record, _report = redact_value(record, cfg)
-    except Exception:
-        pass  # redaction failure must not block audit persistence
+    # Respect audit.redact_fields opt-out — operators may use forensic mode
+    # where the audit log is itself the secured artifact.
+    if redact_audit:
+        try:
+            record, _report = redact_value(record, cfg)
+        except Exception:
+            pass  # redaction failure must not block audit persistence
     try:
         path = _audit_log_path(cfg)
         path.parent.mkdir(parents=True, exist_ok=True)

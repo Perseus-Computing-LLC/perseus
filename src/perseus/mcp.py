@@ -283,24 +283,88 @@ def _call_tool(tool_name: str, arguments: dict, cfg: dict, workspace: Path) -> s
 
     args_str = _build_tool_args_generic(tool_name, arguments)
 
-    # Timeout enforcement across all platforms.
-    # Uses ThreadPoolExecutor instead of signal.SIGALRM (Unix-only, breaks Windows).
+    # #139 — Timeout enforcement across all platforms.
+    #
+    # Pre-1.0.6 used a context-managed ThreadPoolExecutor:
+    #     with ThreadPoolExecutor(max_workers=1) as executor:
+    #         future = executor.submit(...)
+    #         result = future.result(timeout=timeout)
+    #
+    # That had two bugs:
+    #   1. future.result(timeout=) only abandons the future — the worker
+    #      thread (and any subprocess it spawned) kept running.
+    #   2. `with` block calls executor.shutdown(wait=True) on exit, which
+    #      BLOCKS until the abandoned worker finishes — defeating the
+    #      entire timeout mechanism. A 5s timeout on `sleep 600` blocked
+    #      the MCP response for ~600s.
+    #
+    # Fix:
+    #   - Use a non-context-managed executor and call
+    #     shutdown(wait=False, cancel_futures=True) on timeout.
+    #   - Identify the abandoned worker's thread ID and ask query.py to
+    #     kill its tracked subprocess (process group on POSIX, taskkill /T
+    #     on Windows). This makes timeout enforcement actually kill the
+    #     subprocess tree atomically, freeing CPU and any locks held.
+    #   - On success, shutdown(wait=False) is still fine — the worker has
+    #     already returned, so there's nothing to wait for.
     mcp_cfg = cfg.get("mcp", {}) if isinstance(cfg, dict) else {}
     timeout = mcp_cfg.get("tool_timeout_s", DEFAULT_TOOL_TIMEOUT_S)
 
+    # Track the worker thread ident so we can ask query.py to kill its
+    # subprocess on timeout.
+    worker_tid_holder: dict = {}
+    def _wrapped_resolver():
+        worker_tid_holder["tid"] = threading.get_ident()
+        return _call_resolver(spec, args_str, cfg, workspace)
+
+    executor = concurrent.futures.ThreadPoolExecutor(
+        max_workers=1, thread_name_prefix=f"mcp-{tool_name}",
+    )
     try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(_call_resolver, spec, args_str, cfg, workspace)
+        future = executor.submit(_wrapped_resolver)
+        try:
             result = future.result(timeout=timeout)
+        except concurrent.futures.TimeoutError:
+            # Try to kill the in-flight subprocess (if any) belonging to
+            # the worker thread. This is a cross-module reach into
+            # directives.query because that's where the subprocess was
+            # spawned. Best-effort; if query.py isn't loaded or the
+            # worker hadn't started subprocess yet, we just abandon.
+            killed = False
+            tid = worker_tid_holder.get("tid")
+            if tid is not None:
+                # Look up the killer function. In the built single-file
+                # artifact every module's top-level symbol is at the
+                # global scope; in source-tree development we need an
+                # explicit module import. globals() lookup covers both.
+                killer = globals().get("kill_active_subprocess_for_thread")
+                if killer is None:
+                    try:
+                        import perseus.directives.query as _q
+                        killer = getattr(_q, "kill_active_subprocess_for_thread", None)
+                    except ImportError:
+                        killer = None
+                if killer is not None:
+                    try:
+                        killed = bool(killer(tid))
+                    except Exception:
+                        killed = False
+            suffix = " (subprocess killed)" if killed else ""
+            return (
+                f"Error executing {directive_name}: "
+                f"timed out after {timeout}s{suffix}"
+            )
+        except Exception as exc:
+            # Error strings may include resolver-thrown exception messages,
+            # which can echo user content (e.g. argparse complaining about
+            # the command string). Redact defensively.
+            return _mcp_redact(f"Error executing {directive_name}: {exc}", cfg)
         # #166: redact the tool result before returning to the MCP client.
         return _mcp_redact(result, cfg)
-    except TimeoutError as exc:
-        return f"Error executing {directive_name}: timed out after {timeout}s"
-    except Exception as exc:
-        # Error strings may include resolver-thrown exception messages,
-        # which can echo user content (e.g. argparse complaining about
-        # the command string). Redact defensively.
-        return _mcp_redact(f"Error executing {directive_name}: {exc}", cfg)
+    finally:
+        # NEVER wait — on timeout the worker may be stuck for arbitrarily
+        # long. The thread is daemonic and won't block process exit.
+        executor.shutdown(wait=False, cancel_futures=True)
 
 
 # ── JSON-RPC 2.0 message handling ────────────────────────────────────────────

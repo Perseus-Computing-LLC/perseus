@@ -198,9 +198,11 @@ def test_call_tool_timeout_actually_kills_subprocess(tmp_path):
     subprocess kept running. After fix, the subprocess tree is killed
     via os.killpg (POSIX) or taskkill /T (Windows) on timeout.
     """
-    import os, subprocess, time as _time, uuid
+    import os, subprocess, time as _time, uuid, shutil
     if os.name == "nt":
         pytest.skip("Subprocess-tree kill test is POSIX-specific")
+    if shutil.which("pgrep") is None:
+        pytest.skip("pgrep not available")
 
     c = _mcp_query_cfg()
 
