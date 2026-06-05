@@ -187,8 +187,48 @@ def _build_tool_args_generic(tool_name: str, arguments: dict) -> str:
     return " ".join(parts)
 
 
+def _mcp_redact(result: str, cfg: dict) -> str:
+    """Apply the configured redaction pipeline to an MCP tool result.
+
+    #166 (v1.0.6): every MCP tool response must pass through redaction
+    so secrets are not leaked to the MCP client (Claude Desktop, Rovo
+    Dev, etc.). Before 1.0.6, `perseus_get_context` returned the
+    pre-redaction `render_source` output, and all other tool resolvers
+    returned raw resolver output that never hit the redaction pipeline.
+
+    Returns the original string unchanged if:
+      - `redaction.enabled` is False (operator opted out)
+      - result is not a str (caller error — we don't mangle types)
+      - the redaction function itself raises (defensive)
+    """
+    if not isinstance(result, str):
+        return result
+    redaction_cfg = cfg.get("redaction", {}) if isinstance(cfg, dict) else {}
+    if not redaction_cfg.get("enabled", True):
+        return result
+    redactor = globals().get("redact_text")
+    if redactor is None:
+        try:
+            from perseus.redaction import redact_text as _rt
+            redactor = _rt
+        except ImportError:
+            return result
+    try:
+        redacted, _counts = redactor(result, cfg)
+        return redacted
+    except Exception:
+        return result
+
+
 def _call_tool(tool_name: str, arguments: dict, cfg: dict, workspace: Path) -> str:
-    """Resolve an MCP tool call through the Perseus directive resolver."""
+    """Resolve an MCP tool call through the Perseus directive resolver.
+
+    #166 (v1.0.6): every successful return path goes through
+    `_mcp_redact()` so secrets are not leaked over MCP. Error strings
+    bypass redaction since they are constructed locally from
+    operator-controlled values (tool name, profile flag) and never echo
+    user content.
+    """
     allowed, reason = _mcp_tool_allowed(tool_name, cfg)
     if not allowed:
         return f"Error: {reason}"
@@ -202,6 +242,12 @@ def _call_tool(tool_name: str, arguments: dict, cfg: dict, workspace: Path) -> s
                 # render_source is a top-level function in the built artifact
                 # In source module context, import from the parent module
                 result = render_source(source, cfg, workspace)
+                # #166: redact BEFORE serialization so the JSON shape
+                # carries already-redacted text. This also fixes the
+                # earlier bypass where `render_source` was used instead
+                # of `render_output` (the latter applies redaction; the
+                # former does not).
+                result = _mcp_redact(result, cfg)
                 fmt = arguments.get("format", "markdown")
                 if fmt == "json":
                     return json.dumps({"resolved": result, "workspace": str(workspace)})
@@ -213,7 +259,7 @@ def _call_tool(tool_name: str, arguments: dict, cfg: dict, workspace: Path) -> s
     if tool_name == "perseus_get_health":
         spec = DIRECTIVE_REGISTRY.get("@health")
         if spec and spec.resolver:
-            return _call_resolver(spec, "", cfg, workspace)
+            return _mcp_redact(_call_resolver(spec, "", cfg, workspace), cfg)
         return "Error: @health directive not registered"
 
     # Trust gate: block shell execution for sensitive tools
@@ -237,20 +283,88 @@ def _call_tool(tool_name: str, arguments: dict, cfg: dict, workspace: Path) -> s
 
     args_str = _build_tool_args_generic(tool_name, arguments)
 
-    # Timeout enforcement across all platforms.
-    # Uses ThreadPoolExecutor instead of signal.SIGALRM (Unix-only, breaks Windows).
+    # #139 — Timeout enforcement across all platforms.
+    #
+    # Pre-1.0.6 used a context-managed ThreadPoolExecutor:
+    #     with ThreadPoolExecutor(max_workers=1) as executor:
+    #         future = executor.submit(...)
+    #         result = future.result(timeout=timeout)
+    #
+    # That had two bugs:
+    #   1. future.result(timeout=) only abandons the future — the worker
+    #      thread (and any subprocess it spawned) kept running.
+    #   2. `with` block calls executor.shutdown(wait=True) on exit, which
+    #      BLOCKS until the abandoned worker finishes — defeating the
+    #      entire timeout mechanism. A 5s timeout on `sleep 600` blocked
+    #      the MCP response for ~600s.
+    #
+    # Fix:
+    #   - Use a non-context-managed executor and call
+    #     shutdown(wait=False, cancel_futures=True) on timeout.
+    #   - Identify the abandoned worker's thread ID and ask query.py to
+    #     kill its tracked subprocess (process group on POSIX, taskkill /T
+    #     on Windows). This makes timeout enforcement actually kill the
+    #     subprocess tree atomically, freeing CPU and any locks held.
+    #   - On success, shutdown(wait=False) is still fine — the worker has
+    #     already returned, so there's nothing to wait for.
     mcp_cfg = cfg.get("mcp", {}) if isinstance(cfg, dict) else {}
     timeout = mcp_cfg.get("tool_timeout_s", DEFAULT_TOOL_TIMEOUT_S)
 
+    # Track the worker thread ident so we can ask query.py to kill its
+    # subprocess on timeout.
+    worker_tid_holder: dict = {}
+    def _wrapped_resolver():
+        worker_tid_holder["tid"] = threading.get_ident()
+        return _call_resolver(spec, args_str, cfg, workspace)
+
+    executor = concurrent.futures.ThreadPoolExecutor(
+        max_workers=1, thread_name_prefix=f"mcp-{tool_name}",
+    )
     try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(_call_resolver, spec, args_str, cfg, workspace)
+        future = executor.submit(_wrapped_resolver)
+        try:
             result = future.result(timeout=timeout)
-        return result
-    except TimeoutError as exc:
-        return f"Error executing {directive_name}: timed out after {timeout}s"
-    except Exception as exc:
-        return f"Error executing {directive_name}: {exc}"
+        except concurrent.futures.TimeoutError:
+            # Try to kill the in-flight subprocess (if any) belonging to
+            # the worker thread. This is a cross-module reach into
+            # directives.query because that's where the subprocess was
+            # spawned. Best-effort; if query.py isn't loaded or the
+            # worker hadn't started subprocess yet, we just abandon.
+            killed = False
+            tid = worker_tid_holder.get("tid")
+            if tid is not None:
+                # Look up the killer function. In the built single-file
+                # artifact every module's top-level symbol is at the
+                # global scope; in source-tree development we need an
+                # explicit module import. globals() lookup covers both.
+                killer = globals().get("kill_active_subprocess_for_thread")
+                if killer is None:
+                    try:
+                        import perseus.directives.query as _q
+                        killer = getattr(_q, "kill_active_subprocess_for_thread", None)
+                    except ImportError:
+                        killer = None
+                if killer is not None:
+                    try:
+                        killed = bool(killer(tid))
+                    except Exception:
+                        killed = False
+            suffix = " (subprocess killed)" if killed else ""
+            return (
+                f"Error executing {directive_name}: "
+                f"timed out after {timeout}s{suffix}"
+            )
+        except Exception as exc:
+            # Error strings may include resolver-thrown exception messages,
+            # which can echo user content (e.g. argparse complaining about
+            # the command string). Redact defensively.
+            return _mcp_redact(f"Error executing {directive_name}: {exc}", cfg)
+        # #166: redact the tool result before returning to the MCP client.
+        return _mcp_redact(result, cfg)
+    finally:
+        # NEVER wait — on timeout the worker may be stuck for arbitrarily
+        # long. The thread is daemonic and won't block process exit.
+        executor.shutdown(wait=False, cancel_futures=True)
 
 
 # ── JSON-RPC 2.0 message handling ────────────────────────────────────────────
@@ -375,10 +489,13 @@ def serve_mcp_sse(cfg: dict, workspace: Path | None = None, port: int = 8420) ->
         """Verify Bearer token if auth is configured. Also validate Host header."""
         # Host header validation for DNS rebinding protection
         host = handler.headers.get("Host", "")
-        if host:
-            hostname = host.split(":")[0]
-            if hostname not in ("127.0.0.1", "localhost", "::1"):
-                return False
+        # #150: reject empty Host header — pre-1.0.6 accepted requests
+        # with no Host header at all, creating a loopback bypass.
+        if not host or not host.strip():
+            return False
+        hostname = host.split(":")[0]
+        if hostname not in ("127.0.0.1", "localhost", "::1"):
+            return False
         # Bearer token check — token is now guaranteed non-None after startup gate
         if not token:
             return True  # only reachable if allow_no_auth is set

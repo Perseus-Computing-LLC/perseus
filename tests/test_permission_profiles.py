@@ -259,3 +259,216 @@ def test_trust_summary_partial_config_fails_closed():
 
     assert payload["effective"]["render"]["allow_query_shell"] is False
     assert payload["effective"]["render"]["allow_agent_shell"] is False
+
+
+# ── #129 hardening regression matrix ─────────────────────────────────────────
+# Pre-1.0.6 there was a documented bug where a workspace config that set both
+# `permissions.profile: balanced` and `render.allow_query_shell: true` would
+# silently render with `allow_query_shell=false` because the profile merge
+# overwrote the user's explicit value. The fix landed via load_config call-
+# ordering; v1.0.6 makes the precedence **structural** via `skip_keys`.
+#
+# This matrix asserts the explicit-user-wins guarantee across:
+#   - all 3 named profiles (strict, balanced, power-user)
+#   - all 5 boolean security gates in render.*
+#   - both directions of override (user=True over profile=False
+#     and user=False over profile=True)
+#
+# It also asserts that the audit log records the layering decision.
+
+PROFILE_KEYS = [
+    "allow_query_shell",
+    "allow_agent_shell",
+    "allow_services_command",
+    "allow_remote_services_health",
+    "allow_outside_workspace",
+]
+
+
+@pytest.mark.parametrize("profile_name", ["strict", "balanced", "power-user"])
+@pytest.mark.parametrize("override_key", PROFILE_KEYS)
+@pytest.mark.parametrize("override_value", [True, False])
+def test_explicit_user_render_key_wins_over_profile(
+    monkeypatch, tmp_path, profile_name, override_key, override_value
+):
+    """User-set render.* keys always win over the profile's default for
+    that key, regardless of profile or direction of override.
+
+    This is the structural #129 guarantee."""
+    home = tmp_path / "home"
+    home.mkdir()
+    workspace = tmp_path / "ws"
+    (workspace / ".perseus").mkdir(parents=True)
+    monkeypatch.setattr(perseus, "PERSEUS_HOME", home)
+
+    (workspace / ".perseus" / "config.yaml").write_text(yaml.safe_dump({
+        "permissions": {"profile": profile_name},
+        "render": {override_key: override_value},
+    }))
+
+    cfg = perseus.load_config(workspace=workspace)
+    assert cfg["render"][override_key] is override_value, (
+        f"profile={profile_name} key={override_key}: expected user value "
+        f"{override_value} but got {cfg['render'][override_key]}"
+    )
+
+    # Other render keys should still reflect the profile's value.
+    expected_profile = perseus.PERMISSION_PROFILES[profile_name]["render"]
+    for key in PROFILE_KEYS:
+        if key == override_key:
+            continue
+        assert cfg["render"][key] == expected_profile[key], (
+            f"profile={profile_name}: non-overridden key {key} expected "
+            f"{expected_profile[key]} but got {cfg['render'][key]}"
+        )
+
+
+def test_explicit_user_value_wins_when_set_to_same_value_as_profile(
+    monkeypatch, tmp_path
+):
+    """If user explicitly sets a value identical to the profile default,
+    the result is still the user's value (semantically equivalent but the
+    audit log should record the override)."""
+    home = tmp_path / "home"
+    home.mkdir()
+    workspace = tmp_path / "ws"
+    (workspace / ".perseus").mkdir(parents=True)
+    monkeypatch.setattr(perseus, "PERSEUS_HOME", home)
+
+    (workspace / ".perseus" / "config.yaml").write_text(yaml.safe_dump({
+        "permissions": {"profile": "balanced"},
+        # Same value as balanced's default for this key
+        "render": {"allow_query_shell": False},
+    }))
+
+    cfg = perseus.load_config(workspace=workspace)
+    assert cfg["render"]["allow_query_shell"] is False
+
+
+def test_workspace_overrides_global_for_profile_and_render(
+    monkeypatch, tmp_path
+):
+    """Workspace `permissions.profile` AND workspace `render.*` both win
+    over global config. This is the most realistic Thomas-scenario:
+    global says strict, workspace says power-user with an override."""
+    home = tmp_path / "home"
+    home.mkdir()
+    workspace = tmp_path / "ws"
+    (workspace / ".perseus").mkdir(parents=True)
+    monkeypatch.setattr(perseus, "PERSEUS_HOME", home)
+
+    # Global: strict, everything off
+    (home / "config.yaml").write_text(yaml.safe_dump({
+        "permissions": {"profile": "strict"},
+    }))
+    # Workspace: balanced profile + power-user-ish override
+    (workspace / ".perseus" / "config.yaml").write_text(yaml.safe_dump({
+        "permissions": {"profile": "balanced"},
+        "render": {"allow_query_shell": True},
+    }))
+
+    cfg = perseus.load_config(workspace=workspace)
+    assert cfg["render"]["allow_query_shell"] is True
+    # Other keys should reflect balanced (workspace profile wins over global)
+    assert cfg["render"]["allow_agent_shell"] is False
+    assert cfg["render"]["allow_outside_workspace"] is False
+
+
+def test_apply_permission_profile_skip_keys_directly(monkeypatch):
+    """Unit test for the new `skip_keys` parameter."""
+    cfg = {
+        "render": {
+            "allow_query_shell": True,
+            "allow_agent_shell": False,
+        },
+    }
+    skip = {("render", "allow_query_shell")}
+    applied = perseus._apply_permission_profile(cfg, "strict", skip_keys=skip)
+    assert applied == "strict"
+    # Skipped key preserved
+    assert cfg["render"]["allow_query_shell"] is True
+    # Non-skipped key overwritten by profile
+    assert cfg["render"]["allow_agent_shell"] is False  # strict default
+    # Profile sets keys not in cfg
+    assert cfg["render"]["allow_services_command"] is False
+
+
+def test_apply_permission_profile_legacy_no_skip_keys_still_works(monkeypatch):
+    """Backward compatibility: callers passing no skip_keys get destructive
+    merge (pre-v1.0.6 behavior)."""
+    cfg = {
+        "render": {
+            "allow_query_shell": True,
+        },
+    }
+    applied = perseus._apply_permission_profile(cfg, "strict")
+    assert applied == "strict"
+    # No skip_keys → profile wins
+    assert cfg["render"]["allow_query_shell"] is False
+
+
+def test_audit_log_records_profile_override_decision(monkeypatch, tmp_path):
+    """When user explicitly overrides a profile-managed key, audit log
+    gets a `config_profile_overridden` event."""
+    # _audit_log_path constrains the log to ~/.perseus/ for safety (S5).
+    # Point HOME (not just PERSEUS_HOME) at tmp_path so the default audit
+    # path lands inside an allowed root.
+    home = tmp_path / "home"
+    (home / ".perseus").mkdir(parents=True)
+    monkeypatch.setattr(perseus, "PERSEUS_HOME", home / ".perseus")
+    monkeypatch.setenv("HOME", str(home))
+
+    workspace = tmp_path / "ws"
+    (workspace / ".perseus").mkdir(parents=True)
+
+    (workspace / ".perseus" / "config.yaml").write_text(yaml.safe_dump({
+        "permissions": {"profile": "balanced"},
+        "render": {"allow_query_shell": True},
+        "audit": {"enabled": True},
+    }))
+
+    cfg = perseus.load_config(workspace=workspace)
+    assert cfg["render"]["allow_query_shell"] is True
+
+    # Audit log should have a config_profile_overridden entry
+    audit_path = home / ".perseus" / "audit_log.jsonl"
+    assert audit_path.exists(), "Audit log was not created"
+    lines = [json.loads(line) for line in audit_path.read_text().splitlines() if line.strip()]
+    override_events = [e for e in lines if e.get("event_type") == "config_profile_overridden"]
+    assert len(override_events) >= 1, (
+        f"No config_profile_overridden event in audit log. Events: "
+        f"{[e.get('event_type') for e in lines]}"
+    )
+    evt = override_events[-1]
+    assert evt["profile"] == "balanced"
+    assert "render.allow_query_shell" in evt["user_overrides"]
+
+
+def test_no_audit_event_when_user_does_not_override_profile_keys(
+    monkeypatch, tmp_path
+):
+    """If user sets only keys NOT managed by the profile, no override
+    event is logged (it would be noise)."""
+    home = tmp_path / "home"
+    (home / ".perseus").mkdir(parents=True)
+    monkeypatch.setattr(perseus, "PERSEUS_HOME", home / ".perseus")
+    monkeypatch.setenv("HOME", str(home))
+
+    workspace = tmp_path / "ws"
+    (workspace / ".perseus").mkdir(parents=True)
+
+    (workspace / ".perseus" / "config.yaml").write_text(yaml.safe_dump({
+        "permissions": {"profile": "balanced"},
+        # `cache_dir` is not a profile-managed key
+        "render": {"cache_dir": str(home / "cache")},
+        "audit": {"enabled": True},
+    }))
+
+    cfg = perseus.load_config(workspace=workspace)
+    audit_path = home / ".perseus" / "audit_log.jsonl"
+    if audit_path.exists():
+        lines = [json.loads(line) for line in audit_path.read_text().splitlines() if line.strip()]
+        override_events = [e for e in lines if e.get("event_type") == "config_profile_overridden"]
+        assert len(override_events) == 0, (
+            "Should not log an override event for non-profile-managed keys"
+        )
