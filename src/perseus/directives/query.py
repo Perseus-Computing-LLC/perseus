@@ -255,14 +255,22 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
         if exit_code != 0:
             if fallback is not None:
                 return fallback
-            header = f"> ⚠ `@query` exited {exit_code}: `{cmd}`\n\n"
-            body = stdout or stderr or "(no output)"
-            return header + f"```{lang}\n{body}\n```"
+            # #137: redact secrets out of `cmd` and `stderr` before interpolating
+            # them into render output. Without this, a command like
+            # `@query "curl -H 'Authorization: Bearer ghp_…'"` leaks the bearer
+            # token in the exit-nonzero header. Render-time redaction only runs
+            # later in the pipeline and only on the final assembled output, but
+            # by then this string has been logged elsewhere.
+            safe_cmd, _ = redact_text(cmd, cfg)
+            safe_body, _ = redact_text(stdout or stderr or "(no output)", cfg)
+            header = f"> ⚠ `@query` exited {exit_code}: `{safe_cmd}`\n\n"
+            return header + f"```{lang}\n{safe_body}\n```"
 
         if not stdout:
             if fallback is not None:
                 return fallback
-            return f"> (no output from `{cmd}`)"
+            safe_cmd, _ = redact_text(cmd, cfg)
+            return f"> (no output from `{safe_cmd}`)"
 
         # Apply stdout size cap (default 256 KB).
         # Truncate at the nearest preceding newline to avoid mid-line cuts.
@@ -297,11 +305,14 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
     except subprocess.TimeoutExpired:
         if fallback is not None:
             return fallback
-        return f"> ⚠ `@query` timed out ({timeout}s): `{cmd}`"
+        safe_cmd, _ = redact_text(cmd, cfg)
+        return f"> ⚠ `@query` timed out ({timeout}s): `{safe_cmd}`"
     except Exception as exc:
         if fallback is not None:
             return fallback
-        return f"> ⚠ `@query` error: {exc}"
+        # exc.args often includes argv[0] which contains the full cmd; redact.
+        safe_err, _ = redact_text(str(exc), cfg)
+        return f"> ⚠ `@query` error: {safe_err}"
 
 
 def _guess_lang(cmd: str) -> str:
