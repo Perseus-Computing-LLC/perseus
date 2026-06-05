@@ -38,14 +38,28 @@ DEFAULT_REDACTION_RULES: list[dict[str, str]] = [
     {"name": "aws_access_key_id", "pattern": r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"},
     # Slack bot/user/app/refresh tokens
     {"name": "slack_token", "pattern": r"\bxox[abprso]-[A-Za-z0-9-]{10,}\b"},
-    # Generic bearer header value (Authorization: Bearer XXXX)
-    {"name": "bearer_header", "pattern": r"(?i)(authorization:\s*bearer\s+)[A-Za-z0-9._\-+/=]{16,}"},
+    # Generic bearer header value (Authorization: Bearer ***
+    {"name": "bearer_header", "pattern": r"(?i)(authorization:\s*bearer\s+)[A-Za-z0-9._\-+/=]{16,}", "_prefix_group": 1},
     # JWT (three base64url segments). Conservative: require non-trivial first segment.
     {"name": "jwt", "pattern": r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"},
     # PEM private key block (covers RSA, EC, OPENSSH, generic)
     {"name": "private_key_block", "pattern": r"-----BEGIN (?:RSA |EC |OPENSSH |DSA |ENCRYPTED |PGP )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |OPENSSH |DSA |ENCRYPTED |PGP )?PRIVATE KEY-----"},
-    # Hex-encoded high-entropy strings of 40+ chars used as secrets/api hashes
-    {"name": "long_hex_secret", "pattern": r"\b[a-fA-F0-9]{40,}\b"},
+    # Hex-encoded high-entropy strings of 40+ chars in an obvious credential
+    # context (assigned to a `secret=`, `token=`, `key=`, `password=`,
+    # `api_key=` slot, or quoted after a colon in JSON/YAML).
+    #
+    # IMPORTANT: a bare `\b[a-fA-F0-9]{40,}\b` rule (pre-1.0.6 default) was a
+    # landmine — it matched git commit SHAs (40 hex chars), SHA-256 sums (64
+    # hex chars), Docker digests, and Atlassian content hashes, silently
+    # destroying forensically important data in `@query "git log"` output
+    # and similar. This rule now requires an explicit credential anchor.
+    # See: https://github.com/tcconnally/perseus/issues/136
+    {"name": "long_hex_secret",
+     "pattern": r"(?i)(?:secret|token|key|password|passwd|api[_-]?key|auth(?:orization)?)\s*[:=]\s*[\"']?([a-fA-F0-9]{40,})[\"']?",
+     "_anchor_group": 1},
+    # Atlassian API token: ATATT3... (Confluence/Jira personal access tokens)
+    # See: https://github.com/tcconnally/perseus/issues/142
+    {"name": "atlassian_api_token", "pattern": r"\bATATT3[A-Za-z0-9+/=_-]{40,}\b"},
     # HuggingFace: hf_... (read/write tokens)
     {"name": "huggingface_token", "pattern": r"\bhf_[A-Za-z0-9]{30,}\b"},
     # Google Cloud API key: AIza...
@@ -109,7 +123,21 @@ def _compile_redaction_rules(cfg: dict) -> list[dict]:
         replacement = rule.get("replacement")
         if not replacement:
             replacement = f"[REDACTED:{name}]"
-        compiled.append({"name": name, "regex": regex, "replacement": str(replacement)})
+        # `_anchor_group` (rule-internal, default None): index of the capture
+        # group holding the SECRET payload (everything outside that group is
+        # context that must be preserved verbatim). Used by the credential-
+        # anchored `long_hex_secret` rule. When unset, fall back to legacy
+        # behavior: group(1) (if present) is treated as a leading prefix to
+        # preserve and the rest of the match is replaced.
+        anchor_group = rule.get("_anchor_group")
+        prefix_group = rule.get("_prefix_group")
+        compiled.append({
+            "name": name,
+            "regex": regex,
+            "replacement": str(replacement),
+            "anchor_group": anchor_group,
+            "prefix_group": prefix_group,
+        })
     return compiled
 
 
@@ -143,13 +171,35 @@ def redact_text(text: str, cfg: dict) -> tuple[str, dict]:
         name = rule["name"]
         regex = rule["regex"]
         # subn returns (new, n); use a callable replacement so groupref-style
-        # rules (e.g. the bearer header rule that preserves the prefix via
-        # group 1) work consistently.
-        def _sub(match, _repl=rule["replacement"]):
-            if match.lastindex:
-                # Preserve any leading captured group verbatim (e.g. the
-                # `Authorization: Bearer ` prefix); everything else is wiped.
-                return match.group(1) + _repl
+        # rules work consistently.
+        #
+        # Three modes:
+        #   1. `anchor_group=N`: the captured group at index N is the SECRET
+        #      payload. Replace only that span; preserve everything else
+        #      verbatim. Used by the credential-anchored `long_hex_secret` rule.
+        #   2. `match.lastindex` set (no anchor_group): legacy behavior — the
+        #      first capture group is a prefix to preserve, everything after
+        #      the prefix is replaced. Used by `bearer_header`.
+        #   3. No capture groups: replace the whole match.
+        def _sub(match, _repl=rule["replacement"], _ag=rule.get("anchor_group")):
+            if _ag is not None:
+                try:
+                    span_start, span_end = match.span(_ag)
+                except (IndexError, re.error):
+                    return _repl
+                if span_start < 0:
+                    return _repl
+                full = match.group(0)
+                rel_start = span_start - match.start()
+                rel_end = span_end - match.start()
+                return full[:rel_start] + _repl + full[rel_end:]
+            # #141: prefix-preservation only for rules that explicitly
+            # declare _prefix_group (e.g. bearer_header). User-supplied
+            # patterns with accidental capture groups would silently
+            # truncate data under the old `match.lastindex` heuristic.
+            _pg = rule.get("prefix_group")
+            if _pg is not None and match.lastindex and match.lastindex >= _pg:
+                return match.group(_pg) + _repl
             return _repl
         out, n = regex.subn(_sub, out)
         if n:
@@ -199,4 +249,3 @@ def redact_value(value, cfg: dict) -> tuple[object, dict]:
                 counts[name] = counts.get(name, 0) + count
         return out, {"enabled": enabled, "total": total, "counts": counts, "rules_active": rules_active}
     return value, {"enabled": True, "total": 0, "counts": {}, "rules_active": 0}
-

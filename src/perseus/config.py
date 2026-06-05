@@ -100,6 +100,12 @@ DEFAULT_CONFIG = {
         "recent_keep": 5,           # raw checkpoints to include in Recent Activity
         "auto_update": True,        # update narrative on every checkpoint write
         "compact_threshold": 20,    # advisory: compact after this many incremental updates
+        # #131: wall-clock deadline for `perseus memory compact` LLM path.
+        # 0 = no deadline (pre-1.0.6 behavior — can hang indefinitely on
+        # slow models). Default 180s (3 min) covers Ollama mistral on a
+        # modern laptop for typical workspace sizes. On timeout the LLM
+        # call is abandoned and the deterministic narrative is used.
+        "compact_total_timeout_s": 180,
         "llm_provider": None,       # None = deterministic; "ollama" / "openai-compat" enables LLM
         "llm_model": None,          # inherits from llm: block if None
         "max_narrative_lines": 300, # warn (not error) if narrative grows beyond this
@@ -287,13 +293,29 @@ PERMISSION_PROFILES: dict[str, dict[str, dict[str, object]]] = {
 }
 
 
-def _apply_permission_profile(cfg: dict, profile_name: object) -> str | None:
+def _apply_permission_profile(
+    cfg: dict,
+    profile_name: object,
+    skip_keys: set[tuple[str, str]] | None = None,
+) -> str | None:
     """Apply a permission profile to cfg in place.
 
     Returns the canonical profile name applied, or None if profile_name is
     falsy or unknown. Unknown profile names are silently ignored so a config
     typo cannot brick the renderer — but `perseus trust` surfaces the
     canonical applied profile so the operator can spot the mismatch.
+
+    #129 hardening (v1.0.6): callers may pass `skip_keys` — a set of
+    `(section, key)` tuples that the user has explicitly set in their
+    config. Those keys are skipped, structurally guaranteeing that
+    explicit user values win over the profile regardless of which order
+    the caller invokes profile-apply vs user-merge.
+
+    Pre-v1.0.6 callers (skip_keys=None) get the legacy destructive merge,
+    which still works correctly when followed by a user-merge step — but
+    is fragile to ordering changes. New callers should always pass
+    skip_keys (even if empty) so the audit-log layering decision is
+    accurate.
     """
     if not profile_name:
         return None
@@ -301,10 +323,15 @@ def _apply_permission_profile(cfg: dict, profile_name: object) -> str | None:
     profile = PERMISSION_PROFILES.get(name)
     if not profile:
         return None
+    skip = skip_keys or set()
     for section, vals in profile.items():
         if section not in cfg or not isinstance(cfg[section], dict):
             cfg[section] = {}
-        cfg[section].update(vals)
+        for key, val in vals.items():
+            if (section, key) in skip:
+                # User has explicitly configured this key; respect them.
+                continue
+            cfg[section][key] = val
     return name
 
 
