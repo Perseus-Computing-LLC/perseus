@@ -139,6 +139,15 @@ def _webhook_worker(url, ep, wh_cfg, q):
             "version": version,
             "data": payload
         }
+        # #167: redact secrets from webhook payload before external delivery.
+        # Pre-1.0.6, directive args and output snippets in payload["data"]
+        # were sent verbatim to webhook endpoints, leaking secrets.
+        try:
+            from perseus.redaction import redact_text
+            redacted_data, _ = redact_text(payload, cfg)
+            body_dict["data"] = redacted_data
+        except Exception:
+            pass  # redaction failure must not block webhook delivery
         body_json = json.dumps(body_dict)
         body_data = body_json.encode("utf-8")
         
