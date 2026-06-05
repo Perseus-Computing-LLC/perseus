@@ -12,6 +12,7 @@ Perseus is a live context engine for AI assistants. It solves the **cold-start p
 |---|---|
 | Install and render your first context in 5 minutes | [Quickstart](./quickstart.md) |
 | Understand what Perseus is and how it works | [README](../README.md) |
+| **Full setup, config & automation guide** | **[Setup Guide](../SETUP-GUIDE.md)** |
 | Wire Perseus to a specific assistant (Hermes, Codex, Claude Code, Cursor, Rovo Dev) | [Integration guide](./HERMES_INTEGRATION.md) · [spec/integration.md](../spec/integration.md) |
 | Use context packs and profiles | [Context Packs](./CONTEXT_PACKS.md) |
 | Deploy with Docker / run as a service | [Container deployment](./CONTAINER.md) |
