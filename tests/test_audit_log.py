@@ -215,6 +215,91 @@ def test_audit_log_never_contains_raw_secret(tmp_path, monkeypatch):
     assert "\"event_type\": \"redaction\"" in audit_text
 
 
+# ── regression: #137 audit field values must be redacted ────────────────────
+
+
+def _setup_redaction_home(home: Path, monkeypatch) -> tuple[Path, dict]:
+    """Set up an isolated PERSEUS_HOME and return (audit_log_path, cfg).
+
+    Uses the standard test pattern from `test_audit_log_never_contains_raw_secret`
+    — monkeypatches PERSEUS_HOME so `_audit_log_path` accepts the location.
+    """
+    home.mkdir(exist_ok=True)
+    monkeypatch.setattr(perseus, "PERSEUS_HOME", home)
+    log_path = home / "audit_log.jsonl"
+    cfg = {
+        "audit": {
+            "enabled": True,
+            "log_path": str(log_path),
+            "max_log_bytes": 1_048_576,
+        },
+        "redaction": {"enabled": True},
+    }
+    return log_path, cfg
+
+
+def test_audit_event_redacts_aws_key_in_command_field(tmp_path, monkeypatch):
+    """Regression for #137 — AWS access key in audit.command must be redacted."""
+    log_path, cfg = _setup_redaction_home(tmp_path / "home", monkeypatch)
+    aws_key = "AKIAIOSFODNN7EXAMPLE"
+    perseus.audit_event(cfg, "shell_exec",
+                        directive="@query",
+                        command=f"aws s3 cp s3://b/k . --access-key {aws_key}")
+    log_text = log_path.read_text()
+    assert aws_key not in log_text, (
+        f"AWS key leaked to audit log:\n{log_text}"
+    )
+    assert "REDACTED" in log_text
+
+
+def test_audit_event_redacts_bearer_token_in_command_field(tmp_path, monkeypatch):
+    """Regression for #137 — bearer tokens in audit.command must be redacted."""
+    log_path, cfg = _setup_redaction_home(tmp_path / "home", monkeypatch)
+    token = "ghp_" + "Z" * 36
+    perseus.audit_event(cfg, "shell_exec",
+                        directive="@query",
+                        command=f"curl -H 'Authorization: Bearer {token}'")
+    log_text = log_path.read_text()
+    assert token not in log_text
+
+
+def test_audit_event_does_not_redact_structural_fields(tmp_path, monkeypatch):
+    """Structural fields (directive, exit_code, etc.) must pass through verbatim."""
+    log_path, cfg = _setup_redaction_home(tmp_path / "home", monkeypatch)
+    perseus.audit_event(cfg, "shell_exec",
+                        directive="@query",
+                        exit_code=42,
+                        duration_ms=1234)
+    entry = json.loads(log_path.read_text().strip())
+    assert entry["directive"] == "@query"
+    assert entry["exit_code"] == 42
+    assert entry["duration_ms"] == 1234
+
+
+def test_audit_event_redact_fields_can_be_disabled(tmp_path, monkeypatch):
+    """Forensic mode: audit.redact_fields=false preserves raw values."""
+    log_path, cfg = _setup_redaction_home(tmp_path / "home", monkeypatch)
+    cfg["audit"]["redact_fields"] = False
+    aws_key = "AKIAIOSFODNN7EXAMPLE"
+    perseus.audit_event(cfg, "shell_exec",
+                        directive="@query",
+                        command=f"aws sts --key {aws_key}")
+    log_text = log_path.read_text()
+    assert aws_key in log_text  # opt-out works
+
+
+def test_audit_event_walks_nested_dict_fields(tmp_path, monkeypatch):
+    """Nested structures (dicts/lists) are walked recursively for redaction."""
+    log_path, cfg = _setup_redaction_home(tmp_path / "home", monkeypatch)
+    token = "ghp_" + "Y" * 36
+    perseus.audit_event(cfg, "model_call",
+                        directive="@perseus",
+                        env={"GITHUB_TOKEN": token, "DEBUG": "1"},
+                        argv=["curl", "-H", f"Authorization: Bearer {token}"])
+    log_text = log_path.read_text()
+    assert token not in log_text
+
+
 # ── integration: `perseus trust audit` subcommand ───────────────────────────
 
 

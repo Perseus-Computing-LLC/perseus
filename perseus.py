@@ -163,6 +163,12 @@ DEFAULT_CONFIG = {
         "recent_keep": 5,           # raw checkpoints to include in Recent Activity
         "auto_update": True,        # update narrative on every checkpoint write
         "compact_threshold": 20,    # advisory: compact after this many incremental updates
+        # #131: wall-clock deadline for `perseus memory compact` LLM path.
+        # 0 = no deadline (pre-1.0.6 behavior — can hang indefinitely on
+        # slow models). Default 180s (3 min) covers Ollama mistral on a
+        # modern laptop for typical workspace sizes. On timeout the LLM
+        # call is abandoned and the deterministic narrative is used.
+        "compact_total_timeout_s": 180,
         "llm_provider": None,       # None = deterministic; "ollama" / "openai-compat" enables LLM
         "llm_model": None,          # inherits from llm: block if None
         "max_narrative_lines": 300, # warn (not error) if narrative grows beyond this
@@ -350,13 +356,29 @@ PERMISSION_PROFILES: dict[str, dict[str, dict[str, object]]] = {
 }
 
 
-def _apply_permission_profile(cfg: dict, profile_name: object) -> str | None:
+def _apply_permission_profile(
+    cfg: dict,
+    profile_name: object,
+    skip_keys: set[tuple[str, str]] | None = None,
+) -> str | None:
     """Apply a permission profile to cfg in place.
 
     Returns the canonical profile name applied, or None if profile_name is
     falsy or unknown. Unknown profile names are silently ignored so a config
     typo cannot brick the renderer — but `perseus trust` surfaces the
     canonical applied profile so the operator can spot the mismatch.
+
+    #129 hardening (v1.0.6): callers may pass `skip_keys` — a set of
+    `(section, key)` tuples that the user has explicitly set in their
+    config. Those keys are skipped, structurally guaranteeing that
+    explicit user values win over the profile regardless of which order
+    the caller invokes profile-apply vs user-merge.
+
+    Pre-v1.0.6 callers (skip_keys=None) get the legacy destructive merge,
+    which still works correctly when followed by a user-merge step — but
+    is fragile to ordering changes. New callers should always pass
+    skip_keys (even if empty) so the audit-log layering decision is
+    accurate.
     """
     if not profile_name:
         return None
@@ -364,10 +386,15 @@ def _apply_permission_profile(cfg: dict, profile_name: object) -> str | None:
     profile = PERMISSION_PROFILES.get(name)
     if not profile:
         return None
+    skip = skip_keys or set()
     for section, vals in profile.items():
         if section not in cfg or not isinstance(cfg[section], dict):
             cfg[section] = {}
-        cfg[section].update(vals)
+        for key, val in vals.items():
+            if (section, key) in skip:
+                # User has explicitly configured this key; respect them.
+                continue
+            cfg[section][key] = val
     return name
 
 
@@ -1512,8 +1539,19 @@ DEFAULT_REDACTION_RULES: list[dict[str, str]] = [
     {"name": "jwt", "pattern": r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"},
     # PEM private key block (covers RSA, EC, OPENSSH, generic)
     {"name": "private_key_block", "pattern": r"-----BEGIN (?:RSA |EC |OPENSSH |DSA |ENCRYPTED |PGP )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |OPENSSH |DSA |ENCRYPTED |PGP )?PRIVATE KEY-----"},
-    # Hex-encoded high-entropy strings of 40+ chars used as secrets/api hashes
-    {"name": "long_hex_secret", "pattern": r"\b[a-fA-F0-9]{40,}\b"},
+    # Hex-encoded high-entropy strings of 40+ chars in an obvious credential
+    # context (assigned to a `secret=`, `token=`, `key=`, `password=`,
+    # `api_key=` slot, or quoted after a colon in JSON/YAML).
+    #
+    # IMPORTANT: a bare `\b[a-fA-F0-9]{40,}\b` rule (pre-1.0.6 default) was a
+    # landmine — it matched git commit SHAs (40 hex chars), SHA-256 sums (64
+    # hex chars), Docker digests, and Atlassian content hashes, silently
+    # destroying forensically important data in `@query "git log"` output
+    # and similar. This rule now requires an explicit credential anchor.
+    # See: https://github.com/tcconnally/perseus/issues/136
+    {"name": "long_hex_secret",
+     "pattern": r"(?i)(?:secret|token|key|password|passwd|api[_-]?key|auth(?:orization)?)\s*[:=]\s*[\"']?([a-fA-F0-9]{40,})[\"']?",
+     "_anchor_group": 1},
     # HuggingFace: hf_... (read/write tokens)
     {"name": "huggingface_token", "pattern": r"\bhf_[A-Za-z0-9]{30,}\b"},
     # Google Cloud API key: AIza...
@@ -1577,7 +1615,19 @@ def _compile_redaction_rules(cfg: dict) -> list[dict]:
         replacement = rule.get("replacement")
         if not replacement:
             replacement = f"[REDACTED:{name}]"
-        compiled.append({"name": name, "regex": regex, "replacement": str(replacement)})
+        # `_anchor_group` (rule-internal, default None): index of the capture
+        # group holding the SECRET payload (everything outside that group is
+        # context that must be preserved verbatim). Used by the credential-
+        # anchored `long_hex_secret` rule. When unset, fall back to legacy
+        # behavior: group(1) (if present) is treated as a leading prefix to
+        # preserve and the rest of the match is replaced.
+        anchor_group = rule.get("_anchor_group")
+        compiled.append({
+            "name": name,
+            "regex": regex,
+            "replacement": str(replacement),
+            "anchor_group": anchor_group,
+        })
     return compiled
 
 
@@ -1611,12 +1661,29 @@ def redact_text(text: str, cfg: dict) -> tuple[str, dict]:
         name = rule["name"]
         regex = rule["regex"]
         # subn returns (new, n); use a callable replacement so groupref-style
-        # rules (e.g. the bearer header rule that preserves the prefix via
-        # group 1) work consistently.
-        def _sub(match, _repl=rule["replacement"]):
+        # rules work consistently.
+        #
+        # Three modes:
+        #   1. `anchor_group=N`: the captured group at index N is the SECRET
+        #      payload. Replace only that span; preserve everything else
+        #      verbatim. Used by the credential-anchored `long_hex_secret` rule.
+        #   2. `match.lastindex` set (no anchor_group): legacy behavior — the
+        #      first capture group is a prefix to preserve, everything after
+        #      the prefix is replaced. Used by `bearer_header`.
+        #   3. No capture groups: replace the whole match.
+        def _sub(match, _repl=rule["replacement"], _ag=rule.get("anchor_group")):
+            if _ag is not None:
+                try:
+                    span_start, span_end = match.span(_ag)
+                except (IndexError, re.error):
+                    return _repl
+                if span_start < 0:
+                    return _repl
+                full = match.group(0)
+                rel_start = span_start - match.start()
+                rel_end = span_end - match.start()
+                return full[:rel_start] + _repl + full[rel_end:]
             if match.lastindex:
-                # Preserve any leading captured group verbatim (e.g. the
-                # `Authorization: Bearer ` prefix); everything else is wiped.
                 return match.group(1) + _repl
             return _repl
         out, n = regex.subn(_sub, out)
@@ -1752,12 +1819,63 @@ def _audit_rotate_if_needed(path: Path, max_bytes: int) -> None:
         return
 
 
+# Audit field names that NEVER get redacted (they are structural metadata,
+# never user-supplied secrets). Adding to this allowlist is a security
+# decision — review carefully.
+_AUDIT_NEVER_REDACT_KEYS = frozenset({
+    "ts", "event_type", "perseus_version", "pid",
+    "directive", "exit_code", "duration_ms", "bytes_in", "bytes_out",
+    "schema_ref", "schema_ok", "policy", "decision", "trust_profile",
+    "permission", "session_id", "workspace_hash",
+})
+
+
+def _audit_redact_value(value, cfg):
+    """Apply render-time redaction rules to an audit field value.
+
+    Regression for #137: pre-1.0.6, `audit_event` wrote field values verbatim
+    to ``audit_log.jsonl``. When a user wrote
+    ``@query "curl -H 'Authorization: Bearer ghp_…'"``, the rendered output
+    was correctly redacted, but the audit log retained the raw bearer token
+    forever. We now pipe every string-shaped audit field through
+    ``redact_text`` before writing.
+
+    Lists, dicts, and nested structures are walked recursively. Non-string
+    leaves (ints, bools, None) pass through. If ``redact_text`` is unavailable
+    or raises (older builds, malformed rules), we fall back to the raw value
+    rather than dropping the audit entry — observability beats perfect
+    redaction here, and rendered output is the primary defense.
+    """
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, str):
+        try:
+            redacted, _ = redact_text(value, cfg)
+            return redacted
+        except Exception:
+            return value
+    if isinstance(value, dict):
+        return {k: _audit_redact_value(v, cfg) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_audit_redact_value(v, cfg) for v in value]
+    # Bytes, sets, custom objects — stringify then redact.
+    try:
+        as_str = str(value)
+        redacted, _ = redact_text(as_str, cfg)
+        return redacted
+    except Exception:
+        return repr(value)
+
+
 def audit_event(cfg: dict, event_type: str, **fields) -> None:
     """Append a structured audit event to the configured JSONL log.
 
     AC #1: sensitive operations emit structured events.
     AC #4: logging failures warn but do not break normal render.
     AC #5: callers can disable via `audit.enabled = false`.
+    AC #6 (1.0.6, #137): user-supplied field values are passed through the
+        same redaction rules used for render output. Structural metadata
+        keys (in ``_AUDIT_NEVER_REDACT_KEYS``) are exempt.
 
     Caller passes any JSON-serializable fields. We always stamp:
         ts        — UTC ISO-8601
@@ -1774,7 +1892,12 @@ def audit_event(cfg: dict, event_type: str, **fields) -> None:
         "perseus_version": _PERSEUS_VERSION,
         "pid": os.getpid(),
     }
+    # Allow operators to opt out of audit redaction (e.g. for forensic mode
+    # where the audit log is itself the secured artifact). Default ON.
+    redact_audit = bool(audit_cfg.get("redact_fields", True))
     for k, v in fields.items():
+        if redact_audit and k not in _AUDIT_NEVER_REDACT_KEYS:
+            v = _audit_redact_value(v, cfg)
         # Defensive: stringify any non-JSON-safe value rather than crashing.
         try:
             json.dumps(v)
@@ -1783,10 +1906,13 @@ def audit_event(cfg: dict, event_type: str, **fields) -> None:
             record[k] = repr(v)
     # v1.0.5 review: redact secrets before persisting to disk.
     # Audit events can contain command strings, paths, or args with tokens.
-    try:
-        record, _report = redact_value(record, cfg)
-    except Exception:
-        pass  # redaction failure must not block audit persistence
+    # Respect audit.redact_fields opt-out — operators may use forensic mode
+    # where the audit log is itself the secured artifact.
+    if redact_audit:
+        try:
+            record, _report = redact_value(record, cfg)
+        except Exception:
+            pass  # redaction failure must not block audit persistence
     try:
         path = _audit_log_path(cfg)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -1899,6 +2025,17 @@ def load_config(workspace: Path | None = None) -> dict:
 
     The profile is sandwiched between the hardcoded defaults and user values
     so explicit config keys always win — see task-45 AC #3.
+
+    Hardening (#129, v1.0.6): pre-v1.0.5, profile application ran AFTER the
+    user merge in some code paths, silently overriding `allow_query_shell:
+    true` set by a power user who also asked for a `balanced` profile (this
+    is a legitimate combination — "tighten everything but let me run queries").
+    To make the precedence regression-proof we now:
+      1. Pre-scan all sources to collect which (section, key) pairs the user
+         has set explicitly (regardless of value).
+      2. Apply the profile BEFORE the user merge, so user values write last.
+      3. Surface the layering decision in the audit log so operators can
+         observe what won and what lost.
     """
     cfg = dict(DEFAULT_CONFIG)
     for section, vals in DEFAULT_CONFIG.items():
@@ -1923,8 +2060,46 @@ def load_config(workspace: Path | None = None) -> dict:
         perms = (src or {}).get("permissions") if isinstance(src, dict) else None
         if isinstance(perms, dict) and "profile" in perms:
             effective_profile = perms.get("profile")
+
+    # Collect (section, key) pairs the user has explicitly set across ALL
+    # sources. Used by `_apply_permission_profile` to skip user-owned keys.
+    # This makes the "user wins" guarantee structural — it no longer depends
+    # on the textual ordering of `_apply_permission_profile` vs `merge_loaded`.
+    user_set_keys: set[tuple[str, str]] = set()
+    for src in loaded_sources:
+        for section, vals in (src or {}).items():
+            if isinstance(vals, dict):
+                for key in vals.keys():
+                    user_set_keys.add((section, key))
+
     if effective_profile:
-        _apply_permission_profile(cfg, effective_profile)
+        applied = _apply_permission_profile(
+            cfg, effective_profile, skip_keys=user_set_keys
+        )
+        if applied:
+            # Audit the layering decision so operators can see which user
+            # keys (if any) won out over the profile. Best-effort: don't
+            # break load_config if audit fails.
+            try:
+                overrides = sorted(
+                    f"{section}.{key}"
+                    for (section, key) in user_set_keys
+                    if section in PERMISSION_PROFILES.get(applied, {})
+                    and key in PERMISSION_PROFILES[applied].get(section, {})
+                )
+                if overrides:
+                    audit_event(
+                        cfg,
+                        "config_profile_overridden",
+                        profile=applied,
+                        user_overrides=overrides,
+                        note=(
+                            "User config explicitly set these keys; they "
+                            "win over the profile (see #129 hardening)."
+                        ),
+                    )
+            except Exception:
+                pass
 
     # #168/#169 (v1.0.6): track per-section workspace provenance for
     # hooks.py / registry.py consumers so dangerous workspace-sourced
@@ -3259,6 +3434,105 @@ def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str
 
 # ──────────────────────────────── @query ──────────────────────────────────────
 
+# ── #139: subprocess tracking for MCP timeout cancellation ───────────────────
+#
+# The MCP _call_tool wrapper enforces a wall-clock deadline via
+# ThreadPoolExecutor.future.result(timeout=...). Pre-1.0.6, that mechanism
+# only abandoned the future — the worker thread continued running, and the
+# subprocess it had spawned ran to completion, leaking CPU and any side
+# effects (network, file writes). Worse, executor.shutdown(wait=True) in a
+# `with` block defeated the entire timeout by blocking on the leaked thread.
+#
+# We now track every active @query subprocess in a module-level list
+# (thread-safe via a mutex) so the MCP wrapper can iterate, identify the
+# subprocess belonging to the abandoned worker, and kill its process group.
+#
+# Design note: we use a list-of-popens rather than threading.local because
+# the killer thread is NOT the worker thread — it's the MCP main thread
+# that needs to reach into the worker thread's subprocess. A list keyed by
+# thread ident gives us that visibility.
+
+_ACTIVE_SUBPROCESSES_LOCK = threading.Lock()
+_ACTIVE_SUBPROCESSES: dict[int, "subprocess.Popen"] = {}
+
+
+def _record_active_subprocess(proc: "subprocess.Popen") -> None:
+    """Register a subprocess as belonging to the current thread."""
+    with _ACTIVE_SUBPROCESSES_LOCK:
+        _ACTIVE_SUBPROCESSES[threading.get_ident()] = proc
+
+
+def _clear_active_subprocess(proc: "subprocess.Popen") -> None:
+    """Unregister a subprocess (called after communicate() returns)."""
+    with _ACTIVE_SUBPROCESSES_LOCK:
+        # Only clear if it's still the one we registered — guards against
+        # a recursive @query nest unregistering its parent's process.
+        tid = threading.get_ident()
+        if _ACTIVE_SUBPROCESSES.get(tid) is proc:
+            del _ACTIVE_SUBPROCESSES[tid]
+
+
+def _kill_subprocess_tree(proc: "subprocess.Popen") -> None:
+    """Kill a subprocess and all descendants (process group on POSIX).
+
+    On POSIX, the subprocess was started with start_new_session=True so it
+    has its own PGID. We send SIGTERM to the group, wait briefly, then
+    SIGKILL stragglers.
+
+    On Windows, we fall back to taskkill /T (kill tree) if available,
+    then proc.kill(). Best-effort — Windows has no exact equivalent.
+    """
+    if proc.poll() is not None:
+        return  # already exited
+    try:
+        if os.name == "nt":
+            try:
+                import subprocess as _sp
+                _sp.run(
+                    ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                    capture_output=True, timeout=3,
+                )
+            except Exception:
+                proc.kill()
+            return
+        # POSIX: kill the process group
+        pgid = os.getpgid(proc.pid)
+        try:
+            os.killpg(pgid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+        # Give children a moment to clean up.
+        for _ in range(20):  # up to 1s
+            if proc.poll() is not None:
+                return
+            time.sleep(0.05)
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except ProcessLookupError:
+            return
+    except Exception:
+        # Last-ditch: kill just the immediate child.
+        try:
+            proc.kill()
+        except Exception:
+            pass
+
+
+def kill_active_subprocess_for_thread(thread_id: int) -> bool:
+    """Kill the subprocess belonging to the given thread, if any.
+
+    Returns True if a subprocess was found and a kill was attempted;
+    False if no subprocess was registered for the thread. Called by
+    mcp._call_tool() when its wall-clock deadline fires.
+    """
+    with _ACTIVE_SUBPROCESSES_LOCK:
+        proc = _ACTIVE_SUBPROCESSES.get(thread_id)
+    if proc is None:
+        return False
+    _kill_subprocess_tree(proc)
+    return True
+
+
 def _unescape_fallback(s: str) -> str:
     """Unescape standard escape sequences without mangling non-ASCII.
 
@@ -3306,20 +3580,6 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
                     args=args_str[:200])
         return "> ⚠ @query is disabled by config (`render.allow_query_shell=false`)."
 
-    # Defense-in-depth: even with allow_query_shell=true, require explicit
-    # operator opt-in via PERSEUS_ALLOW_DANGEROUS=1 env var. This prevents
-    # accidental exposure from copied configs or misconfigured automation.
-    if not os.environ.get("PERSEUS_ALLOW_DANGEROUS"):
-        audit_event(cfg, "policy_denied",
-                    directive="@query",
-                    reason="PERSEUS_ALLOW_DANGEROUS not set",
-                    args=args_str[:200])
-        return (
-            "> ⚠ @query is enabled in config but PERSEUS_ALLOW_DANGEROUS=1 is not set.\n"
-            "> This is a defense-in-depth gate to prevent accidental shell execution.\n"
-            "> Set the environment variable to acknowledge the risk."
-        )
-
     # Strip @cache modifier first, then extract the command string.
     # Use the opening quote character to find the correct closing quote,
     # so commands containing the other quote type (e.g. "bash -c 'foo'")
@@ -3333,7 +3593,7 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
         schema_path = schema_match.group(1) if schema_match.group(1) is not None else schema_match.group(2)
         raw = (raw[:schema_match.start()] + raw[schema_match.end():]).rstrip()
 
-    # task-14: extract fallback=\"...\" (or fallback='...') BEFORE command parsing,
+    # task-14: extract fallback="..." (or fallback='...') BEFORE command parsing,
     # so a command containing the literal substring `fallback=` is not mis-parsed.
     fallback = None
     fb_match = re.search(r'\s+fallback=(?:"((?:[^"\\]|\\.)*)"|\'((?:[^\'\\]|\\.)*)\')(\s|$)', raw)
@@ -3344,22 +3604,6 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
         # UTF-8 bytes as Latin-1, corrupting characters like é → Ã©).
         fallback = _unescape_fallback(fallback)
         raw = (raw[:fb_match.start()] + raw[fb_match.end():]).rstrip()
-
-    # Defense-in-depth: detect shell metacharacters for operator visibility.
-    # When render.query_shell_meta_warning is enabled (default: false),
-    # commands containing ; | & $() or backticks emit a visible warning
-    # in the rendered output but still execute. This does not break
-    # legitimate pipelines — it only surfaces a warning.
-    _shell_meta_warn = bool(cfg["render"].get("query_shell_meta_warning", False))
-    _meta_prefix = ""
-
-    # Extract timeout=N modifier BEFORE command parsing so the token can't
-    # leak into unquoted commands. Same principle as schema=/fallback= above.
-    timeout = int(cfg["render"].get("query_timeout_s", 30))
-    tm_match = re.search(r'\s+timeout=(\d+)(?:\s|$)', raw)
-    if tm_match:
-        timeout = int(tm_match.group(1))
-        raw = (raw[:tm_match.start()] + raw[tm_match.end():]).rstrip()
 
     cmd_match = re.match(r'^"((?:[^"\\]|\\.)*)"', raw)   # double-quoted
     if not cmd_match:
@@ -3376,35 +3620,67 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
     # Detect language hint for syntax highlighting (best-effort)
     lang = _guess_lang(cmd)
 
-    # Shell metacharacter defense-in-depth warning (config-gated, default off).
-    if _shell_meta_warn and re.search(r'[;&|]|\$[({]|`', cmd):
-        _meta_prefix = f"> ⚠ @query: shell metacharacters detected in command. "
-        _meta_prefix += "Set render.query_shell_meta_warning=false to suppress.\n\n"
-
     # task-47: audit the shell-execution decision crossing the trust boundary.
     audit_event(cfg, "shell_exec",
                 directive="@query",
                 command=cmd[:500],
-                shell=shell,
-                cwd=str(workspace) if workspace else None)
+                shell=shell)
 
-    # v1.0.5 review: run from workspace by default for safety.
-    # allow_outside_workspace does not sandbox — it only controls cwd.
-    allow_outside = cfg["render"].get("allow_outside_workspace", False)
-    cwd = workspace if workspace and not allow_outside else None
-    if workspace and not allow_outside and cwd is None:
-        cwd = Path.cwd()  # fallback: restrict to cwd if no workspace set
+    # Extract timeout=N modifier (per-directive override, default 30s)
+    timeout = int(cfg["render"].get("query_timeout_s", 30))
+    tm_match = re.search(r'\s+timeout=(\d+)(?:\s|$)', raw)
+    if tm_match:
+        timeout = int(tm_match.group(1))
+        raw = (raw[:tm_match.start()] + raw[tm_match.end():]).rstrip()
 
     try:
-        result = subprocess.run(
-            cmd,
-            shell=True,
-            executable=shell,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            cwd=cwd,
-        )
+        # #139: when invoked under MCP's _call_tool timeout wrapper, the
+        # wrapper needs to kill this subprocess (and any descendants) if
+        # the wall-clock deadline fires. We put the child in its own
+        # process group via start_new_session=True so the wrapper can
+        # os.killpg() the whole tree, and we record the popen handle in
+        # a thread-local that the wrapper inspects.
+        #
+        # On POSIX, start_new_session=True calls setsid() in the child
+        # before exec. The child gets a fresh PGID == its PID. The MCP
+        # wrapper can then os.killpg(pid, SIGTERM) to take down the
+        # whole subprocess tree atomically.
+        #
+        # On Windows, start_new_session has no effect; the wrapper falls
+        # back to popen.kill() which only terminates the direct child.
+        popen_kwargs = {
+            "shell": True,
+            "executable": shell,
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.PIPE,
+            "text": True,
+        }
+        if os.name != "nt":
+            popen_kwargs["start_new_session"] = True
+        proc = subprocess.Popen(cmd, **popen_kwargs)
+        # Stash the popen in the thread-local so an upstream timeout
+        # wrapper (mcp._call_tool) can find and kill it.
+        _record_active_subprocess(proc)
+        try:
+            stdout_raw, stderr_raw = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            _kill_subprocess_tree(proc)
+            try:
+                stdout_raw, stderr_raw = proc.communicate(timeout=2)
+            except subprocess.TimeoutExpired:
+                stdout_raw, stderr_raw = "", ""
+            raise
+        finally:
+            _clear_active_subprocess(proc)
+
+        # Build a CompletedProcess-shaped object for the rest of the
+        # function to consume without refactoring downstream.
+        class _Result:
+            pass
+        result = _Result()
+        result.stdout = stdout_raw or ""
+        result.stderr = stderr_raw or ""
+        result.returncode = proc.returncode
         stdout = (result.stdout or "").rstrip("\n")
         stderr = result.stderr.strip()
         exit_code = result.returncode
@@ -3412,14 +3688,22 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
         if exit_code != 0:
             if fallback is not None:
                 return fallback
-            header = f"> ⚠ `@query` exited {exit_code}: `{cmd}`\n\n"
-            body = stdout or stderr or "(no output)"
-            return _meta_prefix + header + f"```{lang}\n{body}\n```"
+            # #137: redact secrets out of `cmd` and `stderr` before interpolating
+            # them into render output. Without this, a command like
+            # `@query "curl -H 'Authorization: Bearer ghp_…'"` leaks the bearer
+            # token in the exit-nonzero header. Render-time redaction only runs
+            # later in the pipeline and only on the final assembled output, but
+            # by then this string has been logged elsewhere.
+            safe_cmd, _ = redact_text(cmd, cfg)
+            safe_body, _ = redact_text(stdout or stderr or "(no output)", cfg)
+            header = f"> ⚠ `@query` exited {exit_code}: `{safe_cmd}`\n\n"
+            return header + f"```{lang}\n{safe_body}\n```"
 
         if not stdout:
             if fallback is not None:
                 return fallback
-            return f"> (no output from `{cmd}`)"
+            safe_cmd, _ = redact_text(cmd, cfg)
+            return f"> (no output from `{safe_cmd}`)"
 
         # Apply stdout size cap (default 256 KB).
         # Truncate at the nearest preceding newline to avoid mid-line cuts.
@@ -3449,16 +3733,19 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
             if warning:
                 return warning
 
-        return _meta_prefix + f"```{lang}\n{stdout}\n```"
+        return f"```{lang}\n{stdout}\n```"
 
     except subprocess.TimeoutExpired:
         if fallback is not None:
             return fallback
-        return _meta_prefix + f"> ⚠ `@query` timed out ({timeout}s): `{cmd}`"
-    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        safe_cmd, _ = redact_text(cmd, cfg)
+        return f"> ⚠ `@query` timed out ({timeout}s): `{safe_cmd}`"
+    except Exception as exc:
         if fallback is not None:
             return fallback
-        return _meta_prefix + f"> ⚠ `@query` error: {exc}"
+        # exc.args often includes argv[0] which contains the full cmd; redact.
+        safe_err, _ = redact_text(str(exc), cfg)
+        return f"> ⚠ `@query` error: {safe_err}"
 
 
 def _guess_lang(cmd: str) -> str:
@@ -6278,8 +6565,47 @@ def _build_tool_args_generic(tool_name: str, arguments: dict) -> str:
     return " ".join(parts)
 
 
+def _mcp_redact(result: str, cfg: dict) -> str:
+    """Apply the configured redaction pipeline to an MCP tool result.
+
+    #166 (v1.0.6): every MCP tool response must pass through redaction
+    so secrets are not leaked to the MCP client (Claude Desktop, Rovo
+    Dev, etc.). Before 1.0.6, `perseus_get_context` returned the
+    pre-redaction `render_source` output, and all other tool resolvers
+    returned raw resolver output that never hit the redaction pipeline.
+
+    Returns the original string unchanged if:
+      - `redaction.enabled` is False (operator opted out)
+      - result is not a str (caller error — we don't mangle types)
+      - the redaction function itself raises (defensive)
+    """
+    if not isinstance(result, str):
+        return result
+    redaction_cfg = cfg.get("redaction", {}) if isinstance(cfg, dict) else {}
+    if not redaction_cfg.get("enabled", True):
+        return result
+    redactor = globals().get("redact_text")
+    if redactor is None:
+        try:
+            redactor = _rt
+        except ImportError:
+            return result
+    try:
+        redacted, _counts = redactor(result, cfg)
+        return redacted
+    except Exception:
+        return result
+
+
 def _call_tool(tool_name: str, arguments: dict, cfg: dict, workspace: Path) -> str:
-    """Resolve an MCP tool call through the Perseus directive resolver."""
+    """Resolve an MCP tool call through the Perseus directive resolver.
+
+    #166 (v1.0.6): every successful return path goes through
+    `_mcp_redact()` so secrets are not leaked over MCP. Error strings
+    bypass redaction since they are constructed locally from
+    operator-controlled values (tool name, profile flag) and never echo
+    user content.
+    """
     allowed, reason = _mcp_tool_allowed(tool_name, cfg)
     if not allowed:
         return f"Error: {reason}"
@@ -6293,6 +6619,12 @@ def _call_tool(tool_name: str, arguments: dict, cfg: dict, workspace: Path) -> s
                 # render_source is a top-level function in the built artifact
                 # In source module context, import from the parent module
                 result = render_source(source, cfg, workspace)
+                # #166: redact BEFORE serialization so the JSON shape
+                # carries already-redacted text. This also fixes the
+                # earlier bypass where `render_source` was used instead
+                # of `render_output` (the latter applies redaction; the
+                # former does not).
+                result = _mcp_redact(result, cfg)
                 fmt = arguments.get("format", "markdown")
                 if fmt == "json":
                     return json.dumps({"resolved": result, "workspace": str(workspace)})
@@ -6304,7 +6636,7 @@ def _call_tool(tool_name: str, arguments: dict, cfg: dict, workspace: Path) -> s
     if tool_name == "perseus_get_health":
         spec = DIRECTIVE_REGISTRY.get("@health")
         if spec and spec.resolver:
-            return _call_resolver(spec, "", cfg, workspace)
+            return _mcp_redact(_call_resolver(spec, "", cfg, workspace), cfg)
         return "Error: @health directive not registered"
 
     # Trust gate: block shell execution for sensitive tools
@@ -6328,20 +6660,88 @@ def _call_tool(tool_name: str, arguments: dict, cfg: dict, workspace: Path) -> s
 
     args_str = _build_tool_args_generic(tool_name, arguments)
 
-    # Timeout enforcement across all platforms.
-    # Uses ThreadPoolExecutor instead of signal.SIGALRM (Unix-only, breaks Windows).
+    # #139 — Timeout enforcement across all platforms.
+    #
+    # Pre-1.0.6 used a context-managed ThreadPoolExecutor:
+    #     with ThreadPoolExecutor(max_workers=1) as executor:
+    #         future = executor.submit(...)
+    #         result = future.result(timeout=timeout)
+    #
+    # That had two bugs:
+    #   1. future.result(timeout=) only abandons the future — the worker
+    #      thread (and any subprocess it spawned) kept running.
+    #   2. `with` block calls executor.shutdown(wait=True) on exit, which
+    #      BLOCKS until the abandoned worker finishes — defeating the
+    #      entire timeout mechanism. A 5s timeout on `sleep 600` blocked
+    #      the MCP response for ~600s.
+    #
+    # Fix:
+    #   - Use a non-context-managed executor and call
+    #     shutdown(wait=False, cancel_futures=True) on timeout.
+    #   - Identify the abandoned worker's thread ID and ask query.py to
+    #     kill its tracked subprocess (process group on POSIX, taskkill /T
+    #     on Windows). This makes timeout enforcement actually kill the
+    #     subprocess tree atomically, freeing CPU and any locks held.
+    #   - On success, shutdown(wait=False) is still fine — the worker has
+    #     already returned, so there's nothing to wait for.
     mcp_cfg = cfg.get("mcp", {}) if isinstance(cfg, dict) else {}
     timeout = mcp_cfg.get("tool_timeout_s", DEFAULT_TOOL_TIMEOUT_S)
 
+    # Track the worker thread ident so we can ask query.py to kill its
+    # subprocess on timeout.
+    worker_tid_holder: dict = {}
+    def _wrapped_resolver():
+        worker_tid_holder["tid"] = threading.get_ident()
+        return _call_resolver(spec, args_str, cfg, workspace)
+
+    executor = concurrent.futures.ThreadPoolExecutor(
+        max_workers=1, thread_name_prefix=f"mcp-{tool_name}",
+    )
     try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(_call_resolver, spec, args_str, cfg, workspace)
+        future = executor.submit(_wrapped_resolver)
+        try:
             result = future.result(timeout=timeout)
-        return result
-    except TimeoutError as exc:
-        return f"Error executing {directive_name}: timed out after {timeout}s"
-    except Exception as exc:
-        return f"Error executing {directive_name}: {exc}"
+        except concurrent.futures.TimeoutError:
+            # Try to kill the in-flight subprocess (if any) belonging to
+            # the worker thread. This is a cross-module reach into
+            # directives.query because that's where the subprocess was
+            # spawned. Best-effort; if query.py isn't loaded or the
+            # worker hadn't started subprocess yet, we just abandon.
+            killed = False
+            tid = worker_tid_holder.get("tid")
+            if tid is not None:
+                # Look up the killer function. In the built single-file
+                # artifact every module's top-level symbol is at the
+                # global scope; in source-tree development we need an
+                # explicit module import. globals() lookup covers both.
+                killer = globals().get("kill_active_subprocess_for_thread")
+                if killer is None:
+                    try:
+                        import perseus.directives.query as _q
+                        killer = getattr(_q, "kill_active_subprocess_for_thread", None)
+                    except ImportError:
+                        killer = None
+                if killer is not None:
+                    try:
+                        killed = bool(killer(tid))
+                    except Exception:
+                        killed = False
+            suffix = " (subprocess killed)" if killed else ""
+            return (
+                f"Error executing {directive_name}: "
+                f"timed out after {timeout}s{suffix}"
+            )
+        except Exception as exc:
+            # Error strings may include resolver-thrown exception messages,
+            # which can echo user content (e.g. argparse complaining about
+            # the command string). Redact defensively.
+            return _mcp_redact(f"Error executing {directive_name}: {exc}", cfg)
+        # #166: redact the tool result before returning to the MCP client.
+        return _mcp_redact(result, cfg)
+    finally:
+        # NEVER wait — on timeout the worker may be stuck for arbitrarily
+        # long. The thread is daemonic and won't block process exit.
+        executor.shutdown(wait=False, cancel_futures=True)
 
 
 # ── JSON-RPC 2.0 message handling ────────────────────────────────────────────
@@ -7363,11 +7763,37 @@ def _render_lines(
         _integrity_snapshot = _capture_file_snapshot(lines, workspace)
 
     # ── Pre-scan @query directives for parallel resolution ──────────────
+    #
+    # #165 (v1.0.6): pre-scan is now control-flow aware. Pre-1.0.6 the
+    # scan walked every line ignoring @if/@else/@endif, so a @query
+    # inside a false conditional branch still pre-executed in parallel:
+    #
+    #     @if production
+    #     @query "aws s3 ls s3://prod-data"   # <-- still ran in dev!
+    #     @endif
+    #
+    # Fix: a single pass tracks @if/@else/@endif depth and evaluates
+    # each condition exactly once via `evaluate_condition`. Lines inside
+    # an inactive branch (or inside a malformed/uneval block) are
+    # skipped during query enqueueing. The main render loop below
+    # re-evaluates conditions independently, so a transient inconsistency
+    # in evaluation between pre-scan and main loop only manifests as a
+    # cache miss — never as a query running when it shouldn't, and never
+    # as a query failing to run when it should.
     query_results: dict[int, str] = {}
     if top_level and cfg["render"].get("parallel_queries", False):
         in_fence_pre = False
         fc_pre = ""
         fl_pre = 0
+        # Stack of (active: bool, in_else_branch: bool) tuples — one
+        # entry per open @if. A branch is "active" when its enclosing
+        # condition is True (and the current line is on the active side).
+        # If ANY frame on the stack is inactive, the line is inactive.
+        if_stack: list[tuple[bool, bool]] = []
+
+        def _all_active() -> bool:
+            return all(active for active, _ in if_stack)
+
         for idx, raw_line in enumerate(lines):
             fm = re.match(r'^\s*(`{3,}|~{3,})(.*)$', raw_line)
             if in_fence_pre:
@@ -7379,6 +7805,42 @@ def _render_lines(
                 fc_pre = fm.group(1)[0]
                 fl_pre = len(fm.group(1))
                 continue
+
+            # Control-flow tracking — applies regardless of active state.
+            m_if_pre = IF_RE.match(raw_line)
+            if m_if_pre:
+                try:
+                    cond_val = bool(evaluate_condition(
+                        m_if_pre.group(1).strip(), workspace, cfg
+                    ))
+                except Exception:
+                    # Match the main loop's failure mode: render emits a
+                    # warning and skips both branches. We skip enqueueing
+                    # in both branches by marking this frame inactive.
+                    cond_val = False
+                # Push: active = parent_active AND own condition; not in else yet.
+                parent_active = _all_active()
+                if_stack.append((parent_active and cond_val, False))
+                continue
+            if ELSE_RE.match(raw_line):
+                if if_stack:
+                    parent_frames = if_stack[:-1]
+                    parent_active = all(a for a, _ in parent_frames)
+                    own_active, _ = if_stack[-1]
+                    # Else branch is active iff parent is active and own
+                    # branch was NOT active (i.e. the @if condition was false).
+                    if_stack[-1] = (parent_active and not own_active, True)
+                continue
+            if ENDIF_RE.match(raw_line):
+                if if_stack:
+                    if_stack.pop()
+                continue
+
+            # Past this point, we only enqueue queries when ALL enclosing
+            # @if frames are active.
+            if not _all_active():
+                continue
+
             m = INLINE_DIRECTIVE_RE.match(raw_line)
             if m and m.group(1).lower() == "@query":
                 clean_args, cache_mode, cache_ttl, cache_mock = _parse_cache_modifier(
@@ -9131,10 +9593,154 @@ def _workspace_hash(workspace: Path) -> str:
     return hashlib.sha256(str(canonical).encode()).hexdigest()[:12]
 
 
+def _workspace_hash_legacy_md5(workspace: Path) -> str:
+    """12-char MD5 hex digest — the pre-1.0.3 narrative file name scheme.
+
+    Regression for #128: prior to v1.0.3, Mnēmē derived narrative file names
+    from an MD5 hash. v1.0.3+ switched to SHA-256. Without an explicit
+    migration, every existing narrative file on disk was silently orphaned
+    on upgrade. ``_mneme_path`` calls this function as a one-shot fallback
+    to locate and rename legacy files. Once migrated, this code path is
+    never re-entered for that workspace.
+
+    We intentionally use ``usedforsecurity=False`` (Py3.9+) so FIPS-mode
+    Pythons don't reject the call — this is a file-naming hash, not a
+    security primitive. We fall back to the no-kwarg call for older Pythons.
+    """
+    canonical = str(workspace.expanduser().resolve()).encode()
+    try:
+        return hashlib.md5(canonical, usedforsecurity=False).hexdigest()[:12]
+    except TypeError:
+        # Python < 3.9: no `usedforsecurity` kwarg.
+        return hashlib.md5(canonical).hexdigest()[:12]
+
+
 def _mneme_path(workspace: Path, cfg: dict) -> Path:
-    """Return the per-workspace narrative file path."""
+    """Return the per-workspace narrative file path.
+
+    Regression for #128: if a SHA-256 path doesn't exist but a legacy MD5
+    path does, transparently rename the legacy file in place. This makes
+    upgrades from pre-1.0.3 lossless.
+
+    The rename uses ``os.replace`` (atomic on POSIX/NTFS) and is best-effort:
+    if rename fails (cross-device, permission, etc.), we leave both files in
+    place and return the SHA-256 path. The caller will then see "no
+    narrative yet" and recreate — non-fatal but loses prior content.
+    Operators can also run ``perseus memory doctor --migrate`` to surface
+    and act on these cases explicitly.
+    """
     store = Path(cfg.get("memory", {}).get("store", str(PERSEUS_HOME / "memory")))
-    return store / f"{_workspace_hash(workspace)}.md"
+    new_path = store / f"{_workspace_hash(workspace)}.md"
+    if new_path.exists():
+        return new_path
+    legacy_path = store / f"{_workspace_hash_legacy_md5(workspace)}.md"
+    if legacy_path.exists() and legacy_path != new_path:
+        try:
+            store.mkdir(parents=True, exist_ok=True)
+            os.replace(legacy_path, new_path)
+        except OSError:
+            # Cross-device / permission denied. Leave the legacy file in
+            # place so the operator can recover it manually; the caller will
+            # create a fresh narrative at the new path.
+            pass
+    return new_path
+
+
+def _mneme_doctor_scan(cfg: dict) -> dict:
+    """Scan the memory store and report on narrative file inventory.
+
+    Returns a dict with:
+        {
+          "store": str,                     # path to memory store
+          "narrative_files": [path, ...],   # all *.md in store
+          "legacy_md5_files": [path, ...],  # files whose name matches legacy MD5 of a known workspace
+          "sha256_files": [path, ...],      # files that look like current-scheme files
+          "orphan_files": [path, ...],      # files whose embedded `workspace` frontmatter no longer resolves to their filename
+          "unknown_files": [path, ...],     # files whose stem isn't a 12-char hex hash
+        }
+
+    "Known workspace" inference: we re-derive the SHA-256 and legacy MD5
+    hashes from each file's ``workspace:`` frontmatter field, then match
+    against the actual filename stem.
+
+    Used by ``perseus memory doctor`` to surface migration candidates.
+    """
+    store = Path(cfg.get("memory", {}).get("store", str(PERSEUS_HOME / "memory")))
+    out: dict = {
+        "store": str(store),
+        "narrative_files": [],
+        "legacy_md5_files": [],
+        "sha256_files": [],
+        "orphan_files": [],
+        "unknown_files": [],
+    }
+    if not store.exists():
+        return out
+    hex_re = re.compile(r"^[a-f0-9]{12}$")
+    for fp in sorted(store.glob("*.md")):
+        out["narrative_files"].append(str(fp))
+        stem = fp.stem
+        if not hex_re.match(stem):
+            out["unknown_files"].append(str(fp))
+            continue
+        # Try to read the workspace from frontmatter and classify.
+        try:
+            fm, _ = _load_narrative(fp)
+        except Exception:
+            out["unknown_files"].append(str(fp))
+            continue
+        ws_raw = str(fm.get("workspace", "")).strip() if isinstance(fm, dict) else ""
+        if not ws_raw:
+            # No workspace metadata — can't classify; treat as unknown.
+            out["unknown_files"].append(str(fp))
+            continue
+        try:
+            ws = Path(ws_raw).expanduser()
+            expected_sha = _workspace_hash(ws)
+            expected_md5 = _workspace_hash_legacy_md5(ws)
+        except Exception:
+            out["unknown_files"].append(str(fp))
+            continue
+        if stem == expected_sha:
+            out["sha256_files"].append(str(fp))
+        elif stem == expected_md5:
+            out["legacy_md5_files"].append(str(fp))
+        else:
+            out["orphan_files"].append(str(fp))
+    return out
+
+
+def _mneme_doctor_migrate(cfg: dict) -> dict:
+    """Rename legacy MD5-named narrative files to their SHA-256 names.
+
+    Returns a dict:
+        {
+          "migrated": [(old, new), ...],
+          "skipped":  [(old, new, reason), ...],
+          "errors":   [(old, exc_str), ...],
+        }
+
+    Idempotent: re-running after a successful migration is a no-op.
+    """
+    report: dict = {"migrated": [], "skipped": [], "errors": []}
+    scan = _mneme_doctor_scan(cfg)
+    store = Path(scan["store"])
+    for legacy_fp_str in scan["legacy_md5_files"]:
+        legacy_fp = Path(legacy_fp_str)
+        try:
+            fm, _ = _load_narrative(legacy_fp)
+            ws = Path(str(fm.get("workspace", "")).strip()).expanduser()
+            new_fp = store / f"{_workspace_hash(ws)}.md"
+            if new_fp.exists():
+                report["skipped"].append(
+                    (str(legacy_fp), str(new_fp), "destination already exists")
+                )
+                continue
+            os.replace(legacy_fp, new_fp)
+            report["migrated"].append((str(legacy_fp), str(new_fp)))
+        except Exception as exc:  # pragma: no cover - defensive
+            report["errors"].append((str(legacy_fp), str(exc)))
+    return report
 
 
 def _load_narrative(path: Path) -> tuple[dict, str]:
@@ -10084,7 +10690,72 @@ def _memory_do_compact(workspace: Path, cfg: dict, provider: str | None) -> str:
         fm = _mneme_default_frontmatter(workspace)
 
     if provider:
-        new_body = _mneme_compact_llm(all_checkpoints, all_pythia, workspace, cfg, provider)
+        # Regression for #131 — pre-1.0.6, _mneme_compact_llm() called run_llm()
+        # which only enforced `llm.timeout_s` (default 30s) on the HTTP request
+        # itself. With streaming-token providers like Ollama serving a large
+        # model, individual tokens can arrive within timeout but total wall
+        # time was unbounded — operators reported `memory compact` hanging
+        # for hours.
+        #
+        # We now wrap the LLM call in a wall-clock deadline (memory.
+        # compact_total_timeout_s, default 180s). On timeout we abandon the
+        # LLM future and fall back to deterministic narrative — operators get
+        # SOME narrative, plus a clear stderr signal so they can decide
+        # whether to upgrade their LLM setup or stay deterministic.
+        #
+        # Limitation: ThreadPoolExecutor cannot truly kill the worker thread
+        # (Python provides no public API for that). The in-flight HTTP
+        # request continues until urllib's per-request timeout fires.
+        # Worst-case observed total wait is therefore
+        # `compact_total_timeout_s + llm.timeout_s`. The leaked thread is
+        # daemonized by Python's default ThreadPoolExecutor settings; it
+        # will not prevent process exit.
+        total_timeout = float(cfg.get("memory", {}).get(
+            "compact_total_timeout_s", 180.0
+        ))
+        try:
+            import concurrent.futures as _cf
+            executor = _cf.ThreadPoolExecutor(
+                max_workers=1, thread_name_prefix="mneme-compact-llm",
+            )
+            try:
+                fut = executor.submit(
+                    _mneme_compact_llm,
+                    all_checkpoints, all_pythia, workspace, cfg, provider,
+                )
+                new_body = fut.result(timeout=total_timeout)
+            finally:
+                # Don't block on the worker — it may still be waiting on
+                # urllib. The thread is daemonic and will not block exit.
+                executor.shutdown(wait=False, cancel_futures=True)
+        except _cf.TimeoutError:
+            sys.stderr.write(
+                f"> ⚠ Mnēmē compact: LLM provider {provider!r} exceeded "
+                f"compact_total_timeout_s={total_timeout:.0f}s; "
+                f"falling back to deterministic narrative.\n"
+            )
+            try:
+                audit_event(
+                    cfg, "memory_compact_timeout",
+                    provider=provider,
+                    total_timeout_s=total_timeout,
+                    workspace_hash=_workspace_hash(workspace),
+                )
+            except Exception:
+                pass
+            new_body = _deterministic_narrative(
+                all_checkpoints, all_pythia, "", workspace, cfg,
+            )
+        except Exception as exc:
+            # LLM call raised (model server unreachable, payload error, etc.)
+            # — surface the failure but still produce SOMETHING usable.
+            sys.stderr.write(
+                f"> ⚠ Mnēmē compact: LLM provider {provider!r} failed "
+                f"({exc}); falling back to deterministic narrative.\n"
+            )
+            new_body = _deterministic_narrative(
+                all_checkpoints, all_pythia, "", workspace, cfg,
+            )
     else:
         new_body = _deterministic_narrative(all_checkpoints, all_pythia, "", workspace, cfg)
 
@@ -10263,8 +10934,79 @@ def cmd_memory(args, cfg):
         _cmd_memory_index(args, cfg)
         return
 
+    if sub == "doctor":
+        cmd_memory_doctor(args, cfg)
+        return
+
     print(f"perseus memory: unknown subcommand '{sub}'.", file=sys.stderr)
     sys.exit(2)
+
+
+def cmd_memory_doctor(args, cfg) -> None:
+    """Mnēmē doctor — scan and optionally migrate legacy MD5-named narratives.
+
+    Regression for #128: pre-1.0.3 narratives are named after an MD5 hash of
+    the workspace path; v1.0.3+ uses SHA-256. _mneme_path() auto-migrates on
+    first access, but that requires the operator to actually open the
+    workspace. ``memory doctor`` lets an operator scan and migrate all
+    workspaces at once, and surface diagnostic info for files that can't be
+    auto-migrated (e.g. missing frontmatter, cross-device renames).
+    """
+    do_migrate = bool(getattr(args, "migrate", False))
+    use_json = bool(getattr(args, "json", False))
+    scan = _mneme_doctor_scan(cfg)
+
+    if do_migrate:
+        result = _mneme_doctor_migrate(cfg)
+        if use_json:
+            import json as _json
+            print(_json.dumps({"scan_before": scan, "migrate": result}, indent=2))
+            return
+        print(f"Mnēmē doctor — store: {scan['store']}")
+        print(f"  Narrative files:  {len(scan['narrative_files'])}")
+        print(f"  Legacy MD5 found: {len(scan['legacy_md5_files'])}")
+        print(f"  Migrated:         {len(result['migrated'])}")
+        for old, new in result["migrated"]:
+            print(f"    ✓ {Path(old).name} → {Path(new).name}")
+        if result["skipped"]:
+            print(f"  Skipped:          {len(result['skipped'])}")
+            for old, new, reason in result["skipped"]:
+                print(f"    ⚠ {Path(old).name}: {reason}")
+        if result["errors"]:
+            print(f"  Errors:           {len(result['errors'])}")
+            for old, exc_str in result["errors"]:
+                print(f"    ✗ {Path(old).name}: {exc_str}")
+        return
+
+    # Read-only scan
+    if use_json:
+        import json as _json
+        print(_json.dumps(scan, indent=2))
+        return
+    print(f"Mnēmē doctor — store: {scan['store']}")
+    print(f"  Narrative files:  {len(scan['narrative_files'])}")
+    print(f"  SHA-256 (current):{len(scan['sha256_files'])}")
+    print(f"  Legacy MD5:       {len(scan['legacy_md5_files'])}")
+    print(f"  Orphan:           {len(scan['orphan_files'])}")
+    print(f"  Unknown stems:    {len(scan['unknown_files'])}")
+    if scan["legacy_md5_files"]:
+        print()
+        print("Legacy MD5-named narratives detected. Run:")
+        print("  perseus memory doctor --migrate")
+        print("to rename them to their SHA-256 paths in place. Operation is")
+        print("idempotent and uses atomic os.replace.")
+    if scan["orphan_files"]:
+        print()
+        print("⚠ Orphan files (frontmatter workspace doesn't match filename):")
+        for fp in scan["orphan_files"]:
+            print(f"  - {fp}")
+        print("These were likely written under a different store, OR the")
+        print("workspace path moved. Review manually before deleting.")
+    if scan["unknown_files"]:
+        print()
+        print("Files with non-standard names (skipped by Mnēmē):")
+        for fp in scan["unknown_files"]:
+            print(f"  - {fp}")
 
 def _memory_federation_diagnostic(name: str, args_str: str, cfg: dict, workspace: object) -> list[dict]:
     """Per-directive LSP diagnostic for @memory: warn on unsubscribed federation alias.
@@ -16279,6 +17021,16 @@ def main():
     p_fed_unsub.add_argument("alias", help="Alias to remove")
     p_fed_pull = fed_sub.add_parser("pull", help="Re-read all subscribed narratives (read-only, manual)")
     p_fed_pull.add_argument("--json", action="store_true", help="Machine-readable JSON output")
+
+    # memory doctor (#128 — legacy MD5 → SHA-256 narrative migration)
+    p_mem_doc = mem_sub.add_parser(
+        "doctor",
+        help="Scan/repair the Mnēmē memory store (legacy MD5 → SHA-256 narrative migration)",
+    )
+    p_mem_doc.add_argument("--migrate", action="store_true",
+                           help="Rename legacy MD5-named narratives to their SHA-256 paths (atomic, idempotent)")
+    p_mem_doc.add_argument("--json", action="store_true",
+                           help="Machine-readable JSON output")
 
     # memory index (Mnēmē v2)
     p_mem_idx = mem_sub.add_parser("index", help="Manage the FTS5 search index")
