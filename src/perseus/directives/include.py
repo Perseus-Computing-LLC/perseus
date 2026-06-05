@@ -59,8 +59,8 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
 
     # True cycle: file is an ancestor in the current include chain.
     # _path_chain is an immutable tuple — no need to pop on return.
-    if resolved_path in _path_chain:
-        chain = " → ".join(list(_path_chain) + [resolved_path])
+    if str(resolved_path) in [str(p) for p in _path_chain]:
+        chain = " → ".join([str(p) for p in _path_chain] + [str(resolved_path)])
         return f"> ⚠ @include: circular dependency detected. Chain: {chain}"
 
     # Inode-based detection (task-63): catch hard-link loops where different
@@ -72,10 +72,10 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
         inode_pair = None
 
     if inode_pair is not None and inode_pair in _inode_chain:
-        chain = " → ".join(list(_path_chain) + [resolved_path])
+        chain = " → ".join([str(p) for p in _path_chain] + [str(resolved_path)])
         return f"> ⚠ @include: circular dependency detected (hard link). Chain: {chain}"
 
-    _path_chain = _path_chain + (resolved_path,)
+    _path_chain = _path_chain + (str(resolved_path),)
     _inode_chain = _inode_chain + ((inode_pair,) if inode_pair is not None else ())
 
     # ── Depth limit ──
