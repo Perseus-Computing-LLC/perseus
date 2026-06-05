@@ -13,8 +13,6 @@
 
 <!-- mcp-name: io.github.tcconnally/perseus -->
 
-![Perseus Efficiency — Cold vs Warm Render Speed](https://raw.githubusercontent.com/tcconnally/perseus/main/benchmark/infographic/perseus-efficiency.svg)
-
 ---
 
 ### TL;DR
