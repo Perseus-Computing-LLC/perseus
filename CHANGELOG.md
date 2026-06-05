@@ -32,10 +32,23 @@ where applicable. See GitHub milestone
   the group is preserved). Used by `long_hex_secret`; available for future
   context-aware rules.
 
+### 🔧 Configuration & Trust Profiles
+
+- **#129** — Trust profile layering made structural. Pre-1.0.6 a workspace
+  config setting both `permissions.profile: balanced` and
+  `render.allow_query_shell: true` silently rendered with shell execution
+  disabled because the profile merge overwrote the user's explicit value.
+  v1.0.6 uses `skip_keys` to guarantee that an explicit user value for any
+  `render.*` boolean security gate always wins over the profile default,
+  regardless of profile or direction. Also covers `allow_agent_shell`,
+  `allow_services_command`, `allow_remote_services_health`, and
+  `allow_outside_workspace`. Audit trail records layering decisions.
+
 ### 📦 Migration Notes
-- No config breaking changes. If you had relied on `long_hex_secret` redacting
-  bare hex output (unlikely), add an explicit user rule under
-  `redaction.patterns` matching your shape.
+- No config breaking changes.
+- Explicit user values in `render.*` now structurally win over profile defaults.
+- If you had relied on `long_hex_secret` redacting bare hex output, add an
+  explicit user rule under `redaction.patterns`.
 
 ### 🔒 Security
 
@@ -87,6 +100,56 @@ where applicable. See GitHub milestone
   only-env opt-in, global hooks always run, provenance tracking, audit
   trail, Python hooks.dir refused.
 
+=======
+Critical security + correctness hotfix bundle. See GitHub milestone
+[v1.0.6](https://github.com/tcconnally/perseus/milestone/1).
+
+### 🔒 Security Hardening
+
+- **#129** — Trust profile / user config layering is now **structurally**
+  guaranteed to honor explicit user overrides, regardless of the textual
+  order in which `_apply_permission_profile` and the user-merge run.
+
+  **Problem (pre-v1.0.6):** the layering precedence rule "user config wins
+  over profile defaults" was correct *as documented* (see `task-45 AC #3`)
+  but depended entirely on `load_config` calling `_apply_permission_profile`
+  BEFORE the user-merge step. Any future refactor that reordered these two
+  calls — or a third caller that invoked the profile-apply directly without
+  knowing the convention — would silently revert a user who set
+  `permissions.profile: balanced` AND `render.allow_query_shell: true` to
+  `allow_query_shell=false`. This is exactly the scenario filed in #129
+  ("balanced profile silently disables `@query` despite explicit override").
+
+  **Fix:**
+  1. `load_config` now pre-scans all sources to collect every
+     `(section, key)` the user has explicitly set, then passes that set
+     to `_apply_permission_profile(..., skip_keys=...)` as the new
+     keyword arg.
+  2. `_apply_permission_profile` skips any key in `skip_keys`,
+     structurally guaranteeing that user values win. The legacy
+     no-skip-keys signature is preserved for backward compatibility.
+  3. `load_config` emits a `config_profile_overridden` audit event
+     enumerating which user-set keys won out over the profile. This
+     makes the layering decision observable and debuggable.
+
+  **Regression test matrix:** 30 parametrized tests covering all 3
+  profiles × all 5 boolean security gates × both override directions,
+  plus 6 explicit tests for direct unit behavior, workspace>global
+  precedence, audit-event observability, and no-noise audit events
+  when only non-profile-managed keys are set.
+
+  No config breaking changes. Behavior is strictly safer.
+
+### 🐛 Bug Fixes (other v1.0.6 items, tracked in milestone)
+- #128 — Mnēmē narrative MD5→SHA-256 migration (PR #161)
+- #131 — `memory compact` wall-clock deadline (PR #162)
+- #136 — `long_hex_secret` redaction landmine (PR #159)
+- #137 — `@query` audit log secret leak (PR #160)
+- #139 — MCP `_call_tool` subprocess leak (PR #163)
+- #130, #135, #138, #140, #141, #142
+
+---
+>>>>>>> origin/fix/129-trust-profile-explicit-user-wins
 
 ## [1.0.5] — 2026-05-26
 
