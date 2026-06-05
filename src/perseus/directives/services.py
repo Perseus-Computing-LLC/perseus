@@ -142,7 +142,7 @@ def resolve_services(block_content: str, cfg: dict) -> str:
 
     if parallel and len(services) > 1:
         from concurrent.futures import ThreadPoolExecutor, as_completed
-        max_workers = min(len(services), 16)
+        max_workers = min(len(services), int(cfg["render"].get("parallel_max_workers", 16)))
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {
                 executor.submit(_check_one_service, svc, i, timeout, cfg): i

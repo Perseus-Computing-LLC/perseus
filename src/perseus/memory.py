@@ -51,5 +51,6 @@ def _mneme_recall(cfg: dict, query: str, k: int = 5,
             return []
 
         return _mneme_search(conn, query, k, scope, type_filter, sensitivity)
-    except Exception:
+    except Exception as exc:
+        sys.stderr.write(f"> ⚠ Mnēmē recall failed (FTS5 index may be corrupt): {exc}\n")
         return []
