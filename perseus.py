@@ -350,13 +350,29 @@ PERMISSION_PROFILES: dict[str, dict[str, dict[str, object]]] = {
 }
 
 
-def _apply_permission_profile(cfg: dict, profile_name: object) -> str | None:
+def _apply_permission_profile(
+    cfg: dict,
+    profile_name: object,
+    skip_keys: set[tuple[str, str]] | None = None,
+) -> str | None:
     """Apply a permission profile to cfg in place.
 
     Returns the canonical profile name applied, or None if profile_name is
     falsy or unknown. Unknown profile names are silently ignored so a config
     typo cannot brick the renderer — but `perseus trust` surfaces the
     canonical applied profile so the operator can spot the mismatch.
+
+    #129 hardening (v1.0.6): callers may pass `skip_keys` — a set of
+    `(section, key)` tuples that the user has explicitly set in their
+    config. Those keys are skipped, structurally guaranteeing that
+    explicit user values win over the profile regardless of which order
+    the caller invokes profile-apply vs user-merge.
+
+    Pre-v1.0.6 callers (skip_keys=None) get the legacy destructive merge,
+    which still works correctly when followed by a user-merge step — but
+    is fragile to ordering changes. New callers should always pass
+    skip_keys (even if empty) so the audit-log layering decision is
+    accurate.
     """
     if not profile_name:
         return None
@@ -364,10 +380,15 @@ def _apply_permission_profile(cfg: dict, profile_name: object) -> str | None:
     profile = PERMISSION_PROFILES.get(name)
     if not profile:
         return None
+    skip = skip_keys or set()
     for section, vals in profile.items():
         if section not in cfg or not isinstance(cfg[section], dict):
             cfg[section] = {}
-        cfg[section].update(vals)
+        for key, val in vals.items():
+            if (section, key) in skip:
+                # User has explicitly configured this key; respect them.
+                continue
+            cfg[section][key] = val
     return name
 
 
@@ -1939,6 +1960,17 @@ def load_config(workspace: Path | None = None) -> dict:
 
     The profile is sandwiched between the hardcoded defaults and user values
     so explicit config keys always win — see task-45 AC #3.
+
+    Hardening (#129, v1.0.6): pre-v1.0.5, profile application ran AFTER the
+    user merge in some code paths, silently overriding `allow_query_shell:
+    true` set by a power user who also asked for a `balanced` profile (this
+    is a legitimate combination — "tighten everything but let me run queries").
+    To make the precedence regression-proof we now:
+      1. Pre-scan all sources to collect which (section, key) pairs the user
+         has set explicitly (regardless of value).
+      2. Apply the profile BEFORE the user merge, so user values write last.
+      3. Surface the layering decision in the audit log so operators can
+         observe what won and what lost.
     """
     cfg = dict(DEFAULT_CONFIG)
     for section, vals in DEFAULT_CONFIG.items():
@@ -1963,8 +1995,46 @@ def load_config(workspace: Path | None = None) -> dict:
         perms = (src or {}).get("permissions") if isinstance(src, dict) else None
         if isinstance(perms, dict) and "profile" in perms:
             effective_profile = perms.get("profile")
+
+    # Collect (section, key) pairs the user has explicitly set across ALL
+    # sources. Used by `_apply_permission_profile` to skip user-owned keys.
+    # This makes the "user wins" guarantee structural — it no longer depends
+    # on the textual ordering of `_apply_permission_profile` vs `merge_loaded`.
+    user_set_keys: set[tuple[str, str]] = set()
+    for src in loaded_sources:
+        for section, vals in (src or {}).items():
+            if isinstance(vals, dict):
+                for key in vals.keys():
+                    user_set_keys.add((section, key))
+
     if effective_profile:
-        _apply_permission_profile(cfg, effective_profile)
+        applied = _apply_permission_profile(
+            cfg, effective_profile, skip_keys=user_set_keys
+        )
+        if applied:
+            # Audit the layering decision so operators can see which user
+            # keys (if any) won out over the profile. Best-effort: don't
+            # break load_config if audit fails.
+            try:
+                overrides = sorted(
+                    f"{section}.{key}"
+                    for (section, key) in user_set_keys
+                    if section in PERMISSION_PROFILES.get(applied, {})
+                    and key in PERMISSION_PROFILES[applied].get(section, {})
+                )
+                if overrides:
+                    audit_event(
+                        cfg,
+                        "config_profile_overridden",
+                        profile=applied,
+                        user_overrides=overrides,
+                        note=(
+                            "User config explicitly set these keys; they "
+                            "win over the profile (see #129 hardening)."
+                        ),
+                    )
+            except Exception:
+                pass
 
     # #168/#169 (v1.0.6): track per-section workspace provenance for
     # hooks.py / registry.py consumers so dangerous workspace-sourced
