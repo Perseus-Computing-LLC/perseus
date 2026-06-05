@@ -293,8 +293,15 @@ perseus trust audit --tail 20
 
 # Switch to power-user (enables shell)
 # Add to .perseus/config.yaml:
-#   permissions:
-#     profile: power-user
+#   render:
+#     allow_query_shell: true
+#     allow_agent_shell: true
+#     allow_services_command: true
+#   trust:
+#     allow_query_shell: true
+#
+# Also set in your environment:
+#   export PERSEUS_ALLOW_DANGEROUS=1
 ```
 
 ---
