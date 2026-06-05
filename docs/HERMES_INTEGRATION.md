@@ -183,5 +183,8 @@ The SSH-tunnel option is the simplest secure default — Hermes stays bound to l
 
 - [Hermes Agent — README](https://github.com/NousResearch/hermes-agent)
 - [Perseus Deployment Guide](./DEPLOYMENT.md) — full ecosystem setup (Bastra, LLM proxy, cron jobs)
+- [Unraid Notes](../unraid-notes.md) — Unraid-specific operational constraints (no crontab, no systemd)
 - Perseus `spec/components.md` § 4 (Mnēmē) and § 6 (Pythia) for the LLM-augmented surfaces
 - Perseus `README.md` § "Configuration" for the full `llm:` block
+
+> **Context-file wiring** (the `@perseus` → `AGENTS.md` render pipeline that feeds into Hermes Agent) is documented in the [Setup & Configuration Guide](../SETUP-GUIDE.md), not here. This file covers only LLM proxy routing.
