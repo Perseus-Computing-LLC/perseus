@@ -12,14 +12,18 @@ def _memory_workspace(args, cfg) -> Path:
     cwd = Path.cwd().resolve()
     if (cwd / ".perseus").exists():
         return cwd
-    return Path.home().resolve()
+    fallback = Path.home().resolve()
+    sys.stderr.write(f"> ⚠ Mneme: no .perseus/ in CWD; falling back to {fallback}. Use --workspace.\n")
+    return fallback
 
 
 def _memory_llm_provider(args, cfg) -> str | None:
     """Resolve effective llm provider for this call. None == deterministic."""
     flag = getattr(args, "llm", None)
     if flag:
-        return str(flag).strip().lower() or None
+        v = str(flag).strip().lower()
+        # #130: --llm none means "use deterministic" not "use provider named none"
+        return None if v in ("", "none") else v
     cfg_provider = cfg.get("memory", {}).get("llm_provider")
     if cfg_provider:
         return str(cfg_provider).strip().lower() or None
@@ -33,6 +37,13 @@ def _memory_do_update(workspace: Path, cfg: dict, provider: str | None) -> tuple
     On error, raises.
     """
     cp_files = _list_checkpoint_files(cfg)
+    # #152: check if we are at HWM to skip pointless I/O. If the file count
+    # matches the processed count in frontmatter, nothing changed.
+    mp = _mneme_path(workspace, cfg)
+    fm, body = _load_narrative(mp)
+    hwm = int(fm.get("checkpoints_processed", 0)) if fm else 0
+    if hwm > 0 and hwm >= len(cp_files) and not _read_all_pythia_entries():
+        return False, "Nothing new to process (all checkpoints at HWM)."
     # _list_checkpoint_files returns reverse-chrono; sort filename-asc for hwm
     cp_files = sorted(cp_files, key=lambda f: f.name)
     all_checkpoints: list[dict] = []
@@ -42,8 +53,6 @@ def _memory_do_update(workspace: Path, cfg: dict, provider: str | None) -> tuple
             all_checkpoints.append(cp)
     all_pythia = _read_all_pythia_entries()
 
-    mp = _mneme_path(workspace, cfg)
-    fm, body = _load_narrative(mp)
     if not fm:
         fm = _mneme_default_frontmatter(workspace)
         body = ""
@@ -90,7 +99,72 @@ def _memory_do_compact(workspace: Path, cfg: dict, provider: str | None) -> str:
         fm = _mneme_default_frontmatter(workspace)
 
     if provider:
-        new_body = _mneme_compact_llm(all_checkpoints, all_pythia, workspace, cfg, provider)
+        # Regression for #131 — pre-1.0.6, _mneme_compact_llm() called run_llm()
+        # which only enforced `llm.timeout_s` (default 30s) on the HTTP request
+        # itself. With streaming-token providers like Ollama serving a large
+        # model, individual tokens can arrive within timeout but total wall
+        # time was unbounded — operators reported `memory compact` hanging
+        # for hours.
+        #
+        # We now wrap the LLM call in a wall-clock deadline (memory.
+        # compact_total_timeout_s, default 180s). On timeout we abandon the
+        # LLM future and fall back to deterministic narrative — operators get
+        # SOME narrative, plus a clear stderr signal so they can decide
+        # whether to upgrade their LLM setup or stay deterministic.
+        #
+        # Limitation: ThreadPoolExecutor cannot truly kill the worker thread
+        # (Python provides no public API for that). The in-flight HTTP
+        # request continues until urllib's per-request timeout fires.
+        # Worst-case observed total wait is therefore
+        # `compact_total_timeout_s + llm.timeout_s`. The leaked thread is
+        # daemonized by Python's default ThreadPoolExecutor settings; it
+        # will not prevent process exit.
+        total_timeout = float(cfg.get("memory", {}).get(
+            "compact_total_timeout_s", 180.0
+        ))
+        try:
+            import concurrent.futures as _cf
+            executor = _cf.ThreadPoolExecutor(
+                max_workers=1, thread_name_prefix="mneme-compact-llm",
+            )
+            try:
+                fut = executor.submit(
+                    _mneme_compact_llm,
+                    all_checkpoints, all_pythia, workspace, cfg, provider,
+                )
+                new_body = fut.result(timeout=total_timeout)
+            finally:
+                # Don't block on the worker — it may still be waiting on
+                # urllib. The thread is daemonic and will not block exit.
+                executor.shutdown(wait=False, cancel_futures=True)
+        except _cf.TimeoutError:
+            sys.stderr.write(
+                f"> ⚠ Mnēmē compact: LLM provider {provider!r} exceeded "
+                f"compact_total_timeout_s={total_timeout:.0f}s; "
+                f"falling back to deterministic narrative.\n"
+            )
+            try:
+                audit_event(
+                    cfg, "memory_compact_timeout",
+                    provider=provider,
+                    total_timeout_s=total_timeout,
+                    workspace_hash=_workspace_hash(workspace),
+                )
+            except Exception:
+                pass
+            new_body = _deterministic_narrative(
+                all_checkpoints, all_pythia, "", workspace, cfg,
+            )
+        except Exception as exc:
+            # LLM call raised (model server unreachable, payload error, etc.)
+            # — surface the failure but still produce SOMETHING usable.
+            sys.stderr.write(
+                f"> ⚠ Mnēmē compact: LLM provider {provider!r} failed "
+                f"({exc}); falling back to deterministic narrative.\n"
+            )
+            new_body = _deterministic_narrative(
+                all_checkpoints, all_pythia, "", workspace, cfg,
+            )
     else:
         new_body = _deterministic_narrative(all_checkpoints, all_pythia, "", workspace, cfg)
 
@@ -116,7 +190,7 @@ def cmd_memory_update_silent(workspace: Path, cfg: dict) -> None:
             provider = str(cfg_provider).strip().lower() or None
         _memory_do_update(workspace, cfg, provider)
     except Exception as exc:
-        print(f"> ⚠ Mnēmē update failed: {exc}")
+        sys.stderr.write(f"> ⚠ Mnēmē update failed: {exc}\n")
 
 
 def cmd_memory(args, cfg):
@@ -269,8 +343,79 @@ def cmd_memory(args, cfg):
         _cmd_memory_index(args, cfg)
         return
 
+    if sub == "doctor":
+        cmd_memory_doctor(args, cfg)
+        return
+
     print(f"perseus memory: unknown subcommand '{sub}'.", file=sys.stderr)
     sys.exit(2)
+
+
+def cmd_memory_doctor(args, cfg) -> None:
+    """Mnēmē doctor — scan and optionally migrate legacy MD5-named narratives.
+
+    Regression for #128: pre-1.0.3 narratives are named after an MD5 hash of
+    the workspace path; v1.0.3+ uses SHA-256. _mneme_path() auto-migrates on
+    first access, but that requires the operator to actually open the
+    workspace. ``memory doctor`` lets an operator scan and migrate all
+    workspaces at once, and surface diagnostic info for files that can't be
+    auto-migrated (e.g. missing frontmatter, cross-device renames).
+    """
+    do_migrate = bool(getattr(args, "migrate", False))
+    use_json = bool(getattr(args, "json", False))
+    scan = _mneme_doctor_scan(cfg)
+
+    if do_migrate:
+        result = _mneme_doctor_migrate(cfg)
+        if use_json:
+            import json as _json
+            print(_json.dumps({"scan_before": scan, "migrate": result}, indent=2))
+            return
+        print(f"Mnēmē doctor — store: {scan['store']}")
+        print(f"  Narrative files:  {len(scan['narrative_files'])}")
+        print(f"  Legacy MD5 found: {len(scan['legacy_md5_files'])}")
+        print(f"  Migrated:         {len(result['migrated'])}")
+        for old, new in result["migrated"]:
+            print(f"    ✓ {Path(old).name} → {Path(new).name}")
+        if result["skipped"]:
+            print(f"  Skipped:          {len(result['skipped'])}")
+            for old, new, reason in result["skipped"]:
+                print(f"    ⚠ {Path(old).name}: {reason}")
+        if result["errors"]:
+            print(f"  Errors:           {len(result['errors'])}")
+            for old, exc_str in result["errors"]:
+                print(f"    ✗ {Path(old).name}: {exc_str}")
+        return
+
+    # Read-only scan
+    if use_json:
+        import json as _json
+        print(_json.dumps(scan, indent=2))
+        return
+    print(f"Mnēmē doctor — store: {scan['store']}")
+    print(f"  Narrative files:  {len(scan['narrative_files'])}")
+    print(f"  SHA-256 (current):{len(scan['sha256_files'])}")
+    print(f"  Legacy MD5:       {len(scan['legacy_md5_files'])}")
+    print(f"  Orphan:           {len(scan['orphan_files'])}")
+    print(f"  Unknown stems:    {len(scan['unknown_files'])}")
+    if scan["legacy_md5_files"]:
+        print()
+        print("Legacy MD5-named narratives detected. Run:")
+        print("  perseus memory doctor --migrate")
+        print("to rename them to their SHA-256 paths in place. Operation is")
+        print("idempotent and uses atomic os.replace.")
+    if scan["orphan_files"]:
+        print()
+        print("⚠ Orphan files (frontmatter workspace doesn't match filename):")
+        for fp in scan["orphan_files"]:
+            print(f"  - {fp}")
+        print("These were likely written under a different store, OR the")
+        print("workspace path moved. Review manually before deleting.")
+    if scan["unknown_files"]:
+        print()
+        print("Files with non-standard names (skipped by Mnēmē):")
+        for fp in scan["unknown_files"]:
+            print(f"  - {fp}")
 
 def _memory_federation_diagnostic(name: str, args_str: str, cfg: dict, workspace: object) -> list[dict]:
     """Per-directive LSP diagnostic for @memory: warn on unsubscribed federation alias.
