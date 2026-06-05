@@ -85,6 +85,7 @@ local HTTP/LSP responses when asked.
 
 The default v1 trust model is:
 
+- **Default profile is `balanced`** — disables `@query`, `@agent`, and `@services command:` directives. Use `power-user` for live data (see [Setup Guide](../SETUP-GUIDE.md)).
 - Resolved directive output is factual context.
 - Shell-backed directives are explicit and configurable.
 - Generated synthesis is opt-in.

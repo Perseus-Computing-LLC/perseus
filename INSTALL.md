@@ -1,18 +1,24 @@
 # Installing Perseus
 
-Perseus is a single-file Python tool with a single dependency (`pyyaml`). The
-installer preserves that simplicity: no package managers, no virtualenv
-required, no source-checkout split.
-
-## Prerequisites
-
-- Python **3.10+**
-- `pyyaml`:
-  ```bash
-  python3 -m pip install --user pyyaml
-  ```
-
 ## Quick install (recommended)
+
+```bash
+# via uv (fastest, isolated)
+uv tool install perseus-ctx
+
+# or via pip
+pip install perseus-ctx
+
+# verify
+perseus --version
+```
+
+> **Windows note:** `uv` may warn that `~/.local/bin` is not on your PATH. Add this to your shell rc:
+> ```bash
+> export PATH="$HOME/.local/bin:$PATH"
+> ```
+
+## Install from source
 
 From a checkout of this repo:
 
@@ -30,7 +36,11 @@ By default this installs:
 It then runs `perseus --version` to verify the install. Add `~/.local/bin` to
 your PATH if it isn't already.
 
-## Custom prefix
+## Prerequisites
+
+- Python **3.10+** (pyyaml is installed automatically as a dependency)
+
+## Custom prefix (source install)
 
 ```bash
 ./scripts/install.sh --prefix /opt/perseus
