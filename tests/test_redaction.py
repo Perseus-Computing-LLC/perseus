@@ -315,3 +315,70 @@ def test_strict_profile_does_not_disable_redaction(monkeypatch, tmp_path):
     }))
     cfg = perseus.load_config()
     assert cfg["redaction"]["enabled"] is True
+
+
+# ── regression: #136 long_hex_secret must NOT eat git hashes ─────────────────
+
+
+def test_bare_git_sha1_is_not_redacted_by_defaults():
+    """Regression for #136 — bare 40-char git SHAs must survive default rules."""
+    git_log_line = "86ca950b3f1a2c4d5e6f7a8b9c0d1e2f3a4b5c6d  fix(resolve_read)"
+    out, report = perseus.redact_text(git_log_line, {})
+    assert "86ca950b3f1a2c4d5e6f7a8b9c0d1e2f3a4b5c6d" in out
+    assert report["counts"].get("long_hex_secret", 0) == 0
+
+
+def test_bare_sha256_checksum_is_not_redacted_by_defaults():
+    """Regression for #136 — 64-char SHA-256 sums must survive."""
+    sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    text = f"checksum: {sha256}  perseus.py"
+    out, report = perseus.redact_text(text, {})
+    assert sha256 in out
+    assert report["counts"].get("long_hex_secret", 0) == 0
+
+
+def test_credential_anchored_hex_IS_redacted():
+    """Regression for #136 — the new rule MUST still catch real secrets."""
+    cases = [
+        'api_key = "abcdef0123456789abcdef0123456789abcdef01"',
+        "secret=abcdef0123456789abcdef0123456789abcdef01",
+        'token: "abcdef0123456789abcdef0123456789abcdef01"',
+        "password = abcdef0123456789abcdef0123456789abcdef01",
+        "Authorization=abcdef0123456789abcdef0123456789abcdef01",
+    ]
+    for text in cases:
+        out, report = perseus.redact_text(text, {})
+        assert "abcdef01" not in out, (
+            f"Hex secret in credential context not redacted: {text!r} → {out!r}"
+        )
+        assert report["counts"].get("long_hex_secret", 0) >= 1
+
+
+def test_credential_anchored_hex_preserves_surrounding_context():
+    """The anchor context (key name, =, quotes) must survive verbatim."""
+    text = 'api_key = "abcdef0123456789abcdef0123456789abcdef01"'
+    out, _ = perseus.redact_text(text, {})
+    assert out.startswith('api_key = "[REDACTED:long_hex_secret]')
+    assert out.endswith('"')
+
+
+def test_bearer_header_prefix_still_preserved():
+    """Sanity: bearer_header prefix-preserve behavior must still work."""
+    text = "Authorization: Bearer abcdef0123456789abcdef0123456789"
+    out, _ = perseus.redact_text(text, {})
+    assert out.lower().startswith("authorization: bearer ")
+    assert "abcdef0123456789abcdef0123456789" not in out
+
+
+def test_at_query_git_log_output_survives_redaction():
+    """Integration regression: simulated @query 'git log' output preserved."""
+    git_log = "\n".join([
+        "86ca950 fix(resolve_read): add missing max_bytes assignment",
+        "ff5be4f fix(resolve_include): add missing max_bytes assignment",
+        "abcdef0123456789abcdef0123456789abcdef01 some commit",
+    ])
+    out, report = perseus.redact_text(git_log, {})
+    for hash_str in ("86ca950", "ff5be4f",
+                     "abcdef0123456789abcdef0123456789abcdef01"):
+        assert hash_str in out
+    assert report["counts"].get("long_hex_secret", 0) == 0
