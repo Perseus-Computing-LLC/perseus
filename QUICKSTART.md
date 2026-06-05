@@ -205,3 +205,5 @@ llm:
 ```
 
 > **See the full [Setup & Configuration Guide](./SETUP-GUIDE.md) for detailed config documentation, automation patterns, and troubleshooting.**
+>
+> **Prefer a step-by-step walkthrough?** See the [detailed Quickstart](./docs/quickstart.md) — it walks through every step from zero to a live rendered context.
