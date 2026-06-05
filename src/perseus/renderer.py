@@ -759,11 +759,37 @@ def _render_lines(
         _integrity_snapshot = _capture_file_snapshot(lines, workspace)
 
     # ── Pre-scan @query directives for parallel resolution ──────────────
+    #
+    # #165 (v1.0.6): pre-scan is now control-flow aware. Pre-1.0.6 the
+    # scan walked every line ignoring @if/@else/@endif, so a @query
+    # inside a false conditional branch still pre-executed in parallel:
+    #
+    #     @if production
+    #     @query "aws s3 ls s3://prod-data"   # <-- still ran in dev!
+    #     @endif
+    #
+    # Fix: a single pass tracks @if/@else/@endif depth and evaluates
+    # each condition exactly once via `evaluate_condition`. Lines inside
+    # an inactive branch (or inside a malformed/uneval block) are
+    # skipped during query enqueueing. The main render loop below
+    # re-evaluates conditions independently, so a transient inconsistency
+    # in evaluation between pre-scan and main loop only manifests as a
+    # cache miss — never as a query running when it shouldn't, and never
+    # as a query failing to run when it should.
     query_results: dict[int, str] = {}
     if top_level and cfg["render"].get("parallel_queries", False):
         in_fence_pre = False
         fc_pre = ""
         fl_pre = 0
+        # Stack of (active: bool, in_else_branch: bool) tuples — one
+        # entry per open @if. A branch is "active" when its enclosing
+        # condition is True (and the current line is on the active side).
+        # If ANY frame on the stack is inactive, the line is inactive.
+        if_stack: list[tuple[bool, bool]] = []
+
+        def _all_active() -> bool:
+            return all(active for active, _ in if_stack)
+
         for idx, raw_line in enumerate(lines):
             fm = re.match(r'^\s*(`{3,}|~{3,})(.*)$', raw_line)
             if in_fence_pre:
@@ -775,6 +801,42 @@ def _render_lines(
                 fc_pre = fm.group(1)[0]
                 fl_pre = len(fm.group(1))
                 continue
+
+            # Control-flow tracking — applies regardless of active state.
+            m_if_pre = IF_RE.match(raw_line)
+            if m_if_pre:
+                try:
+                    cond_val = bool(evaluate_condition(
+                        m_if_pre.group(1).strip(), workspace, cfg
+                    ))
+                except Exception:
+                    # Match the main loop's failure mode: render emits a
+                    # warning and skips both branches. We skip enqueueing
+                    # in both branches by marking this frame inactive.
+                    cond_val = False
+                # Push: active = parent_active AND own condition; not in else yet.
+                parent_active = _all_active()
+                if_stack.append((parent_active and cond_val, False))
+                continue
+            if ELSE_RE.match(raw_line):
+                if if_stack:
+                    parent_frames = if_stack[:-1]
+                    parent_active = all(a for a, _ in parent_frames)
+                    own_active, _ = if_stack[-1]
+                    # Else branch is active iff parent is active and own
+                    # branch was NOT active (i.e. the @if condition was false).
+                    if_stack[-1] = (parent_active and not own_active, True)
+                continue
+            if ENDIF_RE.match(raw_line):
+                if if_stack:
+                    if_stack.pop()
+                continue
+
+            # Past this point, we only enqueue queries when ALL enclosing
+            # @if frames are active.
+            if not _all_active():
+                continue
+
             m = INLINE_DIRECTIVE_RE.match(raw_line)
             if m and m.group(1).lower() == "@query":
                 clean_args, cache_mode, cache_ttl, cache_mock = _parse_cache_modifier(
