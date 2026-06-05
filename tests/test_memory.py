@@ -42,9 +42,9 @@ def _write_checkpoint(store: Path, ts: str, task: str, status: str = "", notes: 
     return fp
 
 
-def test_workspace_hash_is_stable_and_12_hex(tmp_path):
+def test_workspace_hash_is_stable_and_16_hex(tmp_path):
     h = perseus._workspace_hash(tmp_path)
-    assert len(h) == 12
+    assert len(h) == 16
     assert all(c in "0123456789abcdef" for c in h)
     assert perseus._workspace_hash(tmp_path) == h
 
