@@ -12,7 +12,9 @@ def _memory_workspace(args, cfg) -> Path:
     cwd = Path.cwd().resolve()
     if (cwd / ".perseus").exists():
         return cwd
-    return Path.home().resolve()
+    fallback = Path.home().resolve()
+    sys.stderr.write(f"> ⚠ Mneme: no .perseus/ in CWD; falling back to {fallback}. Use --workspace.\n")
+    return fallback
 
 
 def _memory_llm_provider(args, cfg) -> str | None:
@@ -33,6 +35,13 @@ def _memory_do_update(workspace: Path, cfg: dict, provider: str | None) -> tuple
     On error, raises.
     """
     cp_files = _list_checkpoint_files(cfg)
+    # #152: check if we are at HWM to skip pointless I/O. If the file count
+    # matches the processed count in frontmatter, nothing changed.
+    mp = _mneme_path(workspace, cfg)
+    fm, body = _load_narrative(mp)
+    hwm = int(fm.get("checkpoints_processed", 0)) if fm else 0
+    if hwm > 0 and hwm >= len(cp_files) and not _read_all_pythia_entries():
+        return False, "Nothing new to process (all checkpoints at HWM)."
     # _list_checkpoint_files returns reverse-chrono; sort filename-asc for hwm
     cp_files = sorted(cp_files, key=lambda f: f.name)
     all_checkpoints: list[dict] = []
@@ -42,8 +51,6 @@ def _memory_do_update(workspace: Path, cfg: dict, provider: str | None) -> tuple
             all_checkpoints.append(cp)
     all_pythia = _read_all_pythia_entries()
 
-    mp = _mneme_path(workspace, cfg)
-    fm, body = _load_narrative(mp)
     if not fm:
         fm = _mneme_default_frontmatter(workspace)
         body = ""
@@ -181,7 +188,7 @@ def cmd_memory_update_silent(workspace: Path, cfg: dict) -> None:
             provider = str(cfg_provider).strip().lower() or None
         _memory_do_update(workspace, cfg, provider)
     except Exception as exc:
-        print(f"> ⚠ Mnēmē update failed: {exc}")
+        sys.stderr.write(f"> ⚠ Mnēmē update failed: {exc}\n")
 
 
 def cmd_memory(args, cfg):
