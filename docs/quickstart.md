@@ -50,15 +50,29 @@ mkdir -p ~/.perseus
 
 ```yaml
 # ~/.perseus/config.yaml
+# ⚠ CRITICAL: render.allow_query_shell must be true for @query to work.
+# trust.allow_query_shell controls audit display only — NOT the render gate.
+render:
+  allow_query_shell: true        # ← REQUIRED to enable @query directives
+  allow_agent_shell: true        # ← REQUIRED to enable @agent directives
+  allow_remote_services_health: true
+  allow_services_command: true   # ← REQUIRED for command-type @services checks
+  parallel_services: true
+  services_timeout_s: 3
+
+trust:
+  allow_query_shell: true        # controls audit display only
+  allow_outside_workspace: false
+  redact_secrets: true
+
+# Optional: assistant integration (Hermes Agent)
 pythia:
-  skill_dir: ~/.hermes/skills       # optional: your assistant's skills directory
+  skill_dir: ~/.hermes/skills
 assistant:
-  sessions_dir: ~/.hermes/sessions  # optional: your assistant's session logs
+  sessions_dir: ~/.hermes/sessions
 ```
 
-> **Note:** These fields are only needed if you're using Hermes Agent for `@skills` and
-> `@session` directives. Leave them unset if you're using a different assistant — the
-> renderer, checkpoints, and Pythia all work without them.
+> **Note:** Starting with v1.0.6, `@query`, `@agent`, and `@services command:` also require `PERSEUS_ALLOW_DANGEROUS=1` in your environment. See the [Setup & Configuration Guide](../SETUP-GUIDE.md) for full details.
 
 ---
 
