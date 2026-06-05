@@ -1119,7 +1119,7 @@
     border: 1px solid var(--line);
     border-top: 0;
     display: grid;
-    grid-template-columns: repeat(7, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     gap: 1px;
     background: var(--line);
   }
@@ -2418,8 +2418,8 @@ Branch: <span class="s">feat/billing-v2</span>
         loading="lazy"
       />
       <p style="margin-top: 10px; font-family: var(--mono); font-size: 11px; color: var(--text-muted); letter-spacing: 0.08em; text-transform: uppercase;">
-        Cold vs Warm Render Performance · 450× speedup at 50K directives · warm time stays flat regardless of scale
-        · <a href="benchmark/cold-vs-warm.json" style="color: var(--accent-2); text-decoration: none;">raw data ↗</a>
+        450× cold→warm · 1,190× cache punch · 301× vs LLM · 94% token compression · 0 failures at 150 concurrent · 813 tests all green
+        · <a href="benchmark/" style="color: var(--accent-2); text-decoration: none;">full benchmark suite ↗</a>
       </p>
     </div>
 
@@ -2430,7 +2430,7 @@ Branch: <span class="s">feat/billing-v2</span>
       </div>
       <div class="hn-item">
         <span class="hn-head">Workspace Boundaries</span>
-        <p class="hn-desc"><b>NVMe local lock is atomic.</b> NFS v4+ for cross-machine; SMB requires careful config.</p>
+        <p class="hn-desc"><b>NVMe local lock is atomic.</b> NFS&nbsp;v4+ for cross-machine; SMB requires careful config.</p>
       </div>
       <div class="hn-item">
         <span class="hn-head">Overflow Guard</span>
@@ -2452,33 +2452,11 @@ Branch: <span class="s">feat/billing-v2</span>
         <span class="hn-head">Semantic Equiv 1.0</span>
         <p class="hn-desc">Gemini 2.5 Flash judge, 20 A/B pairs. Perseus changes what the assistant <em>knows</em>. Not what it says.</p>
       </div>
+      <div class="hn-item">
+        <span class="hn-head">Audit &amp; Redaction</span>
+        <p class="hn-desc">Every directive resolution is logged. Secrets auto-redacted with two-layer gating. Full audit trail, opt-out supported.</p>
+      </div>
     </aside>
-
-    <div class="stats reveal">
-      <div class="stat">
-        <div class="skey">Cache punch</div>
-        <div class="sval">1,190<span class="unit">×</span></div>
-        <div class="sdesc"><b>Real-world directives against the Perseus repo.</b> 578.7s without cache, 0.486s with. Warm time is <b>flat</b> — the render path becomes free.</div>
-      </div>
-
-      <div class="stat">
-        <div class="skey">vs. LLM tool-calling</div>
-        <div class="sval">301<span class="unit">×</span></div>
-        <div class="sdesc">faster at enterprise scale. <b>500 developers, 10 teams, 5-day workweek.</b> An LLM would take 83 hours and cost thousands in tokens. Perseus: 16 minutes, $0.</div>
-      </div>
-
-      <div class="stat">
-        <div class="skey">Token compression</div>
-        <div class="sval">94<span class="unit">%</span></div>
-        <div class="sdesc">Live A/B harness, 200 requests: <b>488 → 27 avg prompt tokens.</b> P99 latency overhead: <b>0ms</b> — Perseus adds nothing to response time. Smaller prompts, same output, every provider.</div>
-      </div>
-
-      <div class="stat">
-        <div class="skey">Battle-tested</div>
-        <div class="sval"><span data-live="tests">813</span><span class="unit"> tests</span></div>
-        <div class="sdesc">All green. 14/14 gates passed in the ultimate suite. Atomic filesystem locking, overflow guards, symlink hardening. The boring kind of reliable.</div>
-      </div>
-    </div>
   </div>
 </section>
 
