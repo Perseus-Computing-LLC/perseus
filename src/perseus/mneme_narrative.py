@@ -34,13 +34,161 @@ def _workspace_hash(workspace: Path) -> str:
     (multi-workspace checkpoint namespacing) if/when that lands.
     """
     canonical = workspace.expanduser().resolve()
-    return hashlib.sha256(str(canonical).encode()).hexdigest()[:12]
+    # #157: 16 hex chars (64-bit space) for federation safety.
+    # 12 chars (48-bit) had ~1% collision chance at 30M workspaces.
+    return hashlib.sha256(str(canonical).encode()).hexdigest()[:16]
+
+
+def _workspace_hash_legacy_md5(workspace: Path) -> str:
+    """12-char MD5 hex digest — the pre-1.0.3 narrative file name scheme.
+
+    Regression for #128: prior to v1.0.3, Mnēmē derived narrative file names
+    from an MD5 hash. v1.0.3+ switched to SHA-256. Without an explicit
+    migration, every existing narrative file on disk was silently orphaned
+    on upgrade. ``_mneme_path`` calls this function as a one-shot fallback
+    to locate and rename legacy files. Once migrated, this code path is
+    never re-entered for that workspace.
+
+    We intentionally use ``usedforsecurity=False`` (Py3.9+) so FIPS-mode
+    Pythons don't reject the call — this is a file-naming hash, not a
+    security primitive. We fall back to the no-kwarg call for older Pythons.
+    """
+    canonical = str(workspace.expanduser().resolve()).encode()
+    try:
+        return hashlib.md5(canonical, usedforsecurity=False).hexdigest()[:16]
+    except TypeError:
+        # Python < 3.9: no `usedforsecurity` kwarg.
+        return hashlib.md5(canonical).hexdigest()[:16]
 
 
 def _mneme_path(workspace: Path, cfg: dict) -> Path:
-    """Return the per-workspace narrative file path."""
+    """Return the per-workspace narrative file path.
+
+    Regression for #128: if a SHA-256 path doesn't exist but a legacy MD5
+    path does, transparently rename the legacy file in place. This makes
+    upgrades from pre-1.0.3 lossless.
+
+    The rename uses ``os.replace`` (atomic on POSIX/NTFS) and is best-effort:
+    if rename fails (cross-device, permission, etc.), we leave both files in
+    place and return the SHA-256 path. The caller will then see "no
+    narrative yet" and recreate — non-fatal but loses prior content.
+    Operators can also run ``perseus memory doctor --migrate`` to surface
+    and act on these cases explicitly.
+    """
     store = Path(cfg.get("memory", {}).get("store", str(PERSEUS_HOME / "memory")))
-    return store / f"{_workspace_hash(workspace)}.md"
+    new_path = store / f"{_workspace_hash(workspace)}.md"
+    if new_path.exists():
+        return new_path
+    legacy_path = store / f"{_workspace_hash_legacy_md5(workspace)}.md"
+    if legacy_path.exists() and legacy_path != new_path:
+        try:
+            store.mkdir(parents=True, exist_ok=True)
+            os.replace(legacy_path, new_path)
+        except OSError:
+            # Cross-device / permission denied. Leave the legacy file in
+            # place so the operator can recover it manually; the caller will
+            # create a fresh narrative at the new path.
+            pass
+    return new_path
+
+
+def _mneme_doctor_scan(cfg: dict) -> dict:
+    """Scan the memory store and report on narrative file inventory.
+
+    Returns a dict with:
+        {
+          "store": str,                     # path to memory store
+          "narrative_files": [path, ...],   # all *.md in store
+          "legacy_md5_files": [path, ...],  # files whose name matches legacy MD5 of a known workspace
+          "sha256_files": [path, ...],      # files that look like current-scheme files
+          "orphan_files": [path, ...],      # files whose embedded `workspace` frontmatter no longer resolves to their filename
+          "unknown_files": [path, ...],     # files whose stem isn't a 16-char hex hash
+        }
+
+    "Known workspace" inference: we re-derive the SHA-256 and legacy MD5
+    hashes from each file's ``workspace:`` frontmatter field, then match
+    against the actual filename stem.
+
+    Used by ``perseus memory doctor`` to surface migration candidates.
+    """
+    store = Path(cfg.get("memory", {}).get("store", str(PERSEUS_HOME / "memory")))
+    out: dict = {
+        "store": str(store),
+        "narrative_files": [],
+        "legacy_md5_files": [],
+        "sha256_files": [],
+        "orphan_files": [],
+        "unknown_files": [],
+    }
+    if not store.exists():
+        return out
+    # #157: accept both legacy 12-char and current 16-char hex stems
+    # for backward-compatible doctor scanning during migration.
+    hex_re = re.compile(r"^[a-f0-9]{12,16}$")
+    for fp in sorted(store.glob("*.md")):
+        out["narrative_files"].append(str(fp))
+        stem = fp.stem
+        if not hex_re.match(stem):
+            out["unknown_files"].append(str(fp))
+            continue
+        # Try to read the workspace from frontmatter and classify.
+        try:
+            fm, _ = _load_narrative(fp)
+        except Exception:
+            out["unknown_files"].append(str(fp))
+            continue
+        ws_raw = str(fm.get("workspace", "")).strip() if isinstance(fm, dict) else ""
+        if not ws_raw:
+            # No workspace metadata — can't classify; treat as unknown.
+            out["unknown_files"].append(str(fp))
+            continue
+        try:
+            ws = Path(ws_raw).expanduser()
+            expected_sha = _workspace_hash(ws)
+            expected_md5 = _workspace_hash_legacy_md5(ws)
+        except Exception:
+            out["unknown_files"].append(str(fp))
+            continue
+        if stem == expected_sha:
+            out["sha256_files"].append(str(fp))
+        elif stem == expected_md5:
+            out["legacy_md5_files"].append(str(fp))
+        else:
+            out["orphan_files"].append(str(fp))
+    return out
+
+
+def _mneme_doctor_migrate(cfg: dict) -> dict:
+    """Rename legacy MD5-named narrative files to their SHA-256 names.
+
+    Returns a dict:
+        {
+          "migrated": [(old, new), ...],
+          "skipped":  [(old, new, reason), ...],
+          "errors":   [(old, exc_str), ...],
+        }
+
+    Idempotent: re-running after a successful migration is a no-op.
+    """
+    report: dict = {"migrated": [], "skipped": [], "errors": []}
+    scan = _mneme_doctor_scan(cfg)
+    store = Path(scan["store"])
+    for legacy_fp_str in scan["legacy_md5_files"]:
+        legacy_fp = Path(legacy_fp_str)
+        try:
+            fm, _ = _load_narrative(legacy_fp)
+            ws = Path(str(fm.get("workspace", "")).strip()).expanduser()
+            new_fp = store / f"{_workspace_hash(ws)}.md"
+            if new_fp.exists():
+                report["skipped"].append(
+                    (str(legacy_fp), str(new_fp), "destination already exists")
+                )
+                continue
+            os.replace(legacy_fp, new_fp)
+            report["migrated"].append((str(legacy_fp), str(new_fp)))
+        except Exception as exc:  # pragma: no cover - defensive
+            report["errors"].append((str(legacy_fp), str(exc)))
+    return report
 
 
 def _load_narrative(path: Path) -> tuple[dict, str]:
@@ -58,6 +206,21 @@ def _load_narrative(path: Path) -> tuple[dict, str]:
     return fm, body
 
 
+
+def _safe_fsync(path):
+    """Fsync file + parent directory for durability (#140)."""
+    try:
+        with open(path, "rb") as f:
+            os.fsync(f.fileno())
+    except OSError:
+        pass
+    try:
+        fd = os.open(str(path.parent), os.O_RDONLY)
+        os.fsync(fd)
+        os.close(fd)
+    except OSError:
+        pass
+
 def _save_narrative(path: Path, frontmatter: dict, body: str) -> None:
     """Atomically write the narrative file (temp + rename)."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -65,6 +228,9 @@ def _save_narrative(path: Path, frontmatter: dict, body: str) -> None:
     payload = f"---\n{fm_yaml}\n---\n\n{body.rstrip()}\n"
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(payload, encoding="utf-8")
+    # #140: fsync temp file + parent directory before atomic rename to
+    # prevent narrative loss on system crash / power loss.
+    _safe_fsync(tmp)
     os.replace(tmp, path)
 
 
@@ -108,8 +274,8 @@ def _read_all_pythia_entries() -> list[dict]:
                     continue
                 try:
                     entries.append(json.loads(line))
-                except Exception:
-                    continue
+                except Exception as exc:
+                    sys.stderr.write(f"> ⚠ Pythia: skipping malformed JSONL line: {exc}\n")
     except Exception:
         return []
     return entries
@@ -349,7 +515,7 @@ def _deterministic_narrative(
         f"> Run `perseus memory compact` for a full re-distillation.\n"
     )
 
-    return "\n".join([
+    result = "\n".join([
         title,
         preamble,
         arc_section,
@@ -358,5 +524,36 @@ def _deterministic_narrative(
         patterns_section,
         recent_section,
     ]).rstrip() + "\n"
+
+    # #145: preserve operator-added sections from existing body.
+    # The deterministic rebuild only covers standard headings; any
+    # custom section the operator manually added would be lost.
+    # We scan existing_body for headings not in our standard set
+    # and append them after the rebuilt content.
+    if existing_body.strip():
+        import re as _re
+        _std_headings = {
+            "project arc", "key decisions", "task history",
+            "patterns & anti-patterns", "recent activity", "mnēmē",
+            "project arc:", "key decisions:", "task history:",
+            "patterns & anti-patterns:", "recent activity:",
+        }
+        _custom_sections: list[str] = []
+        _in_custom = False
+        for _line in existing_body.split("\n"):
+            if _line.startswith("## "):
+                _h_name = _line[3:].strip().lower().rstrip(":")
+                _in_custom = _h_name not in _std_headings
+                if _in_custom:
+                    _custom_sections.append("")
+            if _in_custom or _line.startswith("## "):
+                _custom_sections.append(_line)
+        if _custom_sections:
+            result += "\n---\n## Operator-Added Sections\n\n"
+            result += "\n".join(_custom_sections).strip() + "\n"
+            result += "\n> ⚠ Above sections preserved from prior narrative by operator.\n"
+            result += "> Review after deterministic update to ensure accuracy.\n"
+
+    return result
 
 

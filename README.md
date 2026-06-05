@@ -13,10 +13,6 @@
 
 <!-- mcp-name: io.github.tcconnally/perseus -->
 
-![Perseus Efficiency — Cold vs Warm Render Speed](https://raw.githubusercontent.com/tcconnally/perseus/main/benchmark/infographic/perseus-efficiency.svg)
-
-![Perseus Extreme Enterprise Benchmark — Cold/Warm · Concurrency · Gates](https://raw.githubusercontent.com/tcconnally/perseus/main/benchmark/infographic/perseus-xeb-infographic-full.svg)
-
 ---
 
 ### TL;DR
@@ -258,7 +254,7 @@ Perseus delivers verified, up-to-date context, eliminating the need for AI assis
 - **Enterprise Ready** — Cost analysis shows that for a 500-developer team, Perseus can save significant token costs per year. [Cost analysis →](benchmark/titan_cost.json)
 - **Extreme Enterprise Benchmark** — 10-phase suite (reps=10, 50 devs, 250 concurrent agents): **10/10 hard gates · 6/6 soft gates · 0 errors at 250 concurrent · 90% enterprise ROI · fleet P99 1,169ms**. The benchmark is designed to surface regressions, not hide them. [Full methodology →](benchmark/README_EXTREME.md) · [Raw results →](benchmark/extreme_enterprise_results_full.json)
 
-![Perseus Cold vs Warm — @cache eliminates subprocess cost](https://raw.githubusercontent.com/tcconnally/perseus/main/benchmark/infographic/perseus-cold-vs-warm.svg)
+![Perseus v1.0.6 — Performance Benchmarks](https://raw.githubusercontent.com/tcconnally/perseus/main/benchmark/infographic/perseus-benchmarks.svg)
 
 ### Reliability & Security
 

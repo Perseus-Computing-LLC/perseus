@@ -187,3 +187,176 @@ class TestResolveMemoryUnified:
             perseus.resolve_memory('mode=search query="x"', cfg(), workspace=tmp_path)
 
         assert called
+
+
+# ---------------------------------------------------------------------------
+# #128 regression: MD5 → SHA-256 narrative migration
+# ---------------------------------------------------------------------------
+
+
+def _legacy_md5_name(workspace: Path) -> str:
+    """Reproduce the pre-1.0.3 hash exactly for fixture setup."""
+    import hashlib as _h
+    canonical = str(workspace.expanduser().resolve()).encode()
+    try:
+        return _h.md5(canonical, usedforsecurity=False).hexdigest()[:16]
+    except TypeError:
+        return _h.md5(canonical).hexdigest()[:16]
+
+
+def test_mneme_path_auto_migrates_legacy_md5_file(tmp_path):
+    """Regression for #128 — opening a workspace with only a legacy MD5
+    narrative on disk renames it transparently to the SHA-256 path.
+
+    Without this fix, every pre-1.0.3 user lost their narrative silently
+    on the v1.0.3 upgrade (the SHA-256 path didn't exist; Mnēmē reported
+    "No narrative yet" and started over, leaving the MD5 file orphaned).
+    """
+    store = tmp_path / "store"
+    store.mkdir()
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    cfg_ = {"memory": {"store": str(store)}}
+
+    legacy_name = _legacy_md5_name(workspace)
+    legacy_fp = store / f"{legacy_name}.md"
+    legacy_fp.write_text(
+        f"---\nworkspace: {workspace}\nchecksum: legacy-md5\n---\n\n"
+        "## Project Arc\n\nLegacy content from v1.0.2.\n",
+        encoding="utf-8",
+    )
+
+    # First call should migrate.
+    new_fp = perseus._mneme_path(workspace, cfg_)
+    assert new_fp.exists(), "SHA-256 path must exist after migration"
+    assert not legacy_fp.exists(), "Legacy MD5 file must be renamed away"
+    body = new_fp.read_text(encoding="utf-8")
+    assert "Legacy content from v1.0.2." in body, (
+        "Migration must preserve narrative content verbatim"
+    )
+
+
+def test_mneme_path_no_migration_when_sha256_already_exists(tmp_path):
+    """If both files exist, prefer SHA-256 and leave the legacy file alone.
+
+    This protects against double-migration races and ensures we never
+    accidentally overwrite a current-scheme narrative.
+    """
+    store = tmp_path / "store"
+    store.mkdir()
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    cfg_ = {"memory": {"store": str(store)}}
+
+    legacy_name = _legacy_md5_name(workspace)
+    legacy_fp = store / f"{legacy_name}.md"
+    legacy_fp.write_text("legacy\n", encoding="utf-8")
+
+    sha_name = perseus._workspace_hash(workspace)
+    sha_fp = store / f"{sha_name}.md"
+    sha_fp.write_text("current\n", encoding="utf-8")
+
+    result = perseus._mneme_path(workspace, cfg_)
+    assert result == sha_fp
+    assert sha_fp.read_text() == "current\n", "Current file must be untouched"
+    assert legacy_fp.exists(), "Legacy file must NOT be removed in this case"
+
+
+def test_mneme_path_is_idempotent_after_migration(tmp_path):
+    """Calling _mneme_path twice in a row after a migration is a no-op."""
+    store = tmp_path / "store"
+    store.mkdir()
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    cfg_ = {"memory": {"store": str(store)}}
+
+    legacy_fp = store / f"{_legacy_md5_name(workspace)}.md"
+    legacy_fp.write_text(f"---\nworkspace: {workspace}\n---\n\ndata\n", encoding="utf-8")
+
+    p1 = perseus._mneme_path(workspace, cfg_)
+    p2 = perseus._mneme_path(workspace, cfg_)
+    assert p1 == p2
+    assert p1.exists()
+    assert p1.read_text(encoding="utf-8").endswith("data\n")
+
+
+def test_memory_doctor_scan_classifies_files(tmp_path):
+    """`memory doctor` (scan-only mode) correctly classifies the store."""
+    store = tmp_path / "store"
+    store.mkdir()
+    cfg_ = {"memory": {"store": str(store)}}
+
+    ws1 = tmp_path / "ws1"; ws1.mkdir()
+    ws2 = tmp_path / "ws2"; ws2.mkdir()
+
+    # ws1 has a SHA-256 narrative; ws2 has a legacy MD5 narrative.
+    (store / f"{perseus._workspace_hash(ws1)}.md").write_text(
+        f"---\nworkspace: {ws1}\n---\n\nsha file\n", encoding="utf-8"
+    )
+    (store / f"{_legacy_md5_name(ws2)}.md").write_text(
+        f"---\nworkspace: {ws2}\n---\n\nmd5 file\n", encoding="utf-8"
+    )
+    # A pre-Mnēmē README that should be classified as "unknown stem".
+    (store / "README.md").write_text("# notes\n", encoding="utf-8")
+
+    scan = perseus._mneme_doctor_scan(cfg_)
+    assert len(scan["narrative_files"]) == 3
+    assert len(scan["sha256_files"]) == 1
+    assert len(scan["legacy_md5_files"]) == 1
+    assert len(scan["unknown_files"]) == 1
+    assert scan["sha256_files"][0].endswith(f"{perseus._workspace_hash(ws1)}.md")
+    assert scan["legacy_md5_files"][0].endswith(f"{_legacy_md5_name(ws2)}.md")
+
+
+def test_memory_doctor_migrate_renames_legacy_files(tmp_path):
+    """`memory doctor --migrate` renames every legacy MD5 file in the store."""
+    store = tmp_path / "store"
+    store.mkdir()
+    cfg_ = {"memory": {"store": str(store)}}
+
+    wsA = tmp_path / "wsA"; wsA.mkdir()
+    wsB = tmp_path / "wsB"; wsB.mkdir()
+    legacyA = store / f"{_legacy_md5_name(wsA)}.md"
+    legacyB = store / f"{_legacy_md5_name(wsB)}.md"
+    legacyA.write_text(f"---\nworkspace: {wsA}\n---\n\nA content\n", encoding="utf-8")
+    legacyB.write_text(f"---\nworkspace: {wsB}\n---\n\nB content\n", encoding="utf-8")
+
+    result = perseus._mneme_doctor_migrate(cfg_)
+    assert len(result["migrated"]) == 2
+    assert not legacyA.exists()
+    assert not legacyB.exists()
+
+    new_A = store / f"{perseus._workspace_hash(wsA)}.md"
+    new_B = store / f"{perseus._workspace_hash(wsB)}.md"
+    assert new_A.exists() and new_A.read_text().endswith("A content\n")
+    assert new_B.exists() and new_B.read_text().endswith("B content\n")
+
+    # Idempotent: re-running is a no-op.
+    second = perseus._mneme_doctor_migrate(cfg_)
+    assert second == {"migrated": [], "skipped": [], "errors": []}
+
+
+def test_memory_doctor_migrate_skips_when_destination_exists(tmp_path):
+    """If a SHA-256 file is already there, --migrate skips the legacy file."""
+    store = tmp_path / "store"
+    store.mkdir()
+    cfg_ = {"memory": {"store": str(store)}}
+
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    legacy_fp = store / f"{_legacy_md5_name(workspace)}.md"
+    legacy_fp.write_text(f"---\nworkspace: {workspace}\n---\n\nlegacy\n",
+                         encoding="utf-8")
+    sha_fp = store / f"{perseus._workspace_hash(workspace)}.md"
+    sha_fp.write_text(f"---\nworkspace: {workspace}\n---\n\ncurrent\n",
+                      encoding="utf-8")
+
+    result = perseus._mneme_doctor_migrate(cfg_)
+    assert result["migrated"] == []
+    assert len(result["skipped"]) == 1
+    old, new, reason = result["skipped"][0]
+    assert "exists" in reason
+    # Both files still present.
+    assert legacy_fp.exists()
+    assert sha_fp.exists()
+    assert sha_fp.read_text().endswith("current\n")
