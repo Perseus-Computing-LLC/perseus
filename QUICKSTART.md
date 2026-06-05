@@ -176,11 +176,25 @@ perseus render .perseus/context.md  # Verify it works
 ```
 
 Then create `.perseus/config.yaml`:
+
 ```yaml
+# ~/.perseus/config.yaml
+# ⚠ CRITICAL: render.allow_query_shell must be true for @query to work.
+# The trust section controls audit display only — NOT the render gate.
 render:
-  allow_query_shell: false
-permissions:
-  profile: balanced
+  allow_query_shell: true        # ← REQUIRED to enable @query
+  allow_agent_shell: true
+  allow_remote_services_health: true
+  allow_services_command: true
+  parallel_services: true
+  services_timeout_s: 3
+
+trust:
+  allow_query_shell: true        # controls audit display only
+  allow_outside_workspace: false
+  redact_secrets: true
+
+# Optional: LLM backend for Pythia suggestions & Synthesis
 generation:
   enabled: true
   model: gemini-2.5-flash
@@ -189,3 +203,5 @@ llm:
   model: gemini-2.5-flash
   url: https://generativelanguage.googleapis.com/v1beta
 ```
+
+> **See the full [Setup & Configuration Guide](./SETUP-GUIDE.md) for detailed config documentation, automation patterns, and troubleshooting.**
