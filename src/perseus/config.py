@@ -100,6 +100,12 @@ DEFAULT_CONFIG = {
         "recent_keep": 5,           # raw checkpoints to include in Recent Activity
         "auto_update": True,        # update narrative on every checkpoint write
         "compact_threshold": 20,    # advisory: compact after this many incremental updates
+        # #131: wall-clock deadline for `perseus memory compact` LLM path.
+        # 0 = no deadline (pre-1.0.6 behavior — can hang indefinitely on
+        # slow models). Default 180s (3 min) covers Ollama mistral on a
+        # modern laptop for typical workspace sizes. On timeout the LLM
+        # call is abandoned and the deterministic narrative is used.
+        "compact_total_timeout_s": 180,
         "llm_provider": None,       # None = deterministic; "ollama" / "openai-compat" enables LLM
         "llm_model": None,          # inherits from llm: block if None
         "max_narrative_lines": 300, # warn (not error) if narrative grows beyond this

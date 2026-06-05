@@ -360,3 +360,109 @@ def test_memory_status_json_with_narrative(tmp_path, monkeypatch):
                 "pythia_entries_processed", "pythia_entries_pending",
                 "compaction_count", "line_count", "mode", "frontmatter"):
         assert key in out, f"Missing key: {key}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# #131 regression: memory compact must enforce a wall-clock deadline
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_memory_compact_total_timeout_falls_back_to_deterministic(
+    tmp_path, monkeypatch, capsys
+):
+    """Regression for #131 — when the LLM compact path exceeds
+    `memory.compact_total_timeout_s`, _memory_do_compact must abandon the
+    LLM call and use the deterministic narrative builder instead. The
+    operator gets a clear stderr message AND a usable narrative.
+    """
+    local = _mneme_cfg(tmp_path)
+    local["memory"]["compact_total_timeout_s"] = 0.5  # short for test
+
+    _write_checkpoint(Path(local["checkpoints"]["store"]),
+                      "2026-05-15T10:00:00+00:00", "A")
+    _write_checkpoint(Path(local["checkpoints"]["store"]),
+                      "2026-05-16T10:00:00+00:00", "B")
+
+    def slow_llm(*args, **kwargs):
+        # Simulate a slow LLM (e.g. Ollama with a large model).
+        time.sleep(2.0)
+        return "## LLM Content\n\nIf you see this, the timeout did not fire.\n"
+
+    monkeypatch.setattr(perseus, "_mneme_compact_llm", slow_llm)
+
+    start = time.time()
+    msg = perseus._memory_do_compact(tmp_path, local, provider="ollama")
+    elapsed = time.time() - start
+
+    # Should return well under 2.0s — only block for the timeout deadline,
+    # not for the full LLM call (we cannot interrupt the thread, but
+    # future.result(timeout=…) returns immediately on TimeoutError).
+    assert elapsed < 1.5, (
+        f"Compact took {elapsed:.2f}s — wall-clock deadline did not fire"
+    )
+
+    # Narrative should be the deterministic fallback, not the LLM payload.
+    p = perseus._mneme_path(tmp_path, local)
+    _, body = perseus._load_narrative(p)
+    assert "If you see this" not in body, (
+        "LLM content present — fallback did not engage"
+    )
+    assert "## Project Arc" in body, "Deterministic narrative missing"
+
+    err = capsys.readouterr().err
+    assert "exceeded" in err.lower() or "timeout" in err.lower()
+    assert "deterministic" in err.lower()
+
+
+def test_memory_compact_succeeds_within_total_timeout(tmp_path, monkeypatch):
+    """LLM compact succeeds when under the deadline."""
+    local = _mneme_cfg(tmp_path)
+    local["memory"]["compact_total_timeout_s"] = 5.0
+
+    _write_checkpoint(Path(local["checkpoints"]["store"]),
+                      "2026-05-15T10:00:00+00:00", "A")
+
+    def fast_llm(*args, **kwargs):
+        time.sleep(0.05)
+        return "## Project Arc\n\nLLM-built narrative content.\n"
+
+    monkeypatch.setattr(perseus, "_mneme_compact_llm", fast_llm)
+
+    perseus._memory_do_compact(tmp_path, local, provider="ollama")
+
+    p = perseus._mneme_path(tmp_path, local)
+    _, body = perseus._load_narrative(p)
+    assert "LLM-built narrative content." in body, (
+        "LLM body should have been used when call returned within deadline"
+    )
+
+
+def test_memory_compact_llm_exception_falls_back_to_deterministic(
+    tmp_path, monkeypatch, capsys
+):
+    """If the LLM call raises (e.g. provider unreachable), fall back to
+    deterministic narrative rather than propagating the exception up.
+    """
+    local = _mneme_cfg(tmp_path)
+    _write_checkpoint(Path(local["checkpoints"]["store"]),
+                      "2026-05-15T10:00:00+00:00", "A")
+
+    def broken_llm(*args, **kwargs):
+        raise RuntimeError("> ⚠ LLM request failed: Connection refused")
+
+    monkeypatch.setattr(perseus, "_mneme_compact_llm", broken_llm)
+
+    # Must NOT raise — fallback engages.
+    msg = perseus._memory_do_compact(tmp_path, local, provider="ollama")
+
+    p = perseus._mneme_path(tmp_path, local)
+    _, body = perseus._load_narrative(p)
+    assert "## Project Arc" in body
+    err = capsys.readouterr().err
+    assert "Connection refused" in err or "failed" in err
+    assert "deterministic" in err
+
+
+def test_memory_compact_default_timeout_is_180s():
+    """The DEFAULT_CONFIG must set compact_total_timeout_s to 180s."""
+    assert perseus.DEFAULT_CONFIG["memory"]["compact_total_timeout_s"] == 180
