@@ -865,6 +865,7 @@ Or restart the Hermes process. MCP servers connect at session start.
 
 - [Hermes Integration](./HERMES_INTEGRATION.md) — Perseus ↔ Hermes LLM routing
 - [Container Deployment](./CONTAINER.md) — Docker / compose deployment
+- [Setup & Configuration Guide](../SETUP-GUIDE.md) — Full config reference, automation, security
 - [spec/components.md](../spec/components.md) — Component architecture
 - [spec/integration.md](../spec/integration.md) — Adapter patterns
 - [Quickstart](./quickstart.md) — First-time setup

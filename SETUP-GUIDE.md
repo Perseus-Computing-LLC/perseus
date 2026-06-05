@@ -961,6 +961,8 @@ uv tool install perseus-ctx
 cd ~/my-project && perseus init
 
 # Render context to AGENTS.md (Hermes, Claude Code, Rovo web agent)
+# Requires PERSEUS_ALLOW_DANGEROUS=1 for @query, @agent, @services command: directives
+PERSEUS_ALLOW_DANGEROUS=1 perseus render ~/.perseus/context.md --output ~/AGENTS.md
 perseus render ~/.perseus/context.md --output ~/AGENTS.md
 
 # Render to .hermes.md (Hermes high-priority context)
