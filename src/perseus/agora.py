@@ -21,7 +21,9 @@ def _memory_llm_provider(args, cfg) -> str | None:
     """Resolve effective llm provider for this call. None == deterministic."""
     flag = getattr(args, "llm", None)
     if flag:
-        return str(flag).strip().lower() or None
+        v = str(flag).strip().lower()
+        # #130: --llm none means "use deterministic" not "use provider named none"
+        return None if v in ("", "none") else v
     cfg_provider = cfg.get("memory", {}).get("llm_provider")
     if cfg_provider:
         return str(cfg_provider).strip().lower() or None
