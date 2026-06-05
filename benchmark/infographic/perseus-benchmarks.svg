@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 580" font-family="system-ui, -apple-system, sans-serif">
+  <defs>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0c0814"/>
+      <stop offset="100%" stop-color="#140e22"/>
+    </linearGradient>
+    <linearGradient id="accentGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#c77dff"/>
+      <stop offset="100%" stop-color="#e4a8ff"/>
+    </linearGradient>
+    <linearGradient id="cyanGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#56e1ff"/>
+      <stop offset="100%" stop-color="#7bf0ff"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="glowHeavy">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="960" height="580" fill="url(#bgGrad)" rx="12"/>
+  <rect x="1" y="1" width="958" height="578" fill="none" stroke="#c77dff" stroke-width="0.5" rx="11" opacity="0.25"/>
+
+  <!-- Title -->
+  <text x="480" y="46" text-anchor="middle" fill="#e4a8ff" font-size="24" font-weight="700" letter-spacing="-0.01em">Perseus v1.0.6 — Performance Benchmarks</text>
+  <line x1="180" y1="58" x2="780" y2="58" stroke="#c77dff" stroke-width="0.5" opacity="0.3"/>
+
+  <!-- === HERO STAT: 450× === -->
+  <text x="480" y="130" text-anchor="middle" fill="url(#accentGrad)" font-size="88" font-weight="800" letter-spacing="-0.02em" filter="url(#glowHeavy)">450×</text>
+  <text x="480" y="156" text-anchor="middle" fill="#9a8cc4" font-size="16" font-weight="500" letter-spacing="0.02em">Cold → Warm Render Speedup at 50,000 Directives</text>
+  <text x="480" y="176" text-anchor="middle" fill="#5d5078" font-size="12">Warm time stays flat regardless of scale. Cold degrades linearly. Gap widens with volume.</text>
+
+  <!-- Divider -->
+  <line x1="120" y1="195" x2="840" y2="195" stroke="#1c1430" stroke-width="1"/>
+
+  <!-- === TOP ROW: 3 stat cards === -->
+  <!-- Card 1: Cache Punch -->
+  <rect x="50" y="215" width="273" height="140" rx="6" fill="#07040d" stroke="#1c1430" stroke-width="1"/>
+  <text x="186" y="258" text-anchor="middle" fill="url(#cyanGrad)" font-size="42" font-weight="800" letter-spacing="-0.02em" filter="url(#glow)">1,190×</text>
+  <text x="186" y="284" text-anchor="middle" fill="#9a8cc4" font-size="14" font-weight="600">Cache Punch Speedup</text>
+  <text x="186" y="306" text-anchor="middle" fill="#5d5078" font-size="11">578.7s cold → <tspan fill="#56e1ff">0.486s</tspan> warm</text>
+  <text x="186" y="326" text-anchor="middle" fill="#5d5078" font-size="11">Real-world directives. Render = free.</text>
+
+  <!-- Card 2: vs LLM -->
+  <rect x="343" y="215" width="273" height="140" rx="6" fill="#07040d" stroke="#1c1430" stroke-width="1"/>
+  <text x="480" y="258" text-anchor="middle" fill="url(#accentGrad)" font-size="42" font-weight="800" letter-spacing="-0.02em" filter="url(#glow)">301×</text>
+  <text x="480" y="284" text-anchor="middle" fill="#9a8cc4" font-size="14" font-weight="600">vs. LLM Tool-Calling</text>
+  <text x="480" y="306" text-anchor="middle" fill="#5d5078" font-size="11">Perseus: <tspan fill="#c77dff">16 min, $0</tspan> · LLM: 83 hours, $$$</text>
+  <text x="480" y="326" text-anchor="middle" fill="#5d5078" font-size="11">500 devs · 10 teams · 5-day week</text>
+
+  <!-- Card 3: Token Compression -->
+  <rect x="636" y="215" width="273" height="140" rx="6" fill="#07040d" stroke="#1c1430" stroke-width="1"/>
+  <text x="773" y="258" text-anchor="middle" fill="url(#cyanGrad)" font-size="42" font-weight="800" letter-spacing="-0.02em" filter="url(#glow)">94%</text>
+  <text x="773" y="284" text-anchor="middle" fill="#9a8cc4" font-size="14" font-weight="600">Token Compression</text>
+  <text x="773" y="306" text-anchor="middle" fill="#5d5078" font-size="11">488 → <tspan fill="#56e1ff">27 avg</tspan> prompt tokens</text>
+  <text x="773" y="326" text-anchor="middle" fill="#5d5078" font-size="11">P99 latency overhead: 0ms</text>
+
+  <!-- === BOTTOM ROW: 3 stat cards === -->
+  <!-- Card 4: Concurrent Writes -->
+  <rect x="50" y="370" width="273" height="140" rx="6" fill="#07040d" stroke="#1c1430" stroke-width="1"/>
+  <text x="186" y="413" text-anchor="middle" fill="url(#accentGrad)" font-size="42" font-weight="800" letter-spacing="-0.02em" filter="url(#glow)">0</text>
+  <text x="186" y="439" text-anchor="middle" fill="#9a8cc4" font-size="14" font-weight="600">Failures. Zero Collisions.</text>
+  <text x="186" y="461" text-anchor="middle" fill="#5d5078" font-size="11">150 concurrent checkpoint writes</text>
+  <text x="186" y="481" text-anchor="middle" fill="#5d5078" font-size="11">120 agents · 30 devs · <tspan fill="#c77dff">9.7s</tspan> wall clock</text>
+
+  <!-- Card 5: Test Suite -->
+  <rect x="343" y="370" width="273" height="140" rx="6" fill="#07040d" stroke="#1c1430" stroke-width="1"/>
+  <text x="480" y="413" text-anchor="middle" fill="url(#cyanGrad)" font-size="42" font-weight="800" letter-spacing="-0.02em" filter="url(#glow)">813</text>
+  <text x="480" y="439" text-anchor="middle" fill="#9a8cc4" font-size="14" font-weight="600">Tests. All Green.</text>
+  <text x="480" y="461" text-anchor="middle" fill="#5d5078" font-size="11">14/14 gates passed · 10/10 enterprise</text>
+  <text x="480" y="481" text-anchor="middle" fill="#5d5078" font-size="11">Atomic FS locking · Symlink hardening</text>
+
+  <!-- Card 6: Semantic Preservation -->
+  <rect x="636" y="370" width="273" height="140" rx="6" fill="#07040d" stroke="#1c1430" stroke-width="1"/>
+  <text x="773" y="413" text-anchor="middle" fill="url(#accentGrad)" font-size="42" font-weight="800" letter-spacing="-0.02em" filter="url(#glow)">1.0</text>
+  <text x="773" y="439" text-anchor="middle" fill="#9a8cc4" font-size="14" font-weight="600">Semantic Equivalence</text>
+  <text x="773" y="461" text-anchor="middle" fill="#5d5078" font-size="11">Gemini 2.5 Flash judge · 20 A/B pairs</text>
+  <text x="773" y="481" text-anchor="middle" fill="#5d5078" font-size="11">Changes what the assistant <tspan fill="#c77dff">knows</tspan>. Not what it says.</text>
+
+  <!-- Bottom bar -->
+  <line x1="120" y1="535" x2="840" y2="535" stroke="#1c1430" stroke-width="1"/>
+  <text x="480" y="558" text-anchor="middle" fill="#5d5078" font-size="11" letter-spacing="0.04em">
+    All benchmarks run on local NVMe · Atomic O_CREAT|O_EXCL locking · Mitigates any inherent bias in evaluator LLMs
+  </text>
+</svg>
