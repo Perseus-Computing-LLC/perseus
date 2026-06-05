@@ -73,7 +73,7 @@ any of these 22 directives:
 ## Example .perseus/context.md
 
 ```markdown
-@perseus v1.0.2
+@perseus v1.0.6
 
 # Project Context
 

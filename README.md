@@ -58,12 +58,13 @@ Pick your assistant and add the config block shown:
 ```yaml
 mcp_servers:
   perseus:
-    transport: stdio
     command: perseus
-    args: ["mcp", "serve"]
+    args: ["mcp", "serve", "--workspace", "/path/to/workspace"]
 ```
 
 Then verify with `hermes mcp test perseus`. Tools appear as `mcp_perseus_*` in your session.
+
+> Use an absolute path for `--workspace`. Perseus's non-interactive shell context has a limited PATH — a bare `perseus` command works in the Hermes MCP config because Hermes resolves it from the user's environment, but the workspace path must be absolute.
 
 **Claude Desktop** (`claude_desktop_config.json`):
 
@@ -220,11 +221,13 @@ That's it. The output file name is the only assistant-specific detail:
 | Assistant | Output file |
 |---|---|
 | Claude Code | `CLAUDE.md` |
-| Hermes Agent | `.hermes.md` |
+| Hermes Agent | `.hermes.md` (top priority) or `AGENTS.md` |
 | Cursor | `.cursorrules` or `.cursor/context.md` |
 | Codex | `AGENTS.md` |
 | Rovo Dev | `AGENTS.md` |
 | Any other | Whatever your assistant reads at session start |
+
+> **Hermes priority order:** `.hermes.md` → `AGENTS.md` → `CLAUDE.md`. Render to `.hermes.md` for highest priority.
 
 Keep it fresh with cron, launchd, systemd, or `perseus watch`:
 
@@ -290,7 +293,7 @@ The `O_CREAT | O_EXCL` checkpoint locking is atomic on local POSIX filesystems. 
 You write this:
 
 ```markdown
-@perseus v0.4
+@perseus v1.0.6
 
 # Context — @date format="YYYY-MM-DD HH:mm z"
 
@@ -416,7 +419,7 @@ Proven at enterprise scale — see [Multi-Agent Relay](./docs/EXAMPLES.md#subage
             ~/.perseus/formats/          ┘  and aliases load from config.
 
 Source document (.perseus/context.md)
-  @perseus v0.4
+  @perseus v1.0.6
   @query "git log --oneline -5"          ┐
   @read .env key="PORT"                  │  Directives resolved
   @waypoint ttl=86400                    │  before context window.
@@ -645,6 +648,7 @@ Mnēmē is LLM-optional: deterministic assembly works zero-dependency; an option
 | Document | What it covers |
 |---|---|
 | [**CLI Reference**](./docs/CLI.md) | Every command and flag |
+| [**Setup & Config Guide**](./SETUP-GUIDE.md) | The definitive setup, config, automation, and troubleshooting guide |
 | [**Directives Reference**](./docs/DIRECTIVES.md) | All directives with modifiers and examples |
 | [**Integration Guide**](./docs/HERMES_INTEGRATION.md) | Wire Perseus to Hermes via LLM routing |
 | [**Adapter Patterns**](./spec/integration.md) | Wire Perseus to any AI assistant |
