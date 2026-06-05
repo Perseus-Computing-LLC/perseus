@@ -3149,8 +3149,8 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
 
     # True cycle: file is an ancestor in the current include chain.
     # _path_chain is an immutable tuple — no need to pop on return.
-    if resolved_path in _path_chain:
-        chain = " → ".join(list(_path_chain) + [resolved_path])
+    if str(resolved_path) in [str(p) for p in _path_chain]:
+        chain = " → ".join([str(p) for p in _path_chain] + [str(resolved_path)])
         return f"> ⚠ @include: circular dependency detected. Chain: {chain}"
 
     # Inode-based detection (task-63): catch hard-link loops where different
@@ -3162,10 +3162,10 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
         inode_pair = None
 
     if inode_pair is not None and inode_pair in _inode_chain:
-        chain = " → ".join(list(_path_chain) + [resolved_path])
+        chain = " → ".join([str(p) for p in _path_chain] + [str(resolved_path)])
         return f"> ⚠ @include: circular dependency detected (hard link). Chain: {chain}"
 
-    _path_chain = _path_chain + (resolved_path,)
+    _path_chain = _path_chain + (str(resolved_path),)
     _inode_chain = _inode_chain + ((inode_pair,) if inode_pair is not None else ())
 
     # ── Depth limit ──
@@ -5515,7 +5515,7 @@ def resolve_services(block_content: str, cfg: dict) -> str:
 
     if parallel and len(services) > 1:
         from concurrent.futures import ThreadPoolExecutor, as_completed
-        max_workers = min(len(services), 16)
+        max_workers = min(len(services), int(cfg["render"].get("parallel_max_workers", 16)))
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {
                 executor.submit(_check_one_service, svc, i, timeout, cfg): i
@@ -6885,10 +6885,13 @@ def serve_mcp_sse(cfg: dict, workspace: Path | None = None, port: int = 8420) ->
         """Verify Bearer token if auth is configured. Also validate Host header."""
         # Host header validation for DNS rebinding protection
         host = handler.headers.get("Host", "")
-        if host:
-            hostname = host.split(":")[0]
-            if hostname not in ("127.0.0.1", "localhost", "::1"):
-                return False
+        # #150: reject empty Host header — pre-1.0.6 accepted requests
+        # with no Host header at all, creating a loopback bypass.
+        if not host or not host.strip():
+            return False
+        hostname = host.split(":")[0]
+        if hostname not in ("127.0.0.1", "localhost", "::1"):
+            return False
         # Bearer token check — token is now guaranteed non-None after startup gate
         if not token:
             return True  # only reachable if allow_no_auth is set
@@ -9010,7 +9013,8 @@ def _mneme_recall(cfg: dict, query: str, k: int = 5,
             return []
 
         return _mneme_search(conn, query, k, scope, type_filter, sensitivity)
-    except Exception:
+    except Exception as exc:
+        sys.stderr.write(f"> ⚠ Mnēmē recall failed (FTS5 index may be corrupt): {exc}\n")
         return []
 # ─────────────────────── Mnēmē v2 — SQLite FTS5 Index ────────────────────────
 # Persistent BM25 index over Perseus-native vault .md files.
@@ -9846,8 +9850,8 @@ def _read_all_pythia_entries() -> list[dict]:
                     continue
                 try:
                     entries.append(json.loads(line))
-                except Exception:
-                    continue
+                except Exception as exc:
+                    sys.stderr.write(f"> ⚠ Pythia: skipping malformed JSONL line: {exc}\n")
     except Exception:
         return []
     return entries
@@ -10087,7 +10091,7 @@ def _deterministic_narrative(
         f"> Run `perseus memory compact` for a full re-distillation.\n"
     )
 
-    return "\n".join([
+    result = "\n".join([
         title,
         preamble,
         arc_section,
@@ -10096,6 +10100,37 @@ def _deterministic_narrative(
         patterns_section,
         recent_section,
     ]).rstrip() + "\n"
+
+    # #145: preserve operator-added sections from existing body.
+    # The deterministic rebuild only covers standard headings; any
+    # custom section the operator manually added would be lost.
+    # We scan existing_body for headings not in our standard set
+    # and append them after the rebuilt content.
+    if existing_body.strip():
+        import re as _re
+        _std_headings = {
+            "project arc", "key decisions", "task history",
+            "patterns & anti-patterns", "recent activity", "mnēmē",
+            "project arc:", "key decisions:", "task history:",
+            "patterns & anti-patterns:", "recent activity:",
+        }
+        _custom_sections: list[str] = []
+        _in_custom = False
+        for _line in existing_body.split("\n"):
+            if _line.startswith("## "):
+                _h_name = _line[3:].strip().lower().rstrip(":")
+                _in_custom = _h_name not in _std_headings
+                if _in_custom:
+                    _custom_sections.append("")
+            if _in_custom or _line.startswith("## "):
+                _custom_sections.append(_line)
+        if _custom_sections:
+            result += "\n---\n## Operator-Added Sections\n\n"
+            result += "\n".join(_custom_sections).strip() + "\n"
+            result += "\n> ⚠ Above sections preserved from prior narrative by operator.\n"
+            result += "> Review after deterministic update to ensure accuracy.\n"
+
+    return result
 
 
 # ───────────────────────── Mnēmē Federation (task-19) ────────────────────────
@@ -10650,7 +10685,9 @@ def _memory_workspace(args, cfg) -> Path:
     cwd = Path.cwd().resolve()
     if (cwd / ".perseus").exists():
         return cwd
-    return Path.home().resolve()
+    fallback = Path.home().resolve()
+    sys.stderr.write(f"> ⚠ Mneme: no .perseus/ in CWD; falling back to {fallback}. Use --workspace.\n")
+    return fallback
 
 
 def _memory_llm_provider(args, cfg) -> str | None:
@@ -10671,6 +10708,13 @@ def _memory_do_update(workspace: Path, cfg: dict, provider: str | None) -> tuple
     On error, raises.
     """
     cp_files = _list_checkpoint_files(cfg)
+    # #152: check if we are at HWM to skip pointless I/O. If the file count
+    # matches the processed count in frontmatter, nothing changed.
+    mp = _mneme_path(workspace, cfg)
+    fm, body = _load_narrative(mp)
+    hwm = int(fm.get("checkpoints_processed", 0)) if fm else 0
+    if hwm > 0 and hwm >= len(cp_files) and not _read_all_pythia_entries():
+        return False, "Nothing new to process (all checkpoints at HWM)."
     # _list_checkpoint_files returns reverse-chrono; sort filename-asc for hwm
     cp_files = sorted(cp_files, key=lambda f: f.name)
     all_checkpoints: list[dict] = []
@@ -10680,8 +10724,6 @@ def _memory_do_update(workspace: Path, cfg: dict, provider: str | None) -> tuple
             all_checkpoints.append(cp)
     all_pythia = _read_all_pythia_entries()
 
-    mp = _mneme_path(workspace, cfg)
-    fm, body = _load_narrative(mp)
     if not fm:
         fm = _mneme_default_frontmatter(workspace)
         body = ""
@@ -10819,7 +10861,7 @@ def cmd_memory_update_silent(workspace: Path, cfg: dict) -> None:
             provider = str(cfg_provider).strip().lower() or None
         _memory_do_update(workspace, cfg, provider)
     except Exception as exc:
-        print(f"> ⚠ Mnēmē update failed: {exc}")
+        sys.stderr.write(f"> ⚠ Mnēmē update failed: {exc}\n")
 
 
 def cmd_memory(args, cfg):
