@@ -34,7 +34,9 @@ def _workspace_hash(workspace: Path) -> str:
     (multi-workspace checkpoint namespacing) if/when that lands.
     """
     canonical = workspace.expanduser().resolve()
-    return hashlib.sha256(str(canonical).encode()).hexdigest()[:12]
+    # #157: 16 hex chars (64-bit space) for federation safety.
+    # 12 chars (48-bit) had ~1% collision chance at 30M workspaces.
+    return hashlib.sha256(str(canonical).encode()).hexdigest()[:16]
 
 
 def _workspace_hash_legacy_md5(workspace: Path) -> str:
@@ -53,10 +55,10 @@ def _workspace_hash_legacy_md5(workspace: Path) -> str:
     """
     canonical = str(workspace.expanduser().resolve()).encode()
     try:
-        return hashlib.md5(canonical, usedforsecurity=False).hexdigest()[:12]
+        return hashlib.md5(canonical, usedforsecurity=False).hexdigest()[:16]
     except TypeError:
         # Python < 3.9: no `usedforsecurity` kwarg.
-        return hashlib.md5(canonical).hexdigest()[:12]
+        return hashlib.md5(canonical).hexdigest()[:16]
 
 
 def _mneme_path(workspace: Path, cfg: dict) -> Path:
@@ -100,7 +102,7 @@ def _mneme_doctor_scan(cfg: dict) -> dict:
           "legacy_md5_files": [path, ...],  # files whose name matches legacy MD5 of a known workspace
           "sha256_files": [path, ...],      # files that look like current-scheme files
           "orphan_files": [path, ...],      # files whose embedded `workspace` frontmatter no longer resolves to their filename
-          "unknown_files": [path, ...],     # files whose stem isn't a 12-char hex hash
+          "unknown_files": [path, ...],     # files whose stem isn't a 16-char hex hash
         }
 
     "Known workspace" inference: we re-derive the SHA-256 and legacy MD5
@@ -120,7 +122,9 @@ def _mneme_doctor_scan(cfg: dict) -> dict:
     }
     if not store.exists():
         return out
-    hex_re = re.compile(r"^[a-f0-9]{12}$")
+    # #157: accept both legacy 12-char and current 16-char hex stems
+    # for backward-compatible doctor scanning during migration.
+    hex_re = re.compile(r"^[a-f0-9]{12,16}$")
     for fp in sorted(store.glob("*.md")):
         out["narrative_files"].append(str(fp))
         stem = fp.stem
@@ -202,6 +206,21 @@ def _load_narrative(path: Path) -> tuple[dict, str]:
     return fm, body
 
 
+
+def _safe_fsync(path):
+    """Fsync file + parent directory for durability (#140)."""
+    try:
+        with open(path, "rb") as f:
+            os.fsync(f.fileno())
+    except OSError:
+        pass
+    try:
+        fd = os.open(str(path.parent), os.O_RDONLY)
+        os.fsync(fd)
+        os.close(fd)
+    except OSError:
+        pass
+
 def _save_narrative(path: Path, frontmatter: dict, body: str) -> None:
     """Atomically write the narrative file (temp + rename)."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -209,6 +228,9 @@ def _save_narrative(path: Path, frontmatter: dict, body: str) -> None:
     payload = f"---\n{fm_yaml}\n---\n\n{body.rstrip()}\n"
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(payload, encoding="utf-8")
+    # #140: fsync temp file + parent directory before atomic rename to
+    # prevent narrative loss on system crash / power loss.
+    _safe_fsync(tmp)
     os.replace(tmp, path)
 
 
@@ -252,8 +274,8 @@ def _read_all_pythia_entries() -> list[dict]:
                     continue
                 try:
                     entries.append(json.loads(line))
-                except Exception:
-                    continue
+                except Exception as exc:
+                    sys.stderr.write(f"> ⚠ Pythia: skipping malformed JSONL line: {exc}\n")
     except Exception:
         return []
     return entries
@@ -493,7 +515,7 @@ def _deterministic_narrative(
         f"> Run `perseus memory compact` for a full re-distillation.\n"
     )
 
-    return "\n".join([
+    result = "\n".join([
         title,
         preamble,
         arc_section,
@@ -502,5 +524,36 @@ def _deterministic_narrative(
         patterns_section,
         recent_section,
     ]).rstrip() + "\n"
+
+    # #145: preserve operator-added sections from existing body.
+    # The deterministic rebuild only covers standard headings; any
+    # custom section the operator manually added would be lost.
+    # We scan existing_body for headings not in our standard set
+    # and append them after the rebuilt content.
+    if existing_body.strip():
+        import re as _re
+        _std_headings = {
+            "project arc", "key decisions", "task history",
+            "patterns & anti-patterns", "recent activity", "mnēmē",
+            "project arc:", "key decisions:", "task history:",
+            "patterns & anti-patterns:", "recent activity:",
+        }
+        _custom_sections: list[str] = []
+        _in_custom = False
+        for _line in existing_body.split("\n"):
+            if _line.startswith("## "):
+                _h_name = _line[3:].strip().lower().rstrip(":")
+                _in_custom = _h_name not in _std_headings
+                if _in_custom:
+                    _custom_sections.append("")
+            if _in_custom or _line.startswith("## "):
+                _custom_sections.append(_line)
+        if _custom_sections:
+            result += "\n---\n## Operator-Added Sections\n\n"
+            result += "\n".join(_custom_sections).strip() + "\n"
+            result += "\n> ⚠ Above sections preserved from prior narrative by operator.\n"
+            result += "> Review after deterministic update to ensure accuracy.\n"
+
+    return result
 
 

@@ -804,6 +804,14 @@ def _webhook_worker(url, ep, wh_cfg, q):
             "version": version,
             "data": payload
         }
+        # #167: redact secrets from webhook payload before external delivery.
+        # Pre-1.0.6, directive args and output snippets in payload["data"]
+        # were sent verbatim to webhook endpoints, leaking secrets.
+        try:
+            redacted_data, _ = redact_text(payload, cfg)
+            body_dict["data"] = redacted_data
+        except Exception:
+            pass  # redaction failure must not block webhook delivery
         body_json = json.dumps(body_dict)
         body_data = body_json.encode("utf-8")
         
@@ -1533,8 +1541,8 @@ DEFAULT_REDACTION_RULES: list[dict[str, str]] = [
     {"name": "aws_access_key_id", "pattern": r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"},
     # Slack bot/user/app/refresh tokens
     {"name": "slack_token", "pattern": r"\bxox[abprso]-[A-Za-z0-9-]{10,}\b"},
-    # Generic bearer header value (Authorization: Bearer XXXX)
-    {"name": "bearer_header", "pattern": r"(?i)(authorization:\s*bearer\s+)[A-Za-z0-9._\-+/=]{16,}"},
+    # Generic bearer header value (Authorization: Bearer ***
+    {"name": "bearer_header", "pattern": r"(?i)(authorization:\s*bearer\s+)[A-Za-z0-9._\-+/=]{16,}", "_prefix_group": 1},
     # JWT (three base64url segments). Conservative: require non-trivial first segment.
     {"name": "jwt", "pattern": r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"},
     # PEM private key block (covers RSA, EC, OPENSSH, generic)
@@ -1552,6 +1560,9 @@ DEFAULT_REDACTION_RULES: list[dict[str, str]] = [
     {"name": "long_hex_secret",
      "pattern": r"(?i)(?:secret|token|key|password|passwd|api[_-]?key|auth(?:orization)?)\s*[:=]\s*[\"']?([a-fA-F0-9]{40,})[\"']?",
      "_anchor_group": 1},
+    # Atlassian API token: ATATT3... (Confluence/Jira personal access tokens)
+    # See: https://github.com/tcconnally/perseus/issues/142
+    {"name": "atlassian_api_token", "pattern": r"\bATATT3[A-Za-z0-9+/=_-]{40,}\b"},
     # HuggingFace: hf_... (read/write tokens)
     {"name": "huggingface_token", "pattern": r"\bhf_[A-Za-z0-9]{30,}\b"},
     # Google Cloud API key: AIza...
@@ -1622,11 +1633,13 @@ def _compile_redaction_rules(cfg: dict) -> list[dict]:
         # behavior: group(1) (if present) is treated as a leading prefix to
         # preserve and the rest of the match is replaced.
         anchor_group = rule.get("_anchor_group")
+        prefix_group = rule.get("_prefix_group")
         compiled.append({
             "name": name,
             "regex": regex,
             "replacement": str(replacement),
             "anchor_group": anchor_group,
+            "prefix_group": prefix_group,
         })
     return compiled
 
@@ -1683,8 +1696,13 @@ def redact_text(text: str, cfg: dict) -> tuple[str, dict]:
                 rel_start = span_start - match.start()
                 rel_end = span_end - match.start()
                 return full[:rel_start] + _repl + full[rel_end:]
-            if match.lastindex:
-                return match.group(1) + _repl
+            # #141: prefix-preservation only for rules that explicitly
+            # declare _prefix_group (e.g. bearer_header). User-supplied
+            # patterns with accidental capture groups would silently
+            # truncate data under the old `match.lastindex` heuristic.
+            _pg = rule.get("prefix_group")
+            if _pg is not None and match.lastindex and match.lastindex >= _pg:
+                return match.group(_pg) + _repl
             return _repl
         out, n = regex.subn(_sub, out)
         if n:
@@ -1734,7 +1752,6 @@ def redact_value(value, cfg: dict) -> tuple[object, dict]:
                 counts[name] = counts.get(name, 0) + count
         return out, {"enabled": enabled, "total": total, "counts": counts, "rules_active": rules_active}
     return value, {"enabled": True, "total": 0, "counts": {}, "rules_active": 0}
-
 # Callers can disable via `audit.enabled = false`.
 _VALIDATOR_CACHE: dict[str, Callable] = {}
 
@@ -3132,8 +3149,8 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
 
     # True cycle: file is an ancestor in the current include chain.
     # _path_chain is an immutable tuple — no need to pop on return.
-    if resolved_path in _path_chain:
-        chain = " → ".join(list(_path_chain) + [resolved_path])
+    if str(resolved_path) in [str(p) for p in _path_chain]:
+        chain = " → ".join([str(p) for p in _path_chain] + [str(resolved_path)])
         return f"> ⚠ @include: circular dependency detected. Chain: {chain}"
 
     # Inode-based detection (task-63): catch hard-link loops where different
@@ -3145,10 +3162,10 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
         inode_pair = None
 
     if inode_pair is not None and inode_pair in _inode_chain:
-        chain = " → ".join(list(_path_chain) + [resolved_path])
+        chain = " → ".join([str(p) for p in _path_chain] + [str(resolved_path)])
         return f"> ⚠ @include: circular dependency detected (hard link). Chain: {chain}"
 
-    _path_chain = _path_chain + (resolved_path,)
+    _path_chain = _path_chain + (str(resolved_path),)
     _inode_chain = _inode_chain + ((inode_pair,) if inode_pair is not None else ())
 
     # ── Depth limit ──
@@ -3605,6 +3622,17 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
         fallback = _unescape_fallback(fallback)
         raw = (raw[:fb_match.start()] + raw[fb_match.end():]).rstrip()
 
+    # #138: strip timeout=N modifier BEFORE command extraction to prevent
+    # it from leaking into the executed shell command.
+
+    # Extract timeout=N modifier (per-directive override, default 30s)
+    timeout = int(cfg["render"].get("query_timeout_s", 30))
+    tm_match = re.search(r'\s+timeout=(\d+)(?:\s|$)', raw)
+    if tm_match:
+        timeout = int(tm_match.group(1))
+        raw = (raw[:tm_match.start()] + raw[tm_match.end():]).rstrip()
+
+
     cmd_match = re.match(r'^"((?:[^"\\]|\\.)*)"', raw)   # double-quoted
     if not cmd_match:
         cmd_match = re.match(r"^'((?:[^'\\]|\\.)*)'", raw)  # single-quoted
@@ -3625,13 +3653,6 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
                 directive="@query",
                 command=cmd[:500],
                 shell=shell)
-
-    # Extract timeout=N modifier (per-directive override, default 30s)
-    timeout = int(cfg["render"].get("query_timeout_s", 30))
-    tm_match = re.search(r'\s+timeout=(\d+)(?:\s|$)', raw)
-    if tm_match:
-        timeout = int(tm_match.group(1))
-        raw = (raw[:tm_match.start()] + raw[tm_match.end():]).rstrip()
 
     try:
         # #139: when invoked under MCP's _call_tool timeout wrapper, the
@@ -3690,7 +3711,7 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
                 return fallback
             # #137: redact secrets out of `cmd` and `stderr` before interpolating
             # them into render output. Without this, a command like
-            # `@query "curl -H 'Authorization: Bearer ghp_…'"` leaks the bearer
+            # `@query "curl -H 'Authorization: Bearer *** leaks the bearer
             # token in the exit-nonzero header. Render-time redaction only runs
             # later in the pipeline and only on the final assembled output, but
             # by then this string has been logged elsewhere.
@@ -4546,7 +4567,6 @@ def format_prefetch_human(result: dict) -> str:
         trigger = entry.get("trigger") or "no-trigger"
         lines.append(f"- {entry['status']}: {entry['rule']} {trigger} -> {target}{reason}")
     return "\n".join(lines)
-
 # ──────────────────────────────── @agent ──────────────────────────────────────
 
 def resolve_agent(args_str: str, cfg: dict, workspace: Path | None = None) -> str:
@@ -5495,7 +5515,7 @@ def resolve_services(block_content: str, cfg: dict) -> str:
 
     if parallel and len(services) > 1:
         from concurrent.futures import ThreadPoolExecutor, as_completed
-        max_workers = min(len(services), 16)
+        max_workers = min(len(services), int(cfg["render"].get("parallel_max_workers", 16)))
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {
                 executor.submit(_check_one_service, svc, i, timeout, cfg): i
@@ -6865,10 +6885,13 @@ def serve_mcp_sse(cfg: dict, workspace: Path | None = None, port: int = 8420) ->
         """Verify Bearer token if auth is configured. Also validate Host header."""
         # Host header validation for DNS rebinding protection
         host = handler.headers.get("Host", "")
-        if host:
-            hostname = host.split(":")[0]
-            if hostname not in ("127.0.0.1", "localhost", "::1"):
-                return False
+        # #150: reject empty Host header — pre-1.0.6 accepted requests
+        # with no Host header at all, creating a loopback bypass.
+        if not host or not host.strip():
+            return False
+        hostname = host.split(":")[0]
+        if hostname not in ("127.0.0.1", "localhost", "::1"):
+            return False
         # Bearer token check — token is now guaranteed non-None after startup gate
         if not token:
             return True  # only reachable if allow_no_auth is set
@@ -8990,7 +9013,8 @@ def _mneme_recall(cfg: dict, query: str, k: int = 5,
             return []
 
         return _mneme_search(conn, query, k, scope, type_filter, sensitivity)
-    except Exception:
+    except Exception as exc:
+        sys.stderr.write(f"> ⚠ Mnēmē recall failed (FTS5 index may be corrupt): {exc}\n")
         return []
 # ─────────────────────── Mnēmē v2 — SQLite FTS5 Index ────────────────────────
 # Persistent BM25 index over Perseus-native vault .md files.
@@ -9590,7 +9614,9 @@ def _workspace_hash(workspace: Path) -> str:
     (multi-workspace checkpoint namespacing) if/when that lands.
     """
     canonical = workspace.expanduser().resolve()
-    return hashlib.sha256(str(canonical).encode()).hexdigest()[:12]
+    # #157: 16 hex chars (64-bit space) for federation safety.
+    # 12 chars (48-bit) had ~1% collision chance at 30M workspaces.
+    return hashlib.sha256(str(canonical).encode()).hexdigest()[:16]
 
 
 def _workspace_hash_legacy_md5(workspace: Path) -> str:
@@ -9609,10 +9635,10 @@ def _workspace_hash_legacy_md5(workspace: Path) -> str:
     """
     canonical = str(workspace.expanduser().resolve()).encode()
     try:
-        return hashlib.md5(canonical, usedforsecurity=False).hexdigest()[:12]
+        return hashlib.md5(canonical, usedforsecurity=False).hexdigest()[:16]
     except TypeError:
         # Python < 3.9: no `usedforsecurity` kwarg.
-        return hashlib.md5(canonical).hexdigest()[:12]
+        return hashlib.md5(canonical).hexdigest()[:16]
 
 
 def _mneme_path(workspace: Path, cfg: dict) -> Path:
@@ -9656,7 +9682,7 @@ def _mneme_doctor_scan(cfg: dict) -> dict:
           "legacy_md5_files": [path, ...],  # files whose name matches legacy MD5 of a known workspace
           "sha256_files": [path, ...],      # files that look like current-scheme files
           "orphan_files": [path, ...],      # files whose embedded `workspace` frontmatter no longer resolves to their filename
-          "unknown_files": [path, ...],     # files whose stem isn't a 12-char hex hash
+          "unknown_files": [path, ...],     # files whose stem isn't a 16-char hex hash
         }
 
     "Known workspace" inference: we re-derive the SHA-256 and legacy MD5
@@ -9676,7 +9702,9 @@ def _mneme_doctor_scan(cfg: dict) -> dict:
     }
     if not store.exists():
         return out
-    hex_re = re.compile(r"^[a-f0-9]{12}$")
+    # #157: accept both legacy 12-char and current 16-char hex stems
+    # for backward-compatible doctor scanning during migration.
+    hex_re = re.compile(r"^[a-f0-9]{12,16}$")
     for fp in sorted(store.glob("*.md")):
         out["narrative_files"].append(str(fp))
         stem = fp.stem
@@ -9758,6 +9786,21 @@ def _load_narrative(path: Path) -> tuple[dict, str]:
     return fm, body
 
 
+
+def _safe_fsync(path):
+    """Fsync file + parent directory for durability (#140)."""
+    try:
+        with open(path, "rb") as f:
+            os.fsync(f.fileno())
+    except OSError:
+        pass
+    try:
+        fd = os.open(str(path.parent), os.O_RDONLY)
+        os.fsync(fd)
+        os.close(fd)
+    except OSError:
+        pass
+
 def _save_narrative(path: Path, frontmatter: dict, body: str) -> None:
     """Atomically write the narrative file (temp + rename)."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -9765,6 +9808,9 @@ def _save_narrative(path: Path, frontmatter: dict, body: str) -> None:
     payload = f"---\n{fm_yaml}\n---\n\n{body.rstrip()}\n"
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(payload, encoding="utf-8")
+    # #140: fsync temp file + parent directory before atomic rename to
+    # prevent narrative loss on system crash / power loss.
+    _safe_fsync(tmp)
     os.replace(tmp, path)
 
 
@@ -9808,8 +9854,8 @@ def _read_all_pythia_entries() -> list[dict]:
                     continue
                 try:
                     entries.append(json.loads(line))
-                except Exception:
-                    continue
+                except Exception as exc:
+                    sys.stderr.write(f"> ⚠ Pythia: skipping malformed JSONL line: {exc}\n")
     except Exception:
         return []
     return entries
@@ -10049,7 +10095,7 @@ def _deterministic_narrative(
         f"> Run `perseus memory compact` for a full re-distillation.\n"
     )
 
-    return "\n".join([
+    result = "\n".join([
         title,
         preamble,
         arc_section,
@@ -10058,6 +10104,37 @@ def _deterministic_narrative(
         patterns_section,
         recent_section,
     ]).rstrip() + "\n"
+
+    # #145: preserve operator-added sections from existing body.
+    # The deterministic rebuild only covers standard headings; any
+    # custom section the operator manually added would be lost.
+    # We scan existing_body for headings not in our standard set
+    # and append them after the rebuilt content.
+    if existing_body.strip():
+        import re as _re
+        _std_headings = {
+            "project arc", "key decisions", "task history",
+            "patterns & anti-patterns", "recent activity", "mnēmē",
+            "project arc:", "key decisions:", "task history:",
+            "patterns & anti-patterns:", "recent activity:",
+        }
+        _custom_sections: list[str] = []
+        _in_custom = False
+        for _line in existing_body.split("\n"):
+            if _line.startswith("## "):
+                _h_name = _line[3:].strip().lower().rstrip(":")
+                _in_custom = _h_name not in _std_headings
+                if _in_custom:
+                    _custom_sections.append("")
+            if _in_custom or _line.startswith("## "):
+                _custom_sections.append(_line)
+        if _custom_sections:
+            result += "\n---\n## Operator-Added Sections\n\n"
+            result += "\n".join(_custom_sections).strip() + "\n"
+            result += "\n> ⚠ Above sections preserved from prior narrative by operator.\n"
+            result += "> Review after deterministic update to ensure accuracy.\n"
+
+    return result
 
 
 # ───────────────────────── Mnēmē Federation (task-19) ────────────────────────
@@ -10612,14 +10689,18 @@ def _memory_workspace(args, cfg) -> Path:
     cwd = Path.cwd().resolve()
     if (cwd / ".perseus").exists():
         return cwd
-    return Path.home().resolve()
+    fallback = Path.home().resolve()
+    sys.stderr.write(f"> ⚠ Mneme: no .perseus/ in CWD; falling back to {fallback}. Use --workspace.\n")
+    return fallback
 
 
 def _memory_llm_provider(args, cfg) -> str | None:
     """Resolve effective llm provider for this call. None == deterministic."""
     flag = getattr(args, "llm", None)
     if flag:
-        return str(flag).strip().lower() or None
+        v = str(flag).strip().lower()
+        # #130: --llm none means "use deterministic" not "use provider named none"
+        return None if v in ("", "none") else v
     cfg_provider = cfg.get("memory", {}).get("llm_provider")
     if cfg_provider:
         return str(cfg_provider).strip().lower() or None
@@ -10633,6 +10714,13 @@ def _memory_do_update(workspace: Path, cfg: dict, provider: str | None) -> tuple
     On error, raises.
     """
     cp_files = _list_checkpoint_files(cfg)
+    # #152: check if we are at HWM to skip pointless I/O. If the file count
+    # matches the processed count in frontmatter, nothing changed.
+    mp = _mneme_path(workspace, cfg)
+    fm, body = _load_narrative(mp)
+    hwm = int(fm.get("checkpoints_processed", 0)) if fm else 0
+    if hwm > 0 and hwm >= len(cp_files) and not _read_all_pythia_entries():
+        return False, "Nothing new to process (all checkpoints at HWM)."
     # _list_checkpoint_files returns reverse-chrono; sort filename-asc for hwm
     cp_files = sorted(cp_files, key=lambda f: f.name)
     all_checkpoints: list[dict] = []
@@ -10642,8 +10730,6 @@ def _memory_do_update(workspace: Path, cfg: dict, provider: str | None) -> tuple
             all_checkpoints.append(cp)
     all_pythia = _read_all_pythia_entries()
 
-    mp = _mneme_path(workspace, cfg)
-    fm, body = _load_narrative(mp)
     if not fm:
         fm = _mneme_default_frontmatter(workspace)
         body = ""
@@ -10781,7 +10867,7 @@ def cmd_memory_update_silent(workspace: Path, cfg: dict) -> None:
             provider = str(cfg_provider).strip().lower() or None
         _memory_do_update(workspace, cfg, provider)
     except Exception as exc:
-        print(f"> ⚠ Mnēmē update failed: {exc}")
+        sys.stderr.write(f"> ⚠ Mnēmē update failed: {exc}\n")
 
 
 def cmd_memory(args, cfg):

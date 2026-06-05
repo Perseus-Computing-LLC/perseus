@@ -489,10 +489,13 @@ def serve_mcp_sse(cfg: dict, workspace: Path | None = None, port: int = 8420) ->
         """Verify Bearer token if auth is configured. Also validate Host header."""
         # Host header validation for DNS rebinding protection
         host = handler.headers.get("Host", "")
-        if host:
-            hostname = host.split(":")[0]
-            if hostname not in ("127.0.0.1", "localhost", "::1"):
-                return False
+        # #150: reject empty Host header — pre-1.0.6 accepted requests
+        # with no Host header at all, creating a loopback bypass.
+        if not host or not host.strip():
+            return False
+        hostname = host.split(":")[0]
+        if hostname not in ("127.0.0.1", "localhost", "::1"):
+            return False
         # Bearer token check — token is now guaranteed non-None after startup gate
         if not token:
             return True  # only reachable if allow_no_auth is set
