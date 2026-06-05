@@ -90,7 +90,72 @@ def _memory_do_compact(workspace: Path, cfg: dict, provider: str | None) -> str:
         fm = _mneme_default_frontmatter(workspace)
 
     if provider:
-        new_body = _mneme_compact_llm(all_checkpoints, all_pythia, workspace, cfg, provider)
+        # Regression for #131 — pre-1.0.6, _mneme_compact_llm() called run_llm()
+        # which only enforced `llm.timeout_s` (default 30s) on the HTTP request
+        # itself. With streaming-token providers like Ollama serving a large
+        # model, individual tokens can arrive within timeout but total wall
+        # time was unbounded — operators reported `memory compact` hanging
+        # for hours.
+        #
+        # We now wrap the LLM call in a wall-clock deadline (memory.
+        # compact_total_timeout_s, default 180s). On timeout we abandon the
+        # LLM future and fall back to deterministic narrative — operators get
+        # SOME narrative, plus a clear stderr signal so they can decide
+        # whether to upgrade their LLM setup or stay deterministic.
+        #
+        # Limitation: ThreadPoolExecutor cannot truly kill the worker thread
+        # (Python provides no public API for that). The in-flight HTTP
+        # request continues until urllib's per-request timeout fires.
+        # Worst-case observed total wait is therefore
+        # `compact_total_timeout_s + llm.timeout_s`. The leaked thread is
+        # daemonized by Python's default ThreadPoolExecutor settings; it
+        # will not prevent process exit.
+        total_timeout = float(cfg.get("memory", {}).get(
+            "compact_total_timeout_s", 180.0
+        ))
+        try:
+            import concurrent.futures as _cf
+            executor = _cf.ThreadPoolExecutor(
+                max_workers=1, thread_name_prefix="mneme-compact-llm",
+            )
+            try:
+                fut = executor.submit(
+                    _mneme_compact_llm,
+                    all_checkpoints, all_pythia, workspace, cfg, provider,
+                )
+                new_body = fut.result(timeout=total_timeout)
+            finally:
+                # Don't block on the worker — it may still be waiting on
+                # urllib. The thread is daemonic and will not block exit.
+                executor.shutdown(wait=False, cancel_futures=True)
+        except _cf.TimeoutError:
+            sys.stderr.write(
+                f"> ⚠ Mnēmē compact: LLM provider {provider!r} exceeded "
+                f"compact_total_timeout_s={total_timeout:.0f}s; "
+                f"falling back to deterministic narrative.\n"
+            )
+            try:
+                audit_event(
+                    cfg, "memory_compact_timeout",
+                    provider=provider,
+                    total_timeout_s=total_timeout,
+                    workspace_hash=_workspace_hash(workspace),
+                )
+            except Exception:
+                pass
+            new_body = _deterministic_narrative(
+                all_checkpoints, all_pythia, "", workspace, cfg,
+            )
+        except Exception as exc:
+            # LLM call raised (model server unreachable, payload error, etc.)
+            # — surface the failure but still produce SOMETHING usable.
+            sys.stderr.write(
+                f"> ⚠ Mnēmē compact: LLM provider {provider!r} failed "
+                f"({exc}); falling back to deterministic narrative.\n"
+            )
+            new_body = _deterministic_narrative(
+                all_checkpoints, all_pythia, "", workspace, cfg,
+            )
     else:
         new_body = _deterministic_narrative(all_checkpoints, all_pythia, "", workspace, cfg)
 
