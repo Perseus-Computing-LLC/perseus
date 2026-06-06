@@ -536,15 +536,28 @@ engram:
 
 ```bash
 # Install Engram-rs (one-time)
-cargo install engram-rs        # via Cargo
-# or: brew install engram-rs   # via Homebrew (when available)
-engram serve --mcp              # verify it runs in MCP mode
+# Cargo package: jamjet-engram-server, binary name: engram
+cargo install jamjet-engram-server       # via Cargo (v0.5.0+)
+# or: download prebuilt binary from GitHub Releases
+
+# Required companion: Ollama for embedding support
+curl -fsSL https://ollama.com/install.sh | sh
+ollama pull nomic-embed-text   # 768-dims, required by default config
+
+# Verify
+engram serve --help            # confirm MCP mode is available
 ```
 
 > **Minimal surface area:** Engram-rs is optional. When the `engram` binary is not found,
-> Perseus degrades gracefully to local Mnēmē FTS5 only — no crash, no hang, no error
-> visible to the end user. Circuit breaker + exponential backoff prevent permission
-> storms or resource exhaustion during outages.
+> or when vector embeddings are unavailable (v0.5.0 ships without indexed embeddings in
+> some configurations), Perseus degrades gracefully to local Mnēmē **FTS5 keyword search**
+> via SQLite — no crash, no hang, no error visible to the end user. Circuit breaker +
+> exponential backoff prevent permission storms or resource exhaustion during outages.
+> 
+> **memory_add is async:** The `memory_add` MCP tool may return `null` or an empty response
+> while fact extraction runs in the background. This is expected behavior — Perseus treats
+> null responses as success (data is being processed). Results appear on the next
+> `memory_recall` call.
 
 > **Merge strategies explained:**
 > - `local_first` — Mnēmē results first, then Engram results (default, safest)
@@ -552,13 +565,16 @@ engram serve --mcp              # verify it runs in MCP mode
 > - `interleave` — Alternate rows between Engram/Mnēmē, sorted by decay score within each
 > - `decay_first` — All results sorted globally by Engram decay_score descending
 
-> **Verification:** After installing Engram-rs, restart `perseus watch` (or re-render).
-> The next `@memory` resolution silently upgrades to hybrid mode. To confirm:
-> ```bash
-> python3.12 -c "from perseus import resolve_memory; resolve_memory('query=architecture k=3', {})"
-> ```
-> If Engram-rs is online, the output will include items tagged `source=engram` alongside
-> local Mnēmē results. If offline, only local results appear — no error.
+> **Verification:** After installing Engram-rs and Ollama, restart `perseus watch`
+> (or re-render). The next `@memory` resolution silently upgrades to hybrid mode.
+> To confirm: run `perseus doctor` — it reports Engram-rs connectivity and FTS5
+> fallback status. If Engram-rs is online but embeddings aren't indexed yet,
+> memory recall uses FTS5 keyword search transparently — no error visible.
+> 
+> **FTS5 fallback (v0.5.0+):** When `memory_recall` returns empty or no vector results,
+> Perseus automatically falls back to local SQLite FTS5 over the engram database.
+> This ensures memory recall always returns results even when the vector index is
+> cold or not yet built. The engram DB is at `~/.perseus/engram/engram.db`.
 
 ### Writing checkpoints (the right way)
 

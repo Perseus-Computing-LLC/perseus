@@ -98,6 +98,18 @@ and `ContextPackage` dataclasses enforce source tagging so the
 assistant can distinguish "what is happening now" from "what we
 decided then."
 
+**FTS5 fallback (v1.0.6+, engram v0.5.0+):** When `memory_recall` returns
+empty vector results (e.g., the embedding index is cold or not yet built),
+Perseus automatically falls back to local SQLite FTS5 keyword search over
+the engram database (`~/.perseus/engram/engram.db`). This guarantees memory
+recall always returns results — no silent empty responses. The engram binary
+(`jamjet-engram-server`) writes to this database; Perseus reads it directly.
+
+**memory_add is async:** The `memory_add` MCP tool returns `null` or empty
+while the LLM-based fact extraction pipeline runs in the background. Perseus
+treats null responses as success — data is stored and will be available on
+the next `memory_recall` call. No polling or retry logic is needed.
+
 All Mnemosyne-specific types and gRPC transport have been replaced.
 The `@memory` directive and MCP tool `perseus_memory` resolve
 through the unified hybrid path. 32 smoke tests validate the full
