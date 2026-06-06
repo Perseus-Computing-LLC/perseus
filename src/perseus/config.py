@@ -121,6 +121,24 @@ DEFAULT_CONFIG = {
         # The daedalus path falls back to deterministic on any failure.
         "pattern_extractor": "deterministic",
     },
+    "engram": {                          # Project Synapse — Engram-rs MCP-based persistent memory
+        "enabled": True,
+        "transport": "stdio",            # "stdio" (local binary) or "sse" (remote endpoint)
+        "command": ["engram", "serve", "--mcp"],
+        "endpoint": "",                  # SSE endpoint URL (when transport=sse)
+        "timeout_s": 10.0,
+        "merge_strategy": "local_first", # local_first | remote_first | interleave | decay_first
+        "decay_priority_weight": 0.4,    # weight of decay_score in merge ordering (0.0–1.0)
+        "fallback_to_local": True,       # Use Mnēmē FTS5 when Engram is unreachable
+        "circuit_breaker": {
+            "threshold": 3,              # Consecutive failures before opening
+            "cooldown": 120,             # Seconds before attempting recovery
+        },
+        "retry_policy": {
+            "max_attempts": 3,
+            "backoff_base": 1.5,
+        },
+    },
     "inbox": {                       # task-16 (Phase 8 P8.3)
         "store": str(PERSEUS_HOME / "inbox"),
         "default_recipient": "anyone",
