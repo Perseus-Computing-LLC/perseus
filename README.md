@@ -147,7 +147,7 @@ Published as [`io.github.tcconnally/perseus`](https://registry.modelcontextproto
 
 ### MCP Tools
 
-<!-- test-count: 813 -->
+<!-- test-count: 894 -->
 24 MCP tools resolve live state at invocation time. Two sensitive tools (`perseus_query` and `perseus_agent`) require explicit `mcp.tool_allowlist` opt-in because they execute commands in the user's local shell — **not sandboxed, full user permissions apply**:
 
 | Tool | Description |
@@ -258,7 +258,7 @@ Perseus delivers verified, up-to-date context, eliminating the need for AI assis
 
 ### Reliability & Security
 
-Perseus is tested against edge cases that challenge the "resolve before context" claim. **Phase 26** (v1.0.5) completed a full security review against the MCP transport and foreign resolver surface:
+Perseus is tested against edge cases that challenge the "resolve before context" claim. **v1.0.6** completed a deep-dive architectural review (O(n²)→O(n), regex parser, shell hardening, retry classification) and **Phase 26** (v1.0.5) completed a full security review against the MCP transport and foreign resolver surface:
 
 - **MCP SSE bearer-token auth** — `POST /message` requires Bearer token via `mcp.sse_bearer_token` config key (falls back to `serve.auth_token` for backward compat). Unauthenticated requests receive 401.
 - **Platform-portable MCP timeout** — `_call_tool()` uses `ThreadPoolExecutor` + `Future.result(timeout=...)` instead of Unix-only SIGALRM. Works on Windows, macOS, and Linux.
@@ -345,8 +345,9 @@ Next: run pytest tests/test_webhook.py
 
 ## Project Memory
 ### Recent
+- 2026-06-05: Deep-dive code review — O(n²)→O(n) macro expansion, regex parser, webhook retry classification, shell injection hardening. Test suite at 894 tests (Linux, Python 3.10–3.12), all passing.
 - 2026-05-27: Shipped MCP deep integration (Phase 25). 24 directives exposed as MCP tools by default.
-- 2026-05-26: Deployed Perseus v1.0.6 to PyPI. Test suite at 813 tests — all passing (Linux, Python 3.10–3.12).
+- 2026-05-26: Deployed Perseus v1.0.6 to PyPI. Test suite at 894 tests — all passing (Linux, Python 3.10–3.12).
 - 2026-05-24: Completed Hephaestus extensibility — plugin directives, macros, hooks, pipes.
 ```
 
