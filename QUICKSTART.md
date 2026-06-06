@@ -1,6 +1,26 @@
 # Perseus Quickstart
 
-## 30-Second Install
+## ⚡ One-Shot Bootstrap (LLM-Ready)
+
+Paste this single command into any terminal. It installs Python (if needed), Perseus,
+creates workspace config, `.env`, and verifies everything. **AI assistants can run this
+with zero prior context:**
+
+```bash
+curl -sSL https://raw.githubusercontent.com/tcconnally/perseus/main/scripts/bootstrap.sh | bash
+```
+
+After it completes, your project has:
+- `.env` — environment variables (`PERSEUS_ALLOW_DANGEROUS=1`)
+- `.perseus/config.yaml` — all render permissions enabled
+- `.perseus/context.md` — starter template with `@services`, `@query`, `@memory`
+- `AGENTS.md` — rendered live workspace context
+
+Then customize `.perseus/context.md` with your actual services and run `perseus render`.
+
+---
+
+## 30-Second Install (pip)
 
 ```bash
 pip install perseus-ctx

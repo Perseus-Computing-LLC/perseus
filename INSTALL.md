@@ -1,6 +1,17 @@
 # Installing Perseus
 
-## Quick install (recommended)
+## ⚡ One-Shot Bootstrap (recommended for AI assistants)
+
+A single command that installs everything — Python (if needed), Perseus, workspace
+config, `.env`, and verifies the setup. **Idempotent and LLM-friendly:**
+
+```bash
+curl -sSL https://raw.githubusercontent.com/tcconnally/perseus/main/scripts/bootstrap.sh | bash
+```
+
+See [scripts/bootstrap.sh](../scripts/bootstrap.sh) for full details.
+
+## Quick install (pip / uv)
 
 ```bash
 # via uv (fastest, isolated)

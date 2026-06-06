@@ -24,7 +24,29 @@ The key insight: **the AI reads the rendered output, not the directives**. Perse
 
 ## Installation
 
-### Option A — pip / uv (recommended)
+### ⚡ Option A — One-Shot Bootstrap (LLM-ready)
+
+A single command that installs Python, Perseus, creates `.env`, generates workspace
+config, and verifies everything. **Paste this into any terminal — an AI assistant
+can run it with zero context:**
+
+```bash
+curl -sSL https://raw.githubusercontent.com/tcconnally/perseus/main/scripts/bootstrap.sh | bash
+```
+
+What it does:
+1. Detects your OS and installs Python 3.10+ + pip if missing
+2. Installs `perseus-ctx` from PyPI
+3. Creates `.env` with `PERSEUS_ALLOW_DANGEROUS=1` + commented API key placeholders
+4. Creates `.perseus/config.yaml` with all render permissions enabled
+5. Creates `.perseus/context.md` with `@services`, `@query`, and `@memory` directives
+6. Runs `perseus render` → produces `AGENTS.md`
+7. Prints a success summary with versions and environment status
+
+**Idempotent** — safe to re-run. Set `FORCE=1` to overwrite existing configs.  
+**Full docs:** [scripts/bootstrap.sh](../scripts/bootstrap.sh)
+
+### Option B — pip / uv
 
 ```bash
 # via uv (fastest, isolated)
@@ -44,14 +66,14 @@ perseus --version
 > ```
 > Restart your terminal or run `source ~/.bashrc` after adding it.
 
-### Option B — pipx
+### Option C — pipx
 
 ```bash
 pipx install perseus-ctx
 perseus --version
 ```
 
-### Option C — from source
+### Option D — from source
 
 ```bash
 git clone https://github.com/tcconnally/perseus.git
@@ -575,6 +597,39 @@ engram serve --help            # confirm MCP mode is available
 > Perseus automatically falls back to local SQLite FTS5 over the engram database.
 > This ensures memory recall always returns results even when the vector index is
 > cold or not yet built. The engram DB is at `~/.perseus/engram/engram.db`.
+
+#### Engram-rs v0.1.0 — MVP Release
+
+Engram-rs v0.1.0 is the canonical MCP server at [github.com/tcconnally/engram-rs](https://github.com/tcconnally/engram-rs).
+Install via `cargo install engram-rs` (binary: `engram`).
+
+**v0.1.0 scope:** MCP JSON-RPC 2.0 over stdio, keyword search (FTS5 + LIKE fallback),
+SQLite persistence, and three MCP tools: `engram_recall`, `engram_store`, `engram_health`.
+
+**Deferred to v0.2+:** embedding-based vector search, Ebbinghaus decay algorithm,
+three-layer memory progression (Buffer → Working → Core), topic tree indexing,
+cross-workspace federation, SSE transport.
+
+**Perseus handles keyword recall natively:** `engram_recall` returns results via
+FTS5 keyword match with LIKE fallback for multi-word queries. The recall strategy
+is reported as `engram_recall` when Engram returns results, or `local_fallback`
+when Engram is unreachable.
+
+> **⚠️ Known limitation:** Without persistent embeddings, recall quality depends entirely on keyword overlap. Multi-word queries with common terms may return broad or noisy results. This is not a Perseus bug — it reflects the current state of `jamjet-engram-server`.
+
+**Optional — Ollama embeddings (preparation for future embedding support):**
+
+```bash
+# Install Ollama and pull nomic-embed-text (768-dim)
+curl -fsSL https://ollama.com/install.sh | sh
+ollama pull nomic-embed-text
+
+# Configure in engram config (when jamjet-engram-server adds embedding persistence):
+#   embedding_model: nomic-embed-text
+#   embedding_dim: 768
+```
+
+When a future version of `jamjet-engram-server` adds persistent embedding storage and MCP recall support, the upgrade path is: rebuild/reinstall `engram` binary → restart `perseus watch`. Perseus will use the native semantic recall path automatically, and the FTS5 fallback becomes a safety net rather than the primary path.
 
 ### Writing checkpoints (the right way)
 

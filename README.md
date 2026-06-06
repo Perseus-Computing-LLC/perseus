@@ -20,16 +20,20 @@
 Perseus is a **live context engine and MCP server** for AI assistants, eliminating cold starts. It resolves dynamic data (running services, code changes, session state) *before* the assistant sees it, providing **verified facts** instead of stale files or instructions to find information.
 
 ```bash
+# One command — zero to working (AI-friendly)
+curl -sSL https://raw.githubusercontent.com/tcconnally/perseus/main/scripts/bootstrap.sh | bash
+
+# Or: standard pip install + quickstart
 pip install perseus-ctx
 cd your-project
-perseus quickstart                  # One command from zero to working
+perseus quickstart
 ```
 
 Works with any MCP-compatible assistant: Claude Desktop, Claude Code, Cursor, Codex, Hermes Agent, and Rovo Dev.
 
-> 📖 **New to Perseus?** Read [QUICKSTART.md](./QUICKSTART.md) for a 2-minute setup guide with free LLM backends.
-> 🔌 **Wiring Perseus into your workflow?** Read [WIRING.md](./WIRING.md) for MCP server, editor hooks, live auto-refresh, systemd/cron, and context packs.
+> ⚡ **One-shot setup:** `curl -sSL https://raw.githubusercontent.com/tcconnally/perseus/main/scripts/bootstrap.sh | bash` — one command, ready to code.
 > 📖 **New to Perseus?** Read [QUICKSTART.md](./QUICKSTART.md) for a 2-minute setup guide with free LLM backends, editor integration, and CI/CD examples.
+> 🔌 **Wiring Perseus into your workflow?** Read [WIRING.md](./WIRING.md) for MCP server, editor hooks, live auto-refresh, systemd/cron, and context packs.
 
 ---
 
