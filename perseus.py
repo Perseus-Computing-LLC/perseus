@@ -208,7 +208,7 @@ DEFAULT_CONFIG = {
     "engram": {                          # Project Synapse — Engram-rs MCP-based persistent memory
         "enabled": True,
         "transport": "stdio",            # "stdio" (local binary) or "sse" (remote endpoint)
-        "command": ["engram", "serve", "--mcp"],
+        "command": ["engram", "serve"],
         "endpoint": "",                  # SSE endpoint URL (when transport=sse)
         "timeout_s": 10.0,
         "merge_strategy": "local_first", # local_first | remote_first | interleave | decay_first
@@ -10858,6 +10858,22 @@ class _MCPStdioClient:
         self._request_id = 0
         self._server_capabilities: dict = {}
 
+        # Parse --db <path> from command to set subprocess CWD.
+        # Engram-rs (jamjet-engram-server) may ignore the --db flag and
+        # write to CWD/engram.db; setting CWD to the DB directory works
+        # around this so auto-backfill lands in the right place.
+        self._cwd: str | None = None
+        try:
+            for i, arg in enumerate(command):
+                if arg == "--db" and i + 1 < len(command):
+                    db_path = command[i + 1]
+                    db_dir = os.path.dirname(os.path.abspath(db_path))
+                    os.makedirs(db_dir, exist_ok=True)
+                    self._cwd = db_dir
+                    break
+        except Exception:
+            pass
+
     def connect(self) -> bool:
         """Spawn the Engram MCP subprocess and perform handshake."""
         try:
@@ -10887,6 +10903,15 @@ class _MCPStdioClient:
                 text=True,
                 cwd=cwd,
             )
+            popen_kwargs = {
+                "stdin": subprocess.PIPE,
+                "stdout": subprocess.PIPE,
+                "stderr": subprocess.PIPE,
+                "text": True,
+            }
+            if self._cwd:
+                popen_kwargs["cwd"] = self._cwd
+            self._process = subprocess.Popen(self._command, **popen_kwargs)
             # MCP initialize handshake
             init_result, err = self._call("initialize", {
                 "protocolVersion": "2025-06-18",
@@ -11543,9 +11568,15 @@ def _local_hits_to_memory_hits(local_results: list[dict]) -> list[MemoryHit]:
 
     Local items have no Engram decay data — they default to decay_score=1.0
     (treated as fresh) and layer=WORKING.
+
+    Items with empty or whitespace-only content are skipped — these occur
+    when FTS5 returns rows whose content/summary fields are both empty.
     """
     hits = []
     for r in local_results:
+        content = r.get("content", r.get("summary", ""))
+        if not content or not str(content).strip():
+            continue
         mem_type = MemoryTypeEnum.INSIGHT
         try:
             mem_type = MemoryTypeEnum(r.get("type", "insight"))
@@ -11554,7 +11585,7 @@ def _local_hits_to_memory_hits(local_results: list[dict]) -> list[MemoryHit]:
         hits.append(MemoryHit(
             id=r.get("id", str(uuid.uuid4())),
             type=mem_type,
-            content=r.get("content", r.get("summary", "")),
+            content=content,
             source=MemorySource.LOCAL,
             summary=r.get("summary", r.get("content", "")[:80]),
             relevance=r.get("relevance", r.get("score", 0.5) / 100.0),
