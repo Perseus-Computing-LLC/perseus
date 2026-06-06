@@ -2419,7 +2419,7 @@ Branch: <span class="s">feat/billing-v2</span>
       />
       <p style="margin-top: 10px; font-family: var(--mono); font-size: 11px; color: var(--text-muted); letter-spacing: 0.08em; text-transform: uppercase;">
         450× cold→warm · 1,190× cache punch · 301× vs LLM · 94% token compression · 0 failures at 150 concurrent · 894 tests all green
-        · <a href="benchmark/" style="color: var(--accent-2); text-decoration: none;">full benchmark suite ↗</a>
+        · <a href="https://github.com/tcconnally/perseus/tree/main/benchmark" style="color: var(--accent-2); text-decoration: none;">full benchmark suite ↗</a>
       </p>
     </div>
 
@@ -2687,6 +2687,15 @@ Branch: <span class="s">feat/billing-v2</span>
 
     <!-- LLM-Tuned Guides callout -->
     <div class="reveal" style="margin-top: clamp(56px, 7vw, 88px);">
+      <div class="hero-companion" style="max-width: 740px; margin: 0 auto 24px;">
+        <div class="hc-mark">⚠</div>
+        <b>v1.0.6+ Security Gate</b> — Shell-executing directives (<code style="font-family:var(--mono);color:var(--accent-bright);">@query</code>,
+        <code style="font-family:var(--mono);color:var(--accent-bright);">@agent</code>,
+        <code style="font-family:var(--mono);color:var(--accent-bright);">@services command:</code>) and workspace-sourced plugins require
+        <code style="font-family:var(--mono);color:var(--accent);">export PERSEUS_ALLOW_DANGEROUS=1</code> before rendering.
+        <span class="hc-sub">Without this, shell directives are silently skipped. Add to your shell rc or prefix render commands.</span>
+      </div>
+
       <div class="hero-companion" style="max-width: 740px; margin: 0 auto;">
         <div class="hc-mark">⌘</div>
         <b>LLM-Tuned Guides</b> &mdash; Perseus ships with documentation <em>written for AI assistants to read and execute</em>.
@@ -2719,7 +2728,8 @@ Branch: <span class="s">feat/billing-v2</span>
 
       <div class="footer-links" aria-label="Project links">
         <a href="https://github.com/tcconnally/perseus">GitHub →</a>
-        <a href="https://github.com/tcconnally/perseus#readme">Documentation →</a>
+        <a href="https://github.com/tcconnally/perseus/blob/main/docs/index.md">Documentation →</a>
+        <a href="https://github.com/tcconnally/perseus/blob/main/SETUP-GUIDE.md">Setup Guide →</a>
         <a href="https://pypi.org/project/perseus-ctx/">PyPI →</a>
         <a href="https://registry.modelcontextprotocol.io/">MCP Registry →</a>
         <a href="https://github.com/anthropics/skills/pull/1193">Anthropic Skills →</a>
