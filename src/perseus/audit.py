@@ -2,6 +2,11 @@
 # Callers can disable via `audit.enabled = false`.
 _VALIDATOR_CACHE: dict[str, Callable] = {}
 
+# Guard against unbounded memory growth from unclosed quoted strings.
+# 64 KB is well above any reasonable token — if a quoted string is larger,
+# the input is likely malformed or malicious.
+_MAX_QUOTED_TOKEN_LEN = 65536
+
 
 def _load_plugin_validator(validator_name: str, workspace: Path | None) -> Callable | None:
     """Load a custom validator from .perseus/schemas/<name>.py.
@@ -453,7 +458,8 @@ def _extract_quoted_token(raw: str) -> tuple[str | None, str]:
     escaped = False
     buf: list[str] = []
     _escape_buffer = ""  # C10: accumulate escape sequence chars
-    for idx in range(1, len(raw)):
+    # Cap loop to prevent memory exhaustion on unclosed/malicious quotes
+    for idx in range(1, min(len(raw), _MAX_QUOTED_TOKEN_LEN + 1)):
         ch = raw[idx]
         if escaped:
             # v1.0.5 review: only decode quote-escaping and literal backslash.
@@ -487,61 +493,41 @@ def _extract_quoted_token(raw: str) -> tuple[str | None, str]:
     return None, raw
 
 
+_KV_PAIR_RE = re.compile(r"""
+    ([a-zA-Z0-9_.-]+)        # key
+    =                        # equals sign
+    (?:
+        "((?:[^"\\]|\\.)*)"   # double-quoted value (group 2)
+        |
+        '((?:[^'\\]|\\.)*)'   # single-quoted value (group 3)
+        |
+        (\S+)                  # bare value (group 4)
+    )
+""", re.VERBOSE)
+
+
 def _parse_kv_modifiers(raw: str) -> dict[str, str]:
-    """Parse key=value modifiers with quoted or bare values."""
+    """Parse key=value modifiers with quoted or bare values.
+
+    Uses a compiled regex instead of character-by-character iteration.
+    Escape semantics: ``\\`` → ``\\``, ``\\"`` → ``"``, ``\\'`` → ``'``,
+    unknown ``\\X`` → preserved as ``\\X`` (matches legacy behaviour).
+    """
     out: dict[str, str] = {}
-    i = 0
-    n = len(raw)
-    while i < n:
-        while i < n and raw[i].isspace():
-            i += 1
-        if i >= n:
-            break
-        start = i
-        while i < n and (raw[i].isalnum() or raw[i] in {'_', '-', '.'}):
-            i += 1
-        key = raw[start:i]
-        if not key:
-            i += 1
-            continue
-        while i < n and raw[i].isspace():
-            i += 1
-        if i >= n or raw[i] != '=':
-            while i < n and not raw[i].isspace():
-                i += 1
-            continue
-        i += 1
-        while i < n and raw[i].isspace():
-            i += 1
-        if i >= n:
-            out[key] = ""
-            break
-        if raw[i] in {'"', "'"}:
-            quote = raw[i]
-            i += 1
-            buf: list[str] = []
-            escaped = False
-            while i < n:
-                ch = raw[i]
-                if escaped:
-                    # v1.0.5 review: only decode quote-escaping and literal backslash.
-                    # Decoding \n, \t, \r corrupts Windows paths like C:\Users\tccon\...
-                    buf.append({'\\': '\\', '"': '"', "'": "'"}.get(ch, '\\' + ch))
-                    escaped = False
-                elif ch == "\\":
-                    escaped = True
-                elif ch == quote:
-                    i += 1
-                    break
-                else:
-                    buf.append(ch)
-                i += 1
-            out[key] = "".join(buf)
-        else:
-            start = i
-            while i < n and not raw[i].isspace():
-                i += 1
-            out[key] = raw[start:i]
+    for m in _KV_PAIR_RE.finditer(raw):
+        key = m.group(1)
+        value = m.group(2) or m.group(3) or m.group(4)
+        # Apply backslash escape decoding inside quoted values.
+        # Only decode \\, \", \' — keep other escapes literal to avoid
+        # corrupting Windows paths (same as v1.0.5 char-by-char logic).
+        if m.group(2) is not None or m.group(3) is not None:
+            value = re.sub(
+                r'\\(.)',
+                lambda sub: sub.group(1) if sub.group(1) in '\\"\''
+                           else sub.group(0),
+                value,
+            )
+        out[key] = value
     return out
 
 
