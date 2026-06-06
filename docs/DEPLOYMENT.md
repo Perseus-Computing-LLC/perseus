@@ -63,7 +63,9 @@ Before starting, verify you have:
 | Node.js | `node --version` | v22+ |
 | Python 3 | `python3 --version` | 3.10+ |
 | `pyyaml` | `python3 -c "import yaml"` | any |
-| ANTHROPIC_API_KEY | `grep ANTHROPIC_API_KEY ~/.hermes/.env` | valid key |
+| `ANTHROPIC_API_KEY` | `grep ANTHROPIC_API_KEY ~/.hermes/.env` | valid key (Hermes Agent prerequisite — not consumed by Perseus directly; see note below) |
+
+> **Note:** `ANTHROPIC_API_KEY` is consumed by Hermes Agent's LLM proxy, not by Perseus directly. Perseus itself requires no API keys for core functionality. LLM-augmented features (Pythia suggestions, Mnēmē compaction, synthesis) use the provider configured in `~/.perseus/config.yaml` with their respective env vars (`GEMINI_API_KEY`, `GROQ_API_KEY`, `OPENAI_API_KEY`, `DEEPSEEK_API_KEY`). See [QUICKSTART.md](../QUICKSTART.md) for LLM backend setup.
 
 **Key files and paths** (adjust if your Hermes home differs):
 

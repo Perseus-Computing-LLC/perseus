@@ -63,7 +63,35 @@ export GROQ_API_KEY="your-key-here"
 perseus quickstart
 ```
 
-### Option 3: Local llama.cpp (fully offline)
+### Option 3: Paid Providers
+
+**OpenAI:**
+```bash
+export OPENAI_API_KEY="your-key-here"
+perseus quickstart
+```
+Config snippet:
+```yaml
+llm:
+  provider: openai-compat
+  model: gpt-4o
+  url: https://api.openai.com/v1
+```
+
+**DeepSeek:**
+```bash
+export DEEPSEEK_API_KEY="your-key-here"
+perseus quickstart
+```
+Config snippet:
+```yaml
+llm:
+  provider: openai-compat
+  model: deepseek-chat
+  url: https://api.deepseek.com/v1
+```
+
+### Option 4: Local llama.cpp (fully offline)
 
 No network. Fully private. Requires llama.cpp server running locally.
 

@@ -45,7 +45,7 @@ automatically.
 ## Core Directives
 
 Write a `.perseus/context.md` file with `@perseus` as the first line, then use
-any of these 22 directives:
+any of these 24 directives (<!-- directive-count: 24 -->):
 
 | Directive | What it does |
 |-----------|-------------|
@@ -69,6 +69,12 @@ any of these 22 directives:
 | `@validate schema=` | Validate a rendered block |
 | `@tree` | Tree view of directory |
 | `@list` | List directory or structured data |
+| `@agent \"command\"` | Run a local subprocess, embed stdout |
+| `@drift` | Daedalus self-rating oracle — detects recommendation drift |
+| `@prompt` | System-level prompt block for the assistant |
+| `@tool \"path\"` | Run an allowlisted external tool |
+| `@perseus <url>` | Fetch context from a remote Perseus serve instance |
+| `@synthesize` | LLM summarization with provenance claims |
 
 ## Example .perseus/context.md
 

@@ -31,7 +31,7 @@ git config core.hooksPath .githooks
 
 pip install -r requirements.txt   # pyyaml + pytest
 
-python -m pytest tests/ -q        # 753 tests
+python -m pytest tests/ -q        # 894 tests
 python perseus.py --version        # perseus v1.0.6
 ```
 

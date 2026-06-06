@@ -1,6 +1,6 @@
 # Pythia — Tool Oracle
 
-Pythia is Perseus's **MVP and core value proposition.** It answers the question every session: *given this task and this environment, what's the highest-utility path?*
+Pythia is Perseus's **core value proposition** (shipped in v1.0.6). It answers the question every session: *given this task and this environment, what's the highest-utility path?*
 
 ---
 
@@ -17,7 +17,7 @@ Without live environment awareness, picking the right approach requires prior kn
 
 ---
 
-## Alpha Design: Structured Prompt First, Optional Local Model
+## Original Design: Structured Prompt First, Optional Local Model
 
 Pythia is still built around a **structured prompt over a live environment snapshot**. That remains the core design.
 

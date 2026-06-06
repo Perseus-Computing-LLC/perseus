@@ -2,7 +2,7 @@
 
 ## Priority Order
 
-Pythia is the MVP — the thing that actually solves the Medusa problem. The renderer and waypoints are supporting infrastructure that feed it live environment data to score against. Build order:
+Pythia is the core value proposition that solves the Medusa problem. The renderer and waypoints are supporting infrastructure that feed it live environment data to score against. Build order:
 
 1. **Pythia** — tool/skill selection with scored recommendations
 2. **Renderer** — live context injection (feeds Pythia's env awareness)
@@ -10,7 +10,7 @@ Pythia is the MVP — the thing that actually solves the Medusa problem. The ren
 
 ---
 
-## 1. Pythia — Tool Oracle (`perseus suggest`) — **MVP / Alpha**
+## 1. Pythia — Tool Oracle (`perseus suggest`) — Shipped
 
 Given a task description and the current environment state, returns a ranked list of approaches: which Hermes skill to load, which integration to prefer, which path minimizes latency and maximizes fidelity.
 
