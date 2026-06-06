@@ -10877,6 +10877,32 @@ class _MCPStdioClient:
     def connect(self) -> bool:
         """Spawn the Engram MCP subprocess and perform handshake."""
         try:
+            # Extract --db path to set cwd so Engram writes DB to correct directory (#203)
+            cwd = None
+            cmd_iter = iter(self._command)
+            for arg in cmd_iter:
+                if arg in ("--db", "-d"):
+                    try:
+                        db_path = next(cmd_iter)
+                        db_dir = os.path.dirname(db_path)
+                        if db_dir and os.path.isdir(db_dir):
+                            cwd = db_dir
+                    except StopIteration:
+                        pass
+                elif arg.startswith("--db="):
+                    db_path = arg[5:]
+                    db_dir = os.path.dirname(db_path)
+                    if db_dir and os.path.isdir(db_dir):
+                        cwd = db_dir
+
+            self._process = subprocess.Popen(
+                self._command,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                cwd=cwd,
+            )
             popen_kwargs = {
                 "stdin": subprocess.PIPE,
                 "stdout": subprocess.PIPE,
