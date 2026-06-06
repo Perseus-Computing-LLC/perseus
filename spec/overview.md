@@ -1,7 +1,7 @@
 # Perseus — Specification Overview
 
-**Status:** Alpha v0.9.0 / Phase 18A plus task-63 complete
-**Last updated:** 2026-05-19
+**Status:** v1.0.6 — All 26 phases shipped (Phases 1–26). See ROADMAP.md for full phase history.
+**Last updated:** 2026-06-06
 
 ---
 
