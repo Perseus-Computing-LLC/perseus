@@ -7,7 +7,7 @@ rendered output and skip orientation. Start work immediately.
 
 **Workspace:** current repo checkout  
 **Repo:** https://github.com/tcconnally/perseus  
-**Project:** Perseus — Live Context Engine for AI Assistants (v1.0.5)
+**Project:** Perseus — Live Context Engine for AI Assistants (v1.0.6)
 
 ---
 
