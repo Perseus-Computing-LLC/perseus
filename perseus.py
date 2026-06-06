@@ -10868,8 +10868,8 @@ class _MCPStdioClient:
                 if arg == "--db" and i + 1 < len(command):
                     db_path = command[i + 1]
                     db_dir = os.path.dirname(os.path.abspath(db_path))
-                    if os.path.isdir(db_dir) or not os.path.exists(db_dir):
-                        self._cwd = db_dir
+                    os.makedirs(db_dir, exist_ok=True)
+                    self._cwd = db_dir
                     break
         except Exception:
             pass
