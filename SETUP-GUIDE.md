@@ -1,10 +1,11 @@
 # Perseus Setup & Configuration Guide
 *Model-agnostic · Environment-agnostic · Tested with Hermes Agent, Rovo Dev (Claude Sonnet), Rovo web agent, and Claude Code*
 
-> **Last updated:** 2026-06-03  
+> **Last updated:** 2026-06-06  
 > **Perseus version tested:** v1.0.6  
 > **Platforms verified:** macOS · Linux · Windows 10 (git-bash) · Docker  
-> **Source:** https://github.com/tcconnally/perseus · https://pypi.org/project/perseus-ctx/
+> **Source:** https://github.com/tcconnally/perseus · https://pypi.org/project/perseus-ctx/  
+> **New in this version:** Engram-rs MCP hybrid memory connector (Project Synapse)
 
 ---
 
@@ -192,6 +193,22 @@ memory:
   compaction_threshold: 200
   # narrative_file and mneme_vault_path are legacy fields; current versions use
   # ~/.perseus/memory/<sha256_hash>.md (see Workspace Hash section below)
+
+engram:                                 # Project Synapse — Engram-rs MCP-based persistent memory
+  enabled: true                         # Master switch for hybrid (Mnēmē + Engram-rs) resolution
+  transport: "stdio"                    # "stdio" (local engram binary) or "sse" (remote endpoint)
+  command: [engram, serve, --mcp]       # Command to launch Engram-rs in MCP mode
+  endpoint: ""                          # SSE endpoint URL (only used when transport=sse)
+  timeout_s: 10.0
+  merge_strategy: "local_first"         # local_first | remote_first | interleave | decay_first
+  decay_priority_weight: 0.4            # Weight of Engram's decay_score in merge ordering (0.0–1.0)
+  fallback_to_local: true               # Use Mnēmē FTS5 when Engram-rs is unreachable
+  circuit_breaker:
+    threshold: 3                        # Consecutive failures before opening circuit
+    cooldown: 120                       # Seconds before attempting recovery
+  retry_policy:
+    max_attempts: 3
+    backoff_base: 1.5
 
 agora:
   task_dir: /Users/yourname/tasks
@@ -488,6 +505,60 @@ memory:
 
 > ⚠️ `perseus memory update --llm none` crashes. See [#130](https://github.com/tcconnally/perseus/issues/130).
 > To force deterministic mode: omit `--llm` flag (leave `llm_provider` unset in config).
+
+### Engram-rs Hybrid Resolution (optional — persistent semantic memory)
+
+Perseus supports an optional second memory layer via [Engram-rs](https://github.com/tcconnally/engram-rs), a Rust-based persistent memory engine that provides semantic search with time-decay scoring (Ebbinghaus algorithm) and topic trees — going beyond Mnēmē's keyword-driven FTS5.
+
+When enabled, `@memory` runs a **three-step hybrid resolution**:
+
+| Step | Layer | What it provides |
+|---|---|---|
+| A — Sense | Perseus (live) | Current environment, services, filesystem state |
+| B — Memory | Engram-rs (persistent) | Historical decisions, architecture, learned lessons |
+| C — Merge | Hybrid resolver | Combined ContextPackage with source tags and decay priority |
+
+**Configuration (in `~/.perseus/config.yaml`):**
+
+```yaml
+engram:
+  enabled: true                         # Master switch
+  transport: "stdio"                    # stdio (local binary) or sse (remote)
+  command: [engram, serve, --mcp]       # Launch command for stdio transport
+  merge_strategy: "local_first"         # local_first | remote_first | interleave | decay_first
+  fallback_to_local: true               # Graceful degradation: Mnēmē FTS5 if Engram offline
+  circuit_breaker:
+    threshold: 3                        # Failures before opening circuit
+    cooldown: 120                       # Seconds before recovery attempt
+```
+
+**Installation:**
+
+```bash
+# Install Engram-rs (one-time)
+cargo install engram-rs        # via Cargo
+# or: brew install engram-rs   # via Homebrew (when available)
+engram serve --mcp              # verify it runs in MCP mode
+```
+
+> **Minimal surface area:** Engram-rs is optional. When the `engram` binary is not found,
+> Perseus degrades gracefully to local Mnēmē FTS5 only — no crash, no hang, no error
+> visible to the end user. Circuit breaker + exponential backoff prevent permission
+> storms or resource exhaustion during outages.
+
+> **Merge strategies explained:**
+> - `local_first` — Mnēmē results first, then Engram results (default, safest)
+> - `remote_first` — Engram decay-prioritized results first, then Mnēmē
+> - `interleave` — Alternate rows between Engram/Mnēmē, sorted by decay score within each
+> - `decay_first` — All results sorted globally by Engram decay_score descending
+
+> **Verification:** After installing Engram-rs, restart `perseus watch` (or re-render).
+> The next `@memory` resolution silently upgrades to hybrid mode. To confirm:
+> ```bash
+> python3.12 -c "from perseus import resolve_memory; resolve_memory('query=architecture k=3', {})"
+> ```
+> If Engram-rs is online, the output will include items tagged `source=engram` alongside
+> local Mnēmē results. If offline, only local results appear — no error.
 
 ### Writing checkpoints (the right way)
 
@@ -1008,6 +1079,6 @@ perseus doctor
 
 ---
 
-*Built from production experience wiring Perseus v1.0.6 into Hermes Agent, Rovo Dev CLI, and Rovo web agent.*  
+*Built from production experience wiring Perseus v1.0.6 into Hermes Agent, Rovo Dev CLI, and Rovo web agent — now with Engram-rs MCP hybrid memory (Project Synapse).*  
 *Issues filed: [#128](https://github.com/tcconnally/perseus/issues/128) – [#135](https://github.com/tcconnally/perseus/issues/135)*  
 *Guide maintained at: `~/rovodev/docs/perseus-setup-guide.md` (canonical) · this copy: `~/Downloads/perseus-setup-guide.md`*
