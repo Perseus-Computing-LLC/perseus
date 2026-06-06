@@ -124,7 +124,7 @@ DEFAULT_CONFIG = {
     "engram": {                          # Project Synapse — Engram-rs MCP-based persistent memory
         "enabled": True,
         "transport": "stdio",            # "stdio" (local binary) or "sse" (remote endpoint)
-        "command": ["engram", "serve", "--mcp"],
+        "command": ["engram", "serve"],
         "endpoint": "",                  # SSE endpoint URL (when transport=sse)
         "timeout_s": 10.0,
         "merge_strategy": "local_first", # local_first | remote_first | interleave | decay_first
