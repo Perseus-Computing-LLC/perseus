@@ -498,7 +498,22 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path) -> str:
         k = 5
 
     hits = _mneme_recall(cfg, query, k=k, scope=scope, type_filter=type_filter, sensitivity=sensitivity)
-    if not hits:
+
+    # ── Engram augmentation (MCP) ──────────────────────────────────────
+    # Query Engram-rs persistent memory backend for additional historical
+    # context (Architecture, Decision, Insight types) with Ebbinghaus
+    # decay scoring. Results are merged below alongside local Mnēmē FTS5 hits.
+    engram_items: list = []
+    try:
+        mseg = _engram_hybrid_search(
+            cfg=cfg, query=query, workspace=str(workspace),
+            local_hits=hits, max_results=k,
+        )
+        engram_items = mseg.items if mseg else []
+    except Exception:
+        pass  # Engram is optional — degrade gracefully
+
+    if not hits and not engram_items:
         return "> \u2139\ufe0f No Mn\u0113m\u0113 memories matched.\n"
 
     lines = ["> \U0001f9e0 **Mn\u0113m\u0113 memories:**\n"]
@@ -547,6 +562,17 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path) -> str:
                 meta.append(f"`{Path(source_path).name}`")
             parts.append("(" + " · ".join(meta) + ")")
             lines.append(" ".join(parts))
+
+    # ── Engram results ─────────────────────────────────────────────────
+    if engram_items:
+        lines.append("")
+        lines.append("> 🧠 **Engram context:**")
+        for mi in engram_items:
+            title = mi.summary or (mi.content[:80] + "…" if len(mi.content) > 80 else mi.content)
+            lines.append(f"  - [{mi.type.value}] {title}")
+            if mi.links:
+                for lnk in mi.links[:2]:
+                    lines.append(f"    ↳ `{lnk.relationship}` → {lnk.target_id[:8]}…")
     return "\n".join(lines) + "\n"
 
 
