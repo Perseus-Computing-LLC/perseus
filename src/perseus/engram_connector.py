@@ -317,12 +317,31 @@ class _MCPStdioClient:
     def connect(self) -> bool:
         """Spawn the Engram MCP subprocess and perform handshake."""
         try:
+            # Extract --db path to set cwd so Engram writes DB to correct directory (#203)
+            cwd = None
+            cmd_iter = iter(self._command)
+            for arg in cmd_iter:
+                if arg in ("--db", "-d"):
+                    try:
+                        db_path = next(cmd_iter)
+                        db_dir = os.path.dirname(db_path)
+                        if db_dir and os.path.isdir(db_dir):
+                            cwd = db_dir
+                    except StopIteration:
+                        pass
+                elif arg.startswith("--db="):
+                    db_path = arg[5:]
+                    db_dir = os.path.dirname(db_path)
+                    if db_dir and os.path.isdir(db_dir):
+                        cwd = db_dir
+
             self._process = subprocess.Popen(
                 self._command,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                cwd=cwd,
             )
             # MCP initialize handshake
             init_result, err = self._call("initialize", {
@@ -467,7 +486,7 @@ class EngramConnector:
     Configuration (from `config.yaml` → `engram`):
         enabled: bool              = true
         transport: str             = "stdio"  — "stdio" or "sse"
-        command: list[str]         = ["engram", "serve", "--mcp"]
+        command: list[str]         = ["engram", "serve"]
         endpoint: str              = "http://localhost:50052/sse"  (for sse)
         timeout_s: float           = 10.0
         merge_strategy: str        = "local_first"
@@ -492,7 +511,7 @@ class EngramConnector:
         self._enabled = bool(mcfg.get("enabled", True))
         self._transport = mcfg.get("transport", "stdio")
         self._timeout = float(mcfg.get("timeout_s", 10.0))
-        self._command = mcfg.get("command", ["engram", "serve", "--mcp"])
+        self._command = mcfg.get("command", ["engram", "serve"])
         self._endpoint = mcfg.get("endpoint", "http://localhost:50052/sse")
         self._fallback_to_local = bool(mcfg.get("fallback_to_local", True))
         self._decay_priority_weight = float(mcfg.get("decay_priority_weight", 0.4))
