@@ -10710,27 +10710,6 @@ class MemorySegment:
         return "\n".join(blocks)
 
 @dataclass
-class TokenMetrics:
-    """Token-usage metrics for value/cost correlation.
-
-    Tracks how much context the Engram memory layer adds so you can
-    correlate token spend against LLM accuracy improvements.
-    """
-    # Character counts (token ≈ chars/4 for English text)
-    sense_chars: int = 0       # Live state characters
-    memory_chars: int = 0      # Historical memory characters
-    diagnostics_chars: int = 0 # Diagnostics block characters
-    total_chars: int = 0       # Total prompt block characters
-    approx_tokens: int = 0     # Estimated tokens (chars/4)
-
-    # Item counts for information density analysis
-    items_local: int = 0       # Local Mnēmē FTS5 items
-    items_verified: int = 0    # Items found in BOTH local + engram (dedup'd)
-    items_engram_only: int = 0 # Engram-exclusive items
-    duplicates_removed: int = 0 # Items deduplicated (saved token waste)
-
-
-@dataclass
 class ContextPackage:
     """Merged context: live state + persistent memory → LLM prompt block."""
     request_id: str = field(default_factory=lambda: str(uuid.uuid4()))
@@ -10739,46 +10718,6 @@ class ContextPackage:
     merge_strategy: MergeStrategy = MergeStrategy.LOCAL_FIRST
     diagnostics: dict[str, str] = field(default_factory=dict)
     merged_prompt_block: str = ""
-    token_metrics: Optional[TokenMetrics] = None
-
-    def compute_token_metrics(self) -> TokenMetrics:
-        """Compute token usage metrics for value/cost correlation.
-
-        Call after assemble() to get final metrics. Uses heuristics:
-          - 1 token ≈ 4 characters (English, per OpenAI tiktoken cl100k_base)
-          - Assumes 3.5x overhead for markdown/non-English (worst-case: 2.0)
-
-        The approx_tokens value is a best-effort estimate. Use with tiktoken
-        for production accuracy.
-        """
-        sense = self.live_state.as_markdown if self.live_state else ""
-        memory = self.memory.as_markdown if self.memory else ""
-        diag_block = ""
-        if self.diagnostics:
-            diag_lines = ["### Diagnostics"]
-            for k, v in sorted(self.diagnostics.items()):
-                diag_lines.append(f"- `{k}`: {v}")
-            diag_block = "\n".join(diag_lines)
-
-        total_raw = f"## Live Context (Perseus)\n{sense}\n\n## Persistent Memory (Engram-rs)\n{memory}\n{diag_block}"
-        chars_per_token = 4
-
-        metrics = TokenMetrics(
-            sense_chars=len(sense),
-            memory_chars=len(memory),
-            diagnostics_chars=len(diag_block),
-            total_chars=len(total_raw),
-            approx_tokens=max(1, len(total_raw) // chars_per_token),
-        )
-
-        # Item counts from diagnostics (populated by _merge_results)
-        metrics.items_local = int(self.diagnostics.get("merge_local_only", 0))
-        metrics.items_verified = int(self.diagnostics.get("merge_verified", 0))
-        metrics.items_engram_only = int(self.diagnostics.get("merge_engram_only", 0))
-        metrics.duplicates_removed = metrics.items_verified  # each verified = 1 duplicate saved
-
-        self.token_metrics = metrics
-        return metrics
 
     def assemble(self) -> str:
         """Build the merged prompt block for LLM injection."""
@@ -10800,8 +10739,6 @@ class ContextPackage:
             for k, v in sorted(self.diagnostics.items()):
                 parts.append(f"- `{k}`: {v}")
         self.merged_prompt_block = "\n".join(parts)
-        # Compute token metrics after assembly
-        self.compute_token_metrics()
         return self.merged_prompt_block
 
 
@@ -10834,18 +10771,6 @@ class CircuitBreaker:
 
     @property
     def is_open(self) -> bool:
-        """Check whether the circuit is open (refusing calls).
-
-        WARNING: This property has a SIDE-EFFECT — if the circuit is
-        currently 'open' but the cooldown has expired, accessing is_open
-        will transition the state to 'half_open' and return False. This
-        means the next call will be allowed through as a probe. If that
-        probe fails, the breaker re-opens.
-
-        For tests using cooldown_s=0, do NOT rely on is_open to check
-        the raw 'open' state (it will immediately transition to
-        half_open due to zero cooldown). Check cb.state directly instead.
-        """
         if self._state == "closed":
             return False
         if self._state == "open":
