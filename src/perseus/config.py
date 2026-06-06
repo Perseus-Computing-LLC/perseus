@@ -51,6 +51,7 @@ DEFAULT_CONFIG = {
         "llm_provider": "ollama",
         "ollama_model": "llama3.1",
         "llm_timeout_s": 30,
+        "max_entries": 10000,          # max JSONL log entries before oldest are pruned (0 = unlimited)
         "ollama_host": os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434"),
         # Phase 9.1 — Daedalus self-rating / inferred label window.
         # Default: 7 days OR 5 checkpoints after the recommendation,
