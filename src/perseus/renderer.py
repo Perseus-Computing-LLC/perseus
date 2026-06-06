@@ -487,13 +487,20 @@ def _expand_macros(lines: list[str], macros: dict[str, tuple[list[str], list[str
                 macro_body, param_names = macros[invocation]
                 # Substitute parameters
                 arg_values = args_text.split() if args_text.strip() else []
+                # Pre-map param names to their arg values (one pass) to avoid
+                # O(n²) param_names.index() inside the inner loop.
+                param_to_arg: dict[str, str] = {
+                    pname: arg_values[idx]
+                    for idx, pname in enumerate(param_names)
+                    if idx < len(arg_values)
+                }
                 substituted: list[str] = []
                 for bline in macro_body:
                     bline_sub = bline
                     # Sort by parameter name length descending to prevent prefix collisions (M-9)
                     for pname in sorted(param_names, key=len, reverse=True):
-                        if param_names.index(pname) < len(arg_values):
-                            bline_sub = bline_sub.replace(f"%{pname}%", arg_values[param_names.index(pname)])
+                        if pname in param_to_arg:
+                            bline_sub = bline_sub.replace(f"%{pname}%", param_to_arg[pname])
                     substituted.append(bline_sub)
                 expanded.extend(substituted)
                 i += 1
