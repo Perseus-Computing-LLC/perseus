@@ -78,6 +78,10 @@ def _mneme_compact_llm(
 
 # ──────────────────────────────── Suggest ─────────────────────────────────────
 
+_PYTHIA_APPEND_COUNT = 0
+_PYTHIA_PRUNE_INTERVAL = 1000  # rewrite+prune every N appends
+
+
 def append_pythia_log(entry: dict, cfg: dict) -> None:
     """Append a JSONL Pythia log entry; warn on failure without raising."""
     # v1.0.5 review: redact secrets before persisting to disk.
@@ -93,6 +97,15 @@ def append_pythia_log(entry: dict, cfg: dict) -> None:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
     except Exception as exc:
         print(f"> ⚠ Could not write Pythia log: {exc}")
+    # Periodic prune to bound log growth between explicit compact runs.
+    global _PYTHIA_APPEND_COUNT
+    _PYTHIA_APPEND_COUNT += 1
+    if _PYTHIA_APPEND_COUNT % _PYTHIA_PRUNE_INTERVAL == 0:
+        try:
+            entries = _pythia_log_entries()
+            _rewrite_pythia_log(entries, cfg)
+        except Exception:
+            pass  # prune failure must not break the caller
 
 
 def _checkpoint_age_s(snapshot_checkpoint: str) -> int | None:
@@ -648,9 +661,14 @@ def _find_pythia_entry(entries: list[dict], log_id: str) -> int | None:
     return None
 
 
-def _rewrite_pythia_log(entries: list[dict]) -> None:
+def _rewrite_pythia_log(entries: list[dict], cfg: dict | None = None) -> None:
     log_path = _pythia_log_path()
     log_path.parent.mkdir(parents=True, exist_ok=True)
+    # Prune oldest entries if over the configured max (default 10000, 0 = unlimited).
+    if cfg is not None:
+        max_entries = int(cfg.get("pythia", {}).get("max_entries", 10000))
+        if max_entries > 0 and len(entries) > max_entries:
+            entries = entries[-max_entries:]
     lock_path = log_path.with_suffix(".jsonl.lock")
     # File locking to prevent concurrent corruption (M-6)
     import fcntl
@@ -976,7 +994,7 @@ def cmd_oracle_outcomes(args, cfg) -> int:
     entries = _pythia_log_entries()
     result = collect_pythia_outcomes(entries, cfg_local, dry_run=dry_run)
     if not dry_run and result["updated"]:
-        _rewrite_pythia_log(entries)
+        _rewrite_pythia_log(entries, cfg_local)
 
     if getattr(args, "json", False):
         print(json.dumps(result, indent=2))
@@ -1071,7 +1089,7 @@ def cmd_oracle_infer_labels(args, cfg) -> int:
         changes[new_label] += 1
 
     if not dry_run:
-        _rewrite_pythia_log(entries)
+        _rewrite_pythia_log(entries, cfg)
 
     use_json = getattr(args, "json", False)
     if use_json:
