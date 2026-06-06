@@ -97,8 +97,7 @@ Verify: `hermes mcp test perseus`. Tools appear as `mcp_perseus_*` in session.
   "mcpServers": {
     "perseus": {
       "command": "perseus",
-      "args": ["mcp", "serve"],
-      "env": { "PERSEUS_WORKSPACE": "/path/to/workspace" }
+      "args": ["mcp", "serve", "--workspace", "/path/to/workspace"]
     }
   }
 }

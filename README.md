@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/tcconnally/perseus/actions/workflows/test.yml/badge.svg)](https://github.com/tcconnally/perseus/actions/workflows/test.yml)
 [![PyPI](https://img.shields.io/pypi/v/perseus-ctx)](https://pypi.org/project/perseus-ctx/)
-[![MCP Registry](https://img.shields.io/badge/MCP-Registry-blue)](https://registry.modelcontextprotocol.io/servers/io.github.tcconnally/perseus)
+[![MCP Registry](https://img.shields.io/badge/MCP-Registry-blue)](https://registry.modelcontextprotocol.io/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![Status: Patent Pending](https://img.shields.io/badge/status-patent_pending-blue)](./docs/ip/README.md)
 [**perseus.observer →**](https://perseus.observer)
@@ -24,6 +24,8 @@ pip install perseus-ctx
 cd your-project
 perseus quickstart                  # One command from zero to working
 ```
+
+> ⚠️ **v1.0.6+:** Shell-executing directives (`@query`, `@agent`, `@services command:`) and workspace-sourced plugins/hooks require `export PERSEUS_ALLOW_DANGEROUS=1` before rendering. See [SETUP-GUIDE.md](./SETUP-GUIDE.md) for details.
 
 Works with any MCP-compatible assistant: Claude Desktop, Claude Code, Cursor, Codex, Hermes Agent, and Rovo Dev.
 
@@ -69,8 +71,7 @@ Then verify with `hermes mcp test perseus`. Tools appear as `mcp_perseus_*` in y
   "mcpServers": {
     "perseus": {
       "command": "perseus",
-      "args": ["mcp", "serve"],
-      "env": { "PERSEUS_WORKSPACE": "/path/to/workspace" }
+      "args": ["mcp", "serve", "--workspace", "/path/to/workspace"]
     }
   }
 }
@@ -141,7 +142,7 @@ See [Container Runtime](./docs/CONTAINER.md) for full Docker and compose deploym
 
 ### MCP Registry
 
-Published as [`io.github.tcconnally/perseus`](https://registry.modelcontextprotocol.io/servers/io.github.tcconnally/perseus) on the official MCP Registry. Includes `server.json` for zero-config discovery.
+Published as [`io.github.tcconnally/perseus`](https://registry.modelcontextprotocol.io/) on the official MCP Registry (search \"perseus\"). Includes `server.json` for zero-config discovery.
 
 ---
 
