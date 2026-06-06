@@ -52,6 +52,27 @@ _PERSEUS_VERSION = "0.0.0"  # replaced at build time by scripts/build.py — see
 
 # Register as 'perseus' so plugins can import from us (task-65)
 import sys as _sys
+
+# ── Self-registration for importlib-style loading ─────────────────────────────
+# importlib.util.exec_module() does NOT auto-register modules in sys.modules.
+# If the caller forgot to sys.modules[name] = module before exec_module, the
+# @dataclass definitions (and other introspection) later in this file will fail
+# with "AttributeError: 'NoneType' object has no attribute '__dict__'".
+#
+# This standin wraps globals() with a __dict__ property so dataclasses._is_type
+# can find the module namespace.
+if __name__ not in _sys.modules:
+    class _PerseusModuleStandin:
+        __slots__ = ('__name__', '_d')
+        def __init__(self, name, d):
+            self.__name__ = name
+            self._d = d
+        @property
+        def __dict__(self):
+            return self._d
+    _sys.modules[__name__] = _PerseusModuleStandin(__name__, globals())
+
+# ── Alias 'perseus' so plugins / external imports resolve ─────────────────────
 if "perseus" not in _sys.modules:
     if __name__ == "__main__":
         _sys.modules["perseus"] = _sys.modules["__main__"]
