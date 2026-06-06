@@ -151,7 +151,8 @@ def _webhook_worker(url, ep, wh_cfg, q):
         body_json = json.dumps(body_dict)
         body_data = body_json.encode("utf-8")
         
-        # Delivery with retry
+        # Delivery with retry — only transient errors are retried.
+        # Fatal errors (4xx client, invalid URL, DNS NXDOMAIN, SSL) fail immediately.
         success = False
         last_error = None
         for attempt in range(max_attempts):
@@ -190,6 +191,26 @@ def _webhook_worker(url, ep, wh_cfg, q):
                         break
                     else:
                         last_error = f"HTTP {resp.status}"
+                        # 4xx client errors are fatal — the server told us no
+                        if 400 <= resp.status < 500:
+                            break
+            except urllib.error.HTTPError as e:
+                last_error = f"HTTP {e.code}"
+                if e.code < 500:
+                    break  # 4xx: fatal, don't retry
+            except urllib.error.URLError as e:
+                last_error = str(e.reason) if hasattr(e, 'reason') else str(e)
+                # Socket timeouts and connection refused are retryable.
+                # DNS (NXDOMAIN), SSL, invalid scheme are fatal.
+                reason_str = str(e.reason).lower() if hasattr(e, 'reason') else ""
+                if any(term in reason_str for term in
+                       ("getaddrinfo", "nxdomain", "ssl", "certificate",
+                        "unknown url type", "unsupported")):
+                    break
+            except ValueError as e:
+                # Invalid URL format — fatal
+                last_error = str(e)
+                break
             except Exception as e:
                 last_error = str(e)
             
