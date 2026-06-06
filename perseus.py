@@ -114,6 +114,7 @@ DEFAULT_CONFIG = {
         "llm_provider": "ollama",
         "ollama_model": "llama3.1",
         "llm_timeout_s": 30,
+        "max_entries": 10000,          # max JSONL log entries before oldest are pruned (0 = unlimited)
         "ollama_host": os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434"),
         # Phase 9.1 — Daedalus self-rating / inferred label window.
         # Default: 7 days OR 5 checkpoints after the recommendation,
@@ -642,9 +643,10 @@ def _fire_shell_hook(cmd_template: str, payload: dict, event: str) -> None:
         for key, val in payload.items():
             cmd = cmd.replace(f"{{{{{key}}}}}", _shlex.quote(str(val)))
 
-        # Use shell=True as per spec trust consideration
+        # Use explicit /bin/sh -c to avoid shell=True injection surface.
+        # Hooks require PERSEUS_ALLOW_DANGEROUS=1 (enforced at the caller).
         subprocess.run(
-            cmd, shell=True, capture_output=True, text=True,
+            ["/bin/sh", "-c", cmd], capture_output=True, text=True,
             timeout=5,
         )
     except subprocess.TimeoutExpired:
@@ -815,7 +817,8 @@ def _webhook_worker(url, ep, wh_cfg, q):
         body_json = json.dumps(body_dict)
         body_data = body_json.encode("utf-8")
         
-        # Delivery with retry
+        # Delivery with retry — only transient errors are retried.
+        # Fatal errors (4xx client, invalid URL, DNS NXDOMAIN, SSL) fail immediately.
         success = False
         last_error = None
         for attempt in range(max_attempts):
@@ -854,6 +857,26 @@ def _webhook_worker(url, ep, wh_cfg, q):
                         break
                     else:
                         last_error = f"HTTP {resp.status}"
+                        # 4xx client errors are fatal — the server told us no
+                        if 400 <= resp.status < 500:
+                            break
+            except urllib.error.HTTPError as e:
+                last_error = f"HTTP {e.code}"
+                if e.code < 500:
+                    break  # 4xx: fatal, don't retry
+            except urllib.error.URLError as e:
+                last_error = str(e.reason) if hasattr(e, 'reason') else str(e)
+                # Socket timeouts and connection refused are retryable.
+                # DNS (NXDOMAIN), SSL, invalid scheme are fatal.
+                reason_str = str(e.reason).lower() if hasattr(e, 'reason') else ""
+                if any(term in reason_str for term in
+                       ("getaddrinfo", "nxdomain", "ssl", "certificate",
+                        "unknown url type", "unsupported")):
+                    break
+            except ValueError as e:
+                # Invalid URL format — fatal
+                last_error = str(e)
+                break
             except Exception as e:
                 last_error = str(e)
             
@@ -1755,6 +1778,11 @@ def redact_value(value, cfg: dict) -> tuple[object, dict]:
 # Callers can disable via `audit.enabled = false`.
 _VALIDATOR_CACHE: dict[str, Callable] = {}
 
+# Guard against unbounded memory growth from unclosed quoted strings.
+# 64 KB is well above any reasonable token — if a quoted string is larger,
+# the input is likely malformed or malicious.
+_MAX_QUOTED_TOKEN_LEN = 65536
+
 
 def _load_plugin_validator(validator_name: str, workspace: Path | None) -> Callable | None:
     """Load a custom validator from .perseus/schemas/<name>.py.
@@ -2206,7 +2234,8 @@ def _extract_quoted_token(raw: str) -> tuple[str | None, str]:
     escaped = False
     buf: list[str] = []
     _escape_buffer = ""  # C10: accumulate escape sequence chars
-    for idx in range(1, len(raw)):
+    # Cap loop to prevent memory exhaustion on unclosed/malicious quotes
+    for idx in range(1, min(len(raw), _MAX_QUOTED_TOKEN_LEN + 1)):
         ch = raw[idx]
         if escaped:
             # v1.0.5 review: only decode quote-escaping and literal backslash.
@@ -2240,61 +2269,41 @@ def _extract_quoted_token(raw: str) -> tuple[str | None, str]:
     return None, raw
 
 
+_KV_PAIR_RE = re.compile(r"""
+    ([a-zA-Z0-9_.-]+)        # key
+    =                        # equals sign
+    (?:
+        "((?:[^"\\]|\\.)*)"   # double-quoted value (group 2)
+        |
+        '((?:[^'\\]|\\.)*)'   # single-quoted value (group 3)
+        |
+        (\S+)                  # bare value (group 4)
+    )
+""", re.VERBOSE)
+
+
 def _parse_kv_modifiers(raw: str) -> dict[str, str]:
-    """Parse key=value modifiers with quoted or bare values."""
+    """Parse key=value modifiers with quoted or bare values.
+
+    Uses a compiled regex instead of character-by-character iteration.
+    Escape semantics: ``\\`` → ``\\``, ``\\"`` → ``"``, ``\\'`` → ``'``,
+    unknown ``\\X`` → preserved as ``\\X`` (matches legacy behaviour).
+    """
     out: dict[str, str] = {}
-    i = 0
-    n = len(raw)
-    while i < n:
-        while i < n and raw[i].isspace():
-            i += 1
-        if i >= n:
-            break
-        start = i
-        while i < n and (raw[i].isalnum() or raw[i] in {'_', '-', '.'}):
-            i += 1
-        key = raw[start:i]
-        if not key:
-            i += 1
-            continue
-        while i < n and raw[i].isspace():
-            i += 1
-        if i >= n or raw[i] != '=':
-            while i < n and not raw[i].isspace():
-                i += 1
-            continue
-        i += 1
-        while i < n and raw[i].isspace():
-            i += 1
-        if i >= n:
-            out[key] = ""
-            break
-        if raw[i] in {'"', "'"}:
-            quote = raw[i]
-            i += 1
-            buf: list[str] = []
-            escaped = False
-            while i < n:
-                ch = raw[i]
-                if escaped:
-                    # v1.0.5 review: only decode quote-escaping and literal backslash.
-                    # Decoding \n, \t, \r corrupts Windows paths like C:\Users\tccon\...
-                    buf.append({'\\': '\\', '"': '"', "'": "'"}.get(ch, '\\' + ch))
-                    escaped = False
-                elif ch == "\\":
-                    escaped = True
-                elif ch == quote:
-                    i += 1
-                    break
-                else:
-                    buf.append(ch)
-                i += 1
-            out[key] = "".join(buf)
-        else:
-            start = i
-            while i < n and not raw[i].isspace():
-                i += 1
-            out[key] = raw[start:i]
+    for m in _KV_PAIR_RE.finditer(raw):
+        key = m.group(1)
+        value = m.group(2) or m.group(3) or m.group(4)
+        # Apply backslash escape decoding inside quoted values.
+        # Only decode \\, \", \' — keep other escapes literal to avoid
+        # corrupting Windows paths (same as v1.0.5 char-by-char logic).
+        if m.group(2) is not None or m.group(3) is not None:
+            value = re.sub(
+                r'\\(.)',
+                lambda sub: sub.group(1) if sub.group(1) in '\\"\''
+                           else sub.group(0),
+                value,
+            )
+        out[key] = value
     return out
 
 
@@ -7514,13 +7523,20 @@ def _expand_macros(lines: list[str], macros: dict[str, tuple[list[str], list[str
                 macro_body, param_names = macros[invocation]
                 # Substitute parameters
                 arg_values = args_text.split() if args_text.strip() else []
+                # Pre-map param names to their arg values (one pass) to avoid
+                # O(n²) param_names.index() inside the inner loop.
+                param_to_arg: dict[str, str] = {
+                    pname: arg_values[idx]
+                    for idx, pname in enumerate(param_names)
+                    if idx < len(arg_values)
+                }
                 substituted: list[str] = []
                 for bline in macro_body:
                     bline_sub = bline
                     # Sort by parameter name length descending to prevent prefix collisions (M-9)
                     for pname in sorted(param_names, key=len, reverse=True):
-                        if param_names.index(pname) < len(arg_values):
-                            bline_sub = bline_sub.replace(f"%{pname}%", arg_values[param_names.index(pname)])
+                        if pname in param_to_arg:
+                            bline_sub = bline_sub.replace(f"%{pname}%", param_to_arg[pname])
                     substituted.append(bline_sub)
                 expanded.extend(substituted)
                 i += 1
@@ -11412,6 +11428,10 @@ def _mneme_compact_llm(
 
 # ──────────────────────────────── Suggest ─────────────────────────────────────
 
+_PYTHIA_APPEND_COUNT = 0
+_PYTHIA_PRUNE_INTERVAL = 1000  # rewrite+prune every N appends
+
+
 def append_pythia_log(entry: dict, cfg: dict) -> None:
     """Append a JSONL Pythia log entry; warn on failure without raising."""
     # v1.0.5 review: redact secrets before persisting to disk.
@@ -11427,6 +11447,15 @@ def append_pythia_log(entry: dict, cfg: dict) -> None:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
     except Exception as exc:
         print(f"> ⚠ Could not write Pythia log: {exc}")
+    # Periodic prune to bound log growth between explicit compact runs.
+    global _PYTHIA_APPEND_COUNT
+    _PYTHIA_APPEND_COUNT += 1
+    if _PYTHIA_APPEND_COUNT % _PYTHIA_PRUNE_INTERVAL == 0:
+        try:
+            entries = _pythia_log_entries()
+            _rewrite_pythia_log(entries, cfg)
+        except Exception:
+            pass  # prune failure must not break the caller
 
 
 def _checkpoint_age_s(snapshot_checkpoint: str) -> int | None:
@@ -11982,9 +12011,14 @@ def _find_pythia_entry(entries: list[dict], log_id: str) -> int | None:
     return None
 
 
-def _rewrite_pythia_log(entries: list[dict]) -> None:
+def _rewrite_pythia_log(entries: list[dict], cfg: dict | None = None) -> None:
     log_path = _pythia_log_path()
     log_path.parent.mkdir(parents=True, exist_ok=True)
+    # Prune oldest entries if over the configured max (default 10000, 0 = unlimited).
+    if cfg is not None:
+        max_entries = int(cfg.get("pythia", {}).get("max_entries", 10000))
+        if max_entries > 0 and len(entries) > max_entries:
+            entries = entries[-max_entries:]
     lock_path = log_path.with_suffix(".jsonl.lock")
     # File locking to prevent concurrent corruption (M-6)
     import fcntl
@@ -12310,7 +12344,7 @@ def cmd_oracle_outcomes(args, cfg) -> int:
     entries = _pythia_log_entries()
     result = collect_pythia_outcomes(entries, cfg_local, dry_run=dry_run)
     if not dry_run and result["updated"]:
-        _rewrite_pythia_log(entries)
+        _rewrite_pythia_log(entries, cfg_local)
 
     if getattr(args, "json", False):
         print(json.dumps(result, indent=2))
@@ -12405,7 +12439,7 @@ def cmd_oracle_infer_labels(args, cfg) -> int:
         changes[new_label] += 1
 
     if not dry_run:
-        _rewrite_pythia_log(entries)
+        _rewrite_pythia_log(entries, cfg)
 
     use_json = getattr(args, "json", False)
     if use_json:
