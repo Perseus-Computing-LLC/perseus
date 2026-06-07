@@ -1,6 +1,8 @@
-# Perseus™ 🪞 — MCP Server + Live Context Engine
+# Perseus™ 🪞 — One command. Zero orientation.
 
-**Perseus is an MCP server and live context engine for AI assistants.** It solves the cold-start problem — every new session, the assistant already knows what's running, what you were working on, and what tools exist. No orientation phase. No pre-flight tax. Works with any MCP-compatible assistant: **Claude Desktop, Claude Code, Cursor, Codex, Hermes Agent (by NousResearch), Rovo Dev.**
+**`pip install perseus-ctx && cd your-project && perseus quickstart`**
+
+That's the whole install. Perseus auto-detects your project language (Python, Rust, Node, Go, Java, C++, Docker), scaffolds context-appropriate memory queries, injects an active memory gate, and renders live workspace state — all before your AI assistant reads a single directive. No plugins. No SDK. Just a markdown file where your assistant already looks.
 
 ![Perseus demo — before/after cold-start](demo.gif)
 
@@ -15,17 +17,7 @@
 
 ---
 
-### TL;DR — One Command to Zero-Orientation
-
-```bash
-pip install perseus-ctx && cd your-project && perseus quickstart
-```
-
-That's it. Perseus auto-detects your project language (Python, Rust, Node, Go, ...), scaffolds a tuned context, and renders live workspace state — all before the assistant reads a single directive. The assistant opens to verified facts, not instructions to go find facts.
-
-> ⚠️ **v1.0.6+:** Shell-executing directives require `export PERSEUS_ALLOW_DANGEROUS=1`. See [SETUP-GUIDE.md](./SETUP-GUIDE.md).
-
----
+Works with any MCP-compatible assistant: Claude Desktop, Claude Code, Cursor, Codex, Hermes Agent, Rovo Dev. [Full setup guide →](./SETUP-GUIDE.md)
 
 ## Wire Perseus to Your Assistant (MCP)
 
