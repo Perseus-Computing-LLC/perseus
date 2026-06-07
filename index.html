@@ -1745,9 +1745,15 @@
 
         <div class="install reveal" role="group" aria-label="Install command">
           <span class="prompt" aria-hidden="true">$</span>
-          <code id="install-cmd">pip install <span class="em">perseus-ctx</span></code>
-          <button class="copy-btn" data-copy="pip install perseus-ctx" aria-label="Copy install command">Copy</button>
+          <code id="install-cmd">pip install <span class="em">perseus-ctx</span> && perseus <span class="em">quickstart</span></code>
+          <button class="copy-btn" data-copy="pip install perseus-ctx && perseus quickstart" aria-label="Copy install command">Copy</button>
         </div>
+
+        <p class="hero-sub reveal" style="margin-top: 16px; font-size: 13px; color: var(--text-dim);">
+          That's the whole install. Perseus auto-detects your project language,
+          scaffolds context-appropriate memory queries, and renders live state —
+          <b style="color: var(--accent-bright);">one command, zero orientation</b>.
+        </p>
 
         <div class="badges reveal" aria-label="Project badges">
           <span class="badge"><span class="b-key">github</span><span class="b-val star">★</span></span>
