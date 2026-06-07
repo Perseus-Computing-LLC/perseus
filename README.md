@@ -1,5 +1,6 @@
 # Perseus™ 🪞 — One command. Zero orientation.
 
+[![smithery badge](https://smithery.ai/badge/tcconnally/perseus)](https://smithery.ai/servers/tcconnally/perseus)
 **`pip install perseus-ctx && cd your-project && perseus quickstart`**
 
 That's the whole install. Perseus auto-detects your project language (Python, Rust, Node, Go, Java, C++, Docker), scaffolds context-appropriate memory queries, injects an active memory gate, and renders live workspace state — all before your AI assistant reads a single directive. No plugins. No SDK. Just a markdown file where your assistant already looks.
