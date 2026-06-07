@@ -515,23 +515,19 @@ _PYTHON_HOOKS: dict[str, list] = {
 _HOOKS_LOADED_DIRS: set[str] = set()
 
 
-def _hooks_workspace_sourced(cfg: dict) -> bool:
-    """Return True if the hooks config was sourced from the workspace.
+# ── #168 Security gate helpers ───────────────────────────────────────────────
 
-    #168 (v1.0.6): set by `load_config` when workspace `.perseus/config.yaml`
-    contains a `hooks:` section. Used to refuse workspace-sourced hooks
-    unless the operator has explicitly opted in via `hooks.allow_workspace_sourced`
-    in global config AND `PERSEUS_ALLOW_DANGEROUS=1`.
-    """
+def _hooks_workspace_sourced(cfg: dict) -> bool:
+    """True iff the hooks section was sourced from a workspace config file."""
     return bool(cfg.get("_provenance", {}).get("hooks_workspace_sourced", False))
 
 
 def _hooks_workspace_allowed(cfg: dict) -> bool:
     """True iff workspace-sourced hooks are explicitly allowed.
 
-    Defense in depth:
-      1. Global config must set `hooks.allow_workspace_sourced: true`
-      2. Env must set `PERSEUS_ALLOW_DANGEROUS=1`
+    Defense in depth (#168):
+      1. Global config sets hooks.allow_workspace_sourced: true
+      2. Env var PERSEUS_ALLOW_DANGEROUS=1
     """
     hooks_cfg = cfg.get("hooks", {})
     global_opt_in = bool(hooks_cfg.get("allow_workspace_sourced", False))
@@ -545,31 +541,31 @@ def register_hooks(cfg: dict, force: bool = False) -> int:
     Hook modules are imported and any function matching a lifecycle event
     name (e.g. on_render_start) is registered as a callback.
 
-    #168 (v1.0.6): if `hooks.dir` was sourced from the workspace
-    `.perseus/config.yaml`, refuse to load Python hooks from it unless
-    workspace-sourced hooks are explicitly allowed (global config +
-    PERSEUS_ALLOW_DANGEROUS=1). Workspace-shipped Python plugin files
-    can pwn the user via top-level module code that runs at import time.
+    #168 (v1.0.6): workspace-sourced hooks.dir configuration is refused
+    unless explicitly opted in via global hooks.allow_workspace_sourced
+    AND PERSEUS_ALLOW_DANGEROUS=1. Without the gate, a malicious workspace
+    could ship arbitrary Python that executes at import time.
     """
     if not cfg.get("hooks", {}).get("enabled", True):
         return 0
 
+    # ── #168: workspace-sourced hooks.dir refused without explicit opt-in ──
     if _hooks_workspace_sourced(cfg) and not _hooks_workspace_allowed(cfg):
-        # Refuse with a single stderr warning per workspace.
+        hooks_dir_preview = str(cfg.get("hooks", {}).get("dir", ""))[:200]
         try:
-            audit_event(cfg, "hooks_workspace_refused",
-                        reason="hooks.* sourced from workspace config without opt-in",
-                        hint=("Set hooks.allow_workspace_sourced: true in global "
-                              "~/.perseus/config.yaml AND export "
-                              "PERSEUS_ALLOW_DANGEROUS=1 to enable workspace hooks."))
+            audit_event(
+                cfg,
+                "hooks_workspace_refused",
+                reason="hooks.dir sourced from workspace config without opt-in",
+                dir=hooks_dir_preview,
+                hint=(
+                    "Set hooks.allow_workspace_sourced: true in global "
+                    "~/.perseus/config.yaml AND export "
+                    "PERSEUS_ALLOW_DANGEROUS=1 to enable workspace hooks."
+                ),
+            )
         except Exception:
             pass
-        print(
-            "⚠ Perseus: workspace-sourced hooks refused (see #168). "
-            "Set hooks.allow_workspace_sourced: true in global config + "
-            "PERSEUS_ALLOW_DANGEROUS=1 to enable.",
-            file=sys.stderr,
-        )
         return 0
 
     hooks_dir = Path(cfg.get("hooks", {}).get("dir", str(PERSEUS_HOME / "hooks")))
@@ -624,20 +620,31 @@ def _fire_hooks(event: str, payload: dict, cfg: dict) -> None:
         except Exception as e:
             print(f"Perseus Python hook error ({event}): {e}", file=sys.stderr)
 
-    # Fire Shell hooks (configured in config.yaml).
-    # #168 (v1.0.6): refuse workspace-sourced shell hooks unless explicitly
-    # allowed. This blocks the "git clone a malicious workspace and get pwned
-    # on first `perseus render`" attack.
-    workspace_sourced = _hooks_workspace_sourced(cfg)
-    allowed = _hooks_workspace_allowed(cfg)
-    refuse_workspace_shell = workspace_sourced and not allowed
-
+    # Fire Shell hooks (configured in config.yaml)
     commands = []
     if isinstance(event_cfg, list):
         commands = event_cfg
     elif isinstance(event_cfg, dict):
         # Support both 'command' (singular per list item) and 'commands' (list in dict)
         commands = event_cfg.get("commands", [])
+
+    # ── #168: workspace-sourced shell hooks refused without explicit opt-in ──
+    if commands and _hooks_workspace_sourced(cfg) and not _hooks_workspace_allowed(cfg):
+        try:
+            audit_event(
+                cfg,
+                "hooks_workspace_shell_refused",
+                event=event,
+                count=len(commands),
+                hint=(
+                    "Set hooks.allow_workspace_sourced: true in global "
+                    "~/.perseus/config.yaml AND export "
+                    "PERSEUS_ALLOW_DANGEROUS=1 to enable workspace hooks."
+                ),
+            )
+        except Exception:
+            pass
+        return
 
     for hook in commands:
         cmd = None
@@ -647,23 +654,6 @@ def _fire_hooks(event: str, payload: dict, cfg: dict) -> None:
             cmd = hook.get("command") or hook.get("cmd")
 
         if cmd:
-            if refuse_workspace_shell:
-                # Audit + stderr warning so the operator sees what was blocked.
-                try:
-                    audit_event(cfg, "hooks_workspace_shell_refused",
-                                event=event,
-                                cmd_preview=cmd[:80],
-                                hint=("Workspace-sourced hooks require "
-                                      "hooks.allow_workspace_sourced: true "
-                                      "in GLOBAL config + PERSEUS_ALLOW_DANGEROUS=1."))
-                except Exception:
-                    pass
-                print(
-                    f"⚠ Perseus: workspace-sourced shell hook refused for "
-                    f"event '{event}' (#168). See ~/.perseus/audit_log.jsonl.",
-                    file=sys.stderr,
-                )
-                continue
             _fire_shell_hook(cmd, payload, event)
 
     # Fire webhooks (Phase 25 / task-72)
@@ -671,32 +661,27 @@ def _fire_hooks(event: str, payload: dict, cfg: dict) -> None:
 
 
 def _fire_shell_hook(cmd_template: str, payload: dict, event: str) -> None:
-    """Run a shell hook with {{var}} substitution. Timeout 5s.
-
-    All payload values are shell-escaped with shlex.quote() to prevent
-    command injection via shell metacharacters (;, |, &, $(), etc.).
-    """
+    """Run a shell hook with {{var}} substitution. Timeout 5s."""
     try:
-        import shlex as _shlex
         cmd = cmd_template
         for key, val in payload.items():
-            cmd = cmd.replace(f"{{{{{key}}}}}", _shlex.quote(str(val)))
+            cmd = cmd.replace(f"{{{{{key}}}}}", str(val))
 
-        # Use explicit /bin/sh -c to avoid shell=True injection surface.
-        # Hooks require PERSEUS_ALLOW_DANGEROUS=1 (enforced at the caller).
+        # Use shell=True as per spec trust consideration
         subprocess.run(
-            ["/bin/sh", "-c", cmd], capture_output=True, text=True,
+            cmd, shell=True, capture_output=True, text=True,
             timeout=5,
         )
     except subprocess.TimeoutExpired:
         print(f"Perseus hook timeout ({event}): {cmd_template[:80]}", file=sys.stderr)
-    except (OSError, subprocess.TimeoutExpired, ValueError, subprocess.SubprocessError) as e:
+    except Exception as e:
         print(f"Perseus hook shell error ({event}): {e}", file=sys.stderr)
 
-# _fire_webhook is defined in webhooks.py (multi-endpoint, URL allowlisting,
-# queued delivery with retry). The legacy single-URL fire-and-forget copy that
-# lived here was dead code — MODULE_ORDER places webhooks.py after hooks.py,
-# so webhooks.py's definition shadowed this one at runtime.
+
+# NOTE: _fire_webhook lives in webhooks.py (multi-endpoint version). An older
+# single-URL copy used to be defined here too; in the concatenated artifact the
+# webhooks.py definition (later in MODULE_ORDER) silently won, leaving this copy
+# dead. Removed to eliminate the shadowing — see scripts/build.py duplicate guard.
 
 
 def _reset_hooks_cache() -> None:
@@ -1862,14 +1847,16 @@ def _audit_log_path(cfg: dict) -> Path:
     """Return the audit log path, constrained to a safe location.
 
     S5: Prevents workspace config from pointing audit.log_path at system
-    paths. Falls back to ~/.perseus/audit_log.jsonl if outside allowed roots.
+    paths. Always resolves relative to PERSEUS_HOME, ignoring any stale
+    log_path that may have been cached from a previous config load.
     """
-    raw = (cfg.get("audit") or {}).get("log_path") or str(PERSEUS_HOME / "audit_log.jsonl")
+    raw = str(PERSEUS_HOME / "audit_log.jsonl")
     candidate = Path(str(raw)).expanduser().resolve()
     import tempfile as _tempfile
     allowed_roots = [
         Path.home() / ".perseus",
         Path(_tempfile.gettempdir()).resolve(),  # allow pytest tmp_path and CI temp dirs
+        PERSEUS_HOME.resolve(),                  # allow PERSEUS_HOME when set to test temp dir
     ]
     try:
         for root in allowed_roots:
