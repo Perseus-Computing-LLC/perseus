@@ -29,8 +29,9 @@ DEFAULT_TOOL_TIMEOUT_S = 30
 
 # ── Tool schema helpers ──────────────────────────────────────────────────────
 
-def _tool_schema(name: str, description: str, props: dict, required: list[str] | None = None) -> dict:
-    return {
+def _tool_schema(name: str, description: str, props: dict, required: list[str] | None = None,
+                 output_schema: dict | None = None, annotations: dict | None = None) -> dict:
+    tool: dict = {
         "name": name,
         "description": description,
         "inputSchema": {
@@ -39,13 +40,214 @@ def _tool_schema(name: str, description: str, props: dict, required: list[str] |
             "required": required or [],
         },
     }
+    if output_schema:
+        tool["outputSchema"] = output_schema
+    if annotations:
+        tool["annotations"] = annotations
+    return tool
+
+
+# Human-readable parameter descriptions for Smithery quality scoring.
+# Maps directive name → {param_name: description}.  Also serves as
+# the canonical reference for the CLI `perseus mcp registry` command.
+_PARAM_DESCRIPTIONS: dict[str, dict[str, str]] = {
+    "@agora":       {"status": "Filter tasks by status: open, in_progress, completed, cancelled"},
+    "@auto-skill":  {"skill": "Name of the skill the agent should load before beginning work"},
+    "@date":        {"format": "strftime format string (default: %Y-%m-%d %H:%M:%S)"},
+    "@env":         {"required": "If 'true', render fails when the variable is unset",
+                     "fallback": "Value to use when the environment variable is not set",
+                     "schema": "JSON Schema to validate the env var value against"},
+    "@inbox":       {"unread": "If 'true', show only unread messages",
+                     "limit": "Maximum number of messages to return"},
+    "@list":        {"limit": "Maximum number of entries to return",
+                     "sort": "Sort order: name, modified, size"},
+    "@memory":      {"mode": "Query mode: search, narrative, or federation",
+                     "query": "Search query string for BM25 / hybrid recall",
+                     "scope": "Memory scope filter: working, core, or all",
+                     "k": "Number of results to return (default: 5)",
+                     "type": "Memory type filter",
+                     "render": "If 'true', render matched memories as markdown",
+                     "focus": "Time focus: recent, today, week, or all",
+                     "federation": "Enable cross-workspace federation",
+                     "include_federation": "Include federation results in output",
+                     "alias": "Workspace alias for federation targeting",
+                     "workspace": "Target workspace path for scoped queries"},
+    "@mneme":       {"query": "BM25 FTS5 search query for persistent memory recall",
+                     "scope": "Memory scope filter",
+                     "k": "Number of results to return (default: 5)",
+                     "type": "Memory type filter"},
+    "@query":       {"fallback": "Fallback value if the command fails or is blocked",
+                     "schema": "JSON Schema to validate command output against"},
+    "@read":        {"path": "File path to read (relative to workspace root)",
+                     "key": "If reading a config file, extract this key only",
+                     "fallback": "Value to use when the file or key is not found",
+                     "schema": "JSON Schema to validate file contents against"},
+    "@session":     {"count": "Number of recent sessions to include (default: 3)"},
+    "@skills":      {"flag_stale": "If 'true', mark skills not updated within threshold as stale",
+                     "category": "Filter skills by category (e.g., devops, github)",
+                     "limit": "Maximum number of skills to list"},
+    "@tooltrim":    {"stats": "If 'true', return tool usage statistics",
+                     "full": "If 'true', return complete tool metadata"},
+    "@tree":        {"depth": "Maximum depth for directory tree traversal"},
+    "@validate":    {"schema": "JSON Schema to validate the rendered block against"},
+    "@waypoint":    {"ttl": "Max age in seconds for a valid checkpoint (default: 86400)"},
+}
+
+
+def _build_output_schema(tool_name: str, spec) -> dict | None:
+    """Return a structured output schema for a tool, if applicable."""
+    # Tools that return structured data get output schemas
+    if tool_name in ("perseus_agora",):
+        return {
+            "type": "object",
+            "properties": {
+                "tasks": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string", "description": "Task identifier"},
+                            "title": {"type": "string", "description": "Task title"},
+                            "status": {"type": "string", "description": "Task status"},
+                            "scope": {"type": "string", "description": "Effort estimate"}
+                        }
+                    }
+                }
+            }
+        }
+    if tool_name == "perseus_health":
+        return {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string", "description": "Overall health: ok, warning, or critical"},
+                "checks": {"type": "array", "items": {"type": "object"}},
+                "stale_skills": {"type": "integer", "description": "Count of skills past freshness threshold"},
+                "duplicate_tasks": {"type": "integer", "description": "Count of duplicate task entries"},
+                "oversized_context": {"type": "boolean", "description": "Whether rendered context exceeds size limits"}
+            }
+        }
+    if tool_name == "perseus_skills":
+        return {
+            "type": "object",
+            "properties": {
+                "skills": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "description": {"type": "string"},
+                            "category": {"type": "string"},
+                            "stale": {"type": "boolean"}
+                        }
+                    }
+                }
+            }
+        }
+    if tool_name == "perseus_waypoint":
+        return {
+            "type": "object",
+            "properties": {
+                "checkpoint": {"type": "string", "description": "Latest checkpoint summary text"},
+                "timestamp": {"type": "string", "description": "ISO-8601 timestamp of checkpoint"},
+                "stale": {"type": "boolean", "description": "Whether the checkpoint exceeds TTL"}
+            }
+        }
+    if tool_name == "perseus_services":
+        return {
+            "type": "object",
+            "properties": {
+                "services": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "status": {"type": "string", "description": "up, down, or unknown"},
+                            "latency_ms": {"type": "number", "description": "Response latency in milliseconds"}
+                        }
+                    }
+                }
+            }
+        }
+    if tool_name == "perseus_get_context":
+        return {
+            "type": "object",
+            "properties": {
+                "rendered": {"type": "string", "description": "Full rendered context as markdown or JSON"},
+                "format": {"type": "string", "description": "Output format used"}
+            }
+        }
+    if tool_name == "perseus_get_health":
+        return {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string", "description": "Overall health status"},
+                "report": {"type": "string", "description": "Detailed health report as markdown"}
+            }
+        }
+    if tool_name == "perseus_memory":
+        return {
+            "type": "object",
+            "properties": {
+                "results": {"type": "array", "items": {"type": "object"}},
+                "mode": {"type": "string", "description": "Query mode used"},
+                "count": {"type": "integer", "description": "Number of results returned"}
+            }
+        }
+    if tool_name == "perseus_mneme":
+        return {
+            "type": "object",
+            "properties": {
+                "results": {"type": "array", "items": {"type": "object"}},
+                "query": {"type": "string"},
+                "count": {"type": "integer"}
+            }
+        }
+    if tool_name == "perseus_session":
+        return {
+            "type": "object",
+            "properties": {
+                "sessions": {"type": "array", "items": {"type": "object"}},
+                "count": {"type": "integer"}
+            }
+        }
+    return None
+
+
+def _build_annotations(tool_name: str, spec) -> dict | None:
+    """Build MCP annotations based on directive behavior flags."""
+    hints = {}
+    if getattr(spec, 'executes_shell', False):
+        hints["destructiveHint"] = True
+    if getattr(spec, 'reads_files', False) and not getattr(spec, 'executes_shell', False):
+        hints["readOnlyHint"] = True
+    if getattr(spec, 'mutates_state', False):
+        hints["destructiveHint"] = True
+    # Sensitive tools are always marked destructive
+    if tool_name in _MCP_SENSITIVE_TOOLS:
+        hints["destructiveHint"] = True
+    # Specific overrides
+    if tool_name == "perseus_health":
+        hints["readOnlyHint"] = True
+    if tool_name == "perseus_get_context":
+        hints["readOnlyHint"] = True
+    if tool_name == "perseus_get_health":
+        hints["readOnlyHint"] = True
+    if tool_name in ("perseus_date", "perseus_drift", "perseus_env"):
+        hints["readOnlyHint"] = True
+    return hints if hints else None
 
 
 def _generate_directive_tools() -> list[dict]:
-    """Auto-generate MCP tool schemas from all resolvable directives in the registry."""
+    """Auto-generate MCP tool schemas from all resolvable directives in the registry.
+
+    Uses _PARAM_DESCRIPTIONS for human-readable parameter docs,
+    _build_output_schema for structured return types, and
+    _build_annotations for readOnlyHint/destructiveHint hints.
+    """
     tools = []
     for name, spec in sorted(DIRECTIVE_REGISTRY.items()):
-        # Include inline and block directives that have resolvers
         if spec.kind not in ("inline", "block"):
             continue
         if spec.resolver is None:
@@ -53,17 +255,20 @@ def _generate_directive_tools() -> list[dict]:
         tool_name = f"perseus_{name.lstrip('@')}"
         props = {}
         required = []
-        # Build input schema from directive args
+        param_descs = _PARAM_DESCRIPTIONS.get(name, {})
         for arg in spec.args:
             arg_name = arg.rstrip("=")
-            props[arg_name] = {"type": "string", "description": f"{arg} modifier for {name}"}
+            desc = param_descs.get(arg_name, f"Value for {arg_name} parameter")
+            props[arg_name] = {"type": "string", "description": desc}
             if arg_name in ("command", "path", "task", "agent", "prompt", "name", "var"):
                 required.append(arg_name)
-        # Fallback: generic args field
         if not props:
             props["args"] = {"type": "string", "description": f"Arguments for {name} directive"}
         desc = spec.summary or f"Resolve {name} directive"
-        tools.append(_tool_schema(tool_name, desc, props, required))
+        output_schema = _build_output_schema(tool_name, spec)
+        annotations = _build_annotations(tool_name, spec)
+        tools.append(_tool_schema(tool_name, desc, props, required,
+                                  output_schema=output_schema, annotations=annotations))
     return tools
 
 
@@ -74,11 +279,27 @@ LEGACY_MCP_TOOLS: list[dict] = [
         "perseus_get_context",
         "Return the full rendered Perseus context for the workspace.",
         {"format": {"type": "string", "description": "Output format: markdown or json (default: markdown)"}},
+        output_schema={
+            "type": "object",
+            "properties": {
+                "rendered": {"type": "string", "description": "Full rendered context"},
+                "format": {"type": "string", "description": "Output format used"}
+            }
+        },
+        annotations={"readOnlyHint": True},
     ),
     _tool_schema(
         "perseus_get_health",
         "Run Daedalus context-maintenance heuristics and return a health report.",
         {},
+        output_schema={
+            "type": "object",
+            "properties": {
+                "status": {"type": "string", "description": "Overall health status"},
+                "report": {"type": "string", "description": "Detailed health report"}
+            }
+        },
+        annotations={"readOnlyHint": True},
     ),
 ]
 
