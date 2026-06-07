@@ -140,9 +140,19 @@
   /* Sections */
   section { position: relative; }
   .section-block {
-    padding: clamp(80px, 10vw, 140px) 0;
+    padding: clamp(80px, 10vw, 140px) 0 clamp(80px, 10vw, 140px);
     border-top: 1px solid var(--line);
   }
+  .section-block::after {
+    content: "";
+    display: block;
+    width: 60px;
+    height: 2px;
+    margin: clamp(60px, 8vw, 100px) auto 0;
+    background: linear-gradient(90deg, transparent, var(--accent) 20%, var(--accent-2) 50%, var(--accent) 80%, transparent);
+    opacity: 0.35;
+  }
+  .section-block:last-of-type::after { display: none; }
 
   /* ---------- Top bar ---------- */
   .topbar {
@@ -204,6 +214,77 @@
     .topbar nav .nav-link { display: none; }
   }
 
+  /* Hamburger */
+  .hamburger {
+    display: none;
+    flex-direction: column;
+    justify-content: center;
+    gap: 5px;
+    width: 36px;
+    height: 36px;
+    background: transparent;
+    border: 1px solid var(--line-strong);
+    border-radius: 3px;
+    cursor: pointer;
+    padding: 8px 7px;
+    z-index: 60;
+    transition: border-color .18s ease;
+  }
+  .hamburger:hover { border-color: var(--accent); }
+  .hamburger span {
+    display: block;
+    height: 1.5px;
+    background: var(--text-dim);
+    border-radius: 1px;
+    transition: all .22s ease;
+    transform-origin: center;
+  }
+  .hamburger.open span:nth-child(1) { transform: translateY(6.5px) rotate(45deg); }
+  .hamburger.open span:nth-child(2) { opacity: 0; transform: scaleX(0); }
+  .hamburger.open span:nth-child(3) { transform: translateY(-6.5px) rotate(-45deg); }
+  .hamburger.open { border-color: var(--accent); }
+  .hamburger.open span { background: var(--accent); }
+
+  @media (max-width: 720px) {
+    .hamburger { display: flex; }
+  }
+
+  /* Mobile nav overlay */
+  .mobile-nav {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 55;
+    background: rgba(12, 8, 20, 0.94);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 32px;
+    font-family: var(--mono);
+    font-size: 13px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+  .mobile-nav.open { display: flex; }
+  .mobile-nav a {
+    color: var(--text-dim);
+    transition: color .18s ease;
+  }
+  .mobile-nav a:hover { color: var(--accent); }
+  .mobile-nav .ghbtn-mobile {
+    margin-top: 8px;
+    border: 1px solid var(--accent);
+    padding: 10px 22px;
+    color: var(--accent);
+    transition: all .18s ease;
+  }
+  .mobile-nav .ghbtn-mobile:hover {
+    background: rgba(199, 125, 255, 0.08);
+    box-shadow: 0 0 18px rgba(199, 125, 255, 0.25);
+  }
+
   /* ---------- Hero ---------- */
   .hero {
     padding: clamp(60px, 9vw, 120px) 0 clamp(40px, 6vw, 80px);
@@ -261,10 +342,10 @@
       0 0 60px rgba(199, 125, 255, 0.25);
   }
   .hero-sub {
-    font-size: 18px;
-    line-height: 1.55;
+    font-size: 17px;
+    line-height: 1.6;
     color: var(--text-dim);
-    max-width: 52ch;
+    max-width: 56ch;
     margin: 0 0 40px;
     font-weight: 300;
   }
@@ -819,6 +900,13 @@
     vertical-align: middle;
     margin: 0 14px;
   }
+  .arsenal-sep {
+    border: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--line-strong) 20%, var(--line-strong) 80%, transparent);
+    margin: 48px 0 0;
+    opacity: 0.65;
+  }
   .constellation {
     margin-top: 24px;
     display: grid;
@@ -856,9 +944,9 @@
     color: var(--text);
   }
   .const-cell .desc {
-    font-size: 12.5px;
+    font-size: 13px;
     color: var(--text-dim);
-    line-height: 1.5;
+    line-height: 1.55;
   }
 
   /* ---------- Architecture diagram ---------- */
@@ -1711,8 +1799,25 @@
       <a href="#start" class="nav-link">Start</a>
       <a href="https://github.com/tcconnally/perseus" class="ghbtn">GitHub ↗</a>
     </nav>
+    <button class="hamburger" id="hamburger" aria-label="Toggle navigation menu" aria-expanded="false">
+      <span></span><span></span><span></span>
+    </button>
   </div>
 </header>
+
+<!-- ============ MOBILE NAV OVERLAY ============ -->
+<nav class="mobile-nav" id="mobile-nav" aria-hidden="true">
+  <a href="#problem">The Mirror</a>
+  <a href="#how">How it works</a>
+  <a href="#triad">The Triad</a>
+  <a href="#architecture">Architecture</a>
+  <a href="#arsenal">Arsenal</a>
+  <a href="#proof">Benchmarks</a>
+  <a href="#compat">Assistants</a>
+  <a href="#integrate">Integrations</a>
+  <a href="#start">Start</a>
+  <a href="https://github.com/tcconnally/perseus" class="ghbtn-mobile">GitHub ↗</a>
+</nav>
 
 <!-- ============ HERO ============ -->
 <section id="top" class="hero">
@@ -1756,7 +1861,7 @@
         </p>
 
         <div class="badges reveal" aria-label="Project badges">
-          <span class="badge"><span class="b-key">github</span><span class="b-val star">★</span></span>
+          <span class="badge"><span class="b-key">github</span><span class="b-val star">★ <span data-live="stars">—</span></span></span>
           <span class="badge"><span class="b-key">ci</span><span class="b-val ok">passing</span></span>
           <span class="badge"><span class="b-key">pypi</span><span class="b-val">v<span data-live="version-bare">1.0.6</span></span></span>
           <span class="badge"><span class="b-key">license</span><span class="b-val">MIT</span></span>
@@ -1947,6 +2052,17 @@ Branch: <span class="s">feat/billing-v2</span>
         The assistant never sees a directive. It sees a document that was already true.
       </p>
     </div>
+
+    <div class="reveal" style="margin-top: 32px;">
+      <div class="hero-companion" style="max-width: 680px; margin: 0 auto;">
+        <span class="hc-mark" aria-hidden="true">⚡</span>
+        <b>v1.0.6+ Security Gate</b> — Shell-executing directives (<code style="font-family:var(--mono);color:var(--accent-bright);font-size:0.92em;">@query</code>,
+        <code style="font-family:var(--mono);color:var(--accent-bright);font-size:0.92em;">@agent</code>,
+        <code style="font-family:var(--mono);color:var(--accent-bright);font-size:0.92em;">@services command:</code>) require
+        <code style="font-family:var(--mono);color:var(--accent);font-size:0.92em;">export PERSEUS_ALLOW_DANGEROUS=1</code> before rendering.
+        <span class="hc-sub">Without this, shell directives are silently skipped. Add to your shell rc or prefix render commands.</span>
+      </div>
+    </div>
   </div>
 </section>
 
@@ -2033,11 +2149,96 @@ Branch: <span class="s">feat/billing-v2</span>
   </div>
 </section>
 
+<!-- ============ ARSENAL ============ -->
+<section id="arsenal" class="section-block">
+  <div class="wrap">
+    <header class="sec-head reveal">
+      <div class="sec-num">IV &nbsp;— &nbsp;The Arsenal</div>
+      <h2 class="sec-title">Every tool. <em>One engine.</em></h2>
+    </header>
+
+    <div class="constellation-lede reveal">Core directives — what you'll use every session</div>
+    <div class="constellation reveal" role="list">
+      <div class="const-cell" role="listitem">
+        <div class="greek">@query</div>
+        <div class="name">Shell execution</div>
+        <div class="desc">Runs a command and captures output. Cached with <code>@cache ttl=N</code>. The workhorse — live git state, version numbers, environment facts.</div>
+      </div>
+      <div class="const-cell" role="listitem">
+        <div class="greek">@read</div>
+        <div class="name">File inclusion</div>
+        <div class="desc">Inlines file content with optional line ranges. Context-overflow guarded. Dependencies, configs, recent logs.</div>
+      </div>
+      <div class="const-cell" role="listitem">
+        <div class="greek">@services</div>
+        <div class="name">Health checks</div>
+        <div class="desc">HTTP, Docker, or command-based service discovery. Parallel checks, configurable timeouts. Know what's running.</div>
+      </div>
+      <div class="const-cell" role="listitem">
+        <div class="greek">@waypoint</div>
+        <div class="name">Session continuity</div>
+        <div class="desc">Inserts the latest checkpoint — what you were doing, what's next. Swap sessions without re-orientation.</div>
+      </div>
+      <div class="const-cell cyan" role="listitem">
+        <div class="greek">@memory</div>
+        <div class="name">Project memory</div>
+        <div class="desc">Narrative journal + FTS5 BM25 search. Federates across workspaces. Your project's long-term memory.</div>
+      </div>
+      <div class="const-cell cyan" role="listitem">
+        <div class="greek">@agora</div>
+        <div class="name">Task board</div>
+        <div class="desc">Live task board from <code>tasks/*.md</code>. Single source of truth — your AI and team share the same work view.</div>
+      </div>
+    </div>
+
+    <p class="reveal" style="text-align:center; margin-top:24px; font-family:var(--mono); font-size:11px; letter-spacing:0.14em; text-transform:uppercase; color:var(--text-muted);">
+      16 directives total — <a href="https://github.com/tcconnally/perseus#core-directives-resolved-at-render-time" style="color:var(--accent-2);border-bottom:1px dotted rgba(86,225,255,0.4);">see the full catalog ↗</a>
+    </p>
+
+    <hr class="arsenal-sep reveal" />
+
+    <div class="constellation-lede reveal" style="margin-top:48px;">CLI — the verbs you'll reach for</div>
+    <div class="constellation reveal" role="list">
+      <div class="const-cell" role="listitem">
+        <div class="greek">perseus quickstart</div>
+        <div class="name">Zero to warm in one command</div>
+        <div class="desc">Detects your assistant, scaffolds, renders, and prints next steps. The fastest path from nothing to live context.</div>
+      </div>
+      <div class="const-cell" role="listitem">
+        <div class="greek">perseus render</div>
+        <div class="name">Resolve and output</div>
+        <div class="desc">Resolves all directives in parallel. Outputs plain markdown. <code>--tier 1|2|3</code> for progressive disclosure.</div>
+      </div>
+      <div class="const-cell" role="listitem">
+        <div class="greek">perseus checkpoint</div>
+        <div class="name">Save session state</div>
+        <div class="desc">Write a waypoint at any natural pause. <code>recover</code> finds the right one; <code>diff</code> compares two.</div>
+      </div>
+      <div class="const-cell" role="listitem">
+        <div class="greek">perseus suggest</div>
+        <div class="name">Pythia tool oracle</div>
+        <div class="desc">Ranks the highest-utility tool or skill for a task. No extra model. Closes the loop in-context.</div>
+      </div>
+      <div class="const-cell" role="listitem">
+        <div class="greek">perseus mcp serve</div>
+        <div class="name">MCP server</div>
+        <div class="desc">Exposes all directives as 24 live MCP tools over stdio or SSE (port 8420). Listed on the MCP Registry.</div>
+      </div>
+    </div>
+
+    <p class="reveal" style="text-align:center; margin-top:24px; font-family:var(--mono); font-size:11px; letter-spacing:0.14em; text-transform:uppercase; color:var(--text-muted);">
+      13 CLI verbs, 24 MCP tools — <a href="https://github.com/tcconnally/perseus#cli-commands--every-verb-one-binary" style="color:var(--accent-2);border-bottom:1px dotted rgba(86,225,255,0.4);">see the full catalog ↗</a>
+    </p>
+
+
+  </div>
+</section>
+
 <!-- ============ ARCHITECTURE DIAGRAM ============ -->
 <section id="architecture" class="section-block">
   <div class="wrap">
     <header class="sec-head reveal">
-      <div class="sec-num">· &nbsp;— &nbsp;The Blueprint</div>
+      <div class="sec-num">V &nbsp;— &nbsp;The Blueprint</div>
       <h2 class="sec-title">How the pieces <em>fit together</em>.</h2>
     </header>
 
@@ -2217,186 +2418,11 @@ Branch: <span class="s">feat/billing-v2</span>
   </div>
 </section>
 
-<!-- ============ ARSENAL ============ -->
-<section id="arsenal" class="section-block">
-  <div class="wrap">
-    <header class="sec-head reveal">
-      <div class="sec-num">IV &nbsp;— &nbsp;The Arsenal</div>
-      <h2 class="sec-title">Every tool. <em>One engine.</em></h2>
-    </header>
-
-    <div class="constellation-lede reveal">Core directives — resolved at render time</div>
-    <div class="constellation reveal" role="list">
-      <div class="const-cell" role="listitem">
-        <div class="greek">@query</div>
-        <div class="name">Shell execution</div>
-        <div class="desc">Runs a command and captures output. Cached with <code>@cache ttl=N</code>. The workhorse directive.</div>
-      </div>
-      <div class="const-cell" role="listitem">
-        <div class="greek">@mneme</div>
-        <div class="name">Vault recall</div>
-        <div class="desc">Shorthand for FTS5 BM25 search over the memory vault. <code>query="terms" k=5</code>. Same backend as <code>@memory mode=search</code>.</div>
-      </div>
-      <div class="const-cell" role="listitem">
-        <div class="greek">@list</div>
-        <div class="name">Directory listing</div>
-        <div class="desc">Lists directory contents or structured data from JSON/YAML files with column selection and sorting.</div>
-      </div>
-      <div class="const-cell" role="listitem">
-        <div class="greek">@tree</div>
-        <div class="name">Directory tree</div>
-        <div class="desc">Renders a fenced directory tree with plain indentation. Depth-limited and pattern-filterable.</div>
-      </div>
-      <div class="const-cell" role="listitem">
-        <div class="greek">@tool</div>
-        <div class="name">External tool</div>
-        <div class="desc">Runs an allowlisted external tool. Requires explicit approval in <code>tools.allowlist</code> per path.</div>
-      </div>
-      <div class="const-cell" role="listitem">
-        <div class="greek">@read</div>
-        <div class="name">File inclusion</div>
-        <div class="desc">Inlines file content with optional line ranges. Context-overflow guarded.</div>
-      </div>
-      <div class="const-cell" role="listitem">
-        <div class="greek">@services</div>
-        <div class="name">Health checks</div>
-        <div class="desc">HTTP, Docker, or command-based service discovery. Parallel checks, configurable timeouts.</div>
-      </div>
-      <div class="const-cell" role="listitem">
-        <div class="greek">@waypoint</div>
-        <div class="name">Session checkpoint</div>
-        <div class="desc">Inserts the latest checkpoint summary. TTL-aware. Restores continuity across sessions.</div>
-      </div>
-      <div class="const-cell cyan" role="listitem">
-        <div class="greek">@memory</div>
-        <div class="name">Project memory</div>
-        <div class="desc">Narrative journal + FTS5 BM25 vault search. <code>focus=recent</code> for activity, <code>mode=search query="..."</code> for ranked recall. Federates across workspaces.</div>
-      </div>
-      <div class="const-cell cyan" role="listitem">
-        <div class="greek">@agora</div>
-        <div class="name">Task board</div>
-        <div class="desc">Live task board from <code>tasks/*.md</code>. Single source of truth for AI and team.</div>
-      </div>
-      <div class="const-cell" role="listitem">
-        <div class="greek">@drift</div>
-        <div class="name">Daedalus oracle</div>
-        <div class="desc">Self-rating. Detects when recommendations diverge from reality. Prevents flawed execution.</div>
-      </div>
-      <div class="const-cell" role="listitem">
-        <div class="greek">@inbox</div>
-        <div class="name">Hermes messages</div>
-        <div class="desc">Point-to-point agent messages for coordination and handoff on complex multi-agent tasks.</div>
-      </div>
-      <div class="const-cell" role="listitem">
-        <div class="greek">@agent</div>
-        <div class="name">Subprocess agent</div>
-        <div class="desc">Executes a local agent subprocess. Gated behind <code>allow_agent_shell</code> for safety.</div>
-      </div>
-      <div class="const-cell" role="listitem">
-        <div class="greek">@synthesize</div>
-        <div class="name">Cited synthesis</div>
-        <div class="desc">LLM-powered summarization with provenance claims. Every assertion traces back to a source.</div>
-      </div>
-      <div class="const-cell" role="listitem">
-        <div class="greek">@include</div>
-        <div class="name">Nested render</div>
-        <div class="desc">Includes and resolves another context file. Enables composable, modular context packs.</div>
-      </div>
-      <div class="const-cell" role="listitem">
-        <div class="greek">@prompt</div>
-        <div class="name">System prompt</div>
-        <div class="desc">Injects a system-level prompt block consumed by the assistant at session start.</div>
-      </div>
-    </div>
-
-    <div class="constellation-lede reveal" style="margin-top:48px;">CLI — one binary, every verb</div>
-    <div class="constellation reveal" role="list">
-      <div class="const-cell" role="listitem">
-        <div class="greek">perseus init</div>
-        <div class="name">Scaffold a workspace</div>
-        <div class="desc">Creates <code>.perseus/context.md</code> + <code>pack.yaml</code>. Profile-aware: <code>--profile hermes</code>, <code>codex</code>, <code>claude-code</code>, <code>cursor</code>.</div>
-      </div>
-      <div class="const-cell" role="listitem">
-        <div class="greek">perseus quickstart</div>
-        <div class="name">Zero to warm in one command</div>
-        <div class="desc">Detects your assistant, scaffolds, renders, and prints next steps. The fastest path from nothing to live context.</div>
-      </div>
-      <div class="const-cell" role="listitem">
-        <div class="greek">perseus render</div>
-        <div class="name">Resolve and output</div>
-        <div class="desc">Resolves all directives in parallel. Outputs plain markdown. <code>--tier 1|2|3</code> for progressive disclosure.</div>
-      </div>
-      <div class="const-cell" role="listitem">
-        <div class="greek">perseus checkpoint</div>
-        <div class="name">Save session state</div>
-        <div class="desc">Write a waypoint at any natural pause. <code>recover</code> finds the right one; <code>diff</code> compares two.</div>
-      </div>
-      <div class="const-cell" role="listitem">
-        <div class="greek">perseus suggest</div>
-        <div class="name">Pythia tool oracle</div>
-        <div class="desc">Ranks the highest-utility tool or skill for a task. No extra model. Closes the loop in-context.</div>
-      </div>
-      <div class="const-cell" role="listitem">
-        <div class="greek">perseus doctor</div>
-        <div class="name">Readiness check</div>
-        <div class="desc">Verifies config, permissions, cache health, and output freshness. One command to know you're solid.</div>
-      </div>
-      <div class="const-cell" role="listitem">
-        <div class="greek">perseus watch</div>
-        <div class="name">Auto-refresh daemon</div>
-        <div class="desc">Polls for source changes, re-renders on drift. Works anywhere — no crontab or systemd needed.</div>
-      </div>
-      <div class="const-cell" role="listitem">
-        <div class="greek">perseus cron</div>
-        <div class="name">Scheduled render</div>
-        <div class="desc">Installs a crontab entry. <code>--every 30</code> minutes. Traditional, battle-tested.</div>
-      </div>
-      <div class="const-cell" role="listitem">
-        <div class="greek">perseus systemd</div>
-        <div class="name">User unit timer</div>
-        <div class="desc">Installs and enables a systemd timer. <code>--interval 5m</code>. Native Linux scheduling.</div>
-      </div>
-      <div class="const-cell" role="listitem">
-        <div class="greek">perseus mcp serve</div>
-        <div class="name">MCP server</div>
-        <div class="desc">Exposes 24 tools over stdio or SSE (port 8420). Listed on the MCP Registry. Works with any MCP client.</div>
-      </div>
-      <div class="const-cell" role="listitem">
-        <div class="greek">perseus serve</div>
-        <div class="name">HTTP dashboard</div>
-        <div class="desc">Live workspace state at <code>localhost:7991</code>. Endpoints: <code>/context</code>, <code>/narrative</code>, <code>/health</code>, <code>/agora</code>, <code>/checkpoint/latest</code>, <code>/oracle/log</code>.</div>
-      </div>
-      <div class="const-cell" role="listitem">
-        <div class="greek">perseus serve --lsp</div>
-        <div class="name">Graeae LSP</div>
-        <div class="desc">Language server with hover-preview for directives. Auto-renders on save. VSCode extension included.</div>
-      </div>
-      <div class="const-cell" role="listitem">
-        <div class="greek">perseus memory</div>
-        <div class="name">Memory management</div>
-        <div class="desc">Update, show, or compact project memory across Mnēmē FTS5 and Engram-rs hybrid backends.</div>
-      </div>
-    </div>
-
-    <div class="constellation-lede reveal" style="margin-top:48px;">MCP server — 24 tools, one endpoint</div>
-    <p class="reveal" style="color:var(--text-dim); font-size:15px; line-height:1.6; max-width:64ch; margin:0 auto; text-align:center;">
-      Listed on the official MCP Registry as <code style="color:var(--accent-2);">io.github.tcconnally/perseus</code>.
-      Every directive is a live tool: <code>perseus_query</code>, <code>perseus_services</code>,
-      <code>perseus_memory</code>, <code>perseus_agora</code>, <code>perseus_skills</code>,
-      <code>perseus_inbox</code>, <code>perseus_drift</code>, <code>perseus_agent</code>, and 16 more.
-      Works with <b>Claude Desktop</b>, <b>Claude Code</b>, <b>Cursor</b>, <b>Codex</b>,
-      <b>Hermes Agent</b>, <b>Rovo Dev</b>, and any MCP-compatible assistant.
-      <br><br>
-      <code style="color:var(--text);">perseus mcp serve</code> &nbsp;— that's it. Tools resolve live at invocation time. No stale cache.
-    </p>
-  </div>
-</section>
-
 <!-- ============ PROOF / STATS ============ -->
 <section id="proof" class="section-block">
   <div class="wrap">
     <header class="sec-head reveal">
-      <div class="sec-num">V &nbsp;— &nbsp;The Receipts</div>
+      <div class="sec-num">VI &nbsp;— &nbsp;The Receipts</div>
       <h2 class="sec-title">Numbers from the bench, <em>not the pitch deck.</em></h2>
     </header>
 
@@ -2517,7 +2543,7 @@ Branch: <span class="s">feat/billing-v2</span>
 <section id="compat" class="section-block">
   <div class="wrap">
     <header class="sec-head reveal">
-      <div class="sec-num">VI &nbsp;— &nbsp;The Compatible</div>
+      <div class="sec-num">VII &nbsp;— &nbsp;The Compatible</div>
       <h2 class="sec-title">Resolves to a file. <em>Yours, already.</em></h2>
     </header>
 
@@ -2575,7 +2601,7 @@ Branch: <span class="s">feat/billing-v2</span>
 <section id="integrate" class="section-block">
   <div class="wrap">
     <header class="sec-head reveal">
-      <div class="sec-num">VII &nbsp;— &nbsp;The Adapters</div>
+      <div class="sec-num">VIII &nbsp;— &nbsp;The Adapters</div>
       <h2 class="sec-title">Four ways to <em>own session-start</em>.</h2>
     </header>
 
@@ -2685,7 +2711,7 @@ Branch: <span class="s">feat/billing-v2</span>
 <section id="start" class="section-block">
   <div class="wrap">
     <header class="sec-head reveal">
-      <div class="sec-num">VIII &nbsp;— &nbsp;The Start</div>
+      <div class="sec-num">IX &nbsp;— &nbsp;The Start</div>
       <h2 class="sec-title">Thirty seconds <em>from cold to warm.</em></h2>
     </header>
 
@@ -2834,6 +2860,18 @@ Branch: <span class="s">feat/billing-v2</span>
         if (isNaN(n2) || n2 < 100 || n2 > 99999) return;
         document.querySelectorAll('[data-live="tests"]').forEach(function (el) {
           el.textContent = n2.toLocaleString();
+        });
+      })
+      .catch(function () { /* offline, leave fallback */ });
+
+    // GitHub star count
+    fetch('https://api.github.com/repos/tcconnally/perseus', { cache: 'no-cache' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (!d || typeof d.stargazers_count !== 'number') return;
+        var stars = d.stargazers_count;
+        document.querySelectorAll('[data-live="stars"]').forEach(function (el) {
+          el.textContent = stars >= 1000 ? (stars / 1000).toFixed(1) + 'k' : stars;
         });
       })
       .catch(function () { /* offline, leave fallback */ });
@@ -3058,6 +3096,41 @@ Branch: <span class="s">feat/billing-v2</span>
       glow.style.top  = ay + 'px';
       requestAnimationFrame(loop);
     })();
+  })();
+
+  /* Hamburger nav toggle */
+  (function () {
+    var btn = document.getElementById('hamburger');
+    var overlay = document.getElementById('mobile-nav');
+    if (!btn || !overlay) return;
+    var links = overlay.querySelectorAll('a');
+
+    function open() {
+      btn.classList.add('open');
+      btn.setAttribute('aria-expanded', 'true');
+      overlay.classList.add('open');
+      overlay.setAttribute('aria-hidden', 'false');
+      document.body.style.overflow = 'hidden';
+    }
+    function close() {
+      btn.classList.remove('open');
+      btn.setAttribute('aria-expanded', 'false');
+      overlay.classList.remove('open');
+      overlay.setAttribute('aria-hidden', 'true');
+      document.body.style.overflow = '';
+    }
+
+    btn.addEventListener('click', function () {
+      overlay.classList.contains('open') ? close() : open();
+    });
+
+    links.forEach(function (a) {
+      a.addEventListener('click', close);
+    });
+
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && overlay.classList.contains('open')) close();
+    });
   })();
 
   /* Scroll reveal */
