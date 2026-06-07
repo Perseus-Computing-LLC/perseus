@@ -962,6 +962,7 @@ def _bind_registry() -> None:
         DirectiveSpec("@date",      resolve_date,      ["format="],                "inline",  "a",   cacheable=False, safe_for_hover=True, summary="Current date/time", output_schema={"type": "str", "pattern": ".+"}, tier=1),
         DirectiveSpec("@waypoint",  resolve_waypoint,  ["ttl="],                   "inline",  "ac",  reads_files=True, cacheable=True, summary="Latest checkpoint summary", tier=1),
         DirectiveSpec("@memory",    resolve_memory,    ["mode=", "query=", "scope=", "k=", "type=", "render=", "focus=", "federation", "include_federation=", "alias=", "workspace="], "inline", "acw", reads_files=True, cacheable=True, summary="Mnēmē v2 — unified memory search + narrative + federation", diagnostic_fn=_memory_federation_diagnostic, tier=1),
+        DirectiveSpec("@auto-skill", resolve_auto_skill, ["skill="],              "inline",  "ac",  cacheable=True,  safe_for_hover=True, summary="Instruct agent to load a skill before work begins", tier=1),
         DirectiveSpec("@health",    resolve_health,    [],                         "inline",  "acw", reads_files=True, summary="Context maintenance report", tier=1),
         DirectiveSpec("@env",       resolve_env,       ["required=", "fallback=", "schema="], "inline", "acw", cacheable=False, safe_for_hover=True, summary="Embed environment variable", tier=1),
 
@@ -12413,9 +12414,9 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path) -> str:
         confidence = h.get("confidence", 1.0)
 
         if render_template == "compact":
-            lines.append(f"  - **{title}**")
+            lines.append(f"  - [local] **{title}**")
         elif render_template == "full":
-            lines.append(f"### {title}")
+            lines.append(f"### {title} [local]")
             meta_parts = []
             if mem_type:
                 meta_parts.append(f"_{mem_type}_")
@@ -12431,7 +12432,7 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path) -> str:
                 lines.append(f"  > {snippet}")
             lines.append(f"\n{summary}\n")
         else:
-            parts = [f"  - **{title}**"]
+            parts = [f"  - [local] **{title}**"]
             if mem_type:
                 parts.append(f"_{mem_type}_")
             if mem_scope:
@@ -12453,7 +12454,7 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path) -> str:
         lines.append("> 🧠 **Engram context:**")
         for mi in engram_items:
             title = mi.summary or (mi.content[:80] + "…" if len(mi.content) > 80 else mi.content)
-            lines.append(f"  - [{mi.type.value}] {title}")
+            lines.append(f"  - [engram] [{mi.type.value}] {title}")
             if mi.links:
                 for lnk in mi.links[:2]:
                     lines.append(f"    ↳ `{lnk.relationship}` → {lnk.target_id[:8]}…")
@@ -15032,6 +15033,112 @@ def _doctor_check_cache_writable(cfg: dict, workspace: Path) -> DoctorResult:
                            f"Check permissions on {cache_dir}")
 
 
+# ── Engram-rs binary auto-discovery (#227) ────────────────────────────────
+
+# Common paths where engram binary may be found (ordered by likelihood).
+_KNOWN_ENGRAM_PATHS = [
+    "~/.local/bin/engram",
+    "~/.cargo/bin/engram",
+    "/usr/local/bin/engram",
+]
+
+
+def _find_engram_binary(configured_command: list[str]) -> str | None:
+    """Search common paths for the engram binary.
+
+    Returns the first found absolute path, or None if not found.
+    Used by doctor to surface a clear suggestion when engram is configured
+    but the binary isn't on PATH (#227).
+    """
+    binary_name = configured_command[0] if configured_command else "engram"
+
+    # Check if the configured binary is already resolvable via PATH
+    import shutil as _shutil
+    resolved = _shutil.which(binary_name)
+    if resolved:
+        return resolved
+
+    # Search known common paths
+    candidates = list(_KNOWN_ENGRAM_PATHS)
+
+    # Also search $PWD/engram-rs/target/{release,debug}/engram
+    try:
+        cwd = Path.cwd()
+        candidates.append(str(cwd / "engram-rs" / "target" / "release" / "engram"))
+        candidates.append(str(cwd / "engram-rs" / "target" / "debug" / "engram"))
+    except Exception:
+        pass
+
+    for p in candidates:
+        expanded = Path(p).expanduser()
+        if expanded.is_file() and os.access(expanded, os.X_OK):
+            return str(expanded)
+
+    return None
+
+
+def _doctor_check_engram(cfg: dict, workspace: Path) -> DoctorResult:
+    """Check engram-rs connectivity and binary discovery (#226, #227).
+
+    When engram.enabled is true, this check:
+      1. Searches common paths for the engram binary (#227)
+      2. Attempts MCP handshake + engram_health tool call (#226)
+      3. Surfaces a clear warning (not silent Mneme fallback) if unreachable
+    """
+    engram_cfg = cfg.get("engram", {})
+    enabled = bool(engram_cfg.get("enabled", True))
+
+    if not enabled:
+        return DoctorResult("engram_connectivity", "ok", "Engram-rs",
+                           "disabled", "")
+
+    command = list(engram_cfg.get("command", ["engram", "serve"]))
+    binary_name = command[0] if command else "engram"
+
+    # Step 1: Auto-discover binary if not on PATH (#227)
+    binary_path = _find_engram_binary(command)
+    if binary_path is None:
+        return DoctorResult("engram_connectivity", "warn", "Engram-rs binary",
+                           f"not found: '{binary_name}' (searched PATH + known locations)",
+                           "Install engram-rs or set engram.command in config.yaml")
+    if binary_path != binary_name:
+        # Found at a non-default path — update command for the connection attempt
+        command[0] = binary_path
+
+    # Step 2: Attempt MCP handshake + health check (#226)
+    try:
+        # Build a temporary connector with the discovered binary path
+        test_cfg = dict(cfg)
+        test_cfg["engram"] = dict(engram_cfg)
+        test_cfg["engram"]["command"] = command
+
+        connector = EngramConnector(test_cfg)
+        if connector.available:
+            # Run health check
+            healthy, status = connector.health_check()
+            if healthy:
+                connector.close()
+                extra = f" (binary: {binary_path})" if binary_path != binary_name else ""
+                return DoctorResult("engram_connectivity", "ok", "Engram-rs",
+                                   f"connected + healthy{extra}", "")
+            else:
+                connector.close()
+                return DoctorResult("engram_connectivity", "warn", "Engram-rs",
+                                   f"connected but health check failed: {status}",
+                                   "Check engram-rs server status")
+        else:
+            err = connector.status
+            # close() is safe even if not connected (no-op)
+            connector.close()
+            return DoctorResult("engram_connectivity", "warn", "Engram-rs",
+                               f"unreachable: {err}",
+                               "Check engram-rs is running or install it")
+    except Exception as exc:
+        return DoctorResult("engram_connectivity", "error", "Engram-rs",
+                           str(exc),
+                           "Verify engram binary and config — check engram.command in config.yaml")
+
+
 def _doctor_check_sessions(cfg: dict, workspace: Path) -> DoctorResult:
     """Check whether the sessions store is accessible."""
     sessions_dir = SESSIONS_DIR  # from config.py
@@ -15057,6 +15164,7 @@ _DOCTOR_CHECKS = [
     _doctor_check_latest_checkpoint,
     _doctor_check_mneme,
     _doctor_check_mneme_index,
+    _doctor_check_engram,
     _doctor_check_federation,
     _doctor_check_pythia_log,
     _doctor_check_serve_loopback,
@@ -16275,15 +16383,21 @@ this injected copy is authoritative. Reading the disk version will give you
 outdated information. Use only what you see here.
 @end
 
-## Memory Backend Policy
+## Memory Gate — STOP. Answer these three questions before saving ANYTHING.
 
-**Default durable storage is engram-rs (MCP `engram_store` / `engram_recall`).**
-The `memory` tool is for hot context only (~100 chars per entry, facts needed every turn).
-Procedural knowledge goes in skills (`skill_manage`).
+Before storing a fact in the `memory` tool, verify ALL three:
 
-🚫 **Flat files are BANNED as a memory backend.** Do not create .txt, .json, .csv, or .md
-files for persistent memory. Use engram-rs (via `@memory` directive or MCP tools) instead.
-If engram-rs is unavailable, use the `memory` tool as fallback — never create a file.
+1. **Will this fact still be relevant in 2+ sessions?** If NO → do NOT save.
+2. **Is this a procedure, workflow, or how-to?** If YES → use `skill_manage` (not memory).
+3. **Could this be re-discovered in < 30 seconds?** If YES → do NOT save.
+
+Only facts that pass ALL THREE gates belong in `memory` (2,200 char hard limit).
+Everything else has a better home:
+- 🔁 **Procedures** → `skill_manage` (create/update a skill)
+- 🧠 **Cross-session context** → engram-rs (MCP `engram_store` / `engram_recall`)
+- 🚫 **Ephemeral state, one-time fixes, completed tasks** → discard
+
+🚫 **Flat files (.txt, .json, .csv, .md) are BANNED as a memory backend.**
 
 ---
 
@@ -16327,7 +16441,7 @@ If engram-rs is unavailable, use the `memory` tool as fallback — never create 
 > Falls back gracefully to local Mneme FTS5 if Engram-rs is unavailable.
 > Requires `engram.enabled: true` in `.perseus/config.yaml`.
 
-@memory mode=search query="project architecture setup build deploy" k=5
+@memory mode=search query="{engram_query}" k=5
 """
 
 
@@ -17367,6 +17481,72 @@ def cmd_validate(args, cfg) -> int:
     return 0 if not errors else 1
 
 
+# ──────────────────────────── @auto-skill (#234) ──────────────────────────────
+
+def resolve_auto_skill(args_str: str, cfg: dict, workspace: Path | None = None) -> str:
+    """@auto-skill <name> — instruct agent to load a skill before work begins.
+
+    Designed for critical hygiene skills (memory-hygiene, agent-safety) that
+    agents must load proactively. Without this, agents skip optional skill
+    loads under execution pressure — the memory tool fills silently until
+    the 2,200-char hard limit blocks genuinely important saves.
+    """
+    name = args_str.strip()
+    if not name:
+        return "> \u26a0 @auto-skill requires a skill name.\n"
+    return (
+        f"> \u26a0 **Auto-skill: load '{name}' before work begins.** "
+        f"Run `skill_view(name='{name}')` now. "
+        f"This skill is required for this session and must not be skipped.\n"
+    )
+
+
+# ──────────────────────────── Project Detection (#232) ─────────────────────────
+
+# Project detector hints: (indicator_file, language_name, suggested_memory_query)
+_PROJECT_LANGUAGE_HINTS = [
+    ("pyproject.toml", "Python", "test patterns import conventions type annotations"),
+    ("setup.py", "Python", "test patterns import conventions type annotations"),
+    ("requirements.txt", "Python", "test patterns import conventions type annotations"),
+    ("Cargo.toml", "Rust", "trait bounds lifetime annotations cargo config"),
+    ("package.json", "Node.js/TypeScript", "npm scripts eslint config component patterns"),
+    ("tsconfig.json", "TypeScript", "type definitions interface patterns tsconfig settings"),
+    ("go.mod", "Go", "package structure goroutine patterns error handling"),
+    ("pom.xml", "Java/Maven", "build config dependency management patterns"),
+    ("build.gradle", "Java/Gradle", "build config dependency management patterns"),
+    ("Makefile", "C/C++", "build targets compiler flags link directives"),
+    ("CMakeLists.txt", "C/C++", "build targets compiler flags link directives"),
+    ("Dockerfile", "Docker/DevOps", "container config deployment pipeline ci cd"),
+    ("docker-compose.yaml", "Docker/DevOps", "container config deployment pipeline ci cd"),
+]
+
+_PROJECT_LANGUAGE_FALLBACK = "project architecture setup build deploy"
+
+
+def _detect_project_language(workspace: Path) -> str:
+    """Detect the primary project language from indicator files.
+
+    Checks the workspace directory for known indicator files and returns
+    a language name. Returns empty string if no indicators found.
+    """
+    for indicator, language, _ in _PROJECT_LANGUAGE_HINTS:
+        if (workspace / indicator).exists():
+            return language
+    return ""
+
+
+def _context_appropriate_memory_query(workspace: Path) -> str:
+    """Return a context-appropriate @memory mode=search query for the project.
+
+    Detects the project language and returns a query string tuned for
+    that language's common patterns. Falls back to a generic query.
+    """
+    for indicator, language, query in _PROJECT_LANGUAGE_HINTS:
+        if (workspace / indicator).exists():
+            return query
+    return _PROJECT_LANGUAGE_FALLBACK
+
+
 # ──────────────────────────────── cmd_init ────────────────────────────────────
 
 INIT_CONTEXT_TEMPLATE = """\
@@ -17384,15 +17564,21 @@ this injected copy is authoritative. Reading the disk version will give you
 outdated information. Use only what you see here.
 @end
 
-## Memory Backend Policy
+## Memory Gate — STOP. Answer these three questions before saving ANYTHING.
 
-**Default durable storage is engram-rs (MCP `engram_store` / `engram_recall`).**
-The `memory` tool is for hot context only (~100 chars per entry, facts needed every turn).
-Procedural knowledge goes in skills (`skill_manage`).
+Before storing a fact in the `memory` tool, verify ALL three:
 
-🚫 **Flat files are BANNED as a memory backend.** Do not create .txt, .json, .csv, or .md
-files for persistent memory. Use engram-rs (via `@memory` directive or MCP tools) instead.
-If engram-rs is unavailable, use the `memory` tool as fallback — never create a file.
+1. **Will this fact still be relevant in 2+ sessions?** If NO → do NOT save.
+2. **Is this a procedure, workflow, or how-to?** If YES → use `skill_manage` (not memory).
+3. **Could this be re-discovered in < 30 seconds?** If YES → do NOT save.
+
+Only facts that pass ALL THREE gates belong in `memory` (2,200 char hard limit).
+Everything else has a better home:
+- 🔁 **Procedures** → `skill_manage` (create/update a skill)
+- 🧠 **Cross-session context** → engram-rs (MCP `engram_store` / `engram_recall`)
+- 🚫 **Ephemeral state, one-time fixes, completed tasks** → discard
+
+🚫 **Flat files (.txt, .json, .csv, .md) are BANNED as a memory backend.**
 
 ---
 
@@ -17448,7 +17634,7 @@ If engram-rs is unavailable, use the `memory` tool as fallback — never create 
 > Falls back gracefully to local Mneme FTS5 if Engram-rs is unavailable.
 > Requires `engram.enabled: true` in `.perseus/config.yaml`.
 
-@memory mode=search query="project architecture setup build deploy" k=5
+@memory mode=search query="{engram_query}" k=5
 """
 
 # ───────────────────────── Phase 24: install ──────────────────────────────────
@@ -18200,8 +18386,22 @@ def cmd_init(args, cfg):
             sys.exit(1)
         content = tpl.replace("{workspace}", str(workspace))
     else:
-        content = INIT_CONTEXT_TEMPLATE.format(workspace=str(workspace), version=_PERSEUS_VERSION)
+        content = INIT_CONTEXT_TEMPLATE.format(workspace=str(workspace), version=_PERSEUS_VERSION, engram_query=_context_appropriate_memory_query(workspace))
     context_file.write_text(content, encoding="utf-8")
+
+    # ── Engram binary auto-discovery (#227) ──
+    # If engram is not installed, suggest the bootstrap script
+    engram_cfg = cfg.get("engram", {}) if cfg else {}
+    if engram_cfg.get("enabled", True):
+        command = engram_cfg.get("command", ["engram", "serve"])
+        binary_path = _find_engram_binary(command)
+        if binary_path is None:
+            print(f"💡 Engram-rs not found. For persistent cross-session memory, run:")
+            print(f"   curl -sSL https://raw.githubusercontent.com/tcconnally/engram-rs/main/scripts/bootstrap.sh | bash")
+        elif binary_path != command[0]:
+            language = _detect_project_language(workspace)
+            lang_note = f" (detected: {language})" if language else ""
+            print(f"✓ Context scaffolded{lang_note} — engram binary at: {binary_path}")
 
     manifest = None
     if profile_name and not getattr(args, "no_pack", False):
