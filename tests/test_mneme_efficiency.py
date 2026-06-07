@@ -112,7 +112,7 @@ class TestTokenBudget:
             ))
 
         merged = conn._merge_results(
-            local_items=local, mneme_items=engram,
+            local_items=local, mneme_items=mneme_items,
             strategy=perseus.MergeStrategy.LOCAL_FIRST, diagnostics={},
         )
 
@@ -190,10 +190,10 @@ class TestDeduplicationEfficiency:
         ) * 2  # make it long enough to matter
 
         local = [_make_hit("l-long", long_content, "local", "decision", decay=0.5)]
-        engram = [_make_hit("e-long", long_content, "mneme", "decision", decay=0.9)]
+        mneme_items = [_make_hit("e-long", long_content, "mneme", "decision", decay=0.9)]
 
         merged = conn._merge_results(
-            local_items=local, mneme_items=engram,
+            local_items=local, mneme_items=mneme_items,
             strategy=perseus.MergeStrategy.LOCAL_FIRST, diagnostics={},
         )
 
@@ -216,15 +216,15 @@ class TestDeduplicationEfficiency:
         local = [_make_hit(f"l-shared-{i}", shared_contents[i], "local", "architecture") for i in range(5)]
         local += [_make_hit(f"l-unique-{i}", f"Local-only operational note #{i}: Daily health check runs at 0600 UTC.", "local", "insight") for i in range(5)]
 
-        engram = [_make_hit(f"e-shared-{i}", shared_contents[i], "mneme", "architecture", decay=0.85) for i in range(5)]
-        engram += [_make_hit(f"e-unique-{i}", f"Mneme-only historical context #{i}: Original prototype used JSON flat files.", "mneme", "insight", decay=0.3) for i in range(5)]
+        mneme_items = [_make_hit(f"e-shared-{i}", shared_contents[i], "mneme", "architecture", decay=0.85) for i in range(5)]
+        mneme_items += [_make_hit(f"e-unique-{i}", f"Mneme-only historical context #{i}: Original prototype used JSON flat files.", "mneme", "insight", decay=0.3) for i in range(5)]
 
         merged = conn._merge_results(
-            local_items=local, mneme_items=engram,
+            local_items=local, mneme_items=mneme_items,
             strategy=perseus.MergeStrategy.LOCAL_FIRST, diagnostics={},
         )
 
-        # Total items: 5 shared + 5 local-only + 5 engram-only = 15
+        # Total items: 5 shared + 5 local-only + 5 mneme-only = 15
         assert len(merged.items) == 15
 
         # Without dedup: 10 local + 10 engram = 20 items
@@ -238,11 +238,11 @@ class TestDeduplicationEfficiency:
         conn = self._connector()
         shared = "This is a shared memory that exists in both local and remote stores."
         local = [_make_hit("l-dup", shared, "local", "insight")]
-        engram = [_make_hit("e-dup", shared, "mneme", "insight")]
+        mneme_items = [_make_hit("e-dup", shared, "mneme", "insight")]
 
         diag = {}
         conn._merge_results(
-            local_items=local, mneme_items=engram,
+            local_items=local, mneme_items=mneme_items,
             strategy=perseus.MergeStrategy.LOCAL_FIRST, diagnostics=diag,
         )
         # Diagnostics should show dedup activity
@@ -312,16 +312,16 @@ class TestInformationDensity:
         """Core metric: information density with 50 items, 40% duplicates."""
         conn = self._connector()
         unique_bases = [f"Unique architectural insight #{i}: details about module {i}." for i in range(30)]
-        duplicate_pairs = [f"Shared content block #{j} that appears in both local and engram stores." for j in range(10)]
+        duplicate_pairs = [f"Shared content block #{j} that appears in both local and mneme stores." for j in range(10)]
 
         local = [_make_hit(f"l-u-{i}", unique_bases[i], "local", "architecture") for i in range(15)]
-        engram = [_make_hit(f"e-u-{i}", unique_bases[i+15], "mneme", "architecture") for i in range(15)]
+        mneme_items = [_make_hit(f"e-u-{i}", unique_bases[i+15], "mneme", "architecture") for i in range(15)]
         for j in range(10):
             local.append(_make_hit(f"l-dup-{j}", duplicate_pairs[j], "local", "decision"))
             mneme_items.append(_make_hit(f"e-dup-{j}", duplicate_pairs[j], "mneme", "decision", decay=0.8))
 
         merged = conn._merge_results(
-            local_items=local, mneme_items=engram,
+            local_items=local, mneme_items=mneme_items,
             strategy=perseus.MergeStrategy.LOCAL_FIRST, diagnostics={},
         )
 
@@ -365,14 +365,14 @@ class TestStrategyTokenProfiles:
             _make_hit("l-b", "Local B: Monitoring uses Prometheus with 15s scrape interval.", "local", "insight", decay=0.85),
             _make_hit("l-c", "Local C: Recent hotfix for auth race condition deployed today.", "local", "decision", decay=1.0),
         ]
-        engram = [
+        mneme_items = [
             _make_hit("e-x", "Engram X: Historical deployment was on port 3000 without TLS.", "mneme", "architecture", decay=0.15),
             _make_hit("e-y", "Engram Y: Monitoring was originally done with Grafana Cloud.", "mneme", "insight", decay=0.25),
             _make_hit("e-z", "Engram Z: Auth module was originally OAuth-only, no JWT.", "mneme", "decision", decay=0.10),
         ]
 
         return conn._merge_results(
-            local_items=local, mneme_items=engram,
+            local_items=local, mneme_items=mneme_items,
             strategy=strategy_enum, diagnostics={},
         )
 
@@ -450,7 +450,7 @@ class TestRealWorldSimulation:
                 "directly — always edit src/ and rebuild. Merge conflicts resolved with --ours then rebuild.",
                 "mneme", "insight", decay=0.92),
             _make_hit("arch-2",
-                "The Mneme bridge uses MCP stdio transport: it spawns 'engram serve --mcp' as a subprocess "
+                "The Mneme bridge uses MCP stdio transport: it spawns 'mneme serve --mcp' as a subprocess "
                 "and communicates via JSON-RPC over stdin/stdout. The SSE transport is available as a stub "
                 "for future dockerized deployments.",
                 "mneme", "architecture", decay=0.85),
@@ -509,7 +509,7 @@ class TestRealWorldSimulation:
         ]
         local_tokens = sum(_estimate_tokens(item.content) for item in local_only_items)
 
-        # Hybrid: 5 local + 5 engram items, 2 shared (verified)
+        # Hybrid: 5 local + 5 mneme items, 2 shared (verified)
         shared_content = [
             "Auth uses JWT with 15min expiry — same as local.",  # shared
             "Cache: Redis for session store — identical content.",  # shared
