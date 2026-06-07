@@ -1,9 +1,9 @@
 """
 test_engram_stability.py — Phase 1: Infrastructure Validation (Robustness)
 
-Tests in this file validate that the Engram-rs bridge does NOT break
+Tests in this file validate that the Mneme bridge does NOT break
 the system when things go wrong. These can run in CI/CD, as daily health
-checks, and do NOT require a running Engram service.
+checks, and do NOT require a running Mneme service.
 
 Three test suites:
   1. Circuit Breaker — validates the breaker state machine
@@ -25,13 +25,13 @@ pytestmark = pytest.mark.skipif(PY_VER < (3, 10), reason="Perseus requires Pytho
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _cfg_with_engram(overrides=None):
+def _cfg_with_mneme(overrides=None):
     """Build a config with Engram enabled but using parameters suitable for testing."""
     c = cfg()
-    c["engram"] = {
+    c["mneme"] = {
         "enabled": True,
         "transport": "stdio",
-        "command": ["nonexistent-engram-binary", "serve", "--mcp"],  # guaranteed unavailable
+        "command": ["nonexistent-mneme-binary", "serve", "--mcp"],  # guaranteed unavailable
         "endpoint": "",
         "timeout_s": 0.5,
         "merge_strategy": "local_first",
@@ -47,7 +47,7 @@ def _cfg_with_engram(overrides=None):
         },
     }
     if overrides:
-        c["engram"].update(overrides)
+        c["mneme"].update(overrides)
     return c
 
 
@@ -60,28 +60,28 @@ def _mock_local_hits():
     ]
 
 
-def _mock_engram_hits():
-    """Return synthetic Engram memory hits."""
+def _mock_mneme_hits():
+    """Return synthetic Mneme memory hits."""
     from conftest import perseus as p
     return [
         p.MemoryHit(
             id="eng-1", type=p.MemoryTypeEnum.ARCHITECTURE,
             content="The auth module uses Postgres for production and SQLite FTS5 for local dev.",
-            source=p.MemorySource.ENGRAM, summary="Auth module: dual DB strategy",
+            source=p.MemorySource.MNEME, summary="Auth module: dual DB strategy",
             relevance=0.88, decay_score=0.95, retrieval_count=3,
             layer=p.MemoryLayer.CORE, topic_path="architecture/auth/database",
         ),
         p.MemoryHit(
             id="eng-2", type=p.MemoryTypeEnum.DECISION,
             content="Chose microkernel pattern for module isolation after evaluating plugin architectures.",
-            source=p.MemorySource.ENGRAM, summary="Microkernel: post-evaluation decision",
+            source=p.MemorySource.MNEME, summary="Microkernel: post-evaluation decision",
             relevance=0.76, decay_score=0.73, retrieval_count=1,
             layer=p.MemoryLayer.WORKING, topic_path="architecture/patterns/microkernel",
         ),
         p.MemoryHit(
             id="eng-3", type=p.MemoryTypeEnum.INSIGHT,
             content="Perseus watch daemon auto-refreshes AGENTS.md every 900s in the container.",
-            source=p.MemorySource.ENGRAM, summary="Perseus watch daemon timing",
+            source=p.MemorySource.MNEME, summary="Perseus watch daemon timing",
             relevance=0.65, decay_score=0.42, retrieval_count=5,
             layer=p.MemoryLayer.WORKING, topic_path="operations/daemons/watch",
         ),
@@ -192,20 +192,20 @@ class TestCircuitBreakerDegradedMode:
     """Validate that the connector gracefully degrades when circuit is open."""
 
     def test_connector_with_bad_binary_enters_degraded(self):
-        """When the engram binary doesn't exist, the connector should be unavailable
+        """When the mneme binary doesn't exist, the connector should be unavailable
         but NOT crash. The status should reflect the degradation."""
         _reset_connector_singleton()
-        c = _cfg_with_engram({"command": ["/nonexistent/path/engram"]})
+        c = _cfg_with_mneme({"command": ["/nonexistent/path/mneme"]})
         connector = perseus.EngramConnector(c)
         assert not connector.available
         assert "unavailable" in connector.status.lower()
         assert connector.breaker_stats["total_failures"] >= 1
 
     def test_connector_recall_when_unavailable_returns_empty(self):
-        """When Engram is unavailable, recall() should return an empty MemorySegment
+        """When Mneme is unavailable, recall() should return an empty MemorySegment
         without raising an exception."""
         _reset_connector_singleton()
-        c = _cfg_with_engram({"command": ["/nonexistent/path/engram"]})
+        c = _cfg_with_mneme({"command": ["/nonexistent/path/mneme"]})
         connector = perseus.EngramConnector(c)
         assert not connector.available
         segment = connector.recall(query="project architecture", max_results=5)
@@ -213,18 +213,18 @@ class TestCircuitBreakerDegradedMode:
         assert len(segment.items) == 0
 
     def test_connector_store_when_unavailable_returns_false(self):
-        """store() should return (False, error_message) when Engram is unavailable."""
+        """store() should return (False, error_message) when Mneme is unavailable."""
         _reset_connector_singleton()
-        c = _cfg_with_engram({"command": ["/nonexistent/path/engram"]})
+        c = _cfg_with_mneme({"command": ["/nonexistent/path/mneme"]})
         connector = perseus.EngramConnector(c)
         success, msg = connector.store(content="test memory", memory_type=perseus.MemoryTypeEnum.INSIGHT)
         assert success is False
         assert len(msg) > 0
 
     def test_connector_health_check_when_unavailable_returns_unhealthy(self):
-        """health_check() should return (False, reason) when Engram is unavailable."""
+        """health_check() should return (False, reason) when Mneme is unavailable."""
         _reset_connector_singleton()
-        c = _cfg_with_engram({"command": ["/nonexistent/path/engram"]})
+        c = _cfg_with_mneme({"command": ["/nonexistent/path/mneme"]})
         connector = perseus.EngramConnector(c)
         ok, status = connector.health_check()
         assert ok is False
@@ -238,11 +238,11 @@ class TestFallbackBehavior:
     """Validate that when Engram returns empty/errors, local Mneme FTS5 takes over."""
 
     def test_hybrid_search_falls_back_to_local_when_engram_unavailable(self):
-        """_engram_hybrid_search should return local hits when Engram is down."""
+        """_mneme_hybrid_search should return local hits when Mneme is down."""
         _reset_connector_singleton()
-        c = _cfg_with_engram({"command": ["/nonexistent/path/engram"]})
+        c = _cfg_with_mneme({"command": ["/nonexistent/path/mneme"]})
         local_hits = _mock_local_hits()
-        mseg = perseus._engram_hybrid_search(
+        mseg = perseus._mneme_hybrid_search(
             cfg=c,
             query="what database does auth use?",
             workspace="/tmp/test-workspace",
@@ -254,16 +254,16 @@ class TestFallbackBehavior:
         assert mseg.strategy_used == "local_fallback"
 
     def test_hybrid_search_falls_back_to_local_when_engram_returns_empty(self):
-        """Even when Engram is theoretically available, if it returns no results,
+        """Even when Mneme is theoretically available, if it returns no results,
         the local hits should be used as fallback."""
         _reset_connector_singleton()
-        c = _cfg_with_engram({"command": ["/nonexistent/path/engram"]})
+        c = _cfg_with_mneme({"command": ["/nonexistent/path/mneme"]})
         local_hits = _mock_local_hits()
-        mseg = perseus._engram_hybrid_search(
+        mseg = perseus._mneme_hybrid_search(
             cfg=c, query="nonexistent topic", workspace="/tmp/test",
             local_hits=local_hits, max_results=3,
         )
-        # Engram is unavailable, so local fallback kicks in
+        # Mneme is unavailable, so local fallback kicks in
         assert len(mseg.items) > 0
         # All returned items should have LOCAL source
         for item in mseg.items:
@@ -272,8 +272,8 @@ class TestFallbackBehavior:
     def test_hybrid_search_returns_empty_when_both_sources_empty(self):
         """When both Engram and local produce no hits, return empty MemorySegment."""
         _reset_connector_singleton()
-        c = _cfg_with_engram({"command": ["/nonexistent/path/engram"]})
-        mseg = perseus._engram_hybrid_search(
+        c = _cfg_with_mneme({"command": ["/nonexistent/path/mneme"]})
+        mseg = perseus._mneme_hybrid_search(
             cfg=c, query="completely irrelevant query xyzzy", workspace="/tmp/test",
             local_hits=[], max_results=5,
         )
@@ -283,16 +283,16 @@ class TestFallbackBehavior:
     def test_engram_disabled_in_config_still_works(self):
         """When engram.enabled=False, the system should operate local-only without errors."""
         _reset_connector_singleton()
-        c = _cfg_with_engram({"enabled": False, "command": ["/nonexistent/path/engram"]})
+        c = _cfg_with_mneme({"enabled": False, "command": ["/nonexistent/path/mneme"]})
         connector = perseus.EngramConnector(c)
         assert not connector.available
         assert connector.status == "disabled"
 
     def test_hybrid_mneme_search_returns_local_only_when_unavailable(self):
-        """_engram_hybrid_mneme_search should return empty/local-only when Engram is down."""
+        """_mneme_hybrid_mneme_search should return empty/local-only when Mneme is down."""
         _reset_connector_singleton()
-        c = _cfg_with_engram({"command": ["/nonexistent/path/engram"]})
-        mseg = perseus._engram_hybrid_mneme_search(
+        c = _cfg_with_mneme({"command": ["/nonexistent/path/mneme"]})
+        mseg = perseus._mneme_hybrid_mneme_search(
             cfg=c, query="project architecture", k=5,
         )
         assert isinstance(mseg, perseus.MemorySegment)
@@ -315,8 +315,8 @@ class TestLatencyBudgets:
     def test_circuit_breaker_short_circuits_instantly(self):
         """When circuit is OPEN, recall() should return immediately (< 10ms)."""
         _reset_connector_singleton()
-        c = _cfg_with_engram({
-            "command": ["/nonexistent/path/engram"],
+        c = _cfg_with_mneme({
+            "command": ["/nonexistent/path/mneme"],
             "circuit_breaker": {"threshold": 1, "cooldown": 300},
         })
         connector = perseus.EngramConnector(c)
@@ -331,10 +331,10 @@ class TestLatencyBudgets:
     def test_local_fallback_is_fast(self):
         """Local Mneme FTS5 conversion should be near-instant."""
         _reset_connector_singleton()
-        c = _cfg_with_engram({"command": ["/nonexistent/path/engram"]})
+        c = _cfg_with_mneme({"command": ["/nonexistent/path/mneme"]})
         local_hits = _mock_local_hits() * 10  # 30 items
         t0 = time.perf_counter()
-        mseg = perseus._engram_hybrid_search(
+        mseg = perseus._mneme_hybrid_search(
             cfg=c, query="test", workspace="/tmp/test",
             local_hits=local_hits, max_results=10,
         )
@@ -344,12 +344,12 @@ class TestLatencyBudgets:
     def test_merge_performance_with_large_result_set(self):
         """Merge 1000+ items from each source should complete in < 100ms."""
         _reset_connector_singleton()
-        c = _cfg_with_engram({"command": ["/nonexistent/path/engram"]})
+        c = _cfg_with_mneme({"command": ["/nonexistent/path/mneme"]})
         connector = perseus.EngramConnector(c)
 
         # Generate large synthetic data sets
         local_items = []
-        engram_items = []
+        mneme_items = []
         for i in range(500):
             local_items.append(perseus.MemoryHit(
                 id=f"local-{i}", type=perseus.MemoryTypeEnum.INSIGHT,
@@ -357,17 +357,17 @@ class TestLatencyBudgets:
                 source=perseus.MemorySource.LOCAL, summary=f"Local item {i}",
                 relevance=0.5, decay_score=0.1 + (i % 10) * 0.1,
             ))
-            engram_items.append(perseus.MemoryHit(
+            mneme_items.append(perseus.MemoryHit(
                 id=f"eng-{i}", type=perseus.MemoryTypeEnum.INSIGHT,
-                content=f"Engram memory item number {i} with different content.",
-                source=perseus.MemorySource.ENGRAM, summary=f"Engram item {i}",
+                content=f"Mneme memory item number {i} with different content.",
+                source=perseus.MemorySource.MNEME, summary=f"Mneme item {i}",
                 relevance=0.5, decay_score=0.1 + (i % 10) * 0.1,
             ))
 
         t0 = time.perf_counter()
         merged = connector._merge_results(
             local_items=local_items,
-            engram_items=engram_items,
+            mneme_items=mneme_items,
             strategy=perseus.MergeStrategy.LOCAL_FIRST,
             diagnostics={},
         )
@@ -376,11 +376,11 @@ class TestLatencyBudgets:
         assert elapsed < 200, f"Merge of 1000 items took {elapsed:.1f}ms, expected < 200ms"
 
     def test_connector_initialization_completes_quickly_with_bad_binary(self):
-        """Even when the engram binary is missing, init should NOT hang.
+        """Even when the mneme binary is missing, init should NOT hang.
         It should fail fast and return control (< 5 seconds, ideally < 500ms)."""
         _reset_connector_singleton()
-        c = _cfg_with_engram({
-            "command": ["/nonexistent/path/engram"],
+        c = _cfg_with_mneme({
+            "command": ["/nonexistent/path/mneme"],
             "timeout_s": 0.5,
         })
         t0 = time.perf_counter()
@@ -397,7 +397,7 @@ class TestLatencyBudgets:
             items.append(p.MemoryHit(
                 id=f"item-{i}", type=[p.MemoryTypeEnum.ARCHITECTURE, p.MemoryTypeEnum.DECISION, p.MemoryTypeEnum.INSIGHT][i % 3],
                 content=f"Memory item {i}: important architectural decision about component {i % 10}",
-                source=[p.MemorySource.LOCAL, p.MemorySource.ENGRAM][i % 2],
+                source=[p.MemorySource.LOCAL, p.MemorySource.MNEME][i % 2],
                 summary=f"Item {i} summary", relevance=0.5 + (i % 5) * 0.1,
                 decay_score=0.3 + (i % 7) * 0.1,
             ))
@@ -423,28 +423,28 @@ class TestEdgeCases:
     def test_connector_with_empty_command_list(self):
         """Empty command list should not crash."""
         _reset_connector_singleton()
-        c = _cfg_with_engram({"command": []})
+        c = _cfg_with_mneme({"command": []})
         connector = perseus.EngramConnector(c)
         assert not connector.available
 
     def test_connector_with_sse_transport_stub(self):
         """SSE transport stub should report unavailable gracefully."""
         _reset_connector_singleton()
-        c = _cfg_with_engram({"transport": "sse", "endpoint": "http://localhost:99999/sse"})
+        c = _cfg_with_mneme({"transport": "sse", "endpoint": "http://localhost:99999/sse"})
         connector = perseus.EngramConnector(c)
         assert not connector.available  # SSE stub always fails connect
 
     def test_connector_close_when_never_connected(self):
         """close() should not raise even if never connected."""
         _reset_connector_singleton()
-        c = _cfg_with_engram({"command": ["/nonexistent/path/engram"]})
+        c = _cfg_with_mneme({"command": ["/nonexistent/path/mneme"]})
         connector = perseus.EngramConnector(c)
         connector.close()  # should not raise
 
     def test_connector_close_twice_idempotent(self):
         """close() called twice should not raise."""
         _reset_connector_singleton()
-        c = _cfg_with_engram({"command": ["/nonexistent/path/engram"]})
+        c = _cfg_with_mneme({"command": ["/nonexistent/path/mneme"]})
         connector = perseus.EngramConnector(c)
         connector.close()
         connector.close()  # should be idempotent
@@ -452,10 +452,10 @@ class TestEdgeCases:
     def test_merge_with_empty_inputs(self):
         """Merge of two empty lists should return empty segment."""
         _reset_connector_singleton()
-        c = _cfg_with_engram({"command": ["/nonexistent/path/engram"]})
+        c = _cfg_with_mneme({"command": ["/nonexistent/path/mneme"]})
         connector = perseus.EngramConnector(c)
         merged = connector._merge_results(
-            local_items=[], engram_items=[],
+            local_items=[], mneme_items=[],
             strategy=perseus.MergeStrategy.LOCAL_FIRST, diagnostics={},
         )
         assert len(merged.items) == 0
