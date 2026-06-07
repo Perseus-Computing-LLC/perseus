@@ -68,7 +68,7 @@ def _check_one_service(svc: dict, index: int, timeout: float, cfg: dict) -> tupl
                         reason="PERSEUS_ALLOW_DANGEROUS not set",
                         service=name,
                         command=command[:300])
-            return index, f"| {name} | ⚠ PERSEUS_ALLOW_DANGEROUS not set | — |"
+            return index, f"| {name} | ⚠ PERSEUS_ALLOW_DANGEROUS not set — Fix: export PERSEUS_ALLOW_DANGEROUS=1 | — |"
         # Run arbitrary shell command; success = exit 0
         audit_event(cfg, "shell_exec",
                     directive="@services",
