@@ -811,6 +811,72 @@ def cmd_validate(args, cfg) -> int:
     return 0 if not errors else 1
 
 
+# ──────────────────────────── @auto-skill (#234) ──────────────────────────────
+
+def resolve_auto_skill(args_str: str, cfg: dict, workspace: Path | None = None) -> str:
+    """@auto-skill <name> — instruct agent to load a skill before work begins.
+
+    Designed for critical hygiene skills (memory-hygiene, agent-safety) that
+    agents must load proactively. Without this, agents skip optional skill
+    loads under execution pressure — the memory tool fills silently until
+    the 2,200-char hard limit blocks genuinely important saves.
+    """
+    name = args_str.strip()
+    if not name:
+        return "> \u26a0 @auto-skill requires a skill name.\n"
+    return (
+        f"> \u26a0 **Auto-skill: load '{name}' before work begins.** "
+        f"Run `skill_view(name='{name}')` now. "
+        f"This skill is required for this session and must not be skipped.\n"
+    )
+
+
+# ──────────────────────────── Project Detection (#232) ─────────────────────────
+
+# Project detector hints: (indicator_file, language_name, suggested_memory_query)
+_PROJECT_LANGUAGE_HINTS = [
+    ("pyproject.toml", "Python", "test patterns import conventions type annotations"),
+    ("setup.py", "Python", "test patterns import conventions type annotations"),
+    ("requirements.txt", "Python", "test patterns import conventions type annotations"),
+    ("Cargo.toml", "Rust", "trait bounds lifetime annotations cargo config"),
+    ("package.json", "Node.js/TypeScript", "npm scripts eslint config component patterns"),
+    ("tsconfig.json", "TypeScript", "type definitions interface patterns tsconfig settings"),
+    ("go.mod", "Go", "package structure goroutine patterns error handling"),
+    ("pom.xml", "Java/Maven", "build config dependency management patterns"),
+    ("build.gradle", "Java/Gradle", "build config dependency management patterns"),
+    ("Makefile", "C/C++", "build targets compiler flags link directives"),
+    ("CMakeLists.txt", "C/C++", "build targets compiler flags link directives"),
+    ("Dockerfile", "Docker/DevOps", "container config deployment pipeline ci cd"),
+    ("docker-compose.yaml", "Docker/DevOps", "container config deployment pipeline ci cd"),
+]
+
+_PROJECT_LANGUAGE_FALLBACK = "project architecture setup build deploy"
+
+
+def _detect_project_language(workspace: Path) -> str:
+    """Detect the primary project language from indicator files.
+
+    Checks the workspace directory for known indicator files and returns
+    a language name. Returns empty string if no indicators found.
+    """
+    for indicator, language, _ in _PROJECT_LANGUAGE_HINTS:
+        if (workspace / indicator).exists():
+            return language
+    return ""
+
+
+def _context_appropriate_memory_query(workspace: Path) -> str:
+    """Return a context-appropriate @memory mode=search query for the project.
+
+    Detects the project language and returns a query string tuned for
+    that language's common patterns. Falls back to a generic query.
+    """
+    for indicator, language, query in _PROJECT_LANGUAGE_HINTS:
+        if (workspace / indicator).exists():
+            return query
+    return _PROJECT_LANGUAGE_FALLBACK
+
+
 # ──────────────────────────────── cmd_init ────────────────────────────────────
 
 INIT_CONTEXT_TEMPLATE = """\
@@ -828,15 +894,21 @@ this injected copy is authoritative. Reading the disk version will give you
 outdated information. Use only what you see here.
 @end
 
-## Memory Backend Policy
+## Memory Gate — STOP. Answer these three questions before saving ANYTHING.
 
-**Default durable storage is engram-rs (MCP `engram_store` / `engram_recall`).**
-The `memory` tool is for hot context only (~100 chars per entry, facts needed every turn).
-Procedural knowledge goes in skills (`skill_manage`).
+Before storing a fact in the `memory` tool, verify ALL three:
 
-🚫 **Flat files are BANNED as a memory backend.** Do not create .txt, .json, .csv, or .md
-files for persistent memory. Use engram-rs (via `@memory` directive or MCP tools) instead.
-If engram-rs is unavailable, use the `memory` tool as fallback — never create a file.
+1. **Will this fact still be relevant in 2+ sessions?** If NO → do NOT save.
+2. **Is this a procedure, workflow, or how-to?** If YES → use `skill_manage` (not memory).
+3. **Could this be re-discovered in < 30 seconds?** If YES → do NOT save.
+
+Only facts that pass ALL THREE gates belong in `memory` (2,200 char hard limit).
+Everything else has a better home:
+- 🔁 **Procedures** → `skill_manage` (create/update a skill)
+- 🧠 **Cross-session context** → engram-rs (MCP `engram_store` / `engram_recall`)
+- 🚫 **Ephemeral state, one-time fixes, completed tasks** → discard
+
+🚫 **Flat files (.txt, .json, .csv, .md) are BANNED as a memory backend.**
 
 ---
 
@@ -892,7 +964,7 @@ If engram-rs is unavailable, use the `memory` tool as fallback — never create 
 > Falls back gracefully to local Mneme FTS5 if Engram-rs is unavailable.
 > Requires `engram.enabled: true` in `.perseus/config.yaml`.
 
-@memory mode=search query="project architecture setup build deploy" k=5
+@memory mode=search query="{engram_query}" k=5
 """
 
 # ───────────────────────── Phase 24: install ──────────────────────────────────
@@ -1645,8 +1717,23 @@ def cmd_init(args, cfg):
             sys.exit(1)
         content = tpl.replace("{workspace}", str(workspace))
     else:
-        content = INIT_CONTEXT_TEMPLATE.format(workspace=str(workspace), version=_PERSEUS_VERSION)
+        content = INIT_CONTEXT_TEMPLATE.format(workspace=str(workspace), version=_PERSEUS_VERSION, engram_query=_context_appropriate_memory_query(workspace))
     context_file.write_text(content, encoding="utf-8")
+
+    # ── Engram binary auto-discovery (#227) ──
+    # If engram is not installed, suggest the bootstrap script
+    engram_cfg = cfg.get("engram", {}) if cfg else {}
+    if engram_cfg.get("enabled", True):
+        from perseus.doctor import _find_engram_binary
+        command = engram_cfg.get("command", ["engram", "serve"])
+        binary_path = _find_engram_binary(command)
+        if binary_path is None:
+            print(f"💡 Engram-rs not found. For persistent cross-session memory, run:")
+            print(f"   curl -sSL https://raw.githubusercontent.com/tcconnally/engram-rs/main/scripts/bootstrap.sh | bash")
+        elif binary_path != command[0]:
+            language = _detect_project_language(workspace)
+            lang_note = f" (detected: {language})" if language else ""
+            print(f"✓ Context scaffolded{lang_note} — engram binary at: {binary_path}")
 
     manifest = None
     if profile_name and not getattr(args, "no_pack", False):
