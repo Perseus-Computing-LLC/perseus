@@ -41,6 +41,16 @@ MODULE_ORDER = [
     "src/perseus/html_format.py",     # ← Phase 23: HTML output — before renderer (renderer imports from it)
     "src/perseus/assistant_formats.py", # ← Phase 24: assistant format targets (AGENTS.md, CLAUDE.md, etc.)
     "src/perseus/mcp.py",               # ← Phase 24: MCP server (depends on registry, before serve)
+    # ── Integration modules (Discord Scout evaluation PoCs) ────────────
+    "src/perseus/merlin_dedup.py",      # ← Merlin dedup hook (imported by renderer)
+    "src/perseus/mason_ref.py",         # ← Mason tool directive reference
+    "src/perseus/yourmemory_ref.py",    # ← YourMemory @query integration (MONITOR)
+    "src/perseus/tooltrim_connector.py",# ← @tooltrim directive (INTEGRATE)
+    "src/perseus/vaultmem_connector.py",# ← vault-mem project memory (INTEGRATE)
+    "src/perseus/kondukt_validator.py", # ← Kondukt MCP validator (PASS)
+    "src/perseus/memory_mesh.py",       # ← MemoryMesh persistent (MONITOR)
+    "src/perseus/memtrace.py",          # ← Memtrace codebase memory (MONITOR)
+    # ───────────────────────────────────────────────────────────────────
     "src/perseus/renderer.py",
     "src/perseus/checkpoint.py",
     "src/perseus/memory.py",
@@ -78,6 +88,10 @@ GENERATED_HEADER = """\
 # imports — those are handled separately by the multi-line-tracking state
 # machine in build().
 INTERNAL_IMPORT_RE = re.compile(r"^\s*from\s+perseus\.[a-zA-Z_][\w.]*\s+import\s+")
+
+# Matches from __future__ import lines — only the first module's is kept
+# (in the concat artifact, __future__ must appear before any other code).
+FUTURE_IMPORT_RE = re.compile(r"^\s*from\s+__future__\s+import\s+")
 
 # Matches the shebang line — only the first module's shebang is kept.
 SHEBANG_RE = re.compile(r"^#!.*python")
@@ -173,6 +187,10 @@ def render_artifact(repo_root: Path) -> str:
                 continue
             # Keep shebang only from the first module (__init__.py)
             if SHEBANG_RE.match(line) and not first_module:
+                continue
+            # Strip __future__ imports from all but the first module
+            # (in the concat artifact, __future__ must appear before any code)
+            if FUTURE_IMPORT_RE.match(line) and not first_module:
                 continue
             # Strip stdlib-reminder comments added by split.py
             if STDLIB_REMINDER_RE.match(line):

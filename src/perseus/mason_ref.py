@@ -107,7 +107,7 @@ def resolve_mason_tool_directive(directive_args: dict | None = None) -> str:
 
 # ── Degradation test paths ──────────────────────────────────────────────────
 
-def test_degradation_paths():
+def test_mason_degradation_paths():
     """Verify all degradation paths (for PoC validation)."""
 
     # Path 1: Mason not installed → shows install instructions
@@ -126,8 +126,3 @@ def test_degradation_paths():
     assert "| Tool |" in output, "Missing table header"
     assert "| `mason_init`" in output, "Missing table row"
     print("  [PASS] Path 3: Valid markdown table output")
-
-
-if __name__ == "__main__":
-    test_degradation_paths()
-    print("\nAll Mason PoC tests passed.")

@@ -125,7 +125,7 @@ def render_yourmemory_context(query: str = "project decisions architecture prefe
 
 # ── Degradation test paths ──────────────────────────────────────────────────
 
-def test_degradation_paths():
+def test_yourmemory_degradation_paths():
     """Verify all degradation paths (for PoC validation)."""
 
     # Path 1: YourMemory not installed → shows install instructions
@@ -144,8 +144,3 @@ def test_degradation_paths():
     assert output.strip(), "Output should not be empty"
     assert "## 🧠 YourMemory" in output or "##" in output, "Missing section header"
     print("  [PASS] Path 3: Valid markdown output")
-
-
-if __name__ == "__main__":
-    test_degradation_paths()
-    print("\nAll YourMemory PoC tests passed.")

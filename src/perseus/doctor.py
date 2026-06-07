@@ -465,6 +465,111 @@ def _doctor_check_sessions(cfg: dict, workspace: Path) -> DoctorResult:
 
 
 # Ordered list of doctor checks — adding a check is one function + one line here.
+_KNOWN_ENGRAM_PATHS = [
+    "/usr/local/bin/engram",
+    os.path.expanduser("~/.local/bin/engram"),
+    os.path.expanduser("~/.cargo/bin/engram"),
+    "/usr/bin/engram",
+    "/usr/local/bin/engram",
+]
+
+
+def _find_engram_binary(configured_command: list[str]) -> str | None:
+    """Search common paths for the engram binary.
+
+    Returns the first found absolute path, or None if not found.
+    Used by doctor to surface a clear suggestion when engram is configured
+    but the binary isn't on PATH (#227).
+    """
+    binary_name = configured_command[0] if configured_command else "engram"
+
+    # Check if the configured binary is already resolvable via PATH
+    import shutil as _shutil
+    resolved = _shutil.which(binary_name)
+    if resolved:
+        return resolved
+
+    # Search known common paths
+    candidates = list(_KNOWN_ENGRAM_PATHS)
+
+    # Also search $PWD/engram-rs/target/{release,debug}/engram
+    try:
+        cwd = Path.cwd()
+        candidates.append(str(cwd / "engram-rs" / "target" / "release" / "engram"))
+        candidates.append(str(cwd / "engram-rs" / "target" / "debug" / "engram"))
+    except Exception:
+        pass
+
+    for p in candidates:
+        expanded = Path(p).expanduser()
+        if expanded.is_file() and os.access(expanded, os.X_OK):
+            return str(expanded)
+
+    return None
+
+
+def _doctor_check_engram(cfg: dict, workspace: Path) -> DoctorResult:
+    """Check engram-rs connectivity and binary discovery (#226, #227).
+
+    When engram.enabled is true, this check:
+      1. Searches common paths for the engram binary (#227)
+      2. Attempts MCP handshake + engram_health tool call (#226)
+      3. Surfaces a clear warning (not silent Mneme fallback) if unreachable
+    """
+    engram_cfg = cfg.get("engram", {})
+    enabled = bool(engram_cfg.get("enabled", True))
+
+    if not enabled:
+        return DoctorResult("engram_connectivity", "ok", "Engram-rs",
+                           "disabled", "")
+
+    command = list(engram_cfg.get("command", ["engram", "serve"]))
+    binary_name = command[0] if command else "engram"
+
+    # Step 1: Auto-discover binary if not on PATH (#227)
+    binary_path = _find_engram_binary(command)
+    if binary_path is None:
+        return DoctorResult("engram_connectivity", "warn", "Engram-rs binary",
+                           f"not found: '{binary_name}' (searched PATH + known locations)",
+                           "Install engram-rs or set engram.command in config.yaml")
+    if binary_path != binary_name:
+        # Found at a non-default path — update command for the connection attempt
+        command[0] = binary_path
+
+    # Step 2: Attempt MCP handshake + health check (#226)
+    try:
+        # Build a temporary connector with the discovered binary path
+        test_cfg = dict(cfg)
+        test_cfg["engram"] = dict(engram_cfg)
+        test_cfg["engram"]["command"] = command
+
+        connector = EngramConnector(test_cfg)
+        if connector.available:
+            # Run health check
+            healthy, status = connector.health_check()
+            if healthy:
+                connector.close()
+                extra = f" (binary: {binary_path})" if binary_path != binary_name else ""
+                return DoctorResult("engram_connectivity", "ok", "Engram-rs",
+                                   f"connected + healthy{extra}", "")
+            else:
+                connector.close()
+                return DoctorResult("engram_connectivity", "warn", "Engram-rs",
+                                   f"connected but health check failed: {status}",
+                                   "Check engram-rs server status")
+        else:
+            err = connector.status
+            connector.close()
+            return DoctorResult("engram_connectivity", "warn", "Engram-rs",
+                               f"unreachable: {err}",
+                               "Check engram-rs is running or install it")
+    except Exception as exc:
+        return DoctorResult("engram_connectivity", "error", "Engram-rs",
+                           str(exc),
+                           "Verify engram binary and config — check engram.command in config.yaml")
+
+
+
 _DOCTOR_CHECKS = [
     _doctor_check_config,
     _doctor_check_context_file,
@@ -481,6 +586,7 @@ _DOCTOR_CHECKS = [
     _doctor_check_llm_reachable,
     _doctor_check_llm_functional,
     _doctor_check_cache_writable,
+    _doctor_check_engram,
     _doctor_check_sessions,
 ]
 

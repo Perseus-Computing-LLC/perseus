@@ -1517,7 +1517,7 @@ def render_output(
         rendered = render_source(source_text, cfg, workspace, max_tier=max_tier)
         rendered, _report = redact_text(rendered, cfg)
         _audit_render_redaction(cfg, _report)
-        from .merlin_dedup import dedup_context_if_available
+        from perseus.merlin_dedup import dedup_context_if_available
         rendered = dedup_context_if_available(rendered, cfg)
         return rendered
     elif fmt == "html":
@@ -1531,7 +1531,7 @@ def render_output(
         rendered = render_source(source_text, cfg, workspace, max_tier=max_tier)
         rendered, _report = redact_text(rendered, cfg)
         _audit_render_redaction(cfg, _report)
-        from .merlin_dedup import dedup_context_if_available
+        from perseus.merlin_dedup import dedup_context_if_available
         rendered = dedup_context_if_available(rendered, cfg)
         return wrap_rendered(rendered, fmt, _PERSEUS_VERSION)
 
