@@ -20,6 +20,31 @@ Perseus is a **compile-before-context engine** — it runs a set of directives i
 
 The key insight: **the AI reads the rendered output, not the directives**. Perseus solves the problem of giving an AI accurate "what is happening right now" context without relying on the AI to go fetch it.
 
+### Token Efficiency
+
+Perseus is a **long-session efficiency play**. Context is injected once at session start and reused across all turns — the LLM never wastes turns asking "what machine is this?" or "what tools do I have?"
+
+| Session length | Perseus overhead | Tool calls saved | Net tokens |
+|---|---|---|---|
+| 1 turn (one-shot) | ~1,600 tokens | 1 | **-1,300** (overhead) |
+| 3 turns (quick task) | ~1,600 tokens | 3-5 | **~-700** (marginal) |
+| 5 turns | ~1,600 tokens | 5-8 | **~0** (breakeven) |
+| 8 turns (debug session) | ~1,600 tokens | 8-12 | **+800** ✅ |
+| 15 turns (feature build) | ~1,600 tokens | 15-22 | **+3,000** ✅✅ |
+| 30 turns (deep work) | ~1,600 tokens | 30-45 | **+7,500** ✅✅✅ |
+
+**Best practice:** Keep your `context.md` focused on directives that pre-answer questions the LLM would otherwise spend turns discovering:
+
+| Keep (high value) | Skip (low value unless populated) |
+|---|---|
+| `@services` — live health checks | `@health` — "all clear" adds no info |
+| `@waypoint` — last session continuity | `@drift` — empty until Pythia has data |
+| `@query` — system state (hostname, disk) | `@session` — only if sessions dir is populated |
+| `@skills` with `category=` filter | `@agora` — skip if no tasks dir |
+| `@memory focus=recent` — recent activity | `@inbox` — skip if not using agent messaging |
+
+Use `@skills category=devops,github` to cut irrelevant skill listings — a full 110-skill table adds ~2,800 tokens. Six relevant categories add ~1,400 tokens. Every directive you omit saves tokens and keeps the LLM focused.
+
 ---
 
 ## Installation
@@ -317,10 +342,10 @@ Your system prompt goes here. This is injected before the rendered content.
 @end
 
 ## Available Skills
-@skills flag_stale=true
+@skills flag_stale=true category=devops,github,core
 
 ## Project Memory
-@memory ttl=300
+@memory focus=recent ttl=300
 
 ## Recent Sessions
 @session count=5 format=digest
@@ -535,29 +560,33 @@ engram:
 **Installation:**
 
 ```bash
-# Install Engram-rs (one-time)
-# Cargo package: jamjet-engram-server, binary name: engram
-cargo install jamjet-engram-server       # via Cargo (v0.5.0+)
-# or: download prebuilt binary from GitHub Releases
+# Engram-rs v0.1.0+ is built from source (not on crates.io):
+git clone https://github.com/tcconnally/engram-rs.git ~/.engram-rs
+cd ~/.engram-rs && cargo build --release
+cp target/release/engram ~/.local/bin/engram
 
-# Required companion: Ollama for embedding support
-curl -fsSL https://ollama.com/install.sh | sh
-ollama pull nomic-embed-text   # 768-dims, required by default config
+# Or use the one-shot bootstrap:
+curl -sSL https://raw.githubusercontent.com/tcconnally/engram-rs/main/scripts/bootstrap.sh | bash
 
 # Verify
-engram serve --help            # confirm MCP mode is available
+engram --version   # expect "engram 0.1.0"
 ```
 
-> **Minimal surface area:** Engram-rs is optional. When the `engram` binary is not found,
-> or when vector embeddings are unavailable (v0.5.0 ships without indexed embeddings in
-> some configurations), Perseus degrades gracefully to local Mnēmē **FTS5 keyword search**
-> via SQLite — no crash, no hang, no error visible to the end user. Circuit breaker +
-> exponential backoff prevent permission storms or resource exhaustion during outages.
-> 
-> **memory_add is async:** The `memory_add` MCP tool may return `null` or an empty response
-> while fact extraction runs in the background. This is expected behavior — Perseus treats
-> null responses as success (data is being processed). Results appear on the next
-> `memory_recall` call.
+> **v0.1.0 MVP scope:** Engram-rs v0.1.0 is an MCP JSON-RPC stdio server with three tools:
+> `engram_store`, `engram_recall`, `engram_health`. It uses SQLite FTS5 for keyword search.
+> No embedding backend or LLM provider is needed. Vector search, Ebbinghaus decay, and
+> three-layer memory progression are deferred to v0.2+.
+>
+> **Binary path:** Use the full absolute path in config. The render subprocess may not
+> have `~/.local/bin/` in PATH:
+> ```yaml
+> engram:
+>   command:
+>     - "/root/.local/bin/engram"   # or wherever cargo build placed it
+>     - "serve"
+>     - "--db"
+>     - "/root/.perseus/engram/engram.db"
+> ```
 
 > **Merge strategies explained:**
 > - `local_first` — Mnēmē results first, then Engram results (default, safest)
@@ -565,16 +594,12 @@ engram serve --help            # confirm MCP mode is available
 > - `interleave` — Alternate rows between Engram/Mnēmē, sorted by decay score within each
 > - `decay_first` — All results sorted globally by Engram decay_score descending
 
-> **Verification:** After installing Engram-rs and Ollama, restart `perseus watch`
-> (or re-render). The next `@memory` resolution silently upgrades to hybrid mode.
-> To confirm: run `perseus doctor` — it reports Engram-rs connectivity and FTS5
-> fallback status. If Engram-rs is online but embeddings aren't indexed yet,
-> memory recall uses FTS5 keyword search transparently — no error visible.
-> 
-> **FTS5 fallback (v0.5.0+):** When `memory_recall` returns empty or no vector results,
-> Perseus automatically falls back to local SQLite FTS5 over the engram database.
-> This ensures memory recall always returns results even when the vector index is
-> cold or not yet built. The engram DB is at `~/.perseus/engram/engram.db`.
+> **Verification:** After installing Engram-rs, restart `perseus watch`
+> (or re-render). The next `@memory` resolution uses Engram-rs via MCP.
+> To confirm: run `perseus doctor` — it reports Engram-rs connectivity.
+> If Engram-rs is unreachable, Perseus falls back to Mnēmē FTS5 silently
+> (no crash, no visible error). The circuit breaker prevents permission
+> storms during outages.
 
 ### Writing checkpoints (the right way)
 
@@ -870,17 +895,78 @@ perseus memory status
 
 ## MCP Server Mode
 
-Perseus can run as an MCP server, exposing all directives as callable tools:
+Perseus can run as an MCP server over stdio, or as an HTTP server with a dashboard:
 
 ```bash
-# Start the server (stdio, JSON-RPC 2.0)
+# MCP server (stdio, JSON-RPC 2.0) — exposes directives as tools
 perseus mcp serve --workspace /path/to/workspace
 
-# Print config for Claude Desktop / Cursor
+# Print MCP client config for Claude Desktop / Cursor
 perseus mcp config
+
+# HTTP server with dashboard at http://127.0.0.1:7991
+perseus serve --port 7991 --workspace /path/to/workspace
 ```
 
+HTTP endpoints:
+
+| Endpoint | Content |
+|---|---|
+| `/` | Dashboard with live stats |
+| `/context` | Rendered context.md (markdown) |
+| `/narrative` | Mnēmē project narrative |
+| `/health` | Maintenance report |
+| `/agora` | Task board |
+| `/checkpoint/latest` | Latest checkpoint (YAML) |
+| `/oracle/log` | Pythia tool log (JSON) |
+
 Available MCP tools: `perseus_query`, `perseus_services`, `perseus_memory`, `perseus_waypoint`, `perseus_agora`, `perseus_inbox`, `perseus_health`, `perseus_session`, and more.
+
+### Mnēmē v2 Vault Setup
+
+The `@memory mode=search` and `@mneme` directives search a vault of `.md` files
+indexed by SQLite FTS5 BM25. To populate your vault:
+
+```bash
+# 1. Create vault files — each is a .md file with YAML frontmatter
+mkdir -p ~/.perseus/memory/vault
+
+cat > ~/.perseus/memory/vault/my-fact.md << 'EOF'
+---
+id: my-fact
+title: A Key Fact About My Project
+type: fact
+scope: my-project
+tags: [architecture, decisions]
+summary: One-line summary for search results
+---
+
+# Body content (optional)
+
+Any markdown content here is FTS5-indexed for search.
+EOF
+
+# 2. Rebuild the FTS5 index
+perseus memory index rebuild
+
+# 3. Check index stats
+perseus memory index stats
+
+# 4. Test search
+perseus memory index search --query "architecture" --k 5
+
+# 5. Use in context.md
+# @memory mode=search query="architecture" k=5
+# @mneme query="decisions" k=5
+```
+
+> **Required fields:** Only `id` (alphanumeric slug) and `title` are required.
+> For best search results, include `type`, `summary`, `scope`, and `tags`.
+> See `docs/mneme-vault-format.md` for the full field reference.
+>
+> **FTS5 quirk:** Multi-word queries are matched as exact FTS5 phrases.
+> Use single-word queries for broad recall, or short phrases that appear
+> verbatim in your documents.
 
 ---
 
