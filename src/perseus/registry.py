@@ -62,6 +62,8 @@ def _bind_registry() -> None:
         DirectiveSpec("@tree",      resolve_tree,      ["depth="],                 "inline",  "acw", reads_files=True, cacheable=True, safe_for_hover=False, summary="Tree view of directory", tier=3),
         DirectiveSpec("@agent",     resolve_agent,     [],                         "inline",  "acw", summary="Execute local agent subprocess", tier=3),
         DirectiveSpec("@tool",      resolve_tool,      [],                         "inline",  "acw", executes_shell=True, safe_for_hover=False, summary="Run an allowlisted external tool", tier=3),
+        DirectiveSpec("@tooltrim",  resolve_tooltrim,  ["stats", "full"],          "inline",  "acw", reads_files=True,  cacheable=True,  safe_for_hover=True,  summary="Tool metadata awareness — filtered toolset descriptions", tier=3),
+        DirectiveSpec("@mason",     resolve_mason_tool_directive, [],              "inline",  "a",   cacheable=True,  safe_for_hover=True,  summary="Mason code architecture concept map (feature→file)", tier=3),
 
         # Block / control (resolved by renderer, tier doesn't apply)
         DirectiveSpec("@prompt",    resolve_prompt_block, [],                      "block",   "block", summary="System prompt block", tier=1),
