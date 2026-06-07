@@ -19,6 +19,7 @@
 | `perseus agora [--status open\|in_progress\|completed]` | Live task board from `tasks/*.md`. |
 | `perseus suggest <prompt> [--llm provider]` | Pythia tool oracle — ranks skills against a prompt, with transparent outcome-weight hints when data exists. |
 | `perseus memory {update,compact,show,status,query,federation}` | Mnēmē narrative project memory + cross-workspace federation. |
+| `perseus memory index {rebuild,stats,search}` | Mnēmē v2 FTS5 vault index management. `rebuild` re-indexes all `.md` files in `~/.perseus/memory/vault/`. `stats` shows document count and index size. `search --query "..." --k 5` runs a BM25 search against the vault. |
 | `perseus inbox {send,list,read,unread,mark-read}` | Point-to-point messages between agents. |
 | `perseus health` | Maintenance report — stale skills, large narrative, Pythia log volume. |
 | `perseus oracle {accept,reject,log,export,infer-labels,outcomes,drift}` | Daedalus Pythia log management, inferred labels, outcome signals, and drift checks. |
