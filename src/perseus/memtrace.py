@@ -48,7 +48,7 @@ impact analysis) saves 3-10 turns of filesystem exploration per session.
 This is the kind of efficiency boost Perseus exists to deliver.
 
 Overlap: Minimal direct overlap. Perseus has no code-structure analysis layer.
-engram-rs stores semantic memories about code (architecture decisions, bug fixes),
+mneme stores semantic memories about code (architecture decisions, bug fixes),
 but doesn't parse ASTs or build call graphs. Mneme vault stores markdown,
 not code structure. This is genuinely complementary — Perseus is a context
 engine, Memtrace is a code knowledge graph. Together they'd give the agent
