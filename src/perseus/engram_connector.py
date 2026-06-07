@@ -315,7 +315,7 @@ class _MCPStdioClient:
         self._server_capabilities: dict = {}
 
         # Parse --db <path> from command to set subprocess CWD.
-        # Engram-rs (jamjet-engram-server) may ignore the --db flag and
+        # Engram-rs (engram-rs) may ignore the --db flag and
         # write to CWD/engram.db; setting CWD to the DB directory works
         # around this so auto-backfill lands in the right place.
         self._cwd: str | None = None
