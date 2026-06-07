@@ -874,15 +874,21 @@ this injected copy is authoritative. Reading the disk version will give you
 outdated information. Use only what you see here.
 @end
 
-## Memory Backend Policy
+## Memory Gate — STOP. Answer these three questions before saving ANYTHING.
 
-**Default durable storage is engram-rs (MCP `engram_store` / `engram_recall`).**
-The `memory` tool is for hot context only (~100 chars per entry, facts needed every turn).
-Procedural knowledge goes in skills (`skill_manage`).
+Before storing a fact in the `memory` tool, verify ALL three:
 
-🚫 **Flat files are BANNED as a memory backend.** Do not create .txt, .json, .csv, or .md
-files for persistent memory. Use engram-rs (via `@memory` directive or MCP tools) instead.
-If engram-rs is unavailable, use the `memory` tool as fallback — never create a file.
+1. **Will this fact still be relevant in 2+ sessions?** If NO → do NOT save.
+2. **Is this a procedure, workflow, or how-to?** If YES → use `skill_manage` (not memory).
+3. **Could this be re-discovered in < 30 seconds?** If YES → do NOT save.
+
+Only facts that pass ALL THREE gates belong in `memory` (2,200 char hard limit).
+Everything else has a better home:
+- 🔁 **Procedures** → `skill_manage` (create/update a skill)
+- 🧠 **Cross-session context** → engram-rs (MCP `engram_store` / `engram_recall`)
+- 🚫 **Ephemeral state, one-time fixes, completed tasks** → discard
+
+🚫 **Flat files (.txt, .json, .csv, .md) are BANNED as a memory backend.**
 
 ---
 
