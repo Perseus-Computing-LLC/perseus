@@ -38,3 +38,24 @@ coverage.json
 # Attorney-client privileged material — must not be committed
 docs/ip/CIIA-ANALYSIS.md
 docs/ip/DISCLOSURE-CODE-MAP.md
+
+# Generated benchmark artifacts — heavy data files, not source
+benchmark/break-*.md
+benchmark/cached-*.md
+benchmark/coldwarm-*.md
+benchmark/dup-*.md
+benchmark/final-*.md
+benchmark/gauntlet/*.json
+benchmark/gauntlet/*.ndjson
+benchmark/gauntlet/full_*/
+benchmark/telemetry_records.ndjson
+benchmark/extreme_enterprise_results_full.json
+
+# Property-based testing debris
+.hypothesis/
+
+# Node modules in benchmark directory (role profiles)
+benchmark/gauntlet/gauntlet_role_profiles/node_modules/
+
+# Docker-side utilities (not source)
+fix-webui-command.py

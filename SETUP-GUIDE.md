@@ -197,7 +197,7 @@ memory:
 engram:                                 # Project Synapse — Engram-rs MCP-based persistent memory
   enabled: true                         # Master switch for hybrid (Mnēmē + Engram-rs) resolution
   transport: "stdio"                    # "stdio" (local engram binary) or "sse" (remote endpoint)
-  command: [engram, serve, --mcp]       # Command to launch Engram-rs in MCP mode
+  command: [engram, serve]             # Command to launch Engram-rs in MCP mode
   endpoint: ""                          # SSE endpoint URL (only used when transport=sse)
   timeout_s: 10.0
   merge_strategy: "local_first"         # local_first | remote_first | interleave | decay_first
@@ -524,7 +524,7 @@ When enabled, `@memory` runs a **three-step hybrid resolution**:
 engram:
   enabled: true                         # Master switch
   transport: "stdio"                    # stdio (local binary) or sse (remote)
-  command: [engram, serve, --mcp]       # Launch command for stdio transport
+  command: [engram, serve]             # Launch command for stdio transport
   merge_strategy: "local_first"         # local_first | remote_first | interleave | decay_first
   fallback_to_local: true               # Graceful degradation: Mnēmē FTS5 if Engram offline
   circuit_breaker:
@@ -540,13 +540,20 @@ engram:
 cargo install jamjet-engram-server       # via Cargo (v0.5.0+)
 # or: download prebuilt binary from GitHub Releases
 
-# Required companion: Ollama for embedding support
+# Recommended companion: Ollama for semantic embeddings (v0.5.0+)
+# Engram v0.1.0 works without Ollama — uses SQLite FTS5 keyword search.
+# Later versions add vector search which requires an embedding model.
 curl -fsSL https://ollama.com/install.sh | sh
-ollama pull nomic-embed-text   # 768-dims, required by default config
+ollama pull nomic-embed-text   # 768-dims, required when vector search is active
 
 # Verify
 engram serve --help            # confirm MCP mode is available
 ```
+
+> **Windows note:** Engram-rs install requires Rust's `windows-gnu` toolchain
+> (not the default MSVC). See `references/engram-rs-integration.md` for the
+> full walkthrough: MinGW-w64 GCC install, PATH setup, and permanent bashrc fix.
+> After install, the binary lives at `~/.cargo/bin/engram.exe`.
 
 > **Minimal surface area:** Engram-rs is optional. When the `engram` binary is not found,
 > or when vector embeddings are unavailable (v0.5.0 ships without indexed embeddings in
@@ -632,10 +639,11 @@ Set up a recurring render job (see Automation section below) to keep it fresh.
 
 In addition to AGENTS.md auto-injection, Hermes can wire Perseus as an MCP server — giving AI agents direct access to all 22 Perseus tools (`perseus_memory`, `perseus_services`, `perseus_query`, etc.) without re-rendering the context file. Add to `~/.hermes/config.yaml`:
 
+**Linux / macOS / Docker:**
 ```yaml
 mcp_servers:
   perseus:
-    command: /home/yourname/.local/bin/perseus   # Linux/Docker; use /Users/… on macOS
+    command: /home/yourname/.local/bin/perseus   # adjust path per platform
     args:
       - mcp
       - serve
@@ -643,6 +651,31 @@ mcp_servers:
       - /home/yourname                           # absolute path, no ~
     enabled: true
 ```
+
+**Windows (git-bash):** On Windows, `perseus` may not be on PATH inside the Hermes venv.
+Use the venv's `python.exe` pointed at the flattened `perseus.py`:
+```yaml
+mcp_servers:
+  perseus:
+    command: C:\Users\yourname\AppData\Local\hermes\hermes-agent\venv\Scripts\python.exe
+    args:
+      - C:\Users\yourname\.perseus\repo\perseus.py
+      - mcp
+      - serve
+      - --transport
+      - stdio
+      - --workspace
+      - C:\Users\yourname\.perseus
+    env:
+      HOME: C:\Users\yourname
+      PERSEUS_ALLOW_DANGEROUS: '1'
+    timeout: 30
+```
+
+> ⚠️ **Docker herm vs. local MCP:** If Perseus MCP is already running inside your Hermes
+> Docker stack (gateway/webui container), do NOT add a second local MCP entry — the Docker
+> one already serves all tools. A local entry only makes sense on bare-metal Hermes installs
+> or development machines where the Docker stack isn't present.
 
 > **Config write protection:** Hermes protects `~/.hermes/config.yaml` from direct
 > file writes by AI tools for security. Edit it in your terminal or use
@@ -745,13 +778,13 @@ On Windows without Hermes cron:
 ```powershell
 # PowerShell (run as Administrator)
 $Action = New-ScheduledTaskAction -Execute "bash" `
-  -Argument "-c `"$env:USERPROFILE\.local\bin\perseus render $env:USERPROFILE\.perseus\context.md --output $env:USERPROFILE\AGENTS.md`""
+  -Argument "-c `"export PERSEUS_ALLOW_DANGEROUS=1; export PATH=`"`$HOME\.local\bin:`$PATH`"; $env:USERPROFILE\.local\bin\perseus render $env:USERPROFILE\.perseus\context.md --output $env:USERPROFILE\AGENTS.md`""
 $Trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 30)
 Register-ScheduledTask -TaskName "Perseus Render" -Action $Action -Trigger $Trigger `
   -Description "Render Perseus context every 30 minutes"
 ```
 
-Or via GUI: `taskschd.msc` → Create Basic Task → Trigger: Daily, repeat every 30 minutes → Action: Start a program → `bash` with argument `-c "~/.local/bin/perseus render ~/.perseus/context.md --output ~/AGENTS.md"`
+Or via GUI: `taskschd.msc` → Create Basic Task → Trigger: Daily, repeat every 30 minutes → Action: Start a program → `bash` with argument `-c "export PERSEUS_ALLOW_DANGEROUS=1; perseus render ~/.perseus/context.md --output ~/AGENTS.md"`
 
 ### launchd (macOS)
 
@@ -1049,8 +1082,10 @@ cd ~/my-project && perseus init
 
 # Render context to AGENTS.md (Hermes, Claude Code, Rovo web agent)
 # Requires PERSEUS_ALLOW_DANGEROUS=1 for @query, @agent, @services command: directives
+# Linux/macOS:
 PERSEUS_ALLOW_DANGEROUS=1 perseus render ~/.perseus/context.md --output ~/AGENTS.md
-perseus render ~/.perseus/context.md --output ~/AGENTS.md
+# Windows (git-bash): same command, MSYS-style paths work too
+# PERSEUS_ALLOW_DANGEROUS=1 perseus render /c/Users/yourname/.perseus/context.md --output /c/Users/yourname/AGENTS.md
 
 # Render to .hermes.md (Hermes high-priority context)
 perseus render ~/.perseus/context.md --output ~/.hermes.md
