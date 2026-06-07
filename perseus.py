@@ -6548,6 +6548,31 @@ def _get_all_mcp_tools(cfg: dict) -> list[dict]:
     return tools
 
 
+def _build_server_card(cfg: dict) -> dict:
+    """Build a static server card for Smithery capability discovery.
+
+    Per the Smithery docs: when automatic scanning fails (auth wall, required
+    config, stdio transport), Smithery falls back to reading this static JSON
+    from /.well-known/mcp/server-card.json.  See:
+    https://smithery.ai/docs/build/publish#static-server-card-manual-metadata
+    """
+    version = cfg.get("version", SERVER_VERSION)
+    tools = _get_all_mcp_tools(cfg)
+    return {
+        "serverInfo": {
+            "name": "perseus",
+            "version": version,
+        },
+        "authentication": {
+            "required": bool(cfg.get("mcp", {}).get("sse_bearer_token")),
+            "schemes": ["bearer"] if cfg.get("mcp", {}).get("sse_bearer_token") else [],
+        },
+        "tools": tools,
+        "resources": [],
+        "prompts": [],
+    }
+
+
 # ── Tool dispatch ────────────────────────────────────────────────────────────
 
 def _mcp_quote(value: str) -> str:
@@ -6928,6 +6953,19 @@ def serve_mcp_sse(cfg: dict, workspace: Path | None = None, port: int = 8420) ->
 
     class MCPSSEHandler(BaseHTTPRequestHandler):
         def do_GET(self):
+            # /.well-known/mcp/server-card.json — static metadata for Smithery
+            # capability discovery. Served without auth so Smithery's scanner
+            # can read it even when the server requires auth for MCP operations.
+            if self.path == "/.well-known/mcp/server-card.json":
+                card = _build_server_card(cfg)
+                body = json.dumps(card, indent=2)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(body.encode())
+                return
             if not _check_auth(self):
                 self.send_response(401)
                 self.send_header("Content-Type", "application/json")
@@ -6993,8 +7031,9 @@ def serve_mcp_sse(cfg: dict, workspace: Path | None = None, port: int = 8420) ->
 
     server = HTTPServer(("127.0.0.1", port), MCPSSEHandler)
     print(f"Perseus MCP SSE server listening on http://127.0.0.1:{port}")
-    print(f"  SSE endpoint: http://127.0.0.1:{port}/sse")
+    print(f"  SSE endpoint:     http://127.0.0.1:{port}/sse")
     print(f"  POST messages to: http://127.0.0.1:{port}/message")
+    print(f"  Server card:      http://127.0.0.1:{port}/.well-known/mcp/server-card.json")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -20082,6 +20121,12 @@ def _serve_render_endpoint(endpoint: str, cfg: dict, workspace: Path, query: dic
             body, _ = redact_text(body, cfg)
             return (200, "application/json; charset=utf-8", body)
 
+        if endpoint == "/.well-known/mcp/server-card.json":
+            # Static metadata for Smithery capability discovery.
+            # Served without auth so Smithery's scanner can read it.
+            card = _build_server_card(cfg)
+            return (200, "application/json; charset=utf-8", json.dumps(card, indent=2))
+
         return (404, "text/plain; charset=utf-8", f"Unknown endpoint: {endpoint}")
     except Exception as exc:
         # S6: Log the real exception, return a generic error to avoid leaking
@@ -20187,6 +20232,7 @@ def cmd_serve(args, cfg):
     print(f"Perseus serve — {workspace}")
     print(f"  Listening on {url}")
     print(f"  Endpoints: /, /context, /narrative, /health, /agora, /checkpoint/latest, /oracle/log")
+    print(f"             /.well-known/mcp/server-card.json")
     print(f"  Press Ctrl-C to stop.")
     try:
         server.serve_forever()
