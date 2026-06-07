@@ -1,94 +1,36 @@
 {
   "serverInfo": {
-    "name": "Perseus",
+    "name": "perseus",
     "version": "1.0.6"
+  },
+  "authentication": {
+    "required": false,
+    "schemes": []
   },
   "tools": [
     {
-      "name": "perseus_services",
-      "description": "Health-check running services (HTTP, Docker, custom commands)",
-      "inputSchema": {
-        "type": "object",
-        "properties": {},
-        "required": []
-      }
-    },
-    {
-      "name": "perseus_query",
-      "description": "Run a shell command and return stdout",
+      "name": "perseus_agora",
+      "description": "Task board from tasks/*.md",
       "inputSchema": {
         "type": "object",
         "properties": {
-          "command": {
+          "status": {
             "type": "string",
-            "description": "Shell command to execute"
-          }
-        },
-        "required": [
-          "command"
-        ]
-      }
-    },
-    {
-      "name": "perseus_read",
-      "description": "Read file contents from the workspace",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "path": {
-            "type": "string",
-            "description": "File path to read"
-          },
-          "key": {
-            "type": "string",
-            "description": "Config key to extract"
-          }
-        },
-        "required": [
-          "path"
-        ]
-      }
-    },
-    {
-      "name": "perseus_list",
-      "description": "List directory contents or structured data",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "path": {
-            "type": "string",
-            "description": "Directory path"
-          },
-          "pattern": {
-            "type": "string",
-            "description": "File glob pattern"
+            "description": "status= modifier for @agora"
           }
         },
         "required": []
       }
     },
     {
-      "name": "perseus_tree",
-      "description": "Tree view of directory structure",
+      "name": "perseus_auto-skill",
+      "description": "Instruct agent to load a skill before work begins",
       "inputSchema": {
         "type": "object",
         "properties": {
-          "path": {
-            "type": "string"
-          }
-        },
-        "required": []
-      }
-    },
-    {
-      "name": "perseus_env",
-      "description": "Read environment variables",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "key": {
+          "skill": {
             "type": "string",
-            "description": "Env var name"
+            "description": "skill= modifier for @auto-skill"
           }
         },
         "required": []
@@ -96,33 +38,51 @@
     },
     {
       "name": "perseus_date",
-      "description": "Current date and time",
-      "inputSchema": {
-        "type": "object",
-        "properties": {},
-        "required": []
-      }
-    },
-    {
-      "name": "perseus_waypoint",
-      "description": "Latest session checkpoint summary",
+      "description": "Current date/time",
       "inputSchema": {
         "type": "object",
         "properties": {
-          "ttl": {
-            "type": "integer",
-            "description": "Max age in seconds"
+          "format": {
+            "type": "string",
+            "description": "format= modifier for @date"
           }
         },
         "required": []
       }
     },
     {
-      "name": "perseus_session",
-      "description": "Recent session digests",
+      "name": "perseus_drift",
+      "description": "Oracle drift report",
       "inputSchema": {
         "type": "object",
-        "properties": {},
+        "properties": {
+          "args": {
+            "type": "string",
+            "description": "Arguments for @drift directive"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "perseus_env",
+      "description": "Embed environment variable",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "required": {
+            "type": "string",
+            "description": "required= modifier for @env"
+          },
+          "fallback": {
+            "type": "string",
+            "description": "fallback= modifier for @env"
+          },
+          "schema": {
+            "type": "string",
+            "description": "schema= modifier for @env"
+          }
+        },
         "required": []
       }
     },
@@ -131,70 +91,28 @@
       "description": "Context maintenance report",
       "inputSchema": {
         "type": "object",
-        "properties": {},
-        "required": []
-      }
-    },
-    {
-      "name": "perseus_drift",
-      "description": "Detect configuration drift between renders",
-      "inputSchema": {
-        "type": "object",
-        "properties": {},
-        "required": []
-      }
-    },
-    {
-      "name": "perseus_memory",
-      "description": "Mnem\u0113 narrative memory and Engram-rs hybrid recall",
-      "inputSchema": {
-        "type": "object",
         "properties": {
-          "query": {
-            "type": "string"
-          },
-          "focus": {
-            "type": "string"
-          },
-          "k": {
-            "type": "integer"
-          },
-          "mode": {
-            "type": "string"
+          "args": {
+            "type": "string",
+            "description": "Arguments for @health directive"
           }
         },
         "required": []
       }
     },
     {
-      "name": "perseus_mneme",
-      "description": "Recall persistent memories via in-process BM25 FTS5 search",
+      "name": "perseus_inbox",
+      "description": "Agent message inbox",
       "inputSchema": {
         "type": "object",
         "properties": {
-          "query": {
-            "type": "string"
+          "unread": {
+            "type": "string",
+            "description": "unread= modifier for @inbox"
           },
-          "k": {
-            "type": "integer"
-          }
-        },
-        "required": [
-          "query"
-        ]
-      }
-    },
-    {
-      "name": "perseus_skills",
-      "description": "List available skills with staleness flags and category filter",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "category": {
-            "type": "string"
-          },
-          "flag_stale": {
-            "type": "boolean"
+          "limit": {
+            "type": "string",
+            "description": "limit= modifier for @inbox"
           }
         },
         "required": []
@@ -206,8 +124,175 @@
       "inputSchema": {
         "type": "object",
         "properties": {
+          "args": {
+            "type": "string",
+            "description": "Arguments for @include directive"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "perseus_list",
+      "description": "List directory or structured data",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "string",
+            "description": "limit= modifier for @list"
+          },
+          "sort": {
+            "type": "string",
+            "description": "sort= modifier for @list"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "perseus_mason",
+      "description": "Mason code architecture concept map (feature\u2192file)",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "args": {
+            "type": "string",
+            "description": "Arguments for @mason directive"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "perseus_memory",
+      "description": "Mn\u0113m\u0113 v2 \u2014 unified memory search + narrative + federation",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "description": "mode= modifier for @memory"
+          },
+          "query": {
+            "type": "string",
+            "description": "query= modifier for @memory"
+          },
+          "scope": {
+            "type": "string",
+            "description": "scope= modifier for @memory"
+          },
+          "k": {
+            "type": "string",
+            "description": "k= modifier for @memory"
+          },
+          "type": {
+            "type": "string",
+            "description": "type= modifier for @memory"
+          },
+          "render": {
+            "type": "string",
+            "description": "render= modifier for @memory"
+          },
+          "focus": {
+            "type": "string",
+            "description": "focus= modifier for @memory"
+          },
+          "federation": {
+            "type": "string",
+            "description": "federation modifier for @memory"
+          },
+          "include_federation": {
+            "type": "string",
+            "description": "include_federation= modifier for @memory"
+          },
+          "alias": {
+            "type": "string",
+            "description": "alias= modifier for @memory"
+          },
+          "workspace": {
+            "type": "string",
+            "description": "workspace= modifier for @memory"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "perseus_mneme",
+      "description": "Recall persistent memories via Mn\u0113m\u0113 BM25",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "query= modifier for @mneme"
+          },
+          "scope": {
+            "type": "string",
+            "description": "scope= modifier for @mneme"
+          },
+          "k": {
+            "type": "string",
+            "description": "k= modifier for @mneme"
+          },
+          "type": {
+            "type": "string",
+            "description": "type= modifier for @mneme"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "perseus_perseus",
+      "description": "Fetch rendered context from a remote Perseus instance",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "args": {
+            "type": "string",
+            "description": "Arguments for @perseus directive"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "perseus_prompt",
+      "description": "System prompt block",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "args": {
+            "type": "string",
+            "description": "Arguments for @prompt directive"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "perseus_read",
+      "description": "Embed file contents",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
           "path": {
-            "type": "string"
+            "type": "string",
+            "description": "path= modifier for @read"
+          },
+          "key": {
+            "type": "string",
+            "description": "key= modifier for @read"
+          },
+          "fallback": {
+            "type": "string",
+            "description": "fallback= modifier for @read"
+          },
+          "schema": {
+            "type": "string",
+            "description": "schema= modifier for @read"
           }
         },
         "required": [
@@ -216,98 +301,146 @@
       }
     },
     {
-      "name": "perseus_agent",
-      "description": "Execute local agent subprocess",
+      "name": "perseus_services",
+      "description": "Health-check listed services",
       "inputSchema": {
         "type": "object",
         "properties": {
-          "prompt": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "prompt"
-        ]
-      }
-    },
-    {
-      "name": "perseus_agora",
-      "description": "Task board from tasks/*.md files",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "status": {
-            "type": "string"
+          "args": {
+            "type": "string",
+            "description": "Arguments for @services directive"
           }
         },
         "required": []
       }
     },
     {
-      "name": "perseus_inbox",
-      "description": "Unread inbox items from .perseus/inbox/",
-      "inputSchema": {
-        "type": "object",
-        "properties": {},
-        "required": []
-      }
-    },
-    {
-      "name": "perseus_config",
-      "description": "Read Perseus configuration values",
+      "name": "perseus_session",
+      "description": "Recent session digests",
       "inputSchema": {
         "type": "object",
         "properties": {
-          "key": {
-            "type": "string"
+          "count": {
+            "type": "string",
+            "description": "count= modifier for @session"
           }
         },
         "required": []
       }
     },
     {
-      "name": "perseus_pack",
-      "description": "Pack metadata and directive manifest",
-      "inputSchema": {
-        "type": "object",
-        "properties": {},
-        "required": []
-      }
-    },
-    {
-      "name": "perseus_tier",
-      "description": "Render depth tier control",
+      "name": "perseus_skills",
+      "description": "List available skills",
       "inputSchema": {
         "type": "object",
         "properties": {
-          "level": {
-            "type": "integer"
+          "flag_stale": {
+            "type": "string",
+            "description": "flag_stale= modifier for @skills"
+          },
+          "category": {
+            "type": "string",
+            "description": "category= modifier for @skills"
+          },
+          "limit": {
+            "type": "string",
+            "description": "limit= modifier for @skills"
           }
         },
         "required": []
       }
     },
     {
-      "name": "perseus_doctor",
-      "description": "Full readiness and environment audit",
+      "name": "perseus_tool",
+      "description": "Run an allowlisted external tool",
       "inputSchema": {
         "type": "object",
-        "properties": {},
+        "properties": {
+          "args": {
+            "type": "string",
+            "description": "Arguments for @tool directive"
+          }
+        },
         "required": []
       }
     },
     {
-      "name": "perseus_graph",
-      "description": "Directive dependency graph",
+      "name": "perseus_tooltrim",
+      "description": "Tool metadata awareness \u2014 filtered toolset descriptions",
       "inputSchema": {
         "type": "object",
-        "properties": {},
+        "properties": {
+          "stats": {
+            "type": "string",
+            "description": "stats modifier for @tooltrim"
+          },
+          "full": {
+            "type": "string",
+            "description": "full modifier for @tooltrim"
+          }
+        },
         "required": []
       }
     },
     {
-      "name": "perseus_oracle",
-      "description": "Tool usage stats and Pythia outcomes",
+      "name": "perseus_tree",
+      "description": "Tree view of directory",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "depth": {
+            "type": "string",
+            "description": "depth= modifier for @tree"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "perseus_validate",
+      "description": "Validate a rendered block against a schema",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "description": "schema= modifier for @validate"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "perseus_waypoint",
+      "description": "Latest checkpoint summary",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "ttl": {
+            "type": "string",
+            "description": "ttl= modifier for @waypoint"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "perseus_get_context",
+      "description": "Return the full rendered Perseus context for the workspace.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "format": {
+            "type": "string",
+            "description": "Output format: markdown or json (default: markdown)"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "perseus_get_health",
+      "description": "Run Daedalus context-maintenance heuristics and return a health report.",
       "inputSchema": {
         "type": "object",
         "properties": {},
