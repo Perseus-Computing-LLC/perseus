@@ -10473,6 +10473,7 @@ def render_output(
         rendered, _report = redact_text(rendered, cfg)
         _audit_render_redaction(cfg, _report)
         rendered = dedup_context_if_available(rendered, cfg)
+        rendered = inject_vaultmem_context(rendered, cfg)
         return rendered
     elif fmt == "html":
         t = title or "Workspace Context"
@@ -10486,6 +10487,7 @@ def render_output(
         rendered, _report = redact_text(rendered, cfg)
         _audit_render_redaction(cfg, _report)
         rendered = dedup_context_if_available(rendered, cfg)
+        rendered = inject_vaultmem_context(rendered, cfg)
         return wrap_rendered(rendered, fmt, _PERSEUS_VERSION)
 
     # Custom formats (task-68)
