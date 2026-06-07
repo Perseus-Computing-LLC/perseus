@@ -35,7 +35,7 @@ has a team at corbenic.ai; Perseus integration is ~80 lines with tests).
 User-facing value: Invisible infrastructure. The user's session starts faster
 and uses fewer tokens. Savings appear in Perseus debug logs.
 
-Overlap: Zero. Perseus has engram-rs for long-term memory and Mneme vault
+Overlap: Zero. Perseus has mneme for long-term memory and Mneme vault
 for markdown storage. Merlin does deterministic chunk-level dedup on the
 pre-injection context string — a completely orthogonal layer.
 
