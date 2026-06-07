@@ -508,7 +508,7 @@ def _find_mneme_binary(configured_command: list[str]) -> str | None:
     return None
 
 
-def _doctor_check_mneme(cfg: dict, workspace: Path) -> DoctorResult:
+def _doctor_check_mneme_bridge(cfg: dict, workspace: Path) -> DoctorResult:
     """Check mneme connectivity and binary discovery (#226, #227).
 
     When mneme.enabled is true, this check:
@@ -586,7 +586,7 @@ _DOCTOR_CHECKS = [
     _doctor_check_llm_reachable,
     _doctor_check_llm_functional,
     _doctor_check_cache_writable,
-    _doctor_check_mneme,
+    _doctor_check_mneme_bridge,
     _doctor_check_sessions,
 ]
 
