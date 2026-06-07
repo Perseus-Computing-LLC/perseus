@@ -16,7 +16,7 @@ Source documents start with `@perseus v0.4` on line 1. The value after `@perseus
 | `@include <file>` | Embeds a file inline; markdown raw, structured files fenced |
 | `@if <cond>` / `@else` / `@endif` | Conditional blocks: `file.exists/missing`, `env.set/unset/eq/neq`, `query("cmd") [not] matches /regex/[i]` |
 | `@constraint id="..." severity="..."` | Machine-readable rules rendered as a `\| ID \| Severity \| Rule \|` table |
-| `@skills [flag_stale=true]` | Scans the assistant's skills dir, reads frontmatter, flags stale entries |
+| `@skills [flag_stale=true] [category=comma,list]` | Scans the assistant's skills dir, reads frontmatter, flags stale entries; `category=` filters to specific skill categories (e.g. `category=devops,github`). Use this to keep the skills table focused — omit `category=` to list all skills. |
 | `@services` (YAML block or `@services ... @end`) | HTTP health checks (`url:`), Docker container status (`docker:`), or optional shell exit check (`command:`); command checks also require `PERSEUS_ALLOW_DANGEROUS=1` |
 | `@session [count=N] [topic="..."]` | Recent session digest from the sessions directory |
 | `@date format="YYYY-MM-DD HH:mm z"` | Live date/time, inline or standalone |
@@ -25,6 +25,8 @@ Source documents start with `@perseus v0.4` on line 1. The value after `@perseus
 | `@validate schema="name"...@end` | Renders a block, validates the payload, and emits a visible warning instead of invalid context |
 | `@agora [status=...] [scope=...]` | Live task board from `tasks/` — markdown table by status/scope |
 | `@memory [focus="..."] [ttl=N]` | Mnēmē narrative for the workspace; `focus=` slices a single section (`arc`, `decisions`, `recent`, `patterns`, `history`) |
+| `@memory mode=search query="terms" [k=5] [scope=...] [type=...]` | Mnēmē v2 FTS5 BM25 search over the vault (`~/.perseus/memory/vault/*.md`). Returns ranked results with snippet highlights. Use single-word queries for best recall — multi-word queries are matched as exact FTS5 phrases. |
+| `@mneme query="terms" [k=5] [scope=...] [type=...]` | Mnēmē v2 FTS5 recall — same backend as `@memory mode=search`. Shorthand alias for memory search without the narrative/federation modes. |
 | `@health` | Maintenance suggestions (stale checkpoints, near-duplicates, large context, old completed tasks) |
 | `@list <path> [type] [depth] [path] [columns] [as]` | Directory listing OR structured-file table from `path="dot.key"` of JSON/YAML |
 | `@tree <path> [depth] [match] [exclude]` | Fenced directory tree with plain indentation |
@@ -34,6 +36,7 @@ Source documents start with `@perseus v0.4` on line 1. The value after `@perseus
 | `@memory include_federation=true` | Local narrative + appended `## Federated Context` digest |
 | `@drift` | Daedalus drift report — acceptance rate, recommendation Jaccard, confidence proxy (see `perseus oracle drift`) |
 | `@tool "\"<path>\"" [args...]` | Run an allowlisted external tool. Unlike `@agent` (ad-hoc), `@tool` requires explicit approval in `tools.allowlist` per path, with argument restrictions, timeouts, and output size caps. Accepts `@cache ttl=N`. |
+| `@synthesize question="..." source="file" [label="..."]` | Optional curated synthesis section. Requires `generation.enabled: true` in config. LLM-powered summarization with provenance claims — every assertion traces back to a cited source. |
 | `@perseus <url>` | Fetch rendered context from a remote Perseus serve instance. Gated by `foreign_resolver.allowlist` and `render.allow_remote_services_health`. Accepts `@cache ttl=N`. |
 
 ## Cache Modifiers
