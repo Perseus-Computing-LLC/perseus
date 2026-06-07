@@ -811,6 +811,26 @@ def cmd_validate(args, cfg) -> int:
     return 0 if not errors else 1
 
 
+# ──────────────────────────── @auto-skill (#234) ──────────────────────────────
+
+def resolve_auto_skill(args_str: str, cfg: dict, workspace: Path | None = None) -> str:
+    """@auto-skill <name> — instruct agent to load a skill before work begins.
+
+    Designed for critical hygiene skills (memory-hygiene, agent-safety) that
+    agents must load proactively. Without this, agents skip optional skill
+    loads under execution pressure — the memory tool fills silently until
+    the 2,200-char hard limit blocks genuinely important saves.
+    """
+    name = args_str.strip()
+    if not name:
+        return "> \u26a0 @auto-skill requires a skill name.\n"
+    return (
+        f"> \u26a0 **Auto-skill: load '{name}' before work begins.** "
+        f"Run `skill_view(name='{name}')` now. "
+        f"This skill is required for this session and must not be skipped.\n"
+    )
+
+
 # ──────────────────────────── Project Detection (#232) ─────────────────────────
 
 # Project detector hints: (indicator_file, language_name, suggested_memory_query)
