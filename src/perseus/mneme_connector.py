@@ -1,23 +1,23 @@
 """
-src/perseus/engram_connector.py — Perseus × Engram-rs Bridge (Project Synapse v2)
+src/perseus/mneme_connector.py — Perseus × Mneme Bridge (Project Synapse v2)
 
-Hybrid context resolution: Perseus live state (Sense) + Engram persistent
+Hybrid context resolution: Perseus live state (Sense) + Mneme persistent
 memory (Memory) → unified ContextPackage for LLM injection.
 
-Engram-rs is a high-performance Rust memory engine using:
+Mneme is a high-performance Rust memory engine using:
   - Three-layer memory: Buffer → Working → Core (time-based progression)
   - Ebbinghaus decay algorithm (forgetting curve)
   - Topic Trees (hierarchical knowledge organization)
   - Hybrid Search: Semantic vector + BM25 keyword
 
 Protocol: MCP (Model Context Protocol) — JSON-RPC 2.0 over stdio or SSE.
-Fallback: Local Mnēmē v2 SQLite FTS5 when Engram is unreachable.
+Fallback: Local Mnēmē v2 SQLite FTS5 when Mneme is unreachable.
 
 Key features:
   - Circuit Breaker with configurable threshold/cooldown
   - Exponential backoff retry policy
   - Configurable merge strategies with decay-aware ordering
-  - Source-tagged memory items (local vs engram)
+  - Source-tagged memory items (local vs mneme)
 """
 # stdlib imports available from build artifact header
 import hashlib
@@ -32,17 +32,17 @@ from typing import Any, Optional, Callable
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Data Models — Engram-rs Schema
+# Data Models — Mneme Schema
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class MemorySource(str, Enum):
     """Where a memory hit originated."""
     LOCAL = "local"          # Mnēmē FTS5 (Perseus)
-    ENGRAM = "engram"        # Engram-rs persistent store
+    MNEME = "mneme"        # Mneme persistent store
     FEDERATED = "federated"  # Cross-workspace federation
 
 class MemoryLayer(str, Enum):
-    """Engram-rs time-based memory layer.
+    """Mneme time-based memory layer.
 
     Memories progress: Buffer → Working → Core as they are accessed
     and survive decay thresholds.
@@ -52,10 +52,10 @@ class MemoryLayer(str, Enum):
     CORE = "core"        # Consolidated long-term memory, low decay
 
 class MemoryTypeEnum(str, Enum):
-    """Friendly labels mapped from Engram topic tags.
+    """Friendly labels mapped from Mneme topic tags.
 
     Retained for backward compatibility with agora.py rendering.
-    Maps to Engram topics rather than strict type categories.
+    Maps to Mneme topics rather than strict type categories.
     """
     INSIGHT = "insight"
     ARCHITECTURE = "architecture"
@@ -65,13 +65,13 @@ class MergeStrategy(str, Enum):
     LOCAL_FIRST = "local_first"
     REMOTE_FIRST = "remote_first"
     INTERLEAVE = "interleave"
-    DECAY_FIRST = "decay_first"     # Engram-native: sort by freshness
+    DECAY_FIRST = "decay_first"     # Mneme-native: sort by freshness
 
 @dataclass
 class MemoryLink:
     """A topic-tree edge between two memory items.
 
-    In Engram, links form a topic hierarchy rather than a general graph.
+    In Mneme, links form a topic hierarchy rather than a general graph.
     """
     target_id: str
     relationship: str       # parent_of | related_to | refines | contradicts
@@ -79,19 +79,19 @@ class MemoryLink:
 
 @dataclass
 class MemoryHit:
-    """A single memory recall result — from either local Mnēmē or Engram-rs.
+    """A single memory recall result — from either local Mnēmē or Mneme.
 
-    Engram-specific fields: decay_score (Ebbinghaus), retrieval_count,
+    Mneme-specific fields: decay_score (Ebbinghaus), retrieval_count,
     layer (Buffer/Working/Core).
     """
     id: str
     type: MemoryTypeEnum
     content: str
-    source: MemorySource = MemorySource.ENGRAM
+    source: MemorySource = MemorySource.MNEME
     summary: str = ""
     relevance: float = 0.0
 
-    # ── Engram-rs decay & layer fields ──
+    # ── Mneme decay & layer fields ──
     decay_score: float = 1.0          # Ebbinghaus: 1.0 = fresh, 0.0 = fully decayed
     retrieval_count: int = 0          # Number of times this memory has been recalled
     layer: MemoryLayer = MemoryLayer.WORKING
@@ -102,7 +102,7 @@ class MemoryHit:
     links: list[MemoryLink] = field(default_factory=list)
     workspace_hash: str = ""
     tags: dict[str, str] = field(default_factory=dict)
-    verified: bool = False   # True when memory exists in both local + engram
+    verified: bool = False   # True when memory exists in both local + mneme
 
 @dataclass
 class LiveStateEntry:
@@ -184,7 +184,7 @@ class ContextPackage:
         else:
             parts.append("_(live state not resolved)_")
         parts.append("")
-        parts.append("## Persistent Memory (Engram-rs)")
+        parts.append("## Persistent Memory (Mneme)")
         if self.memory:
             parts.append(self.memory.as_markdown)
         else:
@@ -203,11 +203,11 @@ class ContextPackage:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class CircuitBreaker:
-    """Prevents cascading failures when Engram is unreachable.
+    """Prevents cascading failures when Mneme is unreachable.
 
     States: closed → open (after threshold failures) → half_open (after cooldown)
 
-    Config keys (from engram.circuit_breaker):
+    Config keys (from mneme.circuit_breaker):
         threshold: int = 3   — consecutive failures before opening
         cooldown: int = 120  — seconds before attempting recovery
     """
@@ -302,7 +302,7 @@ def _retry_with_backoff(
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class _MCPStdioClient:
-    """MCP client over stdio — spawns Engram as a subprocess.
+    """MCP client over stdio — spawns Mneme as a subprocess.
 
     JSON-RPC 2.0 messages are sent via stdin and received via stdout.
     """
@@ -315,8 +315,8 @@ class _MCPStdioClient:
         self._server_capabilities: dict = {}
 
         # Parse --db <path> from command to set subprocess CWD.
-        # Engram-rs (engram-rs) may ignore the --db flag and
-        # write to CWD/engram.db; setting CWD to the DB directory works
+        # Mneme (mneme) may ignore the --db flag and
+        # write to CWD/mneme.db; setting CWD to the DB directory works
         # around this so auto-backfill lands in the right place.
         self._cwd: str | None = None
         try:
@@ -331,9 +331,9 @@ class _MCPStdioClient:
             pass
 
     def connect(self) -> bool:
-        """Spawn the Engram MCP subprocess and perform handshake."""
+        """Spawn the Mneme MCP subprocess and perform handshake."""
         try:
-            # Extract --db path to set cwd so Engram writes DB to correct directory (#203)
+            # Extract --db path to set cwd so Mneme writes DB to correct directory (#203)
             cwd = None
             cmd_iter = iter(self._command)
             for arg in cmd_iter:
@@ -371,7 +371,7 @@ class _MCPStdioClient:
             # MCP initialize handshake
             init_result, err = self._call("initialize", {
                 "protocolVersion": "2025-06-18",
-                "clientInfo": {"name": "perseus-engram-connector", "version": "1.0.0"},
+                "clientInfo": {"name": "perseus-mneme-connector", "version": "1.0.0"},
                 "capabilities": {},
             })
             if err or not init_result:
@@ -502,16 +502,16 @@ class _MCPSseClient:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# EngramConnector — MCP client with circuit breaker, backoff, and fallback
+# MnemeConnector — MCP client with circuit breaker, backoff, and fallback
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class EngramConnector:
-    """Bridge between Perseus (Python) and Engram-rs (MCP/JSON-RPC).
+class MnemeConnector:
+    """Bridge between Perseus (Python) and Mneme (MCP/JSON-RPC).
 
     Configuration (from `config.yaml` → `engram`):
         enabled: bool              = true
         transport: str             = "stdio"  — "stdio" or "sse"
-        command: list[str]         = ["engram", "serve"]
+        command: list[str]         = ["mneme", "serve"]
         endpoint: str              = "http://localhost:50052/sse"  (for sse)
         timeout_s: float           = 10.0
         merge_strategy: str        = "local_first"
@@ -525,18 +525,18 @@ class EngramConnector:
         fallback_to_local: bool    = True
 
     Usage:
-        connector = EngramConnector(cfg)
+        connector = MnemeConnector(cfg)
         package = connector.hybrid_recall("project architecture", workspace="/opt/...")
         print(package.assemble())
     """
 
     def __init__(self, cfg: dict):
         self._cfg = cfg
-        mcfg = cfg.get("engram", {})
+        mcfg = cfg.get("mneme", {})
         self._enabled = bool(mcfg.get("enabled", True))
         self._transport = mcfg.get("transport", "stdio")
         self._timeout = float(mcfg.get("timeout_s", 10.0))
-        self._command = mcfg.get("command", ["engram", "serve"])
+        self._command = mcfg.get("command", ["mneme", "serve"])
         self._endpoint = mcfg.get("endpoint", "http://localhost:50052/sse")
         self._fallback_to_local = bool(mcfg.get("fallback_to_local", True))
         self._decay_priority_weight = float(mcfg.get("decay_priority_weight", 0.4))
@@ -568,7 +568,7 @@ class EngramConnector:
             self._try_connect()
 
     def _try_connect(self) -> bool:
-        """Establish MCP connection to Engram. Returns True on success."""
+        """Establish MCP connection to Mneme. Returns True on success."""
         if self._breaker.is_open:
             self._connect_error = f"circuit breaker open ({self._breaker.stats()})"
             return False
@@ -596,7 +596,7 @@ class EngramConnector:
 
     @property
     def available(self) -> bool:
-        """Is Engram reachable via MCP?"""
+        """Is Mneme reachable via MCP?"""
         return self._client is not None and self._client.is_connected
 
     @property
@@ -616,7 +616,7 @@ class EngramConnector:
     def breaker_stats(self) -> dict:
         return self._breaker.stats()
 
-    # ── Core MCP tool wrappers (Engram API) ────────────────────────────────
+    # ── Core MCP tool wrappers (Mneme API) ────────────────────────────────
 
     def recall(
         self,
@@ -629,9 +629,9 @@ class EngramConnector:
         min_decay_score: float = 0.0,
         topic_path: str | None = None,
     ) -> MemorySegment:
-        """Query Engram-rs for historical context via MCP 'engram_recall' tool.
+        """Query Mneme for historical context via MCP 'mneme_recall' tool.
 
-        Engram uses hybrid search (semantic vector + BM25 keyword) with
+        Mneme uses hybrid search (semantic vector + BM25 keyword) with
         Ebbinghaus decay scoring.
 
         Args:
@@ -652,7 +652,7 @@ class EngramConnector:
         types_str = [t.value for t in memory_types] if memory_types else []
 
         def _do_recall():
-            result, err = self._client.call_tool("engram_recall", {
+            result, err = self._client.call_tool("mneme_recall", {
                 "query": query,
                 "memory_types": types_str,
                 "max_results": max_results,
@@ -679,7 +679,7 @@ class EngramConnector:
         items = _parse_memory_hits(raw_result or {})
         return MemorySegment(
             items=items,
-            strategy_used="engram_recall",
+            strategy_used="mneme_recall",
             total_available=len(items),
             query_time_ms=int((time.time() - t0) * 1000),
         )
@@ -694,7 +694,7 @@ class EngramConnector:
         importance: float = 0.5,
         topic_path: str | None = None,
     ) -> tuple[bool, str]:
-        """Store a new memory in Engram via MCP 'engram_store' tool.
+        """Store a new memory in Mneme via MCP 'mneme_store' tool.
 
         Memories enter the Buffer layer and progress to Working → Core
         based on retrieval frequency and decay survival.
@@ -702,7 +702,7 @@ class EngramConnector:
         Returns (success, memory_id_or_error).
         """
         if not self.available:
-            return False, f"Engram unavailable: {self._connect_error}"
+            return False, f"Mneme unavailable: {self._connect_error}"
 
         links_json = [
             {"target_id": l.target_id, "relationship": l.relationship, "weight": l.weight}
@@ -710,7 +710,7 @@ class EngramConnector:
         ]
 
         def _do_store():
-            result, err = self._client.call_tool("engram_store", {
+            result, err = self._client.call_tool("mneme_store", {
                 "content": content,
                 "memory_type": memory_type.value,
                 "workspace_hash": workspace_hash or "",
@@ -737,12 +737,12 @@ class EngramConnector:
         return success, mem_id
 
     def health_check(self) -> tuple[bool, str]:
-        """Check Engram server health via MCP 'engram_health' tool."""
+        """Check Mneme server health via MCP 'mneme_health' tool."""
         if not self.available:
-            return False, "Engram unavailable"
+            return False, "Mneme unavailable"
 
         def _do_health():
-            result, err = self._client.call_tool("engram_health", {})
+            result, err = self._client.call_tool("mneme_health", {})
             if err:
                 raise RuntimeError(err)
             return result
@@ -773,7 +773,7 @@ class EngramConnector:
 
         Three-Step Flow (per Synapse spec):
           Step A (Sense):  Resolve current environment (live state).
-          Step B (Memory): Query Engram-rs for historical context.
+          Step B (Memory): Query Mneme for historical context.
           Step C (Merge):  Combine both into a ContextPackage using configured
                            merge_strategy, with decay-aware ordering and
                            source tagging + verification.
@@ -809,21 +809,21 @@ class EngramConnector:
         live_state = LiveStateSegment(
             workspace_path=workspace,
             entries=live_entries,
-            metadata={"connector": "engram_synapse.v2"},
+            metadata={"connector": "mneme_synapse.v2"},
         )
         diagnostics["live_state_ms"] = str(int((time.time() - t_live) * 1000))
 
         # ── Step B: Historical Context Resolution ──
         t_memory = time.time()
-        engram_segment = MemorySegment()
+        mneme_segment = MemorySegment()
 
         if self.available:
-            engram_segment = self.recall(query=query, **kwargs)
-            diagnostics["engram"] = (
-                f"{len(engram_segment.items)} results via MCP/{self._transport}"
+            mneme_segment = self.recall(query=query, **kwargs)
+            diagnostics["mneme"] = (
+                f"{len(mneme_segment.items)} results via MCP/{self._transport}"
             )
         else:
-            diagnostics["engram"] = f"unavailable: {self._connect_error or 'disabled'}"
+            diagnostics["mneme"] = f"unavailable: {self._connect_error or 'disabled'}"
 
         # ── Local Mnēmē FTS5 fallback ──
         local_items: list[MemoryHit] = []
@@ -839,7 +839,7 @@ class EngramConnector:
         # ── Step C: Merge — apply configured strategy (decay-aware) ──
         merged_segment = self._merge_results(
             local_items=local_items,
-            engram_items=engram_segment.items,
+            mneme_items=mneme_segment.items,
             strategy=self._merge_strategy,
             diagnostics=diagnostics,
         )
@@ -859,93 +859,93 @@ class EngramConnector:
     def _merge_results(
         self,
         local_items: list[MemoryHit],
-        engram_items: list[MemoryHit],
+        mneme_items: list[MemoryHit],
         strategy: MergeStrategy,
         diagnostics: dict[str, str],
     ) -> MemorySegment:
-        """Merge local and Engram results per the configured strategy.
+        """Merge local and Mneme results per the configured strategy.
 
         Decay-aware ordering: when decay_first strategy is used, or as a
         secondary sort within other strategies, items with higher decay_score
         (fresher) are prioritized.
 
-        Verification: if a memory exists in both sources, the Engram version
+        Verification: if a memory exists in both sources, the Mneme version
         is preferred but flagged as verified=True.
         """
-        if not local_items and not engram_items:
+        if not local_items and not mneme_items:
             return MemorySegment(strategy_used=strategy.value)
 
         # Build lookup by content hash for dedup
-        engram_by_hash: dict[str, MemoryHit] = {}
-        for ei in engram_items:
+        mneme_by_hash: dict[str, MemoryHit] = {}
+        for ei in mneme_items:
             h = hashlib.md5(ei.content.encode()).hexdigest()[:12]
-            engram_by_hash[h] = ei
+            mneme_by_hash[h] = ei
 
         local_by_hash: dict[str, MemoryHit] = {}
         for li in local_items:
             h = hashlib.md5(li.content.encode()).hexdigest()[:12]
             local_by_hash[h] = li
 
-        engram_hashes = set(engram_by_hash.keys())
+        mneme_hashes = set(mneme_by_hash.keys())
         local_hashes = set(local_by_hash.keys())
 
-        # Items in both — mark as verified, prefer Engram version
-        both_hashes = engram_hashes & local_hashes
+        # Items in both — mark as verified, prefer Mneme version
+        both_hashes = mneme_hashes & local_hashes
         verified_items: list[MemoryHit] = []
         for h in both_hashes:
-            ei = engram_by_hash[h]
+            ei = mneme_by_hash[h]
             ei.verified = True
             verified_items.append(ei)
 
-        # Engram-only items
-        engram_only = [engram_by_hash[h] for h in (engram_hashes - local_hashes)]
+        # Mneme-only items
+        mneme_only = [mneme_by_hash[h] for h in (mneme_hashes - local_hashes)]
 
         # Local-only items
-        local_only = [local_by_hash[h] for h in (local_hashes - engram_hashes)]
+        local_only = [local_by_hash[h] for h in (local_hashes - mneme_hashes)]
 
         diagnostics["merge_verified"] = str(len(verified_items))
-        diagnostics["merge_engram_only"] = str(len(engram_only))
+        diagnostics["merge_mneme_only"] = str(len(mneme_only))
         diagnostics["merge_local_only"] = str(len(local_only))
 
         if strategy == MergeStrategy.DECAY_FIRST:
             # Pure decay ordering: sort all by decay_score descending
-            all_items = verified_items + engram_only + local_only
+            all_items = verified_items + mneme_only + local_only
             all_items.sort(key=lambda i: i.decay_score, reverse=True)
             return MemorySegment(
                 items=all_items,
-                strategy_used=f"engram_{strategy.value}",
+                strategy_used=f"mneme_{strategy.value}",
                 total_available=len(all_items),
             )
 
         if strategy == MergeStrategy.REMOTE_FIRST:
             # Sort within groups by decay_score desc (fresh → stale)
-            engram_only.sort(key=lambda i: i.decay_score, reverse=True)
+            mneme_only.sort(key=lambda i: i.decay_score, reverse=True)
             local_only.sort(key=lambda i: i.decay_score, reverse=True)
             verified_items.sort(key=lambda i: i.decay_score, reverse=True)
-            merged = engram_only + verified_items + local_only
+            merged = mneme_only + verified_items + local_only
         elif strategy == MergeStrategy.INTERLEAVE:
-            # Alternate: engram, local, engram, local — sorted by decay within each
-            engram_only.sort(key=lambda i: i.decay_score, reverse=True)
+            # Alternate: mneme, local, engram, local — sorted by decay within each
+            mneme_only.sort(key=lambda i: i.decay_score, reverse=True)
             local_only.sort(key=lambda i: i.decay_score, reverse=True)
             verified_items.sort(key=lambda i: i.decay_score, reverse=True)
             interleaved = []
-            max_len = max(len(engram_only), len(local_only))
+            max_len = max(len(mneme_only), len(local_only))
             for i in range(max_len):
-                if i < len(engram_only):
-                    interleaved.append(engram_only[i])
+                if i < len(mneme_only):
+                    interleaved.append(mneme_only[i])
                 if i < len(local_only):
                     interleaved.append(local_only[i])
             merged = interleaved + verified_items
         else:
-            # LOCAL_FIRST (default): local results first, Engram augments
+            # LOCAL_FIRST (default): local results first, Mneme augments
             local_only.sort(key=lambda i: i.decay_score, reverse=True)
             verified_items.sort(key=lambda i: i.decay_score, reverse=True)
-            engram_only.sort(key=lambda i: i.decay_score, reverse=True)
-            merged = local_only + verified_items + engram_only
+            mneme_only.sort(key=lambda i: i.decay_score, reverse=True)
+            merged = local_only + verified_items + mneme_only
 
         return MemorySegment(
             items=merged,
-            strategy_used=f"engram_{strategy.value}",
+            strategy_used=f"mneme_{strategy.value}",
             total_available=len(merged),
         )
 
@@ -964,7 +964,7 @@ def _parse_memory_hits(data: dict) -> list[MemoryHit]:
     """Parse MemoryHit list from MCP tool response JSON.
 
     The MCP response may wrap hits in "items", "results", or be a flat list.
-    Engram responses include decay_score, retrieval_count, and layer fields.
+    Mneme responses include decay_score, retrieval_count, and layer fields.
     """
     items_raw = data.get("items") or data.get("results") or data.get("hits") or []
     if isinstance(items_raw, dict):
@@ -981,9 +981,9 @@ def _parse_memory_hits(data: dict) -> list[MemoryHit]:
             mem_type = MemoryTypeEnum(raw.get("type", "insight"))
         except ValueError:
             pass
-        mem_source = MemorySource.ENGRAM
+        mem_source = MemorySource.MNEME
         try:
-            mem_source = MemorySource(raw.get("source", "engram"))
+            mem_source = MemorySource(raw.get("source", "mneme"))
         except ValueError:
             pass
         mem_layer = MemoryLayer.WORKING
@@ -1022,7 +1022,7 @@ def _parse_memory_hits(data: dict) -> list[MemoryHit]:
 def _local_hits_to_memory_hits(local_results: list[dict]) -> list[MemoryHit]:
     """Convert local Mnēmē FTS5 recall results to MemoryHit format.
 
-    Local items have no Engram decay data — they default to decay_score=1.0
+    Local items have no Mneme decay data — they default to decay_score=1.0
     (treated as fresh) and layer=WORKING.
 
     Items with empty or whitespace-only content are skipped — these occur
@@ -1058,12 +1058,12 @@ def _local_hits_to_memory_hits(local_results: list[dict]) -> list[MemoryHit]:
 # Singleton connector — initialized lazily, reused across directive resolutions
 # ═══════════════════════════════════════════════════════════════════════════════
 
-_connector: EngramConnector | None = None
+_connector: MnemeConnector | None = None
 _connector_cfg_hash: str = ""
 
 
-def _get_connector(cfg: dict) -> EngramConnector:
-    """Get or create the singleton EngramConnector.
+def _get_connector(cfg: dict) -> MnemeConnector:
+    """Get or create the singleton MnemeConnector.
 
     Re-creates if config changed. Used by resolve_memory / resolve_mneme.
     """
@@ -1074,7 +1074,7 @@ def _get_connector(cfg: dict) -> EngramConnector:
     if _connector is None or cfg_hash != _connector_cfg_hash:
         if _connector:
             _connector.close()
-        _connector = EngramConnector(cfg)
+        _connector = MnemeConnector(cfg)
         _connector_cfg_hash = cfg_hash
 
     return _connector
@@ -1085,7 +1085,7 @@ def _get_connector(cfg: dict) -> EngramConnector:
 # These are the functions agora.py calls to augment @memory / @mneme directives
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _engram_hybrid_search(
+def _mneme_hybrid_search(
     cfg: dict,
     query: str,
     workspace: str = "",
@@ -1095,7 +1095,7 @@ def _engram_hybrid_search(
     include_federation: bool = False,
     **kwargs,
 ) -> MemorySegment:
-    """Query Engram-rs for historical context alongside local Mnēmē FTS5 hits.
+    """Query Mneme for historical context alongside local Mnēmē FTS5 hits.
 
     Called by resolve_memory/search in agora.py after local FTS5 recall.
     Returns a MemorySegment that agora.py can render alongside local results.
@@ -1105,8 +1105,8 @@ def _engram_hybrid_search(
         query: Natural language query
         workspace: Current workspace path
         local_hits: Results from _mneme_recall (local FTS5), used for dedup/merge
-        memory_types: Engram memory types to query (None = all)
-        max_results: Max results from Engram
+        memory_types: Mneme memory types to query (None = all)
+        max_results: Max results from Mneme
         include_federation: Query cross-workspace memories
     """
     connector = _get_connector(cfg)
@@ -1120,7 +1120,7 @@ def _engram_hybrid_search(
             )
         return MemorySegment(strategy_used="unavailable")
 
-    # Query Engram via MCP
+    # Query Mneme via MCP
     segment = connector.recall(
         query=query,
         memory_types=memory_types,
@@ -1128,7 +1128,7 @@ def _engram_hybrid_search(
         include_federation=include_federation,
     )
 
-    # If Engram returned nothing, use local hits as fallback
+    # If Mneme returned nothing, use local hits as fallback
     if not segment.items and local_hits:
         segment = MemorySegment(
             items=_local_hits_to_memory_hits(local_hits[:max_results]),
@@ -1139,7 +1139,7 @@ def _engram_hybrid_search(
     return segment
 
 
-def _engram_hybrid_mneme_search(
+def _mneme_hybrid_mneme_search(
     cfg: dict,
     query: str,
     scope: str | None = None,
@@ -1147,9 +1147,9 @@ def _engram_hybrid_mneme_search(
     type_filter: str | None = None,
     **kwargs,
 ) -> MemorySegment:
-    """Resolve @mneme directive — BM25 recall with optional Engram augmentation.
+    """Resolve @mneme directive — BM25 recall with optional Mneme augmentation.
 
-    This is the lightweight cousin of @memory: local FTS5 first, Engram
+    This is the lightweight cousin of @memory: local FTS5 first, Mneme
     augmentation if available.
 
     Called by resolve_mneme (agora.py) which prepends mode=search and delegates

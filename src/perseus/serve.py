@@ -905,7 +905,7 @@ Before storing a fact in the `memory` tool, verify ALL three:
 Only facts that pass ALL THREE gates belong in `memory` (2,200 char hard limit).
 Everything else has a better home:
 - 🔁 **Procedures** → `skill_manage` (create/update a skill)
-- 🧠 **Cross-session context** → engram-rs (MCP `engram_store` / `engram_recall`)
+- 🧠 **Cross-session context** → mneme (MCP `mneme_store` / `mneme_recall`)
 - 🚫 **Ephemeral state, one-time fixes, completed tasks** → discard
 
 🚫 **Flat files (.txt, .json, .csv, .md) are BANNED as a memory backend.**
@@ -952,7 +952,7 @@ Everything else has a better home:
 
 ---
 
-## Long-Term Memory (Engram-rs)
+## Long-Term Memory (Mneme)
 
 > 💡 **Query tips:** FTS5 treats multi-word queries as exact phrases.
 > Split long queries across multiple directives for better recall:
@@ -961,10 +961,10 @@ Everything else has a better home:
 > @memory mode=search query="another topic" k=2
 > ```
 > Each sub-query is short enough to match effectively; the relay layer merges results.
-> Falls back gracefully to local Mneme FTS5 if Engram-rs is unavailable.
-> Requires `engram.enabled: true` in `.perseus/config.yaml`.
+> Falls back gracefully to local Mneme FTS5 if Mneme is unavailable.
+> Requires `mneme.enabled: true` in `.perseus/config.yaml`.
 
-@memory mode=search query="{engram_query}" k=5
+@memory mode=search query="{mneme_query}" k=5
 """
 
 # ───────────────────────── Phase 24: install ──────────────────────────────────
@@ -1724,23 +1724,23 @@ def cmd_init(args, cfg):
             sys.exit(1)
         content = tpl.replace("{workspace}", str(workspace))
     else:
-        content = INIT_CONTEXT_TEMPLATE.format(workspace=str(workspace), version=_PERSEUS_VERSION, engram_query=_context_appropriate_memory_query(workspace))
+        content = INIT_CONTEXT_TEMPLATE.format(workspace=str(workspace), version=_PERSEUS_VERSION, mneme_query=_context_appropriate_memory_query(workspace))
     context_file.write_text(content, encoding="utf-8")
 
-    # ── Engram binary auto-discovery (#227) ──
-    # If engram is not installed, suggest the bootstrap script
-    engram_cfg = cfg.get("engram", {}) if cfg else {}
-    if engram_cfg.get("enabled", True):
-        from perseus.doctor import _find_engram_binary
-        command = engram_cfg.get("command", ["engram", "serve"])
-        binary_path = _find_engram_binary(command)
+    # ── Mneme binary auto-discovery (#227) ──
+    # If mneme is not installed, suggest the bootstrap script
+    mneme_cfg = cfg.get("mneme", {}) if cfg else {}
+    if mneme_cfg.get("enabled", True):
+        from perseus.doctor import _find_mneme_binary
+        command = mneme_cfg.get("command", ["mneme", "serve"])
+        binary_path = _find_mneme_binary(command)
         if binary_path is None:
-            print(f"💡 Engram-rs not found. For persistent cross-session memory, run:")
-            print(f"   curl -sSL https://raw.githubusercontent.com/tcconnally/engram-rs/main/scripts/bootstrap.sh | bash")
+            print(f"💡 Mneme not found. For persistent cross-session memory, run:")
+            print(f"   curl -sSL https://raw.githubusercontent.com/tcconnally/mneme/main/scripts/bootstrap.sh | bash")
         elif binary_path != command[0]:
             language = _detect_project_language(workspace)
             lang_note = f" (detected: {language})" if language else ""
-            print(f"✓ Context scaffolded{lang_note} — engram binary at: {binary_path}")
+            print(f"✓ Context scaffolded{lang_note} — mneme binary at: {binary_path}")
 
     manifest = None
     if profile_name and not getattr(args, "no_pack", False):
