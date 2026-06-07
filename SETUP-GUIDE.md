@@ -531,9 +531,9 @@ memory:
 > ⚠️ `perseus memory update --llm none` crashes. See [#130](https://github.com/tcconnally/perseus/issues/130).
 > To force deterministic mode: omit `--llm` flag (leave `llm_provider` unset in config).
 
-### Engram-rs Hybrid Resolution (optional — persistent semantic memory)
+### Engram-rs Hybrid Resolution (optional — persistent keyword memory)
 
-Perseus supports an optional second memory layer via [Engram-rs](https://github.com/tcconnally/engram-rs), a Rust-based persistent memory engine that provides semantic search with time-decay scoring (Ebbinghaus algorithm) and topic trees — going beyond Mnēmē's keyword-driven FTS5.
+Perseus supports an optional second memory layer via [Engram-rs](https://github.com/tcconnally/engram-rs), a Rust-based persistent memory engine that provides SQLite FTS5 keyword search with circuit breaker resilience — going beyond Mnēmē's single-process keyword search.
 
 When enabled, `@memory` runs a **three-step hybrid resolution**:
 

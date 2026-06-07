@@ -36,6 +36,7 @@ Source documents start with `@perseus v0.4` on line 1. The value after `@perseus
 | `@memory include_federation=true` | Local narrative + appended `## Federated Context` digest |
 | `@drift` | Daedalus drift report — acceptance rate, recommendation Jaccard, confidence proxy (see `perseus oracle drift`) |
 | `@tool "\"<path>\"" [args...]` | Run an allowlisted external tool. Unlike `@agent` (ad-hoc), `@tool` requires explicit approval in `tools.allowlist` per path, with argument restrictions, timeouts, and output size caps. Accepts `@cache ttl=N`. |
+| `@synthesize question="..." source="file" [label="..."]` | Optional curated synthesis section. Requires `generation.enabled: true` in config. LLM-powered summarization with provenance claims — every assertion traces back to a cited source. |
 | `@perseus <url>` | Fetch rendered context from a remote Perseus serve instance. Gated by `foreign_resolver.allowlist` and `render.allow_remote_services_health`. Accepts `@cache ttl=N`. |
 
 ## Cache Modifiers
