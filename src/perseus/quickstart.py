@@ -67,7 +67,7 @@ If engram-rs is unavailable, use the `memory` tool as fallback — never create 
 > Falls back gracefully to local Mneme FTS5 if Engram-rs is unavailable.
 > Requires `engram.enabled: true` in `.perseus/config.yaml`.
 
-@memory mode=search query="project architecture setup build deploy" k=5
+@memory mode=search query="{engram_query}" k=5
 """
 
 

@@ -529,9 +529,9 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path) -> str:
         confidence = h.get("confidence", 1.0)
 
         if render_template == "compact":
-            lines.append(f"  - **{title}**")
+            lines.append(f"  - [local] **{title}**")
         elif render_template == "full":
-            lines.append(f"### {title}")
+            lines.append(f"### {title} [local]")
             meta_parts = []
             if mem_type:
                 meta_parts.append(f"_{mem_type}_")
@@ -547,7 +547,7 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path) -> str:
                 lines.append(f"  > {snippet}")
             lines.append(f"\n{summary}\n")
         else:
-            parts = [f"  - **{title}**"]
+            parts = [f"  - [local] **{title}**"]
             if mem_type:
                 parts.append(f"_{mem_type}_")
             if mem_scope:
@@ -569,7 +569,7 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path) -> str:
         lines.append("> 🧠 **Engram context:**")
         for mi in engram_items:
             title = mi.summary or (mi.content[:80] + "…" if len(mi.content) > 80 else mi.content)
-            lines.append(f"  - [{mi.type.value}] {title}")
+            lines.append(f"  - [engram] [{mi.type.value}] {title}")
             if mi.links:
                 for lnk in mi.links[:2]:
                     lines.append(f"    ↳ `{lnk.relationship}` → {lnk.target_id[:8]}…")
