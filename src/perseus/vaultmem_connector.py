@@ -41,7 +41,7 @@ User-facing value: HIGH. Agents get project-specific decisions, learnings,
 and context without manual copy-paste. The "skill export" feature means
 agents get a curated, structured knowledge bundle.
 
-Overlap: COMPLEMENTARY. Perseus has engram-rs (semantic search memory)
+Overlap: COMPLEMENTARY. Perseus has mneme (semantic search memory)
 and Mneme vault (markdown storage + narrative). Vault-mem adds typed
 memory (decisions vs observations vs learnings), automatic keeper hygiene,
 and the skill-export feature that Perseus doesn't have.
