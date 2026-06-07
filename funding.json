@@ -1,37 +1,63 @@
 {
-  "name": "Perseus",
-  "description": "Live context engine and MCP server for AI coding assistants. Resolves @services, @read, @memory, @list, @drift directives into pre-rendered facts before the AI assistant opens its context file \u2014 eliminating the cold-start orientation tax. Works with any MCP-compatible assistant (Claude Code, Cursor, Copilot, Aider, Hermes Agent).",
-  "url": "https://perseus.observer",
-  "repository": "https://github.com/tcconnally/perseus",
-  "license": "MIT",
-  "category": "developer-tools",
-  "languages": [
-    "Python",
-    "Rust"
-  ],
-  "tags": [
-    "ai",
-    "llm",
-    "context-engine",
-    "mcp",
-    "developer-tools",
-    "cli",
-    "open-source"
+  "$schema": "https://fundingjson.org/schema/v1.1.0.json",
+  "version": "v1.1.0",
+  "entity": {
+    "type": "individual",
+    "role": "maintainer",
+    "name": "Thomas Connally",
+    "email": "tcconnally@proton.me",
+    "description": "Creator and lead maintainer of Perseus, a live context engine and MCP server for AI coding assistants. Also creator of Minions (Hermes Agent WebUI). Active contributor to open-source AI infrastructure and developer tooling.",
+    "webpageUrl": {
+      "url": "https://perseus.observer"
+    }
+  },
+  "projects": [
+    {
+      "guid": "perseus",
+      "name": "Perseus",
+      "description": "Live context engine and MCP server for AI coding assistants. Resolves @services, @read, @memory, @list, @drift directives into pre-rendered facts before the AI assistant opens its context file \u2014 eliminating the cold-start orientation tax. Works with any MCP-compatible assistant (Claude Code, Cursor, Copilot, Aider, Hermes Agent).",
+      "webpageUrl": {
+        "url": "https://perseus.observer"
+      },
+      "repositoryUrl": {
+        "url": "https://github.com/tcconnally/perseus"
+      },
+      "licenses": [
+        "spdx:MIT"
+      ],
+      "tags": [
+        "ai",
+        "llm",
+        "context-engine",
+        "mcp",
+        "developer-tools",
+        "cli",
+        "open-source"
+      ]
+    }
   ],
   "funding": {
-    "requested": {
-      "amount": 50000,
-      "currency": "USD",
-      "frequency": "one-time",
-      "description": "Funding to build MCP-native protocol optimization, multi-provider backend abstraction, formal plugin API, expanded directive ecosystem, and community growth. Perseus is MIT-licensed and pip-installable."
-    },
-    "current": []
-  },
-  "maintainers": [
-    {
-      "name": "Thomas Connally",
-      "github": "tcconnally",
-      "role": "Creator & Lead Maintainer"
-    }
-  ]
+    "channels": [
+      {
+        "guid": "github-sponsors",
+        "type": "payment-provider",
+        "address": "https://github.com/sponsors/tcconnally",
+        "description": "GitHub Sponsors profile"
+      }
+    ],
+    "plans": [
+      {
+        "guid": "perseus-2026",
+        "status": "active",
+        "name": "Perseus 2026 development",
+        "description": "Funding to build MCP-native protocol optimization, multi-provider backend abstraction, formal plugin API, expanded directive ecosystem, and community growth. Perseus is MIT-licensed and pip-installable.",
+        "amount": 50000,
+        "currency": "USD",
+        "frequency": "one-time",
+        "channels": [
+          "github-sponsors"
+        ]
+      }
+    ]
+  }
 }
