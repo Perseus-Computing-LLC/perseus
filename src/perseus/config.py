@@ -51,6 +51,7 @@ DEFAULT_CONFIG = {
         "llm_provider": "ollama",
         "ollama_model": "llama3.1",
         "llm_timeout_s": 30,
+        "max_entries": 10000,          # max JSONL log entries before oldest are pruned (0 = unlimited)
         "ollama_host": os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434"),
         # Phase 9.1 — Daedalus self-rating / inferred label window.
         # Default: 7 days OR 5 checkpoints after the recommendation,
@@ -119,6 +120,24 @@ DEFAULT_CONFIG = {
         #   "daedalus"      = call run_llm("daedalus", ...) for inference
         # The daedalus path falls back to deterministic on any failure.
         "pattern_extractor": "deterministic",
+    },
+    "engram": {                          # Project Synapse — Engram-rs MCP-based persistent memory
+        "enabled": True,
+        "transport": "stdio",            # "stdio" (local binary) or "sse" (remote endpoint)
+        "command": ["engram", "serve"],
+        "endpoint": "",                  # SSE endpoint URL (when transport=sse)
+        "timeout_s": 10.0,
+        "merge_strategy": "local_first", # local_first | remote_first | interleave | decay_first
+        "decay_priority_weight": 0.4,    # weight of decay_score in merge ordering (0.0–1.0)
+        "fallback_to_local": True,       # Use Mnēmē FTS5 when Engram is unreachable
+        "circuit_breaker": {
+            "threshold": 3,              # Consecutive failures before opening
+            "cooldown": 120,             # Seconds before attempting recovery
+        },
+        "retry_policy": {
+            "max_attempts": 3,
+            "backoff_base": 1.5,
+        },
     },
     "inbox": {                       # task-16 (Phase 8 P8.3)
         "store": str(PERSEUS_HOME / "inbox"),

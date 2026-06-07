@@ -182,9 +182,10 @@ def _fire_shell_hook(cmd_template: str, payload: dict, event: str) -> None:
         for key, val in payload.items():
             cmd = cmd.replace(f"{{{{{key}}}}}", _shlex.quote(str(val)))
 
-        # Use shell=True as per spec trust consideration
+        # Use explicit /bin/sh -c to avoid shell=True injection surface.
+        # Hooks require PERSEUS_ALLOW_DANGEROUS=1 (enforced at the caller).
         subprocess.run(
-            cmd, shell=True, capture_output=True, text=True,
+            ["/bin/sh", "-c", cmd], capture_output=True, text=True,
             timeout=5,
         )
     except subprocess.TimeoutExpired:

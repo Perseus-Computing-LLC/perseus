@@ -1119,7 +1119,7 @@
     border: 1px solid var(--line);
     border-top: 0;
     display: grid;
-    grid-template-columns: repeat(7, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     gap: 1px;
     background: var(--line);
   }
@@ -1131,21 +1131,21 @@
   }
   .hardened-note .hn-item {
     background: var(--bg);
-    padding: 16px clamp(14px, 1.8vw, 22px);
+    padding: 24px clamp(18px, 2vw, 28px);
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 14px;
   }
   .hardened-note .hn-head {
     font-family: var(--mono);
-    font-size: 10px;
-    letter-spacing: 0.15em;
+    font-size: 13px;
+    letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--accent-2);
   }
   .hardened-note .hn-desc {
-    font-size: 12px;
-    line-height: 1.5;
+    font-size: 15px;
+    line-height: 1.55;
     color: var(--text-dim);
     margin: 0;
   }
@@ -1704,6 +1704,7 @@
       <a href="#how" class="nav-link">How it works</a>
       <a href="#triad" class="nav-link">The Triad</a>
       <a href="#architecture" class="nav-link">Architecture</a>
+      <a href="#arsenal" class="nav-link">Arsenal</a>
       <a href="#proof" class="nav-link">Benchmarks</a>
       <a href="#compat" class="nav-link">Assistants</a>
       <a href="#integrate" class="nav-link">Integrations</a>
@@ -2192,11 +2193,161 @@ Branch: <span class="s">feat/billing-v2</span>
   </div>
 </section>
 
+<!-- ============ ARSENAL ============ -->
+<section id="arsenal" class="section-block">
+  <div class="wrap">
+    <header class="sec-head reveal">
+      <div class="sec-num">IV &nbsp;— &nbsp;The Arsenal</div>
+      <h2 class="sec-title">Every tool. <em>One engine.</em></h2>
+    </header>
+
+    <div class="constellation-lede reveal">Core directives — resolved at render time</div>
+    <div class="constellation reveal" role="list">
+      <div class="const-cell" role="listitem">
+        <div class="greek">@query</div>
+        <div class="name">Shell execution</div>
+        <div class="desc">Runs a command and captures output. Cached with <code>@cache ttl=N</code>. The workhorse directive.</div>
+      </div>
+      <div class="const-cell" role="listitem">
+        <div class="greek">@read</div>
+        <div class="name">File inclusion</div>
+        <div class="desc">Inlines file content with optional line ranges. Context-overflow guarded.</div>
+      </div>
+      <div class="const-cell" role="listitem">
+        <div class="greek">@services</div>
+        <div class="name">Health checks</div>
+        <div class="desc">HTTP, Docker, or command-based service discovery. Parallel checks, configurable timeouts.</div>
+      </div>
+      <div class="const-cell" role="listitem">
+        <div class="greek">@waypoint</div>
+        <div class="name">Session checkpoint</div>
+        <div class="desc">Inserts the latest checkpoint summary. TTL-aware. Restores continuity across sessions.</div>
+      </div>
+      <div class="const-cell cyan" role="listitem">
+        <div class="greek">@memory</div>
+        <div class="name">Hybrid memory</div>
+        <div class="desc">Mnēmē narrative + Engram-rs accelerator. FTS5 keyword search with optional vector embeddings. Federated across workspaces.</div>
+      </div>
+      <div class="const-cell cyan" role="listitem">
+        <div class="greek">@agora</div>
+        <div class="name">Task board</div>
+        <div class="desc">Live task board from <code>tasks/*.md</code>. Single source of truth for AI and team.</div>
+      </div>
+      <div class="const-cell" role="listitem">
+        <div class="greek">@drift</div>
+        <div class="name">Daedalus oracle</div>
+        <div class="desc">Self-rating. Detects when recommendations diverge from reality. Prevents flawed execution.</div>
+      </div>
+      <div class="const-cell" role="listitem">
+        <div class="greek">@inbox</div>
+        <div class="name">Hermes messages</div>
+        <div class="desc">Point-to-point agent messages for coordination and handoff on complex multi-agent tasks.</div>
+      </div>
+      <div class="const-cell" role="listitem">
+        <div class="greek">@agent</div>
+        <div class="name">Subprocess agent</div>
+        <div class="desc">Executes a local agent subprocess. Gated behind <code>allow_agent_shell</code> for safety.</div>
+      </div>
+      <div class="const-cell" role="listitem">
+        <div class="greek">@synthesize</div>
+        <div class="name">Cited synthesis</div>
+        <div class="desc">LLM-powered summarization with provenance claims. Every assertion traces back to a source.</div>
+      </div>
+      <div class="const-cell" role="listitem">
+        <div class="greek">@include</div>
+        <div class="name">Nested render</div>
+        <div class="desc">Includes and resolves another context file. Enables composable, modular context packs.</div>
+      </div>
+      <div class="const-cell" role="listitem">
+        <div class="greek">@prompt</div>
+        <div class="name">System prompt</div>
+        <div class="desc">Injects a system-level prompt block consumed by the assistant at session start.</div>
+      </div>
+    </div>
+
+    <div class="constellation-lede reveal" style="margin-top:48px;">CLI — one binary, every verb</div>
+    <div class="constellation reveal" role="list">
+      <div class="const-cell" role="listitem">
+        <div class="greek">perseus init</div>
+        <div class="name">Scaffold a workspace</div>
+        <div class="desc">Creates <code>.perseus/context.md</code> + <code>pack.yaml</code>. Profile-aware: <code>--profile hermes</code>, <code>codex</code>, <code>claude-code</code>, <code>cursor</code>.</div>
+      </div>
+      <div class="const-cell" role="listitem">
+        <div class="greek">perseus quickstart</div>
+        <div class="name">Zero to warm in one command</div>
+        <div class="desc">Detects your assistant, scaffolds, renders, and prints next steps. The fastest path from nothing to live context.</div>
+      </div>
+      <div class="const-cell" role="listitem">
+        <div class="greek">perseus render</div>
+        <div class="name">Resolve and output</div>
+        <div class="desc">Resolves all directives in parallel. Outputs plain markdown. <code>--tier 1|2|3</code> for progressive disclosure.</div>
+      </div>
+      <div class="const-cell" role="listitem">
+        <div class="greek">perseus checkpoint</div>
+        <div class="name">Save session state</div>
+        <div class="desc">Write a waypoint at any natural pause. <code>recover</code> finds the right one; <code>diff</code> compares two.</div>
+      </div>
+      <div class="const-cell" role="listitem">
+        <div class="greek">perseus suggest</div>
+        <div class="name">Pythia tool oracle</div>
+        <div class="desc">Ranks the highest-utility tool or skill for a task. No extra model. Closes the loop in-context.</div>
+      </div>
+      <div class="const-cell" role="listitem">
+        <div class="greek">perseus doctor</div>
+        <div class="name">Readiness check</div>
+        <div class="desc">Verifies config, permissions, cache health, and output freshness. One command to know you're solid.</div>
+      </div>
+      <div class="const-cell" role="listitem">
+        <div class="greek">perseus watch</div>
+        <div class="name">Auto-refresh daemon</div>
+        <div class="desc">Polls for source changes, re-renders on drift. Works anywhere — no crontab or systemd needed.</div>
+      </div>
+      <div class="const-cell" role="listitem">
+        <div class="greek">perseus cron</div>
+        <div class="name">Scheduled render</div>
+        <div class="desc">Installs a crontab entry. <code>--every 30</code> minutes. Traditional, battle-tested.</div>
+      </div>
+      <div class="const-cell" role="listitem">
+        <div class="greek">perseus systemd</div>
+        <div class="name">User unit timer</div>
+        <div class="desc">Installs and enables a systemd timer. <code>--interval 5m</code>. Native Linux scheduling.</div>
+      </div>
+      <div class="const-cell" role="listitem">
+        <div class="greek">perseus mcp serve</div>
+        <div class="name">MCP server</div>
+        <div class="desc">Exposes 24 tools over stdio or SSE (port 8420). Listed on the MCP Registry. Works with any MCP client.</div>
+      </div>
+      <div class="const-cell" role="listitem">
+        <div class="greek">perseus serve --lsp</div>
+        <div class="name">Graeae LSP</div>
+        <div class="desc">Language server with hover-preview for directives. Auto-renders on save. VSCode extension included.</div>
+      </div>
+      <div class="const-cell" role="listitem">
+        <div class="greek">perseus memory</div>
+        <div class="name">Memory management</div>
+        <div class="desc">Update, show, or compact project memory across Mnēmē FTS5 and Engram-rs hybrid backends.</div>
+      </div>
+    </div>
+
+    <div class="constellation-lede reveal" style="margin-top:48px;">MCP server — 24 tools, one endpoint</div>
+    <p class="reveal" style="color:var(--text-dim); font-size:15px; line-height:1.6; max-width:64ch; margin:0 auto; text-align:center;">
+      Listed on the official MCP Registry as <code style="color:var(--accent-2);">io.github.tcconnally/perseus</code>.
+      Every directive is a live tool: <code>perseus_query</code>, <code>perseus_services</code>,
+      <code>perseus_memory</code>, <code>perseus_agora</code>, <code>perseus_skills</code>,
+      <code>perseus_inbox</code>, <code>perseus_drift</code>, <code>perseus_agent</code>, and 16 more.
+      Works with <b>Claude Desktop</b>, <b>Claude Code</b>, <b>Cursor</b>, <b>Codex</b>,
+      <b>Hermes Agent</b>, <b>Rovo Dev</b>, and any MCP-compatible assistant.
+      <br><br>
+      <code style="color:var(--text);">perseus mcp serve</code> &nbsp;— that's it. Tools resolve live at invocation time. No stale cache.
+    </p>
+  </div>
+</section>
+
 <!-- ============ PROOF / STATS ============ -->
 <section id="proof" class="section-block">
   <div class="wrap">
     <header class="sec-head reveal">
-      <div class="sec-num">IV &nbsp;— &nbsp;The Receipts</div>
+      <div class="sec-num">V &nbsp;— &nbsp;The Receipts</div>
       <h2 class="sec-title">Numbers from the bench, <em>not the pitch deck.</em></h2>
     </header>
 
@@ -2258,17 +2409,17 @@ Branch: <span class="s">feat/billing-v2</span>
       </div>
     </div>
 
-    <!-- Cold vs Warm benchmark infographic -->
+    <!-- Performance benchmark infographic -->
     <div class="reveal" style="margin: 32px 0; text-align: center;">
       <img
-        src="https://raw.githubusercontent.com/tcconnally/perseus/main/benchmark/infographic/perseus-cold-vs-warm.svg"
-        alt="Perseus Cold vs Warm Render Performance — @cache eliminates subprocess cost"
+        src="https://raw.githubusercontent.com/tcconnally/perseus/main/benchmark/infographic/perseus-benchmarks.svg"
+        alt="Perseus v1.0.6 — Performance Benchmarks: 450× speedup, 1,190× cache, 301× vs LLM, 94% compression, 0 failures, 894 tests"
         style="max-width: 100%; border-radius: 12px; border: 1px solid var(--bg-3);"
         loading="lazy"
       />
       <p style="margin-top: 10px; font-family: var(--mono); font-size: 11px; color: var(--text-muted); letter-spacing: 0.08em; text-transform: uppercase;">
-        Cold vs Warm Render Performance · 450× speedup at 50K directives · warm time stays flat regardless of scale
-        · <a href="benchmark/cold-vs-warm.json" style="color: var(--accent-2); text-decoration: none;">raw data ↗</a>
+        450× cold→warm · 1,190× cache punch · 301× vs LLM · 94% token compression · 0 failures at 150 concurrent · 894 tests all green
+        · <a href="https://github.com/tcconnally/perseus/tree/main/benchmark" style="color: var(--accent-2); text-decoration: none;">full benchmark suite ↗</a>
       </p>
     </div>
 
@@ -2279,7 +2430,7 @@ Branch: <span class="s">feat/billing-v2</span>
       </div>
       <div class="hn-item">
         <span class="hn-head">Workspace Boundaries</span>
-        <p class="hn-desc"><b>NVMe local lock is atomic.</b> NFS v4+ for cross-machine; SMB requires careful config.</p>
+        <p class="hn-desc"><b>NVMe local lock is atomic.</b> NFS&nbsp;v4+ for cross-machine; SMB requires careful config.</p>
       </div>
       <div class="hn-item">
         <span class="hn-head">Overflow Guard</span>
@@ -2301,33 +2452,15 @@ Branch: <span class="s">feat/billing-v2</span>
         <span class="hn-head">Semantic Equiv 1.0</span>
         <p class="hn-desc">Gemini 2.5 Flash judge, 20 A/B pairs. Perseus changes what the assistant <em>knows</em>. Not what it says.</p>
       </div>
+      <div class="hn-item">
+        <span class="hn-head">Audit &amp; Redaction</span>
+        <p class="hn-desc">Every directive resolution is logged. Secrets auto-redacted with two-layer gating. Full audit trail, opt-out supported.</p>
+      </div>
+      <div class="hn-item">
+        <span class="hn-head">Deep-Dive v1.0.6</span>
+        <p class="hn-desc">Architectural hardening pass: O(n²)→O(n) macro expansion, character parser→compiled regex, <code>shell=True</code>→explicit <code>/bin/sh -c</code>, webhook retry classification. Pythia log pruning prevents unbounded growth.</p>
+      </div>
     </aside>
-
-    <div class="stats reveal">
-      <div class="stat">
-        <div class="skey">Cache punch</div>
-        <div class="sval">1,190<span class="unit">×</span></div>
-        <div class="sdesc"><b>Real-world directives against the Perseus repo.</b> 578.7s without cache, 0.486s with. Warm time is <b>flat</b> — the render path becomes free.</div>
-      </div>
-
-      <div class="stat">
-        <div class="skey">vs. LLM tool-calling</div>
-        <div class="sval">301<span class="unit">×</span></div>
-        <div class="sdesc">faster at enterprise scale. <b>500 developers, 10 teams, 5-day workweek.</b> An LLM would take 83 hours and cost thousands in tokens. Perseus: 16 minutes, $0.</div>
-      </div>
-
-      <div class="stat">
-        <div class="skey">Token compression</div>
-        <div class="sval">94<span class="unit">%</span></div>
-        <div class="sdesc">Live A/B harness, 200 requests: <b>488 → 27 avg prompt tokens.</b> P99 latency overhead: <b>0ms</b> — Perseus adds nothing to response time. Smaller prompts, same output, every provider.</div>
-      </div>
-
-      <div class="stat">
-        <div class="skey">Battle-tested</div>
-        <div class="sval"><span data-live="tests">813</span><span class="unit"> tests</span></div>
-        <div class="sdesc">All green. 14/14 gates passed in the ultimate suite. Atomic filesystem locking, overflow guards, symlink hardening. The boring kind of reliable.</div>
-      </div>
-    </div>
   </div>
 </section>
 
@@ -2335,7 +2468,7 @@ Branch: <span class="s">feat/billing-v2</span>
 <section id="compat" class="section-block">
   <div class="wrap">
     <header class="sec-head reveal">
-      <div class="sec-num">V &nbsp;— &nbsp;The Compatible</div>
+      <div class="sec-num">VI &nbsp;— &nbsp;The Compatible</div>
       <h2 class="sec-title">Resolves to a file. <em>Yours, already.</em></h2>
     </header>
 
@@ -2393,7 +2526,7 @@ Branch: <span class="s">feat/billing-v2</span>
 <section id="integrate" class="section-block">
   <div class="wrap">
     <header class="sec-head reveal">
-      <div class="sec-num">VI &nbsp;— &nbsp;The Adapters</div>
+      <div class="sec-num">VII &nbsp;— &nbsp;The Adapters</div>
       <h2 class="sec-title">Four ways to <em>own session-start</em>.</h2>
     </header>
 
@@ -2503,16 +2636,18 @@ Branch: <span class="s">feat/billing-v2</span>
 <section id="start" class="section-block">
   <div class="wrap">
     <header class="sec-head reveal">
-      <div class="sec-num">VII &nbsp;— &nbsp;The Start</div>
+      <div class="sec-num">VIII &nbsp;— &nbsp;The Start</div>
       <h2 class="sec-title">Thirty seconds <em>from cold to warm.</em></h2>
     </header>
 
     <div class="quickstart-grid reveal">
       <div>
-        <h3 class="qs-lede">Three commands. <em>One file your assistant already reads.</em></h3>
+        <h3 class="qs-lede">One command. <em>Or hand the guide to your AI.</em></h3>
         <p class="qs-sub">
-          Your assistant now opens every session with live context — branch state,
-          recent commits, current dependencies. <b>Zero orientation turns.</b>
+          <b>perseus quickstart</b> detects your assistant, scaffolds a workspace, and
+          renders live context in a single command. Or give your AI our
+          <b>LLM-tuned setup guide</b> and say &ldquo;set up Perseus for me.&rdquo;
+          Your assistant opens its next session already briefed.
         </p>
       </div>
 
@@ -2532,22 +2667,48 @@ Branch: <span class="s">feat/billing-v2</span>
         <div class="qs-line">
           <span class="step">02</span>
           <span class="prompt">$</span>
-          <code>perseus <span class="em">init</span> <span class="arg">/workspace/myproject</span></code>
-          <button class="mini-copy" data-copy="perseus init /workspace/myproject">Copy</button>
-        </div>
-        <div class="qs-line">
-          <span class="step">03</span>
-          <span class="prompt">$</span>
-          <code>perseus <span class="em">render</span> <span class="arg">.perseus/context.md --output CLAUDE.md</span></code>
-          <button class="mini-copy" data-copy="perseus render .perseus/context.md --output CLAUDE.md">Copy</button>
+          <code>perseus <span class="em">quickstart</span></code>
+          <button class="mini-copy" data-copy="perseus quickstart">Copy</button>
         </div>
         <div class="qs-line alt">
           <span class="step">or</span>
           <span class="alt-prompt">~</span>
-          <code><span class="opt">perseus render .perseus/context.md --output AGENTS.md  &nbsp;# universal target</span></code>
-          <button class="mini-copy" data-copy="perseus render .perseus/context.md --output AGENTS.md">Copy</button>
+          <code><span class="opt">perseus init --profile hermes /workspace/myproject</span></code>
+          <button class="mini-copy" data-copy="perseus init --profile hermes /workspace/myproject">Copy</button>
+        </div>
+        <div class="qs-line">
+          <span class="step">03</span>
+          <span class="prompt">$</span>
+          <code>perseus <span class="em">doctor</span></code>
+          <button class="mini-copy" data-copy="perseus doctor">Copy</button>
         </div>
       </div>
+    </div>
+
+    <!-- LLM-Tuned Guides callout -->
+    <div class="reveal" style="margin-top: clamp(56px, 7vw, 88px);">
+      <div class="hero-companion" style="max-width: 740px; margin: 0 auto 24px;">
+        <div class="hc-mark">⚠</div>
+        <b>v1.0.6+ Security Gate</b> — Shell-executing directives (<code style="font-family:var(--mono);color:var(--accent-bright);">@query</code>,
+        <code style="font-family:var(--mono);color:var(--accent-bright);">@agent</code>,
+        <code style="font-family:var(--mono);color:var(--accent-bright);">@services command:</code>) and workspace-sourced plugins require
+        <code style="font-family:var(--mono);color:var(--accent);">export PERSEUS_ALLOW_DANGEROUS=1</code> before rendering.
+        <span class="hc-sub">Without this, shell directives are silently skipped. Add to your shell rc or prefix render commands.</span>
+      </div>
+
+      <div class="hero-companion" style="max-width: 740px; margin: 0 auto;">
+        <div class="hc-mark">⌘</div>
+        <b>LLM-Tuned Guides</b> &mdash; Perseus ships with documentation <em>written for AI assistants to read and execute</em>.
+        Drop <a class="hc-link" href="https://github.com/tcconnally/perseus/blob/main/SETUP-GUIDE.md">SETUP-GUIDE.md</a>
+        or <a class="hc-link" href="https://github.com/tcconnally/perseus/blob/main/SKILL.md">SKILL.md</a> into any AI
+        coding assistant and say <b>&ldquo;set up Perseus for this workspace.&rdquo;</b>
+        <span class="hc-sub">Config, auto-refresh, permissions, MCP wiring, troubleshooting — the guide covers it all.
+        Your AI reads it, then types the commands. You watch.</span>
+      </div>
+
+      <p style="text-align:center; margin-top: 28px; font-size: 13px; color: var(--text-muted); font-family: var(--mono); letter-spacing: 0.08em;">
+        After setup → <code style="color: var(--text-dim);">perseus doctor</code> verifies everything is wired correctly.
+      </p>
     </div>
   </div>
 </section>
@@ -2567,7 +2728,8 @@ Branch: <span class="s">feat/billing-v2</span>
 
       <div class="footer-links" aria-label="Project links">
         <a href="https://github.com/tcconnally/perseus">GitHub →</a>
-        <a href="https://github.com/tcconnally/perseus#readme">Documentation →</a>
+        <a href="https://github.com/tcconnally/perseus/blob/main/docs/index.md">Documentation →</a>
+        <a href="https://github.com/tcconnally/perseus/blob/main/SETUP-GUIDE.md">Setup Guide →</a>
         <a href="https://pypi.org/project/perseus-ctx/">PyPI →</a>
         <a href="https://registry.modelcontextprotocol.io/">MCP Registry →</a>
         <a href="https://github.com/anthropics/skills/pull/1193">Anthropic Skills →</a>

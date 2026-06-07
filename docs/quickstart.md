@@ -237,3 +237,4 @@ perseus doctor
 | Container deployment | [docs/CONTAINER.md](./CONTAINER.md) |
 | Cited synthesis | [docs/CITED_SYNTHESIS.md](./CITED_SYNTHESIS.md) |
 | Real-world examples | [docs/EXAMPLES.md](./EXAMPLES.md) |
+| 30-second install | [QUICKSTART.md](../QUICKSTART.md) |

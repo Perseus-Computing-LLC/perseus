@@ -6,16 +6,12 @@
 
 [![CI](https://github.com/tcconnally/perseus/actions/workflows/test.yml/badge.svg)](https://github.com/tcconnally/perseus/actions/workflows/test.yml)
 [![PyPI](https://img.shields.io/pypi/v/perseus-ctx)](https://pypi.org/project/perseus-ctx/)
-[![MCP Registry](https://img.shields.io/badge/MCP-Registry-blue)](https://registry.modelcontextprotocol.io/servers/io.github.tcconnally/perseus)
+[![MCP Registry](https://img.shields.io/badge/MCP-Registry-blue)](https://registry.modelcontextprotocol.io/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![Status: Patent Pending](https://img.shields.io/badge/status-patent_pending-blue)](./docs/ip/README.md)
 [**perseus.observer →**](https://perseus.observer)
 
 <!-- mcp-name: io.github.tcconnally/perseus -->
-
-![Perseus Efficiency — Cold vs Warm Render Speed](https://raw.githubusercontent.com/tcconnally/perseus/main/benchmark/infographic/perseus-efficiency.svg)
-
-![Perseus Extreme Enterprise Benchmark — Cold/Warm · Concurrency · Gates](https://raw.githubusercontent.com/tcconnally/perseus/main/benchmark/infographic/perseus-xeb-infographic-full.svg)
 
 ---
 
@@ -28,6 +24,8 @@ pip install perseus-ctx
 cd your-project
 perseus quickstart                  # One command from zero to working
 ```
+
+> ⚠️ **v1.0.6+:** Shell-executing directives (`@query`, `@agent`, `@services command:`) and workspace-sourced plugins/hooks require `export PERSEUS_ALLOW_DANGEROUS=1` before rendering. See [SETUP-GUIDE.md](./SETUP-GUIDE.md) for details.
 
 Works with any MCP-compatible assistant: Claude Desktop, Claude Code, Cursor, Codex, Hermes Agent, and Rovo Dev.
 
@@ -73,8 +71,7 @@ Then verify with `hermes mcp test perseus`. Tools appear as `mcp_perseus_*` in y
   "mcpServers": {
     "perseus": {
       "command": "perseus",
-      "args": ["mcp", "serve"],
-      "env": { "PERSEUS_WORKSPACE": "/path/to/workspace" }
+      "args": ["mcp", "serve", "--workspace", "/path/to/workspace"]
     }
   }
 }
@@ -145,13 +142,13 @@ See [Container Runtime](./docs/CONTAINER.md) for full Docker and compose deploym
 
 ### MCP Registry
 
-Published as [`io.github.tcconnally/perseus`](https://registry.modelcontextprotocol.io/servers/io.github.tcconnally/perseus) on the official MCP Registry. Includes `server.json` for zero-config discovery.
+Published as [`io.github.tcconnally/perseus`](https://registry.modelcontextprotocol.io/) on the official MCP Registry (search \"perseus\"). Includes `server.json` for zero-config discovery.
 
 ---
 
 ### MCP Tools
 
-<!-- test-count: 813 -->
+<!-- test-count: 894 -->
 24 MCP tools resolve live state at invocation time. Two sensitive tools (`perseus_query` and `perseus_agent`) require explicit `mcp.tool_allowlist` opt-in because they execute commands in the user's local shell — **not sandboxed, full user permissions apply**:
 
 | Tool | Description |
@@ -167,7 +164,7 @@ Published as [`io.github.tcconnally/perseus`](https://registry.modelcontextproto
 | `perseus_session` | Recent session digests |
 | `perseus_health` | Context maintenance report |
 | `perseus_drift` | Oracle drift report |
-| `perseus_memory` | Mnēmē narrative memory |
+| `perseus_memory` | Mnēmē narrative memory (+ Engram-rs hybrid) |
 | `perseus_mneme` | Recall persistent memories via in-process BM25 |
 | `perseus_skills` | List available skills with staleness flags |
 | `perseus_include` | Include and render another file |
@@ -253,16 +250,16 @@ Perseus delivers verified, up-to-date context, eliminating the need for AI assis
 ### Performance & Efficiency
 
 - **1,190× cold→warm gap** — Real-world scenario using the Perseus repo itself as the benchmark target. At the 1,408 directive scale, the cold render took **578.7s**, while the warm render took **0.486s**. [Raw data →](benchmark/real_deltas.json)
-- **Mnēmē persistent memory** — In-process BM25 recall, zero daemon. **37ms search P50 at 10,000 docs**, flat across all scales. Perseus `@mneme` renders: **51× cold→warm speedup** with @cache. **2,700 docs/sec** write throughput, **0.4ms P50** saves. [Full results →](benchmark/mneme_hardcore.json)
+- **Mnēmē persistent memory** — In-process BM25 recall, zero daemon. **37ms search P50 at 10,000 docs**, flat across all scales. Perseus `@mneme` renders: **51× cold→warm speedup** with @cache. **2,700 docs/sec** write throughput, **0.4ms P50** saves. v1.0.6 adds an optional **Engram-rs hybrid accelerator** (Project Synapse) — MCP-based remote memory with Ebbinghaus time-decay and semantic + BM25 hybrid search, circuit-breaker protected. Local-only remains the default. [Full results →](benchmark/mneme_hardcore.json)
 - **94% token reduction, 0ms overhead** — live 200-request A/B harness: 488 → 27 avg prompt tokens per request. P99 latency overhead: **0ms** — Perseus adds nothing to response time. [Full harness results →](benchmark/ultimate_suite_results.json)
 - **Enterprise Ready** — Cost analysis shows that for a 500-developer team, Perseus can save significant token costs per year. [Cost analysis →](benchmark/titan_cost.json)
 - **Extreme Enterprise Benchmark** — 10-phase suite (reps=10, 50 devs, 250 concurrent agents): **10/10 hard gates · 6/6 soft gates · 0 errors at 250 concurrent · 90% enterprise ROI · fleet P99 1,169ms**. The benchmark is designed to surface regressions, not hide them. [Full methodology →](benchmark/README_EXTREME.md) · [Raw results →](benchmark/extreme_enterprise_results_full.json)
 
-![Perseus Cold vs Warm — @cache eliminates subprocess cost](https://raw.githubusercontent.com/tcconnally/perseus/main/benchmark/infographic/perseus-cold-vs-warm.svg)
+![Perseus v1.0.6 — Performance Benchmarks](https://raw.githubusercontent.com/tcconnally/perseus/main/benchmark/infographic/perseus-benchmarks.svg)
 
 ### Reliability & Security
 
-Perseus is tested against edge cases that challenge the "resolve before context" claim. **Phase 26** (v1.0.5) completed a full security review against the MCP transport and foreign resolver surface:
+Perseus is tested against edge cases that challenge the "resolve before context" claim. **v1.0.6** completed a deep-dive architectural review (O(n²)→O(n), regex parser, shell hardening, retry classification) and **Phase 26** (v1.0.5) completed a full security review against the MCP transport and foreign resolver surface:
 
 - **MCP SSE bearer-token auth** — `POST /message` requires Bearer token via `mcp.sse_bearer_token` config key (falls back to `serve.auth_token` for backward compat). Unauthenticated requests receive 401.
 - **Platform-portable MCP timeout** — `_call_tool()` uses `ThreadPoolExecutor` + `Future.result(timeout=...)` instead of Unix-only SIGALRM. Works on Windows, macOS, and Linux.
@@ -349,8 +346,9 @@ Next: run pytest tests/test_webhook.py
 
 ## Project Memory
 ### Recent
+- 2026-06-05: Deep-dive code review — O(n²)→O(n) macro expansion, regex parser, webhook retry classification, shell injection hardening. Test suite at 894 tests (Linux, Python 3.10–3.12), all passing.
 - 2026-05-27: Shipped MCP deep integration (Phase 25). 24 directives exposed as MCP tools by default.
-- 2026-05-26: Deployed Perseus v1.0.6 to PyPI. Test suite at 813 tests — all passing (Linux, Python 3.10–3.12).
+- 2026-05-26: Deployed Perseus v1.0.6 to PyPI. Test suite at 894 tests — all passing (Linux, Python 3.10–3.12).
 - 2026-05-24: Completed Hephaestus extensibility — plugin directives, macros, hooks, pipes.
 ```
 

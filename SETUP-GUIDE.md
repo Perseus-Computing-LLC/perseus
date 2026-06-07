@@ -1,10 +1,11 @@
 # Perseus Setup & Configuration Guide
 *Model-agnostic · Environment-agnostic · Tested with Hermes Agent, Rovo Dev (Claude Sonnet), Rovo web agent, and Claude Code*
 
-> **Last updated:** 2026-06-03  
+> **Last updated:** 2026-06-06  
 > **Perseus version tested:** v1.0.6  
 > **Platforms verified:** macOS · Linux · Windows 10 (git-bash) · Docker  
-> **Source:** https://github.com/tcconnally/perseus · https://pypi.org/project/perseus-ctx/
+> **Source:** https://github.com/tcconnally/perseus · https://pypi.org/project/perseus-ctx/  
+> **New in this version:** Engram-rs MCP hybrid memory connector (Project Synapse)
 
 ---
 
@@ -18,6 +19,31 @@ Perseus is a **compile-before-context engine** — it runs a set of directives i
 - **Environment-agnostic** — runs on macOS, Linux, Windows (native git-bash or WSL), Docker, CI/CD pipelines
 
 The key insight: **the AI reads the rendered output, not the directives**. Perseus solves the problem of giving an AI accurate "what is happening right now" context without relying on the AI to go fetch it.
+
+### Token Efficiency
+
+Perseus is a **long-session efficiency play**. Context is injected once at session start and reused across all turns — the LLM never wastes turns asking "what machine is this?" or "what tools do I have?"
+
+| Session length | Perseus overhead | Tool calls saved | Net tokens |
+|---|---|---|---|
+| 1 turn (one-shot) | ~1,600 tokens | 1 | **-1,300** (overhead) |
+| 3 turns (quick task) | ~1,600 tokens | 3-5 | **~-700** (marginal) |
+| 5 turns | ~1,600 tokens | 5-8 | **~0** (breakeven) |
+| 8 turns (debug session) | ~1,600 tokens | 8-12 | **+800** ✅ |
+| 15 turns (feature build) | ~1,600 tokens | 15-22 | **+3,000** ✅✅ |
+| 30 turns (deep work) | ~1,600 tokens | 30-45 | **+7,500** ✅✅✅ |
+
+**Best practice:** Keep your `context.md` focused on directives that pre-answer questions the LLM would otherwise spend turns discovering:
+
+| Keep (high value) | Skip (low value unless populated) |
+|---|---|
+| `@services` — live health checks | `@health` — "all clear" adds no info |
+| `@waypoint` — last session continuity | `@drift` — empty until Pythia has data |
+| `@query` — system state (hostname, disk) | `@session` — only if sessions dir is populated |
+| `@skills` with `category=` filter | `@agora` — skip if no tasks dir |
+| `@memory focus=recent` — recent activity | `@inbox` — skip if not using agent messaging |
+
+Use `@skills category=devops,github` to cut irrelevant skill listings — a full 110-skill table adds ~2,800 tokens. Six relevant categories add ~1,400 tokens. Every directive you omit saves tokens and keeps the LLM focused.
 
 ---
 
@@ -193,6 +219,22 @@ memory:
   # narrative_file and mneme_vault_path are legacy fields; current versions use
   # ~/.perseus/memory/<sha256_hash>.md (see Workspace Hash section below)
 
+engram:                                 # Project Synapse — Engram-rs MCP-based persistent memory
+  enabled: true                         # Master switch for hybrid (Mnēmē + Engram-rs) resolution
+  transport: "stdio"                    # "stdio" (local engram binary) or "sse" (remote endpoint)
+  command: [engram, serve, --mcp]       # Command to launch Engram-rs in MCP mode
+  endpoint: ""                          # SSE endpoint URL (only used when transport=sse)
+  timeout_s: 10.0
+  merge_strategy: "local_first"         # local_first | remote_first | interleave | decay_first
+  decay_priority_weight: 0.4            # Weight of Engram's decay_score in merge ordering (0.0–1.0)
+  fallback_to_local: true               # Use Mnēmē FTS5 when Engram-rs is unreachable
+  circuit_breaker:
+    threshold: 3                        # Consecutive failures before opening circuit
+    cooldown: 120                       # Seconds before attempting recovery
+  retry_policy:
+    max_attempts: 3
+    backoff_base: 1.5
+
 agora:
   task_dir: /Users/yourname/tasks
   default_owner: yourname
@@ -300,10 +342,10 @@ Your system prompt goes here. This is injected before the rendered content.
 @end
 
 ## Available Skills
-@skills flag_stale=true
+@skills flag_stale=true category=devops,github,core
 
 ## Project Memory
-@memory ttl=300
+@memory focus=recent ttl=300
 
 ## Recent Sessions
 @session count=5 format=digest
@@ -488,6 +530,76 @@ memory:
 
 > ⚠️ `perseus memory update --llm none` crashes. See [#130](https://github.com/tcconnally/perseus/issues/130).
 > To force deterministic mode: omit `--llm` flag (leave `llm_provider` unset in config).
+
+### Engram-rs Hybrid Resolution (optional — persistent semantic memory)
+
+Perseus supports an optional second memory layer via [Engram-rs](https://github.com/tcconnally/engram-rs), a Rust-based persistent memory engine that provides semantic search with time-decay scoring (Ebbinghaus algorithm) and topic trees — going beyond Mnēmē's keyword-driven FTS5.
+
+When enabled, `@memory` runs a **three-step hybrid resolution**:
+
+| Step | Layer | What it provides |
+|---|---|---|
+| A — Sense | Perseus (live) | Current environment, services, filesystem state |
+| B — Memory | Engram-rs (persistent) | Historical decisions, architecture, learned lessons |
+| C — Merge | Hybrid resolver | Combined ContextPackage with source tags and decay priority |
+
+**Configuration (in `~/.perseus/config.yaml`):**
+
+```yaml
+engram:
+  enabled: true                         # Master switch
+  transport: "stdio"                    # stdio (local binary) or sse (remote)
+  command: [engram, serve, --mcp]       # Launch command for stdio transport
+  merge_strategy: "local_first"         # local_first | remote_first | interleave | decay_first
+  fallback_to_local: true               # Graceful degradation: Mnēmē FTS5 if Engram offline
+  circuit_breaker:
+    threshold: 3                        # Failures before opening circuit
+    cooldown: 120                       # Seconds before recovery attempt
+```
+
+**Installation:**
+
+```bash
+# Engram-rs v0.1.0+ is built from source (not on crates.io):
+git clone https://github.com/tcconnally/engram-rs.git ~/.engram-rs
+cd ~/.engram-rs && cargo build --release
+cp target/release/engram ~/.local/bin/engram
+
+# Or use the one-shot bootstrap:
+curl -sSL https://raw.githubusercontent.com/tcconnally/engram-rs/main/scripts/bootstrap.sh | bash
+
+# Verify
+engram --version   # expect "engram 0.1.0"
+```
+
+> **v0.1.0 MVP scope:** Engram-rs v0.1.0 is an MCP JSON-RPC stdio server with three tools:
+> `engram_store`, `engram_recall`, `engram_health`. It uses SQLite FTS5 for keyword search.
+> No embedding backend or LLM provider is needed. Vector search, Ebbinghaus decay, and
+> three-layer memory progression are deferred to v0.2+.
+>
+> **Binary path:** Use the full absolute path in config. The render subprocess may not
+> have `~/.local/bin/` in PATH:
+> ```yaml
+> engram:
+>   command:
+>     - "/root/.local/bin/engram"   # or wherever cargo build placed it
+>     - "serve"
+>     - "--db"
+>     - "/root/.perseus/engram/engram.db"
+> ```
+
+> **Merge strategies explained:**
+> - `local_first` — Mnēmē results first, then Engram results (default, safest)
+> - `remote_first` — Engram decay-prioritized results first, then Mnēmē
+> - `interleave` — Alternate rows between Engram/Mnēmē, sorted by decay score within each
+> - `decay_first` — All results sorted globally by Engram decay_score descending
+
+> **Verification:** After installing Engram-rs, restart `perseus watch`
+> (or re-render). The next `@memory` resolution uses Engram-rs via MCP.
+> To confirm: run `perseus doctor` — it reports Engram-rs connectivity.
+> If Engram-rs is unreachable, Perseus falls back to Mnēmē FTS5 silently
+> (no crash, no visible error). The circuit breaker prevents permission
+> storms during outages.
 
 ### Writing checkpoints (the right way)
 
@@ -783,17 +895,78 @@ perseus memory status
 
 ## MCP Server Mode
 
-Perseus can run as an MCP server, exposing all directives as callable tools:
+Perseus can run as an MCP server over stdio, or as an HTTP server with a dashboard:
 
 ```bash
-# Start the server (stdio, JSON-RPC 2.0)
+# MCP server (stdio, JSON-RPC 2.0) — exposes directives as tools
 perseus mcp serve --workspace /path/to/workspace
 
-# Print config for Claude Desktop / Cursor
+# Print MCP client config for Claude Desktop / Cursor
 perseus mcp config
+
+# HTTP server with dashboard at http://127.0.0.1:7991
+perseus serve --port 7991 --workspace /path/to/workspace
 ```
 
+HTTP endpoints:
+
+| Endpoint | Content |
+|---|---|
+| `/` | Dashboard with live stats |
+| `/context` | Rendered context.md (markdown) |
+| `/narrative` | Mnēmē project narrative |
+| `/health` | Maintenance report |
+| `/agora` | Task board |
+| `/checkpoint/latest` | Latest checkpoint (YAML) |
+| `/oracle/log` | Pythia tool log (JSON) |
+
 Available MCP tools: `perseus_query`, `perseus_services`, `perseus_memory`, `perseus_waypoint`, `perseus_agora`, `perseus_inbox`, `perseus_health`, `perseus_session`, and more.
+
+### Mnēmē v2 Vault Setup
+
+The `@memory mode=search` and `@mneme` directives search a vault of `.md` files
+indexed by SQLite FTS5 BM25. To populate your vault:
+
+```bash
+# 1. Create vault files — each is a .md file with YAML frontmatter
+mkdir -p ~/.perseus/memory/vault
+
+cat > ~/.perseus/memory/vault/my-fact.md << 'EOF'
+---
+id: my-fact
+title: A Key Fact About My Project
+type: fact
+scope: my-project
+tags: [architecture, decisions]
+summary: One-line summary for search results
+---
+
+# Body content (optional)
+
+Any markdown content here is FTS5-indexed for search.
+EOF
+
+# 2. Rebuild the FTS5 index
+perseus memory index rebuild
+
+# 3. Check index stats
+perseus memory index stats
+
+# 4. Test search
+perseus memory index search --query "architecture" --k 5
+
+# 5. Use in context.md
+# @memory mode=search query="architecture" k=5
+# @mneme query="decisions" k=5
+```
+
+> **Required fields:** Only `id` (alphanumeric slug) and `title` are required.
+> For best search results, include `type`, `summary`, `scope`, and `tags`.
+> See `docs/mneme-vault-format.md` for the full field reference.
+>
+> **FTS5 quirk:** Multi-word queries are matched as exact FTS5 phrases.
+> Use single-word queries for broad recall, or short phrases that appear
+> verbatim in your documents.
 
 ---
 
@@ -961,6 +1134,8 @@ uv tool install perseus-ctx
 cd ~/my-project && perseus init
 
 # Render context to AGENTS.md (Hermes, Claude Code, Rovo web agent)
+# Requires PERSEUS_ALLOW_DANGEROUS=1 for @query, @agent, @services command: directives
+PERSEUS_ALLOW_DANGEROUS=1 perseus render ~/.perseus/context.md --output ~/AGENTS.md
 perseus render ~/.perseus/context.md --output ~/AGENTS.md
 
 # Render to .hermes.md (Hermes high-priority context)
@@ -1006,6 +1181,6 @@ perseus doctor
 
 ---
 
-*Built from production experience wiring Perseus v1.0.6 into Hermes Agent, Rovo Dev CLI, and Rovo web agent.*  
+*Built from production experience wiring Perseus v1.0.6 into Hermes Agent, Rovo Dev CLI, and Rovo web agent — now with Engram-rs MCP hybrid memory (Project Synapse).*  
 *Issues filed: [#128](https://github.com/tcconnally/perseus/issues/128) – [#135](https://github.com/tcconnally/perseus/issues/135)*  
 *Guide maintained at: `~/rovodev/docs/perseus-setup-guide.md` (canonical) · this copy: `~/Downloads/perseus-setup-guide.md`*
