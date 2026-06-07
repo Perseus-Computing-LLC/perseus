@@ -30,6 +30,7 @@ def resolve_agent(args_str: str, cfg: dict, workspace: Path | None = None) -> st
                     args=args_str[:200])
         return (
             "> ⚠ @agent is enabled in config but PERSEUS_ALLOW_DANGEROUS=1 is not set.\n"
+            "> Fix: export PERSEUS_ALLOW_DANGEROUS=1\n"
             "> This is a defense-in-depth gate to prevent accidental shell execution.\n"
             "> Set the environment variable to acknowledge the risk."
         )
