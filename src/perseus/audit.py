@@ -47,14 +47,16 @@ def _audit_log_path(cfg: dict) -> Path:
     """Return the audit log path, constrained to a safe location.
 
     S5: Prevents workspace config from pointing audit.log_path at system
-    paths. Falls back to ~/.perseus/audit_log.jsonl if outside allowed roots.
+    paths. Always resolves relative to PERSEUS_HOME, ignoring any stale
+    log_path that may have been cached from a previous config load.
     """
-    raw = (cfg.get("audit") or {}).get("log_path") or str(PERSEUS_HOME / "audit_log.jsonl")
+    raw = str(PERSEUS_HOME / "audit_log.jsonl")
     candidate = Path(str(raw)).expanduser().resolve()
     import tempfile as _tempfile
     allowed_roots = [
         Path.home() / ".perseus",
         Path(_tempfile.gettempdir()).resolve(),  # allow pytest tmp_path and CI temp dirs
+        PERSEUS_HOME.resolve(),                  # allow PERSEUS_HOME when set to test temp dir
     ]
     try:
         for root in allowed_roots:
