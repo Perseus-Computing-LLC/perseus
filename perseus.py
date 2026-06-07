@@ -962,6 +962,7 @@ def _bind_registry() -> None:
         DirectiveSpec("@date",      resolve_date,      ["format="],                "inline",  "a",   cacheable=False, safe_for_hover=True, summary="Current date/time", output_schema={"type": "str", "pattern": ".+"}, tier=1),
         DirectiveSpec("@waypoint",  resolve_waypoint,  ["ttl="],                   "inline",  "ac",  reads_files=True, cacheable=True, summary="Latest checkpoint summary", tier=1),
         DirectiveSpec("@memory",    resolve_memory,    ["mode=", "query=", "scope=", "k=", "type=", "render=", "focus=", "federation", "include_federation=", "alias=", "workspace="], "inline", "acw", reads_files=True, cacheable=True, summary="Mnēmē v2 — unified memory search + narrative + federation", diagnostic_fn=_memory_federation_diagnostic, tier=1),
+        DirectiveSpec("@auto-skill", resolve_auto_skill, ["skill="],              "inline",  "ac",  cacheable=True,  safe_for_hover=True, summary="Instruct agent to load a skill before work begins", tier=1),
         DirectiveSpec("@health",    resolve_health,    [],                         "inline",  "acw", reads_files=True, summary="Context maintenance report", tier=1),
         DirectiveSpec("@env",       resolve_env,       ["required=", "fallback=", "schema="], "inline", "acw", cacheable=False, safe_for_hover=True, summary="Embed environment variable", tier=1),
 
@@ -17478,6 +17479,26 @@ def cmd_validate(args, cfg) -> int:
     else:
         print(f"Valid: {input_label} matches {schema_label}")
     return 0 if not errors else 1
+
+
+# ──────────────────────────── @auto-skill (#234) ──────────────────────────────
+
+def resolve_auto_skill(args_str: str, cfg: dict, workspace: Path | None = None) -> str:
+    """@auto-skill <name> — instruct agent to load a skill before work begins.
+
+    Designed for critical hygiene skills (memory-hygiene, agent-safety) that
+    agents must load proactively. Without this, agents skip optional skill
+    loads under execution pressure — the memory tool fills silently until
+    the 2,200-char hard limit blocks genuinely important saves.
+    """
+    name = args_str.strip()
+    if not name:
+        return "> \u26a0 @auto-skill requires a skill name.\n"
+    return (
+        f"> \u26a0 **Auto-skill: load '{name}' before work begins.** "
+        f"Run `skill_view(name='{name}')` now. "
+        f"This skill is required for this session and must not be skipped.\n"
+    )
 
 
 # ──────────────────────────── Project Detection (#232) ─────────────────────────
