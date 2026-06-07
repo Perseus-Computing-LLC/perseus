@@ -75,3 +75,5 @@ spec/                   ← Normative design specifications
 ## Version
 
 Current release: **v1.0.6** — All 26 phases shipped. Tests all passing.
+
+<!-- trigger pages rebuild for funding.json -->
