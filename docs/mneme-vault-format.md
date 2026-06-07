@@ -25,15 +25,14 @@ Mnēmē v2 memories are stored as `.md` files with YAML frontmatter in `~/.perse
 
 ### Required Fields
 
+Only two fields are strictly required by the parser:
+
 | Field | Type | Description |
 |---|---|---|
-| `schema` | int | Always `2` |
-| `id` | string | Stable identifier (slug). Used as filename: `{id}.md` |
-| `title` | string | Human-readable title. Weighted 3× in BM25 search |
-| `type` | string | `lesson`, `decision`, `preference`, `workflow`, `project-fact`, `reference`, `user-preference`, `meta-working` |
-| `summary` | string | One sentence, ≤400 chars. Weighted 2× in search |
-| `scope` | string | Project/area: `perseus`, `hermes`, `all-projects`, etc. |
-| `created` | string | ISO date `YYYY-MM-DD` |
+| `id` | string | Stable identifier (slug). Used as filename: `{id}.md`. Must be alphanumeric, hyphens, and underscores, 1-128 chars. |
+| `title` | string | Human-readable title. Weighted 3× in BM25 search. |
+
+All other fields are optional — the parser accepts whatever frontmatter you provide. For best search results, include `type`, `summary`, `scope`, and `tags`.
 
 ### Optional Fields
 
