@@ -4,7 +4,7 @@
 # Phase 24 — internal imports (stripped by build; defined earlier in concatenated artifact)
 from perseus.assistant_formats import wrap_rendered, get_default_output_path
 from perseus.install import install_target
-from perseus.mcp import serve_mcp, print_mcp_config, print_mcp_registry
+from perseus.mcp import serve_mcp, print_mcp_config, print_mcp_registry, _build_server_card
 
 
 def cmd_render(args, cfg):
@@ -1506,6 +1506,12 @@ def _serve_render_endpoint(endpoint: str, cfg: dict, workspace: Path, query: dic
             body, _ = redact_text(body, cfg)
             return (200, "application/json; charset=utf-8", body)
 
+        if endpoint == "/.well-known/mcp/server-card.json":
+            # Static metadata for Smithery capability discovery.
+            # Served without auth so Smithery's scanner can read it.
+            card = _build_server_card(cfg)
+            return (200, "application/json; charset=utf-8", json.dumps(card, indent=2))
+
         return (404, "text/plain; charset=utf-8", f"Unknown endpoint: {endpoint}")
     except Exception as exc:
         # S6: Log the real exception, return a generic error to avoid leaking
@@ -1611,6 +1617,7 @@ def cmd_serve(args, cfg):
     print(f"Perseus serve — {workspace}")
     print(f"  Listening on {url}")
     print(f"  Endpoints: /, /context, /narrative, /health, /agora, /checkpoint/latest, /oracle/log")
+    print(f"             /.well-known/mcp/server-card.json")
     print(f"  Press Ctrl-C to stop.")
     try:
         server.serve_forever()
