@@ -43,21 +43,21 @@ User-facing value: Moderate. A Perseus user with indexed personal documents
 would see relevant knowledge base content in their AGENTS.md at session start.
 For users without MemoryMesh configured, the directive is invisible overhead.
 
-Overlap: Partial. Perseus's engram-rs provides semantic + keyword memory via
+Overlap: Partial. Perseus's mneme provides semantic + keyword memory via
 SQLite FTS5. MemoryMesh provides dense vector + BM25 hybrid search over files,
-with ChromaDB and sentence-transformers. They're complementary: engram-rs stores
+with ChromaDB and sentence-transformers. They're complementary: mneme stores
 agent-authored memories (insights, architecture decisions), MemoryMesh indexes
 the user's existing files (notes, docs, code). However, there IS functional
 overlap in "search my project knowledge" — both could answer "how did I
 configure X". The key differentiator: MemoryMesh indexes external files;
-engram-rs stores agent-authored semantic memories.
+mneme stores agent-authored semantic memories.
 
 Decision recommendation: MONITOR
 - High bus factor risk (solo dev, first project)
-- Significant functional overlap with engram-rs
+- Significant functional overlap with mneme
 - Heavy dependencies (ChromaDB, sentence-transformers) would need to work in the
   Perseus render pipeline
-- Value add over engram-rs alone is incremental, not transformative
+- Value add over mneme alone is incremental, not transformative
 - Re-evaluate if the project gains traction (stars, contributors, v1.0)
 """
 from __future__ import annotations
