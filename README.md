@@ -15,23 +15,15 @@
 
 ---
 
-### TL;DR
-
-Perseus is a **live context engine and MCP server** for AI assistants, eliminating cold starts. It resolves dynamic data (running services, code changes, session state) *before* the assistant sees it, providing **verified facts** instead of stale files or instructions to find information.
+### TL;DR — One Command to Zero-Orientation
 
 ```bash
-pip install perseus-ctx
-cd your-project
-perseus quickstart                  # One command from zero to working
+pip install perseus-ctx && cd your-project && perseus quickstart
 ```
 
-> ⚠️ **v1.0.6+:** Shell-executing directives (`@query`, `@agent`, `@services command:`) and workspace-sourced plugins/hooks require `export PERSEUS_ALLOW_DANGEROUS=1` before rendering. See [SETUP-GUIDE.md](./SETUP-GUIDE.md) for details.
+That's it. Perseus auto-detects your project language (Python, Rust, Node, Go, ...), scaffolds a tuned context, and renders live workspace state — all before the assistant reads a single directive. The assistant opens to verified facts, not instructions to go find facts.
 
-Works with any MCP-compatible assistant: Claude Desktop, Claude Code, Cursor, Codex, Hermes Agent, and Rovo Dev.
-
-> 📖 **New to Perseus?** Read [QUICKSTART.md](./QUICKSTART.md) for a 2-minute setup guide with free LLM backends.
-> 🔌 **Wiring Perseus into your workflow?** Read [WIRING.md](./WIRING.md) for MCP server, editor hooks, live auto-refresh, systemd/cron, and context packs.
-> 📖 **New to Perseus?** Read [QUICKSTART.md](./QUICKSTART.md) for a 2-minute setup guide with free LLM backends, editor integration, and CI/CD examples.
+> ⚠️ **v1.0.6+:** Shell-executing directives require `export PERSEUS_ALLOW_DANGEROUS=1`. See [SETUP-GUIDE.md](./SETUP-GUIDE.md).
 
 ---
 
@@ -209,11 +201,17 @@ Perseus replaces your assistant's context file — `CLAUDE.md`, `.cursorrules`, 
 ## Quick Start (30 Seconds to Live Context)
 
 ```bash
-perseus init /workspace/myproject          # scaffold a source document
-perseus render .perseus/context.md --output CLAUDE.md  # render to whatever your assistant reads
+perseus quickstart          # auto-detects project, scaffolds context, renders
 ```
 
-That's it. The output file name is the only assistant-specific detail:
+Smart init detects your stack and tailors the setup:
+- **Python** → `@memory` queries for test patterns, type annotations
+- **Rust** → trait bounds, lifetime annotations, cargo config
+- **Node.js/TS** → npm scripts, ESLint config, component patterns
+- **Go, Java, C/C++, Docker** — all detected automatically
+- Falls back to a sensible generic query when unknown
+
+The output file name is the only assistant-specific detail:
 
 | Assistant | Output file |
 |---|---|
