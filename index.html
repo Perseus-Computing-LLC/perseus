@@ -1840,6 +1840,24 @@
       <img src="demo.gif" alt="Perseus demo: without Perseus (cold start, 36 discovery calls) vs with Perseus (install, render, 0 discovery calls, warm cache 0.28s)" loading="lazy" />
     </div>
 
+    <div class="stats three-up reveal" style="margin-top:1px;" role="list" aria-label="Efficiency stats">
+      <div class="stat" role="listitem">
+        <div class="skey">Overhead</div>
+        <div class="sval">~1,600<span class="unit">tokens</span></div>
+        <div class="sdesc">One-time context injection at session start. <b>5 directives</b> pre-resolve everything the LLM would otherwise discover through tool calls.</div>
+      </div>
+      <div class="stat" role="listitem">
+        <div class="skey">Breakeven</div>
+        <div class="sval">~5<span class="unit">turns</span></div>
+        <div class="sdesc">The upfront investment pays for itself by turn&nbsp;5. Every turn after that is <b>net positive</b> — the LLM never wastes a turn on orientation.</div>
+      </div>
+      <div class="stat" role="listitem">
+        <div class="skey">Deep work</div>
+        <div class="sval">+7,500<span class="unit">tokens</span></div>
+        <div class="sdesc">In a 30-turn session, Perseus saves <b>over 7,500 tokens</b> by eliminating discovery tool calls. The longer the session, the bigger the win.</div>
+      </div>
+    </div>
+
   </div>
 </section>
 <!-- ============ HOW IT WORKS ============ -->
@@ -2209,6 +2227,26 @@ Branch: <span class="s">feat/billing-v2</span>
         <div class="desc">Runs a command and captures output. Cached with <code>@cache ttl=N</code>. The workhorse directive.</div>
       </div>
       <div class="const-cell" role="listitem">
+        <div class="greek">@mneme</div>
+        <div class="name">Vault recall</div>
+        <div class="desc">Shorthand for FTS5 BM25 search over the memory vault. <code>query="terms" k=5</code>. Same backend as <code>@memory mode=search</code>.</div>
+      </div>
+      <div class="const-cell" role="listitem">
+        <div class="greek">@list</div>
+        <div class="name">Directory listing</div>
+        <div class="desc">Lists directory contents or structured data from JSON/YAML files with column selection and sorting.</div>
+      </div>
+      <div class="const-cell" role="listitem">
+        <div class="greek">@tree</div>
+        <div class="name">Directory tree</div>
+        <div class="desc">Renders a fenced directory tree with plain indentation. Depth-limited and pattern-filterable.</div>
+      </div>
+      <div class="const-cell" role="listitem">
+        <div class="greek">@tool</div>
+        <div class="name">External tool</div>
+        <div class="desc">Runs an allowlisted external tool. Requires explicit approval in <code>tools.allowlist</code> per path.</div>
+      </div>
+      <div class="const-cell" role="listitem">
         <div class="greek">@read</div>
         <div class="name">File inclusion</div>
         <div class="desc">Inlines file content with optional line ranges. Context-overflow guarded.</div>
@@ -2225,8 +2263,8 @@ Branch: <span class="s">feat/billing-v2</span>
       </div>
       <div class="const-cell cyan" role="listitem">
         <div class="greek">@memory</div>
-        <div class="name">Hybrid memory</div>
-        <div class="desc">Mnēmē narrative + Engram-rs accelerator. FTS5 keyword search with optional vector embeddings. Federated across workspaces.</div>
+        <div class="name">Project memory</div>
+        <div class="desc">Narrative journal + FTS5 BM25 vault search. <code>focus=recent</code> for activity, <code>mode=search query="..."</code> for ranked recall. Federates across workspaces.</div>
       </div>
       <div class="const-cell cyan" role="listitem">
         <div class="greek">@agora</div>
@@ -2316,6 +2354,11 @@ Branch: <span class="s">feat/billing-v2</span>
         <div class="greek">perseus mcp serve</div>
         <div class="name">MCP server</div>
         <div class="desc">Exposes 24 tools over stdio or SSE (port 8420). Listed on the MCP Registry. Works with any MCP client.</div>
+      </div>
+      <div class="const-cell" role="listitem">
+        <div class="greek">perseus serve</div>
+        <div class="name">HTTP dashboard</div>
+        <div class="desc">Live workspace state at <code>localhost:7991</code>. Endpoints: <code>/context</code>, <code>/narrative</code>, <code>/health</code>, <code>/agora</code>, <code>/checkpoint/latest</code>, <code>/oracle/log</code>.</div>
       </div>
       <div class="const-cell" role="listitem">
         <div class="greek">perseus serve --lsp</div>
