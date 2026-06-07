@@ -1,0 +1,320 @@
+{
+  "serverInfo": {
+    "name": "Perseus",
+    "version": "1.0.6"
+  },
+  "tools": [
+    {
+      "name": "perseus_services",
+      "description": "Health-check running services (HTTP, Docker, custom commands)",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "perseus_query",
+      "description": "Run a shell command and return stdout",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "description": "Shell command to execute"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      }
+    },
+    {
+      "name": "perseus_read",
+      "description": "Read file contents from the workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "File path to read"
+          },
+          "key": {
+            "type": "string",
+            "description": "Config key to extract"
+          }
+        },
+        "required": [
+          "path"
+        ]
+      }
+    },
+    {
+      "name": "perseus_list",
+      "description": "List directory contents or structured data",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Directory path"
+          },
+          "pattern": {
+            "type": "string",
+            "description": "File glob pattern"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "perseus_tree",
+      "description": "Tree view of directory structure",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "perseus_env",
+      "description": "Read environment variables",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "Env var name"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "perseus_date",
+      "description": "Current date and time",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "perseus_waypoint",
+      "description": "Latest session checkpoint summary",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "ttl": {
+            "type": "integer",
+            "description": "Max age in seconds"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "perseus_session",
+      "description": "Recent session digests",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "perseus_health",
+      "description": "Context maintenance report",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "perseus_drift",
+      "description": "Detect configuration drift between renders",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "perseus_memory",
+      "description": "Mnem\u0113 narrative memory and Engram-rs hybrid recall",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "focus": {
+            "type": "string"
+          },
+          "k": {
+            "type": "integer"
+          },
+          "mode": {
+            "type": "string"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "perseus_mneme",
+      "description": "Recall persistent memories via in-process BM25 FTS5 search",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "k": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "perseus_skills",
+      "description": "List available skills with staleness flags and category filter",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "flag_stale": {
+            "type": "boolean"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "perseus_include",
+      "description": "Include and render another file",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ]
+      }
+    },
+    {
+      "name": "perseus_agent",
+      "description": "Execute local agent subprocess",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "prompt"
+        ]
+      }
+    },
+    {
+      "name": "perseus_agora",
+      "description": "Task board from tasks/*.md files",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "perseus_inbox",
+      "description": "Unread inbox items from .perseus/inbox/",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "perseus_config",
+      "description": "Read Perseus configuration values",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "perseus_pack",
+      "description": "Pack metadata and directive manifest",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "perseus_tier",
+      "description": "Render depth tier control",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "level": {
+            "type": "integer"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "perseus_doctor",
+      "description": "Full readiness and environment audit",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "perseus_graph",
+      "description": "Directive dependency graph",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "perseus_oracle",
+      "description": "Tool usage stats and Pythia outcomes",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    }
+  ],
+  "resources": [],
+  "prompts": []
+}
