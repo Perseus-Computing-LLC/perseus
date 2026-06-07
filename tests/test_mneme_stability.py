@@ -196,7 +196,7 @@ class TestCircuitBreakerDegradedMode:
         but NOT crash. The status should reflect the degradation."""
         _reset_connector_singleton()
         c = _cfg_with_mneme({"command": ["/nonexistent/path/mneme"]})
-        connector = perseus.EngramConnector(c)
+        connector = perseus.MnemeConnector(c)
         assert not connector.available
         assert "unavailable" in connector.status.lower()
         assert connector.breaker_stats["total_failures"] >= 1
@@ -206,7 +206,7 @@ class TestCircuitBreakerDegradedMode:
         without raising an exception."""
         _reset_connector_singleton()
         c = _cfg_with_mneme({"command": ["/nonexistent/path/mneme"]})
-        connector = perseus.EngramConnector(c)
+        connector = perseus.MnemeConnector(c)
         assert not connector.available
         segment = connector.recall(query="project architecture", max_results=5)
         assert isinstance(segment, perseus.MemorySegment)
@@ -216,7 +216,7 @@ class TestCircuitBreakerDegradedMode:
         """store() should return (False, error_message) when Mneme is unavailable."""
         _reset_connector_singleton()
         c = _cfg_with_mneme({"command": ["/nonexistent/path/mneme"]})
-        connector = perseus.EngramConnector(c)
+        connector = perseus.MnemeConnector(c)
         success, msg = connector.store(content="test memory", memory_type=perseus.MemoryTypeEnum.INSIGHT)
         assert success is False
         assert len(msg) > 0
@@ -225,7 +225,7 @@ class TestCircuitBreakerDegradedMode:
         """health_check() should return (False, reason) when Mneme is unavailable."""
         _reset_connector_singleton()
         c = _cfg_with_mneme({"command": ["/nonexistent/path/mneme"]})
-        connector = perseus.EngramConnector(c)
+        connector = perseus.MnemeConnector(c)
         ok, status = connector.health_check()
         assert ok is False
 
@@ -284,7 +284,7 @@ class TestFallbackBehavior:
         """When engram.enabled=False, the system should operate local-only without errors."""
         _reset_connector_singleton()
         c = _cfg_with_mneme({"enabled": False, "command": ["/nonexistent/path/mneme"]})
-        connector = perseus.EngramConnector(c)
+        connector = perseus.MnemeConnector(c)
         assert not connector.available
         assert connector.status == "disabled"
 
@@ -319,7 +319,7 @@ class TestLatencyBudgets:
             "command": ["/nonexistent/path/mneme"],
             "circuit_breaker": {"threshold": 1, "cooldown": 300},
         })
-        connector = perseus.EngramConnector(c)
+        connector = perseus.MnemeConnector(c)
         assert not connector.available
         # Subsequent recall should be instant (circuit breaker fast path)
         t0 = time.perf_counter()
@@ -345,7 +345,7 @@ class TestLatencyBudgets:
         """Merge 1000+ items from each source should complete in < 100ms."""
         _reset_connector_singleton()
         c = _cfg_with_mneme({"command": ["/nonexistent/path/mneme"]})
-        connector = perseus.EngramConnector(c)
+        connector = perseus.MnemeConnector(c)
 
         # Generate large synthetic data sets
         local_items = []
@@ -384,7 +384,7 @@ class TestLatencyBudgets:
             "timeout_s": 0.5,
         })
         t0 = time.perf_counter()
-        connector = perseus.EngramConnector(c)
+        connector = perseus.MnemeConnector(c)
         elapsed = (time.perf_counter() - t0) * 1000
         assert elapsed < 5000, f"Connector init took {elapsed:.0f}ms, expected < 5000ms"
         assert not connector.available
@@ -424,28 +424,28 @@ class TestEdgeCases:
         """Empty command list should not crash."""
         _reset_connector_singleton()
         c = _cfg_with_mneme({"command": []})
-        connector = perseus.EngramConnector(c)
+        connector = perseus.MnemeConnector(c)
         assert not connector.available
 
     def test_connector_with_sse_transport_stub(self):
         """SSE transport stub should report unavailable gracefully."""
         _reset_connector_singleton()
         c = _cfg_with_mneme({"transport": "sse", "endpoint": "http://localhost:99999/sse"})
-        connector = perseus.EngramConnector(c)
+        connector = perseus.MnemeConnector(c)
         assert not connector.available  # SSE stub always fails connect
 
     def test_connector_close_when_never_connected(self):
         """close() should not raise even if never connected."""
         _reset_connector_singleton()
         c = _cfg_with_mneme({"command": ["/nonexistent/path/mneme"]})
-        connector = perseus.EngramConnector(c)
+        connector = perseus.MnemeConnector(c)
         connector.close()  # should not raise
 
     def test_connector_close_twice_idempotent(self):
         """close() called twice should not raise."""
         _reset_connector_singleton()
         c = _cfg_with_mneme({"command": ["/nonexistent/path/mneme"]})
-        connector = perseus.EngramConnector(c)
+        connector = perseus.MnemeConnector(c)
         connector.close()
         connector.close()  # should be idempotent
 
@@ -453,7 +453,7 @@ class TestEdgeCases:
         """Merge of two empty lists should return empty segment."""
         _reset_connector_singleton()
         c = _cfg_with_mneme({"command": ["/nonexistent/path/mneme"]})
-        connector = perseus.EngramConnector(c)
+        connector = perseus.MnemeConnector(c)
         merged = connector._merge_results(
             local_items=[], mneme_items=[],
             strategy=perseus.MergeStrategy.LOCAL_FIRST, diagnostics={},

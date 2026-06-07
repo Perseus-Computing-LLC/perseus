@@ -69,7 +69,7 @@ class TestMergeStrategies:
         _reset_connector_singleton()
         c = _test_cfg()
         c["mneme"]["merge_strategy"] = strategy
-        return perseus.EngramConnector(c)
+        return perseus.MnemeConnector(c)
 
     @property
     def local_items(self):
@@ -88,7 +88,7 @@ class TestMergeStrategies:
         ]
 
     def test_local_first_strategy(self):
-        """LOCAL_FIRST: local items first, then verified, then engram-only."""
+        """LOCAL_FIRST: local items first, then verified, then mneme-only."""
         conn = self._connector("local_first")
         merged = conn._merge_results(
             local_items=list(self.local_items),
@@ -97,12 +97,12 @@ class TestMergeStrategies:
             diagnostics={},
         )
         sources = [item.source.value for item in merged.items]
-        # All items are unique (different content), so order is: local → engram
+        # All items are unique (different content), so order is: local → mneme
         assert sources[:3] == ["local", "local", "local"]
         assert sources[3:] == ["mneme", "mneme", "mneme"]
 
     def test_remote_first_strategy(self):
-        """REMOTE_FIRST: engram items first, then verified, then local-only."""
+        """REMOTE_FIRST: mneme items first, then verified, then local-only."""
         conn = self._connector("remote_first")
         merged = conn._merge_results(
             local_items=list(self.local_items),
@@ -151,11 +151,11 @@ class TestMergeStrategies:
             _make_hit("l-fresh", "Fresh local memory", "local", "insight", decay=0.99),
             _make_hit("l-mid", "Mid local memory", "local", "insight", decay=0.5),
         ]
-        engram = [
+        mneme_items = [
             _make_hit("e-1", "Mneme item", "mneme", "insight", decay=0.8),
         ]
         merged = conn._merge_results(
-            local_items=local, mneme_items=engram,
+            local_items=local, mneme_items=mneme_items,
             strategy=perseus.MergeStrategy.LOCAL_FIRST, diagnostics={},
         )
         local_decay = [item.decay_score for item in merged.items if item.source == perseus.MemorySource.LOCAL]
@@ -181,17 +181,17 @@ class TestDeduplication:
 
     def _connector(self):
         _reset_connector_singleton()
-        return perseus.EngramConnector(_test_cfg())
+        return perseus.MnemeConnector(_test_cfg())
 
     def test_identical_content_deduped(self):
         """Same content in both sources → one item, verified=True, Engram source."""
         conn = self._connector()
         shared_content = "The auth module uses PostgreSQL for production and SQLite for local dev."
         local = [_make_hit("l-auth", shared_content, "local", "architecture", decay=0.5)]
-        engram = [_make_hit("e-auth", shared_content, "mneme", "architecture", decay=0.95)]
+        mneme_items = [_make_hit("e-auth", shared_content, "mneme", "architecture", decay=0.95)]
 
         merged = conn._merge_results(
-            local_items=local, mneme_items=engram,
+            local_items=local, mneme_items=mneme_items,
             strategy=perseus.MergeStrategy.LOCAL_FIRST, diagnostics={},
         )
         # Should be 1 item total (deduped), with verified=True
@@ -205,10 +205,10 @@ class TestDeduplication:
         """Different content → not deduped, both items preserved."""
         conn = self._connector()
         local = [_make_hit("l-1", "Auth module uses PostgreSQL.", "local", "architecture")]
-        engram = [_make_hit("e-1", "The auth module uses PostgreSQL for production and SQLite for local dev.", "mneme", "architecture")]
+        mneme_items = [_make_hit("e-1", "The auth module uses PostgreSQL for production and SQLite for local dev.", "mneme", "architecture")]
 
         merged = conn._merge_results(
-            local_items=local, mneme_items=engram,
+            local_items=local, mneme_items=mneme_items,
             strategy=perseus.MergeStrategy.LOCAL_FIRST, diagnostics={},
         )
         assert len(merged.items) == 2  # different content hash → both kept
@@ -223,17 +223,17 @@ class TestDeduplication:
             _make_hit("l-watch", shared_2, "local", "insight"),
             _make_hit("l-only", "Local-only insight about tooling.", "local", "insight"),
         ]
-        engram = [
+        mneme_items = [
             _make_hit("e-mk", shared_1, "mneme", "decision", decay=0.9),
             _make_hit("e-watch", shared_2, "mneme", "insight", decay=0.8),
             _make_hit("e-only", "Mneme-only architecture note.", "mneme", "architecture"),
         ]
 
         merged = conn._merge_results(
-            local_items=local, mneme_items=engram,
+            local_items=local, mneme_items=mneme_items,
             strategy=perseus.MergeStrategy.LOCAL_FIRST, diagnostics={},
         )
-        # Total: 4 unique items (2 shared → verified, 1 local-only, 1 engram-only)
+        # Total: 4 unique items (2 shared → verified, 1 local-only, 1 mneme-only)
         assert len(merged.items) == 4
         verified = [item for item in merged.items if item.verified]
         assert len(verified) == 2, f"Expected 2 verified items, got {len(verified)}"
@@ -417,7 +417,7 @@ def _build_needle_haystack(needle_ids: list[str], num_distractors: int = 50) -> 
         "arch-engram-layers": "Mneme uses a three-layer memory architecture: Buffer (just-arrived, volatile, high decay), Working (actively referenced, moderate decay), and Core (consolidated long-term memory, low decay). Memories progress through layers automatically based on retrieval frequency and survival of Ebbinghaus decay thresholds.",
         "decision-engram-choice": "We chose Mneme over Mnemosyne for the long-term memory backend because Engram offers: (1) Rust-native performance with zero-copy deserialization, (2) built-in Ebbinghaus decay algorithms, (3) MCP-native protocol for standardized AI tool integration, and (4) the three-layer memory model provides better recall quality than flat vector stores.",
         "arch-mneme-driver": "Perseus Mneme v2 uses SQLite FTS5 for local BM25 keyword search, supplemented by sqlite-vec for optional vector embeddings. This was chosen for zero external dependencies — the same philosophy as Perseus itself: everything runs from a single-file Python artifact backed by SQLite.",
-        "arch-circuit-breaker": "The circuit breaker in EngramConnector prevents cascading failures when Mneme is unreachable. It has 3 states: CLOSED (normal operation), OPEN (after 3 consecutive failures, all calls short-circuit to local FTS5), and HALF_OPEN (after 120s cooldown, probes with one request).",
+        "arch-circuit-breaker": "The circuit breaker in MnemeConnector prevents cascading failures when Mneme is unreachable. It has 3 states: CLOSED (normal operation), OPEN (after 3 consecutive failures, all calls short-circuit to local FTS5), and HALF_OPEN (after 120s cooldown, probes with one request).",
         "decision-cb-thresholds": "Circuit breaker thresholds were set to 3 failures and 120s cooldown based on testing with real Engram outages. 3 failures prevents false positives from transient network blips. 120s is short enough to recover quickly but long enough to avoid retry storms.",
         "insight-build-artifact": "perseus.py is a BUILD ARTIFACT generated by scripts/build.py from src/ modules. NEVER edit perseus.py directly — always edit the source in src/ and rebuild. The build script concatenates all modules in a specific order (defined in MODULE_ORDER) into a single deployable file.",
         "insight-merge-conflict": "When resolving merge conflicts on perseus.py, always use `git checkout --ours perseus.py` to keep HEAD, then rebuild with `python3 scripts/build.py`. Since perseus.py is regenerated, resolving conflicts manually is wasted effort — the rebuild from correctly merged src/ modules is all that matters.",
@@ -437,7 +437,7 @@ def _build_needle_haystack(needle_ids: list[str], num_distractors: int = 50) -> 
         "insight-connector-migration": "When migrating memory backends, update exactly 5 files: (1) src/perseus/<new>_connector.py — full rewrite, (2) src/perseus/config.py — rename config key, (3) src/perseus/agora.py — rename function calls, (4) scripts/build.py — update MODULE_ORDER, (5) remove old connector file. Then rebuild and validate.",
         "decision-migration-checklist": "The migration checklist ensures no file is missed: connector source, config defaults, injection point (agora.py), build order, and cleanup. Following this checklist prevents broken builds where old connector symbols linger in the artifact.",
         "arch-singleton-connector": "The Engram Connector uses a singleton pattern via _get_connector(cfg) for efficiency — creating a new MCP subprocess per query would be wasteful. Config changes are detected by hashing the sorted config dict; when the hash changes, the old connector is closed and a new one created.",
-        "insight-config-hash": "Config change detection uses SHA-256 hashing of sorted config items. When _get_connector() detects a different hash, it closes the existing MCP connection and creates a fresh EngramConnector. This enables hot-reload of merge_strategy and circuit breaker settings without restart.",
+        "insight-config-hash": "Config change detection uses SHA-256 hashing of sorted config items. When _get_connector() detects a different hash, it closes the existing MCP connection and creates a fresh MnemeConnector. This enables hot-reload of merge_strategy and circuit breaker settings without restart.",
         "arch-memory-vs-mneme": "@memory is the full-featured directive: FTS5 search + Mneme augmentation + federation. @mneme is the lightweight cousin: BM25 recall with optional Mneme augmentation. Under the hood, @mneme delegates to @memory via resolve_mneme → resolve_memory.",
         "insight-directive-differences": "@memory uses _mneme_hybrid_search() which does full hybrid resolution with local fallback. @mneme uses _mneme_hybrid_mneme_search() which is simpler — local FTS5 first, Mneme augmentation if available, returns MemorySegment directly.",
         "arch-topic-trees": "Topic trees in Engram organize memories hierarchically (e.g., 'architecture/database/choice'). This enables scoped queries: you can search within a subtree for more precise recall. Unlike flat FTS5 which treats all memories equally, topic trees provide structural context.",
@@ -491,7 +491,7 @@ class TestNeedleInHaystack:
         _reset_connector_singleton()
         c = _test_cfg()
         c["mneme"]["merge_strategy"] = strategy
-        return perseus.EngramConnector(c)
+        return perseus.MnemeConnector(c)
 
     @pytest.mark.parametrize("query_entry", GOLDEN_QUERIES, ids=[q["query"][:60] for q in GOLDEN_QUERIES])
     def test_golden_set_needle_found_in_top_k(self, query_entry):
@@ -621,7 +621,7 @@ class TestDecayPriority:
 
     def _connector(self):
         _reset_connector_singleton()
-        return perseus.EngramConnector(_test_cfg())
+        return perseus.MnemeConnector(_test_cfg())
 
     def test_decay_first_prioritizes_fresh_over_stale(self):
         """Fresh items (decay=1.0) should appear before stale ones (decay=0.1)."""
@@ -690,7 +690,7 @@ class TestConflictResolution:
         _reset_connector_singleton()
         c = _test_cfg()
         c["mneme"]["merge_strategy"] = strategy
-        return perseus.EngramConnector(c)
+        return perseus.MnemeConnector(c)
 
     def test_conflicting_data_both_surfaced(self):
         """When local and remote have DIFFERENT data for the same topic,
@@ -699,12 +699,12 @@ class TestConflictResolution:
         local = [
             _make_hit("l-port", "Service port configured to 8080 (local override)", "local", "architecture", decay=1.0),
         ]
-        engram = [
+        mneme_items = [
             _make_hit("e-port", "Service port configured to 3000 (historical default)", "mneme", "architecture", decay=0.5),
         ]
 
         merged = conn._merge_results(
-            local_items=local, mneme_items=engram,
+            local_items=local, mneme_items=mneme_items,
             strategy=perseus.MergeStrategy.LOCAL_FIRST, diagnostics={},
         )
         # Both should appear — they have different content
@@ -722,10 +722,10 @@ class TestConflictResolution:
         conn = self._connector("local_first")
         content = "The API uses port 8080."
         local = [_make_hit("l-api", content, "local", "architecture", decay=0.9)]
-        engram = [_make_hit("e-api", content, "mneme", "architecture", decay=0.7)]
+        mneme_items = [_make_hit("e-api", content, "mneme", "architecture", decay=0.7)]
 
         merged = conn._merge_results(
-            local_items=local, mneme_items=engram,
+            local_items=local, mneme_items=mneme_items,
             strategy=perseus.MergeStrategy.LOCAL_FIRST, diagnostics={},
         )
         assert len(merged.items) == 1
@@ -737,12 +737,12 @@ class TestConflictResolution:
         local = [
             _make_hit("l-new-port", "Current port: 9090 (recent change)", "local", "architecture", decay=0.95),
         ]
-        engram = [
+        mneme_items = [
             _make_hit("e-old-port", "Historical port: 3000 (original design)", "mneme", "architecture", decay=0.25),
         ]
 
         merged = conn._merge_results(
-            local_items=local, mneme_items=engram,
+            local_items=local, mneme_items=mneme_items,
             strategy=perseus.MergeStrategy.DECAY_FIRST, diagnostics={},
         )
         # Both appear, but fresher first
@@ -756,13 +756,13 @@ class TestConflictResolution:
             _make_hit("l-a", "Content A", "local", "insight"),
             _make_hit("l-b", "Content B", "local", "insight"),
         ]
-        engram = [
+        mneme_items = [
             _make_hit("e-b", "Content B", "mneme", "insight"),  # same as l-b → verified
             _make_hit("e-c", "Content C", "mneme", "insight"),
         ]
         diag = {}
         merged = conn._merge_results(
-            local_items=local, mneme_items=engram,
+            local_items=local, mneme_items=mneme_items,
             strategy=perseus.MergeStrategy.LOCAL_FIRST, diagnostics=diag,
         )
         assert diag["merge_verified"] == "1"
