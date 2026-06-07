@@ -1696,6 +1696,20 @@
     background: rgba(86, 225, 255, 0.055);
     box-shadow: inset 0 0 0 1px rgba(86, 225, 255, 0.22);
   }
+  .hardened-note .hn-item.hn-full {
+    grid-column: 1 / -1;
+    flex-direction: row;
+    align-items: baseline;
+    gap: 24px;
+    padding: 28px clamp(24px, 2.6vw, 36px);
+  }
+  .hardened-note .hn-item.hn-full .hn-head {
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+  .hardened-note .hn-item.hn-full .hn-desc {
+    max-width: 72ch;
+  }
   .hardened-note .hn-head { transition: color .22s ease, text-shadow .22s ease; }
   .hardened-note .hn-item:hover .hn-head {
     text-shadow: 0 0 14px rgba(86, 225, 255, 0.65);
@@ -2536,7 +2550,7 @@ Branch: <span class="s">feat/billing-v2</span>
         <span class="hn-head">Audit &amp; Redaction</span>
         <p class="hn-desc">Every directive resolution is logged. Secrets auto-redacted with two-layer gating. Full audit trail, opt-out supported.</p>
       </div>
-      <div class="hn-item">
+      <div class="hn-item hn-full">
         <span class="hn-head">Deep-Dive v1.0.6</span>
         <p class="hn-desc">Architectural hardening pass: O(n²)→O(n) macro expansion, character parser→compiled regex, <code>shell=True</code>→explicit <code>/bin/sh -c</code>, webhook retry classification. Pythia log pruning prevents unbounded growth.</p>
       </div>
