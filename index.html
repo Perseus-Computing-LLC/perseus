@@ -2227,6 +2227,26 @@ Branch: <span class="s">feat/billing-v2</span>
         <div class="desc">Runs a command and captures output. Cached with <code>@cache ttl=N</code>. The workhorse directive.</div>
       </div>
       <div class="const-cell" role="listitem">
+        <div class="greek">@mneme</div>
+        <div class="name">Vault recall</div>
+        <div class="desc">Shorthand for FTS5 BM25 search over the memory vault. <code>query="terms" k=5</code>. Same backend as <code>@memory mode=search</code>.</div>
+      </div>
+      <div class="const-cell" role="listitem">
+        <div class="greek">@list</div>
+        <div class="name">Directory listing</div>
+        <div class="desc">Lists directory contents or structured data from JSON/YAML files with column selection and sorting.</div>
+      </div>
+      <div class="const-cell" role="listitem">
+        <div class="greek">@tree</div>
+        <div class="name">Directory tree</div>
+        <div class="desc">Renders a fenced directory tree with plain indentation. Depth-limited and pattern-filterable.</div>
+      </div>
+      <div class="const-cell" role="listitem">
+        <div class="greek">@tool</div>
+        <div class="name">External tool</div>
+        <div class="desc">Runs an allowlisted external tool. Requires explicit approval in <code>tools.allowlist</code> per path.</div>
+      </div>
+      <div class="const-cell" role="listitem">
         <div class="greek">@read</div>
         <div class="name">File inclusion</div>
         <div class="desc">Inlines file content with optional line ranges. Context-overflow guarded.</div>
