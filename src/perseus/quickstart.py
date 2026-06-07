@@ -7,7 +7,25 @@ QUICKSTART_CONTEXT_TEMPLATE = """\
 This document was rendered live by Perseus. All values below are current —
 do not verify services, re-scan skills, or re-read session history. Trust the
 rendered output and skip orientation. Start work immediately.
+
+⚠️ IMPORTANT: The content below IS the AGENTS.md. It has already been injected
+into your system prompt — you are reading it right now. Do NOT search for
+AGENTS.md on the filesystem. The filesystem copy (if any) is a stale snapshot;
+this injected copy is authoritative. Reading the disk version will give you
+outdated information. Use only what you see here.
 @end
+
+## Memory Backend Policy
+
+**Default durable storage is engram-rs (MCP `engram_store` / `engram_recall`).**
+The `memory` tool is for hot context only (~100 chars per entry, facts needed every turn).
+Procedural knowledge goes in skills (`skill_manage`).
+
+🚫 **Flat files are BANNED as a memory backend.** Do not create .txt, .json, .csv, or .md
+files for persistent memory. Use engram-rs (via `@memory` directive or MCP tools) instead.
+If engram-rs is unavailable, use the `memory` tool as fallback — never create a file.
+
+---
 
 # Perseus Session Context — @date format="YYYY-MM-DD HH:mm z"
 
@@ -29,6 +47,27 @@ rendered output and skip orientation. Start work immediately.
 
 ## Services
 @services
+
+---
+
+## Project Memory (Mneme)
+@memory focus=recent ttl=300
+
+---
+
+## Long-Term Memory (Engram-rs)
+
+> 💡 **Query tips:** FTS5 treats multi-word queries as exact phrases.
+> Split long queries across multiple directives for better recall:
+> ```text
+> @memory mode=search query="short phrase" k=3
+> @memory mode=search query="another topic" k=2
+> ```
+> Each sub-query is short enough to match effectively; the relay layer merges results.
+> Falls back gracefully to local Mneme FTS5 if Engram-rs is unavailable.
+> Requires `engram.enabled: true` in `.perseus/config.yaml`.
+
+@memory mode=search query="project architecture setup build deploy" k=5
 """
 
 

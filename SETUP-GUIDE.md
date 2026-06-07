@@ -101,16 +101,19 @@ perseus render .perseus/context.md --output AGENTS.md
 ```
 
 > **Scaffold quality note:** `perseus init` generates a starter `context.md` with
-> `@waypoint`, `@query`, `@skills`, `@services`, and `@session` directives. The
-> scaffold is functional but minimal — it includes one example `@services` check and
-> a few `@query` probes. After init, you'll want to customize the `@services` block
-> with your actual services, replace the example `@query` commands with your own
-> helpers (see helper script guidance below), and add `@memory`, `@agora`, `@inbox`,
-> and `@health` directives if you need them.
+> `@prompt` (including Memory Backend Policy), `@waypoint`, `@query`, `@skills`,
+> `@services`, `@session`, `@memory` (narrative + Engram-rs search), and
+> `@memory mode=search` directives. The scaffold is functional but minimal — it
+> includes one example `@services` check and a few `@query` probes. After init,
+> you'll want to customize the `@services` block with your actual services, replace
+> the example `@query` commands with your own helpers (see helper script guidance
+> below), and add `@agora`, `@inbox`, and `@health` directives if you need them.
 >
-> Also check the `@prompt` block — on some versions the final sentence may be
-> truncated. A working template with all 11 directives is available in the
-> [Context Template section](#context-template-perseuscontextmd).
+> The `@memory mode=search` directive queries Engram-rs persistent memory (FTS5).
+> **Query tip:** FTS5 treats multi-word queries as exact phrases — split long
+> queries across multiple directives for better recall. Falls back gracefully to
+> local Mneme FTS5 if Engram-rs is unavailable. Requires `engram.enabled: true`
+> in `.perseus/config.yaml`.
 
 ---
 
@@ -346,6 +349,19 @@ Your system prompt goes here. This is injected before the rendered content.
 
 ## Project Memory
 @memory focus=recent ttl=300
+
+## Long-Term Memory (Engram-rs)
+
+> 💡 **Query tips:** FTS5 treats multi-word queries as exact phrases.
+> Split long queries across multiple directives for better recall:
+> ```text
+> @memory mode=search query="short phrase" k=3
+> @memory mode=search query="another topic" k=2
+> ```
+> Falls back gracefully to local Mneme FTS5 if Engram-rs is unavailable.
+> Requires `engram.enabled: true` in `.perseus/config.yaml`.
+
+@memory mode=search query="project architecture setup build deploy" k=5
 
 ## Recent Sessions
 @session count=5 format=digest
