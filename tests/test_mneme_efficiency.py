@@ -1,7 +1,7 @@
 """
-test_engram_efficiency.py — Phase 3: Context Efficiency (Cost/Token Optimization)
+test_mneme_efficiency.py — Phase 3: Context Efficiency (Cost/Token Optimization)
 
-Validates that the hybrid Engram + Mneme approach is token-efficient.
+Validates that the hybrid Mneme + vault approach is token-efficient.
 Every token costs money, so we need to ensure:
 
 1. Deduplication is working — no redundant information
@@ -39,10 +39,10 @@ def _reset_connector_singleton():
 def _test_cfg(strategy="local_first"):
     _reset_connector_singleton()
     c = cfg()
-    c["engram"] = {
+    c["mneme"] = {
         "enabled": True,
         "transport": "stdio",
-        "command": ["/nonexistent/path/engram"],
+        "command": ["/nonexistent/path/mneme"],
         "timeout_s": 0.5,
         "merge_strategy": strategy,
         "decay_priority_weight": 0.4,
@@ -87,13 +87,13 @@ class TestTokenBudget:
     """Validate that merged & assembled context stays within token budgets."""
 
     def _connector(self, strategy="local_first"):
-        return perseus.EngramConnector(_test_cfg(strategy))
+        return perseus.MnemeConnector(_test_cfg(strategy))
 
     def test_merged_segment_stays_within_budget(self):
         """A merged result with 10 items should be well under 10K tokens."""
         conn = self._connector()
         local = []
-        engram = []
+        mneme_items = []
         for i in range(5):
             local.append(_make_hit(
                 f"l-{i}",
@@ -103,16 +103,16 @@ class TestTokenBudget:
                 "local", "architecture", decay=0.8 - i * 0.1,
             ))
         for i in range(5):
-            engram.append(_make_hit(
+            mneme_items.append(_make_hit(
                 f"e-{i}",
-                f"Engram memory item {i}: Historical context about the project's evolution from earlier prototypes. "
-                f"The v1 used flat JSON files, v2 introduced Mnemosyne with FTS5, and v3 (current) uses Engram-rs "
+                f"Mneme memory item {i}: Historical context about the project's evolution from earlier prototypes. "
+                f"The v1 used flat JSON files, v2 introduced Mnemosyne with FTS5, and v3 (current) uses Mneme "
                 f"with topic trees and Ebbinghaus decay modeling for automatic memory lifecycle management.",
-                "engram", "insight", decay=0.9 - i * 0.15,
+                "mneme", "insight", decay=0.9 - i * 0.15,
             ))
 
         merged = conn._merge_results(
-            local_items=local, engram_items=engram,
+            local_items=local, mneme_items=mneme_items,
             strategy=perseus.MergeStrategy.LOCAL_FIRST, diagnostics={},
         )
 
@@ -130,9 +130,9 @@ class TestTokenBudget:
 
         live = perseus.LiveStateSegment(workspace_path="/tmp/test", entries=live_entries)
         mem_items = [
-            _make_hit("mem-0", "Core architecture uses microkernel pattern for module isolation.", "engram", "architecture"),
+            _make_hit("mem-0", "Core architecture uses microkernel pattern for module isolation.", "mneme", "architecture"),
             _make_hit("mem-1", "Database driver chosen: SQLite FTS5 for zero-dependency guarantee.", "local", "decision"),
-            _make_hit("mem-2", "Build artifact perseus.py is generated from src/ via scripts/build.py.", "engram", "insight"),
+            _make_hit("mem-2", "Build artifact perseus.py is generated from src/ via scripts/build.py.", "mneme", "insight"),
         ]
         mem = perseus.MemorySegment(items=mem_items, strategy_used="local_first", total_available=3)
         pkg = perseus.ContextPackage(live_state=live, memory=mem, merge_strategy=perseus.MergeStrategy.LOCAL_FIRST)
@@ -154,7 +154,7 @@ class TestTokenBudget:
                 f"item-{i}",
                 f"Architecture note {i}: The system processes requests through a pipeline of {i % 5} stages, "
                 f"each with its own timeout and retry policy. Memory retrieval is cached for performance.",
-                "engram" if i % 2 == 0 else "local",
+                "mneme" if i % 2 == 0 else "local",
                 ["architecture", "decision", "insight"][i % 3],
                 decay=0.1 + (i % 10) * 0.09,
             ))
@@ -175,7 +175,7 @@ class TestDeduplicationEfficiency:
     """Measure how much token waste is eliminated by deduplication."""
 
     def _connector(self):
-        return perseus.EngramConnector(_test_cfg())
+        return perseus.MnemeConnector(_test_cfg())
 
     def test_dedup_eliminates_duplicate_tokens(self):
         """Identical content in both sources → only one copy in result.
@@ -190,10 +190,10 @@ class TestDeduplicationEfficiency:
         ) * 2  # make it long enough to matter
 
         local = [_make_hit("l-long", long_content, "local", "decision", decay=0.5)]
-        engram = [_make_hit("e-long", long_content, "engram", "decision", decay=0.9)]
+        mneme_items = [_make_hit("e-long", long_content, "mneme", "decision", decay=0.9)]
 
         merged = conn._merge_results(
-            local_items=local, engram_items=engram,
+            local_items=local, mneme_items=mneme_items,
             strategy=perseus.MergeStrategy.LOCAL_FIRST, diagnostics={},
         )
 
@@ -216,15 +216,15 @@ class TestDeduplicationEfficiency:
         local = [_make_hit(f"l-shared-{i}", shared_contents[i], "local", "architecture") for i in range(5)]
         local += [_make_hit(f"l-unique-{i}", f"Local-only operational note #{i}: Daily health check runs at 0600 UTC.", "local", "insight") for i in range(5)]
 
-        engram = [_make_hit(f"e-shared-{i}", shared_contents[i], "engram", "architecture", decay=0.85) for i in range(5)]
-        engram += [_make_hit(f"e-unique-{i}", f"Engram-only historical context #{i}: Original prototype used JSON flat files.", "engram", "insight", decay=0.3) for i in range(5)]
+        mneme_items = [_make_hit(f"e-shared-{i}", shared_contents[i], "mneme", "architecture", decay=0.85) for i in range(5)]
+        mneme_items += [_make_hit(f"e-unique-{i}", f"Mneme-only historical context #{i}: Original prototype used JSON flat files.", "mneme", "insight", decay=0.3) for i in range(5)]
 
         merged = conn._merge_results(
-            local_items=local, engram_items=engram,
+            local_items=local, mneme_items=mneme_items,
             strategy=perseus.MergeStrategy.LOCAL_FIRST, diagnostics={},
         )
 
-        # Total items: 5 shared + 5 local-only + 5 engram-only = 15
+        # Total items: 5 shared + 5 local-only + 5 mneme-only = 15
         assert len(merged.items) == 15
 
         # Without dedup: 10 local + 10 engram = 20 items
@@ -238,11 +238,11 @@ class TestDeduplicationEfficiency:
         conn = self._connector()
         shared = "This is a shared memory that exists in both local and remote stores."
         local = [_make_hit("l-dup", shared, "local", "insight")]
-        engram = [_make_hit("e-dup", shared, "engram", "insight")]
+        mneme_items = [_make_hit("e-dup", shared, "mneme", "insight")]
 
         diag = {}
         conn._merge_results(
-            local_items=local, engram_items=engram,
+            local_items=local, mneme_items=mneme_items,
             strategy=perseus.MergeStrategy.LOCAL_FIRST, diagnostics=diag,
         )
         # Diagnostics should show dedup activity
@@ -257,18 +257,18 @@ class TestInformationDensity:
     """Measure unique information per token — the core efficiency metric."""
 
     def _connector(self):
-        return perseus.EngramConnector(_test_cfg())
+        return perseus.MnemeConnector(_test_cfg())
 
     def test_all_unique_content_high_density(self):
         """When all items are unique, information density approaches 1.0."""
         conn = self._connector()
         items = [
-            _make_hit(f"item-{i}", f"Unique content piece number {i} with specific details about component {chr(65+i)}.", "engram", "insight")
+            _make_hit(f"item-{i}", f"Unique content piece number {i} with specific details about component {chr(65+i)}.", "mneme", "insight")
             for i in range(10)
         ]
 
         merged = conn._merge_results(
-            local_items=items[:5], engram_items=items[5:],
+            local_items=items[:5], mneme_items=items[5:],
             strategy=perseus.MergeStrategy.INTERLEAVE, diagnostics={},
         )
 
@@ -283,9 +283,9 @@ class TestInformationDensity:
         conn = self._connector()
         shared = "Repeated content across multiple items. This represents redundant information that should be deduplicated."
         redundant_items = [
-            _make_hit("r-1", shared, "engram", "insight"),
+            _make_hit("r-1", shared, "mneme", "insight"),
             _make_hit("r-2", shared, "local", "insight"),
-            _make_hit("r-3", "Unique item with different information that adds value.", "engram", "insight"),
+            _make_hit("r-3", "Unique item with different information that adds value.", "mneme", "insight"),
         ]
 
         # Before merge (without dedup): 3 items, 2 share same content
@@ -296,7 +296,7 @@ class TestInformationDensity:
         # After merge (with dedup): should have 2 items
         merged = conn._merge_results(
             local_items=[redundant_items[1]],  # local: r-2
-            engram_items=[redundant_items[0], redundant_items[2]],  # engram: r-1 (same) + r-3 (unique)
+            mneme_items=[redundant_items[0], redundant_items[2]],  # engram: r-1 (same) + r-3 (unique)
             strategy=perseus.MergeStrategy.LOCAL_FIRST, diagnostics={},
         )
 
@@ -312,16 +312,16 @@ class TestInformationDensity:
         """Core metric: information density with 50 items, 40% duplicates."""
         conn = self._connector()
         unique_bases = [f"Unique architectural insight #{i}: details about module {i}." for i in range(30)]
-        duplicate_pairs = [f"Shared content block #{j} that appears in both local and engram stores." for j in range(10)]
+        duplicate_pairs = [f"Shared content block #{j} that appears in both local and mneme stores." for j in range(10)]
 
         local = [_make_hit(f"l-u-{i}", unique_bases[i], "local", "architecture") for i in range(15)]
-        engram = [_make_hit(f"e-u-{i}", unique_bases[i+15], "engram", "architecture") for i in range(15)]
+        mneme_items = [_make_hit(f"e-u-{i}", unique_bases[i+15], "mneme", "architecture") for i in range(15)]
         for j in range(10):
             local.append(_make_hit(f"l-dup-{j}", duplicate_pairs[j], "local", "decision"))
-            engram.append(_make_hit(f"e-dup-{j}", duplicate_pairs[j], "engram", "decision", decay=0.8))
+            mneme_items.append(_make_hit(f"e-dup-{j}", duplicate_pairs[j], "mneme", "decision", decay=0.8))
 
         merged = conn._merge_results(
-            local_items=local, engram_items=engram,
+            local_items=local, mneme_items=mneme_items,
             strategy=perseus.MergeStrategy.LOCAL_FIRST, diagnostics={},
         )
 
@@ -352,7 +352,7 @@ class TestStrategyTokenProfiles:
 
     def _merge_with_strategy(self, strategy_name):
         _reset_connector_singleton()
-        conn = perseus.EngramConnector(_test_cfg(strategy_name))
+        conn = perseus.MnemeConnector(_test_cfg(strategy_name))
         strategy_enum = {
             "local_first": perseus.MergeStrategy.LOCAL_FIRST,
             "remote_first": perseus.MergeStrategy.REMOTE_FIRST,
@@ -365,14 +365,14 @@ class TestStrategyTokenProfiles:
             _make_hit("l-b", "Local B: Monitoring uses Prometheus with 15s scrape interval.", "local", "insight", decay=0.85),
             _make_hit("l-c", "Local C: Recent hotfix for auth race condition deployed today.", "local", "decision", decay=1.0),
         ]
-        engram = [
-            _make_hit("e-x", "Engram X: Historical deployment was on port 3000 without TLS.", "engram", "architecture", decay=0.15),
-            _make_hit("e-y", "Engram Y: Monitoring was originally done with Grafana Cloud.", "engram", "insight", decay=0.25),
-            _make_hit("e-z", "Engram Z: Auth module was originally OAuth-only, no JWT.", "engram", "decision", decay=0.10),
+        mneme_items = [
+            _make_hit("e-x", "Engram X: Historical deployment was on port 3000 without TLS.", "mneme", "architecture", decay=0.15),
+            _make_hit("e-y", "Engram Y: Monitoring was originally done with Grafana Cloud.", "mneme", "insight", decay=0.25),
+            _make_hit("e-z", "Engram Z: Auth module was originally OAuth-only, no JWT.", "mneme", "decision", decay=0.10),
         ]
 
         return conn._merge_results(
-            local_items=local, engram_items=engram,
+            local_items=local, mneme_items=mneme_items,
             strategy=strategy_enum, diagnostics={},
         )
 
@@ -439,7 +439,7 @@ class TestRealWorldSimulation:
             _make_hit("arch-1",
                 "The Perseus context engine uses a microkernel architecture where each module (Sense, Memory, Agora) "
                 "operates as an isolated component. The core router handles directive parsing and module dispatch.",
-                "engram", "architecture", decay=0.88),
+                "mneme", "architecture", decay=0.88),
             _make_hit("dec-1",
                 "SQLite FTS5 was chosen for local Mneme search because: (1) zero external dependency — everything "
                 "ships in one file, (2) FTS5 provides BM25 ranking adequate for our use case, (3) sqlite-vec "
@@ -448,12 +448,12 @@ class TestRealWorldSimulation:
             _make_hit("ins-1",
                 "perseus.py is a BUILD ARTIFACT generated by scripts/build.py from src/ modules. NEVER edit it "
                 "directly — always edit src/ and rebuild. Merge conflicts resolved with --ours then rebuild.",
-                "engram", "insight", decay=0.92),
+                "mneme", "insight", decay=0.92),
             _make_hit("arch-2",
-                "The Engram-rs bridge uses MCP stdio transport: it spawns 'engram serve --mcp' as a subprocess "
+                "The Mneme bridge uses MCP stdio transport: it spawns 'mneme serve --mcp' as a subprocess "
                 "and communicates via JSON-RPC over stdin/stdout. The SSE transport is available as a stub "
                 "for future dockerized deployments.",
-                "engram", "architecture", decay=0.85),
+                "mneme", "architecture", decay=0.85),
             _make_hit("dec-2",
                 "Circuit breaker thresholds: 3 consecutive failures trigger OPEN state, 120s cooldown before "
                 "HALF_OPEN probe. These values were chosen to balance fast failure detection with false positive "
@@ -462,7 +462,7 @@ class TestRealWorldSimulation:
             _make_hit("ins-2",
                 "Perseus watch daemon auto-refreshes AGENTS.md every 900s. Since the container has no cron/systemd, "
                 "the daemon runs as a persistent background process with configurable interval via --interval flag.",
-                "engram", "insight", decay=0.72),
+                "mneme", "insight", decay=0.72),
             _make_hit("arch-3",
                 "Mnemosyne v3.3.0 uses FTS5 with optional vector embeddings via sqlite-vec. The database is stored "
                 "at ~/.hermes/mnemosyne/data/mnemosyne.db. Mnemosyne scores with embeddings active show improved recall.",
@@ -470,7 +470,7 @@ class TestRealWorldSimulation:
             _make_hit("dec-3",
                 "PERSEUS_ALLOW_DANGEROUS=1 is a defense-in-depth security gate added in v1.0.6 to prevent accidental "
                 "shell execution. Even when config allows @query/@agent shell access, this env var must be set.",
-                "engram", "decision", decay=0.60),
+                "mneme", "decision", decay=0.60),
         ]
 
         mem = perseus.MemorySegment(items=mem_items, strategy_used="local_first", total_available=8)
@@ -509,7 +509,7 @@ class TestRealWorldSimulation:
         ]
         local_tokens = sum(_estimate_tokens(item.content) for item in local_only_items)
 
-        # Hybrid: 5 local + 5 engram items, 2 shared (verified)
+        # Hybrid: 5 local + 5 mneme items, 2 shared (verified)
         shared_content = [
             "Auth uses JWT with 15min expiry — same as local.",  # shared
             "Cache: Redis for session store — identical content.",  # shared
@@ -522,17 +522,17 @@ class TestRealWorldSimulation:
             _make_hit("hl-5", shared_content[1], "local", "decision"),
         ]
         hybrid_engram = [
-            _make_hit("he-1", shared_content[0], "engram", "decision", decay=0.9),
-            _make_hit("he-2", shared_content[1], "engram", "decision", decay=0.85),
-            _make_hit("he-3", "Historical: port was 3000 before migration, no TLS before v2.", "engram", "architecture", decay=0.15),
-            _make_hit("he-4", "Original monitoring: Grafana Cloud, expensive at scale.", "engram", "insight", decay=0.2),
-            _make_hit("he-5", "Decision to migrate to Prometheus: cost savings of $400/mo.", "engram", "decision", decay=0.45),
+            _make_hit("he-1", shared_content[0], "mneme", "decision", decay=0.9),
+            _make_hit("he-2", shared_content[1], "mneme", "decision", decay=0.85),
+            _make_hit("he-3", "Historical: port was 3000 before migration, no TLS before v2.", "mneme", "architecture", decay=0.15),
+            _make_hit("he-4", "Original monitoring: Grafana Cloud, expensive at scale.", "mneme", "insight", decay=0.2),
+            _make_hit("he-5", "Decision to migrate to Prometheus: cost savings of $400/mo.", "mneme", "decision", decay=0.45),
         ]
 
         _reset_connector_singleton()
-        conn = perseus.EngramConnector(_test_cfg())
+        conn = perseus.MnemeConnector(_test_cfg())
         merged = conn._merge_results(
-            local_items=hybrid_local, engram_items=hybrid_engram,
+            local_items=hybrid_local, mneme_items=hybrid_engram,
             strategy=perseus.MergeStrategy.LOCAL_FIRST, diagnostics={},
         )
 
@@ -561,7 +561,7 @@ class TestRealWorldSimulation:
         c = _test_cfg()
         # With a very small max_results, even large inputs should produce small output
         local_items = [_make_hit(f"l-{i}", f"Local memory {i}", "local", "insight") for i in range(100)]
-        mseg = perseus._engram_hybrid_search(
+        mseg = perseus._mneme_hybrid_search(
             cfg=c, query="test", workspace="/tmp/test",
             local_hits=[{"id": f"x-{i}", "content": f"c{i}"} for i in range(100)],
             max_results=5,
