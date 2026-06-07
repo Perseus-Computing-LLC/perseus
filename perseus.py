@@ -4620,6 +4620,7 @@ def resolve_agent(args_str: str, cfg: dict, workspace: Path | None = None) -> st
                     args=args_str[:200])
         return (
             "> ⚠ @agent is enabled in config but PERSEUS_ALLOW_DANGEROUS=1 is not set.\n"
+            "> Fix: export PERSEUS_ALLOW_DANGEROUS=1\n"
             "> This is a defense-in-depth gate to prevent accidental shell execution.\n"
             "> Set the environment variable to acknowledge the risk."
         )
@@ -5463,7 +5464,7 @@ def _check_one_service(svc: dict, index: int, timeout: float, cfg: dict) -> tupl
                         reason="PERSEUS_ALLOW_DANGEROUS not set",
                         service=name,
                         command=command[:300])
-            return index, f"| {name} | ⚠ PERSEUS_ALLOW_DANGEROUS not set | — |"
+            return index, f"| {name} | ⚠ PERSEUS_ALLOW_DANGEROUS not set — Fix: export PERSEUS_ALLOW_DANGEROUS=1 | — |"
         # Run arbitrary shell command; success = exit 0
         audit_event(cfg, "shell_exec",
                     directive="@services",
@@ -16625,7 +16626,16 @@ def cmd_render(args, cfg):
     if output:
         out_path = Path(output)
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(rendered, encoding="utf-8")
+        # Preserve existing file ownership if output already exists (#228)
+        if out_path.exists():
+            st = out_path.stat()
+            out_path.write_text(rendered, encoding="utf-8")
+            try:
+                os.chown(out_path, st.st_uid, st.st_gid)
+            except OSError:
+                pass  # chown may fail in containers without CAP_CHOWN
+        else:
+            out_path.write_text(rendered, encoding="utf-8")
     else:
         print(rendered)
 

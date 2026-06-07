@@ -70,7 +70,16 @@ def cmd_render(args, cfg):
     if output:
         out_path = Path(output)
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(rendered, encoding="utf-8")
+        # Preserve existing file ownership if output already exists (#228)
+        if out_path.exists():
+            st = out_path.stat()
+            out_path.write_text(rendered, encoding="utf-8")
+            try:
+                os.chown(out_path, st.st_uid, st.st_gid)
+            except OSError:
+                pass  # chown may fail in containers without CAP_CHOWN
+        else:
+            out_path.write_text(rendered, encoding="utf-8")
     else:
         print(rendered)
 

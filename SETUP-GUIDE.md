@@ -100,6 +100,14 @@ perseus render .perseus/context.md
 perseus render .perseus/context.md --output AGENTS.md
 ```
 
+> **⚠️ Minions (Hermes WebUI) users:** The WebUI worker reads `AGENTS.md` from a
+> fixed path: `/opt/data/webui/minions/.minions-data/workspace/AGENTS.md`.
+> Rendering to `~/AGENTS.md` or a project workspace will NOT be picked up by
+> the WebUI. If you're running Perseus inside the Hermes WebUI container, use:
+> ```bash
+> perseus render .perseus/context.md --output /opt/data/webui/minions/.minions-data/workspace/AGENTS.md
+> ```
+
 > **Scaffold quality note:** `perseus init` generates a starter `context.md` with
 > `@prompt` (including Memory Backend Policy), `@waypoint`, `@query`, `@skills`,
 > `@services`, `@session`, `@memory` (narrative + Engram-rs search), and
@@ -594,14 +602,15 @@ engram --version   # expect "engram 0.1.0"
 > three-layer memory progression are deferred to v0.2+.
 >
 > **Binary path:** Use the full absolute path in config. The render subprocess may not
-> have `~/.local/bin/` in PATH:
+> have `~/.local/bin/` in PATH. On containers (Docker/Unraid), paths under `/root/` are
+> inaccessible to the runtime user — use a persistent volume path instead:
 > ```yaml
 > engram:
 >   command:
->     - "/root/.local/bin/engram"   # or wherever cargo build placed it
+>     - "/usr/local/bin/engram"   # or ~/.local/bin/engram, or absolute path
 >     - "serve"
 >     - "--db"
->     - "/root/.perseus/engram/engram.db"
+>     - "~/.perseus/engram/engram.db"   # persistent, writable by runtime user
 > ```
 
 > **Merge strategies explained:**
