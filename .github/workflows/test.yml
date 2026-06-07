@@ -32,5 +32,6 @@ jobs:
 
       - name: Run test suite with coverage
         run: |
+          export PERSEUS_ALLOW_DANGEROUS=1
           coverage run -m pytest tests/ -q
           coverage report
