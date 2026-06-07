@@ -15,13 +15,57 @@ _PYTHON_HOOKS: dict[str, list] = {
 _HOOKS_LOADED_DIRS: set[str] = set()
 
 
+# ── #168 Security gate helpers ───────────────────────────────────────────────
+
+def _hooks_workspace_sourced(cfg: dict) -> bool:
+    """True iff the hooks section was sourced from a workspace config file."""
+    return bool(cfg.get("_provenance", {}).get("hooks_workspace_sourced", False))
+
+
+def _hooks_workspace_allowed(cfg: dict) -> bool:
+    """True iff workspace-sourced hooks are explicitly allowed.
+
+    Defense in depth (#168):
+      1. Global config sets hooks.allow_workspace_sourced: true
+      2. Env var PERSEUS_ALLOW_DANGEROUS=1
+    """
+    hooks_cfg = cfg.get("hooks", {})
+    global_opt_in = bool(hooks_cfg.get("allow_workspace_sourced", False))
+    env_opt_in = os.environ.get("PERSEUS_ALLOW_DANGEROUS", "") == "1"
+    return global_opt_in and env_opt_in
+
+
 def register_hooks(cfg: dict, force: bool = False) -> int:
     """Discover Python hooks from ~/.perseus/hooks/*.py. Idempotent.
 
     Hook modules are imported and any function matching a lifecycle event
     name (e.g. on_render_start) is registered as a callback.
+
+    #168 (v1.0.6): workspace-sourced hooks.dir configuration is refused
+    unless explicitly opted in via global hooks.allow_workspace_sourced
+    AND PERSEUS_ALLOW_DANGEROUS=1. Without the gate, a malicious workspace
+    could ship arbitrary Python that executes at import time.
     """
     if not cfg.get("hooks", {}).get("enabled", True):
+        return 0
+
+    # ── #168: workspace-sourced hooks.dir refused without explicit opt-in ──
+    if _hooks_workspace_sourced(cfg) and not _hooks_workspace_allowed(cfg):
+        hooks_dir_preview = str(cfg.get("hooks", {}).get("dir", ""))[:200]
+        try:
+            audit_event(
+                cfg,
+                "hooks_workspace_refused",
+                reason="hooks.dir sourced from workspace config without opt-in",
+                dir=hooks_dir_preview,
+                hint=(
+                    "Set hooks.allow_workspace_sourced: true in global "
+                    "~/.perseus/config.yaml AND export "
+                    "PERSEUS_ALLOW_DANGEROUS=1 to enable workspace hooks."
+                ),
+            )
+        except Exception:
+            pass
         return 0
 
     hooks_dir = Path(cfg.get("hooks", {}).get("dir", str(PERSEUS_HOME / "hooks")))
@@ -83,6 +127,24 @@ def _fire_hooks(event: str, payload: dict, cfg: dict) -> None:
     elif isinstance(event_cfg, dict):
         # Support both 'command' (singular per list item) and 'commands' (list in dict)
         commands = event_cfg.get("commands", [])
+
+    # ── #168: workspace-sourced shell hooks refused without explicit opt-in ──
+    if commands and _hooks_workspace_sourced(cfg) and not _hooks_workspace_allowed(cfg):
+        try:
+            audit_event(
+                cfg,
+                "hooks_workspace_shell_refused",
+                event=event,
+                count=len(commands),
+                hint=(
+                    "Set hooks.allow_workspace_sourced: true in global "
+                    "~/.perseus/config.yaml AND export "
+                    "PERSEUS_ALLOW_DANGEROUS=1 to enable workspace hooks."
+                ),
+            )
+        except Exception:
+            pass
+        return
 
     for hook in commands:
         cmd = None
