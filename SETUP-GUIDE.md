@@ -379,6 +379,7 @@ Your system prompt goes here. This is injected before the rendered content.
 ## Structured Memory (Sibyl)
 @cache ttl=300
 @sibyl query="current focus decisions" tiers=entity,state
+> Note: `@sibyl` is an informational placeholder. Sibyl Memory context is injected automatically by the render pipeline when `SIBYL_MEMORY_ENABLED=1` — no directive resolver needed.
 
 ## Recent Sessions
 @session count=5 format=digest
@@ -669,10 +670,13 @@ Or via environment: `export SIBYL_MEMORY_ENABLED=1`
 **Use in context.md:**
 
 ```markdown
+## Structured Memory (Sibyl)
 @sibyl query="current focus decisions" tiers=entity,state
 ```
 
-**Degradation:** If `sibyl-memory-client` is not installed, the DB is missing, or search returns nothing, the directive renders empty — no crash, no error. Off by default.
+> The `@sibyl` line is an informational placeholder. Actual Sibyl Memory context is injected automatically by the render pipeline when enabled — no directive resolver needed. The line documents what's being queried so users know what's in their context.
+
+**Degradation:** If `sibyl-memory-client` is not installed, the DB is missing, or search returns nothing, the injected block is empty — no crash, no error. Off by default.
 
 **Free tier:** 2 MB local storage cap. Paid tiers (stake/subscription) unlock self-learning skill proposals, memory linter, and remove the cap. See [sibyllabs.org/plugin](https://sibyllabs.org/plugin).
 
