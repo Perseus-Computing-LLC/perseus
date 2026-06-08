@@ -5,7 +5,7 @@
 > **Perseus version tested:** v1.0.6  
 > **Platforms verified:** macOS · Linux · Windows 10 (git-bash) · Docker  
 > **Source:** https://github.com/tcconnally/perseus · https://pypi.org/project/perseus-ctx/  
-> **New in this version:** Engram-rs MCP hybrid memory connector (Project Synapse)
+> **New in this version:** Mneme MCP hybrid memory connector (Project Synapse) · Sibyl Memory integration (structured five-tier memory)
 
 ---
 
@@ -59,18 +59,8 @@ uv tool install perseus-ctx
 pip install perseus-ctx
 
 # verify
-which perseus
 perseus --version
 ```
-
-> **Upgrading from legacy `scripts/install.sh`:** If you ever installed Perseus via the old shim-based installer, remove the stale shim before using the PyPI package or it may shadow the correct binary:
-> ```bash
-> rm -f ~/.local/bin/perseus
-> rm -f ~/.local/share/perseus/perseus.py
-> pip install --upgrade perseus-ctx
-> which perseus
-> perseus --version
-> ```
 
 > **Windows note:** `uv` may warn that `~/.local/bin` is not on your PATH. Add this to your shell rc:
 > ```bash
@@ -110,15 +100,6 @@ perseus render .perseus/context.md
 perseus render .perseus/context.md --output AGENTS.md
 ```
 
-**Post-setup verification:**
-
-```bash
-which perseus
-perseus --version
-perseus doctor
-PERSEUS_ALLOW_DANGEROUS=1 perseus render ~/.perseus/context.md
-```
-
 > **⚠️ Minions (Hermes WebUI) users:** The WebUI worker reads `AGENTS.md` from a
 > fixed path: `/opt/data/webui/minions/.minions-data/workspace/AGENTS.md`.
 > Rendering to `~/AGENTS.md` or a project workspace will NOT be picked up by
@@ -129,17 +110,17 @@ PERSEUS_ALLOW_DANGEROUS=1 perseus render ~/.perseus/context.md
 
 > **Scaffold quality note:** `perseus init` generates a starter `context.md` with
 > `@prompt` (including Memory Backend Policy), `@waypoint`, `@query`, `@skills`,
-> `@services`, `@session`, `@memory` (narrative + Engram-rs search), and
+> `@services`, `@session`, `@memory` (narrative + Mneme search), and
 > `@memory mode=search` directives. The scaffold is functional but minimal — it
 > includes one example `@services` check and a few `@query` probes. After init,
 > you'll want to customize the `@services` block with your actual services, replace
 > the example `@query` commands with your own helpers (see helper script guidance
 > below), and add `@agora`, `@inbox`, and `@health` directives if you need them.
 >
-> The `@memory mode=search` directive queries Engram-rs persistent memory (FTS5).
+> The `@memory mode=search` directive queries Mneme persistent memory (FTS5).
 > **Query tip:** FTS5 treats multi-word queries as exact phrases — split long
 > queries across multiple directives for better recall. Falls back gracefully to
-> local Mneme FTS5 if Engram-rs is unavailable. Requires `engram.enabled: true`
+> local Mneme FTS5 if Mneme is unavailable. Requires `mneme.enabled: true`
 > in `.perseus/config.yaml`.
 
 ---
@@ -196,7 +177,7 @@ memory:
   compaction_threshold: 200
 
 agora:
-  tasks_dir: /Users/yourname/tasks
+  task_dir: /Users/yourname/tasks
   default_owner: yourname
 
 render:
@@ -227,12 +208,6 @@ trust:
 > ```
 > If missing, these directives will render as disabled even when `render.allow_query_shell: true`.
 
-> **First-time enablement gotcha:** If you enable `PERSEUS_ALLOW_DANGEROUS=1` after a previous render, stale `@cache` entries may still contain the old warning text. Clear cache and re-render:
-> ```bash
-> rm -f ~/.perseus/cache/*.json
-> PERSEUS_ALLOW_DANGEROUS=1 perseus render ~/.perseus/context.md --output ~/AGENTS.md
-> ```
-
 ### Full annotated config (production)
 
 ```yaml
@@ -255,20 +230,15 @@ memory:
   # narrative_file and mneme_vault_path are legacy fields; current versions use
   # ~/.perseus/memory/<sha256_hash>.md (see Workspace Hash section below)
 
-engram:                                 # Project Synapse — Engram-rs MCP-based persistent memory
-  enabled: true                         # Master switch for hybrid (Mnēmē + Engram-rs) resolution
-  transport: "stdio"                    # "stdio" (local engram binary) or "sse" (remote endpoint)
-  command:
-    - "/Users/yourname/.local/bin/engram"   # use full absolute path; find with `which engram`
-    - "serve"
-    - "--mcp"
-    - "--db"
-    - "/Users/yourname/.perseus/engram/engram.db"
+mneme:                                 # Project Synapse — Mneme MCP-based persistent memory
+  enabled: true                         # Master switch for hybrid (Mnēmē + Mneme) resolution
+  transport: "stdio"                    # "stdio" (local mneme binary) or "sse" (remote endpoint)
+  command: [mneme, serve, --mcp]       # Command to launch Mneme in MCP mode
   endpoint: ""                          # SSE endpoint URL (only used when transport=sse)
   timeout_s: 10.0
   merge_strategy: "local_first"         # local_first | remote_first | interleave | decay_first
-  decay_priority_weight: 0.4            # Weight of Engram's decay_score in merge ordering (0.0–1.0)
-  fallback_to_local: true               # Use Mnēmē FTS5 when Engram-rs is unreachable
+  decay_priority_weight: 0.4            # Weight of Mneme's decay_score in merge ordering (0.0–1.0)
+  fallback_to_local: true               # Use Mnēmē FTS5 when Mneme is unreachable
   circuit_breaker:
     threshold: 3                        # Consecutive failures before opening circuit
     cooldown: 120                       # Seconds before attempting recovery
@@ -276,8 +246,13 @@ engram:                                 # Project Synapse — Engram-rs MCP-base
     max_attempts: 3
     backoff_base: 1.5
 
+sibyl_memory:                           # Sibyl Memory — structured five-tier local memory (MIT licensed)
+  enabled: true                         # Opt-in: off by default unless SIBYL_MEMORY_ENABLED=1
+  db_path: ~/.sibyl-memory/memory.db    # Default path; set SIBYL_MEMORY_DB_PATH to override
+  max_tokens: 1500                      # Token budget for injected context block
+
 agora:
-  tasks_dir: /Users/yourname/tasks
+  task_dir: /Users/yourname/tasks
   default_owner: yourname
 
 serve:
@@ -388,7 +363,7 @@ Your system prompt goes here. This is injected before the rendered content.
 ## Project Memory
 @memory focus=recent ttl=300
 
-## Long-Term Memory (Engram-rs)
+## Long-Term Memory (Mneme)
 
 > 💡 **Query tips:** FTS5 treats multi-word queries as exact phrases.
 > Split long queries across multiple directives for better recall:
@@ -396,10 +371,14 @@ Your system prompt goes here. This is injected before the rendered content.
 > @memory mode=search query="short phrase" k=3
 > @memory mode=search query="another topic" k=2
 > ```
-> Falls back gracefully to local Mneme FTS5 if Engram-rs is unavailable.
-> Requires `engram.enabled: true` in `.perseus/config.yaml`.
+> Falls back gracefully to local Mneme FTS5 if Mneme is unavailable.
+> Requires `mneme.enabled: true` in `.perseus/config.yaml`.
 
 @memory mode=search query="project architecture setup build deploy" k=5
+
+## Structured Memory (Sibyl)
+@cache ttl=300
+@sibyl query="current focus decisions" tiers=entity,state
 
 ## Recent Sessions
 @session count=5 format=digest
@@ -420,13 +399,9 @@ Your system prompt goes here. This is injected before the rendered content.
 @health
 ```
 
-> **Header version:** Use the exact installed version in your header (for example, `@perseus v1.0.6`). Older guides
-> may show `@perseus v1.0` — both work within v1.x, but always prefer the version that matches your
+> **Header version:** Use `@perseus v1.0.6` (the version `perseus init` generates). Older guides
+> may show `@perseus v1.0` — both work within v1.x, but always use the version that matches your
 > installed Perseus. A mismatched header won't error, but new directive features may not activate.
-> Check with:
-> ```bash
-> perseus --version
-> ```
 >
 > **Service command gotcha:** Command-type service checks (`command:`) run in Perseus's shell
 > context, which may have minimal `PATH` and a different `$HOME` than your interactive shell.
@@ -589,60 +564,49 @@ memory:
 > ⚠️ `perseus memory update --llm none` crashes. See [#130](https://github.com/tcconnally/perseus/issues/130).
 > To force deterministic mode: omit `--llm` flag (leave `llm_provider` unset in config).
 
-### Engram-rs Hybrid Resolution (optional — persistent keyword memory)
+### Mneme Hybrid Resolution (optional — persistent keyword memory)
 
-Perseus supports an optional second memory layer via [Engram-rs](https://github.com/tcconnally/engram-rs), a Rust-based persistent memory engine that provides SQLite FTS5 keyword search with circuit breaker resilience — going beyond Mnēmē's single-process keyword search.
+Perseus supports an optional second memory layer via [Mneme](https://github.com/tcconnally/mneme), a Rust-based persistent memory engine that provides SQLite FTS5 keyword search with circuit breaker resilience — going beyond Mnēmē's single-process keyword search.
 
 When enabled, `@memory` runs a **three-step hybrid resolution**:
 
 | Step | Layer | What it provides |
 |---|---|---|
 | A — Sense | Perseus (live) | Current environment, services, filesystem state |
-| B — Memory | Engram-rs (persistent) | Historical decisions, architecture, learned lessons |
+| B — Memory | Mneme (persistent) | Historical decisions, architecture, learned lessons |
 | C — Merge | Hybrid resolver | Combined ContextPackage with source tags and decay priority |
 
 **Configuration (in `~/.perseus/config.yaml`):**
 
 ```yaml
-engram:
+mneme:
   enabled: true                         # Master switch
   transport: "stdio"                    # stdio (local binary) or sse (remote)
-  command:
-    - "/Users/yourname/.local/bin/engram"   # use full absolute path; find with `which engram`
-    - "serve"
-    - "--mcp"
-    - "--db"
-    - "/Users/yourname/.perseus/engram/engram.db"
+  command: [mneme, serve, --mcp]       # Launch command for stdio transport
   merge_strategy: "local_first"         # local_first | remote_first | interleave | decay_first
-  fallback_to_local: true               # Graceful degradation: Mnēmē FTS5 if Engram offline
+  fallback_to_local: true               # Graceful degradation: Mnēmē FTS5 if Mneme offline
   circuit_breaker:
     threshold: 3                        # Failures before opening circuit
     cooldown: 120                       # Seconds before recovery attempt
 ```
 
-Before first use, create the database directory:
-
-```bash
-mkdir -p ~/.perseus/engram
-```
-
 **Installation:**
 
 ```bash
-# Engram-rs v0.1.0+ is built from source (not on crates.io):
-git clone https://github.com/tcconnally/engram-rs.git ~/.engram-rs
-cd ~/.engram-rs && cargo build --release
-cp target/release/engram ~/.local/bin/engram
+# Mneme v0.1.0+ is built from source (not on crates.io):
+git clone https://github.com/tcconnally/mneme.git ~/.mneme
+cd ~/.mneme && cargo build --release
+cp target/release/mneme ~/.local/bin/mneme
 
 # Or use the one-shot bootstrap:
-curl -sSL https://raw.githubusercontent.com/tcconnally/engram-rs/main/scripts/bootstrap.sh | bash
+curl -sSL https://raw.githubusercontent.com/tcconnally/mneme/main/scripts/bootstrap.sh | bash
 
 # Verify
-engram --version   # expect "engram 0.1.0"
+mneme --version   # expect "mneme 0.1.0"
 ```
 
-> **v0.1.0 MVP scope:** Engram-rs v0.1.0 is an MCP JSON-RPC stdio server with three tools:
-> `engram_store`, `engram_recall`, `engram_health`. It uses SQLite FTS5 for keyword search.
+> **v0.1.0 MVP scope:** Mneme v0.1.0 is an MCP JSON-RPC stdio server with three tools:
+> `mneme_store`, `mneme_recall`, `mneme_health`. It uses SQLite FTS5 for keyword search.
 > No embedding backend or LLM provider is needed. Vector search, Ebbinghaus decay, and
 > three-layer memory progression are deferred to v0.2+.
 >
@@ -650,28 +614,67 @@ engram --version   # expect "engram 0.1.0"
 > have `~/.local/bin/` in PATH. On containers (Docker/Unraid), paths under `/root/` are
 > inaccessible to the runtime user — use a persistent volume path instead:
 > ```yaml
-> engram:
+> mneme:
 >   command:
->     - "/usr/local/bin/engram"   # or ~/.local/bin/engram, or absolute path
+>     - "/usr/local/bin/mneme"   # or ~/.local/bin/mneme, or absolute path
 >     - "serve"
 >     - "--db"
->     - "~/.perseus/engram/engram.db"   # persistent, writable by runtime user
+>     - "~/.perseus/mneme/mneme.db"   # persistent, writable by runtime user
 > ```
 
 > **Merge strategies explained:**
-> - `local_first` — Mnēmē results first, then Engram results (default, safest)
-> - `remote_first` — Engram decay-prioritized results first, then Mnēmē
-> - `interleave` — Alternate rows between Engram/Mnēmē, sorted by decay score within each
-> - `decay_first` — All results sorted globally by Engram decay_score descending
+> - `local_first` — Mnēmē results first, then Mneme results (default, safest)
+> - `remote_first` — Mneme decay-prioritized results first, then Mnēmē
+> - `interleave` — Alternate rows between Mneme/Mnēmē, sorted by decay score within each
+> - `decay_first` — All results sorted globally by Mneme decay_score descending
 
-> **Verification:** After installing Engram-rs, restart `perseus watch`
-> (or re-render). The next `@memory` resolution uses Engram-rs via MCP.
-> Use `perseus doctor` plus a real render to confirm wiring.
-> If Engram-rs is unreachable, Perseus falls back to Mnēmē FTS5 silently
+> **Verification:** After installing Mneme, restart `perseus watch`
+> (or re-render). The next `@memory` resolution uses Mneme via MCP.
+> To confirm: run `perseus doctor` — it reports Mneme connectivity.
+> If Mneme is unreachable, Perseus falls back to Mnēmē FTS5 silently
 > (no crash, no visible error). The circuit breaker prevents permission
 > storms during outages.
->
-> **Fresh install note:** `@memory mode=search` may return no matches at first because the Engram database starts empty. This is expected. It becomes useful after Perseus has written memories over time through normal renders/checkpoints.
+
+### Sibyl Memory (optional — structured five-tier local memory)
+
+Perseus integrates with [Sibyl Memory](https://github.com/Sibyl-Labs/Sibyl-Memory), an MIT-licensed, local-first memory engine backed by SQLite and FTS5. It provides five structured memory tiers (HOT state, WARM entities, COLD journal, REFERENCE docs, ARCHIVE) with schema-level entity integrity — no vector DB, no embeddings, no cloud dependency.
+
+| Tier | Name | Purpose | API |
+|------|------|---------|-----|
+| HOT | state | Live working state, rewritten in place | `set_state()` / `get_state()` |
+| WARM | entities | Single source of truth per (category, name) | `set_entity()` / `get_entity()` |
+| COLD | journal | Append-only event log | `write_event()` / `read_events()` |
+| REFERENCE | reference | Static knowledge, rarely changes | `set_reference()` / `get_reference()` |
+| ARCHIVE | archive | Retired entities, kept for audit | `archive_entity()` |
+
+**Install:**
+
+```bash
+pip install sibyl-memory-client
+# No signup needed for local use. sibyl init is only for paid tier upgrades.
+```
+
+**Enable in Perseus:**
+
+```yaml
+# ~/.perseus/config.yaml (or env var)
+sibyl_memory:
+  enabled: true
+  db_path: ~/.sibyl-memory/memory.db
+  max_tokens: 1500
+```
+
+Or via environment: `export SIBYL_MEMORY_ENABLED=1`
+
+**Use in context.md:**
+
+```markdown
+@sibyl query="current focus decisions" tiers=entity,state
+```
+
+**Degradation:** If `sibyl-memory-client` is not installed, the DB is missing, or search returns nothing, the directive renders empty — no crash, no error. Off by default.
+
+**Free tier:** 2 MB local storage cap. Paid tiers (stake/subscription) unlock self-learning skill proposals, memory linter, and remove the cap. See [sibyllabs.org/plugin](https://sibyllabs.org/plugin).
 
 ### Writing checkpoints (the right way)
 
@@ -1044,42 +1047,6 @@ perseus memory index search --query "architecture" --k 5
 
 ## Troubleshooting
 
-### `perseus --version` shows old version after `pip install --upgrade`
-
-**Cause:** A stale shim from the legacy `./scripts/install.sh` installer at `~/.local/bin/perseus`
-shadows the pip-installed binary.
-
-**Fix:** Remove the legacy shim and reinstall:
-```bash
-rm -f ~/.local/bin/perseus ~/.local/share/perseus/perseus.py
-pip install --upgrade perseus-ctx
-perseus --version  # should show latest
-```
-
-Run `perseus doctor` to detect this condition automatically.
-
----
-
-### `git pull` fails with "divergent branches" / "ambiguous refname"
-
-**Cause:** A local branch named `origin/main` (created accidentally) shadows the remote
-tracking reference `remotes/origin/main`. Git can't resolve which one you mean.
-
-**Detection:**
-```bash
-git branch --list "origin/main"
-```
-If this returns a result, you have the shadow branch.
-
-**Fix:**
-```bash
-git branch -d origin/main
-git fetch origin
-git reset --hard remotes/origin/main
-```
-
----
-
 ### `@query` shows "disabled by config" even though `trust.allow_query_shell: true`
 
 **Cause:** Two separate config namespaces. `trust.allow_query_shell` is for audit display; `render.allow_query_shell` is the actual gate.
@@ -1289,6 +1256,6 @@ perseus doctor
 
 ---
 
-*Built from production experience wiring Perseus v1.0.6 into Hermes Agent, Rovo Dev CLI, and Rovo web agent — now with Engram-rs MCP hybrid memory (Project Synapse).*  
+*Built from production experience wiring Perseus v1.0.6 into Hermes Agent, Rovo Dev CLI, and Rovo web agent — now with Mneme MCP hybrid memory (Project Synapse).*  
 *Issues filed: [#128](https://github.com/tcconnally/perseus/issues/128) – [#135](https://github.com/tcconnally/perseus/issues/135)*  
 *Guide maintained at: `~/rovodev/docs/perseus-setup-guide.md` (canonical) · this copy: `~/Downloads/perseus-setup-guide.md`*

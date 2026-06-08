@@ -66,7 +66,7 @@ spec/                   ← Normative design specifications
 
 **Pythia** — The tool oracle. `perseus suggest "task"` assembles a live environment snapshot and ranks tool/skill paths for the work at hand.
 
-**Mnēmē** — Narrative project memory. Automatically distills checkpoints and oracle logs into a rolling project narrative (`@memory`). In v1.0.6, Mnēmē v2 gains an optional **Engram-rs hybrid accelerator** (Project Synapse) — MCP-based remote memory with Ebbinghaus time-decay, topic trees, and semantic + BM25 hybrid search. The `engram:` config block controls the bridge; local-only remains the zero-dependency default.
+**Mnēmē** — Narrative project memory. Automatically distills checkpoints and oracle logs into a rolling project narrative (`@memory`). In v1.0.6, Mnēmē v2 gains an optional **Mneme hybrid accelerator** (Project Synapse) — MCP-based remote memory with Ebbinghaus time-decay, topic trees, and semantic + BM25 hybrid search. The `mneme:` config block controls the bridge; local-only remains the zero-dependency default.
 
 **Agora** — The async agent coordination substrate. `tasks/*.md` with YAML frontmatter; any AI contributor can pick up and work a task without synchronous handoff.
 
