@@ -215,7 +215,7 @@ Published as [`io.github.tcconnally/perseus`](https://registry.modelcontextproto
 | `perseus_session` | Recent session digests |
 | `perseus_health` | Context maintenance report |
 | `perseus_drift` | Oracle drift report |
-| `perseus_memory` | Mnēmē narrative memory (+ Mneme hybrid) |
+| `perseus_memory` | Mnēmē narrative memory (+ Sibyl persistent store, Mneme optional) |
 | `perseus_mneme` | Recall persistent memories via in-process BM25 |
 | `perseus_skills` | List available skills with staleness flags |
 | `perseus_include` | Include and render another file |
