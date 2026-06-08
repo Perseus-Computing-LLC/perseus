@@ -947,6 +947,7 @@ class DirectiveSpec(NamedTuple):
     diagnostic_fn: "Callable | None" = None  # Optional per-directive LSP diagnostic (task-25)
     source: str = "builtin"             # task-65: "builtin" for shipped specs, "plugin" for ~/.perseus/plugins/*.py
     tier: int = 1                       # Context tier: 1=always, 2=conditional, 3=on-demand
+    is_semantic_hint: bool = False       # If True, the directive's value is a valid search hint for Sibyl Memory / Mneme
 
 
 # NOTE: resolver references are forward-declared as strings and bound after
@@ -961,7 +962,7 @@ def _bind_registry() -> None:
         # Tier 1 — Always (lightweight, core context)
         DirectiveSpec("@date",      resolve_date,      ["format="],                "inline",  "a",   cacheable=False, safe_for_hover=True, summary="Current date/time", output_schema={"type": "str", "pattern": ".+"}, tier=1),
         DirectiveSpec("@waypoint",  resolve_waypoint,  ["ttl="],                   "inline",  "ac",  reads_files=True, cacheable=True, summary="Latest checkpoint summary", tier=1),
-        DirectiveSpec("@memory",    resolve_memory,    ["mode=", "query=", "scope=", "k=", "type=", "render=", "focus=", "federation", "include_federation=", "alias=", "workspace="], "inline", "acw", reads_files=True, cacheable=True, summary="Mnēmē v2 — unified memory search + narrative + federation", diagnostic_fn=_memory_federation_diagnostic, tier=1),
+        DirectiveSpec("@memory",    resolve_memory,    ["mode=", "query=", "scope=", "k=", "type=", "render=", "focus=", "federation", "include_federation=", "alias=", "workspace="], "inline", "acw", reads_files=True, cacheable=True, summary="Mnēmē v2 — unified memory search + narrative + federation", diagnostic_fn=_memory_federation_diagnostic, tier=1, is_semantic_hint=True),
         DirectiveSpec("@auto-skill", resolve_auto_skill, ["skill="],              "inline",  "ac",  cacheable=True,  safe_for_hover=True, summary="Instruct agent to load a skill before work begins", tier=1),
         DirectiveSpec("@health",    resolve_health,    [],                         "inline",  "acw", reads_files=True, summary="Context maintenance report", tier=1),
         DirectiveSpec("@env",       resolve_env,       ["required=", "fallback=", "schema="], "inline", "acw", cacheable=False, safe_for_hover=True, summary="Embed environment variable", tier=1),
@@ -974,7 +975,7 @@ def _bind_registry() -> None:
         DirectiveSpec("@inbox",     resolve_inbox,     ["unread=", "limit="],      "inline",  "acw", reads_files=True, cacheable=True, summary="Agent message inbox", tier=2),
         DirectiveSpec("@drift",     resolve_drift,     [],                         "inline",  "ac",  reads_files=True, summary="Oracle drift report", tier=2),
         DirectiveSpec("@perseus",   resolve_perseus,   [],                         "inline",  "acw", cacheable=True, safe_for_hover=False, summary="Fetch rendered context from a remote Perseus instance", tier=2),
-        DirectiveSpec("@mneme",    resolve_mneme,    ["query=", "scope=", "k=", "type="], "inline", "acw", safe_for_hover=True, summary="Recall persistent memories via Mnēmē BM25", tier=2),
+        DirectiveSpec("@mneme",    resolve_mneme,    ["query=", "scope=", "k=", "type="], "inline", "acw", safe_for_hover=True, summary="Recall persistent memories via Mnēmē BM25", tier=2, is_semantic_hint=True),
 
         # Tier 3 — On-demand (bulky, expensive)
         DirectiveSpec("@query",     resolve_query,     ["fallback=", "schema="],   "inline",  "acw", executes_shell=True,  safe_for_hover=False, cacheable=True,  summary="Run a shell command and embed stdout", tier=3),
@@ -8095,68 +8096,6 @@ def render_sibyl_context(
     except Exception:
         # Degradation 5: any other error — never crash Perseus
         return ""
-
-
-# ── Degradation tests ────────────────────────────────────────────────────────
-
-def test_degradation_paths() -> dict[str, bool]:
-    """Exercise all degradation paths. Returns {path_name: passed}."""
-    results = {}
-
-    # Path 1: explicit opt-out
-    old_env = os.environ.get("SIBYL_MEMORY_ENABLED")
-    os.environ["SIBYL_MEMORY_ENABLED"] = "0"
-    try:
-        out = render_sibyl_context()
-        results["not_enabled"] = out == ""
-    finally:
-        if old_env is not None:
-            os.environ["SIBYL_MEMORY_ENABLED"] = old_env
-        else:
-            del os.environ["SIBYL_MEMORY_ENABLED"]
-
-    # Path 2: enabled but SDK not installed (simulate broken import)
-    results["sdk_not_installed"] = not _sibyl_sdk_available() or True
-    # (If the SDK is installed, we can't truly test this — the guard works
-    #  by catching ImportError, verified by code review.)
-
-    # Path 3: enabled + SDK present but DB missing
-    os.environ["SIBYL_MEMORY_ENABLED"] = "1"
-    os.environ["SIBYL_MEMORY_DB_PATH"] = "/tmp/nonexistent_sibyl.db"
-    try:
-        out = render_sibyl_context()
-        results["db_missing"] = out == ""
-    finally:
-        del os.environ["SIBYL_MEMORY_DB_PATH"]
-
-    # Path 4: enabled + SDK present + empty DB (search returns nothing)
-    empty_db = Path("/tmp/test_sibyl_empty.db")
-    try:
-        from sibyl_memory_client import MemoryClient
-        client = MemoryClient.local(str(empty_db))
-        # DB is fresh and empty — search should return []
-        hits = client.search("nonexistent_query_xyz", limit=5)
-        results["empty_db_search"] = hits == []
-
-        # Clean up
-        client.storage.close()
-        empty_db.unlink(missing_ok=True)
-        for sfx in ("-wal", "-shm"):
-            p = Path(str(empty_db) + sfx)
-            p.unlink(missing_ok=True)
-    except Exception:
-        results["empty_db_search"] = False
-
-    # Path 5: enabled + SDK present + DB exists but exception during search
-    # (Test that the try/except catches CapExceededError/TierGateError/etc.)
-    results["cap_exceeded_caught"] = True  # code review: try/except block exists
-    results["generic_exception_caught"] = True
-
-    # Clean up env
-    if "SIBYL_MEMORY_ENABLED" in os.environ:
-        del os.environ["SIBYL_MEMORY_ENABLED"]
-
-    return results
 """
 Tooltrim connector for Perseus.
 
@@ -11098,16 +11037,37 @@ def render_source_html(
 
 
 def _derive_query_hints(source_text: str, workspace) -> list[str]:
+    """Extract contextual hints for Sibyl Memory FTS5 search.
+
+    Uses DIRECTIVE_REGISTRY's is_semantic_hint flag to discover which
+    directives carry project-level search terms — no hardcoded lists.
+    Falls back to regex scanning for any @directive in source_text.
+    """
     hints = []
     if workspace:
         hints.append(workspace.name)
+
     import re
-    for d in ("@project", "@task", "@goal", "@epic"):
-        m = re.search(rf'{d}\s+(.+)', source_text)
+
+    # 1. Registry-driven: directives marked is_semantic_hint=True
+    for name, spec in DIRECTIVE_REGISTRY.items():
+        if not spec.is_semantic_hint:
+            continue
+        m = re.search(rf'{re.escape(name)}\s+([^\n]+)', source_text)
         if m:
             val = m.group(1).strip()
             if val:
                 hints.append(val)
+
+    # 2. Fallback: scan for any @directive pattern in source_text
+    #    (catches user-defined directives not in the registry)
+    for m in re.finditer(r'@(\w[\w-]*)\s+(.+)', source_text):
+        directive_name = f"@{m.group(1)}"
+        if directive_name not in DIRECTIVE_REGISTRY:
+            val = m.group(2).strip()
+            if val and len(val) < 120:
+                hints.append(val)
+
     return hints
 
 def render_output(

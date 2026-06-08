@@ -11,6 +11,7 @@ Usage:
 """
 import argparse
 import re
+import ast
 import subprocess
 import sys
 from pathlib import Path
@@ -103,29 +104,30 @@ STDLIB_REMINDER_RE = re.compile(
     r"^# stdlib imports available from build artifact header"
 )
 
-# Matches top-level function or class definitions (no leading whitespace).
-# Excludes dunder methods (__init__, __repr__, etc.) which are safely
-# duplicated across classes, and single-underscore module-level sentinels.
-TOPLEVEL_DEF_RE = re.compile(r"^(?:def|class)\s+([a-zA-Z_][\w]*)\b")
-MAIN_BLOCK_RE = re.compile(r'^if\s+__name__\s*==\s*[\'"]__main__[\'"]\s*:')
+
 
 
 def _check_duplicate_symbols(repo_root: Path) -> None:
-    """Fail the build if any top-level def/class name appears in two modules.
+    """AST-based: fail if duplicate def/class or forbidden __main__ blocks.
 
-    In the concat build architecture, the last definition in MODULE_ORDER
-    silently shadows earlier ones. This makes stale/divergent copies invisible
-    to the maintainer — modifying the wrong copy produces no effect. This
-    guard makes the duplicate explicit and fails the build.
+    Uses ``ast.parse`` instead of regex — robust to formatting variations
+    (avoiding TOPLEVEL_DEF_RE / MAIN_BLOCK_RE false positives/negatives).
+
+    See https://github.com/tcconnally/perseus/issues/264
     """
     seen: dict[str, str] = {}  # name → first module path
     for rel_path in MODULE_ORDER:
         path = repo_root / rel_path
         text = path.read_text(encoding="utf-8")
-        for line in text.splitlines():
-            m = TOPLEVEL_DEF_RE.match(line)
-            if m:
-                name = m.group(1)
+        try:
+            tree = ast.parse(text, filename=rel_path)
+        except SyntaxError as e:
+            print(f"ERROR: syntax error in {rel_path}: {e}", file=sys.stderr)
+            sys.exit(1)
+        for node in ast.iter_child_nodes(tree):
+            # ── Duplicate symbol detection ──
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                name = node.name
                 if name.startswith("__"):
                     continue
                 if name in seen:
@@ -139,11 +141,29 @@ def _check_duplicate_symbols(repo_root: Path) -> None:
                     )
                     sys.exit(1)
                 seen[name] = rel_path
+            # ── Forbid __main__ blocks outside cli.py ──
+            if (isinstance(node, ast.If)
+                and isinstance(node.test, ast.Compare)
+                and isinstance(node.test.left, ast.Name)
+                and node.test.left.id == "__name__"
+                and len(node.test.ops) == 1
+                and isinstance(node.test.ops[0], ast.Eq)
+                and len(node.test.comparators) == 1
+                and isinstance(node.test.comparators[0], ast.Constant)
+                and node.test.comparators[0].value == "__main__"
+                and not rel_path.endswith("cli.py")):
+                msg = (
+                    'ERROR: forbidden `if __name__ == "__main__":` block found in '
+                    + rel_path + '. In the monolithic build, this block executes on every '
+                    'import. Remove it to prevent spam.'
+                )
+                print(msg, file=sys.stderr)
+                sys.exit(1)
 
 
 def render_artifact(repo_root: Path) -> str:
     """Return the generated single-file artifact text."""
-    # H-2: fail fast on duplicate top-level symbols (silent shadowing risk)
+    # H-2: fail fast on duplicate top-level symbols + forbidden __main__ blocks (AST-based)
     _check_duplicate_symbols(repo_root)
 
     output_lines: list[str] = []
@@ -197,15 +217,7 @@ def render_artifact(repo_root: Path) -> str:
             # Strip stdlib-reminder comments added by split.py
             if STDLIB_REMINDER_RE.match(line):
                 continue
-            # Forbid if __name__ == "__main__" in all modules except cli.py
-            if MAIN_BLOCK_RE.match(line) and not rel_path.endswith("cli.py"):
-                print(
-                    f"ERROR: forbidden `if __name__ == \"__main__\":` block found in "
-                    f"{rel_path}. In the monolithic build, this block executes on every "
-                    f"import. Remove it to prevent spam.",
-                    file=sys.stderr,
-                )
-                sys.exit(1)
+
             output_lines.append(line)
 
         first_module = False
