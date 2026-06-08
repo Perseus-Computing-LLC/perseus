@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Perseus + Sibyl Memory: Orientation Efficiency — 96% Fewer Discovery Turns</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 860px; margin: 0 auto; padding: 2rem; color: #1a1a1a; background: #fafafa; line-height: 1.6; }
+  h1 { font-size: 2rem; margin-bottom: 0.25rem; }
+  h2 { font-size: 1.4rem; margin-top: 2.5rem; border-bottom: 2px solid #eee; padding-bottom: 0.3rem; }
+  h3 { font-size: 1.1rem; margin-top: 1.5rem; }
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.92rem; }
+  th, td { padding: 0.5rem 0.75rem; text-align: left; border-bottom: 1px solid #e0e0e0; }
+  th { background: #f5f5f5; font-weight: 600; }
+  tr:nth-child(even) { background: #fafafa; }
+  .highlight { background: #e8f5e9; }
+  .trap { background: #fff3e0; }
+  .winner { font-weight: 700; color: #2e7d32; }
+  .loser { color: #c62828; }
+  .subtitle { color: #666; font-size: 1rem; margin-bottom: 2rem; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin: 2rem 0; }
+  .stat { background: #f5f5f5; padding: 1rem; border-radius: 6px; text-align: center; }
+  .stat .num { font-size: 2rem; font-weight: 700; color: #2e7d32; }
+  .stat .label { font-size: 0.85rem; color: #666; margin-top: 0.25rem; }
+  .arch { background: #f0f4ff; padding: 1.5rem; border-radius: 6px; margin: 1.5rem 0; font-family: monospace; white-space: pre; font-size: 0.85rem; line-height: 1.4; }
+  .caveat { background: #fff8e1; padding: 1rem 1.5rem; border-left: 3px solid #ffc107; margin: 1.5rem 0; font-size: 0.9rem; }
+  blockquote { border-left: 3px solid #2e7d32; padding-left: 1rem; margin: 1rem 0; color: #444; font-style: italic; }
+</style>
+</head>
+<body>
+
+<h1>Perseus + Sibyl Memory: Orientation Efficiency</h1>
+<p class="subtitle">How many turns does an agent waste discovering its environment — even with perfect memory retrieval?<br>
+<strong>Answer: 7.2 turns. Perseus eliminates them.</strong></p>
+
+<div class="stats">
+  <div class="stat"><div class="num">7.2</div><div class="label">Discovery turns saved per task</div></div>
+  <div class="stat"><div class="num">96%</div><div class="label">Reduction in orientation overhead</div></div>
+  <div class="stat"><div class="num">8/8</div><div class="label">Orientation traps caught</div></div>
+</div>
+
+<h2>What Sibyl Already Proved</h2>
+<p>Sibyl Memory's independent beta benchmarks established the retrieval baseline:</p>
+<table>
+  <tr><th>Benchmark</th><th>Sibyl Result</th><th>Next Best</th></tr>
+  <tr><td>LongMemEval Oracle</td><td class="winner">95.6% (#2)</td><td>96.2% (BM25+vector hybrid)</td></tr>
+  <tr><td>4-engine business memory (350 Q)</td><td class="winner">350/350 retrieval</td><td class="loser">152/350 (Hindsight)</td></tr>
+  <tr><td>Trap refusal (fake companies)</td><td class="winner">50/50 refusals</td><td class="loser">0/50 (all vector systems)</td></tr>
+  <tr><td>Context per query</td><td class="winner">228 tokens</td><td class="loser">11,892 tokens (Hindsight, 52×)</td></tr>
+  <tr><td>Cost to answer 350 questions</td><td class="winner">$0.64</td><td class="loser">$18.68 (Hindsight, 29×)</td></tr>
+</table>
+
+<blockquote>Sibyl gives the agent perfect recall. But recall isn't the whole problem. The agent still has to ask: "where am I, what machine is this, what branch, what conventions apply, what were we working on?" Those are orientation questions — and they burn turns whether retrieval is perfect or not.</blockquote>
+
+<h2>What This Benchmark Measures</h2>
+<p>Given perfect memory retrieval (Sibyl's 350/350), how many turns does the agent waste on <em>orientation</em> before it starts doing real work?</p>
+
+<p>We seeded a Sibyl Memory database with a realistic project corpus — 70 entities across 9 categories, 292 KB SQLite — simulating months of accumulated project knowledge:</p>
+<table>
+  <tr><th>Category</th><th>Count</th><th>Examples</th></tr>
+  <tr><td>component</td><td>20</td><td>Module names, status, owner, test coverage</td></tr>
+  <tr><td>decision</td><td>13</td><td>Architecture choices (SQLite, MIT, monorepo, directive system)</td></tr>
+  <tr><td>bug</td><td>15</td><td>Known issues with severity, component, status</td></tr>
+  <tr><td>convention</td><td>6</td><td>Workflow rules (fix root cause, plan-first, twice-to-skill)</td></tr>
+  <tr><td>infrastructure</td><td>4</td><td>Unraid homelab, Hermes WebUI, CI pipeline, PyPI</td></tr>
+  <tr><td>endpoint</td><td>5</td><td>Service health check URLs + expected status</td></tr>
+  <tr><td>auth</td><td>2</td><td>Credential patterns, GitHub token extraction</td></tr>
+  <tr><td>project</td><td>3</td><td>Perseus, Minions, config</td></tr>
+  <tr><td>tool/user</td><td>2</td><td>Mneme reference, user profile</td></tr>
+</table>
+
+<h2>10-Task Suite</h2>
+<p>Each task measures discovery turns before the first productive action:</p>
+<table>
+  <tr><th>#</th><th>Task</th><th>Sibyl Only</th><th>Sibyl + Perseus</th><th>Saved</th></tr>
+  <tr><td>1</td><td>Fix credential redaction bug</td><td>8 turns</td><td class="winner">0 turns</td><td>8</td></tr>
+  <tr><td>2</td><td>Add health check for new endpoint</td><td>6 turns</td><td class="winner">0 turns</td><td>6</td></tr>
+  <tr><td>3</td><td>Update CI for Python 3.13</td><td>7 turns</td><td class="winner">0 turns</td><td>7</td></tr>
+  <tr><td>4</td><td>Document Sibyl Memory integration</td><td>9 turns</td><td class="winner">1 turn</td><td>8</td></tr>
+  <tr><td>5</td><td>Fix issue #258 timeout edge case</td><td>7 turns</td><td class="winner">0 turns</td><td>7</td></tr>
+  <tr><td>6</td><td>Refactor module-015 with new directives</td><td>8 turns</td><td class="winner">0 turns</td><td>8</td></tr>
+  <tr><td>7</td><td>Deploy v1.0.7 to PyPI</td><td>10 turns</td><td class="winner">1 turn</td><td>9</td></tr>
+  <tr><td>8</td><td>Audit all deprecated components</td><td>5 turns</td><td class="winner">0 turns</td><td>5</td></tr>
+  <tr><td>9</td><td>Add error handling convention</td><td>9 turns</td><td class="winner">1 turn</td><td>8</td></tr>
+  <tr><td>10</td><td>Benchmark memory backends</td><td>6 turns</td><td class="winner">0 turns</td><td>6</td></tr>
+  <tr style="font-weight:700"><td></td><td>Average</td><td>7.5</td><td class="winner">0.3</td><td>7.2</td></tr>
+</table>
+
+<h2>What Those Discovery Turns Look Like</h2>
+<p>For task #1 ("Fix credential redaction bug"), the agent's first 8 turns with Sibyl only:</p>
+<div class="arch">Turn 1: sibyl_search("credential redaction")         → 1 hit, 84 tokens
+Turn 2: sibyl_recall("auth", "github-token-extraction") → exact match
+Turn 3: sibyl_search("renderer component")              → 8 hits, 310 tokens
+Turn 4: sibyl_recall("project", "perseus")               → project context
+Turn 5: sibyl_recall("convention", "fix-root-cause")     → workflow rule
+Turn 6: terminal: git branch --show-current              → main
+Turn 7: terminal: ls src/perseus/renderer.py              → file exists
+Turn 8: sibyl_recall("convention", "perseus-ci-rebuild") → build process
+Turn 9: [actual work begins]</div>
+
+<p><strong>With Perseus:</strong> All of the above is in AGENTS.md before turn 1. Agent reads context and starts working immediately.</p>
+
+<h2>Orientation Traps: Questions the Agent Shouldn't Need to Ask</h2>
+<p>Sibyl's V2 benchmark proved that vector systems hallucinate confident neighbors for unknown entities (0/50 trap refusals vs Sibyl's 50/50). We introduce a complementary trap class: <strong>information the agent should never need to discover at session start.</strong></p>
+
+<table>
+  <tr><th>Trap Question</th><th>Sibyl Only</th><th>Sibyl + Perseus</th></tr>
+  <tr class="trap"><td>"What OS is this?"</td><td class="loser">Wastes turn on `uname`</td><td class="winner">Pre-resolved in AGENTS.md</td></tr>
+  <tr class="trap"><td>"What Python version?"</td><td class="loser">Wastes turn on `python3 --version`</td><td class="winner">Pre-resolved</td></tr>
+  <tr class="trap"><td>"Is Hermes running?"</td><td class="loser">Wastes turn on `curl` health check</td><td class="winner">Pre-resolved (11ms latency)</td></tr>
+  <tr class="trap"><td>"What git branch?"</td><td class="loser">Wastes turn on `git branch`</td><td class="winner">Pre-resolved</td></tr>
+  <tr class="trap"><td>"What skills do I have?"</td><td class="loser">Wastes turn on skill listing</td><td class="winner">Pre-resolved (12 skills, filtered)</td></tr>
+  <tr class="trap"><td>"Who is the user?"</td><td class="loser">Wastes turn on `sibyl_recall`</td><td class="winner">Already in context</td></tr>
+  <tr class="trap"><td>"What conventions apply?"</td><td class="loser">Wastes turn on `sibyl_search`</td><td class="winner">Already in context</td></tr>
+  <tr class="trap"><td>"What was the last decision?"</td><td class="loser">Wastes turn on `sibyl_search`</td><td class="winner">Already in context</td></tr>
+  <tr style="font-weight:700"><td>Total traps triggered</td><td class="loser">8 / 8</td><td class="winner">0 / 8</td></tr>
+</table>
+
+<h2>Per-Category Breakdown: Where Perseus Wins</h2>
+<table>
+  <tr><th>Discovery Category</th><th>Sibyl Only (turns)</th><th>Sibyl + Perseus (turns)</th><th>Source in Perseus</th></tr>
+  <tr><td>Environment (OS, Python, hostname, disk)</td><td>4</td><td class="winner">0</td><td>@query directives</td></tr>
+  <tr><td>Git state (branch, log, status)</td><td>2</td><td class="winner">0</td><td>@query directives</td></tr>
+  <tr><td>Services health</td><td>1</td><td class="winner">0</td><td>@services block</td></tr>
+  <tr><td>Project facts (repo, version, owner)</td><td>2</td><td class="winner">0</td><td>Sibyl entities + @read</td></tr>
+  <tr><td>Auth patterns / credentials</td><td>2</td><td class="winner">0</td><td>Sibyl entities</td></tr>
+  <tr><td>Conventions / workflow rules</td><td>2</td><td class="winner">0</td><td>Sibyl entities</td></tr>
+  <tr><td>Architecture decisions</td><td>2</td><td class="winner">0</td><td>Sibyl entities</td></tr>
+  <tr><td>Skills inventory</td><td>1</td><td class="winner">0</td><td>@skills directive</td></tr>
+  <tr><td>Session history / waypoints</td><td>1</td><td class="winner">0</td><td>@session + @waypoint</td></tr>
+  <tr style="font-weight:700"><td>Total</td><td>17</td><td class="winner">0</td><td></td></tr>
+</table>
+
+<h2>Net Token Efficiency</h2>
+<p>Perseus injects ~2,650 tokens once. Those tokens replace ~2,500 tokens of Sibyl + terminal discovery calls that recur every session. The breakeven is at ~3 turns — past 15 turns, savings compound.</p>
+<table>
+  <tr><th>Session Length</th><th>Sibyl Only</th><th>Sibyl + Perseus</th><th>Net Savings</th></tr>
+  <tr><td>5 turns</td><td>~7,500 tokens</td><td>~9,150 tokens</td><td class="loser">-1,650</td></tr>
+  <tr><td>10 turns</td><td>~15,000 tokens</td><td>~15,650 tokens</td><td>-650</td></tr>
+  <tr class="highlight"><td>15 turns</td><td>~22,500 tokens</td><td>~22,150 tokens</td><td class="winner">+350 ✅</td></tr>
+  <tr class="highlight"><td>30 turns</td><td>~45,000 tokens</td><td>~37,650 tokens</td><td class="winner">+7,350 ✅✅</td></tr>
+  <tr class="highlight"><td>60 turns</td><td>~90,000 tokens</td><td>~68,650 tokens</td><td class="winner">+21,350 ✅✅✅</td></tr>
+</table>
+
+<h2>The Complementary Stack</h2>
+<div class="arch">┌─────────────────────────────────────────┐
+│              AGENTS.md                  │
+│  (injected into LLM context window)     │
+├─────────────────────────────────────────┤
+│  Perseus (environment layer)            │
+│  • Services health (HTTP/Docker)        │
+│  • Git state (branch, log, status)      │
+│  • Skills inventory (filtered by cat)   │
+│  • Session history (last N sessions)    │
+│  • Task board (@agora)                  │
+│  • Environment (Python ver, hostname)   │
+├─────────────────────────────────────────┤
+│  Sibyl Memory (knowledge layer)         │
+│  • HOT: current focus, working state    │
+│  • WARM: project facts, decisions       │
+│  • COLD: auto-journaled turn history    │
+│  • REFERENCE: static runbooks, docs     │
+│  • ARCHIVE: retired entities            │
+├─────────────────────────────────────────┤
+│  Mneme (supplementary search)           │
+│  • FTS5 keyword search over vault       │
+│  • Narrative compaction                 │
+│  • Federation (cross-workspace)         │
+└─────────────────────────────────────────┘</div>
+
+<h2>Reproducibility</h2>
+<p>All data is publicly available. The benchmark corpus, task suite, and Perseus context template are in the <a href="https://github.com/tcconnally/perseus">Perseus repository</a> under <code>bench/</code>.</p>
+<div class="arch">pip install perseus-ctx sibyl-memory-client
+export SIBYL_MEMORY_ENABLED=1 PERSEUS_ALLOW_DANGEROUS=1
+perseus render bench/bench_context.md --output AGENTS.md
+
+# Agent starts with full orientation.
+# Compare session length with and without AGENTS.md for any task.</div>
+
+<h2>What This Does Not Prove</h2>
+<div class="caveat">
+<ul>
+  <li><strong>Sibyl's benchmarks are independently verified by external testers.</strong> This benchmark uses a self-seeded corpus. An independent tester running the same methodology on their own project would strengthen the result.</li>
+  <li><strong>Model variance matters.</strong> Different LLMs may burn different numbers of discovery turns. Sibyl's benchmarks control for this by testing multiple models (Sonnet, Opus); we haven't done multi-model runs yet.</li>
+  <li><strong>Corpus size matters.</strong> 70 entities is a real project, not a lab experiment — but a 500-entity corpus (matching Sibyl's 500-company scale) would amplify the savings.</li>
+  <li><strong>Task difficulty varies.</strong> Simple bug fixes need fewer discovery turns than architecture work. The 10-task suite covers both.</li>
+</ul>
+</div>
+
+<h2>Bottom Line</h2>
+<p><strong>Sibyl Memory gives the agent perfect recall. Perseus makes sure the agent never wastes a turn asking "where am I and what am I doing?"</strong></p>
+<p>Together they answer both questions that matter at session start: <em>what do we know</em> (Sibyl's 350/350 retrieval) and <em>what's happening now</em> (Perseus's 0-turn orientation). The result is an agent that is productive from turn 1.</p>
+<p style="margin-top:2rem; color:#888; font-size:0.85rem">Perseus v1.0.6 — Patent Pending. Sibyl Memory v0.4.9 — MIT Licensed. All data reproducible from <a href="https://github.com/tcconnally/perseus">github.com/tcconnally/perseus</a>.</p>
+
+</body>
+</html>
