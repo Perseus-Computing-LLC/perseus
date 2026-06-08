@@ -107,6 +107,7 @@ STDLIB_REMINDER_RE = re.compile(
 # Excludes dunder methods (__init__, __repr__, etc.) which are safely
 # duplicated across classes, and single-underscore module-level sentinels.
 TOPLEVEL_DEF_RE = re.compile(r"^(?:def|class)\s+([a-zA-Z_][\w]*)\b")
+MAIN_BLOCK_RE = re.compile(r'^if\s+__name__\s*==\s*[\'"]__main__[\'"]\s*:')
 
 
 def _check_duplicate_symbols(repo_root: Path) -> None:
@@ -196,6 +197,15 @@ def render_artifact(repo_root: Path) -> str:
             # Strip stdlib-reminder comments added by split.py
             if STDLIB_REMINDER_RE.match(line):
                 continue
+            # Forbid if __name__ == "__main__" in all modules except cli.py
+            if MAIN_BLOCK_RE.match(line) and not rel_path.endswith("cli.py"):
+                print(
+                    f"ERROR: forbidden `if __name__ == \"__main__\":` block found in "
+                    f"{rel_path}. In the monolithic build, this block executes on every "
+                    f"import. Remove it to prevent spam.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
             output_lines.append(line)
 
         first_module = False
