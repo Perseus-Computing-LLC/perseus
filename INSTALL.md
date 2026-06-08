@@ -20,21 +20,21 @@ perseus --version
 
 ## Install from source
 
-From a checkout of this repo:
+For contributors, prefer an editable install from a checkout of this repo:
 
 ```bash
-./scripts/install.sh
+git clone https://github.com/tcconnally/perseus.git
+cd perseus
+pip install -e .
+which perseus
+perseus --version
 ```
 
-By default this installs:
-
-| Path                                     | Purpose |
-|------------------------------------------|---------|
-| `~/.local/bin/perseus`                   | Shim that invokes the runtime |
-| `~/.local/share/perseus/perseus.py`      | Single-file runtime |
-
-It then runs `perseus --version` to verify the install. Add `~/.local/bin` to
-your PATH if it isn't already.
+> **Legacy shim installer:** `./scripts/install.sh` still exists for compatibility, but it installs a shim at `~/.local/bin/perseus` and can conflict with the PyPI package if both are used on the same machine. If you previously used it, remove the old shim before switching to `perseus-ctx`:
+> ```bash
+> rm -f ~/.local/bin/perseus
+> rm -f ~/.local/share/perseus/perseus.py
+> ```
 
 ## Prerequisites
 

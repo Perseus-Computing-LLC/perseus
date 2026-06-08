@@ -59,8 +59,18 @@ uv tool install perseus-ctx
 pip install perseus-ctx
 
 # verify
+which perseus
 perseus --version
 ```
+
+> **Upgrading from legacy `scripts/install.sh`:** If you ever installed Perseus via the old shim-based installer, remove the stale shim before using the PyPI package or it may shadow the correct binary:
+> ```bash
+> rm -f ~/.local/bin/perseus
+> rm -f ~/.local/share/perseus/perseus.py
+> pip install --upgrade perseus-ctx
+> which perseus
+> perseus --version
+> ```
 
 > **Windows note:** `uv` may warn that `~/.local/bin` is not on your PATH. Add this to your shell rc:
 > ```bash
@@ -98,6 +108,15 @@ perseus render .perseus/context.md
 
 # 3. Render to AGENTS.md (for Hermes Agent, Rovo Dev, Claude Code, etc.)
 perseus render .perseus/context.md --output AGENTS.md
+```
+
+**Post-setup verification:**
+
+```bash
+which perseus
+perseus --version
+perseus doctor
+PERSEUS_ALLOW_DANGEROUS=1 perseus render ~/.perseus/context.md
 ```
 
 > **⚠️ Minions (Hermes WebUI) users:** The WebUI worker reads `AGENTS.md` from a
@@ -208,6 +227,12 @@ trust:
 > ```
 > If missing, these directives will render as disabled even when `render.allow_query_shell: true`.
 
+> **First-time enablement gotcha:** If you enable `PERSEUS_ALLOW_DANGEROUS=1` after a previous render, stale `@cache` entries may still contain the old warning text. Clear cache and re-render:
+> ```bash
+> rm -f ~/.perseus/cache/*.json
+> PERSEUS_ALLOW_DANGEROUS=1 perseus render ~/.perseus/context.md --output ~/AGENTS.md
+> ```
+
 ### Full annotated config (production)
 
 ```yaml
@@ -233,7 +258,12 @@ memory:
 engram:                                 # Project Synapse — Engram-rs MCP-based persistent memory
   enabled: true                         # Master switch for hybrid (Mnēmē + Engram-rs) resolution
   transport: "stdio"                    # "stdio" (local engram binary) or "sse" (remote endpoint)
-  command: [engram, serve, --mcp]       # Command to launch Engram-rs in MCP mode
+  command:
+    - "/Users/yourname/.local/bin/engram"   # use full absolute path; find with `which engram`
+    - "serve"
+    - "--mcp"
+    - "--db"
+    - "/Users/yourname/.perseus/engram/engram.db"
   endpoint: ""                          # SSE endpoint URL (only used when transport=sse)
   timeout_s: 10.0
   merge_strategy: "local_first"         # local_first | remote_first | interleave | decay_first
@@ -390,9 +420,13 @@ Your system prompt goes here. This is injected before the rendered content.
 @health
 ```
 
-> **Header version:** Use `@perseus v1.0.6` (the version `perseus init` generates). Older guides
-> may show `@perseus v1.0` — both work within v1.x, but always use the version that matches your
+> **Header version:** Use the exact installed version in your header (for example, `@perseus v1.0.6`). Older guides
+> may show `@perseus v1.0` — both work within v1.x, but always prefer the version that matches your
 > installed Perseus. A mismatched header won't error, but new directive features may not activate.
+> Check with:
+> ```bash
+> perseus --version
+> ```
 >
 > **Service command gotcha:** Command-type service checks (`command:`) run in Perseus's shell
 > context, which may have minimal `PATH` and a different `$HOME` than your interactive shell.
@@ -573,12 +607,23 @@ When enabled, `@memory` runs a **three-step hybrid resolution**:
 engram:
   enabled: true                         # Master switch
   transport: "stdio"                    # stdio (local binary) or sse (remote)
-  command: [engram, serve, --mcp]       # Launch command for stdio transport
+  command:
+    - "/Users/yourname/.local/bin/engram"   # use full absolute path; find with `which engram`
+    - "serve"
+    - "--mcp"
+    - "--db"
+    - "/Users/yourname/.perseus/engram/engram.db"
   merge_strategy: "local_first"         # local_first | remote_first | interleave | decay_first
   fallback_to_local: true               # Graceful degradation: Mnēmē FTS5 if Engram offline
   circuit_breaker:
     threshold: 3                        # Failures before opening circuit
     cooldown: 120                       # Seconds before recovery attempt
+```
+
+Before first use, create the database directory:
+
+```bash
+mkdir -p ~/.perseus/engram
 ```
 
 **Installation:**
@@ -621,10 +666,12 @@ engram --version   # expect "engram 0.1.0"
 
 > **Verification:** After installing Engram-rs, restart `perseus watch`
 > (or re-render). The next `@memory` resolution uses Engram-rs via MCP.
-> To confirm: run `perseus doctor` — it reports Engram-rs connectivity.
+> Use `perseus doctor` plus a real render to confirm wiring.
 > If Engram-rs is unreachable, Perseus falls back to Mnēmē FTS5 silently
 > (no crash, no visible error). The circuit breaker prevents permission
 > storms during outages.
+>
+> **Fresh install note:** `@memory mode=search` may return no matches at first because the Engram database starts empty. This is expected. It becomes useful after Perseus has written memories over time through normal renders/checkpoints.
 
 ### Writing checkpoints (the right way)
 
