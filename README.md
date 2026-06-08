@@ -3,6 +3,37 @@
 [![smithery badge](https://smithery.ai/badge/tcconnally/perseus)](https://smithery.ai/servers/tcconnally/perseus)
 **`pip install perseus-ctx && cd your-project && perseus quickstart`**
 
+
+## 🏆 Hackathon — Google Cloud Rapid Agent (Elastic Track)
+
+**Status:** Submitted | **Deadline:** June 11, 2026 | **Devpost:** [perseus-cmzeu9](https://devpost.com/software/perseus-cmzeu9)
+
+Perseus is entered in the Google Cloud Rapid Agent Hackathon (Elastic Partner Track).
+The submission demonstrates persistent agent memory across three consecutive sessions,
+with live backend swap from Elastic Cloud to Engram-rs (self-hosted, MIT).
+
+**Required technologies demonstrated:**
+
+| Technology | How it's used |
+|---|---|
+| **Google Cloud Agent Builder** | Agent orchestration, MCP tool wiring, Gemini model config (see `hackathon/agent-builder-config.yaml`) |
+| **Gemini 3 Pro** | Structured reasoning for memory extraction and cross-session compounding (via `google-genai`) |
+| **Elastic Agent Builder** | Hybrid ELSER + BM25 search for memory recall; MCP-native tools (`search_memory`, `store_memory`) |
+
+**Quick start:**
+```bash
+pip install google-genai elasticsearch perseus-ctx
+export GEMINI_API_KEY="your-key"
+export ELASTIC_CLOUD_ID="your-cloud-id"
+export ELASTIC_API_KEY="your-api-key"
+python hackathon/agent.py
+```
+
+**Files:**
+- [`hackathon/agent.py`](hackathon/agent.py) — Integration demo (Gemini + Elastic + memory lifecycle)
+- [`hackathon/agent-builder-config.yaml`](hackathon/agent-builder-config.yaml) — Agent Builder configuration export
+- [Demo video](https://www.youtube.com/watch?v=vDIgxvUXxTs) (2:51)
+
 That's the whole install. Perseus auto-detects your project language (Python, Rust, Node, Go, Java, C++, Docker), scaffolds context-appropriate memory queries, injects an active memory gate, and renders live workspace state — all before your AI assistant reads a single directive. No plugins. No SDK. Just a markdown file where your assistant already looks.
 
 ![Perseus demo — before/after cold-start](demo.gif)
