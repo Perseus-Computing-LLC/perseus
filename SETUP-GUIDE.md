@@ -177,7 +177,7 @@ memory:
   compaction_threshold: 200
 
 agora:
-  task_dir: /Users/yourname/tasks
+  tasks_dir: /Users/yourname/tasks
   default_owner: yourname
 
 render:
@@ -247,7 +247,7 @@ engram:                                 # Project Synapse — Engram-rs MCP-base
     backoff_base: 1.5
 
 agora:
-  task_dir: /Users/yourname/tasks
+  tasks_dir: /Users/yourname/tasks
   default_owner: yourname
 
 serve:
