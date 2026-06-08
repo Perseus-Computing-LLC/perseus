@@ -1452,7 +1452,7 @@ def _serve_render_endpoint(endpoint: str, cfg: dict, workspace: Path, query: dic
         if endpoint == "/agora":
             tasks_dir = _get_tasks_dir(workspace, cfg)
             tasks = _load_tasks(tasks_dir)
-            agora_body, _ = redact_text(_render_agora_table(tasks), cfg)
+            agora_body, _ = redact_text(_render_agora_table(tasks, tasks_dir), cfg)
             return (200, "text/markdown; charset=utf-8", agora_body)
 
         if endpoint == "/checkpoint/latest":
