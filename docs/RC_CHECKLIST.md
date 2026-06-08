@@ -20,7 +20,7 @@
 | Golden corpus tests | ✅ | `tests/test_golden.py` |
 | Performance budget tests | ✅ | 3 advisory warnings (render, graph, prefetch) — not failures; see Known Limitations |
 | Compatibility/migration suite | ✅ | `tests/test_compat_migration.py` — checkpoint round-trip, config migration, pack versioning |
-| Installer smoke | ✅ | `scripts/install.sh` installs and verifies `v1.0.0-rc.1` |
+| Installer smoke | ✅ | package install path validated for `perseus-ctx`; legacy `scripts/install.sh` retained for compatibility only |
 | Container image tests | ✅ | Static checks pass; Docker build/run skipped (no Docker in CI sandbox) |
 | Docs hub + quickstart | ✅ | `docs/index.md`, `docs/quickstart.md`, `docs/CONTRIBUTING.md` |
 | Example workspaces | ✅ | `examples/local-cli/`, `examples/assistant-profile/`, `examples/container/` — smoke tests pass |
@@ -63,7 +63,7 @@ Verify: `bash scripts/release.sh --check`
 - **Runtime dependency:** `pyyaml` only
 - **Platforms:** Linux (primary), macOS (tested), Windows WSL (community)
 - **Assistants:** Hermes, Codex, Claude Code, Cursor, Rovo Dev, any markdown-reading agent
-- **Installation:** `scripts/install.sh` or direct `python3 perseus.py`
+- **Installation:** `perseus-ctx` package install (preferred) or direct source checkout for contributors
 
 ---
 

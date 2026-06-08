@@ -17,26 +17,44 @@ python3 -m pip install --user pyyaml
 
 ## 2. Install
 
-**Recommended — installer script:**
+Use the published package unless you are actively contributing from a source checkout. Prefer verifying the resolved binary path after install:
+
+```bash
+which perseus
+perseus --version
+```
+
+If you previously used the legacy `scripts/install.sh` shim installer, remove the old shim before switching to `perseus-ctx`:
+
+```bash
+rm -f ~/.local/bin/perseus
+rm -f ~/.local/share/perseus/perseus.py
+```
+
+**Recommended — package install:**
+
+```bash
+# fast isolated install
+uv tool install perseus-ctx
+
+# or standard pip install
+pip install perseus-ctx
+
+which perseus
+perseus --version
+```
+
+**Alternative — contributor source checkout:**
 
 ```bash
 git clone https://github.com/tcconnally/perseus.git
 cd perseus
-./scripts/install.sh
+pip install -e .
+which perseus
+perseus --version
 ```
 
-This puts `perseus` on `~/.local/bin/`. Make sure that's on your PATH:
-
-```bash
-export PATH="$HOME/.local/bin:$PATH"   # add to ~/.bashrc or ~/.zshrc
-perseus --version                       # should print: perseus v1.0.6
-```
-
-**Alternative — run directly from the repo:**
-
-```bash
-python3 perseus.py --version
-```
+> `./scripts/install.sh` still exists for compatibility, but package install is the preferred path for most users.
 
 ---
 

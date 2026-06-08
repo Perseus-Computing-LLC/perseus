@@ -1,4 +1,4 @@
-@perseus v1.0
+@perseus v1.0.6
 
 # Example: External MCP Service Health Integration
 
