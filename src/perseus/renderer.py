@@ -1532,6 +1532,10 @@ def render_output(
         rendered = dedup_context_if_available(rendered, cfg)
         from perseus.vaultmem_connector import inject_vaultmem_context
         rendered = inject_vaultmem_context(rendered, cfg)
+        from perseus.sibyl_memory import render_sibyl_context
+        sibyl_block = render_sibyl_context(cfg=cfg)
+        if sibyl_block:
+            rendered += "\n\n" + sibyl_block
         return rendered
     elif fmt == "html":
         t = title or "Workspace Context"
@@ -1548,6 +1552,10 @@ def render_output(
         rendered = dedup_context_if_available(rendered, cfg)
         from perseus.vaultmem_connector import inject_vaultmem_context
         rendered = inject_vaultmem_context(rendered, cfg)
+        from perseus.sibyl_memory import render_sibyl_context
+        sibyl_block = render_sibyl_context(cfg=cfg)
+        if sibyl_block:
+            rendered += "\n\n" + sibyl_block
         return wrap_rendered(rendered, fmt, _PERSEUS_VERSION)
 
     # Custom formats (task-68)

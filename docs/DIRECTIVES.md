@@ -34,6 +34,7 @@ Source documents start with `@perseus v1.0.6` on line 1. The value after `@perse
 | `@inbox [unread=true] [limit=N]` | Render pending point-to-point messages from `perseus inbox send` |
 | `@memory federation [alias=name]` | Render digest of subscribed cross-workspace narratives (see `perseus memory federation`) |
 | `@memory include_federation=true` | Local narrative + appended `## Federated Context` digest |
+| `@sibyl [query=\"topic\"] [tiers=entity,state]` | Sibyl Memory structured context — FTS5 search across five-tier local SQLite memory. Requires `sibyl-memory-client` installed and `SIBYL_MEMORY_ENABLED=1`. Degrades gracefully to empty when absent. |
 | `@drift` | Daedalus drift report — acceptance rate, recommendation Jaccard, confidence proxy (see `perseus oracle drift`) |
 | `@tool "\"<path>\"" [args...]` | Run an allowlisted external tool. Unlike `@agent` (ad-hoc), `@tool` requires explicit approval in `tools.allowlist` per path, with argument restrictions, timeouts, and output size caps. Accepts `@cache ttl=N`. |
 | `@synthesize question="..." source="file" [label="..."]` | Optional curated synthesis section. Requires `generation.enabled: true` in config. LLM-powered summarization with provenance claims — every assertion traces back to a cited source. |
