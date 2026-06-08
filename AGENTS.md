@@ -17,7 +17,7 @@ rendered output and skip orientation. Start work immediately.
 **Status:** completed
 **Next:** Decide whether to keep the regenerated perseus.py artifact diff and separately handle existing benchmark/gauntlet worktree changes.
 **Workspace:** /Users/tconnally/Documents/perseus
-**Notes:** Fast-forwarded main to origin/main c4b26d1. Smoke check reports perseus v1.0.5. Full suite passed outside sandbox: 754 passed in 69.14s. Sandbox-only pytest run failed on localhost socket binds. Regenerated perseus.py from src; artifact now removes stale generated prefetch/Mneme index snippets absent from source. Pre-existing benchmark and gauntlet changes were not touched.
+**Notes:** Fast-forwarded main to origin/main c4b26d1. Smoke check reports perseus v1.0.6. Full suite passed outside sandbox: 1,032 passed in 69.14s. Sandbox-only pytest run failed on localhost socket binds. Regenerated perseus.py from src; artifact now removes stale generated prefetch/Mneme index snippets absent from source. Pre-existing benchmark and gauntlet changes were not touched.
 
 ---
 
@@ -47,7 +47,7 @@ rendered output and skip orientation. Start work immediately.
 | Hermes WebUI | ❌ URLError | — |
 | ntfy | ❌ URLError | — |
 | Portainer | ❌ URLError | — |
-| Perseus CLI | ✅ perseus v1.0.5 | — |
+| Perseus CLI | ✅ perseus v1.0.6 | — |
 
 ---
 

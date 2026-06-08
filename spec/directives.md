@@ -1,4 +1,4 @@
-# Directives Reference
+# Perseus Directives Reference — v1.0.6
 
 Directives appear in standard `.md` files that begin with `@perseus` on the first line. They are resolved at render time. The assistant never sees directive syntax — only the resolved output.
 

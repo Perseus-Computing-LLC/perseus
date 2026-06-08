@@ -13,7 +13,7 @@
 | Overall | **FAIL** |
 
 **Host:** 94aaa147beae
-**Perseus:** perseus v1.0.5 — Patent Pending
+**Perseus:** perseus v1.0.6 — Patent Pending
 **Developers per node:** 500
 **Nodes:** ['local']
 
