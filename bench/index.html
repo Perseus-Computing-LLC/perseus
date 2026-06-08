@@ -706,62 +706,11 @@
   </div>
 </section>
 
-<!-- ============ SECTION 1: Sibyl Baseline ============ -->
+<!-- ============ SECTION 1: Key Results ============ -->
 <section class="section-block">
   <div class="wrap">
     <div class="sec-head">
       <div class="sec-num">§ 01</div>
-      <h2 class="sec-title">Sibyl Memory <em>Baseline</em></h2>
-    </div>
-    <p class="prose">Sibyl Memory already achieves <strong>near-flawless retrieval</strong> with dramatically lower cost and context footprint. It runs on a single SQLite file &mdash; no vector database, no embedding API, no external infrastructure.</p>
-
-    <div class="table-wrap">
-    <table>
-      <thead>
-        <tr><th>Benchmark</th><th>Sibyl Result</th><th>Next Best</th></tr>
-      </thead>
-      <tbody>
-        <tr><td>LongMemEval Oracle</td><td class="good">95.6% (#2)</td><td>96.2% (BM25+vector hybrid)</td></tr>
-        <tr><td>4-engine business memory (350 Q)</td><td class="good">350/350 retrieval</td><td class="bad">152/350 (Hindsight)</td></tr>
-        <tr><td>Trap refusal (fake companies)</td><td class="good">50/50 refusals</td><td class="bad">0/50 (all vector systems)</td></tr>
-        <tr><td>Context per query</td><td class="good">228 tokens</td><td class="bad">11,892 tokens (Hindsight, 52&times;)</td></tr>
-        <tr><td>Cost to answer 350 questions</td><td class="good">$0.64</td><td class="bad">$18.68 (Hindsight, 29&times;)</td></tr>
-      </tbody>
-    </table>
-    </div>
-
-    <p class="prose" style="margin-top:24px">Even with perfect recall, agents still burn turns on <strong>orientation questions</strong> &mdash; this benchmark isolates that waste.</p>
-  </div>
-</section>
-
-<!-- ============ SECTION 2: Setup ============ -->
-<section class="section-block">
-  <div class="wrap">
-    <div class="sec-head">
-      <div class="sec-num">§ 02</div>
-      <h2 class="sec-title">Benchmark <em>Setup</em></h2>
-    </div>
-    <p class="prose">We seeded a Sibyl Memory database with a realistic project corpus &mdash; <strong>268 entities across 11 categories</strong> (simulating months of accumulated project knowledge). A <strong>15-task suite</strong> measures discovery calls before the first productive action, comparing Sibyl alone vs. Sibyl + Perseus.</p>
-
-    <div class="cat-grid">
-      <div class="cat-cell"><div class="cat-name">component</div><div class="cat-count">59</div><div class="cat-example">Module names, status, owner, test coverage</div></div>
-      <div class="cat-cell"><div class="cat-name">decision</div><div class="cat-count">58</div><div class="cat-example">Architecture choices, SQLite, MIT, monorepo</div></div>
-      <div class="cat-cell"><div class="cat-name">bug</div><div class="cat-count">43</div><div class="cat-example">Known issues with severity, component, status</div></div>
-      <div class="cat-cell"><div class="cat-name">convention</div><div class="cat-count">20</div><div class="cat-example">Workflow rules: fix root cause, plan-first</div></div>
-      <div class="cat-cell"><div class="cat-name">infrastructure</div><div class="cat-count">12</div><div class="cat-example">Unraid homelab, CI pipeline, Mneme vault</div></div>
-      <div class="cat-cell"><div class="cat-name">endpoint</div><div class="cat-count">25</div><div class="cat-example">Service health check URLs + expected status</div></div>
-      <div class="cat-cell"><div class="cat-name">auth</div><div class="cat-count">7</div><div class="cat-example">Credential patterns, token extraction, rotation</div></div>
-      <div class="cat-cell"><div class="cat-name">project</div><div class="cat-count">8</div><div class="cat-example">Perseus, Minions, Mneme, Sibyl Memory</div></div>
-      <div class="cat-cell"><div class="cat-name">user/session/ref</div><div class="cat-count">36</div><div class="cat-example">User profiles, past sessions, runbooks</div></div>
-    </div>
-  </div>
-</section>
-
-<!-- ============ SECTION 3: Key Results ============ -->
-<section class="section-block">
-  <div class="wrap">
-    <div class="sec-head">
-      <div class="sec-num">§ 03</div>
       <h2 class="sec-title">Key <em>Results</em></h2>
     </div>
 
@@ -820,11 +769,11 @@
   </div>
 </section>
 
-<!-- ============ SECTION 4: Discovery Turns in Detail ============ -->
+<!-- ============ SECTION 2: What Discovery Turns Look Like ============ -->
 <section class="section-block">
   <div class="wrap">
     <div class="sec-head">
-      <div class="sec-num">§ 04</div>
+      <div class="sec-num">§ 02</div>
       <h2 class="sec-title">What Discovery Turns <em>Look Like</em></h2>
     </div>
     <p class="prose">For task #1 (&ldquo;Fix credential redaction: nested JSON tokens&rdquo;), here are the agent&rsquo;s first 8 discovery calls with <strong>Sibyl only</strong>:</p>
@@ -846,11 +795,11 @@ Turn 9: [actual work begins]
   </div>
 </section>
 
-<!-- ============ SECTION 5: Orientation Traps ============ -->
+<!-- ============ SECTION 3: Orientation Traps ============ -->
 <section class="section-block">
   <div class="wrap">
     <div class="sec-head">
-      <div class="sec-num">§ 05</div>
+      <div class="sec-num">§ 03</div>
       <h2 class="sec-title">Orientation <em>Traps</em></h2>
     </div>
     <p class="prose">Sibyl&rsquo;s V2 benchmark proved that vector systems hallucinate confident neighbors for unknown entities (0/50 trap refusals vs. Sibyl&rsquo;s 50/50). We introduce a complementary trap class: <strong>information the agent should never need to discover at session start.</strong></p>
@@ -876,11 +825,11 @@ Turn 9: [actual work begins]
   </div>
 </section>
 
-<!-- ============ SECTION 6: Per-Category Breakdown ============ -->
+<!-- ============ SECTION 4: Where Perseus Wins ============ -->
 <section class="section-block">
   <div class="wrap">
     <div class="sec-head">
-      <div class="sec-num">§ 06</div>
+      <div class="sec-num">§ 04</div>
       <h2 class="sec-title">Where Perseus <em>Wins</em></h2>
     </div>
 
@@ -906,7 +855,58 @@ Turn 9: [actual work begins]
   </div>
 </section>
 
-<!-- ============ SECTION 7: Token Efficiency ============ -->
+<!-- ============ SECTION 5: Benchmark Setup ============ -->
+<section class="section-block">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-num">§ 05</div>
+      <h2 class="sec-title">Benchmark <em>Setup</em></h2>
+    </div>
+    <p class="prose">We seeded a Sibyl Memory database with a realistic project corpus &mdash; <strong>268 entities across 11 categories</strong> (simulating months of accumulated project knowledge). A <strong>15-task suite</strong> measures discovery calls before the first productive action, comparing Sibyl alone vs. Sibyl + Perseus.</p>
+
+    <div class="cat-grid">
+      <div class="cat-cell"><div class="cat-name">component</div><div class="cat-count">59</div><div class="cat-example">Module names, status, owner, test coverage</div></div>
+      <div class="cat-cell"><div class="cat-name">decision</div><div class="cat-count">58</div><div class="cat-example">Architecture choices, SQLite, MIT, monorepo</div></div>
+      <div class="cat-cell"><div class="cat-name">bug</div><div class="cat-count">43</div><div class="cat-example">Known issues with severity, component, status</div></div>
+      <div class="cat-cell"><div class="cat-name">convention</div><div class="cat-count">20</div><div class="cat-example">Workflow rules: fix root cause, plan-first</div></div>
+      <div class="cat-cell"><div class="cat-name">infrastructure</div><div class="cat-count">12</div><div class="cat-example">Unraid homelab, CI pipeline, Mneme vault</div></div>
+      <div class="cat-cell"><div class="cat-name">endpoint</div><div class="cat-count">25</div><div class="cat-example">Service health check URLs + expected status</div></div>
+      <div class="cat-cell"><div class="cat-name">auth</div><div class="cat-count">7</div><div class="cat-example">Credential patterns, token extraction, rotation</div></div>
+      <div class="cat-cell"><div class="cat-name">project</div><div class="cat-count">8</div><div class="cat-example">Perseus, Minions, Mneme, Sibyl Memory</div></div>
+      <div class="cat-cell"><div class="cat-name">user/session/ref</div><div class="cat-count">36</div><div class="cat-example">User profiles, past sessions, runbooks</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ SECTION 6: Sibyl Memory Baseline ============ -->
+<section class="section-block">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-num">§ 06</div>
+      <h2 class="sec-title">Sibyl Memory <em>Baseline</em></h2>
+    </div>
+    <p class="prose">Sibyl Memory already achieves <strong>near-flawless retrieval</strong> with dramatically lower cost and context footprint. It runs on a single SQLite file &mdash; no vector database, no embedding API, no external infrastructure.</p>
+
+    <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Benchmark</th><th>Sibyl Result</th><th>Next Best</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>LongMemEval Oracle</td><td class="good">95.6% (#2)</td><td>96.2% (BM25+vector hybrid)</td></tr>
+        <tr><td>4-engine business memory (350 Q)</td><td class="good">350/350 retrieval</td><td class="bad">152/350 (Hindsight)</td></tr>
+        <tr><td>Trap refusal (fake companies)</td><td class="good">50/50 refusals</td><td class="bad">0/50 (all vector systems)</td></tr>
+        <tr><td>Context per query</td><td class="good">228 tokens</td><td class="bad">11,892 tokens (Hindsight, 52&times;)</td></tr>
+        <tr><td>Cost to answer 350 questions</td><td class="good">$0.64</td><td class="bad">$18.68 (Hindsight, 29&times;)</td></tr>
+      </tbody>
+    </table>
+    </div>
+
+    <p class="prose" style="margin-top:24px">Even with perfect recall, agents still burn turns on <strong>orientation questions</strong> &mdash; this benchmark isolates that waste.</p>
+  </div>
+</section>
+
+<!-- ============ SECTION 7: Net Token Efficiency ============ -->
 <section class="section-block">
   <div class="wrap">
     <div class="sec-head">
@@ -932,7 +932,7 @@ Turn 9: [actual work begins]
   </div>
 </section>
 
-<!-- ============ SECTION 8: Architecture ============ -->
+<!-- ============ SECTION 8: The Complementary Stack ============ -->
 <section class="section-block">
   <div class="wrap">
     <div class="sec-head">
@@ -967,7 +967,7 @@ Turn 9: [actual work begins]
   </div>
 </section>
 
-<!-- ============ SECTION 9: Reproducibility ============ -->
+<!-- ============ SECTION 9: Reproduce It ============ -->
 <section class="section-block">
   <div class="wrap">
     <div class="sec-head">
@@ -985,7 +985,7 @@ perseus render bench/bench_context.md --output AGENTS.md
   </div>
 </section>
 
-<!-- ============ SECTION 10: Caveats ============ -->
+<!-- ============ SECTION 10: What This Does Not Prove ============ -->
 <section class="section-block">
   <div class="wrap">
     <div class="sec-head">
