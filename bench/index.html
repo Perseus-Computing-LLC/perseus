@@ -1,97 +1,836 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Perseus + Sibyl Memory: Orientation Efficiency — 38% Fewer Discovery Turns</title>
+<meta name="description" content="Benchmark: Perseus pre-loads live context so agents waste 2.7 fewer discovery turns per task — a 38% reduction in orientation overhead. All 8 common traps eliminated." />
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+
 <style>
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 860px; margin: 0 auto; padding: 2rem; color: #1a1a1a; background: #fafafa; line-height: 1.6; }
-  h1 { font-size: 2rem; margin-bottom: 0.25rem; }
-  h2 { font-size: 1.4rem; margin-top: 2.5rem; border-bottom: 2px solid #eee; padding-bottom: 0.3rem; }
-  h3 { font-size: 1.1rem; margin-top: 1.5rem; }
-  table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.92rem; }
-  th, td { padding: 0.5rem 0.75rem; text-align: left; border-bottom: 1px solid #e0e0e0; }
-  th { background: #f5f5f5; font-weight: 600; }
-  tr:nth-child(even) { background: #fafafa; }
-  .highlight { background: #e8f5e9; }
-  .trap { background: #fff3e0; }
-  .winner { font-weight: 700; color: #2e7d32; }
-  .loser { color: #c62828; }
-  .subtitle { color: #666; font-size: 1rem; margin-bottom: 2rem; }
-  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin: 2rem 0; }
-  .stat { background: #f5f5f5; padding: 1rem; border-radius: 6px; text-align: center; }
-  .stat .num { font-size: 2rem; font-weight: 700; color: #2e7d32; }
-  .stat .label { font-size: 0.85rem; color: #666; margin-top: 0.25rem; }
-  .arch { background: #f0f4ff; padding: 1.5rem; border-radius: 6px; margin: 1.5rem 0; font-family: monospace; white-space: pre; font-size: 0.85rem; line-height: 1.4; }
-  .caveat { background: #fff8e1; padding: 1rem 1.5rem; border-left: 3px solid #ffc107; margin: 1.5rem 0; font-size: 0.9rem; }
-  blockquote { border-left: 3px solid #2e7d32; padding-left: 1rem; margin: 1rem 0; color: #444; font-style: italic; }
+  :root {
+    --bg: #0c0814;
+    --bg-2: #140e22;
+    --bg-3: #1c1430;
+    --line: rgba(196, 168, 255, 0.10);
+    --line-strong: rgba(196, 168, 255, 0.22);
+    --text: #ece4ff;
+    --text-dim: #9a8cc4;
+    --text-muted: #5d5078;
+    --accent: #c77dff;
+    --accent-bright: #e4a8ff;
+    --accent-deep: #7a2ec4;
+    --accent-2: #56e1ff;
+    --code-bg: #07040d;
+    --good: #56e1ff;
+    --warn: #ff6b9d;
+    --serif: "Cormorant Garamond", "EB Garamond", Georgia, serif;
+    --sans: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --mono: "JetBrains Mono", "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    --max: 1060px;
+    --gutter: clamp(20px, 4vw, 56px);
+    --glow-accent: 0 0 24px rgba(199, 125, 255, 0.45);
+    --glow-cyan: 0 0 18px rgba(86, 225, 255, 0.45);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: "ss01", "cv11";
+    overflow-x: hidden;
+    background-image:
+      radial-gradient(ellipse 80% 60% at 50% 0%, rgba(122, 46, 196, 0.18), transparent 70%),
+      linear-gradient(rgba(199, 125, 255, 0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(199, 125, 255, 0.035) 1px, transparent 1px);
+    background-size: 100% 100%, 80px 80px, 80px 80px;
+    background-position: 0 0, 0 0, 0 0;
+    background-attachment: fixed, fixed, fixed;
+  }
+  ::selection { background: var(--accent); color: #1a1410; }
+
+  a { color: inherit; text-decoration: none; }
+  img { display: block; max-width: 100%; }
+
+  /* ---------- Layout ---------- */
+  .wrap {
+    max-width: var(--max);
+    margin: 0 auto;
+    padding: 0 var(--gutter);
+  }
+  .rule {
+    height: 1px;
+    background: var(--line);
+    margin: 0;
+    border: 0;
+  }
+
+  /* Section header */
+  .sec-head {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    gap: 48px;
+    align-items: baseline;
+    padding-top: 28px;
+    margin-bottom: clamp(40px, 6vw, 80px);
+  }
+  .sec-num {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    color: var(--accent);
+    text-transform: uppercase;
+    animation: sec-flicker 9s ease-in-out infinite;
+  }
+  .sec-title {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: clamp(34px, 4.6vw, 60px);
+    line-height: 1.02;
+    letter-spacing: -0.012em;
+    margin: 0;
+    color: var(--text);
+    text-wrap: balance;
+  }
+  .sec-title em {
+    font-style: italic;
+    color: var(--accent);
+    font-weight: 400;
+    text-shadow: 0 0 22px rgba(199, 125, 255, 0.45);
+  }
+  @media (max-width: 680px) {
+    .sec-head { grid-template-columns: 1fr; gap: 12px; }
+  }
+
+  section { position: relative; }
+  .section-block {
+    padding: clamp(80px, 10vw, 140px) 0 clamp(80px, 10vw, 140px);
+    border-top: 1px solid var(--line);
+  }
+  .section-block::after {
+    content: "";
+    display: block;
+    width: 60px;
+    height: 2px;
+    margin: clamp(60px, 8vw, 100px) auto 0;
+    background: linear-gradient(90deg, transparent, var(--accent) 20%, var(--accent-2) 50%, var(--accent) 80%, transparent);
+    opacity: 0.35;
+  }
+  .section-block:last-of-type::after { display: none; }
+
+  /* ---------- Top bar ---------- */
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    background: color-mix(in oklab, var(--bg) 78%, transparent);
+    border-bottom: 1px solid var(--line);
+  }
+  .topbar-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 60px;
+  }
+  .wordmark {
+    font-family: var(--serif);
+    font-size: 21px;
+    font-weight: 500;
+    letter-spacing: 0.005em;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  .wordmark .dot {
+    width: 6px;
+    height: 6px;
+    background: var(--accent);
+    border-radius: 50%;
+    display: inline-block;
+    transform: translateY(-3px);
+    box-shadow: 0 0 8px var(--accent), 0 0 16px rgba(199, 125, 255, 0.7);
+    animation: dot-pulse 2.8s ease-in-out infinite;
+  }
+  .topbar nav {
+    display: flex;
+    gap: 28px;
+    align-items: center;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+  .topbar nav a { transition: color .18s ease; }
+  .topbar nav a:hover { color: var(--text); }
+  .topbar nav .bench-active {
+    color: var(--accent-2);
+    text-shadow: 0 0 10px rgba(86, 225, 255, 0.35);
+  }
+  @media (max-width: 720px) {
+    .topbar nav .nav-link { display: none; }
+  }
+
+  /* ---------- Hero ---------- */
+  .hero {
+    padding: clamp(60px, 9vw, 100px) 0 clamp(40px, 6vw, 60px);
+    position: relative;
+    overflow: hidden;
+  }
+  .hero-eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 32px;
+    display: inline-flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .hero-eyebrow::before {
+    content: "";
+    width: 36px;
+    height: 1px;
+    background: var(--accent);
+  }
+  .hero h1 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: clamp(38px, 5.8vw, 72px);
+    line-height: 0.98;
+    letter-spacing: -0.018em;
+    margin: 0 0 20px;
+    color: var(--text);
+    text-wrap: balance;
+  }
+  .hero h1 em {
+    font-style: italic;
+    color: var(--accent);
+    font-weight: 400;
+    text-shadow:
+      0 0 22px rgba(199, 125, 255, 0.55),
+      0 0 60px rgba(199, 125, 255, 0.25);
+  }
+  .hero-lede {
+    font-size: 17px;
+    line-height: 1.6;
+    color: var(--text-dim);
+    max-width: 60ch;
+    margin: 0 0 32px;
+    font-weight: 300;
+  }
+  .hero-lede strong { color: var(--text); font-weight: 500; }
+
+  /* Stats grid */
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    margin: 32px 0 clamp(40px, 5vw, 60px);
+  }
+  @media (max-width: 760px) { .stat-grid { grid-template-columns: 1fr; } }
+  .stat-card {
+    background: var(--bg);
+    padding: clamp(32px, 3.4vw, 44px) clamp(24px, 2.8vw, 36px);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    transition: background .22s ease, box-shadow .22s ease;
+    cursor: default;
+  }
+  .stat-card:hover { background: var(--bg-2); box-shadow: inset 0 1px 0 rgba(199, 125, 255, 0.25); }
+  .stat-card .skey {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .stat-card .sval {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: clamp(48px, 5.6vw, 76px);
+    line-height: 1;
+    letter-spacing: -0.02em;
+    color: var(--text);
+    text-shadow: 0 0 30px rgba(199, 125, 255, 0.18);
+    transition: text-shadow .22s ease;
+  }
+  .stat-card:hover .sval { text-shadow: 0 0 44px rgba(199, 125, 255, 0.6), 0 0 88px rgba(199, 125, 255, 0.22); }
+  .stat-card .sval .unit { color: var(--accent); font-size: 0.45em; vertical-align: baseline; margin-left: 4px; }
+  .stat-card .sdesc {
+    color: var(--text-dim);
+    font-size: 14px;
+    line-height: 1.55;
+    max-width: 30ch;
+  }
+  .stat-card .sdesc b { color: var(--text); font-weight: 500; }
+
+  /* Hero quotation */
+  .hero-quote {
+    border-left: 2px solid var(--accent-2);
+    padding: 14px 18px;
+    margin: 28px 0 0;
+    font-style: italic;
+    color: var(--text-dim);
+    background: linear-gradient(90deg, rgba(86, 225, 255, 0.03), transparent 60%);
+    font-size: 15.5px;
+    line-height: 1.6;
+    max-width: 64ch;
+  }
+  .hero-quote strong { color: var(--text); }
+
+  /* ---------- Tables ---------- */
+  .table-wrap {
+    overflow-x: auto;
+    margin: 28px 0;
+    border: 1px solid var(--line);
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  thead { border-bottom: 1px solid var(--line-strong); }
+  th {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    padding: 14px 16px;
+    text-align: left;
+    font-weight: 500;
+    background: var(--bg-2);
+    white-space: nowrap;
+  }
+  td {
+    padding: 12px 16px;
+    color: var(--text-dim);
+    border-bottom: 1px solid var(--line);
+  }
+  tr:last-child td { border-bottom: 0; }
+  tr.total-row td {
+    font-weight: 700;
+    color: var(--text);
+    border-top: 1px solid var(--line-strong);
+    background: rgba(199, 125, 255, 0.04);
+  }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--warn); }
+  .saved { color: var(--accent-bright); font-weight: 600; }
+
+  /* Trap table */
+  .trap-row td { background: rgba(255, 107, 157, 0.03); }
+
+  /* Highlight rows */
+  .highlight-row td { background: rgba(86, 225, 255, 0.04); }
+
+  /* ---------- Callout boxes ---------- */
+  .callout {
+    border: 1px solid var(--line-strong);
+    background: var(--code-bg);
+    padding: 20px 24px;
+    margin: 28px 0;
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.7;
+    color: var(--text-dim);
+    border-radius: 2px;
+    white-space: pre-wrap;
+    overflow-x: auto;
+  }
+  .callout strong { color: var(--text); }
+
+  .callout-cyan {
+    border-color: rgba(86, 225, 255, 0.25);
+    background: rgba(86, 225, 255, 0.03);
+  }
+
+  /* Caveats block */
+  .caveats {
+    background: rgba(86, 225, 255, 0.03);
+    border: 1px solid rgba(86, 225, 255, 0.15);
+    padding: 28px 32px;
+    margin: 32px 0;
+  }
+  .caveats h3 {
+    font-family: var(--serif);
+    font-size: 22px;
+    font-weight: 500;
+    margin: 0 0 16px;
+    color: var(--text);
+    letter-spacing: -0.008em;
+  }
+  .caveats ul {
+    margin: 0;
+    padding-left: 20px;
+    color: var(--text-dim);
+    font-size: 14px;
+    line-height: 1.75;
+  }
+  .caveats li { margin-bottom: 8px; }
+  .caveats li strong { color: var(--text); }
+
+  /* ---------- Architecture diagram ---------- */
+  .arch-box {
+    border: 1px solid var(--accent);
+    background: var(--code-bg);
+    padding: 24px;
+    margin: 28px 0;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.65;
+    color: var(--text-dim);
+    white-space: pre;
+    overflow-x: auto;
+    box-shadow: 0 0 40px rgba(122, 46, 196, 0.12), inset 0 0 0 1px rgba(199, 125, 255, 0.04);
+    position: relative;
+  }
+  .arch-box::before {
+    content: "";
+    position: absolute; inset: -1px;
+    pointer-events: none;
+    background:
+      linear-gradient(var(--accent-2), var(--accent-2)) top left / 8px 1px no-repeat,
+      linear-gradient(var(--accent-2), var(--accent-2)) top left / 1px 8px no-repeat,
+      linear-gradient(var(--accent-2), var(--accent-2)) top right / 8px 1px no-repeat,
+      linear-gradient(var(--accent-2), var(--accent-2)) top right / 1px 8px no-repeat,
+      linear-gradient(var(--accent-2), var(--accent-2)) bottom left / 8px 1px no-repeat,
+      linear-gradient(var(--accent-2), var(--accent-2)) bottom left / 1px 8px no-repeat,
+      linear-gradient(var(--accent-2), var(--accent-2)) bottom right / 8px 1px no-repeat,
+      linear-gradient(var(--accent-2), var(--accent-2)) bottom right / 1px 8px no-repeat;
+  }
+
+  /* ---------- Prose ---------- */
+  .prose {
+    font-size: 15px;
+    line-height: 1.7;
+    color: var(--text-dim);
+    max-width: 64ch;
+  }
+  .prose strong { color: var(--text); }
+  .prose a {
+    color: var(--accent-2);
+    border-bottom: 1px dotted rgba(86, 225, 255, 0.3);
+    transition: color .18s ease, border-color .18s ease;
+  }
+  .prose a:hover { color: var(--accent-bright); border-bottom-color: var(--accent); }
+
+  /* ---------- Flow sub-head ---------- */
+  .flow-lede {
+    margin-top: clamp(40px, 5vw, 56px);
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    padding: 28px 0;
+    text-align: center;
+  }
+  .flow-lede p {
+    font-family: var(--serif);
+    font-size: clamp(22px, 2.6vw, 30px);
+    font-style: italic;
+    color: var(--text);
+    margin: 0;
+    line-height: 1.3;
+    letter-spacing: -0.005em;
+    text-wrap: balance;
+  }
+  .flow-lede p .accent {
+    color: var(--accent);
+    font-style: normal;
+    font-family: var(--mono);
+    font-size: 0.55em;
+    vertical-align: middle;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    margin-right: 14px;
+  }
+
+  /* ---------- Verdict / bottom line ---------- */
+  .verdict {
+    border: 1px solid var(--accent);
+    padding: clamp(28px, 3.4vw, 44px);
+    text-align: center;
+    box-shadow: 0 0 40px rgba(122, 46, 196, 0.15);
+    background: linear-gradient(180deg, rgba(199, 125, 255, 0.04), transparent 60%);
+  }
+  .verdict p {
+    font-family: var(--serif);
+    font-size: clamp(24px, 3vw, 36px);
+    font-weight: 500;
+    line-height: 1.2;
+    margin: 0;
+    color: var(--text);
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+  }
+  .verdict p em { font-style: italic; color: var(--accent); }
+  .verdict .sub {
+    font-family: var(--sans);
+    font-size: 15px;
+    color: var(--text-dim);
+    margin-top: 16px;
+    font-weight: 400;
+  }
+  .verdict .sub strong { color: var(--text); }
+
+  /* ---------- Footer ---------- */
+  footer {
+    border-top: 1px solid var(--line);
+    padding: 64px 0 56px;
+    color: var(--text-dim);
+    font-size: 14px;
+  }
+  .footer-grid {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: 48px;
+    align-items: start;
+  }
+  @media (max-width: 720px) { .footer-grid { grid-template-columns: 1fr; } }
+  .footer-mark {
+    font-family: var(--serif);
+    font-size: 26px;
+    font-weight: 500;
+    color: var(--text);
+    margin-bottom: 14px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  .footer-mark .dot {
+    width: 6px; height: 6px; background: var(--accent); border-radius: 50%;
+    display: inline-block; transform: translateY(-3px);
+    box-shadow: 0 0 8px var(--accent), 0 0 16px rgba(199, 125, 255, 0.7);
+    animation: dot-pulse 2.8s ease-in-out infinite;
+  }
+  .footer-credit {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    line-height: 1.7;
+    max-width: 48ch;
+  }
+  .footer-links {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+  }
+  .footer-links a {
+    color: var(--text-dim);
+    transition: color .18s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .footer-links a::before {
+    content: ""; width: 16px; height: 1px; background: var(--line-strong);
+    transition: all .18s ease;
+  }
+  .footer-links a:hover { color: var(--accent); }
+  .footer-links a:hover::before { background: var(--accent); width: 24px; }
+  .footer-meta {
+    margin-top: 56px;
+    padding-top: 24px;
+    border-top: 1px solid var(--line);
+    display: flex;
+    justify-content: space-between;
+    color: var(--text-muted);
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  /* ---------- Custom for bench ---------- */
+  .cat-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    margin: 24px 0;
+  }
+  @media (max-width: 760px) { .cat-grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 480px) { .cat-grid { grid-template-columns: 1fr; } }
+  .cat-cell {
+    background: var(--bg);
+    padding: 18px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    transition: background .2s ease;
+  }
+  .cat-cell:hover { background: var(--bg-2); }
+  .cat-cell .cat-name {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--accent-2);
+  }
+  .cat-cell .cat-count {
+    font-family: var(--serif);
+    font-size: 28px;
+    font-weight: 500;
+    color: var(--text);
+    letter-spacing: -0.01em;
+  }
+  .cat-cell .cat-example {
+    font-size: 12px;
+    color: var(--text-dim);
+    line-height: 1.4;
+  }
+
+  /* ---------- Animations ---------- */
+  @keyframes sec-flicker {
+    0%, 89%, 91%, 95%, 100% { opacity: 1; text-shadow: 0 0 8px rgba(199, 125, 255, 0.55); }
+    90%, 93% { opacity: 0.65; text-shadow: none; }
+    92%, 96% { opacity: 1; text-shadow: 0 0 20px rgba(199, 125, 255, 1), 0 0 40px rgba(199, 125, 255, 0.4); }
+  }
+  @keyframes dot-pulse {
+    0%, 100% { box-shadow: 0 0 8px var(--accent), 0 0 16px rgba(199, 125, 255, 0.7); }
+    50% { box-shadow: 0 0 16px var(--accent), 0 0 34px rgba(199, 125, 255, 0.95), 0 0 56px rgba(199, 125, 255, 0.35); }
+  }
+
+  /* ---------- Reveal ---------- */
+  .reveal {
+    opacity: 0;
+    transform: translateY(16px);
+    transition: opacity .65s ease, transform .65s cubic-bezier(.16,.7,.2,1);
+  }
+  .reveal.in-view { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce) {
+    .reveal { opacity: 1; transform: none; transition: none; }
+    html { scroll-behavior: auto; }
+  }
+
+  /* ---------- Scanlines ---------- */
+  body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 9999;
+    background-image: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0, 0, 0, 0.05) 2px,
+      rgba(0, 0, 0, 0.05) 3px
+    );
+  }
+
+  /* Cursor glow */
+  #cursor-glow {
+    position: fixed;
+    width: 520px;
+    height: 520px;
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 0;
+    background: radial-gradient(circle, rgba(199, 125, 255, 0.055) 0%, transparent 65%);
+    transform: translate(-50%, -50%);
+    will-change: left, top;
+    top: -9999px; left: -9999px;
+  }
 </style>
 </head>
 <body>
+<div id="cursor-glow" aria-hidden="true"></div>
 
-<h1>Perseus + Sibyl Memory: Orientation Efficiency</h1>
-<p class="subtitle">How many turns does an agent waste discovering its environment — even with perfect memory retrieval?<br>
-<strong>Answer: 2.7 turns. Perseus eliminates them.</strong></p>
+<!-- ============ TOP BAR ============ -->
+<header class="topbar">
+  <div class="wrap topbar-inner">
+    <a href="/" class="wordmark">Perseus<span class="dot"></span></a>
+    <nav>
+      <a href="/" class="nav-link">Home</a>
+      <a href="/bench/" class="bench-active">Bench</a>
+      <a href="https://github.com/tcconnally/perseus" class="nav-link" target="_blank" rel="noopener">GitHub</a>
+    </nav>
+  </div>
+</header>
 
-<div class="stats">
-  <div class="stat"><div class="num">2.7</div><div class="label">Discovery turns saved per task</div></div>
-  <div class="stat"><div class="num">38%</div><div class="label">Reduction in orientation overhead</div></div>
-  <div class="stat"><div class="num">8/8</div><div class="label">Orientation traps caught</div></div>
-</div>
+<!-- ============ HERO ============ -->
+<section class="hero">
+  <div class="wrap">
+    <div class="hero-eyebrow">Benchmark Report <span style="color:var(--text-muted);letter-spacing:0.18em">· June 2026</span></div>
+    <h1>Perseus <em>+</em> Sibyl Memory<br>Orientation Efficiency</h1>
+    <p class="hero-lede">Even with <strong>perfect memory retrieval</strong> (Sibyl's 350/350), AI agents still waste turns asking &ldquo;where am I and what am I doing?&rdquo; Perseus eliminates those discovery calls before the session starts.</p>
 
-<h2>What Sibyl Already Proved</h2>
-<p>Sibyl Memory's independent beta benchmarks established the retrieval baseline:</p>
-<table>
-  <tr><th>Benchmark</th><th>Sibyl Result</th><th>Next Best</th></tr>
-  <tr><td>LongMemEval Oracle</td><td class="winner">95.6% (#2)</td><td>96.2% (BM25+vector hybrid)</td></tr>
-  <tr><td>4-engine business memory (350 Q)</td><td class="winner">350/350 retrieval</td><td class="loser">152/350 (Hindsight)</td></tr>
-  <tr><td>Trap refusal (fake companies)</td><td class="winner">50/50 refusals</td><td class="loser">0/50 (all vector systems)</td></tr>
-  <tr><td>Context per query</td><td class="winner">228 tokens</td><td class="loser">11,892 tokens (Hindsight, 52×)</td></tr>
-  <tr><td>Cost to answer 350 questions</td><td class="winner">$0.64</td><td class="loser">$18.68 (Hindsight, 29×)</td></tr>
-</table>
+    <div class="stat-grid">
+      <div class="stat-card">
+        <div class="skey">Discovery Turns Saved</div>
+        <div class="sval">2.7<span class="unit">turns</span></div>
+        <div class="sdesc">Per task, on average. Down from 7.0 to 4.3.</div>
+      </div>
+      <div class="stat-card">
+        <div class="skey">Orientation Reduction</div>
+        <div class="sval">38<span class="unit">%</span></div>
+        <div class="sdesc">Fewer discovery calls before the first productive action.</div>
+      </div>
+      <div class="stat-card">
+        <div class="skey">Traps Eliminated</div>
+        <div class="sval">8<span class="unit">/8</span></div>
+        <div class="sdesc">All common orientation traps caught. Zero wasted turns.</div>
+      </div>
+    </div>
 
-<blockquote>Sibyl gives the agent perfect recall. But recall isn't the whole problem. The agent still has to ask: "where am I, what machine is this, what branch, what conventions apply, what were we working on?" Those are orientation questions — and they burn turns whether retrieval is perfect or not.</blockquote>
+    <div class="hero-quote">
+      &ldquo;Sibyl gives the agent perfect recall. But recall isn&rsquo;t the whole problem. The agent still has to ask: <strong>&lsquo;where am I, what machine is this, what branch, what conventions apply, what were we working on?&rsquo;</strong> Those are orientation questions &mdash; and they burn turns whether retrieval is perfect or not.&rdquo;
+    </div>
+  </div>
+</section>
 
-<h2>What This Benchmark Measures</h2>
-<p>Given perfect memory retrieval (Sibyl's 350/350), how many turns does the agent waste on <em>orientation</em> before it starts doing real work?</p>
+<!-- ============ SECTION 1: Sibyl Baseline ============ -->
+<section class="section-block">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-num">§ 01</div>
+      <h2 class="sec-title">Sibyl Memory <em>Baseline</em></h2>
+    </div>
+    <p class="prose">Sibyl Memory already achieves <strong>near-flawless retrieval</strong> with dramatically lower cost and context footprint. It runs on a single SQLite file &mdash; no vector database, no embedding API, no external infrastructure.</p>
 
-<p>We seeded a Sibyl Memory database with a realistic project corpus — 268 entities across 11 categories SQLite — simulating months of accumulated project knowledge:</p>
-<table>
-  <tr><th>Category</th><th>Count</th><th>Examples</th></tr>
-  <tr><td>component</td><td>59</td><td>Module names, status, owner, test coverage</td></tr>
-  <tr><td>decision</td><td>58</td><td>Architecture choices (SQLite, MIT, monorepo, directive system)</td></tr>
-  <tr><td>bug</td><td>43</td><td>Known issues with severity, component, status</td></tr>
-  <tr><td>convention</td><td>20</td><td>Workflow rules (fix root cause, plan-first, twice-to-skill)</td></tr>
-  <tr><td>infrastructure</td><td>12</td><td>Unraid homelab, CI pipeline, Mneme vault, Sibyl DB</td></tr>
-  <tr><td>endpoint</td><td>25</td><td>Service health check URLs + expected status</td></tr>
-  <tr><td>auth</td><td>7</td><td>Credential patterns, token extraction, rotation</td></tr>
-  <tr><td>project</td><td>8</td><td>Perseus, Minions, Mneme, Sibyl Memory</td></tr>
-  <tr><td>user/session/reference</td><td>36</td><td>User profiles, past sessions, runbooks</td></tr>
-</table>
+    <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Benchmark</th><th>Sibyl Result</th><th>Next Best</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>LongMemEval Oracle</td><td class="good">95.6% (#2)</td><td>96.2% (BM25+vector hybrid)</td></tr>
+        <tr><td>4-engine business memory (350 Q)</td><td class="good">350/350 retrieval</td><td class="bad">152/350 (Hindsight)</td></tr>
+        <tr><td>Trap refusal (fake companies)</td><td class="good">50/50 refusals</td><td class="bad">0/50 (all vector systems)</td></tr>
+        <tr><td>Context per query</td><td class="good">228 tokens</td><td class="bad">11,892 tokens (Hindsight, 52&times;)</td></tr>
+        <tr><td>Cost to answer 350 questions</td><td class="good">$0.64</td><td class="bad">$18.68 (Hindsight, 29&times;)</td></tr>
+      </tbody>
+    </table>
+    </div>
 
-<h2>15-Task Suite</h2>
-<p>Each task measures discovery calls before the first productive action. Measured against 268-entity Sibyl corpus:</p>
-<table>
-  <tr><th>#</th><th>Task</th><th>Sibyl Only</th><th>Sibyl + Perseus</th><th>Saved</th></tr>  <tr><td>1</td><td>Fix credential redaction: nested JSON tokens not c</td><td>8 calls</td><td class="winner">1 calls</td><td>7</td></tr>
-  <tr><td>2</td><td>Add health check for a new service endpoint</td><td>5 calls</td><td class="winner">0 calls</td><td>5</td></tr>
-  <tr><td>3</td><td>Update CI workflow to test Python 3.13</td><td>5 calls</td><td class="winner">2 calls</td><td>3</td></tr>
-  <tr><td>4</td><td>Add memory-cleanup skill SKILL.md</td><td>5 calls</td><td class="winner">2 calls</td><td>3</td></tr>
-  <tr><td>5</td><td>Fix Mneme FTS5 search escaping bug (issue #318)</td><td>5 calls</td><td class="winner">4 calls</td><td>1</td></tr>
-  <tr><td>6</td><td>Fix CLI overwrite without warning (issue #314)</td><td>4 calls</td><td class="winner">3 calls</td><td>1</td></tr>
-  <tr><td>7</td><td>Update dependency scanner to detect optional impor</td><td>5 calls</td><td class="winner">5 calls</td><td>0</td></tr>
-  <tr><td>8</td><td>Implement convention checker for agent behavior va</td><td>8 calls</td><td class="winner">4 calls</td><td>4</td></tr>
-  <tr><td>9</td><td>Refactor memory mesh to deduplicate cross-backend </td><td>8 calls</td><td class="winner">7 calls</td><td>1</td></tr>
-  <tr><td>10</td><td>Deploy Perseus v1.0.7 to PyPI</td><td>10 calls</td><td class="winner">4 calls</td><td>6</td></tr>
-  <tr><td>11</td><td>Add Perseus MCP server tool integration</td><td>8 calls</td><td class="winner">5 calls</td><td>3</td></tr>
-  <tr><td>12</td><td>Build cross-workspace memory search UI</td><td>9 calls</td><td class="winner">9 calls</td><td>0</td></tr>
-  <tr><td>13</td><td>Implement TTL cache invalidation on config change</td><td>7 calls</td><td class="winner">7 calls</td><td>0</td></tr>
-  <tr><td>14</td><td>Add multi-tenant support to Sibyl Memory connector</td><td>8 calls</td><td class="winner">4 calls</td><td>4</td></tr>
-  <tr><td>15</td><td>Performance audit: profile and optimize AGENTS.md </td><td>10 calls</td><td class="winner">8 calls</td><td>2</td></tr>
-  <tr style="font-weight:700"><td></td><td>Average</td><td>7.0</td><td class="winner">4.3</td><td>2.7</td></tr>
+    <p class="prose" style="margin-top:24px">Even with perfect recall, agents still burn turns on <strong>orientation questions</strong> &mdash; this benchmark isolates that waste.</p>
+  </div>
+</section>
 
-<h2>What Those Discovery Turns Look Like</h2>
-<p>For task #1 ("Fix credential redaction: nested JSON tokens"), the agent's first 8 discovery calls with Sibyl only:</p>
-<div class="arch">Turn 1: sibyl_search("redact.py location")             → 0 hits, 0 tokens (fails)
+<!-- ============ SECTION 2: Setup ============ -->
+<section class="section-block">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-num">§ 02</div>
+      <h2 class="sec-title">Benchmark <em>Setup</em></h2>
+    </div>
+    <p class="prose">We seeded a Sibyl Memory database with a realistic project corpus &mdash; <strong>268 entities across 11 categories</strong> (simulating months of accumulated project knowledge). A <strong>15-task suite</strong> measures discovery calls before the first productive action, comparing Sibyl alone vs. Sibyl + Perseus.</p>
+
+    <div class="cat-grid">
+      <div class="cat-cell"><div class="cat-name">component</div><div class="cat-count">59</div><div class="cat-example">Module names, status, owner, test coverage</div></div>
+      <div class="cat-cell"><div class="cat-name">decision</div><div class="cat-count">58</div><div class="cat-example">Architecture choices, SQLite, MIT, monorepo</div></div>
+      <div class="cat-cell"><div class="cat-name">bug</div><div class="cat-count">43</div><div class="cat-example">Known issues with severity, component, status</div></div>
+      <div class="cat-cell"><div class="cat-name">convention</div><div class="cat-count">20</div><div class="cat-example">Workflow rules: fix root cause, plan-first</div></div>
+      <div class="cat-cell"><div class="cat-name">infrastructure</div><div class="cat-count">12</div><div class="cat-example">Unraid homelab, CI pipeline, Mneme vault</div></div>
+      <div class="cat-cell"><div class="cat-name">endpoint</div><div class="cat-count">25</div><div class="cat-example">Service health check URLs + expected status</div></div>
+      <div class="cat-cell"><div class="cat-name">auth</div><div class="cat-count">7</div><div class="cat-example">Credential patterns, token extraction, rotation</div></div>
+      <div class="cat-cell"><div class="cat-name">project</div><div class="cat-count">8</div><div class="cat-example">Perseus, Minions, Mneme, Sibyl Memory</div></div>
+      <div class="cat-cell"><div class="cat-name">user/session/ref</div><div class="cat-count">36</div><div class="cat-example">User profiles, past sessions, runbooks</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ SECTION 3: Key Results ============ -->
+<section class="section-block">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-num">§ 03</div>
+      <h2 class="sec-title">Key <em>Results</em></h2>
+    </div>
+
+    <h3 style="font-family:var(--serif);font-size:24px;font-weight:500;margin:0 0 20px;color:var(--text);letter-spacing:-0.008em">Discovery Turns Saved</h3>
+
+    <div class="stat-grid" style="grid-template-columns:repeat(4,1fr)">
+      <div class="stat-card">
+        <div class="skey">Avg Sibyl Only</div>
+        <div class="sval" style="font-size:clamp(36px,4vw,56px)">7.0</div>
+        <div class="sdesc">Average discovery turns per task</div>
+      </div>
+      <div class="stat-card">
+        <div class="skey">Avg Sibyl + Perseus</div>
+        <div class="sval" style="font-size:clamp(36px,4vw,56px)">4.3</div>
+        <div class="sdesc">Average with pre-loaded context</div>
+      </div>
+      <div class="stat-card">
+        <div class="skey">Reduction</div>
+        <div class="sval" style="font-size:clamp(36px,4vw,56px)">2.7<span class="unit">turns</span></div>
+        <div class="sdesc">38% fewer discovery calls</div>
+      </div>
+      <div class="stat-card">
+        <div class="skey">Best Savings</div>
+        <div class="sval" style="font-size:clamp(36px,4vw,56px)">6</div>
+        <div class="sdesc">Task 10: 10 &rarr; 4 calls saved</div>
+      </div>
+    </div>
+
+    <h3 style="font-family:var(--serif);font-size:24px;font-weight:500;margin:40px 0 20px;color:var(--text);letter-spacing:-0.008em">15-Task Suite</h3>
+
+    <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>#</th><th>Task</th><th>Sibyl Only</th><th>+ Perseus</th><th>Saved</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>1</td><td>Fix credential redaction: nested JSON tokens</td><td>8 calls</td><td class="good">1 call</td><td class="saved">7</td></tr>
+        <tr><td>2</td><td>Add health check for a new service endpoint</td><td>5 calls</td><td class="good">0 calls</td><td class="saved">5</td></tr>
+        <tr><td>3</td><td>Update CI workflow to test Python 3.13</td><td>5 calls</td><td class="good">2 calls</td><td class="saved">3</td></tr>
+        <tr><td>4</td><td>Add memory-cleanup skill SKILL.md</td><td>5 calls</td><td class="good">2 calls</td><td class="saved">3</td></tr>
+        <tr><td>5</td><td>Fix Mneme FTS5 search escaping bug (#318)</td><td>5 calls</td><td class="good">4 calls</td><td class="saved">1</td></tr>
+        <tr><td>6</td><td>Fix CLI overwrite without warning (#314)</td><td>4 calls</td><td class="good">3 calls</td><td class="saved">1</td></tr>
+        <tr><td>7</td><td>Update dependency scanner for optional imports</td><td>5 calls</td><td class="good">5 calls</td><td>0</td></tr>
+        <tr><td>8</td><td>Implement convention checker for agent behavior</td><td>8 calls</td><td class="good">4 calls</td><td class="saved">4</td></tr>
+        <tr><td>9</td><td>Refactor memory mesh to deduplicate cross-backend</td><td>8 calls</td><td class="good">7 calls</td><td class="saved">1</td></tr>
+        <tr><td>10</td><td>Deploy Perseus v1.0.7 to PyPI</td><td>10 calls</td><td class="good">4 calls</td><td class="saved">6</td></tr>
+        <tr><td>11</td><td>Add Perseus MCP server tool integration</td><td>8 calls</td><td class="good">5 calls</td><td class="saved">3</td></tr>
+        <tr><td>12</td><td>Build cross-workspace memory search UI</td><td>9 calls</td><td class="good">9 calls</td><td>0</td></tr>
+        <tr><td>13</td><td>Implement TTL cache invalidation on config change</td><td>7 calls</td><td class="good">7 calls</td><td>0</td></tr>
+        <tr><td>14</td><td>Add multi-tenant support to Sibyl Memory connector</td><td>8 calls</td><td class="good">4 calls</td><td class="saved">4</td></tr>
+        <tr><td>15</td><td>Performance audit: profile AGENTS.md rendering</td><td>10 calls</td><td class="good">8 calls</td><td class="saved">2</td></tr>
+        <tr class="total-row"><td></td><td>Average</td><td>7.0</td><td class="good">4.3</td><td class="saved">2.7</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+</section>
+
+<!-- ============ SECTION 4: Discovery Turns in Detail ============ -->
+<section class="section-block">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-num">§ 04</div>
+      <h2 class="sec-title">What Discovery Turns <em>Look Like</em></h2>
+    </div>
+    <p class="prose">For task #1 (&ldquo;Fix credential redaction: nested JSON tokens&rdquo;), here are the agent&rsquo;s first 8 discovery calls with <strong>Sibyl only</strong>:</p>
+
+    <div class="callout">
+Turn 1: sibyl_search("redact.py location")             → 0 hits, 0 tokens (fails)
 Turn 2: sibyl_search("credential redaction")            → 6 hits, 1,121 tokens
 Turn 3: sibyl_recall("auth", "bsm-cache")               → 1 hit, 165 tokens
 Turn 4: sibyl_recall("auth", "github-token-extraction") → 1 hit, 172 tokens
@@ -103,101 +842,236 @@ Turn 9: [actual work begins]
 
 <strong>7 of 8 calls eliminated by Perseus pre-loading.</strong> Only test coverage search remains.</div>
 
-<p><strong>With Perseus:</strong> All of the above is in AGENTS.md before turn 1. Agent reads context and starts working immediately.</p>
+    <p class="prose"><strong>With Perseus:</strong> All of the above is in AGENTS.md before turn 1. Agent reads context and starts working immediately.</p>
+  </div>
+</section>
 
-<h2>Orientation Traps: Questions the Agent Shouldn't Need to Ask</h2>
-<p>Sibyl's V2 benchmark proved that vector systems hallucinate confident neighbors for unknown entities (0/50 trap refusals vs Sibyl's 50/50). We introduce a complementary trap class: <strong>information the agent should never need to discover at session start.</strong></p>
+<!-- ============ SECTION 5: Orientation Traps ============ -->
+<section class="section-block">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-num">§ 05</div>
+      <h2 class="sec-title">Orientation <em>Traps</em></h2>
+    </div>
+    <p class="prose">Sibyl&rsquo;s V2 benchmark proved that vector systems hallucinate confident neighbors for unknown entities (0/50 trap refusals vs. Sibyl&rsquo;s 50/50). We introduce a complementary trap class: <strong>information the agent should never need to discover at session start.</strong></p>
 
-<table>
-  <tr><th>Trap Question</th><th>Sibyl Only</th><th>Sibyl + Perseus</th></tr>
-  <tr class="trap"><td>"What OS is this?"</td><td class="loser">Wastes turn on `uname`</td><td class="winner">Pre-resolved in AGENTS.md</td></tr>
-  <tr class="trap"><td>"What Python version?"</td><td class="loser">Wastes turn on `python3 --version`</td><td class="winner">Pre-resolved</td></tr>
-  <tr class="trap"><td>"Is Hermes running?"</td><td class="loser">Wastes turn on `curl` health check</td><td class="winner">Pre-resolved (11ms latency)</td></tr>
-  <tr class="trap"><td>"What git branch?"</td><td class="loser">Wastes turn on `git branch`</td><td class="winner">Pre-resolved</td></tr>
-  <tr class="trap"><td>"What skills do I have?"</td><td class="loser">Wastes turn on skill listing</td><td class="winner">Pre-resolved (12 skills, filtered)</td></tr>
-  <tr class="trap"><td>"Who is the user?"</td><td class="loser">Wastes turn on `sibyl_recall`</td><td class="winner">Already in context</td></tr>
-  <tr class="trap"><td>"What conventions apply?"</td><td class="loser">Wastes turn on `sibyl_search`</td><td class="winner">Already in context</td></tr>
-  <tr class="trap"><td>"What was the last decision?"</td><td class="loser">Wastes turn on `sibyl_search`</td><td class="winner">Already in context</td></tr>
-  <tr style="font-weight:700"><td>Total traps triggered</td><td class="loser">8 / 8</td><td class="winner">0 / 8</td></tr>
-</table>
+    <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Trap Question</th><th>Sibyl Only</th><th>Sibyl + Perseus</th></tr>
+      </thead>
+      <tbody>
+        <tr class="trap-row"><td>&ldquo;What OS is this?&rdquo;</td><td class="bad">Wastes turn on <code>uname</code></td><td class="good">Pre-resolved in AGENTS.md</td></tr>
+        <tr class="trap-row"><td>&ldquo;What Python version?&rdquo;</td><td class="bad">Wastes turn on <code>python3 --version</code></td><td class="good">Pre-resolved</td></tr>
+        <tr class="trap-row"><td>&ldquo;Is Hermes running?&rdquo;</td><td class="bad">Wastes turn on <code>curl</code> health check</td><td class="good">Pre-resolved (11ms latency)</td></tr>
+        <tr class="trap-row"><td>&ldquo;What git branch?&rdquo;</td><td class="bad">Wastes turn on <code>git branch</code></td><td class="good">Pre-resolved</td></tr>
+        <tr class="trap-row"><td>&ldquo;What skills do I have?&rdquo;</td><td class="bad">Wastes turn on skill listing</td><td class="good">Pre-resolved (12 skills, filtered)</td></tr>
+        <tr class="trap-row"><td>&ldquo;Who is the user?&rdquo;</td><td class="bad">Wastes turn on <code>sibyl_recall</code></td><td class="good">Already in context</td></tr>
+        <tr class="trap-row"><td>&ldquo;What conventions apply?&rdquo;</td><td class="bad">Wastes turn on <code>sibyl_search</code></td><td class="good">Already in context</td></tr>
+        <tr class="trap-row"><td>&ldquo;What was the last decision?&rdquo;</td><td class="bad">Wastes turn on <code>sibyl_search</code></td><td class="good">Already in context</td></tr>
+        <tr class="total-row"><td><strong>Total traps triggered</strong></td><td class="bad">8 / 8</td><td class="good">0 / 8</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+</section>
 
-<h2>Per-Category Breakdown: Where Perseus Wins</h2>
-<table>
-  <tr><th>Discovery Category</th><th>Sibyl Only (turns)</th><th>Sibyl + Perseus (turns)</th><th>Source in Perseus</th></tr>
-  <tr><td>Environment (OS, Python, hostname, disk)</td><td>4</td><td class="winner">0</td><td>@query directives</td></tr>
-  <tr><td>Git state (branch, log, status)</td><td>2</td><td class="winner">0</td><td>@query directives</td></tr>
-  <tr><td>Services health</td><td>1</td><td class="winner">0</td><td>@services block</td></tr>
-  <tr><td>Project facts (repo, version, owner)</td><td>2</td><td class="winner">0</td><td>Sibyl entities + @read</td></tr>
-  <tr><td>Auth patterns / credentials</td><td>2</td><td class="winner">0</td><td>Sibyl entities</td></tr>
-  <tr><td>Conventions / workflow rules</td><td>2</td><td class="winner">0</td><td>Sibyl entities</td></tr>
-  <tr><td>Architecture decisions</td><td>2</td><td class="winner">0</td><td>Sibyl entities</td></tr>
-  <tr><td>Skills inventory</td><td>1</td><td class="winner">0</td><td>@skills directive</td></tr>
-  <tr><td>Session history / waypoints</td><td>1</td><td class="winner">0</td><td>@session + @waypoint</td></tr>
-  <tr style="font-weight:700"><td>Total</td><td>19</td><td class="winner">0</td><td></td></tr>
-</table>
+<!-- ============ SECTION 6: Per-Category Breakdown ============ -->
+<section class="section-block">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-num">§ 06</div>
+      <h2 class="sec-title">Where Perseus <em>Wins</em></h2>
+    </div>
 
-<h2>Net Token Efficiency</h2>
-<p>Perseus injects ~2,920 tokens once. Those tokens replace ~23,680 tokens of Sibyl + terminal discovery calls that recur every session. The breakeven is at ~3 turns — past 15 turns, savings compound.</p>
-<table>
-  <tr><th>Session Length</th><th>Sibyl Only</th><th>Sibyl + Perseus</th><th>Net Savings</th></tr>
-  <tr><td>5 turns</td><td>~64,189 tokens</td><td>~9,150 tokens</td><td class="loser">-1,650</td></tr>
-  <tr><td>10 turns</td><td>~15,000 tokens</td><td>~15,650 tokens</td><td>-650</td></tr>
-  <tr class="highlight"><td>15 turns</td><td>~22,500 tokens</td><td>~22,150 tokens</td><td class="winner">+350 ✅</td></tr>
-  <tr class="highlight"><td>30 turns</td><td>~45,000 tokens</td><td>~37,650 tokens</td><td class="winner">+7,350 ✅✅</td></tr>
-  <tr class="highlight"><td>60 turns</td><td>~90,000 tokens</td><td>~68,650 tokens</td><td class="winner">+21,350 ✅✅✅</td></tr>
-</table>
+    <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Discovery Category</th><th>Sibyl Only</th><th>+ Perseus</th><th>Perseus Source</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Environment (OS, Python, hostname, disk)</td><td>4 turns</td><td class="good">0</td><td><code>@query</code> directives</td></tr>
+        <tr><td>Git state (branch, log, status)</td><td>2 turns</td><td class="good">0</td><td><code>@query</code> directives</td></tr>
+        <tr><td>Services health</td><td>1 turn</td><td class="good">0</td><td><code>@services</code> block</td></tr>
+        <tr><td>Project facts (repo, version, owner)</td><td>2 turns</td><td class="good">0</td><td>Sibyl entities + <code>@read</code></td></tr>
+        <tr><td>Auth patterns / credentials</td><td>2 turns</td><td class="good">0</td><td>Sibyl entities</td></tr>
+        <tr><td>Conventions / workflow rules</td><td>2 turns</td><td class="good">0</td><td>Sibyl entities</td></tr>
+        <tr><td>Architecture decisions</td><td>2 turns</td><td class="good">0</td><td>Sibyl entities</td></tr>
+        <tr><td>Skills inventory</td><td>1 turn</td><td class="good">0</td><td><code>@skills</code> directive</td></tr>
+        <tr><td>Session history / waypoints</td><td>1 turn</td><td class="good">0</td><td><code>@session</code> + <code>@waypoint</code></td></tr>
+        <tr class="total-row"><td>Total</td><td>19</td><td class="good">0</td><td></td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+</section>
 
-<h2>The Complementary Stack</h2>
-<div class="arch">┌─────────────────────────────────────────┐
-│              AGENTS.md                  │
-│  (injected into LLM context window)     │
-├─────────────────────────────────────────┤
-│  Perseus (environment layer)            │
-│  • Services health (HTTP/Docker)        │
-│  • Git state (branch, log, status)      │
-│  • Skills inventory (filtered by cat)   │
-│  • Session history (last N sessions)    │
-│  • Task board (@agora)                  │
-│  • Environment (Python ver, hostname)   │
-├─────────────────────────────────────────┤
-│  Sibyl Memory (knowledge layer)         │
-│  • HOT: current focus, working state    │
-│  • WARM: project facts, decisions       │
-│  • COLD: auto-journaled turn history    │
-│  • REFERENCE: static runbooks, docs     │
-│  • ARCHIVE: retired entities            │
-├─────────────────────────────────────────┤
-│  Mneme (supplementary search)           │
-│  • FTS5 keyword search over vault       │
-│  • Narrative compaction                 │
-│  • Federation (cross-workspace)         │
-└─────────────────────────────────────────┘</div>
+<!-- ============ SECTION 7: Token Efficiency ============ -->
+<section class="section-block">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-num">§ 07</div>
+      <h2 class="sec-title">Net Token <em>Efficiency</em></h2>
+    </div>
+    <p class="prose">Perseus injects ~2,920 tokens once. Those tokens replace ~23,680 tokens of Sibyl + terminal discovery calls that recur every session. <strong>Breakeven at ~3 turns; savings compound from 15 turns onward.</strong></p>
 
-<h2>Reproducibility</h2>
-<p>All data is publicly available. The benchmark corpus, task suite, and Perseus context template are in the <a href="https://github.com/tcconnally/perseus">Perseus repository</a> under <code>bench/</code>.</p>
-<div class="arch">pip install perseus-ctx sibyl-memory-client
+    <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Session Length</th><th>Sibyl Only</th><th>Sibyl + Perseus</th><th>Net Savings</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>5 turns</td><td>~64,189 tokens</td><td>~9,150 tokens</td><td class="bad">&minus;1,650</td></tr>
+        <tr><td>10 turns</td><td>~15,000 tokens</td><td>~15,650 tokens</td><td>&minus;650</td></tr>
+        <tr class="highlight-row"><td>15 turns</td><td>~22,500 tokens</td><td>~22,150 tokens</td><td class="good">+350 ✓</td></tr>
+        <tr class="highlight-row"><td>30 turns</td><td>~45,000 tokens</td><td>~37,650 tokens</td><td class="good">+7,350 ✓✓</td></tr>
+        <tr class="highlight-row"><td>60 turns</td><td>~90,000 tokens</td><td>~68,650 tokens</td><td class="good">+21,350 ✓✓✓</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+</section>
+
+<!-- ============ SECTION 8: Architecture ============ -->
+<section class="section-block">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-num">§ 08</div>
+      <h2 class="sec-title">The Complementary <em>Stack</em></h2>
+    </div>
+
+    <div class="arch-box">┌─────────────────────────────────────────────┐
+│                AGENTS.md                    │
+│    (injected into LLM context window)       │
+├─────────────────────────────────────────────┤
+│  Perseus (environment layer)                │
+│  • Services health (HTTP/Docker)            │
+│  • Git state (branch, log, status)          │
+│  • Skills inventory (filtered by category)  │
+│  • Session history (last N sessions)        │
+│  • Task board (@agora)                      │
+│  • Environment (Python ver, hostname)       │
+├─────────────────────────────────────────────┤
+│  Sibyl Memory (knowledge layer)             │
+│  • HOT: current focus, working state        │
+│  • WARM: project facts, decisions           │
+│  • COLD: auto-journaled turn history        │
+│  • REFERENCE: static runbooks, docs         │
+│  • ARCHIVE: retired entities                │
+├─────────────────────────────────────────────┤
+│  Mneme (supplementary search)               │
+│  • FTS5 keyword search over vault           │
+│  • Narrative compaction                     │
+│  • Federation (cross-workspace)             │
+└─────────────────────────────────────────────┘</div>
+  </div>
+</section>
+
+<!-- ============ SECTION 9: Reproducibility ============ -->
+<section class="section-block">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-num">§ 09</div>
+      <h2 class="sec-title"><em>Reproduce</em> It</h2>
+    </div>
+    <p class="prose">All data is publicly available. The benchmark corpus, task suite, and Perseus context template are in the <a href="https://github.com/tcconnally/perseus">Perseus repository</a> under <code>bench/</code>.</p>
+
+    <div class="callout callout-cyan">pip install perseus-ctx sibyl-memory-client
 export SIBYL_MEMORY_ENABLED=1 PERSEUS_ALLOW_DANGEROUS=1
 perseus render bench/bench_context.md --output AGENTS.md
 
 # Agent starts with full orientation.
 # Compare session length with and without AGENTS.md for any task.</div>
+  </div>
+</section>
 
-<h2>What This Does Not Prove</h2>
-<div class="caveat">
-<ul>
-  <li><strong>Self-seeded corpus.</strong> The 268-entity Sibyl DB was seeded by this benchmark. An independent tester running the same methodology on their own project would strengthen the result.</li>
-  <li><strong>Model variance matters.</strong> Different LLMs may burn different numbers of discovery calls. Only one LLM configuration was used for the Sibyl query measurements.</li>
-  <li><strong>Entity name sensitivity.</strong> Some recall calls return 0 hits because exact entity names differ from search terms. This is realistic — agents don't know exact names — but naming conventions affect hit rates.</li>
-  <li><strong>Token estimates are approximate.</strong> Using chars/3 for token counts. Exact tokenization depends on the model's tokenizer.</li>
-  <li><strong>Terminal call savings are modeled.</strong> Shell commands weren't executed in the measurement loop — treated as discoverable facts that Perseus pre-resolves.</li>
-  <li><strong>Task difficulty scales savings.</strong> Simple tasks (avg 5.3 Sibyl calls) save fewer turns than complex tasks (avg 8.5 calls). Net savings compound with task scope.</li>
-</ul>
-</div>
+<!-- ============ SECTION 10: Caveats ============ -->
+<section class="section-block">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-num">§ 10</div>
+      <h2 class="sec-title">What This <em>Does Not</em> Prove</h2>
+    </div>
 
-<h2>Bottom Line</h2>
-<p><strong>Sibyl Memory gives the agent perfect recall. Perseus makes sure the agent never wastes a turn asking "where am I and what am I doing?"</strong></p>
-<p>Together they answer both questions that matter at session start: <em>what do we know</em> (Sibyl's 350/350 retrieval) and <em>what's happening now</em> (Perseus's 0-turn orientation). The result is an agent that is productive from turn 1.</p>
-<p style="margin-top:2rem; color:#888; font-size:0.85rem">Perseus v1.0.6 — Patent Pending. Sibyl Memory v0.4.9 — MIT Licensed. All data reproducible from <a href="https://github.com/tcconnally/perseus">github.com/tcconnally/perseus</a>.</p>
+    <div class="caveats">
+      <ul>
+        <li><strong>Self-seeded corpus.</strong> The 268-entity Sibyl DB was seeded by this benchmark. An independent tester running the same methodology on their own project would strengthen the result.</li>
+        <li><strong>Model variance matters.</strong> Different LLMs may burn different numbers of discovery calls. Only one LLM configuration was used for the Sibyl query measurements.</li>
+        <li><strong>Entity name sensitivity.</strong> Some recall calls return 0 hits because exact entity names differ from search terms. This is realistic &mdash; agents don&rsquo;t know exact names &mdash; but naming conventions affect hit rates.</li>
+        <li><strong>Token estimates are approximate.</strong> Using chars/3 for token counts. Exact tokenization depends on the model&rsquo;s tokenizer.</li>
+        <li><strong>Terminal call savings are modeled.</strong> Shell commands weren&rsquo;t executed in the measurement loop &mdash; treated as discoverable facts that Perseus pre-resolves.</li>
+        <li><strong>Task difficulty scales savings.</strong> Simple tasks (avg 5.3 Sibyl calls) save fewer turns than complex tasks (avg 8.5 calls). Net savings compound with task scope.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============ BOTTOM LINE ============ -->
+<section class="section-block">
+  <div class="wrap">
+    <div class="verdict">
+      <p>Sibyl Memory gives the agent <em>perfect recall.</em><br>Perseus makes sure the agent <em>never wastes a turn</em> asking &ldquo;where am I and what am I doing?&rdquo;</p>
+      <p class="sub">Together they answer both questions that matter at session start: <strong>what do we know</strong> (Sibyl&rsquo;s 350/350 retrieval) and <strong>what&rsquo;s happening now</strong> (Perseus&rsquo;s 0-turn orientation). An agent productive from turn 1.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FOOTER ============ -->
+<footer>
+  <div class="wrap">
+    <div class="footer-grid">
+      <div>
+        <div class="footer-mark">Perseus<span class="dot"></span></div>
+        <div class="footer-credit">One command. Zero orientation.<br>Live context for AI assistants.</div>
+      </div>
+      <div class="footer-links">
+        <a href="/">Home</a>
+        <a href="/bench/">Benchmark</a>
+        <a href="https://github.com/tcconnally/perseus" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://pypi.org/project/perseus-ctx/" target="_blank" rel="noopener">PyPI</a>
+      </div>
+    </div>
+    <div class="footer-meta">
+      <span>Perseus v1.0.6 &middot; Patent Pending</span>
+      <span>Sibyl Memory v0.4.9 &middot; MIT</span>
+    </div>
+  </div>
+</footer>
+
+<!-- ============ JS ============ -->
+<script>
+  // Cursor glow
+  (function() {
+    var glow = document.getElementById('cursor-glow');
+    var ticking = false;
+    document.addEventListener('mousemove', function(e) {
+      if (!ticking) {
+        requestAnimationFrame(function() {
+          glow.style.left = e.clientX + 'px';
+          glow.style.top = e.clientY + 'px';
+          ticking = false;
+        });
+        ticking = true;
+      }
+    });
+  })();
+
+  // Scroll reveal
+  (function() {
+    var observer = new IntersectionObserver(function(entries) {
+      entries.forEach(function(entry) {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('in-view');
+          observer.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.1 });
+
+    document.querySelectorAll('.reveal').forEach(function(el) {
+      observer.observe(el);
+    });
+  })();
+</script>
 
 </body>
 </html>
