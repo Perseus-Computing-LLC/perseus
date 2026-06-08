@@ -13,7 +13,7 @@ resolve environment state before it enters an assistant's context window, so the
 assistant receives facts instead of instructions to go find facts.
 
 The project has moved beyond a renderer. It now includes checkpoints, Pythia
-recommendations, Agora task coordination, Mnēmē narrative memory (with Engram-rs hybrid accelerator), federation,
+recommendations, Agora task coordination, Mnēmē narrative memory (with Mneme hybrid accelerator), federation,
 LSP/editor support, schema validation, predictive prefetch, adaptive Pythia
 signals, and the first bounded synthesis surface.
 
@@ -70,7 +70,7 @@ Claude Code, Cursor, Rovo Dev, or any assistant that can read a file or stdin.
 | Agora | complete | Task files, claim/complete commands, live board |
 | Health | complete | Maintenance heuristics |
 | Daedalus path | complete on Perseus side | Label/export/routing; model training is user-owned |
-| Mnēmē | complete | Narrative project memory and query. v1.0.6 adds optional Engram-rs hybrid accelerator (project Synapse) — MCP-based remote memory with Ebbinghaus time-decay and semantic+BM25 hybrid search; circuit-breaker protected, degrades to local-only. |
+| Mnēmē | complete | Narrative project memory and query. v1.0.6 adds optional Mneme hybrid accelerator (project Synapse) — MCP-based remote memory with Ebbinghaus time-decay and semantic+BM25 hybrid search; circuit-breaker protected, degrades to local-only. |
 | Federation | complete | Cross-workspace narrative subscriptions |
 | Templates/init | complete | Starter scaffolds plus documented, tested product profiles exist |
 | Serve | complete | Loopback-first read-only HTTP view with optional bearer auth |
@@ -97,7 +97,7 @@ Claude Code, Cursor, Rovo Dev, or any assistant that can read a file or stdin.
    ship, if distribution is handled carefully.
 4. **Assistant agnosticism.** Perseus does not depend on one downstream model or
    product.
-5. **Rich local state loop.** Checkpoints, Pythia logs, Mnēmē (and optional Engram-rs hybrid accelerator), and Agora make
+5. **Rich local state loop.** Checkpoints, Pythia logs, Mnēmē (and optional Mneme hybrid accelerator), and Agora make
    context accumulate value across sessions.
 6. **Good test discipline.** The suite is already broad and split by subsystem.
 7. **Right synthesis boundary.** The project rejected vague elaboration and kept
@@ -155,7 +155,7 @@ to operate.
 
 Perseus is unusually coherent for a fast-moving local AI infrastructure project.
 The mythology names are not just flavor; they map to real responsibilities:
-Perseus reflects the workspace, Pythia recommends, Mnēmē remembers (with Engram-rs hybrid accelerator), Agora
+Perseus reflects the workspace, Pythia recommends, Mnēmē remembers (with Mneme hybrid accelerator), Agora
 coordinates, and Daedalus scores.
 
 The next phase should resist feature appetite and focus on product spine:
