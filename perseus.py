@@ -964,6 +964,8 @@ def _bind_registry() -> None:
         DirectiveSpec("@waypoint",  resolve_waypoint,  ["ttl="],                   "inline",  "ac",  reads_files=True, cacheable=True, summary="Latest checkpoint summary", tier=1),
         DirectiveSpec("@memory",    resolve_memory,    ["mode=", "query=", "scope=", "k=", "type=", "render=", "focus=", "federation", "include_federation=", "alias=", "workspace="], "inline", "acw", reads_files=True, cacheable=True, summary="Mnēmē v2 — unified memory search + narrative + federation", diagnostic_fn=_memory_federation_diagnostic, tier=1, is_semantic_hint=True),
         DirectiveSpec("@auto-skill", resolve_auto_skill, ["skill="],              "inline",  "ac",  cacheable=True,  safe_for_hover=True, summary="Instruct agent to load a skill before work begins", tier=1),
+        DirectiveSpec("@sibyl",    resolve_sibyl,    ["query=", "tiers="],         "inline",  "ac",  cacheable=True,  safe_for_hover=True, summary="Sibyl Memory — auto-injected structured context; query hints feed search", tier=1, is_semantic_hint=True),
+        DirectiveSpec("@sibyl_state", resolve_sibyl_state, ["keys="],              "inline",  "ac",  cacheable=False, safe_for_hover=True, summary="Surface Sibyl Memory state documents inline", tier=1),
         DirectiveSpec("@health",    resolve_health,    [],                         "inline",  "acw", reads_files=True, summary="Context maintenance report", tier=1),
         DirectiveSpec("@env",       resolve_env,       ["required=", "fallback=", "schema="], "inline", "acw", cacheable=False, safe_for_hover=True, summary="Embed environment variable", tier=1),
 
@@ -7944,6 +7946,71 @@ def _sibyl_max_tokens(cfg: dict | None = None) -> int:
     return 1500
 
 
+# ── Directive resolvers ──────────────────────────────────────────────────────
+
+
+def resolve_sibyl(args_str: str, cfg: dict) -> str:
+    """Resolve @sibyl directive.
+
+    The Sibyl Memory auto-injection block is appended separately by
+    render_output() — this resolver strips the directive from output
+    and contributes query hints via the is_semantic_hint registry flag.
+
+    Parameters:
+        query="topic" — search terms for entity filtering
+        tiers=entity,state — which memory tiers to surface (currently
+          informational; tier filtering is handled by render_sibyl_context)
+    """
+    # Directive is informational — Sibyl context is auto-injected by render_output().
+    # Returning empty string strips the raw directive line from rendered output.
+    return ""
+
+
+def resolve_sibyl_state(args_str: str, cfg: dict) -> str:
+    """Resolve @sibyl_state directive — surface Sibyl state documents.
+
+    Usage: @sibyl_state keys=current_focus,active_sprint,deployment_status
+
+    Reads state key/value pairs from the Sibyl Memory database and renders
+    them inline so agents have immediate orientation without discovery turns.
+    """
+    import re
+
+    keys_match = re.search(r'keys=(\S+)', args_str)
+    if not keys_match:
+        return ""
+
+    keys = [k.strip() for k in keys_match.group(1).split(",") if k.strip()]
+    if not keys:
+        return ""
+
+    if not _sibyl_enabled(cfg) or not _sibyl_sdk_available():
+        return ""
+
+    db_path = _sibyl_db_path(cfg)
+    if not db_path.exists():
+        return ""
+
+    try:
+        from sibyl_memory_client import MemoryClient
+
+        client = MemoryClient.local(str(db_path))
+        lines = ["### Sibyl State", ""]
+        for key in keys:
+            try:
+                value = client.get_state(key)
+                if value is not None:
+                    lines.append(f"- **{key}**: {str(value)[:300]}")
+                else:
+                    lines.append(f"- **{key}**: *(not set)*")
+            except Exception:
+                lines.append(f"- **{key}**: *(error reading)*")
+
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+
 # ── Context rendering ────────────────────────────────────────────────────────
 
 def render_sibyl_context(
@@ -8068,7 +8135,22 @@ def render_sibyl_context(
                         f"{k}={v}" for k, v in list(body.items())[:3]
                     )
                 else:
-                    body_str = snippet or str(body)[:120]
+                    # Truncate at JSON boundaries to avoid mid-string cuts
+                    import json
+                    raw = json.dumps(body, default=str, separators=(",", ":"))
+                    if len(raw) <= 120:
+                        body_str = raw
+                    else:
+                        # Find last complete key-value pair before position 117
+                        # (leaving room for "...}")
+                        cutoff = raw[:117]
+                        last_comma = cutoff.rfind(",")
+                        last_colon = cutoff.rfind(":")
+                        # Truncate after the last complete value before a comma
+                        if last_comma > last_colon:
+                            body_str = raw[: last_comma] + "...}"
+                        else:
+                            body_str = raw[:117] + "...}"
             elif isinstance(body, list):
                 body_str = ", ".join(str(v) for v in body[:3])
             elif isinstance(body, str):
