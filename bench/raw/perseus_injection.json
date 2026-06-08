@@ -1,0 +1,104 @@
+{
+  "total_chars": 8760,
+  "approx_tokens_div3": 2920,
+  "approx_tokens_div4": 2190,
+  "sections": {
+    "preamble": {
+      "lines": 1,
+      "chars": 1,
+      "tokens": 0
+    },
+    "perseus_prompt": {
+      "lines": 2,
+      "chars": 289,
+      "tokens": 96
+    },
+    "title": {
+      "lines": 2,
+      "chars": 27,
+      "tokens": 9
+    },
+    "render_info": {
+      "lines": 2,
+      "chars": 36,
+      "tokens": 12
+    },
+    "Project": {
+      "lines": 4,
+      "chars": 105,
+      "tokens": 35
+    },
+    "Environment": {
+      "lines": 15,
+      "chars": 140,
+      "tokens": 46
+    },
+    "Git State": {
+      "lines": 18,
+      "chars": 473,
+      "tokens": 157
+    },
+    "Services": {
+      "lines": 6,
+      "chars": 87,
+      "tokens": 29
+    },
+    "Available Skills": {
+      "lines": 62,
+      "chars": 6286,
+      "tokens": 2095
+    },
+    "Recent Sessions": {
+      "lines": 4,
+      "chars": 49,
+      "tokens": 16
+    },
+    "Task Board": {
+      "lines": 4,
+      "chars": 34,
+      "tokens": 11
+    },
+    "Long-Term Memory (Mneme)": {
+      "lines": 5,
+      "chars": 188,
+      "tokens": 62
+    },
+    "Sibyl Memory: structured context": {
+      "lines": 7,
+      "chars": 779,
+      "tokens": 259
+    },
+    "Current State": {
+      "lines": 4,
+      "chars": 83,
+      "tokens": 27
+    }
+  },
+  "facts_pre_loaded": 12,
+  "facts_total": 23,
+  "facts_detail": {
+    "Credential redaction approach (sibyl)": true,
+    "BSM cache auth pattern": false,
+    "GitHub token extraction": true,
+    "Fix root cause convention": false,
+    "Current git branch": false,
+    "CI rebuild convention": false,
+    "Test coverage data": false,
+    "Health checker component": false,
+    "CI pipeline info": false,
+    "Python version": false,
+    "Conventions listed": true,
+    "Architecture decisions surfaced": true,
+    "Service endpoints listed": true,
+    "Auth patterns surfaced": true,
+    "Project metadata": true,
+    "User preferences": true,
+    "Infrastructure details": true,
+    "Active sprint": true,
+    "Deployment status": true,
+    "Current focus": true,
+    "Hostname": false,
+    "Disk space": false,
+    "Recent git history": false
+  }
+}

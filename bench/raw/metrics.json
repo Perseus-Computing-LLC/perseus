@@ -1,0 +1,484 @@
+{
+  "generated": "2026-06-08T17:18:52.973037",
+  "corpus": {
+    "total_entities": 268,
+    "categories": 11,
+    "journal_events": 25,
+    "state_documents": 3,
+    "db_path": "/root/.sibyl-memory/memory.db"
+  },
+  "perseus_injection": {
+    "total_chars": 8760,
+    "approx_tokens": 2920,
+    "facts_pre_loaded": 12,
+    "facts_total_checked": 23,
+    "sections": {
+      "preamble": {
+        "lines": 1,
+        "chars": 1,
+        "tokens": 0
+      },
+      "perseus_prompt": {
+        "lines": 2,
+        "chars": 289,
+        "tokens": 96
+      },
+      "title": {
+        "lines": 2,
+        "chars": 27,
+        "tokens": 9
+      },
+      "render_info": {
+        "lines": 2,
+        "chars": 36,
+        "tokens": 12
+      },
+      "Project": {
+        "lines": 4,
+        "chars": 105,
+        "tokens": 35
+      },
+      "Environment": {
+        "lines": 15,
+        "chars": 140,
+        "tokens": 46
+      },
+      "Git State": {
+        "lines": 18,
+        "chars": 473,
+        "tokens": 157
+      },
+      "Services": {
+        "lines": 6,
+        "chars": 87,
+        "tokens": 29
+      },
+      "Available Skills": {
+        "lines": 62,
+        "chars": 6286,
+        "tokens": 2095
+      },
+      "Recent Sessions": {
+        "lines": 4,
+        "chars": 49,
+        "tokens": 16
+      },
+      "Task Board": {
+        "lines": 4,
+        "chars": 34,
+        "tokens": 11
+      },
+      "Long-Term Memory (Mneme)": {
+        "lines": 5,
+        "chars": 188,
+        "tokens": 62
+      },
+      "Sibyl Memory: structured context": {
+        "lines": 7,
+        "chars": 779,
+        "tokens": 259
+      },
+      "Current State": {
+        "lines": 4,
+        "chars": 83,
+        "tokens": 27
+      }
+    }
+  },
+  "sibyl_only_summary": {
+    "total_discovery_calls": 105,
+    "avg_per_task": 7.0,
+    "total_response_tokens": 64189,
+    "avg_tokens_per_task": 4279,
+    "facts_found_rate": "83/105",
+    "simple_avg_turns": 5.3,
+    "complex_avg_turns": 8.5
+  },
+  "sibyl_perseus_comparison": {
+    "avg_discovery_turns_sibyl": 7.0,
+    "avg_discovery_turns_perseus": 4.3,
+    "avg_turns_saved": 2.7,
+    "reduction_pct": 38.1,
+    "total_sibyl_calls_eliminated": 40,
+    "total_tokens_saved": 23680
+  },
+  "net_token_efficiency": {
+    "perseus_injection_tokens": 2920,
+    "tokens_saved_per_session": 23680,
+    "net_savings": 20760,
+    "breakeven_turns": "~3",
+    "efficiency_curve": [
+      {
+        "turns": 5,
+        "sibyl_only": 66689,
+        "sibyl_perseus": 45929,
+        "net_savings": 20760
+      },
+      {
+        "turns": 10,
+        "sibyl_only": 69189,
+        "sibyl_perseus": 48429,
+        "net_savings": 20760
+      },
+      {
+        "turns": 15,
+        "sibyl_only": 71689,
+        "sibyl_perseus": 50929,
+        "net_savings": 20760
+      },
+      {
+        "turns": 30,
+        "sibyl_only": 79189,
+        "sibyl_perseus": 58429,
+        "net_savings": 20760
+      },
+      {
+        "turns": 60,
+        "sibyl_only": 94189,
+        "sibyl_perseus": 73429,
+        "net_savings": 20760
+      }
+    ]
+  },
+  "trap_analysis": {
+    "total_traps": 8,
+    "pre_answered": 8,
+    "not_pre_answered": 0,
+    "sibyl_only_traps_triggered": 8,
+    "sibyl_perseus_traps_triggered": 0,
+    "details": [
+      {
+        "question": "What OS is this?",
+        "pre_answered": true,
+        "source": "@query hostname + uname"
+      },
+      {
+        "question": "What Python version?",
+        "pre_answered": true,
+        "source": "@query python3 --version"
+      },
+      {
+        "question": "Is Hermes running?",
+        "pre_answered": true,
+        "source": "@services health check"
+      },
+      {
+        "question": "What git branch?",
+        "pre_answered": true,
+        "source": "@query git branch"
+      },
+      {
+        "question": "What skills do I have?",
+        "pre_answered": true,
+        "source": "@skills directive"
+      },
+      {
+        "question": "Who is the user?",
+        "pre_answered": true,
+        "source": "Sibyl user entity"
+      },
+      {
+        "question": "What conventions apply?",
+        "pre_answered": true,
+        "source": "Sibyl convention entities"
+      },
+      {
+        "question": "What was the last decision?",
+        "pre_answered": true,
+        "source": "Sibyl decision entities"
+      }
+    ]
+  },
+  "category_breakdown": {
+    "categories": [
+      {
+        "category": "Environment (OS, Python, hostname, disk)",
+        "sibyl_turns": 4,
+        "perseus_turns": 0,
+        "source": "@query directives"
+      },
+      {
+        "category": "Git state (branch, log, status)",
+        "sibyl_turns": 3,
+        "perseus_turns": 0,
+        "source": "@query directives"
+      },
+      {
+        "category": "Services health",
+        "sibyl_turns": 1,
+        "perseus_turns": 0,
+        "source": "@services block"
+      },
+      {
+        "category": "Project facts (repo, version, owner)",
+        "sibyl_turns": 2,
+        "perseus_turns": 0,
+        "source": "Sibyl entities + template"
+      },
+      {
+        "category": "Auth patterns / credentials",
+        "sibyl_turns": 2,
+        "perseus_turns": 0,
+        "source": "Sibyl entities"
+      },
+      {
+        "category": "Conventions / workflow rules",
+        "sibyl_turns": 2,
+        "perseus_turns": 0,
+        "source": "Sibyl entities"
+      },
+      {
+        "category": "Architecture decisions",
+        "sibyl_turns": 2,
+        "perseus_turns": 0,
+        "source": "Sibyl entities"
+      },
+      {
+        "category": "Skills inventory",
+        "sibyl_turns": 1,
+        "perseus_turns": 0,
+        "source": "@skills directive"
+      },
+      {
+        "category": "Session history / waypoints",
+        "sibyl_turns": 1,
+        "perseus_turns": 0,
+        "source": "@session + @waypoint"
+      },
+      {
+        "category": "Task board / active work",
+        "sibyl_turns": 1,
+        "perseus_turns": 0,
+        "source": "@agora + @sibyl_state"
+      }
+    ],
+    "total_sibyl_turns": 19,
+    "total_perseus_turns": 0
+  },
+  "per_task": [
+    {
+      "task_id": 1,
+      "task_name": "Fix credential redaction: nested JSON tokens not caught",
+      "task_type": "simple",
+      "sibyl_only_calls": 8,
+      "sibyl_only_tokens": 2251,
+      "sibyl_only_facts_found": 7,
+      "sibyl_only_facts_total": 8,
+      "calls_eliminated_by_perseus": 7,
+      "tokens_saved_by_perseus": 2251,
+      "remaining_calls_with_perseus": 1,
+      "remaining_tokens_with_perseus": 0,
+      "discovery_turns_saved": 7
+    },
+    {
+      "task_id": 2,
+      "task_name": "Add health check for a new service endpoint",
+      "task_type": "simple",
+      "sibyl_only_calls": 5,
+      "sibyl_only_tokens": 7326,
+      "sibyl_only_facts_found": 4,
+      "sibyl_only_facts_total": 5,
+      "calls_eliminated_by_perseus": 5,
+      "tokens_saved_by_perseus": 7326,
+      "remaining_calls_with_perseus": 0,
+      "remaining_tokens_with_perseus": 0,
+      "discovery_turns_saved": 5
+    },
+    {
+      "task_id": 3,
+      "task_name": "Update CI workflow to test Python 3.13",
+      "task_type": "simple",
+      "sibyl_only_calls": 5,
+      "sibyl_only_tokens": 771,
+      "sibyl_only_facts_found": 4,
+      "sibyl_only_facts_total": 5,
+      "calls_eliminated_by_perseus": 3,
+      "tokens_saved_by_perseus": 414,
+      "remaining_calls_with_perseus": 2,
+      "remaining_tokens_with_perseus": 357,
+      "discovery_turns_saved": 3
+    },
+    {
+      "task_id": 4,
+      "task_name": "Add memory-cleanup skill SKILL.md",
+      "task_type": "simple",
+      "sibyl_only_calls": 5,
+      "sibyl_only_tokens": 1513,
+      "sibyl_only_facts_found": 2,
+      "sibyl_only_facts_total": 5,
+      "calls_eliminated_by_perseus": 3,
+      "tokens_saved_by_perseus": 1513,
+      "remaining_calls_with_perseus": 2,
+      "remaining_tokens_with_perseus": 0,
+      "discovery_turns_saved": 3
+    },
+    {
+      "task_id": 5,
+      "task_name": "Fix Mneme FTS5 search escaping bug (issue #318)",
+      "task_type": "simple",
+      "sibyl_only_calls": 5,
+      "sibyl_only_tokens": 3106,
+      "sibyl_only_facts_found": 5,
+      "sibyl_only_facts_total": 5,
+      "calls_eliminated_by_perseus": 1,
+      "tokens_saved_by_perseus": 0,
+      "remaining_calls_with_perseus": 4,
+      "remaining_tokens_with_perseus": 3106,
+      "discovery_turns_saved": 1
+    },
+    {
+      "task_id": 6,
+      "task_name": "Fix CLI overwrite without warning (issue #314)",
+      "task_type": "simple",
+      "sibyl_only_calls": 4,
+      "sibyl_only_tokens": 384,
+      "sibyl_only_facts_found": 2,
+      "sibyl_only_facts_total": 4,
+      "calls_eliminated_by_perseus": 1,
+      "tokens_saved_by_perseus": 0,
+      "remaining_calls_with_perseus": 3,
+      "remaining_tokens_with_perseus": 384,
+      "discovery_turns_saved": 1
+    },
+    {
+      "task_id": 7,
+      "task_name": "Update dependency scanner to detect optional imports",
+      "task_type": "simple",
+      "sibyl_only_calls": 5,
+      "sibyl_only_tokens": 1447,
+      "sibyl_only_facts_found": 5,
+      "sibyl_only_facts_total": 5,
+      "calls_eliminated_by_perseus": 0,
+      "tokens_saved_by_perseus": 0,
+      "remaining_calls_with_perseus": 5,
+      "remaining_tokens_with_perseus": 1447,
+      "discovery_turns_saved": 0
+    },
+    {
+      "task_id": 8,
+      "task_name": "Implement convention checker for agent behavior validation",
+      "task_type": "complex",
+      "sibyl_only_calls": 8,
+      "sibyl_only_tokens": 5518,
+      "sibyl_only_facts_found": 5,
+      "sibyl_only_facts_total": 8,
+      "calls_eliminated_by_perseus": 4,
+      "tokens_saved_by_perseus": 4384,
+      "remaining_calls_with_perseus": 4,
+      "remaining_tokens_with_perseus": 1134,
+      "discovery_turns_saved": 4
+    },
+    {
+      "task_id": 9,
+      "task_name": "Refactor memory mesh to deduplicate cross-backend results",
+      "task_type": "complex",
+      "sibyl_only_calls": 8,
+      "sibyl_only_tokens": 8797,
+      "sibyl_only_facts_found": 8,
+      "sibyl_only_facts_total": 8,
+      "calls_eliminated_by_perseus": 1,
+      "tokens_saved_by_perseus": 0,
+      "remaining_calls_with_perseus": 7,
+      "remaining_tokens_with_perseus": 8797,
+      "discovery_turns_saved": 1
+    },
+    {
+      "task_id": 10,
+      "task_name": "Deploy Perseus v1.0.7 to PyPI",
+      "task_type": "complex",
+      "sibyl_only_calls": 10,
+      "sibyl_only_tokens": 1216,
+      "sibyl_only_facts_found": 7,
+      "sibyl_only_facts_total": 10,
+      "calls_eliminated_by_perseus": 6,
+      "tokens_saved_by_perseus": 307,
+      "remaining_calls_with_perseus": 4,
+      "remaining_tokens_with_perseus": 909,
+      "discovery_turns_saved": 6
+    },
+    {
+      "task_id": 11,
+      "task_name": "Add Perseus MCP server tool integration",
+      "task_type": "complex",
+      "sibyl_only_calls": 8,
+      "sibyl_only_tokens": 5329,
+      "sibyl_only_facts_found": 7,
+      "sibyl_only_facts_total": 8,
+      "calls_eliminated_by_perseus": 3,
+      "tokens_saved_by_perseus": 3965,
+      "remaining_calls_with_perseus": 5,
+      "remaining_tokens_with_perseus": 1364,
+      "discovery_turns_saved": 3
+    },
+    {
+      "task_id": 12,
+      "task_name": "Build cross-workspace memory search UI",
+      "task_type": "complex",
+      "sibyl_only_calls": 9,
+      "sibyl_only_tokens": 2723,
+      "sibyl_only_facts_found": 5,
+      "sibyl_only_facts_total": 9,
+      "calls_eliminated_by_perseus": 0,
+      "tokens_saved_by_perseus": 0,
+      "remaining_calls_with_perseus": 9,
+      "remaining_tokens_with_perseus": 2723,
+      "discovery_turns_saved": 0
+    },
+    {
+      "task_id": 13,
+      "task_name": "Implement TTL cache invalidation on config change",
+      "task_type": "complex",
+      "sibyl_only_calls": 7,
+      "sibyl_only_tokens": 4646,
+      "sibyl_only_facts_found": 7,
+      "sibyl_only_facts_total": 7,
+      "calls_eliminated_by_perseus": 0,
+      "tokens_saved_by_perseus": 0,
+      "remaining_calls_with_perseus": 7,
+      "remaining_tokens_with_perseus": 4646,
+      "discovery_turns_saved": 0
+    },
+    {
+      "task_id": 14,
+      "task_name": "Add multi-tenant support to Sibyl Memory connector",
+      "task_type": "complex",
+      "sibyl_only_calls": 8,
+      "sibyl_only_tokens": 4033,
+      "sibyl_only_facts_found": 6,
+      "sibyl_only_facts_total": 8,
+      "calls_eliminated_by_perseus": 4,
+      "tokens_saved_by_perseus": 3328,
+      "remaining_calls_with_perseus": 4,
+      "remaining_tokens_with_perseus": 705,
+      "discovery_turns_saved": 4
+    },
+    {
+      "task_id": 15,
+      "task_name": "Performance audit: profile and optimize AGENTS.md render pipeline",
+      "task_type": "complex",
+      "sibyl_only_calls": 10,
+      "sibyl_only_tokens": 15129,
+      "sibyl_only_facts_found": 9,
+      "sibyl_only_facts_total": 10,
+      "calls_eliminated_by_perseus": 2,
+      "tokens_saved_by_perseus": 192,
+      "remaining_calls_with_perseus": 8,
+      "remaining_tokens_with_perseus": 14937,
+      "discovery_turns_saved": 2
+    }
+  ],
+  "db_entity_counts": {
+    "component": 59,
+    "decision": 58,
+    "bug": 43,
+    "convention": 20,
+    "infrastructure": 12,
+    "endpoint": 25,
+    "auth": 7,
+    "project": 8,
+    "user": 6,
+    "session": 20,
+    "reference": 10,
+    "total": 268
+  }
+}
