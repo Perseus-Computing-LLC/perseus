@@ -24,6 +24,8 @@ Works with any MCP-compatible assistant: Claude Desktop, Claude Code, Cursor, Co
 
 Perseus implements the [Model Context Protocol](https://modelcontextprotocol.io/) (MCP), exposing tools over stdio or SSE transport. Every tool resolves live workspace state at invocation time — no stale cache, no pre-computed snapshots.
 
+> **⚠️ v1.0.6+ Security Gate:** Shell-executing directives (`@query`, `@agent`, `@services command:`) require `export PERSEUS_ALLOW_DANGEROUS=1`. Without it, shell directives are silently skipped.
+
 ### Quick Start (MCP Server)
 
 ```bash
@@ -133,7 +135,7 @@ Published as [`io.github.tcconnally/perseus`](https://registry.modelcontextproto
 
 ### MCP Tools
 
-<!-- test-count: 894 -->
+<!-- test-count: 1032 -->
 24 MCP tools resolve live state at invocation time. Two sensitive tools (`perseus_query` and `perseus_agent`) require explicit `mcp.tool_allowlist` opt-in because they execute commands in the user's local shell — **not sandboxed, full user permissions apply**:
 
 | Tool | Description |
@@ -250,7 +252,7 @@ Perseus delivers verified, up-to-date context, eliminating the need for AI assis
 
 ### Reliability & Security
 
-Perseus is tested against edge cases that challenge the "resolve before context" claim. **v1.0.6** completed a deep-dive architectural review (O(n²)→O(n), regex parser, shell hardening, retry classification) and **Phase 26** (v1.0.5) completed a full security review against the MCP transport and foreign resolver surface:
+Perseus is tested against edge cases that challenge the "resolve before context" claim. **v1.0.6** completed a deep-dive architectural review (O(n²)→O(n), regex parser, shell hardening, retry classification) and a full security review against the MCP transport and foreign resolver surface (Phase 26):
 
 - **MCP SSE bearer-token auth** — `POST /message` requires Bearer token via `mcp.sse_bearer_token` config key (falls back to `serve.auth_token` for backward compat). Unauthenticated requests receive 401.
 - **Platform-portable MCP timeout** — `_call_tool()` uses `ThreadPoolExecutor` + `Future.result(timeout=...)` instead of Unix-only SIGALRM. Works on Windows, macOS, and Linux.
