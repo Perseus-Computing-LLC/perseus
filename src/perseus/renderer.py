@@ -1513,6 +1513,19 @@ def render_source_html(
     return html_document(body, title, timestamp, version)
 
 
+def _derive_query_hints(source_text: str, workspace) -> list[str]:
+    hints = []
+    if workspace:
+        hints.append(workspace.name)
+    import re
+    for d in ("@project", "@task", "@goal", "@epic"):
+        m = re.search(rf'{d}\s+(.+)', source_text)
+        if m:
+            val = m.group(1).strip()
+            if val:
+                hints.append(val)
+    return hints
+
 def render_output(
     source_text: str,
     fmt: str,
@@ -1533,7 +1546,8 @@ def render_output(
         from perseus.vaultmem_connector import inject_vaultmem_context
         rendered = inject_vaultmem_context(rendered, cfg)
         from perseus.sibyl_memory import render_sibyl_context
-        sibyl_block = render_sibyl_context(cfg=cfg)
+        hints = _derive_query_hints(source_text, workspace)
+        sibyl_block = render_sibyl_context(query_hints=hints, cfg=cfg)
         if sibyl_block:
             rendered += "\n\n" + sibyl_block
         return rendered
@@ -1553,7 +1567,8 @@ def render_output(
         from perseus.vaultmem_connector import inject_vaultmem_context
         rendered = inject_vaultmem_context(rendered, cfg)
         from perseus.sibyl_memory import render_sibyl_context
-        sibyl_block = render_sibyl_context(cfg=cfg)
+        hints = _derive_query_hints(source_text, workspace)
+        sibyl_block = render_sibyl_context(query_hints=hints, cfg=cfg)
         if sibyl_block:
             rendered += "\n\n" + sibyl_block
         return wrap_rendered(rendered, fmt, _PERSEUS_VERSION)
