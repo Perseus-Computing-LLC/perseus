@@ -28,6 +28,7 @@ dependencies = ["pyyaml"]
 
 [project.optional-dependencies]
 dev = ["pytest", "coverage", "hypothesis"]
+mcp = ["mcp", "sibyl-memory-client"]
 
 [project.urls]
 Homepage = "https://github.com/tcconnally/perseus"
@@ -37,6 +38,7 @@ Repository = "https://github.com/tcconnally/perseus"
 
 [project.scripts]
 perseus = "perseus:main"
+sibyl-mcp-server = "sibyl_mcp_server:main"
 
 [tool.setuptools]
-py-modules = ["perseus"]
+py-modules = ["perseus", "sibyl_mcp_server"]
