@@ -1,4 +1,4 @@
-# Perseus Directives Reference
+# Perseus Directives Reference — v1.0.6
 
 > Full directive system for Perseus context documents. All directives are resolved at render time — the assistant sees only verified facts, never directive syntax.
 

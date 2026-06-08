@@ -1,4 +1,5 @@
-@perseus v0.4
+@perseus v1.0.6
+<!-- Last updated: 2026-06-08 · Current Perseus version: v1.0.6 -->
 
 @prompt
 This document is the single source of truth for the Perseus project.
@@ -1269,7 +1270,7 @@ Phase 26A ─── MCP SSE authentication (task-91) ✅ ───────�
 
 ```
 Source document (.perseus/context.md)
-  @perseus v0.4
+  @perseus v1.0.6
   @query "git log --oneline -5"          ┐
   @read .env key="PORT"                  │  Directives resolved
   @waypoint ttl=86400                    │  before context window.
