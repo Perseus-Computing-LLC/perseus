@@ -51,14 +51,32 @@ That's the whole install. Perseus auto-detects your project language (Python, Ru
 
 ### Sibyl Memory MCP Server
 
-Perseus includes a standalone MCP server for Sibyl Memory. To configure your MCP client to access your memory via tools (`sibyl_search`, `sibyl_recall`, `sibyl_remember`), add this to your MCP settings (`claude_desktop_config.json` or Cursor's MCP config):
+Perseus includes a standalone MCP server for Sibyl Memory — structured five-tier local memory with three tools: `sibyl_search` (FTS5 across all tiers), `sibyl_recall` (fetch by category + name), and `sibyl_remember` (create or update).
+
+**Hermes Agent** — add to `~/.hermes/config.yaml`:
+
+```yaml
+mcp_servers:
+  sibyl:
+    command: "python3"
+    args: ["/path/to/perseus-repo/src/sibyl_mcp_server.py"]
+    env:
+      SIBYL_DB_PATH: "~/.sibyl-memory/memory.db"
+    timeout: 30
+    connect_timeout: 15
+```
+
+**Claude Desktop / Cursor** — add to your MCP settings:
 
 ```json
 {
   "mcpServers": {
     "sibyl": {
       "command": "uvx",
-      "args": ["--from", "perseus-ctx[mcp]", "sibyl-mcp-server"]
+      "args": ["--from", "perseus-ctx[mcp]", "sibyl-mcp-server"],
+      "env": {
+        "SIBYL_DB_PATH": "/home/yourname/.sibyl-memory/memory.db"
+      }
     }
   }
 }
