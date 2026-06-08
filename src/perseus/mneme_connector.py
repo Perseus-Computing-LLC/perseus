@@ -348,8 +348,9 @@ class _MCPStdioClient:
                 elif arg.startswith("--db="):
                     db_path = arg[5:]
                     db_dir = os.path.dirname(db_path)
-                    if db_dir and os.path.isdir(db_dir):
-                        cwd = db_dir
+                    if db_dir:
+                        os.makedirs(db_dir, exist_ok=True)
+                        cwd = db_dir if os.path.isdir(db_dir) else None
 
             self._process = subprocess.Popen(
                 self._command,

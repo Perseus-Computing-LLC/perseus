@@ -9432,6 +9432,10 @@ def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path | N
             except (OSError, PermissionError):
                 pass  # can't read → no fingerprint (cache miss is safe)
 
+    # Include PERSEUS_ALLOW_DANGEROUS in the fingerprint so cache
+    # auto-invalidates when the env var changes (#253)
+    dangerous = os.environ.get('PERSEUS_ALLOW_DANGEROUS', '0')
+    parts.append(f"env:PERSEUS_ALLOW_DANGEROUS={dangerous}")
     if not parts:
         return ""
     return _hashlib.sha256("|".join(parts).encode()).hexdigest()
@@ -10001,6 +10005,7 @@ def _render_lines(
     _stats: dict | None = None,
     max_tier: int = 3,
     _skipped_directives: list[dict] | None = None,
+    no_cache: bool = False,
 ) -> str:
     """Core rendering loop. Processes a list of lines and returns resolved markdown.
 
@@ -10238,7 +10243,8 @@ def _render_lines(
                                            _directive_collector=_directive_collector,
                                            _stats=_stats,
                                            max_tier=max_tier,
-                                           _skipped_directives=_skipped_directives)
+                                           _skipped_directives=_skipped_directives,
+                                           no_cache=no_cache)
             output.append(resolve_validate_block(rendered_block, schema_ref, cfg, workspace))
             continue
 
@@ -10392,7 +10398,8 @@ def _render_lines(
                                              _directive_collector=_directive_collector,
                                              _stats=_stats,
                                              max_tier=max_tier,
-                                             _skipped_directives=_skipped_directives))
+                                             _skipped_directives=_skipped_directives,
+                                             no_cache=no_cache))
             continue
 
         # ── inline directives ──
@@ -10454,7 +10461,7 @@ def _render_lines(
             if not cache_mode and spec and spec.cacheable:
                 cache_mode = "fingerprint"
 
-            cached = cache_get(cache_key, cache_mode, cache_ttl, cfg)
+            cached = None if no_cache else cache_get(cache_key, cache_mode, cache_ttl, cfg)
             if cached is not None:
                 if _stats is not None: _stats["cache_hits"] += 1
                 _fire_hooks("on_cache_hit", {
@@ -10514,7 +10521,7 @@ def _render_lines(
             else:
                 result = line
 
-            if cache_mode:
+            if cache_mode and not no_cache:
                 cache_set(cache_key, result, cache_mode, cache_ttl, cfg)
                 if _fp:
                     # Keep a TTL fallback under the base key. If a dependency is
@@ -10562,6 +10569,7 @@ def render_source(
     _directive_collector: list[dict] | None = None,
     _stats: dict | None = None,
     _skipped_directives: list[dict] | None = None,
+    no_cache: bool = False,
 ) -> str:
     """
     Parse and resolve a @perseus source document.
@@ -10614,7 +10622,8 @@ def render_source(
                          _directive_collector=_directive_collector,
                          _stats=_stats,
                          max_tier=max_tier,
-                         _skipped_directives=_skipped_directives)
+                         _skipped_directives=_skipped_directives,
+                         no_cache=no_cache)
 
     # ── Context Manifest: report skipped directives for transparency ──
     if _include_depth == 0 and _skipped_directives and max_tier < 3:
@@ -10683,6 +10692,7 @@ def render_source_with_meta(
     source_text: str,
     cfg: dict,
     workspace: Path | None = None,
+    no_cache: bool = False,
 ) -> RenderResult:
     """Like render_source() but returns structured RenderResult with metadata."""
     _stats = {
@@ -10691,7 +10701,7 @@ def render_source_with_meta(
         "cache_misses": 0,
     }
     _directives_collector = []
-    text = render_source(source_text, cfg, workspace,
+    text = render_source(source_text, cfg, workspace, no_cache=no_cache,
                          _directive_collector=_directives_collector,
                          _stats=_stats)
 
@@ -10764,11 +10774,12 @@ def render_output(
     workspace: Path | None = None,
     title: str | None = None,
     max_tier: int = 3,
+    no_cache: bool = False,
 ) -> str:
     """Resolve source and format output using built-in or custom adapter."""
     # Built-in formats
     if fmt in ("md", "markdown"):
-        rendered = render_source(source_text, cfg, workspace, max_tier=max_tier)
+        rendered = render_source(source_text, cfg, workspace, max_tier=max_tier, no_cache=no_cache)
         rendered, _report = redact_text(rendered, cfg)
         _audit_render_redaction(cfg, _report)
         rendered = dedup_context_if_available(rendered, cfg)
@@ -10782,7 +10793,7 @@ def render_output(
 
     # Assistant formats (Phase 24)
     if fmt in ("agents-md", "claude-md", "cursorrules", "copilot-instructions"):
-        rendered = render_source(source_text, cfg, workspace, max_tier=max_tier)
+        rendered = render_source(source_text, cfg, workspace, max_tier=max_tier, no_cache=no_cache)
         rendered, _report = redact_text(rendered, cfg)
         _audit_render_redaction(cfg, _report)
         rendered = dedup_context_if_available(rendered, cfg)
@@ -13075,8 +13086,9 @@ class _MCPStdioClient:
                 elif arg.startswith("--db="):
                     db_path = arg[5:]
                     db_dir = os.path.dirname(db_path)
-                    if db_dir and os.path.isdir(db_dir):
-                        cwd = db_dir
+                    if db_dir:
+                        os.makedirs(db_dir, exist_ok=True)
+                        cwd = db_dir if os.path.isdir(db_dir) else None
 
             self._process = subprocess.Popen(
                 self._command,
@@ -14606,7 +14618,7 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path) -> str:
         pass  # Mneme is optional — degrade gracefully
 
     if not hits and not mneme_items:
-        return "> \u2139\ufe0f No Mn\u0113m\u0113 memories matched.\n"
+        return "> \u2139\ufe0f No Mn\u0113m\u0113 memories matched yet — this is expected on a fresh install. Populate the vault with memory files or run `perseus memory update` to initialize.\n"
 
     lines = ["> \U0001f9e0 **Mn\u0113m\u0113 memories:**\n"]
     for h in hits:
@@ -14698,7 +14710,7 @@ def _resolve_memory_narrative(args_stripped: str, mods: dict, cfg: dict, ws: Pat
     mp = _mneme_path(ws, cfg)
     if not mp.exists():
         return _maybe_append_federation(
-            "> \u26a0 No Mn\u0113m\u0113 narrative found for this workspace.\n"
+            "> \u2139\ufe0f No Mn\u0113m\u0113 narrative found for this workspace — this is expected on a fresh install.\n"
             "> Run `perseus memory update` to initialize."
         )
 
@@ -17340,10 +17352,20 @@ def _doctor_check_mneme_bridge(cfg: dict, workspace: Path) -> DoctorResult:
             # Run health check
             healthy, status = connector.health_check()
             if healthy:
+                # Try to get version from health check response
+                version_info = ""
+                raw_result, _ = connector._client.call_tool("mneme_health", {}) if connector._client else (None, None)
+                if raw_result and isinstance(raw_result, dict):
+                    ver = raw_result.get("version", "")
+                    db_path = raw_result.get("db_path", "")
+                    if ver:
+                        version_info = f" (v{ver})"
+                    if db_path:
+                        version_info += f" db: {db_path}"
                 connector.close()
                 extra = f" (binary: {binary_path})" if binary_path != binary_name else ""
                 return DoctorResult("mneme_connectivity", "ok", "Mneme",
-                                   f"connected + healthy{extra}", "")
+                                   f"connected + healthy{version_info}{extra}", "")
             else:
                 connector.close()
                 return DoctorResult("mneme_connectivity", "warn", "Mneme",
@@ -17360,6 +17382,67 @@ def _doctor_check_mneme_bridge(cfg: dict, workspace: Path) -> DoctorResult:
                            str(exc),
                            "Verify mneme binary and config — check mneme.command in config.yaml")
 
+
+
+def _doctor_check_version_header(cfg: dict, workspace: Path) -> DoctorResult:
+    """Check if the @perseus version header in context.md matches installed version."""
+    ctx_path = workspace / ".perseus" / "context.md"
+    if not ctx_path.exists():
+        return DoctorResult("version_header", "ok", "@perseus version header",
+                           "no context.md found (skipped)", "")
+    try:
+        first_line = ctx_path.read_text(errors="replace").split("\n")[0].strip()
+    except Exception:
+        return DoctorResult("version_header", "ok", "@perseus version header",
+                           "could not read context.md", "")
+    
+    v_match = re.match(r'@perseus\s+v?([\d.]+)', first_line, re.IGNORECASE)
+    if not v_match:
+        return DoctorResult("version_header", "warn", "@perseus version header",
+                           f"no @perseus version found in context.md (first line: {first_line[:60]})",
+                           "Add @perseus v" + _PERSEUS_VERSION + " as the first line of .perseus/context.md")
+    
+    header_ver = v_match.group(1)
+    installed_ver = _PERSEUS_VERSION
+    
+    if header_ver == installed_ver:
+        return DoctorResult("version_header", "ok", "@perseus version header",
+                           f"v{header_ver} matches installed v{installed_ver}", "")
+    else:
+        return DoctorResult("version_header", "warn", "@perseus version header",
+                           f"context.md has v{header_ver} but perseus is v{installed_ver}",
+                           f"Update @perseus header to v{installed_ver} in .perseus/context.md")
+
+
+def _doctor_check_stale_shim(cfg: dict, workspace: Path) -> DoctorResult:
+    """Check for stale ~/.local/bin/perseus shim from old install.sh (#252)."""
+    shim_path = os.path.expanduser("~/.local/bin/perseus")
+    share_path = os.path.expanduser("~/.local/share/perseus/perseus.py")
+    
+    if not os.path.isfile(shim_path):
+        return DoctorResult("stale_shim", "ok", "Legacy shim",
+                           "no shim at ~/.local/bin/perseus", "")
+    
+    # Check if this is a shim (symlink or wrapper script) vs direct binary
+    is_shim = False
+    try:
+        if os.path.islink(shim_path):
+            is_shim = True
+        else:
+            with open(shim_path) as f:
+                first_line = f.readline().strip()
+                if 'exec' in first_line or '#!/bin/sh' in first_line or 'perseus.py' in first_line:
+                    is_shim = True
+    except Exception:
+        pass
+    
+    if is_shim or os.path.isfile(share_path):
+        return DoctorResult("stale_shim", "warn", "Legacy shim",
+                           f"old install.sh shim detected at {shim_path}",
+                           "Remove legacy shim: rm -f ~/.local/bin/perseus ~/.local/share/perseus/perseus.py && pip install --upgrade perseus-ctx")
+    
+    return DoctorResult("stale_shim", "ok", "Legacy shim",
+                       "shim at ~/.local/bin/perseus looks current", "")
 
 
 _DOCTOR_CHECKS = [
@@ -17380,6 +17463,8 @@ _DOCTOR_CHECKS = [
     _doctor_check_cache_writable,
     _doctor_check_mneme_bridge,
     _doctor_check_sessions,
+    _doctor_check_version_header,
+    _doctor_check_stale_shim,
 ]
 
 
@@ -18903,6 +18988,8 @@ def cmd_render(args, cfg):
     if max_tier is None:
         max_tier = 3
 
+    no_cache = getattr(args, "no_cache", False)
+
     # --explain: emit directive execution manifest instead of rendered output
     if getattr(args, "explain", False):
         import json as _json
@@ -18912,7 +18999,8 @@ def cmd_render(args, cfg):
         rendered = render_source(text, cfg, workspace, max_tier=max_tier,
                                  _directive_collector=_directives,
                                  _stats=_stats,
-                                 _skipped_directives=_skipped)
+                                 _skipped_directives=_skipped,
+                                 no_cache=no_cache)
         manifest = {
             "source": str(source_path),
             "workspace": str(workspace),
@@ -18930,7 +19018,7 @@ def cmd_render(args, cfg):
         print(_json.dumps(manifest, indent=2, default=str))
         return
 
-    rendered = render_output(text, fmt, cfg, workspace, title=title, max_tier=max_tier)
+    rendered = render_output(text, fmt, cfg, workspace, title=title, max_tier=max_tier, no_cache=no_cache)
 
     is_assistant_format = fmt in ("agents-md", "claude-md", "cursorrules", "copilot-instructions")
     output = getattr(args, "output", None)
@@ -20696,6 +20784,12 @@ def main():
         help="Emit a directive execution manifest (JSON) instead of rendered output. "
              "Shows directives, cache hits/misses, durations, warnings, and skipped "
              "tiered directives.",
+    )
+    p_render.add_argument(
+        "--no-cache", action="store_true",
+        help="Bypass the render cache entirely — all directives re-resolve fresh. "
+             "Use when env vars (e.g. PERSEUS_ALLOW_DANGEROUS) changed but cached "
+             "results are stale.",
     )
 
     # watch (Phase 20C)

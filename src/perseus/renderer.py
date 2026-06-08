@@ -178,6 +178,10 @@ def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path | N
             except (OSError, PermissionError):
                 pass  # can't read → no fingerprint (cache miss is safe)
 
+    # Include PERSEUS_ALLOW_DANGEROUS in the fingerprint so cache
+    # auto-invalidates when the env var changes (#253)
+    dangerous = os.environ.get('PERSEUS_ALLOW_DANGEROUS', '0')
+    parts.append(f"env:PERSEUS_ALLOW_DANGEROUS={dangerous}")
     if not parts:
         return ""
     return _hashlib.sha256("|".join(parts).encode()).hexdigest()
@@ -747,6 +751,7 @@ def _render_lines(
     _stats: dict | None = None,
     max_tier: int = 3,
     _skipped_directives: list[dict] | None = None,
+    no_cache: bool = False,
 ) -> str:
     """Core rendering loop. Processes a list of lines and returns resolved markdown.
 
@@ -984,7 +989,8 @@ def _render_lines(
                                            _directive_collector=_directive_collector,
                                            _stats=_stats,
                                            max_tier=max_tier,
-                                           _skipped_directives=_skipped_directives)
+                                           _skipped_directives=_skipped_directives,
+                                           no_cache=no_cache)
             output.append(resolve_validate_block(rendered_block, schema_ref, cfg, workspace))
             continue
 
@@ -1138,7 +1144,8 @@ def _render_lines(
                                              _directive_collector=_directive_collector,
                                              _stats=_stats,
                                              max_tier=max_tier,
-                                             _skipped_directives=_skipped_directives))
+                                             _skipped_directives=_skipped_directives,
+                                             no_cache=no_cache))
             continue
 
         # ── inline directives ──
@@ -1200,7 +1207,7 @@ def _render_lines(
             if not cache_mode and spec and spec.cacheable:
                 cache_mode = "fingerprint"
 
-            cached = cache_get(cache_key, cache_mode, cache_ttl, cfg)
+            cached = None if no_cache else cache_get(cache_key, cache_mode, cache_ttl, cfg)
             if cached is not None:
                 if _stats is not None: _stats["cache_hits"] += 1
                 _fire_hooks("on_cache_hit", {
@@ -1260,7 +1267,7 @@ def _render_lines(
             else:
                 result = line
 
-            if cache_mode:
+            if cache_mode and not no_cache:
                 cache_set(cache_key, result, cache_mode, cache_ttl, cfg)
                 if _fp:
                     # Keep a TTL fallback under the base key. If a dependency is
@@ -1308,6 +1315,7 @@ def render_source(
     _directive_collector: list[dict] | None = None,
     _stats: dict | None = None,
     _skipped_directives: list[dict] | None = None,
+    no_cache: bool = False,
 ) -> str:
     """
     Parse and resolve a @perseus source document.
@@ -1360,7 +1368,8 @@ def render_source(
                          _directive_collector=_directive_collector,
                          _stats=_stats,
                          max_tier=max_tier,
-                         _skipped_directives=_skipped_directives)
+                         _skipped_directives=_skipped_directives,
+                         no_cache=no_cache)
 
     # ── Context Manifest: report skipped directives for transparency ──
     if _include_depth == 0 and _skipped_directives and max_tier < 3:
@@ -1429,6 +1438,7 @@ def render_source_with_meta(
     source_text: str,
     cfg: dict,
     workspace: Path | None = None,
+    no_cache: bool = False,
 ) -> RenderResult:
     """Like render_source() but returns structured RenderResult with metadata."""
     _stats = {
@@ -1437,7 +1447,7 @@ def render_source_with_meta(
         "cache_misses": 0,
     }
     _directives_collector = []
-    text = render_source(source_text, cfg, workspace,
+    text = render_source(source_text, cfg, workspace, no_cache=no_cache,
                          _directive_collector=_directives_collector,
                          _stats=_stats)
 
@@ -1510,11 +1520,12 @@ def render_output(
     workspace: Path | None = None,
     title: str | None = None,
     max_tier: int = 3,
+    no_cache: bool = False,
 ) -> str:
     """Resolve source and format output using built-in or custom adapter."""
     # Built-in formats
     if fmt in ("md", "markdown"):
-        rendered = render_source(source_text, cfg, workspace, max_tier=max_tier)
+        rendered = render_source(source_text, cfg, workspace, max_tier=max_tier, no_cache=no_cache)
         rendered, _report = redact_text(rendered, cfg)
         _audit_render_redaction(cfg, _report)
         from perseus.merlin_dedup import dedup_context_if_available
@@ -1530,7 +1541,7 @@ def render_output(
 
     # Assistant formats (Phase 24)
     if fmt in ("agents-md", "claude-md", "cursorrules", "copilot-instructions"):
-        rendered = render_source(source_text, cfg, workspace, max_tier=max_tier)
+        rendered = render_source(source_text, cfg, workspace, max_tier=max_tier, no_cache=no_cache)
         rendered, _report = redact_text(rendered, cfg)
         _audit_render_redaction(cfg, _report)
         from perseus.merlin_dedup import dedup_context_if_available
