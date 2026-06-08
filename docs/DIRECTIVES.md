@@ -1,10 +1,10 @@
-# Perseus Directives Reference
+# Perseus Directives Reference — v1.0.6
 
 > Full directive system for Perseus context documents. All directives are resolved at render time — the assistant sees only verified facts, never directive syntax.
 
 ## Directive Protocol Version
 
-Source documents start with `@perseus v0.4` on line 1. The value after `@perseus` is the **directive protocol version** (the syntax revision Perseus parses), not the package version. Existing v0.4/v0.8 context files remain supported for compatibility. You don't need to change this header when upgrading the package.
+Source documents start with `@perseus v1.0.6` on line 1. The value after `@perseus` is the **directive protocol version** (the syntax revision Perseus parses). Existing v0.4/v0.8 context files remain supported for backward compatibility.
 
 ## Directive Table
 
