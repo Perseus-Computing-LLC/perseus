@@ -7893,7 +7893,7 @@ def _sibyl_sdk_available() -> bool:
 def _sibyl_enabled(cfg: dict | None = None) -> bool:
     """Check if Sibyl Memory integration is enabled.
 
-    Priority: env var > config > default (off).
+    Priority: env var > config > default (on).
     """
     env = os.environ.get("SIBYL_MEMORY_ENABLED", "").strip().lower()
     if env in ("1", "true", "yes"):
@@ -7903,8 +7903,8 @@ def _sibyl_enabled(cfg: dict | None = None) -> bool:
     if cfg:
         sibyl_cfg = cfg.get("sibyl_memory", {})
         if isinstance(sibyl_cfg, dict):
-            return sibyl_cfg.get("enabled", False)
-    return False
+            return sibyl_cfg.get("enabled", True)
+    return True
 
 
 def _sibyl_db_path(cfg: dict | None = None) -> Path:
@@ -8103,16 +8103,17 @@ def test_degradation_paths() -> dict[str, bool]:
     """Exercise all degradation paths. Returns {path_name: passed}."""
     results = {}
 
-    # Path 1: not enabled (default)
+    # Path 1: explicit opt-out
     old_env = os.environ.get("SIBYL_MEMORY_ENABLED")
-    if "SIBYL_MEMORY_ENABLED" in os.environ:
-        del os.environ["SIBYL_MEMORY_ENABLED"]
+    os.environ["SIBYL_MEMORY_ENABLED"] = "0"
     try:
         out = render_sibyl_context()
         results["not_enabled"] = out == ""
     finally:
         if old_env is not None:
             os.environ["SIBYL_MEMORY_ENABLED"] = old_env
+        else:
+            del os.environ["SIBYL_MEMORY_ENABLED"]
 
     # Path 2: enabled but SDK not installed (simulate broken import)
     results["sdk_not_installed"] = not _sibyl_sdk_available() or True
@@ -11096,6 +11097,19 @@ def render_source_html(
     return html_document(body, title, timestamp, version)
 
 
+def _derive_query_hints(source_text: str, workspace) -> list[str]:
+    hints = []
+    if workspace:
+        hints.append(workspace.name)
+    import re
+    for d in ("@project", "@task", "@goal", "@epic"):
+        m = re.search(rf'{d}\s+(.+)', source_text)
+        if m:
+            val = m.group(1).strip()
+            if val:
+                hints.append(val)
+    return hints
+
 def render_output(
     source_text: str,
     fmt: str,
@@ -11113,7 +11127,8 @@ def render_output(
         _audit_render_redaction(cfg, _report)
         rendered = dedup_context_if_available(rendered, cfg)
         rendered = inject_vaultmem_context(rendered, cfg)
-        sibyl_block = render_sibyl_context(cfg=cfg)
+        hints = _derive_query_hints(source_text, workspace)
+        sibyl_block = render_sibyl_context(query_hints=hints, cfg=cfg)
         if sibyl_block:
             rendered += "\n\n" + sibyl_block
         return rendered
@@ -11130,7 +11145,8 @@ def render_output(
         _audit_render_redaction(cfg, _report)
         rendered = dedup_context_if_available(rendered, cfg)
         rendered = inject_vaultmem_context(rendered, cfg)
-        sibyl_block = render_sibyl_context(cfg=cfg)
+        hints = _derive_query_hints(source_text, workspace)
+        sibyl_block = render_sibyl_context(query_hints=hints, cfg=cfg)
         if sibyl_block:
             rendered += "\n\n" + sibyl_block
         return wrap_rendered(rendered, fmt, _PERSEUS_VERSION)
