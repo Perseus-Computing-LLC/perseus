@@ -18,6 +18,21 @@ That's the whole install. Perseus auto-detects your project language (Python, Ru
 
 ---
 
+### Sibyl Memory MCP Server
+
+Perseus includes a standalone MCP server for Sibyl Memory. To configure your MCP client to access your memory via tools (`sibyl_search`, `sibyl_recall`, `sibyl_remember`), add this to your MCP settings (`claude_desktop_config.json` or Cursor's MCP config):
+
+```json
+{
+  "mcpServers": {
+    "sibyl": {
+      "command": "uvx",
+      "args": ["--from", "perseus-ctx[mcp]", "sibyl-mcp-server"]
+    }
+  }
+}
+```
+
 Works with any MCP-compatible assistant: Claude Desktop, Claude Code, Cursor, Codex, Hermes Agent, Rovo Dev. [Full setup guide →](./SETUP-GUIDE.md)
 
 ## Wire Perseus to Your Assistant (MCP)
