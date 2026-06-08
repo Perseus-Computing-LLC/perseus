@@ -1,0 +1,64 @@
+# Google Cloud Agent Builder configuration
+# Exported from the Agent Builder UI for the Rapid Agent Hackathon.
+# This defines the agent's Gemini model, MCP tool connections, and 
+# the Elastic Agent Builder integration for persistent memory.
+
+agent:
+  name: perseus-memory-agent
+  display_name: "Perseus Memory Agent"
+  description: >
+    Persistent, evolving memory for AI agents. Remembers project context,
+    logs architectural decisions with rationale, and compounds knowledge
+    across sessions. Swappable backends: Elastic Cloud or Engram-rs (self-hosted).
+
+  # Gemini 3 Pro — Google Cloud AI
+  model:
+    provider: google
+    model_id: gemini-2.5-pro
+    generation_config:
+      temperature: 0.2
+      max_output_tokens: 4096
+      top_p: 0.95
+
+  # MCP Tool Connections
+  tools:
+    # Elastic Agent Builder — hybrid ELSER + BM25 memory search
+    - name: elastic-memory
+      type: mcp_server
+      endpoint: elastic-agent-builder
+      tools:
+        - search_memory    # Hybrid ELSER semantic + BM25 keyword
+        - store_memory     # Index memory facts with type tagging
+        - delete_memory    # Remove stale/incorrect memories
+
+    # Perseus Context Engine — live workspace state
+    - name: perseus-context
+      type: mcp_server
+      endpoint: perseus-mcp
+      tools:
+        - perseus_services  # Health-check running services
+        - perseus_read      # Read config values live
+        - perseus_memory    # Mneme + Engram-rs hybrid recall
+        - perseus_drift     # Detect configuration drift
+
+  # Instructions (injected into every session)
+  instruction: |
+    You are Perseus Memory Agent, an AI agent with persistent, evolving memory.
+    
+    At session start, recall all relevant context about the project — stack,
+    conventions, architecture, and past decisions.
+    
+    During the session, log any new decisions with rationale. Use the Elastic
+    hybrid search (ELSER + BM25) for accurate recall.
+    
+    At session end, reflect on what you learned and compound insights across
+    sessions. Facts should gain or lose confidence based on verification.
+    
+    The memory backend can swap between Elastic Cloud (managed) and Engram-rs
+    (self-hosted, MIT) — the API is identical.
+
+# Deployment
+deployment:
+  platform: google-cloud-run
+  region: us-central1
+  authentication: service-account
