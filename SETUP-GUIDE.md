@@ -708,20 +708,42 @@ perseus memory update
 
 ### Sibyl MCP Server (Active Memory Modification)
 
-While the default integration injects passive context at session start, you can allow agents to actively search and modify Sibyl Memory mid-session via MCP.
+While the default integration injects passive context at session start, you can allow agents to actively search and modify Sibyl Memory mid-session via MCP. This exposes three tools: `sibyl_search` (FTS5 search across all tiers), `sibyl_recall` (fetch entity by category + name), and `sibyl_remember` (create or update an entity).
 
-To configure your MCP client (like Claude Desktop or Cursor), add this to your MCP settings:
+**Hermes Agent** — add to `~/.hermes/config.yaml`:
+
+```yaml
+mcp_servers:
+  sibyl:
+    command: "python3"
+    args: ["/path/to/perseus-repo/src/sibyl_mcp_server.py"]
+    env:
+      SIBYL_DB_PATH: "~/.sibyl-memory/memory.db"
+    timeout: 30
+    connect_timeout: 15
+```
+
+> **Finding the server path:** If Perseus was installed from source (`git clone`), the server lives at `<repo>/src/sibyl_mcp_server.py`. If installed via pip, use `uvx` (see below) or copy the file from the package. Replace `/path/to/perseus-repo` with your actual path.
+
+> **Restart required:** Hermes Agent discovers MCP servers at startup only — no hot-reload. Restart Hermes after adding the config.
+
+**Claude Desktop / Cursor / other MCP clients** — add to your MCP settings:
 
 ```json
 {
   "mcpServers": {
     "sibyl": {
       "command": "uvx",
-      "args": ["--from", "perseus-ctx[mcp]", "sibyl-mcp-server"]
+      "args": ["--from", "perseus-ctx[mcp]", "sibyl-mcp-server"],
+      "env": {
+        "SIBYL_DB_PATH": "/home/yourname/.sibyl-memory/memory.db"
+      }
     }
   }
 }
 ```
+
+> **Note:** `uvx --from perseus-ctx[mcp]` requires a published pip install of `perseus-ctx` with the `[mcp]` extra. If you installed from source in editable mode (`pip install -e .`), use the Hermes Agent `python3` approach or run the server file directly.
 
 
 ## Wiring to AI Assistants
