@@ -27,6 +27,8 @@ def cmd_render(args, cfg):
     if max_tier is None:
         max_tier = 3
 
+    no_cache = getattr(args, "no_cache", False)
+
     # --explain: emit directive execution manifest instead of rendered output
     if getattr(args, "explain", False):
         import json as _json
@@ -36,7 +38,8 @@ def cmd_render(args, cfg):
         rendered = render_source(text, cfg, workspace, max_tier=max_tier,
                                  _directive_collector=_directives,
                                  _stats=_stats,
-                                 _skipped_directives=_skipped)
+                                 _skipped_directives=_skipped,
+                                 no_cache=no_cache)
         manifest = {
             "source": str(source_path),
             "workspace": str(workspace),
@@ -54,7 +57,7 @@ def cmd_render(args, cfg):
         print(_json.dumps(manifest, indent=2, default=str))
         return
 
-    rendered = render_output(text, fmt, cfg, workspace, title=title, max_tier=max_tier)
+    rendered = render_output(text, fmt, cfg, workspace, title=title, max_tier=max_tier, no_cache=no_cache)
 
     is_assistant_format = fmt in ("agents-md", "claude-md", "cursorrules", "copilot-instructions")
     output = getattr(args, "output", None)

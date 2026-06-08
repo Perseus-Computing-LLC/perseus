@@ -548,10 +548,20 @@ def _doctor_check_mneme_bridge(cfg: dict, workspace: Path) -> DoctorResult:
             # Run health check
             healthy, status = connector.health_check()
             if healthy:
+                # Try to get version from health check response
+                version_info = ""
+                raw_result, _ = connector._client.call_tool("mneme_health", {}) if connector._client else (None, None)
+                if raw_result and isinstance(raw_result, dict):
+                    ver = raw_result.get("version", "")
+                    db_path = raw_result.get("db_path", "")
+                    if ver:
+                        version_info = f" (v{ver})"
+                    if db_path:
+                        version_info += f" db: {db_path}"
                 connector.close()
                 extra = f" (binary: {binary_path})" if binary_path != binary_name else ""
                 return DoctorResult("mneme_connectivity", "ok", "Mneme",
-                                   f"connected + healthy{extra}", "")
+                                   f"connected + healthy{version_info}{extra}", "")
             else:
                 connector.close()
                 return DoctorResult("mneme_connectivity", "warn", "Mneme",
@@ -568,6 +578,67 @@ def _doctor_check_mneme_bridge(cfg: dict, workspace: Path) -> DoctorResult:
                            str(exc),
                            "Verify mneme binary and config — check mneme.command in config.yaml")
 
+
+
+def _doctor_check_version_header(cfg: dict, workspace: Path) -> DoctorResult:
+    """Check if the @perseus version header in context.md matches installed version."""
+    ctx_path = workspace / ".perseus" / "context.md"
+    if not ctx_path.exists():
+        return DoctorResult("version_header", "ok", "@perseus version header",
+                           "no context.md found (skipped)", "")
+    try:
+        first_line = ctx_path.read_text(errors="replace").split("\n")[0].strip()
+    except Exception:
+        return DoctorResult("version_header", "ok", "@perseus version header",
+                           "could not read context.md", "")
+    
+    v_match = re.match(r'@perseus\s+v?([\d.]+)', first_line, re.IGNORECASE)
+    if not v_match:
+        return DoctorResult("version_header", "warn", "@perseus version header",
+                           f"no @perseus version found in context.md (first line: {first_line[:60]})",
+                           "Add @perseus v" + _PERSEUS_VERSION + " as the first line of .perseus/context.md")
+    
+    header_ver = v_match.group(1)
+    installed_ver = _PERSEUS_VERSION
+    
+    if header_ver == installed_ver:
+        return DoctorResult("version_header", "ok", "@perseus version header",
+                           f"v{header_ver} matches installed v{installed_ver}", "")
+    else:
+        return DoctorResult("version_header", "warn", "@perseus version header",
+                           f"context.md has v{header_ver} but perseus is v{installed_ver}",
+                           f"Update @perseus header to v{installed_ver} in .perseus/context.md")
+
+
+def _doctor_check_stale_shim(cfg: dict, workspace: Path) -> DoctorResult:
+    """Check for stale ~/.local/bin/perseus shim from old install.sh (#252)."""
+    shim_path = os.path.expanduser("~/.local/bin/perseus")
+    share_path = os.path.expanduser("~/.local/share/perseus/perseus.py")
+    
+    if not os.path.isfile(shim_path):
+        return DoctorResult("stale_shim", "ok", "Legacy shim",
+                           "no shim at ~/.local/bin/perseus", "")
+    
+    # Check if this is a shim (symlink or wrapper script) vs direct binary
+    is_shim = False
+    try:
+        if os.path.islink(shim_path):
+            is_shim = True
+        else:
+            with open(shim_path) as f:
+                first_line = f.readline().strip()
+                if 'exec' in first_line or '#!/bin/sh' in first_line or 'perseus.py' in first_line:
+                    is_shim = True
+    except Exception:
+        pass
+    
+    if is_shim or os.path.isfile(share_path):
+        return DoctorResult("stale_shim", "warn", "Legacy shim",
+                           f"old install.sh shim detected at {shim_path}",
+                           "Remove legacy shim: rm -f ~/.local/bin/perseus ~/.local/share/perseus/perseus.py && pip install --upgrade perseus-ctx")
+    
+    return DoctorResult("stale_shim", "ok", "Legacy shim",
+                       "shim at ~/.local/bin/perseus looks current", "")
 
 
 _DOCTOR_CHECKS = [
@@ -588,6 +659,8 @@ _DOCTOR_CHECKS = [
     _doctor_check_cache_writable,
     _doctor_check_mneme_bridge,
     _doctor_check_sessions,
+    _doctor_check_version_header,
+    _doctor_check_stale_shim,
 ]
 
 

@@ -39,6 +39,12 @@ def main():
              "Shows directives, cache hits/misses, durations, warnings, and skipped "
              "tiered directives.",
     )
+    p_render.add_argument(
+        "--no-cache", action="store_true",
+        help="Bypass the render cache entirely — all directives re-resolve fresh. "
+             "Use when env vars (e.g. PERSEUS_ALLOW_DANGEROUS) changed but cached "
+             "results are stale.",
+    )
 
     # watch (Phase 20C)
     p_watch = sub.add_parser("watch", help="Poll and refresh render outputs when context sources change")
