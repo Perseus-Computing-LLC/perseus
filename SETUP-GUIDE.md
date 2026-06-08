@@ -1044,6 +1044,42 @@ perseus memory index search --query "architecture" --k 5
 
 ## Troubleshooting
 
+### `perseus --version` shows old version after `pip install --upgrade`
+
+**Cause:** A stale shim from the legacy `./scripts/install.sh` installer at `~/.local/bin/perseus`
+shadows the pip-installed binary.
+
+**Fix:** Remove the legacy shim and reinstall:
+```bash
+rm -f ~/.local/bin/perseus ~/.local/share/perseus/perseus.py
+pip install --upgrade perseus-ctx
+perseus --version  # should show latest
+```
+
+Run `perseus doctor` to detect this condition automatically.
+
+---
+
+### `git pull` fails with "divergent branches" / "ambiguous refname"
+
+**Cause:** A local branch named `origin/main` (created accidentally) shadows the remote
+tracking reference `remotes/origin/main`. Git can't resolve which one you mean.
+
+**Detection:**
+```bash
+git branch --list "origin/main"
+```
+If this returns a result, you have the shadow branch.
+
+**Fix:**
+```bash
+git branch -d origin/main
+git fetch origin
+git reset --hard remotes/origin/main
+```
+
+---
+
 ### `@query` shows "disabled by config" even though `trust.allow_query_shell: true`
 
 **Cause:** Two separate config namespaces. `trust.allow_query_shell` is for audit display; `render.allow_query_shell` is the actual gate.
