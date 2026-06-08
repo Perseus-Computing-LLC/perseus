@@ -9,7 +9,7 @@ git clone https://github.com/tcconnally/perseus.git
 cd perseus
 pip install -r requirements.txt
 python scripts/build.py       # regenerate perseus.py after editing src/
-python -m pytest tests/ -q    # 750+ tests
+python -m pytest tests/ -q # 1,030+ tests
 ```
 
 Edit `src/perseus/`, not `perseus.py` directly — it's a generated artifact.

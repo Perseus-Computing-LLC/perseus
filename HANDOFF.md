@@ -1,7 +1,7 @@
 # Perseus Phase 24 — Extensibility Handoff
 
 > **Session:** 2026-05-24  
-> **Status:** Spec complete. No code written.  
+> **Status:** Spec complete. Shipped in v1.0.4–v1.0.6.  
 > **Workspace:** /workspace/perseus  
 > **Next session:** Pick up task-65 (plugin directive system) — the foundation task.
 

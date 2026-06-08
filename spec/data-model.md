@@ -1,4 +1,4 @@
-# Data Model
+# Perseus Data Model — v1.0.6
 
 ## Directory Layout
 
