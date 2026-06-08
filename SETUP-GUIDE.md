@@ -706,6 +706,24 @@ perseus memory update
 
 ---
 
+### Sibyl MCP Server (Active Memory Modification)
+
+While the default integration injects passive context at session start, you can allow agents to actively search and modify Sibyl Memory mid-session via MCP.
+
+To configure your MCP client (like Claude Desktop or Cursor), add this to your MCP settings:
+
+```json
+{
+  "mcpServers": {
+    "sibyl": {
+      "command": "uvx",
+      "args": ["--from", "perseus-ctx[mcp]", "sibyl-mcp-server"]
+    }
+  }
+}
+```
+
+
 ## Wiring to AI Assistants
 
 Perseus output is plain markdown — it works with any AI tool that reads a context file.
