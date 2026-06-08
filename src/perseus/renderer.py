@@ -1514,16 +1514,38 @@ def render_source_html(
 
 
 def _derive_query_hints(source_text: str, workspace) -> list[str]:
+    """Extract contextual hints for Sibyl Memory FTS5 search.
+
+    Uses DIRECTIVE_REGISTRY's is_semantic_hint flag to discover which
+    directives carry project-level search terms — no hardcoded lists.
+    Falls back to regex scanning for any @directive in source_text.
+    """
     hints = []
     if workspace:
         hints.append(workspace.name)
+
     import re
-    for d in ("@project", "@task", "@goal", "@epic"):
-        m = re.search(rf'{d}\s+(.+)', source_text)
+    from perseus.registry import DIRECTIVE_REGISTRY
+
+    # 1. Registry-driven: directives marked is_semantic_hint=True
+    for name, spec in DIRECTIVE_REGISTRY.items():
+        if not spec.is_semantic_hint:
+            continue
+        m = re.search(rf'{re.escape(name)}\s+([^\n]+)', source_text)
         if m:
             val = m.group(1).strip()
             if val:
                 hints.append(val)
+
+    # 2. Fallback: scan for any @directive pattern in source_text
+    #    (catches user-defined directives not in the registry)
+    for m in re.finditer(r'@(\w[\w-]*)\s+(.+)', source_text):
+        directive_name = f"@{m.group(1)}"
+        if directive_name not in DIRECTIVE_REGISTRY:
+            val = m.group(2).strip()
+            if val and len(val) < 120:
+                hints.append(val)
+
     return hints
 
 def render_output(
