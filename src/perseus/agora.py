@@ -514,7 +514,7 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path) -> str:
         pass  # Mneme is optional — degrade gracefully
 
     if not hits and not mneme_items:
-        return "> \u2139\ufe0f No Mn\u0113m\u0113 memories matched.\n"
+        return "> \u2139\ufe0f No Mn\u0113m\u0113 memories matched yet — this is expected on a fresh install. Populate the vault with memory files or run `perseus memory update` to initialize.\n"
 
     lines = ["> \U0001f9e0 **Mn\u0113m\u0113 memories:**\n"]
     for h in hits:
@@ -606,7 +606,7 @@ def _resolve_memory_narrative(args_stripped: str, mods: dict, cfg: dict, ws: Pat
     mp = _mneme_path(ws, cfg)
     if not mp.exists():
         return _maybe_append_federation(
-            "> \u26a0 No Mn\u0113m\u0113 narrative found for this workspace.\n"
+            "> \u2139\ufe0f No Mn\u0113m\u0113 narrative found for this workspace — this is expected on a fresh install.\n"
             "> Run `perseus memory update` to initialize."
         )
 
