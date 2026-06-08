@@ -45,6 +45,7 @@ MODULE_ORDER = [
     "src/perseus/merlin_dedup.py",      # ← Merlin dedup hook (imported by renderer)
     "src/perseus/mason_ref.py",         # ← Mason tool directive reference
     "src/perseus/yourmemory_ref.py",    # ← YourMemory @query integration (MONITOR)
+    "src/perseus/sibyl_memory.py",      # ← Sibyl Memory structured memory (INTEGRATE)
     "src/perseus/tooltrim_connector.py",# ← @tooltrim directive (INTEGRATE)
     "src/perseus/vaultmem_connector.py",# ← vault-mem project memory (INTEGRATE)
     "src/perseus/kondukt_validator.py", # ← Kondukt MCP validator (PASS)
