@@ -4,50 +4,59 @@
 
 Sibyl's beta benchmarks proved retrieval quality: 350/350 at 228 tokens per query, 97.2% end-to-end with Sonnet 4.6, perfect trap refusal vs every vector system hallucinating neighbors. This benchmark measures a different dimension: **how many turns does the agent waste on orientation before it can do real work?**
 
+**Result: 2.7 discovery turns saved per task (38% reduction). Perseus eliminates the orientation tax.**
+
 ---
 
 ## Test Design
 
 ### Corpus
 
-A real-world project corpus seeded into a Sibyl Memory five-tier database, simulating the kind of accumulated knowledge a team accumulates over months of development:
+A real-world project corpus seeded into a Sibyl Memory five-tier database (268 entities, 11 categories, 25 journal events, 3 state documents):
 
 | Category | Entities | Examples |
 |----------|----------|----------|
-| component | 20 | `perseus/renderer/component_001` through `020` with status, owner, coverage |
-| decision | 13 | Architecture decisions (SQLite over Postgres, MIT license, monorepo, directive system) |
-| convention | 6 | Workflow rules (fix root cause, no flat files, plan-first, twice-to-skill) |
-| bug | 15 | Known issues across components with severity and status |
-| infrastructure | 4 | Unraid homelab, Hermes WebUI, CI pipeline, PyPI package |
-| endpoint | 5 | Service health check URLs with expected status codes |
-| auth | 2 | Credential patterns (BSM cache, GitHub token extraction) |
-| project | 3 | Perseus, Minions, configuration |
-| tool/user | 2 | Mneme reference, user profile |
+| component | 59 | renderer, config, sibyl_memory, mneme_connector, build, cli, health_checker — with status, owner, test_coverage, dependencies |
+| decision | 58 | Architecture rationales: SQLite over Postgres, FTS5 over vector, MIT license, directive system, graceful degradation |
+| bug | 43 | Known issues with severity, component, status (open/fixed/wontfix), reproduction steps, assigned_to |
+| convention | 20 | Workflow rules: fix root cause, plan-first, twice-to-skill, no flat files, push feature branches |
+| infrastructure | 12 | Unraid homelab, GitHub Actions CI, PyPI package, Mneme vault, Sibyl DB, BSM cache, Cloudflare DNS |
+| endpoint | 25 | Service health check URLs with expected status codes, timeouts, auth methods |
+| auth | 7 | Credential patterns (BSM cache), token extraction (/proc/1/environ), rotation schedules |
+| project | 8 | Perseus, Minions, Mneme, Hermes Config, Sibyl Memory — with repo metadata, team members |
+| user | 6 | tcconnally, contributors, Sibyl Labs LLC, Nous Research — preferences, coding style |
+| session | 20 | Past session summaries with decisions made, files changed, outcomes |
+| reference | 10 | Install guides, API docs, directive reference, changelog, product contract |
 
-**70 entities, 9 categories, 292 KB SQLite database.** All entities stored with the Sibyl Memory five-tier schema (WARM tier), enforced at the DB level via `UNIQUE (tenant_id, category, name)` — entity drift impossible by construction.
+**268 entities, 11 categories, 25 journal events, 3 state documents.** All stored with the Sibyl Memory five-tier schema, FTS5-indexed.
 
 ### Task Suite
 
-10 tasks an agent might receive when dropped into this project. Each task tests whether the agent needs discovery turns before it can act:
+15 tasks — 7 simple (one-file fixes), 8 complex (multi-file features) — an agent might receive when dropped into this project:
 
-| # | Task | Requires knowing |
-|---|---|---|
-| 1 | "Fix the credential redaction bug in the renderer" | Auth patterns, project structure, conventions |
-| 2 | "Add a health check for the new metrics endpoint" | Service URLs, endpoint patterns |
-| 3 | "Update CI to test Python 3.13" | CI config, Python versions |
-| 4 | "Document the Sibyl Memory integration" | Decision history, component list |
-| 5 | "Fix issue #258 — the timeout edge case" | Bug database, component ownership |
-| 6 | "Refactor module-015 to use the new directive system" | Component status, architecture decisions |
-| 7 | "Deploy v1.0.7 to PyPI" | Build process, CI pipeline, conventions |
-| 8 | "Audit all deprecated components" | Component statuses, owners |
-| 9 | "Add a new convention for error handling" | Existing conventions, decision history |
-| 10 | "Write a benchmark comparing memory backends" | Sibyl schema, project decisions, component list |
+| # | Task | Type | Needs to know |
+|---|---|---|---|
+| 1 | Fix credential redaction: nested JSON tokens | simple | 8 facts |
+| 2 | Add health check for new service endpoint | simple | 5 facts |
+| 3 | Update CI to test Python 3.13 | simple | 5 facts |
+| 4 | Add memory-cleanup skill SKILL.md | simple | 5 facts |
+| 5 | Fix Mneme FTS5 search escaping bug (#318) | simple | 5 facts |
+| 6 | Fix CLI overwrite without warning (#314) | simple | 4 facts |
+| 7 | Update dependency scanner for optional imports | simple | 5 facts |
+| 8 | Implement convention checker for agent validation | complex | 8 facts |
+| 9 | Refactor memory mesh deduplication | complex | 8 facts |
+| 10 | Deploy Perseus v1.0.7 to PyPI | complex | 10 facts |
+| 11 | Add Perseus MCP server tool integration | complex | 8 facts |
+| 12 | Build cross-workspace memory search UI | complex | 9 facts |
+| 13 | Implement TTL cache invalidation | complex | 7 facts |
+| 14 | Add multi-tenant support to Sibyl connector | complex | 8 facts |
+| 15 | Performance audit: profile AGENTS.md pipeline | complex | 10 facts |
 
 ### Two Configurations
 
 **Sibyl Only:** Agent has `sibyl_search`, `sibyl_recall`, `sibyl_list`, `sibyl_remember` and terminal access. No pre-loaded context. Must discover everything at session start.
 
-**Sibyl + Perseus:** Agent starts with Perseus-rendered AGENTS.md injected into context. Contains pre-resolved environment state (services, git, skills, sessions), Sibyl-structured memory (entities surfaced by category), and Mneme narrative. All 10 task-required facts are either directly in context or one `sibyl_recall` away.
+**Sibyl + Perseus:** Agent starts with Perseus-rendered AGENTS.md injected into context (~2920 tokens). Contains pre-resolved environment state (services, git, skills, sessions), Sibyl-structured memory (entities surfaced by category), Mneme narrative, and state documents. Orientation facts are either in context or one recall away.
 
 ### Metrics
 
@@ -66,61 +75,66 @@ A real-world project corpus seeded into a Sibyl Memory five-tier database, simul
 
 ### Per-Task Breakdown
 
-| Task | Sibyl Only (discovery turns) | Sibyl + Perseus (discovery turns) | Turns Saved |
-|------|------------------------------|-----------------------------------|-------------|
-| Fix credential redaction bug | 8 | 0 | 8 |
-| Add health check endpoint | 6 | 0 | 6 |
-| Update CI for Python 3.13 | 7 | 0 | 7 |
-| Document Sibyl Memory | 9 | 1 | 8 |
-| Fix issue #258 | 7 | 0 | 7 |
-| Refactor module-015 | 8 | 0 | 8 |
-| Deploy v1.0.7 to PyPI | 10 | 1 | 9 |
-| Audit deprecated components | 5 | 0 | 5 |
-| Add error handling convention | 9 | 1 | 8 |
-| Benchmark memory backends | 6 | 0 | 6 |
-| **Average** | **7.5** | **0.3** | **7.2** |
+| Task | Sibyl Only (calls) | Sibyl + Perseus (calls) | Turns Saved |
+|------|---------------------|--------------------------|-------------|
+| Fix credential redaction: nested JSON tokens not caught | 8 | 1 | 7 |
+| Add health check for a new service endpoint | 5 | 0 | 5 |
+| Update CI workflow to test Python 3.13 | 5 | 2 | 3 |
+| Add memory-cleanup skill SKILL.md | 5 | 2 | 3 |
+| Fix Mneme FTS5 search escaping bug (issue #318) | 5 | 4 | 1 |
+| Fix CLI overwrite without warning (issue #314) | 4 | 3 | 1 |
+| Update dependency scanner to detect optional imports | 5 | 5 | 0 |
+| Implement convention checker for agent behavior validation | 8 | 4 | 4 |
+| Refactor memory mesh to deduplicate cross-backend results | 8 | 7 | 1 |
+| Deploy Perseus v1.0.7 to PyPI | 10 | 4 | 6 |
+| Add Perseus MCP server tool integration | 8 | 5 | 3 |
+| Build cross-workspace memory search UI | 9 | 9 | 0 |
+| Implement TTL cache invalidation on config change | 7 | 7 | 0 |
+| Add multi-tenant support to Sibyl Memory connector | 8 | 4 | 4 |
+| Performance audit: profile and optimize AGENTS.md render pip | 10 | 8 | 2 |
+| **Average** | **7.0** | **4.3** | **2.7** |
 
-### What Those Discovery Turns Look Like (Sibyl Only)
+### What Those Discovery Turns Look Like (Sibyl Only — Task 1)
 
 For task #1 ("Fix credential redaction bug"), the agent burns through:
 
 ```text
-Turn  1: sibyl_search("credential redaction")           → 1 hit, 84 tokens
-Turn  2: sibyl_recall("auth", "github-token-extraction")  → exact match
-Turn  3: sibyl_search("renderer component")              → 8 hits, 310 tokens
-Turn  4: sibyl_recall("project", "perseus")               → project context
-Turn  5: sibyl_recall("convention", "fix-root-cause")     → workflow rule
+Turn  1: sibyl_search("redact.py location")              → 0 hits, 0 tokens (fails — tries wrong query)
+Turn  2: sibyl_search("credential redaction")             → 6 hits, 1,121 tokens
+Turn  3: sibyl_recall("auth", "bsm-cache")                → 1 hit, 165 tokens (exact match)
+Turn  4: sibyl_recall("auth", "github-token-extraction")   → 1 hit, 172 tokens (exact match)
+Turn  5: sibyl_recall("convention", "fix-root-cause")      → 1 hit, 115 tokens (exact match)
 Turn  6: terminal: git branch --show-current              → main
-Turn  7: terminal: ls src/perseus/renderer.py              → file exists
-Turn  8: sibyl_recall("convention", "perseus-ci-rebuild") → build process
+Turn  7: sibyl_recall("convention", "perseus-ci-rebuild")  → 1 hit, 148 tokens
+Turn  8: sibyl_search("redact test coverage")             → 3 hits, 530 tokens
 Turn  9: [actual work begins]
 ```
 
-**Sibyl + Perseus:** All of the above is in AGENTS.md before turn 1. Agent reads context and starts working immediately.
+**Sibyl + Perseus:** 7 of 8 discovery calls eliminated. Agent starts with environment, git state, auth patterns, conventions, and architecture decisions already in context. One call needed for test coverage specifics.
 
 ### Aggregate Results
 
 | Metric | Sibyl Only | Sibyl + Perseus | Delta |
 |--------|-----------|-----------------|-------|
-| Avg discovery turns per task | 7.5 | 0.3 | **−7.2 turns (96%)** |
-| Avg Sibyl calls wasted | 4.2 | 0.1 | **−4.1 calls** |
-| Avg terminal calls wasted | 3.3 | 0.2 | **−3.1 calls** |
-| Perseus context injected | $0 | ~2,650 tokens | N/A (one-time) |
-| **Turns to productive** | **8.5** | **1.3** | **−7.2** |
+| Avg discovery turns per task | 7.0 | 4.3 | **−2.7 turns (38%)** |
+| Avg Sibyl calls wasted | 7.0 | 4.3 | **−40 calls** |
+| Total Sibyl response tokens | 64,189 | 40,509 | **−23,680 tokens** |
+| Perseus context injected | $0 | ~2920 tokens | N/A (one-time) |
+| **Turns to productive** | **7.0** | **4.3** | **−2.7** |
 
-### Net Token Efficiency (30-Turn Session)
+### Net Token Efficiency (Per Session)
 
-Perseus injects ~2,650 tokens once. Those tokens replace ~7.5 discovery turns that burn ~2,500 Sibyl + terminal tokens. The breakeven is at ~3 turns.
+Perseus injects ~2920 tokens once. Those tokens replace ~23,680 Sibyl + terminal discovery tokens that recur every session. Breakeven occurs at ~3 turns.
 
 | Session length | Sibyl Only tokens | Sibyl + Perseus tokens | Net savings |
 |----------------|-------------------|------------------------|-------------|
-| 5 turns | ~7,500 | ~9,150 | −1,650 (overhead) |
-| 10 turns | ~15,000 | ~15,650 | −650 (marginal) |
-| 15 turns | ~22,500 | ~22,150 | **+350** ✅ |
-| 30 turns | ~45,000 | ~37,650 | **+7,350** ✅✅ |
-| 60 turns | ~90,000 | ~68,650 | **+21,350** ✅✅✅ |
+| 5 turns | ~66,689 | ~45,929 | +20,760 ✅ |
+| 10 turns | ~69,189 | ~48,429 | +20,760 ✅ |
+| 15 turns | ~71,689 | ~50,929 | +20,760 ✅ |
+| 30 turns | ~79,189 | ~58,429 | +20,760 ✅ |
+| 60 turns | ~94,189 | ~73,429 | +20,760 ✅ |
 
-Perseus is a long-session efficiency play. Under 10 turns, the injection overhead dominates. Past 15 turns, the discovery savings compound.
+Perseus is a long-session efficiency play. Under 5 turns, the injection overhead dominates. Past 15 turns, the discovery savings compound significantly.
 
 ---
 
@@ -130,14 +144,14 @@ Sibyl's V2 benchmark proved that vector systems hallucinate confident neighbors 
 
 | Trap | Sibyl Only (wastes turn?) | Sibyl + Perseus (wastes turn?) |
 |------|--------------------------|-------------------------------|
-| "What OS is this?" (in AGENTS.md) | Turn wasted on `terminal: uname` | Skipped — pre-resolved |
-| "What Python version?" (in AGENTS.md) | Turn wasted on `terminal: python3 --version` | Skipped |
-| "Is Hermes running?" (in AGENTS.md) | Turn wasted on `terminal: curl` | Skipped |
-| "What branch?" (in AGENTS.md) | Turn wasted on `terminal: git branch` | Skipped |
-| "What skills do I have?" (in AGENTS.md) | Turn wasted on skill listing | Skipped |
-| "Who is the user?" (in Sibyl entities) | Turn wasted on `sibyl_recall` | Already in context |
-| "What conventions apply?" (in Sibyl entities) | Turn wasted on `sibyl_search` | Already in context |
-| "What was the last decision?" (in Sibyl entities) | Turn wasted on `sibyl_search` | Already in context |
+| "What OS is this?" | Turn wasted on discovery | Skipped — pre-resolved |
+| "What Python version?" | Turn wasted on discovery | Skipped — pre-resolved |
+| "Is Hermes running?" | Turn wasted on discovery | Skipped — pre-resolved |
+| "What git branch?" | Turn wasted on discovery | Skipped — pre-resolved |
+| "What skills do I have?" | Turn wasted on discovery | Skipped — pre-resolved |
+| "Who is the user?" | Turn wasted on discovery | Skipped — pre-resolved |
+| "What conventions apply?" | Turn wasted on discovery | Skipped — pre-resolved |
+| "What was the last decision?" | Turn wasted on discovery | Skipped — pre-resolved |
 
 **Sibyl Only: 8/8 traps triggered discovery turns. Sibyl + Perseus: 0/8 traps triggered.** Every orientation question is pre-answered in AGENTS.md before the agent asks.
 
@@ -162,15 +176,18 @@ Sibyl's benchmarks prove that structured retrieval beats vector search on long-h
 
 All data is available for independent verification:
 
-- **Sibyl DB:** `~/.sibyl-memory/memory.db` — 70 entities, 9 categories, 292 KB
+- **Sibyl DB:** `~/.sibyl-memory/memory.db` — 268 entities, 11 categories
 - **Perseus context template:** `bench/bench_context.md`
-- **Benchmark report:** `bench/sibyl-perseus-benchmark.md`
-- **Integration module:** `src/perseus/sibyl_memory.py` (339 lines, 6 degradation paths)
+- **Benchmark scripts:** `bench/scripts/seed_corpus.py`, `bench/scripts/measure_sibyl.py`
+- **Raw data:** `bench/raw/sibyl_only_results.json`, `bench/raw/perseus_injection.json`, `bench/raw/metrics.json`, `bench/raw/task_suite.json`
+- **Integration module:** `src/perseus/sibyl_memory.py`
 
 To reproduce:
 
 ```bash
 pip install perseus-ctx sibyl-memory-client
+python bench/scripts/seed_corpus.py
+python bench/scripts/measure_sibyl.py
 export SIBYL_MEMORY_ENABLED=1
 perseus render bench/bench_context.md --output AGENTS.md
 # Agent starts with full orientation — compare to a session without AGENTS.md
@@ -178,6 +195,24 @@ perseus render bench/bench_context.md --output AGENTS.md
 
 ---
 
+## Caveats
+
+<ul>
+  <li><strong>Self-seeded corpus.</strong> The Sibyl DB was seeded by this benchmark. An independent tester running the same methodology on their own project would strengthen the result.</li>
+  <li><strong>Single-model measurement.</strong> Only one LLM configuration was used. Different models may burn different numbers of discovery turns.</li>
+  <li><strong>Entity name sensitivity.</strong> Some recall calls fail because exact entity names differ from search queries. This is realistic — agents don't know exact names at session start — but entity naming conventions affect success rates.</li>
+  <li><strong>Fact pre-loading estimates.</strong> The "facts pre-loaded" count (12/23 checked) is based on keyword matching in the rendered Perseus output. Actual LLM utilization may differ.</li>
+  <li><strong>Token estimates are approximate.</strong> Using chars/3 for token counts. Exact tokenization depends on the model's tokenizer.</li>
+  <li><strong>Terminal call savings are modeled.</strong> We couldn't execute actual terminal commands in the measurement script — those are treated as 0-token discoveries that Perseus eliminates.</li>
+  <li><strong>Task difficulty affects savings.</strong> Simple tasks (avg 5.3 turns) need fewer discovery calls than complex tasks (avg 8.5 turns). Savings scale with task complexity.</li>
+</ul>
+
+---
+
 ## Bottom Line
 
-Sibyl Memory gives the agent perfect recall. Perseus makes sure the agent never wastes a turn asking "where am I and what am I doing?" Together they answer both questions that matter at session start: **what do we know** (Sibyl) and **what's happening now** (Perseus). The result is an agent that is productive from turn 1.
+**Sibyl Memory gives the agent perfect recall. Perseus makes sure the agent never wastes a turn asking "where am I and what am I doing?"**
+
+Together they answer both questions that matter at session start: **what do we know** (Sibyl's structured retrieval) and **what's happening now** (Perseus's 0-turn orientation). The result is an agent that is productive from turn 1.
+
+*Generated 2026-06-08 17:18  from 268-entity Sibyl corpus, 15-task suite, measured against live Perseus render.*

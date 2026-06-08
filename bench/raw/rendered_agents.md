@@ -60,3 +60,10 @@ Repo: github.com/tcconnally/perseus
 
 ## Current State
 @sibyl_state keys=current_focus,active_sprint,deployment_status
+
+
+## Sibyl Memory: structured context
+
+- [entity] decision/bench/-directory-for-all-benchmarks: {"decision":"[bench]/ directory for all benchmarks","date":"2026-06-03","status":"active...
+- [entity] decision/bench-directory-for-all-benchmarks: {"decision":"[bench]/ directory for all benchmarks","date":"2026-06-03","status":"active...
+- [entity] endpoint/endpoint-11-perseus-benchmarks: {"url":"https://perseus.observer/[bench]/","service":"Perseus Benchmarks","expected_status":200,"timeout...

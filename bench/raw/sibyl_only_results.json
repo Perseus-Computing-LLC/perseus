@@ -1,0 +1,1232 @@
+[
+  {
+    "task_id": 1,
+    "task_name": "Fix credential redaction: nested JSON tokens not caught",
+    "task_type": "simple",
+    "calls": [
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'location of redact.py in src/perseus/'}",
+        "hits": 0,
+        "tokens": 0,
+        "contains_answer": false,
+        "error": null,
+        "info_need": "Location of redact.py in src/perseus/"
+      },
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'credential redaction'}",
+        "hits": 6,
+        "tokens": 1121,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Current credential redaction approach (sibyl_search: 'credential redaction')"
+      },
+      {
+        "call_type": "recall",
+        "args": "",
+        "kwargs": "{'category': 'auth', 'name': 'bsm-cache'}",
+        "hits": 1,
+        "tokens": 165,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Auth patterns from BSM cache (sibyl_recall: auth/bsm-cache)"
+      },
+      {
+        "call_type": "recall",
+        "args": "",
+        "kwargs": "{'category': 'auth', 'name': 'github-token-extraction'}",
+        "hits": 1,
+        "tokens": 172,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "GitHub token extraction method (sibyl_recall: auth/github-token-extraction)"
+      },
+      {
+        "call_type": "recall",
+        "args": "",
+        "kwargs": "{'category': 'convention', 'name': 'fix-root-cause'}",
+        "hits": 1,
+        "tokens": 115,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Fix-root-cause convention (sibyl_recall: convention/fix-root-cause)"
+      },
+      {
+        "call_type": "terminal",
+        "command": "git branch --show-current",
+        "hits": null,
+        "tokens": 0,
+        "contains_answer": true,
+        "error": null,
+        "args": "{'type': 'terminal', 'command': 'git branch --show-current'}",
+        "info_need": "Current git branch (terminal: git branch --show-current)"
+      },
+      {
+        "call_type": "recall",
+        "args": "",
+        "kwargs": "{'category': 'convention', 'name': 'perseus-ci-rebuild'}",
+        "hits": 1,
+        "tokens": 148,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Convention: after src/ changes run build.py (sibyl_recall: convention/perseus-ci-rebuild)"
+      },
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'redact test coverage'}",
+        "hits": 3,
+        "tokens": 530,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Test coverage for redact module (sibyl_search: 'redact test coverage')"
+      }
+    ],
+    "total_discovery_calls": 8,
+    "total_hits": 13,
+    "total_tokens": 2251,
+    "facts_found": 7,
+    "facts_total": 8
+  },
+  {
+    "task_id": 2,
+    "task_name": "Add health check for a new service endpoint",
+    "task_type": "simple",
+    "calls": [
+      {
+        "call_type": "list",
+        "args": "",
+        "kwargs": "{'category': 'endpoint'}",
+        "hits": 25,
+        "tokens": 3800,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Existing endpoint patterns (sibyl_list: endpoint)"
+      },
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'health_checker component'}",
+        "hits": 3,
+        "tokens": 558,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Health checker module location (sibyl_search: 'health_checker component')"
+      },
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'health check expected status'}",
+        "hits": 0,
+        "tokens": 0,
+        "contains_answer": false,
+        "error": null,
+        "info_need": "Expected status codes for health endpoints (sibyl_search: 'health check expected status')"
+      },
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'service endpoint url'}",
+        "hits": 20,
+        "tokens": 2968,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Service URL format (sibyl_search: 'service endpoint url')"
+      },
+      {
+        "call_type": "terminal",
+        "command": "python3 --version",
+        "hits": null,
+        "tokens": 0,
+        "contains_answer": true,
+        "error": null,
+        "args": "{'type': 'terminal', 'command': 'python3 --version'}",
+        "info_need": "Current Python version (terminal: python3 --version)"
+      }
+    ],
+    "total_discovery_calls": 5,
+    "total_hits": 48,
+    "total_tokens": 7326,
+    "facts_found": 4,
+    "facts_total": 5
+  },
+  {
+    "task_id": 3,
+    "task_name": "Update CI workflow to test Python 3.13",
+    "task_type": "simple",
+    "calls": [
+      {
+        "call_type": "recall",
+        "args": "",
+        "kwargs": "{'category': 'infrastructure', 'name': 'github-actions'}",
+        "hits": 0,
+        "tokens": 0,
+        "contains_answer": false,
+        "error": "entity infrastructure/github-actions not found for tenant 00000000-0000-0000-0000-000000000001",
+        "info_need": "CI pipeline configuration (sibyl_recall: infrastructure/github-actions)"
+      },
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'python versions ci'}",
+        "hits": 2,
+        "tokens": 284,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Current Python versions tested (sibyl_search: 'python versions CI')"
+      },
+      {
+        "call_type": "recall",
+        "args": "",
+        "kwargs": "{'category': 'decision', 'name': 'python-3.12-minimum'}",
+        "hits": 1,
+        "tokens": 204,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Decision: Python 3.12 minimum (sibyl_recall: decision/python-3.12-minimum)"
+      },
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'workflow_file'}",
+        "hits": 1,
+        "tokens": 153,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "CI workflow file location (sibyl_search: 'workflow_file')"
+      },
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'ci pipeline'}",
+        "hits": 1,
+        "tokens": 130,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Decision: replace workflow or extend matrix (sibyl_search: 'CI pipeline')"
+      }
+    ],
+    "total_discovery_calls": 5,
+    "total_hits": 5,
+    "total_tokens": 771,
+    "facts_found": 4,
+    "facts_total": 5
+  },
+  {
+    "task_id": 4,
+    "task_name": "Add memory-cleanup skill SKILL.md",
+    "task_type": "simple",
+    "calls": [
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'skill.md frontmatter'}",
+        "hits": 5,
+        "tokens": 975,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "SKILL.md YAML frontmatter convention (sibyl_search: 'SKILL.md frontmatter')"
+      },
+      {
+        "call_type": "recall",
+        "args": "",
+        "kwargs": "{'category': 'convention', 'name': 'validate-yaml-frontmatter-in-skillmd'}",
+        "hits": 0,
+        "tokens": 0,
+        "contains_answer": false,
+        "error": "entity convention/validate-yaml-frontmatter-in-skillmd not found for tenant 00000000-0000-0000-0000-000000000001",
+        "info_need": "Skill validation rules (sibyl_recall: convention/validate-yaml-frontmatter-in-skillmd)"
+      },
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'skill directory'}",
+        "hits": 1,
+        "tokens": 172,
+        "contains_answer": false,
+        "error": null,
+        "info_need": "Skill directory location (sibyl_search: 'skill directory')"
+      },
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'skill frontmatter requires'}",
+        "hits": 2,
+        "tokens": 366,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Existing skill examples (sibyl_search: 'skill frontmatter requires')"
+      },
+      {
+        "call_type": "recall",
+        "args": "",
+        "kwargs": "{'category': 'decision', 'name': 'yaml-frontmatter-for-skillmd'}",
+        "hits": 0,
+        "tokens": 0,
+        "contains_answer": false,
+        "error": "entity decision/yaml-frontmatter-for-skillmd not found for tenant 00000000-0000-0000-0000-000000000001",
+        "info_need": "Decision: YAML frontmatter for SKILL.md (sibyl_recall: decision/yaml-frontmatter-for-skillmd)"
+      }
+    ],
+    "total_discovery_calls": 5,
+    "total_hits": 8,
+    "total_tokens": 1513,
+    "facts_found": 2,
+    "facts_total": 5
+  },
+  {
+    "task_id": 5,
+    "task_name": "Fix Mneme FTS5 search escaping bug (issue #318)",
+    "task_type": "simple",
+    "calls": [
+      {
+        "call_type": "recall",
+        "args": "",
+        "kwargs": "{'category': 'bug', 'name': 'issue-318'}",
+        "hits": 1,
+        "tokens": 193,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Bug details for #318 (sibyl_recall: bug/issue-318)"
+      },
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'mneme_connector component'}",
+        "hits": 11,
+        "tokens": 2352,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Mneme connector module location (sibyl_search: 'mneme_connector component')"
+      },
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'fts5 escaping'}",
+        "hits": 2,
+        "tokens": 373,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "FTS5 escaping decision (sibyl_search: 'FTS5 escaping')"
+      },
+      {
+        "call_type": "recall",
+        "args": "",
+        "kwargs": "{'category': 'bug', 'name': 'issue-287'}",
+        "hits": 1,
+        "tokens": 188,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Related bug #287 (sibyl_recall: bug/issue-287)"
+      },
+      {
+        "call_type": "terminal",
+        "command": "git branch --show-current",
+        "hits": null,
+        "tokens": 0,
+        "contains_answer": true,
+        "error": null,
+        "args": "{'type': 'terminal', 'command': 'git branch --show-current'}",
+        "info_need": "Current branch and git state (terminal: git branch --show-current)"
+      }
+    ],
+    "total_discovery_calls": 5,
+    "total_hits": 15,
+    "total_tokens": 3106,
+    "facts_found": 5,
+    "facts_total": 5
+  },
+  {
+    "task_id": 6,
+    "task_name": "Fix CLI overwrite without warning (issue #314)",
+    "task_type": "simple",
+    "calls": [
+      {
+        "call_type": "recall",
+        "args": "",
+        "kwargs": "{'category': 'bug', 'name': 'issue-314'}",
+        "hits": 1,
+        "tokens": 192,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Bug details for #314 (sibyl_recall: bug/issue-314)"
+      },
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'cli component module'}",
+        "hits": 0,
+        "tokens": 0,
+        "contains_answer": false,
+        "error": null,
+        "info_need": "CLI module location (sibyl_search: 'cli component module')"
+      },
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'overwrite warning convention'}",
+        "hits": 0,
+        "tokens": 0,
+        "contains_answer": false,
+        "error": null,
+        "info_need": "Convention: no silent destructive actions (sibyl_search: 'overwrite warning convention')"
+      },
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'cli render output'}",
+        "hits": 1,
+        "tokens": 192,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Current CLI implementation (sibyl_search: 'cli render output')"
+      }
+    ],
+    "total_discovery_calls": 4,
+    "total_hits": 2,
+    "total_tokens": 384,
+    "facts_found": 2,
+    "facts_total": 4
+  },
+  {
+    "task_id": 7,
+    "task_name": "Update dependency scanner to detect optional imports",
+    "task_type": "simple",
+    "calls": [
+      {
+        "call_type": "recall",
+        "args": "",
+        "kwargs": "{'category': 'bug', 'name': 'issue-316'}",
+        "hits": 1,
+        "tokens": 191,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Bug details for #316 (sibyl_recall: bug/issue-316)"
+      },
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'dependency_scanner component'}",
+        "hits": 2,
+        "tokens": 368,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Dependency scanner module (sibyl_search: 'dependency_scanner component')"
+      },
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'dependency_scanner test_coverage'}",
+        "hits": 1,
+        "tokens": 176,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Test coverage for dependency scanner (sibyl_search: 'dependency_scanner test_coverage')"
+      },
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'try except import dependency'}",
+        "hits": 1,
+        "tokens": 191,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "How other modules handle optional deps (sibyl_search: 'try except import dependency')"
+      },
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'contributor-01 dependency_scanner'}",
+        "hits": 3,
+        "tokens": 521,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Owner assignment (sibyl_search: 'contributor-01 dependency_scanner')"
+      }
+    ],
+    "total_discovery_calls": 5,
+    "total_hits": 8,
+    "total_tokens": 1447,
+    "facts_found": 5,
+    "facts_total": 5
+  },
+  {
+    "task_id": 8,
+    "task_name": "Implement convention checker for agent behavior validation",
+    "task_type": "complex",
+    "calls": [
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'convention_checker component'}",
+        "hits": 3,
+        "tokens": 601,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Existing convention checker component (sibyl_search: 'convention_checker component')"
+      },
+      {
+        "call_type": "list",
+        "args": "",
+        "kwargs": "{'category': 'convention'}",
+        "hits": 20,
+        "tokens": 3618,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "All stored conventions (sibyl_list: convention)"
+      },
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'sibyl_memory integration entity'}",
+        "hits": 1,
+        "tokens": 267,
+        "contains_answer": false,
+        "error": null,
+        "info_need": "Sibyl Memory integration patterns (sibyl_search: 'sibyl_memory integration entity')"
+      },
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'convention checker design'}",
+        "hits": 0,
+        "tokens": 0,
+        "contains_answer": false,
+        "error": null,
+        "info_need": "Decision: prevention vs detection (sibyl_search: 'convention checker design')"
+      },
+      {
+        "call_type": "recall",
+        "args": "",
+        "kwargs": "{'category': 'auth', 'name': 'bsm-cache'}",
+        "hits": 1,
+        "tokens": 165,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Auth patterns for Sibyl access (sibyl_recall: auth/bsm-cache)"
+      },
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'token_budgeter sibyl_memory_max_tokens'}",
+        "hits": 3,
+        "tokens": 663,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Token budget considerations (sibyl_search: 'token_budgeter SIBYL_MEMORY_MAX_TOKENS')"
+      },
+      {
+        "call_type": "recall",
+        "args": "",
+        "kwargs": "{'category': 'project', 'name': 'sibyl-memory'}",
+        "hits": 0,
+        "tokens": 0,
+        "contains_answer": false,
+        "error": "entity project/sibyl-memory not found for tenant 00000000-0000-0000-0000-000000000001",
+        "info_need": "How to access Sibyl from Python (sibyl_recall: project/sibyl-memory)"
+      },
+      {
+        "call_type": "recall",
+        "args": "",
+        "kwargs": "{'category': 'decision', 'name': 'python-3.12-minimum'}",
+        "hits": 1,
+        "tokens": 204,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Python 3.12+ requirement (sibyl_recall: decision/python-3.12-minimum)"
+      }
+    ],
+    "total_discovery_calls": 8,
+    "total_hits": 29,
+    "total_tokens": 5518,
+    "facts_found": 5,
+    "facts_total": 8
+  },
+  {
+    "task_id": 9,
+    "task_name": "Refactor memory mesh to deduplicate cross-backend results",
+    "task_type": "complex",
+    "calls": [
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'memory_mesh component'}",
+        "hits": 5,
+        "tokens": 1098,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Memory mesh module location (sibyl_search: 'memory_mesh component')"
+      },
+      {
+        "call_type": "recall",
+        "args": "",
+        "kwargs": "{'category': 'bug', 'name': 'issue-311'}",
+        "hits": 1,
+        "tokens": 188,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Bug details #311 (sibyl_recall: bug/issue-311)"
+      },
+      {
+        "call_type": "recall",
+        "args": "",
+        "kwargs": "{'category': 'decision', 'name': 'cross-workspace-memory-federation-via-mneme'}",
+        "hits": 1,
+        "tokens": 245,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Decision: cross-workspace federation (sibyl_recall: decision/cross-workspace-memory-federation-via-mneme)"
+      },
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'mneme_connector component'}",
+        "hits": 11,
+        "tokens": 2352,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Mneme connector API (sibyl_search: 'mneme_connector component')"
+      },
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'sibyl_memory component'}",
+        "hits": 20,
+        "tokens": 4293,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Sibyl memory API (sibyl_search: 'sibyl_memory component')"
+      },
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'merlin_dedup component'}",
+        "hits": 2,
+        "tokens": 369,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Merlin dedup approach (sibyl_search: 'merlin_dedup component')"
+      },
+      {
+        "call_type": "recall",
+        "args": "",
+        "kwargs": "{'category': 'decision', 'name': 'fts5-over-vector-for-structured-memory-search'}",
+        "hits": 1,
+        "tokens": 252,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Decision: FTS5 over vector (sibyl_recall: decision/fts5-over-vector-for-structured-memory-search)"
+      },
+      {
+        "call_type": "terminal",
+        "command": "git branch --show-current",
+        "hits": null,
+        "tokens": 0,
+        "contains_answer": true,
+        "error": null,
+        "args": "{'type': 'terminal', 'command': 'git branch --show-current'}",
+        "info_need": "Current git branch and state (terminal: git branch --show-current)"
+      }
+    ],
+    "total_discovery_calls": 8,
+    "total_hits": 41,
+    "total_tokens": 8797,
+    "facts_found": 8,
+    "facts_total": 8
+  },
+  {
+    "task_id": 10,
+    "task_name": "Deploy Perseus v1.0.7 to PyPI",
+    "task_type": "complex",
+    "calls": [
+      {
+        "call_type": "get_state",
+        "args": "",
+        "kwargs": "{'key': 'deployment_status'}",
+        "hits": 1,
+        "tokens": 70,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Current deployment status (sibyl_get_state: deployment_status)"
+      },
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'rc checklist release'}",
+        "hits": 2,
+        "tokens": 380,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "RC checklist (sibyl_search: 'RC checklist release')"
+      },
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'build.py monolith artifact'}",
+        "hits": 3,
+        "tokens": 529,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Build process (sibyl_search: 'build.py monolith artifact')"
+      },
+      {
+        "call_type": "recall",
+        "args": "",
+        "kwargs": "{'category': 'infrastructure', 'name': 'github-actions'}",
+        "hits": 0,
+        "tokens": 0,
+        "contains_answer": false,
+        "error": "entity infrastructure/github-actions not found for tenant 00000000-0000-0000-0000-000000000001",
+        "info_need": "CI pipeline status (sibyl_recall: infrastructure/github-actions)"
+      },
+      {
+        "call_type": "recall",
+        "args": "",
+        "kwargs": "{'category': 'infrastructure', 'name': 'perseus-ctx'}",
+        "hits": 1,
+        "tokens": 134,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "PyPI package info (sibyl_recall: infrastructure/perseus-ctx)"
+      },
+      {
+        "call_type": "recall",
+        "args": "",
+        "kwargs": "{'category': 'convention', 'name': 'commit-regenerated-perseuspy-with-source'}",
+        "hits": 0,
+        "tokens": 0,
+        "contains_answer": false,
+        "error": "entity convention/commit-regenerated-perseuspy-with-source not found for tenant 00000000-0000-0000-0000-000000000001",
+        "info_need": "Convention: commit rebuilt perseus.py (sibyl_recall: convention/commit-regenerated-perseuspy-with-source)"
+      },
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'v1.0.7 scope sprint'}",
+        "hits": 0,
+        "tokens": 0,
+        "contains_answer": false,
+        "error": null,
+        "info_need": "v1.0.7 scope (sibyl_search: 'v1.0.7 scope sprint')"
+      },
+      {
+        "call_type": "get_state",
+        "args": "",
+        "kwargs": "{'key': 'active_sprint'}",
+        "hits": 1,
+        "tokens": 103,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Active sprint info (sibyl_get_state: active_sprint)"
+      },
+      {
+        "call_type": "terminal",
+        "command": "python3 --version",
+        "hits": null,
+        "tokens": 0,
+        "contains_answer": true,
+        "error": null,
+        "args": "{'type': 'terminal', 'command': 'python3 --version'}",
+        "info_need": "Python version for build (terminal: python3 --version)"
+      },
+      {
+        "call_type": "terminal",
+        "command": "git branch --show-current",
+        "hits": null,
+        "tokens": 0,
+        "contains_answer": true,
+        "error": null,
+        "args": "{'type': 'terminal', 'command': 'git branch --show-current'}",
+        "info_need": "Current git branch (terminal: git branch --show-current)"
+      }
+    ],
+    "total_discovery_calls": 10,
+    "total_hits": 8,
+    "total_tokens": 1216,
+    "facts_found": 7,
+    "facts_total": 10
+  },
+  {
+    "task_id": 11,
+    "task_name": "Add Perseus MCP server tool integration",
+    "task_type": "complex",
+    "calls": [
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'mcp component experimental'}",
+        "hits": 1,
+        "tokens": 165,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "MCP module status (sibyl_search: 'mcp component experimental')"
+      },
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'sibyl_memory integration agents.md'}",
+        "hits": 3,
+        "tokens": 657,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Sibyl Memory \u2192 Perseus integration (sibyl_search: 'sibyl_memory integration AGENTS.md')"
+      },
+      {
+        "call_type": "recall",
+        "args": "",
+        "kwargs": "{'category': 'decision', 'name': 'directive-system'}",
+        "hits": 1,
+        "tokens": 146,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Decision: directive system (sibyl_recall: decision/directive-system)"
+      },
+      {
+        "call_type": "recall",
+        "args": "",
+        "kwargs": "{'category': 'decision', 'name': 'mit-license'}",
+        "hits": 1,
+        "tokens": 192,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Decision: MIT license (sibyl_recall: decision/mit-license)"
+      },
+      {
+        "call_type": "list",
+        "args": "",
+        "kwargs": "{'category': 'endpoint'}",
+        "hits": 25,
+        "tokens": 3800,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "All service endpoints (sibyl_list: endpoint)"
+      },
+      {
+        "call_type": "recall",
+        "args": "",
+        "kwargs": "{'category': 'auth', 'name': 'bsm-cache'}",
+        "hits": 1,
+        "tokens": 165,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Auth patterns for external access (sibyl_recall: auth/bsm-cache)"
+      },
+      {
+        "call_type": "recall",
+        "args": "",
+        "kwargs": "{'category': 'decision', 'name': 'python-3.12-minimum'}",
+        "hits": 1,
+        "tokens": 204,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Python version requirement (sibyl_recall: decision/python-3.12-minimum)"
+      },
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'mcp skill'}",
+        "hits": 0,
+        "tokens": 0,
+        "contains_answer": false,
+        "error": null,
+        "info_need": "Skill inventory for related skills (sibyl_search: 'mcp skill')"
+      }
+    ],
+    "total_discovery_calls": 8,
+    "total_hits": 33,
+    "total_tokens": 5329,
+    "facts_found": 7,
+    "facts_total": 8
+  },
+  {
+    "task_id": 12,
+    "task_name": "Build cross-workspace memory search UI",
+    "task_type": "complex",
+    "calls": [
+      {
+        "call_type": "recall",
+        "args": "",
+        "kwargs": "{'category': 'decision', 'name': 'cross-workspace-memory-federation-via-mneme'}",
+        "hits": 1,
+        "tokens": 245,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Memory mesh federation (sibyl_recall: decision/cross-workspace-memory-federation-via-mneme)"
+      },
+      {
+        "call_type": "recall",
+        "args": "",
+        "kwargs": "{'category': 'infrastructure', 'name': 'mneme-vault'}",
+        "hits": 0,
+        "tokens": 0,
+        "contains_answer": false,
+        "error": "entity infrastructure/mneme-vault not found for tenant 00000000-0000-0000-0000-000000000001",
+        "info_need": "Mneme vault path (sibyl_recall: infrastructure/mneme-vault)"
+      },
+      {
+        "call_type": "recall",
+        "args": "",
+        "kwargs": "{'category': 'infrastructure', 'name': 'sibyl-memory-db'}",
+        "hits": 0,
+        "tokens": 0,
+        "contains_answer": false,
+        "error": "entity infrastructure/sibyl-memory-db not found for tenant 00000000-0000-0000-0000-000000000001",
+        "info_need": "Sibyl DB path (sibyl_recall: infrastructure/sibyl-memory-db)"
+      },
+      {
+        "call_type": "recall",
+        "args": "",
+        "kwargs": "{'category': 'decision', 'name': 'fts5-over-vector-for-structured-memory-search'}",
+        "hits": 1,
+        "tokens": 252,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Decision: FTS5 over vector (sibyl_recall: decision/fts5-over-vector-for-structured-memory-search)"
+      },
+      {
+        "call_type": "recall",
+        "args": "",
+        "kwargs": "{'category': 'decision', 'name': 'five-tier-memory-schema'}",
+        "hits": 0,
+        "tokens": 0,
+        "contains_answer": false,
+        "error": "entity decision/five-tier-memory-schema not found for tenant 00000000-0000-0000-0000-000000000001",
+        "info_need": "Decision: five-tier memory schema (sibyl_recall: decision/five-tier-memory-schema)"
+      },
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'memory connector component'}",
+        "hits": 8,
+        "tokens": 1751,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "All memory-related components (sibyl_search: 'memory connector component')"
+      },
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'serve component http'}",
+        "hits": 2,
+        "tokens": 334,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Endpoints for Perseus serve (sibyl_search: 'serve component HTTP')"
+      },
+      {
+        "call_type": "recall",
+        "args": "",
+        "kwargs": "{'category': 'project', 'name': 'minions'}",
+        "hits": 1,
+        "tokens": 141,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Hermes WebUI integration (sibyl_recall: project/minions)"
+      },
+      {
+        "call_type": "recall",
+        "args": "",
+        "kwargs": "{'category': 'user', 'name': 'thomas-connally'}",
+        "hits": 0,
+        "tokens": 0,
+        "contains_answer": false,
+        "error": "entity user/thomas-connally not found for tenant 00000000-0000-0000-0000-000000000001",
+        "info_need": "User: tcconnally preferences (sibyl_recall: user/thomas-connally)"
+      }
+    ],
+    "total_discovery_calls": 9,
+    "total_hits": 13,
+    "total_tokens": 2723,
+    "facts_found": 5,
+    "facts_total": 9
+  },
+  {
+    "task_id": 13,
+    "task_name": "Implement TTL cache invalidation on config change",
+    "task_type": "complex",
+    "calls": [
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'cache_layer component'}",
+        "hits": 3,
+        "tokens": 639,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Cache layer module (sibyl_search: 'cache_layer component')"
+      },
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'config component config.yaml'}",
+        "hits": 6,
+        "tokens": 1187,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Configuration module (sibyl_search: 'config component config.yaml')"
+      },
+      {
+        "call_type": "recall",
+        "args": "",
+        "kwargs": "{'category': 'bug', 'name': 'issue-306'}",
+        "hits": 1,
+        "tokens": 185,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Bug #306 (sibyl_recall: bug/issue-306)"
+      },
+      {
+        "call_type": "recall",
+        "args": "",
+        "kwargs": "{'category': 'decision', 'name': 'ttl-cache-for-directive-resolution'}",
+        "hits": 1,
+        "tokens": 233,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Decision: TTL cache design (sibyl_recall: decision/ttl-cache-for-directive-resolution)"
+      },
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'env_resolver component'}",
+        "hits": 2,
+        "tokens": 355,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Env resolver component (sibyl_search: 'env_resolver component')"
+      },
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'registry component directive'}",
+        "hits": 9,
+        "tokens": 1876,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Registry module (sibyl_search: 'registry component directive')"
+      },
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'cache_layer test_coverage'}",
+        "hits": 1,
+        "tokens": 171,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Test coverage for cache layer (sibyl_search: 'cache_layer test_coverage')"
+      }
+    ],
+    "total_discovery_calls": 7,
+    "total_hits": 23,
+    "total_tokens": 4646,
+    "facts_found": 7,
+    "facts_total": 7
+  },
+  {
+    "task_id": 14,
+    "task_name": "Add multi-tenant support to Sibyl Memory connector",
+    "task_type": "complex",
+    "calls": [
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'sibyl_memory component tenant'}",
+        "hits": 1,
+        "tokens": 241,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Sibyl memory module (sibyl_search: 'sibyl_memory component tenant')"
+      },
+      {
+        "call_type": "recall",
+        "args": "",
+        "kwargs": "{'category': 'decision', 'name': 'sqlite-for-sibyl-memory'}",
+        "hits": 1,
+        "tokens": 227,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Decision: SQLite for Sibyl (sibyl_recall: decision/sqlite-for-sibyl-memory)"
+      },
+      {
+        "call_type": "recall",
+        "args": "",
+        "kwargs": "{'category': 'decision', 'name': 'graceful-degradation-for-all-integrations'}",
+        "hits": 1,
+        "tokens": 237,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Decision: graceful degradation (sibyl_recall: decision/graceful-degradation-for-all-integrations)"
+      },
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'set_tenant get_tenant'}",
+        "hits": 0,
+        "tokens": 0,
+        "contains_answer": false,
+        "error": null,
+        "info_need": "Sibyl SDK API for tenants (sibyl_search: 'set_tenant get_tenant')"
+      },
+      {
+        "call_type": "list",
+        "args": "",
+        "kwargs": "{'category': 'project'}",
+        "hits": 8,
+        "tokens": 1488,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Project metadata for multi-project setup (sibyl_list: project)"
+      },
+      {
+        "call_type": "list",
+        "args": "",
+        "kwargs": "{'category': 'infrastructure'}",
+        "hits": 12,
+        "tokens": 1675,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "All infrastructure entries (sibyl_list: infrastructure)"
+      },
+      {
+        "call_type": "recall",
+        "args": "",
+        "kwargs": "{'category': 'auth', 'name': 'bsm-cache'}",
+        "hits": 1,
+        "tokens": 165,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Auth patterns for multi-tenant (sibyl_recall: auth/bsm-cache)"
+      },
+      {
+        "call_type": "recall",
+        "args": "",
+        "kwargs": "{'category': 'convention', 'name': 'fix-root-cause-never-work-around'}",
+        "hits": 0,
+        "tokens": 0,
+        "contains_answer": false,
+        "error": "entity convention/fix-root-cause-never-work-around not found for tenant 00000000-0000-0000-0000-000000000001",
+        "info_need": "Convention: fix root cause (sibyl_recall: convention/fix-root-cause-never-work-around)"
+      }
+    ],
+    "total_discovery_calls": 8,
+    "total_hits": 24,
+    "total_tokens": 4033,
+    "facts_found": 6,
+    "facts_total": 8
+  },
+  {
+    "task_id": 15,
+    "task_name": "Performance audit: profile and optimize AGENTS.md render pipeline",
+    "task_type": "complex",
+    "calls": [
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'renderer component agents.md'}",
+        "hits": 11,
+        "tokens": 2348,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Renderer module (sibyl_search: 'renderer component AGENTS.md')"
+      },
+      {
+        "call_type": "list",
+        "args": "",
+        "kwargs": "{'category': 'component'}",
+        "hits": 59,
+        "tokens": 9325,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "All components with test coverage data (sibyl_list: component)"
+      },
+      {
+        "call_type": "recall",
+        "args": "",
+        "kwargs": "{'category': 'decision', 'name': 'ttl-cache-for-directive-resolution'}",
+        "hits": 1,
+        "tokens": 233,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Decision: TTL cache (sibyl_recall: decision/ttl-cache-for-directive-resolution)"
+      },
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'registry directive resolution'}",
+        "hits": 4,
+        "tokens": 927,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Registry directive resolution (sibyl_search: 'registry directive resolution')"
+      },
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'sibyl memory injection tokens'}",
+        "hits": 2,
+        "tokens": 490,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Sibyl integration overhead (sibyl_search: 'sibyl memory injection tokens')"
+      },
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'token_budgeter component'}",
+        "hits": 5,
+        "tokens": 1085,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Token budgeter (sibyl_search: 'token_budgeter component')"
+      },
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'health_checker component timeout'}",
+        "hits": 1,
+        "tokens": 192,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Health checker overhead (sibyl_search: 'health_checker component timeout')"
+      },
+      {
+        "call_type": "search_entities",
+        "args": "",
+        "kwargs": "{'query': 'build monolith artifact'}",
+        "hits": 3,
+        "tokens": 529,
+        "contains_answer": true,
+        "error": null,
+        "info_need": "Build artifact (sibyl_search: 'build monolith artifact')"
+      },
+      {
+        "call_type": "recall",
+        "args": "",
+        "kwargs": "{'category': 'convention', 'name': 'dogfood-first-optimize-later'}",
+        "hits": 0,
+        "tokens": 0,
+        "contains_answer": false,
+        "error": "entity convention/dogfood-first-optimize-later not found for tenant 00000000-0000-0000-0000-000000000001",
+        "info_need": "Dogfood-first convention (sibyl_recall: convention/dogfood-first-optimize-later)"
+      },
+      {
+        "call_type": "terminal",
+        "command": "hostname,",
+        "hits": null,
+        "tokens": 0,
+        "contains_answer": true,
+        "error": null,
+        "args": "{'type': 'terminal', 'command': 'hostname,'}",
+        "info_need": "Current environment (terminal: hostname, terminal: df -h)"
+      }
+    ],
+    "total_discovery_calls": 10,
+    "total_hits": 86,
+    "total_tokens": 15129,
+    "facts_found": 9,
+    "facts_total": 10
+  }
+]
