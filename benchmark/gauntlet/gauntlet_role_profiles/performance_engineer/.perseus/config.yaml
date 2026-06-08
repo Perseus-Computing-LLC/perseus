@@ -7,6 +7,6 @@ render:
 generation:
   enabled: false
 agora:
-  task_dir: tasks
+  tasks_dir: tasks
 memory:
   store: .perseus/memory

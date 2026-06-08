@@ -2628,7 +2628,8 @@ def _update_latest_checkpoint_pointer(latest: Path, outfile: Path) -> None:
 def _get_tasks_dir(workspace: Path | None, cfg: dict) -> Path:
     """Resolve the Agora tasks directory with backward-compatible defaults."""
     base = workspace or Path.cwd()
-    configured = str(cfg.get("agora", {}).get("tasks_dir", "tasks"))
+    agora_cfg = cfg.get("agora", {})
+    configured = str(agora_cfg.get("tasks_dir") or agora_cfg.get("task_dir", "tasks"))
     candidate = Path(configured)
     if not candidate.is_absolute():
         candidate = base / candidate
@@ -2754,9 +2755,28 @@ def _load_tasks(tasks_dir: Path) -> list[tuple[Path, dict, str]]:
     return tasks
 
 
-def _render_agora_table(tasks: list[tuple[Path, dict, str]]) -> str:
+VALID_AGORA_STATUSES = frozenset({"open", "in_progress", "completed", "blocked"})
+
+
+def _render_agora_table(tasks: list[tuple[Path, dict, str]],
+                        tasks_dir: Path | None = None) -> str:
     if not tasks:
-        return '> No tasks found.'
+        parts = ["> No tasks found."]
+        if tasks_dir is not None and tasks_dir.exists():
+            other = sorted(tasks_dir.glob("*.md"))
+            task_glob = [p for p in other if p.name.startswith("task-")]
+            non_task = [p for p in other if not p.name.startswith("task-")]
+            if other and not task_glob:
+                names = ", ".join(p.name for p in other[:5])
+                if len(other) > 5:
+                    names += f", … ({len(other) - 5} more)"
+                parts.append(
+                    f'> ⚠ Agora: {tasks_dir}/ contains {len(other)} .md file(s) '
+                    f'but none match the `task-*.md` glob. '
+                    f'Rename files to `task-<id>-<slug>.md`. '
+                    f'Found: {names}'
+                )
+        return "\n".join(parts)
     rows = ['| ID | Scope | Title | Status |', '|---|---|---|---|']
     for _path, fm, _body in tasks:
         def _esc(v: str) -> str:
@@ -2773,14 +2793,25 @@ def resolve_agora(args_str: str, cfg: dict, workspace: Path | None = None) -> st
     tasks_dir = _get_tasks_dir(workspace, cfg)
     tasks = _load_tasks(tasks_dir)
     filtered = []
+    unknown_statuses = set()
     for item in tasks:
         fm = item[1]
-        if status_filter and str(fm.get('status', '')) not in status_filter:
+        st = str(fm.get('status', ''))
+        if status_filter and st not in status_filter:
+            if st and st not in VALID_AGORA_STATUSES:
+                unknown_statuses.add(st)
             continue
         if scope_filter and str(fm.get('scope', '')) not in scope_filter:
             continue
         filtered.append(item)
-    return _render_agora_table(filtered)
+    result = _render_agora_table(filtered, tasks_dir)
+    if unknown_statuses:
+        result += (
+            f"\n\n> ⚠ Agora: {len(unknown_statuses)} unrecognized status "
+            f"value(s) found in tasks: {', '.join(sorted(unknown_statuses))}. "
+            f"Canonical statuses are: open, in_progress, completed, blocked."
+        )
+    return result
 
 
 def cmd_agora(args, cfg):
@@ -2790,18 +2821,26 @@ def cmd_agora(args, cfg):
     task_map = {fm.get('id'): (path, fm, body) for path, fm, body in tasks}
 
     if args.agora_command in {'list', 'status'}:
-        groups = {'open': [], 'in_progress': [], 'completed': [], 'blocked': []}
+        groups: dict[str, list] = {}
         for _path, fm, _body in tasks:
             groups.setdefault(str(fm.get('status', 'open')), []).append(fm)
         print(f'Agora — {tasks_dir}')
         for status in ['open', 'in_progress', 'completed', 'blocked']:
             print(f"\n{status.upper()}\n{'─' * len(status)}")
-            items = groups.get(status, [])
+            items = groups.pop(status, [])
             if not items:
                 print('(none)')
                 continue
             for fm in items:
                 print(f"{fm.get('id')}   [{fm.get('scope')}]  {fm.get('title')}")
+        # Warn about unrecognized statuses — show them in an "OTHER" bucket
+        if groups:
+            print(f"\nOTHER (unrecognized)\n{'─' * 19}")
+            for status, items in sorted(groups.items()):
+                for fm in items:
+                    print(f"{fm.get('id')}   [{fm.get('scope')}]  [{status}]  {fm.get('title')}")
+            print(f"\n⚠ {len(groups)} unrecognized status value(s): {', '.join(sorted(groups))}")
+            print("  Canonical statuses: open, in_progress, completed, blocked.")
         return
 
     task_id = getattr(args, 'task_id', None)
@@ -20288,7 +20327,7 @@ def _serve_render_endpoint(endpoint: str, cfg: dict, workspace: Path, query: dic
         if endpoint == "/agora":
             tasks_dir = _get_tasks_dir(workspace, cfg)
             tasks = _load_tasks(tasks_dir)
-            agora_body, _ = redact_text(_render_agora_table(tasks), cfg)
+            agora_body, _ = redact_text(_render_agora_table(tasks, tasks_dir), cfg)
             return (200, "text/markdown; charset=utf-8", agora_body)
 
         if endpoint == "/checkpoint/latest":
