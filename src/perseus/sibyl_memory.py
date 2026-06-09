@@ -65,7 +65,7 @@ def _sibyl_sdk_available() -> bool:
 def _sibyl_enabled(cfg: dict | None = None) -> bool:
     """Check if Sibyl Memory integration is enabled.
 
-    Priority: env var > config > default (on).
+    Priority: env var > config > default (off).
     """
     env = os.environ.get("SIBYL_MEMORY_ENABLED", "").strip().lower()
     if env in ("1", "true", "yes"):
@@ -75,8 +75,8 @@ def _sibyl_enabled(cfg: dict | None = None) -> bool:
     if cfg:
         sibyl_cfg = cfg.get("sibyl_memory", {})
         if isinstance(sibyl_cfg, dict):
-            return sibyl_cfg.get("enabled", True)
-    return True
+            return sibyl_cfg.get("enabled", False)
+    return False
 
 
 def _sibyl_db_path(cfg: dict | None = None) -> Path:

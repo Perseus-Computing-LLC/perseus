@@ -53,7 +53,7 @@ from typing import NamedTuple, Callable
 # ── Version (injected by scripts/build.py at build time) ──────────────────
 # All other modules reference _PERSEUS_VERSION; the build script's
 # _VERSION_RE replaces the literal "0.0.0" with the VERSION file value.
-_PERSEUS_VERSION = "1.0.6"  # replaced at build time by scripts/build.py — see VERSION file for canonical value
+_PERSEUS_VERSION = "1.1.0"  # replaced at build time by scripts/build.py — see VERSION file for canonical value
 
 # Register as 'perseus' so plugins can import from us (task-65)
 import sys as _sys
@@ -7896,7 +7896,7 @@ def _sibyl_sdk_available() -> bool:
 def _sibyl_enabled(cfg: dict | None = None) -> bool:
     """Check if Sibyl Memory integration is enabled.
 
-    Priority: env var > config > default (on).
+    Priority: env var > config > default (off).
     """
     env = os.environ.get("SIBYL_MEMORY_ENABLED", "").strip().lower()
     if env in ("1", "true", "yes"):
@@ -7906,8 +7906,8 @@ def _sibyl_enabled(cfg: dict | None = None) -> bool:
     if cfg:
         sibyl_cfg = cfg.get("sibyl_memory", {})
         if isinstance(sibyl_cfg, dict):
-            return sibyl_cfg.get("enabled", True)
-    return True
+            return sibyl_cfg.get("enabled", False)
+    return False
 
 
 def _sibyl_db_path(cfg: dict | None = None) -> Path:
@@ -17319,7 +17319,7 @@ def _find_version() -> str:
             return candidate.read_text().strip()
     return _PERSEUS_VERSION  # fallback to build-time injected literal
 
-_PERSEUS_VERSION = "1.0.6"  # injected by scripts/build.py at build time
+_PERSEUS_VERSION = "1.1.0"  # injected by scripts/build.py at build time
 _PERSEUS_VERSION = _find_version()
 
 
@@ -21244,7 +21244,8 @@ def main():
     p_cp.add_argument("--status", default="", help="Current progress")
     p_cp.add_argument("--next", default="", help="Immediate next action")
     p_cp.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
-    p_cp.add_argument("--notes", "--note", dest="notes", default="", help="Context that would be lost")
+    p_cp.add_argument("--notes", dest="notes", default="", help="Context that would be lost")
+    p_cp.add_argument("--note", dest="notes", default="", help="Context that would be lost")
 
     # recover
     p_recover = sub.add_parser("recover", help="Print the latest checkpoint")
