@@ -205,15 +205,15 @@ DEFAULT_CONFIG = {
         # The daedalus path falls back to deterministic on any failure.
         "pattern_extractor": "deterministic",
     },
-    "mneme": {                          # Project Synapse — Mneme MCP-based persistent memory
+    "mimir": {                          # Project Synapse — Mimir persistent memory (MCP binary, formerly "mneme")
         "enabled": True,
         "transport": "stdio",            # "stdio" (local binary) or "sse" (remote endpoint)
-        "command": ["mneme"],
+        "command": ["mimir", "--db"],
         "endpoint": "",                  # SSE endpoint URL (when transport=sse)
         "timeout_s": 10.0,
         "merge_strategy": "local_first", # local_first | remote_first | interleave | decay_first
         "decay_priority_weight": 0.4,    # weight of decay_score in merge ordering (0.0–1.0)
-        "fallback_to_local": True,       # Use Mnēmē FTS5 when Mneme is unreachable
+        "fallback_to_local": True,       # Use Mnēmē FTS5 when Mimir is unreachable
         "circuit_breaker": {
             "threshold": 3,              # Consecutive failures before opening
             "cooldown": 120,             # Seconds before attempting recovery
@@ -497,6 +497,7 @@ DEFAULT_CONFIG["foreign"] = {
     "tls_verify": True,
     "max_response_bytes": 1048576,
 }
+
 
 # ────────────────────────────── Render Pipeline Hooks ─────────────────────────
 
@@ -976,7 +977,7 @@ def _bind_registry() -> None:
         DirectiveSpec("@inbox",     resolve_inbox,     ["unread=", "limit="],      "inline",  "acw", reads_files=True, cacheable=True, summary="Agent message inbox", tier=2),
         DirectiveSpec("@drift",     resolve_drift,     [],                         "inline",  "ac",  reads_files=True, summary="Oracle drift report", tier=2),
         DirectiveSpec("@perseus",   resolve_perseus,   [],                         "inline",  "acw", cacheable=True, safe_for_hover=False, summary="Fetch rendered context from a remote Perseus instance", tier=2),
-        DirectiveSpec("@mneme",    resolve_mneme,    ["query=", "scope=", "k=", "type="], "inline", "acw", safe_for_hover=True, summary="Recall persistent memories via Mnēmē BM25", tier=2, is_semantic_hint=True),
+        DirectiveSpec("@mimir",    resolve_mimir,    ["query=", "scope=", "k=", "type="], "inline", "acw", safe_for_hover=True, summary="Recall persistent memories via Mimir BM25", tier=2, is_semantic_hint=True),
 
         # Tier 3 — On-demand (bulky, expensive)
         DirectiveSpec("@query",     resolve_query,     ["fallback=", "schema="],   "inline",  "acw", executes_shell=True,  safe_for_hover=False, cacheable=True,  summary="Run a shell command and embed stdout", tier=3),
@@ -3898,7 +3899,7 @@ def _directive_resource_hints(directive: str, args_str: str) -> list[dict]:
         if cmd:
             resources.append({"kind": "shell", "value": cmd})
 
-    if directive in {"@memory", "@mneme"}:
+    if directive in {"@memory", "@mimir"}:
         try:
             index_path = str(_mneme_index_path({}))
             resources.append({"kind": "index", "value": index_path})
@@ -6537,7 +6538,7 @@ _PARAM_DESCRIPTIONS: dict[str, dict[str, str]] = {
                      "include_federation": "Include federation results in output",
                      "alias": "Workspace alias for federation targeting",
                      "workspace": "Target workspace path for scoped queries"},
-    "@mneme":       {"query": "BM25 FTS5 search query for persistent memory recall",
+    "@mimir":       {"query": "BM25 FTS5 search query for persistent memory recall",
                      "scope": "Memory scope filter",
                      "k": "Number of results to return (default: 5)",
                      "type": "Memory type filter"},
@@ -6660,7 +6661,7 @@ def _build_output_schema(tool_name: str, spec) -> dict | None:
                 "count": {"type": "integer", "description": "Number of results returned"}
             }
         }
-    if tool_name == "perseus_mneme":
+    if tool_name == "perseus_mimir":
         return {
             "type": "object",
             "properties": {
@@ -9787,12 +9788,12 @@ def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path | N
     dangerous = os.environ.get('PERSEUS_ALLOW_DANGEROUS', '0')
     parts.append(f"env:PERSEUS_ALLOW_DANGEROUS={dangerous}")
 
-    if directive in ("@memory", "@mneme"):
-        mcfg = cfg.get("mneme", {})
+    if directive in ("@memory", "@mimir"):
+        mcfg = cfg.get("mimir", {})
         import json as _json
         try:
             mcfg_str = _json.dumps(mcfg, sort_keys=True)
-            parts.append(f"config:mneme={mcfg_str}")
+            parts.append(f"config:mimir={mcfg_str}")
         except Exception:
             pass
 
@@ -10306,7 +10307,7 @@ def _uses_preflight_sensitive_directive(lines: list[str]) -> bool:
     """
     if not INLINE_DIRECTIVE_RE:
         return False
-    sensitive = {"@waypoint", "@inbox", "@memory", "@mneme"}
+    sensitive = {"@waypoint", "@inbox", "@memory", "@mimir"}
     for raw in lines:
         m = INLINE_DIRECTIVE_RE.match(raw.strip())
         if m and m.group(1).lower() in sensitive:
@@ -13140,12 +13141,12 @@ def cmd_memory_federation(args, cfg) -> None:
     print(f"Unknown memory federation subcommand: {sub}", file=sys.stderr)
     sys.exit(2)
 """
-src/perseus/mneme_connector.py — Perseus × Mneme Bridge (Project Synapse v2)
+src/perseus/mimir_connector.py — Perseus × Mimir Bridge (Project Synapse v2)
 
 Hybrid context resolution: Perseus live state (Sense) + Mneme persistent
 memory (Memory) → unified ContextPackage for LLM injection.
 
-Mneme is a high-performance Rust memory engine using:
+Mimir is a high-performance Rust memory engine using:
   - Three-layer memory: Buffer → Working → Core (time-based progression)
   - Ebbinghaus decay algorithm (forgetting curve)
   - Topic Trees (hierarchical knowledge organization)
@@ -13158,7 +13159,7 @@ Key features:
   - Circuit Breaker with configurable threshold/cooldown
   - Exponential backoff retry policy
   - Configurable merge strategies with decay-aware ordering
-  - Source-tagged memory items (local vs mneme)
+  - Source-tagged memory items (local vs mimir)
 """
 import hashlib
 import json
@@ -13178,7 +13179,7 @@ from typing import Any, Optional, Callable
 class MemorySource(str, Enum):
     """Where a memory hit originated."""
     LOCAL = "local"          # Mnēmē FTS5 (Perseus)
-    MNEME = "mneme"        # Mneme persistent store
+    MIMIR = "mimir"        # Mneme persistent store
     FEDERATED = "federated"  # Cross-workspace federation
 
 class MemoryLayer(str, Enum):
@@ -13227,7 +13228,7 @@ class MemoryHit:
     id: str
     type: MemoryTypeEnum
     content: str
-    source: MemorySource = MemorySource.MNEME
+    source: MemorySource = MemorySource.MIMIR
     summary: str = ""
     relevance: float = 0.0
 
@@ -13242,7 +13243,7 @@ class MemoryHit:
     links: list[MemoryLink] = field(default_factory=list)
     workspace_hash: str = ""
     tags: dict[str, str] = field(default_factory=dict)
-    verified: bool = False   # True when memory exists in both local + mneme
+    verified: bool = False   # True when memory exists in both local + mimir
 
 @dataclass
 class LiveStateEntry:
@@ -13347,7 +13348,7 @@ class CircuitBreaker:
 
     States: closed → open (after threshold failures) → half_open (after cooldown)
 
-    Config keys (from mneme.circuit_breaker):
+    Config keys (from mimir.circuit_breaker):
         threshold: int = 3   — consecutive failures before opening
         cooldown: int = 120  — seconds before attempting recovery
     """
@@ -13455,8 +13456,8 @@ class _MCPStdioClient:
         self._server_capabilities: dict = {}
 
         # Parse --db <path> from command to set subprocess CWD.
-        # Mneme (mneme) may ignore the --db flag and
-        # write to CWD/mneme.db; setting CWD to the DB directory works
+        # Mimir may ignore the --db flag and
+        # write to CWD/mimir.db; setting CWD to the DB directory works
         # around this so auto-backfill lands in the right place.
         self._cwd: str | None = None
         try:
@@ -13512,7 +13513,7 @@ class _MCPStdioClient:
             # MCP initialize handshake
             init_result, err = self._call("initialize", {
                 "protocolVersion": "2025-06-18",
-                "clientInfo": {"name": "perseus-mneme-connector", "version": "1.0.0"},
+                "clientInfo": {"name": "perseus-mimir-connector", "version": "1.0.0"},
                 "capabilities": {},
             })
             if err or not init_result:
@@ -13646,13 +13647,13 @@ class _MCPSseClient:
 # MnemeConnector — MCP client with circuit breaker, backoff, and fallback
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class MnemeConnector:
+class MimirConnector:
     """Bridge between Perseus (Python) and Mneme (MCP/JSON-RPC).
 
-    Configuration (from `config.yaml` → `mneme`):
+    Configuration (from `config.yaml` → `mimir`):
         enabled: bool              = true
         transport: str             = "stdio"  — "stdio" or "sse"
-        command: list[str]         = ["mneme"]
+        command: list[str]         = ["mimir", "--db"]
         endpoint: str              = "http://localhost:50052/sse"  (for sse)
         timeout_s: float           = 10.0
         merge_strategy: str        = "local_first"
@@ -13673,11 +13674,11 @@ class MnemeConnector:
 
     def __init__(self, cfg: dict):
         self._cfg = cfg
-        mcfg = cfg.get("mneme", {})
+        mcfg = cfg.get("mimir", {})
         self._enabled = bool(mcfg.get("enabled", True))
         self._transport = mcfg.get("transport", "stdio")
         self._timeout = float(mcfg.get("timeout_s", 10.0))
-        self._command = mcfg.get("command", ["mneme"])
+        self._command = mcfg.get("command", ["mimir", "--db"])
         self._endpoint = mcfg.get("endpoint", "http://localhost:50052/sse")
         self._fallback_to_local = bool(mcfg.get("fallback_to_local", True))
         self._decay_priority_weight = float(mcfg.get("decay_priority_weight", 0.4))
@@ -13770,7 +13771,7 @@ class MnemeConnector:
         min_decay_score: float = 0.0,
         topic_path: str | None = None,
     ) -> MemorySegment:
-        """Query Mneme for historical context via MCP 'mneme_recall' tool.
+        """Query Mimir for historical context via MCP 'mimir_recall' tool.
 
         Mneme uses hybrid search (semantic vector + BM25 keyword) with
         Ebbinghaus decay scoring.
@@ -13793,7 +13794,7 @@ class MnemeConnector:
         types_str = [t.value for t in memory_types] if memory_types else []
 
         def _do_recall():
-            result, err = self._client.call_tool("mneme_recall", {
+            result, err = self._client.call_tool("mimir_recall", {
                 "query": query,
                 "memory_types": types_str,
                 "max_results": max_results,
@@ -13820,7 +13821,7 @@ class MnemeConnector:
         items = _parse_memory_hits(raw_result or {})
         return MemorySegment(
             items=items,
-            strategy_used="mneme_recall",
+            strategy_used="mimir_recall",
             total_available=len(items),
             query_time_ms=int((time.time() - t0) * 1000),
         )
@@ -13835,7 +13836,7 @@ class MnemeConnector:
         importance: float = 0.5,
         topic_path: str | None = None,
     ) -> tuple[bool, str]:
-        """Store a new memory in Mneme via MCP 'mneme_store' tool.
+        """Store a new memory in Mimir via MCP 'mimir_store' tool.
 
         Memories enter the Buffer layer and progress to Working → Core
         based on retrieval frequency and decay survival.
@@ -13851,7 +13852,7 @@ class MnemeConnector:
         ]
 
         def _do_store():
-            result, err = self._client.call_tool("mneme_store", {
+            result, err = self._client.call_tool("mimir_store", {
                 "content": content,
                 "memory_type": memory_type.value,
                 "workspace_hash": workspace_hash or "",
@@ -13878,12 +13879,12 @@ class MnemeConnector:
         return success, mem_id
 
     def health_check(self) -> tuple[bool, str]:
-        """Check Mneme server health via MCP 'mneme_health' tool."""
+        """Check Mimir server health via MCP 'mimir_health' tool."""
         if not self.available:
             return False, "Mneme unavailable"
 
         def _do_health():
-            result, err = self._client.call_tool("mneme_health", {})
+            result, err = self._client.call_tool("mimir_health", {})
             if err:
                 raise RuntimeError(err)
             return result
@@ -13914,7 +13915,7 @@ class MnemeConnector:
 
         Three-Step Flow (per Synapse spec):
           Step A (Sense):  Resolve current environment (live state).
-          Step B (Memory): Query Mneme for historical context.
+          Step B (Memory): Query Mimir for historical context.
           Step C (Merge):  Combine both into a ContextPackage using configured
                            merge_strategy, with decay-aware ordering and
                            source tagging + verification.
@@ -13950,21 +13951,21 @@ class MnemeConnector:
         live_state = LiveStateSegment(
             workspace_path=workspace,
             entries=live_entries,
-            metadata={"connector": "mneme_synapse.v2"},
+            metadata={"connector": "mimir_synapse.v2"},
         )
         diagnostics["live_state_ms"] = str(int((time.time() - t_live) * 1000))
 
         # ── Step B: Historical Context Resolution ──
         t_memory = time.time()
-        mneme_segment = MemorySegment()
+        mimir_segment = MemorySegment()
 
         if self.available:
-            mneme_segment = self.recall(query=query, **kwargs)
-            diagnostics["mneme"] = (
-                f"{len(mneme_segment.items)} results via MCP/{self._transport}"
+            mimir_segment = self.recall(query=query, **kwargs)
+            diagnostics["mimir"] = (
+                f"{len(mimir_segment.items)} results via MCP/{self._transport}"
             )
         else:
-            diagnostics["mneme"] = f"unavailable: {self._connect_error or 'disabled'}"
+            diagnostics["mimir"] = f"unavailable: {self._connect_error or 'disabled'}"
 
         # ── Local Mnēmē FTS5 fallback ──
         local_items: list[MemoryHit] = []
@@ -13980,7 +13981,7 @@ class MnemeConnector:
         # ── Step C: Merge — apply configured strategy (decay-aware) ──
         merged_segment = self._merge_results(
             local_items=local_items,
-            mneme_items=mneme_segment.items,
+            mimir_items=mimir_segment.items,
             strategy=self._merge_strategy,
             diagnostics=diagnostics,
         )
@@ -14000,7 +14001,7 @@ class MnemeConnector:
     def _merge_results(
         self,
         local_items: list[MemoryHit],
-        mneme_items: list[MemoryHit],
+        mimir_items: list[MemoryHit],
         strategy: MergeStrategy,
         diagnostics: dict[str, str],
     ) -> MemorySegment:
@@ -14013,67 +14014,67 @@ class MnemeConnector:
         Verification: if a memory exists in both sources, the Mneme version
         is preferred but flagged as verified=True.
         """
-        if not local_items and not mneme_items:
+        if not local_items and not mimir_items:
             return MemorySegment(strategy_used=strategy.value)
 
         # Build lookup by content hash for dedup
-        mneme_by_hash: dict[str, MemoryHit] = {}
-        for ei in mneme_items:
+        mimir_by_hash: dict[str, MemoryHit] = {}
+        for ei in mimir_items:
             h = hashlib.md5(ei.content.encode()).hexdigest()[:12]
-            mneme_by_hash[h] = ei
+            mimir_by_hash[h] = ei
 
         local_by_hash: dict[str, MemoryHit] = {}
         for li in local_items:
             h = hashlib.md5(li.content.encode()).hexdigest()[:12]
             local_by_hash[h] = li
 
-        mneme_hashes = set(mneme_by_hash.keys())
+        mimir_hashes = set(mimir_by_hash.keys())
         local_hashes = set(local_by_hash.keys())
 
         # Items in both — mark as verified, prefer Mneme version
-        both_hashes = mneme_hashes & local_hashes
+        both_hashes = mimir_hashes & local_hashes
         verified_items: list[MemoryHit] = []
         for h in both_hashes:
-            ei = mneme_by_hash[h]
+            ei = mimir_by_hash[h]
             ei.verified = True
             verified_items.append(ei)
 
         # Mneme-only items
-        mneme_only = [mneme_by_hash[h] for h in (mneme_hashes - local_hashes)]
+        mimir_only = [mimir_by_hash[h] for h in (mimir_hashes - local_hashes)]
 
         # Local-only items
-        local_only = [local_by_hash[h] for h in (local_hashes - mneme_hashes)]
+        local_only = [local_by_hash[h] for h in (local_hashes - mimir_hashes)]
 
         diagnostics["merge_verified"] = str(len(verified_items))
-        diagnostics["merge_mneme_only"] = str(len(mneme_only))
+        diagnostics["merge_mimir_only"] = str(len(mimir_only))
         diagnostics["merge_local_only"] = str(len(local_only))
 
         if strategy == MergeStrategy.DECAY_FIRST:
             # Pure decay ordering: sort all by decay_score descending
-            all_items = verified_items + mneme_only + local_only
+            all_items = verified_items + mimir_only + local_only
             all_items.sort(key=lambda i: i.decay_score, reverse=True)
             return MemorySegment(
                 items=all_items,
-                strategy_used=f"mneme_{strategy.value}",
+                strategy_used=f"mimir_{strategy.value}",
                 total_available=len(all_items),
             )
 
         if strategy == MergeStrategy.REMOTE_FIRST:
             # Sort within groups by decay_score desc (fresh → stale)
-            mneme_only.sort(key=lambda i: i.decay_score, reverse=True)
+            mimir_only.sort(key=lambda i: i.decay_score, reverse=True)
             local_only.sort(key=lambda i: i.decay_score, reverse=True)
             verified_items.sort(key=lambda i: i.decay_score, reverse=True)
-            merged = mneme_only + verified_items + local_only
+            merged = mimir_only + verified_items + local_only
         elif strategy == MergeStrategy.INTERLEAVE:
-            # Alternate: mneme, local, local — sorted by decay within each
-            mneme_only.sort(key=lambda i: i.decay_score, reverse=True)
+            # Alternate: mimir, local, local — sorted by decay within each
+            mimir_only.sort(key=lambda i: i.decay_score, reverse=True)
             local_only.sort(key=lambda i: i.decay_score, reverse=True)
             verified_items.sort(key=lambda i: i.decay_score, reverse=True)
             interleaved = []
-            max_len = max(len(mneme_only), len(local_only))
+            max_len = max(len(mimir_only), len(local_only))
             for i in range(max_len):
-                if i < len(mneme_only):
-                    interleaved.append(mneme_only[i])
+                if i < len(mimir_only):
+                    interleaved.append(mimir_only[i])
                 if i < len(local_only):
                     interleaved.append(local_only[i])
             merged = interleaved + verified_items
@@ -14081,12 +14082,12 @@ class MnemeConnector:
             # LOCAL_FIRST (default): local results first, Mneme augments
             local_only.sort(key=lambda i: i.decay_score, reverse=True)
             verified_items.sort(key=lambda i: i.decay_score, reverse=True)
-            mneme_only.sort(key=lambda i: i.decay_score, reverse=True)
-            merged = local_only + verified_items + mneme_only
+            mimir_only.sort(key=lambda i: i.decay_score, reverse=True)
+            merged = local_only + verified_items + mimir_only
 
         return MemorySegment(
             items=merged,
-            strategy_used=f"mneme_{strategy.value}",
+            strategy_used=f"mimir_{strategy.value}",
             total_available=len(merged),
         )
 
@@ -14122,9 +14123,9 @@ def _parse_memory_hits(data: dict) -> list[MemoryHit]:
             mem_type = MemoryTypeEnum(raw.get("type", "insight"))
         except ValueError:
             pass
-        mem_source = MemorySource.MNEME
+        mem_source = MemorySource.MIMIR
         try:
-            mem_source = MemorySource(raw.get("source", "mneme"))
+            mem_source = MemorySource(raw.get("source", "mimir"))
         except ValueError:
             pass
         mem_layer = MemoryLayer.WORKING
@@ -14206,7 +14207,7 @@ _connector_cfg_hash: str = ""
 def _get_connector(cfg: dict) -> MnemeConnector:
     """Get or create the singleton MnemeConnector.
 
-    Re-creates if config changed. Used by resolve_memory / resolve_mneme.
+    Re-creates if config changed. Used by resolve_memory / resolve_mimir.
     """
     global _connector, _connector_cfg_hash
     cfg_bytes = str(sorted(cfg.items())).encode()
@@ -14223,10 +14224,10 @@ def _get_connector(cfg: dict) -> MnemeConnector:
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Resolver stubs — wired into DIRECTIVE_REGISTRY via _bind_registry()
-# These are the functions agora.py calls to augment @memory / @mneme directives
+# These are the functions agora.py calls to augment @memory / @mimir directives
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _mneme_hybrid_search(
+def _mimir_hybrid_search(
     cfg: dict,
     query: str,
     workspace: str = "",
@@ -14236,7 +14237,7 @@ def _mneme_hybrid_search(
     include_federation: bool = False,
     **kwargs,
 ) -> MemorySegment:
-    """Query Mneme for historical context alongside local Mnēmē FTS5 hits.
+    """Query Mimir for historical context alongside local Mnēmē FTS5 hits.
 
     Called by resolve_memory/search in agora.py after local FTS5 recall.
     Returns a MemorySegment that agora.py can render alongside local results.
@@ -14280,7 +14281,7 @@ def _mneme_hybrid_search(
     return segment
 
 
-def _mneme_hybrid_mneme_search(
+def _mimir_hybrid_recall(
     cfg: dict,
     query: str,
     scope: str | None = None,
@@ -14288,12 +14289,12 @@ def _mneme_hybrid_mneme_search(
     type_filter: str | None = None,
     **kwargs,
 ) -> MemorySegment:
-    """Resolve @mneme directive — BM25 recall with optional Mneme augmentation.
+    """Resolve @mimir directive — BM25 recall with optional Mneme augmentation.
 
     This is the lightweight cousin of @memory: local FTS5 first, Mneme
     augmentation if available.
 
-    Called by resolve_mneme (agora.py) which prepends mode=search and delegates
+    Called by resolve_mimir (agora.py) which prepends mode=search and delegates
     to resolve_memory.
     """
     connector = _get_connector(cfg)
@@ -14631,7 +14632,7 @@ def _memory_do_compact(workspace: Path, cfg: dict, provider: str | None) -> str:
         try:
             import concurrent.futures as _cf
             executor = _cf.ThreadPoolExecutor(
-                max_workers=1, thread_name_prefix="mneme-compact-llm",
+                max_workers=1, thread_name_prefix="mimir-compact-llm",
             )
             try:
                 fut = executor.submit(
@@ -14945,12 +14946,12 @@ def _memory_federation_diagnostic(name: str, args_str: str, cfg: dict, workspace
     return diagnostics
 
 
-def resolve_mneme(args_str: str, cfg: dict,
+def resolve_mimir(args_str: str, cfg: dict,
                    workspace: Path | None = None) -> str:
-    """@mneme shim → forwards to unified @memory mode=search.
+    """@mimir shim → forwards to unified @memory mode=search.
 
     Kept for backward compatibility. Simply prepends mode=search to handle
-    the old @mneme query="..." syntax and delegates to resolve_memory.
+    the old @mimir query="..." syntax and delegates to resolve_memory.
     """
     # Build equivalent @memory args: mode=search query="..." [scope=...] [k=...] [type=...]
     return resolve_memory(f"mode=search {args_str}", cfg, workspace)
@@ -14968,7 +14969,7 @@ def resolve_memory(args_str: str, cfg: dict, workspace: Path | None = None) -> s
         → Cross-workspace narrative aggregation.
 
     Default: if query= is present → search; otherwise → narrative.
-    Legacy shim: @mneme calls this with mode=search automatically.
+    Legacy shim: @mimir calls this with mode=search automatically.
     """
     ws = workspace or Path.cwd()
     args_stripped = args_str.strip()
@@ -15005,21 +15006,25 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path) -> str:
 
     hits = _mneme_recall(cfg, query, k=k, scope=scope, type_filter=type_filter, sensitivity=sensitivity)
 
-    # ── Mneme augmentation (MCP) ──────────────────────────────────────
-    # Query Mneme persistent memory backend for additional historical
+    # ── Mimir augmentation (MCP) ──────────────────────────────────────
+    # Query Mimir persistent memory backend for additional historical
     # context (Architecture, Decision, Insight types) with Ebbinghaus
     # decay scoring. Results are merged below alongside local Mnēmē FTS5 hits.
-    mneme_items: list = []
+    mimir_items: list = []
     try:
-        mseg = _mneme_hybrid_search(
+        mseg = _mimir_hybrid_search(
             cfg=cfg, query=query, workspace=str(workspace),
             local_hits=hits, max_results=k,
         )
-        mneme_items = mseg.items if mseg else []
-    except Exception:
-        pass  # Mneme is optional — degrade gracefully
+        mimir_items = mseg.items if mseg else []
+    except Exception as e:
+        import sys
+        import logging
+        logging.getLogger("perseus.mimir").warning(
+            "Mimir recall failed, falling back to local Mnēmē FTS5: %s", e
+        )
 
-    if not hits and not mneme_items:
+    if not hits and not mimir_items:
         return "> \u2139\ufe0f No Mn\u0113m\u0113 memories matched yet — this is expected on a fresh install. Populate the vault with memory files or run `perseus memory update` to initialize.\n"
 
     lines = ["> \U0001f9e0 **Mn\u0113m\u0113 memories:**\n"]
@@ -15070,12 +15075,12 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path) -> str:
             lines.append(" ".join(parts))
 
     # ── Mneme results ─────────────────────────────────────────────────
-    if mneme_items:
+    if mimir_items:
         lines.append("")
-        lines.append("> 🧠 **Mneme context:**")
-        for mi in mneme_items:
+        lines.append("> 🧠 **Mimir context:**")
+        for mi in mimir_items:
             title = mi.summary or (mi.content[:80] + "…" if len(mi.content) > 80 else mi.content)
-            lines.append(f"  - [mneme] [{mi.type.value}] {title}")
+            lines.append(f"  - [mimir] [{mi.type.value}] {title}")
             if mi.links:
                 for lnk in mi.links[:2]:
                     lines.append(f"    ↳ `{lnk.relationship}` → {lnk.target_id[:8]}…")
@@ -17671,23 +17676,23 @@ def _doctor_check_sessions(cfg: dict, workspace: Path) -> DoctorResult:
 
 
 # Ordered list of doctor checks — adding a check is one function + one line here.
-_KNOWN_MNEME_PATHS = [
-    "/usr/local/bin/mneme",
-    os.path.expanduser("~/.local/bin/mneme"),
-    os.path.expanduser("~/.cargo/bin/mneme"),
-    "/usr/bin/mneme",
-    "/usr/local/bin/mneme",
+_KNOWN_MIMIR_PATHS = [
+    "/usr/local/bin/mimir",
+    os.path.expanduser("~/.local/bin/mimir"),
+    os.path.expanduser("~/.cargo/bin/mimir"),
+    "/usr/bin/mimir",
+    "/usr/local/bin/mimir",
 ]
 
 
-def _find_mneme_binary(configured_command: list[str]) -> str | None:
-    """Search common paths for the mneme binary.
+def _find_mimir_binary(configured_command: list[str]) -> str | None:
+    """Search common paths for the mimir binary.
 
     Returns the first found absolute path, or None if not found.
-    Used by doctor to surface a clear suggestion when mneme is configured
+    Used by doctor to surface a clear suggestion when mimir is configured
     but the binary isn't on PATH (#227).
     """
-    binary_name = configured_command[0] if configured_command else "mneme"
+    binary_name = configured_command[0] if configured_command else "mimir"
 
     # Check if the configured binary is already resolvable via PATH
     import shutil as _shutil
@@ -17696,13 +17701,13 @@ def _find_mneme_binary(configured_command: list[str]) -> str | None:
         return resolved
 
     # Search known common paths
-    candidates = list(_KNOWN_MNEME_PATHS)
+    candidates = list(_KNOWN_MIMIR_PATHS)
 
-    # Also search $PWD/mneme/target/{release,debug}/mneme
+    # Also search $PWD/mimir/target/{release,debug}/mimir
     try:
         cwd = Path.cwd()
-        candidates.append(str(cwd / "mneme" / "target" / "release" / "mneme"))
-        candidates.append(str(cwd / "mneme" / "target" / "debug" / "mneme"))
+        candidates.append(str(cwd / "mimir" / "target" / "release" / "mimir"))
+        candidates.append(str(cwd / "mimir" / "target" / "debug" / "mimir"))
     except Exception:
         pass
 
@@ -17714,30 +17719,30 @@ def _find_mneme_binary(configured_command: list[str]) -> str | None:
     return None
 
 
-def _doctor_check_mneme_bridge(cfg: dict, workspace: Path) -> DoctorResult:
-    """Check mneme connectivity and binary discovery (#226, #227).
+def _doctor_check_mimir_bridge(cfg: dict, workspace: Path) -> DoctorResult:
+    """Check mimir connectivity and binary discovery (#226, #227).
 
-    When mneme.enabled is true, this check:
-      1. Searches common paths for the mneme binary (#227)
-      2. Attempts MCP handshake + mneme_health tool call (#226)
+    When mimir.enabled is true, this check:
+      1. Searches common paths for the mimir binary (#227)
+      2. Attempts MCP handshake + mimir_health tool call (#226)
       3. Surfaces a clear warning (not silent Mneme fallback) if unreachable
     """
-    mneme_cfg = cfg.get("mneme", {})
+    mneme_cfg = cfg.get("mimir", {})
     enabled = bool(mneme_cfg.get("enabled", True))
 
     if not enabled:
-        return DoctorResult("mneme_connectivity", "ok", "Mneme",
+        return DoctorResult("mimir_connectivity", "ok", "Mimir",
                            "disabled", "")
 
-    command = list(mneme_cfg.get("command", ["mneme"]))
-    binary_name = command[0] if command else "mneme"
+    command = list(mneme_cfg.get("command", ["mimir", "--db"]))
+    binary_name = command[0] if command else "mimir"
 
     # Step 1: Auto-discover binary if not on PATH (#227)
-    binary_path = _find_mneme_binary(command)
+    binary_path = _find_mimir_binary(command)
     if binary_path is None:
-        return DoctorResult("mneme_connectivity", "warn", "Mneme binary",
+        return DoctorResult("mimir_connectivity", "warn", "Mimir binary",
                            f"not found: '{binary_name}' (searched PATH + known locations)",
-                           "Install mneme or set mneme.command in config.yaml")
+                           "Install mimir or set mimir.command in config.yaml")
     if binary_path != binary_name:
         # Found at a non-default path — update command for the connection attempt
         command[0] = binary_path
@@ -17746,8 +17751,8 @@ def _doctor_check_mneme_bridge(cfg: dict, workspace: Path) -> DoctorResult:
     try:
         # Build a temporary connector with the discovered binary path
         test_cfg = dict(cfg)
-        test_cfg["mneme"] = dict(mneme_cfg)
-        test_cfg["mneme"]["command"] = command
+        test_cfg["mimir"] = dict(mneme_cfg)
+        test_cfg["mimir"]["command"] = command
 
         connector = MnemeConnector(test_cfg)
         if connector.available:
@@ -17756,7 +17761,7 @@ def _doctor_check_mneme_bridge(cfg: dict, workspace: Path) -> DoctorResult:
             if healthy:
                 # Try to get version from health check response
                 version_info = ""
-                raw_result, _ = connector._client.call_tool("mneme_health", {}) if connector._client else (None, None)
+                raw_result, _ = connector._client.call_tool("mimir_health", {}) if connector._client else (None, None)
                 if raw_result and isinstance(raw_result, dict):
                     ver = raw_result.get("version", "")
                     db_path = raw_result.get("db_path", "")
@@ -17766,23 +17771,23 @@ def _doctor_check_mneme_bridge(cfg: dict, workspace: Path) -> DoctorResult:
                         version_info += f" db: {db_path}"
                 connector.close()
                 extra = f" (binary: {binary_path})" if binary_path != binary_name else ""
-                return DoctorResult("mneme_connectivity", "ok", "Mneme",
+                return DoctorResult("mimir_connectivity", "ok", "Mimir",
                                    f"connected + healthy{version_info}{extra}", "")
             else:
                 connector.close()
-                return DoctorResult("mneme_connectivity", "warn", "Mneme",
+                return DoctorResult("mimir_connectivity", "warn", "Mimir",
                                    f"connected but health check failed: {status}",
-                                   "Check mneme server status")
+                                   "Check mimir server status")
         else:
             err = connector.status
             connector.close()
-            return DoctorResult("mneme_connectivity", "warn", "Mneme",
+            return DoctorResult("mimir_connectivity", "warn", "Mimir",
                                f"unreachable: {err}",
-                               "Check mneme is running or install it")
+                               "Check mimir is running or install it")
     except Exception as exc:
-        return DoctorResult("mneme_connectivity", "error", "Mneme",
+        return DoctorResult("mimir_connectivity", "error", "Mimir",
                            str(exc),
-                           "Verify mneme binary and config — check mneme.command in config.yaml")
+                           "Verify mimir binary and config — check mimir.command in config.yaml")
 
 
 
@@ -17863,7 +17868,7 @@ _DOCTOR_CHECKS = [
     _doctor_check_llm_reachable,
     _doctor_check_llm_functional,
     _doctor_check_cache_writable,
-    _doctor_check_mneme_bridge,
+    _doctor_check_mimir_bridge,
     _doctor_check_sessions,
     _doctor_check_version_header,
     _doctor_check_stale_shim,
@@ -19087,7 +19092,7 @@ Before storing a fact in the `memory` tool, verify ALL three:
 Only facts that pass ALL THREE gates belong in `memory` (2,200 char hard limit).
 Everything else has a better home:
 - 🔁 **Procedures** → `skill_manage` (create/update a skill)
-- 🧠 **Cross-session context** → mneme (MCP `mneme_store` / `mneme_recall`)
+- 🧠 **Cross-session context** → mimir (MCP `mimir_store` / `mimir_recall`)
 - 🚫 **Ephemeral state, one-time fixes, completed tasks** → discard
 
 🚫 **Flat files (.txt, .json, .csv, .md) are BANNED as a memory backend.**
@@ -19131,8 +19136,8 @@ Everything else has a better home:
 > @memory mode=search query="another topic" k=2
 > ```
 > Each sub-query is short enough to match effectively; the relay layer merges results.
-> Falls back gracefully to local Mneme FTS5 if Mneme is unavailable.
-> Requires `mneme.enabled: true` in `.perseus/config.yaml`.
+> Falls back gracefully to local Mnēmē FTS5 if Mimir is unavailable.
+> Requires `mimir.enabled: true` in `.perseus/config.yaml`.
 
 @memory mode=search query="{mneme_query}" k=5
 """
@@ -20271,7 +20276,7 @@ Before storing a fact in the `memory` tool, verify ALL three:
 Only facts that pass ALL THREE gates belong in `memory` (2,200 char hard limit).
 Everything else has a better home:
 - 🔁 **Procedures** → `skill_manage` (create/update a skill)
-- 🧠 **Cross-session context** → mneme (MCP `mneme_store` / `mneme_recall`)
+- 🧠 **Cross-session context** → mimir (MCP `mimir_store` / `mimir_recall`)
 - 🚫 **Ephemeral state, one-time fixes, completed tasks** → discard
 
 🚫 **Flat files (.txt, .json, .csv, .md) are BANNED as a memory backend.**
@@ -20327,8 +20332,8 @@ Everything else has a better home:
 > @memory mode=search query="another topic" k=2
 > ```
 > Each sub-query is short enough to match effectively; the relay layer merges results.
-> Falls back gracefully to local Mneme FTS5 if Mneme is unavailable.
-> Requires `mneme.enabled: true` in `.perseus/config.yaml`.
+> Falls back gracefully to local Mnēmē FTS5 if Mimir is unavailable.
+> Requires `mimir.enabled: true` in `.perseus/config.yaml`.
 
 @memory mode=search query="{mneme_query}" k=5
 """
@@ -21092,19 +21097,19 @@ def cmd_init(args, cfg):
         content = INIT_CONTEXT_TEMPLATE.format(workspace=str(workspace), version=_PERSEUS_VERSION, mneme_query=_context_appropriate_memory_query(workspace))
     context_file.write_text(content, encoding="utf-8")
 
-    # ── Mneme binary auto-discovery (#227) ──
-    # If mneme is not installed, suggest the bootstrap script
-    mneme_cfg = cfg.get("mneme", {}) if cfg else {}
+    # ── Mimir binary auto-discovery (#227) ──
+    # If mimir is not installed, suggest the bootstrap script
+    mneme_cfg = cfg.get("mimir", {}) if cfg else {}
     if mneme_cfg.get("enabled", True):
-        command = mneme_cfg.get("command", ["mneme"])
-        binary_path = _find_mneme_binary(command)
+        command = mneme_cfg.get("command", ["mimir", "--db"])
+        binary_path = _find_mimir_binary(command)
         if binary_path is None:
-            print(f"💡 Mneme not found. For persistent cross-session memory, run:")
-            print(f"   curl -sSL https://raw.githubusercontent.com/tcconnally/mneme/main/scripts/bootstrap.sh | bash")
+            print(f"💡 Mimir not found. For persistent cross-session memory, run:")
+            print(f"   curl -sSL https://raw.githubusercontent.com/tcconnally/mimir/main/scripts/bootstrap.sh | bash")
         elif binary_path != command[0]:
             language = _detect_project_language(workspace)
             lang_note = f" (detected: {language})" if language else ""
-            print(f"✓ Context scaffolded{lang_note} — mneme binary at: {binary_path}")
+            print(f"✓ Context scaffolded{lang_note} — mimir binary at: {binary_path}")
 
     manifest = None
     if profile_name and not getattr(args, "no_pack", False):
