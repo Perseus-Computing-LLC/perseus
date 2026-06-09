@@ -347,7 +347,7 @@ The `O_CREAT | O_EXCL` checkpoint locking is atomic on local POSIX filesystems. 
 You write this:
 
 ```markdown
-@perseus v1.0.6
+@perseus v1.0.7
 
 # Context — @date format="YYYY-MM-DD HH:mm z"
 
@@ -474,7 +474,7 @@ Proven at enterprise scale — see [Multi-Agent Relay](./docs/EXAMPLES.md#subage
             ~/.perseus/formats/          ┘  and aliases load from config.
 
 Source document (.perseus/context.md)
-  @perseus v1.0.6
+  @perseus v1.0.7
   @query "git log --oneline -5"          ┐
   @read .env key="PORT"                  │  Directives resolved
   @waypoint ttl=86400                    │  before context window.

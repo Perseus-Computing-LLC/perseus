@@ -804,6 +804,31 @@ def test_cache_fingerprint_no_deps_still_caches(tmp_path):
     assert r1 == r2  # cached output matches
 
 
+def test_cache_fingerprint_memory_changes_with_mneme_config(tmp_path):
+    """Changing the active Mneme connector config invalidates @memory cache keys."""
+    c1 = cfg()
+    c1["mneme"]["command"] = ["mneme"]
+    c2 = cfg()
+    c2["mneme"]["command"] = ["mneme", "--db", "/tmp/other-mneme.db"]
+
+    fp1 = perseus._dependency_fingerprint(
+        "@memory",
+        'mode=search query="architecture"',
+        tmp_path,
+        c1,
+    )
+    fp2 = perseus._dependency_fingerprint(
+        "@memory",
+        'mode=search query="architecture"',
+        tmp_path,
+        c2,
+    )
+
+    assert fp1
+    assert fp2
+    assert fp1 != fp2
+
+
 def test_cache_nofingerprint_ignores_file_change(tmp_path):
     """@cache nofingerprint keeps TTL-only behavior, ignores file changes."""
     src = tmp_path / "src.md"

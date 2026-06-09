@@ -122,7 +122,7 @@ def _find_version() -> str:
             return candidate.read_text().strip()
     return _PERSEUS_VERSION  # fallback to build-time injected literal
 
-_PERSEUS_VERSION = "1.0.6"  # injected by scripts/build.py at build time
+_PERSEUS_VERSION = "1.0.7"  # injected by scripts/build.py at build time
 _PERSEUS_VERSION = _find_version()
 
 
@@ -523,7 +523,7 @@ def _doctor_check_mneme_bridge(cfg: dict, workspace: Path) -> DoctorResult:
         return DoctorResult("mneme_connectivity", "ok", "Mneme",
                            "disabled", "")
 
-    command = list(mneme_cfg.get("command", ["mneme", "serve"]))
+    command = list(mneme_cfg.get("command", ["mneme"]))
     binary_name = command[0] if command else "mneme"
 
     # Step 1: Auto-discover binary if not on PATH (#227)

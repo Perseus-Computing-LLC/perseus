@@ -53,7 +53,7 @@ from typing import NamedTuple, Callable
 # ── Version (injected by scripts/build.py at build time) ──────────────────
 # All other modules reference _PERSEUS_VERSION; the build script's
 # _VERSION_RE replaces the literal "0.0.0" with the VERSION file value.
-_PERSEUS_VERSION = "1.0.6"  # replaced at build time by scripts/build.py — see VERSION file for canonical value
+_PERSEUS_VERSION = "1.0.7"  # replaced at build time by scripts/build.py — see VERSION file for canonical value
 
 # Register as 'perseus' so plugins can import from us (task-65)
 import sys as _sys
@@ -208,7 +208,7 @@ DEFAULT_CONFIG = {
     "mneme": {                          # Project Synapse — Mneme MCP-based persistent memory
         "enabled": True,
         "transport": "stdio",            # "stdio" (local binary) or "sse" (remote endpoint)
-        "command": ["mneme", "serve"],
+        "command": ["mneme"],
         "endpoint": "",                  # SSE endpoint URL (when transport=sse)
         "timeout_s": 10.0,
         "merge_strategy": "local_first", # local_first | remote_first | interleave | decay_first
@@ -498,7 +498,6 @@ DEFAULT_CONFIG["foreign"] = {
     "max_response_bytes": 1048576,
 }
 
-
 # ────────────────────────────── Render Pipeline Hooks ─────────────────────────
 
 # Global registry for discovered Python hooks
@@ -707,7 +706,7 @@ from datetime import datetime, timezone
 try:
     from .serve import _PERSEUS_VERSION
 except ImportError:
-    _PERSEUS_VERSION = "1.0.6"
+    _PERSEUS_VERSION = "1.0.7"
 
 # ──────────────────────────────── Webhooks ───────────────────────────────────
 
@@ -9104,7 +9103,7 @@ def _memorymesh_search_mcp(query: str, top_k: int = 3) -> list[dict]:
             "params": {
                 "protocolVersion": "2025-06-18",
                 "capabilities": {},
-                "clientInfo": {"name": "perseus", "version": "1.0.6"},
+                "clientInfo": {"name": "perseus", "version": "1.0.7"},
             },
         }) + "\n"
 
@@ -9383,7 +9382,7 @@ def _memtrace_mcp_call(tool_name: str, arguments: dict[str, Any], timeout: int =
             "params": {
                 "protocolVersion": "2025-06-18",
                 "capabilities": {},
-                "clientInfo": {"name": "perseus", "version": "1.0.6"},
+                "clientInfo": {"name": "perseus", "version": "1.0.7"},
             },
         }) + "\n"
 
@@ -13653,7 +13652,7 @@ class MnemeConnector:
     Configuration (from `config.yaml` → `mneme`):
         enabled: bool              = true
         transport: str             = "stdio"  — "stdio" or "sse"
-        command: list[str]         = ["mneme", "serve"]
+        command: list[str]         = ["mneme"]
         endpoint: str              = "http://localhost:50052/sse"  (for sse)
         timeout_s: float           = 10.0
         merge_strategy: str        = "local_first"
@@ -13678,7 +13677,7 @@ class MnemeConnector:
         self._enabled = bool(mcfg.get("enabled", True))
         self._transport = mcfg.get("transport", "stdio")
         self._timeout = float(mcfg.get("timeout_s", 10.0))
-        self._command = mcfg.get("command", ["mneme", "serve"])
+        self._command = mcfg.get("command", ["mneme"])
         self._endpoint = mcfg.get("endpoint", "http://localhost:50052/sse")
         self._fallback_to_local = bool(mcfg.get("fallback_to_local", True))
         self._decay_priority_weight = float(mcfg.get("decay_priority_weight", 0.4))
@@ -17329,7 +17328,7 @@ def _find_version() -> str:
             return candidate.read_text().strip()
     return _PERSEUS_VERSION  # fallback to build-time injected literal
 
-_PERSEUS_VERSION = "1.0.6"  # injected by scripts/build.py at build time
+_PERSEUS_VERSION = "1.0.7"  # injected by scripts/build.py at build time
 _PERSEUS_VERSION = _find_version()
 
 
@@ -17730,7 +17729,7 @@ def _doctor_check_mneme_bridge(cfg: dict, workspace: Path) -> DoctorResult:
         return DoctorResult("mneme_connectivity", "ok", "Mneme",
                            "disabled", "")
 
-    command = list(mneme_cfg.get("command", ["mneme", "serve"]))
+    command = list(mneme_cfg.get("command", ["mneme"]))
     binary_name = command[0] if command else "mneme"
 
     # Step 1: Auto-discover binary if not on PATH (#227)
@@ -21097,7 +21096,7 @@ def cmd_init(args, cfg):
     # If mneme is not installed, suggest the bootstrap script
     mneme_cfg = cfg.get("mneme", {}) if cfg else {}
     if mneme_cfg.get("enabled", True):
-        command = mneme_cfg.get("command", ["mneme", "serve"])
+        command = mneme_cfg.get("command", ["mneme"])
         binary_path = _find_mneme_binary(command)
         if binary_path is None:
             print(f"💡 Mneme not found. For persistent cross-session memory, run:")
