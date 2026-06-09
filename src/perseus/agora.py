@@ -125,7 +125,7 @@ def _memory_do_compact(workspace: Path, cfg: dict, provider: str | None) -> str:
         try:
             import concurrent.futures as _cf
             executor = _cf.ThreadPoolExecutor(
-                max_workers=1, thread_name_prefix="mneme-compact-llm",
+                max_workers=1, thread_name_prefix="mimir-compact-llm",
             )
             try:
                 fut = executor.submit(
@@ -439,12 +439,12 @@ def _memory_federation_diagnostic(name: str, args_str: str, cfg: dict, workspace
     return diagnostics
 
 
-def resolve_mneme(args_str: str, cfg: dict,
+def resolve_mimir(args_str: str, cfg: dict,
                    workspace: Path | None = None) -> str:
-    """@mneme shim → forwards to unified @memory mode=search.
+    """@mimir shim → forwards to unified @memory mode=search.
 
     Kept for backward compatibility. Simply prepends mode=search to handle
-    the old @mneme query="..." syntax and delegates to resolve_memory.
+    the old @mimir query="..." syntax and delegates to resolve_memory.
     """
     # Build equivalent @memory args: mode=search query="..." [scope=...] [k=...] [type=...]
     return resolve_memory(f"mode=search {args_str}", cfg, workspace)
@@ -462,7 +462,7 @@ def resolve_memory(args_str: str, cfg: dict, workspace: Path | None = None) -> s
         → Cross-workspace narrative aggregation.
 
     Default: if query= is present → search; otherwise → narrative.
-    Legacy shim: @mneme calls this with mode=search automatically.
+    Legacy shim: @mimir calls this with mode=search automatically.
     """
     ws = workspace or Path.cwd()
     args_stripped = args_str.strip()
@@ -499,21 +499,25 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path) -> str:
 
     hits = _mneme_recall(cfg, query, k=k, scope=scope, type_filter=type_filter, sensitivity=sensitivity)
 
-    # ── Mneme augmentation (MCP) ──────────────────────────────────────
-    # Query Mneme persistent memory backend for additional historical
+    # ── Mimir augmentation (MCP) ──────────────────────────────────────
+    # Query Mimir persistent memory backend for additional historical
     # context (Architecture, Decision, Insight types) with Ebbinghaus
     # decay scoring. Results are merged below alongside local Mnēmē FTS5 hits.
-    mneme_items: list = []
+    mimir_items: list = []
     try:
-        mseg = _mneme_hybrid_search(
+        mseg = _mimir_hybrid_search(
             cfg=cfg, query=query, workspace=str(workspace),
             local_hits=hits, max_results=k,
         )
-        mneme_items = mseg.items if mseg else []
-    except Exception:
-        pass  # Mneme is optional — degrade gracefully
+        mimir_items = mseg.items if mseg else []
+    except Exception as e:
+        import sys
+        import logging
+        logging.getLogger("perseus.mimir").warning(
+            "Mimir recall failed, falling back to local Mnēmē FTS5: %s", e
+        )
 
-    if not hits and not mneme_items:
+    if not hits and not mimir_items:
         return "> \u2139\ufe0f No Mn\u0113m\u0113 memories matched yet — this is expected on a fresh install. Populate the vault with memory files or run `perseus memory update` to initialize.\n"
 
     lines = ["> \U0001f9e0 **Mn\u0113m\u0113 memories:**\n"]
@@ -564,12 +568,12 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path) -> str:
             lines.append(" ".join(parts))
 
     # ── Mneme results ─────────────────────────────────────────────────
-    if mneme_items:
+    if mimir_items:
         lines.append("")
-        lines.append("> 🧠 **Mneme context:**")
-        for mi in mneme_items:
+        lines.append("> 🧠 **Mimir context:**")
+        for mi in mimir_items:
             title = mi.summary or (mi.content[:80] + "…" if len(mi.content) > 80 else mi.content)
-            lines.append(f"  - [mneme] [{mi.type.value}] {title}")
+            lines.append(f"  - [mimir] [{mi.type.value}] {title}")
             if mi.links:
                 for lnk in mi.links[:2]:
                     lines.append(f"    ↳ `{lnk.relationship}` → {lnk.target_id[:8]}…")

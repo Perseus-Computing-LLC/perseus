@@ -121,15 +121,15 @@ DEFAULT_CONFIG = {
         # The daedalus path falls back to deterministic on any failure.
         "pattern_extractor": "deterministic",
     },
-    "mneme": {                          # Project Synapse — Mneme MCP-based persistent memory
+    "mimir": {                          # Project Synapse — Mimir persistent memory (MCP binary, formerly "mneme")
         "enabled": True,
         "transport": "stdio",            # "stdio" (local binary) or "sse" (remote endpoint)
-        "command": ["mneme"],
+        "command": ["mimir", "--db"],
         "endpoint": "",                  # SSE endpoint URL (when transport=sse)
         "timeout_s": 10.0,
         "merge_strategy": "local_first", # local_first | remote_first | interleave | decay_first
         "decay_priority_weight": 0.4,    # weight of decay_score in merge ordering (0.0–1.0)
-        "fallback_to_local": True,       # Use Mnēmē FTS5 when Mneme is unreachable
+        "fallback_to_local": True,       # Use Mnēmē FTS5 when Mimir is unreachable
         "circuit_breaker": {
             "threshold": 3,              # Consecutive failures before opening
             "cooldown": 120,             # Seconds before attempting recovery
@@ -413,4 +413,5 @@ DEFAULT_CONFIG["foreign"] = {
     "tls_verify": True,
     "max_response_bytes": 1048576,
 }
+
 
