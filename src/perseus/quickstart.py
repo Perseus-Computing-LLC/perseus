@@ -26,7 +26,7 @@ Before storing a fact in the `memory` tool, verify ALL three:
 Only facts that pass ALL THREE gates belong in `memory` (2,200 char hard limit).
 Everything else has a better home:
 - 🔁 **Procedures** → `skill_manage` (create/update a skill)
-- 🧠 **Cross-session context** → mneme (MCP `mneme_store` / `mneme_recall`)
+- 🧠 **Cross-session context** → mimir (MCP `mimir_store` / `mimir_recall`)
 - 🚫 **Ephemeral state, one-time fixes, completed tasks** → discard
 
 🚫 **Flat files (.txt, .json, .csv, .md) are BANNED as a memory backend.**
@@ -70,8 +70,8 @@ Everything else has a better home:
 > @memory mode=search query="another topic" k=2
 > ```
 > Each sub-query is short enough to match effectively; the relay layer merges results.
-> Falls back gracefully to local Mneme FTS5 if Mneme is unavailable.
-> Requires `mneme.enabled: true` in `.perseus/config.yaml`.
+> Falls back gracefully to local Mnēmē FTS5 if Mimir is unavailable.
+> Requires `mimir.enabled: true` in `.perseus/config.yaml`.
 
 @memory mode=search query="{mneme_query}" k=5
 """

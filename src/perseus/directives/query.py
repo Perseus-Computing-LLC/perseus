@@ -382,7 +382,7 @@ def _directive_resource_hints(directive: str, args_str: str) -> list[dict]:
         if cmd:
             resources.append({"kind": "shell", "value": cmd})
 
-    if directive in {"@memory", "@mneme"}:
+    if directive in {"@memory", "@mimir"}:
         try:
             index_path = str(_mneme_index_path({}))
             resources.append({"kind": "index", "value": index_path})

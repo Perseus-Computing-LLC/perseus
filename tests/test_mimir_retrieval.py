@@ -35,7 +35,7 @@ def _test_cfg():
     """Config that won't try to connect to a real Engram."""
     _reset_connector_singleton()
     c = cfg()
-    c["mneme"] = {
+    c["mimir"] = {
         "enabled": True,
         "transport": "stdio",
         "command": ["/nonexistent/path/mneme"],
@@ -68,7 +68,7 @@ class TestMergeStrategies:
     def _connector(self, strategy="local_first"):
         _reset_connector_singleton()
         c = _test_cfg()
-        c["mneme"]["merge_strategy"] = strategy
+        c["mimir"]["merge_strategy"] = strategy
         return perseus.MnemeConnector(c)
 
     @property
@@ -82,9 +82,9 @@ class TestMergeStrategies:
     @property
     def mneme_items(self):
         return [
-            _make_hit("e-1", "Engram: Database is PostgreSQL in production", "mneme", "architecture", decay=0.95, relevance=0.9),
-            _make_hit("e-2", "Engram: Auth uses OAuth2 + JWT", "mneme", "decision", decay=0.7, relevance=0.7),
-            _make_hit("e-3", "Engram: Deploy strategy is blue-green", "mneme", "insight", decay=0.2, relevance=0.3),
+            _make_hit("e-1", "Engram: Database is PostgreSQL in production", "mimir", "architecture", decay=0.95, relevance=0.9),
+            _make_hit("e-2", "Engram: Auth uses OAuth2 + JWT", "mimir", "decision", decay=0.7, relevance=0.7),
+            _make_hit("e-3", "Engram: Deploy strategy is blue-green", "mimir", "insight", decay=0.2, relevance=0.3),
         ]
 
     def test_local_first_strategy(self):
@@ -99,7 +99,7 @@ class TestMergeStrategies:
         sources = [item.source.value for item in merged.items]
         # All items are unique (different content), so order is: local → mneme
         assert sources[:3] == ["local", "local", "local"]
-        assert sources[3:] == ["mneme", "mneme", "mneme"]
+        assert sources[3:] == ["mimir", "mimir", "mimir"]
 
     def test_remote_first_strategy(self):
         """REMOTE_FIRST: mneme items first, then verified, then local-only."""
@@ -111,7 +111,7 @@ class TestMergeStrategies:
             diagnostics={},
         )
         sources = [item.source.value for item in merged.items]
-        assert sources[:3] == ["mneme", "mneme", "mneme"]
+        assert sources[:3] == ["mimir", "mimir", "mimir"]
         assert sources[3:] == ["local", "local", "local"]
 
     def test_interleave_strategy(self):
@@ -125,7 +125,7 @@ class TestMergeStrategies:
         )
         sources = [item.source.value for item in merged.items]
         # Should alternate: engram, local, engram, local, engram, local
-        expected = ["mneme", "local", "mneme", "local", "mneme", "local"]
+        expected = ["mimir", "local", "mimir", "local", "mimir", "local"]
         assert sources == expected
 
     def test_decay_first_strategy(self):
@@ -152,7 +152,7 @@ class TestMergeStrategies:
             _make_hit("l-mid", "Mid local memory", "local", "insight", decay=0.5),
         ]
         mneme_items = [
-            _make_hit("e-1", "Mneme item", "mneme", "insight", decay=0.8),
+            _make_hit("e-1", "Mneme item", "mimir", "insight", decay=0.8),
         ]
         merged = conn._merge_results(
             local_items=local, mneme_items=mneme_items,
@@ -188,7 +188,7 @@ class TestDeduplication:
         conn = self._connector()
         shared_content = "The auth module uses PostgreSQL for production and SQLite for local dev."
         local = [_make_hit("l-auth", shared_content, "local", "architecture", decay=0.5)]
-        mneme_items = [_make_hit("e-auth", shared_content, "mneme", "architecture", decay=0.95)]
+        mneme_items = [_make_hit("e-auth", shared_content, "mimir", "architecture", decay=0.95)]
 
         merged = conn._merge_results(
             local_items=local, mneme_items=mneme_items,
@@ -205,7 +205,7 @@ class TestDeduplication:
         """Different content → not deduped, both items preserved."""
         conn = self._connector()
         local = [_make_hit("l-1", "Auth module uses PostgreSQL.", "local", "architecture")]
-        mneme_items = [_make_hit("e-1", "The auth module uses PostgreSQL for production and SQLite for local dev.", "mneme", "architecture")]
+        mneme_items = [_make_hit("e-1", "The auth module uses PostgreSQL for production and SQLite for local dev.", "mimir", "architecture")]
 
         merged = conn._merge_results(
             local_items=local, mneme_items=mneme_items,
@@ -224,9 +224,9 @@ class TestDeduplication:
             _make_hit("l-only", "Local-only insight about tooling.", "local", "insight"),
         ]
         mneme_items = [
-            _make_hit("e-mk", shared_1, "mneme", "decision", decay=0.9),
-            _make_hit("e-watch", shared_2, "mneme", "insight", decay=0.8),
-            _make_hit("e-only", "Mneme-only architecture note.", "mneme", "architecture"),
+            _make_hit("e-mk", shared_1, "mimir", "decision", decay=0.9),
+            _make_hit("e-watch", shared_2, "mimir", "insight", decay=0.8),
+            _make_hit("e-only", "Mneme-only architecture note.", "mimir", "architecture"),
         ]
 
         merged = conn._merge_results(
@@ -262,7 +262,7 @@ class TestDeduplication:
 
     def _all_unique_engram(self):
         return [
-            _make_hit("e-c", "Content Gamma", "mneme", "architecture"),
+            _make_hit("e-c", "Content Gamma", "mimir", "architecture"),
         ]
 
 
@@ -392,9 +392,9 @@ GOLDEN_QUERIES = [
         "type": "architecture",
     },
     {
-        "query": "Explain the difference between @memory and @mneme directives in Perseus context.md — how do they each use Engram?",
-        "expected_ids": ["arch-memory-vs-mneme", "insight-directive-differences"],
-        "expected_keywords": ["@memory", "@mneme", "_mneme_hybrid_search", "_mneme_hybrid_mneme_search"],
+        "query": "Explain the difference between @memory and @mimir directives in Perseus context.md — how do they each use Engram?",
+        "expected_ids": ["arch-memory-vs-mimir", "insight-directive-differences"],
+        "expected_keywords": ["@memory", "@mimir", "_mimir_hybrid_search", "_mimir_hybrid_recall"],
         "type": "architecture",
     },
     {
@@ -438,8 +438,8 @@ def _build_needle_haystack(needle_ids: list[str], num_distractors: int = 50) -> 
         "decision-migration-checklist": "The migration checklist ensures no file is missed: connector source, config defaults, injection point (agora.py), build order, and cleanup. Following this checklist prevents broken builds where old connector symbols linger in the artifact.",
         "arch-singleton-connector": "The Engram Connector uses a singleton pattern via _get_connector(cfg) for efficiency — creating a new MCP subprocess per query would be wasteful. Config changes are detected by hashing the sorted config dict; when the hash changes, the old connector is closed and a new one created.",
         "insight-config-hash": "Config change detection uses SHA-256 hashing of sorted config items. When _get_connector() detects a different hash, it closes the existing MCP connection and creates a fresh MnemeConnector. This enables hot-reload of merge_strategy and circuit breaker settings without restart.",
-        "arch-memory-vs-mneme": "@memory is the full-featured directive: FTS5 search + Mneme augmentation + federation. @mneme is the lightweight cousin: BM25 recall with optional Mneme augmentation. Under the hood, @mneme delegates to @memory via resolve_mneme → resolve_memory.",
-        "insight-directive-differences": "@memory uses _mneme_hybrid_search() which does full hybrid resolution with local fallback. @mneme uses _mneme_hybrid_mneme_search() which is simpler — local FTS5 first, Mneme augmentation if available, returns MemorySegment directly.",
+        "arch-memory-vs-mimir": "@memory is the full-featured directive: FTS5 search + Mimir augmentation + federation. @mimir is the lightweight cousin: BM25 recall with optional Mimir augmentation. Under the hood, @mimir delegates to @memory via resolve_mimir → resolve_memory.",
+        "insight-directive-differences": "@memory uses _mimir_hybrid_search() which does full hybrid resolution with local fallback. @mimir uses _mimir_hybrid_recall() which is simpler — local FTS5 first, Mneme augmentation if available, returns MemorySegment directly.",
         "arch-topic-trees": "Topic trees in Engram organize memories hierarchically (e.g., 'architecture/database/choice'). This enables scoped queries: you can search within a subtree for more precise recall. Unlike flat FTS5 which treats all memories equally, topic trees provide structural context.",
         "insight-topic-vs-flat": "Flat FTS5 (Mnemosyne) searches all content equally — you might get a deployment note when asking about database decisions. Topic trees (Engram) enable scoped recall by path prefix, dramatically improving precision for domain-specific queries.",
     }
@@ -454,7 +454,7 @@ def _build_needle_haystack(needle_ids: list[str], num_distractors: int = 50) -> 
             _make_hit(
                 f"distractor-{i}",
                 f"Note about {topics[i % len(topics)]} configuration: set the {topics[i % len(topics)]}_TIMEOUT env var to 30s. This was configured on {2020 + (i % 6)}-{1 + (i % 12):02d}-{1 + (i % 28):02d}. No impact on core architecture decisions.",
-                source="mneme" if i % 2 == 0 else "local",
+                source="mimir" if i % 2 == 0 else "local",
                 mtype=["insight", "architecture", "decision"][i % 3],
                 decay=0.1 + (i % 10) * 0.08,
             )
@@ -468,7 +468,7 @@ def _build_needle_haystack(needle_ids: list[str], num_distractors: int = 50) -> 
             _make_hit(
                 nid,
                 content,
-                source="mneme",
+                source="mimir",
                 mtype="architecture" if "arch" in nid else ("decision" if "decision" in nid else "insight"),
                 decay=0.85,
                 relevance=0.9,
@@ -490,7 +490,7 @@ class TestNeedleInHaystack:
     def _connector(self, strategy="local_first"):
         _reset_connector_singleton()
         c = _test_cfg()
-        c["mneme"]["merge_strategy"] = strategy
+        c["mimir"]["merge_strategy"] = strategy
         return perseus.MnemeConnector(c)
 
     @pytest.mark.parametrize("query_entry", GOLDEN_QUERIES, ids=[q["query"][:60] for q in GOLDEN_QUERIES])
@@ -499,7 +499,7 @@ class TestNeedleInHaystack:
         expected_ids = query_entry["expected_ids"]
         haystack, _ = _build_needle_haystack(expected_ids, num_distractors=50)
 
-        # Simulate: the expected needles + distractors are the "mneme" results,
+        # Simulate: the expected needles + distractors are the "mimir" results,
         # local results are an empty list
         conn = self._connector(strategy="decay_first")
 
@@ -627,9 +627,9 @@ class TestDecayPriority:
         """Fresh items (decay=1.0) should appear before stale ones (decay=0.1)."""
         conn = self._connector()
         items = [
-            _make_hit("stale-1", "Very old decision about Python version.", "mneme", "decision", decay=0.05),
-            _make_hit("fresh-1", "Recent architecture change: switched to Rust.", "mneme", "architecture", decay=0.99),
-            _make_hit("mid-1", "Somewhat recent insight about caching.", "mneme", "insight", decay=0.50),
+            _make_hit("stale-1", "Very old decision about Python version.", "mimir", "decision", decay=0.05),
+            _make_hit("fresh-1", "Recent architecture change: switched to Rust.", "mimir", "architecture", decay=0.99),
+            _make_hit("mid-1", "Somewhat recent insight about caching.", "mimir", "insight", decay=0.50),
             _make_hit("stale-2", "Obsolete note about npm packages.", "local", "insight", decay=0.01),
             _make_hit("fresh-2", "Today's hotfix for auth race condition.", "local", "decision", decay=1.0),
         ]
@@ -648,7 +648,7 @@ class TestDecayPriority:
         """Items with high retrieval_count should have higher decay (reinforced)."""
         # This tests that the data model supports the concept — actual decay
         # calculation happens in Mneme, but our connector preserves the values.
-        fresh = _make_hit("r-fresh", "Frequently accessed memory", "mneme", "insight", decay=0.98)
+        fresh = _make_hit("r-fresh", "Frequently accessed memory", "mimir", "insight", decay=0.98)
         assert fresh.retrieval_count == 0  # default
         fresh.retrieval_count = 50
         assert fresh.retrieval_count == 50
@@ -689,7 +689,7 @@ class TestConflictResolution:
     def _connector(self, strategy="local_first"):
         _reset_connector_singleton()
         c = _test_cfg()
-        c["mneme"]["merge_strategy"] = strategy
+        c["mimir"]["merge_strategy"] = strategy
         return perseus.MnemeConnector(c)
 
     def test_conflicting_data_both_surfaced(self):
@@ -700,7 +700,7 @@ class TestConflictResolution:
             _make_hit("l-port", "Service port configured to 8080 (local override)", "local", "architecture", decay=1.0),
         ]
         mneme_items = [
-            _make_hit("e-port", "Service port configured to 3000 (historical default)", "mneme", "architecture", decay=0.5),
+            _make_hit("e-port", "Service port configured to 3000 (historical default)", "mimir", "architecture", decay=0.5),
         ]
 
         merged = conn._merge_results(
@@ -722,7 +722,7 @@ class TestConflictResolution:
         conn = self._connector("local_first")
         content = "The API uses port 8080."
         local = [_make_hit("l-api", content, "local", "architecture", decay=0.9)]
-        mneme_items = [_make_hit("e-api", content, "mneme", "architecture", decay=0.7)]
+        mneme_items = [_make_hit("e-api", content, "mimir", "architecture", decay=0.7)]
 
         merged = conn._merge_results(
             local_items=local, mneme_items=mneme_items,
@@ -738,7 +738,7 @@ class TestConflictResolution:
             _make_hit("l-new-port", "Current port: 9090 (recent change)", "local", "architecture", decay=0.95),
         ]
         mneme_items = [
-            _make_hit("e-old-port", "Historical port: 3000 (original design)", "mneme", "architecture", decay=0.25),
+            _make_hit("e-old-port", "Historical port: 3000 (original design)", "mimir", "architecture", decay=0.25),
         ]
 
         merged = conn._merge_results(
@@ -757,8 +757,8 @@ class TestConflictResolution:
             _make_hit("l-b", "Content B", "local", "insight"),
         ]
         mneme_items = [
-            _make_hit("e-b", "Content B", "mneme", "insight"),  # same as l-b → verified
-            _make_hit("e-c", "Content C", "mneme", "insight"),
+            _make_hit("e-b", "Content B", "mimir", "insight"),  # same as l-b → verified
+            _make_hit("e-c", "Content C", "mimir", "insight"),
         ]
         diag = {}
         merged = conn._merge_results(
