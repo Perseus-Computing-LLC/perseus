@@ -227,7 +227,7 @@ def phase_enterprise_week(
             # Simulate chaos: drop 5% of renders randomly
             pass  # handled by per-render failure tracking
 
-        for i in range(min(count, 200)):  # cap per event
+        for i in range(count):
             profile = role_profiles[i % len(role_profiles)]
             cache_state = "cold" if day == 1 and time_label == "09:00" else "warm"
             r = render_profile(profile["path"], cache_state=cache_state)
