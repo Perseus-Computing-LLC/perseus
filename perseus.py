@@ -9787,6 +9787,16 @@ def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path | N
     # auto-invalidates when the env var changes (#253)
     dangerous = os.environ.get('PERSEUS_ALLOW_DANGEROUS', '0')
     parts.append(f"env:PERSEUS_ALLOW_DANGEROUS={dangerous}")
+
+    if directive in ("@memory", "@mneme"):
+        mcfg = cfg.get("mneme", {})
+        import json as _json
+        try:
+            mcfg_str = _json.dumps(mcfg, sort_keys=True)
+            parts.append(f"config:mneme={mcfg_str}")
+        except Exception:
+            pass
+
     if not parts:
         return ""
     return _hashlib.sha256("|".join(parts).encode()).hexdigest()
