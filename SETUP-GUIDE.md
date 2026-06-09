@@ -5,7 +5,7 @@
 > **Perseus version tested:** v1.0.6  
 > **Platforms verified:** macOS · Linux · Windows 10 (git-bash) · Docker  
 > **Source:** https://github.com/tcconnally/perseus · https://pypi.org/project/perseus-ctx/  
-> **New in this version:** Mneme MCP hybrid memory connector (Project Synapse) · Sibyl Memory integration (structured five-tier memory)
+> **New in this version:** Sibyl Memory as primary persistent store (structured five-tier memory) · Mneme MCP connector available as optional alternative
 
 ---
 
@@ -230,8 +230,8 @@ memory:
   # narrative_file and mneme_vault_path are legacy fields; current versions use
   # ~/.perseus/memory/<sha256_hash>.md (see Workspace Hash section below)
 
-mneme:                                 # Project Synapse — Mneme MCP-based persistent memory
-  enabled: true                         # Master switch for hybrid (Mnēmē + Mneme) resolution
+mneme:                                 # Mneme MCP-based persistent memory (OPTIONAL — Sibyl is primary)
+  enabled: false                        # Master switch. Set true to use Mneme INSTEAD OF Sibyl.
   transport: "stdio"                    # "stdio" (local mneme binary) or "sse" (remote endpoint)
   command: [mneme, serve, --mcp]       # Command to launch Mneme in MCP mode
   endpoint: ""                          # SSE endpoint URL (only used when transport=sse)
@@ -246,8 +246,8 @@ mneme:                                 # Project Synapse — Mneme MCP-based per
     max_attempts: 3
     backoff_base: 1.5
 
-sibyl_memory:                           # Sibyl Memory — structured five-tier local memory (MIT licensed)
-  enabled: true                         # Opt-in: off by default unless SIBYL_MEMORY_ENABLED=1
+sibyl_memory:                           # Sibyl Memory — PRIMARY structured five-tier local memory (MIT licensed)
+  enabled: true                         # On by default when SIBYL_MEMORY_ENABLED=1
   db_path: ~/.sibyl-memory/memory.db    # Default path; set SIBYL_MEMORY_DB_PATH to override
   max_tokens: 1500                      # Token budget for injected context block
 
@@ -363,16 +363,22 @@ Your system prompt goes here. This is injected before the rendered content.
 ## Project Memory
 @memory focus=recent ttl=300
 
-## Long-Term Memory (Mneme)
+## Long-Term Memory (Sibyl)
 
-> 💡 **Query tips:** FTS5 treats multi-word queries as exact phrases.
+> 💡 Sibyl Memory is the primary persistent store — structured five-tier local memory
+> with SQLite FTS5 search. Perseus auto-injects Sibyl context at render time when
+> `SIBYL_MEMORY_ENABLED=1` and the DB exists. No directive resolver needed.
+>
+> **Optional alternative:** Mneme (Rust MCP server) for keyword search. Set
+> `mneme.enabled: true` in `.perseus/config.yaml` to activate. Falls back
+> gracefully to local Mneme FTS5 if Mneme is unavailable.
+>
+> **Query tips:** FTS5 treats multi-word queries as exact phrases.
 > Split long queries across multiple directives for better recall:
 > ```text
 > @memory mode=search query="short phrase" k=3
 > @memory mode=search query="another topic" k=2
 > ```
-> Falls back gracefully to local Mneme FTS5 if Mneme is unavailable.
-> Requires `mneme.enabled: true` in `.perseus/config.yaml`.
 
 @memory mode=search query="project architecture setup build deploy" k=5
 
@@ -565,7 +571,11 @@ memory:
 > ⚠️ `perseus memory update --llm none` crashes. See [#130](https://github.com/tcconnally/perseus/issues/130).
 > To force deterministic mode: omit `--llm` flag (leave `llm_provider` unset in config).
 
-### Mneme Hybrid Resolution (optional — persistent keyword memory)
+### Mneme Hybrid Resolution (OPTIONAL — Sibyl Memory is the primary persistent store)
+
+> **Sibyl Memory is the default persistent memory layer.** The Mneme connector below
+> is an optional alternative for users who prefer a Rust-based MCP keyword search
+> backend. To use Mneme instead of Sibyl, set `mneme.enabled: true` in your config.
 
 Perseus supports an optional second memory layer via [Mneme](https://github.com/tcconnally/mneme), a Rust-based persistent memory engine that provides SQLite FTS5 keyword search with circuit breaker resilience — going beyond Mnēmē's single-process keyword search.
 
@@ -636,7 +646,7 @@ mneme --version   # expect "mneme 0.1.0"
 > (no crash, no visible error). The circuit breaker prevents permission
 > storms during outages.
 
-### Sibyl Memory (optional — structured five-tier local memory)
+### Sibyl Memory (PRIMARY — structured five-tier local memory)
 
 Perseus integrates with [Sibyl Memory](https://github.com/Sibyl-Labs/Sibyl-Memory), an MIT-licensed, local-first memory engine backed by SQLite and FTS5. It provides five structured memory tiers (HOT state, WARM entities, COLD journal, REFERENCE docs, ARCHIVE) with schema-level entity integrity — no vector DB, no embeddings, no cloud dependency.
 
@@ -1300,6 +1310,6 @@ perseus doctor
 
 ---
 
-*Built from production experience wiring Perseus v1.0.6 into Hermes Agent, Rovo Dev CLI, and Rovo web agent — now with Mneme MCP hybrid memory (Project Synapse).*  
+*Built from production experience wiring Perseus v1.0.6 into Hermes Agent, Rovo Dev CLI, and Rovo web agent — with Sibyl Memory as primary persistent store (Mneme available as optional alternative).*  
 *Issues filed: [#128](https://github.com/tcconnally/perseus/issues/128) – [#135](https://github.com/tcconnally/perseus/issues/135)*  
 *Guide maintained at: `~/rovodev/docs/perseus-setup-guide.md` (canonical) · this copy: `~/Downloads/perseus-setup-guide.md`*
