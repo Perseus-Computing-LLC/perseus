@@ -3,39 +3,6 @@
 [![smithery badge](https://smithery.ai/badge/tcconnally/perseus)](https://smithery.ai/servers/tcconnally/perseus)
 **`pip install perseus-ctx && cd your-project && perseus quickstart`**
 
-
-## 🏆 Hackathon — Google Cloud Rapid Agent (Elastic Track)
-
-**Status:** Submitted | **Deadline:** June 11, 2026 | **Devpost:** [perseus-cmzeu9](https://devpost.com/software/perseus-cmzeu9)
-
-Perseus is entered in the Google Cloud Rapid Agent Hackathon (Elastic Partner Track).
-The submission demonstrates persistent agent memory across three consecutive sessions,
-with live backend swap from Elastic Cloud to Mneme (self-hosted, MIT).
-
-**Required technologies demonstrated:**
-
-| Technology | How it's used |
-|---|---|
-| **Google Cloud Agent Builder** | Agent orchestration, MCP tool wiring, Gemini model config (see `hackathon/agent-builder-config.yaml`) |
-| **Gemini 3 Pro** | Structured reasoning for memory extraction and cross-session compounding (via `google-genai`) |
-| **Elastic Agent Builder** | Hybrid ELSER + BM25 search for memory recall; MCP-native tools (`search_memory`, `store_memory`) |
-
-**Quick start:**
-```bash
-pip install google-genai elasticsearch perseus-ctx
-export GEMINI_API_KEY="your-key"
-export ELASTIC_CLOUD_ID="your-cloud-id"
-export ELASTIC_API_KEY="your-api-key"
-python hackathon/agent.py
-```
-
-**Files:**
-- [`hackathon/agent.py`](hackathon/agent.py) — Integration demo (Gemini + Elastic + memory lifecycle)
-- [`hackathon/agent-builder-config.yaml`](hackathon/agent-builder-config.yaml) — Agent Builder configuration export
-- [Demo video](https://www.youtube.com/watch?v=vDIgxvUXxTs) (2:51)
-
-That's the whole install. Perseus auto-detects your project language (Python, Rust, Node, Go, Java, C++, Docker), scaffolds context-appropriate memory queries, injects an active memory gate, and renders live workspace state — all before your AI assistant reads a single directive. No plugins. No SDK. Just a markdown file where your assistant already looks.
-
 ![Perseus demo — before/after cold-start](demo.gif)
 
 [![CI](https://github.com/tcconnally/perseus/actions/workflows/test.yml/badge.svg)](https://github.com/tcconnally/perseus/actions/workflows/test.yml)
@@ -49,40 +16,44 @@ That's the whole install. Perseus auto-detects your project language (Python, Ru
 
 ---
 
-### Sibyl Memory MCP Server
+### Mimir — Persistent Memory (MCP)
 
-Perseus includes a standalone MCP server for Sibyl Memory — structured five-tier local memory with three tools: `sibyl_search` (FTS5 across all tiers), `sibyl_recall` (fetch by category + name), and `sibyl_remember` (create or update).
+[Mimir](https://github.com/tcconnally/mimir) is the default persistent memory backend for Perseus — a lightweight Rust MCP server with SQLite + FTS5. Zero network calls, no API keys, no embeddings model required. Three tools: `mimir_recall`, `mimir_store`, `mimir_health`.
+
+**Install:**
+```bash
+curl -sSL https://raw.githubusercontent.com/tcconnally/mimir/main/scripts/bootstrap.sh | bash
+```
 
 **Hermes Agent** — add to `~/.hermes/config.yaml`:
-
 ```yaml
 mcp_servers:
-  sibyl:
-    command: "python3"
-    args: ["/path/to/perseus-repo/src/sibyl_mcp_server.py"]
-    env:
-      SIBYL_DB_PATH: "~/.sibyl-memory/memory.db"
-    timeout: 30
-    connect_timeout: 15
+  mimir:
+    command: "mimir"
+    args: ["--db", "~/.mimir/data/mimir.db"]
 ```
 
 **Claude Desktop / Cursor** — add to your MCP settings:
-
 ```json
 {
   "mcpServers": {
-    "sibyl": {
-      "command": "uvx",
-      "args": ["--from", "perseus-ctx[mcp]", "sibyl-mcp-server"],
-      "env": {
-        "SIBYL_DB_PATH": "/home/yourname/.sibyl-memory/memory.db"
-      }
+    "mimir": {
+      "command": "mimir",
+      "args": ["--db", "/home/YOU/.mimir/data/mimir.db"]
     }
   }
 }
 ```
 
-Works with any MCP-compatible assistant: Claude Desktop, Claude Code, Cursor, Codex, Hermes Agent, Rovo Dev. [Full setup guide →](./SETUP-GUIDE.md)
+**Perseus integration** — add to `.perseus/config.yaml`:
+```yaml
+mimir:
+  enabled: true
+  command: ["mimir", "--db", "~/.mimir/data/mimir.db"]
+```
+Then add `@memory mode=search query="your terms"` to `.perseus/context.md` and Perseus resolves live recall at render time.
+
+Works with any MCP-compatible assistant.
 
 ## Wire Perseus to Your Assistant (MCP)
 
@@ -215,8 +186,8 @@ Published as [`io.github.tcconnally/perseus`](https://registry.modelcontextproto
 | `perseus_session` | Recent session digests |
 | `perseus_health` | Context maintenance report |
 | `perseus_drift` | Oracle drift report |
-| `perseus_memory` | Mnēmē narrative memory (+ Sibyl persistent store, Mneme optional) |
-| `perseus_mneme` | Recall persistent memories via in-process BM25 |
+| `perseus_memory` | Mnēmē narrative memory (+ Mimir persistent store) |
+| `perseus_mimir` | Recall persistent memories via Mimir BM25 |
 | `perseus_skills` | List available skills with staleness flags |
 | `perseus_include` | Include and render another file |
 | `perseus_agent` | Execute local agent subprocess |
@@ -307,7 +278,7 @@ Perseus delivers verified, up-to-date context, eliminating the need for AI assis
 ### Performance & Efficiency
 
 - **1,190× cold→warm gap** — Real-world scenario using the Perseus repo itself as the benchmark target. At the 1,408 directive scale, the cold render took **578.7s**, while the warm render took **0.486s**. [Raw data →](benchmark/real_deltas.json)
-- **Mnēmē persistent memory** — In-process BM25 recall, zero daemon. **37ms search P50 at 10,000 docs**, flat across all scales. Perseus `@mneme` renders: **51× cold→warm speedup** with @cache. **2,700 docs/sec** write throughput, **0.4ms P50** saves. v1.0.6 adds an optional **Mneme hybrid accelerator** (Project Synapse) — MCP-based remote memory with Ebbinghaus time-decay and semantic + BM25 hybrid search, circuit-breaker protected. Local-only remains the default. [Full results →](benchmark/mneme_hardcore.json)
+- **Mnēmē persistent memory** — In-process BM25 recall, zero daemon. **37ms search P50 at 10,000 docs**, flat across all scales. Perseus `@mimir` renders: **51× cold→warm speedup** with @cache. **2,700 docs/sec** write throughput, **0.4ms P50** saves. v1.0.7 adds **Mimir** (Project Synapse) — MCP-based remote memory with Ebbinghaus time-decay and FTS5 + LIKE hybrid search, circuit-breaker protected. Local Mnēmē remains the default. [Full results →](benchmark/mneme_hardcore.json)
 - **94% token reduction, 0ms overhead** — live 200-request A/B harness: 488 → 27 avg prompt tokens per request. P99 latency overhead: **0ms** — Perseus adds nothing to response time. [Full harness results →](benchmark/ultimate_suite_results.json)
 - **Enterprise Ready** — Cost analysis shows that for a 500-developer team, Perseus can save significant token costs per year. [Cost analysis →](benchmark/titan_cost.json)
 - **Extreme Enterprise Benchmark** — 10-phase suite (reps=10, 50 devs, 250 concurrent agents): **10/10 hard gates · 6/6 soft gates · 0 errors at 250 concurrent · 90% enterprise ROI · fleet P99 1,169ms**. The benchmark is designed to surface regressions, not hide them. [Full methodology →](benchmark/README_EXTREME.md) · [Raw results →](benchmark/extreme_enterprise_results_full.json)
