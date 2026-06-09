@@ -509,7 +509,7 @@ class _MCPSseClient:
 class MnemeConnector:
     """Bridge between Perseus (Python) and Mneme (MCP/JSON-RPC).
 
-    Configuration (from `config.yaml` → `engram`):
+    Configuration (from `config.yaml` → `mneme`):
         enabled: bool              = true
         transport: str             = "stdio"  — "stdio" or "sse"
         command: list[str]         = ["mneme", "serve"]
@@ -925,7 +925,7 @@ class MnemeConnector:
             verified_items.sort(key=lambda i: i.decay_score, reverse=True)
             merged = mneme_only + verified_items + local_only
         elif strategy == MergeStrategy.INTERLEAVE:
-            # Alternate: mneme, local, engram, local — sorted by decay within each
+            # Alternate: mneme, local, local — sorted by decay within each
             mneme_only.sort(key=lambda i: i.decay_score, reverse=True)
             local_only.sort(key=lambda i: i.decay_score, reverse=True)
             verified_items.sort(key=lambda i: i.decay_score, reverse=True)

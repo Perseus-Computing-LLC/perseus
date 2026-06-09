@@ -10,7 +10,7 @@
 
 Perseus is entered in the Google Cloud Rapid Agent Hackathon (Elastic Partner Track).
 The submission demonstrates persistent agent memory across three consecutive sessions,
-with live backend swap from Elastic Cloud to Engram-rs (self-hosted, MIT).
+with live backend swap from Elastic Cloud to Mneme (self-hosted, MIT).
 
 **Required technologies demonstrated:**
 
