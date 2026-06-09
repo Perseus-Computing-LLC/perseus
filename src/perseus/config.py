@@ -124,7 +124,7 @@ DEFAULT_CONFIG = {
     "mneme": {                          # Project Synapse — Mneme MCP-based persistent memory
         "enabled": True,
         "transport": "stdio",            # "stdio" (local binary) or "sse" (remote endpoint)
-        "command": ["mneme", "serve"],
+        "command": ["mneme"],
         "endpoint": "",                  # SSE endpoint URL (when transport=sse)
         "timeout_s": 10.0,
         "merge_strategy": "local_first", # local_first | remote_first | interleave | decay_first
@@ -413,5 +413,4 @@ DEFAULT_CONFIG["foreign"] = {
     "tls_verify": True,
     "max_response_bytes": 1048576,
 }
-
 

@@ -450,7 +450,7 @@ class TestRealWorldSimulation:
                 "directly — always edit src/ and rebuild. Merge conflicts resolved with --ours then rebuild.",
                 "mneme", "insight", decay=0.92),
             _make_hit("arch-2",
-                "The Mneme bridge uses MCP stdio transport: it spawns 'mneme serve --mcp' as a subprocess "
+                "The Mneme bridge uses MCP stdio transport: it spawns 'mneme' as a subprocess "
                 "and communicates via JSON-RPC over stdin/stdout. The SSE transport is available as a stub "
                 "for future dockerized deployments.",
                 "mneme", "architecture", decay=0.85),

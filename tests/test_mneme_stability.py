@@ -1,5 +1,5 @@
 """
-test_engram_stability.py — Phase 1: Infrastructure Validation (Robustness)
+test_mneme_stability.py — Phase 1: Infrastructure Validation (Robustness)
 
 Tests in this file validate that the Mneme bridge does NOT break
 the system when things go wrong. These can run in CI/CD, as daily health
@@ -26,12 +26,12 @@ pytestmark = pytest.mark.skipif(PY_VER < (3, 10), reason="Perseus requires Pytho
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _cfg_with_mneme(overrides=None):
-    """Build a config with Engram enabled but using parameters suitable for testing."""
+    """Build a config with Mneme enabled but using parameters suitable for testing."""
     c = cfg()
     c["mneme"] = {
         "enabled": True,
         "transport": "stdio",
-        "command": ["nonexistent-mneme-binary", "serve", "--mcp"],  # guaranteed unavailable
+        "command": ["nonexistent-mneme-binary"],  # guaranteed unavailable
         "endpoint": "",
         "timeout_s": 0.5,
         "merge_strategy": "local_first",
@@ -58,6 +58,10 @@ def _mock_local_hits():
         {"id": "local-2", "type": "decision", "content": "Chose microkernel pattern for module isolation.", "summary": "Microkernel pattern decision", "relevance": 0.72},
         {"id": "local-3", "type": "insight", "content": "Build artifact perseus.py is generated from src/ — edit src/, not the artifact.", "summary": "Build artifact workflow", "relevance": 0.90},
     ]
+
+
+def test_default_mneme_command_uses_direct_server_mode():
+    assert perseus.DEFAULT_CONFIG["mneme"]["command"] == ["mneme"]
 
 
 def _mock_mneme_hits():

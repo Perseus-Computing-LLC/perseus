@@ -1735,7 +1735,7 @@ def cmd_init(args, cfg):
     mneme_cfg = cfg.get("mneme", {}) if cfg else {}
     if mneme_cfg.get("enabled", True):
         from perseus.doctor import _find_mneme_binary
-        command = mneme_cfg.get("command", ["mneme", "serve"])
+        command = mneme_cfg.get("command", ["mneme"])
         binary_path = _find_mneme_binary(command)
         if binary_path is None:
             print(f"💡 Mneme not found. For persistent cross-session memory, run:")

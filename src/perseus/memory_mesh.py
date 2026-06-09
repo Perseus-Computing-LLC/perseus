@@ -164,7 +164,7 @@ def _memorymesh_search_mcp(query: str, top_k: int = 3) -> list[dict]:
             "params": {
                 "protocolVersion": "2025-06-18",
                 "capabilities": {},
-                "clientInfo": {"name": "perseus", "version": "1.0.6"},
+                "clientInfo": {"name": "perseus", "version": "1.0.7"},
             },
         }) + "\n"
 
