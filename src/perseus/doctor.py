@@ -122,7 +122,7 @@ def _find_version() -> str:
             return candidate.read_text().strip()
     return _PERSEUS_VERSION  # fallback to build-time injected literal
 
-_PERSEUS_VERSION = "1.0.7"  # injected by scripts/build.py at build time
+_PERSEUS_VERSION = "1.0.6"  # injected by scripts/build.py at build time
 _PERSEUS_VERSION = _find_version()
 
 
@@ -465,23 +465,23 @@ def _doctor_check_sessions(cfg: dict, workspace: Path) -> DoctorResult:
 
 
 # Ordered list of doctor checks — adding a check is one function + one line here.
-_KNOWN_MNEME_PATHS = [
-    "/usr/local/bin/mneme",
-    os.path.expanduser("~/.local/bin/mneme"),
-    os.path.expanduser("~/.cargo/bin/mneme"),
-    "/usr/bin/mneme",
-    "/usr/local/bin/mneme",
+_KNOWN_MIMIR_PATHS = [
+    "/usr/local/bin/mimir",
+    os.path.expanduser("~/.local/bin/mimir"),
+    os.path.expanduser("~/.cargo/bin/mimir"),
+    "/usr/bin/mimir",
+    "/usr/local/bin/mimir",
 ]
 
 
-def _find_mneme_binary(configured_command: list[str]) -> str | None:
-    """Search common paths for the mneme binary.
+def _find_mimir_binary(configured_command: list[str]) -> str | None:
+    """Search common paths for the mimir binary.
 
     Returns the first found absolute path, or None if not found.
-    Used by doctor to surface a clear suggestion when mneme is configured
+    Used by doctor to surface a clear suggestion when mimir is configured
     but the binary isn't on PATH (#227).
     """
-    binary_name = configured_command[0] if configured_command else "mneme"
+    binary_name = configured_command[0] if configured_command else "mimir"
 
     # Check if the configured binary is already resolvable via PATH
     import shutil as _shutil
@@ -490,13 +490,13 @@ def _find_mneme_binary(configured_command: list[str]) -> str | None:
         return resolved
 
     # Search known common paths
-    candidates = list(_KNOWN_MNEME_PATHS)
+    candidates = list(_KNOWN_MIMIR_PATHS)
 
-    # Also search $PWD/mneme/target/{release,debug}/mneme
+    # Also search $PWD/mimir/target/{release,debug}/mimir
     try:
         cwd = Path.cwd()
-        candidates.append(str(cwd / "mneme" / "target" / "release" / "mneme"))
-        candidates.append(str(cwd / "mneme" / "target" / "debug" / "mneme"))
+        candidates.append(str(cwd / "mimir" / "target" / "release" / "mimir"))
+        candidates.append(str(cwd / "mimir" / "target" / "debug" / "mimir"))
     except Exception:
         pass
 
@@ -508,30 +508,30 @@ def _find_mneme_binary(configured_command: list[str]) -> str | None:
     return None
 
 
-def _doctor_check_mneme_bridge(cfg: dict, workspace: Path) -> DoctorResult:
-    """Check mneme connectivity and binary discovery (#226, #227).
+def _doctor_check_mimir_bridge(cfg: dict, workspace: Path) -> DoctorResult:
+    """Check mimir connectivity and binary discovery (#226, #227).
 
-    When mneme.enabled is true, this check:
-      1. Searches common paths for the mneme binary (#227)
-      2. Attempts MCP handshake + mneme_health tool call (#226)
+    When mimir.enabled is true, this check:
+      1. Searches common paths for the mimir binary (#227)
+      2. Attempts MCP handshake + mimir_health tool call (#226)
       3. Surfaces a clear warning (not silent Mneme fallback) if unreachable
     """
-    mneme_cfg = cfg.get("mneme", {})
+    mneme_cfg = cfg.get("mimir", {})
     enabled = bool(mneme_cfg.get("enabled", True))
 
     if not enabled:
-        return DoctorResult("mneme_connectivity", "ok", "Mneme",
+        return DoctorResult("mimir_connectivity", "ok", "Mimir",
                            "disabled", "")
 
-    command = list(mneme_cfg.get("command", ["mneme"]))
-    binary_name = command[0] if command else "mneme"
+    command = list(mneme_cfg.get("command", ["mimir", "--db"]))
+    binary_name = command[0] if command else "mimir"
 
     # Step 1: Auto-discover binary if not on PATH (#227)
-    binary_path = _find_mneme_binary(command)
+    binary_path = _find_mimir_binary(command)
     if binary_path is None:
-        return DoctorResult("mneme_connectivity", "warn", "Mneme binary",
+        return DoctorResult("mimir_connectivity", "warn", "Mimir binary",
                            f"not found: '{binary_name}' (searched PATH + known locations)",
-                           "Install mneme or set mneme.command in config.yaml")
+                           "Install mimir or set mimir.command in config.yaml")
     if binary_path != binary_name:
         # Found at a non-default path — update command for the connection attempt
         command[0] = binary_path
@@ -540,8 +540,8 @@ def _doctor_check_mneme_bridge(cfg: dict, workspace: Path) -> DoctorResult:
     try:
         # Build a temporary connector with the discovered binary path
         test_cfg = dict(cfg)
-        test_cfg["mneme"] = dict(mneme_cfg)
-        test_cfg["mneme"]["command"] = command
+        test_cfg["mimir"] = dict(mneme_cfg)
+        test_cfg["mimir"]["command"] = command
 
         connector = MnemeConnector(test_cfg)
         if connector.available:
@@ -550,7 +550,7 @@ def _doctor_check_mneme_bridge(cfg: dict, workspace: Path) -> DoctorResult:
             if healthy:
                 # Try to get version from health check response
                 version_info = ""
-                raw_result, _ = connector._client.call_tool("mneme_health", {}) if connector._client else (None, None)
+                raw_result, _ = connector._client.call_tool("mimir_health", {}) if connector._client else (None, None)
                 if raw_result and isinstance(raw_result, dict):
                     ver = raw_result.get("version", "")
                     db_path = raw_result.get("db_path", "")
@@ -560,23 +560,23 @@ def _doctor_check_mneme_bridge(cfg: dict, workspace: Path) -> DoctorResult:
                         version_info += f" db: {db_path}"
                 connector.close()
                 extra = f" (binary: {binary_path})" if binary_path != binary_name else ""
-                return DoctorResult("mneme_connectivity", "ok", "Mneme",
+                return DoctorResult("mimir_connectivity", "ok", "Mimir",
                                    f"connected + healthy{version_info}{extra}", "")
             else:
                 connector.close()
-                return DoctorResult("mneme_connectivity", "warn", "Mneme",
+                return DoctorResult("mimir_connectivity", "warn", "Mimir",
                                    f"connected but health check failed: {status}",
-                                   "Check mneme server status")
+                                   "Check mimir server status")
         else:
             err = connector.status
             connector.close()
-            return DoctorResult("mneme_connectivity", "warn", "Mneme",
+            return DoctorResult("mimir_connectivity", "warn", "Mimir",
                                f"unreachable: {err}",
-                               "Check mneme is running or install it")
+                               "Check mimir is running or install it")
     except Exception as exc:
-        return DoctorResult("mneme_connectivity", "error", "Mneme",
+        return DoctorResult("mimir_connectivity", "error", "Mimir",
                            str(exc),
-                           "Verify mneme binary and config — check mneme.command in config.yaml")
+                           "Verify mimir binary and config — check mimir.command in config.yaml")
 
 
 
@@ -657,7 +657,7 @@ _DOCTOR_CHECKS = [
     _doctor_check_llm_reachable,
     _doctor_check_llm_functional,
     _doctor_check_cache_writable,
-    _doctor_check_mneme_bridge,
+    _doctor_check_mimir_bridge,
     _doctor_check_sessions,
     _doctor_check_version_header,
     _doctor_check_stale_shim,

@@ -1,10 +1,10 @@
 """
-src/perseus/mneme_connector.py — Perseus × Mneme Bridge (Project Synapse v2)
+src/perseus/mimir_connector.py — Perseus × Mimir Bridge (Project Synapse v2)
 
 Hybrid context resolution: Perseus live state (Sense) + Mneme persistent
 memory (Memory) → unified ContextPackage for LLM injection.
 
-Mneme is a high-performance Rust memory engine using:
+Mimir is a high-performance Rust memory engine using:
   - Three-layer memory: Buffer → Working → Core (time-based progression)
   - Ebbinghaus decay algorithm (forgetting curve)
   - Topic Trees (hierarchical knowledge organization)
@@ -17,7 +17,7 @@ Key features:
   - Circuit Breaker with configurable threshold/cooldown
   - Exponential backoff retry policy
   - Configurable merge strategies with decay-aware ordering
-  - Source-tagged memory items (local vs mneme)
+  - Source-tagged memory items (local vs mimir)
 """
 # stdlib imports available from build artifact header
 import hashlib
@@ -38,7 +38,7 @@ from typing import Any, Optional, Callable
 class MemorySource(str, Enum):
     """Where a memory hit originated."""
     LOCAL = "local"          # Mnēmē FTS5 (Perseus)
-    MNEME = "mneme"        # Mneme persistent store
+    MIMIR = "mimir"        # Mneme persistent store
     FEDERATED = "federated"  # Cross-workspace federation
 
 class MemoryLayer(str, Enum):
@@ -87,7 +87,7 @@ class MemoryHit:
     id: str
     type: MemoryTypeEnum
     content: str
-    source: MemorySource = MemorySource.MNEME
+    source: MemorySource = MemorySource.MIMIR
     summary: str = ""
     relevance: float = 0.0
 
@@ -102,7 +102,7 @@ class MemoryHit:
     links: list[MemoryLink] = field(default_factory=list)
     workspace_hash: str = ""
     tags: dict[str, str] = field(default_factory=dict)
-    verified: bool = False   # True when memory exists in both local + mneme
+    verified: bool = False   # True when memory exists in both local + mimir
 
 @dataclass
 class LiveStateEntry:
@@ -207,7 +207,7 @@ class CircuitBreaker:
 
     States: closed → open (after threshold failures) → half_open (after cooldown)
 
-    Config keys (from mneme.circuit_breaker):
+    Config keys (from mimir.circuit_breaker):
         threshold: int = 3   — consecutive failures before opening
         cooldown: int = 120  — seconds before attempting recovery
     """
@@ -315,8 +315,8 @@ class _MCPStdioClient:
         self._server_capabilities: dict = {}
 
         # Parse --db <path> from command to set subprocess CWD.
-        # Mneme (mneme) may ignore the --db flag and
-        # write to CWD/mneme.db; setting CWD to the DB directory works
+        # Mimir may ignore the --db flag and
+        # write to CWD/mimir.db; setting CWD to the DB directory works
         # around this so auto-backfill lands in the right place.
         self._cwd: str | None = None
         try:
@@ -372,7 +372,7 @@ class _MCPStdioClient:
             # MCP initialize handshake
             init_result, err = self._call("initialize", {
                 "protocolVersion": "2025-06-18",
-                "clientInfo": {"name": "perseus-mneme-connector", "version": "1.0.0"},
+                "clientInfo": {"name": "perseus-mimir-connector", "version": "1.0.0"},
                 "capabilities": {},
             })
             if err or not init_result:
@@ -506,13 +506,13 @@ class _MCPSseClient:
 # MnemeConnector — MCP client with circuit breaker, backoff, and fallback
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class MnemeConnector:
+class MimirConnector:
     """Bridge between Perseus (Python) and Mneme (MCP/JSON-RPC).
 
-    Configuration (from `config.yaml` → `mneme`):
+    Configuration (from `config.yaml` → `mimir`):
         enabled: bool              = true
         transport: str             = "stdio"  — "stdio" or "sse"
-        command: list[str]         = ["mneme"]
+        command: list[str]         = ["mimir", "--db"]
         endpoint: str              = "http://localhost:50052/sse"  (for sse)
         timeout_s: float           = 10.0
         merge_strategy: str        = "local_first"
@@ -533,11 +533,11 @@ class MnemeConnector:
 
     def __init__(self, cfg: dict):
         self._cfg = cfg
-        mcfg = cfg.get("mneme", {})
+        mcfg = cfg.get("mimir", {})
         self._enabled = bool(mcfg.get("enabled", True))
         self._transport = mcfg.get("transport", "stdio")
         self._timeout = float(mcfg.get("timeout_s", 10.0))
-        self._command = mcfg.get("command", ["mneme"])
+        self._command = mcfg.get("command", ["mimir", "--db"])
         self._endpoint = mcfg.get("endpoint", "http://localhost:50052/sse")
         self._fallback_to_local = bool(mcfg.get("fallback_to_local", True))
         self._decay_priority_weight = float(mcfg.get("decay_priority_weight", 0.4))
@@ -630,7 +630,7 @@ class MnemeConnector:
         min_decay_score: float = 0.0,
         topic_path: str | None = None,
     ) -> MemorySegment:
-        """Query Mneme for historical context via MCP 'mneme_recall' tool.
+        """Query Mimir for historical context via MCP 'mimir_recall' tool.
 
         Mneme uses hybrid search (semantic vector + BM25 keyword) with
         Ebbinghaus decay scoring.
@@ -653,7 +653,7 @@ class MnemeConnector:
         types_str = [t.value for t in memory_types] if memory_types else []
 
         def _do_recall():
-            result, err = self._client.call_tool("mneme_recall", {
+            result, err = self._client.call_tool("mimir_recall", {
                 "query": query,
                 "memory_types": types_str,
                 "max_results": max_results,
@@ -680,7 +680,7 @@ class MnemeConnector:
         items = _parse_memory_hits(raw_result or {})
         return MemorySegment(
             items=items,
-            strategy_used="mneme_recall",
+            strategy_used="mimir_recall",
             total_available=len(items),
             query_time_ms=int((time.time() - t0) * 1000),
         )
@@ -695,7 +695,7 @@ class MnemeConnector:
         importance: float = 0.5,
         topic_path: str | None = None,
     ) -> tuple[bool, str]:
-        """Store a new memory in Mneme via MCP 'mneme_store' tool.
+        """Store a new memory in Mimir via MCP 'mimir_store' tool.
 
         Memories enter the Buffer layer and progress to Working → Core
         based on retrieval frequency and decay survival.
@@ -711,7 +711,7 @@ class MnemeConnector:
         ]
 
         def _do_store():
-            result, err = self._client.call_tool("mneme_store", {
+            result, err = self._client.call_tool("mimir_store", {
                 "content": content,
                 "memory_type": memory_type.value,
                 "workspace_hash": workspace_hash or "",
@@ -738,12 +738,12 @@ class MnemeConnector:
         return success, mem_id
 
     def health_check(self) -> tuple[bool, str]:
-        """Check Mneme server health via MCP 'mneme_health' tool."""
+        """Check Mimir server health via MCP 'mimir_health' tool."""
         if not self.available:
             return False, "Mneme unavailable"
 
         def _do_health():
-            result, err = self._client.call_tool("mneme_health", {})
+            result, err = self._client.call_tool("mimir_health", {})
             if err:
                 raise RuntimeError(err)
             return result
@@ -774,7 +774,7 @@ class MnemeConnector:
 
         Three-Step Flow (per Synapse spec):
           Step A (Sense):  Resolve current environment (live state).
-          Step B (Memory): Query Mneme for historical context.
+          Step B (Memory): Query Mimir for historical context.
           Step C (Merge):  Combine both into a ContextPackage using configured
                            merge_strategy, with decay-aware ordering and
                            source tagging + verification.
@@ -810,21 +810,21 @@ class MnemeConnector:
         live_state = LiveStateSegment(
             workspace_path=workspace,
             entries=live_entries,
-            metadata={"connector": "mneme_synapse.v2"},
+            metadata={"connector": "mimir_synapse.v2"},
         )
         diagnostics["live_state_ms"] = str(int((time.time() - t_live) * 1000))
 
         # ── Step B: Historical Context Resolution ──
         t_memory = time.time()
-        mneme_segment = MemorySegment()
+        mimir_segment = MemorySegment()
 
         if self.available:
-            mneme_segment = self.recall(query=query, **kwargs)
-            diagnostics["mneme"] = (
-                f"{len(mneme_segment.items)} results via MCP/{self._transport}"
+            mimir_segment = self.recall(query=query, **kwargs)
+            diagnostics["mimir"] = (
+                f"{len(mimir_segment.items)} results via MCP/{self._transport}"
             )
         else:
-            diagnostics["mneme"] = f"unavailable: {self._connect_error or 'disabled'}"
+            diagnostics["mimir"] = f"unavailable: {self._connect_error or 'disabled'}"
 
         # ── Local Mnēmē FTS5 fallback ──
         local_items: list[MemoryHit] = []
@@ -840,7 +840,7 @@ class MnemeConnector:
         # ── Step C: Merge — apply configured strategy (decay-aware) ──
         merged_segment = self._merge_results(
             local_items=local_items,
-            mneme_items=mneme_segment.items,
+            mimir_items=mimir_segment.items,
             strategy=self._merge_strategy,
             diagnostics=diagnostics,
         )
@@ -860,7 +860,7 @@ class MnemeConnector:
     def _merge_results(
         self,
         local_items: list[MemoryHit],
-        mneme_items: list[MemoryHit],
+        mimir_items: list[MemoryHit],
         strategy: MergeStrategy,
         diagnostics: dict[str, str],
     ) -> MemorySegment:
@@ -873,67 +873,67 @@ class MnemeConnector:
         Verification: if a memory exists in both sources, the Mneme version
         is preferred but flagged as verified=True.
         """
-        if not local_items and not mneme_items:
+        if not local_items and not mimir_items:
             return MemorySegment(strategy_used=strategy.value)
 
         # Build lookup by content hash for dedup
-        mneme_by_hash: dict[str, MemoryHit] = {}
-        for ei in mneme_items:
+        mimir_by_hash: dict[str, MemoryHit] = {}
+        for ei in mimir_items:
             h = hashlib.md5(ei.content.encode()).hexdigest()[:12]
-            mneme_by_hash[h] = ei
+            mimir_by_hash[h] = ei
 
         local_by_hash: dict[str, MemoryHit] = {}
         for li in local_items:
             h = hashlib.md5(li.content.encode()).hexdigest()[:12]
             local_by_hash[h] = li
 
-        mneme_hashes = set(mneme_by_hash.keys())
+        mimir_hashes = set(mimir_by_hash.keys())
         local_hashes = set(local_by_hash.keys())
 
         # Items in both — mark as verified, prefer Mneme version
-        both_hashes = mneme_hashes & local_hashes
+        both_hashes = mimir_hashes & local_hashes
         verified_items: list[MemoryHit] = []
         for h in both_hashes:
-            ei = mneme_by_hash[h]
+            ei = mimir_by_hash[h]
             ei.verified = True
             verified_items.append(ei)
 
         # Mneme-only items
-        mneme_only = [mneme_by_hash[h] for h in (mneme_hashes - local_hashes)]
+        mimir_only = [mimir_by_hash[h] for h in (mimir_hashes - local_hashes)]
 
         # Local-only items
-        local_only = [local_by_hash[h] for h in (local_hashes - mneme_hashes)]
+        local_only = [local_by_hash[h] for h in (local_hashes - mimir_hashes)]
 
         diagnostics["merge_verified"] = str(len(verified_items))
-        diagnostics["merge_mneme_only"] = str(len(mneme_only))
+        diagnostics["merge_mimir_only"] = str(len(mimir_only))
         diagnostics["merge_local_only"] = str(len(local_only))
 
         if strategy == MergeStrategy.DECAY_FIRST:
             # Pure decay ordering: sort all by decay_score descending
-            all_items = verified_items + mneme_only + local_only
+            all_items = verified_items + mimir_only + local_only
             all_items.sort(key=lambda i: i.decay_score, reverse=True)
             return MemorySegment(
                 items=all_items,
-                strategy_used=f"mneme_{strategy.value}",
+                strategy_used=f"mimir_{strategy.value}",
                 total_available=len(all_items),
             )
 
         if strategy == MergeStrategy.REMOTE_FIRST:
             # Sort within groups by decay_score desc (fresh → stale)
-            mneme_only.sort(key=lambda i: i.decay_score, reverse=True)
+            mimir_only.sort(key=lambda i: i.decay_score, reverse=True)
             local_only.sort(key=lambda i: i.decay_score, reverse=True)
             verified_items.sort(key=lambda i: i.decay_score, reverse=True)
-            merged = mneme_only + verified_items + local_only
+            merged = mimir_only + verified_items + local_only
         elif strategy == MergeStrategy.INTERLEAVE:
-            # Alternate: mneme, local, local — sorted by decay within each
-            mneme_only.sort(key=lambda i: i.decay_score, reverse=True)
+            # Alternate: mimir, local, local — sorted by decay within each
+            mimir_only.sort(key=lambda i: i.decay_score, reverse=True)
             local_only.sort(key=lambda i: i.decay_score, reverse=True)
             verified_items.sort(key=lambda i: i.decay_score, reverse=True)
             interleaved = []
-            max_len = max(len(mneme_only), len(local_only))
+            max_len = max(len(mimir_only), len(local_only))
             for i in range(max_len):
-                if i < len(mneme_only):
-                    interleaved.append(mneme_only[i])
+                if i < len(mimir_only):
+                    interleaved.append(mimir_only[i])
                 if i < len(local_only):
                     interleaved.append(local_only[i])
             merged = interleaved + verified_items
@@ -941,12 +941,12 @@ class MnemeConnector:
             # LOCAL_FIRST (default): local results first, Mneme augments
             local_only.sort(key=lambda i: i.decay_score, reverse=True)
             verified_items.sort(key=lambda i: i.decay_score, reverse=True)
-            mneme_only.sort(key=lambda i: i.decay_score, reverse=True)
-            merged = local_only + verified_items + mneme_only
+            mimir_only.sort(key=lambda i: i.decay_score, reverse=True)
+            merged = local_only + verified_items + mimir_only
 
         return MemorySegment(
             items=merged,
-            strategy_used=f"mneme_{strategy.value}",
+            strategy_used=f"mimir_{strategy.value}",
             total_available=len(merged),
         )
 
@@ -982,9 +982,9 @@ def _parse_memory_hits(data: dict) -> list[MemoryHit]:
             mem_type = MemoryTypeEnum(raw.get("type", "insight"))
         except ValueError:
             pass
-        mem_source = MemorySource.MNEME
+        mem_source = MemorySource.MIMIR
         try:
-            mem_source = MemorySource(raw.get("source", "mneme"))
+            mem_source = MemorySource(raw.get("source", "mimir"))
         except ValueError:
             pass
         mem_layer = MemoryLayer.WORKING
@@ -1066,7 +1066,7 @@ _connector_cfg_hash: str = ""
 def _get_connector(cfg: dict) -> MnemeConnector:
     """Get or create the singleton MnemeConnector.
 
-    Re-creates if config changed. Used by resolve_memory / resolve_mneme.
+    Re-creates if config changed. Used by resolve_memory / resolve_mimir.
     """
     global _connector, _connector_cfg_hash
     cfg_bytes = str(sorted(cfg.items())).encode()
@@ -1083,10 +1083,10 @@ def _get_connector(cfg: dict) -> MnemeConnector:
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Resolver stubs — wired into DIRECTIVE_REGISTRY via _bind_registry()
-# These are the functions agora.py calls to augment @memory / @mneme directives
+# These are the functions agora.py calls to augment @memory / @mimir directives
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _mneme_hybrid_search(
+def _mimir_hybrid_search(
     cfg: dict,
     query: str,
     workspace: str = "",
@@ -1096,7 +1096,7 @@ def _mneme_hybrid_search(
     include_federation: bool = False,
     **kwargs,
 ) -> MemorySegment:
-    """Query Mneme for historical context alongside local Mnēmē FTS5 hits.
+    """Query Mimir for historical context alongside local Mnēmē FTS5 hits.
 
     Called by resolve_memory/search in agora.py after local FTS5 recall.
     Returns a MemorySegment that agora.py can render alongside local results.
@@ -1140,7 +1140,7 @@ def _mneme_hybrid_search(
     return segment
 
 
-def _mneme_hybrid_mneme_search(
+def _mimir_hybrid_recall(
     cfg: dict,
     query: str,
     scope: str | None = None,
@@ -1148,12 +1148,12 @@ def _mneme_hybrid_mneme_search(
     type_filter: str | None = None,
     **kwargs,
 ) -> MemorySegment:
-    """Resolve @mneme directive — BM25 recall with optional Mneme augmentation.
+    """Resolve @mimir directive — BM25 recall with optional Mneme augmentation.
 
     This is the lightweight cousin of @memory: local FTS5 first, Mneme
     augmentation if available.
 
-    Called by resolve_mneme (agora.py) which prepends mode=search and delegates
+    Called by resolve_mimir (agora.py) which prepends mode=search and delegates
     to resolve_memory.
     """
     connector = _get_connector(cfg)

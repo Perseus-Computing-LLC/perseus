@@ -72,7 +72,7 @@ _PARAM_DESCRIPTIONS: dict[str, dict[str, str]] = {
                      "include_federation": "Include federation results in output",
                      "alias": "Workspace alias for federation targeting",
                      "workspace": "Target workspace path for scoped queries"},
-    "@mneme":       {"query": "BM25 FTS5 search query for persistent memory recall",
+    "@mimir":       {"query": "BM25 FTS5 search query for persistent memory recall",
                      "scope": "Memory scope filter",
                      "k": "Number of results to return (default: 5)",
                      "type": "Memory type filter"},
@@ -195,7 +195,7 @@ def _build_output_schema(tool_name: str, spec) -> dict | None:
                 "count": {"type": "integer", "description": "Number of results returned"}
             }
         }
-    if tool_name == "perseus_mneme":
+    if tool_name == "perseus_mimir":
         return {
             "type": "object",
             "properties": {

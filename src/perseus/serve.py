@@ -908,7 +908,7 @@ Before storing a fact in the `memory` tool, verify ALL three:
 Only facts that pass ALL THREE gates belong in `memory` (2,200 char hard limit).
 Everything else has a better home:
 - 🔁 **Procedures** → `skill_manage` (create/update a skill)
-- 🧠 **Cross-session context** → mneme (MCP `mneme_store` / `mneme_recall`)
+- 🧠 **Cross-session context** → mimir (MCP `mimir_store` / `mimir_recall`)
 - 🚫 **Ephemeral state, one-time fixes, completed tasks** → discard
 
 🚫 **Flat files (.txt, .json, .csv, .md) are BANNED as a memory backend.**
@@ -964,8 +964,8 @@ Everything else has a better home:
 > @memory mode=search query="another topic" k=2
 > ```
 > Each sub-query is short enough to match effectively; the relay layer merges results.
-> Falls back gracefully to local Mneme FTS5 if Mneme is unavailable.
-> Requires `mneme.enabled: true` in `.perseus/config.yaml`.
+> Falls back gracefully to local Mnēmē FTS5 if Mimir is unavailable.
+> Requires `mimir.enabled: true` in `.perseus/config.yaml`.
 
 @memory mode=search query="{mneme_query}" k=5
 """
@@ -1730,20 +1730,20 @@ def cmd_init(args, cfg):
         content = INIT_CONTEXT_TEMPLATE.format(workspace=str(workspace), version=_PERSEUS_VERSION, mneme_query=_context_appropriate_memory_query(workspace))
     context_file.write_text(content, encoding="utf-8")
 
-    # ── Mneme binary auto-discovery (#227) ──
-    # If mneme is not installed, suggest the bootstrap script
-    mneme_cfg = cfg.get("mneme", {}) if cfg else {}
+    # ── Mimir binary auto-discovery (#227) ──
+    # If mimir is not installed, suggest the bootstrap script
+    mneme_cfg = cfg.get("mimir", {}) if cfg else {}
     if mneme_cfg.get("enabled", True):
-        from perseus.doctor import _find_mneme_binary
-        command = mneme_cfg.get("command", ["mneme"])
-        binary_path = _find_mneme_binary(command)
+        from perseus.doctor import _find_mimir_binary
+        command = mneme_cfg.get("command", ["mimir", "--db"])
+        binary_path = _find_mimir_binary(command)
         if binary_path is None:
-            print(f"💡 Mneme not found. For persistent cross-session memory, run:")
-            print(f"   curl -sSL https://raw.githubusercontent.com/tcconnally/mneme/main/scripts/bootstrap.sh | bash")
+            print(f"💡 Mimir not found. For persistent cross-session memory, run:")
+            print(f"   curl -sSL https://raw.githubusercontent.com/tcconnally/mimir/main/scripts/bootstrap.sh | bash")
         elif binary_path != command[0]:
             language = _detect_project_language(workspace)
             lang_note = f" (detected: {language})" if language else ""
-            print(f"✓ Context scaffolded{lang_note} — mneme binary at: {binary_path}")
+            print(f"✓ Context scaffolded{lang_note} — mimir binary at: {binary_path}")
 
     manifest = None
     if profile_name and not getattr(args, "no_pack", False):

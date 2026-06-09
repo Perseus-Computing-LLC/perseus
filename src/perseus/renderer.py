@@ -183,12 +183,12 @@ def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path | N
     dangerous = os.environ.get('PERSEUS_ALLOW_DANGEROUS', '0')
     parts.append(f"env:PERSEUS_ALLOW_DANGEROUS={dangerous}")
 
-    if directive in ("@memory", "@mneme"):
-        mcfg = cfg.get("mneme", {})
+    if directive in ("@memory", "@mimir"):
+        mcfg = cfg.get("mimir", {})
         import json as _json
         try:
             mcfg_str = _json.dumps(mcfg, sort_keys=True)
-            parts.append(f"config:mneme={mcfg_str}")
+            parts.append(f"config:mimir={mcfg_str}")
         except Exception:
             pass
 
@@ -702,7 +702,7 @@ def _uses_preflight_sensitive_directive(lines: list[str]) -> bool:
     """
     if not INLINE_DIRECTIVE_RE:
         return False
-    sensitive = {"@waypoint", "@inbox", "@memory", "@mneme"}
+    sensitive = {"@waypoint", "@inbox", "@memory", "@mimir"}
     for raw in lines:
         m = INLINE_DIRECTIVE_RE.match(raw.strip())
         if m and m.group(1).lower() in sensitive:

@@ -59,7 +59,7 @@ MODULE_ORDER = [
     "src/perseus/mneme_index.py",        # ← Mnēmē v2: SQLite FTS5 index (depends on memory.py)
     "src/perseus/mneme_narrative.py",    # ← Mnēmē v2: narrative engine (depends on memory.py)
     "src/perseus/mneme_federation.py",   # ← Mnēmē v2: federation (depends on narrative)
-    "src/perseus/mneme_connector.py",  # ← Mneme bridge: MCP client + hybrid resolution (depends on memory, mneme)
+    "src/perseus/mimir_connector.py",  # ← Mimir bridge: MCP client + hybrid resolution (depends on memory)
     "src/perseus/inbox.py",
     "src/perseus/agora.py",
     "src/perseus/pythia.py",
