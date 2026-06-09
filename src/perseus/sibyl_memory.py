@@ -33,7 +33,7 @@ Maintenance: One-time integration. Sibyl Memory is MIT-licensed, actively
 maintained by Sibyl Labs LLC (daily releases since May 2026). If the SDK
 disappears, Perseus continues unchanged.
 
-Overlap: COMPLEMENTARY. Perseus has engram-rs (semantic search memory)
+Overlap: COMPLEMENTARY. Perseus has Mneme (semantic search memory)
 and Mneme vault (flat markdown). Sibyl Memory adds structured tiers
 (HOT/WARM/COLD/REFERENCE/ARCHIVE) with cross-tier FTS5 + UNIQUE schema
 constraints — a different paradigm that strengthens Perseus's memory

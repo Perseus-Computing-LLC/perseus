@@ -492,7 +492,7 @@ def _find_mneme_binary(configured_command: list[str]) -> str | None:
     # Search known common paths
     candidates = list(_KNOWN_MNEME_PATHS)
 
-    # Also search $PWD/mneme/target/{release,debug}/engram
+    # Also search $PWD/mneme/target/{release,debug}/mneme
     try:
         cwd = Path.cwd()
         candidates.append(str(cwd / "mneme" / "target" / "release" / "mneme"))

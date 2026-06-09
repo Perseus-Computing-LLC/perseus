@@ -7865,7 +7865,7 @@ Maintenance: One-time integration. Sibyl Memory is MIT-licensed, actively
 maintained by Sibyl Labs LLC (daily releases since May 2026). If the SDK
 disappears, Perseus continues unchanged.
 
-Overlap: COMPLEMENTARY. Perseus has engram-rs (semantic search memory)
+Overlap: COMPLEMENTARY. Perseus has Mneme (semantic search memory)
 and Mneme vault (flat markdown). Sibyl Memory adds structured tiers
 (HOT/WARM/COLD/REFERENCE/ARCHIVE) with cross-tier FTS5 + UNIQUE schema
 constraints — a different paradigm that strengthens Perseus's memory
@@ -13640,7 +13640,7 @@ class _MCPSseClient:
 class MnemeConnector:
     """Bridge between Perseus (Python) and Mneme (MCP/JSON-RPC).
 
-    Configuration (from `config.yaml` → `engram`):
+    Configuration (from `config.yaml` → `mneme`):
         enabled: bool              = true
         transport: str             = "stdio"  — "stdio" or "sse"
         command: list[str]         = ["mneme", "serve"]
@@ -14056,7 +14056,7 @@ class MnemeConnector:
             verified_items.sort(key=lambda i: i.decay_score, reverse=True)
             merged = mneme_only + verified_items + local_only
         elif strategy == MergeStrategy.INTERLEAVE:
-            # Alternate: mneme, local, engram, local — sorted by decay within each
+            # Alternate: mneme, local, local — sorted by decay within each
             mneme_only.sort(key=lambda i: i.decay_score, reverse=True)
             local_only.sort(key=lambda i: i.decay_score, reverse=True)
             verified_items.sort(key=lambda i: i.decay_score, reverse=True)
@@ -17689,7 +17689,7 @@ def _find_mneme_binary(configured_command: list[str]) -> str | None:
     # Search known common paths
     candidates = list(_KNOWN_MNEME_PATHS)
 
-    # Also search $PWD/mneme/target/{release,debug}/engram
+    # Also search $PWD/mneme/target/{release,debug}/mneme
     try:
         cwd = Path.cwd()
         candidates.append(str(cwd / "mneme" / "target" / "release" / "mneme"))
