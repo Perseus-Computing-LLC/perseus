@@ -2,7 +2,7 @@
 *Model-agnostic · Environment-agnostic · Tested with Hermes Agent, Rovo Dev (Claude Sonnet), Rovo web agent, and Claude Code*
 
 > **Last updated:** 2026-06-06  
-> **Perseus version tested:** v1.0.6  
+> **Perseus version tested:** v1.0.7
 > **Platforms verified:** macOS · Linux · Windows 10 (git-bash) · Docker  
 > **Source:** https://github.com/tcconnally/perseus · https://pypi.org/project/perseus-ctx/  
 > **New in this version:** Sibyl Memory as primary persistent store (structured five-tier memory) · Mneme MCP connector available as optional alternative
@@ -233,7 +233,7 @@ memory:
 mneme:                                 # Mneme MCP-based persistent memory (OPTIONAL — Sibyl is primary)
   enabled: false                        # Master switch. Set true to use Mneme INSTEAD OF Sibyl.
   transport: "stdio"                    # "stdio" (local mneme binary) or "sse" (remote endpoint)
-  command: [mneme, serve, --mcp]       # Command to launch Mneme in MCP mode
+  command: [mneme]                     # Command to launch Mneme in MCP mode
   endpoint: ""                          # SSE endpoint URL (only used when transport=sse)
   timeout_s: 10.0
   merge_strategy: "local_first"         # local_first | remote_first | interleave | decay_first
@@ -330,7 +330,7 @@ renders:
 ### All available directives
 
 ```markdown
-@perseus v1.0.6
+@perseus v1.0.7
 
 @prompt
 Your system prompt goes here. This is injected before the rendered content.
@@ -406,7 +406,7 @@ Your system prompt goes here. This is injected before the rendered content.
 @health
 ```
 
-> **Header version:** Use `@perseus v1.0.6` (the version `perseus init` generates). Older guides
+> **Header version:** Use `@perseus v1.0.7` (the version `perseus init` generates). Older guides
 > may show `@perseus v1.0` — both work within v1.x, but always use the version that matches your
 > installed Perseus. A mismatched header won't error, but new directive features may not activate.
 >
@@ -593,7 +593,7 @@ When enabled, `@memory` runs a **three-step hybrid resolution**:
 mneme:
   enabled: true                         # Master switch
   transport: "stdio"                    # stdio (local binary) or sse (remote)
-  command: [mneme, serve, --mcp]       # Launch command for stdio transport
+  command: [mneme]                     # Launch command for stdio transport
   merge_strategy: "local_first"         # local_first | remote_first | interleave | decay_first
   fallback_to_local: true               # Graceful degradation: Mnēmē FTS5 if Mneme offline
   circuit_breaker:
@@ -613,7 +613,7 @@ cp target/release/mneme ~/.local/bin/mneme
 curl -sSL https://raw.githubusercontent.com/tcconnally/mneme/main/scripts/bootstrap.sh | bash
 
 # Verify
-mneme --version   # expect "mneme 0.1.0"
+mneme --version   # expect "mneme 0.1.1"
 ```
 
 > **v0.1.0 MVP scope:** Mneme v0.1.0 is an MCP JSON-RPC stdio server with three tools:
@@ -628,7 +628,6 @@ mneme --version   # expect "mneme 0.1.0"
 > mneme:
 >   command:
 >     - "/usr/local/bin/mneme"   # or ~/.local/bin/mneme, or absolute path
->     - "serve"
 >     - "--db"
 >     - "~/.perseus/mneme/mneme.db"   # persistent, writable by runtime user
 > ```
@@ -1237,7 +1236,7 @@ perseus render ~/.perseus/context.md --output ~/AGENTS.md
 
 ---
 
-## Known Issues (as of v1.0.6)
+## Known Issues (as of v1.0.7)
 
 | # | Type | Summary |
 |---|---|---|
@@ -1310,6 +1309,6 @@ perseus doctor
 
 ---
 
-*Built from production experience wiring Perseus v1.0.6 into Hermes Agent, Rovo Dev CLI, and Rovo web agent — with Sibyl Memory as primary persistent store (Mneme available as optional alternative).*  
+*Built from production experience wiring Perseus v1.0.7 into Hermes Agent, Rovo Dev CLI, and Rovo web agent — with Sibyl Memory as primary persistent store (Mneme available as optional alternative).*
 *Issues filed: [#128](https://github.com/tcconnally/perseus/issues/128) – [#135](https://github.com/tcconnally/perseus/issues/135)*  
 *Guide maintained at: `~/rovodev/docs/perseus-setup-guide.md` (canonical) · this copy: `~/Downloads/perseus-setup-guide.md`*

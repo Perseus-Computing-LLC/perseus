@@ -138,7 +138,7 @@ def _memtrace_mcp_call(tool_name: str, arguments: dict[str, Any], timeout: int =
             "params": {
                 "protocolVersion": "2025-06-18",
                 "capabilities": {},
-                "clientInfo": {"name": "perseus", "version": "1.0.6"},
+                "clientInfo": {"name": "perseus", "version": "1.0.7"},
             },
         }) + "\n"
 
