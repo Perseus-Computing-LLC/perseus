@@ -63,7 +63,7 @@ PHASE_DEFINITIONS = [
     {"phase": 4, "name": "Agora Swarm", "duration_s": 2700, "key_gate": "Zero board corruption, claim contention <= 5%"},
     {"phase": 5, "name": "Checkpoint Relay", "duration_s": 2700, "key_gate": "Zero corruption, throughput >= 50 wps"},
     {"phase": 6, "name": "Inbox Storm", "duration_s": 1800, "key_gate": "Delivery >= 99.9%, zero duplicates"},
-    {"phase": 7, "name": "Adversarial Gauntlet", "duration_s": 3600, "key_gate": "Zero corruption, clean recovery from all 12"},
+    {"phase": 7, "name": "Adversarial Gauntlet", "duration_s": 3720, "key_gate": "Zero corruption, clean recovery from all 12"},
     {"phase": 8, "name": "Semantic Integrity", "duration_s": 1800, "key_gate": "Equivalence >= 0.90"},
     {"phase": 9, "name": "Token Efficiency", "duration_s": 900, "key_gate": "Compression >= 85%, P99 overhead <= 50ms"},
     {"phase": 10, "name": "Sustained Torture", "duration_s": 7200, "key_gate": "RSS growth <= 5%, errors <= 0.01%"},
