@@ -26,7 +26,7 @@ import pytest
 
 from conftest import PY_VER, cfg, perseus
 
-pytestmark = pytest.mark.skip(reason="Pre-existing: Mneme→Mimir migration needs test rewrite")
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
