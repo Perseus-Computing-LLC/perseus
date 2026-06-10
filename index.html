@@ -97,6 +97,37 @@
     border: 0;
   }
 
+  /* Reusable button styles */
+  .cta-btn {
+    display: inline-block;
+    border: 1px solid var(--accent);
+    padding: 10px 20px;
+    color: var(--accent);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    transition: all .18s ease;
+    background: transparent;
+    cursor: pointer;
+  }
+  .cta-btn:hover {
+    background: rgba(199, 125, 255, 0.08);
+    box-shadow: 0 0 18px rgba(199, 125, 255, 0.25);
+    color: var(--accent-bright);
+    border-color: var(--accent-bright);
+  }
+  .cta-btn.primary {
+    background: var(--accent);
+    color: #1a1410;
+  }
+  .cta-btn.primary:hover {
+    background: var(--accent-bright);
+    box-shadow: 0 0 24px rgba(199, 125, 255, 0.5);
+    color: #1a1410;
+    border-color: var(--accent-bright);
+  }
+
   /* Architectural section header */
   .sec-head {
     display: grid;
@@ -1806,6 +1837,7 @@
       <a href="#how" class="nav-link">How it works</a>
       <a href="#triad" class="nav-link">The Triad</a>
       <a href="#architecture" class="nav-link">Architecture</a>
+      <a href="#mimir" class="nav-link">Mimir</a>
       <a href="#arsenal" class="nav-link">Arsenal</a>
       <a href="#proof" class="nav-link">Benchmarks</a>
       <a href="#compat" class="nav-link">Assistants</a>
@@ -1825,6 +1857,7 @@
   <a href="#how">How it works</a>
   <a href="#triad">The Triad</a>
   <a href="#architecture">Architecture</a>
+  <a href="#mimir">Mimir</a>
   <a href="#arsenal">Arsenal</a>
   <a href="#proof">Benchmarks</a>
   <a href="#compat">Assistants</a>
@@ -2437,11 +2470,67 @@ Branch: <span class="s">feat/billing-v2</span>
   </div>
 </section>
 
+<!-- ============ MIMIR ============ -->
+<section id="mimir" class="section-block">
+  <div class="wrap">
+    <header class="sec-head reveal">
+      <div class="sec-num">VI &mdash; Persistent Memory</div>
+      <h2 class="sec-title">Mimir: one vault, <em>every device</em>.</h2>
+    </header>
+
+    <div class="triad-grid reveal" style="grid-template-columns: repeat(3, 1fr); gap: 28px; margin-bottom: 48px;">
+      <div class="td-item">
+        <div class="td-icon" aria-hidden="true">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--accent-2)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        </div>
+        <div class="td-label">Single file</div>
+        <p class="td-text">One <code style="font-family:var(--mono);color:var(--accent-2);">mimir.db</code> — SQLite with FTS5. Drop it on Syncthing, Dropbox, or a NAS. Every Hermes instance on every machine reads from the same vault.</p>
+      </div>
+      <div class="td-item">
+        <div class="td-icon" aria-hidden="true">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--accent-2)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        </div>
+        <div class="td-label">Sub-millisecond recall</div>
+        <p class="td-text">BM25 over FTS5 with porter stemming. <b>0.09ms cold, 0.12ms warm</b> query P50 at 75 records — flat across scale. No embedding model, no API calls, no cloud.</p>
+      </div>
+      <div class="td-item">
+        <div class="td-icon" aria-hidden="true">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--accent-2)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        </div>
+        <div class="td-label">Multi-device sync</div>
+        <p class="td-text">MCP-native. Run <code style="font-family:var(--mono);color:var(--accent-2);">mimir</code> as a sidecar, point all your agents at it. Same memories, same projects, same context — regardless of which machine you're on.</p>
+      </div>
+    </div>
+
+    <div class="code-block reveal" style="margin-bottom: 32px;">
+      <div class="cb-label">Install and run</div>
+      <pre><code>curl -sSL https://raw.githubusercontent.com/tcconnally/mimir/main/scripts/bootstrap.sh | bash
+
+# Start the MCP server
+mimir --db ~/.mimir/data/mimir.db
+
+# In your Perseus config:
+# memory:
+#   mimir_command: mimir
+#   mimir_db: ~/.mimir/data/mimir.db</code></pre>
+    </div>
+
+    <p class="reveal" style="text-align:center; font-family:var(--serif); font-size:18px; color:var(--text-dim); font-style:italic; max-width:620px; margin:0 auto;">
+      Perseus renders the context. <span style="color:var(--accent-2);">Mimir remembers it.</span>
+    </p>
+
+    <div class="reveal" style="text-align:center; margin-top:32px; display:flex; justify-content:center; gap:16px; flex-wrap:wrap;">
+      <a href="/mimir/" class="cta-btn primary" style="display:inline-block;">Explore Mimir Server &rarr;</a>
+      <a href="https://github.com/tcconnally/mimir" class="cta-btn" style="display:inline-block;">Mimir on GitHub ↗</a>
+    </div>
+  </div>
+</section>
+
 <!-- ============ PROOF / STATS ============ -->
 <section id="proof" class="section-block">
   <div class="wrap">
     <header class="sec-head reveal">
-      <div class="sec-num">VI &nbsp;— &nbsp;The Receipts</div>
+      <div class="sec-num">VII &nbsp;— &nbsp;The Receipts</div>
       <h2 class="sec-title">Numbers from the bench, <em>not the pitch deck.</em></h2>
     </header>
 
