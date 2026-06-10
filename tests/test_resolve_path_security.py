@@ -14,7 +14,10 @@ import os
 import tempfile
 import pytest
 from pathlib import Path
-from hypothesis import given, settings, strategies as st, assume
+try:
+    from hypothesis import given, settings, strategies as st, assume
+except ImportError:
+    pytest.skip("hypothesis not installed", allow_module_level=True)
 
 
 # Import from the built artifact (not source modules — per skill docs)
