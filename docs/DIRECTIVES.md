@@ -26,7 +26,7 @@ Source documents start with `@perseus v1.0.6` on line 1. The value after `@perse
 | `@agora [status=...] [scope=...]` | Live task board from `tasks/` — markdown table by status/scope |
 | `@memory [focus="..."] [ttl=N]` | Mnēmē narrative for the workspace; `focus=` slices a single section (`arc`, `decisions`, `recent`, `patterns`, `history`) |
 | `@memory mode=search query="terms" [k=5] [scope=...] [type=...]` | Mnēmē v2 FTS5 BM25 search over the vault (`~/.perseus/memory/vault/*.md`). Returns ranked results with snippet highlights. Use single-word queries for best recall — multi-word queries are matched as exact FTS5 phrases. |
-| `@mneme query="terms" [k=5] [scope=...] [type=...]` | Mnēmē v2 FTS5 recall — same backend as `@memory mode=search`. Shorthand alias for memory search without the narrative/federation modes. |
+| `@mimir query="terms" [k=5] [scope=...] [type=...]` | Mimir FTS5 recall — same backend as `@memory mode=search`. Shorthand alias for memory search without the narrative/federation modes. |
 | `@health` | Maintenance suggestions (stale checkpoints, near-duplicates, large context, old completed tasks) |
 | `@list <path> [type] [depth] [path] [columns] [as]` | Directory listing OR structured-file table from `path="dot.key"` of JSON/YAML |
 | `@tree <path> [depth] [match] [exclude]` | Fenced directory tree with plain indentation |
