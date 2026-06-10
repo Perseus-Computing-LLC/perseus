@@ -543,7 +543,7 @@ def _doctor_check_mimir_bridge(cfg: dict, workspace: Path) -> DoctorResult:
         test_cfg["mimir"] = dict(mneme_cfg)
         test_cfg["mimir"]["command"] = command
 
-        connector = MnemeConnector(test_cfg)
+        connector = MimirConnector(test_cfg)
         if connector.available:
             # Run health check
             healthy, status = connector.health_check()
