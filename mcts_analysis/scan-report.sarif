@@ -1,0 +1,2733 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "MCTS",
+          "informationUri": "https://github.com/MCP-Audit/MCTS",
+          "version": "0.1.2",
+          "rules": [
+            {
+              "id": "surface-excessive-prompt:prompt-for-claude-code",
+              "name": "Excessive prompt text on prompt-for-claude-code",
+              "shortDescription": {
+                "text": "Excessive prompt text on prompt-for-claude-code"
+              },
+              "fullDescription": {
+                "text": "Long MCP surface text may hide instructions (line jumping)."
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "surface_metadata",
+                "technique_id": "MCTS-T-1001",
+                "security-severity": "5.0"
+              }
+            },
+            {
+              "id": "surface-excessive-prompt:prompt-for-opus-verify",
+              "name": "Excessive prompt text on prompt-for-opus-verify",
+              "shortDescription": {
+                "text": "Excessive prompt text on prompt-for-opus-verify"
+              },
+              "fullDescription": {
+                "text": "Long MCP surface text may hide instructions (line jumping)."
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "surface_metadata",
+                "technique_id": "MCTS-T-1001",
+                "security-severity": "5.0"
+              }
+            },
+            {
+              "id": "surface-excessive-prompt:agent-onboarding-prompt",
+              "name": "Excessive prompt text on agent-onboarding-prompt",
+              "shortDescription": {
+                "text": "Excessive prompt text on agent-onboarding-prompt"
+              },
+              "fullDescription": {
+                "text": "Long MCP surface text may hide instructions (line jumping)."
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "surface_metadata",
+                "technique_id": "MCTS-T-1001",
+                "security-severity": "5.0"
+              }
+            },
+            {
+              "id": "surface-excessive-prompt:perseus",
+              "name": "Excessive prompt text on perseus",
+              "shortDescription": {
+                "text": "Excessive prompt text on perseus"
+              },
+              "fullDescription": {
+                "text": "Long MCP surface text may hide instructions (line jumping)."
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "surface_metadata",
+                "technique_id": "MCTS-T-1001",
+                "security-severity": "5.0"
+              }
+            },
+            {
+              "id": "surface-excessive-prompt:memory-cleanup",
+              "name": "Excessive prompt text on memory-cleanup",
+              "shortDescription": {
+                "text": "Excessive prompt text on memory-cleanup"
+              },
+              "fullDescription": {
+                "text": "Long MCP surface text may hide instructions (line jumping)."
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "surface_metadata",
+                "technique_id": "MCTS-T-1001",
+                "security-severity": "5.0"
+              }
+            },
+            {
+              "id": "surface-excessive-prompt:pir-action-tracker",
+              "name": "Excessive prompt text on pir-action-tracker",
+              "shortDescription": {
+                "text": "Excessive prompt text on pir-action-tracker"
+              },
+              "fullDescription": {
+                "text": "Long MCP surface text may hide instructions (line jumping)."
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "surface_metadata",
+                "technique_id": "MCTS-T-1001",
+                "security-severity": "5.0"
+              }
+            },
+            {
+              "id": "meta-excessive-desc-prompt:prompt-for-claude-code",
+              "name": "Excessive description length on prompt:prompt-for-claude-code",
+              "shortDescription": {
+                "text": "Excessive description length on prompt:prompt-for-claude-code"
+              },
+              "fullDescription": {
+                "text": "Description is 5689 chars \u2014 may hide instructions (line jumping)."
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "metadata_integrity",
+                "technique_id": "MCTS-T-1001",
+                "security-severity": "5.0"
+              }
+            },
+            {
+              "id": "meta-excessive-desc-prompt:prompt-for-opus-verify",
+              "name": "Excessive description length on prompt:prompt-for-opus-verify",
+              "shortDescription": {
+                "text": "Excessive description length on prompt:prompt-for-opus-verify"
+              },
+              "fullDescription": {
+                "text": "Description is 6650 chars \u2014 may hide instructions (line jumping)."
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "metadata_integrity",
+                "technique_id": "MCTS-T-1001",
+                "security-severity": "5.0"
+              }
+            },
+            {
+              "id": "meta-excessive-desc-prompt:agent-onboarding-prompt",
+              "name": "Excessive description length on prompt:agent-onboarding-prompt",
+              "shortDescription": {
+                "text": "Excessive description length on prompt:agent-onboarding-prompt"
+              },
+              "fullDescription": {
+                "text": "Description is 3512 chars \u2014 may hide instructions (line jumping)."
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "metadata_integrity",
+                "technique_id": "MCTS-T-1001",
+                "security-severity": "5.0"
+              }
+            },
+            {
+              "id": "meta-excessive-desc-prompt:perseus",
+              "name": "Excessive description length on prompt:perseus",
+              "shortDescription": {
+                "text": "Excessive description length on prompt:perseus"
+              },
+              "fullDescription": {
+                "text": "Description is 4326 chars \u2014 may hide instructions (line jumping)."
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "metadata_integrity",
+                "technique_id": "MCTS-T-1001",
+                "security-severity": "5.0"
+              }
+            },
+            {
+              "id": "meta-excessive-desc-prompt:memory-cleanup",
+              "name": "Excessive description length on prompt:memory-cleanup",
+              "shortDescription": {
+                "text": "Excessive description length on prompt:memory-cleanup"
+              },
+              "fullDescription": {
+                "text": "Description is 6306 chars \u2014 may hide instructions (line jumping)."
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "metadata_integrity",
+                "technique_id": "MCTS-T-1001",
+                "security-severity": "5.0"
+              }
+            },
+            {
+              "id": "meta-excessive-desc-prompt:pir-action-tracker",
+              "name": "Excessive description length on prompt:pir-action-tracker",
+              "shortDescription": {
+                "text": "Excessive description length on prompt:pir-action-tracker"
+              },
+              "fullDescription": {
+                "text": "Description is 9463 chars \u2014 may hide instructions (line jumping)."
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "metadata_integrity",
+                "technique_id": "MCTS-T-1001",
+                "security-severity": "5.0"
+              }
+            },
+            {
+              "id": "inject-risky-surface-prompt:prompt-for-claude-code",
+              "name": "High-risk injection surface on prompt:prompt-for-claude-code",
+              "shortDescription": {
+                "text": "High-risk injection surface on prompt:prompt-for-claude-code"
+              },
+              "fullDescription": {
+                "text": "MCP surface exposes sensitive capabilities via description keywords."
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "prompt_injection",
+                "technique_id": "MCTS-T-1001",
+                "security-severity": "8.0"
+              }
+            },
+            {
+              "id": "inject-risky-surface-prompt:prompt-for-opus-verify",
+              "name": "High-risk injection surface on prompt:prompt-for-opus-verify",
+              "shortDescription": {
+                "text": "High-risk injection surface on prompt:prompt-for-opus-verify"
+              },
+              "fullDescription": {
+                "text": "MCP surface exposes sensitive capabilities via description keywords."
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "prompt_injection",
+                "technique_id": "MCTS-T-1001",
+                "security-severity": "8.0"
+              }
+            },
+            {
+              "id": "inject-risky-surface-prompt:agent-onboarding-prompt",
+              "name": "High-risk injection surface on prompt:agent-onboarding-prompt",
+              "shortDescription": {
+                "text": "High-risk injection surface on prompt:agent-onboarding-prompt"
+              },
+              "fullDescription": {
+                "text": "MCP surface exposes sensitive capabilities via description keywords."
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "prompt_injection",
+                "technique_id": "MCTS-T-1001",
+                "security-severity": "8.0"
+              }
+            },
+            {
+              "id": "inject-risky-surface-prompt:perseus",
+              "name": "High-risk injection surface on prompt:perseus",
+              "shortDescription": {
+                "text": "High-risk injection surface on prompt:perseus"
+              },
+              "fullDescription": {
+                "text": "MCP surface exposes sensitive capabilities via description keywords."
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "prompt_injection",
+                "technique_id": "MCTS-T-1001",
+                "security-severity": "8.0"
+              }
+            },
+            {
+              "id": "inject-instruction-like-prompt:memory-cleanup",
+              "name": "Instruction-like description on prompt:memory-cleanup",
+              "shortDescription": {
+                "text": "Instruction-like description on prompt:memory-cleanup"
+              },
+              "fullDescription": {
+                "text": "MCP surface contains imperative language that may confuse agents."
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "prompt_injection",
+                "technique_id": "MCTS-T-1001",
+                "security-severity": "5.0"
+              }
+            },
+            {
+              "id": "inject-instruction-like-prompt:pir-action-tracker",
+              "name": "Instruction-like description on prompt:pir-action-tracker",
+              "shortDescription": {
+                "text": "Instruction-like description on prompt:pir-action-tracker"
+              },
+              "fullDescription": {
+                "text": "MCP surface contains imperative language that may confuse agents."
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "prompt_injection",
+                "technique_id": "MCTS-T-1001",
+                "security-severity": "5.0"
+              }
+            },
+            {
+              "id": "inject-risky-surface-prompt:pir-action-tracker",
+              "name": "High-risk injection surface on prompt:pir-action-tracker",
+              "shortDescription": {
+                "text": "High-risk injection surface on prompt:pir-action-tracker"
+              },
+              "fullDescription": {
+                "text": "MCP surface exposes sensitive capabilities via description keywords."
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "prompt_injection",
+                "technique_id": "MCTS-T-1001",
+                "security-severity": "8.0"
+              }
+            },
+            {
+              "id": "abuse-path-sibyl_recall",
+              "name": "Path traversal risk: sibyl_recall",
+              "shortDescription": {
+                "text": "Path traversal risk: sibyl_recall"
+              },
+              "fullDescription": {
+                "text": "File-access tool may allow directory traversal, encoded paths, or sensitive file targets."
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "tool_abuse",
+                "technique_id": "MCTS-T-1002",
+                "security-severity": "8.0"
+              }
+            },
+            {
+              "id": "leak-src-/tmp/perseus/src/perseus/mcp.py-832-internal-url",
+              "name": "Potential Internal URL in source",
+              "shortDescription": {
+                "text": "Potential Internal URL in source"
+              },
+              "fullDescription": {
+                "text": "Pattern matching Internal URL found at /tmp/perseus/src/perseus/mcp.py:832."
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "data_leakage",
+                "technique_id": "MCTS-T-1004",
+                "security-severity": "5.0"
+              }
+            },
+            {
+              "id": "leak-src-/tmp/perseus/src/perseus/mcp.py-833-internal-url",
+              "name": "Potential Internal URL in source",
+              "shortDescription": {
+                "text": "Potential Internal URL in source"
+              },
+              "fullDescription": {
+                "text": "Pattern matching Internal URL found at /tmp/perseus/src/perseus/mcp.py:833."
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "data_leakage",
+                "technique_id": "MCTS-T-1004",
+                "security-severity": "5.0"
+              }
+            },
+            {
+              "id": "leak-src-/tmp/perseus/src/perseus/mcp.py-834-internal-url",
+              "name": "Potential Internal URL in source",
+              "shortDescription": {
+                "text": "Potential Internal URL in source"
+              },
+              "fullDescription": {
+                "text": "Pattern matching Internal URL found at /tmp/perseus/src/perseus/mcp.py:834."
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "data_leakage",
+                "technique_id": "MCTS-T-1004",
+                "security-severity": "5.0"
+              }
+            },
+            {
+              "id": "leak-src-/tmp/perseus/src/perseus/mcp.py-835-internal-url",
+              "name": "Potential Internal URL in source",
+              "shortDescription": {
+                "text": "Potential Internal URL in source"
+              },
+              "fullDescription": {
+                "text": "Pattern matching Internal URL found at /tmp/perseus/src/perseus/mcp.py:835."
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "data_leakage",
+                "technique_id": "MCTS-T-1004",
+                "security-severity": "5.0"
+              }
+            },
+            {
+              "id": "sigma-MCTS-T-1020-prompt:prompt-for-claude-code-7c8d9e0f-1a2b-3c4d-5e6f-789012345678-tool_description-description",
+              "name": "Sigma rule match on prompt:prompt-for-claude-code: MCP Tool Shadowing Attack Detection (MCTS-T-1008)",
+              "shortDescription": {
+                "text": "Sigma rule match on prompt:prompt-for-claude-code: MCP Tool Shadowing Attack Detection (MCTS-T-1008)"
+              },
+              "fullDescription": {
+                "text": "MCTS Sigma pattern matched in description (MCTS-T-1020)."
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "sigma_metadata",
+                "technique_id": "MCTS-T-1020",
+                "security-severity": "8.0"
+              }
+            },
+            {
+              "id": "sigma-MCTS-T-1020-prompt:agent-onboarding-prompt-7c8d9e0f-1a2b-3c4d-5e6f-789012345678-tool_description-description",
+              "name": "Sigma rule match on prompt:agent-onboarding-prompt: MCP Tool Shadowing Attack Detection (MCTS-T-1008)",
+              "shortDescription": {
+                "text": "Sigma rule match on prompt:agent-onboarding-prompt: MCP Tool Shadowing Attack Detection (MCTS-T-1008)"
+              },
+              "fullDescription": {
+                "text": "MCTS Sigma pattern matched in description (MCTS-T-1020)."
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "sigma_metadata",
+                "technique_id": "MCTS-T-1020",
+                "security-severity": "8.0"
+              }
+            },
+            {
+              "id": "sigma-MCTS-T-1020-prompt:perseus-7c8d9e0f-1a2b-3c4d-5e6f-789012345678-tool_description-description",
+              "name": "Sigma rule match on prompt:perseus: MCP Tool Shadowing Attack Detection (MCTS-T-1008)",
+              "shortDescription": {
+                "text": "Sigma rule match on prompt:perseus: MCP Tool Shadowing Attack Detection (MCTS-T-1008)"
+              },
+              "fullDescription": {
+                "text": "MCTS Sigma pattern matched in description (MCTS-T-1020)."
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "sigma_metadata",
+                "technique_id": "MCTS-T-1020",
+                "security-severity": "8.0"
+              }
+            },
+            {
+              "id": "sigma-MCTS-T-1020-prompt:memory-cleanup-7c8d9e0f-1a2b-3c4d-5e6f-789012345678-tool_description-description",
+              "name": "Sigma rule match on prompt:memory-cleanup: MCP Tool Shadowing Attack Detection (MCTS-T-1008)",
+              "shortDescription": {
+                "text": "Sigma rule match on prompt:memory-cleanup: MCP Tool Shadowing Attack Detection (MCTS-T-1008)"
+              },
+              "fullDescription": {
+                "text": "MCTS Sigma pattern matched in description (MCTS-T-1020)."
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "sigma_metadata",
+                "technique_id": "MCTS-T-1020",
+                "security-severity": "8.0"
+              }
+            },
+            {
+              "id": "sigma-MCTS-T-1020-prompt:pir-action-tracker-7c8d9e0f-1a2b-3c4d-5e6f-789012345678-tool_description-description",
+              "name": "Sigma rule match on prompt:pir-action-tracker: MCP Tool Shadowing Attack Detection (MCTS-T-1008)",
+              "shortDescription": {
+                "text": "Sigma rule match on prompt:pir-action-tracker: MCP Tool Shadowing Attack Detection (MCTS-T-1008)"
+              },
+              "fullDescription": {
+                "text": "MCTS Sigma pattern matched in description (MCTS-T-1020)."
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "sigma_metadata",
+                "technique_id": "MCTS-T-1020",
+                "security-severity": "8.0"
+              }
+            },
+            {
+              "id": "supply-unpinned-py-2",
+              "name": "Unpinned Python dependency",
+              "shortDescription": {
+                "text": "Unpinned Python dependency"
+              },
+              "fullDescription": {
+                "text": "requires = [\"setuptools>=68\", \"wheel\"]"
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "supply_chain",
+                "technique_id": "MCTS-T-1014",
+                "security-severity": "5.0"
+              }
+            },
+            {
+              "id": "supply-unpinned-py-26",
+              "name": "Unpinned Python dependency",
+              "shortDescription": {
+                "text": "Unpinned Python dependency"
+              },
+              "fullDescription": {
+                "text": "requires-python = \">=3.10\""
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "supply_chain",
+                "technique_id": "MCTS-T-1014",
+                "security-severity": "5.0"
+              }
+            },
+            {
+              "id": "supply-unpinned-py-27",
+              "name": "Unpinned Python dependency",
+              "shortDescription": {
+                "text": "Unpinned Python dependency"
+              },
+              "fullDescription": {
+                "text": "dependencies = [\"pyyaml\", \"google-genai>=1.0.0\", \"elasticsearch>=8.0.0,<9.0.0\"]"
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "supply_chain",
+                "technique_id": "MCTS-T-1014",
+                "security-severity": "5.0"
+              }
+            },
+            {
+              "id": "supply-unpinned-req-1",
+              "name": "Unpinned requirements entry",
+              "shortDescription": {
+                "text": "Unpinned requirements entry"
+              },
+              "fullDescription": {
+                "text": "pyyaml"
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "supply_chain",
+                "technique_id": "MCTS-T-1014",
+                "security-severity": "5.0"
+              }
+            },
+            {
+              "id": "supply-unpinned-req-2",
+              "name": "Unpinned requirements entry",
+              "shortDescription": {
+                "text": "Unpinned requirements entry"
+              },
+              "fullDescription": {
+                "text": "pytest"
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "supply_chain",
+                "technique_id": "MCTS-T-1014",
+                "security-severity": "5.0"
+              }
+            },
+            {
+              "id": "prompt-defense-prompt:prompt-for-claude-code",
+              "name": "Missing defensive language on prompt:prompt-for-claude-code",
+              "shortDescription": {
+                "text": "Missing defensive language on prompt:prompt-for-claude-code"
+              },
+              "fullDescription": {
+                "text": "MCP prompt lacks protective phrasing for: instruction_override, data_leakage, role_escape, input_validation, abuse_prevention"
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "prompt_defense",
+                "technique_id": "MCTS-T-1001",
+                "security-severity": "2.0"
+              }
+            },
+            {
+              "id": "prompt-defense-prompt:prompt-for-opus-verify",
+              "name": "Missing defensive language on prompt:prompt-for-opus-verify",
+              "shortDescription": {
+                "text": "Missing defensive language on prompt:prompt-for-opus-verify"
+              },
+              "fullDescription": {
+                "text": "MCP prompt lacks protective phrasing for: instruction_override, data_leakage, role_escape, input_validation, abuse_prevention"
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "prompt_defense",
+                "technique_id": "MCTS-T-1001",
+                "security-severity": "2.0"
+              }
+            },
+            {
+              "id": "prompt-defense-prompt:agent-onboarding-prompt",
+              "name": "Missing defensive language on prompt:agent-onboarding-prompt",
+              "shortDescription": {
+                "text": "Missing defensive language on prompt:agent-onboarding-prompt"
+              },
+              "fullDescription": {
+                "text": "MCP prompt lacks protective phrasing for: instruction_override, data_leakage, role_escape, input_validation, abuse_prevention"
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "prompt_defense",
+                "technique_id": "MCTS-T-1001",
+                "security-severity": "2.0"
+              }
+            },
+            {
+              "id": "prompt-defense-prompt:perseus",
+              "name": "Missing defensive language on prompt:perseus",
+              "shortDescription": {
+                "text": "Missing defensive language on prompt:perseus"
+              },
+              "fullDescription": {
+                "text": "MCP prompt lacks protective phrasing for: instruction_override, data_leakage, role_escape, input_validation, abuse_prevention"
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "prompt_defense",
+                "technique_id": "MCTS-T-1001",
+                "security-severity": "2.0"
+              }
+            },
+            {
+              "id": "prompt-defense-prompt:memory-cleanup",
+              "name": "Missing defensive language on prompt:memory-cleanup",
+              "shortDescription": {
+                "text": "Missing defensive language on prompt:memory-cleanup"
+              },
+              "fullDescription": {
+                "text": "MCP prompt lacks protective phrasing for: instruction_override, data_leakage, role_escape, input_validation, abuse_prevention"
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "prompt_defense",
+                "technique_id": "MCTS-T-1001",
+                "security-severity": "2.0"
+              }
+            },
+            {
+              "id": "prompt-defense-prompt:pir-action-tracker",
+              "name": "Missing defensive language on prompt:pir-action-tracker",
+              "shortDescription": {
+                "text": "Missing defensive language on prompt:pir-action-tracker"
+              },
+              "fullDescription": {
+                "text": "MCP prompt lacks protective phrasing for: instruction_override, data_leakage, role_escape, input_validation, abuse_prevention"
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "prompt_defense",
+                "technique_id": "MCTS-T-1001",
+                "security-severity": "2.0"
+              }
+            },
+            {
+              "id": "skill-md-perseus-remote_fetch_volume",
+              "name": "Multiple remote URL fetches referenced in SKILL.md",
+              "shortDescription": {
+                "text": "Multiple remote URL fetches referenced in SKILL.md"
+              },
+              "fullDescription": {
+                "text": "Skill `perseus` (repo) contains suspicious instruction content."
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "skill_md",
+                "technique_id": "MCTS-T-1001",
+                "security-severity": "8.0"
+              }
+            },
+            {
+              "id": "behavioral-sink-sibyl_search-subprocess-exec-open-fetch",
+              "name": "Security-sensitive operations in sibyl_search",
+              "shortDescription": {
+                "text": "Security-sensitive operations in sibyl_search"
+              },
+              "fullDescription": {
+                "text": "Handler module uses: subprocess, exec, open, fetch"
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "behavioral_static",
+                "technique_id": "MCTS-T-1001",
+                "security-severity": "5.0"
+              }
+            },
+            {
+              "id": "behavioral-semantic-sibyl_search-infinite_loop",
+              "name": "Semantic risk on sibyl_search: infinite loop",
+              "shortDescription": {
+                "text": "Semantic risk on sibyl_search: infinite loop"
+              },
+              "fullDescription": {
+                "text": "Handler or description indicates resource exhaustion (infinite_loop)."
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "behavioral_static",
+                "technique_id": "MCTS-T-1001",
+                "security-severity": "8.0"
+              }
+            },
+            {
+              "id": "behavioral-sink-sibyl_recall-subprocess-exec-open-fetch",
+              "name": "Security-sensitive operations in sibyl_recall",
+              "shortDescription": {
+                "text": "Security-sensitive operations in sibyl_recall"
+              },
+              "fullDescription": {
+                "text": "Handler module uses: subprocess, exec, open, fetch"
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "behavioral_static",
+                "technique_id": "MCTS-T-1001",
+                "security-severity": "5.0"
+              }
+            },
+            {
+              "id": "behavioral-semantic-sibyl_recall-infinite_loop",
+              "name": "Semantic risk on sibyl_recall: infinite loop",
+              "shortDescription": {
+                "text": "Semantic risk on sibyl_recall: infinite loop"
+              },
+              "fullDescription": {
+                "text": "Handler or description indicates resource exhaustion (infinite_loop)."
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "behavioral_static",
+                "technique_id": "MCTS-T-1001",
+                "security-severity": "8.0"
+              }
+            },
+            {
+              "id": "behavioral-sink-sibyl_remember-subprocess-exec-open-fetch",
+              "name": "Security-sensitive operations in sibyl_remember",
+              "shortDescription": {
+                "text": "Security-sensitive operations in sibyl_remember"
+              },
+              "fullDescription": {
+                "text": "Handler module uses: subprocess, exec, open, fetch"
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "behavioral_static",
+                "technique_id": "MCTS-T-1001",
+                "security-severity": "5.0"
+              }
+            },
+            {
+              "id": "behavioral-semantic-sibyl_remember-infinite_loop",
+              "name": "Semantic risk on sibyl_remember: infinite loop",
+              "shortDescription": {
+                "text": "Semantic risk on sibyl_remember: infinite loop"
+              },
+              "fullDescription": {
+                "text": "Handler or description indicates resource exhaustion (infinite_loop)."
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "behavioral_static",
+                "technique_id": "MCTS-T-1001",
+                "security-severity": "8.0"
+              }
+            },
+            {
+              "id": "compliance-mcp-top10-gaps",
+              "name": "OWASP MCP Top 10 coverage gaps remain",
+              "shortDescription": {
+                "text": "OWASP MCP Top 10 coverage gaps remain"
+              },
+              "fullDescription": {
+                "text": "Uncovered MCP categories: MCP05 Cross-Server Tool Shadowing, MCP06 OAuth & Auth Misconfiguration, MCP07 Protocol & Transport Weakness, MCP08 Excessive Tool Surface, MCP10 Runtime Behavior & Exfiltration"
+              },
+              "helpUri": "https://github.com/MCP-Audit/MCTS",
+              "properties": {
+                "analyzer": "compliance",
+                "technique_id": null,
+                "security-severity": "2.0"
+              }
+            }
+          ],
+          "supportedTaxonomies": [
+            {
+              "name": "MCTS",
+              "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "surface-excessive-prompt:prompt-for-claude-code",
+          "level": "warning",
+          "message": {
+            "text": "Long MCP surface text may hide instructions (line jumping)."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/tmp/perseus/benchmark/heavy/prompt-for-claude-code.md"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "medium",
+            "analyzer": "surface_metadata",
+            "recommendation": "Keep MCP surface descriptions concise and neutral.",
+            "confidence": 0.65,
+            "technique_id": "MCTS-T-1001",
+            "mitigation_ids": [
+              "MCTS-M-004",
+              "MCTS-M-007",
+              "MCTS-M-020"
+            ]
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1001",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "surface-excessive-prompt:prompt-for-opus-verify",
+          "level": "warning",
+          "message": {
+            "text": "Long MCP surface text may hide instructions (line jumping)."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/tmp/perseus/benchmark/prompt-for-opus-verify.md"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "medium",
+            "analyzer": "surface_metadata",
+            "recommendation": "Keep MCP surface descriptions concise and neutral.",
+            "confidence": 0.65,
+            "technique_id": "MCTS-T-1001",
+            "mitigation_ids": [
+              "MCTS-M-004",
+              "MCTS-M-007",
+              "MCTS-M-020"
+            ]
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1001",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "surface-excessive-prompt:agent-onboarding-prompt",
+          "level": "warning",
+          "message": {
+            "text": "Long MCP surface text may hide instructions (line jumping)."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/tmp/perseus/docs/agent-onboarding-prompt.md"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "medium",
+            "analyzer": "surface_metadata",
+            "recommendation": "Keep MCP surface descriptions concise and neutral.",
+            "confidence": 0.65,
+            "technique_id": "MCTS-T-1001",
+            "mitigation_ids": [
+              "MCTS-M-004",
+              "MCTS-M-007",
+              "MCTS-M-020"
+            ]
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1001",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "surface-excessive-prompt:perseus",
+          "level": "warning",
+          "message": {
+            "text": "Long MCP surface text may hide instructions (line jumping)."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/tmp/perseus/SKILL.md"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "medium",
+            "analyzer": "surface_metadata",
+            "recommendation": "Keep MCP surface descriptions concise and neutral.",
+            "confidence": 0.65,
+            "technique_id": "MCTS-T-1001",
+            "mitigation_ids": [
+              "MCTS-M-004",
+              "MCTS-M-007",
+              "MCTS-M-020"
+            ]
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1001",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "surface-excessive-prompt:memory-cleanup",
+          "level": "warning",
+          "message": {
+            "text": "Long MCP surface text may hide instructions (line jumping)."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/tmp/perseus/skills/memory-cleanup/SKILL.md"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "medium",
+            "analyzer": "surface_metadata",
+            "recommendation": "Keep MCP surface descriptions concise and neutral.",
+            "confidence": 0.65,
+            "technique_id": "MCTS-T-1001",
+            "mitigation_ids": [
+              "MCTS-M-004",
+              "MCTS-M-007",
+              "MCTS-M-020"
+            ]
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1001",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "surface-excessive-prompt:pir-action-tracker",
+          "level": "warning",
+          "message": {
+            "text": "Long MCP surface text may hide instructions (line jumping)."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/tmp/perseus/skills/pir-action-tracker/SKILL.md"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "medium",
+            "analyzer": "surface_metadata",
+            "recommendation": "Keep MCP surface descriptions concise and neutral.",
+            "confidence": 0.65,
+            "technique_id": "MCTS-T-1001",
+            "mitigation_ids": [
+              "MCTS-M-004",
+              "MCTS-M-007",
+              "MCTS-M-020"
+            ]
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1001",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "meta-excessive-desc-prompt:prompt-for-claude-code",
+          "level": "warning",
+          "message": {
+            "text": "Description is 5689 chars \u2014 may hide instructions (line jumping)."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/tmp/perseus/benchmark/heavy/prompt-for-claude-code.md"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "medium",
+            "analyzer": "metadata_integrity",
+            "recommendation": "Keep MCP surface descriptions concise; move docs outside the MCP surface.",
+            "confidence": 0.6,
+            "technique_id": "MCTS-T-1001",
+            "mitigation_ids": [
+              "MCTS-M-004",
+              "MCTS-M-007",
+              "MCTS-M-020"
+            ]
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1001",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "meta-excessive-desc-prompt:prompt-for-opus-verify",
+          "level": "warning",
+          "message": {
+            "text": "Description is 6650 chars \u2014 may hide instructions (line jumping)."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/tmp/perseus/benchmark/prompt-for-opus-verify.md"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "medium",
+            "analyzer": "metadata_integrity",
+            "recommendation": "Keep MCP surface descriptions concise; move docs outside the MCP surface.",
+            "confidence": 0.6,
+            "technique_id": "MCTS-T-1001",
+            "mitigation_ids": [
+              "MCTS-M-004",
+              "MCTS-M-007",
+              "MCTS-M-020"
+            ]
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1001",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "meta-excessive-desc-prompt:agent-onboarding-prompt",
+          "level": "warning",
+          "message": {
+            "text": "Description is 3512 chars \u2014 may hide instructions (line jumping)."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/tmp/perseus/docs/agent-onboarding-prompt.md"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "medium",
+            "analyzer": "metadata_integrity",
+            "recommendation": "Keep MCP surface descriptions concise; move docs outside the MCP surface.",
+            "confidence": 0.6,
+            "technique_id": "MCTS-T-1001",
+            "mitigation_ids": [
+              "MCTS-M-004",
+              "MCTS-M-007",
+              "MCTS-M-020"
+            ]
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1001",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "meta-excessive-desc-prompt:perseus",
+          "level": "warning",
+          "message": {
+            "text": "Description is 4326 chars \u2014 may hide instructions (line jumping)."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/tmp/perseus/SKILL.md"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "medium",
+            "analyzer": "metadata_integrity",
+            "recommendation": "Keep MCP surface descriptions concise; move docs outside the MCP surface.",
+            "confidence": 0.6,
+            "technique_id": "MCTS-T-1001",
+            "mitigation_ids": [
+              "MCTS-M-004",
+              "MCTS-M-007",
+              "MCTS-M-020"
+            ]
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1001",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "meta-excessive-desc-prompt:memory-cleanup",
+          "level": "warning",
+          "message": {
+            "text": "Description is 6306 chars \u2014 may hide instructions (line jumping)."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/tmp/perseus/skills/memory-cleanup/SKILL.md"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "medium",
+            "analyzer": "metadata_integrity",
+            "recommendation": "Keep MCP surface descriptions concise; move docs outside the MCP surface.",
+            "confidence": 0.6,
+            "technique_id": "MCTS-T-1001",
+            "mitigation_ids": [
+              "MCTS-M-004",
+              "MCTS-M-007",
+              "MCTS-M-020"
+            ]
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1001",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "meta-excessive-desc-prompt:pir-action-tracker",
+          "level": "warning",
+          "message": {
+            "text": "Description is 9463 chars \u2014 may hide instructions (line jumping)."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/tmp/perseus/skills/pir-action-tracker/SKILL.md"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "medium",
+            "analyzer": "metadata_integrity",
+            "recommendation": "Keep MCP surface descriptions concise; move docs outside the MCP surface.",
+            "confidence": 0.6,
+            "technique_id": "MCTS-T-1001",
+            "mitigation_ids": [
+              "MCTS-M-004",
+              "MCTS-M-007",
+              "MCTS-M-020"
+            ]
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1001",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "inject-risky-surface-prompt:prompt-for-claude-code",
+          "level": "error",
+          "message": {
+            "text": "MCP surface exposes sensitive capabilities via description keywords."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/tmp/perseus/benchmark/heavy/prompt-for-claude-code.md"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "high",
+            "analyzer": "prompt_injection",
+            "recommendation": "Sanitize inputs and enforce instruction boundaries.",
+            "confidence": 0.6,
+            "technique_id": "MCTS-T-1001",
+            "mitigation_ids": [
+              "MCTS-M-004",
+              "MCTS-M-007",
+              "MCTS-M-020"
+            ]
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1001",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "inject-risky-surface-prompt:prompt-for-opus-verify",
+          "level": "error",
+          "message": {
+            "text": "MCP surface exposes sensitive capabilities via description keywords."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/tmp/perseus/benchmark/prompt-for-opus-verify.md"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "high",
+            "analyzer": "prompt_injection",
+            "recommendation": "Sanitize inputs and enforce instruction boundaries.",
+            "confidence": 0.6,
+            "technique_id": "MCTS-T-1001",
+            "mitigation_ids": [
+              "MCTS-M-004",
+              "MCTS-M-007",
+              "MCTS-M-020"
+            ]
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1001",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "inject-risky-surface-prompt:agent-onboarding-prompt",
+          "level": "error",
+          "message": {
+            "text": "MCP surface exposes sensitive capabilities via description keywords."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/tmp/perseus/docs/agent-onboarding-prompt.md"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "high",
+            "analyzer": "prompt_injection",
+            "recommendation": "Sanitize inputs and enforce instruction boundaries.",
+            "confidence": 0.6,
+            "technique_id": "MCTS-T-1001",
+            "mitigation_ids": [
+              "MCTS-M-004",
+              "MCTS-M-007",
+              "MCTS-M-020"
+            ]
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1001",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "inject-risky-surface-prompt:perseus",
+          "level": "error",
+          "message": {
+            "text": "MCP surface exposes sensitive capabilities via description keywords."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/tmp/perseus/SKILL.md"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "high",
+            "analyzer": "prompt_injection",
+            "recommendation": "Sanitize inputs and enforce instruction boundaries.",
+            "confidence": 0.6,
+            "technique_id": "MCTS-T-1001",
+            "mitigation_ids": [
+              "MCTS-M-004",
+              "MCTS-M-007",
+              "MCTS-M-020"
+            ]
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1001",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "inject-instruction-like-prompt:memory-cleanup",
+          "level": "warning",
+          "message": {
+            "text": "MCP surface contains imperative language that may confuse agents."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/tmp/perseus/skills/memory-cleanup/SKILL.md"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "medium",
+            "analyzer": "prompt_injection",
+            "recommendation": "Use neutral, descriptive documentation without imperative instructions.",
+            "confidence": 0.6,
+            "technique_id": "MCTS-T-1001",
+            "mitigation_ids": [
+              "MCTS-M-004",
+              "MCTS-M-007",
+              "MCTS-M-020"
+            ]
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1001",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "inject-instruction-like-prompt:pir-action-tracker",
+          "level": "warning",
+          "message": {
+            "text": "MCP surface contains imperative language that may confuse agents."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/tmp/perseus/skills/pir-action-tracker/SKILL.md"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "medium",
+            "analyzer": "prompt_injection",
+            "recommendation": "Use neutral, descriptive documentation without imperative instructions.",
+            "confidence": 0.6,
+            "technique_id": "MCTS-T-1001",
+            "mitigation_ids": [
+              "MCTS-M-004",
+              "MCTS-M-007",
+              "MCTS-M-020"
+            ]
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1001",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "inject-risky-surface-prompt:pir-action-tracker",
+          "level": "error",
+          "message": {
+            "text": "MCP surface exposes sensitive capabilities via description keywords."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/tmp/perseus/skills/pir-action-tracker/SKILL.md"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "high",
+            "analyzer": "prompt_injection",
+            "recommendation": "Sanitize inputs and enforce instruction boundaries.",
+            "confidence": 0.6,
+            "technique_id": "MCTS-T-1001",
+            "mitigation_ids": [
+              "MCTS-M-004",
+              "MCTS-M-007",
+              "MCTS-M-020"
+            ]
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1001",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "abuse-path-sibyl_recall",
+          "level": "error",
+          "message": {
+            "text": "File-access tool may allow directory traversal, encoded paths, or sensitive file targets."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "."
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "high",
+            "analyzer": "tool_abuse",
+            "recommendation": "Validate and canonicalize paths; restrict to an allowlisted root.",
+            "confidence": 1.0,
+            "tool": "sibyl_recall",
+            "technique_id": "MCTS-T-1002",
+            "mitigation_ids": [
+              "MCTS-M-001",
+              "MCTS-M-021"
+            ]
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1002",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "leak-src-/tmp/perseus/src/perseus/mcp.py-832-internal-url",
+          "level": "warning",
+          "message": {
+            "text": "Pattern matching Internal URL found at /tmp/perseus/src/perseus/mcp.py:832."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/tmp/perseus/src/perseus/mcp.py"
+                },
+                "region": {
+                  "startLine": 832
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "medium",
+            "analyzer": "data_leakage",
+            "recommendation": "Remove hardcoded secrets; use environment or secret managers.",
+            "confidence": 0.7,
+            "technique_id": "MCTS-T-1004"
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1004",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "leak-src-/tmp/perseus/src/perseus/mcp.py-833-internal-url",
+          "level": "warning",
+          "message": {
+            "text": "Pattern matching Internal URL found at /tmp/perseus/src/perseus/mcp.py:833."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/tmp/perseus/src/perseus/mcp.py"
+                },
+                "region": {
+                  "startLine": 833
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "medium",
+            "analyzer": "data_leakage",
+            "recommendation": "Remove hardcoded secrets; use environment or secret managers.",
+            "confidence": 0.7,
+            "technique_id": "MCTS-T-1004"
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1004",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "leak-src-/tmp/perseus/src/perseus/mcp.py-834-internal-url",
+          "level": "warning",
+          "message": {
+            "text": "Pattern matching Internal URL found at /tmp/perseus/src/perseus/mcp.py:834."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/tmp/perseus/src/perseus/mcp.py"
+                },
+                "region": {
+                  "startLine": 834
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "medium",
+            "analyzer": "data_leakage",
+            "recommendation": "Remove hardcoded secrets; use environment or secret managers.",
+            "confidence": 0.7,
+            "technique_id": "MCTS-T-1004"
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1004",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "leak-src-/tmp/perseus/src/perseus/mcp.py-835-internal-url",
+          "level": "warning",
+          "message": {
+            "text": "Pattern matching Internal URL found at /tmp/perseus/src/perseus/mcp.py:835."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/tmp/perseus/src/perseus/mcp.py"
+                },
+                "region": {
+                  "startLine": 835
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "medium",
+            "analyzer": "data_leakage",
+            "recommendation": "Remove hardcoded secrets; use environment or secret managers.",
+            "confidence": 0.7,
+            "technique_id": "MCTS-T-1004"
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1004",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "sigma-MCTS-T-1020-prompt:prompt-for-claude-code-7c8d9e0f-1a2b-3c4d-5e6f-789012345678-tool_description-description",
+          "level": "error",
+          "message": {
+            "text": "MCTS Sigma pattern matched in description (MCTS-T-1020)."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/tmp/perseus/benchmark/heavy/prompt-for-claude-code.md"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "high",
+            "analyzer": "sigma_metadata",
+            "recommendation": "Review matched metadata against MCTS guidance and sanitize MCP surface definitions before deployment.",
+            "confidence": 0.8,
+            "attack_tags": [
+              "attack.initial_access",
+              "attack.execution"
+            ],
+            "technique_id": "MCTS-T-1020"
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1020",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "sigma-MCTS-T-1020-prompt:agent-onboarding-prompt-7c8d9e0f-1a2b-3c4d-5e6f-789012345678-tool_description-description",
+          "level": "error",
+          "message": {
+            "text": "MCTS Sigma pattern matched in description (MCTS-T-1020)."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/tmp/perseus/docs/agent-onboarding-prompt.md"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "high",
+            "analyzer": "sigma_metadata",
+            "recommendation": "Review matched metadata against MCTS guidance and sanitize MCP surface definitions before deployment.",
+            "confidence": 0.8,
+            "attack_tags": [
+              "attack.initial_access",
+              "attack.execution"
+            ],
+            "technique_id": "MCTS-T-1020"
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1020",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "sigma-MCTS-T-1020-prompt:perseus-7c8d9e0f-1a2b-3c4d-5e6f-789012345678-tool_description-description",
+          "level": "error",
+          "message": {
+            "text": "MCTS Sigma pattern matched in description (MCTS-T-1020)."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/tmp/perseus/SKILL.md"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "high",
+            "analyzer": "sigma_metadata",
+            "recommendation": "Review matched metadata against MCTS guidance and sanitize MCP surface definitions before deployment.",
+            "confidence": 0.8,
+            "attack_tags": [
+              "attack.initial_access",
+              "attack.execution"
+            ],
+            "technique_id": "MCTS-T-1020"
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1020",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "sigma-MCTS-T-1020-prompt:memory-cleanup-7c8d9e0f-1a2b-3c4d-5e6f-789012345678-tool_description-description",
+          "level": "error",
+          "message": {
+            "text": "MCTS Sigma pattern matched in description (MCTS-T-1020)."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/tmp/perseus/skills/memory-cleanup/SKILL.md"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "high",
+            "analyzer": "sigma_metadata",
+            "recommendation": "Review matched metadata against MCTS guidance and sanitize MCP surface definitions before deployment.",
+            "confidence": 0.8,
+            "attack_tags": [
+              "attack.initial_access",
+              "attack.execution"
+            ],
+            "technique_id": "MCTS-T-1020"
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1020",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "sigma-MCTS-T-1020-prompt:pir-action-tracker-7c8d9e0f-1a2b-3c4d-5e6f-789012345678-tool_description-description",
+          "level": "error",
+          "message": {
+            "text": "MCTS Sigma pattern matched in description (MCTS-T-1020)."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/tmp/perseus/skills/pir-action-tracker/SKILL.md"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "high",
+            "analyzer": "sigma_metadata",
+            "recommendation": "Review matched metadata against MCTS guidance and sanitize MCP surface definitions before deployment.",
+            "confidence": 0.8,
+            "attack_tags": [
+              "attack.initial_access",
+              "attack.execution"
+            ],
+            "technique_id": "MCTS-T-1020"
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1020",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "supply-unpinned-py-2",
+          "level": "warning",
+          "message": {
+            "text": "requires = [\"setuptools>=68\", \"wheel\"]"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "pyproject.toml"
+                },
+                "region": {
+                  "startLine": 2
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "medium",
+            "analyzer": "supply_chain",
+            "recommendation": "Pin dependencies with exact versions or digests; verify package provenance (MCTS-M-008, MCTS-M-018).",
+            "confidence": 0.75,
+            "technique_id": "MCTS-T-1014",
+            "mitigation_ids": [
+              "MCTS-M-008",
+              "MCTS-M-018"
+            ]
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1014",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "supply-unpinned-py-26",
+          "level": "warning",
+          "message": {
+            "text": "requires-python = \">=3.10\""
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "pyproject.toml"
+                },
+                "region": {
+                  "startLine": 26
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "medium",
+            "analyzer": "supply_chain",
+            "recommendation": "Pin dependencies with exact versions or digests; verify package provenance (MCTS-M-008, MCTS-M-018).",
+            "confidence": 0.75,
+            "technique_id": "MCTS-T-1014",
+            "mitigation_ids": [
+              "MCTS-M-008",
+              "MCTS-M-018"
+            ]
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1014",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "supply-unpinned-py-27",
+          "level": "warning",
+          "message": {
+            "text": "dependencies = [\"pyyaml\", \"google-genai>=1.0.0\", \"elasticsearch>=8.0.0,<9.0.0\"]"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "pyproject.toml"
+                },
+                "region": {
+                  "startLine": 27
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "medium",
+            "analyzer": "supply_chain",
+            "recommendation": "Pin dependencies with exact versions or digests; verify package provenance (MCTS-M-008, MCTS-M-018).",
+            "confidence": 0.75,
+            "technique_id": "MCTS-T-1014",
+            "mitigation_ids": [
+              "MCTS-M-008",
+              "MCTS-M-018"
+            ]
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1014",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "supply-unpinned-req-1",
+          "level": "warning",
+          "message": {
+            "text": "pyyaml"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "requirements.txt"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "medium",
+            "analyzer": "supply_chain",
+            "recommendation": "Pin dependencies with exact versions or digests; verify package provenance (MCTS-M-008, MCTS-M-018).",
+            "confidence": 0.75,
+            "technique_id": "MCTS-T-1014",
+            "mitigation_ids": [
+              "MCTS-M-008",
+              "MCTS-M-018"
+            ]
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1014",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "supply-unpinned-req-2",
+          "level": "warning",
+          "message": {
+            "text": "pytest"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "requirements.txt"
+                },
+                "region": {
+                  "startLine": 2
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "medium",
+            "analyzer": "supply_chain",
+            "recommendation": "Pin dependencies with exact versions or digests; verify package provenance (MCTS-M-008, MCTS-M-018).",
+            "confidence": 0.75,
+            "technique_id": "MCTS-T-1014",
+            "mitigation_ids": [
+              "MCTS-M-008",
+              "MCTS-M-018"
+            ]
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1014",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "prompt-defense-prompt:prompt-for-claude-code",
+          "level": "note",
+          "message": {
+            "text": "MCP prompt lacks protective phrasing for: instruction_override, data_leakage, role_escape, input_validation, abuse_prevention"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "."
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "low",
+            "analyzer": "prompt_defense",
+            "recommendation": "Add explicit defensive instructions for untrusted input, data leakage, and role boundaries.",
+            "confidence": 0.55,
+            "technique_id": "MCTS-T-1001",
+            "mitigation_ids": [
+              "MCTS-M-004",
+              "MCTS-M-007",
+              "MCTS-M-020"
+            ]
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1001",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "prompt-defense-prompt:prompt-for-opus-verify",
+          "level": "note",
+          "message": {
+            "text": "MCP prompt lacks protective phrasing for: instruction_override, data_leakage, role_escape, input_validation, abuse_prevention"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "."
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "low",
+            "analyzer": "prompt_defense",
+            "recommendation": "Add explicit defensive instructions for untrusted input, data leakage, and role boundaries.",
+            "confidence": 0.55,
+            "technique_id": "MCTS-T-1001",
+            "mitigation_ids": [
+              "MCTS-M-004",
+              "MCTS-M-007",
+              "MCTS-M-020"
+            ]
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1001",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "prompt-defense-prompt:agent-onboarding-prompt",
+          "level": "note",
+          "message": {
+            "text": "MCP prompt lacks protective phrasing for: instruction_override, data_leakage, role_escape, input_validation, abuse_prevention"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "."
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "low",
+            "analyzer": "prompt_defense",
+            "recommendation": "Add explicit defensive instructions for untrusted input, data leakage, and role boundaries.",
+            "confidence": 0.55,
+            "technique_id": "MCTS-T-1001",
+            "mitigation_ids": [
+              "MCTS-M-004",
+              "MCTS-M-007",
+              "MCTS-M-020"
+            ]
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1001",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "prompt-defense-prompt:perseus",
+          "level": "note",
+          "message": {
+            "text": "MCP prompt lacks protective phrasing for: instruction_override, data_leakage, role_escape, input_validation, abuse_prevention"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "."
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "low",
+            "analyzer": "prompt_defense",
+            "recommendation": "Add explicit defensive instructions for untrusted input, data leakage, and role boundaries.",
+            "confidence": 0.55,
+            "technique_id": "MCTS-T-1001",
+            "mitigation_ids": [
+              "MCTS-M-004",
+              "MCTS-M-007",
+              "MCTS-M-020"
+            ]
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1001",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "prompt-defense-prompt:memory-cleanup",
+          "level": "note",
+          "message": {
+            "text": "MCP prompt lacks protective phrasing for: instruction_override, data_leakage, role_escape, input_validation, abuse_prevention"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "."
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "low",
+            "analyzer": "prompt_defense",
+            "recommendation": "Add explicit defensive instructions for untrusted input, data leakage, and role boundaries.",
+            "confidence": 0.55,
+            "technique_id": "MCTS-T-1001",
+            "mitigation_ids": [
+              "MCTS-M-004",
+              "MCTS-M-007",
+              "MCTS-M-020"
+            ]
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1001",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "prompt-defense-prompt:pir-action-tracker",
+          "level": "note",
+          "message": {
+            "text": "MCP prompt lacks protective phrasing for: instruction_override, data_leakage, role_escape, input_validation, abuse_prevention"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "."
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "low",
+            "analyzer": "prompt_defense",
+            "recommendation": "Add explicit defensive instructions for untrusted input, data leakage, and role boundaries.",
+            "confidence": 0.55,
+            "technique_id": "MCTS-T-1001",
+            "mitigation_ids": [
+              "MCTS-M-004",
+              "MCTS-M-007",
+              "MCTS-M-020"
+            ]
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1001",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "skill-md-perseus-remote_fetch_volume",
+          "level": "error",
+          "message": {
+            "text": "Skill `perseus` (repo) contains suspicious instruction content."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/tmp/perseus/SKILL.md"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "high",
+            "analyzer": "skill_md",
+            "recommendation": "Review SKILL.md for prompt injection, exfil instructions, or credential harvesting.",
+            "confidence": 1.0,
+            "technique_id": "MCTS-T-1001",
+            "mitigation_ids": [
+              "MCTS-M-004",
+              "MCTS-M-007",
+              "MCTS-M-020"
+            ]
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1001",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "behavioral-sink-sibyl_search-subprocess-exec-open-fetch",
+          "level": "warning",
+          "message": {
+            "text": "Handler module uses: subprocess, exec, open, fetch"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/tmp/perseus/src/sibyl_mcp_server.py"
+                },
+                "region": {
+                  "startLine": 14
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "medium",
+            "analyzer": "behavioral_static",
+            "recommendation": "Review helper functions invoked by this tool for hidden behavior.",
+            "confidence": 0.6,
+            "tool": "sibyl_search",
+            "technique_id": "MCTS-T-1001",
+            "mitigation_ids": [
+              "MCTS-M-004",
+              "MCTS-M-007",
+              "MCTS-M-020"
+            ]
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1001",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "behavioral-semantic-sibyl_search-infinite_loop",
+          "level": "error",
+          "message": {
+            "text": "Handler or description indicates resource exhaustion (infinite_loop)."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/tmp/perseus/src/sibyl_mcp_server.py"
+                },
+                "region": {
+                  "startLine": 14
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "high",
+            "analyzer": "behavioral_static",
+            "recommendation": "Align documented behavior with implementation; remove hidden directives.",
+            "confidence": 0.8,
+            "tool": "sibyl_search",
+            "technique_id": "MCTS-T-1001",
+            "mitigation_ids": [
+              "MCTS-M-004",
+              "MCTS-M-007",
+              "MCTS-M-020"
+            ]
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1001",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "behavioral-sink-sibyl_recall-subprocess-exec-open-fetch",
+          "level": "warning",
+          "message": {
+            "text": "Handler module uses: subprocess, exec, open, fetch"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/tmp/perseus/src/sibyl_mcp_server.py"
+                },
+                "region": {
+                  "startLine": 41
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "medium",
+            "analyzer": "behavioral_static",
+            "recommendation": "Review helper functions invoked by this tool for hidden behavior.",
+            "confidence": 0.6,
+            "tool": "sibyl_recall",
+            "technique_id": "MCTS-T-1001",
+            "mitigation_ids": [
+              "MCTS-M-004",
+              "MCTS-M-007",
+              "MCTS-M-020"
+            ]
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1001",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "behavioral-semantic-sibyl_recall-infinite_loop",
+          "level": "error",
+          "message": {
+            "text": "Handler or description indicates resource exhaustion (infinite_loop)."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/tmp/perseus/src/sibyl_mcp_server.py"
+                },
+                "region": {
+                  "startLine": 41
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "high",
+            "analyzer": "behavioral_static",
+            "recommendation": "Align documented behavior with implementation; remove hidden directives.",
+            "confidence": 0.8,
+            "tool": "sibyl_recall",
+            "technique_id": "MCTS-T-1001",
+            "mitigation_ids": [
+              "MCTS-M-004",
+              "MCTS-M-007",
+              "MCTS-M-020"
+            ]
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1001",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "behavioral-sink-sibyl_remember-subprocess-exec-open-fetch",
+          "level": "warning",
+          "message": {
+            "text": "Handler module uses: subprocess, exec, open, fetch"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/tmp/perseus/src/sibyl_mcp_server.py"
+                },
+                "region": {
+                  "startLine": 56
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "medium",
+            "analyzer": "behavioral_static",
+            "recommendation": "Review helper functions invoked by this tool for hidden behavior.",
+            "confidence": 0.6,
+            "tool": "sibyl_remember",
+            "technique_id": "MCTS-T-1001",
+            "mitigation_ids": [
+              "MCTS-M-004",
+              "MCTS-M-007",
+              "MCTS-M-020"
+            ]
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1001",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "behavioral-semantic-sibyl_remember-infinite_loop",
+          "level": "error",
+          "message": {
+            "text": "Handler or description indicates resource exhaustion (infinite_loop)."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/tmp/perseus/src/sibyl_mcp_server.py"
+                },
+                "region": {
+                  "startLine": 56
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "high",
+            "analyzer": "behavioral_static",
+            "recommendation": "Align documented behavior with implementation; remove hidden directives.",
+            "confidence": 0.8,
+            "tool": "sibyl_remember",
+            "technique_id": "MCTS-T-1001",
+            "mitigation_ids": [
+              "MCTS-M-004",
+              "MCTS-M-007",
+              "MCTS-M-020"
+            ]
+          },
+          "taxa": [
+            {
+              "id": "MCTS-T-1001",
+              "toolComponent": {
+                "name": "MCTS",
+                "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "compliance-mcp-top10-gaps",
+          "level": "note",
+          "message": {
+            "text": "Uncovered MCP categories: MCP05 Cross-Server Tool Shadowing, MCP06 OAuth & Auth Misconfiguration, MCP07 Protocol & Transport Weakness, MCP08 Excessive Tool Surface, MCP10 Runtime Behavior & Exfiltration"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "."
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "properties": {
+            "severity": "low",
+            "analyzer": "compliance",
+            "recommendation": "Expand scan scope or enable additional analyzers for full MCP Top 10 coverage.",
+            "confidence": 1.0
+          }
+        }
+      ],
+      "properties": {
+        "target": ".",
+        "securityScore": 1,
+        "riskIndex": 100,
+        "mcts/scanMode": "repository",
+        "mcts/scanNotes": [
+          "Instruction discovery: found 6 prompt surface(s), 3 SKILL.md file(s), 0 system instruction file(s) in repository markdown."
+        ],
+        "mcts/scoreBreakdown": {
+          "mcp_surface": 1,
+          "supply_chain": 100,
+          "dependency_hygiene": 74,
+          "composite": 37
+        }
+      },
+      "taxonomies": [
+        {
+          "name": "MCTS",
+          "guid": "7c4e9f2a-1b3d-4e5f-9a8b-0c1d2e3f4a5b",
+          "informationUri": "https://github.com/MCP-Audit/MCTS",
+          "taxa": [
+            {
+              "id": "MCTS-T-1001",
+              "name": "Tool Description Poisoning",
+              "shortDescription": {
+                "text": "Tool Description Poisoning"
+              }
+            },
+            {
+              "id": "MCTS-T-1002",
+              "name": "Path Traversal / Missing Validation",
+              "shortDescription": {
+                "text": "Path Traversal / Missing Validation"
+              }
+            },
+            {
+              "id": "MCTS-T-1004",
+              "name": "Sensitive Data Exposure",
+              "shortDescription": {
+                "text": "Sensitive Data Exposure"
+              }
+            },
+            {
+              "id": "MCTS-T-1020",
+              "name": "Tool Shadowing Attack",
+              "shortDescription": {
+                "text": "Tool Shadowing Attack"
+              }
+            },
+            {
+              "id": "MCTS-T-1014",
+              "name": "Supply Chain Compromise",
+              "shortDescription": {
+                "text": "Supply Chain Compromise"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

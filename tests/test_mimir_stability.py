@@ -20,7 +20,7 @@ import pytest
 
 from conftest import PY_VER, cfg, perseus, _capture_json
 
-pytestmark = pytest.mark.skip(reason="Pre-existing: Mneme→Mimir migration needs test rewrite")
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
@@ -65,26 +65,26 @@ def _mock_mneme_hits():
     """Return synthetic Mneme memory hits."""
     from conftest import perseus as p
     return [
-        p.MemoryHit(
-            id="eng-1", type=p.MemoryTypeEnum.ARCHITECTURE,
-            content="The auth module uses Postgres for production and SQLite FTS5 for local dev.",
-            source=p.MemorySource.MNEME, summary="Auth module: dual DB strategy",
+        p.EntityHit(
+            id="eng-1", entity_type="architecture",
+            body_json="The auth module uses Postgres for production and SQLite FTS5 for local dev.",
+            source=p.MemorySource.MIMIR, summary="Auth module: dual DB strategy",
             relevance=0.88, decay_score=0.95, retrieval_count=3,
-            layer=p.MemoryLayer.CORE, topic_path="architecture/auth/database",
+            layer="core", topic_path="architecture/auth/database",
         ),
-        p.MemoryHit(
-            id="eng-2", type=p.MemoryTypeEnum.DECISION,
-            content="Chose microkernel pattern for module isolation after evaluating plugin architectures.",
-            source=p.MemorySource.MNEME, summary="Microkernel: post-evaluation decision",
+        p.EntityHit(
+            id="eng-2", entity_type="decision",
+            body_json="Chose microkernel pattern for module isolation after evaluating plugin architectures.",
+            source=p.MemorySource.MIMIR, summary="Microkernel: post-evaluation decision",
             relevance=0.76, decay_score=0.73, retrieval_count=1,
-            layer=p.MemoryLayer.WORKING, topic_path="architecture/patterns/microkernel",
+            layer="working", topic_path="architecture/patterns/microkernel",
         ),
-        p.MemoryHit(
-            id="eng-3", type=p.MemoryTypeEnum.INSIGHT,
-            content="Perseus watch daemon auto-refreshes AGENTS.md every 900s in the container.",
-            source=p.MemorySource.MNEME, summary="Perseus watch daemon timing",
+        p.EntityHit(
+            id="eng-3", entity_type="insight",
+            body_json="Perseus watch daemon auto-refreshes AGENTS.md every 900s in the container.",
+            source=p.MemorySource.MIMIR, summary="Perseus watch daemon timing",
             relevance=0.65, decay_score=0.42, retrieval_count=5,
-            layer=p.MemoryLayer.WORKING, topic_path="operations/daemons/watch",
+            layer="working", topic_path="operations/daemons/watch",
         ),
     ]
 
@@ -218,7 +218,7 @@ class TestCircuitBreakerDegradedMode:
         _reset_connector_singleton()
         c = _cfg_with_mneme({"command": ["/nonexistent/path/mneme"]})
         connector = perseus.MimirConnector(c)
-        success, msg = connector.store(content="test memory", memory_type=perseus.MemoryTypeEnum.INSIGHT)
+        success, msg = connector.store(content="test memory", entity_type="insight")
         assert success is False
         assert len(msg) > 0
 
@@ -352,16 +352,16 @@ class TestLatencyBudgets:
         local_items = []
         mneme_items = []
         for i in range(500):
-            local_items.append(perseus.MemoryHit(
-                id=f"local-{i}", type=perseus.MemoryTypeEnum.INSIGHT,
+            local_items.append(perseus.EntityHit(
+                id=f"local-{i}", type="insight",
                 content=f"Local memory item number {i} with some content for testing.",
                 source=perseus.MemorySource.LOCAL, summary=f"Local item {i}",
                 relevance=0.5, decay_score=0.1 + (i % 10) * 0.1,
             ))
-            mimir_items.append(perseus.MemoryHit(
-                id=f"eng-{i}", type=perseus.MemoryTypeEnum.INSIGHT,
+            mimir_items.append(perseus.EntityHit(
+                id=f"eng-{i}", type="insight",
                 content=f"Mneme memory item number {i} with different content.",
-                source=perseus.MemorySource.MNEME, summary=f"Mneme item {i}",
+                source=perseus.MemorySource.MIMIR, summary=f"Mneme item {i}",
                 relevance=0.5, decay_score=0.1 + (i % 10) * 0.1,
             ))
 
@@ -395,10 +395,10 @@ class TestLatencyBudgets:
         from conftest import perseus as p
         items = []
         for i in range(200):
-            items.append(p.MemoryHit(
-                id=f"item-{i}", type=[p.MemoryTypeEnum.ARCHITECTURE, p.MemoryTypeEnum.DECISION, p.MemoryTypeEnum.INSIGHT][i % 3],
+            items.append(p.EntityHit(
+                id=f"item-{i}", type=["architecture", "decision", "insight"][i % 3],
                 content=f"Memory item {i}: important architectural decision about component {i % 10}",
-                source=[p.MemorySource.LOCAL, p.MemorySource.MNEME][i % 2],
+                source=[p.MemorySource.LOCAL, p.MemorySource.MIMIR][i % 2],
                 summary=f"Item {i} summary", relevance=0.5 + (i % 5) * 0.1,
                 decay_score=0.3 + (i % 7) * 0.1,
             ))
@@ -461,15 +461,15 @@ class TestEdgeCases:
         )
         assert len(merged.items) == 0
 
-    def test_parse_memory_hits_handles_malformed_json(self):
-        """_parse_memory_hits should not crash on various malformed inputs."""
+    def test_parse_entity_hits_handles_malformed_json(self):
+        """_parse_entity_hits should not crash on various malformed inputs."""
         # None/empty
-        assert perseus._parse_memory_hits({}) == []
-        assert perseus._parse_memory_hits({"items": None}) == []
+        assert perseus._parse_entity_hits({}) == []
+        assert perseus._parse_entity_hits({"items": None}) == []
         # String instead of list
-        result = perseus._parse_memory_hits({"items": "not a list"})
+        result = perseus._parse_entity_hits({"items": "not a list"})
         assert isinstance(result, list)
         # Missing fields
-        result = perseus._parse_memory_hits({"items": [{"id": "test"}]})
+        result = perseus._parse_entity_hits({"items": [{"id": "test"}]})
         assert len(result) == 1
         assert result[0].content == ""  # defaults to empty
