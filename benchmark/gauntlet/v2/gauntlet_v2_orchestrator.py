@@ -998,17 +998,12 @@ class GauntletV2Orchestrator:
 def _gauntlet_platform_warning(
     duration: str, platform: str = sys.platform
 ) -> str | None:
-    """Return a platform warning, or None when supported."""
+    """Return a platform advisory, or None when fully native."""
     if platform == "linux":
         return None
-    if duration == "smoke":
-        return (
-            f"Gauntlet smoke mode running on {platform}. "
-            "Full adversarial mode remains Linux-only."
-        )
     return (
-        f"Gauntlet full mode is Linux-only — this host is {platform}. "
-        "Run the full gauntlet on a Linux host or container."
+        f"Gauntlet running on {platform}. "
+        "Some adversarial scenarios use cross-platform fallbacks."
     )
 
 
@@ -1069,8 +1064,6 @@ def main():
     platform_warning = _gauntlet_platform_warning(args.duration)
     if platform_warning:
         print(platform_warning, file=sys.stderr)
-        if args.duration != "smoke":
-            sys.exit(0)
 
     nodes = [n.strip() for n in args.nodes.split(",") if n.strip()]
     nfs_path = Path(args.nfs_path)
