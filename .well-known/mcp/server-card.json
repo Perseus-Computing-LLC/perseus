@@ -1,7 +1,7 @@
 {
   "serverInfo": {
     "name": "perseus",
-    "version": "1.0.6"
+    "version": "1.0.7"
   },
   "authentication": {
     "required": false,
@@ -66,6 +66,18 @@
           }
         },
         "required": []
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "rendered": {
+            "type": "string",
+            "description": "Resolved directive output as markdown"
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
       }
     },
     {
@@ -80,6 +92,23 @@
           }
         },
         "required": []
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "datetime": {
+            "type": "string",
+            "description": "Current date/time string"
+          },
+          "iso8601": {
+            "type": "string",
+            "description": "ISO-8601 formatted timestamp"
+          },
+          "unix": {
+            "type": "integer",
+            "description": "Unix epoch seconds"
+          }
+        }
       },
       "annotations": {
         "readOnlyHint": true
@@ -97,6 +126,15 @@
           }
         },
         "required": []
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "rendered": {
+            "type": "string",
+            "description": "Resolved directive output as markdown"
+          }
+        }
       },
       "annotations": {
         "readOnlyHint": true
@@ -122,6 +160,23 @@
           }
         },
         "required": []
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "variable": {
+            "type": "string",
+            "description": "Environment variable name"
+          },
+          "value": {
+            "type": "string",
+            "description": "Resolved value or fallback"
+          },
+          "source": {
+            "type": "string",
+            "description": "Where the value was resolved from"
+          }
+        }
       },
       "annotations": {
         "readOnlyHint": true
@@ -188,6 +243,42 @@
         },
         "required": []
       },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "messages": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "Message identifier"
+                },
+                "content": {
+                  "type": "string",
+                  "description": "Message body"
+                },
+                "sender": {
+                  "type": "string",
+                  "description": "Message sender"
+                },
+                "timestamp": {
+                  "type": "string",
+                  "description": "ISO-8601 timestamp"
+                },
+                "read": {
+                  "type": "boolean",
+                  "description": "Whether the message has been read"
+                }
+              }
+            }
+          },
+          "unread_count": {
+            "type": "integer"
+          }
+        }
+      },
       "annotations": {
         "readOnlyHint": true
       }
@@ -198,12 +289,27 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "args": {
+          "path": {
             "type": "string",
-            "description": "Arguments for @include directive"
+            "description": "File path to include and render (relative to workspace root)"
           }
         },
-        "required": []
+        "required": [
+          "path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "rendered": {
+            "type": "string",
+            "description": "Rendered included file content"
+          },
+          "source": {
+            "type": "string",
+            "description": "Included file path"
+          }
+        }
       },
       "annotations": {
         "readOnlyHint": true
@@ -215,16 +321,53 @@
       "inputSchema": {
         "type": "object",
         "properties": {
+          "path": {
+            "type": "string",
+            "description": "Directory path to list (default: workspace root)"
+          },
           "limit": {
             "type": "string",
-            "description": "Maximum number of entries to return"
+            "description": "Value for limit parameter"
           },
           "sort": {
             "type": "string",
-            "description": "Sort order: name, modified, size"
+            "description": "Value for sort parameter"
           }
         },
-        "required": []
+        "required": [
+          "path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string",
+                  "description": "file or directory"
+                },
+                "size": {
+                  "type": "integer",
+                  "description": "Size in bytes"
+                },
+                "modified": {
+                  "type": "string",
+                  "description": "Last modified timestamp"
+                }
+              }
+            }
+          },
+          "count": {
+            "type": "integer"
+          }
+        }
       },
       "annotations": {
         "readOnlyHint": true
@@ -236,12 +379,31 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "args": {
+          "query": {
             "type": "string",
-            "description": "Arguments for @mason directive"
+            "description": "Feature or filename to look up in the Mason code architecture map"
           }
         },
         "required": []
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "concept_map": {
+            "type": "string",
+            "description": "Mason code architecture concept map"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Mapped source files"
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
       }
     },
     {
@@ -321,8 +483,8 @@
       }
     },
     {
-      "name": "perseus_mneme",
-      "description": "Recall persistent memories via Mn\u0113m\u0113 BM25",
+      "name": "perseus_mimir",
+      "description": "Recall persistent memories via Mimir BM25",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -361,6 +523,9 @@
             "type": "integer"
           }
         }
+      },
+      "annotations": {
+        "readOnlyHint": true
       }
     },
     {
@@ -369,12 +534,28 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "args": {
+          "url": {
             "type": "string",
-            "description": "Arguments for @perseus directive"
+            "description": "URL of the remote Perseus instance to fetch context from"
           }
         },
         "required": []
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "rendered": {
+            "type": "string",
+            "description": "Remote Perseus context as markdown"
+          },
+          "source_url": {
+            "type": "string",
+            "description": "URL of the remote Perseus instance"
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
       }
     },
     {
@@ -389,6 +570,18 @@
           }
         },
         "required": []
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "rendered": {
+            "type": "string",
+            "description": "System prompt block content"
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
       }
     },
     {
@@ -417,6 +610,23 @@
         "required": [
           "path"
         ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string",
+            "description": "File contents"
+          },
+          "path": {
+            "type": "string",
+            "description": "File path read"
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "Whether content was truncated"
+          }
+        }
       },
       "annotations": {
         "readOnlyHint": true
@@ -495,6 +705,62 @@
       }
     },
     {
+      "name": "perseus_sibyl",
+      "description": "Sibyl Memory \u2014 auto-injected structured context; query hints feed search",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Value for query parameter"
+          },
+          "tiers": {
+            "type": "string",
+            "description": "Value for tiers parameter"
+          }
+        },
+        "required": []
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "rendered": {
+            "type": "string",
+            "description": "Resolved directive output as markdown"
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "perseus_sibyl_state",
+      "description": "Surface Sibyl Memory state documents inline",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "keys": {
+            "type": "string",
+            "description": "Value for keys parameter"
+          }
+        },
+        "required": []
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "rendered": {
+            "type": "string",
+            "description": "Resolved directive output as markdown"
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
       "name": "perseus_skills",
       "description": "List available skills",
       "inputSchema": {
@@ -550,12 +816,27 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "args": {
+          "name": {
             "type": "string",
-            "description": "Arguments for @tool directive"
+            "description": "Name of the allowlisted external tool to run"
           }
         },
-        "required": []
+        "required": [
+          "name"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "output": {
+            "type": "string",
+            "description": "External tool stdout"
+          },
+          "exit_code": {
+            "type": "integer",
+            "description": "Tool exit code"
+          }
+        }
       },
       "annotations": {
         "destructiveHint": true
@@ -578,6 +859,21 @@
         },
         "required": []
       },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "tools": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "count": {
+            "type": "integer",
+            "description": "Number of tools listed"
+          }
+        }
+      },
       "annotations": {
         "readOnlyHint": true
       }
@@ -588,12 +884,31 @@
       "inputSchema": {
         "type": "object",
         "properties": {
+          "path": {
+            "type": "string",
+            "description": "Directory path for tree display (default: workspace root)"
+          },
           "depth": {
             "type": "string",
-            "description": "Maximum depth for directory tree traversal"
+            "description": "Value for depth parameter"
           }
         },
-        "required": []
+        "required": [
+          "path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "tree": {
+            "type": "string",
+            "description": "Directory tree as formatted text"
+          },
+          "root": {
+            "type": "string",
+            "description": "Root directory path"
+          }
+        }
       },
       "annotations": {
         "readOnlyHint": true
@@ -611,6 +926,22 @@
           }
         },
         "required": []
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "valid": {
+            "type": "boolean",
+            "description": "Whether validation passed"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Validation error messages"
+          }
+        }
       },
       "annotations": {
         "readOnlyHint": true
