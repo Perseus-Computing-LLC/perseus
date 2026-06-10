@@ -13816,7 +13816,7 @@ class _MCPSseClient:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# MnemeConnector — MCP client with circuit breaker, backoff, and fallback
+# MimirConnector — MCP client with circuit breaker, backoff, and fallback
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class MimirConnector:
@@ -13839,7 +13839,7 @@ class MimirConnector:
         fallback_to_local: bool    = True
 
     Usage:
-        connector = MnemeConnector(cfg)
+        connector = MimirConnector(cfg)
         package = connector.hybrid_recall("project architecture", workspace="/opt/...")
         print(package.assemble())
     """
@@ -14372,12 +14372,12 @@ def _local_hits_to_memory_hits(local_results: list[dict]) -> list[MemoryHit]:
 # Singleton connector — initialized lazily, reused across directive resolutions
 # ═══════════════════════════════════════════════════════════════════════════════
 
-_connector: MnemeConnector | None = None
+_connector: MimirConnector | None = None
 _connector_cfg_hash: str = ""
 
 
-def _get_connector(cfg: dict) -> MnemeConnector:
-    """Get or create the singleton MnemeConnector.
+def _get_connector(cfg: dict) -> MimirConnector:
+    """Get or create the singleton MimirConnector.
 
     Re-creates if config changed. Used by resolve_memory / resolve_mimir.
     """
@@ -14388,7 +14388,7 @@ def _get_connector(cfg: dict) -> MnemeConnector:
     if _connector is None or cfg_hash != _connector_cfg_hash:
         if _connector:
             _connector.close()
-        _connector = MnemeConnector(cfg)
+        _connector = MimirConnector(cfg)
         _connector_cfg_hash = cfg_hash
 
     return _connector
@@ -17926,7 +17926,7 @@ def _doctor_check_mimir_bridge(cfg: dict, workspace: Path) -> DoctorResult:
         test_cfg["mimir"] = dict(mneme_cfg)
         test_cfg["mimir"]["command"] = command
 
-        connector = MnemeConnector(test_cfg)
+        connector = MimirConnector(test_cfg)
         if connector.available:
             # Run health check
             healthy, status = connector.health_check()
