@@ -5,7 +5,10 @@ for the parser functions that handle untrusted directive arguments.
 """
 
 import pytest
-from hypothesis import given, strategies as st, settings, assume
+try:
+    from hypothesis import given, strategies as st, settings, assume
+except ImportError:
+    pytest.skip("hypothesis not installed", allow_module_level=True)
 
 from perseus import (
     _parse_kv_modifiers,
