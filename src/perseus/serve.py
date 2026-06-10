@@ -950,12 +950,12 @@ Everything else has a better home:
 
 ---
 
-## Project Memory (Mneme)
+## Project Memory (Mnēmē)
 @memory focus=recent ttl=300
 
 ---
 
-## Long-Term Memory (Mneme)
+## Persistent Memory (Mimir)
 
 > 💡 **Query tips:** FTS5 treats multi-word queries as exact phrases.
 > Split long queries across multiple directives for better recall:
