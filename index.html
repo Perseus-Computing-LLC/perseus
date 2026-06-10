@@ -1940,7 +1940,7 @@
       <div>
         <div class="hero-eyebrow reveal">
           <span>Live Context Engine for Professional Developers</span>
-          <span class="ver">v<span data-live="version-bare">1.0.6</span> · MIT</span>
+          <span class="ver">v<span data-live="version-bare">1.0.7</span> · MIT</span>
         </div>
 
         <h1 class="reveal">
@@ -1977,7 +1977,7 @@
         <div class="badges reveal" aria-label="Project badges">
           <span class="badge"><span class="b-key">github</span><span class="b-val star">★ <span data-live="stars">—</span></span></span>
           <span class="badge"><span class="b-key">ci</span><span class="b-val ok">passing</span></span>
-          <span class="badge"><span class="b-key">pypi</span><span class="b-val">v<span data-live="version-bare">1.0.6</span></span></span>
+          <span class="badge"><span class="b-key">pypi</span><span class="b-val">v<span data-live="version-bare">1.0.7</span></span></span>
           <span class="badge"><span class="b-key">license</span><span class="b-val">MIT</span></span>
         </div>
       </div>
@@ -2167,16 +2167,7 @@ Branch: <span class="s">feat/billing-v2</span>
       </p>
     </div>
 
-    <div class="reveal" style="margin-top: 32px;">
-      <div class="hero-companion" style="max-width: 680px; margin: 0 auto;">
-        <span class="hc-mark" aria-hidden="true">⚡</span>
-        <b>v1.0.6+ Security Gate</b> — Shell-executing directives (<code style="font-family:var(--mono);color:var(--accent-bright);font-size:0.92em;">@query</code>,
-        <code style="font-family:var(--mono);color:var(--accent-bright);font-size:0.92em;">@agent</code>,
-        <code style="font-family:var(--mono);color:var(--accent-bright);font-size:0.92em;">@services command:</code>) require
-        <code style="font-family:var(--mono);color:var(--accent);font-size:0.92em;">export PERSEUS_ALLOW_DANGEROUS=1</code> before rendering.
-        <span class="hc-sub">Without this, shell directives are silently skipped. Add to your shell rc or prefix render commands.</span>
-      </div>
-    </div>
+
   </div>
 </section>
 
@@ -2543,7 +2534,7 @@ mimir --db ~/.mimir/data/mimir.db
     <div class="reveal" style="margin: 32px 0; text-align: center;">
       <img
         src="https://raw.githubusercontent.com/tcconnally/perseus/main/benchmark/infographic/perseus-benchmarks.svg"
-        alt="Perseus v1.0.6 — Performance Benchmarks: 450× speedup, 1,190× cache, 301× vs LLM, 94% compression, 0 failures, 1,032 tests"
+        alt="Perseus v1.0.7 — Performance Benchmarks: 450× speedup, 1,190× cache, 301× vs LLM, 94% compression, 0 failures, 1,032 tests"
         style="max-width: 100%; border-radius: 12px; border: 1px solid var(--bg-3);"
         loading="lazy"
       />
@@ -2587,7 +2578,7 @@ mimir --db ~/.mimir/data/mimir.db
         <p class="hn-desc">Every directive resolution is logged. Secrets auto-redacted with two-layer gating. Full audit trail, opt-out supported.</p>
       </div>
       <div class="hn-item hn-full">
-        <span class="hn-head">Deep-Dive v1.0.6</span>
+        <span class="hn-head">Deep-Dive v1.0.7</span>
         <p class="hn-desc">Architectural hardening pass: O(n²)→O(n) macro expansion, character parser→compiled regex, <code>shell=True</code>→explicit <code>/bin/sh -c</code>, webhook retry classification. Pythia log pruning prevents unbounded growth.</p>
       </div>
     </aside>
@@ -2811,14 +2802,7 @@ mimir --db ~/.mimir/data/mimir.db
 
     <!-- LLM-Tuned Guides callout -->
     <div class="reveal" style="margin-top: clamp(56px, 7vw, 88px);">
-      <div class="hero-companion" style="max-width: 740px; margin: 0 auto 24px;">
-        <div class="hc-mark">⚠</div>
-        <b>v1.0.6+ Security Gate</b> — Shell-executing directives (<code style="font-family:var(--mono);color:var(--accent-bright);">@query</code>,
-        <code style="font-family:var(--mono);color:var(--accent-bright);">@agent</code>,
-        <code style="font-family:var(--mono);color:var(--accent-bright);">@services command:</code>) and workspace-sourced plugins require
-        <code style="font-family:var(--mono);color:var(--accent);">export PERSEUS_ALLOW_DANGEROUS=1</code> before rendering.
-        <span class="hc-sub">Without this, shell directives are silently skipped. Add to your shell rc or prefix render commands.</span>
-      </div>
+
 
       <div class="hero-companion" style="max-width: 740px; margin: 0 auto;">
         <div class="hc-mark">⌘</div>
@@ -2863,7 +2847,7 @@ mimir --db ~/.mimir/data/mimir.db
 
     <div class="footer-meta">
       <span>Perseus &middot; live context engine</span>
-      <span>v<span data-live="version-bare">1.0.6</span> &middot; built in the open</span>
+      <span>v<span data-live="version-bare">1.0.7</span> &middot; built in the open</span>
     </div>
   </div>
 </footer>
