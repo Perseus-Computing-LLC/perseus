@@ -128,6 +128,75 @@
     border-color: var(--accent-bright);
   }
 
+  /* Unified Arsenal Split Grid */
+  .arsenal-split-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1.15fr;
+    gap: 32px;
+    align-items: start;
+    margin-top: 40px;
+  }
+  @media (max-width: 960px) {
+    .arsenal-split-grid { grid-template-columns: 1fr; gap: 28px; }
+  }
+  .ars-col {
+    display: flex;
+    flex-direction: column;
+  }
+  .ars-col-title {
+    font-family: var(--serif);
+    font-size: 20px;
+    font-weight: 500;
+    margin: 0 0 8px 0;
+    color: var(--text);
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  .ars-subtitle {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  .ars-col-desc {
+    font-size: 13.5px;
+    color: var(--text-dim);
+    line-height: 1.45;
+    margin: 0 0 24px 0;
+  }
+  .ars-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .ars-item {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    padding: 16px;
+    border-radius: 4px;
+    transition: border-color 0.18s ease, transform 0.18s ease;
+  }
+  .ars-item:hover {
+    border-color: var(--line-strong);
+    transform: translateY(-1px);
+  }
+  .ars-name {
+    display: block;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--accent-2);
+    margin-bottom: 6px;
+    font-weight: 500;
+  }
+  .ars-desc {
+    display: block;
+    font-size: 12.5px;
+    color: var(--text-dim);
+    line-height: 1.4;
+  }
+
   /* Architectural section header */
   .sec-head {
     display: grid;
@@ -1836,12 +1905,11 @@
     <nav>
       <a href="#how" class="nav-link">How it works</a>
       <a href="#triad" class="nav-link">The Triad</a>
-      <a href="#architecture" class="nav-link">Architecture</a>
+      <a href="#architecture" class="nav-link">Blueprint</a>
       <a href="#mimir" class="nav-link">Mimir</a>
-      <a href="#arsenal" class="nav-link">Arsenal</a>
       <a href="#proof" class="nav-link">Benchmarks</a>
-      <a href="#compat" class="nav-link">Assistants</a>
-      <a href="#integrate" class="nav-link">Integrations</a>
+      <a href="#arsenal" class="nav-link">Arsenal</a>
+      <a href="#compat" class="nav-link">Compat</a>
       <a href="#start" class="nav-link">Start</a>
       <a href="https://github.com/tcconnally/perseus" class="ghbtn">GitHub ↗</a>
     </nav>
@@ -1856,12 +1924,11 @@
   <a href="#problem">The Mirror</a>
   <a href="#how">How it works</a>
   <a href="#triad">The Triad</a>
-  <a href="#architecture">Architecture</a>
+  <a href="#architecture">Blueprint</a>
   <a href="#mimir">Mimir</a>
-  <a href="#arsenal">Arsenal</a>
   <a href="#proof">Benchmarks</a>
-  <a href="#compat">Assistants</a>
-  <a href="#integrate">Integrations</a>
+  <a href="#arsenal">Arsenal</a>
+  <a href="#compat">Compat</a>
   <a href="#start">Start</a>
   <a href="https://github.com/tcconnally/perseus" class="ghbtn-mobile">GitHub ↗</a>
 </nav>
@@ -2160,137 +2227,17 @@ Branch: <span class="s">feat/billing-v2</span>
       </div>
     </div>
 
-    <div class="constellation-lede reveal">The wider constellation</div>
-    <div class="constellation reveal" role="list">
-      <div class="const-cell" role="listitem">
-        <div class="greek">Mnēmē</div>
-        <div class="name">@memory</div>
-        <div class="desc">Narrative project memory. Federates across workspaces to build a coherent, long-term understanding of your work.</div>
-      </div>
-      <div class="const-cell" role="listitem">
-        <div class="greek">Daedalus</div>
-        <div class="name">@drift</div>
-        <div class="desc">Self-rating oracle. Detects when recommendations drift from reality, preventing implementation of flawed suggestions.</div>
-      </div>
-      <div class="const-cell" role="listitem">
-        <div class="greek">Agora</div>
-        <div class="name">@agora</div>
-        <div class="desc">Live task board rendered from <code>tasks/</code>, ensuring the AI and team share a single source of truth for work.</div>
-      </div>
-      <div class="const-cell cyan" role="listitem">
-        <div class="greek">Hermes</div>
-        <div class="name">@inbox</div>
-        <div class="desc">Point-to-point messages between agents for coordination and handoff on complex tasks.</div>
-      </div>
-      <div class="const-cell cyan" role="listitem">
-        <div class="greek">Tiered Context</div>
-        <div class="name">--tier 1|2|3</div>
-        <div class="desc">Progressive disclosure. The agent is the RAG — only core context injected, rest pulled on demand.</div>
-      </div>
-      <div class="const-cell cyan" role="listitem">
-        <div class="greek">Graeae</div>
-        <div class="name">perseus serve &mdash;lsp</div>
-        <div class="desc">LSP server &amp; VSCode extension. Hover-preview directives.</div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- ============ ARSENAL ============ -->
-<section id="arsenal" class="section-block">
-  <div class="wrap">
-    <header class="sec-head reveal">
-      <div class="sec-num">IV &nbsp;— &nbsp;The Arsenal</div>
-      <h2 class="sec-title">Every tool. <em>One engine.</em></h2>
-    </header>
-
-    <div class="constellation-lede reveal">Core directives — what you'll use every session</div>
-    <div class="constellation reveal" role="list">
-      <div class="const-cell" role="listitem">
-        <div class="greek">@query</div>
-        <div class="name">Shell execution</div>
-        <div class="desc">Runs a command and captures output. Cached with <code>@cache ttl=N</code>. The workhorse — live git state, version numbers, environment facts.</div>
-      </div>
-      <div class="const-cell" role="listitem">
-        <div class="greek">@read</div>
-        <div class="name">File inclusion</div>
-        <div class="desc">Inlines file content with optional line ranges. Context-overflow guarded. Dependencies, configs, recent logs.</div>
-      </div>
-      <div class="const-cell" role="listitem">
-        <div class="greek">@services</div>
-        <div class="name">Health checks</div>
-        <div class="desc">HTTP, Docker, or command-based service discovery. Parallel checks, configurable timeouts. Know what's running.</div>
-      </div>
-      <div class="const-cell" role="listitem">
-        <div class="greek">@waypoint</div>
-        <div class="name">Session continuity</div>
-        <div class="desc">Inserts the latest checkpoint — what you were doing, what's next. Swap sessions without re-orientation.</div>
-      </div>
-      <div class="const-cell cyan" role="listitem">
-        <div class="greek">@memory</div>
-        <div class="name">Project memory</div>
-        <div class="desc">Narrative journal + FTS5 BM25 search. Federates across workspaces. Your project's long-term memory.</div>
-      </div>
-      <div class="const-cell cyan" role="listitem">
-        <div class="greek">@agora</div>
-        <div class="name">Task board</div>
-        <div class="desc">Live task board from <code>tasks/*.md</code>. Single source of truth — your AI and team share the same work view.</div>
-      </div>
-    </div>
-
-    <p class="reveal" style="text-align:center; margin-top:24px; font-family:var(--mono); font-size:11px; letter-spacing:0.14em; text-transform:uppercase; color:var(--text-muted);">
-      25 directives total — <a href="https://github.com/tcconnally/perseus#core-directives-resolved-at-render-time" style="color:var(--accent-2);border-bottom:1px dotted rgba(86,225,255,0.4);">see the full catalog ↗</a>
-    </p>
-
-    <hr class="arsenal-sep reveal" />
-
-    <div class="constellation-lede reveal" style="margin-top:48px;">CLI — the verbs you'll reach for</div>
-    <div class="constellation reveal" role="list">
-      <div class="const-cell" role="listitem">
-        <div class="greek">perseus quickstart</div>
-        <div class="name">Zero to warm in one command</div>
-        <div class="desc">Detects your assistant, scaffolds, renders, and prints next steps. The fastest path from nothing to live context.</div>
-      </div>
-      <div class="const-cell" role="listitem">
-        <div class="greek">perseus render</div>
-        <div class="name">Resolve and output</div>
-        <div class="desc">Resolves all directives in parallel. Outputs plain markdown. <code>--tier 1|2|3</code> for progressive disclosure.</div>
-      </div>
-      <div class="const-cell" role="listitem">
-        <div class="greek">perseus checkpoint</div>
-        <div class="name">Save session state</div>
-        <div class="desc">Write a waypoint at any natural pause. <code>recover</code> finds the right one; <code>diff</code> compares two.</div>
-      </div>
-      <div class="const-cell" role="listitem">
-        <div class="greek">perseus doctor</div>
-        <div class="name">Readiness check</div>
-        <div class="desc">Verifies config, permissions, cache health, and output freshness. One command to know you're solid.</div>
-      </div>
-      <div class="const-cell" role="listitem">
-        <div class="greek">perseus suggest</div>
-        <div class="name">Pythia tool oracle</div>
-        <div class="desc">Ranks the highest-utility tool or skill for a task. No extra model. Closes the loop in-context.</div>
-      </div>
-      <div class="const-cell" role="listitem">
-        <div class="greek">perseus mcp serve</div>
-        <div class="name">MCP server</div>
-        <div class="desc">Exposes all directives as 24 live MCP tools over stdio or SSE (port 8420). Listed on the MCP Registry.</div>
-      </div>
-    </div>
-
-    <p class="reveal" style="text-align:center; margin-top:24px; font-family:var(--mono); font-size:11px; letter-spacing:0.14em; text-transform:uppercase; color:var(--text-muted);">
-      30 CLI verbs, 24 MCP tools — <a href="https://github.com/tcconnally/perseus#cli-commands--every-verb-one-binary" style="color:var(--accent-2);border-bottom:1px dotted rgba(86,225,255,0.4);">see the full catalog ↗</a>
-    </p>
-
 
   </div>
 </section>
+
+
 
 <!-- ============ ARCHITECTURE DIAGRAM ============ -->
 <section id="architecture" class="section-block">
   <div class="wrap">
     <header class="sec-head reveal">
-      <div class="sec-num">V &nbsp;— &nbsp;The Blueprint</div>
+      <div class="sec-num">IV &nbsp;— &nbsp;The Blueprint</div>
       <h2 class="sec-title">How the pieces <em>fit together</em>.</h2>
     </header>
 
@@ -2474,7 +2421,7 @@ Branch: <span class="s">feat/billing-v2</span>
 <section id="mimir" class="section-block">
   <div class="wrap">
     <header class="sec-head reveal">
-      <div class="sec-num">VI &mdash; Persistent Memory</div>
+      <div class="sec-num">V &mdash; Persistent Memory</div>
       <h2 class="sec-title">Mimir: one vault, <em>every device</em>.</h2>
     </header>
 
@@ -2530,7 +2477,7 @@ mimir --db ~/.mimir/data/mimir.db
 <section id="proof" class="section-block">
   <div class="wrap">
     <header class="sec-head reveal">
-      <div class="sec-num">VII &nbsp;— &nbsp;The Receipts</div>
+      <div class="sec-num">VI &nbsp;— &nbsp;The Receipts</div>
       <h2 class="sec-title">Numbers from the bench, <em>not the pitch deck.</em></h2>
     </header>
 
@@ -2651,7 +2598,7 @@ mimir --db ~/.mimir/data/mimir.db
 <section id="compat" class="section-block">
   <div class="wrap">
     <header class="sec-head reveal">
-      <div class="sec-num">VII &nbsp;— &nbsp;The Compatible</div>
+      <div class="sec-num">VIII &nbsp;— &nbsp;The Compatible</div>
       <h2 class="sec-title">Resolves to a file. <em>Yours, already.</em></h2>
     </header>
 
@@ -2705,113 +2652,107 @@ mimir --db ~/.mimir/data/mimir.db
   </div>
 </section>
 
-<!-- ============ INTEGRATIONS ============ -->
-<section id="integrate" class="section-block">
+<!-- ============ ARSENAL ============ -->
+<section id="arsenal" class="section-block">
   <div class="wrap">
     <header class="sec-head reveal">
-      <div class="sec-num">VIII &nbsp;— &nbsp;The Adapters</div>
-      <h2 class="sec-title">Four ways to <em>own session-start</em>.</h2>
+      <div class="sec-num">VII &mdash; The Arsenal</div>
+      <h2 class="sec-title">Every directive, <em>every verb, every adapter.</em></h2>
     </header>
 
-    <div class="integrations reveal" role="list">
-      <div class="int-card" role="listitem">
-        <div class="int-head">
-          <svg class="glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
-            <path d="M3 5 L21 5 L21 16 L3 16 Z" />
-            <path d="M8 20 L16 20 M12 16 L12 20" stroke-linecap="round" />
-            <path d="M9 9 L15 9 M9 12 L13 12" stroke-linecap="round" />
-          </svg>
-          <div>
-            <div class="int-name">VS Code &middot; Cursor</div>
-            <div class="int-tag">editor extension &middot; LSP server</div>
+    <div class="arsenal-split-grid reveal">
+      <!-- COLUMN 1: DIRECTIVES -->
+      <div class="ars-col">
+        <h3 class="ars-col-title">Core Directives <span class="ars-subtitle">The Language</span></h3>
+        <p class="ars-col-desc">Render-time macros resolved to static facts before the context window opens.</p>
+        <div class="ars-list">
+          <div class="ars-item">
+            <span class="ars-name">@query</span>
+            <span class="ars-desc">Shell execution. Captures command stdout, cached via <code>@cache ttl=N</code>. For git branch, clusters, and versions.</span>
           </div>
-        </div>
-        <div class="int-live" aria-label="Source on GitHub">
-          <span class="live-dot" aria-hidden="true"></span>
-          <span class="live-label">Source</span>
-          <span class="sep">·</span>
-          <a class="live-ns" href="https://github.com/tcconnally/perseus/tree/main/editors/vscode" target="_blank" rel="noopener">editors/vscode&nbsp;↗</a>
-        </div>
-        <p class="int-desc">Auto-renders <code style="font-family:var(--mono);color:var(--accent-bright);font-size:0.92em;">.perseus/context.md</code> on save. Status bar indicator. Hover-preview for any directive. Auto-detects the target assistant file. Install from source; Marketplace publishing pending.</p>
-        <div class="int-cmd">
-          <span class="prompt">$</span>
-          <code>git clone https://github.com/tcconnally/perseus.git &amp;&amp; cp -r perseus/editors/vscode ~/.vscode/extensions/tcconnally.perseus-vscode</code>
-          <button class="mini-copy" data-copy="git clone https://github.com/tcconnally/perseus.git && cp -r perseus/editors/vscode ~/.vscode/extensions/tcconnally.perseus-vscode">Copy</button>
+          <div class="ars-item">
+            <span class="ars-name">@read</span>
+            <span class="ars-desc">File inclusion. Inlines file ranges securely with token-overflow guard rails.</span>
+          </div>
+          <div class="ars-item">
+            <span class="ars-name">@services</span>
+            <span class="ars-desc">Service checking. Discovers container health, endpoints, or exit checks in parallel.</span>
+          </div>
+          <div class="ars-item">
+            <span class="ars-name">@waypoint</span>
+            <span class="ars-desc">Session state. Inserts what you're working on and next actions. Swap contexts in one turn.</span>
+          </div>
+          <div class="ars-item">
+            <span class="ars-name">@memory</span>
+            <span class="ars-desc">Project memory. Distills checkpoint narrative journals. Federates across folders.</span>
+          </div>
+          <div class="ars-item">
+            <span class="ars-name">@agora</span>
+            <span class="ars-desc">Task board. Auto-renders `tasks/*.md` markdown files as a unified live task matrix.</span>
+          </div>
         </div>
       </div>
 
-      <div class="int-card cyan" role="listitem">
-        <div class="int-head">
-          <svg class="glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
-            <rect x="4" y="5" width="16" height="14" rx="1" />
-            <path d="M4 9 H20" />
-            <path d="M8 13 L11 16 L16 11" stroke-linecap="round" />
-          </svg>
-          <div>
-            <div class="int-name">Claude Code Hook</div>
-            <div class="int-tag">session-start trigger &middot; one curl</div>
+      <!-- COLUMN 2: CLI VERBS -->
+      <div class="ars-col">
+        <h3 class="ars-col-title">CLI Verbs <span class="ars-subtitle">The Interface</span></h3>
+        <p class="ars-col-desc">The standalone binary commands you and your cron watchdogs run.</p>
+        <div class="ars-list">
+          <div class="ars-item">
+            <span class="ars-name">perseus quickstart</span>
+            <span class="ars-desc">Scaffolds, detects your assistant target, and renders warm context in 30 seconds.</span>
           </div>
-        </div>
-        <p class="int-desc">Runs <code style="font-family:var(--mono);color:var(--accent-2);font-size:0.92em;">perseus render</code> automatically before every Claude Code session. The assistant opens already briefed — no orientation phase, ever.</p>
-        <div class="int-cmd">
-          <span class="prompt">$</span>
-          <code>perseus install --target claude-code</code>
-          <button class="mini-copy" data-copy="perseus install --target claude-code">Copy</button>
+          <div class="ars-item">
+            <span class="ars-name">perseus render</span>
+            <span class="ars-desc">Resolves all directives in parallel. <code>--tier 1|2|3</code> filters prompt injection size.</span>
+          </div>
+          <div class="ars-item">
+            <span class="ars-name">perseus checkpoint</span>
+            <span class="ars-desc">Saves waypoints at pausing points. <code>recover</code> and <code>diff</code> restore and compare states.</span>
+          </div>
+          <div class="ars-item">
+            <span class="ars-name">perseus doctor</span>
+            <span class="ars-desc">System diagnostic. Verifies configuration paths, credentials, and render dependencies.</span>
+          </div>
+          <div class="ars-item">
+            <span class="ars-name">perseus suggest</span>
+            <span class="ars-desc">Tool recommend. Triggers Pythia Oracle to output high-utility skills and rationale.</span>
+          </div>
+          <div class="ars-item">
+            <span class="ars-name">perseus mcp serve</span>
+            <span class="ars-desc">Launches the standard stdio or SSE Model Context Protocol server exposing all tools.</span>
+          </div>
         </div>
       </div>
 
-      <div class="int-card" role="listitem">
-        <div class="int-head">
-          <svg class="glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
-            <circle cx="12" cy="12" r="8" />
-            <path d="M12 6 L12 12 L16 14" stroke-linecap="round" />
-            <path d="M4 4 L7 7 M20 4 L17 7" stroke-linecap="round" />
-          </svg>
-          <div>
-            <div class="int-name">GitHub Action</div>
-            <div class="int-tag">push &amp; schedule &middot; commits back</div>
+      <!-- COLUMN 3: ADAPTERS -->
+      <div class="ars-col">
+        <h3 class="ars-col-title">Adapters <span class="ars-subtitle">The Integrations</span></h3>
+        <p class="ars-col-desc">Bridge triggers that automate context rendering in your native tools.</p>
+        <div class="ars-list">
+          <div class="ars-item">
+            <span class="ars-name">VS Code / Cursor Extension</span>
+            <span class="ars-desc">Auto-renders context files on save, displays status, and adds live directive hover-previews.</span>
           </div>
-        </div>
-        <div class="int-live" aria-label="Released on the GitHub Marketplace">
-          <span class="live-dot" aria-hidden="true"></span>
-          <span class="live-label">Released</span>
-          <span class="sep">·</span>
-          <a class="live-ns" href="https://github.com/tcconnally/perseus-action" target="_blank" rel="noopener">tcconnally/perseus-action ↗</a>
-          <span class="ver">@v1</span>
-        </div>
-        <p class="int-desc">Renders on every push and on a schedule. Commits the resolved context back to the repo so <b>every teammate</b> gets pre-warmed context without installing anything locally.</p>
-        <div class="int-cmd">
-          <span class="prompt"># .github/workflows/</span>
-          <code>uses: tcconnally/perseus-action@v1</code>
-          <button class="mini-copy" data-copy="uses: tcconnally/perseus-action@v1">Copy</button>
-        </div>
-      </div>
-
-      <div class="int-card cyan" role="listitem">
-        <div class="int-head">
-          <svg class="glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
-            <path d="M4 8 L12 4 L20 8 L20 16 L12 20 L4 16 Z" />
-            <path d="M12 4 L12 12 M4 8 L12 12 L20 8" />
-          </svg>
-          <div>
-            <div class="int-name">MCP Server</div>
-            <div class="int-tag">directive tools &middot; on the registry</div>
+          <div class="ars-item">
+            <span class="ars-name">Claude Code Hook</span>
+            <span class="ars-desc">Triggers automatic rendering on terminal launch. Claude opens with 0-turn orientation.</span>
           </div>
-        </div>
-        <div class="int-live" aria-label="Listed on the MCP Registry">
-          <span class="live-dot" aria-hidden="true"></span>
-          <span class="live-label">Listed</span>
-          <span class="sep">·</span>
-          <a class="live-ns" href="https://registry.modelcontextprotocol.io/" target="_blank" rel="noopener">io.github.tcconnally/perseus ↗</a>
-        </div>
-        <p class="int-desc">Exposes 24 Perseus directives as MCP tools for any MCP-compatible assistant. <b>Bearer-token authentication</b> on SSE transport, platform-portable timeouts, and SSRF-hardened foreign resolver. Listed on the official <a href="https://registry.modelcontextprotocol.io/" style="color:var(--accent-2);border-bottom:1px dotted rgba(86,225,255,0.4);">MCP Registry</a>.</p>
-        <div class="int-cmd">
-          <span class="prompt">$</span>
-          <code>perseus mcp serve</code>
-          <button class="mini-copy" data-copy="perseus mcp serve">Copy</button>
+          <div class="ars-item">
+            <span class="ars-name">GitHub Action</span>
+            <span class="ars-desc">Push &amp; cron schedule action that commits rendered files back, briefing teammates for free.</span>
+          </div>
+          <div class="ars-item">
+            <span class="ars-name">MCP Server Sidecar</span>
+            <span class="ars-desc">Registers Perseus on the official MCP Registry, giving agents direct tool call capabilities.</span>
+          </div>
         </div>
       </div>
     </div>
+
+    <p class="reveal" style="text-align:center; margin-top:36px; font-family:var(--mono); font-size:11px; letter-spacing:0.14em; text-transform:uppercase; color:var(--text-muted);">
+      30 CLI verbs &middot; 25 directives &middot; 24 MCP tools &mdash; <a href="https://github.com/tcconnally/perseus" style="color:var(--accent-2);border-bottom:1px dotted rgba(86,225,255,0.4);">see the full catalog on GitHub ↗</a>
+    </p>
   </div>
 </section>
 
