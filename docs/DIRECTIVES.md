@@ -34,8 +34,7 @@ Source documents start with `@perseus v1.0.6` on line 1. The value after `@perse
 | `@inbox [unread=true] [limit=N]` | Render pending point-to-point messages from `perseus inbox send` |
 | `@memory federation [alias=name]` | Render digest of subscribed cross-workspace narratives (see `perseus memory federation`) |
 | `@memory include_federation=true` | Local narrative + appended `## Federated Context` digest |
-| `@sibyl [query=\"topic\"] [tiers=entity,state]` | Sibyl Memory structured context marker. The auto-injected Sibyl block is appended at render time by the pipeline; `query=` contributes search hints and `tiers=` controls which memory tiers to surface. The directive resolves to empty — the line is stripped from output but its parameters feed the injection. Degrades gracefully when Sibyl SDK is absent. |
-| `@sibyl_state keys=key1,key2,...` | Surface Sibyl Memory state documents inline. Reads named state keys from the Sibyl database and renders them as label/value pairs for immediate agent orientation. Requires `SIBYL_MEMORY_ENABLED=1`. Degrades gracefully when SDK is absent or key is unset. |
+| `@mimir  query=\"topic\"` | Recall persistent memories via Mimir (entities, journal, state). Category-filtered, FTS5 keyword search with LIKE fallback. |
 | `@drift` | Daedalus drift report — acceptance rate, recommendation Jaccard, confidence proxy (see `perseus oracle drift`) |
 | `@tool "\"<path>\"" [args...]` | Run an allowlisted external tool. Unlike `@agent` (ad-hoc), `@tool` requires explicit approval in `tools.allowlist` per path, with argument restrictions, timeouts, and output size caps. Accepts `@cache ttl=N`. |
 | `@synthesize question="..." source="file" [label="..."]` | Optional curated synthesis section. Requires `generation.enabled: true` in config. LLM-powered summarization with provenance claims — every assertion traces back to a cited source. |
