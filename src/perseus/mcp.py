@@ -355,7 +355,7 @@ def _build_output_schema(tool_name: str, spec) -> dict | None:
                 "files": {"type": "array", "items": {"type": "string"}, "description": "Mapped source files"}
             }
         }
-    if tool_name in ("perseus_auto-skill", "perseus_sibyl", "perseus_sibyl_state", "perseus_drift"):
+    if tool_name in ("perseus_auto_skill", "perseus_drift"):
         return {
             "type": "object",
             "properties": {
@@ -402,8 +402,7 @@ def _build_annotations(tool_name: str, spec) -> dict | None:
     if tool_name in ("perseus_date", "perseus_drift", "perseus_env"):
         hints["readOnlyHint"] = True
     # Read-only tools that escape the reads_files / executes_shell checks
-    if tool_name in ("perseus_auto-skill", "perseus_sibyl", "perseus_sibyl_state",
-                      "perseus_perseus", "perseus_mimir", "perseus_mason",
+    if tool_name in ("perseus_auto_skill", "perseus_perseus", "perseus_mimir", "perseus_mason",
                       "perseus_skills", "perseus_inbox", "perseus_include", "perseus_read",
                       "perseus_list", "perseus_tree", "perseus_tooltrim", "perseus_validate",
                       "perseus_prompt"):
@@ -424,7 +423,7 @@ def _generate_directive_tools() -> list[dict]:
             continue
         if spec.resolver is None:
             continue
-        tool_name = f"perseus_{name.lstrip('@')}"
+        tool_name = f"perseus_{name.lstrip('@').replace('-', '_')}"
         props = {}
         required = []
         param_descs = _PARAM_DESCRIPTIONS.get(name, {})
@@ -462,7 +461,7 @@ LEGACY_MCP_TOOLS: list[dict] = [
     ),
     _tool_schema(
         "perseus_get_health",
-        "Run Daedalus context-maintenance heuristics and return a health report.",
+        "Run Daedalus context-maintenance heuristics — cache health, directive resolution stats, memory integrity check.",
         {},
         output_schema={
             "type": "object",
@@ -477,6 +476,11 @@ LEGACY_MCP_TOOLS: list[dict] = [
 
 # Sensitive tools — require explicit config opt-in
 _MCP_SENSITIVE_TOOLS = {"perseus_query", "perseus_agent"}
+
+# Reverse mapping: MCP tool name → directive name (normalizes hyphen→underscore)
+_TOOL_TO_DIRECTIVE = {
+    "perseus_auto_skill": "@auto-skill",
+}
 
 
 def _mcp_tool_allowed(tool_name: str, cfg: dict) -> tuple[bool, str]:
@@ -576,6 +580,7 @@ def _build_tool_args_generic(tool_name: str, arguments: dict) -> str:
     """Build directive args from MCP tool arguments using the registry metadata."""
     if tool_name.startswith("perseus_"):
         directive_name = "@" + tool_name[len("perseus_"):]
+        directive_name = _TOOL_TO_DIRECTIVE.get(tool_name, directive_name)
     else:
         return ""
 
@@ -690,6 +695,7 @@ def _call_tool(tool_name: str, arguments: dict, cfg: dict, workspace: Path) -> s
     # Map tool name to directive
     if tool_name.startswith("perseus_"):
         directive_name = "@" + tool_name[len("perseus_"):]
+        directive_name = _TOOL_TO_DIRECTIVE.get(tool_name, directive_name)
     else:
         return f"Error: unknown tool {tool_name}"
 
