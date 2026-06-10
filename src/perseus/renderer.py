@@ -1524,7 +1524,7 @@ def render_source_html(
 
 
 def _derive_query_hints(source_text: str, workspace) -> list[str]:
-    """Extract contextual hints for Sibyl Memory FTS5 search.
+    """Extract contextual hints for Mimir FTS5 search.
 
     Uses DIRECTIVE_REGISTRY's is_semantic_hint flag to discover which
     directives carry project-level search terms — no hardcoded lists.
@@ -1577,11 +1577,10 @@ def render_output(
         rendered = dedup_context_if_available(rendered, cfg)
         from perseus.vaultmem_connector import inject_vaultmem_context
         rendered = inject_vaultmem_context(rendered, cfg)
-        from perseus.sibyl_memory import render_sibyl_context
-        hints = _derive_query_hints(source_text, workspace)
-        sibyl_block = render_sibyl_context(query_hints=hints, cfg=cfg)
-        if sibyl_block:
-            rendered += "\n\n" + sibyl_block
+        from perseus.mimir_connector import _mimir_context_inject
+        mimir_block = _mimir_context_inject(cfg)
+        if mimir_block:
+            rendered += "\n\n" + mimir_block
         return rendered
     elif fmt == "html":
         t = title or "Workspace Context"
@@ -1598,11 +1597,10 @@ def render_output(
         rendered = dedup_context_if_available(rendered, cfg)
         from perseus.vaultmem_connector import inject_vaultmem_context
         rendered = inject_vaultmem_context(rendered, cfg)
-        from perseus.sibyl_memory import render_sibyl_context
-        hints = _derive_query_hints(source_text, workspace)
-        sibyl_block = render_sibyl_context(query_hints=hints, cfg=cfg)
-        if sibyl_block:
-            rendered += "\n\n" + sibyl_block
+        from perseus.mimir_connector import _mimir_context_inject
+        mimir_block = _mimir_context_inject(cfg)
+        if mimir_block:
+            rendered += "\n\n" + mimir_block
         return wrap_rendered(rendered, fmt, _PERSEUS_VERSION)
 
     # Custom formats (task-68)
