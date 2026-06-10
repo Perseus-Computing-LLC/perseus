@@ -25,7 +25,7 @@ class DirectiveSpec(NamedTuple):
     diagnostic_fn: "Callable | None" = None  # Optional per-directive LSP diagnostic (task-25)
     source: str = "builtin"             # task-65: "builtin" for shipped specs, "plugin" for ~/.perseus/plugins/*.py
     tier: int = 1                       # Context tier: 1=always, 2=conditional, 3=on-demand
-    is_semantic_hint: bool = False       # If True, the directive's value is a valid search hint for Sibyl Memory / Mneme
+    is_semantic_hint: bool = False       # If True, the directive's value is a valid search hint for Mimir / Mneme
 
 
 # NOTE: resolver references are forward-declared as strings and bound after
@@ -42,8 +42,6 @@ def _bind_registry() -> None:
         DirectiveSpec("@waypoint",  resolve_waypoint,  ["ttl="],                   "inline",  "ac",  reads_files=True, cacheable=True, summary="Latest checkpoint summary", tier=1),
         DirectiveSpec("@memory",    resolve_memory,    ["mode=", "query=", "scope=", "k=", "type=", "render=", "focus=", "federation", "include_federation=", "alias=", "workspace="], "inline", "acw", reads_files=True, cacheable=True, summary="Mnēmē v2 — unified memory search + narrative + federation", diagnostic_fn=_memory_federation_diagnostic, tier=1, is_semantic_hint=True),
         DirectiveSpec("@auto-skill", resolve_auto_skill, ["skill="],              "inline",  "ac",  cacheable=True,  safe_for_hover=True, summary="Instruct agent to load a skill before work begins", tier=1),
-        DirectiveSpec("@sibyl",    resolve_sibyl,    ["query=", "tiers="],         "inline",  "ac",  cacheable=True,  safe_for_hover=True, summary="Sibyl Memory — auto-injected structured context; query hints feed search", tier=1, is_semantic_hint=True),
-        DirectiveSpec("@sibyl_state", resolve_sibyl_state, ["keys="],              "inline",  "ac",  cacheable=False, safe_for_hover=True, summary="Surface Sibyl Memory state documents inline", tier=1),
         DirectiveSpec("@health",    resolve_health,    [],                         "inline",  "acw", reads_files=True, summary="Context maintenance report", tier=1),
         DirectiveSpec("@env",       resolve_env,       ["required=", "fallback=", "schema="], "inline", "acw", cacheable=False, safe_for_hover=True, summary="Embed environment variable", tier=1),
 

@@ -55,10 +55,10 @@ def _test_cfg(strategy="local_first"):
 
 
 def _make_hit(id_, content, source="local", mtype="insight", decay=1.0, relevance=0.5):
-    return perseus.MemoryHit(
-        id=id_, content=content, source=perseus.MemorySource(source),
-        type=perseus.MemoryTypeEnum(mtype), summary=content[:80],
-        relevance=relevance, decay_score=decay,
+    return perseus.EntityHit(
+        id=id_, body_json=content, source=perseus.MemorySource(source),
+        entity_type=mtype, category="test", key=id_,
+        decay_score=decay,
     )
 
 
@@ -191,7 +191,7 @@ class TestDeduplicationEfficiency:
         ) * 2  # make it long enough to matter
 
         local = [_make_hit("l-long", long_content, "local", "decision", decay=0.5)]
-        mneme_items = [_make_hit("e-long", long_content, "mimir", "decision", decay=0.9)]
+        mneme_items = [_make_hit("l-long", long_content, "mimir", "decision", decay=0.9)]
 
         merged = conn._merge_results(
             local_items=local, mimir_items=mneme_items,

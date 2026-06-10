@@ -5,7 +5,7 @@
 > **Perseus version tested:** v1.0.7
 > **Platforms verified:** macOS · Linux · Windows 10 (git-bash) · Docker  
 > **Source:** https://github.com/tcconnally/perseus · https://pypi.org/project/perseus-ctx/  
-> **New in this version:** Sibyl Memory as primary persistent store (structured five-tier memory) · Mneme MCP connector available as optional alternative
+> **New in this version:** Mimir as primary persistent store (structured five-tier memory) · Mneme MCP connector available as optional alternative
 
 ---
 
@@ -376,10 +376,10 @@ Your system prompt goes here. This is injected before the rendered content.
 
 @memory mode=search query="project architecture setup build deploy" k=5
 
-## Structured Memory (Sibyl)
+## Persistent Memory (Mimir)
 @cache ttl=300
-@sibyl query="current focus decisions" tiers=entity,state
-> Note: `@sibyl` is an informational placeholder. Sibyl Memory context is injected automatically by the render pipeline when `SIBYL_MEMORY_ENABLED=1` — no directive resolver needed.
+@memory mode=search query="project architecture decisions" k=5
+> Mimir context is injected automatically by the render pipeline when `mimir.enabled: true` is set in `.perseus/config.yaml`.
 
 ## Recent Sessions
 @session count=5 format=digest
@@ -635,9 +635,9 @@ mimir --version   # expect "mimir 0.2.0"
 > To confirm: run `perseus doctor` — it reports Mimir connectivity.
 > If Mimir is unreachable, Perseus falls back to local Mnēmē FTS5 silently.
 
-### Sibyl Memory (PRIMARY — structured five-tier local memory)
+### Mimir (PRIMARY — structured five-tier local memory)
 
-Perseus integrates with [Sibyl Memory](https://github.com/Sibyl-Labs/Sibyl-Memory), an MIT-licensed, local-first memory engine backed by SQLite and FTS5. It provides five structured memory tiers (HOT state, WARM entities, COLD journal, REFERENCE docs, ARCHIVE) with schema-level entity integrity — no vector DB, no embeddings, no cloud dependency.
+Perseus integrates with [Mimir](https://github.com/tcconnally/mimir), an MIT-licensed, local-first memory engine — a Rust binary with SQLite + FTS5. It provides structured entities with category/key idempotent upsert, journal events, state management with TTL, and entity linking — no vector DB, no embeddings, no cloud dependency.
 
 | Tier | Name | Purpose | API |
 |------|------|---------|-----|
@@ -650,34 +650,33 @@ Perseus integrates with [Sibyl Memory](https://github.com/Sibyl-Labs/Sibyl-Memor
 **Install:**
 
 ```bash
-pip install sibyl-memory-client
-# No signup needed for local use. sibyl init is only for paid tier upgrades.
+pip install mimir binary
 ```
 
 **Enable in Perseus:**
 
 ```yaml
 # ~/.perseus/config.yaml (or env var)
-sibyl_memory:
+mimir_connector:
   enabled: true
-  db_path: ~/.sibyl-memory/memory.db
+  db_path: ~/.mimir/data/mimir.db
   max_tokens: 1500
 ```
 
-Or via environment: `export SIBYL_MEMORY_ENABLED=1`
+Or via environment: `export MIMIR_DB_PATH=~/.mimir/data/mimir.db`
 
 **Use in context.md:**
 
 ```markdown
-## Structured Memory (Sibyl)
-@sibyl query="current focus decisions" tiers=entity,state
+## Persistent Memory (Mimir)
+@memory mode=search query="project architecture decisions" k=5
 ```
 
-> The `@sibyl` line is an informational placeholder. Actual Sibyl Memory context is injected automatically by the render pipeline when enabled — no directive resolver needed. The line documents what's being queried so users know what's in their context.
+> Mimir context is injected automatically by the render pipeline when enabled — no directive resolver needed. The `@memory mode=search` line documents what's being queried so users know what's in their context.
 
-**Degradation:** If `sibyl-memory-client` is not installed, the DB is missing, or search returns nothing, the injected block is empty — no crash, no error. Off by default.
+**Degradation:** If `mimir binary` is not installed, the DB is missing, or search returns nothing, the injected block is empty — no crash, no error. Off by default.
 
-**Free tier:** 2 MB local storage cap. Paid tiers (stake/subscription) unlock self-learning skill proposals, memory linter, and remove the cap. See [sibyllabs.org/plugin](https://sibyllabs.org/plugin).
+No storage cap, no paid tiers, no signup. Fully local and free forever.
 
 ### Writing checkpoints (the right way)
 
@@ -705,50 +704,18 @@ perseus memory update
 
 ---
 
-### Sibyl MCP Server (Active Memory Modification)
+### Mimir MCP Server (Active Memory Modification)
 
-While the default integration injects passive context at session start, you can allow agents to actively search and modify Sibyl Memory mid-session via MCP. This exposes three tools: `sibyl_search` (FTS5 search across all tiers), `sibyl_recall` (fetch entity by category + name), and `sibyl_remember` (create or update an entity).
-
-**Hermes Agent** — add to `~/.hermes/config.yaml`:
+Mimir is natively MCP. Add to your config:
 
 ```yaml
 mcp_servers:
-  sibyl:
-    command: "python3"
-    args: ["/path/to/perseus-repo/src/sibyl_mcp_server.py"]
-    env:
-      SIBYL_DB_PATH: "~/.sibyl-memory/memory.db"
-    timeout: 30
-    connect_timeout: 15
+  mimir:
+    command: "mimir"
+    args: ["--db", "~/.mimir/data/mimir.db"]
 ```
 
-> **Finding the server path:** If Perseus was installed from source (`git clone`), the server lives at `<repo>/src/sibyl_mcp_server.py`. If installed via pip, use `uvx` (see below) or copy the file from the package. Replace `/path/to/perseus-repo` with your actual path.
-
-> **Restart required:** Hermes Agent discovers MCP servers at startup only — no hot-reload. Restart Hermes after adding the config.
-
-**Claude Desktop / Cursor / other MCP clients** — add to your MCP settings:
-
-```json
-{
-  "mcpServers": {
-    "sibyl": {
-      "command": "uvx",
-      "args": ["--from", "perseus-ctx[mcp]", "sibyl-mcp-server"],
-      "env": {
-        "SIBYL_DB_PATH": "/home/yourname/.sibyl-memory/memory.db"
-      }
-    }
-  }
-}
-```
-
-> **Note:** `uvx --from perseus-ctx[mcp]` requires a published pip install of `perseus-ctx` with the `[mcp]` extra. If you installed from source in editable mode (`pip install -e .`), use the Hermes Agent `python3` approach or run the server file directly.
-
-
-## Wiring to AI Assistants
-
-Perseus output is plain markdown — it works with any AI tool that reads a context file.
-The most common wiring patterns:
+No wrapper server needed. Mimir IS the MCP server.
 
 ### Hermes Agent (auto-injection)
 
@@ -1299,6 +1266,6 @@ perseus doctor
 
 ---
 
-*Built from production experience wiring Perseus v1.0.7 into Hermes Agent, Rovo Dev CLI, and Rovo web agent — with Sibyl Memory as primary persistent store (Mneme available as optional alternative).*
+*Built from production experience wiring Perseus v1.0.7 into Hermes Agent, Rovo Dev CLI, and Rovo web agent — with Mimir as primary persistent store (Mneme available as optional alternative).*
 *Issues filed: [#128](https://github.com/tcconnally/perseus/issues/128) – [#135](https://github.com/tcconnally/perseus/issues/135)*  
 *Guide maintained at: `~/rovodev/docs/perseus-setup-guide.md` (canonical) · this copy: `~/Downloads/perseus-setup-guide.md`*

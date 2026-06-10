@@ -18,7 +18,7 @@
 
 ### Mimir — Persistent Memory (MCP)
 
-[Mimir](https://github.com/tcconnally/mimir) is the default persistent memory backend for Perseus — a lightweight Rust MCP server with SQLite + FTS5. Zero network calls, no API keys, no embeddings model required. Four tools: `mimir_recall`, `mimir_store`, `mimir_health`, `mimir_stats`.
+[Mimir](https://github.com/tcconnally/mimir) is the persistent memory backend for Perseus — a lightweight Rust MCP server with SQLite + FTS5. Zero network calls, no API keys, no embeddings model required. v0.2.0 provides 17 tools across structured entities, journal events, and state management: `mimir_remember`, `mimir_recall`, `mimir_forget`, `mimir_link`, `mimir_journal`, `mimir_timeline`, `mimir_state_*`, `mimir_health`, `mimir_stats`, `mimir_compact`, `mimir_context`, and `mimir_workspace_list`.
 
 **Install:**
 ```bash
@@ -54,6 +54,36 @@ mimir:
 Then add `@memory mode=search query="your terms"` to `.perseus/context.md` and Perseus resolves live recall at render time.
 
 Works with any MCP-compatible assistant.
+
+## 🏆 Hackathon — Google Cloud Rapid Agent (Elastic Track)
+
+**Status:** Submitted | **Deadline:** June 11, 2026 | **Devpost:** [perseus-cmzeu9](https://devpost.com/software/perseus-cmzeu9)
+
+Perseus is entered in the Google Cloud Rapid Agent Hackathon (Elastic Partner Track).
+The submission demonstrates persistent agent memory across three consecutive sessions,
+with live backend swap from Elastic Cloud to Mimir (self-hosted, MIT).
+
+**Required technologies demonstrated:**
+
+| Technology | How it's used |
+|---|---|
+| **Google Cloud Agent Builder** | Agent orchestration, MCP tool wiring, Gemini model config |
+| **Gemini 3 Pro** | Structured reasoning for memory extraction and cross-session compounding |
+| **Elastic Agent Builder** | Hybrid ELSER + BM25 search for memory recall; MCP-native tools |
+
+**Quick start:**
+```bash
+pip install google-genai elasticsearch perseus-ctx
+export GEMINI_API_KEY="your-key"
+export ELASTIC_CLOUD_ID="your-cloud-id"
+export ELASTIC_API_KEY="your-key"
+python hackathon/agent.py
+```
+
+**Files:**
+- [`hackathon/agent.py`](hackathon/agent.py) — Integration demo (Gemini + Elastic + memory lifecycle)
+- [`hackathon/agent-builder-config.yaml`](hackathon/agent-builder-config.yaml) — Agent Builder configuration export
+- [Demo video](https://www.youtube.com/watch?v=vDIgxvUXxTs) (2:51)
 
 ## Wire Perseus to Your Assistant (MCP)
 
