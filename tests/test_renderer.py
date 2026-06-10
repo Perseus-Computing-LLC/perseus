@@ -807,9 +807,9 @@ def test_cache_fingerprint_no_deps_still_caches(tmp_path):
 def test_cache_fingerprint_memory_changes_with_mneme_config(tmp_path):
     """Changing the active Mneme connector config invalidates @memory cache keys."""
     c1 = cfg()
-    c1["mneme"]["command"] = ["mneme"]
+    c1["mimir"]["command"] = ["mimir"]
     c2 = cfg()
-    c2["mneme"]["command"] = ["mneme", "--db", "/tmp/other-mneme.db"]
+    c2["mimir"]["command"] = ["mneme", "--db", "/tmp/other-mneme.db"]
 
     fp1 = perseus._dependency_fingerprint(
         "@memory",
