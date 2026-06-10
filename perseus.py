@@ -976,19 +976,19 @@ def _bind_registry() -> None:
         DirectiveSpec("@agora",     resolve_agora,     ["status="],                "inline",  "acw", reads_files=True, cacheable=True, summary="Task board from tasks/*.md", tier=2),
         DirectiveSpec("@inbox",     resolve_inbox,     ["unread=", "limit="],      "inline",  "acw", reads_files=True, cacheable=True, summary="Agent message inbox", tier=2),
         DirectiveSpec("@drift",     resolve_drift,     [],                         "inline",  "ac",  reads_files=True, summary="Oracle drift report", tier=2),
-        DirectiveSpec("@perseus",   resolve_perseus,   [],                         "inline",  "acw", cacheable=True, safe_for_hover=False, summary="Fetch rendered context from a remote Perseus instance", tier=2),
+        DirectiveSpec("@perseus",   resolve_perseus,   ["url="],                         "inline",  "acw", cacheable=True, safe_for_hover=False, summary="Fetch rendered context from a remote Perseus instance", tier=2),
         DirectiveSpec("@mimir",    resolve_mimir,    ["query=", "scope=", "k=", "type="], "inline", "acw", safe_for_hover=True, summary="Recall persistent memories via Mimir BM25", tier=2, is_semantic_hint=True),
 
         # Tier 3 — On-demand (bulky, expensive)
-        DirectiveSpec("@query",     resolve_query,     ["fallback=", "schema="],   "inline",  "acw", executes_shell=True,  safe_for_hover=False, cacheable=True,  summary="Run a shell command and embed stdout", tier=3),
+        DirectiveSpec("@query",     resolve_query,     ["command=", "fallback=", "schema="],   "inline",  "acw", executes_shell=True,  safe_for_hover=False, cacheable=True,  summary="Run a shell command and embed stdout", tier=3),
         DirectiveSpec("@read",      resolve_read,      ["path=", "key=", "fallback=", "schema="], "inline", "acw", reads_files=True, cacheable=True, safe_for_hover=False, summary="Embed file contents", tier=3),
-        DirectiveSpec("@include",   resolve_include,   [],                         "inline",  "awc", reads_files=True, cacheable=True, safe_for_hover=False, summary="Include and render another file", tier=3),
-        DirectiveSpec("@list",      resolve_list,      ["limit=", "sort="],        "inline",  "acw", reads_files=True, cacheable=True, safe_for_hover=False, summary="List directory or structured data", tier=3),
-        DirectiveSpec("@tree",      resolve_tree,      ["depth="],                 "inline",  "acw", reads_files=True, cacheable=True, safe_for_hover=False, summary="Tree view of directory", tier=3),
-        DirectiveSpec("@agent",     resolve_agent,     [],                         "inline",  "acw", summary="Execute local agent subprocess", tier=3),
-        DirectiveSpec("@tool",      resolve_tool,      [],                         "inline",  "acw", executes_shell=True, safe_for_hover=False, summary="Run an allowlisted external tool", tier=3),
+        DirectiveSpec("@include",   resolve_include,   ["path="],                         "inline",  "awc", reads_files=True, cacheable=True, safe_for_hover=False, summary="Include and render another file", tier=3),
+        DirectiveSpec("@list",      resolve_list,      ["path=", "limit=", "sort="],        "inline",  "acw", reads_files=True, cacheable=True, safe_for_hover=False, summary="List directory or structured data", tier=3),
+        DirectiveSpec("@tree",      resolve_tree,      ["path=", "depth="],                 "inline",  "acw", reads_files=True, cacheable=True, safe_for_hover=False, summary="Tree view of directory", tier=3),
+        DirectiveSpec("@agent",     resolve_agent,     ["agent=", "prompt="],                         "inline",  "acw", summary="Execute local agent subprocess", tier=3),
+        DirectiveSpec("@tool",      resolve_tool,      ["name="],                         "inline",  "acw", executes_shell=True, safe_for_hover=False, summary="Run an allowlisted external tool", tier=3),
         DirectiveSpec("@tooltrim",  resolve_tooltrim,  ["stats", "full"],          "inline",  "acw", reads_files=True,  cacheable=True,  safe_for_hover=True,  summary="Tool metadata awareness — filtered toolset descriptions", tier=3),
-        DirectiveSpec("@mason",     resolve_mason_tool_directive, [],              "inline",  "a",   cacheable=True,  safe_for_hover=True,  summary="Mason code architecture concept map (feature→file)", tier=3),
+        DirectiveSpec("@mason",     resolve_mason_tool_directive, ["query="],              "inline",  "a",   cacheable=True,  safe_for_hover=True,  summary="Mason code architecture concept map (feature→file)", tier=3),
 
         # Block / control (resolved by renderer, tier doesn't apply)
         DirectiveSpec("@prompt",    resolve_prompt_block, [],                      "block",   "block", summary="System prompt block", tier=1),
@@ -6557,6 +6557,18 @@ _PARAM_DESCRIPTIONS: dict[str, dict[str, str]] = {
     "@tree":        {"depth": "Maximum depth for directory tree traversal"},
     "@validate":    {"schema": "JSON Schema to validate the rendered block against"},
     "@waypoint":    {"ttl": "Max age in seconds for a valid checkpoint (default: 86400)"},
+    # Tools with special arg builders — params used at MCP level
+    "@agent":       {"agent": "Agent profile name to execute",
+                     "prompt": "Prompt text to send to the agent"},
+    "@list":        {"path": "Directory path to list (default: workspace root)"},
+    "@mason":       {"query": "Feature or filename to look up in the Mason code architecture map"},
+    "@tree":        {"path": "Directory path for tree display (default: workspace root)"},
+    "@query":       {"command": "Shell command to execute",
+                     "fallback": "Fallback value if the command fails or is blocked",
+                     "schema": "JSON Schema to validate command output against"},
+    "@perseus":     {"url": "URL of the remote Perseus instance to fetch context from"},
+    "@tool":        {"name": "Name of the allowlisted external tool to run"},
+    "@include":     {"path": "File path to include and render (relative to workspace root)"},
 }
 
 
@@ -6678,6 +6690,159 @@ def _build_output_schema(tool_name: str, spec) -> dict | None:
                 "count": {"type": "integer"}
             }
         }
+    # ── Tools previously missing output schemas ──
+    if tool_name == "perseus_date":
+        return {
+            "type": "object",
+            "properties": {
+                "datetime": {"type": "string", "description": "Current date/time string"},
+                "iso8601": {"type": "string", "description": "ISO-8601 formatted timestamp"},
+                "unix": {"type": "integer", "description": "Unix epoch seconds"}
+            }
+        }
+    if tool_name == "perseus_env":
+        return {
+            "type": "object",
+            "properties": {
+                "variable": {"type": "string", "description": "Environment variable name"},
+                "value": {"type": "string", "description": "Resolved value or fallback"},
+                "source": {"type": "string", "description": "Where the value was resolved from"}
+            }
+        }
+    if tool_name == "perseus_inbox":
+        return {
+            "type": "object",
+            "properties": {
+                "messages": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string", "description": "Message identifier"},
+                            "content": {"type": "string", "description": "Message body"},
+                            "sender": {"type": "string", "description": "Message sender"},
+                            "timestamp": {"type": "string", "description": "ISO-8601 timestamp"},
+                            "read": {"type": "boolean", "description": "Whether the message has been read"}
+                        }
+                    }
+                },
+                "unread_count": {"type": "integer"}
+            }
+        }
+    if tool_name == "perseus_list":
+        return {
+            "type": "object",
+            "properties": {
+                "entries": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "type": {"type": "string", "description": "file or directory"},
+                            "size": {"type": "integer", "description": "Size in bytes"},
+                            "modified": {"type": "string", "description": "Last modified timestamp"}
+                        }
+                    }
+                },
+                "count": {"type": "integer"}
+            }
+        }
+    if tool_name == "perseus_tree":
+        return {
+            "type": "object",
+            "properties": {
+                "tree": {"type": "string", "description": "Directory tree as formatted text"},
+                "root": {"type": "string", "description": "Root directory path"}
+            }
+        }
+    if tool_name == "perseus_query":
+        return {
+            "type": "object",
+            "properties": {
+                "output": {"type": "string", "description": "Command stdout"},
+                "exit_code": {"type": "integer", "description": "Command exit code"}
+            }
+        }
+    if tool_name == "perseus_read":
+        return {
+            "type": "object",
+            "properties": {
+                "content": {"type": "string", "description": "File contents"},
+                "path": {"type": "string", "description": "File path read"},
+                "truncated": {"type": "boolean", "description": "Whether content was truncated"}
+            }
+        }
+    if tool_name == "perseus_include":
+        return {
+            "type": "object",
+            "properties": {
+                "rendered": {"type": "string", "description": "Rendered included file content"},
+                "source": {"type": "string", "description": "Included file path"}
+            }
+        }
+    if tool_name == "perseus_agent":
+        return {
+            "type": "object",
+            "properties": {
+                "output": {"type": "string", "description": "Agent subprocess stdout"},
+                "exit_code": {"type": "integer", "description": "Agent exit code"}
+            }
+        }
+    if tool_name == "perseus_tool":
+        return {
+            "type": "object",
+            "properties": {
+                "output": {"type": "string", "description": "External tool stdout"},
+                "exit_code": {"type": "integer", "description": "Tool exit code"}
+            }
+        }
+    if tool_name == "perseus_tooltrim":
+        return {
+            "type": "object",
+            "properties": {
+                "tools": {"type": "array", "items": {"type": "object"}},
+                "count": {"type": "integer", "description": "Number of tools listed"}
+            }
+        }
+    if tool_name == "perseus_validate":
+        return {
+            "type": "object",
+            "properties": {
+                "valid": {"type": "boolean", "description": "Whether validation passed"},
+                "errors": {"type": "array", "items": {"type": "string"}, "description": "Validation error messages"}
+            }
+        }
+    if tool_name == "perseus_mason":
+        return {
+            "type": "object",
+            "properties": {
+                "concept_map": {"type": "string", "description": "Mason code architecture concept map"},
+                "files": {"type": "array", "items": {"type": "string"}, "description": "Mapped source files"}
+            }
+        }
+    if tool_name in ("perseus_auto-skill", "perseus_sibyl", "perseus_sibyl_state", "perseus_drift"):
+        return {
+            "type": "object",
+            "properties": {
+                "rendered": {"type": "string", "description": "Resolved directive output as markdown"}
+            }
+        }
+    if tool_name == "perseus_perseus":
+        return {
+            "type": "object",
+            "properties": {
+                "rendered": {"type": "string", "description": "Remote Perseus context as markdown"},
+                "source_url": {"type": "string", "description": "URL of the remote Perseus instance"}
+            }
+        }
+    if tool_name == "perseus_prompt":
+        return {
+            "type": "object",
+            "properties": {
+                "rendered": {"type": "string", "description": "System prompt block content"}
+            }
+        }
     return None
 
 
@@ -6701,6 +6866,13 @@ def _build_annotations(tool_name: str, spec) -> dict | None:
     if tool_name == "perseus_get_health":
         hints["readOnlyHint"] = True
     if tool_name in ("perseus_date", "perseus_drift", "perseus_env"):
+        hints["readOnlyHint"] = True
+    # Read-only tools that escape the reads_files / executes_shell checks
+    if tool_name in ("perseus_auto-skill", "perseus_sibyl", "perseus_sibyl_state",
+                      "perseus_perseus", "perseus_mimir", "perseus_mason",
+                      "perseus_skills", "perseus_inbox", "perseus_include", "perseus_read",
+                      "perseus_list", "perseus_tree", "perseus_tooltrim", "perseus_validate",
+                      "perseus_prompt"):
         hints["readOnlyHint"] = True
     return hints if hints else None
 
@@ -13644,7 +13816,7 @@ class _MCPSseClient:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# MnemeConnector — MCP client with circuit breaker, backoff, and fallback
+# MimirConnector — MCP client with circuit breaker, backoff, and fallback
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class MimirConnector:
@@ -13667,7 +13839,7 @@ class MimirConnector:
         fallback_to_local: bool    = True
 
     Usage:
-        connector = MnemeConnector(cfg)
+        connector = MimirConnector(cfg)
         package = connector.hybrid_recall("project architecture", workspace="/opt/...")
         print(package.assemble())
     """
@@ -14200,12 +14372,12 @@ def _local_hits_to_memory_hits(local_results: list[dict]) -> list[MemoryHit]:
 # Singleton connector — initialized lazily, reused across directive resolutions
 # ═══════════════════════════════════════════════════════════════════════════════
 
-_connector: MnemeConnector | None = None
+_connector: MimirConnector | None = None
 _connector_cfg_hash: str = ""
 
 
-def _get_connector(cfg: dict) -> MnemeConnector:
-    """Get or create the singleton MnemeConnector.
+def _get_connector(cfg: dict) -> MimirConnector:
+    """Get or create the singleton MimirConnector.
 
     Re-creates if config changed. Used by resolve_memory / resolve_mimir.
     """
@@ -14216,7 +14388,7 @@ def _get_connector(cfg: dict) -> MnemeConnector:
     if _connector is None or cfg_hash != _connector_cfg_hash:
         if _connector:
             _connector.close()
-        _connector = MnemeConnector(cfg)
+        _connector = MimirConnector(cfg)
         _connector_cfg_hash = cfg_hash
 
     return _connector
@@ -17754,7 +17926,7 @@ def _doctor_check_mimir_bridge(cfg: dict, workspace: Path) -> DoctorResult:
         test_cfg["mimir"] = dict(mneme_cfg)
         test_cfg["mimir"]["command"] = command
 
-        connector = MnemeConnector(test_cfg)
+        connector = MimirConnector(test_cfg)
         if connector.available:
             # Run health check
             healthy, status = connector.health_check()
