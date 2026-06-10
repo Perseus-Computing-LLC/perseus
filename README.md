@@ -18,7 +18,7 @@
 
 ### Mimir — Persistent Memory (MCP)
 
-[Mimir](https://github.com/tcconnally/mimir) is the default persistent memory backend for Perseus — a lightweight Rust MCP server with SQLite + FTS5. Zero network calls, no API keys, no embeddings model required. Three tools: `mimir_recall`, `mimir_store`, `mimir_health`.
+[Mimir](https://github.com/tcconnally/mimir) is the default persistent memory backend for Perseus — a lightweight Rust MCP server with SQLite + FTS5. Zero network calls, no API keys, no embeddings model required. Four tools: `mimir_recall`, `mimir_store`, `mimir_health`, `mimir_stats`.
 
 **Install:**
 ```bash

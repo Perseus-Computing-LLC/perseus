@@ -117,11 +117,11 @@ perseus render .perseus/context.md --output AGENTS.md
 > the example `@query` commands with your own helpers (see helper script guidance
 > below), and add `@agora`, `@inbox`, and `@health` directives if you need them.
 >
-> The `@memory mode=search` directive queries Mneme persistent memory (FTS5).
-> **Query tip:** FTS5 treats multi-word queries as exact phrases — split long
-> queries across multiple directives for better recall. Falls back gracefully to
-> local Mneme FTS5 if Mneme is unavailable. Requires `mneme.enabled: true`
-> in `.perseus/config.yaml`.
+The `@memory mode=search` directive queries Mimir persistent memory (FTS5).
+**Query tip:** FTS5 treats multi-word queries as exact phrases — split long
+queries across multiple directives for better recall. Falls back gracefully to
+local Mnēmē FTS5 if Mimir is unavailable. Requires `mimir.enabled: true`
+in `.perseus/config.yaml`.
 
 ---
 
@@ -230,26 +230,21 @@ memory:
   # narrative_file and mneme_vault_path are legacy fields; current versions use
   # ~/.perseus/memory/<sha256_hash>.md (see Workspace Hash section below)
 
-mneme:                                 # Mneme MCP-based persistent memory (OPTIONAL — Sibyl is primary)
-  enabled: false                        # Master switch. Set true to use Mneme INSTEAD OF Sibyl.
-  transport: "stdio"                    # "stdio" (local mneme binary) or "sse" (remote endpoint)
-  command: [mneme]                     # Command to launch Mneme in MCP mode
+mimir:                                 # Mimir MCP-based persistent memory (default, v1.0.7+)
+  enabled: true                         # Master switch. Set true to use Mimir.
+  transport: "stdio"                    # "stdio" (local mimir binary) or "sse" (remote endpoint)
+  command: ["mimir", "--db", "~/.mimir/data/mimir.db"] # Command to launch Mimir in MCP mode
   endpoint: ""                          # SSE endpoint URL (only used when transport=sse)
   timeout_s: 10.0
   merge_strategy: "local_first"         # local_first | remote_first | interleave | decay_first
-  decay_priority_weight: 0.4            # Weight of Mneme's decay_score in merge ordering (0.0–1.0)
-  fallback_to_local: true               # Use Mnēmē FTS5 when Mneme is unreachable
+  decay_priority_weight: 0.4            # Weight of Mimir's decay_score in merge ordering (0.0–1.0)
+  fallback_to_local: true               # Use Mnēmē FTS5 when Mimir is unreachable
   circuit_breaker:
     threshold: 3                        # Consecutive failures before opening circuit
     cooldown: 120                       # Seconds before attempting recovery
   retry_policy:
     max_attempts: 3
     backoff_base: 1.5
-
-sibyl_memory:                           # Sibyl Memory — PRIMARY structured five-tier local memory (MIT licensed)
-  enabled: true                         # On by default when SIBYL_MEMORY_ENABLED=1
-  db_path: ~/.sibyl-memory/memory.db    # Default path; set SIBYL_MEMORY_DB_PATH to override
-  max_tokens: 1500                      # Token budget for injected context block
 
 agora:
   task_dir: /Users/yourname/tasks
@@ -363,15 +358,14 @@ Your system prompt goes here. This is injected before the rendered content.
 ## Project Memory
 @memory focus=recent ttl=300
 
-## Long-Term Memory (Sibyl)
+## Long-Term Memory (Mimir)
 
-> 💡 Sibyl Memory is the primary persistent store — structured five-tier local memory
-> with SQLite FTS5 search. Perseus auto-injects Sibyl context at render time when
-> `SIBYL_MEMORY_ENABLED=1` and the DB exists. No directive resolver needed.
+> 💡 Mimir is the primary persistent store — a lightweight, zero-dependency Rust MCP
+> server with SQLite + FTS5. Perseus auto-injects Mimir memory context at render time
+> when `mimir.enabled: true` in `.perseus/config.yaml`.
 >
-> **Optional alternative:** Mneme (Rust MCP server) for keyword search. Set
-> `mneme.enabled: true` in `.perseus/config.yaml` to activate. Falls back
-> gracefully to local Mneme FTS5 if Mneme is unavailable.
+> **Graceful Fallback:** Mimir falls back gracefully to local Mnēmē FTS5 if the Mimir
+> server is unreachable.
 >
 > **Query tips:** FTS5 treats multi-word queries as exact phrases.
 > Split long queries across multiple directives for better recall:
@@ -571,31 +565,30 @@ memory:
 > ⚠️ `perseus memory update --llm none` crashes. See [#130](https://github.com/tcconnally/perseus/issues/130).
 > To force deterministic mode: omit `--llm` flag (leave `llm_provider` unset in config).
 
-### Mneme Hybrid Resolution (OPTIONAL — Sibyl Memory is the primary persistent store)
+### Mimir Persistent Memory (Default)
 
-> **Sibyl Memory is the default persistent memory layer.** The Mneme connector below
-> is an optional alternative for users who prefer a Rust-based MCP keyword search
-> backend. To use Mneme instead of Sibyl, set `mneme.enabled: true` in your config.
-
-Perseus supports an optional second memory layer via [Mneme](https://github.com/tcconnally/mneme), a Rust-based persistent memory engine that provides SQLite FTS5 keyword search with circuit breaker resilience — going beyond Mnēmē's single-process keyword search.
+> **Mimir is the default persistent memory layer for Perseus (v1.0.7+).** It is a
+> lightweight Rust-based MCP server providing SQLite + FTS5 keyword search, Ebbinghaus
+> decay, three-layer memory progression (Buffer → Working → Core), and circuit-breaker
+> protection. To use Mimir, set `mimir.enabled: true` in your config.
 
 When enabled, `@memory` runs a **three-step hybrid resolution**:
 
 | Step | Layer | What it provides |
 |---|---|---|
 | A — Sense | Perseus (live) | Current environment, services, filesystem state |
-| B — Memory | Mneme (persistent) | Historical decisions, architecture, learned lessons |
+| B — Memory | Mimir (persistent) | Historical decisions, architecture, learned lessons |
 | C — Merge | Hybrid resolver | Combined ContextPackage with source tags and decay priority |
 
 **Configuration (in `~/.perseus/config.yaml`):**
 
 ```yaml
-mneme:
+mimir:
   enabled: true                         # Master switch
   transport: "stdio"                    # stdio (local binary) or sse (remote)
-  command: [mneme]                     # Launch command for stdio transport
+  command: ["mimir", "--db", "~/.mimir/data/mimir.db"] # Command to launch Mimir in MCP mode
   merge_strategy: "local_first"         # local_first | remote_first | interleave | decay_first
-  fallback_to_local: true               # Graceful degradation: Mnēmē FTS5 if Mneme offline
+  fallback_to_local: true               # Graceful degradation: Mnēmē FTS5 if Mimir offline
   circuit_breaker:
     threshold: 3                        # Failures before opening circuit
     cooldown: 120                       # Seconds before recovery attempt
@@ -604,46 +597,43 @@ mneme:
 **Installation:**
 
 ```bash
-# Mneme v0.1.0+ is built from source (not on crates.io):
-git clone https://github.com/tcconnally/mneme.git ~/.mneme
-cd ~/.mneme && cargo build --release
-cp target/release/mneme ~/.local/bin/mneme
+# Install via the one-shot bootstrap script:
+curl -sSL https://raw.githubusercontent.com/tcconnally/mimir/main/scripts/bootstrap.sh | bash
 
-# Or use the one-shot bootstrap:
-curl -sSL https://raw.githubusercontent.com/tcconnally/mneme/main/scripts/bootstrap.sh | bash
+# Or build from source:
+git clone https://github.com/tcconnally/mimir.git ~/.mimir
+cd ~/.mimir && cargo build --release
+cp target/release/mimir ~/.local/bin/mimir
 
 # Verify
-mneme --version   # expect "mneme 0.1.1"
+mimir --version   # expect "mimir 0.2.0"
 ```
 
-> **v0.1.0 MVP scope:** Mneme v0.1.0 is an MCP JSON-RPC stdio server with three tools:
-> `mneme_store`, `mneme_recall`, `mneme_health`. It uses SQLite FTS5 for keyword search.
-> No embedding backend or LLM provider is needed. Vector search, Ebbinghaus decay, and
-> three-layer memory progression are deferred to v0.2+.
+> **Mimir MVP scope:** Mimir is an MCP JSON-RPC stdio server with four tools:
+> `mimir_store`, `mimir_recall`, `mimir_health`, and `mimir_stats`. It uses SQLite FTS5 for
+> keyword search. No embedding backend or cloud LLM provider is needed.
 >
-> **Binary path:** Use the full absolute path in config. The render subprocess may not
-> have `~/.local/bin/` in PATH. On containers (Docker/Unraid), paths under `/root/` are
+> **Binary path:** Use the full absolute path in config if the binary is placed in a directory
+> not in the subprocess's PATH. On containers (Docker/Unraid), paths under `/root/` are
 > inaccessible to the runtime user — use a persistent volume path instead:
 > ```yaml
-> mneme:
+> mimir:
 >   command:
->     - "/usr/local/bin/mneme"   # or ~/.local/bin/mneme, or absolute path
+>     - "/usr/local/bin/mimir"   # absolute path to mimir binary
 >     - "--db"
->     - "~/.perseus/mneme/mneme.db"   # persistent, writable by runtime user
+>     - "/opt/data/webui/minions/.minions-data/mimir/mimir.db" # persistent, writable by runtime user
 > ```
 
 > **Merge strategies explained:**
-> - `local_first` — Mnēmē results first, then Mneme results (default, safest)
-> - `remote_first` — Mneme decay-prioritized results first, then Mnēmē
-> - `interleave` — Alternate rows between Mneme/Mnēmē, sorted by decay score within each
-> - `decay_first` — All results sorted globally by Mneme decay_score descending
+> - `local_first` — Local Mnēmē FTS5 results first, then Mimir results (default, safest)
+> - `remote_first` — Mimir decay-prioritized results first, then local Mnēmē
+> - `interleave` — Alternate rows between Mimir/local, sorted by decay score within each
+> - `decay_first` — All results sorted globally by Mimir decay_score descending
 
-> **Verification:** After installing Mneme, restart `perseus watch`
-> (or re-render). The next `@memory` resolution uses Mneme via MCP.
-> To confirm: run `perseus doctor` — it reports Mneme connectivity.
-> If Mneme is unreachable, Perseus falls back to Mnēmē FTS5 silently
-> (no crash, no visible error). The circuit breaker prevents permission
-> storms during outages.
+> **Verification:** After installing Mimir, restart `perseus watch`
+> (or re-render). The next `@memory` resolution uses Mimir via MCP.
+> To confirm: run `perseus doctor` — it reports Mimir connectivity.
+> If Mimir is unreachable, Perseus falls back to local Mnēmē FTS5 silently.
 
 ### Sibyl Memory (PRIMARY — structured five-tier local memory)
 
@@ -1085,7 +1075,7 @@ perseus memory index search --query "architecture" --k 5
 
 # 5. Use in context.md
 # @memory mode=search query="architecture" k=5
-# @mneme query="decisions" k=5
+# @mimir query="decisions" k=5
 ```
 
 > **Required fields:** Only `id` (alphanumeric slug) and `title` are required.
