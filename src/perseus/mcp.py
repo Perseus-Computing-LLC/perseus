@@ -91,6 +91,18 @@ _PARAM_DESCRIPTIONS: dict[str, dict[str, str]] = {
     "@tree":        {"depth": "Maximum depth for directory tree traversal"},
     "@validate":    {"schema": "JSON Schema to validate the rendered block against"},
     "@waypoint":    {"ttl": "Max age in seconds for a valid checkpoint (default: 86400)"},
+    # Tools with special arg builders — params used at MCP level
+    "@agent":       {"agent": "Agent profile name to execute",
+                     "prompt": "Prompt text to send to the agent"},
+    "@list":        {"path": "Directory path to list (default: workspace root)"},
+    "@mason":       {"query": "Feature or filename to look up in the Mason code architecture map"},
+    "@tree":        {"path": "Directory path for tree display (default: workspace root)"},
+    "@query":       {"command": "Shell command to execute",
+                     "fallback": "Fallback value if the command fails or is blocked",
+                     "schema": "JSON Schema to validate command output against"},
+    "@perseus":     {"url": "URL of the remote Perseus instance to fetch context from"},
+    "@tool":        {"name": "Name of the allowlisted external tool to run"},
+    "@include":     {"path": "File path to include and render (relative to workspace root)"},
 }
 
 
@@ -212,6 +224,159 @@ def _build_output_schema(tool_name: str, spec) -> dict | None:
                 "count": {"type": "integer"}
             }
         }
+    # ── Tools previously missing output schemas ──
+    if tool_name == "perseus_date":
+        return {
+            "type": "object",
+            "properties": {
+                "datetime": {"type": "string", "description": "Current date/time string"},
+                "iso8601": {"type": "string", "description": "ISO-8601 formatted timestamp"},
+                "unix": {"type": "integer", "description": "Unix epoch seconds"}
+            }
+        }
+    if tool_name == "perseus_env":
+        return {
+            "type": "object",
+            "properties": {
+                "variable": {"type": "string", "description": "Environment variable name"},
+                "value": {"type": "string", "description": "Resolved value or fallback"},
+                "source": {"type": "string", "description": "Where the value was resolved from"}
+            }
+        }
+    if tool_name == "perseus_inbox":
+        return {
+            "type": "object",
+            "properties": {
+                "messages": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string", "description": "Message identifier"},
+                            "content": {"type": "string", "description": "Message body"},
+                            "sender": {"type": "string", "description": "Message sender"},
+                            "timestamp": {"type": "string", "description": "ISO-8601 timestamp"},
+                            "read": {"type": "boolean", "description": "Whether the message has been read"}
+                        }
+                    }
+                },
+                "unread_count": {"type": "integer"}
+            }
+        }
+    if tool_name == "perseus_list":
+        return {
+            "type": "object",
+            "properties": {
+                "entries": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "type": {"type": "string", "description": "file or directory"},
+                            "size": {"type": "integer", "description": "Size in bytes"},
+                            "modified": {"type": "string", "description": "Last modified timestamp"}
+                        }
+                    }
+                },
+                "count": {"type": "integer"}
+            }
+        }
+    if tool_name == "perseus_tree":
+        return {
+            "type": "object",
+            "properties": {
+                "tree": {"type": "string", "description": "Directory tree as formatted text"},
+                "root": {"type": "string", "description": "Root directory path"}
+            }
+        }
+    if tool_name == "perseus_query":
+        return {
+            "type": "object",
+            "properties": {
+                "output": {"type": "string", "description": "Command stdout"},
+                "exit_code": {"type": "integer", "description": "Command exit code"}
+            }
+        }
+    if tool_name == "perseus_read":
+        return {
+            "type": "object",
+            "properties": {
+                "content": {"type": "string", "description": "File contents"},
+                "path": {"type": "string", "description": "File path read"},
+                "truncated": {"type": "boolean", "description": "Whether content was truncated"}
+            }
+        }
+    if tool_name == "perseus_include":
+        return {
+            "type": "object",
+            "properties": {
+                "rendered": {"type": "string", "description": "Rendered included file content"},
+                "source": {"type": "string", "description": "Included file path"}
+            }
+        }
+    if tool_name == "perseus_agent":
+        return {
+            "type": "object",
+            "properties": {
+                "output": {"type": "string", "description": "Agent subprocess stdout"},
+                "exit_code": {"type": "integer", "description": "Agent exit code"}
+            }
+        }
+    if tool_name == "perseus_tool":
+        return {
+            "type": "object",
+            "properties": {
+                "output": {"type": "string", "description": "External tool stdout"},
+                "exit_code": {"type": "integer", "description": "Tool exit code"}
+            }
+        }
+    if tool_name == "perseus_tooltrim":
+        return {
+            "type": "object",
+            "properties": {
+                "tools": {"type": "array", "items": {"type": "object"}},
+                "count": {"type": "integer", "description": "Number of tools listed"}
+            }
+        }
+    if tool_name == "perseus_validate":
+        return {
+            "type": "object",
+            "properties": {
+                "valid": {"type": "boolean", "description": "Whether validation passed"},
+                "errors": {"type": "array", "items": {"type": "string"}, "description": "Validation error messages"}
+            }
+        }
+    if tool_name == "perseus_mason":
+        return {
+            "type": "object",
+            "properties": {
+                "concept_map": {"type": "string", "description": "Mason code architecture concept map"},
+                "files": {"type": "array", "items": {"type": "string"}, "description": "Mapped source files"}
+            }
+        }
+    if tool_name in ("perseus_auto-skill", "perseus_sibyl", "perseus_sibyl_state", "perseus_drift"):
+        return {
+            "type": "object",
+            "properties": {
+                "rendered": {"type": "string", "description": "Resolved directive output as markdown"}
+            }
+        }
+    if tool_name == "perseus_perseus":
+        return {
+            "type": "object",
+            "properties": {
+                "rendered": {"type": "string", "description": "Remote Perseus context as markdown"},
+                "source_url": {"type": "string", "description": "URL of the remote Perseus instance"}
+            }
+        }
+    if tool_name == "perseus_prompt":
+        return {
+            "type": "object",
+            "properties": {
+                "rendered": {"type": "string", "description": "System prompt block content"}
+            }
+        }
     return None
 
 
@@ -235,6 +400,13 @@ def _build_annotations(tool_name: str, spec) -> dict | None:
     if tool_name == "perseus_get_health":
         hints["readOnlyHint"] = True
     if tool_name in ("perseus_date", "perseus_drift", "perseus_env"):
+        hints["readOnlyHint"] = True
+    # Read-only tools that escape the reads_files / executes_shell checks
+    if tool_name in ("perseus_auto-skill", "perseus_sibyl", "perseus_sibyl_state",
+                      "perseus_perseus", "perseus_mimir", "perseus_mason",
+                      "perseus_skills", "perseus_inbox", "perseus_include", "perseus_read",
+                      "perseus_list", "perseus_tree", "perseus_tooltrim", "perseus_validate",
+                      "perseus_prompt"):
         hints["readOnlyHint"] = True
     return hints if hints else None
 
