@@ -93,7 +93,7 @@ def check_nfs_health(
             "path": str(mount_path),
             "error": "path does not exist",
         }
-    if require_mount and not os.path.ismount(mount_path):
+    if require_mount and sys.platform == "linux" and not os.path.ismount(mount_path):
         return {
             "healthy": False,
             "path": str(mount_path),
@@ -104,7 +104,7 @@ def check_nfs_health(
     try:
         probe.write_text(timestamp_iso())
         probe.unlink()
-        mode = "mount" if os.path.ismount(mount_path) else "local-tmp"
+        mode = "mount" if (sys.platform == "linux" and os.path.ismount(mount_path)) else "local"
         return {"healthy": True, "path": str(mount_path), "mode": mode}
     except OSError as exc:
         return {"healthy": False, "path": str(mount_path), "error": str(exc)}
