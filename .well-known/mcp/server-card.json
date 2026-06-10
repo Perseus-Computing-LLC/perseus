@@ -55,7 +55,7 @@
       }
     },
     {
-      "name": "perseus_auto-skill",
+      "name": "perseus_auto_skill",
       "description": "Instruct agent to load a skill before work begins",
       "inputSchema": {
         "type": "object",
@@ -116,7 +116,7 @@
     },
     {
       "name": "perseus_drift",
-      "description": "Oracle drift report",
+      "description": "Compare actual vs predicted tool usage \u2014 oracle drift detection for Pythia",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -184,7 +184,7 @@
     },
     {
       "name": "perseus_health",
-      "description": "Context maintenance report",
+      "description": "Audit workspace context freshness \u2014 stale skills, duplicate tasks, oversized output",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -408,7 +408,7 @@
     },
     {
       "name": "perseus_memory",
-      "description": "Mn\u0113m\u0113 v2 \u2014 unified memory search + narrative + federation",
+      "description": "Search LOCAL project memory via FTS5 \u2014 decisions, architecture, conventions (fast, zero-network)",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -484,7 +484,7 @@
     },
     {
       "name": "perseus_mimir",
-      "description": "Recall persistent memories via Mimir BM25",
+      "description": "Query EXTERNAL Mimir persistent memory server \u2014 cross-session, curated, long-lived facts",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -706,7 +706,7 @@
     },
     {
       "name": "perseus_sibyl",
-      "description": "Sibyl Memory \u2014 auto-injected structured context; query hints feed search",
+      "description": "Retrieve Sibyl structured context \u2014 entity state, preferences, key-value documents",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -736,7 +736,7 @@
     },
     {
       "name": "perseus_sibyl_state",
-      "description": "Surface Sibyl Memory state documents inline",
+      "description": "Surface specific Sibyl state documents by key \u2014 read-only accessor",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1013,7 +1013,7 @@
     },
     {
       "name": "perseus_get_health",
-      "description": "Run Daedalus context-maintenance heuristics and return a health report.",
+      "description": "Run Daedalus context-maintenance heuristics \u2014 cache health, directive resolution stats, memory integrity check.",
       "inputSchema": {
         "type": "object",
         "properties": {},

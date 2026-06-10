@@ -40,11 +40,11 @@ def _bind_registry() -> None:
         # Tier 1 — Always (lightweight, core context)
         DirectiveSpec("@date",      resolve_date,      ["format="],                "inline",  "a",   cacheable=False, safe_for_hover=True, summary="Current date/time", output_schema={"type": "str", "pattern": ".+"}, tier=1),
         DirectiveSpec("@waypoint",  resolve_waypoint,  ["ttl="],                   "inline",  "ac",  reads_files=True, cacheable=True, summary="Latest checkpoint summary", tier=1),
-        DirectiveSpec("@memory",    resolve_memory,    ["mode=", "query=", "scope=", "k=", "type=", "render=", "focus=", "federation", "include_federation=", "alias=", "workspace="], "inline", "acw", reads_files=True, cacheable=True, summary="Mnēmē v2 — unified memory search + narrative + federation", diagnostic_fn=_memory_federation_diagnostic, tier=1, is_semantic_hint=True),
+        DirectiveSpec("@memory",    resolve_memory,    ["mode=", "query=", "scope=", "k=", "type=", "render=", "focus=", "federation", "include_federation=", "alias=", "workspace="], "inline", "acw", reads_files=True, cacheable=True, summary="Search LOCAL project memory via FTS5 — decisions, architecture, conventions (fast, zero-network)", tier=1, is_semantic_hint=True),
         DirectiveSpec("@auto-skill", resolve_auto_skill, ["skill="],              "inline",  "ac",  cacheable=True,  safe_for_hover=True, summary="Instruct agent to load a skill before work begins", tier=1),
-        DirectiveSpec("@sibyl",    resolve_sibyl,    ["query=", "tiers="],         "inline",  "ac",  cacheable=True,  safe_for_hover=True, summary="Sibyl Memory — auto-injected structured context; query hints feed search", tier=1, is_semantic_hint=True),
-        DirectiveSpec("@sibyl_state", resolve_sibyl_state, ["keys="],              "inline",  "ac",  cacheable=False, safe_for_hover=True, summary="Surface Sibyl Memory state documents inline", tier=1),
-        DirectiveSpec("@health",    resolve_health,    [],                         "inline",  "acw", reads_files=True, summary="Context maintenance report", tier=1),
+        DirectiveSpec("@sibyl",    resolve_sibyl,    ["query=", "tiers="],         "inline",  "ac",  cacheable=True,  safe_for_hover=True, summary="Retrieve Sibyl structured context — entity state, preferences, key-value documents", tier=1, is_semantic_hint=True),
+        DirectiveSpec("@sibyl_state", resolve_sibyl_state, ["keys="],              "inline",  "ac",  cacheable=False, safe_for_hover=True, summary="Surface specific Sibyl state documents by key — read-only accessor", tier=1),
+        DirectiveSpec("@health",    resolve_health,    [],                         "inline",  "acw", reads_files=True, summary="Audit workspace context freshness — stale skills, duplicate tasks, oversized output", tier=1),
         DirectiveSpec("@env",       resolve_env,       ["required=", "fallback=", "schema="], "inline", "acw", cacheable=False, safe_for_hover=True, summary="Embed environment variable", tier=1),
 
         # Tier 2 — Conditional (heavier, task-specific)
@@ -53,9 +53,9 @@ def _bind_registry() -> None:
         DirectiveSpec("@session",   resolve_session,   ["count="],                 "inline",  "ac",  reads_files=True, cacheable=True, summary="Recent session digests", tier=2),
         DirectiveSpec("@agora",     resolve_agora,     ["status="],                "inline",  "acw", reads_files=True, cacheable=True, summary="Task board from tasks/*.md", tier=2),
         DirectiveSpec("@inbox",     resolve_inbox,     ["unread=", "limit="],      "inline",  "acw", reads_files=True, cacheable=True, summary="Agent message inbox", tier=2),
-        DirectiveSpec("@drift",     resolve_drift,     [],                         "inline",  "ac",  reads_files=True, summary="Oracle drift report", tier=2),
+        DirectiveSpec("@drift",     resolve_drift,     [],                         "inline",  "ac",  reads_files=True, summary="Compare actual vs predicted tool usage — oracle drift detection for Pythia", tier=2),
         DirectiveSpec("@perseus",   resolve_perseus,   ["url="],                         "inline",  "acw", cacheable=True, safe_for_hover=False, summary="Fetch rendered context from a remote Perseus instance", tier=2),
-        DirectiveSpec("@mimir",    resolve_mimir,    ["query=", "scope=", "k=", "type="], "inline", "acw", safe_for_hover=True, summary="Recall persistent memories via Mimir BM25", tier=2, is_semantic_hint=True),
+        DirectiveSpec("@mimir",    resolve_mimir,    ["query=", "scope=", "k=", "type="], "inline", "acw", safe_for_hover=True, summary="Query EXTERNAL Mimir persistent memory server — cross-session, curated, long-lived facts", tier=2, is_semantic_hint=True),
 
         # Tier 3 — On-demand (bulky, expensive)
         DirectiveSpec("@query",     resolve_query,     ["command=", "fallback=", "schema="],   "inline",  "acw", executes_shell=True,  safe_for_hover=False, cacheable=True,  summary="Run a shell command and embed stdout", tier=3),
