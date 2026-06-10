@@ -83,7 +83,7 @@
     gap: 48px;
     align-items: baseline;
     padding-top: 28px;
-    margin-bottom: clamp(40px, 6vw, 80px);
+    margin-bottom: clamp(40px, 6vw, 60px);
   }
   .sec-num {
     font-family: var(--mono);
@@ -114,7 +114,7 @@
 
   section { position: relative; }
   .section-block {
-    padding: clamp(80px, 10vw, 120px) 0 clamp(80px, 10vw, 120px);
+    padding: clamp(60px, 8vw, 100px) 0 clamp(60px, 8vw, 100px);
     border-top: 1px solid var(--line);
   }
   .section-block::after {
@@ -122,7 +122,7 @@
     display: block;
     width: 60px;
     height: 2px;
-    margin: clamp(60px, 8vw, 100px) auto 0;
+    margin: clamp(40px, 6vw, 80px) auto 0;
     background: linear-gradient(90deg, transparent, var(--accent) 20%, var(--accent-2) 50%, var(--accent) 80%, transparent);
     opacity: 0.35;
   }
@@ -184,7 +184,7 @@
 
   /* ---------- Hero ---------- */
   .hero {
-    padding: clamp(60px, 9vw, 100px) 0 clamp(40px, 6vw, 60px);
+    padding: clamp(50px, 8vw, 90px) 0 clamp(30px, 5vw, 50px);
     position: relative;
     overflow: hidden;
   }
@@ -199,7 +199,7 @@
   .hero h1 {
     font-family: var(--serif);
     font-weight: 500;
-    font-size: clamp(38px, 6vw, 72px);
+    font-size: clamp(38px, 6vw, 68px);
     line-height: 0.98;
     letter-spacing: -0.016em;
     margin: 0 0 24px 0;
@@ -279,20 +279,71 @@
     margin-top: 40px;
   }
 
-  /* ---------- Constellation / Grid ---------- */
-  .constellation {
+  /* ---------- Grids & Splits ---------- */
+  .byom-split {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: 1.15fr 0.85fr;
+    gap: 36px;
+    align-items: start;
+  }
+  @media (max-width: 820px) {
+    .byom-split { grid-template-columns: 1fr; gap: 24px; }
+  }
+
+  .perf-mcp-grid {
+    display: grid;
+    grid-template-columns: 0.95fr 1fr 1.05fr;
+    gap: 28px;
+    align-items: start;
+  }
+  @media (max-width: 900px) {
+    .perf-mcp-grid { grid-template-columns: 1fr; gap: 24px; }
+  }
+
+  .split-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
     gap: 24px;
-    margin-bottom: 40px;
+    margin-bottom: 32px;
   }
-  @media (max-width: 760px) {
-    .constellation { grid-template-columns: 1fr; }
+  @media (max-width: 820px) {
+    .split-grid { grid-template-columns: 1fr; }
   }
+
+  .mcp-tool-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .mcp-tool-item {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    padding: 16px;
+    border-radius: 4px;
+    transition: border-color 0.18s ease;
+  }
+  .mcp-tool-item:hover {
+    border-color: var(--line-strong);
+  }
+  .tool-name {
+    display: block;
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--accent-2);
+    margin-bottom: 6px;
+    font-weight: 500;
+  }
+  .tool-desc {
+    display: block;
+    font-size: 12.5px;
+    color: var(--text-dim);
+    line-height: 1.4;
+  }
+
   .const-cell {
     background: var(--bg-2);
     border: 1px solid var(--line);
-    padding: 28px;
+    padding: 24px;
     border-radius: 4px;
     transition: border-color 0.22s ease, transform 0.22s ease;
   }
@@ -310,12 +361,12 @@
   }
   .const-cell .name {
     font-family: var(--serif);
-    font-size: 20px;
+    font-size: 19px;
     color: var(--text);
-    margin: 0 0 12px 0;
+    margin: 0 0 10px 0;
   }
   .const-cell .desc {
-    font-size: 14px;
+    font-size: 13.5px;
     color: var(--text-dim);
     line-height: 1.5;
     margin: 0;
@@ -359,7 +410,7 @@
     border-radius: 4px;
     padding: 24px;
     overflow-x: auto;
-    margin: 24px 0;
+    margin: 16px 0;
   }
   .code-block pre {
     margin: 0;
@@ -381,26 +432,6 @@
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--text-muted);
-  }
-  .copy-btn {
-    background: transparent;
-    border: 1px solid var(--line-strong);
-    color: var(--text-dim);
-    padding: 4px 10px;
-    font-family: var(--mono);
-    font-size: 10px;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    cursor: pointer;
-    transition: all 0.18s ease;
-  }
-  .copy-btn:hover {
-    border-color: var(--accent);
-    color: var(--accent);
-  }
-  .copy-btn.copied {
-    border-color: var(--good);
-    color: var(--good);
   }
 
   /* Footer styling matching the home page */
@@ -535,7 +566,7 @@
   </div>
 </section>
 
-<!-- ============ SECTION 1: The BYOM Philosophy ============ -->
+<!-- ============ SECTION 1: Bring Your Own Memory (BYOM) ============ -->
 <section class="section-block">
   <div class="wrap">
     <div class="sec-head">
@@ -543,171 +574,139 @@
       <h2 class="sec-title">Bring Your Own <em>Memory (BYOM)</em></h2>
     </div>
 
-    <p style="font-size:18px; line-height:1.6; color:var(--text-dim); margin-bottom:32px; max-width:850px;">
-      Mimir introduces the <strong>Bring Your Own Memory (BYOM)</strong> architectural design pattern. Instead of locking agent state, context history, and learned preferences inside proprietary developer SDKs or isolated sessions, Mimir decouples semantic memory into a lightweight, portable database.
-    </p>
-
-    <div class="constellation">
-      <div class="const-cell">
-        <div class="greek">Decoupled state</div>
-        <h3 class="name">Standalone sidecar</h3>
-        <p class="desc">Point local and remote runtimes at the identical SQLite backend. No matter what container, host machine, or agent workspace is running, they share one cohesive recollection.</p>
+    <div class="byom-split">
+      <div class="byom-narrative">
+        <p style="font-size:17px; line-height:1.6; color:var(--text-dim); margin-top:0; margin-bottom:24px;">
+          Mimir introduces the <strong>Bring Your Own Memory (BYOM)</strong> architectural design pattern. Instead of locking agent state, context history, and learned preferences inside proprietary developer SDKs or isolated sessions, Mimir decouples semantic memory into a lightweight, portable database.
+        </p>
+        <div style="background:var(--bg-2); border:1px solid var(--line); border-radius:4px; padding:24px; margin-bottom:24px;">
+          <h4 style="font-family:var(--serif); font-size:19px; font-weight:500; margin-top:0; color:var(--text); margin-bottom:12px;">Multi-Device Sync Strategy</h4>
+          <p style="color:var(--text-dim); font-size:14px; line-height:1.5; margin-bottom:16px; margin-top:0;">
+            Point your Mimir database path to a folder synced by Syncthing, Nextcloud, or Dropbox. SQLite's ACID-compliant architecture combined with file locking allows secure, multi-machine memory propagation:
+          </p>
+          <div style="font-family:var(--mono); font-size:12px; color:var(--accent-2); line-height:1.5; background:var(--code-bg); padding:14px; border-radius:4px;">
+            Workstation A &rarr; mimir_store &rarr; synced/mimir.db &larr; (Sync Engine) &rarr; Workstation B
+          </div>
+        </div>
       </div>
-      <div class="const-cell">
-        <div class="greek">Infinite portability</div>
-        <h3 class="name">Single-file SQLite</h3>
-        <p class="desc">All of your memories are stored in a simple, compact <code>mimir.db</code> database file. Back it up, sync it via Syncthing or Dropbox, or host it on your local NAS for easy device-wide access.</p>
-      </div>
-      <div class="const-cell">
-        <div class="greek">Hybrid resolution</div>
-        <h3 class="name">Integrated with Perseus</h3>
-        <p class="desc">Mimir works natively with the Perseus context engine, pre-resolving long-term learned experiences, workspace structures, and developer choices directly into the system prompt.</p>
-      </div>
-      <div class="const-cell">
-        <div class="greek">Zero lock-in</div>
-        <h3 class="name">Open-source middleware</h3>
-        <p class="desc">Because Mimir runs as an independent sidecar communicating over MCP, you have full control over your data. No proprietary cloud interfaces, and no vendor lock-in.</p>
+      <div class="byom-cards">
+        <div class="const-cell" style="margin-bottom:16px;">
+          <div class="greek">Standalone sidecar</div>
+          <h3 class="name" style="font-size:18px;">Decoupled State</h3>
+          <p class="desc" style="font-size:13.5px;">Point local and remote runtimes at the identical SQLite backend. All container workspaces share one cohesive recollection.</p>
+        </div>
+        <div class="const-cell">
+          <div class="greek">Infinite portability</div>
+          <h3 class="name" style="font-size:18px;">Single-file SQLite</h3>
+          <p class="desc" style="font-size:13.5px;">All of your memories are stored in a simple, compact <code>mimir.db</code> database file. Back it up, sync it, or host it on your local NAS.</p>
+        </div>
       </div>
     </div>
   </div>
 </section>
 
-<!-- ============ SECTION 2: Architecture & Performance ============ -->
+<!-- ============ SECTION 2: Performance & Compliance ============ -->
 <section class="section-block">
   <div class="wrap">
     <div class="sec-head">
       <div class="sec-num">§ 02</div>
-      <h2 class="sec-title">Extreme <em>Performance</em></h2>
+      <h2 class="sec-title">Performance &amp; <em>Compliance</em></h2>
     </div>
 
-    <p style="font-size:18px; line-height:1.6; color:var(--text-dim); margin-bottom:32px; max-width:850px;">
-      Most semantic memory solutions drag in complex vector indexing libraries, PyTorch model footprints, and slow, expensive cloud embedding APIs. Mimir proves that for developer context, keyword search combined with BM25 ranking is 100x faster, incredibly reliable, and free.
+    <p style="font-size:18px; line-height:1.6; color:var(--text-dim); margin-bottom:40px; max-width:850px;">
+      Mimir proves that for developer context, keyword search with BM25 ranking is 100x faster, incredibly reliable, and completely free. Fully compliant with the Model Context Protocol (MCP), it exposes semantic memory reading and writing directly as system tools.
     </p>
 
-    <div class="stat-grid" style="margin-bottom:32px;">
-      <div class="stat-card">
-        <div class="skey">P50 Query Latency</div>
-        <div class="sval">0.09<span class="unit">ms</span></div>
-        <div class="sdesc">Cold-start database query latency. Returns high-relevance matches instantly.</div>
+    <div class="perf-mcp-grid">
+      <!-- COLUMN 1: PERFORMANCE STATS -->
+      <div class="perf-col">
+        <h3 style="font-family:var(--serif); font-size:19px; font-weight:500; margin-top:0; color:var(--text); margin-bottom:16px;">Recall Benchmarks</h3>
+        <div class="stat-card" style="margin-bottom:12px; padding:16px;">
+          <div class="skey" style="margin-bottom:4px;">P50 Cold Query</div>
+          <div class="sval" style="font-size:28px; margin-bottom:2px; color:var(--accent-2);">0.09<span class="unit" style="font-size:11px;">ms</span></div>
+          <div class="sdesc" style="font-size:12px;">Sub-millisecond cold recall over local SQLite.</div>
+        </div>
+        <div class="stat-card" style="margin-bottom:12px; padding:16px;">
+          <div class="skey" style="margin-bottom:4px;">P50 Warm Query</div>
+          <div class="sval" style="font-size:28px; margin-bottom:2px; color:var(--accent-2);">0.12<span class="unit" style="font-size:11px;">ms</span></div>
+          <div class="sdesc" style="font-size:12px;">Consistent warm query latency flat across scale.</div>
+        </div>
+        <div class="stat-card" style="padding:16px;">
+          <div class="skey" style="margin-bottom:4px;">RAM Footprint</div>
+          <div class="sval" style="font-size:28px; margin-bottom:2px; color:var(--accent-2);">&lt; 15<span class="unit" style="font-size:11px;">MB</span></div>
+          <div class="sdesc" style="font-size:12px;">Ultra-lightweight Rust daemon footprint.</div>
+        </div>
       </div>
-      <div class="stat-card">
-        <div class="skey">Warm Query Latency</div>
-        <div class="sval">0.12<span class="unit">ms</span></div>
-        <div class="sdesc">Consistent warm query P50 latency. Remains flat even as memory scale increases.</div>
-      </div>
-      <div class="stat-card">
-        <div class="skey">System RAM Footprint</div>
-        <div class="sval">&lt; 15<span class="unit">MB</span></div>
-        <div class="sdesc">Ultra-lightweight Rust daemon. Leaves resources completely free for your models and builds.</div>
-      </div>
-    </div>
 
-    <div class="constellation">
-      <div class="const-cell">
-        <div class="greek">SQLite FTS5</div>
-        <h3 class="name">Porter Stemming Search</h3>
-        <p class="desc">SQLite FTS5 full-text indexing with porter stemming. Words like <code>testing</code>, <code>tested</code>, and <code>tests</code> map to the identical stem, ensuring high-relevance keyword search matches.</p>
+      <!-- COLUMN 2: SEARCH ENGINE DETAILS -->
+      <div class="engine-col">
+        <h3 style="font-family:var(--serif); font-size:19px; font-weight:500; margin-top:0; color:var(--text); margin-bottom:16px;">FTS5 Stemming Engine</h3>
+        <div class="const-cell" style="margin-bottom:16px; padding:20px;">
+          <div class="greek" style="margin-bottom:4px;">SQLite FTS5</div>
+          <h4 class="name" style="font-size:17px; margin-bottom:8px;">Porter Stemming</h4>
+          <p class="desc" style="font-size:13px; line-height:1.45;">FTS5 indexing with porter stemming. Words like <code>testing</code>, <code>tested</code>, and <code>tests</code> map to the identical stem, ensuring high-relevance search matches.</p>
+        </div>
+        <div class="const-cell" style="padding:20px;">
+          <div class="greek" style="margin-bottom:4px;">Smart Query Fallback</div>
+          <h4 class="name" style="font-size:17px; margin-bottom:8px;">LIKE Optimization</h4>
+          <p class="desc" style="font-size:13px; line-height:1.45;">FTS5 MATCH treats multi-word strings as exact phrases. Mimir automatically sanitizes input and falls back to SQL <code>LIKE</code> operators for partial matches.</p>
+        </div>
       </div>
-      <div class="const-cell">
-        <div class="greek">Smart query fallback</div>
-        <h3 class="name">Multi-word LIKE optimization</h3>
-        <p class="desc">Standard SQLite FTS5 MATCH treats multi-word strings as exact phrases. Mimir automatically sanitizes input and falls back to SQL <code>LIKE</code> operators to find partial matches across multiple terms.</p>
+
+      <!-- COLUMN 3: MCP COMPLIANCE -->
+      <div class="mcp-col">
+        <h3 style="font-family:var(--serif); font-size:19px; font-weight:500; margin-top:0; color:var(--text); margin-bottom:16px;">Registered MCP Tools</h3>
+        <div class="mcp-tool-list">
+          <div class="mcp-tool-item">
+            <span class="tool-name">mimir_recall</span>
+            <span class="tool-desc">Query the semantic memory vault. Performs FTS5 BM25 search with fallback sanitization to retrieve relevant contextual fragments instantly.</span>
+          </div>
+          <div class="mcp-tool-item">
+            <span class="tool-name">mimir_store</span>
+            <span class="tool-desc">Save a new learning. Accepts markdown content, semantic tags, a classification type (e.g., <code>insight</code>), and an importance rating.</span>
+          </div>
+          <div class="mcp-tool-item">
+            <span class="tool-name">mimir_stats</span>
+            <span class="tool-desc">Fetches database statistics. Inspect database sizing, record counts, and categorical breakdowns directly from your assistant terminal.</span>
+          </div>
+          <div class="mcp-tool-item">
+            <span class="tool-name">mimir_health</span>
+            <span class="tool-desc">Ensures structural integrity. Verifies database read/write capabilities, index files, and daemon connection status.</span>
+          </div>
+        </div>
       </div>
     </div>
   </div>
 </section>
 
-<!-- ============ SECTION 3: MCP Tools ============ -->
+<!-- ============ SECTION 3: Installation & Setup ============ -->
 <section class="section-block">
   <div class="wrap">
     <div class="sec-head">
       <div class="sec-num">§ 03</div>
-      <h2 class="sec-title">Model Context Protocol <em>Compliance</em></h2>
-    </div>
-
-    <p style="font-size:18px; line-height:1.6; color:var(--text-dim); margin-bottom:32px; max-width:850px;">
-      As a fully compliant Model Context Protocol server, Mimir registers semantic memory reading and writing directly as system tools. Any MCP-enabled coding assistant can automatically query, explore, or store project-level learnings.
-    </p>
-
-    <div class="constellation">
-      <div class="const-cell">
-        <div class="greek">Recall tool</div>
-        <h3 class="name">mimir_recall</h3>
-        <p class="desc">Query the semantic memory vault. Performs FTS5 BM25 search with fallback sanitization to retrieve relevant contextual fragments instantly.</p>
-      </div>
-      <div class="const-cell">
-        <div class="greek">Store tool</div>
-        <h3 class="name">mimir_store</h3>
-        <p class="desc">Save a new learning. Accepts markdown content, semantic tags, a classification type (e.g., <code>insight</code>, <code>convention</code>), and an importance rating.</p>
-      </div>
-      <div class="const-cell">
-        <div class="greek">Stats tool</div>
-        <h3 class="name">mimir_stats</h3>
-        <p class="desc">Fetches vault statistics. Inspect database sizing, record counts, and categorical breakdowns directly from your assistant terminal.</p>
-      </div>
-      <div class="const-cell">
-        <div class="greek">Health tool</div>
-        <h3 class="name">mimir_health</h3>
-        <p class="desc">Ensures structural integrity. Verifies database read/write capabilities, index files, and daemon connection status.</p>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- ============ SECTION 4: Seamless Sync & Deployment ============ -->
-<section class="section-block">
-  <div class="wrap">
-    <div class="sec-head">
-      <div class="sec-num">§ 04</div>
-      <h2 class="sec-title">Device &amp; Team <em>Synchronization</em></h2>
-    </div>
-
-    <p style="font-size:18px; line-height:1.6; color:var(--text-dim); margin-bottom:32px; max-width:850px;">
-      Mimir operates smoothly on everything from isolated developer workstations to distributed, multi-machine dev stacks. Point multiple servers, local agents, and CI pipelines to a single shared file sync folder to establish immediate semantic alignment.
-    </p>
-
-    <div style="background:var(--bg-2); border:1px solid var(--line); border-radius:4px; padding:32px; margin-bottom:32px;">
-      <h3 style="font-family:var(--serif); font-size:22px; font-weight:500; margin-top:0; color:var(--text);">Syncthing / Dropbox Sync Strategy</h3>
-      <p style="color:var(--text-dim); line-height:1.55; margin-bottom:24px;">
-        Point your Mimir database path to a folder synced by Syncthing, Nextcloud, Resilio, or Dropbox. SQLite's ACID-compliant architecture combined with file locking allows secure, multi-machine memory propagation:
-      </p>
-      <div style="font-family:var(--mono); font-size:13px; color:var(--accent-2); line-height:1.6; background:var(--code-bg); padding:18px; border-radius:4px;">
-        Workstation A (Save Insight) &rarr; mimir_store &rarr; synced/mimir.db &larr; (Sync Engine) &rarr; Workstation B (Retrieve context)
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- ============ SECTION 5: Installation & Setup ============ -->
-<section class="section-block">
-  <div class="wrap">
-    <div class="sec-head">
-      <div class="sec-num">§ 05</div>
       <h2 class="sec-title">Quickstart <em>Setup</em></h2>
     </div>
 
-    <div class="code-block">
-      <div class="cb-label">Install Mimir</div>
-      <pre><code># 1. Run the one-shot bootstrap installation
+    <div class="split-grid">
+      <div class="code-block">
+        <div class="cb-label">1. Install Mimir</div>
+        <pre><code># Run the one-shot bootstrap installation
 curl -sSL https://raw.githubusercontent.com/tcconnally/mimir/main/scripts/bootstrap.sh | bash
 
-# 2. Build from source if preferred
+# Or build from source
 git clone https://github.com/tcconnally/mimir.git ~/.mimir
 cd ~/.mimir && cargo build --release
 cp target/release/mimir ~/.local/bin/mimir</code></pre>
-    </div>
+      </div>
 
-    <div class="code-block" style="margin-top:32px;">
-      <div class="cb-label">Configure Perseus Integration</div>
-      <pre><code># In your workspace .perseus/config.yaml:
+      <div class="code-block">
+        <div class="cb-label">2. Configure Perseus</div>
+        <pre><code># In your workspace .perseus/config.yaml:
 mimir:
   enabled: true
   transport: "stdio"
-  command:
-    - "/usr/local/bin/mimir"
-    - "--db"
-    - "~/.mimir/data/mimir.db"
-  timeout_s: 30.0
+  command: ["mimir", "--db", "~/.mimir/data/mimir.db"]
+  timeout_s: 10.0
   merge_strategy: "local_first"
   fallback_to_local: true
   circuit_breaker:
@@ -716,9 +715,10 @@ mimir:
   retry_policy:
     max_attempts: 3
     backoff_base: 1.5</code></pre>
+      </div>
     </div>
 
-    <div style="text-align:center; margin-top:48px;">
+    <div style="text-align:center; margin-top:24px;">
       <a href="https://github.com/tcconnally/mimir" class="cta-btn primary">Mimir GitHub Repository &rarr;</a>
     </div>
   </div>
