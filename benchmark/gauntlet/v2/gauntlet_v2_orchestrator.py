@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -279,7 +280,7 @@ class GauntletV2Orchestrator:
         self.meta = {
             "gauntlet_version": "2.0.0",
             "timestamp": timestamp_iso(),
-            "hostname": os.uname().nodename,
+            "hostname": platform.uname().node,
             "nodes": self.nodes,
             "developers_per_node": self.developers_per_node,
             "duration": self.duration,
