@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "runs": [
+    {
+      "scanned_at": "2026-06-10T12:31:45.674392+00:00",
+      "target": "/tmp/perseus",
+      "score": 1,
+      "findings_total": 48
+    }
+  ]
+}

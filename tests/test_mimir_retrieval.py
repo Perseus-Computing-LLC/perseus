@@ -21,7 +21,7 @@ import pytest
 
 from conftest import PY_VER, cfg, perseus
 
-pytestmark = pytest.mark.skip(reason="Pre-existing: Mneme→Mimir migration needs test rewrite")
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
@@ -51,8 +51,8 @@ def _test_cfg():
 
 
 def _make_hit(id_, content, source="local", mtype="insight", decay=1.0, relevance=0.5, topic="", verified=False):
-    """Quick helper to build a MemoryHit."""
-    return perseus.MemoryHit(
+    """Quick helper to build a EntityHit."""
+    return perseus.EntityHit(
         id=id_, content=content, source=perseus.MemorySource(source),
         type=perseus.MemoryTypeEnum(mtype), summary=content[:80],
         relevance=relevance, decay_score=decay, topic_path=topic, verified=verified,
@@ -81,7 +81,7 @@ class TestMergeStrategies:
         ]
 
     @property
-    def mneme_items(self):
+    def mimir_items(self):
         return [
             _make_hit("e-1", "Engram: Database is PostgreSQL in production", "mimir", "architecture", decay=0.95, relevance=0.9),
             _make_hit("e-2", "Engram: Auth uses OAuth2 + JWT", "mimir", "decision", decay=0.7, relevance=0.7),
@@ -93,7 +93,7 @@ class TestMergeStrategies:
         conn = self._connector("local_first")
         merged = conn._merge_results(
             local_items=list(self.local_items),
-            mimir_items=list(self.mneme_items),
+            mimir_items=list(self.mimir_items),
             strategy=perseus.MergeStrategy.LOCAL_FIRST,
             diagnostics={},
         )
@@ -107,7 +107,7 @@ class TestMergeStrategies:
         conn = self._connector("remote_first")
         merged = conn._merge_results(
             local_items=list(self.local_items),
-            mimir_items=list(self.mneme_items),
+            mimir_items=list(self.mimir_items),
             strategy=perseus.MergeStrategy.REMOTE_FIRST,
             diagnostics={},
         )
@@ -120,7 +120,7 @@ class TestMergeStrategies:
         conn = self._connector("interleave")
         merged = conn._merge_results(
             local_items=list(self.local_items),
-            mimir_items=list(self.mneme_items),
+            mimir_items=list(self.mimir_items),
             strategy=perseus.MergeStrategy.INTERLEAVE,
             diagnostics={},
         )
@@ -134,7 +134,7 @@ class TestMergeStrategies:
         conn = self._connector("decay_first")
         merged = conn._merge_results(
             local_items=list(self.local_items),
-            mimir_items=list(self.mneme_items),
+            mimir_items=list(self.mimir_items),
             strategy=perseus.MergeStrategy.DECAY_FIRST,
             diagnostics={},
         )
@@ -167,7 +167,7 @@ class TestMergeStrategies:
         """The strategy_used field should reflect the actual merge strategy."""
         conn = self._connector("decay_first")
         merged = conn._merge_results(
-            local_items=self.local_items, mimir_items=self.mneme_items,
+            local_items=self.local_items, mimir_items=self.mimir_items,
             strategy=perseus.MergeStrategy.DECAY_FIRST, diagnostics={},
         )
         assert "decay_first" in merged.strategy_used
@@ -199,7 +199,7 @@ class TestDeduplication:
         assert len(merged.items) == 1, f"Expected 1 deduped item, got {len(merged.items)}"
         item = merged.items[0]
         assert item.verified is True
-        assert item.source == perseus.MemorySource.MNEME  # Mneme version preferred
+        assert item.source == perseus.MemorySource.MIMIR  # Mneme version preferred
         assert item.id == "e-auth"
 
     def test_similar_but_not_identical_content_not_deduped(self):
@@ -239,7 +239,7 @@ class TestDeduplication:
         verified = [item for item in merged.items if item.verified]
         assert len(verified) == 2, f"Expected 2 verified items, got {len(verified)}"
         for v in verified:
-            assert v.source == perseus.MemorySource.MNEME
+            assert v.source == perseus.MemorySource.MIMIR
 
     def test_diagnostics_populated_after_merge(self):
         """_merge_results should populate diagnostics with dedup counts."""
@@ -408,7 +408,7 @@ GOLDEN_QUERIES = [
 
 
 def _build_needle_haystack(needle_ids: list[str], num_distractors: int = 50) -> tuple[list, dict[str, str]]:
-    """Build a haystack of MemoryHit objects containing specific needles.
+    """Build a haystack of EntityHit objects containing specific needles.
 
     Returns (all_items, {needle_id: needle_content}).
     """
@@ -637,7 +637,7 @@ class TestDecayPriority:
 
         merged = conn._merge_results(
             local_items=[i for i in items if i.source == perseus.MemorySource.LOCAL],
-            mimir_items=[i for i in items if i.source == perseus.MemorySource.MNEME],
+            mimir_items=[i for i in items if i.source == perseus.MemorySource.MIMIR],
             strategy=perseus.MergeStrategy.DECAY_FIRST,
             diagnostics={},
         )
@@ -655,7 +655,7 @@ class TestDecayPriority:
         assert fresh.retrieval_count == 50
 
     def test_decay_score_preserved_through_parse(self):
-        """_parse_memory_hits should correctly forward decay_score from MCP JSON."""
+        """_parse_entity_hits should correctly forward decay_score from MCP JSON."""
         raw = {
             "items": [
                 {"id": "x-1", "content": "Test memory", "type": "insight",
@@ -663,11 +663,11 @@ class TestDecayPriority:
                  "topic_path": "test/path", "relevance": 0.65},
             ]
         }
-        hits = perseus._parse_memory_hits(raw)
+        hits = perseus._parse_entity_hits(raw)
         assert len(hits) == 1
         assert hits[0].decay_score == 0.73
         assert hits[0].retrieval_count == 12
-        assert hits[0].layer == perseus.MemoryLayer.WORKING
+        assert hits[0].layer == "working"
         assert hits[0].topic_path == "test/path"
 
     def test_local_items_default_to_fresh(self):
@@ -675,7 +675,7 @@ class TestDecayPriority:
         local_raw = [
             {"id": "l-1", "content": "Local memory", "summary": "Local summary", "type": "insight"},
         ]
-        hits = perseus._local_hits_to_memory_hits(local_raw)
+        hits = perseus._local_hits_to_entity_hits(local_raw)
         assert hits[0].decay_score == 1.0
         assert hits[0].source == perseus.MemorySource.LOCAL
 
@@ -712,7 +712,7 @@ class TestConflictResolution:
         assert len(merged.items) == 2
         sources = {item.source for item in merged.items}
         assert perseus.MemorySource.LOCAL in sources
-        assert perseus.MemorySource.MNEME in sources
+        assert perseus.MemorySource.MIMIR in sources
 
         # In LOCAL_FIRST, the local (fresher) port should come first
         assert merged.items[0].source == perseus.MemorySource.LOCAL
