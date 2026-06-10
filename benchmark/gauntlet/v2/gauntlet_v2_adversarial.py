@@ -282,11 +282,45 @@ def _scenario_a5_nfs_partition(home: Path):
 
 def _scenario_a6_sigterm(home: Path):
     """A6: SIGTERM mid-render — verify no state corruption."""
+    _proc: list[subprocess.Popen] = []
+
     def setup():
-        pass  # SIGTERM simulation is implicit via timeout
+        nonlocal _proc
+        env = os.environ.copy()
+        env["PERSEUS_HOME"] = str(home)
+        env["PERSEUS_ALLOW_DANGEROUS"] = "1"
+        perseus = perseus_executable()
+
+        ctx = home / "sigterm_test.md"
+        ctx.write_text("@query \"sleep 60\" timeout=65\n")
+
+        try:
+            p = subprocess.Popen(
+                [sys.executable, perseus, "render", str(ctx)],
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            _proc.append(p)
+            time.sleep(2)
+            p.terminate()
+            try:
+                p.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                p.kill()
+                p.wait()
+        except Exception:
+            pass
 
     def cleanup():
-        pass
+        for p in _proc:
+            try:
+                if p.poll() is None:
+                    p.kill()
+                    p.wait(timeout=5)
+            except Exception:
+                pass
+        (home / "sigterm_test.md").unlink(missing_ok=True)
 
     return setup, cleanup
 

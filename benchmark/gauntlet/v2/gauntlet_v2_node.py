@@ -338,22 +338,25 @@ def phase_sustained_torture(
                 rss = psutil.Process().memory_info().rss // 1024
                 rss_samples.append(rss)
             except ImportError:
-                try:
-                    rss = int(
-                        subprocess.run(
-                            [
-                                "sh",
-                                "-c",
-                                f"grep VmRSS /proc/{os.getpid()}/status 2>/dev/null | awk '{{print $2}}'",
-                            ],
-                            capture_output=True,
-                            text=True,
-                            timeout=5,
-                        ).stdout.strip()
-                        or "0"
-                    )
-                    rss_samples.append(rss)
-                except Exception:
+                if sys.platform == "linux":
+                    try:
+                        rss = int(
+                            subprocess.run(
+                                [
+                                    "sh",
+                                    "-c",
+                                    f"grep VmRSS /proc/{os.getpid()}/status 2>/dev/null | awk '{{print $2}}'",
+                                ],
+                                capture_output=True,
+                                text=True,
+                                timeout=5,
+                            ).stdout.strip()
+                            or "0"
+                        )
+                        rss_samples.append(rss)
+                    except Exception:
+                        rss_samples.append(-1)
+                else:
                     rss_samples.append(-1)
             except Exception:
                 rss_samples.append(-1)
