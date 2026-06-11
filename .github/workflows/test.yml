@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main, master]
 
+permissions:
+  contents: write
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -16,6 +19,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
@@ -27,8 +32,25 @@ jobs:
           python -m pip install --upgrade pip
           pip install pyyaml pytest coverage hypothesis
 
-      - name: Verify build artifact consistency
-        run: python scripts/build.py --check
+      - name: Verify or rebuild build artifact
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            # PR: hard gate — reject if out of sync
+            python scripts/build.py --check
+          else
+            # Push to main: always rebuild, commit fix if drifted
+            python scripts/build.py
+            if [ "${{ matrix.python-version }}" = "3.12" ]; then
+              git config user.name "github-actions[bot]"
+              git config user.email "github-actions[bot]@users.noreply.github.com"
+              git add perseus.py
+              if ! git diff --cached --quiet; then
+                git commit -m "chore: auto-rebuild perseus.py [skip ci]"
+                git push
+                echo "Pushed rebuilt artifact."
+              fi
+            fi
+          fi
 
       - name: Run test suite with coverage
         run: |

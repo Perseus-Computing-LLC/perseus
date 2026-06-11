@@ -394,7 +394,9 @@ def check() -> None:
     if current != output:
         print(
             "ERROR: perseus.py is out of sync with src/ — run "
-            "`python scripts/build.py` and commit the regenerated artifact.",
+            "`python scripts/build.py` and commit the regenerated artifact.\n"
+            "Tip: install the pre-commit hook to prevent this:\n"
+            "  git config core.hooksPath .githooks",
             file=sys.stderr,
         )
         sys.exit(1)

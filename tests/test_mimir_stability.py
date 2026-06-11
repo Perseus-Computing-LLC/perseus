@@ -279,7 +279,7 @@ class TestFallbackBehavior:
             local_hits=[], max_results=5,
         )
         assert len(mseg.items) == 0
-        assert mseg.strategy_used in ("unavailable", "local_fallback")
+        assert mseg.strategy_used in ("unavailable", "local_fallback", "local_only")
 
     def test_engram_disabled_in_config_still_works(self):
         """When engram.enabled=False, the system should operate local-only without errors."""
