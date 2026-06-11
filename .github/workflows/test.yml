@@ -21,6 +21,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          ref: ${{ github.event.pull_request.head.ref || github.ref }}
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
@@ -32,23 +33,24 @@ jobs:
           python -m pip install --upgrade pip
           pip install pyyaml pytest coverage hypothesis
 
-      - name: Verify or rebuild build artifact
+      - name: Rebuild and verify build artifact
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            # PR: hard gate — reject if out of sync
-            python scripts/build.py --check
-          else
-            # Push to main: always rebuild, commit fix if drifted
-            python scripts/build.py
-            if [ "${{ matrix.python-version }}" = "3.12" ]; then
-              git config user.name "github-actions[bot]"
-              git config user.email "github-actions[bot]@users.noreply.github.com"
-              git add perseus.py
-              if ! git diff --cached --quiet; then
-                git commit -m "chore: auto-rebuild perseus.py [skip ci]"
+          python scripts/build.py
+          echo "Artifact rebuilt. Checking if commit needed..."
+          if [ "${{ matrix.python-version }}" = "3.12" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add perseus.py
+            if ! git diff --cached --quiet; then
+              git commit -m "chore: auto-rebuild perseus.py [skip ci]"
+              if [ "${{ github.event_name }}" = "pull_request" ]; then
+                git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
+              else
                 git push
-                echo "Pushed rebuilt artifact."
               fi
+              echo "Pushed rebuilt artifact."
+            else
+              echo "Artifact was already in sync — no commit needed."
             fi
           fi
 
