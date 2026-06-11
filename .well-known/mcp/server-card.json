@@ -10,7 +10,7 @@
   "tools": [
     {
       "name": "perseus_agora",
-      "description": "Task board from tasks/*.md",
+      "description": "List tasks from the project task board (tasks/*.md files). Use to see what is open, in progress, or completed. Filter by status. Read-only; returns task array with id, title, status, scope.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -56,7 +56,7 @@
     },
     {
       "name": "perseus_auto_skill",
-      "description": "Instruct agent to load a skill before work begins",
+      "description": "Instruct the agent to load a specific skill before starting work. Use at the top of context documents to enforce critical hygiene skills (e.g., memory-hygiene, agent-safety). Renders as a mandatory instruction block. Read-only.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -116,7 +116,7 @@
     },
     {
       "name": "perseus_drift",
-      "description": "Compare actual vs predicted tool usage \u2014 oracle drift detection for Pythia",
+      "description": "Detect drift between predicted and actual tool usage patterns via the Pythia oracle. Use when tool behavior seems off or after config changes. For workspace hygiene checks, prefer perseus_health. Read-only; returns a markdown drift report.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -184,7 +184,7 @@
     },
     {
       "name": "perseus_health",
-      "description": "Audit workspace context freshness \u2014 stale skills, duplicate tasks, oversized output",
+      "description": "Audit workspace context health: stale skills, duplicate tasks, oversized output. Use before starting work to catch drift. For deep Daedalus heuristics (cache, directive stats), use perseus_get_health. Read-only; returns status enum and metric counts.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -228,7 +228,7 @@
     },
     {
       "name": "perseus_inbox",
-      "description": "Agent message inbox",
+      "description": "Read agent-to-agent messages from the workspace inbox. Use to check for coordination messages from other agents. Filter to unread only. Read-only; returns message array with read/unread status.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -285,7 +285,7 @@
     },
     {
       "name": "perseus_include",
-      "description": "Include and render another file",
+      "description": "Include and render another Perseus source file, recursively resolving its directives. Use to compose context from multiple files or share common sections across workspaces. Read-only; resolved directives inherit the parent configuration.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -317,7 +317,7 @@
     },
     {
       "name": "perseus_list",
-      "description": "List directory or structured data",
+      "description": "List directory contents or structured data. Use to discover files before reading with perseus_read. Supports sorting by name, modified time, or size. Read-only; for hierarchical view, prefer perseus_tree.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -375,7 +375,7 @@
     },
     {
       "name": "perseus_mason",
-      "description": "Mason code architecture concept map (feature\u2192file)",
+      "description": "Query the Mason code architecture concept map to find which files implement a feature. Use before editing code to understand where changes should go. Read-only; returns concept map and mapped file list.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -408,7 +408,7 @@
     },
     {
       "name": "perseus_memory",
-      "description": "Search LOCAL project memory via FTS5 \u2014 decisions, architecture, conventions (fast, zero-network)",
+      "description": "Search LOCAL project memory (FTS5, zero-network) for past decisions and architecture notes. Use for in-workspace recall. For cross-session persistent facts, use perseus_mimir instead. Read-only; returns results array with mode and count.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -484,7 +484,7 @@
     },
     {
       "name": "perseus_mimir",
-      "description": "Query EXTERNAL Mimir persistent memory server \u2014 cross-session, curated, long-lived facts",
+      "description": "Query the EXTERNAL Mimir memory server for cross-session, curated facts that survive across workspaces. Use for long-lived knowledge (bug patterns, design decisions). For fast local recall, prefer perseus_memory. Read-only; falls back to local FTS5 if Mimir is unreachable.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -530,7 +530,7 @@
     },
     {
       "name": "perseus_perseus",
-      "description": "Fetch rendered context from a remote Perseus instance",
+      "description": "Fetch rendered context from a remote Perseus instance by URL. Use to pull live workspace state from another machine or container. Read-only; caches results \u2014 re-fetch when remote state may have changed.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -560,7 +560,7 @@
     },
     {
       "name": "perseus_prompt",
-      "description": "System prompt block",
+      "description": "Define a system prompt block that instructs the AI assistant about how to use the rendered context. Use to set behavioral rules, memory hygiene gates, or context interpretation guidelines. Read-only; rendered as-is into the output.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -586,7 +586,7 @@
     },
     {
       "name": "perseus_read",
-      "description": "Embed file contents",
+      "description": "Read and embed file contents into the rendered context. Use to inject config values, environment files, or any text file. Can extract specific keys from structured files. Read-only; use perseus_list or perseus_tree to browse before reading.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -634,7 +634,7 @@
     },
     {
       "name": "perseus_services",
-      "description": "Health-check listed services",
+      "description": "Health-check all services listed in the workspace context (HTTP endpoints, Docker containers, shell commands). Use to verify the environment is healthy before starting work. May make network calls and execute shell commands per service definition \u2014 side effects depend on configured checks.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -675,7 +675,7 @@
     },
     {
       "name": "perseus_session",
-      "description": "Recent session digests",
+      "description": "List recent session digests with task summaries and outcomes. Use to understand what was done recently across sessions. For the single most recent checkpoint, prefer perseus_waypoint. Read-only; returns session array with count.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -706,7 +706,7 @@
     },
     {
       "name": "perseus_skills",
-      "description": "List available skills",
+      "description": "List available skills with descriptions and freshness status. Use to discover what capabilities are installed. Filter by category for smaller output. Read-only; stale skills flagged automatically.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -756,7 +756,7 @@
     },
     {
       "name": "perseus_tool",
-      "description": "Run an allowlisted external tool",
+      "description": "Run an external tool that has been allowlisted in the Perseus configuration. Use for approved integrations only. Requires the tool name to be present in the allowlist. Destructive \u2014 executes the tool with the user's permissions.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -788,7 +788,7 @@
     },
     {
       "name": "perseus_tooltrim",
-      "description": "Tool metadata awareness \u2014 filtered toolset descriptions",
+      "description": "Return filtered toolset metadata and usage statistics. Use to understand what tools are available and how they are being used. For full tool metadata, set full=true. Read-only; stats mode returns aggregated counts.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -824,7 +824,7 @@
     },
     {
       "name": "perseus_tree",
-      "description": "Tree view of directory",
+      "description": "Display a directory tree with configurable depth. Use to understand project structure at a glance. For flat file listings with metadata, use perseus_list instead. Read-only; depth limits control output size.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -860,7 +860,7 @@
     },
     {
       "name": "perseus_validate",
-      "description": "Validate a rendered block against a schema",
+      "description": "Validate a rendered block against a JSON Schema. Use to enforce structure on configuration blocks, task definitions, or any schema-constrained section. Read-only; returns pass/fail with error messages.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -893,7 +893,7 @@
     },
     {
       "name": "perseus_waypoint",
-      "description": "Latest checkpoint summary",
+      "description": "Return the most recent session checkpoint: what was being worked on, status, and next steps. Use at session start to resume where you left off. Stale after TTL (default 24h). Read-only; lightweight \u2014 call freely.",
       "inputSchema": {
         "type": "object",
         "properties": {
