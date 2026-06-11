@@ -13007,6 +13007,7 @@ class MemorySource(str, Enum):
     LOCAL = "local"          # Mnēmē FTS5 (Perseus)
     MIMIR = "mimir"        # Mneme persistent store
     FEDERATED = "federated"  # Cross-workspace federation
+    MNEME = "mimir"
 
 class MemoryLayer(str, Enum):
     """Mneme time-based memory layer.
@@ -13070,6 +13071,59 @@ class MemoryHit:
     workspace_hash: str = ""
     tags: dict[str, str] = field(default_factory=dict)
     verified: bool = False   # True when memory exists in both local + mimir
+
+    def __init__(
+        self,
+        id: str,
+        type: MemoryTypeEnum = MemoryTypeEnum.INSIGHT,
+        content: str = "",
+        source: MemorySource = MemorySource.MIMIR,
+        summary: str = "",
+        relevance: float = 0.0,
+        decay_score: float = 1.0,
+        retrieval_count: int = 0,
+        layer: MemoryLayer = MemoryLayer.WORKING,
+        topic_path: str = "",
+        created_at_unix_ms: int | None = None,
+        last_accessed_unix_ms: int | None = None,
+        links: list[MemoryLink] | None = None,
+        workspace_hash: str = "",
+        tags: dict[str, str] = None,
+        verified: bool = False,
+        **kwargs,
+    ):
+        self.id = id
+        self.source = source
+        self.summary = summary
+        self.relevance = relevance
+        self.decay_score = decay_score
+        self.retrieval_count = retrieval_count
+        self.layer = layer
+        self.topic_path = topic_path
+        self.created_at_unix_ms = created_at_unix_ms if created_at_unix_ms is not None else int(time.time() * 1000)
+        self.last_accessed_unix_ms = last_accessed_unix_ms if last_accessed_unix_ms is not None else int(time.time() * 1000)
+        self.links = links if links is not None else []
+        self.workspace_hash = workspace_hash
+        self.tags = tags if tags is not None else {}
+        self.verified = verified
+
+        # Handle aliases / alternate names
+        resolved_content = content
+        if not resolved_content:
+            resolved_content = kwargs.get("body_json", "")
+        self.content = resolved_content
+
+        resolved_type = type
+        entity_type = kwargs.get("entity_type")
+        if entity_type is not None:
+            if isinstance(entity_type, str):
+                try:
+                    resolved_type = MemoryTypeEnum(entity_type)
+                except ValueError:
+                    pass
+            else:
+                resolved_type = entity_type
+        self.type = resolved_type
 
 @dataclass
 class LiveStateEntry:
@@ -13300,8 +13354,17 @@ class _MCPStdioClient:
     def connect(self) -> bool:
         """Spawn the Mneme MCP subprocess and perform handshake."""
         try:
+            # Resolve binary path if not fully qualified (#302)
+            if self._command and not self._command[0].startswith("/"):
+                try:
+                    binary_path = _find_mimir_binary(self._command)
+                    if binary_path:
+                        self._command[0] = binary_path
+                except Exception:
+                    pass
+
             # Extract --db path to set cwd so Mneme writes DB to correct directory (#203)
-            cwd = None
+            cwd = self._cwd
             cmd_iter = iter(self._command)
             for arg in cmd_iter:
                 if arg in ("--db", "-d"):
@@ -13319,22 +13382,15 @@ class _MCPStdioClient:
                         os.makedirs(db_dir, exist_ok=True)
                         cwd = db_dir if os.path.isdir(db_dir) else None
 
-            self._process = subprocess.Popen(
-                self._command,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                cwd=cwd,
-            )
             popen_kwargs = {
                 "stdin": subprocess.PIPE,
                 "stdout": subprocess.PIPE,
                 "stderr": subprocess.PIPE,
                 "text": True,
             }
-            if self._cwd:
-                popen_kwargs["cwd"] = self._cwd
+            if cwd:
+                popen_kwargs["cwd"] = cwd
+
             self._process = subprocess.Popen(self._command, **popen_kwargs)
             # MCP initialize handshake
             init_result, err = self._call("initialize", {
@@ -13661,6 +13717,7 @@ class MimirConnector:
         links: list[MemoryLink] | None = None,
         importance: float = 0.5,
         topic_path: str | None = None,
+        **kwargs,
     ) -> tuple[bool, str]:
         """Store a new memory in Mimir via MCP 'mimir_store' tool.
 
@@ -13669,6 +13726,17 @@ class MimirConnector:
 
         Returns (success, memory_id_or_error).
         """
+        # Handle entity_type alias in tests
+        entity_type = kwargs.get("entity_type")
+        if entity_type is not None:
+            if isinstance(entity_type, str):
+                try:
+                    memory_type = MemoryTypeEnum(entity_type)
+                except ValueError:
+                    pass
+            else:
+                memory_type = entity_type
+
         if not self.available:
             return False, f"Mneme unavailable: {self._connect_error}"
 
@@ -13873,6 +13941,7 @@ class MimirConnector:
 
         diagnostics["merge_verified"] = str(len(verified_items))
         diagnostics["merge_mimir_only"] = str(len(mimir_only))
+        diagnostics["merge_mneme_only"] = str(len(mimir_only))
         diagnostics["merge_local_only"] = str(len(local_only))
 
         if strategy == MergeStrategy.DECAY_FIRST:
@@ -14057,6 +14126,12 @@ def _local_hits_to_memory_hits(local_results: list[dict]) -> list[MemoryHit]:
             tags=r.get("tags", {}),
         ))
     return hits
+
+
+# Alias / compatibility layer for Mimir v0.2.0 entity model renames (#23d4e76/bf15140)
+EntityHit = MemoryHit
+_parse_entity_hits = _parse_memory_hits
+_local_hits_to_entity_hits = _local_hits_to_memory_hits
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -19064,6 +19139,11 @@ def _quickstart_write_config(workspace: Path, generation: dict | None = None) ->
         "permissions": {
             "profile": "balanced",
         },
+        "mimir": {
+            "enabled": True,
+            "transport": "stdio",
+            "command": ["mimir", "--db", "~/.mimir/data/mimir.db"],
+        },
     }
     if generation:
         config["generation"] = {
@@ -19255,6 +19335,42 @@ def cmd_quickstart(args, cfg) -> int:
 
     # Step 3: Reload config from workspace so permission profile is applied
     cfg = load_config(workspace)
+
+    # ── Mimir Installation & Wiring Check (#301) ──
+    try:
+        mcfg = cfg.get("mimir", {}) if cfg else {}
+        if mcfg.get("enabled", True):
+            command = mcfg.get("command", ["mimir", "--db"])
+            binary_path = _find_mimir_binary(command)
+            if binary_path is None:
+                print("💡 Mimir persistent memory engine was not found on this system.")
+                if not non_interactive:
+                    try:
+                        install_choice = input("Would you like to install Mimir automatically? [y/N]: ").strip().lower()
+                        if install_choice in ("y", "yes"):
+                            print("Downloading and running Mimir bootstrap script...")
+                            import urllib.request
+                            script_url = "https://raw.githubusercontent.com/tcconnally/mimir/main/scripts/bootstrap.sh"
+                            req_script = urllib.request.Request(script_url, headers={"User-Agent": "perseus-quickstart"})
+                            with urllib.request.urlopen(req_script, timeout=15) as resp:
+                                bootstrap_script = resp.read()
+                            
+                            print("Building and installing Mimir (this may take a minute)...")
+                            res = subprocess.run(["bash"], input=bootstrap_script, capture_output=True, text=True)
+                            if res.returncode == 0:
+                                print("✓ Mimir installed successfully!")
+                            else:
+                                print("✗ Mimir installation failed:")
+                                print(res.stderr)
+                        else:
+                            print("Skipping Mimir installation. You can run it manually later.")
+                    except Exception as e:
+                        print(f"✗ Failed to run installation: {e}")
+                else:
+                    print("To install Mimir, run: curl -sSL https://raw.githubusercontent.com/tcconnally/mimir/main/scripts/bootstrap.sh | bash")
+                print()
+    except Exception:
+        pass
 
     # Step 4: Verify with a render
     text = context_file.read_text(errors="replace")
