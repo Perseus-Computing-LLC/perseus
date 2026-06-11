@@ -481,50 +481,45 @@ def run_agent_multi_phase(
     task_count: int = 5,
     max_concurrent: int = 3,
 ) -> dict:
-    """Phase 5: Agent Multi-Agent — run tasks concurrently.
+    """Phase 5: Agent Multi-Agent — run tasks sequentially.
 
-    Spawns multiple renders in parallel and tracks coordination metrics.
+    Runs each task across multiple agent homes to simulate multi-agent
+    coordination. Uses sequential execution to avoid Windows thread +
+    subprocess deadlocks and shared TASK_DIR race conditions.
     """
     tasks = HERMETIC_TASKS[:task_count]
     total = len(tasks) * max_concurrent
     failures = 0
     results: list[dict] = []
 
-    import threading
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-
     # Give each worker its own PERSEUS_HOME to avoid cache contention
     agent_homes = []
     for agent_id in range(max_concurrent):
         home = Path(f"/tmp/perseus-gauntlet/agent-{agent_id}")
         home.mkdir(parents=True, exist_ok=True)
-        # Copy config from cold home
         import shutil
         cfg_src = COLD_HOME / "config.yaml"
         if cfg_src.is_file():
             shutil.copy(cfg_src, home / "config.yaml")
         agent_homes.append(home)
 
-    def _run_one(task_idx: int, agent_id: int):
-        task = tasks[task_idx % len(tasks)]
-        home = agent_homes[agent_id]
-        result = run_single_agent_task(task, home)
-        result["agent_id"] = agent_id
-        result["task_idx"] = task_idx
-        return result
-
-    print(f"  Running {total} tasks with {max_concurrent} concurrent agents...")
-    with ThreadPoolExecutor(max_workers=max_concurrent) as executor:
-        futures = []
-        for agent_id in range(max_concurrent):
-            for task_idx in range(len(tasks)):
-                futures.append(executor.submit(_run_one, task_idx, agent_id))
-
-        for future in as_completed(futures):
-            result = future.result()
+    print(f"  Running {total} tasks across {max_concurrent} agents (sequential)...")
+    task_num = 0
+    for agent_id in range(max_concurrent):
+        for task_idx in range(len(tasks)):
+            task_num += 1
+            task = tasks[task_idx]
+            home = agent_homes[agent_id]
+            print(f"  Task {task_num}/{total}: [{agent_id}] {task['name']}...", end=" ", flush=True)
+            result = run_single_agent_task(task, home)
+            result["agent_id"] = agent_id
+            result["task_idx"] = task_idx
             results.append(result)
             metrics.record(**result)
-            if not result["success"]:
+            if result["success"]:
+                print(f"OK ({result['elapsed_s']:.1f}s)")
+            else:
+                print(f"FAIL ({result.get('error', 'unknown')})")
                 failures += 1
 
     agg = metrics.aggregate()
