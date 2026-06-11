@@ -16,6 +16,7 @@ python -m pytest tests/ -q            # 1,030+ tests
 Edit `src/perseus/`, not `perseus.py` directly — it's a generated artifact.
 
 **Pre-commit hook:** The `.githooks/pre-commit` hook auto-rebuilds `perseus.py`
-when you commit changes to `src/perseus/`. Run `git config core.hooksPath .githooks`
-once after cloning to activate it. Without this, CI will fail because the artifact
-drifts from source.
+when you commit changes to `src/perseus/`. The `.githooks/pre-push` hook catches
+remaining edge cases (cherry-pick, rebase, amend). Run `git config core.hooksPath .githooks`
+once after cloning to activate both. Without them, CI will still auto-fix your branch —
+but running hooks locally keeps your commit history clean.
