@@ -14198,7 +14198,7 @@ def _mimir_hybrid_search(
                 strategy_used="local_fallback",
                 total_available=len(local_hits),
             )
-        return MemorySegment(strategy_used="unavailable")
+        return MemorySegment(strategy_used="local_only")
 
     # Query Mneme via MCP
     segment = connector.recall(
