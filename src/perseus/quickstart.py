@@ -95,6 +95,11 @@ def _quickstart_write_config(workspace: Path, generation: dict | None = None) ->
         "permissions": {
             "profile": "balanced",
         },
+        "mimir": {
+            "enabled": True,
+            "transport": "stdio",
+            "command": ["mimir", "--db", "~/.mimir/data/mimir.db"],
+        },
     }
     if generation:
         config["generation"] = {
@@ -286,6 +291,43 @@ def cmd_quickstart(args, cfg) -> int:
 
     # Step 3: Reload config from workspace so permission profile is applied
     cfg = load_config(workspace)
+
+    # ── Mimir Installation & Wiring Check (#301) ──
+    try:
+        from perseus.doctor import _find_mimir_binary
+        mcfg = cfg.get("mimir", {}) if cfg else {}
+        if mcfg.get("enabled", True):
+            command = mcfg.get("command", ["mimir", "--db"])
+            binary_path = _find_mimir_binary(command)
+            if binary_path is None:
+                print("💡 Mimir persistent memory engine was not found on this system.")
+                if not non_interactive:
+                    try:
+                        install_choice = input("Would you like to install Mimir automatically? [y/N]: ").strip().lower()
+                        if install_choice in ("y", "yes"):
+                            print("Downloading and running Mimir bootstrap script...")
+                            import urllib.request
+                            script_url = "https://raw.githubusercontent.com/tcconnally/mimir/main/scripts/bootstrap.sh"
+                            req_script = urllib.request.Request(script_url, headers={"User-Agent": "perseus-quickstart"})
+                            with urllib.request.urlopen(req_script, timeout=15) as resp:
+                                bootstrap_script = resp.read()
+                            
+                            print("Building and installing Mimir (this may take a minute)...")
+                            res = subprocess.run(["bash"], input=bootstrap_script, capture_output=True, text=True)
+                            if res.returncode == 0:
+                                print("✓ Mimir installed successfully!")
+                            else:
+                                print("✗ Mimir installation failed:")
+                                print(res.stderr)
+                        else:
+                            print("Skipping Mimir installation. You can run it manually later.")
+                    except Exception as e:
+                        print(f"✗ Failed to run installation: {e}")
+                else:
+                    print("To install Mimir, run: curl -sSL https://raw.githubusercontent.com/tcconnally/mimir/main/scripts/bootstrap.sh | bash")
+                print()
+    except Exception:
+        pass
 
     # Step 4: Verify with a render
     text = context_file.read_text(errors="replace")

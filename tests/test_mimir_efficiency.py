@@ -94,7 +94,7 @@ class TestTokenBudget:
         """A merged result with 10 items should be well under 10K tokens."""
         conn = self._connector()
         local = []
-        mneme_items = []
+        mimir_items = []
         for i in range(5):
             local.append(_make_hit(
                 f"l-{i}",
@@ -113,7 +113,7 @@ class TestTokenBudget:
             ))
 
         merged = conn._merge_results(
-            local_items=local, mimir_items=mneme_items,
+            local_items=local, mimir_items=mimir_items,
             strategy=perseus.MergeStrategy.LOCAL_FIRST, diagnostics={},
         )
 
@@ -316,13 +316,13 @@ class TestInformationDensity:
         duplicate_pairs = [f"Shared content block #{j} that appears in both local and mneme stores." for j in range(10)]
 
         local = [_make_hit(f"l-u-{i}", unique_bases[i], "local", "architecture") for i in range(15)]
-        mneme_items = [_make_hit(f"e-u-{i}", unique_bases[i+15], "mimir", "architecture") for i in range(15)]
+        mimir_items = [_make_hit(f"e-u-{i}", unique_bases[i+15], "mimir", "architecture") for i in range(15)]
         for j in range(10):
             local.append(_make_hit(f"l-dup-{j}", duplicate_pairs[j], "local", "decision"))
             mimir_items.append(_make_hit(f"e-dup-{j}", duplicate_pairs[j], "mimir", "decision", decay=0.8))
 
         merged = conn._merge_results(
-            local_items=local, mimir_items=mneme_items,
+            local_items=local, mimir_items=mimir_items,
             strategy=perseus.MergeStrategy.LOCAL_FIRST, diagnostics={},
         )
 
