@@ -160,10 +160,72 @@ def _check_duplicate_symbols(repo_root: Path) -> None:
                 sys.exit(1)
 
 
+def _check_stripped_imports_defined(repo_root: Path) -> None:
+    """Fail the build if a stripped internal import has no matching definition.
+
+    Internal cross-module imports (``from perseus.X import Y``) are removed from
+    the concatenated artifact on the assumption that every imported name ``Y`` is
+    defined as a top-level symbol in one of the concatenated modules. If it is
+    not, the generated single file references an undefined name and fails only at
+    runtime with a ``NameError``.
+
+    This guard collects every name pulled in via an internal import and verifies
+    each resolves to a top-level def/class/assignment somewhere in MODULE_ORDER,
+    failing the build otherwise.
+
+    See https://github.com/tcconnally/perseus/issues/299
+    (root cause of the #298 ``_mimir_context_inject`` NameError).
+    """
+    defined: set[str] = set()
+    imported: dict[str, str] = {}  # name -> first module that imports it
+
+    for rel_path in MODULE_ORDER:
+        path = repo_root / rel_path
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=rel_path)
+        except SyntaxError:
+            # Duplicate/syntax checks handle reporting; skip here.
+            continue
+        for node in ast.iter_child_nodes(tree):
+            # Top-level definitions that become available via concatenation.
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                defined.add(node.name)
+            elif isinstance(node, ast.Assign):
+                for tgt in node.targets:
+                    if isinstance(tgt, ast.Name):
+                        defined.add(tgt.id)
+            elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                defined.add(node.target.id)
+            # Internal cross-module imports that the build will strip.
+            elif isinstance(node, ast.ImportFrom):
+                mod = node.module or ""
+                if mod == "perseus" or mod.startswith("perseus."):
+                    for alias in node.names:
+                        if alias.name == "*":
+                            continue
+                        name = alias.asname or alias.name
+                        imported.setdefault(name, rel_path)
+
+    missing = {n: m for n, m in imported.items() if n not in defined}
+    if missing:
+        for name, mod in sorted(missing.items()):
+            print(
+                f"ERROR: '{mod}' does a stripped internal import of '{name}', "
+                f"but '{name}' is not defined as a top-level symbol in any "
+                f"concatenated module. The generated artifact would raise "
+                f"NameError at runtime. Define it, fix the import, or remove "
+                f"the dead reference.",
+                file=sys.stderr,
+            )
+        sys.exit(1)
+
+
 def render_artifact(repo_root: Path) -> str:
     """Return the generated single-file artifact text."""
     # H-2: fail fast on duplicate top-level symbols + forbidden __main__ blocks (AST-based)
     _check_duplicate_symbols(repo_root)
+    # H-3: fail fast if a stripped internal import has no matching definition (#299)
+    _check_stripped_imports_defined(repo_root)
 
     output_lines: list[str] = []
     first_module = True

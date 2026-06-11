@@ -14035,12 +14035,49 @@ def _parse_memory_hits(data: dict) -> list[MemoryHit]:
                 relationship=lraw.get("relationship", ""),
                 weight=lraw.get("weight", 0.5),
             ))
+        # Mimir v0.2.0 entities expose their payload in `body_json` and have no
+        # top-level `content`/`summary` fields. Derive display text from
+        # body_json (preferring an inner `summary`, then `content`/`text`),
+        # falling back to the entity key/category so titles never render blank.
+        content = raw.get("content", "")
+        summary = raw.get("summary", "")
+        if not content and not summary:
+            body = raw.get("body_json", "")
+            parsed = None
+            if isinstance(body, dict):
+                parsed = body
+            elif isinstance(body, str) and body.strip():
+                try:
+                    parsed = json.loads(body)
+                except (ValueError, TypeError):
+                    parsed = None
+            if isinstance(parsed, dict):
+                summary = (
+                    parsed.get("summary")
+                    or parsed.get("title")
+                    or ""
+                )
+                content = (
+                    parsed.get("content")
+                    or parsed.get("text")
+                    or parsed.get("description")
+                    or summary
+                    or ""
+                )
+            elif isinstance(body, str) and body.strip():
+                content = body.strip()
+            if not summary and not content:
+                key = raw.get("key", "")
+                category = raw.get("category", "")
+                summary = key or category or ""
+            if not content:
+                content = summary
         hits.append(MemoryHit(
             id=raw.get("id", str(uuid.uuid4())),
             type=mem_type,
-            content=raw.get("content", ""),
+            content=content,
             source=mem_source,
-            summary=raw.get("summary", ""),
+            summary=summary,
             relevance=raw.get("relevance", 0.0),
             decay_score=raw.get("decay_score", 1.0),
             retrieval_count=raw.get("retrieval_count", 0),
@@ -14213,48 +14250,44 @@ def _mimir_hybrid_recall(
     return MemorySegment(strategy_used="local_only")
 
 
-def _mimir_context_inject(cfg: dict) -> str:
-    """Passive Mimir context injection for AGENTS.md rendering.
+def _mimir_context_inject(cfg: dict) -> str | None:
+    """Automatic Mimir context block for render_output.
 
-    Replaces the old Sibyl passive auto-injection. Queries Mimir for
-    project-relevant context and returns a formatted markdown block.
-    Returns empty string if Mimir is unavailable, disabled, or has no results.
+    Called by the renderer (markdown / agents-md / claude-md formats) to append
+    a curated block of long-lived Mimir memories to every rendered context,
+    without requiring an explicit @mimir directive in the source.
 
-    Degradation modes:
-        1. Mimir disabled → ""
-        2. Mimir unavailable → ""
-        3. No results → ""
-        4. Any exception → "" (never crashes Perseus rendering)
+    Returns a markdown string, or None when Mimir is disabled/unavailable or
+    has no relevant memories. Fails safe: any error returns None so a rendering
+    can never be broken by the memory layer.
     """
-    import os
+    mcfg = (cfg or {}).get("mimir", {}) if isinstance(cfg, dict) else {}
+    if not mcfg.get("enabled", True):
+        return None
+
     try:
         connector = _get_connector(cfg)
         if not connector.available:
-            return ""
+            return None
 
-        # Passive query: use workspace basename as loose context hint
-        workspace = cfg.get("_workspace") or cfg.get("workspace") or os.getcwd()
-        workspace_name = os.path.basename(str(workspace)) if workspace else ""
-        query = workspace_name or "project context"
+        # Pull recent durable memories. An empty query returns the most recent
+        # entities ordered by Mimir's decay/recency ranking — the right behavior
+        # for automatic context injection (a category-name keyword query would
+        # only match entities whose *body text* contains those words, which is
+        # not what context_categories are meant to filter).
+        limit = int(mcfg.get("context_limit", 10) or 10)
+        segment = connector.recall(query="", max_results=limit)
+        if not segment or not getattr(segment, "items", None):
+            return None
 
-        segment = connector.recall(query=query, max_results=10)
+        body = segment.as_markdown
+        if not body or body.strip() == "_(no persistent memories found)_":
+            return None
 
-        if not segment.items:
-            return ""
-
-        lines = []
-        lines.append("")
-        lines.append("> 🧠 **Mimir context:**")
-        for item in segment.items[:10]:
-            title = item.summary or (item.content[:80] + "\u2026" if len(item.content) > 80 else item.content)
-            lines.append(f"  - [mimir] [{item.type.value}] {title}")
-            if item.links:
-                for lnk in item.links[:2]:
-                    lines.append(f"    \u21b3 `{lnk.relationship}` \u2192 {lnk.target_id[:8]}\u2026")
-
-        return "\n".join(lines) + "\n"
+        return "## Persistent Memory (Mimir)\n\n" + body
     except Exception:
-        return ""
+        # Never let the memory layer break a render.
+        return None
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
