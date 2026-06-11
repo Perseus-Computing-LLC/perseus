@@ -350,7 +350,7 @@ class TestLatencyBudgets:
 
         # Generate large synthetic data sets
         local_items = []
-        mneme_items = []
+        mimir_items = []
         for i in range(500):
             local_items.append(perseus.EntityHit(
                 id=f"local-{i}", type="insight",
@@ -368,7 +368,7 @@ class TestLatencyBudgets:
         t0 = time.perf_counter()
         merged = connector._merge_results(
             local_items=local_items,
-            mimir_items=mneme_items,
+            mimir_items=mimir_items,
             strategy=perseus.MergeStrategy.LOCAL_FIRST,
             diagnostics={},
         )
