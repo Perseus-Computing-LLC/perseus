@@ -180,6 +180,7 @@ def build_narrative(home: Path) -> None:
     result = subprocess.run(
         [sys.executable, str(REPO_ROOT / "perseus.py"), "memory", "update"],
         capture_output=True, text=True, timeout=30, env=env,
+        cwd=str(PROFILES_DIR),
     )
     if result.returncode == 0:
         print(f"  ✓ Narrative built: {result.stdout.strip()[:100]}")
@@ -247,6 +248,7 @@ def prewarm_npx_cache(profiles_dir: Path) -> int:
     Returns the number of unique npx commands executed.
     """
     import re
+    import shutil
     seen: set[str] = set()
     pattern = re.compile(r'@query\s+"npx\s+([\w@/-]+)')
 
@@ -262,12 +264,19 @@ def prewarm_npx_cache(profiles_dir: Path) -> int:
     if not seen:
         return 0
 
-    print(f"  Pre-warming npm cache for {len(seen)} npx package(s)...")
+    npx_exe = shutil.which("npx")
+    if npx_exe is None:
+        npx_exe = shutil.which("npx.cmd") or shutil.which("npx.exe")
+    if npx_exe is None:
+        print("  npx not found — skipping pre-warm")
+        return 0
+
+    print(f"  Pre-warming npm cache for {len(seen)} npx package(s) via {npx_exe}...")
     warmed = 0
     for pkg in sorted(seen):
         try:
             result = subprocess.run(
-                ["npx", pkg, "--version"],
+                [npx_exe, pkg, "--version"],
                 capture_output=True, text=True, timeout=30,
             )
             status = "ok" if result.returncode == 0 else f"exit {result.returncode}"
