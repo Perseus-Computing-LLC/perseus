@@ -1,0 +1,40 @@
+#!/bin/bash
+# Pre-push hook: verify perseus.py is in sync with src/ before pushing.
+# Catches edge cases the pre-commit hook misses: cherry-pick, rebase,
+# amended commits, and branches cut before hooks were installed.
+#
+# Unlike pre-commit (which rebuilds on src/ changes), this hook
+# always checks — the artifact MUST be in sync to push.
+
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+BUILD_SCRIPT="$REPO_ROOT/scripts/build.py"
+
+echo "→ Checking perseus.py is in sync with src/..."
+
+if python3 "$BUILD_SCRIPT" --check; then
+    echo "→ perseus.py is in sync."
+    exit 0
+fi
+
+echo ""
+echo "ERROR: perseus.py is out of sync with src/."
+echo "Rebuilding and amending the latest commit..."
+echo ""
+
+python3 "$BUILD_SCRIPT"
+git add "$REPO_ROOT/perseus.py"
+
+# Amend the latest commit to include the rebuilt artifact
+# Only if the latest commit is ours and not a merge commit
+if git log -1 --format='%s' | grep -qv '^Merge'; then
+    git commit --amend --no-edit
+    echo "→ perseus.py rebuilt and amended into the latest commit."
+else
+    git commit -m "chore: rebuild perseus.py before push"
+    echo "→ perseus.py rebuilt as a new commit (latest was a merge)."
+fi
+
+echo "→ Push will proceed with the rebuilt artifact."
+exit 0
