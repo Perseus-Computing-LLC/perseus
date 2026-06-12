@@ -1,0 +1,856 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>MCTS — 120 Analyzers. One Command. MCP Server Security Scanner.</title>
+<meta name="description" content="MCTS is a comprehensive security scanner for MCP servers. 120 analyzers detecting tool poisoning, prompt injection, credential leaks, and behavioral regressions. 365 tests. One command: pip install mcts && mcts scan ." />
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+
+<style>
+  :root {
+    --bg: #0c0814;
+    --bg-2: #140e22;
+    --bg-3: #1c1430;
+    --line: rgba(196, 168, 255, 0.10);
+    --line-strong: rgba(196, 168, 255, 0.22);
+    --text: #ece4ff;
+    --text-dim: #9a8cc4;
+    --text-muted: #5d5078;
+    --accent: #f59e0b;
+    --accent-bright: #fbbf24;
+    --accent-deep: #b45309;
+    --accent-2: #f59e0b;
+    --code-bg: #07040d;
+    --good: #34d399;
+    --warn: #f59e0b;
+    --danger: #ef4444;
+    --serif: "Cormorant Garamond", "EB Garamond", Georgia, serif;
+    --sans: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --mono: "JetBrains Mono", "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    --max: 1060px;
+    --gutter: clamp(20px, 4vw, 56px);
+    --glow-accent: 0 0 24px rgba(245, 158, 11, 0.45);
+    --glow-cyan: 0 0 18px rgba(245, 158, 11, 0.45);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: "ss01", "cv11";
+    overflow-x: hidden;
+    background-image:
+      radial-gradient(ellipse 80% 60% at 50% 0%, rgba(245, 158, 11, 0.08), transparent 70%),
+      linear-gradient(rgba(245, 158, 11, 0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(245, 158, 11, 0.025) 1px, transparent 1px);
+    background-size: 100% 100%, 80px 80px, 80px 80px;
+    background-position: 0 0, 0 0, 0 0;
+    background-attachment: fixed, fixed, fixed;
+  }
+  ::selection { background: var(--accent); color: #1a1410; }
+
+  a { color: inherit; text-decoration: none; }
+  img { display: block; max-width: 100%; }
+
+  /* Layout */
+  .wrap {
+    max-width: var(--max);
+    margin: 0 auto;
+    padding: 0 var(--gutter);
+  }
+  .rule {
+    height: 1px;
+    background: var(--line);
+    margin: 0;
+    border: 0;
+  }
+
+  /* Section header */
+  .sec-head {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    gap: 48px;
+    align-items: baseline;
+    padding-top: 28px;
+    margin-bottom: clamp(40px, 6vw, 60px);
+  }
+  .sec-num {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    color: var(--accent);
+    text-transform: uppercase;
+  }
+  .sec-title {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: clamp(34px, 4.6vw, 60px);
+    line-height: 1.02;
+    letter-spacing: -0.012em;
+    margin: 0;
+    color: var(--text);
+    text-wrap: balance;
+  }
+  .sec-title em {
+    font-style: italic;
+    color: var(--accent);
+    font-weight: 400;
+    text-shadow: 0 0 22px rgba(245, 158, 11, 0.45);
+  }
+  @media (max-width: 680px) {
+    .sec-head { grid-template-columns: 1fr; gap: 12px; }
+  }
+
+  section { position: relative; }
+  .section-block {
+    padding: clamp(60px, 8vw, 100px) 0 clamp(60px, 8vw, 100px);
+    border-top: 1px solid var(--line);
+  }
+  .section-block::after {
+    content: "";
+    display: block;
+    width: 60px;
+    height: 2px;
+    margin: clamp(40px, 6vw, 80px) auto 0;
+    background: linear-gradient(90deg, transparent, var(--accent) 20%, #fbbf24 50%, var(--accent) 80%, transparent);
+    opacity: 0.35;
+  }
+  .section-block:last-of-type::after { display: none; }
+
+  /* Top bar */
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    background: color-mix(in oklab, var(--bg) 78%, transparent);
+    border-bottom: 1px solid var(--line);
+  }
+  .topbar-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 60px;
+  }
+  .wordmark {
+    font-family: var(--serif);
+    font-size: 21px;
+    font-weight: 500;
+    letter-spacing: 0.005em;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  .wordmark .dot {
+    width: 6px;
+    height: 6px;
+    background: var(--accent);
+    border-radius: 50%;
+    display: inline-block;
+    transform: translateY(-3px);
+    box-shadow: 0 0 8px var(--accent), 0 0 16px rgba(245, 158, 11, 0.7);
+  }
+  .topbar nav {
+    display: flex;
+    gap: 28px;
+    align-items: center;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+  .topbar nav a { transition: color .18s ease; }
+  .topbar nav a:hover { color: var(--text); }
+  .topbar nav .page-active {
+    color: var(--accent);
+    text-shadow: 0 0 10px rgba(245, 158, 11, 0.35);
+  }
+  @media (max-width: 720px) {
+    .topbar nav .nav-link { display: none; }
+  }
+
+  /* Hero */
+  .hero {
+    padding: clamp(50px, 8vw, 90px) 0 clamp(30px, 5vw, 50px);
+    position: relative;
+    overflow: hidden;
+  }
+  .hero-eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 24px;
+  }
+  .hero h1 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: clamp(38px, 6vw, 68px);
+    line-height: 0.98;
+    letter-spacing: -0.016em;
+    margin: 0 0 24px 0;
+    color: var(--text);
+  }
+  .hero h1 em {
+    font-style: italic;
+    color: var(--accent);
+    font-weight: 400;
+    text-shadow: 0 0 24px rgba(245, 158, 11, 0.35);
+  }
+  .hero-lede {
+    font-family: var(--serif);
+    font-size: clamp(18px, 2.5vw, 24px);
+    line-height: 1.45;
+    color: var(--text-dim);
+    margin: 0 0 40px 0;
+    max-width: 800px;
+    font-weight: 400;
+    text-wrap: balance;
+  }
+
+  /* Stat Cards */
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 20px;
+    margin-bottom: 40px;
+  }
+  @media (max-width: 820px) {
+    .stat-grid { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 500px) {
+    .stat-grid { grid-template-columns: 1fr; }
+  }
+  .stat-card {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    padding: 24px;
+    border-radius: 4px;
+  }
+  .skey {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+  }
+  .sval {
+    font-family: var(--serif);
+    font-size: clamp(36px, 4vw, 48px);
+    line-height: 1;
+    font-weight: 500;
+    color: var(--accent);
+    margin-bottom: 8px;
+  }
+  .sval .unit {
+    font-size: 14px;
+    font-family: var(--mono);
+    color: var(--text-muted);
+    margin-left: 4px;
+  }
+  .sdesc {
+    font-size: 13.5px;
+    color: var(--text-dim);
+    line-height: 1.45;
+  }
+
+  /* Grids */
+  .split-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    margin-bottom: 32px;
+  }
+  @media (max-width: 820px) {
+    .split-grid { grid-template-columns: 1fr; }
+  }
+
+  .three-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 24px;
+    margin-bottom: 32px;
+  }
+  @media (max-width: 820px) {
+    .three-grid { grid-template-columns: 1fr; }
+  }
+
+  .taxonomy-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+  @media (max-width: 820px) {
+    .taxonomy-grid { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 500px) {
+    .taxonomy-grid { grid-template-columns: 1fr; }
+  }
+
+  .const-cell {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    padding: 24px;
+    border-radius: 4px;
+    transition: border-color 0.22s ease, transform 0.22s ease;
+  }
+  .const-cell:hover {
+    border-color: var(--line-strong);
+    transform: translateY(-2px);
+  }
+  .const-cell .greek {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    color: var(--accent);
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .const-cell .name {
+    font-family: var(--serif);
+    font-size: 19px;
+    color: var(--text);
+    margin: 0 0 10px 0;
+  }
+  .const-cell .desc {
+    font-size: 13.5px;
+    color: var(--text-dim);
+    line-height: 1.5;
+    margin: 0;
+  }
+
+  /* Buttons & UI */
+  .cta-btn {
+    display: inline-block;
+    border: 1px solid var(--accent);
+    padding: 12px 24px;
+    color: var(--accent);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    transition: all .18s ease;
+    background: transparent;
+    cursor: pointer;
+  }
+  .cta-btn:hover {
+    background: rgba(245, 158, 11, 0.08);
+    box-shadow: 0 0 18px rgba(245, 158, 11, 0.25);
+    color: var(--accent-bright);
+    border-color: var(--accent-bright);
+  }
+  .cta-btn.primary {
+    background: var(--accent);
+    color: #1a1410;
+  }
+  .cta-btn.primary:hover {
+    background: var(--accent-bright);
+    box-shadow: 0 0 24px rgba(245, 158, 11, 0.5);
+    color: #1a1410;
+    border-color: var(--accent-bright);
+  }
+
+  .code-block {
+    position: relative;
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 24px;
+    overflow-x: auto;
+    margin: 16px 0;
+  }
+  .code-block pre {
+    margin: 0;
+    font-family: var(--mono);
+    font-size: 13.5px;
+    line-height: 1.6;
+    color: var(--text-dim);
+  }
+  .code-block .cb-label {
+    position: absolute;
+    top: 0;
+    right: 0;
+    background: var(--bg-3);
+    border-bottom: 1px solid var(--line);
+    border-left: 1px solid var(--line);
+    padding: 4px 12px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+
+  /* Finding severity colors */
+  .finding-critical { color: #ef4444; }
+  .finding-high { color: #f59e0b; }
+  .finding-medium { color: #a78bfa; }
+  .finding-low { color: #6b7280; }
+
+  /* Eval table */
+  .eval-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--mono);
+    font-size: 13px;
+  }
+  .eval-table th {
+    text-align: left;
+    padding: 12px 16px;
+    color: var(--text-muted);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--line);
+  }
+  .eval-table td {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--line);
+    color: var(--text-dim);
+    vertical-align: top;
+  }
+  .eval-table tr:hover td {
+    background: rgba(245, 158, 11, 0.03);
+  }
+  .eval-table .check {
+    text-align: center;
+    font-size: 16px;
+  }
+
+  /* Footer */
+  footer {
+    border-top: 1px solid var(--line);
+    padding: 64px 0 56px;
+    background: var(--bg);
+  }
+  .footer-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 48px;
+    margin-bottom: 40px;
+  }
+  @media (max-width: 720px) {
+    .footer-grid { grid-template-columns: 1fr; }
+  }
+  .footer-mark {
+    font-family: var(--serif);
+    font-size: 21px;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+  .footer-links {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .footer-links a:hover { color: var(--accent); }
+  .footer-meta {
+    display: flex;
+    justify-content: space-between;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    border-top: 1px solid var(--line);
+    padding-top: 24px;
+  }
+
+  /* Cursor glow */
+  #cursor-glow {
+    position: fixed;
+    width: 520px;
+    height: 520px;
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 0;
+    background: radial-gradient(circle, rgba(245, 158, 11, 0.04) 0%, transparent 65%);
+    transform: translate(-50%, -50%);
+    will-change: left, top;
+    top: -9999px; left: -9999px;
+  }
+</style>
+</head>
+<body>
+<div id="cursor-glow" aria-hidden="true"></div>
+
+<!-- ============ TOP BAR ============ -->
+<header class="topbar">
+  <div class="wrap topbar-inner">
+    <a href="/" class="wordmark">Perseus<span class="dot"></span></a>
+    <nav>
+      <a href="/" class="nav-link">Home</a>
+      <a href="/mimir/" class="nav-link">Mimir</a>
+      <a href="/mcts/" class="page-active">MCTS</a>
+      <a href="https://github.com/tcconnally/perseus" class="nav-link" target="_blank" rel="noopener">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<!-- ============ HERO ============ -->
+<section class="hero">
+  <div class="wrap">
+    <div class="hero-eyebrow">MCP Server Security — 365 tests passing</div>
+    <h1><em>120</em> Analyzers. <em>One</em> Command.</h1>
+    <p class="hero-lede">MCTS is a comprehensive security scanner for MCP servers. It detects tool poisoning, prompt injection, credential leaks, and behavioral regressions — then blocks vulnerable PRs automatically.</p>
+
+    <div class="stat-grid">
+      <div class="stat-card">
+        <div class="skey">Analyzers</div>
+        <div class="sval">120<span class="unit">rules</span></div>
+        <div class="sdesc">Static analysis, fuzzing, behavioral evals across 12 categories of MCP security vulnerabilities.</div>
+      </div>
+      <div class="stat-card">
+        <div class="skey">Test Suite</div>
+        <div class="sval">365<span class="unit">passing</span></div>
+        <div class="sdesc">Every analyzer is verified by its own regression test suite. Tests its own detections.</div>
+      </div>
+      <div class="stat-card">
+        <div class="skey">Registry Reach</div>
+        <div class="sval">top<span class="unit">20</span></div>
+        <div class="sdesc">Scans the most popular MCP servers from the registry. Aggregate findings inform community risk posture.</div>
+      </div>
+      <div class="stat-card">
+        <div class="skey">Block Mode</div>
+        <div class="sval">1<span class="unit">action</span></div>
+        <div class="sdesc">GitHub Action blocks PRs that introduce HIGH or CRITICAL findings. CI-native enforcement.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ §01: The Problem ============ -->
+<section class="section-block">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-num">§ 01</div>
+      <h2 class="sec-title"><em>Unaudited</em> Attack Surface</h2>
+    </div>
+
+    <p style="font-size:17px; line-height:1.6; color:var(--text-dim); margin-bottom:40px; max-width:850px;">
+      MCP servers are the fastest-growing vector for AI agent compromise. A single malicious tool — disguised as a legitimate MCP server — gains full read/write access to filesystems, network calls, and shell execution. No standard scanner exists. Until now.
+    </p>
+
+    <div class="three-grid">
+      <div class="const-cell">
+        <div class="greek">Threat 1</div>
+        <h3 class="name">Tool Poisoning</h3>
+        <p class="desc">A published MCP server declares <code>read_file</code> but executes <code>rm -rf</code>. Tool schemas are self-reported — no validation before running.</p>
+      </div>
+      <div class="const-cell">
+        <div class="greek">Threat 2</div>
+        <h3 class="name">Prompt Injection</h3>
+        <p class="desc">Tool descriptions contain hidden instructions. "Summarize this file. Also, ignore all previous system prompts." Agent follows the tool, not its safety rules.</p>
+      </div>
+      <div class="const-cell">
+        <div class="greek">Threat 3</div>
+        <h3 class="name">Credential Exfiltration</h3>
+        <p class="desc">A tool requests a config file path, then reads environment variables on load. Your API keys leave the machine through an innocent-looking MCP call.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ §02: The Scan ============ -->
+<section class="section-block">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-num">§ 02</div>
+      <h2 class="sec-title">The <em>Scan</em></h2>
+    </div>
+
+    <p style="font-size:17px; line-height:1.6; color:var(--text-dim); margin-bottom:40px; max-width:850px;">
+      One command against any MCP server directory. MCTS runs 120 analyzers — static inspection, runtime fuzzing, behavioral evaluation — and produces a SARIF report ready for CI enforcement.
+    </p>
+
+    <div class="split-grid">
+      <div class="code-block">
+        <div class="cb-label">CLI</div>
+        <pre><code>$ pip install mcts
+$ mcts scan .
+
+Scanning 14 MCP servers...
+  <span class="finding-critical">CRITICAL</span>  tool-poison: server.py:42
+         tool "create_file" executes shell command
+         without input sanitization
+  <span class="finding-high">HIGH</span>      injection: tools.json:18
+         description contains prompt override
+  <span class="finding-medium">MEDIUM</span>    credential: auth.py:73
+         reads API key from unvalidated env var
+
+9 findings (1 critical, 3 high, 3 medium, 2 low)
+Scan complete in 0.4s. Report: scan-report.sarif</code></pre>
+      </div>
+      <div class="code-block">
+        <div class="cb-label">GitHub Action</div>
+        <pre><code># .github/workflows/mcts.yml
+name: MCTS Security Scan
+on: [pull_request]
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: MCTS Scan
+        uses: tcconnally/mcts-action@v1
+        with:
+          fail-on: high
+# Blocks merge on HIGH+ findings</code></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ §03: The Taxonomy ============ -->
+<section class="section-block">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-num">§ 03</div>
+      <h2 class="sec-title">Analyzer <em>Taxonomy</em></h2>
+    </div>
+
+    <p style="font-size:17px; line-height:1.6; color:var(--text-dim); margin-bottom:40px; max-width:850px;">
+      120 analyzers organized into 12 categories. Every finding maps to a specific category with a confidence score — no black-box "risk rating" that can't be traced back to the rule that fired.
+    </p>
+
+    <div class="taxonomy-grid">
+      <div class="const-cell">
+        <div class="greek">TOOL-POISON</div>
+        <h3 class="name">Tool Poisoning</h3>
+        <p class="desc">Detects when a declared tool schema doesn't match actual behavior. 14 analyzers.</p>
+      </div>
+      <div class="const-cell">
+        <div class="greek">INJECTION</div>
+        <h3 class="name">Prompt Injection</h3>
+        <p class="desc">Hidden instructions in tool descriptions, parameter hints, and return schemas. 18 analyzers.</p>
+      </div>
+      <div class="const-cell">
+        <div class="greek">CREDENTIAL</div>
+        <h3 class="name">Credential Leaks</h3>
+        <p class="desc">API keys, tokens, and secrets exposed in tool schemas, error messages, or logging. 11 analyzers.</p>
+      </div>
+      <div class="const-cell">
+        <div class="greek">SANDBOX</div>
+        <h3 class="name">Sandbox Escape</h3>
+        <p class="desc">Shell exec, file write outside workspace, network calls to untrusted hosts. 16 analyzers.</p>
+      </div>
+      <div class="const-cell">
+        <div class="greek">BEHAVIOR</div>
+        <h3 class="name">Behavioral Regression</h3>
+        <p class="desc">Tool behavior change between versions — did the last commit quietly add a network call? 9 analyzers.</p>
+      </div>
+      <div class="const-cell">
+        <div class="greek">DEPENDENCY</div>
+        <h3 class="name">Dependency Risk</h3>
+        <p class="desc">Checks npm/pip/cargo dependencies for known vulnerable packages. 12 analyzers.</p>
+      </div>
+      <div class="const-cell">
+        <div class="greek">SCHEMA</div>
+        <h3 class="name">Schema Validation</h3>
+        <p class="desc">MCP protocol compliance — required fields, valid types, parameter constraints. 8 analyzers.</p>
+      </div>
+      <div class="const-cell">
+        <div class="greek">FUZZING</div>
+        <h3 class="name">Input Fuzzing</h3>
+        <p class="desc">Randomized and targeted fuzzing of tool inputs. Buffer overflow, injection payloads. 10 analyzers.</p>
+      </div>
+      <div class="const-cell">
+        <div class="greek">TRUST</div>
+        <h3 class="name">Trust Chain</h3>
+        <p class="desc">package.json author verification, npm/GitHub account age, publish history. 7 analyzers.</p>
+      </div>
+      <div class="const-cell">
+        <div class="greek">CONFIG</div>
+        <h3 class="name">Configuration</h3>
+        <p class="desc">Dangerous default configurations, overly permissive tool declarations. 6 analyzers.</p>
+      </div>
+      <div class="const-cell">
+        <div class="greek">TELEMETRY</div>
+        <h3 class="name">Telemetry/Exfil</h3>
+        <p class="desc">Hidden analytics, usage tracking, data exfiltration through tool calls. 5 analyzers.</p>
+      </div>
+      <div class="const-cell">
+        <div class="greek">REGEN</div>
+        <h3 class="name">Regeneration Attack</h3>
+        <p class="desc">Tools that regenerate themselves or modify their own source during execution. 4 analyzers.</p>
+      </div>
+    </div>
+
+    <p style="font-size:13px; color:var(--text-muted); margin-top:16px; text-align:right; font-family:var(--mono);">12 categories &times; 10 analyzers avg = 120 rules</p>
+  </div>
+</section>
+
+<!-- ============ §04: Self-Verifying ============ -->
+<section class="section-block">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-num">§ 04</div>
+      <h2 class="sec-title"><em>Self-Verifying</em> Scoring</h2>
+    </div>
+
+    <p style="font-size:17px; line-height:1.6; color:var(--text-dim); margin-bottom:40px; max-width:850px;">
+      MCTS tests its own detections. Every analyzer has a matching regression test that verifies: does this rule catch what it claims to catch? This is the one feature no competitor has — and it means our severity scores aren't guesses.
+    </p>
+
+    <div style="overflow-x:auto;">
+      <table class="eval-table">
+        <thead>
+          <tr>
+            <th>Competitor</th>
+            <th>Static Analysis</th>
+            <th>Runtime Fuzzing</th>
+            <th>Behavioral Regression</th>
+            <th>Self-Verification</th>
+            <th>CI Block</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="color:var(--text);">MCTS</td>
+            <td class="check" style="color:var(--good);">&#10003;</td>
+            <td class="check" style="color:var(--good);">&#10003;</td>
+            <td class="check" style="color:var(--good);">&#10003;</td>
+            <td class="check" style="color:var(--good);">&#10003;</td>
+            <td class="check" style="color:var(--good);">&#10003;</td>
+          </tr>
+          <tr>
+            <td>npm audit</td>
+            <td class="check" style="color:var(--good);">&#10003;</td>
+            <td class="check" style="color:var(--text-muted);">&mdash;</td>
+            <td class="check" style="color:var(--text-muted);">&mdash;</td>
+            <td class="check" style="color:var(--text-muted);">&mdash;</td>
+            <td class="check" style="color:var(--text-muted);">&mdash;</td>
+          </tr>
+          <tr>
+            <td>Snyk</td>
+            <td class="check" style="color:var(--good);">&#10003;</td>
+            <td class="check" style="color:var(--text-muted);">&mdash;</td>
+            <td class="check" style="color:var(--text-muted);">&mdash;</td>
+            <td class="check" style="color:var(--text-muted);">&mdash;</td>
+            <td class="check" style="color:var(--good);">&#10003;</td>
+          </tr>
+          <tr>
+            <td>CodeQL</td>
+            <td class="check" style="color:var(--good);">&#10003;</td>
+            <td class="check" style="color:var(--text-muted);">&mdash;</td>
+            <td class="check" style="color:var(--text-muted);">&mdash;</td>
+            <td class="check" style="color:var(--text-muted);">&mdash;</td>
+            <td class="check" style="color:var(--good);">&#10003;</td>
+          </tr>
+          <tr>
+            <td>Claude Code Review</td>
+            <td class="check" style="color:var(--warn);">~</td>
+            <td class="check" style="color:var(--text-muted);">&mdash;</td>
+            <td class="check" style="color:var(--text-muted);">&mdash;</td>
+            <td class="check" style="color:var(--text-muted);">&mdash;</td>
+            <td class="check" style="color:var(--text-muted);">&mdash;</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ============ §05: Quickstart ============ -->
+<section class="section-block">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-num">§ 05</div>
+      <h2 class="sec-title">Quickstart <em>Setup</em></h2>
+    </div>
+
+    <div class="split-grid">
+      <div class="code-block">
+        <div class="cb-label">1. Install</div>
+        <pre><code>pip install mcts</code></pre>
+      </div>
+      <div class="code-block">
+        <div class="cb-label">2. Scan</div>
+        <pre><code>mcts scan .
+mcts scan . --output sarif
+mcts scan . --fail-on high</code></pre>
+      </div>
+    </div>
+
+    <div class="code-block">
+      <div class="cb-label">3. CI Integration (optional)</div>
+      <pre><code># .github/workflows/security.yml
+- uses: tcconnally/mcts-action@v1
+  with:
+    fail-on: high
+    sarif-upload: true</code></pre>
+    </div>
+
+    <div style="text-align:center; margin-top:24px;">
+      <a href="https://github.com/tcconnally/perseus" class="cta-btn primary">MCTS on GitHub &rarr;</a>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FOOTER ============ -->
+<footer>
+  <div class="wrap">
+    <div class="footer-grid">
+      <div>
+        <div class="footer-mark">MCTS</div>
+        <p class="footer-credit" style="font-size:13.5px; color:var(--text-dim); line-height:1.5;">
+          MCP Server Security Scanner. 120 analyzers. One command. Built by Perseus.
+        </p>
+      </div>
+      <div class="footer-links" aria-label="Project links">
+        <a href="/">Perseus Home</a>
+        <a href="/mimir/">Mimir</a>
+        <a href="/mcts/">MCTS</a>
+        <a href="https://github.com/tcconnally/perseus" target="_blank" rel="noopener">GitHub</a>
+      </div>
+    </div>
+    <div class="footer-meta">
+      <span>Perseus &middot; MCP ecosystem</span>
+      <span>MCTS &middot; MIT License</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+  // Cursor glow
+  (function() {
+    var glow = document.getElementById('cursor-glow');
+    var ticking = false;
+    document.addEventListener('mousemove', function(e) {
+      if (!ticking) {
+        requestAnimationFrame(function() {
+          glow.style.left = e.clientX + 'px';
+          glow.style.top = e.clientY + 'px';
+          ticking = false;
+        });
+        ticking = true;
+      }
+    });
+  })();
+</script>
+</body>
+</html>
