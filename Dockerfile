@@ -10,9 +10,9 @@
 FROM python:3.12-slim
 
 LABEL org.opencontainers.image.title="Perseus MCP Server"
-LABEL org.opencontainers.image.description="MCP server and live context engine for AI assistants — 24 tools, resolver-first, assistant-agnostic"
+LABEL org.opencontainers.image.description="MCP server and live context engine for AI assistants — 25 tools, resolver-first, assistant-agnostic"
 LABEL org.opencontainers.image.source="https://github.com/tcconnally/perseus"
-LABEL org.opencontainers.image.version="1.0.1"
+LABEL org.opencontainers.image.version="1.0.7"
 
 # Copy requirements and install the single dependency
 COPY requirements.txt /tmp/perseus-requirements.txt
