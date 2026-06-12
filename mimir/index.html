@@ -538,25 +538,30 @@
 <!-- ============ HERO ============ -->
 <section class="hero">
   <div class="wrap">
-    <div class="hero-eyebrow">Zero-Dependency Memory sidecar</div>
+    <div class="hero-eyebrow">Production Memory Engine &mdash; 15/15 Integration Tests</div>
     <h1>Mimir: <em>Deterministic</em> Persistent Memory for Professional AI Workflows</h1>
-    <p class="hero-lede">The default persistent semantic memory engine for Perseus. Built in Rust with SQLite + FTS5 &mdash; providing zero API keys, zero embeddings, sub-millisecond keyword search, and native Model Context Protocol (MCP) compatibility.</p>
+    <p class="hero-lede">A Rust-built persistent memory sidecar with SQLite + FTS5 &mdash; 23 MCP tools, confidence decay, structured entities, and zero cloud dependencies. The default memory engine for Perseus, the backend for anna-recall, and a standalone MCP server.</p>
 
-    <div class="stat-grid">
+    <div class="stat-grid" style="grid-template-columns: repeat(4, 1fr);">
       <div class="stat-card">
         <div class="skey">Search Latency</div>
         <div class="sval">&lt; 0.1<span class="unit">ms</span></div>
-        <div class="sdesc">Sub-millisecond BM25 keyword recall over local SQLite. P50 at scale remains completely flat.</div>
+        <div class="sdesc">Sub-millisecond BM25 keyword recall over local SQLite. P50 flat at scale.</div>
+      </div>
+      <div class="stat-card">
+        <div class="skey">Integration Tests</div>
+        <div class="sval">15<span class="unit">/15</span></div>
+        <div class="sdesc">Full test suite passing. Production-grade reliability across all 23 MCP tools.</div>
       </div>
       <div class="stat-card">
         <div class="skey">Cloud Dependencies</div>
         <div class="sval">0<span class="unit">cloud</span></div>
-        <div class="sdesc">100% self-contained. Runs entirely on-device with zero API key or model download requirements.</div>
+        <div class="sdesc">100% self-contained. Runs on-device with zero API keys, zero model downloads, zero network calls.</div>
       </div>
       <div class="stat-card">
-        <div class="skey">MCP Standards</div>
-        <div class="sval">100<span class="unit">%</span></div>
-        <div class="sdesc">Complies with Model Context Protocol. Works instantly with Claude Desktop, Cursor, Cline, and others.</div>
+        <div class="skey">MCP Tools</div>
+        <div class="sval">23<span class="unit">tools</span></div>
+        <div class="sdesc">Memory recall, storage, entities, layers, decay config, stats, health, and more. Full MCP compliance.</div>
       </div>
     </div>
 
@@ -653,37 +658,154 @@
         </div>
       </div>
 
-      <!-- COLUMN 3: MCP COMPLIANCE -->
+      <!-- COLUMN 3: 23 MCP Tools -->
       <div class="mcp-col">
-        <h3 style="font-family:var(--serif); font-size:19px; font-weight:500; margin-top:0; color:var(--text); margin-bottom:16px;">Registered MCP Tools</h3>
+        <h3 style="font-family:var(--serif); font-size:19px; font-weight:500; margin-top:0; color:var(--text); margin-bottom:16px;">23 Registered MCP Tools</h3>
         <div class="mcp-tool-list">
           <div class="mcp-tool-item">
             <span class="tool-name">mimir_recall</span>
-            <span class="tool-desc">Query the semantic memory vault. Performs FTS5 BM25 search with fallback sanitization to retrieve relevant contextual fragments instantly.</span>
+            <span class="tool-desc">FTS5 BM25 search over semantic memory. Keyword + fuzzy fallback for high-relevance retrieval.</span>
           </div>
           <div class="mcp-tool-item">
             <span class="tool-name">mimir_store</span>
-            <span class="tool-desc">Save a new learning. Accepts markdown content, semantic tags, a classification type (e.g., <code>insight</code>), and an importance rating.</span>
+            <span class="tool-desc">Save markdown content with tags, type (<code>insight</code>, <code>architecture</code>, <code>decision</code>), importance, and confidence.</span>
           </div>
           <div class="mcp-tool-item">
-            <span class="tool-name">mimir_stats</span>
-            <span class="tool-desc">Fetches database statistics. Inspect database sizing, record counts, and categorical breakdowns directly from your assistant terminal.</span>
+            <span class="tool-name">mimir_entity_* <em style="font-size:11px;color:var(--text-muted);">× 6 tools</em></span>
+            <span class="tool-desc">Create, read, update, delete, and search structured entities. Schema-validated with relationship linking.</span>
           </div>
           <div class="mcp-tool-item">
-            <span class="tool-name">mimir_health</span>
-            <span class="tool-desc">Ensures structural integrity. Verifies database read/write capabilities, index files, and daemon connection status.</span>
+            <span class="tool-name">mimir_layer_* <em style="font-size:11px;color:var(--text-muted);">× 4 tools</em></span>
+            <span class="tool-desc">Namespace memories into layers (project, team, personal). Isolate or merge recall across boundaries.</span>
+          </div>
+          <div class="mcp-tool-item">
+            <span class="tool-name">mimir_decay_config</span>
+            <span class="tool-desc">Control confidence decay curves per type. Memories fade unless reinforced — configurable half-life.</span>
+          </div>
+          <div class="mcp-tool-item">
+            <span class="tool-name">mimir_stats / mimir_health / ...</span>
+            <span class="tool-desc">Database statistics, structural integrity checks, daemon status, export, graph queries, and more.</span>
           </div>
         </div>
+        <p style="font-size:12px; color:var(--text-muted); margin-top:12px;">23 tools total &mdash; full list at <a href="https://github.com/tcconnally/mimir" style="color:var(--accent-2);">github.com/tcconnally/mimir</a></p>
       </div>
     </div>
   </div>
 </section>
 
-<!-- ============ SECTION 3: Installation & Setup ============ -->
+<!-- ============ SECTION 3: Confidence Decay ============ -->
 <section class="section-block">
   <div class="wrap">
     <div class="sec-head">
       <div class="sec-num">§ 03</div>
+      <h2 class="sec-title">Confidence <em>Decay</em></h2>
+    </div>
+
+    <div class="byom-split">
+      <div class="byom-narrative">
+        <p style="font-size:17px; line-height:1.6; color:var(--text-dim); margin-top:0; margin-bottom:24px;">
+          Facts lose relevance over time. Mimir models this with <strong>confidence decay curves</strong> — configurable per memory type. An un-reinforced <code>bug_detail</code> decays faster than an <code>architecture</code> decision. Re-accessing or updating a memory resets its confidence to maximum.
+        </p>
+        <div style="background:var(--bg-2); border:1px solid var(--line); border-radius:4px; padding:24px;">
+          <h4 style="font-family:var(--serif); font-size:17px; font-weight:500; margin-top:0; color:var(--text); margin-bottom:12px;">Configurable Half-Life</h4>
+          <div style="display:flex; gap:16px; flex-wrap:wrap;">
+            <div class="stat-card" style="flex:1; min-width:140px;">
+              <div class="skey">Insights</div>
+              <div class="sval" style="font-size:24px;">30<span class="unit" style="font-size:11px;">d</span></div>
+              <div class="sdesc" style="font-size:11px;">Half-life for general insights. Time-sensitive observations fade unless reinforced.</div>
+            </div>
+            <div class="stat-card" style="flex:1; min-width:140px;">
+              <div class="skey">Architecture</div>
+              <div class="sval" style="font-size:24px;">90<span class="unit" style="font-size:11px;">d</span></div>
+              <div class="sdesc" style="font-size:11px;">Structural knowledge decays slowly. Codebase patterns are long-lived.</div>
+            </div>
+            <div class="stat-card" style="flex:1; min-width:140px;">
+              <div class="skey">Decisions</div>
+              <div class="sval" style="font-size:24px;">180<span class="unit" style="font-size:11px;">d</span></div>
+              <div class="sdesc" style="font-size:11px;">Design choices persist. Deferred-access architecture decisions retain high confidence.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <!-- Simple SVG decay curve -->
+        <svg viewBox="0 0 400 280" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;max-width:400px;">
+          <defs>
+            <linearGradient id="decayGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#c77dff" stop-opacity="0.15" />
+              <stop offset="100%" stop-color="#c77dff" stop-opacity="0" />
+            </linearGradient>
+          </defs>
+          <!-- Grid lines -->
+          <line x1="40" y1="220" x2="360" y2="220" stroke="rgba(196,168,255,0.12)" stroke-width="1" />
+          <line x1="40" y1="40" x2="40" y2="220" stroke="rgba(196,168,255,0.12)" stroke-width="1" />
+          <text x="20" y="224" fill="#5d5078" font-family="JetBrains Mono, monospace" font-size="10" text-anchor="end">0%</text>
+          <text x="20" y="99" fill="#5d5078" font-family="JetBrains Mono, monospace" font-size="10" text-anchor="end">50%</text>
+          <text x="20" y="48" fill="#5d5078" font-family="JetBrains Mono, monospace" font-size="10" text-anchor="end">100%</text>
+          <text x="200" y="242" fill="#5d5078" font-family="JetBrains Mono, monospace" font-size="10" text-anchor="middle">90 days</text>
+          <text x="360" y="242" fill="#5d5078" font-family="JetBrains Mono, monospace" font-size="10" text-anchor="middle">180d</text>
+
+          <!-- Decay curve area -->
+          <path d="M40,45 Q100,45 140,65 Q200,100 280,160 Q320,185 360,220 L360,220 L40,220 Z" fill="url(#decayGrad)" />
+          <!-- Decay curve line -->
+          <path d="M40,45 Q100,45 140,65 Q200,100 280,160 Q320,185 360,220" fill="none" stroke="#c77dff" stroke-width="2.5" />
+          <!-- Reinforcement spike -->
+          <path d="M200,100 L200,45" fill="none" stroke="#56e1ff" stroke-width="2" stroke-dasharray="4,3" />
+          <circle cx="200" cy="100" r="4" fill="#56e1ff" />
+          <circle cx="200" cy="45" r="5" fill="#56e1ff" stroke="#c77dff" stroke-width="2" />
+          <!-- Labels -->
+          <text x="210" y="75" fill="#56e1ff" font-family="JetBrains Mono, monospace" font-size="10">recall</text>
+          <text x="80" y="85" fill="#9a8cc4" font-family="IBM Plex Sans, sans-serif" font-size="11">confidence(t)</text>
+          <text x="280" y="190" fill="#5d5078" font-family="JetBrains Mono, monospace" font-size="9">decay</text>
+        </svg>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ SECTION 4: Multi-Backend Architecture ============ -->
+<section class="section-block">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-num">§ 04</div>
+      <h2 class="sec-title">Three <em>Deployment</em> Modes</h2>
+    </div>
+
+    <p style="font-size:17px; line-height:1.6; color:var(--text-dim); margin-bottom:40px; max-width:850px;">
+      One Rust binary, three roles. Mimir runs identically in each mode &mdash; the same SQLite+FTS5 engine, the same 23 MCP tools, the same production test suite.
+    </p>
+
+    <div class="perf-mcp-grid" style="grid-template-columns: 1fr 1fr 1fr;">
+      <div class="const-cell" style="text-align:center;">
+        <div class="greek" style="margin-bottom:12px;">Standalone MCP Server</div>
+        <div style="font-family:var(--mono); font-size:12px; color:var(--accent-2); background:var(--code-bg); padding:10px; border-radius:4px; margin-bottom:12px; word-break:break-all;">
+          pip install mimir<br/>mimir serve
+        </div>
+        <p class="desc" style="font-size:13px;">Use Mimir as a native MCP server alongside Claude Desktop, Cursor, Cline, or any MCP-compatible client. One <code>mimir.db</code> file, zero config.</p>
+      </div>
+      <div class="const-cell" style="text-align:center; border-color: var(--accent);">
+        <div class="greek" style="margin-bottom:12px;">Perseus Default Engine</div>
+        <div style="font-family:var(--mono); font-size:12px; color:var(--accent-2); background:var(--code-bg); padding:10px; border-radius:4px; margin-bottom:12px; word-break:break-all;">
+          perseus quickstart<br/>&#8627; mimir auto-wired
+        </div>
+        <p class="desc" style="font-size:13px;">Perseus ships with Mimir as its default persistent memory connector. Zero configuration: one command, context + memory running together.</p>
+      </div>
+      <div class="const-cell" style="text-align:center;">
+        <div class="greek" style="margin-bottom:12px;">anna-recall Backend</div>
+        <div style="font-family:var(--mono); font-size:12px; color:var(--accent-2); background:var(--code-bg); padding:10px; border-radius:4px; margin-bottom:12px; word-break:break-all;">
+          435-line plugin<br/>15/15 tests pass
+        </div>
+        <p class="desc" style="font-size:13px;">The anna-recall Anna AI plugin is just 435 lines because the heavy lifting is a tested Rust engine. Point it at Mimir, done.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ SECTION 5: Installation & Setup ============ -->
+<section class="section-block">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-num">§ 05</div>
       <h2 class="sec-title">Quickstart <em>Setup</em></h2>
     </div>
 
@@ -746,7 +868,7 @@ mimir:
 
     <div class="footer-meta">
       <span>Perseus &middot; live context engine</span>
-      <span>Mimir v0.2.0 &middot; MIT License</span>
+      <span>Mimir v0.5.0 &middot; MIT License</span>
     </div>
   </div>
 </footer>
