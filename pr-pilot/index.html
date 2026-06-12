@@ -586,19 +586,19 @@
 
     <div class="stat-grid">
       <div class="stat-card">
-        <div class="skey">Median Latency</div>
-        <div class="sval">&lt; 45<span class="unit">s</span></div>
-        <div class="sdesc">Full pipeline from webhook to review comment. 5 agents run sequentially with context pass-through.</div>
+        <div class="skey">Pipeline Latency</div>
+        <div class="sval">~94<span class="unit">s</span></div>
+        <div class="sdesc">Full 5-agent pipeline: Reviewer (14s) + Fixer (29s) + Tester (16s) + Verifier (17s) + Escalator (18s). Measured Jun 12.</div>
       </div>
       <div class="stat-card">
         <div class="skey">Cost Per Review</div>
-        <div class="sval">$0.04<span class="unit">/pr</span></div>
-        <div class="sdesc">Gemini 2.5 Flash API costs. Review scales linearly — 100 PRs costs under $4.</div>
+        <div class="sval">~$0.04<span class="unit">/pr</span></div>
+        <div class="sdesc">Gemini 2.5 Flash API pricing. Review scales linearly — 100 PRs for under $4. Real measurement from live runs.</div>
       </div>
       <div class="stat-card">
         <div class="skey">Auto-Approve Rate</div>
         <div class="sval">L1<span class="unit">&rarr;L3</span></div>
-        <div class="sdesc">Graduated autonomy: comment on issues, request changes, or fully auto-approve clean PRs.</div>
+        <div class="sdesc">Graduated autonomy: comment on issues, request changes, or fully auto-approve clean PRs. Safety-gated.</div>
       </div>
       <div class="stat-card">
         <div class="skey">Compliance</div>
