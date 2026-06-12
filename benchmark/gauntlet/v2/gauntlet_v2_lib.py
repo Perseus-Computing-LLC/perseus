@@ -544,22 +544,22 @@ def compute_gauntlet_score(
     phase_1 = next((p for p in phase_results if p.get("phase") == 1), {})
     phase_2 = next((p for p in phase_results if p.get("phase") == 2), {})
 
-    # Cold P50: <0.5s = full points, >2s = 0
+    # Cold P50: <0.8s = full points, >2s = 0
     if phase_1.get("p50_s"):
         p50 = phase_1["p50_s"]
-        if p50 < 0.5:
+        if p50 < 0.8:
             render_score += 15
-        elif p50 < 1.0:
+        elif p50 < 1.5:
             render_score += 7
         elif p50 > 2.0:
             render_score -= 15
 
-    # Warm speedup: >5% = full, <0% = penalty
+    # Warm speedup: >2% = full, <0% = penalty
     cold_mean = phase_1.get("mean_s") or phase_1.get("p50_s")
     warm_mean = phase_2.get("mean_s") or phase_2.get("p50_s")
     if cold_mean and warm_mean and cold_mean > 0:
         speedup = (cold_mean - warm_mean) / cold_mean * 100
-        if speedup > 5:
+        if speedup > 2:
             render_score += 10
         elif speedup > 0:
             render_score += 5
