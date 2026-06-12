@@ -569,7 +569,7 @@ class MimirConnector:
     Configuration (from `config.yaml` → `mimir`):
         enabled: bool              = true
         transport: str             = "stdio"  — "stdio" or "sse"
-        command: list[str]         = ["mimir", "--db"]
+        command: list[str]         = ["mimir", "--db", "~/.mimir/data/mimir.db"]
         endpoint: str              = "http://localhost:50052/sse"  (for sse)
         timeout_s: float           = 10.0
         merge_strategy: str        = "local_first"
@@ -594,7 +594,7 @@ class MimirConnector:
         self._enabled = bool(mcfg.get("enabled", True))
         self._transport = mcfg.get("transport", "stdio")
         self._timeout = float(mcfg.get("timeout_s", 10.0))
-        self._command = mcfg.get("command", ["mimir", "--db"])
+        self._command = mcfg.get("command", ["mimir", "--db", "~/.mimir/data/mimir.db"])
         self._endpoint = mcfg.get("endpoint", "http://localhost:50052/sse")
         self._fallback_to_local = bool(mcfg.get("fallback_to_local", True))
         self._decay_priority_weight = float(mcfg.get("decay_priority_weight", 0.4))
