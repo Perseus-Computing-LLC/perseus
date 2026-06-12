@@ -527,17 +527,17 @@
       <div class="stat-card">
         <div class="skey">Test Suite</div>
         <div class="sval">365<span class="unit">passing</span></div>
-        <div class="sdesc">Every analyzer is verified by its own regression test suite. Tests its own detections.</div>
+        <div class="sdesc">Every analyzer verified by its own regression test. Self-verifying — tests its own detections.</div>
       </div>
-      <div class="stat-card">
-        <div class="skey">Registry Reach</div>
-        <div class="sval">top<span class="unit">20</span></div>
-        <div class="sdesc">Scans the most popular MCP servers from the registry. Aggregate findings inform community risk posture.</div>
+      <div class="stat-card" style="border-color: rgba(245, 158, 11, 0.4);">
+        <div class="skey">Registry Scan</div>
+        <div class="sval">81<span class="unit">%</span></div>
+        <div class="sdesc"><strong>13 of 16 top MCP servers have ≥1 HIGH finding.</strong> Scanned: Playwright MCP, AWS MCP, n8n, FastMCP, Cline, and 11 more. <em>Real data, Jun 12 2026.</em></div>
       </div>
       <div class="stat-card">
         <div class="skey">Block Mode</div>
         <div class="sval">1<span class="unit">action</span></div>
-        <div class="sdesc">GitHub Action blocks PRs that introduce HIGH or CRITICAL findings. CI-native enforcement.</div>
+        <div class="sdesc">GitHub Action blocks PRs that introduce HIGH or CRITICAL findings. CI-native enforcement at the gate.</div>
       </div>
     </div>
   </div>
@@ -775,11 +775,61 @@ jobs:
   </div>
 </section>
 
-<!-- ============ §05: Quickstart ============ -->
+<!-- ============ §05: Registry Scan Results ============ -->
 <section class="section-block">
   <div class="wrap">
     <div class="sec-head">
       <div class="sec-num">§ 05</div>
+      <h2 class="sec-title">Registry <em>Scan</em> Results</h2>
+    </div>
+
+    <p style="font-size:17px; line-height:1.6; color:var(--text-dim); margin-bottom:24px; max-width:850px;">
+      We scanned the top MCP servers by GitHub stars. <strong style="color:var(--accent);">81%</strong> have at least one HIGH or CRITICAL security finding. Below are the results — every finding mapped to a specific analyzer and MITRE ATLAS technique.
+    </p>
+
+    <div style="overflow-x:auto;">
+      <table class="eval-table">
+        <thead>
+          <tr>
+            <th>Server</th>
+            <th>Findings</th>
+            <th>HIGH+</th>
+            <th>CRITICAL</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td style="color:var(--text);">Playwright MCP</td><td>9</td><td style="color:var(--warn);">6</td><td>0</td></tr>
+          <tr><td style="color:var(--text);">AWS MCP</td><td>1,353</td><td style="color:#ef4444;">450</td><td style="color:#ef4444;">108</td></tr>
+          <tr><td style="color:var(--text);">n8n</td><td>463</td><td style="color:var(--warn);">84</td><td>0</td></tr>
+          <tr><td style="color:var(--text);">FastMCP</td><td>310</td><td style="color:#ef4444;">102</td><td style="color:#ef4444;">20</td></tr>
+          <tr><td style="color:var(--text);">Cline</td><td>437</td><td style="color:var(--warn);">16</td><td>0</td></tr>
+          <tr><td style="color:var(--text);">Continue</td><td>490</td><td style="color:var(--warn);">11</td><td>0</td></tr>
+          <tr><td style="color:var(--text);">Stagehand</td><td>132</td><td style="color:var(--warn);">13</td><td>2</td></tr>
+          <tr><td style="color:var(--text);">MCP Official Servers</td><td>121</td><td style="color:var(--warn);">29</td><td>4</td></tr>
+          <tr><td style="color:var(--text);">Pydantic AI</td><td>207</td><td style="color:var(--warn);">10</td><td>2</td></tr>
+          <tr><td style="color:var(--text);">UI-TARS Desktop</td><td>378</td><td style="color:var(--warn);">17</td><td>3</td></tr>
+          <tr><td style="color:var(--text);">Exa MCP</td><td>29</td><td style="color:var(--warn);">10</td><td>2</td></tr>
+          <tr><td style="color:var(--text);">Serena</td><td>51</td><td style="color:var(--warn);">3</td><td>0</td></tr>
+          <tr><td style="color:var(--text);">Gen AI Toolbox</td><td>35</td><td style="color:var(--warn);">4</td><td>0</td></tr>
+          <tr><td style="color:var(--text);">Figma Context MCP</td><td>31</td><td>0</td><td>0</td></tr>
+          <tr><td style="color:var(--text);">Anthropic Tools</td><td>1</td><td>0</td><td>0</td></tr>
+          <tr><td style="color:var(--text);">LangChain MCP</td><td>22</td><td>0</td><td>0</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p style="font-size:12px; color:var(--text-muted); margin-top:12px;">
+      16 servers scanned Jun 12, 2026. 13/16 (81%) have ≥1 HIGH finding. 6/16 (38%) have ≥1 CRITICAL. 
+      Scan command: <code style="font-family:var(--mono);">mcts scan &lt;repo&gt;</code>
+    </p>
+  </div>
+</section>
+
+<!-- ============ §06: Quickstart ============ -->
+<section class="section-block">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-num">§ 06</div>
       <h2 class="sec-title">Quickstart <em>Setup</em></h2>
     </div>
 
