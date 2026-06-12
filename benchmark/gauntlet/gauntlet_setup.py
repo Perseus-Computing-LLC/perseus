@@ -188,6 +188,17 @@ def build_narrative(home: Path) -> None:
         print(f"  ⚠ Narrative build: {result.stderr.strip()[:200]}")
 
 
+def build_mneme_index(home):
+    """Build Mneme FTS5 index for Phase 3 benchmarks."""
+    import os, subprocess
+    env = os.environ.copy()
+    env["PERSEUS_HOME"] = str(home)
+    env["PERSEUS_ALLOW_DANGEROUS"] = "1"
+    PROFILES_DIR = __import__("pathlib").Path(__file__).resolve().parent / "gauntlet_role_profiles"
+    r = subprocess.run([sys.executable, str(REPO_ROOT / "perseus.py"), "memory", "index", "rebuild"], capture_output=True, text=True, timeout=60, env=env, cwd=str(PROFILES_DIR))
+    if r.returncode == 0: print(f"  ✓ Mneme index built: {r.stdout.strip()[:100]}")
+    else: print(f"  ⚠ Mneme index build: {r.stderr.strip()[:200]}")
+
 def verify_render(profile_name: str = "architect") -> bool:
     """Render one profile and verify all directives produce real output."""
     profile_path = PROFILES_DIR / f"{profile_name}.md"
@@ -324,6 +335,11 @@ def main():
     print("\n5. Building narratives...")
     build_narrative(COLD_HOME)
     build_narrative(WARM_HOME)
+
+    # 5b. Build Mneme FTS5 index
+    print("\n5b. Building Mneme FTS5 index...")
+    build_mneme_index(COLD_HOME)
+    build_mneme_index(WARM_HOME)
 
     # 6. Pre-warm npm cache (eliminates first-run npx download latency from Phase 1)
     print("\n6. Pre-warming npx cache...")
