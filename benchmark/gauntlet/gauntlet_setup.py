@@ -64,6 +64,16 @@ def seed_vault(home: Path) -> int:
     from gauntlet_seed_mneme import generate_memories
     count = generate_memories(75, home)
     print(f"  ✓ Seeded {count} memory records → {home}/memory/vault/")
+    # Build FTS5 index so Phase 3 can query seeded vault (#311)
+    print("  Building Mneme FTS5 index...")
+    try:
+        subprocess.run(
+            [sys.executable, perseus_py, "memory", "index", "rebuild"],
+            timeout=60, check=True
+        )
+        print("  FTS5 index built")
+    except Exception as e:
+        print(f"  WARNING: FTS5 index build failed (non-fatal): {e}")
     return count
 
 
