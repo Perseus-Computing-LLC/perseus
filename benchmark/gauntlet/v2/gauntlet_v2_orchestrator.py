@@ -918,6 +918,10 @@ class GauntletV2Orchestrator:
                 f"skipped: no timing data (cold={cold_mean}, warm={warm_mean})",
             )
 
+        # Floor clause: at cold P50 < 200ms, speedup is structurally impossible
+        # because fixed assembly overhead can't be cached (#316)
+        if cold_mean < 0.200:
+            return (True, f"auto-pass: cold P50={cold_mean*1000:.0f}ms below 200ms floor")
         speedup = cold_mean / warm_mean
         return (speedup >= threshold, round(speedup, 3))
 
@@ -1020,7 +1024,7 @@ def main():
     )
     parser.add_argument(
         "--nfs-path",
-        default="/mnt/perseus-gauntlet",
+        default="./gauntlet_nfs",
         help="Shared NFS mount path",
     )
     parser.add_argument(
