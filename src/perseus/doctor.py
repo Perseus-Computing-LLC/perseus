@@ -523,7 +523,7 @@ def _doctor_check_mimir_bridge(cfg: dict, workspace: Path) -> DoctorResult:
         return DoctorResult("mimir_connectivity", "ok", "Mimir",
                            "disabled", "")
 
-    command = list(mneme_cfg.get("command", ["mimir", "--db"]))
+    command = list(mneme_cfg.get("command", ["mimir", "--db", "~/.mimir/data/mimir.db"]))
     binary_name = command[0] if command else "mimir"
 
     # Step 1: Auto-discover binary if not on PATH (#227)

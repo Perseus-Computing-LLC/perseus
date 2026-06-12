@@ -124,7 +124,7 @@ DEFAULT_CONFIG = {
     "mimir": {                          # Project Synapse — Mimir persistent memory (MCP binary, formerly "mneme")
         "enabled": True,
         "transport": "stdio",            # "stdio" (local binary) or "sse" (remote endpoint)
-        "command": ["mimir", "--db"],
+        "command": ["mimir", "--db", "~/.mimir/data/mimir.db"],
         "endpoint": "",                  # SSE endpoint URL (when transport=sse)
         "timeout_s": 10.0,
         "merge_strategy": "local_first", # local_first | remote_first | interleave | decay_first
