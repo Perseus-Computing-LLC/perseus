@@ -1,8 +1,8 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.tcconnally/perseus",
-  "title": "Perseus — MCP Server + Live Context Engine",
-  "description": "MCP server with 24 tools for workspace state resolution. Compile-before-context engine: pre-resolves git status, service health, file queries, memory federation, and multi-agent coordination into live markdown before the AI sees it.",
+  "title": "Perseus \u2014 MCP Server + Live Context Engine",
+  "description": "MCP server with 25 tools for live workspace state resolution. Pre-resolves git status, service health, file queries, memory federation, and multi-agent coordination into markdown before the AI sees it. LOCAL FTS5 memory for fast project recall; EXTERNAL Mimir persistent memory for cross-session facts. Read-only context engine \u2014 single-file Python (pyyaml only), MIT. Serves over stdio and SSE.",
   "version": "1.0.7",
   "packages": [
     {
@@ -10,8 +10,14 @@
       "identifier": "perseus-ctx",
       "version": "1.0.7",
       "packageArguments": [
-        {"type": "positional", "value": "mcp"},
-        {"type": "positional", "value": "serve"}
+        {
+          "type": "positional",
+          "value": "mcp"
+        },
+        {
+          "type": "positional",
+          "value": "serve"
+        }
       ],
       "transport": {
         "type": "stdio"
