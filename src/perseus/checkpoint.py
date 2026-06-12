@@ -28,6 +28,28 @@ def cmd_checkpoint(args, cfg):
 
     outfile = store / f"{ts}.yaml"
 
+    # P-1 helper: cross-platform PID liveness check.
+    # os.kill(pid, 0) works on POSIX but on Windows signal 0 calls
+    # TerminateProcess — we must use OpenProcess instead.
+    def _pid_alive(pid):
+        if os.name == "nt":
+            try:
+                import ctypes
+                kernel32 = ctypes.windll.kernel32
+                # PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+                handle = kernel32.OpenProcess(0x1000, False, pid)
+                if handle:
+                    kernel32.CloseHandle(handle)
+                    return True
+                return False
+            except Exception:
+                return False
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
+
     # ── Lock file for multi-agent coordination ──────────────────────────
     # Prevents two concurrent writers (agents sharing a checkpoint store
     # via NFS/SMB) from picking the same filename and clobbering.
@@ -43,11 +65,23 @@ def cmd_checkpoint(args, cfg):
             break
         except FileExistsError:
             # Check if lock holder is still alive (PID staleness detection)
+            # P-1: os.kill(pid, 0) is dangerous on Windows where signal 0
+            # calls TerminateProcess instead of probing. Use per-platform check.
             try:
                 stale_pid = int(lock_path.read_text(encoding="utf-8").strip())
-                os.kill(stale_pid, 0)  # signal 0 = check existence only
+                if not _pid_alive(stale_pid):
+                    # P-4: re-read lock after deciding it's stale to avoid a
+                    # race where another waiter recreated it between our read
+                    # and our unlink. Only unlink if content still matches.
+                    try:
+                        current_pid = int(lock_path.read_text(encoding="utf-8").strip())
+                        if current_pid == stale_pid:
+                            lock_path.unlink(missing_ok=True)
+                    except (OSError, ValueError):
+                        lock_path.unlink(missing_ok=True)
+                    continue
             except (OSError, ValueError):
-                lock_path.unlink(missing_ok=True)  # stale lock — holder is gone
+                lock_path.unlink(missing_ok=True)
                 continue
             time.sleep(0.2 * (attempt + 1))  # 0.2s, 0.4s, ..., 2.0s
     if not locked:
@@ -61,8 +95,25 @@ def cmd_checkpoint(args, cfg):
             suffix += 1
             outfile = store / f"{ts}_{suffix}.yaml"
 
-        with open(outfile, "w") as f:
-            yaml.dump(cp, f, default_flow_style=False, allow_unicode=True)
+        # P-3: atomic write — write to temp file, sync, then os.replace
+        # to prevent truncated YAML on crash mid-write.
+        import tempfile as _tempfile
+        tmp_fd, tmp_path = _tempfile.mkstemp(dir=str(store), suffix=".yaml")
+        try:
+            with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+                yaml.dump(cp, f, default_flow_style=False, allow_unicode=True)
+            # fsync for durability before the rename
+            os_fsync = getattr(os, "fsync", None)
+            if os_fsync:
+                fd2 = os.open(tmp_path, os.O_RDONLY)
+                try:
+                    os_fsync(fd2)
+                finally:
+                    os.close(fd2)
+            os.replace(tmp_path, outfile)
+        except Exception:
+            Path(tmp_path).unlink(missing_ok=True)
+            raise
 
         # Update latest pointer (global)
         latest = store / "latest.yaml"
@@ -74,8 +125,15 @@ def cmd_checkpoint(args, cfg):
                 ws_path = Path(str(cp["workspace"])).expanduser().resolve()
                 ws_hash = _workspace_hash(ws_path)
                 ws_pointer = store / f"latest-{ws_hash}.yaml"
-                # Write in-memory data directly instead of re-reading the file (H-5 TOCTOU fix)
-                ws_pointer.write_text(yaml.dump(cp, default_flow_style=False, allow_unicode=True), encoding="utf-8")
+                # P-3: atomic pointer write
+                tmp_fd2, tmp_path2 = _tempfile.mkstemp(dir=str(store), suffix=".yaml")
+                try:
+                    with os.fdopen(tmp_fd2, "w", encoding="utf-8") as pf:
+                        pf.write(yaml.dump(cp, default_flow_style=False, allow_unicode=True))
+                    os.replace(tmp_path2, ws_pointer)
+                except Exception:
+                    Path(tmp_path2).unlink(missing_ok=True)
+                    raise
             except Exception as exc:
                 print(f"> ⚠ Could not write per-workspace pointer: {exc}")
 

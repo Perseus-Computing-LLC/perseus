@@ -326,7 +326,11 @@ def build(output_path: Path | None = None) -> None:
 
     output = render_artifact(repo_root)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(output, encoding="utf-8")
+    # P-7: atomic write via tempfile + os.replace to prevent
+    # truncated artifact on build interrupt.
+    tmp_path = out_path.with_suffix(".tmp")
+    tmp_path.write_text(output, encoding="utf-8")
+    os.replace(tmp_path, out_path)
     print(f"Built {out_path} ({len(output.splitlines())} lines)")
     smoke_test(out_path)
 
