@@ -10,6 +10,7 @@ Usage:
     python scripts/build.py
 """
 import argparse
+import os
 import re
 import ast
 import subprocess
