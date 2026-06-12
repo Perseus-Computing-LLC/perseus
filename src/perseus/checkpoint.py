@@ -163,7 +163,15 @@ def cmd_checkpoint(args, cfg):
                             surviving.append((f, f_cp.get("written", "")))
                     if surviving:
                         surviving.sort(key=lambda x: x[1], reverse=True)
-                        ptr.write_text(surviving[0][0].read_text(encoding="utf-8"), encoding="utf-8")
+                        # P-3 extended: atomic pointer rewrite during prune
+                        tmp_fd3, tmp_path3 = _tempfile.mkstemp(dir=str(store), suffix=".yaml")
+                        try:
+                            with os.fdopen(tmp_fd3, "w", encoding="utf-8") as pf:
+                                pf.write(surviving[0][0].read_text(encoding="utf-8"))
+                            os.replace(tmp_path3, ptr)
+                        except Exception:
+                            Path(tmp_path3).unlink(missing_ok=True)
+                            raise
                     else:
                         ptr.unlink(missing_ok=True)
                 except Exception:
