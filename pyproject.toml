@@ -24,11 +24,11 @@ classifiers = [
     "Topic :: Utilities",
 ]
 requires-python = ">=3.10"
-dependencies = ["pyyaml>=6.0.1", "google-genai>=1.0.0", "elasticsearch>=8.0.0,<9.0.0"]
+dependencies = ["pyyaml>=6.0.1"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0.0", "coverage", "hypothesis"]
-mcp = ["mcp", "sibyl-memory-client"]
+mcp = ["mcp"]
 
 [project.urls]
 Homepage = "https://github.com/tcconnally/perseus"
@@ -38,7 +38,6 @@ Repository = "https://github.com/tcconnally/perseus"
 
 [project.scripts]
 perseus = "perseus:main"
-sibyl-mcp-server = "sibyl_mcp_server:main"
 
 [tool.setuptools]
-py-modules = ["perseus", "sibyl_mcp_server"]
+py-modules = ["perseus"]
