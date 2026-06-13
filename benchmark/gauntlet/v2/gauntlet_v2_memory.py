@@ -228,12 +228,12 @@ def run_mneme_benchmark(home: Path, phase_name: str = "cold") -> dict:
         def _base_title(t: str) -> str:
             import re
             return re.sub(r'\s*\(#\d+\)\s*$', '', t).strip()
-        hit_bases = [_base_title(t) for t in hit_titles]
+        hit_bases = list(dict.fromkeys(_base_title(t) for t in hit_titles))
         expected_bases = [_base_title(e) for e in q["expected"]]
         matched = sum(
             1 for expected in expected_bases if expected in hit_bases
         )
-        precision = matched / len(hits) if hits else 0
+        precision = matched / len(hit_bases) if hit_bases else 0
         recall = matched / len(q["expected"]) if q["expected"] else 0
 
         results.append({
