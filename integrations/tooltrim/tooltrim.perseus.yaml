@@ -1,0 +1,52 @@
+# Tooltrim config — Perseus @skills directive optimization
+# Reduces 76 Perseus skills to a task-relevant subset before they reach the LLM.
+#
+# Usage:
+#   1. Install tooltrim:  npm install -g tooltrim
+#   2. Copy this file to your project root as tooltrim.config.yaml
+#   3. Add tooltrim as your MCP proxy in Claude/Cursor/Codex config
+#   4. Adjust filters below to match your workflow
+#
+# Results (tested 2026-06-13 with 76 Perseus skills):
+#   Task filter (13 tools):  4,591 →   704 tokens  (-84.7%)
+#   Common filter (53 tools): 4,591 → 3,010 tokens  (-34.4%)
+#   Shrink only (76 tools):   4,591 → 4,306 tokens  ( -6.2%)
+
+servers:
+  perseus-skills:
+    transport: stdio
+    command: ["perseus", "mcp"]
+    # If perseus isn't on PATH, use absolute path:
+    # command: ["/usr/local/bin/perseus", "mcp"]
+
+filters:
+  allow:
+    # === Task mode: uncomment for tightest filter (84.7% savings) ===
+    # - "*.core/**"           # 6 tools: agent-operations, safety, self-audit, prompts, memory-hygiene, skill-hygiene
+    # - "*.devops/perseus"   # Perseus itself
+    # - "*.devops/perseus-*/**"  # Perseus connectors/configs
+    # - "*.devops/discord-help-scout"
+    # - "*.devops/discord-project-discovery"
+    # - "*.devops/mimir-development"
+    # - "*.github/github-auth"
+    # - "*.github/github-issues"
+    # - "*.github/github-pr-workflow"
+
+    # === Common mode: core + devops + github + software-dev (34.4% savings) ===
+    - "*.core/**"
+    - "*.devops/**"
+    - "*.github/**"
+    - "*.software-development/**"
+
+shrink:
+  mode: rules
+  maxDescriptionChars: 160
+  dedupeSchemas: true
+
+inbound:
+  stdio: true
+
+observability:
+  trace: { sink: file, path: .tooltrim/trace.ndjson }
+  metrics: { prometheus: { enabled: false } }
+  audit: { enabled: true, path: .tooltrim/audit.ndjson }
