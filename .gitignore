@@ -18,6 +18,10 @@ __pycache__/
 .vscode/
 *.swp
 *.swo
+
+# Bulk reference data — cloned repos for scanning/research, not website source
+awesome-mcp-servers/
+perseus-rapid-agent/
 dist/
 *.egg-info/
 ~/
