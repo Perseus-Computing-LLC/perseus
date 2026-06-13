@@ -408,7 +408,6 @@ def test_directive_graph_does_not_execute_shell_directives(tmp_path):
     assert graph["nodes"][0]["resources"] == [{"kind": "shell", "value": "exit 99"}]
 
 
-@pytest.mark.skip(reason="pre-existing cache regression — cache_get returns None when called after prefetch")
 def test_prefetch_rules_match_graph_and_write_cache(tmp_path):
     local = cfg()
     local["render"]["cache_dir"] = str(tmp_path / "cache")
@@ -422,7 +421,8 @@ def test_prefetch_rules_match_graph_and_write_cache(tmp_path):
 
     assert result["summary"]["matches"] == 1
     assert result["summary"]["ran"] == 1
-    cache_key = perseus._cache_key('@query "printf prefetched"')
+    ws = str(tmp_path.resolve())
+    cache_key = perseus._cache_key(f'@query "printf prefetched" :: {ws}')
     cached = perseus.cache_get(cache_key, "ttl", 120, local)
     assert cached is not None
     assert "prefetched" in cached
@@ -461,7 +461,6 @@ def test_prefetch_reports_no_match_behavior(tmp_path):
     assert "No prefetch rules matched." in human
 
 
-@pytest.mark.skip(reason="pre-existing cache regression — cache_get returns None")
 def test_prefetch_trigger_string_can_include_args(tmp_path):
     (tmp_path / "README.md").write_text("prefetched read")
     local = cfg()
@@ -475,7 +474,8 @@ def test_prefetch_trigger_string_can_include_args(tmp_path):
 
     assert result["summary"]["matches"] == 1
     assert result["summary"]["ran"] == 1
-    cache_key = perseus._cache_key("@read README.md")
+    ws = str(tmp_path.resolve())
+    cache_key = perseus._cache_key(f"@read README.md :: {ws}")
     assert "prefetched read" in perseus.cache_get(cache_key, "ttl", 120, local)
 
 
@@ -517,7 +517,6 @@ def test_adaptive_prefetch_disabled_does_not_score_or_execute(monkeypatch, tmp_p
     assert perseus.cache_get(cache_key, "ttl", 120, local) is None
 
 
-@pytest.mark.skip(reason="pre-existing cache regression — cache_get returns None")
 def test_adaptive_prefetch_deterministic_scores_patterns(monkeypatch, tmp_path):
     _seed_oracle_log(monkeypatch, tmp_path, [{
         "accepted": True,
@@ -545,7 +544,8 @@ def test_adaptive_prefetch_deterministic_scores_patterns(monkeypatch, tmp_path):
     assert result["summary"]["ran"] == 1
     assert result["results"][0]["rule"] == "adaptive:decision-memory"
     assert "matched patterns" in result["results"][0]["reason"]
-    cache_key = perseus._cache_key('@query "printf adaptive"')
+    ws = str(tmp_path.resolve())
+    cache_key = perseus._cache_key(f'@query "printf adaptive" :: {ws}')
     assert "adaptive" in perseus.cache_get(cache_key, "ttl", 120, local)
 
 
