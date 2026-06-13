@@ -649,7 +649,11 @@ def _execute_prefetch_directive(
         return result
 
     clean_args, cache_mode, cache_ttl, cache_mock = _parse_cache_modifier(raw_args)
-    cache_key = _cache_key(f"{directive} {clean_args}")
+    # P-2: fold workspace into cache key — @query output depends on cwd
+    # (git status, docker ps, etc.), so two workspaces sharing the same
+    # directive text must not collide in the disk cache within TTL.
+    _ws = str(workspace.resolve()) if workspace else ""
+    cache_key = _cache_key(f"{directive} {clean_args} :: {_ws}")
     result["cache"] = {"mode": cache_mode, "ttl": cache_ttl, "key": cache_key}
 
     trust_reason = _prefetch_trust_block_reason(directive or "", spec, cfg)

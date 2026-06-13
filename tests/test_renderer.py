@@ -421,7 +421,8 @@ def test_prefetch_rules_match_graph_and_write_cache(tmp_path):
 
     assert result["summary"]["matches"] == 1
     assert result["summary"]["ran"] == 1
-    cache_key = perseus._cache_key('@query "printf prefetched"')
+    ws = str(tmp_path.resolve())
+    cache_key = perseus._cache_key(f'@query "printf prefetched" :: {ws}')
     cached = perseus.cache_get(cache_key, "ttl", 120, local)
     assert cached is not None
     assert "prefetched" in cached
@@ -473,7 +474,8 @@ def test_prefetch_trigger_string_can_include_args(tmp_path):
 
     assert result["summary"]["matches"] == 1
     assert result["summary"]["ran"] == 1
-    cache_key = perseus._cache_key("@read README.md")
+    ws = str(tmp_path.resolve())
+    cache_key = perseus._cache_key(f"@read README.md :: {ws}")
     assert "prefetched read" in perseus.cache_get(cache_key, "ttl", 120, local)
 
 
@@ -542,7 +544,8 @@ def test_adaptive_prefetch_deterministic_scores_patterns(monkeypatch, tmp_path):
     assert result["summary"]["ran"] == 1
     assert result["results"][0]["rule"] == "adaptive:decision-memory"
     assert "matched patterns" in result["results"][0]["reason"]
-    cache_key = perseus._cache_key('@query "printf adaptive"')
+    ws = str(tmp_path.resolve())
+    cache_key = perseus._cache_key(f'@query "printf adaptive" :: {ws}')
     assert "adaptive" in perseus.cache_get(cache_key, "ttl", 120, local)
 
 
