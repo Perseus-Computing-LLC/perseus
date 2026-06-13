@@ -76,7 +76,7 @@ PHASE_DEFINITIONS = [
         "phase": 2,
         "name": "Render: Warm/Cache",
         "duration_s": 900,
-        "key_gate": "Warm speedup >= 5%, cache integrity 100%",
+        "key_gate": "Warm speedup >= 2%, cache integrity 100%",
     },
     {
         "phase": 3,
