@@ -65,11 +65,14 @@ def seed_vault(home: Path) -> int:
     count = generate_memories(75, home)
     print(f"  ✓ Seeded {count} memory records → {home}/memory/vault/")
     # Build FTS5 index so Phase 3 can query seeded vault (#311)
+    perseus_py = str(REPO_ROOT / "perseus.py")
     print("  Building Mneme FTS5 index...")
     try:
+        env = os.environ.copy()
+        env["PERSEUS_HOME"] = str(home)
         subprocess.run(
             [sys.executable, perseus_py, "memory", "index", "rebuild"],
-            timeout=60, check=True
+            timeout=60, check=True, env=env, cwd=str(REPO_ROOT),
         )
         print("  FTS5 index built")
     except Exception as e:
