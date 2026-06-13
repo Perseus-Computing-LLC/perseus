@@ -42,5 +42,6 @@ docs/ip/DISCLOSURE-CODE-MAP.md
 # Repo hygiene (P-6)
 .env
 engram.db
-outreach_*/
+outreach_048/
+*.local-pre-update
 mcts_analysis/
