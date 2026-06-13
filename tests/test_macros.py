@@ -119,7 +119,6 @@ def test_undefined_macro_invocation():
     assert "@undefined-macro" in out
 
 
-@pytest.mark.skip(reason="pre-existing cache regression — cache_get returns None")
 def test_macro_with_cache_modifier(tmp_path):
     local_cfg = cfg()
     local_cfg["render"]["cache_dir"] = str(tmp_path / "cache")
@@ -134,7 +133,7 @@ def test_macro_with_cache_modifier(tmp_path):
     assert "cached-output" in out
     
     # Check if it was actually cached
-    cache_key = perseus._cache_key('@query "echo cached-output"')
+    cache_key = perseus._cache_key('@query "echo cached-output" :: ')  # workspace=None
     cached = perseus.cache_get(cache_key, "ttl", 60, local_cfg)
     assert cached is not None
     assert "cached-output" in cached
