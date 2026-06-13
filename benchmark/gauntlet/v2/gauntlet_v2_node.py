@@ -205,7 +205,10 @@ def phase_enterprise_week(
     if events is None:
         events = _default_enterprise_events()
 
-    for event in events:
+    for i, event in enumerate(events):
+        if i % max(1, len(events) // 10) == 0:
+            pct = (i / max(len(events), 1)) * 100
+            print(f"  Enterprise Week: {i}/{len(events)} events ({pct:.0f}%)", flush=True)
         day = event.get("day", 1)
         time_label = event.get("time", "09:00")
         dev_count = event.get("developers", developers_per_node)

@@ -241,18 +241,6 @@ def _safe_cache_dir(cfg: dict) -> Path:
             fallback_path=str(fallback_dir),
         )
     return fallback_dir
-    # Fall back to safe default — warn operator their config was overridden
-    print(
-        f"Perseus: configured cache_dir {raw!r} is outside allowed roots; "
-        f"falling back to {PERSEUS_HOME / 'cache'}",
-        file=sys.stderr,
-    )
-    audit_event(cfg, "config_override",
-                key="render.cache_dir",
-                configured=raw,
-                fallback=str(PERSEUS_HOME / "cache"),
-                reason="outside allowed roots")
-    return PERSEUS_HOME / "cache"
 
 
 def cache_get(key: str, mode: str, ttl: int | None, cfg: dict) -> str | None:
@@ -867,7 +855,7 @@ def _render_lines(
                 if cache_mode == "mock":
                     query_results[idx] = cache_mock or "(mock)"
                     continue
-                cache_key = _cache_key(f"@query {clean_args}")
+                cache_key = _cache_key(f"@query {clean_args} :: {workspace.resolve() if workspace else ''}")
                 cached = cache_get(cache_key, cache_mode, cache_ttl, cfg)
                 if cached is not None:
                     query_results[idx] = cached
@@ -1191,7 +1179,7 @@ def _render_lines(
                     raw_args = f"{raw_args} @cache ttl={m_ttl.group(1)}".strip()
 
             clean_args, cache_mode, cache_ttl, cache_mock = _parse_cache_modifier(raw_args)
-            _base_key = _cache_key(f"{directive} {clean_args}")
+            _base_key = _cache_key(f"{directive} {clean_args} :: {workspace.resolve() if workspace else ''}")
             _fp = ""
             if cache_mode == "nofingerprint":
                 cache_key = _base_key
