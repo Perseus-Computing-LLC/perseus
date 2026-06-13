@@ -29,7 +29,7 @@ def test_container_files_are_present():
 
 def test_dockerfile_uses_single_file_runtime():
     text = DOCKERFILE.read_text()
-    assert "COPY perseus.py /usr/local/lib/perseus/perseus.py" in text
+    assert "COPY perseus.py /usr/local/bin/perseus" in text
     assert "COPY . " not in text
     assert 'ENTRYPOINT ["perseus"]' in text
     assert "pip install --no-cache-dir -r /tmp/perseus-requirements.txt" in text
