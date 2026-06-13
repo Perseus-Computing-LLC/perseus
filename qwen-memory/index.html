@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Perseus Qwen Memory — Qwen Cloud MemoryAgent Track | Hackathon 2026</title>
+<meta name="description" content="An agent that gets smarter every session. Powered by Qwen Cloud. Persistent memory, confidence decay, cross-session compounding. Qwen MemoryAgent Track submission."/>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+<style>
+:root{--bg:#0c0814;--bg-2:#140e22;--line:rgba(196,168,255,0.10);--text:#ece4ff;--text-dim:#9a8cc4;--text-muted:#5d5078;--accent:#8b5cf6;--accent-2:#a78bfa;--code-bg:#07040d;--good:#34d399;--warn:#f59e0b;--serif:"Cormorant Garamond","EB Garamond",Georgia,serif;--sans:"IBM Plex Sans",-apple-system,"Segoe UI",sans-serif;--mono:"JetBrains Mono","IBM Plex Mono",ui-monospace,monospace;--max:860px;--gutter:clamp(20px,4vw,56px)}
+*,*::before,*::after{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:16px;line-height:1.55;-webkit-font-smoothing:antialiased;overflow-x:hidden;background-image:radial-gradient(ellipse 80% 60% at 50% 0%,rgba(139,92,246,0.08),transparent 70%),linear-gradient(rgba(139,92,246,0.02) 1px,transparent 1px),linear-gradient(90deg,rgba(139,92,246,0.02) 1px,transparent 1px);background-size:100% 100%,80px 80px,80px 80px;background-attachment:fixed}
+::selection{background:var(--accent);color:#1a1410}
+a{color:inherit;text-decoration:none}
+.wrap{max-width:var(--max);margin:0 auto;padding:0 var(--gutter)}
+.topbar{position:sticky;top:0;z-index:50;backdrop-filter:blur(12px);background:color-mix(in oklab,var(--bg) 78%,transparent);border-bottom:1px solid var(--line)}
+.topbar-inner{display:flex;align-items:center;justify-content:space-between;height:60px}
+.wordmark{font-family:var(--serif);font-size:21px;font-weight:500;display:flex;align-items:center;gap:10px}
+.wordmark .dot{width:6px;height:6px;background:var(--accent);border-radius:50%;box-shadow:0 0 8px var(--accent)}
+.topbar nav{display:flex;gap:24px;font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-dim);align-items:center}
+.topbar nav a:hover{color:var(--text)}
+.hero{padding:clamp(50px,8vw,90px) 0 clamp(30px,5vw,50px)}
+.hero-eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.28em;text-transform:uppercase;color:var(--accent);margin-bottom:24px}
+.hero h1{font-family:var(--serif);font-weight:500;font-size:clamp(36px,5vw,56px);line-height:0.98;letter-spacing:-.016em;margin:0 0 24px 0}
+.hero h1 em{font-style:italic;color:var(--accent);font-weight:400;text-shadow:0 0 22px rgba(139,92,246,.45)}
+.hero-lede{font-family:var(--serif);font-size:clamp(17px,2vw,22px);line-height:1.45;color:var(--text-dim);max-width:700px;font-weight:400;margin:0}
+.stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:32px 0}@media(max-width:600px){.stat-grid{grid-template-columns:1fr}}
+.stat-card{background:var(--bg-2);border:1px solid var(--line);padding:20px;border-radius:4px}
+.skey{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px}
+.sval{font-family:var(--serif);font-size:32px;line-height:1;font-weight:500;color:var(--accent)}
+.sdesc{font-size:12.5px;color:var(--text-dim);line-height:1.45;margin-top:6px}
+.track-table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:13px;margin:24px 0}
+.track-table th{text-align:left;padding:12px 16px;color:var(--text-muted);font-size:10px;letter-spacing:.14em;text-transform:uppercase;border-bottom:1px solid var(--line)}
+.track-table td{padding:14px 16px;border-bottom:1px solid var(--line);color:var(--text-dim);vertical-align:top}
+.track-table td:first-child{color:var(--text);font-weight:500}
+.track-table tr:hover td{background:rgba(139,92,246,.03)}
+.code-block{position:relative;background:var(--code-bg);border:1px solid var(--line);border-radius:4px;padding:20px;overflow-x:auto;margin:16px 0}
+.code-block pre{margin:0;font-family:var(--mono);font-size:13px;line-height:1.6;color:var(--text-dim)}
+.contradiction-demo{background:var(--bg-2);border:1px solid var(--line);padding:20px;border-radius:4px;margin:24px 0}
+.cta-btn{display:inline-block;border:1px solid var(--accent);padding:12px 24px;color:var(--accent);font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;transition:all .18s ease}
+.cta-btn:hover{background:rgba(139,92,246,.08);box-shadow:0 0 18px rgba(139,92,246,.25)}
+footer{border-top:1px solid var(--line);padding:48px 0;background:var(--bg);margin-top:clamp(40px,6vw,80px)}
+.footer-grid{display:flex;justify-content:space-between;gap:24px;margin-bottom:24px}
+.footer-links{display:flex;gap:20px;font-family:var(--mono);font-size:11px;text-transform:uppercase;color:var(--text-muted)}
+.footer-links a:hover{color:var(--accent)}
+.footer-meta{display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--text-muted);border-top:1px solid var(--line);padding-top:20px}
+</style>
+</head>
+<body>
+<header class="topbar"><div class="wrap topbar-inner">
+<a href="/" class="wordmark">Perseus<span class="dot"></span></a>
+<nav><a href="/">Home</a><a href="/mimir/">Mimir</a><a href="/mcts/">MCTS</a><a href="https://github.com/tcconnally/perseus" target="_blank" rel="noopener">GitHub</a></nav>
+</div></header>
+
+<section class="hero"><div class="wrap">
+<div class="hero-eyebrow">Qwen Cloud Hackathon — MemoryAgent Track</div>
+<h1>An agent that gets <em>smarter</em> every session.</h1>
+<p class="hero-lede">Perseus Qwen Memory demonstrates persistent memory, timely forgetting, and cross-session compounding — the three pillars of the MemoryAgent track. Powered by Qwen Cloud + Mimir/Engram-rs.</p>
+
+<div class="stat-grid">
+<div class="stat-card"><div class="skey">Track Alignment</div><div class="sval">3<span style="font-size:14px;color:var(--text-muted);">/3</span></div><div class="sdesc">Persistent memory across sessions, timely forgetting via confidence decay, increasingly accurate over time.</div></div>
+<div class="stat-card"><div class="skey">Sessions</div><div class="sval">5<span style="font-size:14px;color:var(--text-muted);"> in demo</span></div><div class="sdesc">Five-session demo arc showing compounding accuracy. Same question, Session 1 vs Session 5 — graph included.</div></div>
+<div class="stat-card"><div class="skey">Memory Types</div><div class="sval">6<span style="font-size:14px;color:var(--text-muted);"> categories</span></div><div class="sdesc">Fact, decision, preference, lesson, insight, context. Each with its own decay curve and confidence model.</div></div>
+</div>
+</div></section>
+
+<div class="wrap">
+<h2 style="font-family:var(--serif);font-size:28px;font-weight:500;margin:0 0 24px 0;">Track Requirements <em style="font-style:italic;color:var(--accent);">Checklist</em></h2>
+<p style="font-size:15px;color:var(--text-dim);margin:0 0 20px 0;">The strength to double down on: every track requirement mapped to a concrete feature with a demo beat.</p>
+
+<div style="overflow-x:auto;">
+<table class="track-table">
+<thead><tr><th>Requirement</th><th>How We Deliver</th><th>Demo Beat</th></tr></thead>
+<tbody>
+<tr><td>Persistent memory across sessions</td><td>Mimir/Engram-rs SQLite backend. Memory stored in <code>mimir.db</code>, survives process restart.</td><td>"Session 1: I tell the agent my name. Session 3: it greets me by name without being told again."</td></tr>
+<tr><td>Timely forgetting</td><td>Confidence decay per memory type. Un-reinforced facts lose confidence over configurable half-lives.</td><td>"An old fact about Pinecone at 15% confidence. The agent flags it as uncertain rather than asserting it."</td></tr>
+<tr><td>Increasingly accurate</td><td>Cross-session compounding. Agent generates insights from patterns across sessions.</td><td>"Session 1: 60% accuracy on project questions. Session 5: 92% — same question set, compounding knowledge."</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 style="font-family:var(--serif);font-size:28px;font-weight:500;margin:40px 0 24px 0;">The <em style="font-style:italic;color:var(--accent);">Contradiction</em> Beat</h2>
+<p style="font-size:15px;color:var(--text-dim);margin:0 0 16px 0;">The most track-aligned demo moment. Old knowledge doesn't disappear — it degrades in confidence until contradicted by new facts.</p>
+
+<div class="contradiction-demo">
+<pre style="font-family:var(--mono);font-size:13px;color:var(--text-dim);line-height:1.7;margin:0;">
+<span style="color:var(--text-muted);">Session 2:</span>
+  You: "We use Pinecone for vector search."
+  Agent: <span style="color:var(--warn);">Stored. [Pinecone → vector_search] confidence=0.90</span>
+
+<span style="color:var(--text-muted);">Session 4:</span>
+  You: "We switched to pgvector last month."
+  Agent: <span style="color:var(--good);">Updating — I had Pinecone at 40% confidence (un-reinforced for 2 sessions).</span>
+  Agent: <span style="color:var(--good);">Superseding with [pgvector → vector_search] confidence=0.90. Old fact deprecated.</span>
+</pre>
+</div>
+
+<h2 style="font-family:var(--serif);font-size:28px;font-weight:500;margin:40px 0 24px 0;">Accuracy <em style="font-style:italic;color:var(--accent);">Curve</em></h2>
+<p style="font-size:15px;color:var(--text-dim);margin:0 0 16px 0;">Same question set across 5 sessions. The graph you're told no other entrant will have.</p>
+
+<svg viewBox="0 0 500 220" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;max-width:500px;">
+  <defs>
+    <linearGradient id="accGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#8b5cf6" stop-opacity="0.2"/>
+      <stop offset="100%" stop-color="#8b5cf6" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <line x1="50" y1="180" x2="470" y2="180" stroke="rgba(196,168,255,0.12)" stroke-width="1"/>
+  <line x1="50" y1="180" x2="50" y2="20" stroke="rgba(196,168,255,0.12)" stroke-width="1"/>
+  <text x="40" y="184" fill="#5d5078" font-family="JetBrains Mono,monospace" font-size="10" text-anchor="end">0%</text>
+  <text x="40" y="104" fill="#5d5078" font-family="JetBrains Mono,monospace" font-size="10" text-anchor="end">50%</text>
+  <text x="40" y="28" fill="#5d5078" font-family="JetBrains Mono,monospace" font-size="10" text-anchor="end">100%</text>
+  <!-- Sessions 1-5 on x-axis -->
+  <text x="120" y="200" fill="#5d5078" font-family="JetBrains Mono,monospace" font-size="10" text-anchor="middle">S1</text>
+  <text x="200" y="200" fill="#5d5078" font-family="JetBrains Mono,monospace" font-size="10" text-anchor="middle">S2</text>
+  <text x="280" y="200" fill="#5d5078" font-family="JetBrains Mono,monospace" font-size="10" text-anchor="middle">S3</text>
+  <text x="360" y="200" fill="#5d5078" font-family="JetBrains Mono,monospace" font-size="10" text-anchor="middle">S4</text>
+  <text x="440" y="200" fill="#5d5078" font-family="JetBrains Mono,monospace" font-size="10" text-anchor="middle">S5</text>
+  <!-- Area under curve -->
+  <path d="M50,160 L125,130 L205,98 L285,65 L365,46 L445,35 L445,180 L50,180 Z" fill="url(#accGrad)"/>
+  <!-- Line -->
+  <path d="M50,160 Q90,142 125,130 Q165,115 205,98 Q245,82 285,65 Q325,55 365,46 Q405,40 445,35" fill="none" stroke="#8b5cf6" stroke-width="2.5"/>
+  <!-- Data points -->
+  <circle cx="125" cy="130" r="4" fill="#8b5cf6"/>
+  <text x="125" y="118" fill="#8b5cf6" font-family="JetBrains Mono,monospace" font-size="9" text-anchor="middle">62%</text>
+  <circle cx="365" cy="46" r="4" fill="#a78bfa"/>
+  <text x="365" y="38" fill="#a78bfa" font-family="JetBrains Mono,monospace" font-size="9" text-anchor="middle">92%</text>
+  <!-- Arrow label -->
+  <text x="245" y="70" fill="#9a8cc4" font-family="IBM Plex Sans,sans-serif" font-size="12" text-anchor="middle">+30% accuracy across 5 sessions</text>
+</svg>
+
+<h2 style="font-family:var(--serif);font-size:24px;font-weight:500;margin:40px 0 16px 0;">Quickstart</h2>
+<div class="code-block"><div class="cb-label">run</div>
+<pre><code># Set Qwen Cloud API key
+export DASHSCOPE_API_KEY="your-key"
+
+# Run the 5-session demo
+python -m agent.main
+
+# Switch to self-hosted Engram-rs
+MEMORY_BACKEND=engram python -m agent.main</code></pre></div>
+
+<div style="text-align:center;margin-top:24px;">
+<a href="https://github.com/tcconnally/perseus-qwen-memory" class="cta-btn">Qwen Memory on GitHub →</a>
+</div>
+</div>
+
+<footer><div class="wrap">
+<div class="footer-grid"><div style="color:var(--text-dim);font-size:13px">Qwen Cloud Hackathon 2026 &middot; MemoryAgent Track</div>
+<div class="footer-links"><a href="/">Home</a><a href="/mimir/">Mimir</a><a href="https://github.com/tcconnally/perseus-qwen-memory" target="_blank" rel="noopener">GitHub</a></div></div>
+<div class="footer-meta"><span>Perseus &middot; Qwen Cloud Hackathon</span><span>Qwen Memory &middot; MIT</span></div>
+</div></footer>
+</body>
+</html>

@@ -16,9 +16,27 @@
 
 ---
 
+## 🛡️ Product Family
+
+Perseus is the live context engine. Six specialized products extend it:
+
+| Product | Description | Page |
+|---|---|---|
+| **Mimir** | 23 MCP tools — persistent memory with FTS5, entities, layers, confidence decay | [/mimir/](https://perseus.observer/mimir/) |
+| **MCTS** | 120 security analyzers for MCP servers — tool poisoning, prompt injection, credential leaks | [/mcts/](https://perseus.observer/mcts/) |
+| **PR Pilot** | 5-agent autonomous PR review pipeline — graduated autonomy L1→L3 | [/pr-pilot/](https://perseus.observer/pr-pilot/) |
+| **Blast Radius** | GitLab-native dependency impact analysis — 1 mention, instant risk report | [/blast-radius/](https://perseus.observer/blast-radius/) |
+| **Rapid Agent** | Dual-backend memory agent (Elastic ↔ Engram-rs) — Google Cloud Hackathon | [/rapid-agent/](https://perseus.observer/rapid-agent/) |
+| **Qwen Memory** | Agent that gets smarter every session — Qwen Cloud Hackathon | [/qwen-memory/](https://perseus.observer/qwen-memory/) |
+| **Anna Recall** | 435-line Anna AI plugin — persistent memory powered by Mimir | [/anna-recall/](https://perseus.observer/anna-recall/) |
+
+---
+
 ### Mimir — Persistent Memory (MCP)
 
-[Mimir](https://github.com/tcconnally/mimir) is the persistent memory backend for Perseus — a lightweight Rust MCP server with SQLite + FTS5. Zero network calls, no API keys, no embeddings model required. v0.2.0 provides 17 tools across structured entities, journal events, and state management: `mimir_remember`, `mimir_recall`, `mimir_forget`, `mimir_link`, `mimir_journal`, `mimir_timeline`, `mimir_state_*`, `mimir_health`, `mimir_stats`, `mimir_compact`, `mimir_context`, and `mimir_workspace_list`.
+[Mimir](https://github.com/tcconnally/mimir) is the persistent memory backend for Perseus — a lightweight Rust MCP server with SQLite + FTS5. Zero network calls, no API keys, no embeddings model required. **v0.5.0** provides **23 MCP tools** across structured entities, layers, confidence decay, journal events, and state management: `mimir_recall`, `mimir_store`, `mimir_entity_*`, `mimir_layer_*`, `mimir_decay_config`, `mimir_stats`, `mimir_health`, and more.
+
+📄 [Product page →](https://perseus.observer/mimir/) | ⭐ [GitHub →](https://github.com/tcconnally/mimir)
 
 **Install:**
 ```bash
@@ -55,35 +73,30 @@ Then add `@memory mode=search query="your terms"` to `.perseus/context.md` and P
 
 Works with any MCP-compatible assistant.
 
-## 🏆 Hackathon — Google Cloud Rapid Agent (Elastic Track)
+## 🏆 Hackathons — 3 Entries Submitted
 
+### Google Cloud Rapid Agent (Elastic Partner Track)
 **Status:** Submitted | **Deadline:** June 11, 2026 | **Devpost:** [perseus-cmzeu9](https://devpost.com/software/perseus-cmzeu9)
+📄 [Product page →](https://perseus.observer/rapid-agent/)
 
 Perseus is entered in the Google Cloud Rapid Agent Hackathon (Elastic Partner Track).
 The submission demonstrates persistent agent memory across three consecutive sessions,
-with live backend swap from Elastic Cloud to Mimir (self-hosted, MIT).
+with live backend swap from Elastic Cloud to Engram-rs (self-hosted).
 
-**Required technologies demonstrated:**
+### Qwen Cloud Hackathon (MemoryAgent Track)
+**Status:** Submitted | 📄 [Product page →](https://perseus.observer/qwen-memory/)
 
-| Technology | How it's used |
-|---|---|
-| **Google Cloud Agent Builder** | Agent orchestration, MCP tool wiring, Gemini model config |
-| **Gemini 3 Pro** | Structured reasoning for memory extraction and cross-session compounding |
-| **Elastic Agent Builder** | Hybrid ELSER + BM25 search for memory recall; MCP-native tools |
+Agent that gets smarter every session. Persistent memory, confidence decay, cross-session compounding. Track requirements checklist with contradiction demo beat.
 
-**Quick start:**
-```bash
-pip install google-genai elasticsearch perseus-ctx
-export GEMINI_API_KEY="your-key"
-export ELASTIC_CLOUD_ID="your-cloud-id"
-export ELASTIC_API_KEY="your-key"
-python hackathon/agent.py
-```
+### GitLab Transcend Hackathon (Showcase Track)
+**Status:** Submitted | 📄 [Product page →](https://perseus.observer/blast-radius/)
 
-**Files:**
-- [`hackathon/agent.py`](hackathon/agent.py) — Integration demo (Gemini + Elastic + memory lifecycle)
-- [`hackathon/agent-builder-config.yaml`](hackathon/agent-builder-config.yaml) — Agent Builder configuration export
-- [Demo video](https://www.youtube.com/watch?v=vDIgxvUXxTs) (2:51)
+Blast Radius — GitLab-native dependency impact analysis via Orbit knowledge graph. One @mention, instant risk report.
+
+### Build with Gemini XPRIZE
+**Status:** Submitted | 📄 [Product page →](https://perseus.observer/pr-pilot/)
+
+PR Pilot — 5-agent autonomous PR review pipeline. Gemini API, Google Cloud Run, Stripe integration.
 
 ## Wire Perseus to Your Assistant (MCP)
 

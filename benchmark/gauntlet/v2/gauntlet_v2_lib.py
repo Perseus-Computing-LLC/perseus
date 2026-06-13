@@ -9,6 +9,8 @@ pyyaml is the only dependency beyond stdlib.
 
 from __future__ import annotations
 
+import os
+
 import json
 import math
 import os
@@ -810,6 +812,7 @@ class TelemetrySink:
     def emit(self, record: dict) -> None:
         self._file.write(json.dumps(record, default=str) + "\n")
         self._file.flush()
+        os.fsync(self._file.fileno())
         self._count += 1
 
     @property
