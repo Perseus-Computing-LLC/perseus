@@ -735,6 +735,62 @@
     50% { opacity: 1; transform: scaleY(1); }
   }
 
+  /* ---------- Product Bar ---------- */
+  .product-bar {
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    padding: 0;
+    background: var(--bg-2);
+  }
+  .product-bar-inner {
+    display: flex;
+    gap: 32px;
+    align-items: center;
+    justify-content: center;
+    height: 56px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .product-bar-inner .pb-label {
+    color: var(--text-dim);
+    margin-right: 8px;
+    font-weight: 500;
+  }
+  .product-bar-inner a {
+    color: var(--text-dim);
+    transition: color .18s ease;
+    position: relative;
+  }
+  .product-bar-inner a::after {
+    content: "";
+    position: absolute;
+    bottom: -4px;
+    left: 0;
+    width: 100%;
+    height: 1px;
+    background: var(--accent);
+    transform: scaleX(0);
+    transition: transform .22s ease;
+  }
+  .product-bar-inner a:hover { color: var(--text); }
+  .product-bar-inner a:hover::after { transform: scaleX(1); }
+  .product-bar-inner .pb-mimir:hover { color: #56e1ff; }
+  .product-bar-inner .pb-mimir:hover::after { background: #56e1ff; }
+  .product-bar-inner .pb-mcts:hover { color: #f59e0b; }
+  .product-bar-inner .pb-mcts:hover::after { background: #f59e0b; }
+  .product-bar-inner .pb-prpilot:hover { color: #2dd4bf; }
+  .product-bar-inner .pb-prpilot:hover::after { background: #2dd4bf; }
+  .product-bar-inner .pb-blast:hover { color: #ef4444; }
+  .product-bar-inner .pb-blast:hover::after { background: #ef4444; }
+  .product-bar-inner .pb-hacks:hover { color: #a78bfa; }
+  .product-bar-inner .pb-hacks:hover::after { background: #a78bfa; }
+  @media (max-width: 600px) {
+    .product-bar-inner { gap: 16px; font-size: 10px; letter-spacing: 0.08em; }
+  }
+
   /* ---------- Problem / Fix ---------- */
   .duo {
     display: grid;
@@ -1930,6 +1986,11 @@
   <a href="#arsenal">Arsenal</a>
   <a href="#compat">Compat</a>
   <a href="#start">Start</a>
+  <span style="height:1px;background:var(--line);margin:8px 0;width:60px;"></span>
+  <a href="/mimir/">Mimir</a>
+  <a href="/mcts/">MCTS</a>
+  <a href="/pr-pilot/">PR Pilot</a>
+  <a href="/blast-radius/">Blast Radius</a>
   <a href="https://github.com/tcconnally/perseus" class="ghbtn-mobile">GitHub ↗</a>
 </nav>
 
@@ -2022,6 +2083,21 @@
     <span class="line"></span>
   </div>
 </section>
+
+<!-- ============ PRODUCT BAR ============ -->
+<div class="product-bar">
+  <div class="wrap product-bar-inner">
+    <span class="pb-label">Products</span>
+    <a href="/mimir/" class="pb-mimir">Mimir</a>
+    <a href="/mcts/" class="pb-mcts">MCTS</a>
+    <a href="/pr-pilot/" class="pb-prpilot">PR Pilot</a>
+    <a href="/blast-radius/" class="pb-blast">Blast Radius</a>
+    <span style="color:var(--text-muted);margin:0 4px;">·</span>
+    <a href="/rapid-agent/" class="pb-hacks">Rapid Agent</a>
+    <a href="/qwen-memory/" class="pb-hacks">Qwen Memory</a>
+    <a href="/anna-recall/" class="pb-hacks">Anna Recall</a>
+  </div>
+</div>
 
 <!-- ============ PROBLEM / FIX ============ -->
 <section id="problem" class="section-block">
