@@ -1,0 +1,55 @@
+# Tooltrim config — Mimir persistent memory (27 tools → 6 core)
+# Reduces Mimir's 27 MCP tools to the 6 core memory operations most agents need.
+#
+# Usage:
+#   1. Copy to mimir-tooltrim.config.yaml
+#   2. Point tooltrim at your Mimir server
+#   3. Agent only sees remember/recall/ask/forget/ingest/context — not admin tools
+
+servers:
+  mimir:
+    transport: stdio
+    command: ["/usr/local/bin/mimir"]
+    args: ["--db", "/opt/data/webui/minions/.minions-data/mimir/mimir.db"]
+
+filters:
+  allow:
+    # === Core memory (always needed — 6 tools) ===
+    - "*.mimir_remember"
+    - "*.mimir_recall"
+    - "*.mimir_ask"
+    - "*.mimir_forget"
+    - "*.mimir_ingest"
+    - "*.mimir_context"
+
+    # === Optional: add these for memory maintenance tasks ===
+    # - "*.mimir_embed"
+    # - "*.mimir_link"
+    # - "*.mimir_unlink"
+    # - "*.mimir_journal"
+    # - "*.mimir_timeline"
+    # - "*.mimir_state_set"
+    # - "*.mimir_state_get"
+    # - "*.mimir_state_list"
+    # - "*.mimir_decay"
+    # - "*.mimir_prune"
+
+    # === Admin tools (rarely needed by agents — keep disabled) ===
+    # - "*.mimir_health"
+    # - "*.mimir_stats"
+    # - "*.mimir_compact"
+    # - "*.mimir_migrate"
+    # - "*.mimir_score"
+    # - "*.mimir_conflicts"
+    # - "*.mimir_vault_export"
+    # - "*.mimir_vault_import"
+    # - "*.mimir_traverse"
+    # - "*.mimir_workspace_list"
+
+shrink:
+  mode: rules
+  maxDescriptionChars: 160
+  dedupeSchemas: true
+
+inbound:
+  stdio: true
