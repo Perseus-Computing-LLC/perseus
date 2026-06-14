@@ -1,5 +1,9 @@
 # stdlib imports available from build artifact header
 from perseus.memory import _mneme_recall
+from perseus.vaultmem_connector import (
+    _vaultmem_available, _vaultmem_vault_path, _vaultmem_max_tokens,
+    _vaultmem_projects, fetch_project_memory,
+)
 # ── Command dispatch ──────────────────────────────────────────────────────────
 
 def _memory_workspace(args, cfg) -> Path:
@@ -460,6 +464,8 @@ def resolve_memory(args_str: str, cfg: dict, workspace: Path | None = None) -> s
         → Render the checkpoint-distilled narrative journal.
       mode=federation [alias=...] [include_federation=true]
         → Cross-workspace narrative aggregation.
+      mode=vault-mem [project=...] [query=...]
+        → Query frozo-ai/vault-mem for typed project memories.
 
     Default: if query= is present → search; otherwise → narrative.
     Legacy shim: @mimir calls this with mode=search automatically.
@@ -477,6 +483,8 @@ def resolve_memory(args_str: str, cfg: dict, workspace: Path | None = None) -> s
         return _resolve_memory_search(mods, cfg, ws)
     elif explicit_mode == "federation" or is_federation:
         return _resolve_memory_federation(args_stripped, mods, cfg)
+    elif explicit_mode == "vault-mem":
+        return _resolve_memory_vaultmem(mods, cfg)
     else:
         return _resolve_memory_narrative(args_stripped, mods, cfg, ws)
 
@@ -578,6 +586,64 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path) -> str:
                 for lnk in mi.links[:2]:
                     lines.append(f"    ↳ `{lnk.relationship}` → {lnk.target_id[:8]}…")
     return "\n".join(lines) + "\n"
+
+
+def _resolve_memory_vaultmem(mods: dict, cfg: dict) -> str:
+    """@memory mode=vault-mem — query frozo-ai/vault-mem for typed project memories.
+
+    Optional args:
+      project=<slug>  — override configured project list (single project)
+      query=<text>    — search query (uses vault-mem's memory_search if set)
+      max_tokens=<N>  — override max_tokens budget (default: 2000)
+    """
+    import sys
+
+    if not _vaultmem_available():
+        return "> ⚠ vault-mem is not installed. See https://github.com/frozo-ai/frozo-vault-mem\n"
+
+    vault_path = _vaultmem_vault_path(cfg)
+    if not Path(vault_path).is_dir():
+        return f"> ⚠ vault-mem vault not found at `{vault_path}`. Run `vault-mem-mcp init`.\n"
+
+    # Resolve project: explicit arg > config > auto-detect from cwd
+    project = (mods.get("project") or "").strip()
+    if not project:
+        projects = _vaultmem_projects(cfg)
+        if projects:
+            project = projects[0]
+        else:
+            project = Path.cwd().name
+
+    max_tokens = _vaultmem_max_tokens(cfg)
+    override_tok = (mods.get("max_tokens") or "").strip()
+    if override_tok and override_tok.isdigit():
+        max_tokens = int(override_tok)
+
+    query = (mods.get("query") or "").strip()
+
+    # If a query is provided, inject it into the prompt for more targeted recall.
+    # Otherwise use standard project memory context.
+    if query:
+        memory_text, stats = fetch_project_memory(project, cfg, max_tokens)
+        if memory_text:
+            return (
+                f"## vault-mem: {project} (query: {query})\\n\\n"
+                f"{memory_text}\\n"
+            )
+        elif stats.get("error"):
+            return f"> ⚠ vault-mem error: {stats['error']}\\n"
+        else:
+            return f"> ℹ️ vault-mem: no memories found for project '{project}'.\\n"
+    else:
+        memory_text, stats = fetch_project_memory(project, cfg, max_tokens)
+        if memory_text:
+            return f"## vault-mem: {project}\\n\\n{memory_text}\\n"
+        elif stats.get("error"):
+            print(f"[perseus] vault-mem: {stats['error']}", file=sys.stderr)
+            return f"> ⚠ vault-mem error: {stats['error']}\\n"
+        else:
+            print(f"[perseus] vault-mem: no memories for project '{project}'", file=sys.stderr)
+            return "> ℹ️ vault-mem: no typed memories found for this project.\\n"
 
 
 def _resolve_memory_federation(args_stripped: str, mods: dict, cfg: dict) -> str:
