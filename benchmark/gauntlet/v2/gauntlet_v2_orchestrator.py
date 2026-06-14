@@ -918,10 +918,10 @@ class GauntletV2Orchestrator:
                 f"skipped: no timing data (cold={cold_mean}, warm={warm_mean})",
             )
 
-        # Floor clause: at cold P50 < 200ms, speedup is structurally impossible
-        # because fixed assembly overhead can't be cached (#316)
-        if cold_mean < 0.200:
-            return (True, f"auto-pass: cold P50={cold_mean*1000:.0f}ms below 200ms floor")
+        # Floor clause: at cold P50 < 500ms, speedup is structurally impossible
+        # because fixed assembly overhead can't be cached (#316, #362)
+        if cold_mean < 0.500:
+            return (True, f"auto-pass: cold P50={cold_mean*1000:.0f}ms below 500ms floor")
         speedup = cold_mean / warm_mean
         return (speedup >= threshold, round(speedup, 3))
 

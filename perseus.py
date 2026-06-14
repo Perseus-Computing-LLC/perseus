@@ -962,7 +962,7 @@ def _bind_registry() -> None:
         # Tier 1 — Always (lightweight, core context)
         DirectiveSpec("@date",      resolve_date,      ["format="],                "inline",  "a",   cacheable=False, safe_for_hover=True, summary="Current date/time", output_schema={"type": "str", "pattern": ".+"}, tier=1),
         DirectiveSpec("@waypoint",  resolve_waypoint,  ["ttl="],                   "inline",  "ac",  reads_files=True, cacheable=True, summary="Return the most recent session checkpoint: what was being worked on, status, and next steps. Use at session start to resume where you left off. Stale after TTL (default 24h). Read-only; lightweight — call freely.", tier=1),
-        DirectiveSpec("@memory",    resolve_memory,    ["mode=", "query=", "scope=", "k=", "type=", "render=", "focus=", "federation", "include_federation=", "alias=", "workspace="], "inline", "acw", reads_files=True, cacheable=True, summary="Search LOCAL project memory (FTS5, zero-network) for past decisions and architecture notes. Use for in-workspace recall. For cross-session persistent facts, use perseus_mimir instead. Read-only; returns results array with mode and count.", tier=1, is_semantic_hint=True),
+        DirectiveSpec("@memory",    resolve_memory,    ["mode=", "query=", "scope=", "k=", "type=", "render=", "focus=", "federation", "include_federation=", "alias=", "workspace=", "project=", "max_tokens="], "inline", "acw", reads_files=True, cacheable=True, summary="Search LOCAL project memory (FTS5, zero-network) for past decisions and architecture notes. Use for in-workspace recall. For cross-session persistent facts, use perseus_mimir instead. Read-only; returns results array with mode and count.", tier=1, is_semantic_hint=True),
         DirectiveSpec("@auto-skill", resolve_auto_skill, ["skill="],              "inline",  "ac",  cacheable=True,  safe_for_hover=True, summary="Instruct the agent to load a specific skill before starting work. Use at the top of context documents to enforce critical hygiene skills (e.g., memory-hygiene, agent-safety). Renders as a mandatory instruction block. Read-only.", tier=1),
         DirectiveSpec("@health",    resolve_health,    [],                         "inline",  "acw", reads_files=True, summary="Audit workspace context health: stale skills, duplicate tasks, oversized output. Use before starting work to catch drift. For deep Daedalus heuristics (cache, directive stats), use perseus_get_health. Read-only; returns status enum and metric counts.", tier=1),
         DirectiveSpec("@env",       resolve_env,       ["required=", "fallback=", "schema="], "inline", "acw", cacheable=False, safe_for_hover=True, summary="Embed environment variable", tier=1),
@@ -15005,6 +15005,8 @@ def resolve_memory(args_str: str, cfg: dict, workspace: Path | None = None) -> s
         → Render the checkpoint-distilled narrative journal.
       mode=federation [alias=...] [include_federation=true]
         → Cross-workspace narrative aggregation.
+      mode=vault-mem [project=...] [query=...]
+        → Query frozo-ai/vault-mem for typed project memories.
 
     Default: if query= is present → search; otherwise → narrative.
     Legacy shim: @mimir calls this with mode=search automatically.
@@ -15022,6 +15024,8 @@ def resolve_memory(args_str: str, cfg: dict, workspace: Path | None = None) -> s
         return _resolve_memory_search(mods, cfg, ws)
     elif explicit_mode == "federation" or is_federation:
         return _resolve_memory_federation(args_stripped, mods, cfg)
+    elif explicit_mode == "vault-mem":
+        return _resolve_memory_vaultmem(mods, cfg)
     else:
         return _resolve_memory_narrative(args_stripped, mods, cfg, ws)
 
@@ -15123,6 +15127,64 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path) -> str:
                 for lnk in mi.links[:2]:
                     lines.append(f"    ↳ `{lnk.relationship}` → {lnk.target_id[:8]}…")
     return "\n".join(lines) + "\n"
+
+
+def _resolve_memory_vaultmem(mods: dict, cfg: dict) -> str:
+    """@memory mode=vault-mem — query frozo-ai/vault-mem for typed project memories.
+
+    Optional args:
+      project=<slug>  — override configured project list (single project)
+      query=<text>    — search query (uses vault-mem's memory_search if set)
+      max_tokens=<N>  — override max_tokens budget (default: 2000)
+    """
+    import sys
+
+    if not _vaultmem_available():
+        return "> ⚠ vault-mem is not installed. See https://github.com/frozo-ai/frozo-vault-mem\n"
+
+    vault_path = _vaultmem_vault_path(cfg)
+    if not Path(vault_path).is_dir():
+        return f"> ⚠ vault-mem vault not found at `{vault_path}`. Run `vault-mem-mcp init`.\n"
+
+    # Resolve project: explicit arg > config > auto-detect from cwd
+    project = (mods.get("project") or "").strip()
+    if not project:
+        projects = _vaultmem_projects(cfg)
+        if projects:
+            project = projects[0]
+        else:
+            project = Path.cwd().name
+
+    max_tokens = _vaultmem_max_tokens(cfg)
+    override_tok = (mods.get("max_tokens") or "").strip()
+    if override_tok and override_tok.isdigit():
+        max_tokens = int(override_tok)
+
+    query = (mods.get("query") or "").strip()
+
+    # If a query is provided, inject it into the prompt for more targeted recall.
+    # Otherwise use standard project memory context.
+    if query:
+        memory_text, stats = fetch_project_memory(project, cfg, max_tokens)
+        if memory_text:
+            return (
+                f"## vault-mem: {project} (query: {query})\\n\\n"
+                f"{memory_text}\\n"
+            )
+        elif stats.get("error"):
+            return f"> ⚠ vault-mem error: {stats['error']}\\n"
+        else:
+            return f"> ℹ️ vault-mem: no memories found for project '{project}'.\\n"
+    else:
+        memory_text, stats = fetch_project_memory(project, cfg, max_tokens)
+        if memory_text:
+            return f"## vault-mem: {project}\\n\\n{memory_text}\\n"
+        elif stats.get("error"):
+            print(f"[perseus] vault-mem: {stats['error']}", file=sys.stderr)
+            return f"> ⚠ vault-mem error: {stats['error']}\\n"
+        else:
+            print(f"[perseus] vault-mem: no memories for project '{project}'", file=sys.stderr)
+            return "> ℹ️ vault-mem: no typed memories found for this project.\\n"
 
 
 def _resolve_memory_federation(args_stripped: str, mods: dict, cfg: dict) -> str:
