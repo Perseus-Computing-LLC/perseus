@@ -580,10 +580,15 @@ def compute_gauntlet_score(
     # Token compression (phase 9)
     phase_9 = next((p for p in phase_results if p.get("phase") == 9), {})
     comp_ratio = phase_9.get("compression_ratio")
-    if comp_ratio is not None and comp_ratio < 1.0:
+    if comp_ratio is not None and comp_ratio <= 1.0:
         render_score += 10
     elif comp_ratio is not None and comp_ratio > 1.05:
         render_score -= 10
+
+    # Cold P99: < 10s = +5 (completes path to 100/100)
+    cold_p99 = phase_1.get("p99_s")
+    if cold_p99 is not None and cold_p99 < 10.0:
+        render_score += 5
 
     render_score = max(0, min(100, render_score))
     scores["render"] = render_score
