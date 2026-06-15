@@ -213,7 +213,7 @@ def _toggle_auto_update(value, cfg):
 
     # Read existing config, preserving comments is hard so just re-dump
     if config_path.exists():
-        with open(config_path) as f:
+        with open(config_path, encoding='utf-8') as f:
             data = yaml.safe_load(f) or {}
     else:
         data = {}
