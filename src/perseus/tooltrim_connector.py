@@ -86,7 +86,7 @@ def _find_config(workspace: Path | None) -> Path | None:
         if pkg.exists():
             try:
                 import json
-                with open(pkg) as f:
+                with open(pkg, encoding='utf-8') as f:
                     pkg_data = json.load(f)
                 if isinstance(pkg_data, dict) and "tooltrim" in pkg_data:
                     # Return the package.json so we can extract the key
@@ -103,7 +103,7 @@ def _find_config(workspace: Path | None) -> Path | None:
 def _parse_tooltrim_config(config_path: Path) -> dict | None:
     """Parse a tooltrim config file. Returns None on failure."""
     try:
-        with open(config_path) as f:
+        with open(config_path, encoding='utf-8') as f:
             if config_path.suffix in (".yaml", ".yml"):
                 if not _HAS_YAML:
                     return None
