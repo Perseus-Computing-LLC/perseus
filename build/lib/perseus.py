@@ -9674,6 +9674,18 @@ def _safe_cache_dir(cfg: dict) -> Path:
             fallback_path=str(fallback_dir),
         )
     return fallback_dir
+    # Fall back to safe default — warn operator their config was overridden
+    print(
+        f"Perseus: configured cache_dir {raw!r} is outside allowed roots; "
+        f"falling back to {PERSEUS_HOME / 'cache'}",
+        file=sys.stderr,
+    )
+    audit_event(cfg, "config_override",
+                key="render.cache_dir",
+                configured=raw,
+                fallback=str(PERSEUS_HOME / "cache"),
+                reason="outside allowed roots")
+    return PERSEUS_HOME / "cache"
 
 
 def cache_get(key: str, mode: str, ttl: int | None, cfg: dict) -> str | None:
@@ -10288,7 +10300,7 @@ def _render_lines(
                 if cache_mode == "mock":
                     query_results[idx] = cache_mock or "(mock)"
                     continue
-                cache_key = _cache_key(f"@query {clean_args} :: {workspace.resolve() if workspace else ''}")
+                cache_key = _cache_key(f"@query {clean_args}")
                 cached = cache_get(cache_key, cache_mode, cache_ttl, cfg)
                 if cached is not None:
                     query_results[idx] = cached
@@ -10612,7 +10624,7 @@ def _render_lines(
                     raw_args = f"{raw_args} @cache ttl={m_ttl.group(1)}".strip()
 
             clean_args, cache_mode, cache_ttl, cache_mock = _parse_cache_modifier(raw_args)
-            _base_key = _cache_key(f"{directive} {clean_args} :: {workspace.resolve() if workspace else ''}")
+            _base_key = _cache_key(f"{directive} {clean_args}")
             _fp = ""
             if cache_mode == "nofingerprint":
                 cache_key = _base_key
@@ -11071,28 +11083,6 @@ def cmd_checkpoint(args, cfg):
 
     outfile = store / f"{ts}.yaml"
 
-    # P-1 helper: cross-platform PID liveness check.
-    # os.kill(pid, 0) works on POSIX but on Windows signal 0 calls
-    # TerminateProcess — we must use OpenProcess instead.
-    def _pid_alive(pid):
-        if os.name == "nt":
-            try:
-                import ctypes
-                kernel32 = ctypes.windll.kernel32
-                # PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-                handle = kernel32.OpenProcess(0x1000, False, pid)
-                if handle:
-                    kernel32.CloseHandle(handle)
-                    return True
-                return False
-            except Exception:
-                return False
-        try:
-            os.kill(pid, 0)
-            return True
-        except OSError:
-            return False
-
     # ── Lock file for multi-agent coordination ──────────────────────────
     # Prevents two concurrent writers (agents sharing a checkpoint store
     # via NFS/SMB) from picking the same filename and clobbering.
@@ -11108,23 +11098,11 @@ def cmd_checkpoint(args, cfg):
             break
         except FileExistsError:
             # Check if lock holder is still alive (PID staleness detection)
-            # P-1: os.kill(pid, 0) is dangerous on Windows where signal 0
-            # calls TerminateProcess instead of probing. Use per-platform check.
             try:
                 stale_pid = int(lock_path.read_text(encoding="utf-8").strip())
-                if not _pid_alive(stale_pid):
-                    # P-4: re-read lock after deciding it's stale to avoid a
-                    # race where another waiter recreated it between our read
-                    # and our unlink. Only unlink if content still matches.
-                    try:
-                        current_pid = int(lock_path.read_text(encoding="utf-8").strip())
-                        if current_pid == stale_pid:
-                            lock_path.unlink(missing_ok=True)
-                    except (OSError, ValueError):
-                        lock_path.unlink(missing_ok=True)
-                    continue
+                os.kill(stale_pid, 0)  # signal 0 = check existence only
             except (OSError, ValueError):
-                lock_path.unlink(missing_ok=True)
+                lock_path.unlink(missing_ok=True)  # stale lock — holder is gone
                 continue
             time.sleep(0.2 * (attempt + 1))  # 0.2s, 0.4s, ..., 2.0s
     if not locked:
@@ -11138,25 +11116,8 @@ def cmd_checkpoint(args, cfg):
             suffix += 1
             outfile = store / f"{ts}_{suffix}.yaml"
 
-        # P-3: atomic write — write to temp file, sync, then os.replace
-        # to prevent truncated YAML on crash mid-write.
-        import tempfile as _tempfile
-        tmp_fd, tmp_path = _tempfile.mkstemp(dir=str(store), suffix=".yaml")
-        try:
-            with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
-                yaml.dump(cp, f, default_flow_style=False, allow_unicode=True)
-            # fsync for durability before the rename
-            os_fsync = getattr(os, "fsync", None)
-            if os_fsync:
-                fd2 = os.open(tmp_path, os.O_RDONLY)
-                try:
-                    os_fsync(fd2)
-                finally:
-                    os.close(fd2)
-            os.replace(tmp_path, outfile)
-        except Exception:
-            Path(tmp_path).unlink(missing_ok=True)
-            raise
+        with open(outfile, "w") as f:
+            yaml.dump(cp, f, default_flow_style=False, allow_unicode=True)
 
         # Update latest pointer (global)
         latest = store / "latest.yaml"
@@ -11168,15 +11129,8 @@ def cmd_checkpoint(args, cfg):
                 ws_path = Path(str(cp["workspace"])).expanduser().resolve()
                 ws_hash = _workspace_hash(ws_path)
                 ws_pointer = store / f"latest-{ws_hash}.yaml"
-                # P-3: atomic pointer write
-                tmp_fd2, tmp_path2 = _tempfile.mkstemp(dir=str(store), suffix=".yaml")
-                try:
-                    with os.fdopen(tmp_fd2, "w", encoding="utf-8") as pf:
-                        pf.write(yaml.dump(cp, default_flow_style=False, allow_unicode=True))
-                    os.replace(tmp_path2, ws_pointer)
-                except Exception:
-                    Path(tmp_path2).unlink(missing_ok=True)
-                    raise
+                # Write in-memory data directly instead of re-reading the file (H-5 TOCTOU fix)
+                ws_pointer.write_text(yaml.dump(cp, default_flow_style=False, allow_unicode=True), encoding="utf-8")
             except Exception as exc:
                 print(f"> ⚠ Could not write per-workspace pointer: {exc}")
 
@@ -11206,15 +11160,7 @@ def cmd_checkpoint(args, cfg):
                             surviving.append((f, f_cp.get("written", "")))
                     if surviving:
                         surviving.sort(key=lambda x: x[1], reverse=True)
-                        # P-3 extended: atomic pointer rewrite during prune
-                        tmp_fd3, tmp_path3 = _tempfile.mkstemp(dir=str(store), suffix=".yaml")
-                        try:
-                            with os.fdopen(tmp_fd3, "w", encoding="utf-8") as pf:
-                                pf.write(surviving[0][0].read_text(encoding="utf-8"))
-                            os.replace(tmp_path3, ptr)
-                        except Exception:
-                            Path(tmp_path3).unlink(missing_ok=True)
-                            raise
+                        ptr.write_text(surviving[0][0].read_text(encoding="utf-8"), encoding="utf-8")
                     else:
                         ptr.unlink(missing_ok=True)
                 except Exception:
@@ -13762,60 +13708,6 @@ class MimirConnector:
             query_time_ms=int((time.time() - t0) * 1000),
         )
 
-    def recall_when(
-        self,
-        context: str,
-        limit: int = 10,
-    ) -> MemorySegment:
-        """Proactive recall: find entities whose recall_when triggers match context.
-
-        Calls mimir_recall_when to search for entities that declared they should
-        be recalled in similar situations. Use this before tool calls, at session
-        start, or when context shifts — it surfaces memories the agent would
-        otherwise forget to ask about.
-
-        Args:
-            context: Current task description (e.g., 'writing CSS for inputs')
-            limit: Max entities to return (default 10, max 100)
-        """
-        t0 = time.time()
-
-        if not self.available:
-            return MemorySegment(
-                query_time_ms=int((time.time() - t0) * 1000),
-                strategy_used="recall_when_unavailable",
-            )
-
-        def _do_recall_when():
-            result, err = self._client.call_tool("mimir_recall_when", {
-                "context": context,
-                "limit": min(limit, 100),
-            })
-            if err:
-                raise RuntimeError(err)
-            return result
-
-        raw_result, err = _retry_with_backoff(
-            _do_recall_when,
-            max_attempts=self._max_retries,
-            backoff_base=self._backoff_base,
-            circuit_breaker=self._breaker,
-        )
-
-        if err:
-            return MemorySegment(
-                query_time_ms=int((time.time() - t0) * 1000),
-                strategy_used="recall_when_error",
-            )
-
-        items = _parse_memory_hits(raw_result or {})
-        return MemorySegment(
-            items=items,
-            strategy_used="mimir_recall_when",
-            total_available=len(items),
-            query_time_ms=int((time.time() - t0) * 1000),
-        )
-
     def store(
         self,
         content: str,
@@ -14356,31 +14248,6 @@ def _mimir_hybrid_recall(
         return segment
 
     return MemorySegment(strategy_used="local_only")
-
-
-def _mimir_recall_when(
-    cfg: dict,
-    context: str,
-    limit: int = 10,
-    **kwargs,
-) -> MemorySegment:
-    """Proactive recall: find entities whose recall_when triggers match the context.
-
-    Called by the renderer or directives to surface memories the agent should
-    know about before the current task. Returns a MemorySegment with matching
-    entities sorted by decay score.
-
-    Args:
-        cfg: Perseus config dict
-        context: Current task or context description
-        limit: Max entities to return
-    """
-    connector = _get_connector(cfg)
-
-    if not connector.available:
-        return MemorySegment(strategy_used="recall_when_unavailable")
-
-    return connector.recall_when(context=context, limit=limit)
 
 
 def _mimir_context_inject(cfg: dict) -> str | None:
