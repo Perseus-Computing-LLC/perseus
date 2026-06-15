@@ -4,8 +4,6 @@ gauntlet_v2_memory.py — Memory retrieval benchmarks for Perseus Gauntlet v2.
 Measures:
   - Mneme FTS5 precision/recall against seeded vault (75 records)
   - Cold index build latency + warm query latency
-  - Sibyl semantic retrieval (optional, requires Sibyl MCP server)
-  - Cross-backend comparison
 
 All benchmarks are hermetic — they use the locally seeded vault, no network.
 """
@@ -294,115 +292,6 @@ def run_mneme_benchmark(home: Path, phase_name: str = "cold") -> dict:
     }
 
 
-# ─── Sibyl semantic retrieval benchmark (optional) ────────────────────────────
-
-
-def run_sibyl_benchmark(home: Path) -> dict:
-    """Run Sibyl semantic retrieval benchmark if Sibyl MCP server is available.
-
-    Requires sibyl-mcp to be running on stdio or a known port.
-    Falls back gracefully if unavailable.
-    """
-    result: dict = {
-        "status": "skipped",
-        "reason": "Sibyl MCP server not available",
-    }
-
-    # Try to detect Sibyl via known paths
-    sibyl_candidates = [
-        home / "sibyl-memory" / "memory.db",
-        Path.home() / ".sibyl-memory" / "memory.db",
-        Path("/opt/data/sibyl-memory/memory.db"),
-    ]
-
-    db_path = None
-    for c in sibyl_candidates:
-        if c.is_file():
-            db_path = c
-            break
-
-    if not db_path:
-        result["reason"] = "No Sibyl memory.db found"
-        return result
-
-    # Run semantic queries via SQLite directly (Sibyl uses SQLite too)
-    queries = [
-        "What search backend does Mneme use?",
-        "How does Perseus handle concurrent agent access?",
-        "What is the deployment strategy for the project?",
-    ]
-    query_results = []
-    times: list[float] = []
-
-    try:
-        conn = sqlite3.connect(str(db_path))
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-
-        # Find entity table
-        cursor.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE '%entity%'"
-        )
-        tables = [r[0] for r in cursor.fetchall()]
-
-        for query in queries:
-            t0 = time.time()
-            try:
-                if tables:
-                    table = tables[0]
-                    cursor.execute(
-                        f"""
-                        SELECT key, value FROM {table}
-                        WHERE value LIKE ?
-                        LIMIT 3
-                        """,
-                        (f"%{query}%",),
-                    )
-                else:
-                    # Generic LIKE search
-                    cursor.execute(
-                        """
-                        SELECT name, sql FROM sqlite_master
-                        WHERE sql LIKE ?
-                        LIMIT 3
-                        """,
-                        (f"%{query}%",),
-                    )
-                rows = cursor.fetchall()
-            except sqlite3.OperationalError:
-                rows = []
-
-            elapsed_ms = (time.time() - t0) * 1000
-            times.append(elapsed_ms)
-            query_results.append({
-                "query": query,
-                "hits": len(rows),
-                "latency_ms": round(elapsed_ms, 3),
-            })
-
-        conn.close()
-
-        import statistics
-        result = {
-            "status": "completed",
-            "db_path": str(db_path),
-            "total_queries": len(queries),
-            "p50_ms": round(
-                statistics.median(times) if times else 0, 3
-            ),
-            "mean_ms": round(statistics.mean(times) if times else 0, 3),
-            "per_query": query_results,
-            "timestamp": timestamp_iso(),
-        }
-    except Exception as exc:
-        result = {
-            "status": "failed",
-            "reason": str(exc),
-        }
-
-    return result
-
-
 # ─── Combined memory benchmark runner ─────────────────────────────────────────
 
 
@@ -412,22 +301,18 @@ def run_memory_phase(
     nfs_base: Path,
     duration: str = "full",
 ) -> dict:
-    """Phase 3: Memory Retrieval — benchmark Mneme and Sibyl.
+    """Phase 3: Memory Retrieval — benchmark Mneme FTS5.
 
     Runs against both cold and warm homes, measures:
       - FTS5 precision/recall
       - Cold query latency (no index warmed)
       - Warm query latency (index primed)
-      - Sibyl semantic retrieval (if available)
     """
     print("  Running Mneme cold benchmark...")
     mneme_cold = run_mneme_benchmark(COLD_HOME, phase_name="cold")
 
     print("  Running Mneme warm benchmark...")
     mneme_warm = run_mneme_benchmark(WARM_HOME, phase_name="warm")
-
-    print("  Running Sibyl benchmark...")
-    sibyl = run_sibyl_benchmark(COLD_HOME)
 
     # Record metrics
     metrics.record(
@@ -443,12 +328,6 @@ def run_memory_phase(
         p50_ms=mneme_warm.get("warm_query_p50_ms", 0),
         success=mneme_warm.get("status") == "completed",
     )
-    if sibyl.get("status") == "completed":
-        metrics.record(
-            operation="sibyl",
-            p50_ms=sibyl.get("p50_ms", 0),
-            success=True,
-        )
 
     agg = metrics.aggregate()
 
@@ -461,7 +340,6 @@ def run_memory_phase(
         "mneme_f1": mneme_cold.get("f1", 0),
         "mneme_cold_query_p50_ms": mneme_cold.get("cold_query_p50_ms", 0),
         "mneme_warm_query_p50_ms": mneme_warm.get("warm_query_p50_ms", 0),
-        "sibyl": sibyl,
     })
 
     from gauntlet_v2_lib import write_json
