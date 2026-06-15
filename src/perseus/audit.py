@@ -318,12 +318,12 @@ def load_config(workspace: Path | None = None) -> dict:
     loaded_sources: list[dict] = []
     global_cfg = PERSEUS_HOME / "config.yaml"
     if global_cfg.exists():
-        with open(global_cfg) as f:
+        with open(global_cfg, encoding='utf-8') as f:
             loaded_sources.append(_normalize_loaded_config(yaml.safe_load(f) or {}, warn_legacy=True))
     if workspace:
         local_cfg = workspace / ".perseus" / "config.yaml"
         if local_cfg.exists():
-            with open(local_cfg) as f:
+            with open(local_cfg, encoding='utf-8') as f:
                 loaded_sources.append(_normalize_loaded_config(yaml.safe_load(f) or {}, warn_legacy=True))
 
     effective_profile: object = None
@@ -405,13 +405,13 @@ def load_config(workspace: Path | None = None) -> dict:
 
     global_cfg = PERSEUS_HOME / "config.yaml"
     if global_cfg.exists():
-        with open(global_cfg) as f:
+        with open(global_cfg, encoding='utf-8') as f:
             merge_loaded(yaml.safe_load(f) or {})
 
     if workspace:
         local_cfg = workspace / ".perseus" / "config.yaml"
         if local_cfg.exists():
-            with open(local_cfg) as f:
+            with open(local_cfg, encoding='utf-8') as f:
                 merge_loaded(yaml.safe_load(f) or {})
 
     # Expand ~ in any config key that holds a filesystem path.  Without this,
