@@ -742,6 +742,60 @@ class MimirConnector:
             query_time_ms=int((time.time() - t0) * 1000),
         )
 
+    def recall_when(
+        self,
+        context: str,
+        limit: int = 10,
+    ) -> MemorySegment:
+        """Proactive recall: find entities whose recall_when triggers match context.
+
+        Calls mimir_recall_when to search for entities that declared they should
+        be recalled in similar situations. Use this before tool calls, at session
+        start, or when context shifts — it surfaces memories the agent would
+        otherwise forget to ask about.
+
+        Args:
+            context: Current task description (e.g., 'writing CSS for inputs')
+            limit: Max entities to return (default 10, max 100)
+        """
+        t0 = time.time()
+
+        if not self.available:
+            return MemorySegment(
+                query_time_ms=int((time.time() - t0) * 1000),
+                strategy_used="recall_when_unavailable",
+            )
+
+        def _do_recall_when():
+            result, err = self._client.call_tool("mimir_recall_when", {
+                "context": context,
+                "limit": min(limit, 100),
+            })
+            if err:
+                raise RuntimeError(err)
+            return result
+
+        raw_result, err = _retry_with_backoff(
+            _do_recall_when,
+            max_attempts=self._max_retries,
+            backoff_base=self._backoff_base,
+            circuit_breaker=self._breaker,
+        )
+
+        if err:
+            return MemorySegment(
+                query_time_ms=int((time.time() - t0) * 1000),
+                strategy_used="recall_when_error",
+            )
+
+        items = _parse_memory_hits(raw_result or {})
+        return MemorySegment(
+            items=items,
+            strategy_used="mimir_recall_when",
+            total_available=len(items),
+            query_time_ms=int((time.time() - t0) * 1000),
+        )
+
     def store(
         self,
         content: str,
@@ -1282,6 +1336,31 @@ def _mimir_hybrid_recall(
         return segment
 
     return MemorySegment(strategy_used="local_only")
+
+
+def _mimir_recall_when(
+    cfg: dict,
+    context: str,
+    limit: int = 10,
+    **kwargs,
+) -> MemorySegment:
+    """Proactive recall: find entities whose recall_when triggers match the context.
+
+    Called by the renderer or directives to surface memories the agent should
+    know about before the current task. Returns a MemorySegment with matching
+    entities sorted by decay score.
+
+    Args:
+        cfg: Perseus config dict
+        context: Current task or context description
+        limit: Max entities to return
+    """
+    connector = _get_connector(cfg)
+
+    if not connector.available:
+        return MemorySegment(strategy_used="recall_when_unavailable")
+
+    return connector.recall_when(context=context, limit=limit)
 
 
 def _mimir_context_inject(cfg: dict) -> str | None:
