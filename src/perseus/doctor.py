@@ -139,7 +139,7 @@ def _doctor_check_config(cfg: dict, workspace: Path) -> DoctorResult:
     config_path = PERSEUS_HOME / "config.yaml"
     if config_path.exists():
         try:
-            with open(config_path) as f:
+            with open(config_path, encoding='utf-8') as f:
                 yaml.safe_load(f)
             return DoctorResult("config_parses", "ok", "config parses", str(config_path), "")
         except Exception as exc:
@@ -232,7 +232,7 @@ def _doctor_check_federation(cfg: dict, workspace: Path) -> DoctorResult:
         return DoctorResult("federation_subscriptions", "ok", "federation",
                             "no subscriptions configured", "")
     try:
-        with open(manifest_path) as f:
+        with open(manifest_path, encoding='utf-8') as f:
             manifest = yaml.safe_load(f) or {}
         if not isinstance(manifest, dict):
             raise ValueError(f"manifest is not a mapping (got {type(manifest).__name__})")
@@ -275,7 +275,7 @@ def _doctor_check_pythia_log(cfg: dict, workspace: Path) -> DoctorResult:
                             "no log file (will be created on first suggest)", "")
     try:
         count = 0
-        with open(log_path) as f:
+        with open(log_path, encoding='utf-8') as f:
             for lineno, line in enumerate(f, start=1):
                 line = line.strip()
                 if not line:
@@ -625,7 +625,7 @@ def _doctor_check_stale_shim(cfg: dict, workspace: Path) -> DoctorResult:
         if os.path.islink(shim_path):
             is_shim = True
         else:
-            with open(shim_path) as f:
+            with open(shim_path, encoding='utf-8') as f:
                 first_line = f.readline().strip()
                 if 'exec' in first_line or '#!/bin/sh' in first_line or 'perseus.py' in first_line:
                     is_shim = True
