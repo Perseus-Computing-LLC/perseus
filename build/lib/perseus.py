@@ -962,7 +962,7 @@ def _bind_registry() -> None:
         # Tier 1 — Always (lightweight, core context)
         DirectiveSpec("@date",      resolve_date,      ["format="],                "inline",  "a",   cacheable=False, safe_for_hover=True, summary="Current date/time", output_schema={"type": "str", "pattern": ".+"}, tier=1),
         DirectiveSpec("@waypoint",  resolve_waypoint,  ["ttl="],                   "inline",  "ac",  reads_files=True, cacheable=True, summary="Return the most recent session checkpoint: what was being worked on, status, and next steps. Use at session start to resume where you left off. Stale after TTL (default 24h). Read-only; lightweight — call freely.", tier=1),
-        DirectiveSpec("@memory",    resolve_memory,    ["mode=", "query=", "scope=", "k=", "type=", "render=", "focus=", "federation", "include_federation=", "alias=", "workspace=", "project=", "max_tokens="], "inline", "acw", reads_files=True, cacheable=True, summary="Search LOCAL project memory (FTS5, zero-network) for past decisions and architecture notes. Use for in-workspace recall. For cross-session persistent facts, use perseus_mimir instead. Read-only; returns results array with mode and count.", tier=1, is_semantic_hint=True),
+        DirectiveSpec("@memory",    resolve_memory,    ["mode=", "query=", "scope=", "k=", "type=", "render=", "focus=", "federation", "include_federation=", "alias=", "workspace="], "inline", "acw", reads_files=True, cacheable=True, summary="Search LOCAL project memory (FTS5, zero-network) for past decisions and architecture notes. Use for in-workspace recall. For cross-session persistent facts, use perseus_mimir instead. Read-only; returns results array with mode and count.", tier=1, is_semantic_hint=True),
         DirectiveSpec("@auto-skill", resolve_auto_skill, ["skill="],              "inline",  "ac",  cacheable=True,  safe_for_hover=True, summary="Instruct the agent to load a specific skill before starting work. Use at the top of context documents to enforce critical hygiene skills (e.g., memory-hygiene, agent-safety). Renders as a mandatory instruction block. Read-only.", tier=1),
         DirectiveSpec("@health",    resolve_health,    [],                         "inline",  "acw", reads_files=True, summary="Audit workspace context health: stale skills, duplicate tasks, oversized output. Use before starting work to catch drift. For deep Daedalus heuristics (cache, directive stats), use perseus_get_health. Read-only; returns status enum and metric counts.", tier=1),
         DirectiveSpec("@env",       resolve_env,       ["required=", "fallback=", "schema="], "inline", "acw", cacheable=False, safe_for_hover=True, summary="Embed environment variable", tier=1),
@@ -2109,12 +2109,12 @@ def load_config(workspace: Path | None = None) -> dict:
     loaded_sources: list[dict] = []
     global_cfg = PERSEUS_HOME / "config.yaml"
     if global_cfg.exists():
-        with open(global_cfg, encoding='utf-8') as f:
+        with open(global_cfg) as f:
             loaded_sources.append(_normalize_loaded_config(yaml.safe_load(f) or {}, warn_legacy=True))
     if workspace:
         local_cfg = workspace / ".perseus" / "config.yaml"
         if local_cfg.exists():
-            with open(local_cfg, encoding='utf-8') as f:
+            with open(local_cfg) as f:
                 loaded_sources.append(_normalize_loaded_config(yaml.safe_load(f) or {}, warn_legacy=True))
 
     effective_profile: object = None
@@ -2196,13 +2196,13 @@ def load_config(workspace: Path | None = None) -> dict:
 
     global_cfg = PERSEUS_HOME / "config.yaml"
     if global_cfg.exists():
-        with open(global_cfg, encoding='utf-8') as f:
+        with open(global_cfg) as f:
             merge_loaded(yaml.safe_load(f) or {})
 
     if workspace:
         local_cfg = workspace / ".perseus" / "config.yaml"
         if local_cfg.exists():
-            with open(local_cfg, encoding='utf-8') as f:
+            with open(local_cfg) as f:
                 merge_loaded(yaml.safe_load(f) or {})
 
     # Expand ~ in any config key that holds a filesystem path.  Without this,
@@ -4164,11 +4164,7 @@ def _execute_prefetch_directive(
         return result
 
     clean_args, cache_mode, cache_ttl, cache_mock = _parse_cache_modifier(raw_args)
-    # P-2: fold workspace into cache key — @query output depends on cwd
-    # (git status, docker ps, etc.), so two workspaces sharing the same
-    # directive text must not collide in the disk cache within TTL.
-    _ws = str(workspace.resolve()) if workspace else ""
-    cache_key = _cache_key(f"{directive} {clean_args} :: {_ws}")
+    cache_key = _cache_key(f"{directive} {clean_args}")
     result["cache"] = {"mode": cache_mode, "ttl": cache_ttl, "key": cache_key}
 
     trust_reason = _prefetch_trust_block_reason(directive or "", spec, cfg)
@@ -8097,7 +8093,7 @@ def _find_config(workspace: Path | None) -> Path | None:
         if pkg.exists():
             try:
                 import json
-                with open(pkg, encoding='utf-8') as f:
+                with open(pkg) as f:
                     pkg_data = json.load(f)
                 if isinstance(pkg_data, dict) and "tooltrim" in pkg_data:
                     # Return the package.json so we can extract the key
@@ -8114,7 +8110,7 @@ def _find_config(workspace: Path | None) -> Path | None:
 def _parse_tooltrim_config(config_path: Path) -> dict | None:
     """Parse a tooltrim config file. Returns None on failure."""
     try:
-        with open(config_path, encoding='utf-8') as f:
+        with open(config_path) as f:
             if config_path.suffix in (".yaml", ".yml"):
                 if not _HAS_YAML:
                     return None
@@ -9678,6 +9674,18 @@ def _safe_cache_dir(cfg: dict) -> Path:
             fallback_path=str(fallback_dir),
         )
     return fallback_dir
+    # Fall back to safe default — warn operator their config was overridden
+    print(
+        f"Perseus: configured cache_dir {raw!r} is outside allowed roots; "
+        f"falling back to {PERSEUS_HOME / 'cache'}",
+        file=sys.stderr,
+    )
+    audit_event(cfg, "config_override",
+                key="render.cache_dir",
+                configured=raw,
+                fallback=str(PERSEUS_HOME / "cache"),
+                reason="outside allowed roots")
+    return PERSEUS_HOME / "cache"
 
 
 def cache_get(key: str, mode: str, ttl: int | None, cfg: dict) -> str | None:
@@ -10292,7 +10300,7 @@ def _render_lines(
                 if cache_mode == "mock":
                     query_results[idx] = cache_mock or "(mock)"
                     continue
-                cache_key = _cache_key(f"@query {clean_args} :: {workspace.resolve() if workspace else ''}")
+                cache_key = _cache_key(f"@query {clean_args}")
                 cached = cache_get(cache_key, cache_mode, cache_ttl, cfg)
                 if cached is not None:
                     query_results[idx] = cached
@@ -10616,7 +10624,7 @@ def _render_lines(
                     raw_args = f"{raw_args} @cache ttl={m_ttl.group(1)}".strip()
 
             clean_args, cache_mode, cache_ttl, cache_mock = _parse_cache_modifier(raw_args)
-            _base_key = _cache_key(f"{directive} {clean_args} :: {workspace.resolve() if workspace else ''}")
+            _base_key = _cache_key(f"{directive} {clean_args}")
             _fp = ""
             if cache_mode == "nofingerprint":
                 cache_key = _base_key
@@ -11075,28 +11083,6 @@ def cmd_checkpoint(args, cfg):
 
     outfile = store / f"{ts}.yaml"
 
-    # P-1 helper: cross-platform PID liveness check.
-    # os.kill(pid, 0) works on POSIX but on Windows signal 0 calls
-    # TerminateProcess — we must use OpenProcess instead.
-    def _pid_alive(pid):
-        if os.name == "nt":
-            try:
-                import ctypes
-                kernel32 = ctypes.windll.kernel32
-                # PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-                handle = kernel32.OpenProcess(0x1000, False, pid)
-                if handle:
-                    kernel32.CloseHandle(handle)
-                    return True
-                return False
-            except Exception:
-                return False
-        try:
-            os.kill(pid, 0)
-            return True
-        except OSError:
-            return False
-
     # ── Lock file for multi-agent coordination ──────────────────────────
     # Prevents two concurrent writers (agents sharing a checkpoint store
     # via NFS/SMB) from picking the same filename and clobbering.
@@ -11112,23 +11098,11 @@ def cmd_checkpoint(args, cfg):
             break
         except FileExistsError:
             # Check if lock holder is still alive (PID staleness detection)
-            # P-1: os.kill(pid, 0) is dangerous on Windows where signal 0
-            # calls TerminateProcess instead of probing. Use per-platform check.
             try:
                 stale_pid = int(lock_path.read_text(encoding="utf-8").strip())
-                if not _pid_alive(stale_pid):
-                    # P-4: re-read lock after deciding it's stale to avoid a
-                    # race where another waiter recreated it between our read
-                    # and our unlink. Only unlink if content still matches.
-                    try:
-                        current_pid = int(lock_path.read_text(encoding="utf-8").strip())
-                        if current_pid == stale_pid:
-                            lock_path.unlink(missing_ok=True)
-                    except (OSError, ValueError):
-                        lock_path.unlink(missing_ok=True)
-                    continue
+                os.kill(stale_pid, 0)  # signal 0 = check existence only
             except (OSError, ValueError):
-                lock_path.unlink(missing_ok=True)
+                lock_path.unlink(missing_ok=True)  # stale lock — holder is gone
                 continue
             time.sleep(0.2 * (attempt + 1))  # 0.2s, 0.4s, ..., 2.0s
     if not locked:
@@ -11142,25 +11116,8 @@ def cmd_checkpoint(args, cfg):
             suffix += 1
             outfile = store / f"{ts}_{suffix}.yaml"
 
-        # P-3: atomic write — write to temp file, sync, then os.replace
-        # to prevent truncated YAML on crash mid-write.
-        import tempfile as _tempfile
-        tmp_fd, tmp_path = _tempfile.mkstemp(dir=str(store), suffix=".yaml")
-        try:
-            with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
-                yaml.dump(cp, f, default_flow_style=False, allow_unicode=True)
-            # fsync for durability before the rename
-            os_fsync = getattr(os, "fsync", None)
-            if os_fsync:
-                fd2 = os.open(tmp_path, os.O_RDONLY)
-                try:
-                    os_fsync(fd2)
-                finally:
-                    os.close(fd2)
-            os.replace(tmp_path, outfile)
-        except Exception:
-            Path(tmp_path).unlink(missing_ok=True)
-            raise
+        with open(outfile, "w") as f:
+            yaml.dump(cp, f, default_flow_style=False, allow_unicode=True)
 
         # Update latest pointer (global)
         latest = store / "latest.yaml"
@@ -11172,15 +11129,8 @@ def cmd_checkpoint(args, cfg):
                 ws_path = Path(str(cp["workspace"])).expanduser().resolve()
                 ws_hash = _workspace_hash(ws_path)
                 ws_pointer = store / f"latest-{ws_hash}.yaml"
-                # P-3: atomic pointer write
-                tmp_fd2, tmp_path2 = _tempfile.mkstemp(dir=str(store), suffix=".yaml")
-                try:
-                    with os.fdopen(tmp_fd2, "w", encoding="utf-8") as pf:
-                        pf.write(yaml.dump(cp, default_flow_style=False, allow_unicode=True))
-                    os.replace(tmp_path2, ws_pointer)
-                except Exception:
-                    Path(tmp_path2).unlink(missing_ok=True)
-                    raise
+                # Write in-memory data directly instead of re-reading the file (H-5 TOCTOU fix)
+                ws_pointer.write_text(yaml.dump(cp, default_flow_style=False, allow_unicode=True), encoding="utf-8")
             except Exception as exc:
                 print(f"> ⚠ Could not write per-workspace pointer: {exc}")
 
@@ -11210,15 +11160,7 @@ def cmd_checkpoint(args, cfg):
                             surviving.append((f, f_cp.get("written", "")))
                     if surviving:
                         surviving.sort(key=lambda x: x[1], reverse=True)
-                        # P-3 extended: atomic pointer rewrite during prune
-                        tmp_fd3, tmp_path3 = _tempfile.mkstemp(dir=str(store), suffix=".yaml")
-                        try:
-                            with os.fdopen(tmp_fd3, "w", encoding="utf-8") as pf:
-                                pf.write(surviving[0][0].read_text(encoding="utf-8"))
-                            os.replace(tmp_path3, ptr)
-                        except Exception:
-                            Path(tmp_path3).unlink(missing_ok=True)
-                            raise
+                        ptr.write_text(surviving[0][0].read_text(encoding="utf-8"), encoding="utf-8")
                     else:
                         ptr.unlink(missing_ok=True)
                 except Exception:
@@ -13766,60 +13708,6 @@ class MimirConnector:
             query_time_ms=int((time.time() - t0) * 1000),
         )
 
-    def recall_when(
-        self,
-        context: str,
-        limit: int = 10,
-    ) -> MemorySegment:
-        """Proactive recall: find entities whose recall_when triggers match context.
-
-        Calls mimir_recall_when to search for entities that declared they should
-        be recalled in similar situations. Use this before tool calls, at session
-        start, or when context shifts — it surfaces memories the agent would
-        otherwise forget to ask about.
-
-        Args:
-            context: Current task description (e.g., 'writing CSS for inputs')
-            limit: Max entities to return (default 10, max 100)
-        """
-        t0 = time.time()
-
-        if not self.available:
-            return MemorySegment(
-                query_time_ms=int((time.time() - t0) * 1000),
-                strategy_used="recall_when_unavailable",
-            )
-
-        def _do_recall_when():
-            result, err = self._client.call_tool("mimir_recall_when", {
-                "context": context,
-                "limit": min(limit, 100),
-            })
-            if err:
-                raise RuntimeError(err)
-            return result
-
-        raw_result, err = _retry_with_backoff(
-            _do_recall_when,
-            max_attempts=self._max_retries,
-            backoff_base=self._backoff_base,
-            circuit_breaker=self._breaker,
-        )
-
-        if err:
-            return MemorySegment(
-                query_time_ms=int((time.time() - t0) * 1000),
-                strategy_used="recall_when_error",
-            )
-
-        items = _parse_memory_hits(raw_result or {})
-        return MemorySegment(
-            items=items,
-            strategy_used="mimir_recall_when",
-            total_available=len(items),
-            query_time_ms=int((time.time() - t0) * 1000),
-        )
-
     def store(
         self,
         content: str,
@@ -14360,31 +14248,6 @@ def _mimir_hybrid_recall(
         return segment
 
     return MemorySegment(strategy_used="local_only")
-
-
-def _mimir_recall_when(
-    cfg: dict,
-    context: str,
-    limit: int = 10,
-    **kwargs,
-) -> MemorySegment:
-    """Proactive recall: find entities whose recall_when triggers match the context.
-
-    Called by the renderer or directives to surface memories the agent should
-    know about before the current task. Returns a MemorySegment with matching
-    entities sorted by decay score.
-
-    Args:
-        cfg: Perseus config dict
-        context: Current task or context description
-        limit: Max entities to return
-    """
-    connector = _get_connector(cfg)
-
-    if not connector.available:
-        return MemorySegment(strategy_used="recall_when_unavailable")
-
-    return connector.recall_when(context=context, limit=limit)
 
 
 def _mimir_context_inject(cfg: dict) -> str | None:
@@ -15084,8 +14947,6 @@ def resolve_memory(args_str: str, cfg: dict, workspace: Path | None = None) -> s
         → Render the checkpoint-distilled narrative journal.
       mode=federation [alias=...] [include_federation=true]
         → Cross-workspace narrative aggregation.
-      mode=vault-mem [project=...] [query=...]
-        → Query frozo-ai/vault-mem for typed project memories.
 
     Default: if query= is present → search; otherwise → narrative.
     Legacy shim: @mimir calls this with mode=search automatically.
@@ -15103,8 +14964,6 @@ def resolve_memory(args_str: str, cfg: dict, workspace: Path | None = None) -> s
         return _resolve_memory_search(mods, cfg, ws)
     elif explicit_mode == "federation" or is_federation:
         return _resolve_memory_federation(args_stripped, mods, cfg)
-    elif explicit_mode == "vault-mem":
-        return _resolve_memory_vaultmem(mods, cfg)
     else:
         return _resolve_memory_narrative(args_stripped, mods, cfg, ws)
 
@@ -15206,64 +15065,6 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path) -> str:
                 for lnk in mi.links[:2]:
                     lines.append(f"    ↳ `{lnk.relationship}` → {lnk.target_id[:8]}…")
     return "\n".join(lines) + "\n"
-
-
-def _resolve_memory_vaultmem(mods: dict, cfg: dict) -> str:
-    """@memory mode=vault-mem — query frozo-ai/vault-mem for typed project memories.
-
-    Optional args:
-      project=<slug>  — override configured project list (single project)
-      query=<text>    — search query (uses vault-mem's memory_search if set)
-      max_tokens=<N>  — override max_tokens budget (default: 2000)
-    """
-    import sys
-
-    if not _vaultmem_available():
-        return "> ⚠ vault-mem is not installed. See https://github.com/frozo-ai/frozo-vault-mem\n"
-
-    vault_path = _vaultmem_vault_path(cfg)
-    if not Path(vault_path).is_dir():
-        return f"> ⚠ vault-mem vault not found at `{vault_path}`. Run `vault-mem-mcp init`.\n"
-
-    # Resolve project: explicit arg > config > auto-detect from cwd
-    project = (mods.get("project") or "").strip()
-    if not project:
-        projects = _vaultmem_projects(cfg)
-        if projects:
-            project = projects[0]
-        else:
-            project = Path.cwd().name
-
-    max_tokens = _vaultmem_max_tokens(cfg)
-    override_tok = (mods.get("max_tokens") or "").strip()
-    if override_tok and override_tok.isdigit():
-        max_tokens = int(override_tok)
-
-    query = (mods.get("query") or "").strip()
-
-    # If a query is provided, inject it into the prompt for more targeted recall.
-    # Otherwise use standard project memory context.
-    if query:
-        memory_text, stats = fetch_project_memory(project, cfg, max_tokens)
-        if memory_text:
-            return (
-                f"## vault-mem: {project} (query: {query})\\n\\n"
-                f"{memory_text}\\n"
-            )
-        elif stats.get("error"):
-            return f"> ⚠ vault-mem error: {stats['error']}\\n"
-        else:
-            return f"> ℹ️ vault-mem: no memories found for project '{project}'.\\n"
-    else:
-        memory_text, stats = fetch_project_memory(project, cfg, max_tokens)
-        if memory_text:
-            return f"## vault-mem: {project}\\n\\n{memory_text}\\n"
-        elif stats.get("error"):
-            print(f"[perseus] vault-mem: {stats['error']}", file=sys.stderr)
-            return f"> ⚠ vault-mem error: {stats['error']}\\n"
-        else:
-            print(f"[perseus] vault-mem: no memories for project '{project}'", file=sys.stderr)
-            return "> ℹ️ vault-mem: no typed memories found for this project.\\n"
 
 
 def _resolve_memory_federation(args_stripped: str, mods: dict, cfg: dict) -> str:
@@ -17529,7 +17330,7 @@ def _doctor_check_config(cfg: dict, workspace: Path) -> DoctorResult:
     config_path = PERSEUS_HOME / "config.yaml"
     if config_path.exists():
         try:
-            with open(config_path, encoding='utf-8') as f:
+            with open(config_path) as f:
                 yaml.safe_load(f)
             return DoctorResult("config_parses", "ok", "config parses", str(config_path), "")
         except Exception as exc:
@@ -17622,7 +17423,7 @@ def _doctor_check_federation(cfg: dict, workspace: Path) -> DoctorResult:
         return DoctorResult("federation_subscriptions", "ok", "federation",
                             "no subscriptions configured", "")
     try:
-        with open(manifest_path, encoding='utf-8') as f:
+        with open(manifest_path) as f:
             manifest = yaml.safe_load(f) or {}
         if not isinstance(manifest, dict):
             raise ValueError(f"manifest is not a mapping (got {type(manifest).__name__})")
@@ -17665,7 +17466,7 @@ def _doctor_check_pythia_log(cfg: dict, workspace: Path) -> DoctorResult:
                             "no log file (will be created on first suggest)", "")
     try:
         count = 0
-        with open(log_path, encoding='utf-8') as f:
+        with open(log_path) as f:
             for lineno, line in enumerate(f, start=1):
                 line = line.strip()
                 if not line:
@@ -18015,7 +17816,7 @@ def _doctor_check_stale_shim(cfg: dict, workspace: Path) -> DoctorResult:
         if os.path.islink(shim_path):
             is_shim = True
         else:
-            with open(shim_path, encoding='utf-8') as f:
+            with open(shim_path) as f:
                 first_line = f.readline().strip()
                 if 'exec' in first_line or '#!/bin/sh' in first_line or 'perseus.py' in first_line:
                     is_shim = True
@@ -19220,7 +19021,7 @@ def _toggle_auto_update(value, cfg):
 
     # Read existing config, preserving comments is hard so just re-dump
     if config_path.exists():
-        with open(config_path, encoding='utf-8') as f:
+        with open(config_path) as f:
             data = yaml.safe_load(f) or {}
     else:
         data = {}
