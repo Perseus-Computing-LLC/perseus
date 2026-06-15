@@ -5,7 +5,7 @@ gauntlet_v2_orchestrator.py — Main entry point for the Perseus Gauntlet v2.
   0. Pre-Flight — config, vault, health checks
   1. Render: Cold Baseline — raw render speed
   2. Render: Warm/Cache — cache hit rates, speedup
-  3. Memory: Retrieval — Mneme FTS5 precision/recall/latency + Sibyl
+  3. Memory: Retrieval — Mneme FTS5 precision/recall/latency
   4. Agent: Single Task — hermetic coding task completion
   5. Agent: Multi-Agent — parallel coordination (kanban-style)
   6. Enterprise Week — 5-day simulation with chaos
