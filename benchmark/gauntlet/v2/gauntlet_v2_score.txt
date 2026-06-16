@@ -1,2 +1,2 @@
-Perseus Gauntlet v2 Score: 94.2/100
-Overall: FAIL
+Perseus Gauntlet v2 Score: 100.0/100
+Overall: PASS
