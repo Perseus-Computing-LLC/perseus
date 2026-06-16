@@ -27,7 +27,7 @@
   <rect x="1" y="1" width="958" height="578" fill="none" stroke="#c77dff" stroke-width="0.5" rx="11" opacity="0.25"/>
 
   <!-- Title -->
-  <text x="480" y="46" text-anchor="middle" fill="#e4a8ff" font-size="24" font-weight="700" letter-spacing="-0.01em">Perseus v1.0.6 — Performance Benchmarks</text>
+  <text x="480" y="46" text-anchor="middle" fill="#e4a8ff" font-size="24" font-weight="700" letter-spacing="-0.01em">Perseus v1.0.7 — Performance Benchmarks</text>
   <line x1="180" y1="58" x2="780" y2="58" stroke="#c77dff" stroke-width="0.5" opacity="0.3"/>
 
   <!-- === HERO STAT: 450× === -->
@@ -70,9 +70,9 @@
 
   <!-- Card 5: Test Suite -->
   <rect x="343" y="370" width="273" height="140" rx="6" fill="#07040d" stroke="#1c1430" stroke-width="1"/>
-  <text x="480" y="413" text-anchor="middle" fill="url(#cyanGrad)" font-size="42" font-weight="800" letter-spacing="-0.02em" filter="url(#glow)">813</text>
+  <text x="480" y="413" text-anchor="middle" fill="url(#cyanGrad)" font-size="42" font-weight="800" letter-spacing="-0.02em" filter="url(#glow)">1,032</text>
   <text x="480" y="439" text-anchor="middle" fill="#9a8cc4" font-size="14" font-weight="600">Tests. All Green.</text>
-  <text x="480" y="461" text-anchor="middle" fill="#5d5078" font-size="11">14/14 gates passed · 10/10 enterprise</text>
+  <text x="480" y="461" text-anchor="middle" fill="#5d5078" font-size="11">16/16 gates passed · Gauntlet v2 100/100</text>
   <text x="480" y="481" text-anchor="middle" fill="#5d5078" font-size="11">Atomic FS locking · Symlink hardening</text>
 
   <!-- Card 6: Semantic Preservation -->
