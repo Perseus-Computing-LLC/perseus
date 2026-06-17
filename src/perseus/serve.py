@@ -1340,7 +1340,7 @@ def _serve_render_index(workspace: Path, stats: dict) -> str:
         f"<h2>Endpoints</h2>"
         f"<div class='cards'>{cards}</div>"
         f"<div class='footer'>Perseus — Live Context Engine for AI Assistants · "
-        f"<a href='https://github.com/tcconnally/perseus'>github.com/tcconnally/perseus</a></div>"
+        f"<a href='https://github.com/Perseus-Computing-LLC/perseus'>github.com/Perseus-Computing-LLC/perseus</a></div>"
         f"</div></body></html>"
     )
 
@@ -1739,7 +1739,7 @@ def cmd_init(args, cfg):
         binary_path = _find_mimir_binary(command)
         if binary_path is None:
             print(f"💡 Mimir not found. For persistent cross-session memory, run:")
-            print(f"   curl -sSL https://raw.githubusercontent.com/tcconnally/mimir/main/scripts/bootstrap.sh | bash")
+            print(f"   curl -sSL https://raw.githubusercontent.com/Perseus-Computing-LLC/mimir/main/scripts/bootstrap.sh | bash")
         elif binary_path != command[0]:
             language = _detect_project_language(workspace)
             lang_note = f" (detected: {language})" if language else ""

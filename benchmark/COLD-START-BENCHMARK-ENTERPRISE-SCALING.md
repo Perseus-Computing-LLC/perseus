@@ -1,7 +1,7 @@
 # Perseus Cold-Start Benchmark — Enterprise SRE Post-Incident Audit
 
 **Date:** 2026-05-23  
-**Repo:** https://github.com/tcconnally/perseus  
+**Repo:** https://github.com/Perseus-Computing-LLC/perseus  
 **Scenario:** AcmeCorp Platform — 12 microservices, 4 databases, 6 CI/CD pipelines, 3 environments, security scanning, monitoring, config drift, license compliance, and team activity.
 
 ---
@@ -249,7 +249,7 @@ Where n = number of services, databases, pipelines, audits, and checks
 
 ```bash
 # 1. Clone and set up the synthetic enterprise environment
-git clone https://github.com/tcconnally/perseus.git
+git clone https://github.com/Perseus-Computing-LLC/perseus.git
 cd perseus/benchmark/enterprise
 python3 setup.py    # Creates /tmp/enterprise-benchmark with 366 files
 

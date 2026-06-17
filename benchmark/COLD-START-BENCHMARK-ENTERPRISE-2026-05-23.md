@@ -1,7 +1,7 @@
 # Perseus Cold-Start Benchmark — Enterprise DevOps Audit
 
 **Date:** 2026-05-23 11:24 CDT  
-**Repo:** https://github.com/tcconnally/perseus (commit `febd05a`)  
+**Repo:** https://github.com/Perseus-Computing-LLC/perseus (commit `febd05a`)  
 **Scenario:** Pre-deployment security & operations audit
 
 ---

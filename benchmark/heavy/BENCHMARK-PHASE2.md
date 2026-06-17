@@ -233,7 +233,7 @@ handshake works. This is real, not stubbed.
 ## Reproduction
 
 ```bash
-git clone https://github.com/tcconnally/perseus.git
+git clone https://github.com/Perseus-Computing-LLC/perseus.git
 cd perseus
 pip install pyyaml psutil
 python benchmark/heavy/setup_phase2.py /path/to/perseus-phase2

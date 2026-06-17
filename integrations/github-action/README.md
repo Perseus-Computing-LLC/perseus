@@ -21,7 +21,7 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - uses: tcconnally/perseus@main
+      - uses: Perseus-Computing-LLC/perseus@main
         with:
           context_file: '.perseus/context.md'
           output_file: 'CLAUDE.md'

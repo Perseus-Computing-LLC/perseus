@@ -53,12 +53,12 @@ DEFAULT_REDACTION_RULES: list[dict[str, str]] = [
     # hex chars), Docker digests, and Atlassian content hashes, silently
     # destroying forensically important data in `@query "git log"` output
     # and similar. This rule now requires an explicit credential anchor.
-    # See: https://github.com/tcconnally/perseus/issues/136
+    # See: https://github.com/Perseus-Computing-LLC/perseus/issues/136
     {"name": "long_hex_secret",
      "pattern": r"(?i)(?:secret|token|key|password|passwd|api[_-]?key|auth(?:orization)?)\s*[:=]\s*[\"']?([a-fA-F0-9]{40,})[\"']?",
      "_anchor_group": 1},
     # Atlassian API token: ATATT3... (Confluence/Jira personal access tokens)
-    # See: https://github.com/tcconnally/perseus/issues/142
+    # See: https://github.com/Perseus-Computing-LLC/perseus/issues/142
     {"name": "atlassian_api_token", "pattern": r"\bATATT3[A-Za-z0-9+/=_-]{40,}\b"},
     # HuggingFace: hf_... (read/write tokens)
     {"name": "huggingface_token", "pattern": r"\bhf_[A-Za-z0-9]{30,}\b"},

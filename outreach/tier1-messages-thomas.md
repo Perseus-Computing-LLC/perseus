@@ -20,7 +20,7 @@ It's 30 seconds to set up and works with any assistant that reads a file. Claude
 Numbers: 10K directives in 0.36s. 120-agent swarm, 150 writes in 9.7s, zero collisions. MIT license, one dependency, pip install perseus-ctx.
 
 Site: https://perseus.observer
-Repo: https://github.com/tcconnally/perseus
+Repo: https://github.com/Perseus-Computing-LLC/perseus
 
 Thomas
 
@@ -40,7 +40,7 @@ Your "too many MCPs" post stuck with me. 55K tokens just for tool descriptions.
 
 I built Perseus to go the other direction. Resolve context at render time, not runtime. The agent never sees a directive. It sees a markdown file that was already true. 50K directives in 1.36s warm. 301× faster than LLM tool-calling at 500-dev enterprise scale. Zero failures across 16,250 renders.
 
-Works with any assistant. MIT, one dep. perseus.observer / github.com/tcconnally/perseus
+Works with any assistant. MIT, one dep. perseus.observer / github.com/Perseus-Computing-LLC/perseus
 
 ---
 
@@ -52,6 +52,6 @@ Been reading Latent Space since the early days. I built Perseus, a pre-processor
 
 The part you might find interesting: 120-agent swarm, 150 concurrent writes in 9.7s, zero collisions. Filesystem-based atomic locking, no server, no database. Each agent reads pre-rendered context, does its work, writes a checkpoint, next agent picks up without missing a beat.
 
-perseus.observer / github.com/tcconnally/perseus
+perseus.observer / github.com/Perseus-Computing-LLC/perseus
 
 Demo GIF in the repo. If it's podcast material, happy to walk through it.

@@ -307,7 +307,7 @@ def cmd_quickstart(args, cfg) -> int:
                         if install_choice in ("y", "yes"):
                             print("Downloading and running Mimir bootstrap script...")
                             import urllib.request
-                            script_url = "https://raw.githubusercontent.com/tcconnally/mimir/main/scripts/bootstrap.sh"
+                            script_url = "https://raw.githubusercontent.com/Perseus-Computing-LLC/mimir/main/scripts/bootstrap.sh"
                             req_script = urllib.request.Request(script_url, headers={"User-Agent": "perseus-quickstart"})
                             with urllib.request.urlopen(req_script, timeout=15) as resp:
                                 bootstrap_script = resp.read()
@@ -324,7 +324,7 @@ def cmd_quickstart(args, cfg) -> int:
                     except Exception as e:
                         print(f"✗ Failed to run installation: {e}")
                 else:
-                    print("To install Mimir, run: curl -sSL https://raw.githubusercontent.com/tcconnally/mimir/main/scripts/bootstrap.sh | bash")
+                    print("To install Mimir, run: curl -sSL https://raw.githubusercontent.com/Perseus-Computing-LLC/mimir/main/scripts/bootstrap.sh | bash")
                 print()
     except Exception:
         pass

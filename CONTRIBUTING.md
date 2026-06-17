@@ -5,7 +5,7 @@ Full contributor guidelines, dev setup, repo layout, and task workflow:
 
 Quick start:
 ```bash
-git clone https://github.com/tcconnally/perseus.git
+git clone https://github.com/Perseus-Computing-LLC/perseus.git
 cd perseus
 git config core.hooksPath .githooks   # auto-rebuild perseus.py on commit
 pip install -r requirements.txt

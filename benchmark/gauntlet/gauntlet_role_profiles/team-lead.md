@@ -21,7 +21,7 @@
 @query "gh api repos/:owner/:repo/stats/code_frequency" timeout=5 @cache ttl=86400
 @query "gh api repos/:owner/:repo/stats/commit_activity" timeout=5 @cache ttl=86400
 @query "gh api repos/:owner/:repo/stats/participation" timeout=5 @cache ttl=86400
-@query "curl -s https://api.github.com/repos/tcconnally/perseus" timeout=5 @cache ttl=86400
+@query "curl -s https://api.github.com/repos/Perseus-Computing-LLC/perseus" timeout=5 @cache ttl=86400
 @query "gh run list --limit 10" timeout=5 @cache ttl=86400
 @query "gh run list --status failed --limit 5" timeout=5 @cache ttl=86400
 @query "cat ROADMAP.md" timeout=5 @cache ttl=86400

@@ -46,7 +46,7 @@ Works with Claude Code, Cursor, Codex, or anything that reads a file.
 MIT license, one dependency (pyyaml), pip install perseus-ctx.
 
 Site: https://perseus.observer
-Repo: https://github.com/tcconnally/perseus
+Repo: https://github.com/Perseus-Computing-LLC/perseus
 
 Would love your take — you've probably thought about the resolve-vs-runtime
 trade-off more than anyone.
@@ -100,7 +100,7 @@ Numbers:
 - Nearly 600 tests, MIT, pip install perseus-ctx
 
 Site: https://perseus.observer
-Repo: https://github.com/tcconnally/perseus
+Repo: https://github.com/Perseus-Computing-LLC/perseus
 Demo: repo has the swarm GIF (demo-swarm.gif)
 
 If this is podcast material, happy to walk through the architecture
@@ -162,7 +162,7 @@ tools — would find this immediately useful. Happy to provide more
 detail or a walkthrough.
 
 Site: https://perseus.observer
-Repo: https://github.com/tcconnally/perseus
+Repo: https://github.com/Perseus-Computing-LLC/perseus
 
 Thomas
 ```
@@ -222,7 +222,7 @@ kind of thing your readers could install during their coffee and
 have running before the mug is empty.
 
 Site: https://perseus.observer (30-second demo on the landing page)
-Repo: https://github.com/tcconnally/perseus
+Repo: https://github.com/Perseus-Computing-LLC/perseus
 
 Would love your take — especially on where this kind of pre-processing
 fits in the AI coding toolchain you've been mapping out.

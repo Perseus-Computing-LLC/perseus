@@ -16,7 +16,7 @@ If pip install fails or --version shows 1.0.1, the PyPI publish didn't land yet.
 Grab the latest from GitHub:
 
 ```powershell
-git clone https://github.com/tcconnally/perseus.git
+git clone https://github.com/Perseus-Computing-LLC/perseus.git
 cd perseus
 # Use perseus.py directly: python perseus.py render ...
 ```
@@ -188,6 +188,6 @@ Get-Content .hermes.md
   @services/@query, 3 integrations (VS Code, Claude Code hook, GitHub Action).
 - Linux cold→warm benchmark: 2000 queries at 27s cold → 0.46s warm (59×).
   10000 queries at 0.52s warm. Cache makes render time constant.
-- The Perseus repo is at https://github.com/tcconnally/perseus (branch: main).
+- The Perseus repo is at https://github.com/Perseus-Computing-LLC/perseus (branch: main).
 - The benchmark harness files are in benchmark/heavy/.
 - The original benchmark that found the 4 bugs is at COLD-START-BENCHMARK-2026-05-23.md.
