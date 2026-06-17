@@ -32,6 +32,6 @@ Perseus renders it to live, verified facts. The assistant never sees directive s
 **The build system:** The `src/perseus/` tree is the canonical source. A build script inlines all modules into a single `perseus.py` with file-boundary comments preserving traceability. Pushes to PyPI on every tag. If you're into Python build pipelines, I'd love feedback.
 
 **Site:** https://perseus.observer
-**Repo:** https://github.com/tcconnally/perseus
+**Repo:** https://github.com/Perseus-Computing-LLC/perseus
 
 Questions welcome — especially about the build system, the directive parser, or the checkpoint store with atomic filesystem locking.

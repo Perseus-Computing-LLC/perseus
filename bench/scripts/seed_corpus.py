@@ -217,7 +217,7 @@ def seed():
         {"type": "database", "name": "Mneme vault", "path": ".minions-data/mneme/", "engine": "SQLite + FTS5", "role": "Semantic search over markdown vaults"},
         {"type": "cache", "name": "BSM credential cache", "path": "/opt/data/webui/minions-hermes-config/cache/bws_cache.json", "contents": "GITHUB_TOKEN, CLOUDFLARE_API_TOKEN, DEEPSEEK_API_KEY, HA_TOKEN"},
         {"type": "dns", "provider": "Cloudflare", "domain": "perseus.observer", "record_type": "CNAME", "target": "GitHub Pages"},
-        {"type": "git", "host": "github.com/tcconnally/perseus", "default_branch": "main", "protection": "Require PR, require CI pass", "remote": "origin"},
+        {"type": "git", "host": "github.com/Perseus-Computing-LLC/perseus", "default_branch": "main", "protection": "Require PR, require CI pass", "remote": "origin"},
         {"type": "monitoring", "service": "ntfy", "url": "http://localhost:8888/", "role": "Push notifications for agent session events"},
     ]
     
@@ -237,8 +237,8 @@ def seed():
         {"url": "http://localhost:8888/", "service": "ntfy", "expected_status": 200, "timeout_ms": 3000, "auth": "none (local)", "method": "GET", "description": "ntfy push notification service"},
         {"url": "http://localhost:9000/", "service": "Portainer", "expected_status": 200, "timeout_ms": 5000, "auth": "none (local)", "method": "GET", "description": "Portainer Docker management UI"},
         {"url": "https://pypi.org/p/perseus-ctx/json", "service": "PyPI", "expected_status": 200, "timeout_ms": 10000, "auth": "none", "method": "GET", "description": "Perseus PyPI package metadata"},
-        {"url": "https://api.github.com/repos/tcconnally/perseus", "service": "GitHub API", "expected_status": 200, "timeout_ms": 10000, "auth": "Bearer GITHUB_TOKEN", "method": "GET", "description": "Perseus repo metadata"},
-        {"url": "https://api.github.com/repos/tcconnally/perseus/releases/latest", "service": "GitHub Releases", "expected_status": 200, "timeout_ms": 10000, "auth": "Bearer GITHUB_TOKEN", "method": "GET", "description": "Latest Perseus release info"},
+        {"url": "https://api.github.com/repos/Perseus-Computing-LLC/perseus", "service": "GitHub API", "expected_status": 200, "timeout_ms": 10000, "auth": "Bearer GITHUB_TOKEN", "method": "GET", "description": "Perseus repo metadata"},
+        {"url": "https://api.github.com/repos/Perseus-Computing-LLC/perseus/releases/latest", "service": "GitHub Releases", "expected_status": 200, "timeout_ms": 10000, "auth": "Bearer GITHUB_TOKEN", "method": "GET", "description": "Latest Perseus release info"},
         {"url": "http://localhost:8787/api/sessions", "service": "Hermes Sessions API", "expected_status": 200, "timeout_ms": 5000, "auth": "none (local)", "method": "GET", "description": "List recent Hermes sessions"},
         {"url": "http://localhost:8787/api/skills", "service": "Hermes Skills API", "expected_status": 200, "timeout_ms": 5000, "auth": "none (local)", "method": "GET", "description": "List installed Hermes skills"},
         {"url": "http://localhost:8787/api/agent/run", "service": "Hermes Agent Run", "expected_status": 202, "timeout_ms": 30000, "auth": "none (local)", "method": "POST", "description": "Trigger agent run via WebUI"},
@@ -246,8 +246,8 @@ def seed():
         {"url": "https://perseus.observer/bench/", "service": "Perseus Benchmarks", "expected_status": 200, "timeout_ms": 10000, "auth": "none", "method": "GET", "description": "Benchmark results page"},
         {"url": "http://localhost:8787/api/config", "service": "Hermes Config API", "expected_status": 200, "timeout_ms": 5000, "auth": "none (local)", "method": "GET", "description": "Current Hermes configuration"},
         {"url": "http://localhost:8787/api/kanban", "service": "Hermes Kanban API", "expected_status": 200, "timeout_ms": 5000, "auth": "none (local)", "method": "GET", "description": "Kanban board state"},
-        {"url": "https://api.github.com/repos/tcconnally/perseus/issues", "service": "GitHub Issues API", "expected_status": 200, "timeout_ms": 10000, "auth": "Bearer GITHUB_TOKEN", "method": "GET", "description": "List Perseus issues"},
-        {"url": "https://api.github.com/repos/tcconnally/perseus/pulls", "service": "GitHub PRs API", "expected_status": 200, "timeout_ms": 10000, "auth": "Bearer GITHUB_TOKEN", "method": "GET", "description": "List open pull requests"},
+        {"url": "https://api.github.com/repos/Perseus-Computing-LLC/perseus/issues", "service": "GitHub Issues API", "expected_status": 200, "timeout_ms": 10000, "auth": "Bearer GITHUB_TOKEN", "method": "GET", "description": "List Perseus issues"},
+        {"url": "https://api.github.com/repos/Perseus-Computing-LLC/perseus/pulls", "service": "GitHub PRs API", "expected_status": 200, "timeout_ms": 10000, "auth": "Bearer GITHUB_TOKEN", "method": "GET", "description": "List open pull requests"},
         {"url": "https://api.cloudflare.com/client/v4/zones", "service": "Cloudflare API", "expected_status": 200, "timeout_ms": 10000, "auth": "Bearer CLOUDFLARE_API_TOKEN", "method": "GET", "description": "List Cloudflare zones"},
         {"url": "http://localhost:8123/api/", "service": "Home Assistant API", "expected_status": 200, "timeout_ms": 5000, "auth": "Bearer HA_TOKEN", "method": "GET", "description": "Home Assistant REST API"},
         {"url": "https://api.deepseek.com/v1/models", "service": "DeepSeek API", "expected_status": 200, "timeout_ms": 10000, "auth": "Bearer DEEPSEEK_API_KEY", "method": "GET", "description": "List available DeepSeek models"},
@@ -281,9 +281,9 @@ def seed():
     # PROJECTS (5) — Repository metadata, versions, team
     # ═══════════════════════════════════════════════════════════════
     projects = [
-        {"name": "Perseus", "repo": "github.com/tcconnally/perseus", "language": "Python", "version": "1.0.6", "license": "MIT", "description": "Live context engine for AI assistants", "team": ["tcconnally", "contributor-01", "contributor-02"], "created": "2026-05-26"},
+        {"name": "Perseus", "repo": "github.com/Perseus-Computing-LLC/perseus", "language": "Python", "version": "1.0.6", "license": "MIT", "description": "Live context engine for AI assistants", "team": ["tcconnally", "contributor-01", "contributor-02"], "created": "2026-05-26"},
         {"name": "Minions (Hermes Agent WebUI)", "repo": "github.com/nousresearch/hermes-agent", "language": "Node.js", "description": "Web interface for Hermes Agent conversations", "team": ["Nous Research"], "relation_to_perseus": "Perseus renders AGENTS.md consumed by Minions sessions"},
-        {"name": "Mneme", "repo": "github.com/tcconnally/mneme", "language": "Rust", "version": "0.3.0", "description": "Semantic memory engine — FTS5 search over markdown vaults", "team": ["tcconnally"], "relation_to_perseus": "Optional backend for @memory directive"},
+        {"name": "Mneme", "repo": "github.com/Perseus-Computing-LLC/mneme", "language": "Rust", "version": "0.3.0", "description": "Semantic memory engine — FTS5 search over markdown vaults", "team": ["tcconnally"], "relation_to_perseus": "Optional backend for @memory directive"},
         {"name": "Hermes Config", "path": "/opt/data/webui/minions-hermes-config/", "type": "local configuration", "description": "Shared config across Hermes profiles — skills, plugins, tools, memory", "relation_to_perseus": "Perseus reads config for skill inventories and auth patterns"},
         {"name": "Sibyl Memory", "repo": "github.com/sibyllabs/sibyl-memory", "language": "Python", "version": "0.4.9", "license": "MIT", "description": "Local-first agentic memory SDK — five-tier schema", "team": ["Sibyl Labs LLC"], "relation_to_perseus": "Primary structured memory backend for Perseus"},
     ]

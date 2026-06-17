@@ -18,7 +18,7 @@ You are an AI agent working on the Perseus codebase. Your context has been pre-l
 
 ## Project
 Perseus — Live Context Engine for AI Assistants (v1.0.6)
-Repo: github.com/tcconnally/perseus
+Repo: github.com/Perseus-Computing-LLC/perseus
 
 ## Environment
 @query "hostname" fallback="hermes-webui"

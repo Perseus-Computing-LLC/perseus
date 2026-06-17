@@ -23,7 +23,7 @@ specific niceties.
 - VSCode 1.85.0+
 - `perseus` binary installed and on PATH (or configured via
   `perseus.binary`). Get it from the
-  [Perseus repository](https://github.com/tcconnally/perseus).
+  [Perseus repository](https://github.com/Perseus-Computing-LLC/perseus).
 
 ## Configuration
 
