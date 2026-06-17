@@ -283,4 +283,4 @@ After the report, offer:
 ---
 
 *Part of the Perseus skill library. Compatible with Rovo Dev CLI, Claude Code, and any MCP-enabled assistant.*
-*See: https://github.com/tcconnally/perseus*
+*See: https://github.com/Perseus-Computing-LLC/perseus*

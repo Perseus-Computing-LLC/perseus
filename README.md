@@ -1,18 +1,18 @@
 # Perseus™ 🪞 — One command. Zero orientation.
 
-[![smithery badge](https://smithery.ai/badge/tcconnally/perseus)](https://smithery.ai/servers/tcconnally/perseus)
+[![smithery badge](https://smithery.ai/badge/Perseus-Computing-LLC/perseus)](https://smithery.ai/servers/Perseus-Computing-LLC/perseus)
 **`pip install perseus-ctx && cd your-project && perseus quickstart`**
 
 ![Perseus demo — before/after cold-start](demo.gif)
 
-[![CI](https://github.com/tcconnally/perseus/actions/workflows/test.yml/badge.svg)](https://github.com/tcconnally/perseus/actions/workflows/test.yml)
+[![CI](https://github.com/Perseus-Computing-LLC/perseus/actions/workflows/test.yml/badge.svg)](https://github.com/Perseus-Computing-LLC/perseus/actions/workflows/test.yml)
 [![PyPI](https://img.shields.io/pypi/v/perseus-ctx)](https://pypi.org/project/perseus-ctx/)
 [![MCP Registry](https://img.shields.io/badge/MCP-Registry-blue)](https://registry.modelcontextprotocol.io/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![Status: Patent Pending](https://img.shields.io/badge/status-patent_pending-blue)](./docs/ip/README.md)
 [**perseus.observer →**](https://perseus.observer)
 
-<!-- mcp-name: io.github.tcconnally/perseus -->
+<!-- mcp-name: io.github.Perseus-Computing-LLC/perseus -->
 
 ---
 
@@ -34,13 +34,13 @@ Perseus is the live context engine. Six specialized products extend it:
 
 ### Mimir — Persistent Memory (MCP)
 
-[Mimir](https://github.com/tcconnally/mimir) is the persistent memory backend for Perseus — a lightweight Rust MCP server with SQLite + FTS5. Zero network calls, no API keys, no embeddings model required. **v0.5.0** provides **23 MCP tools** across structured entities, layers, confidence decay, journal events, and state management: `mimir_recall`, `mimir_store`, `mimir_entity_*`, `mimir_layer_*`, `mimir_decay_config`, `mimir_stats`, `mimir_health`, and more.
+[Mimir](https://github.com/Perseus-Computing-LLC/mimir) is the persistent memory backend for Perseus — a lightweight Rust MCP server with SQLite + FTS5. Zero network calls, no API keys, no embeddings model required. **v0.5.0** provides **23 MCP tools** across structured entities, layers, confidence decay, journal events, and state management: `mimir_recall`, `mimir_store`, `mimir_entity_*`, `mimir_layer_*`, `mimir_decay_config`, `mimir_stats`, `mimir_health`, and more.
 
-📄 [Product page →](https://perseus.observer/mimir/) | ⭐ [GitHub →](https://github.com/tcconnally/mimir)
+📄 [Product page →](https://perseus.observer/mimir/) | ⭐ [GitHub →](https://github.com/Perseus-Computing-LLC/mimir)
 
 **Install:**
 ```bash
-curl -sSL https://raw.githubusercontent.com/tcconnally/mimir/main/scripts/bootstrap.sh | bash
+curl -sSL https://raw.githubusercontent.com/Perseus-Computing-LLC/mimir/main/scripts/bootstrap.sh | bash
 ```
 
 **Hermes Agent** — add to `~/.hermes/config.yaml`:
@@ -207,7 +207,7 @@ See [Container Runtime](./docs/CONTAINER.md) for full Docker and compose deploym
 
 ### MCP Registry
 
-Published as [`io.github.tcconnally/perseus`](https://registry.modelcontextprotocol.io/) on the official MCP Registry (search \"perseus\"). Includes `server.json` for zero-config discovery.
+Published as [`io.github.Perseus-Computing-LLC/perseus`](https://registry.modelcontextprotocol.io/) on the official MCP Registry (search \"perseus\"). Includes `server.json` for zero-config discovery.
 
 ---
 
@@ -326,7 +326,7 @@ Perseus delivers verified, up-to-date context, eliminating the need for AI assis
 - **Enterprise Ready** — Cost analysis shows that for a 500-developer team, Perseus can save significant token costs per year. [Cost analysis →](benchmark/titan_cost.json)
 - **Extreme Enterprise Benchmark** — 10-phase suite (reps=10, 50 devs, 250 concurrent agents): **10/10 hard gates · 6/6 soft gates · 0 errors at 250 concurrent · 90% enterprise ROI · fleet P99 1,169ms**. The benchmark is designed to surface regressions, not hide them. [Full methodology →](benchmark/README_EXTREME.md) · [Raw results →](benchmark/extreme_enterprise_results_full.json)
 
-![Perseus v1.0.6 — Performance Benchmarks](https://raw.githubusercontent.com/tcconnally/perseus/main/benchmark/infographic/perseus-benchmarks.svg)
+![Perseus v1.0.6 — Performance Benchmarks](https://raw.githubusercontent.com/Perseus-Computing-LLC/perseus/main/benchmark/infographic/perseus-benchmarks.svg)
 
 ### Reliability & Security
 

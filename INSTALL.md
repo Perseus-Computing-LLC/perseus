@@ -23,7 +23,7 @@ perseus --version
 For contributors, prefer an editable install from a checkout of this repo:
 
 ```bash
-git clone https://github.com/tcconnally/perseus.git
+git clone https://github.com/Perseus-Computing-LLC/perseus.git
 cd perseus
 pip install -e .
 which perseus
@@ -71,7 +71,7 @@ Cloning the repo and invoking `python perseus.py …` directly still works and i
 the recommended workflow for contributors:
 
 ```bash
-git clone https://github.com/tcconnally/perseus.git
+git clone https://github.com/Perseus-Computing-LLC/perseus.git
 cd perseus
 python perseus.py --version
 python perseus.py render
