@@ -8,7 +8,7 @@ version = "1.0.7"
 description = "Live context engine for AI assistants — resolve before context, zero cold-start tax."
 readme = "README.md"
 license = { text = "MIT" }
-authors = [{ name = "tcconnally" }]
+authors = [{ name = "Perseus Computing LLC", email = "perseus@perseus.observer" }]
 keywords = ["ai", "context", "assistant", "cli", "hermes", "claude", "cursor", "codex"]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -31,10 +31,10 @@ dev = ["pytest>=8.0.0", "coverage", "hypothesis"]
 mcp = ["mcp"]
 
 [project.urls]
-Homepage = "https://github.com/tcconnally/perseus"
-Documentation = "https://github.com/tcconnally/perseus/blob/main/docs/index.md"
-Repository = "https://github.com/tcconnally/perseus"
-"Bug Tracker" = "https://github.com/tcconnally/perseus/issues"
+Homepage = "https://github.com/Perseus-Computing-LLC/perseus"
+Documentation = "https://github.com/Perseus-Computing-LLC/perseus/blob/main/docs/index.md"
+Repository = "https://github.com/Perseus-Computing-LLC/perseus"
+"Bug Tracker" = "https://github.com/Perseus-Computing-LLC/perseus/issues"
 
 [project.scripts]
 perseus = "perseus:main"

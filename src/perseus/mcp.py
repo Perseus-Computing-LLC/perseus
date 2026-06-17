@@ -1053,8 +1053,8 @@ def print_mcp_registry(cfg: dict) -> None:
             "@inbox, @read, @env, @health, @agent, and all plugin directives."
         ),
         "version": version,
-        "vendor": "tcconnally",
-        "homepage": "https://github.com/tcconnally/perseus",
+        "vendor": "Perseus-Computing-LLC",
+        "homepage": "https://github.com/Perseus-Computing-LLC/perseus",
         "license": "MIT",
         "runtime": "python",
         "command": "perseus",

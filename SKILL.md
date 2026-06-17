@@ -125,6 +125,6 @@ Any MCP-compatible assistant (Claude Desktop, Cursor, Continue) can call
 
 ## Resources
 
-- **Homepage**: https://github.com/tcconnally/perseus
-- **Docs**: https://github.com/tcconnally/perseus/blob/main/docs/index.md
+- **Homepage**: https://github.com/Perseus-Computing-LLC/perseus
+- **Docs**: https://github.com/Perseus-Computing-LLC/perseus/blob/main/docs/index.md
 - **PyPI**: https://pypi.org/project/perseus-ctx/
