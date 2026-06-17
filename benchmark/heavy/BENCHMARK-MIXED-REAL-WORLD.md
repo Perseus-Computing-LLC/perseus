@@ -1,7 +1,7 @@
 # Perseus Cold-Start Benchmark — Mixed Real-World (Perseus + 8 ACME Repos)
 
 **Date:** 2026-05-23
-**Repo:** https://github.com/tcconnally/perseus (v1.0.1, commit on `main`)
+**Repo:** https://github.com/Perseus-Computing-LLC/perseus (v1.0.1, commit on `main`)
 **Host:** Windows 11, Python 3.14.2, native `python.exe`
 **Scenario:** Org-wide cross-repo audit. The Perseus repo cloned live from
 GitHub serves as the "platform core"; 8 synthetic ACME repos sit alongside
@@ -207,7 +207,7 @@ larger org can either keep that fan-out or add more rollups.
 ## Reproduction
 
 ```bash
-git clone https://github.com/tcconnally/perseus.git
+git clone https://github.com/Perseus-Computing-LLC/perseus.git
 cd perseus
 pip install pyyaml
 

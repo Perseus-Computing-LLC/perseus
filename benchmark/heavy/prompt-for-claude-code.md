@@ -7,7 +7,7 @@ produce three benchmark reports that make the scaling curve irrefutable.
 ## Setup (do once)
 
 ```bash
-git clone https://github.com/tcconnally/perseus.git /tmp/perseus-bench-heavy
+git clone https://github.com/Perseus-Computing-LLC/perseus.git /tmp/perseus-bench-heavy
 cd /tmp/perseus-bench-heavy
 pip install pyyaml
 ```

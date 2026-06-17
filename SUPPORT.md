@@ -12,7 +12,7 @@ For questions on how to use Perseus, please consult the documentation:
 ## 2. Issues and Requests
 
 If you encounter a bug or have a feature request:
-- Search existing **[GitHub Issues](https://github.com/tcconnally/perseus/issues)** to see if the topic is already being discussed.
+- Search existing **[GitHub Issues](https://github.com/Perseus-Computing-LLC/perseus/issues)** to see if the topic is already being discussed.
 - If not, open a new issue using our structured templates for either bug reports or feature requests.
 
 ## 3. Installation & Single-File Design

@@ -2,7 +2,7 @@
 
 **Date**: 2026-05-28
 **Reviewer**: Thomas Connally
-**Reviewed**: `tcconnally/perseus@0bb24ad` (origin/main after force-push)
+**Reviewed**: `Perseus-Computing-LLC/perseus@0bb24ad` (origin/main after force-push)
 **Artifact**: Built perseus.py at 14,957 lines, 754 tests collected, 688 pass / 58 fail / 7 skip / 1 xfail on Windows
 
 ---

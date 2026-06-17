@@ -65,7 +65,7 @@ The architecture has these concrete components:
 
 ## Implementation Reference
 
-- **Repo:** https://github.com/tcconnally/perseus (commit `2e5caf5` and later)
+- **Repo:** https://github.com/Perseus-Computing-LLC/perseus (commit `2e5caf5` and later)
 - **Directive registry:** `src/perseus/registry.py` lines 1–80
 - **Renderer:** `src/perseus/renderer.py` — `_render_lines()` at line 560, `render_source()` at line 1037
 - **Cache layer:** `src/perseus/renderer.py` — `_cache_key()` at line 21, `cache_get()` at line 115, `cache_set()` at line 148

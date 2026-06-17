@@ -55,6 +55,6 @@ Perseus renders it to live facts. The assistant never sees a directive — it se
 Works with Claude Code, Cursor, Codex, Rovo Dev, and anything else that opens a markdown file at session start. No plugin. No SDK. Drop the output where your assistant already looks.
 
 **Site:** https://perseus.observer
-**Repo:** https://github.com/tcconnally/perseus
+**Repo:** https://github.com/Perseus-Computing-LLC/perseus
 
 Happy to answer questions — especially about multi-agent swarms, the compile-before-context approach, and why I built this instead of using MCP tool calls.

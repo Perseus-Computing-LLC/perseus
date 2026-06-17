@@ -38,7 +38,7 @@ Every AI coding session starts cold. The assistant burns turns checking what bra
 * People who've felt the cold-start pain and want to try it
 
 **Site:** https://perseus.observer
-**Repo:** https://github.com/tcconnally/perseus
+**Repo:** https://github.com/Perseus-Computing-LLC/perseus
 **PyPI:** https://pypi.org/project/perseus-ctx/
 
 Happy to answer questions about the architecture, the build system (Python source tree → single-file artifact), or anything else.
