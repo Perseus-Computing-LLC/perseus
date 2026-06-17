@@ -109,4 +109,4 @@ Impact callout 1: 788 → 0 discovery calls
 Impact callout 2: 76 → 0 cd-and-query ops
 Impact footer: The assistant opens every session already oriented.
 Feature bar: @cache ttl=N | max_query_bytes | timeout=N | parallel | Windows
-Bottom-right: perseus v1.0.2 · github.com/tcconnally/perseus
+Bottom-right: perseus v1.0.2 · github.com/Perseus-Computing-LLC/perseus

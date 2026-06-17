@@ -1,7 +1,7 @@
 # Perseus Cold-Start Benchmark Report
 
 **Date:** 2026-05-23 11:20 CDT  
-**Repo:** https://github.com/tcconnally/perseus (commit `febd05a`)  
+**Repo:** https://github.com/Perseus-Computing-LLC/perseus (commit `febd05a`)  
 **Task:** "Summarize recent git activity and check if the test suite passes."
 
 ---

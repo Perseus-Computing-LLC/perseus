@@ -81,7 +81,7 @@ def _gpg_verify_signature(repo: Path, args) -> tuple[bool, str]:
     if not repo or not (repo / ".git").exists():
         print("Error: Perseus git repository not found.", file=sys.stderr)
         print("  Set update.repo_path in ~/.perseus/config.yaml", file=sys.stderr)
-        print("  Clone: git clone https://github.com/tcconnally/perseus.git", file=sys.stderr)
+        print("  Clone: git clone https://github.com/Perseus-Computing-LLC/perseus.git", file=sys.stderr)
         return 1
 
     os.chdir(str(repo))

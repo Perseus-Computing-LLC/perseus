@@ -227,7 +227,7 @@ def test_serve_render_index_includes_stats_and_endpoints(tmp_path):
     assert ">19<" in html         # skills
     assert "10m ago" in html      # 600s → 10m
     # Footer
-    assert "github.com/tcconnally/perseus" in html
+    assert "github.com/Perseus-Computing-LLC/perseus" in html
     # Version badge
     assert "v0.6" in html
     # Workspace shown

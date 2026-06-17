@@ -6,7 +6,7 @@ Pre-resolves live workspace state before every Claude Code session.
 
 ```bash
 mkdir -p .claude/hooks && \
-curl -fsSL https://raw.githubusercontent.com/tcconnally/perseus/main/integrations/claude-code/on_session_start.sh \
+curl -fsSL https://raw.githubusercontent.com/Perseus-Computing-LLC/perseus/main/integrations/claude-code/on_session_start.sh \
   -o .claude/hooks/on_session_start.sh && \
 chmod +x .claude/hooks/on_session_start.sh
 ```
