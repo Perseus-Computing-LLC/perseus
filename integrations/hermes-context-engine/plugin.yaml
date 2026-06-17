@@ -1,0 +1,10 @@
+name: perseus
+description: >
+  Perseus context engine — injects live Perseus context (health checks,
+  @query directives, workspace status) at session start and delegates
+  conversation compaction to the built-in ContextCompressor.  Provides
+  the perseus_grep tool to the agent.  Falls back gracefully when the
+  Perseus plugin is not installed.
+version: "1.0.1"
+author: tcconnally
+license: MIT
