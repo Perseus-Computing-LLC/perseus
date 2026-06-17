@@ -6,7 +6,7 @@ rendered output and skip orientation. Start work immediately.
 # Perseus Session Context — 2026-05-28 09:40 CDT
 
 **Workspace:** current repo checkout  
-**Repo:** https://github.com/tcconnally/perseus  
+**Repo:** https://github.com/Perseus-Computing-LLC/perseus  
 **Project:** Perseus — Live Context Engine for AI Assistants (v1.0.6)
 
 ---

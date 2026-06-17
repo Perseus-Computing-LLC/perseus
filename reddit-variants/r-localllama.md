@@ -35,6 +35,6 @@ This works great with local models — each agent in the pipeline reads a pre-re
 Works with Claude Code, Cursor, Codex, OpenCode, Rovo Dev, and anything that reads a file at session start. MIT license, one dependency (pyyaml).
 
 **Site:** https://perseus.observer
-**Repo:** https://github.com/tcconnally/perseus
+**Repo:** https://github.com/Perseus-Computing-LLC/perseus
 
 I'd especially love feedback from folks running local agent pipelines — the checkpoint relay pattern was designed for exactly that use case.

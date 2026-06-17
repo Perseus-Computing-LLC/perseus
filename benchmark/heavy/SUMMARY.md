@@ -4,7 +4,7 @@
 
 Three progressively heavier cold-start benchmarks + one follow-up
 coverage pass were run against a fresh clone of
-`https://github.com/tcconnally/perseus`. Full reports:
+`https://github.com/Perseus-Computing-LLC/perseus`. Full reports:
 
 - `BENCHMARK-MEGA-ENTERPRISE.md`   — 500 microservices
 - `BENCHMARK-MIXED-REAL-WORLD.md`  — Perseus core + 8 ACME satellite repos

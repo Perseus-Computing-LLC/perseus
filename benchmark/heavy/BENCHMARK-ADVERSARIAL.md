@@ -359,7 +359,7 @@ Slope ≈ 40 ms per `@query` in steady state.
 ## Reproduction
 
 ```bash
-git clone https://github.com/tcconnally/perseus.git
+git clone https://github.com/Perseus-Computing-LLC/perseus.git
 cd perseus
 pip install pyyaml
 python benchmark/heavy/setup_adversarial.py /path/to/perseus-adversarial

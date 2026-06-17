@@ -37,7 +37,7 @@ import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 
-PERSEUS_GIT = "https://github.com/tcconnally/perseus.git"
+PERSEUS_GIT = "https://github.com/Perseus-Computing-LLC/perseus.git"
 
 # ---------------------------------------------------------------------------
 

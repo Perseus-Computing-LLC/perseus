@@ -299,7 +299,7 @@ The final report must answer:
 
 ```bash
 # 1. Clone and install
-git clone https://github.com/tcconnally/perseus.git /workspace/perseus
+git clone https://github.com/Perseus-Computing-LLC/perseus.git /workspace/perseus
 cd /workspace/perseus
 pip install -e .
 

@@ -49,7 +49,7 @@ def main():
     perseus_dir = BASE / "repos" / "perseus"
     if not perseus_dir.exists():
         os.system(
-            f"git clone --quiet https://github.com/tcconnally/perseus.git {perseus_dir} 2>&1 | tail -1"
+            f"git clone --quiet https://github.com/Perseus-Computing-LLC/perseus.git {perseus_dir} 2>&1 | tail -1"
         )
 
     # 2. Microservices

@@ -13,7 +13,7 @@ rendered output and skip orientation. Start work immediately.
 ---
 
 ## 1. Core Repository (Perseus)
-**Repo:** https://github.com/tcconnally/perseus
+**Repo:** https://github.com/Perseus-Computing-LLC/perseus
 @query "cd /tmp/enterprise-benchmark/repos/perseus && git log --oneline -10"
 @query "cd /tmp/enterprise-benchmark/repos/perseus && git status --short"
 

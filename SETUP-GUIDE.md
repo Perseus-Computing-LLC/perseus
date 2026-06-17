@@ -4,7 +4,7 @@
 > **Last updated:** 2026-06-06  
 > **Perseus version tested:** v1.0.7
 > **Platforms verified:** macOS · Linux · Windows 10 (git-bash) · Docker  
-> **Source:** https://github.com/tcconnally/perseus · https://pypi.org/project/perseus-ctx/  
+> **Source:** https://github.com/Perseus-Computing-LLC/perseus · https://pypi.org/project/perseus-ctx/  
 > **New in this version:** Mimir as primary persistent store (structured five-tier memory) · Mneme MCP connector available as optional alternative
 
 ---
@@ -79,7 +79,7 @@ perseus --version
 ### Option C — from source
 
 ```bash
-git clone https://github.com/tcconnally/perseus.git
+git clone https://github.com/Perseus-Computing-LLC/perseus.git
 cd perseus
 pip install -e .
 ```
@@ -198,7 +198,7 @@ trust:
 > - `render.allow_query_shell` — the actual gate for `@query` directives during render
 > - `trust.allow_query_shell` — controls what `perseus trust profile` displays
 > - Both must be `true`. Setting only `trust.allow_query_shell` will NOT enable `@query`.
-> - See GitHub issue [#129](https://github.com/tcconnally/perseus/issues/129) for full details.
+> - See GitHub issue [#129](https://github.com/Perseus-Computing-LLC/perseus/issues/129) for full details.
 >
 > ⚠️ **v1.0.6+ requirement:** `@query`, `@agent`, and `@services command:` directives now also require `PERSEUS_ALLOW_DANGEROUS=1` in the process environment. This is an intentional second gate for security. Add this to your shell rc or prepend it to commands:
 > ```bash
@@ -308,7 +308,7 @@ renders:
 
 > ⚠️ **Critical:** `trust_profile: balanced` in pack.yaml **overrides** `render.allow_query_shell: true`
 > in config.yaml, disabling `@query` silently. Always use `power-user` if you need shell queries.
-> See GitHub issue [#129](https://github.com/tcconnally/perseus/issues/129).
+> See GitHub issue [#129](https://github.com/Perseus-Computing-LLC/perseus/issues/129).
 
 ### Trust profile comparison
 
@@ -503,7 +503,7 @@ The narrative file lives at: `~/.perseus/memory/<hash>.md`
 
 > ⚠️ **Upgrade note (pre-v1.0.3 → v1.0.3+):** Older Perseus versions used **MD5** for workspace hashes.
 > If `@memory` returns "No Mnēmē narrative found" after upgrading, you have a hash mismatch.
-> See [#128](https://github.com/tcconnally/perseus/issues/128) for the migration workaround.
+> See [#128](https://github.com/Perseus-Computing-LLC/perseus/issues/128) for the migration workaround.
 
 ### Manual migration (MD5 → SHA256)
 
@@ -559,10 +559,10 @@ memory:
   llm_timeout_s: 120
 ```
 
-> ⚠️ `perseus memory compact` hangs indefinitely with slow models. See [#131](https://github.com/tcconnally/perseus/issues/131).
+> ⚠️ `perseus memory compact` hangs indefinitely with slow models. See [#131](https://github.com/Perseus-Computing-LLC/perseus/issues/131).
 > If using LLM, always set `llm_timeout_s` and be prepared to kill the process.
 
-> ⚠️ `perseus memory update --llm none` crashes. See [#130](https://github.com/tcconnally/perseus/issues/130).
+> ⚠️ `perseus memory update --llm none` crashes. See [#130](https://github.com/Perseus-Computing-LLC/perseus/issues/130).
 > To force deterministic mode: omit `--llm` flag (leave `llm_provider` unset in config).
 
 ### Mimir Persistent Memory (Default)
@@ -598,10 +598,10 @@ mimir:
 
 ```bash
 # Install via the one-shot bootstrap script:
-curl -sSL https://raw.githubusercontent.com/tcconnally/mimir/main/scripts/bootstrap.sh | bash
+curl -sSL https://raw.githubusercontent.com/Perseus-Computing-LLC/mimir/main/scripts/bootstrap.sh | bash
 
 # Or build from source:
-git clone https://github.com/tcconnally/mimir.git ~/.mimir
+git clone https://github.com/Perseus-Computing-LLC/mimir.git ~/.mimir
 cd ~/.mimir && cargo build --release
 cp target/release/mimir ~/.local/bin/mimir
 
@@ -637,7 +637,7 @@ mimir --version   # expect "mimir 0.2.0"
 
 ### Mimir (PRIMARY — structured five-tier local memory)
 
-Perseus integrates with [Mimir](https://github.com/tcconnally/mimir), an MIT-licensed, local-first memory engine — a Rust binary with SQLite + FTS5. It provides structured entities with category/key idempotent upsert, journal events, state management with TTL, and entity linking — no vector DB, no embeddings, no cloud dependency.
+Perseus integrates with [Mimir](https://github.com/Perseus-Computing-LLC/mimir), an MIT-licensed, local-first memory engine — a Rust binary with SQLite + FTS5. It provides structured entities with category/key idempotent upsert, journal events, state management with TTL, and entity linking — no vector DB, no embeddings, no cloud dependency.
 
 | Tier | Name | Purpose | API |
 |------|------|---------|-----|
@@ -1070,7 +1070,7 @@ render:
 
 Also check `pack.yaml` — `trust_profile: balanced` overrides both. Use `power-user`.
 
-See [#129](https://github.com/tcconnally/perseus/issues/129).
+See [#129](https://github.com/Perseus-Computing-LLC/perseus/issues/129).
 
 ---
 
@@ -1130,7 +1130,7 @@ if old.exists() and not new.exists():
 ```
 Then update `workspace_hash` in the frontmatter and run `perseus memory update`.
 
-See [#128](https://github.com/tcconnally/perseus/issues/128).
+See [#128](https://github.com/Perseus-Computing-LLC/perseus/issues/128).
 
 ---
 
@@ -1143,7 +1143,7 @@ See [#128](https://github.com/tcconnally/perseus/issues/128).
 @memory ttl=300    # no focus= modifier
 ```
 
-See [#135](https://github.com/tcconnally/perseus/issues/135).
+See [#135](https://github.com/Perseus-Computing-LLC/perseus/issues/135).
 
 ---
 
@@ -1153,7 +1153,7 @@ See [#135](https://github.com/tcconnally/perseus/issues/135).
 
 **Fix:** Kill the process (`Ctrl+C` or `kill PID`), disable `llm_provider` in config, and use deterministic mode.
 
-See [#131](https://github.com/tcconnally/perseus/issues/131).
+See [#131](https://github.com/Perseus-Computing-LLC/perseus/issues/131).
 
 ---
 
@@ -1197,14 +1197,14 @@ perseus render ~/.perseus/context.md --output ~/AGENTS.md
 
 | # | Type | Summary |
 |---|---|---|
-| [#128](https://github.com/tcconnally/perseus/issues/128) | 🐛 Bug | MD5→SHA256 hash migration breaks `@memory` silently on upgrade |
-| [#129](https://github.com/tcconnally/perseus/issues/129) | 🐛 Bug | `trust_profile: balanced` silently disables `@query` despite global config |
-| [#130](https://github.com/tcconnally/perseus/issues/130) | 🐛 Bug | `memory update --llm none` crashes with RuntimeError |
-| [#131](https://github.com/tcconnally/perseus/issues/131) | 🐛 Bug | `memory compact` hangs indefinitely with slow Ollama models |
-| [#132](https://github.com/tcconnally/perseus/issues/132) | ✨ Feature | `perseus memory migrate` command for hash migration |
-| [#133](https://github.com/tcconnally/perseus/issues/133) | ✨ Feature | `--deterministic` flag for `memory update` and `memory compact` |
-| [#134](https://github.com/tcconnally/perseus/issues/134) | 📖 Docs | Document `render:` vs `trust:` config namespace distinction |
-| [#135](https://github.com/tcconnally/perseus/issues/135) | ✨ Feature | `@memory focus=recent` fallback when section not found |
+| [#128](https://github.com/Perseus-Computing-LLC/perseus/issues/128) | 🐛 Bug | MD5→SHA256 hash migration breaks `@memory` silently on upgrade |
+| [#129](https://github.com/Perseus-Computing-LLC/perseus/issues/129) | 🐛 Bug | `trust_profile: balanced` silently disables `@query` despite global config |
+| [#130](https://github.com/Perseus-Computing-LLC/perseus/issues/130) | 🐛 Bug | `memory update --llm none` crashes with RuntimeError |
+| [#131](https://github.com/Perseus-Computing-LLC/perseus/issues/131) | 🐛 Bug | `memory compact` hangs indefinitely with slow Ollama models |
+| [#132](https://github.com/Perseus-Computing-LLC/perseus/issues/132) | ✨ Feature | `perseus memory migrate` command for hash migration |
+| [#133](https://github.com/Perseus-Computing-LLC/perseus/issues/133) | ✨ Feature | `--deterministic` flag for `memory update` and `memory compact` |
+| [#134](https://github.com/Perseus-Computing-LLC/perseus/issues/134) | 📖 Docs | Document `render:` vs `trust:` config namespace distinction |
+| [#135](https://github.com/Perseus-Computing-LLC/perseus/issues/135) | ✨ Feature | `@memory focus=recent` fallback when section not found |
 
 ---
 
@@ -1267,5 +1267,5 @@ perseus doctor
 ---
 
 *Built from production experience wiring Perseus v1.0.7 into Hermes Agent, Rovo Dev CLI, and Rovo web agent — with Mimir as primary persistent store (Mneme available as optional alternative).*
-*Issues filed: [#128](https://github.com/tcconnally/perseus/issues/128) – [#135](https://github.com/tcconnally/perseus/issues/135)*  
+*Issues filed: [#128](https://github.com/Perseus-Computing-LLC/perseus/issues/128) – [#135](https://github.com/Perseus-Computing-LLC/perseus/issues/135)*  
 *Guide maintained at: `~/rovodev/docs/perseus-setup-guide.md` (canonical) · this copy: `~/Downloads/perseus-setup-guide.md`*

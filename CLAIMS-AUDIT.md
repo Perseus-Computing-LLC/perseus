@@ -5,7 +5,7 @@
 > **Correction (2026-06-13):** an earlier revision of this file claimed MCTS did
 > not exist. That was wrong — a methodology error: GitHub's repo search omits
 > forks by default, so a `user:tcconnally` search didn't surface
-> [`tcconnally/MCTS`](https://github.com/tcconnally/MCTS) (a fork of the canonical
+> [`Perseus-Computing-LLC/MCTS`](https://github.com/Perseus-Computing-LLC/MCTS) (a fork of the canonical
 > [`MCP-Audit/MCTS`](https://github.com/MCP-Audit/MCTS)), even though the README
 > linked straight to it and a full checkout exists locally. The MCTS section
 > below is rewritten to reflect the real, verified state.
@@ -20,8 +20,8 @@
 
 ## Verified claims
 
-- **MCTS — "120 analyzers, one command", scan output, self-testing.** ✓ Verified against [`MCP-Audit/MCTS`](https://github.com/MCP-Audit/MCTS) (canonical) / [`tcconnally/MCTS`](https://github.com/tcconnally/MCTS) (fork the README links to) and a local checkout. It's a substantial product: ~120 analyzers, static AST + snapshot + live MCP probe discovery, SARIF/HTML/JSON output, a REST API, and a GitHub Action. The "every analyzer has a regression test" claim is corroborated by the `eval/behavioral/` regression-fixture harness. Test suite: 365 passing, 3 skipped, 4 Windows-only environment failures (encoding/venv-layout assumptions in tests, not product code) — see `code-reviews/MCTS-review.md`. The self-verification invariant in `RiskScoringEngine.verify()` (scan fails loudly on score mismatch) is real and rare. Recent commits already landed the per-analyzer error-isolation and SARIF-URI-normalization fixes from that review.
-- **Mimir: 23 MCP tools, SQLite + FTS5, fully local** — verified against `tcconnally/mimir` v0.5.0 source. ✓
+- **MCTS — "120 analyzers, one command", scan output, self-testing.** ✓ Verified against [`MCP-Audit/MCTS`](https://github.com/MCP-Audit/MCTS) (canonical) / [`Perseus-Computing-LLC/MCTS`](https://github.com/Perseus-Computing-LLC/MCTS) (fork the README links to) and a local checkout. It's a substantial product: ~120 analyzers, static AST + snapshot + live MCP probe discovery, SARIF/HTML/JSON output, a REST API, and a GitHub Action. The "every analyzer has a regression test" claim is corroborated by the `eval/behavioral/` regression-fixture harness. Test suite: 365 passing, 3 skipped, 4 Windows-only environment failures (encoding/venv-layout assumptions in tests, not product code) — see `code-reviews/MCTS-review.md`. The self-verification invariant in `RiskScoringEngine.verify()` (scan fails loudly on score mismatch) is real and rare. Recent commits already landed the per-analyzer error-isolation and SARIF-URI-normalization fixes from that review.
+- **Mimir: 23 MCP tools, SQLite + FTS5, fully local** — verified against `Perseus-Computing-LLC/mimir` v0.5.0 source. ✓
 - **Perseus itself** (live context engine, MCP server, directives) — running in production in this very session. ✓
 
 ## Note on the registry-scan campaign

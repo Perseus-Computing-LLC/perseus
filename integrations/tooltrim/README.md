@@ -80,5 +80,5 @@ Tooltrim matches against `<serverId>.<toolName>` using micromatch globs.
 ## See Also
 
 - [Tooltrim GitHub](https://github.com/false200/tooltrim)
-- [Perseus @skills directive](https://github.com/tcconnally/perseus)
+- [Perseus @skills directive](https://github.com/Perseus-Computing-LLC/perseus)
 - [Micromatch glob syntax](https://github.com/micromatch/micromatch)

@@ -13,7 +13,7 @@ The framework and plan belong to the project owner. Your job is to execute tasks
 
 # Perseus — Living Roadmap
 
-**Repo:** https://github.com/tcconnally/perseus  
+**Repo:** https://github.com/Perseus-Computing-LLC/perseus  
 **Workspace:** current repo checkout  
 **Skill:** `perseus-context-engine` (installed at your assistant's skills directory)  
 **CLI:** `~/.local/bin/perseus`  

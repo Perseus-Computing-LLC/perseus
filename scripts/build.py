@@ -113,7 +113,7 @@ def _check_duplicate_symbols(repo_root: Path) -> None:
     Uses ``ast.parse`` instead of regex — robust to formatting variations
     (avoiding TOPLEVEL_DEF_RE / MAIN_BLOCK_RE false positives/negatives).
 
-    See https://github.com/tcconnally/perseus/issues/264
+    See https://github.com/Perseus-Computing-LLC/perseus/issues/264
     """
     seen: dict[str, str] = {}  # name → first module path
     for rel_path in MODULE_ORDER:
@@ -174,7 +174,7 @@ def _check_stripped_imports_defined(repo_root: Path) -> None:
     each resolves to a top-level def/class/assignment somewhere in MODULE_ORDER,
     failing the build otherwise.
 
-    See https://github.com/tcconnally/perseus/issues/299
+    See https://github.com/Perseus-Computing-LLC/perseus/issues/299
     (root cause of the #298 ``_mimir_context_inject`` NameError).
     """
     defined: set[str] = set()

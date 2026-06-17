@@ -47,7 +47,7 @@ perseus --version
 **Alternative — contributor source checkout:**
 
 ```bash
-git clone https://github.com/tcconnally/perseus.git
+git clone https://github.com/Perseus-Computing-LLC/perseus.git
 cd perseus
 pip install -e .
 which perseus

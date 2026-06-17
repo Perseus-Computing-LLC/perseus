@@ -1,7 +1,7 @@
 # Perseus Cold-Start Benchmark — Mega-Enterprise (500 Microservices)
 
 **Date:** 2026-05-23
-**Repo:** https://github.com/tcconnally/perseus (v1.0.1, commit on `main`)
+**Repo:** https://github.com/Perseus-Computing-LLC/perseus (v1.0.1, commit on `main`)
 **Host:** Windows 11, Python 3.14.2, native `python.exe` invocation (not WSL)
 **Scenario:** Pre-deploy SRE audit for a synthetic 500-microservice platform
 
@@ -241,7 +241,7 @@ The full rendered output is at
 
 ```bash
 # 1. Clone + install
-git clone https://github.com/tcconnally/perseus.git
+git clone https://github.com/Perseus-Computing-LLC/perseus.git
 cd perseus
 pip install pyyaml
 

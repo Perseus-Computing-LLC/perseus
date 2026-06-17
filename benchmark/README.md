@@ -49,7 +49,7 @@ Discovery calls needed = O(1) with Perseus
 
 ```bash
 # 1. Clone and set up the synthetic 12-microservice enterprise environment
-git clone https://github.com/tcconnally/perseus.git
+git clone https://github.com/Perseus-Computing-LLC/perseus.git
 cd perseus/benchmark/enterprise
 python3 setup.py
 
