@@ -15,7 +15,7 @@ coordination, and prove you're operational.
 ```bash
 pip install perseus
 # or from source:
-# git clone https://github.com/tcconnally/perseus.git && cd perseus && pip install -e .
+# git clone https://github.com/Perseus-Computing-LLC/perseus.git && cd perseus && pip install -e .
 ```
 
 Verify:

@@ -5,7 +5,7 @@
 > **Workspace:** `/Users/tconnally/perseus`
 > **Source baseline:** v1.0.5 → v1.0.6
 > **Status:** 10 PRs open against `main`, all CI-clean, awaiting merge.
-> **Milestone:** [v1.0.6](https://github.com/tcconnally/perseus/milestone/1) — 17 issues
+> **Milestone:** [v1.0.6](https://github.com/Perseus-Computing-LLC/perseus/milestone/1) — 17 issues
 
 ---
 
@@ -55,16 +55,16 @@ single-file `perseus.py` artifact.
 
 | # | PR | Closes | Severity | Title | LOC |
 |---|---|---|---|---|---|
-| 1 | [#159](https://github.com/tcconnally/perseus/pull/159) | #136 | 🔴 Critical | `fix(redaction): scope long_hex_secret to credential context` | +120 / -3 |
-| 2 | [#160](https://github.com/tcconnally/perseus/pull/160) | #137 | 🔴 Critical | `fix(audit,query): redact secrets in audit log fields and @query errors` | +180 / -10 |
-| 3 | [#161](https://github.com/tcconnally/perseus/pull/161) | #128 | 🟠 High    | `fix(mneme): migrate legacy MD5 narrative paths + memory doctor --migrate` | +210 / -8 |
-| 4 | [#162](https://github.com/tcconnally/perseus/pull/162) | #131 | 🟠 High    | `fix(memory): wall-clock deadline + deterministic fallback for compact` | +90 / -15 |
-| 5 | [#163](https://github.com/tcconnally/perseus/pull/163) | #139 | 🔴 Critical | `fix(mcp): subprocess tree kill on _call_tool timeout (POSIX + Windows)` | +160 / -25 |
-| 6 | [#164](https://github.com/tcconnally/perseus/pull/164) | #129 | 🔴 Critical | `fix(config): trust profile layering hardened structurally via skip_keys` | +95 / -12 |
-| 7 | [#170](https://github.com/tcconnally/perseus/pull/170) | #165 | 🔴 Critical | `fix(renderer): parallel_queries respects @if/@else control flow` | +110 / -3 |
-| 8 | [#171](https://github.com/tcconnally/perseus/pull/171) | #166 | 🔴 Critical | `fix(mcp): apply redaction to all _call_tool return paths` | +140 / -10 |
-| 9 | [#172](https://github.com/tcconnally/perseus/pull/172) | #168 | 🔴 Critical | `fix(hooks): refuse workspace-sourced shell/python hooks without opt-in` | +505 / -4 |
-| 10 | [#173](https://github.com/tcconnally/perseus/pull/173) | #169 | 🔴 Critical | `fix(registry): refuse workspace-sourced plugin config without opt-in` | +410 / -2 |
+| 1 | [#159](https://github.com/Perseus-Computing-LLC/perseus/pull/159) | #136 | 🔴 Critical | `fix(redaction): scope long_hex_secret to credential context` | +120 / -3 |
+| 2 | [#160](https://github.com/Perseus-Computing-LLC/perseus/pull/160) | #137 | 🔴 Critical | `fix(audit,query): redact secrets in audit log fields and @query errors` | +180 / -10 |
+| 3 | [#161](https://github.com/Perseus-Computing-LLC/perseus/pull/161) | #128 | 🟠 High    | `fix(mneme): migrate legacy MD5 narrative paths + memory doctor --migrate` | +210 / -8 |
+| 4 | [#162](https://github.com/Perseus-Computing-LLC/perseus/pull/162) | #131 | 🟠 High    | `fix(memory): wall-clock deadline + deterministic fallback for compact` | +90 / -15 |
+| 5 | [#163](https://github.com/Perseus-Computing-LLC/perseus/pull/163) | #139 | 🔴 Critical | `fix(mcp): subprocess tree kill on _call_tool timeout (POSIX + Windows)` | +160 / -25 |
+| 6 | [#164](https://github.com/Perseus-Computing-LLC/perseus/pull/164) | #129 | 🔴 Critical | `fix(config): trust profile layering hardened structurally via skip_keys` | +95 / -12 |
+| 7 | [#170](https://github.com/Perseus-Computing-LLC/perseus/pull/170) | #165 | 🔴 Critical | `fix(renderer): parallel_queries respects @if/@else control flow` | +110 / -3 |
+| 8 | [#171](https://github.com/Perseus-Computing-LLC/perseus/pull/171) | #166 | 🔴 Critical | `fix(mcp): apply redaction to all _call_tool return paths` | +140 / -10 |
+| 9 | [#172](https://github.com/Perseus-Computing-LLC/perseus/pull/172) | #168 | 🔴 Critical | `fix(hooks): refuse workspace-sourced shell/python hooks without opt-in` | +505 / -4 |
+| 10 | [#173](https://github.com/Perseus-Computing-LLC/perseus/pull/173) | #169 | 🔴 Critical | `fix(registry): refuse workspace-sourced plugin config without opt-in` | +410 / -2 |
 
 **Total:** ~2,020 lines added / ~92 lines removed across 10 PRs.
 
@@ -357,7 +357,7 @@ These are deferred to your judgment:
 
 ## 10. Contacts
 
-- **Repository:** https://github.com/tcconnally/perseus
+- **Repository:** https://github.com/Perseus-Computing-LLC/perseus
 - **Maintainer:** Thomas Connally (tconnally@atlassian.com / personal)
 - **Patent:** See `~/.rovodev/AGENTS.md` for the confidential
   Perseus patent status. Disclosure is with Gaurav Asthana (Atlassian
