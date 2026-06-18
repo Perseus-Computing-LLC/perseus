@@ -53,7 +53,7 @@ from typing import NamedTuple, Callable
 # ── Version (injected by scripts/build.py at build time) ──────────────────
 # All other modules reference _PERSEUS_VERSION; the build script's
 # _VERSION_RE replaces the literal "0.0.0" with the VERSION file value.
-_PERSEUS_VERSION = "1.0.7"  # replaced at build time by scripts/build.py — see VERSION file for canonical value
+_PERSEUS_VERSION = "1.0.8"  # replaced at build time by scripts/build.py — see VERSION file for canonical value
 
 # Register as 'perseus' so plugins can import from us (task-65)
 import sys as _sys
@@ -707,7 +707,7 @@ from datetime import datetime, timezone
 try:
     from .serve import _PERSEUS_VERSION
 except ImportError:
-    _PERSEUS_VERSION = "1.0.7"
+    _PERSEUS_VERSION = "1.0.8"
 
 # ──────────────────────────────── Webhooks ───────────────────────────────────
 
@@ -13655,6 +13655,27 @@ class MimirConnector:
             self._connect_error = f"circuit breaker open ({self._breaker.stats()})"
             return False
 
+        # Check binary exists before attempting connection (#378)
+        if self._transport == "stdio":
+            import shutil as _shutil
+            binary_name = self._command[0] if self._command else "mimir"
+            resolved = _shutil.which(binary_name)
+            if not resolved and os.path.isabs(binary_name):
+                resolved = binary_name if os.path.isfile(binary_name) else None
+            if not resolved:
+                # Try known paths before giving up
+                try:
+                    resolved = _find_mimir_binary(self._command)
+                except Exception:
+                    pass
+            if not resolved:
+                self._connect_error = (
+                    f"mimir binary not found: '{binary_name}' "
+                    "(install mimir or set mimir.command in config.yaml)"
+                )
+                self._breaker.failure()
+                return False
+
         try:
             if self._transport == "sse":
                 self._client = _MCPSseClient(self._endpoint, self._timeout)
@@ -17512,7 +17533,7 @@ def _find_version() -> str:
             return candidate.read_text().strip()
     return _PERSEUS_VERSION  # fallback to build-time injected literal
 
-_PERSEUS_VERSION = "1.0.7"  # injected by scripts/build.py at build time
+_PERSEUS_VERSION = "1.0.8"  # injected by scripts/build.py at build time
 _PERSEUS_VERSION = _find_version()
 
 
