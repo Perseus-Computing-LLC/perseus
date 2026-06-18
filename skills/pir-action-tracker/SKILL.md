@@ -20,10 +20,10 @@ completed PIRs with a visible closure panel.
 
 ## What This Skill Does
 
-1. **Discovers** all PIR pages in a configured Confluence space
-2. **Parses** every action item table — extracts ticket references, current status, and due dates
+1. **Discovers** candidate PIR pages in a configured Confluence space, then keeps only pages with qualifying internal-action tables
+2. **Parses** every qualifying action item table — extracts ticket references, current status, and target/due/completion dates where present
 3. **Fetches live status** for each referenced Jira ticket
-4. **Updates** each PIR page in-place with the latest status and due date
+4. **Updates** each retained PIR page in-place with the latest status and target/due/completion dates where present
 5. **Closes** completed PIRs with a prominent green ✅ success panel listing what was accomplished
 6. **Reports** any overdue or unverifiable actions for human follow-up
 
@@ -65,7 +65,7 @@ Tickets on inaccessible external sites are flagged in the report but not updated
 
 ## Workflow
 
-### Step 1 — Discover PIR Pages
+### Step 1 — Discover Candidate PIR Pages
 
 ```
 search_confluence_using_cql(
@@ -75,24 +75,39 @@ search_confluence_using_cql(
 )
 ```
 
-For each page, note the page ID, title, URL, and last modified date.
+For each result, note the page ID, title, URL, and last modified date.
+
+**Initial skip rules:**
+- Skip pages whose title contains `Index`, `Landing`, or similar navigation-only wording.
+- Skip pages that are clearly folder helpers, rollups, or reports rather than incident pages.
+- Do not assume that every page with `PIR` in the title should be maintained.
 
 ---
 
-### Step 2 — Parse Action Item Tables
+### Step 2 — Keep Only Pages With Qualifying Action Tables
 
-For each page:
+For each candidate page:
 1. Fetch: `get_confluence_page(page_url=..., output_file="tmp_pir_{page_id}.html")`
-2. Find all `<table>` elements containing columns named any of:
-   - `Ticket`, `Issue`, `Jira`
-   - `Status`, `Current Status`
-   - `Action`, `Work to Be Done`, `Action item summary`
-   - `Due date`, `Target date`, `Est. Completion`
-3. For each row extract:
+2. Find all `<table>` elements containing:
+   - a ticket/work-item column named any of: `Ticket`, `Issue`, `Jira`
+   - a status column named any of: `Status`, `Current Status`
+   - an action-description column named any of: `Action`, `Work to Be Done`, `Action item summary`
+   - and optionally a date column named any of: `Due date`, `Target date`, `Est. Completion`, `Completion date`
+3. Keep the page only if at least one row in at least one matching table contains an internal work-item reference, such as:
+   - a Jira key in linked or plain-text form
+   - an Atlassian-internal Jira URL
+   - an Atlas project/update link that is being used as the tracked internal work item
+4. Skip the page entirely if it has no qualifying table.
+5. For each retained row extract:
    - **ticket_id** — Jira key from `<a href>` or cell text
    - **action_summary** — plain-text description of the work
-   - **status_text** — text inside `<span data-type="status">`
+   - **status_text** — text inside `<span data-type="status">` or plain text in the status cell
    - **due_date** — from `<time datetime="YYYY-MM-DD">` or plain text
+   - **completion_date** — if the table uses a dedicated completion-date field
+
+**Important scope rule:**
+- This skill exists to maintain manually curated action/status tables on PIR pages.
+- If a page is a PIR narrative without a qualifying action table, leave it untouched.
 
 #### Common Table Formats
 
@@ -153,10 +168,12 @@ update_confluence_page(
 3. Delete the temp file after publishing.
 
 **Safety rules:**
-- Only modify status and date cells in action item tables
-- Never touch incident summary, root cause, timeline, or resolution sections
-- Only re-publish pages where at least one value changed
+- Only modify status, target-date, due-date, and completion-date cells in qualifying action item tables
+- Never touch incident summary, root cause, timeline, contacts, communication review, or resolution sections
+- Never add or remove rows unless the user explicitly asks for structural cleanup
+- Only re-publish pages where at least one tracked table value changed
 - If a ticket is inaccessible, keep the existing page value
+- If a page was retained only because of one qualifying table, do not modify unrelated tables on that page
 
 ---
 
@@ -259,7 +276,7 @@ After the report, offer:
 
 ```
 # Weekly sweep
-"Update the PIR tracker for all open SpaceX PIRs"
+"Update the PIR tracker for all open PIRs in the <SPACE_KEY> space"
 
 # Check for overdue items only
 "Any overdue PIR actions this week?"
@@ -276,7 +293,9 @@ After the report, offer:
 ## Tips
 
 - **Pre-filter by date**: Use `lastModified > now("-180d")` in the CQL query to skip very old PIRs that are unlikely to have open items.
+- **Prefer table qualification over title qualification**: A page with `PIR` in the title should still be skipped unless it contains a qualifying internal-action table.
 - **Batch updates**: Run all Jira fetches in parallel before making any page updates to minimize round trips.
+- **Preserve manually written framing**: Intro panels, executive summaries, and narrative sections are not tracker-owned content.
 - **Customer-safe language**: When writing the closure panel action list, avoid internal team names, ticket keys, and jargon. Write as if the customer will read it — because they might.
 - **Preserve history**: Always use a meaningful `version_message` so the page history shows what changed and why.
 
