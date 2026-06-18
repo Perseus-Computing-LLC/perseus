@@ -52,3 +52,6 @@ mcts_analysis/
 
 # macOS
 .DS_Store
+
+# Build artifacts (see #382)
+build/
