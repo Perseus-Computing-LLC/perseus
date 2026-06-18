@@ -631,6 +631,28 @@ class MimirConnector:
             self._connect_error = f"circuit breaker open ({self._breaker.stats()})"
             return False
 
+        # Check binary exists before attempting connection (#378)
+        if self._transport == "stdio":
+            import shutil as _shutil
+            binary_name = self._command[0] if self._command else "mimir"
+            resolved = _shutil.which(binary_name)
+            if not resolved and os.path.isabs(binary_name):
+                resolved = binary_name if os.path.isfile(binary_name) else None
+            if not resolved:
+                # Try known paths before giving up
+                try:
+                    from perseus.doctor import _find_mimir_binary
+                    resolved = _find_mimir_binary(self._command)
+                except Exception:
+                    pass
+            if not resolved:
+                self._connect_error = (
+                    f"mimir binary not found: '{binary_name}' "
+                    "(install mimir or set mimir.command in config.yaml)"
+                )
+                self._breaker.failure()
+                return False
+
         try:
             if self._transport == "sse":
                 self._client = _MCPSseClient(self._endpoint, self._timeout)
