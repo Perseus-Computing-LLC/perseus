@@ -49,3 +49,6 @@ engram.db
 outreach_048/
 *.local-pre-update
 mcts_analysis/
+
+# macOS
+.DS_Store
