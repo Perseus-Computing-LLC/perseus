@@ -540,7 +540,7 @@
   <div class="wrap">
     <div class="hero-eyebrow">Production Memory Engine &mdash; 15/15 Integration Tests</div>
     <h1>Mimir: <em>Deterministic</em> Persistent Memory for Professional AI Workflows</h1>
-    <p class="hero-lede">A Rust-built persistent memory sidecar with SQLite + FTS5 &mdash; 23 MCP tools, confidence decay, structured entities, and zero cloud dependencies. The default memory engine for Perseus, the backend for CrewAI Memory (54K stars, PR #6208), and a standalone MCP server.</p>
+    <p class="hero-lede">A Rust-built persistent memory sidecar with SQLite + FTS5 &mdash; 30 MCP tools, confidence decay, structured entities, and zero cloud dependencies. The default memory engine for Perseus, the backend for CrewAI Memory (54K stars, PR #6208), and a standalone MCP server.</p>
 
     <div class="stat-grid" style="grid-template-columns: repeat(4, 1fr);">
       <div class="stat-card">
@@ -560,8 +560,8 @@
       </div>
       <div class="stat-card">
         <div class="skey">MCP Tools</div>
-        <div class="sval">23<span class="unit">tools</span></div>
-        <div class="sdesc">Memory recall, storage, entities, layers, decay config, stats, health, and more. Full MCP compliance.</div>
+        <div class="sval">30<span class="unit">tools</span></div>
+        <div class="sdesc">Remote MCP server (SSE + HTTP), .mcpb Claude Desktop Extension, 30 tools. Full MCP compliance.</div>
       </div>
     </div>
 
@@ -660,34 +660,34 @@
 
       <!-- COLUMN 3: 23 MCP Tools -->
       <div class="mcp-col">
-        <h3 style="font-family:var(--serif); font-size:19px; font-weight:500; margin-top:0; color:var(--text); margin-bottom:16px;">23 Registered MCP Tools</h3>
+        <h3 style="font-family:var(--serif); font-size:19px; font-weight:500; margin-top:0; color:var(--text); margin-bottom:16px;">30 Registered MCP Tools</h3>
         <div class="mcp-tool-list">
           <div class="mcp-tool-item">
+            <span class="tool-name">mimir_remember</span>
+            <span class="tool-desc">Store or update persistent memories with encryption, confidence decay, and entity linking.</span>
+          </div>
+          <div class="mcp-tool-item">
             <span class="tool-name">mimir_recall</span>
-            <span class="tool-desc">FTS5 BM25 search over semantic memory. Keyword + fuzzy fallback for high-relevance retrieval.</span>
+            <span class="tool-desc">FTS5 keyword search + dense vector hybrid search. Stemming &amp; diversity ranking included.</span>
           </div>
           <div class="mcp-tool-item">
-            <span class="tool-name">mimir_store</span>
-            <span class="tool-desc">Save markdown content with tags, type (<code>insight</code>, <code>architecture</code>, <code>decision</code>), importance, and confidence.</span>
+            <span class="tool-name">mimir_recall_when</span>
+            <span class="tool-desc">Proactive JIT memory injection — memories surface when their triggers match the current context.</span>
           </div>
           <div class="mcp-tool-item">
-            <span class="tool-name">mimir_entity_* <em style="font-size:11px;color:var(--text-muted);">× 6 tools</em></span>
-            <span class="tool-desc">Create, read, update, delete, and search structured entities. Schema-validated with relationship linking.</span>
+            <span class="tool-name">mimir_link / mimir_unlink / mimir_traverse</span>
+            <span class="tool-desc">Knowledge graph construction. Link entities with typed relationships and walk the graph.</span>
           </div>
           <div class="mcp-tool-item">
-            <span class="tool-name">mimir_layer_* <em style="font-size:11px;color:var(--text-muted);">× 4 tools</em></span>
-            <span class="tool-desc">Namespace memories into layers (project, team, personal). Isolate or merge recall across boundaries.</span>
+            <span class="tool-name">mimir_vault_export / mimir_vault_import</span>
+            <span class="tool-desc">Export/import .md vaults with YAML frontmatter. Git-trackable, Obsidian-compatible.</span>
           </div>
           <div class="mcp-tool-item">
-            <span class="tool-name">mimir_decay_config</span>
-            <span class="tool-desc">Control confidence decay curves per type. Memories fade unless reinforced — configurable half-life.</span>
-          </div>
-          <div class="mcp-tool-item">
-            <span class="tool-name">mimir_stats / mimir_health / ...</span>
-            <span class="tool-desc">Database statistics, structural integrity checks, daemon status, export, graph queries, and more.</span>
+            <span class="tool-name">mimir_journal / mimir_timeline / +20 more</span>
+            <span class="tool-desc">Decision journals, health checks, embedding, coherence grooming, state management, and more.</span>
           </div>
         </div>
-        <p style="font-size:12px; color:var(--text-muted); margin-top:12px;">23 tools total &mdash; full list at <a href="https://github.com/Perseus-Computing-LLC/mimir" style="color:var(--accent-2);">github.com/Perseus-Computing-LLC/mimir</a></p>
+        <p style="font-size:12px; color:var(--text-muted); margin-top:12px;">30 tools total &mdash; full list at <a href="https://github.com/Perseus-Computing-LLC/mimir" style="color:var(--accent-2);">github.com/Perseus-Computing-LLC/mimir</a></p>
       </div>
     </div>
   </div>
@@ -846,6 +846,59 @@ mimir:
   </div>
 </section>
 
+<!-- ============ SECTION 6: MCP Desktop Extension + Remote MCP ============ -->
+<section class="section-block">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-num">§ 06</div>
+      <h2 class="sec-title">Claude <em>MCP</em> Integration</h2>
+    </div>
+
+    <p style="font-size:17px; line-height:1.6; color:var(--text-dim); margin-bottom:40px; max-width:850px;">
+      Mimir is available as both a <strong>remote MCP server</strong> (no install &mdash; just paste a URL) and a <strong>.mcpb Desktop Extension</strong> (one-click install from Claude Desktop's extension directory).
+    </p>
+
+    <div class="split-grid">
+      <div class="code-block">
+        <div class="cb-label">Remote MCP (no install)</div>
+        <pre><code>// Add to Claude Desktop config:
+{
+  "mcpServers": {
+    "mimir": {
+      "type": "url",
+      "url": "https://mimir-mcp.perseus.observer/sse"
+    }
+  }
+}
+
+// Claude API MCP Connector:
+mcp_servers=[{
+  "type": "url",
+  "url": "https://mimir-mcp.perseus.observer/sse",
+  "name": "mimir"
+}]</code></pre>
+      </div>
+
+      <div class="code-block">
+        <div class="cb-label">Desktop Extension (.mcpb)</div>
+        <pre><code>// 1. Download mimir-1.0.1.mcpb
+// 2. Double-click to install
+// 3. Configure your DB path (optional)
+// 4. Restart Claude Desktop
+
+// Mimir runs locally — your memory
+// stays on your machine, encrypted
+// with AES-256-GCM. Zero cloud.</code></pre>
+      </div>
+    </div>
+
+    <div style="text-align:center; margin-top:32px; display:flex; gap:16px; justify-content:center; flex-wrap:wrap;">
+      <a href="https://github.com/Perseus-Computing-LLC/mimir/releases/download/v1.0.1/mimir-1.0.1.mcpb" class="cta-btn primary">Download .mcpb Extension &darr;</a>
+      <a href="https://github.com/Perseus-Computing-LLC/mimir/releases/tag/v1.0.1" class="cta-btn">Release Notes &rarr;</a>
+    </div>
+  </div>
+</section>
+
 <!-- ============ FOOTER ============ -->
 <footer>
   <div class="wrap">
@@ -868,7 +921,7 @@ mimir:
 
     <div class="footer-meta">
       <span>Perseus &middot; live context engine</span>
-      <span>Mimir v0.5.0 &middot; MIT License</span>
+      <span>Mimir v1.0.1 &middot; MIT License</span>
     </div>
   </div>
 </footer>
