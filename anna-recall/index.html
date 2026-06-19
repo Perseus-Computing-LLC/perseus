@@ -2,104 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Anna Recall — Persistent Memory Plugin for Anna AI</title>
-<meta name="description" content="435-line plugin that gives Anna AI persistent memory powered by Mimir's Rust engine. 15/15 tests. One config line."/>
-<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
-<style>
-:root{--bg:#0c0814;--bg-2:#140e22;--line:rgba(196,168,255,0.10);--text:#ece4ff;--text-dim:#9a8cc4;--text-muted:#5d5078;--accent:#a78bfa;--accent-2:#56e1ff;--code-bg:#07040d;--serif:"Cormorant Garamond","EB Garamond",Georgia,serif;--sans:"IBM Plex Sans",-apple-system,"Segoe UI",sans-serif;--mono:"JetBrains Mono","IBM Plex Mono",ui-monospace,monospace;--max:860px;--gutter:clamp(20px,4vw,56px)}
-*,*::before,*::after{box-sizing:border-box}
-html{scroll-behavior:smooth}
-body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:16px;line-height:1.55;-webkit-font-smoothing:antialiased;overflow-x:hidden;background-image:radial-gradient(ellipse 80% 60% at 50% 0%,rgba(167,139,250,0.08),transparent 70%),linear-gradient(rgba(167,139,250,0.02) 1px,transparent 1px),linear-gradient(90deg,rgba(167,139,250,0.02) 1px,transparent 1px);background-size:100% 100%,80px 80px,80px 80px;background-attachment:fixed}
-::selection{background:var(--accent);color:#1a1410}
-a{color:inherit;text-decoration:none}
-.wrap{max-width:var(--max);margin:0 auto;padding:0 var(--gutter)}
-.topbar{position:sticky;top:0;z-index:50;backdrop-filter:blur(12px);background:color-mix(in oklab,var(--bg) 78%,transparent);border-bottom:1px solid var(--line)}
-.topbar-inner{display:flex;align-items:center;justify-content:space-between;height:60px}
-.wordmark{font-family:var(--serif);font-size:21px;font-weight:500;display:flex;align-items:center;gap:10px}
-.wordmark .dot{width:6px;height:6px;background:var(--accent);border-radius:50%;box-shadow:0 0 8px var(--accent)}
-.topbar nav{display:flex;gap:24px;font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-dim);align-items:center}
-.topbar nav a:hover{color:var(--text)}
-.hero{padding:clamp(50px,8vw,90px) 0 clamp(30px,5vw,50px)}
-.hero-eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.28em;text-transform:uppercase;color:var(--accent);margin-bottom:24px}
-.hero h1{font-family:var(--serif);font-weight:500;font-size:clamp(36px,5vw,56px);line-height:0.98;letter-spacing:-.016em;margin:0 0 24px 0}
-.hero h1 em{font-style:italic;color:var(--accent);font-weight:400;text-shadow:0 0 22px rgba(167,139,250,.45)}
-.hero-lede{font-family:var(--serif);font-size:clamp(17px,2vw,22px);line-height:1.45;color:var(--text-dim);max-width:700px;font-weight:400;margin:0 0 0 0}
-.stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:32px 0}@media(max-width:600px){.stat-grid{grid-template-columns:1fr}}
-.stat-card{background:var(--bg-2);border:1px solid var(--line);padding:20px;border-radius:4px}
-.skey{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px}
-.sval{font-family:var(--serif);font-size:32px;line-height:1;font-weight:500;color:var(--accent)}
-.sdesc{font-size:12.5px;color:var(--text-dim);line-height:1.45;margin-top:6px}
-.code-block{position:relative;background:var(--code-bg);border:1px solid var(--line);border-radius:4px;padding:20px;overflow-x:auto;margin:16px 0}
-.code-block pre{margin:0;font-family:var(--mono);font-size:13px;line-height:1.6;color:var(--text-dim)}
-.code-block .cb-label{position:absolute;top:0;right:0;background:var(--bg);border-bottom:1px solid var(--line);border-left:1px solid var(--line);padding:4px 12px;font-family:var(--mono);font-size:9px;text-transform:uppercase;color:var(--text-muted)}
-.demo-arc{display:flex;gap:24px;align-items:center;margin:24px 0;font-family:var(--mono);font-size:12px}
-.demo-arc .session{flex:1;background:var(--bg-2);border:1px solid var(--line);padding:16px;border-radius:4px;text-align:center}
-.demo-arc .session .num{color:var(--accent);font-size:10px;letter-spacing:.2em;text-transform:uppercase;margin-bottom:8px}
-.demo-arc .session .action{color:var(--text-dim)}
-.demo-arc .arrow{color:var(--accent);font-size:18px}
-footer{border-top:1px solid var(--line);padding:48px 0;background:var(--bg);margin-top:clamp(40px,6vw,80px)}
-.footer-grid{display:flex;justify-content:space-between;gap:24px;margin-bottom:24px}
-.footer-links{display:flex;gap:20px;font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted)}
-.footer-links a:hover{color:var(--accent)}
-.footer-meta{display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--text-muted);border-top:1px solid var(--line);padding-top:20px}
-</style>
+<meta http-equiv="refresh" content="0;url=/crewai/"/>
+<title>Anna Recall → CrewAI Memory</title>
 </head>
-<body>
-<header class="topbar"><div class="wrap topbar-inner">
-<a href="/" class="wordmark">Perseus<span class="dot"></span></a>
-<nav><a href="/">Home</a><a href="/mimir/">Mimir</a><a href="/mcts/">MCTS</a><a href="https://github.com/Perseus-Computing-LLC/perseus" target="_blank" rel="noopener">GitHub</a></nav>
-</div></header>
-
-<section class="hero"><div class="wrap">
-<div class="hero-eyebrow">435-Line Plugin — Production Memory Engine</div>
-<h1>Anna AI &mdash; <em>now remembers</em> you.</h1>
-<p class="hero-lede">anna-recall is a 435-line plugin for <b>Anna AI</b>. It gives Anna persistent memory across sessions — powered by Mimir's Rust engine (15/15 production tests, FTS5, confidence decay). Install one plugin, add one config line.</p>
-
-<div class="stat-grid">
-<div class="stat-card"><div class="skey">Code</div><div class="sval">435<span style="font-size:14px;color:var(--text-muted);"> lines</span></div><div class="sdesc">The plugin is thin because Mimir does the heavy lifting. Every line is auditable.</div></div>
-<div class="stat-card"><div class="skey">Engine</div><div class="sval">15<span style="font-size:14px;color:var(--text-muted);">/15</span></div><div class="sdesc">Mimir's production test suite. FTS5 keyword recall, confidence decay, entity storage.</div></div>
-<div class="stat-card"><div class="skey">Setup</div><div class="sval">1<span style="font-size:14px;color:var(--text-muted);"> line</span></div><div class="sdesc">Install the Executa plugin. Add one config entry. Anna knows everything you've told her.</div></div>
-</div>
-</div></section>
-
-<div class="wrap">
-<h2 style="font-family:var(--serif);font-size:28px;font-weight:500;margin:0 0 24px 0;">The <em style="font-style:italic;color:var(--accent);">Demo</em> Arc</h2>
-<div class="demo-arc">
-<div class="session"><div class="num">Session 1</div><div class="action">You tell Anna your name, project, preferences, and a recurring bug.</div></div>
-<div class="arrow">→</div>
-<div class="session"><div class="num">Kill Anna</div><div class="action" style="color:#ef4444;">Terminate the process. All session state lost — except what Mimir stored.</div></div>
-<div class="arrow">→</div>
-<div class="session"><div class="num">Session 2</div><div class="action" style="color:#34d399;">Anna greets you by name, knows your project, remembers the bug. Zero re-orientation.</div></div>
-</div>
-
-<h2 style="font-family:var(--serif);font-size:28px;font-weight:500;margin:40px 0 24px 0;">Quickstart</h2>
-
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-<div class="code-block"><div class="cb-label">install</div>
-<pre><code># Install the Executa plugin
-anna plugins install anna-recall
-
-# Or from source (435 lines, read it yourself)
-git clone https://github.com/Perseus-Computing-LLC/anna-recall</code></pre></div>
-<div class="code-block"><div class="cb-label">configure</div>
-<pre><code># One config line — point at Mimir
-# anna-config.yaml:
-plugins:
-  recall:
-    backend: mimir
-    db_path: ~/.mimir/data/mimir.db</code></pre></div>
-</div>
-
-<div style="text-align:center;margin-top:24px;">
-<a href="https://github.com/Perseus-Computing-LLC/anna-recall" style="display:inline-block;border:1px solid var(--accent);padding:12px 24px;color:var(--accent);font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;">Anna Recall on GitHub →</a>
-</div>
-</div>
-
-<footer><div class="wrap">
-<div class="footer-grid"><div style="color:var(--text-dim);font-size:13px">Persistent memory for Anna AI. 435 lines. Powered by Mimir.</div>
-<div class="footer-links"><a href="/">Home</a><a href="/mimir/">Mimir</a><a href="https://github.com/Perseus-Computing-LLC/anna-recall" target="_blank" rel="noopener">GitHub</a></div></div>
-<div class="footer-meta"><span>Perseus &middot; AI ecosystem</span><span>Anna Recall &middot; MIT</span></div>
-</div></footer>
+<body style="background:#0c0814;color:#ece4ff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
+<p style="font-size:18px;color:#9a8cc4">Anna Recall is deprecated. Mimir now powers <a href="/crewai/" style="color:#c77dff">CrewAI Memory →</a></p>
 </body>
 </html>
