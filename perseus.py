@@ -14984,10 +14984,6 @@ def cmd_memory(args, cfg):
         cmd_memory_federation(args, cfg)
         return
 
-    if sub == "add":
-        cmd_memory_add(args, cfg)
-        return
-
     if sub == "index":
         _cmd_memory_index(args, cfg)
         return
@@ -14998,59 +14994,6 @@ def cmd_memory(args, cfg):
 
     print(f"perseus memory: unknown subcommand '{sub}'.", file=sys.stderr)
     sys.exit(2)
-
-
-def cmd_memory_add(args, cfg) -> None:
-    """Write a memory to the Mimir persistent store via MCP.
-
-    This is the write path for 'automatic background memory' — agents and
-    operators can call `perseus memory add "content"` to durably store
-    facts, decisions, and insights in Mimir.
-
-    Requires Mimir to be configured and reachable (mimir.enabled: true
-    in config.yaml).
-    """
-    content = getattr(args, "content", "")
-    if not content or not content.strip():
-        print("Error: memory content is required.", file=sys.stderr)
-        sys.exit(1)
-
-    topic = getattr(args, "topic", None)
-    tags_str = getattr(args, "tags", None)
-    importance = getattr(args, "importance", 0.5)
-    workspace = _memory_workspace(args, cfg)
-
-    tags = {}
-    if tags_str:
-        for pair in tags_str.split(","):
-            pair = pair.strip()
-            if "=" in pair:
-                k, v = pair.split("=", 1)
-                tags[k.strip()] = v.strip()
-            elif pair:
-                tags[pair] = ""
-
-    connector = MimirConnector(cfg)
-    if not connector.available:
-        print("Error: Mimir is not available. Check mimir configuration in config.yaml.", file=sys.stderr)
-        print("Run `perseus doctor` for diagnostics.", file=sys.stderr)
-        sys.exit(1)
-
-    ok, result_id = connector.store(
-        content=content.strip(),
-        memory_type=MemoryTypeEnum.INSIGHT,
-        workspace_hash=_workspace_hash(workspace),
-        tags=tags,
-        links=[],
-        importance=importance,
-        topic_path=topic or "",
-    )
-
-    if ok:
-        print(f"✓ Memory stored: {result_id}")
-    else:
-        print(f"Error storing memory: {result_id}", file=sys.stderr)
-        sys.exit(1)
 
 
 def cmd_memory_doctor(args, cfg) -> None:
@@ -17582,12 +17525,7 @@ def resolve_health(args_str: str, cfg: dict, workspace: Path | None = None) -> s
 # ─────────────────────────────── Doctor ──────────────────────────────────────
 
 def _find_version() -> str:
-    """Read version from installed package metadata, falling back to VERSION file or build-time literal."""
-    try:
-        from importlib.metadata import version, PackageNotFoundError
-        return version("perseus-ctx")
-    except (ImportError, PackageNotFoundError):
-        pass
+    """Read version from VERSION file in repo root if present, else use baked-in."""
     start = Path(__file__).resolve().parent
     for p in [start] + list(start.parents):
         candidate = p / "VERSION"
@@ -19445,20 +19383,6 @@ def _quickstart_write_config(workspace: Path, generation: dict | None = None) ->
         yaml.safe_dump(config, f, sort_keys=False)
     return config_path
 
-def _quickstart_ensure_config(workspace: Path, generation: dict | None = None) -> Path:
-    """Ensure a .perseus/config.yaml exists; never overwrite an existing one.
-
-    If config.yaml already exists, it is left untouched. Otherwise a minimal
-    config with safe defaults is written. This prevents reinstall/upgrade from
-    silently dropping user Mimir wiring and other custom settings (#384).
-    """
-    perseus_dir = workspace / ".perseus"
-    perseus_dir.mkdir(parents=True, exist_ok=True)
-    config_path = perseus_dir / "config.yaml"
-    if config_path.exists():
-        return config_path
-    return _quickstart_write_config(workspace, generation)
-
 
 def _quickstart_detect_llm_backends() -> list[dict]:
     """Scan environment for known LLM API keys and return available backends."""
@@ -19693,29 +19617,7 @@ def cmd_quickstart(args, cfg) -> int:
 
 
 def cmd_render(args, cfg):
-    if args.source is None:
-        # Resolve source from .perseus/pack.yaml if available
-        workspace = Path.cwd()
-        pack, _, _ = _load_pack_manifest(workspace)
-        renders = (pack or {}).get("renders", [])
-        if not renders:
-            print("Error: no source specified and .perseus/pack.yaml has no renders defined.",
-                  file=sys.stderr)
-            print("Usage: perseus render <source.md>", file=sys.stderr)
-            sys.exit(1)
-        # Use the first render entry with a source
-        source_str = None
-        for r in renders:
-            if r.get("source"):
-                source_str = r["source"]
-                break
-        if source_str is None:
-            print("Error: .perseus/pack.yaml renders have no source defined.",
-                  file=sys.stderr)
-            sys.exit(1)
-        source_path = (workspace / source_str).expanduser().resolve()
-    else:
-        source_path = Path(args.source).expanduser().resolve()
+    source_path = Path(args.source).expanduser().resolve()
     if not source_path.exists():
         print(f"Error: file not found: {source_path}", file=sys.stderr)
         sys.exit(1)
@@ -19790,12 +19692,6 @@ def cmd_render(args, cfg):
                 pass  # chown may fail in containers without CAP_CHOWN
         else:
             out_path.write_text(rendered, encoding="utf-8")
-        # Write .last-render heartbeat for staleness detection (#385)
-        try:
-            heartbeat = workspace / ".perseus" / ".last-render"
-            heartbeat.write_text(datetime.now(timezone.utc).isoformat())
-        except OSError:
-            pass  # may fail in read-only or restricted environments
     else:
         print(rendered)
 
@@ -21509,8 +21405,7 @@ def main():
 
     # render
     p_render = sub.add_parser("render", help="Render a @perseus source file")
-    p_render.add_argument("source", nargs="?", default=None,
-                          help="Path to .md file with @perseus header (optional if .perseus/pack.yaml defines renders)")
+    p_render.add_argument("source", help="Path to .md file with @perseus header")
     p_render.add_argument(
         "--output", "-o", default=None, metavar="FILE",
         help="Write rendered output to FILE instead of stdout",
@@ -21689,13 +21584,6 @@ def main():
     p_mem_query.add_argument("question", help="Question or search terms")
     p_mem_query.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
     p_mem_query.add_argument("--llm", default=None, help="LLM provider")
-
-    p_mem_add = mem_sub.add_parser("add", help="Write a memory to Mimir persistent store")
-    p_mem_add.add_argument("content", help="Memory content to store")
-    p_mem_add.add_argument("--topic", default=None, help="Topic path (e.g. 'decisions/architecture')")
-    p_mem_add.add_argument("--tags", default=None, help="Comma-separated tags")
-    p_mem_add.add_argument("--importance", type=float, default=0.5, help="Importance 0.0–1.0 (default: 0.5)")
-    p_mem_add.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
 
     # memory federation (task-19, Phase 8.2)
     p_mem_fed = mem_sub.add_parser(
