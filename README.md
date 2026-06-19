@@ -18,7 +18,7 @@
 
 ## 🛡️ Product Family
 
-Perseus is the live context engine. Six specialized products extend it:
+Perseus is the live context engine. Seven specialized products extend it:
 
 | Product | Description | Page |
 |---|---|---|
@@ -28,7 +28,7 @@ Perseus is the live context engine. Six specialized products extend it:
 | **Blast Radius** | GitLab-native dependency impact analysis — 1 mention, instant risk report | [/blast-radius/](https://perseus.observer/blast-radius/) |
 | **Rapid Agent** | Dual-backend memory agent (Elastic ↔ Engram-rs) — Google Cloud Hackathon | [/rapid-agent/](https://perseus.observer/rapid-agent/) |
 | **Qwen Memory** | Agent that gets smarter every session — Qwen Cloud Hackathon | [/qwen-memory/](https://perseus.observer/qwen-memory/) |
-| **Anna Recall** | 435-line Anna AI plugin — persistent memory powered by Mimir | [/anna-recall/](https://perseus.observer/anna-recall/) |
+| **CrewAI Memory** | Persistent cross-session memory backend for CrewAI (54K stars) — community PR #6208 | [/crewai/](https://perseus.observer/crewai/) |
 
 ---
 

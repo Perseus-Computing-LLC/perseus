@@ -540,7 +540,7 @@
   <div class="wrap">
     <div class="hero-eyebrow">Production Memory Engine &mdash; 15/15 Integration Tests</div>
     <h1>Mimir: <em>Deterministic</em> Persistent Memory for Professional AI Workflows</h1>
-    <p class="hero-lede">A Rust-built persistent memory sidecar with SQLite + FTS5 &mdash; 23 MCP tools, confidence decay, structured entities, and zero cloud dependencies. The default memory engine for Perseus, the backend for anna-recall, and a standalone MCP server.</p>
+    <p class="hero-lede">A Rust-built persistent memory sidecar with SQLite + FTS5 &mdash; 23 MCP tools, confidence decay, structured entities, and zero cloud dependencies. The default memory engine for Perseus, the backend for CrewAI Memory (54K stars, PR #6208), and a standalone MCP server.</p>
 
     <div class="stat-grid" style="grid-template-columns: repeat(4, 1fr);">
       <div class="stat-card">
@@ -791,11 +791,11 @@
         <p class="desc" style="font-size:13px;">Perseus ships with Mimir as its default persistent memory connector. Zero configuration: one command, context + memory running together.</p>
       </div>
       <div class="const-cell" style="text-align:center;">
-        <div class="greek" style="margin-bottom:12px;">anna-recall Backend</div>
+        <div class="greek" style="margin-bottom:12px;">CrewAI Memory Backend</div>
         <div style="font-family:var(--mono); font-size:12px; color:var(--accent-2); background:var(--code-bg); padding:10px; border-radius:4px; margin-bottom:12px; word-break:break-all;">
-          435-line plugin<br/>15/15 tests pass
+          PR #6208<br/>13 commits · 28 reviews
         </div>
-        <p class="desc" style="font-size:13px;">The anna-recall Anna AI plugin is just 435 lines because the heavy lifting is a tested Rust engine. Point it at Mimir, done.</p>
+        <p class="desc" style="font-size:13px;">Community-built CrewAI integration. Mimir provides persistent cross-session memory for CrewAI agents (54K stars). One pip install, zero config.</p>
       </div>
     </div>
   </div>
