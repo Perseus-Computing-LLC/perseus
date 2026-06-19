@@ -986,7 +986,6 @@ def _bind_registry() -> None:
         DirectiveSpec("@agent",     resolve_agent,     ["agent=", "prompt="],                         "inline",  "acw", summary="Execute a local agent subprocess with a given prompt. Use to delegate work to another agent profile. Requires agent and prompt parameters. REQUIRES allow_agent_shell=true. Destructive — spawns a subprocess that may modify the workspace.", tier=3),
         DirectiveSpec("@tool",      resolve_tool,      ["name="],                         "inline",  "acw", executes_shell=True, safe_for_hover=False, summary="Run an external tool that has been allowlisted in the Perseus configuration. Use for approved integrations only. Requires the tool name to be present in the allowlist. Destructive — executes the tool with the user's permissions.", tier=3),
         DirectiveSpec("@tooltrim",  resolve_tooltrim,  ["stats", "full"],          "inline",  "acw", reads_files=True,  cacheable=True,  safe_for_hover=True,  summary="Return filtered toolset metadata and usage statistics. Use to understand what tools are available and how they are being used. For full tool metadata, set full=true. Read-only; stats mode returns aggregated counts.", tier=3),
-        DirectiveSpec("@trust",     resolve_trust,    [],                         "inline",  "acw", safe_for_hover=True, summary="Surface MCP tool trust status from Interlock security gateway. Shows approved, quarantined, and blocked tools with risk levels. Gracefully degrades (silent) if Interlock is not configured. Read-only; queries Interlock REST API.", tier=2),
         DirectiveSpec("@mason",     resolve_mason_tool_directive, ["query="],              "inline",  "a",   cacheable=True,  safe_for_hover=True,  summary="Query the Mason code architecture concept map to find which files implement a feature. Use before editing code to understand where changes should go. Read-only; returns concept map and mapped file list.", tier=3),
 
         # Block / control (resolved by renderer, tier doesn't apply)
@@ -8302,83 +8301,6 @@ def resolve_tooltrim(
         shrink_summary=shrink_summary,
         token_savings=token_savings,
     )
-
-
-# ─────────────────────────── @trust (Interlock) ──────────────────────────────
-
-def resolve_trust(args_str: str, cfg: dict, workspace: Path | None = None) -> str:
-    """@trust — surface MCP tool trust status from Interlock security gateway.
-
-    Queries an Interlock instance for tool drift/quarantine status.
-    Gracefully degrades if Interlock is unreachable or not configured.
-
-    Config keys (in perseus config.yaml):
-      interlock:
-        url: "http://localhost:8080"       # Interlock gateway URL
-        admin_token: "il_..."              # Admin API token (optional if auth disabled)
-
-    Output:
-      Markdown table of tool trust status: approved, quarantined, blocked.
-      Returns empty string (silent degradation) when Interlock is not configured.
-    """
-    import urllib.request
-    import urllib.error
-    import json as _json
-
-    interlock_url = cfg.get("interlock", {}).get("url", "")
-    admin_token = cfg.get("interlock", {}).get("admin_token", "")
-
-    if not interlock_url:
-        return ""  # Silent degradation — Interlock not configured
-
-    # Query Interlock: list drifted/quarantined tools
-    try:
-        url = f"{interlock_url.rstrip('/')}/mcp/tools/drifted"
-        headers = {"Accept": "application/json"}
-        if admin_token:
-            headers["Authorization"] = f"Bearer {admin_token}"
-
-        req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            data = _json.loads(resp.read().decode())
-    except urllib.error.URLError as e:
-        return f"> ⚠ @trust: Interlock unreachable at {interlock_url} ({e.reason})"
-    except Exception as e:
-        return f"> ⚠ @trust: query failed — {e}"
-
-    tools = data.get("tools", [])
-    if not tools:
-        return "> 🔒 **Trust**: No drifted or quarantined MCP tools detected."
-
-    rows = []
-    approved = quarantined = blocked = 0
-    for tool in tools:
-        name = tool.get("tool_name", "unknown")
-        server = tool.get("server_id", "unknown")
-        status = tool.get("status", "")
-        risk = tool.get("risk_level", "—")
-        reason = tool.get("drift_reason", "")[:80]
-
-        if status == "quarantined":
-            quarantined += 1
-            icon = "⚠️"
-        elif status == "blocked":
-            blocked += 1
-            icon = "🔒"
-        else:
-            approved += 1
-            icon = "✅"
-
-        rows.append(f"| `{server}/{name}` | {icon} {status} | {risk} | {reason} |")
-
-    summary = (
-        f"> 🔒 **Trust**: {approved} approved, {quarantined} quarantined, "
-        f"{blocked} blocked"
-    )
-    header = "| Tool | Status | Risk | Reason |\n|---|---|---|---|"
-    return f"{summary}\n\n{header}\n" + "\n".join(rows)
-
-
 """
 Perseus → Vault-Mem integration hook.
 
