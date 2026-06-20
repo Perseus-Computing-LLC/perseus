@@ -1,4 +1,5 @@
 # stdlib imports available from build artifact header
+from datetime import timedelta # Added for #397
 from perseus.memory import _mneme_recall
 from perseus.vaultmem_connector import (
     _vaultmem_available, _vaultmem_vault_path, _vaultmem_max_tokens,
@@ -482,12 +483,16 @@ def resolve_memory(args_str: str, cfg: dict, workspace: Path | None = None) -> s
     Modes (auto-detected or explicit):
       mode=search [query=...] [scope=...] [k=5] [type=...] [render=default]
         → BM25 search via SQLite FTS5 against the memory vault.
+      mode=recent — last session only (limit=1, fast and minimal)
+      mode=relevant:TOPIC — FTS5-filtered recall matching the topic string
+      mode=full — current behavior, all memory (default)
       mode=narrative [focus=...] [workspace=...]
         → Render the checkpoint-distilled narrative journal.
       mode=federation [alias=...] [include_federation=true]
         → Cross-workspace narrative aggregation.
       mode=vault-mem [project=...] [query=...]
         → Query frozo-ai/vault-mem for typed project memories.
+      limit:N — cap at N entries regardless of mode
 
     Default: if query= is present → search; otherwise → narrative.
     Legacy shim: @mimir calls this with mode=search automatically.
@@ -498,20 +503,45 @@ def resolve_memory(args_str: str, cfg: dict, workspace: Path | None = None) -> s
     # ── Detect mode ──────────────────────────────────────────────────────
     mods = _parse_kv_modifiers(args_str)
     explicit_mode = (mods.get("mode") or "").strip().lower()
+
+    # Process tiered modes (#397)
+    if explicit_mode == "recent":
+        mods["limit"] = "1"
+        # Fall through to default narrative/search behavior
+        explicit_mode = ""  # Let auto-detection pick narrative
+    elif explicit_mode == "full":
+        # Full mode: current default behavior (no changes needed)
+        explicit_mode = ""  # Let auto-detection pick narrative
+    elif explicit_mode == "relevant":
+        # relevant:TOPIC — FTS5-filtered recall
+        topic = (mods.get("topic") or "").strip()
+        if topic:
+            mods["query"] = topic
+        else:
+            # relevant without topic defaults to full mode
+            pass
+        explicit_mode = "search"
+
+    limit_n = 0
+    try:
+        limit_n = int(mods.get("limit", "0"))
+    except (ValueError, TypeError):
+        limit_n = 0
+
     has_query = bool((mods.get("query") or "").strip())
     is_federation = bool(re.match(r'^federation\b', args_stripped, re.IGNORECASE))
 
     if explicit_mode == "search" or (has_query and not explicit_mode):
-        return _resolve_memory_search(mods, cfg, ws)
+        return _resolve_memory_search(mods, cfg, ws, limit_n=limit_n)
     elif explicit_mode == "federation" or is_federation:
         return _resolve_memory_federation(args_stripped, mods, cfg)
     elif explicit_mode == "vault-mem":
         return _resolve_memory_vaultmem(mods, cfg)
     else:
-        return _resolve_memory_narrative(args_stripped, mods, cfg, ws)
+        return _resolve_memory_narrative(args_stripped, mods, cfg, ws, limit_n=limit_n)
 
 
-def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path) -> str:
+def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path, limit_n: int = 0) -> str:
     """@memory mode=search — BM25 recall via SQLite FTS5."""
     query = (mods.get("query") or "").strip()
     if not query:
@@ -526,6 +556,10 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path) -> str:
         k = max(1, min(20, int(mods.get("k", "5"))))
     except (ValueError, TypeError):
         k = 5
+
+    # Apply limit_n if specified (#397)
+    if limit_n > 0:
+        k = min(k, limit_n)
 
     hits = _mneme_recall(cfg, query, k=k, scope=scope, type_filter=type_filter, sensitivity=sensitivity)
 
@@ -689,7 +723,7 @@ def _resolve_memory_federation(args_stripped: str, mods: dict, cfg: dict) -> str
     return _render_federation_digest(cfg, alias_filter)
 
 
-def _resolve_memory_narrative(args_stripped: str, mods: dict, cfg: dict, ws: Path) -> str:
+def _resolve_memory_narrative(args_stripped: str, mods: dict, cfg: dict, ws: Path, limit_n: int = 0) -> str:
     """@memory mode=narrative — render the narrative journal."""
     focus = (mods.get("focus") or "").strip().lower()
     include_fed = str(mods.get("include_federation", "")).strip().lower() in {"true", "1", "yes"}
