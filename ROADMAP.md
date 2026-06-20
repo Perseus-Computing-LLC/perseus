@@ -1177,6 +1177,23 @@ decision above.
 
 ---
 
+## 12-Month Delivery Calendar (Jul 2026 → Jun 2027)
+
+Calendar overlay onto the phase backlog above, sequenced with the Mimir and Plutus
+roadmaps. Cross-product master doc: `…/workspace/ROADMAP_2026-2027.md`.
+
+| Quarter | Theme | Perseus deliverables |
+|---|---|---|
+| **Q3 2026** (Jul–Sep) | Harden & distribute | Lock Mimir auto-discovery + live context injection as the default Hermes path; publish reproducible Gauntlet v2 score + methodology; CI smoke test (`perseus render` + `plutus.py --json`); PyPI metadata pass (classifiers, keywords for "context engine / MCP / agent memory") |
+| **Q4 2026** (Oct–Dec) | IDE & ecosystem | VS Code + Cursor integration (render `@perseus` context into the editor agent panel); "Built with Perseus" badge program + contributor guide; Perseus-as-MCP-client (pull other servers' state into a render) |
+| **Q1 2027** (Jan–Mar) | Leaderboard & teams | Public Gauntlet leaderboard site (external submissions); team workspace support — shared checkpoints + Mnēmē federation across a team manifest |
+| **Q2 2027** (Apr–Jun) | Platform | Perseus Cloud groundwork — hosted read-only `perseus serve` for teams; synthesis-as-a-service (cited-claim synthesis behind an API) |
+
+Phase-numbered backlog items (Phases 21–26) feed the Q3–Q4 buckets; the
+Decentralized Federation direction above is the Q1–Q2 2027 platform track.
+
+---
+
 ## Execution Order
 
 ```
