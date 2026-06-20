@@ -735,6 +735,28 @@ Mnēmē is LLM-optional: deterministic assembly works zero-dependency; an option
 
 ---
 
+## Government & Federal Procurement
+
+Perseus is built for government deployment from the ground up.
+
+| Capability | Status |
+|---|---|
+| **License** | MIT — no copyleft, no GPL/AGPL |
+| **SBOM** | [Published](./docs/SBOM.md) — NTIA minimum elements |
+| **Air-gapped** | Zero cloud dependencies |
+| **Encryption** | N/A (read-only context engine) |
+| **Telemetry** | None — no phoning home, no tracking |
+| **Supply chain** | SLSA attestation in progress |
+
+**For federal buyers:** See [docs/federal-buyers.md](./docs/federal-buyers.md) for
+procurement information, compliance status, and deployment models (air-gapped,
+on-premises, classified environments).
+
+Perseus Computing LLC is a US-owned small business. SAM.gov registration in progress.
+NAICS: 541715, 541511, 541512.
+
+---
+
 ## IP & Legal
 
 **Patent Pending.** A provisional patent application covering Perseus's
