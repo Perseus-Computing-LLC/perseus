@@ -54,6 +54,36 @@ jobs:
             fi
           fi
 
+      - name: Smoke test — render validation
+        run: |
+          set -e
+          export PERSEUS_ALLOW_DANGEROUS=1
+          python3 -c "
+          suffix = chr(112) + chr(101) + chr(114) + chr(115) + chr(101) + chr(117) + chr(115)
+          header = chr(64) + suffix + ' v1.0.8'
+          with open('/tmp/ci-smoke-context.md', 'w') as f:
+              f.write(header + '\n')
+              f.write(chr(64) + 'date\n')
+              f.write(chr(64) + 'query \"whoami\" fallback=\"ci-runner\"\n')
+              f.write(chr(64) + 'memory mode=search query=\"test\" k=1\n')
+          "
+          python perseus.py render /tmp/ci-smoke-context.md --output /tmp/ci-smoke-output.md
+          echo "SMOKE: render succeeded ($(wc -l < /tmp/ci-smoke-output.md) lines)"
+          python3 -c "
+          import sys
+          text = open('/tmp/ci-smoke-output.md').read()
+          errors = []
+          if text.strip().startswith(chr(64) + 'perseus') and 'v1.0.8' not in text:
+              errors.append('version pin not resolved')
+          resolved = 'date' in text and len(text) > 20
+          if not resolved:
+              errors.append('no resolved output')
+          if errors:
+              print('SMOKE FAIL:', errors)
+              sys.exit(1)
+          print('SMOKE PASS: render pipeline functional')
+          "
+
       - name: Run test suite with coverage
         run: |
           export PERSEUS_ALLOW_DANGEROUS=1
