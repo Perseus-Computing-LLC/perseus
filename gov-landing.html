@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Perseus & Mimir — AI Infrastructure for Government</title>
+<meta name="description" content="MIT-licensed, procurement-ready AI infrastructure for federal, defense, and intelligence deployments. Live context engine + persistent memory. SBOMs published. Air-gap ready.">
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --line: #30363d;
+    --text: #e6edf3;
+    --text-dim: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --amber: #d29922;
+    --red: #f85149;
+    --mono: 'SF Mono', 'Fira Code', monospace;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { background: var(--bg); color: var(--text); font: 16px/1.6 system-ui, -apple-system, sans-serif; }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 40px 24px; }
+  h1 { font-size: 2rem; margin-bottom: 8px; }
+  h2 { font-size: 1.35rem; margin: 40px 0 16px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+  h3 { font-size: 1.1rem; margin: 24px 0 8px; }
+  p { color: var(--text-dim); margin-bottom: 12px; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .hero { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 32px; margin-bottom: 32px; }
+  .hero p { font-size: 1.1rem; }
+
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin: 24px 0; }
+  @media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
+
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 24px; }
+  .card h3 { margin-top: 0; display: flex; align-items: center; gap: 8px; }
+  .card .icon { font-size: 1.4rem; }
+
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px; }
+  th { background: var(--surface); text-align: left; padding: 10px 14px; border: 1px solid var(--line); font-weight: 600; }
+  td { padding: 10px 14px; border: 1px solid var(--line); color: var(--text-dim); }
+  td:first-child { color: var(--text); font-weight: 500; }
+
+  .status-yes { color: var(--green); }
+  .status-progress { color: var(--amber); }
+
+  .tag { display: inline-block; background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 2px 8px; font-size: 12px; font-family: var(--mono); margin: 2px; }
+
+  .cta { background: var(--accent); color: #fff; display: inline-block; padding: 12px 24px; border-radius: 6px; font-weight: 600; margin-top: 8px; }
+  .cta:hover { opacity: 0.9; text-decoration: none; }
+
+  .footer { border-top: 1px solid var(--line); margin-top: 48px; padding-top: 24px; color: var(--text-dim); font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="hero">
+    <h1>🛡️ AI Infrastructure for Government</h1>
+    <p>Perseus and Mimir are MIT-licensed, open-source AI infrastructure tools built for federal, defense, and intelligence deployments. SBOMs published. Air-gap ready. No vendor lock-in.</p>
+    <a href="#compliance" class="cta">View compliance posture →</a>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h3><span class="icon">🪞</span> Perseus</h3>
+      <p>Live context engine. Grounds AI agents with verifiable state before every turn. Eliminates hallucination from stale context.</p>
+      <p><span class="tag">Python 3.10+</span> <span class="tag">MIT</span> <span class="tag">pypi:perseus-ctx</span></p>
+      <p><a href="https://github.com/Perseus-Computing-LLC/perseus">GitHub →</a></p>
+    </div>
+    <div class="card">
+      <h3><span class="icon">🧠</span> Mimir</h3>
+      <p>Persistent memory engine. AES-256-GCM encrypted, FTS5-searchable, fully auditable. MCP-native. Single binary.</p>
+      <p><span class="tag">Rust</span> <span class="tag">MIT</span> <span class="tag">MCP JSON-RPC 2.0</span></p>
+      <p><a href="https://github.com/Perseus-Computing-LLC/mimir">GitHub →</a></p>
+    </div>
+  </div>
+
+  <h2 id="compliance">Compliance Posture</h2>
+  <table>
+    <tr><th>Requirement</th><th>Perseus</th><th>Mimir</th></tr>
+    <tr><td>SBOM (EO 14028 / NTIA)</td><td class="status-yes">✅ Published</td><td class="status-yes">✅ Published</td></tr>
+    <tr><td>License</td><td class="status-yes">✅ MIT</td><td class="status-yes">✅ MIT</td></tr>
+    <tr><td>Encryption at rest</td><td>N/A (read-only)</td><td class="status-yes">✅ AES-256-GCM</td></tr>
+    <tr><td>Air-gapped / offline</td><td class="status-yes">✅ Zero cloud deps</td><td class="status-yes">✅ Fully offline</td></tr>
+    <tr><td>Telemetry-free</td><td class="status-yes">✅ No phoning home</td><td class="status-yes">✅ No network by default</td></tr>
+    <tr><td>Audit trail</td><td class="status-yes">✅ Decision provenance</td><td class="status-progress">🟡 Chain-of-custody in dev</td></tr>
+    <tr><td>NIST AI RMF alignment</td><td class="status-yes">✅ Documented</td><td class="status-yes">✅ Documented</td></tr>
+    <tr><td>FedRAMP path</td><td class="status-progress">🟡 Gap analysis</td><td class="status-progress">🟡 Gap analysis</td></tr>
+    <tr><td>CMMC</td><td>N/A (read-only)</td><td class="status-progress">🟡 Level 2 in progress</td></tr>
+    <tr><td>ITAR / export control</td><td class="status-yes">✅ EAR99 (self-classified)</td><td class="status-yes">✅ EAR99 (self-classified)</td></tr>
+    <tr><td>Supply chain (SLSA)</td><td class="status-progress">🟡 Attestation in dev</td><td class="status-progress">🟡 Attestation in dev</td></tr>
+  </table>
+
+  <h2 id="security">Security</h2>
+  <div class="grid">
+    <div class="card">
+      <h3>🪞 Perseus</h3>
+      <p>Read-only context engine. Never writes to your filesystem (except explicit output). Never stores credentials. Directives are sandboxed. Single runtime dependency (PyYAML, MIT).</p>
+      <p><a href="https://github.com/Perseus-Computing-LLC/perseus/blob/main/SECURITY.md">Full security policy →</a></p>
+    </div>
+    <div class="card">
+      <h3>🧠 Mimir</h3>
+      <p>AES-256-GCM encryption at rest. SQLite with parameterized queries (no SQL injection). Zero network by default. 17 runtime deps, all MIT/Apache-2.0. Rust binary, 10MB footprint.</p>
+      <p><a href="https://github.com/Perseus-Computing-LLC/mimir/blob/main/SECURITY.md">Full security policy →</a></p>
+    </div>
+  </div>
+
+  <h2 id="deployment">Deployment Models</h2>
+  <table>
+    <tr><th>Environment</th><th>How</th></tr>
+    <tr><td>Air-gapped / classified</td><td>Single-container deployment. All deps bundled. No internet required. Suitable for DoD IL5+, ICD 503.</td></tr>
+    <tr><td>On-premises</td><td>Deploy on agency infrastructure. Full data sovereignty. Integrate with existing identity providers.</td></tr>
+    <tr><td>Cloud (roadmap)</td><td>AWS GovCloud, Azure Government, GCP Assured Workloads. Contact us for timeline.</td></tr>
+  </table>
+
+  <h2 id="sbir">SBIR / RFP Alignment</h2>
+  <table>
+    <tr><th>Government Priority</th><th>How Perseus & Mimir Address It</th></tr>
+    <tr><td>AI Interpretability</td><td>Perseus traces every context injection to source. Mimir provides typed entity provenance.</td></tr>
+    <tr><td>AI Control</td><td>Live context grounding prevents hallucination. Agent decisions anchored to verifiable state.</td></tr>
+    <tr><td>Adversarial Robustness</td><td>Mimir cryptographic journal detects tampering. Perseus context chain is immutable.</td></tr>
+    <tr><td>Audit & Compliance</td><td>PROV-O provenance exports. Immutable journal with SHA-256 chain-of-custody (in dev).</td></tr>
+    <tr><td>Knowledge Management</td><td>Mimir FTS5 search + entity graph for cross-session institutional knowledge.</td></tr>
+    <tr><td>Zero Trust Architecture</td><td>NIST SP 800-207 alignment. Workspace scoping. Access control in roadmap.</td></tr>
+  </table>
+
+  <h2 id="procurement">Procurement Information</h2>
+  <table>
+    <tr><td>Entity</td><td>Perseus Computing LLC</td></tr>
+    <tr><td>UEI</td><td class="status-progress">Pending SAM.gov registration</td></tr>
+    <tr><td>CAGE Code</td><td class="status-progress">Pending</td></tr>
+    <tr><td>NAICS Codes</td><td>541715 (Primary), 541511, 541512</td></tr>
+    <tr><td>SBIR Registry</td><td class="status-progress">Pending</td></tr>
+    <tr><td>Contact</td><td><a href="mailto:perseus@perseus.observer">perseus@perseus.observer</a></td></tr>
+    <tr><td>Security reports</td><td><a href="mailto:perseus@perseus.observer">perseus@perseus.observer</a> (48hr response)</td></tr>
+  </table>
+
+  <div class="footer">
+    <p>&copy; 2026 Perseus Computing LLC. Perseus and Mimir are MIT-licensed open source. No proprietary dependencies. No vendor lock-in. No telemetry. Built in the United States.</p>
+  </div>
+
+</div>
+</body>
+</html>
