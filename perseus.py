@@ -14426,9 +14426,11 @@ def _mimir_context_inject(cfg: dict) -> str | None:
     try:
         connector = _get_connector(cfg)
         if not connector.available:
-            # Surface a visible warning instead of silently dropping the block (#302)
-            status = connector.status
-            return "\n\n> \u26a0 **Mimir unavailable:** " + status + "\n> Install Mimir or set `mimir.command` to an absolute binary path in `.perseus/config.yaml`.\n"
+            # Auto-discovery: silently skip when Mimir is not installed.
+            # The perseus doctor diagnostic surfaces any issues independently;
+            # injecting a warning into every render is noise for the
+            # 95% of users who haven't installed Mimir yet.
+            return None
 
         # Pull recent durable memories. An empty query returns the most recent
         # entities ordered by Mimir's decay/recency ranking — the right behavior
