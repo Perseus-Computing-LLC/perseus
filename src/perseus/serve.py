@@ -1389,7 +1389,7 @@ def _serve_authorized(headers, token: str | None) -> bool:
 
     if not token:
         return True
-    import hmac
+    import hmac as _serve_hmac
 
     auth = ""
     if headers is not None:
@@ -1400,7 +1400,22 @@ def _serve_authorized(headers, token: str | None) -> bool:
     prefix = "Bearer "
     if not auth.startswith(prefix):
         return False
-    return hmac.compare_digest(auth[len(prefix):].strip(), token)
+    return _serve_hmac.compare_digest(auth[len(prefix):].strip(), token)
+
+
+def _serve_authorized_extended(headers, cfg: dict) -> tuple[bool, str | None]:
+    """Check auth: master token → grant token → deny.
+
+    Returns (authorized, workspace_id_or_None).
+    """
+    token = _serve_auth_token(cfg)
+    if _serve_authorized(headers, token):
+        return (True, None)
+    # Try grant tokens
+    auth_ok, ws_id = _serve_check_grant_auth(cfg, headers, "narrative")
+    if auth_ok:
+        return (True, ws_id)
+    return (False, None)
 
 
 def _serve_unauthorized() -> tuple[int, str, str]:
@@ -1413,6 +1428,62 @@ def _serve_handle_request(endpoint: str, cfg: dict, workspace: Path, query: dict
         audit_event(cfg, "serve_auth_denied", endpoint=endpoint, auth_enabled=True)
         return _serve_unauthorized()
     return _serve_render_endpoint(endpoint, cfg, workspace, query)
+
+
+def _serve_handle_federation_receive(cfg: dict, workspace: Path, raw: bytes, headers=None) -> tuple[int, str, str]:
+    """Handle POST /federation/receive — accept a pushed narrative (Phase 27C).
+
+    Stores the received narrative in the federation cache keyed by workspace_id.
+    Auth: federation.push.receive_token (falls back to serve.auth_token).
+    """
+    import json as _json
+    push_cfg = cfg.get("federation", {}).get("push", {})
+    receive_token = push_cfg.get("receive_token") or _serve_auth_token(cfg)
+
+    # Auth check
+    if receive_token:
+        provided = None
+        if headers:
+            auth = headers.get("Authorization", "")
+            if auth.startswith("Bearer "):
+                provided = auth[len("Bearer "):].strip()
+        if provided != receive_token:
+            audit_event(cfg, "federation_receive_denied", auth_enabled=True)
+            return (401, "application/json; charset=utf-8",
+                    _json.dumps({"error": "unauthorized"}))
+
+    try:
+        data = _json.loads(raw.decode("utf-8")) if raw else {}
+    except Exception as e:
+        return (400, "application/json; charset=utf-8",
+                _json.dumps({"error": f"invalid JSON: {e}"}))
+
+    workspace_id = data.get("workspace_id")
+    narrative = data.get("narrative", "")
+    if not narrative:
+        return (400, "application/json; charset=utf-8",
+                _json.dumps({"error": "missing narrative"}))
+
+    # Store in federation cache keyed by workspace_id (or 'pushed' fallback)
+    cache_key = (workspace_id or "pushed").replace("sha256:", "").replace("/", "_")[:64]
+    cache_dir = Path(cfg.get("federation", {}).get("cache_dir",
+                str(PERSEUS_HOME / "cache" / "federation"))).expanduser()
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_path = cache_dir / f"received-{cache_key}.json"
+    record = {
+        "workspace_id": workspace_id,
+        "narrative": narrative,
+        "signature": data.get("signature"),
+        "updated": data.get("updated", ""),
+        "received_at": datetime.now(timezone.utc).isoformat(),
+    }
+    tmp = cache_path.with_suffix(cache_path.suffix + ".tmp")
+    tmp.write_text(_json.dumps(record, indent=2))
+    os.replace(tmp, cache_path)
+
+    audit_event(cfg, "federation_receive", workspace_id=workspace_id, bytes=len(narrative))
+    return (200, "application/json; charset=utf-8",
+            _json.dumps({"received": True, "workspace_id": workspace_id}))
 
 
 def _serve_render_endpoint(endpoint: str, cfg: dict, workspace: Path, query: dict[str, str]) -> tuple[int, str, str]:
@@ -1446,6 +1517,32 @@ def _serve_render_endpoint(endpoint: str, cfg: dict, workspace: Path, query: dic
                         "No Mnēmē narrative initialized. Run `perseus memory update`.")
             narrative_text, _ = redact_text(mp.read_text(), cfg)
             return (200, "text/markdown; charset=utf-8", narrative_text)
+
+        if endpoint == "/federation/narrative":
+            import json as _json
+            import sys as _sys
+            ws_hash = query.get("ws", "")
+            try:
+                mp = _mneme_path(workspace, cfg)
+            except Exception as e:
+                return (500, "application/json; charset=utf-8",
+                        _json.dumps({"error": f"_mneme_path failed: {e}", "workspace_id": None}))
+            if not mp.exists():
+                return (404, "application/json; charset=utf-8",
+                        _json.dumps({"error": "No Mneme narrative initialized", "workspace_id": None,
+                                     "path": str(mp)}))
+            narrative_text = mp.read_text()
+            # Look up workspace identity for workspace_id field
+            identity = _load_identity(cfg)
+            ws_id = identity.get("workspace_id") if identity else None
+            resp = {
+                "workspace_id": ws_id,
+                "narrative": narrative_text,
+                "signature": None,
+                "updated": datetime.fromtimestamp(mp.stat().st_mtime, tz=timezone.utc).isoformat(),
+                "format_version": 1,
+            }
+            return (200, "application/json; charset=utf-8", _json.dumps(resp, indent=2))
 
         if endpoint == "/health":
             body = _health_report(cfg, workspace)
@@ -1609,6 +1706,16 @@ def cmd_serve(args, cfg):
             self._respond(status, ctype, body)
 
         def do_POST(self):  # noqa: N802
+            parsed = urlsplit(self.path)
+            endpoint = parsed.path or "/"
+            if endpoint == "/federation/receive":
+                length = int(self.headers.get("Content-Length", 0) or 0)
+                raw = self.rfile.read(length) if length else b""
+                status, ctype, body = _serve_handle_federation_receive(
+                    cfg, workspace, raw, self.headers
+                )
+                self._respond(status, ctype, body)
+                return
             self._respond(405, "text/plain; charset=utf-8", "Method Not Allowed (perseus serve is read-only)")
 
         # quiet default logging — one line per request via stderr
@@ -1620,7 +1727,7 @@ def cmd_serve(args, cfg):
     print(f"Perseus serve — {workspace}")
     print(f"  Listening on {url}")
     print(f"  Endpoints: /, /context, /narrative, /health, /agora, /checkpoint/latest, /oracle/log")
-    print(f"             /.well-known/mcp/server-card.json")
+    print(f"             /.well-known/mcp/server-card.json, /federation/narrative (GET), /federation/receive (POST)")
     print(f"  Press Ctrl-C to stop.")
     try:
         server.serve_forever()

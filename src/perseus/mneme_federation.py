@@ -58,15 +58,73 @@ def _load_federation_manifest(cfg: dict) -> dict:
         for entry in subs:
             if not isinstance(entry, dict):
                 continue
-            if "alias" not in entry or "path" not in entry:
+            if "alias" not in entry:
                 continue
-            normalized.append({
+            if "path" not in entry and "remote" not in entry:
+                continue
+            norm = {
                 "alias": str(entry["alias"]),
-                "path": str(entry["path"]),
-                "enabled": bool(entry.get("enabled", True)),
-                # Reserved for v2 — preserved on round-trip
-                **{k: v for k, v in entry.items() if k not in {"alias", "path", "enabled"}},
-            })
+            }
+            if "path" in entry:
+                norm["path"] = str(entry["path"])
+            if "remote" in entry:
+                remote = entry["remote"]
+                if isinstance(remote, dict):
+                    norm["remote"] = {
+                        "url": str(remote.get("url", "")),
+                        "auth_token": str(os.path.expandvars(remote.get("auth_token", ""))),
+                        "verify_key": remote.get("verify_key"),
+                        "push_url": str(remote.get("push_url", "")),
+                        "push_token": str(os.path.expandvars(remote.get("push_token", ""))),
+                    }
+                else:
+                    norm["remote"] = {"url": str(remote), "auth_token": "", "verify_key": None,
+                                      "push_url": "", "push_token": ""}
+            norm["enabled"] = bool(entry.get("enabled", True))
+            # Reserved for v2 — preserved on round-trip
+            preserve = {k: v for k, v in entry.items()
+                        if k not in {"alias", "path", "remote", "enabled"}}
+            norm.update(preserve)
+            normalized.append(norm)
+        # Phase 27D: merge federation.d/ directory subscriptions
+        fed_d = _federation_manifest_path(cfg).parent / "federation.d"
+        if fed_d.exists() and fed_d.is_dir():
+            d_aliases = {e["alias"] for e in normalized}
+            for d_file in sorted(fed_d.glob("*.yaml")):
+                try:
+                    d_data = yaml.safe_load(d_file.read_text()) or {}
+                    if isinstance(d_data, dict):
+                        d_alias = d_data.get("alias", d_file.stem)
+                        if d_alias in d_aliases:
+                            # Directory wins — remove the monolithic entry
+                            normalized = [e for e in normalized if e.get("alias") != d_alias]
+                        d_aliases.add(d_alias)
+                        norm = {
+                            "alias": str(d_alias),
+                            "enabled": bool(d_data.get("enabled", True)),
+                            "_source": str(d_file),
+                        }
+                        if "path" in d_data:
+                            norm["path"] = str(d_data["path"])
+                        if "remote" in d_data:
+                            remote = d_data["remote"]
+                            if isinstance(remote, dict):
+                                norm["remote"] = {
+                                    "url": str(remote.get("url", "")),
+                                    "auth_token": str(os.path.expandvars(remote.get("auth_token", ""))),
+                                    "verify_key": remote.get("verify_key"),
+                                    "push_url": str(remote.get("push_url", "")),
+                                    "push_token": str(os.path.expandvars(remote.get("push_token", ""))),
+                                }
+                            else:
+                                norm["remote"] = {"url": str(remote), "auth_token": "", "verify_key": None,
+                                                  "push_url": "", "push_token": ""}
+                        preserve = {k: v for k, v in d_data.items()
+                                    if k not in {"alias", "path", "remote", "enabled"}}
+                        norm.update(preserve)
+                        normalized.append(norm)
+                except Exception as e:
+                    print(f"⚠ federation.d/{d_file.name} is malformed: {e}. Skipping.", file=sys.stderr)
         return {"version": int(data.get("version", 1)), "subscriptions": normalized}
     except Exception as e:
         print(f"⚠ Federation manifest at {p} is malformed: {e}. Treating as empty.", file=sys.stderr)
@@ -116,6 +174,521 @@ def _resolve_subscription_narrative(entry: dict, cfg: dict) -> tuple[Path | None
     return (narrative, None)
 
 
+# ── Phase 27A: Remote federation transport ──────────────────────────
+
+def _remote_cache_dir(cfg: dict) -> Path:
+    return Path(cfg.get("federation", {}).get("cache_dir",
+               str(PERSEUS_HOME / "cache" / "federation"))).expanduser()
+
+
+def _remote_cache_path(cfg: dict, alias: str) -> Path:
+    return _remote_cache_dir(cfg) / f"{alias}.json"
+
+
+def _remote_cache_ttl_s(cfg: dict) -> int:
+    return int(cfg.get("federation", {}).get("cache_ttl_s", 3600))
+
+
+def _read_remote_cache(cfg: dict, alias: str) -> dict | None:
+    """Read cached remote narrative. Returns None if absent or expired."""
+    path = _remote_cache_path(cfg, alias)
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text())
+    except Exception:
+        return None
+    fetched = data.get("fetched_at", "")
+    if fetched:
+        try:
+            dt = datetime.fromisoformat(fetched)
+            age_s = (datetime.now(dt.tzinfo if dt.tzinfo else None)
+                     - dt.replace(tzinfo=None)).total_seconds()
+            if age_s > _remote_cache_ttl_s(cfg):
+                return None  # expired
+        except Exception:
+            pass
+    return data
+
+
+def _write_remote_cache(cfg: dict, alias: str, narrative: str,
+                        workspace_id: str | None, signature: str | None,
+                        updated: str, url: str) -> Path:
+    """Atomic write of fetched remote narrative to cache."""
+    cache_dir = _remote_cache_dir(cfg)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    path = _remote_cache_path(cfg, alias)
+    data = {
+        "alias": alias,
+        "url": url,
+        "workspace_id": workspace_id,
+        "narrative": narrative,
+        "signature": signature,
+        "updated": updated,
+        "fetched_at": datetime.now().isoformat(timespec="seconds"),
+        "format_version": 1,
+    }
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(data, indent=2))
+    os.replace(tmp, path)
+    return path
+
+
+def _fetch_remote_narrative(entry: dict, cfg: dict) -> tuple[str | None, str | None, str | None]:
+    """Fetch a remote narrative over HTTP.
+
+    Returns (narrative_body, error_message, workspace_id).
+    On success: (body, None, ws_id_or_None).
+    On failure: (None, reason, None).
+    """
+    remote = entry.get("remote", {})
+    url = remote.get("url", "").rstrip("/")
+    if not url:
+        return (None, "remote URL is empty", None)
+    auth_token = remote.get("auth_token", "")
+
+    ws_hash = entry.get("_workspace_hash", "")
+    req_url = f"{url}/federation/narrative"
+    if ws_hash:
+        req_url += f"?ws={ws_hash}"
+
+    try:
+        req = urllib.request.Request(req_url)
+        req.add_header("User-Agent", f"perseus/{_PERSEUS_VERSION} federation-client")
+        req.add_header("Accept", "application/json")
+        if auth_token:
+            req.add_header("Authorization", f"Bearer {auth_token}")
+
+        fetch_timeout = int(cfg.get("federation", {}).get("fetch_timeout_s", 10))
+        read_timeout = int(cfg.get("federation", {}).get("read_timeout_s", 30))
+
+        with urllib.request.urlopen(req, timeout=fetch_timeout) as resp:
+            if resp.status == 304:
+                return (None, "not modified (304)", None)
+            body = resp.read().decode("utf-8")
+            data = json.loads(body)
+            narrative = data.get("narrative", "")
+            ws_id = data.get("workspace_id")
+            if narrative:
+                return (narrative, None, ws_id)
+            return (None, "empty narrative in response", None)
+    except urllib.error.HTTPError as e:
+        return (None, f"HTTP {e.code}", None)
+    except urllib.error.URLError as e:
+        return (None, f"connection failed: {e.reason}", None)
+    except Exception as e:
+        return (None, f"fetch error: {e}", None)
+
+
+def _resolve_remote_narrative(entry: dict, cfg: dict) -> tuple[str | None, str | None, str | None]:
+    """Resolve a remote subscription to a narrative body, using cache when fresh.
+
+    Returns (narrative_body, error_message, workspace_id).
+    On success from cache: (body, None, ws_id_from_cache).
+    On success from fetch: (body, None, ws_id_from_response).
+    On stale cache + fetch failed: (cached_body, err, ws_id) — use stale with warning.
+    On no cache + fetch failed: (None, reason, None).
+    """
+    alias = entry.get("alias", "?")
+    remote = entry.get("remote", {})
+
+    # Try fresh fetch first
+    body, err, ws_id = _fetch_remote_narrative(entry, cfg)
+    if body is not None:
+        _write_remote_cache(cfg, alias, body, ws_id, None,
+                           datetime.now().isoformat(timespec="seconds"),
+                           remote.get("url", ""))
+        return (body, None, ws_id)
+
+    # Fetch failed — try stale cache
+    cached = _read_remote_cache(cfg, alias)
+    if cached is not None:
+        cached_body = cached.get("narrative", "")
+        if cached_body:
+            return (cached_body, err or "using cached data", cached.get("workspace_id"))
+
+    return (None, err or "no cached narrative available", None)
+
+
+def _federation_warning_block_remote(alias: str, reason: str, last_good: str | None = None) -> str:
+    """Warning block for unavailable remote federation subscriptions."""
+    last = f"\\n> Last known good: {last_good} (cached)" if last_good else ""
+    return (
+        f"> ⚠ Federated memory `{alias}` unavailable: {reason}{last}\\n"
+        f"> (Manage subscriptions with `perseus memory federation list`.)"
+    )
+
+
+# ── Phase 27C: Push federation ─────────────────────────────────────
+
+def _push_narrative_to_subscriber(sub: dict, narrative_body: str,
+                                   sig: dict | None, cfg: dict) -> tuple[bool, str]:
+    """Push a signed narrative to a remote subscriber.
+    
+    Returns (success, message).
+    """
+    remote = sub.get("remote", {})
+    push_url = remote.get("push_url", "")
+    if not push_url:
+        return (False, "no push_url configured")
+    
+    push_token = remote.get("push_token", "")
+    
+    import json as _json
+    payload = _json.dumps({
+        "workspace_id": sig.get("workspace_id") if sig else None,
+        "narrative": narrative_body,
+        "signature": sig.get("signature") if sig else None,
+        "updated": sig.get("timestamp") if sig else datetime.now().isoformat(),
+    }).encode("utf-8")
+    
+    retry_count = int(cfg.get("federation", {}).get("push", {}).get("retry_count", 3))
+    retry_delay = int(cfg.get("federation", {}).get("push", {}).get("retry_delay_s", 1))
+    
+    last_error = ""
+    for attempt in range(retry_count):
+        try:
+            req = urllib.request.Request(push_url, data=payload, method="POST")
+            req.add_header("Content-Type", "application/json")
+            req.add_header("User-Agent", f"perseus/{_PERSEUS_VERSION} push-federation")
+            if push_token:
+                req.add_header("Authorization", f"Bearer {push_token}")
+            
+            timeout = int(cfg.get("federation", {}).get("fetch_timeout_s", 10))
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                if resp.status in (200, 201, 202):
+                    return (True, f"pushed to {push_url}")
+                return (False, f"HTTP {resp.status}")
+        except urllib.error.HTTPError as e:
+            last_error = f"HTTP {e.code}"
+        except urllib.error.URLError as e:
+            last_error = f"connection: {e.reason}"
+        except Exception as e:
+            last_error = str(e)
+        
+        if attempt < retry_count - 1:
+            time.sleep(retry_delay * (2 ** attempt))
+    
+    return (False, last_error)
+
+
+def _push_to_all_subscribers(cfg: dict, narrative_body: str, sig: dict | None = None) -> list[dict]:
+    """Push narrative to all subscribers with push_url configured.
+    
+    Returns list of {alias, success, message} results.
+    Fire-and-forget — failures are logged, never fatal.
+    """
+    manifest = _load_federation_manifest(cfg)
+    subs = manifest.get("subscriptions", [])
+    results = []
+    for sub in subs:
+        alias = sub.get("alias", "?")
+        remote = sub.get("remote", {})
+        if remote.get("push_url"):
+            ok, msg = _push_narrative_to_subscriber(sub, narrative_body, sig, cfg)
+            results.append({"alias": alias, "success": ok, "message": msg})
+            if not ok:
+                print(f"Push warning [{alias}]: {msg}", file=sys.stderr)
+    return results
+
+
+def cmd_memory_federation_push(args, cfg) -> int | None:
+    """Handle `perseus memory federation push [--alias NAME]`."""
+    alias_filter = getattr(args, "alias", None)
+    identity = _load_identity(cfg)
+    if identity is None:
+        print("No workspace identity. Run `perseus identity init` first.", file=sys.stderr)
+        return 2
+    
+    ws_raw = getattr(args, "workspace", None) or os.getcwd()
+    workspace = Path(ws_raw).expanduser().resolve()
+    mp = _mneme_path(workspace, cfg)
+    if not mp.exists():
+        print(f"No narrative at {mp}.", file=sys.stderr)
+        return 1
+    
+    narrative_body = mp.read_text()
+    sig = _sign_narrative(narrative_body, identity)
+    
+    manifest = _load_federation_manifest(cfg)
+    subs = manifest.get("subscriptions", [])
+    if alias_filter:
+        subs = [s for s in subs if s.get("alias") == alias_filter]
+        if not subs:
+            print(f"No subscription with alias `{alias_filter}`.", file=sys.stderr)
+            return 1
+    
+    use_json = getattr(args, "json", False)
+    printed = 0
+    for sub in subs:
+        remote = sub.get("remote", {})
+        if remote.get("push_url"):
+            ok, msg = _push_narrative_to_subscriber(sub, narrative_body, sig, cfg)
+            if use_json:
+                import json as _json
+                print(_json.dumps({"alias": sub["alias"], "success": ok, "message": msg}))
+            else:
+                icon = "✅" if ok else "⚠"
+                print(f"{icon} {sub['alias']}: {msg}")
+            printed += 1
+        elif alias_filter:
+            print(f"⚠ {sub['alias']}: no push_url configured")
+    
+    if printed == 0 and not alias_filter:
+        print("No subscribers with push_url configured.")
+    return 0
+
+
+# ── Phase 27E: Conflict Detection & Merge Assistance ───────────────────────
+
+def _extract_sections(narrative_body: str) -> dict[str, str]:
+    """Extract ## heading sections from a narrative body.
+
+    Returns {heading: section_body} dict.
+    """
+    sections: dict[str, str] = {}
+    current_heading = "_preamble"
+    current_body: list[str] = []
+    for line in narrative_body.split("\n"):
+        if line.startswith("## "):
+            if current_body:
+                sections[current_heading] = "\n".join(current_body).strip()
+            current_heading = line[3:].strip()
+            current_body = []
+        else:
+            current_body.append(line)
+    if current_body:
+        sections[current_heading] = "\n".join(current_body).strip()
+    return sections
+
+
+def _jaccard_similarity(text_a: str, text_b: str) -> float:
+    """Compute Jaccard similarity on word tokens (pure Python, no deps)."""
+    tokens_a = set(text_a.lower().split())
+    tokens_b = set(text_b.lower().split())
+    if not tokens_a and not tokens_b:
+        return 0.0
+    intersection = tokens_a & tokens_b
+    union = tokens_a | tokens_b
+    if not union:
+        return 0.0
+    return len(intersection) / len(union)
+
+
+def _detect_conflicts(subs: list[dict], cfg: dict) -> list[dict]:
+    """Detect overlapping topics across federated narratives.
+
+    Returns list of {topic, workspaces, similarity} dicts.
+    """
+    threshold = float(cfg.get("federation", {}).get("conflict_threshold", 0.6))
+
+    # Collect all sections from all subscriptions
+    ws_sections: dict[str, dict[str, str]] = {}
+    for sub in subs:
+        alias = sub.get("alias", "?")
+        remote = sub.get("remote")
+        if remote:
+            body, _err, _ws_id = _resolve_remote_narrative(sub, cfg)
+        else:
+            narrative, err = _resolve_subscription_narrative(sub, cfg)
+            if err:
+                continue
+            try:
+                fm, body = _load_narrative(narrative)
+            except Exception:
+                continue
+        if body and body.strip():
+            sections = _extract_sections(body)
+            if sections:
+                ws_sections[alias] = sections
+
+    conflicts = []
+    aliases = list(ws_sections.keys())
+    for i in range(len(aliases)):
+        for j in range(i + 1, len(aliases)):
+            a, b = aliases[i], aliases[j]
+            for heading, body_a in ws_sections[a].items():
+                if heading == "_preamble":
+                    continue
+                if heading in ws_sections[b]:
+                    body_b = ws_sections[b][heading]
+                    sim = _jaccard_similarity(body_a, body_b)
+                    if sim >= threshold:
+                        conflicts.append({
+                            "topic": heading,
+                            "workspaces": [a, b],
+                            "similarity": round(sim, 4),
+                        })
+    conflicts.sort(key=lambda c: c["similarity"], reverse=True)
+    return conflicts
+
+
+def _render_federation_conflicts(cfg: dict) -> str:
+    """Render detected conflicts for the @federation conflicts directive."""
+    manifest = _load_federation_manifest(cfg)
+    subs = [s for s in manifest.get("subscriptions", []) if s.get("enabled", True)]
+    if len(subs) < 2:
+        return "> _Need at least 2 enabled subscriptions for conflict detection._"
+
+    conflicts = _detect_conflicts(subs, cfg)
+    if not conflicts:
+        return "> ✅ No narrative conflicts detected across federated workspaces."
+
+    lines = ["> ⚠ Narrative conflicts detected:\n", ">", "> | Topic | Workspaces | Similarity |", "> |---|---|---|"]
+    for c in conflicts:
+        ws_list = ", ".join(c["workspaces"])
+        lines.append(f"> | {c['topic']} | {ws_list} | {c['similarity']:.0%} |")
+    lines.append(">")
+    lines.append(f"> Run `perseus memory federation diff` to inspect.")
+    return "\n".join(lines)
+
+
+def _render_federation_diff(cfg: dict, alias_a: str, alias_b: str) -> str:
+    """Render side-by-side diff of two federated narratives."""
+    manifest = _load_federation_manifest(cfg)
+    subs = {s.get("alias"): s for s in manifest.get("subscriptions", [])}
+
+    def _get_body(sub):
+        if not sub:
+            return None
+        remote = sub.get("remote")
+        if remote:
+            body, err, _ = _resolve_remote_narrative(sub, cfg)
+            return body if body else None
+        narrative, err = _resolve_subscription_narrative(sub, cfg)
+        if err:
+            return None
+        try:
+            fm, body = _load_narrative(narrative)
+            return body
+        except Exception:
+            return None
+
+    body_a = _get_body(subs.get(alias_a))
+    body_b = _get_body(subs.get(alias_b))
+
+    if body_a is None:
+        return f"> ⚠ {alias_a}: narrative unavailable."
+    if body_b is None:
+        return f"> ⚠ {alias_b}: narrative unavailable."
+
+    lines = [f"## {alias_a} vs {alias_b}\n"]
+    secs_a = _extract_sections(body_a)
+    secs_b = _extract_sections(body_b)
+    all_headings = sorted(set(list(secs_a.keys()) + list(secs_b.keys())))
+
+    for heading in all_headings:
+        lines.append(f"### {heading}\n")
+        text_a = secs_a.get(heading, "_no content_")
+        text_b = secs_b.get(heading, "_no content_")
+        if heading != "_preamble":
+            sim = _jaccard_similarity(text_a, text_b)
+            lines.append(f"> Similarity: {sim:.0%}\n")
+        lines.append(f"**{alias_a}:**\n```\n{text_a[:500]}\n```\n")
+        lines.append(f"**{alias_b}:**\n```\n{text_b[:500]}\n```\n")
+        lines.append("---\n")
+
+    return "\n".join(lines)
+
+
+def cmd_memory_federation_diff(args, cfg) -> int | None:
+    """Handle `perseus memory federation diff <alias-a> <alias-b>`."""
+    alias_a = getattr(args, "alias_a", "")
+    alias_b = getattr(args, "alias_b", "")
+    if not alias_a or not alias_b:
+        print("Usage: perseus memory federation diff <alias-a> <alias-b>", file=sys.stderr)
+        return 2
+    output = _render_federation_diff(cfg, alias_a, alias_b)
+    print(output)
+    return 0
+
+
+def cmd_memory_federation_merge(args, cfg) -> int | None:
+    """Handle `perseus memory federation merge <alias-a> <alias-b>`.
+
+    Drafts a reconciliation using Pythia's cited synthesis pipeline.
+    """
+    alias_a = getattr(args, "alias_a", "")
+    alias_b = getattr(args, "alias_b", "")
+    if not alias_a or not alias_b:
+        print("Usage: perseus memory federation merge <alias-a> <alias-b>", file=sys.stderr)
+        return 2
+
+    manifest = _load_federation_manifest(cfg)
+    subs = {s.get("alias"): s for s in manifest.get("subscriptions", [])}
+
+    def _get_body(sub):
+        if not sub:
+            return None
+        remote = sub.get("remote")
+        if remote:
+            body, err, _ = _resolve_remote_narrative(sub, cfg)
+            return body
+        narrative, err = _resolve_subscription_narrative(sub, cfg)
+        if err:
+            return None
+        try:
+            fm, body = _load_narrative(narrative)
+            return body
+        except Exception:
+            return None
+
+    body_a = _get_body(subs.get(alias_a))
+    body_b = _get_body(subs.get(alias_b))
+
+    if body_a is None or body_b is None:
+        print("One or both narratives unavailable.", file=sys.stderr)
+        return 1
+
+    # Build a cited-synthesis prompt
+    prompt = (
+        "You are a conflict mediator for federated AI context.\n"
+        f"Below are narratives from two workspaces: `{alias_a}` and `{alias_b}`.\n"
+        "They may disagree on architectural decisions, deployment strategies, or project direction.\n"
+        "Draft a neutral reconciliation that:\n"
+        "1. Identifies specific points of agreement\n"
+        "2. Identifies specific points of disagreement\n"
+        "3. Suggests a concrete path forward for each disagreement\n"
+        "4. Uses exact citations from both source narratives (format: [source])\n\n"
+        f"NARRATIVE `{alias_a}`:\n{body_a[:3000]}\n\n"
+        f"NARRATIVE `{alias_b}`:\n{body_b[:3000]}\n"
+    )
+
+    # Try LLM synthesis if configured
+    llm_provider = cfg.get("memory", {}).get("llm_provider") or cfg.get("llm", {}).get("provider")
+    if llm_provider:
+        model = cfg.get("memory", {}).get("llm_model") or cfg.get("llm", {}).get("model")
+        text, code = run_llm(llm_provider, prompt, cfg, model=model)
+        if code == 0:
+            print("## Merge Suggestion (LLM-drafted)\n")
+            print(text)
+            print("\n> ⚠ This is a suggestion — not automatically applied to any narrative.")
+            return 0
+        print(f"LLM synthesis failed: {text}. Falling back to deterministic.", file=sys.stderr)
+
+    # Deterministic fallback: show overlap summary
+    secs_a = _extract_sections(body_a)
+    secs_b = _extract_sections(body_b)
+    lines = ["## Merge Suggestion (deterministic)\n"]
+    lines.append("> LLM synthesis unavailable. Showing topic overlap summary.\n")
+    for heading in sorted(set(list(secs_a.keys()) + list(secs_b.keys()))):
+        if heading == "_preamble":
+            continue
+        has_a = heading in secs_a
+        has_b = heading in secs_b
+        status = "both" if has_a and has_b else (alias_a if has_a else alias_b)
+        sim = _jaccard_similarity(secs_a.get(heading, ""), secs_b.get(heading, "")) if has_a and has_b else 0
+        lines.append(f"- **{heading}**: in {status}" + (f" (similarity: {sim:.0%})" if has_a and has_b else ""))
+    print("\n".join(lines))
+    return 0
+
+
+# ── End Phase 27E additions ──────────────────────────────────────
+
+
+# ── End Phase 27C additions ──────────────────────────────────────
+
+
 def _federation_warning_block(alias: str, reason: str) -> str:
     """Standard inline warning for unavailable federated subscriptions (Q5)."""
     return (
@@ -154,6 +727,27 @@ def _render_federation_digest(cfg: dict, alias_filter: str | None = None) -> str
     parts: list[str] = []
     for entry in subs:
         alias = entry.get("alias", "?")
+        remote = entry.get("remote")
+
+        if remote:
+            # ── Remote subscription (Phase 27A) ──
+            body, err, _ws_id = _resolve_remote_narrative(entry, cfg)
+            if err and body is None:
+                parts.append(f"### `{alias}`\n\n{_federation_warning_block_remote(alias, err)}")
+                continue
+            if err and body is not None:
+                stale_note = f"\n\n> ⚠ Live fetch failed: {err}. Showing cached narrative.\n"
+            else:
+                stale_note = ""
+            body_clean = body.strip()
+            if body_clean.startswith("# "):
+                first_nl = body_clean.find("\n")
+                if first_nl > 0:
+                    body_clean = body_clean[first_nl + 1:].lstrip()
+            parts.append(f"### `{alias}` (remote){stale_note}\n\n{body_clean}")
+            continue
+
+        # ── Local subscription (original behavior) ──
         narrative, err = _resolve_subscription_narrative(entry, cfg)
         if err:
             parts.append(f"### `{alias}`\n\n{_federation_warning_block(alias, err)}")
@@ -212,8 +806,30 @@ def cmd_memory_federation(args, cfg) -> None:
         for entry in subs:
             alias = entry.get("alias", "?")
             enabled = entry.get("enabled", True)
+            remote = entry.get("remote")
+            if remote:
+                path_str = remote.get("url", "?")
+            else:
+                path_str = entry.get("path", "?")
+
+            if remote:
+                # ── Remote subscription (Phase 27A) ──
+                cached = _read_remote_cache(cfg, alias)
+                if cached is not None:
+                    lines = cached.get("narrative", "").count("\n")
+                    mt = cached.get("fetched_at", "?")
+                    rec = {"alias": alias, "path": path_str, "enabled": enabled,
+                           "status": "cached", "error": None,
+                           "line_count": lines, "mtime": mt, "transport": "remote"}
+                else:
+                    rec = {"alias": alias, "path": path_str, "enabled": enabled,
+                           "status": "not-fetched", "error": "Run `perseus memory federation pull`",
+                           "line_count": None, "mtime": None, "transport": "remote"}
+                results.append(rec)
+                continue
+
             narrative, err = _resolve_subscription_narrative(entry, cfg)
-            rec = {"alias": alias, "path": entry.get("path", "?"), "enabled": enabled}
+            rec = {"alias": alias, "path": path_str, "enabled": enabled}
             if err:
                 rec["status"] = "error"
                 rec["error"] = err
@@ -258,6 +874,7 @@ def cmd_memory_federation(args, cfg) -> None:
 
     if sub == "subscribe":
         alias = (args.alias or "").strip()
+        remote_url = (getattr(args, "remote_url", None) or "").strip()
         path = (args.path or "").strip()
         ok, reason = _validate_federation_alias(alias)
         if not ok:
@@ -268,6 +885,22 @@ def cmd_memory_federation(args, cfg) -> None:
             if existing.get("alias") == alias:
                 print(f"⚠ Alias `{alias}` already exists. Use `unsubscribe` first.", file=sys.stderr)
                 sys.exit(2)
+        
+        if remote_url:
+            # ── Remote subscription (Phase 27A) ──
+            entry = {
+                "alias": alias,
+                "remote": {"url": remote_url, "auth_token": "", "verify_key": None},
+                "enabled": True,
+            }
+            subs.append(entry)
+            manifest["subscriptions"] = subs
+            saved = _save_federation_manifest(cfg, manifest)
+            print(f"✅ Subscribed `{alias}` → {remote_url} (remote)")
+            print(f"   Manifest: {saved}")
+            return
+        
+        # ── Local subscription (original behavior) ──
         # Resolve + warn (don't refuse) if path doesn't exist
         resolved = Path(path).expanduser()
         try:
@@ -326,6 +959,36 @@ def cmd_memory_federation(args, cfg) -> None:
             print(f"Pulling {len(subs)} federated narrative(s) (read-only):")
         for entry in subs:
             alias = entry.get("alias", "?")
+            remote = entry.get("remote")
+
+            if remote:
+                # ── Remote pull (Phase 27A) ──
+                body, err, ws_id = _resolve_remote_narrative(entry, cfg)
+                if err and body is None:
+                    rec = {"alias": alias, "url": remote.get("url", "?"),
+                           "transport": "remote", "status": "error", "error": err,
+                           "line_count": None, "mtime": None, "bytes": None}
+                    if not use_json:
+                        print(f"  ⚠ {alias} (remote): {err}")
+                else:
+                    if err:
+                        status = "stale-cached"
+                        note = f" (cached: {err})"
+                    else:
+                        status = "ok"
+                        note = ""
+                    lines = body.count("\n") if body else 0
+                    rec = {"alias": alias, "url": remote.get("url", "?"),
+                           "transport": "remote", "status": status,
+                           "error": err, "line_count": lines,
+                           "mtime": datetime.now().isoformat(timespec="seconds"),
+                           "bytes": len(body) if body else 0}
+                    if not use_json:
+                        print(f"  ✅ {alias} (remote): {lines} lines{note}")
+                results.append(rec)
+                continue
+
+            # ── Local pull (original behavior) ──
             narrative, err = _resolve_subscription_narrative(entry, cfg)
             if err:
                 rec = {"alias": alias, "path": entry.get("path", "?"),
@@ -338,7 +1001,7 @@ def cmd_memory_federation(args, cfg) -> None:
                 lines = narrative.read_text(errors="replace").count("\n")
                 mt = datetime.fromtimestamp(stat.st_mtime).isoformat(timespec="seconds")
                 rec = {"alias": alias, "path": str(narrative),
-                       "status": "ok", "error": None,
+                       "transport": "local", "status": "ok", "error": None,
                        "line_count": lines, "mtime": mt, "bytes": stat.st_size}
                 if not use_json:
                     print(f"  ✅ {alias}: {lines} lines, modified {mt}")
@@ -346,6 +1009,24 @@ def cmd_memory_federation(args, cfg) -> None:
         if use_json:
             import json as _json
             print(_json.dumps(results, indent=2))
+        return
+
+    if sub == "push":
+        rc = cmd_memory_federation_push(args, cfg)
+        if rc is not None:
+            sys.exit(rc)
+        return
+
+    if sub == "diff":
+        rc = cmd_memory_federation_diff(args, cfg)
+        if rc is not None:
+            sys.exit(rc)
+        return
+
+    if sub == "merge":
+        rc = cmd_memory_federation_merge(args, cfg)
+        if rc is not None:
+            sys.exit(rc)
         return
 
     print(f"Unknown memory federation subcommand: {sub}", file=sys.stderr)

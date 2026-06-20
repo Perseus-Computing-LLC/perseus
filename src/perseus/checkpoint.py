@@ -194,6 +194,36 @@ def cmd_checkpoint(args, cfg):
         ws = Path(ws_arg).expanduser().resolve() if ws_arg else Path.cwd().resolve()
         cmd_memory_update_silent(ws, cfg)
 
+    # ── Auto-sign on checkpoint (Phase 27B) ──
+    if bool(cfg.get("federation", {}).get("signing", {}).get("enabled", False)):
+        identity = _load_identity(cfg)
+        if identity is not None:
+            ws_arg2 = getattr(args, "workspace", None) or ""
+            ws2 = Path(ws_arg2).expanduser().resolve() if ws_arg2 else Path.cwd().resolve()
+            mp = _mneme_path(ws2, cfg)
+            if mp.exists():
+                try:
+                    narrative_body = mp.read_text()
+                    sig = _sign_narrative(narrative_body, identity)
+                    sig_path = mp.with_suffix(mp.suffix + ".sig")
+                    sig_path.write_text(json.dumps(sig, indent=2))
+                except Exception as e:
+                    print(f"Auto-sign warning: {e}", file=sys.stderr)
+
+    # ── Auto-push on checkpoint (Phase 27C) ──
+    if bool(cfg.get("federation", {}).get("push", {}).get("enabled", False)):
+        identity = _load_identity(cfg)
+        ws_arg3 = getattr(args, "workspace", None) or ""
+        ws3 = Path(ws_arg3).expanduser().resolve() if ws_arg3 else Path.cwd().resolve()
+        mp3 = _mneme_path(ws3, cfg)
+        if mp3.exists():
+            try:
+                narrative_body = mp3.read_text()
+                sig = _sign_narrative(narrative_body, identity) if identity else None
+                _push_to_all_subscribers(cfg, narrative_body, sig)
+            except Exception as e:
+                print(f"Auto-push warning: {e}", file=sys.stderr)
+
 
 def _load_checkpoint_file(fp: Path) -> dict | None:
     try:
