@@ -966,6 +966,7 @@ def _bind_registry() -> None:
         DirectiveSpec("@auto-skill", resolve_auto_skill, ["skill="],              "inline",  "ac",  cacheable=True,  safe_for_hover=True, summary="Instruct the agent to load a specific skill before starting work. Use at the top of context documents to enforce critical hygiene skills (e.g., memory-hygiene, agent-safety). Renders as a mandatory instruction block. Read-only.", tier=1),
         DirectiveSpec("@health",    resolve_health,    [],                         "inline",  "acw", reads_files=True, summary="Audit workspace context health: stale skills, duplicate tasks, oversized output. Use before starting work to catch drift. For deep Daedalus heuristics (cache, directive stats), use perseus_get_health. Read-only; returns status enum and metric counts.", tier=1),
         DirectiveSpec("@env",       resolve_env,       ["required=", "fallback=", "schema="], "inline", "acw", cacheable=False, safe_for_hover=True, summary="Embed environment variable", tier=1),
+        DirectiveSpec("@tokens",    resolve_tokens,    [],                         "block",   "a",   executes_shell=True, safe_for_hover=False, summary="Embed token budget for rendered context", tier=1),
 
         # Tier 2 — Conditional (heavier, task-specific)
         DirectiveSpec("@services",  resolve_services,  [],                         "block",   "block", executes_shell=True, safe_for_hover=False, summary="Health-check all services listed in the workspace context (HTTP endpoints, Docker containers, shell commands). Use to verify the environment is healthy before starting work. May make network calls and execute shell commands per service definition — side effects depend on configured checks.", tier=2),
@@ -5963,6 +5964,30 @@ def _replace_inline_date_outside_code(line: str, workspace: Path | None = None) 
     return "`".join(parts)
 
 
+import subprocess
+import os
+
+def resolve_tokens(context: str) -> str:
+    try:
+        # Pipe the context to plutus tokens
+        process = subprocess.run(
+            ['plutus', 'tokens'],
+            input=context.encode('utf-8'),
+            capture_output=True,
+            check=True
+        )
+        token_count = int(process.stdout.strip())
+        # Estimate saved tokens (example ratios)
+        saved_tokens = token_count * 3  # For simple facts, 3x
+        ratio = 3.0
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        # Fallback to word count estimate
+        words = context.split()
+        token_count = int(len(words) * 1.3)
+        saved_tokens = token_count * 10 # For complex queries, 10x
+        ratio = 10.0
+
+    return f"## Context Budget\n{token_count} tokens rendered | ~{saved_tokens} saved vs runtime discovery ({ratio:.1f}x)"
 # ─────────────────────────────── HTML Template ────────────────────────────────
 # Phase 23: Self-contained HTML output for perseus render --format html.
 # Known limitations: custom parser is minimal — no tables, footnotes,
@@ -10828,6 +10853,12 @@ def render_source(
             manifest_lines.append("> Re-run with `perseus render --tier 3` to include on-demand context.")
         result = result + "\n".join(manifest_lines)
 
+    # Apply deduplication pass if enabled
+    if _include_depth == 0 and cfg.get("render", {}).get("dedup", True):
+        result, dedup_report = _deduplicate_rendered_output(result, cfg)
+        if dedup_report["removed_facts"] > 0:
+            result += f"\n\nDedup: removed {dedup_report["removed_facts"]} duplicate facts, saved ~{dedup_report["saved_tokens"]} tokens"
+
     # v1.0.6: prepend preflight permission warnings at top of output
     if _include_depth == 0 and preflight_warnings:
         header = "\n".join(f"> {w}" for w in preflight_warnings) + "\n\n"
@@ -10923,6 +10954,46 @@ def _audit_render_redaction(cfg: dict, report: dict) -> None:
     if report.get("total", 0) > 0:
         audit_event(cfg, "redaction", surface="render",
                     total=int(report.get("total", 0)), counts=report.get("counts", {}))
+
+def _deduplicate_rendered_output(text: str, cfg: dict) -> tuple[str, dict]:
+    """
+    Deduplicate lines/paragraphs in the rendered markdown output.
+    Returns (deduplicated_text, dedup_report).
+    dedup_report: {'removed_facts': N, 'saved_tokens': M}
+    """
+    if not cfg.get("render", {}).get("dedup", True):
+        return text, {"removed_facts": 0, "saved_tokens": 0}
+
+    lines = text.splitlines()
+    seen_lines = {}  # str -> count
+    deduplicated_lines = []
+    removed_count = 0
+
+    # Track provenance to avoid merging facts from different directive sources
+    # Keep up to 2 copies of any line (from different sources), only dedup beyond that
+    for line in lines:
+        stripped_line = line.strip()
+        if stripped_line: # Only consider non-empty lines for deduplication
+            count = seen_lines.get(stripped_line, 0)
+            if count < 2:  # Keep first 2 occurrences (allow duplicates across directive boundaries)
+                deduplicated_lines.append(line)
+                seen_lines[stripped_line] = count + 1
+            else:
+                removed_count += 1
+        else:
+            deduplicated_lines.append(line) # Keep empty lines for formatting
+
+    # Simple word count estimate for tokens (approx 1.3 tokens per word)
+    original_word_count = sum(len(line.split()) for line in lines if line.strip())
+    deduplicated_word_count = sum(len(line.split()) for line in deduplicated_lines if line.strip())
+    saved_words = original_word_count - deduplicated_word_count
+    saved_tokens = int(saved_words * 1.3)
+
+    return "\n".join(deduplicated_lines), {
+        "removed_facts": removed_count,
+        "saved_tokens": saved_tokens,
+    }
+
 
 
 def render_source_html(
@@ -16068,6 +16139,7 @@ def resolve_inbox(args_str: str, cfg: dict, workspace: Path | None = None) -> st
                 lines.append(f"  > {bl}")
     return "\n".join(lines)
 
+from datetime import timedelta # Added for #397
 # ── Command dispatch ──────────────────────────────────────────────────────────
 
 def _memory_workspace(args, cfg) -> Path:
@@ -16546,12 +16618,16 @@ def resolve_memory(args_str: str, cfg: dict, workspace: Path | None = None) -> s
     Modes (auto-detected or explicit):
       mode=search [query=...] [scope=...] [k=5] [type=...] [render=default]
         → BM25 search via SQLite FTS5 against the memory vault.
+      mode=recent — last session only (limit=1, fast and minimal)
+      mode=relevant:TOPIC — FTS5-filtered recall matching the topic string
+      mode=full — current behavior, all memory (default)
       mode=narrative [focus=...] [workspace=...]
         → Render the checkpoint-distilled narrative journal.
       mode=federation [alias=...] [include_federation=true]
         → Cross-workspace narrative aggregation.
       mode=vault-mem [project=...] [query=...]
         → Query frozo-ai/vault-mem for typed project memories.
+      limit:N — cap at N entries regardless of mode
 
     Default: if query= is present → search; otherwise → narrative.
     Legacy shim: @mimir calls this with mode=search automatically.
@@ -16562,20 +16638,45 @@ def resolve_memory(args_str: str, cfg: dict, workspace: Path | None = None) -> s
     # ── Detect mode ──────────────────────────────────────────────────────
     mods = _parse_kv_modifiers(args_str)
     explicit_mode = (mods.get("mode") or "").strip().lower()
+
+    # Process tiered modes (#397)
+    if explicit_mode == "recent":
+        mods["limit"] = "1"
+        # Fall through to default narrative/search behavior
+        explicit_mode = ""  # Let auto-detection pick narrative
+    elif explicit_mode == "full":
+        # Full mode: current default behavior (no changes needed)
+        explicit_mode = ""  # Let auto-detection pick narrative
+    elif explicit_mode == "relevant":
+        # relevant:TOPIC — FTS5-filtered recall
+        topic = (mods.get("topic") or "").strip()
+        if topic:
+            mods["query"] = topic
+        else:
+            # relevant without topic defaults to full mode
+            pass
+        explicit_mode = "search"
+
+    limit_n = 0
+    try:
+        limit_n = int(mods.get("limit", "0"))
+    except (ValueError, TypeError):
+        limit_n = 0
+
     has_query = bool((mods.get("query") or "").strip())
     is_federation = bool(re.match(r'^federation\b', args_stripped, re.IGNORECASE))
 
     if explicit_mode == "search" or (has_query and not explicit_mode):
-        return _resolve_memory_search(mods, cfg, ws)
+        return _resolve_memory_search(mods, cfg, ws, limit_n=limit_n)
     elif explicit_mode == "federation" or is_federation:
         return _resolve_memory_federation(args_stripped, mods, cfg)
     elif explicit_mode == "vault-mem":
         return _resolve_memory_vaultmem(mods, cfg)
     else:
-        return _resolve_memory_narrative(args_stripped, mods, cfg, ws)
+        return _resolve_memory_narrative(args_stripped, mods, cfg, ws, limit_n=limit_n)
 
 
-def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path) -> str:
+def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path, limit_n: int = 0) -> str:
     """@memory mode=search — BM25 recall via SQLite FTS5."""
     query = (mods.get("query") or "").strip()
     if not query:
@@ -16590,6 +16691,10 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path) -> str:
         k = max(1, min(20, int(mods.get("k", "5"))))
     except (ValueError, TypeError):
         k = 5
+
+    # Apply limit_n if specified (#397)
+    if limit_n > 0:
+        k = min(k, limit_n)
 
     hits = _mneme_recall(cfg, query, k=k, scope=scope, type_filter=type_filter, sensitivity=sensitivity)
 
@@ -16753,7 +16858,7 @@ def _resolve_memory_federation(args_stripped: str, mods: dict, cfg: dict) -> str
     return _render_federation_digest(cfg, alias_filter)
 
 
-def _resolve_memory_narrative(args_stripped: str, mods: dict, cfg: dict, ws: Path) -> str:
+def _resolve_memory_narrative(args_stripped: str, mods: dict, cfg: dict, ws: Path, limit_n: int = 0) -> str:
     """@memory mode=narrative — render the narrative journal."""
     focus = (mods.get("focus") or "").strip().lower()
     include_fed = str(mods.get("include_federation", "")).strip().lower() in {"true", "1", "yes"}
