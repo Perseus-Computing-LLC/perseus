@@ -199,13 +199,41 @@ def main():
     fed_sub = p_mem_fed.add_subparsers(dest="federation_command", required=True)
     p_fed_list = fed_sub.add_parser("list", help="List subscribed narratives + status")
     p_fed_list.add_argument("--json", action="store_true", help="Machine-readable JSON output")
-    p_fed_sub = fed_sub.add_parser("subscribe", help="Add a subscription")
+    p_fed_sub = fed_sub.add_parser("subscribe", help="Add a subscription (local path or remote URL)")
     p_fed_sub.add_argument("alias", help="User-chosen alias [a-zA-Z0-9_-]+")
-    p_fed_sub.add_argument("path", help="Workspace path to subscribe to")
+    p_fed_sub.add_argument("path", nargs="?", default="", help="Workspace path to subscribe to (omit with --remote-url)")
+    p_fed_sub.add_argument("--remote-url", default=None, help="Remote perseus serve URL for federation (Phase 27A)")
     p_fed_unsub = fed_sub.add_parser("unsubscribe", help="Remove a subscription by alias")
     p_fed_unsub.add_argument("alias", help="Alias to remove")
     p_fed_pull = fed_sub.add_parser("pull", help="Re-read all subscribed narratives (read-only, manual)")
     p_fed_pull.add_argument("--json", action="store_true", help="Machine-readable JSON output")
+    p_fed_push = fed_sub.add_parser("push", help="Push narrative to subscribers with push_url (Phase 27C)")
+    p_fed_push.add_argument("--alias", default=None, help="Push to a specific subscriber alias (default: all)")
+    p_fed_push.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
+    p_fed_push.add_argument("--json", action="store_true", help="Machine-readable JSON output")
+    p_fed_diff = fed_sub.add_parser("diff", help="Side-by-side compare two federated narratives (Phase 27E)")
+    p_fed_diff.add_argument("alias_a", help="First subscription alias")
+    p_fed_diff.add_argument("alias_b", help="Second subscription alias")
+    p_fed_merge = fed_sub.add_parser("merge", help="Draft a reconciliation between conflicting narratives (Phase 27E)")
+    p_fed_merge.add_argument("alias_a", help="First subscription alias")
+    p_fed_merge.add_argument("alias_b", help="Second subscription alias")
+
+    # memory sign (Phase 27B)
+    p_mem_sign = mem_sub.add_parser("sign", help="Sign the current Mneme narrative with workspace identity")
+    p_mem_sign.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
+    p_mem_sign.add_argument("--json", action="store_true", help="Machine-readable JSON output")
+
+    # memory verify (Phase 27B)
+    p_mem_verify = mem_sub.add_parser("verify", help="Verify a narrative signature")
+    p_mem_verify.add_argument("hash", nargs="?", default=None, help="Workspace hash to verify (default: current workspace)")
+    p_mem_verify.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
+    p_mem_verify.add_argument("--key", default=None, help="External public key for cross-workspace verification")
+    p_mem_verify.add_argument("--json", action="store_true", help="Machine-readable JSON output")
+
+    # memory provenance (Phase 27F)
+    p_mem_prov = mem_sub.add_parser("provenance", help="Display narrative provenance chain (Phase 27F)")
+    p_mem_prov.add_argument("hash", nargs="?", default=None, help="Workspace hash (default: current workspace)")
+    p_mem_prov.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
 
     # memory doctor (#128 — legacy MD5 → SHA-256 narrative migration)
     p_mem_doc = mem_sub.add_parser(
@@ -304,6 +332,25 @@ def main():
                         help="Append the entry to the current user's crontab (uses `crontab -l` + `crontab -`)")
     p_cron_uninstall = cron_sub.add_parser("uninstall", help="Remove a crontab entry")
     p_cron_uninstall.add_argument("source", help="Path to Perseus source file to remove from crontab")
+
+    # identity (Phase 27B — workspace identity + signing)
+    p_identity = sub.add_parser("identity", help="Manage workspace cryptographic identity (Phase 27B)")
+    id_sub = p_identity.add_subparsers(dest="identity_command", required=True)
+    p_id_init = id_sub.add_parser("init", help="Generate a new workspace identity keypair")
+    p_id_init.add_argument("--force", action="store_true", help="Overwrite existing identity")
+    p_id_show = id_sub.add_parser("show", help="Display the current workspace identity")
+    p_id_show.add_argument("--json", action="store_true", help="Machine-readable output")
+    p_id_grant = id_sub.add_parser("grant", help="Grant narrative access to a workspace (Phase 27D)")
+    p_id_grant.add_argument("--workspace-id", required=True, help="Target workspace ID (sha256:...)")
+    p_id_grant.add_argument("--scope", default="narrative", help="Grant scope (default: narrative)")
+    p_id_grant.add_argument("--ttl", type=int, default=30, help="Grant duration in days (default: 30)")
+    p_id_grant.add_argument("--output", action="store_true", help="Print the bearer token on grant creation")
+    p_id_revoke = id_sub.add_parser("revoke", help="Revoke a grant by ID")
+    p_id_revoke.add_argument("--grant-id", required=True, help="Grant ID to revoke")
+    p_id_token = id_sub.add_parser("token", help="Generate a bearer token for an existing grant")
+    p_id_token.add_argument("--for", dest="for_workspace", required=True, help="Target workspace ID")
+    p_id_token.add_argument("--scope", default="narrative", help="Grant scope (default: narrative)")
+    p_id_rotate = id_sub.add_parser("rotate", help="Rotate workspace identity keys (Phase 27F)")
 
     # launchd
     p_launchd = sub.add_parser("launchd", help="Scaffold or remove a macOS LaunchAgent for periodic rendering")
@@ -463,6 +510,10 @@ def main():
         cmd_memory(args, cfg)
     elif args.command == "inbox":
         cmd_inbox(args, cfg)
+    elif args.command == "identity":
+        rc = cmd_identity(args, cfg)
+        if rc is not None:
+            return rc
     elif args.command == "serve":
         # v1.0.5 review: reload with workspace so auth tokens,
         # trust profiles, MCP SSE tokens, and tool allowlists work.
