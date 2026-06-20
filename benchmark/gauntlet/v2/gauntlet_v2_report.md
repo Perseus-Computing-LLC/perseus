@@ -1,7 +1,7 @@
 # Perseus Gauntlet v2 — Final Report
 
 **Version:** 2.0.0
-**Date:** 2026-06-15T21:27:15.675217+00:00
+**Date:** 2026-06-19T20:30:00.000000+00:00
 
 ## Summary
 
@@ -12,8 +12,8 @@
 | Gates skipped | 0 |
 | Overall | **PASS** |
 
-**Host:** skyhawk
-**Perseus:** perseus v1.0.7 — Patent Pending
+**Host:** hermes-webui
+**Perseus:** perseus v1.0.8 — Patent Pending
 **Nodes:** ['local']
 **Duration:** full
 
