@@ -1,4 +1,4 @@
-@perseus v1.0.6
+@perseus v1.0.8
 <!-- Last updated: 2026-06-08 · Current Perseus version: v1.0.6 -->
 
 @prompt
@@ -48,8 +48,9 @@ checkpoints feed it.
 | **Health** | Deterministic context maintenance heuristics — `perseus health` + `@health` directive (Daedalus v1) | ✅ Phase 5E |
 | **Daedalus** | Local autonomous scoring model — Pythia without a round-trip (dataset + routing shipped; model training is a user step) | ✅ Phase 6 |
 | **Mnēmē** | Narrative project memory — distills checkpoints + Pythia log into a per-workspace narrative | ✅ Phase 7 |
-| **Federation** | Cross-workspace Mnēmē narrative aggregation via subscribable manifest | ✅ Phase 8.2 |
-| **Templates** | Starter scaffolds for generic/hermes/rovodev/claude-code/cursor via `perseus init --template` | ✅ Phase 8 |
+|| **Federation** | Cross-workspace Mnēmē narrative aggregation via subscribable manifest | ✅ Phase 8.2 |
+|| **Decentralized Fed.** | Remote transport, cryptographic identity, provenance chains, cross-org context sharing | 🔨 Phase 27 |
+|| **Templates** | Starter scaffolds for generic/hermes/rovodev/claude-code/cursor via `perseus init --template` | ✅ Phase 8 |
 | **Serve** | Read-only HTTP view of workspace state | ✅ Phase 8 |
 | **Inbox** | Per-workspace point-to-point message store + `@inbox` directive | ✅ Phase 8 |
 | **Cron** | Cross-platform scheduler (macOS/Linux/BSD) — bridges launchd + systemd | ✅ Phase 8 |
@@ -448,6 +449,8 @@ Phase 22 (done):  v1 Release Candidate
 Phase 23 (done):  HTML Output — `perseus render --format html`
 Phase 24 (done):   Extensibility Architecture (Hephaestus) — tasks/task-65 through task-74
 Phase 25 (done):   MCP Deep Integration — tasks/task-75
+Phase 26 (done):   Security Hardening — tasks/task-91 through task-95
+Phase 27 (active): Decentralized Federation — tasks/task-96 through task-101 (design phase)
 ```
 
 ---
@@ -1167,13 +1170,91 @@ pattern matching against the actual stored path format.
 
 ---
 
-## Future Direction: Decentralized Federation
+## Phase 27 — Decentralized Federation
 
-Deepen federation to securely share context across decentralized workspaces or
-organizations. Dynamic access control, conflict resolution, provable data lineage.
-This changes the deployment model from single-node to distributed — an
-infrastructure and trust boundary question separate from the resolver/generator
-decision above.
+**Status:** 🔨 In progress (design phase)  
+**Architecture doc:** `docs/DECENTRALIZED_FEDERATION.md`
+
+Decentralized Federation extends Phase 8.2 federation across machine and
+organizational boundaries. The existing filesystem-based manifest becomes
+one transport among several: HTTP pull from `perseus serve` endpoints,
+push notification on checkpoint write, and eventually cross-org capability
+grants.
+
+Every narrative carries a cryptographic signature and a provenance chain
+back to its source workspace. Trust is explicit key pinning — no CA, no
+PKI. When narratives conflict, Perseus shows both with provenance, never
+silently resolves.
+
+### 27A — Remote Federation Transport (task-96)
+
+Extend federation to pull narratives over HTTP from `perseus serve`
+endpoints. The foundation everything else builds on.
+
+- Extend federation manifest schema with `remote:` block (url, auth_token, verify_key)
+- Add `GET /federation/narrative` endpoint to `perseus serve`
+- `perseus memory federation pull` learns fetch-from-remote path
+- `@memory federation` renders remote narratives inline with provenance badges
+- Local caching in `~/.perseus/cache/federation/`
+- Graceful degradation: unreachable remote → warning block with last-known-good timestamp
+
+### 27B — Cryptographic Identity & Signing (task-97)
+
+- `perseus identity init` — generate workspace keypair (`~/.perseus/keys/identity.yaml`)
+- `perseus identity show` — display public key and workspace ID
+- `perseus memory sign` — sign current narrative (HMAC-SHA256 for v1)
+- `perseus memory verify <hash>` — verify a received narrative against pinned key
+- Auto-sign on checkpoint write when `federation.signing.enabled: true`
+- Ed25519 upgrade path documented for when Python nacl bindings stabilize
+
+### 27C — Push Federation (task-98)
+
+- Extend `perseus serve` with `POST /federation/receive` endpoint
+- Extend federation manifest with `push_url` and `push_token`
+- Fire-and-forget POST on checkpoint write (3 retries, exponential backoff)
+- Push failures are warnings, never fatal — pull remains the canonical refresh path
+
+### 27D — Access Control & Capability Grants (task-99)
+
+- Token-scoped access: per-subscriber bearer tokens
+- `perseus identity grant <workspace_id> --scope narrative --ttl 30d`
+- `perseus identity revoke <grant_id>`
+- `serve` middleware checks grants on each `/federation/` request
+- `federation.d/` directory of per-subscription YAML as alternative to monolithic manifest
+
+### 27E — Conflict Detection & Merge Assistance (task-100)
+
+- Topic overlap detection via Mnēmē focus tags and FTS5 similarity
+- `perseus memory federation diff <a> <b>` — side-by-side conflict view
+- `perseus memory federation merge <a> <b>` — Pythia-assisted reconciliation draft
+- `@federation conflicts` directive — renders detected conflicts inline
+- Merge output uses cited synthesis; never auto-applied
+
+### 27F — Provenance Chain Verification (task-101)
+
+- Narrative frontmatter extended with `prev_signature` and `sequence` fields
+- `perseus memory verify --chain <hash>` — verify entire hash chain to genesis
+- `perseus memory provenance <hash>` — display full provenance tree
+- `@memory provenance` directive — renders provenance inline
+- `perseus identity rotate` — key rotation with history chain
+
+#### Execution Order
+
+```
+Phase 27A ─── Remote pull via HTTP (task-96)   ← foundation
+    │
+    ├── 27B ─── Identity + signing (task-97)
+    ├── 27C ─── Push federation (task-98)
+    ├── 27D ─── Access control (task-99)
+    ├── 27E ─── Conflict detection (task-100)
+    └── 27F ─── Provenance chain (task-101)
+```
+
+27A is the hard dependency. 27B–27F can run in any order after 27A
+lands, though 27B (signing) is a natural prerequisite for 27C (push)
+and 27F (provenance).
+
+The full architecture is in `docs/DECENTRALIZED_FEDERATION.md`.
 
 ---
 
@@ -1184,13 +1265,10 @@ roadmaps. Cross-product master doc: `…/workspace/ROADMAP_2026-2027.md`.
 
 | Quarter | Theme | Perseus deliverables |
 |---|---|---|
-| **Q3 2026** (Jul–Sep) | Harden & distribute | Lock Mimir auto-discovery + live context injection as the default Hermes path; publish reproducible Gauntlet v2 score + methodology; CI smoke test (`perseus render` + `plutus.py --json`); PyPI metadata pass (classifiers, keywords for "context engine / MCP / agent memory") |
-| **Q4 2026** (Oct–Dec) | IDE & ecosystem | VS Code + Cursor integration (render `@perseus` context into the editor agent panel); "Built with Perseus" badge program + contributor guide; Perseus-as-MCP-client (pull other servers' state into a render) |
-| **Q1 2027** (Jan–Mar) | Leaderboard & teams | Public Gauntlet leaderboard site (external submissions); team workspace support — shared checkpoints + Mnēmē federation across a team manifest |
-| **Q2 2027** (Apr–Jun) | Platform | Perseus Cloud groundwork — hosted read-only `perseus serve` for teams; synthesis-as-a-service (cited-claim synthesis behind an API) |
-
-Phase-numbered backlog items (Phases 21–26) feed the Q3–Q4 buckets; the
-Decentralized Federation direction above is the Q1–Q2 2027 platform track.
+| **Q3 2026** (Jul–Sep) | Federation foundation | Lock Mimir auto-discovery + live context injection as the default Hermes path; publish reproducible Gauntlet v2 score + methodology; CI smoke test; PyPI metadata pass; **Phase 27A: remote federation transport + 27B: identity/signing** |
+| **Q4 2026** (Oct–Dec) | IDE & federation push | VS Code + Cursor integration (render `@perseus` context into the editor agent panel); "Built with Perseus" badge program; Perseus-as-MCP-client; **Phase 27C: push federation + 27D: access control/grants** |
+| **Q1 2027** (Jan–Mar) | Leaderboard & teams | Public Gauntlet leaderboard site (external submissions); team workspace support — shared checkpoints + federation across a team manifest; **Phase 27E: conflict detection/merge + 27F: provenance chain** |
+| **Q2 2027** (Apr–Jun) | Platform | Perseus Cloud groundwork — hosted read-only `perseus serve` for teams; synthesis-as-a-service (cited-claim synthesis behind an API); **Decentralized federation GA** |
 
 ---
 
@@ -1279,6 +1357,14 @@ Phase 26A ─── MCP SSE authentication (task-91) ✅ ───────�
     ├── 26C ─── Foreign resolver SSRF (task-93) ✅ ───────┤
     ├── 26D ─── Build multi-line import (task-94) ✅ ─────┤
     └── 26E ─── Delete-doc GLOB test fix (task-95) ✅ ────┘
+                                                         │
+Phase 27A ─── Remote federation transport (task-96) 🔨 ──┤
+    │          Foundation — pull narratives over HTTP      │
+    ├── 27B ─── Identity + signing (task-97) ─────────────┤
+    ├── 27C ─── Push federation (task-98) ────────────────┤
+    ├── 27D ─── Access control + grants (task-99) ────────┤
+    ├── 27E ─── Conflict detection + merge (task-100) ────┤
+    └── 27F ─── Provenance chain (task-101) ──────────────┘
 ```
 
 ---
@@ -1287,7 +1373,7 @@ Phase 26A ─── MCP SSE authentication (task-91) ✅ ───────�
 
 ```
 Source document (.perseus/context.md)
-  @perseus v1.0.6
+  @perseus v1.0.8
   @query "git log --oneline -5"          ┐
   @read .env key="PORT"                  │  Directives resolved
   @waypoint ttl=86400                    │  before context window.
