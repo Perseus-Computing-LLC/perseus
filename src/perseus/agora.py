@@ -154,8 +154,12 @@ def _memory_do_compact(workspace: Path, cfg: dict, provider: str | None) -> str:
                     total_timeout_s=total_timeout,
                     workspace_hash=_workspace_hash(workspace),
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                import logging
+                logging.getLogger("perseus.agora").warning(
+                    "Agora task list parse failed for workspace %s: %s",
+                    getattr(workspace, 'path', workspace), exc
+                )
             new_body = _deterministic_narrative(
                 all_checkpoints, all_pythia, "", workspace, cfg,
             )
@@ -349,6 +353,24 @@ def cmd_memory(args, cfg):
 
     if sub == "doctor":
         cmd_memory_doctor(args, cfg)
+        return
+
+    if sub == "sign":
+        rc = cmd_memory_sign(args, cfg)
+        if rc is not None:
+            sys.exit(rc)
+        return
+
+    if sub == "verify":
+        rc = cmd_memory_verify(args, cfg)
+        if rc is not None:
+            sys.exit(rc)
+        return
+
+    if sub == "provenance":
+        rc = cmd_memory_provenance(args, cfg)
+        if rc is not None:
+            sys.exit(rc)
         return
 
     print(f"perseus memory: unknown subcommand '{sub}'.", file=sys.stderr)
@@ -648,6 +670,15 @@ def _resolve_memory_vaultmem(mods: dict, cfg: dict) -> str:
 
 def _resolve_memory_federation(args_stripped: str, mods: dict, cfg: dict) -> str:
     """@memory mode=federation — cross-workspace digest."""
+    # Phase 27E: conflicts sub-mode
+    if "conflicts" in args_stripped.lower():
+        return _render_federation_conflicts(cfg)
+    # Phase 27F: provenance sub-mode
+    if "provenance" in args_stripped.lower():
+        # Extract hash from args: "federation provenance <hash>" or "federation provenance"
+        prov_match = re.match(r'federation\s+provenance\s+(\S+)', args_stripped, re.IGNORECASE)
+        hash_arg = prov_match.group(1) if prov_match else ""
+        return _render_provenance(hash_arg, cfg)
     fed_match = re.match(r'^federation\b\s*(.*)$', args_stripped, re.IGNORECASE)
     if fed_match:
         fed_args = fed_match.group(1).strip()
@@ -694,8 +725,11 @@ def _resolve_memory_narrative(args_stripped: str, mods: dict, cfg: dict, ws: Pat
                 f"> \u26a0 Mn\u0113m\u0113 narrative is stale (last updated {age_h}).\n"
                 "> Run `perseus memory update` to refresh.\n\n"
             )
-    except Exception:
-        pass
+    except Exception as exc:
+        import logging
+        logging.getLogger("perseus.agora").warning(
+            "Mnēmē narrative staleness check failed: %s", exc
+        )
 
     if not stale_note and body.strip():
         # Touch updated timestamp on every fresh successful render so callers
@@ -703,8 +737,11 @@ def _resolve_memory_narrative(args_stripped: str, mods: dict, cfg: dict, ws: Pat
         try:
             fm["updated"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
             _save_narrative(mp, fm, body)
-        except Exception:
-            pass  # best-effort; never break the read path
+        except Exception as exc:
+            import logging
+            logging.getLogger("perseus.agora").warning(
+                "Mnēmē narrative save failed (non-critical): %s", exc
+            )  # best-effort; never break the read path
 
     compact_note = ""
     threshold = int(cfg.get("memory", {}).get("compact_threshold", 20))
