@@ -40,6 +40,7 @@ MODULE_ORDER = [
     "src/perseus/directives/session.py",
     "src/perseus/directives/services.py",
     "src/perseus/directives/misc.py",
+    "src/perseus/directives/tokens.py",
     "src/perseus/html_format.py",     # ← Phase 23: HTML output — before renderer (renderer imports from it)
     "src/perseus/assistant_formats.py", # ← Phase 24: assistant format targets (AGENTS.md, CLAUDE.md, etc.)
     "src/perseus/mcp.py",               # ← Phase 24: MCP server (depends on registry, before serve)
