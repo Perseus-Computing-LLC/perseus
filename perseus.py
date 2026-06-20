@@ -11241,6 +11241,36 @@ def cmd_checkpoint(args, cfg):
         ws = Path(ws_arg).expanduser().resolve() if ws_arg else Path.cwd().resolve()
         cmd_memory_update_silent(ws, cfg)
 
+    # ── Auto-sign on checkpoint (Phase 27B) ──
+    if bool(cfg.get("federation", {}).get("signing", {}).get("enabled", False)):
+        identity = _load_identity(cfg)
+        if identity is not None:
+            ws_arg2 = getattr(args, "workspace", None) or ""
+            ws2 = Path(ws_arg2).expanduser().resolve() if ws_arg2 else Path.cwd().resolve()
+            mp = _mneme_path(ws2, cfg)
+            if mp.exists():
+                try:
+                    narrative_body = mp.read_text()
+                    sig = _sign_narrative(narrative_body, identity)
+                    sig_path = mp.with_suffix(mp.suffix + ".sig")
+                    sig_path.write_text(json.dumps(sig, indent=2))
+                except Exception as e:
+                    print(f"Auto-sign warning: {e}", file=sys.stderr)
+
+    # ── Auto-push on checkpoint (Phase 27C) ──
+    if bool(cfg.get("federation", {}).get("push", {}).get("enabled", False)):
+        identity = _load_identity(cfg)
+        ws_arg3 = getattr(args, "workspace", None) or ""
+        ws3 = Path(ws_arg3).expanduser().resolve() if ws_arg3 else Path.cwd().resolve()
+        mp3 = _mneme_path(ws3, cfg)
+        if mp3.exists():
+            try:
+                narrative_body = mp3.read_text()
+                sig = _sign_narrative(narrative_body, identity) if identity else None
+                _push_to_all_subscribers(cfg, narrative_body, sig)
+            except Exception as e:
+                print(f"Auto-push warning: {e}", file=sys.stderr)
+
 
 def _load_checkpoint_file(fp: Path) -> dict | None:
     try:
@@ -12732,15 +12762,73 @@ def _load_federation_manifest(cfg: dict) -> dict:
         for entry in subs:
             if not isinstance(entry, dict):
                 continue
-            if "alias" not in entry or "path" not in entry:
+            if "alias" not in entry:
                 continue
-            normalized.append({
+            if "path" not in entry and "remote" not in entry:
+                continue
+            norm = {
                 "alias": str(entry["alias"]),
-                "path": str(entry["path"]),
-                "enabled": bool(entry.get("enabled", True)),
-                # Reserved for v2 — preserved on round-trip
-                **{k: v for k, v in entry.items() if k not in {"alias", "path", "enabled"}},
-            })
+            }
+            if "path" in entry:
+                norm["path"] = str(entry["path"])
+            if "remote" in entry:
+                remote = entry["remote"]
+                if isinstance(remote, dict):
+                    norm["remote"] = {
+                        "url": str(remote.get("url", "")),
+                        "auth_token": str(os.path.expandvars(remote.get("auth_token", ""))),
+                        "verify_key": remote.get("verify_key"),
+                        "push_url": str(remote.get("push_url", "")),
+                        "push_token": str(os.path.expandvars(remote.get("push_token", ""))),
+                    }
+                else:
+                    norm["remote"] = {"url": str(remote), "auth_token": "", "verify_key": None,
+                                      "push_url": "", "push_token": ""}
+            norm["enabled"] = bool(entry.get("enabled", True))
+            # Reserved for v2 — preserved on round-trip
+            preserve = {k: v for k, v in entry.items()
+                        if k not in {"alias", "path", "remote", "enabled"}}
+            norm.update(preserve)
+            normalized.append(norm)
+        # Phase 27D: merge federation.d/ directory subscriptions
+        fed_d = _federation_manifest_path(cfg).parent / "federation.d"
+        if fed_d.exists() and fed_d.is_dir():
+            d_aliases = {e["alias"] for e in normalized}
+            for d_file in sorted(fed_d.glob("*.yaml")):
+                try:
+                    d_data = yaml.safe_load(d_file.read_text()) or {}
+                    if isinstance(d_data, dict):
+                        d_alias = d_data.get("alias", d_file.stem)
+                        if d_alias in d_aliases:
+                            # Directory wins — remove the monolithic entry
+                            normalized = [e for e in normalized if e.get("alias") != d_alias]
+                        d_aliases.add(d_alias)
+                        norm = {
+                            "alias": str(d_alias),
+                            "enabled": bool(d_data.get("enabled", True)),
+                            "_source": str(d_file),
+                        }
+                        if "path" in d_data:
+                            norm["path"] = str(d_data["path"])
+                        if "remote" in d_data:
+                            remote = d_data["remote"]
+                            if isinstance(remote, dict):
+                                norm["remote"] = {
+                                    "url": str(remote.get("url", "")),
+                                    "auth_token": str(os.path.expandvars(remote.get("auth_token", ""))),
+                                    "verify_key": remote.get("verify_key"),
+                                    "push_url": str(remote.get("push_url", "")),
+                                    "push_token": str(os.path.expandvars(remote.get("push_token", ""))),
+                                }
+                            else:
+                                norm["remote"] = {"url": str(remote), "auth_token": "", "verify_key": None,
+                                                  "push_url": "", "push_token": ""}
+                        preserve = {k: v for k, v in d_data.items()
+                                    if k not in {"alias", "path", "remote", "enabled"}}
+                        norm.update(preserve)
+                        normalized.append(norm)
+                except Exception as e:
+                    print(f"⚠ federation.d/{d_file.name} is malformed: {e}. Skipping.", file=sys.stderr)
         return {"version": int(data.get("version", 1)), "subscriptions": normalized}
     except Exception as e:
         print(f"⚠ Federation manifest at {p} is malformed: {e}. Treating as empty.", file=sys.stderr)
@@ -12790,6 +12878,521 @@ def _resolve_subscription_narrative(entry: dict, cfg: dict) -> tuple[Path | None
     return (narrative, None)
 
 
+# ── Phase 27A: Remote federation transport ──────────────────────────
+
+def _remote_cache_dir(cfg: dict) -> Path:
+    return Path(cfg.get("federation", {}).get("cache_dir",
+               str(PERSEUS_HOME / "cache" / "federation"))).expanduser()
+
+
+def _remote_cache_path(cfg: dict, alias: str) -> Path:
+    return _remote_cache_dir(cfg) / f"{alias}.json"
+
+
+def _remote_cache_ttl_s(cfg: dict) -> int:
+    return int(cfg.get("federation", {}).get("cache_ttl_s", 3600))
+
+
+def _read_remote_cache(cfg: dict, alias: str) -> dict | None:
+    """Read cached remote narrative. Returns None if absent or expired."""
+    path = _remote_cache_path(cfg, alias)
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text())
+    except Exception:
+        return None
+    fetched = data.get("fetched_at", "")
+    if fetched:
+        try:
+            dt = datetime.fromisoformat(fetched)
+            age_s = (datetime.now(dt.tzinfo if dt.tzinfo else None)
+                     - dt.replace(tzinfo=None)).total_seconds()
+            if age_s > _remote_cache_ttl_s(cfg):
+                return None  # expired
+        except Exception:
+            pass
+    return data
+
+
+def _write_remote_cache(cfg: dict, alias: str, narrative: str,
+                        workspace_id: str | None, signature: str | None,
+                        updated: str, url: str) -> Path:
+    """Atomic write of fetched remote narrative to cache."""
+    cache_dir = _remote_cache_dir(cfg)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    path = _remote_cache_path(cfg, alias)
+    data = {
+        "alias": alias,
+        "url": url,
+        "workspace_id": workspace_id,
+        "narrative": narrative,
+        "signature": signature,
+        "updated": updated,
+        "fetched_at": datetime.now().isoformat(timespec="seconds"),
+        "format_version": 1,
+    }
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(data, indent=2))
+    os.replace(tmp, path)
+    return path
+
+
+def _fetch_remote_narrative(entry: dict, cfg: dict) -> tuple[str | None, str | None, str | None]:
+    """Fetch a remote narrative over HTTP.
+
+    Returns (narrative_body, error_message, workspace_id).
+    On success: (body, None, ws_id_or_None).
+    On failure: (None, reason, None).
+    """
+    remote = entry.get("remote", {})
+    url = remote.get("url", "").rstrip("/")
+    if not url:
+        return (None, "remote URL is empty", None)
+    auth_token = remote.get("auth_token", "")
+
+    ws_hash = entry.get("_workspace_hash", "")
+    req_url = f"{url}/federation/narrative"
+    if ws_hash:
+        req_url += f"?ws={ws_hash}"
+
+    try:
+        req = urllib.request.Request(req_url)
+        req.add_header("User-Agent", f"perseus/{_PERSEUS_VERSION} federation-client")
+        req.add_header("Accept", "application/json")
+        if auth_token:
+            req.add_header("Authorization", f"Bearer {auth_token}")
+
+        fetch_timeout = int(cfg.get("federation", {}).get("fetch_timeout_s", 10))
+        read_timeout = int(cfg.get("federation", {}).get("read_timeout_s", 30))
+
+        with urllib.request.urlopen(req, timeout=fetch_timeout) as resp:
+            if resp.status == 304:
+                return (None, "not modified (304)", None)
+            body = resp.read().decode("utf-8")
+            data = json.loads(body)
+            narrative = data.get("narrative", "")
+            ws_id = data.get("workspace_id")
+            if narrative:
+                return (narrative, None, ws_id)
+            return (None, "empty narrative in response", None)
+    except urllib.error.HTTPError as e:
+        return (None, f"HTTP {e.code}", None)
+    except urllib.error.URLError as e:
+        return (None, f"connection failed: {e.reason}", None)
+    except Exception as e:
+        return (None, f"fetch error: {e}", None)
+
+
+def _resolve_remote_narrative(entry: dict, cfg: dict) -> tuple[str | None, str | None, str | None]:
+    """Resolve a remote subscription to a narrative body, using cache when fresh.
+
+    Returns (narrative_body, error_message, workspace_id).
+    On success from cache: (body, None, ws_id_from_cache).
+    On success from fetch: (body, None, ws_id_from_response).
+    On stale cache + fetch failed: (cached_body, err, ws_id) — use stale with warning.
+    On no cache + fetch failed: (None, reason, None).
+    """
+    alias = entry.get("alias", "?")
+    remote = entry.get("remote", {})
+
+    # Try fresh fetch first
+    body, err, ws_id = _fetch_remote_narrative(entry, cfg)
+    if body is not None:
+        _write_remote_cache(cfg, alias, body, ws_id, None,
+                           datetime.now().isoformat(timespec="seconds"),
+                           remote.get("url", ""))
+        return (body, None, ws_id)
+
+    # Fetch failed — try stale cache
+    cached = _read_remote_cache(cfg, alias)
+    if cached is not None:
+        cached_body = cached.get("narrative", "")
+        if cached_body:
+            return (cached_body, err or "using cached data", cached.get("workspace_id"))
+
+    return (None, err or "no cached narrative available", None)
+
+
+def _federation_warning_block_remote(alias: str, reason: str, last_good: str | None = None) -> str:
+    """Warning block for unavailable remote federation subscriptions."""
+    last = f"\\n> Last known good: {last_good} (cached)" if last_good else ""
+    return (
+        f"> ⚠ Federated memory `{alias}` unavailable: {reason}{last}\\n"
+        f"> (Manage subscriptions with `perseus memory federation list`.)"
+    )
+
+
+# ── Phase 27C: Push federation ─────────────────────────────────────
+
+def _push_narrative_to_subscriber(sub: dict, narrative_body: str,
+                                   sig: dict | None, cfg: dict) -> tuple[bool, str]:
+    """Push a signed narrative to a remote subscriber.
+    
+    Returns (success, message).
+    """
+    remote = sub.get("remote", {})
+    push_url = remote.get("push_url", "")
+    if not push_url:
+        return (False, "no push_url configured")
+    
+    push_token = remote.get("push_token", "")
+    
+    import json as _json
+    payload = _json.dumps({
+        "workspace_id": sig.get("workspace_id") if sig else None,
+        "narrative": narrative_body,
+        "signature": sig.get("signature") if sig else None,
+        "updated": sig.get("timestamp") if sig else datetime.now().isoformat(),
+    }).encode("utf-8")
+    
+    retry_count = int(cfg.get("federation", {}).get("push", {}).get("retry_count", 3))
+    retry_delay = int(cfg.get("federation", {}).get("push", {}).get("retry_delay_s", 1))
+    
+    last_error = ""
+    for attempt in range(retry_count):
+        try:
+            req = urllib.request.Request(push_url, data=payload, method="POST")
+            req.add_header("Content-Type", "application/json")
+            req.add_header("User-Agent", f"perseus/{_PERSEUS_VERSION} push-federation")
+            if push_token:
+                req.add_header("Authorization", f"Bearer {push_token}")
+            
+            timeout = int(cfg.get("federation", {}).get("fetch_timeout_s", 10))
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                if resp.status in (200, 201, 202):
+                    return (True, f"pushed to {push_url}")
+                return (False, f"HTTP {resp.status}")
+        except urllib.error.HTTPError as e:
+            last_error = f"HTTP {e.code}"
+        except urllib.error.URLError as e:
+            last_error = f"connection: {e.reason}"
+        except Exception as e:
+            last_error = str(e)
+        
+        if attempt < retry_count - 1:
+            time.sleep(retry_delay * (2 ** attempt))
+    
+    return (False, last_error)
+
+
+def _push_to_all_subscribers(cfg: dict, narrative_body: str, sig: dict | None = None) -> list[dict]:
+    """Push narrative to all subscribers with push_url configured.
+    
+    Returns list of {alias, success, message} results.
+    Fire-and-forget — failures are logged, never fatal.
+    """
+    manifest = _load_federation_manifest(cfg)
+    subs = manifest.get("subscriptions", [])
+    results = []
+    for sub in subs:
+        alias = sub.get("alias", "?")
+        remote = sub.get("remote", {})
+        if remote.get("push_url"):
+            ok, msg = _push_narrative_to_subscriber(sub, narrative_body, sig, cfg)
+            results.append({"alias": alias, "success": ok, "message": msg})
+            if not ok:
+                print(f"Push warning [{alias}]: {msg}", file=sys.stderr)
+    return results
+
+
+def cmd_memory_federation_push(args, cfg) -> int | None:
+    """Handle `perseus memory federation push [--alias NAME]`."""
+    alias_filter = getattr(args, "alias", None)
+    identity = _load_identity(cfg)
+    if identity is None:
+        print("No workspace identity. Run `perseus identity init` first.", file=sys.stderr)
+        return 2
+    
+    ws_raw = getattr(args, "workspace", None) or os.getcwd()
+    workspace = Path(ws_raw).expanduser().resolve()
+    mp = _mneme_path(workspace, cfg)
+    if not mp.exists():
+        print(f"No narrative at {mp}.", file=sys.stderr)
+        return 1
+    
+    narrative_body = mp.read_text()
+    sig = _sign_narrative(narrative_body, identity)
+    
+    manifest = _load_federation_manifest(cfg)
+    subs = manifest.get("subscriptions", [])
+    if alias_filter:
+        subs = [s for s in subs if s.get("alias") == alias_filter]
+        if not subs:
+            print(f"No subscription with alias `{alias_filter}`.", file=sys.stderr)
+            return 1
+    
+    use_json = getattr(args, "json", False)
+    printed = 0
+    for sub in subs:
+        remote = sub.get("remote", {})
+        if remote.get("push_url"):
+            ok, msg = _push_narrative_to_subscriber(sub, narrative_body, sig, cfg)
+            if use_json:
+                import json as _json
+                print(_json.dumps({"alias": sub["alias"], "success": ok, "message": msg}))
+            else:
+                icon = "✅" if ok else "⚠"
+                print(f"{icon} {sub['alias']}: {msg}")
+            printed += 1
+        elif alias_filter:
+            print(f"⚠ {sub['alias']}: no push_url configured")
+    
+    if printed == 0 and not alias_filter:
+        print("No subscribers with push_url configured.")
+    return 0
+
+
+# ── Phase 27E: Conflict Detection & Merge Assistance ───────────────────────
+
+def _extract_sections(narrative_body: str) -> dict[str, str]:
+    """Extract ## heading sections from a narrative body.
+
+    Returns {heading: section_body} dict.
+    """
+    sections: dict[str, str] = {}
+    current_heading = "_preamble"
+    current_body: list[str] = []
+    for line in narrative_body.split("\n"):
+        if line.startswith("## "):
+            if current_body:
+                sections[current_heading] = "\n".join(current_body).strip()
+            current_heading = line[3:].strip()
+            current_body = []
+        else:
+            current_body.append(line)
+    if current_body:
+        sections[current_heading] = "\n".join(current_body).strip()
+    return sections
+
+
+def _jaccard_similarity(text_a: str, text_b: str) -> float:
+    """Compute Jaccard similarity on word tokens (pure Python, no deps)."""
+    tokens_a = set(text_a.lower().split())
+    tokens_b = set(text_b.lower().split())
+    if not tokens_a and not tokens_b:
+        return 0.0
+    intersection = tokens_a & tokens_b
+    union = tokens_a | tokens_b
+    if not union:
+        return 0.0
+    return len(intersection) / len(union)
+
+
+def _detect_conflicts(subs: list[dict], cfg: dict) -> list[dict]:
+    """Detect overlapping topics across federated narratives.
+
+    Returns list of {topic, workspaces, similarity} dicts.
+    """
+    threshold = float(cfg.get("federation", {}).get("conflict_threshold", 0.6))
+
+    # Collect all sections from all subscriptions
+    ws_sections: dict[str, dict[str, str]] = {}
+    for sub in subs:
+        alias = sub.get("alias", "?")
+        remote = sub.get("remote")
+        if remote:
+            body, _err, _ws_id = _resolve_remote_narrative(sub, cfg)
+        else:
+            narrative, err = _resolve_subscription_narrative(sub, cfg)
+            if err:
+                continue
+            try:
+                fm, body = _load_narrative(narrative)
+            except Exception:
+                continue
+        if body and body.strip():
+            sections = _extract_sections(body)
+            if sections:
+                ws_sections[alias] = sections
+
+    conflicts = []
+    aliases = list(ws_sections.keys())
+    for i in range(len(aliases)):
+        for j in range(i + 1, len(aliases)):
+            a, b = aliases[i], aliases[j]
+            for heading, body_a in ws_sections[a].items():
+                if heading == "_preamble":
+                    continue
+                if heading in ws_sections[b]:
+                    body_b = ws_sections[b][heading]
+                    sim = _jaccard_similarity(body_a, body_b)
+                    if sim >= threshold:
+                        conflicts.append({
+                            "topic": heading,
+                            "workspaces": [a, b],
+                            "similarity": round(sim, 4),
+                        })
+    conflicts.sort(key=lambda c: c["similarity"], reverse=True)
+    return conflicts
+
+
+def _render_federation_conflicts(cfg: dict) -> str:
+    """Render detected conflicts for the @federation conflicts directive."""
+    manifest = _load_federation_manifest(cfg)
+    subs = [s for s in manifest.get("subscriptions", []) if s.get("enabled", True)]
+    if len(subs) < 2:
+        return "> _Need at least 2 enabled subscriptions for conflict detection._"
+
+    conflicts = _detect_conflicts(subs, cfg)
+    if not conflicts:
+        return "> ✅ No narrative conflicts detected across federated workspaces."
+
+    lines = ["> ⚠ Narrative conflicts detected:\n", ">", "> | Topic | Workspaces | Similarity |", "> |---|---|---|"]
+    for c in conflicts:
+        ws_list = ", ".join(c["workspaces"])
+        lines.append(f"> | {c['topic']} | {ws_list} | {c['similarity']:.0%} |")
+    lines.append(">")
+    lines.append(f"> Run `perseus memory federation diff` to inspect.")
+    return "\n".join(lines)
+
+
+def _render_federation_diff(cfg: dict, alias_a: str, alias_b: str) -> str:
+    """Render side-by-side diff of two federated narratives."""
+    manifest = _load_federation_manifest(cfg)
+    subs = {s.get("alias"): s for s in manifest.get("subscriptions", [])}
+
+    def _get_body(sub):
+        if not sub:
+            return None
+        remote = sub.get("remote")
+        if remote:
+            body, err, _ = _resolve_remote_narrative(sub, cfg)
+            return body if body else None
+        narrative, err = _resolve_subscription_narrative(sub, cfg)
+        if err:
+            return None
+        try:
+            fm, body = _load_narrative(narrative)
+            return body
+        except Exception:
+            return None
+
+    body_a = _get_body(subs.get(alias_a))
+    body_b = _get_body(subs.get(alias_b))
+
+    if body_a is None:
+        return f"> ⚠ {alias_a}: narrative unavailable."
+    if body_b is None:
+        return f"> ⚠ {alias_b}: narrative unavailable."
+
+    lines = [f"## {alias_a} vs {alias_b}\n"]
+    secs_a = _extract_sections(body_a)
+    secs_b = _extract_sections(body_b)
+    all_headings = sorted(set(list(secs_a.keys()) + list(secs_b.keys())))
+
+    for heading in all_headings:
+        lines.append(f"### {heading}\n")
+        text_a = secs_a.get(heading, "_no content_")
+        text_b = secs_b.get(heading, "_no content_")
+        if heading != "_preamble":
+            sim = _jaccard_similarity(text_a, text_b)
+            lines.append(f"> Similarity: {sim:.0%}\n")
+        lines.append(f"**{alias_a}:**\n```\n{text_a[:500]}\n```\n")
+        lines.append(f"**{alias_b}:**\n```\n{text_b[:500]}\n```\n")
+        lines.append("---\n")
+
+    return "\n".join(lines)
+
+
+def cmd_memory_federation_diff(args, cfg) -> int | None:
+    """Handle `perseus memory federation diff <alias-a> <alias-b>`."""
+    alias_a = getattr(args, "alias_a", "")
+    alias_b = getattr(args, "alias_b", "")
+    if not alias_a or not alias_b:
+        print("Usage: perseus memory federation diff <alias-a> <alias-b>", file=sys.stderr)
+        return 2
+    output = _render_federation_diff(cfg, alias_a, alias_b)
+    print(output)
+    return 0
+
+
+def cmd_memory_federation_merge(args, cfg) -> int | None:
+    """Handle `perseus memory federation merge <alias-a> <alias-b>`.
+
+    Drafts a reconciliation using Pythia's cited synthesis pipeline.
+    """
+    alias_a = getattr(args, "alias_a", "")
+    alias_b = getattr(args, "alias_b", "")
+    if not alias_a or not alias_b:
+        print("Usage: perseus memory federation merge <alias-a> <alias-b>", file=sys.stderr)
+        return 2
+
+    manifest = _load_federation_manifest(cfg)
+    subs = {s.get("alias"): s for s in manifest.get("subscriptions", [])}
+
+    def _get_body(sub):
+        if not sub:
+            return None
+        remote = sub.get("remote")
+        if remote:
+            body, err, _ = _resolve_remote_narrative(sub, cfg)
+            return body
+        narrative, err = _resolve_subscription_narrative(sub, cfg)
+        if err:
+            return None
+        try:
+            fm, body = _load_narrative(narrative)
+            return body
+        except Exception:
+            return None
+
+    body_a = _get_body(subs.get(alias_a))
+    body_b = _get_body(subs.get(alias_b))
+
+    if body_a is None or body_b is None:
+        print("One or both narratives unavailable.", file=sys.stderr)
+        return 1
+
+    # Build a cited-synthesis prompt
+    prompt = (
+        "You are a conflict mediator for federated AI context.\n"
+        f"Below are narratives from two workspaces: `{alias_a}` and `{alias_b}`.\n"
+        "They may disagree on architectural decisions, deployment strategies, or project direction.\n"
+        "Draft a neutral reconciliation that:\n"
+        "1. Identifies specific points of agreement\n"
+        "2. Identifies specific points of disagreement\n"
+        "3. Suggests a concrete path forward for each disagreement\n"
+        "4. Uses exact citations from both source narratives (format: [source])\n\n"
+        f"NARRATIVE `{alias_a}`:\n{body_a[:3000]}\n\n"
+        f"NARRATIVE `{alias_b}`:\n{body_b[:3000]}\n"
+    )
+
+    # Try LLM synthesis if configured
+    llm_provider = cfg.get("memory", {}).get("llm_provider") or cfg.get("llm", {}).get("provider")
+    if llm_provider:
+        model = cfg.get("memory", {}).get("llm_model") or cfg.get("llm", {}).get("model")
+        text, code = run_llm(llm_provider, prompt, cfg, model=model)
+        if code == 0:
+            print("## Merge Suggestion (LLM-drafted)\n")
+            print(text)
+            print("\n> ⚠ This is a suggestion — not automatically applied to any narrative.")
+            return 0
+        print(f"LLM synthesis failed: {text}. Falling back to deterministic.", file=sys.stderr)
+
+    # Deterministic fallback: show overlap summary
+    secs_a = _extract_sections(body_a)
+    secs_b = _extract_sections(body_b)
+    lines = ["## Merge Suggestion (deterministic)\n"]
+    lines.append("> LLM synthesis unavailable. Showing topic overlap summary.\n")
+    for heading in sorted(set(list(secs_a.keys()) + list(secs_b.keys()))):
+        if heading == "_preamble":
+            continue
+        has_a = heading in secs_a
+        has_b = heading in secs_b
+        status = "both" if has_a and has_b else (alias_a if has_a else alias_b)
+        sim = _jaccard_similarity(secs_a.get(heading, ""), secs_b.get(heading, "")) if has_a and has_b else 0
+        lines.append(f"- **{heading}**: in {status}" + (f" (similarity: {sim:.0%})" if has_a and has_b else ""))
+    print("\n".join(lines))
+    return 0
+
+
+# ── End Phase 27E additions ──────────────────────────────────────
+
+
+# ── End Phase 27C additions ──────────────────────────────────────
+
+
 def _federation_warning_block(alias: str, reason: str) -> str:
     """Standard inline warning for unavailable federated subscriptions (Q5)."""
     return (
@@ -12828,6 +13431,27 @@ def _render_federation_digest(cfg: dict, alias_filter: str | None = None) -> str
     parts: list[str] = []
     for entry in subs:
         alias = entry.get("alias", "?")
+        remote = entry.get("remote")
+
+        if remote:
+            # ── Remote subscription (Phase 27A) ──
+            body, err, _ws_id = _resolve_remote_narrative(entry, cfg)
+            if err and body is None:
+                parts.append(f"### `{alias}`\n\n{_federation_warning_block_remote(alias, err)}")
+                continue
+            if err and body is not None:
+                stale_note = f"\n\n> ⚠ Live fetch failed: {err}. Showing cached narrative.\n"
+            else:
+                stale_note = ""
+            body_clean = body.strip()
+            if body_clean.startswith("# "):
+                first_nl = body_clean.find("\n")
+                if first_nl > 0:
+                    body_clean = body_clean[first_nl + 1:].lstrip()
+            parts.append(f"### `{alias}` (remote){stale_note}\n\n{body_clean}")
+            continue
+
+        # ── Local subscription (original behavior) ──
         narrative, err = _resolve_subscription_narrative(entry, cfg)
         if err:
             parts.append(f"### `{alias}`\n\n{_federation_warning_block(alias, err)}")
@@ -12886,8 +13510,30 @@ def cmd_memory_federation(args, cfg) -> None:
         for entry in subs:
             alias = entry.get("alias", "?")
             enabled = entry.get("enabled", True)
+            remote = entry.get("remote")
+            if remote:
+                path_str = remote.get("url", "?")
+            else:
+                path_str = entry.get("path", "?")
+
+            if remote:
+                # ── Remote subscription (Phase 27A) ──
+                cached = _read_remote_cache(cfg, alias)
+                if cached is not None:
+                    lines = cached.get("narrative", "").count("\n")
+                    mt = cached.get("fetched_at", "?")
+                    rec = {"alias": alias, "path": path_str, "enabled": enabled,
+                           "status": "cached", "error": None,
+                           "line_count": lines, "mtime": mt, "transport": "remote"}
+                else:
+                    rec = {"alias": alias, "path": path_str, "enabled": enabled,
+                           "status": "not-fetched", "error": "Run `perseus memory federation pull`",
+                           "line_count": None, "mtime": None, "transport": "remote"}
+                results.append(rec)
+                continue
+
             narrative, err = _resolve_subscription_narrative(entry, cfg)
-            rec = {"alias": alias, "path": entry.get("path", "?"), "enabled": enabled}
+            rec = {"alias": alias, "path": path_str, "enabled": enabled}
             if err:
                 rec["status"] = "error"
                 rec["error"] = err
@@ -12932,6 +13578,7 @@ def cmd_memory_federation(args, cfg) -> None:
 
     if sub == "subscribe":
         alias = (args.alias or "").strip()
+        remote_url = (getattr(args, "remote_url", None) or "").strip()
         path = (args.path or "").strip()
         ok, reason = _validate_federation_alias(alias)
         if not ok:
@@ -12942,6 +13589,22 @@ def cmd_memory_federation(args, cfg) -> None:
             if existing.get("alias") == alias:
                 print(f"⚠ Alias `{alias}` already exists. Use `unsubscribe` first.", file=sys.stderr)
                 sys.exit(2)
+        
+        if remote_url:
+            # ── Remote subscription (Phase 27A) ──
+            entry = {
+                "alias": alias,
+                "remote": {"url": remote_url, "auth_token": "", "verify_key": None},
+                "enabled": True,
+            }
+            subs.append(entry)
+            manifest["subscriptions"] = subs
+            saved = _save_federation_manifest(cfg, manifest)
+            print(f"✅ Subscribed `{alias}` → {remote_url} (remote)")
+            print(f"   Manifest: {saved}")
+            return
+        
+        # ── Local subscription (original behavior) ──
         # Resolve + warn (don't refuse) if path doesn't exist
         resolved = Path(path).expanduser()
         try:
@@ -13000,6 +13663,36 @@ def cmd_memory_federation(args, cfg) -> None:
             print(f"Pulling {len(subs)} federated narrative(s) (read-only):")
         for entry in subs:
             alias = entry.get("alias", "?")
+            remote = entry.get("remote")
+
+            if remote:
+                # ── Remote pull (Phase 27A) ──
+                body, err, ws_id = _resolve_remote_narrative(entry, cfg)
+                if err and body is None:
+                    rec = {"alias": alias, "url": remote.get("url", "?"),
+                           "transport": "remote", "status": "error", "error": err,
+                           "line_count": None, "mtime": None, "bytes": None}
+                    if not use_json:
+                        print(f"  ⚠ {alias} (remote): {err}")
+                else:
+                    if err:
+                        status = "stale-cached"
+                        note = f" (cached: {err})"
+                    else:
+                        status = "ok"
+                        note = ""
+                    lines = body.count("\n") if body else 0
+                    rec = {"alias": alias, "url": remote.get("url", "?"),
+                           "transport": "remote", "status": status,
+                           "error": err, "line_count": lines,
+                           "mtime": datetime.now().isoformat(timespec="seconds"),
+                           "bytes": len(body) if body else 0}
+                    if not use_json:
+                        print(f"  ✅ {alias} (remote): {lines} lines{note}")
+                results.append(rec)
+                continue
+
+            # ── Local pull (original behavior) ──
             narrative, err = _resolve_subscription_narrative(entry, cfg)
             if err:
                 rec = {"alias": alias, "path": entry.get("path", "?"),
@@ -13012,7 +13705,7 @@ def cmd_memory_federation(args, cfg) -> None:
                 lines = narrative.read_text(errors="replace").count("\n")
                 mt = datetime.fromtimestamp(stat.st_mtime).isoformat(timespec="seconds")
                 rec = {"alias": alias, "path": str(narrative),
-                       "status": "ok", "error": None,
+                       "transport": "local", "status": "ok", "error": None,
                        "line_count": lines, "mtime": mt, "bytes": stat.st_size}
                 if not use_json:
                     print(f"  ✅ {alias}: {lines} lines, modified {mt}")
@@ -13022,8 +13715,736 @@ def cmd_memory_federation(args, cfg) -> None:
             print(_json.dumps(results, indent=2))
         return
 
+    if sub == "push":
+        rc = cmd_memory_federation_push(args, cfg)
+        if rc is not None:
+            sys.exit(rc)
+        return
+
+    if sub == "diff":
+        rc = cmd_memory_federation_diff(args, cfg)
+        if rc is not None:
+            sys.exit(rc)
+        return
+
+    if sub == "merge":
+        rc = cmd_memory_federation_merge(args, cfg)
+        if rc is not None:
+            sys.exit(rc)
+        return
+
     print(f"Unknown memory federation subcommand: {sub}", file=sys.stderr)
     sys.exit(2)
+# ─────────────────────── Identity & Signing (Phase 27B) ─────────────────────
+#
+# Cryptographic workspace identity using HMAC-SHA256 (v1).
+# Ed25519 upgrade path documented for when Python nacl bindings stabilize.
+#
+# Identity file: ~/.perseus/keys/identity.yaml
+#   workspace_id: "sha256:<hex>"   # content-addressed identity
+#   created: "2026-06-19T..."
+#   algorithm: "hmac-sha256"
+#   public_key: "<base64>"         # for pinning (identity claim)
+#   _secret: "<base64>"            # signing key (NOT shared)
+#
+# Signature file: ~/.perseus/memory/<hash>.sig (JSON)
+#   workspace_id: "sha256:..."
+#   signature: "<base64>"
+#   algorithm: "hmac-sha256"
+#   timestamp: "2026-06-19T..."
+#
+# Signature covers: workspace_id + "\n" + narrative_body + "\n" + timestamp
+
+import hashlib
+import hmac as _hmac
+import secrets
+from datetime import datetime, timedelta, timezone
+
+
+def _identity_dir(cfg: dict) -> Path:
+    return Path(cfg.get("identity", {}).get("keys_dir",
+               str(PERSEUS_HOME / "keys"))).expanduser()
+
+
+def _identity_path(cfg: dict) -> Path:
+    return _identity_dir(cfg) / "identity.yaml"
+
+
+def _load_identity(cfg: dict) -> dict | None:
+    """Load the workspace identity. Returns None if not initialized."""
+    p = _identity_path(cfg)
+    if not p.exists():
+        return None
+    try:
+        data = yaml.safe_load(p.read_text()) or {}
+        if isinstance(data, dict) and "workspace_id" in data and "_secret" in data:
+            return dict(data)
+        return None
+    except Exception:
+        return None
+
+
+def _derive_workspace_id(public_key_bytes: bytes) -> str:
+    """Derive content-addressed workspace ID from public key."""
+    return "sha256:" + hashlib.sha256(public_key_bytes).hexdigest()
+
+
+def _generate_identity() -> dict:
+    """Generate a new workspace identity with fresh keys.
+
+    Returns a dict ready to write to identity.yaml.
+    The secret is 32 random bytes (base64-encoded).
+    The public key is a separate 32 random bytes (for pinning).
+    """
+    secret_bytes = secrets.token_bytes(32)
+    public_bytes = secrets.token_bytes(32)
+    workspace_id = _derive_workspace_id(public_bytes)
+    return {
+        "workspace_id": workspace_id,
+        "created": datetime.now(timezone.utc).isoformat(),
+        "algorithm": "hmac-sha256",
+        "public_key": _b64(public_bytes),
+        "_secret": _b64(secret_bytes),
+    }
+
+
+def _b64(data: bytes) -> str:
+    """Encode bytes as URL-safe base64 without padding."""
+    import base64
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+def _b64_decode(s: str) -> bytes:
+    """Decode URL-safe base64 with padding recovery."""
+    import base64
+    padded = s + "=" * (4 - len(s) % 4) if len(s) % 4 else s
+    return base64.urlsafe_b64decode(padded)
+
+
+# ── Signing ─────────────────────────────────────────────────────────────────
+
+def _build_signature_payload(workspace_id: str, narrative_body: str,
+                              timestamp: str) -> str:
+    """Build the canonical payload for HMAC signing."""
+    return workspace_id + "\n" + narrative_body + "\n" + timestamp
+
+
+def _sign_narrative(narrative_body: str, identity: dict) -> dict:
+    """Sign a narrative body using the workspace identity.
+
+    Returns a signature dict ready to write to <hash>.sig.
+    """
+    secret_bytes = _b64_decode(identity["_secret"])
+    workspace_id = identity["workspace_id"]
+    timestamp = datetime.now(timezone.utc).isoformat()
+
+    payload = _build_signature_payload(workspace_id, narrative_body, timestamp)
+    sig = _hmac.new(secret_bytes, payload.encode("utf-8"), hashlib.sha256).digest()
+
+    return {
+        "workspace_id": workspace_id,
+        "signature": _b64(sig),
+        "algorithm": identity.get("algorithm", "hmac-sha256"),
+        "timestamp": timestamp,
+    }
+
+
+def _verify_signature(narrative_body: str, sig_dict: dict,
+                       identity: dict) -> tuple[bool, str]:
+    """Verify a signature against a narrative body and identity.
+
+    Returns (is_valid, reason).
+    """
+    if not identity or not sig_dict:
+        return (False, "missing identity or signature")
+    if sig_dict.get("algorithm", "hmac-sha256") != identity.get("algorithm", "hmac-sha256"):
+        return (False, "algorithm mismatch")
+
+    secret_bytes = _b64_decode(identity["_secret"])
+    workspace_id = sig_dict["workspace_id"]
+    if workspace_id != identity["workspace_id"]:
+        return (False, f"workspace_id mismatch: {workspace_id} != {identity['workspace_id']}")
+
+    payload = _build_signature_payload(
+        workspace_id, narrative_body, sig_dict["timestamp"]
+    )
+    expected_sig = _hmac.new(secret_bytes, payload.encode("utf-8"), hashlib.sha256).digest()
+
+    try:
+        actual_sig = _b64_decode(sig_dict["signature"])
+    except Exception:
+        return (False, "invalid signature encoding")
+
+    if _hmac.compare_digest(expected_sig, actual_sig):
+        return (True, "valid")
+    return (False, "signature mismatch")
+
+
+def _verify_signature_external(narrative_body: str, sig_dict: dict,
+                                public_key: str) -> tuple[bool, str]:
+    """Verify a signature using only a pinned public key (external workspace).
+
+    For HMAC-SHA256 v1, the public key IS the verification key (the secret).
+    This is a placeholder for ed25519 where public key ≠ signing key.
+    """
+    try:
+        secret_bytes = _b64_decode(public_key)
+    except Exception:
+        return (False, "invalid public key encoding")
+    if not sig_dict.get("workspace_id"):
+        return (False, "missing workspace_id in signature")
+
+    payload = _build_signature_payload(
+        sig_dict["workspace_id"], narrative_body, sig_dict["timestamp"]
+    )
+    expected_sig = _hmac.new(secret_bytes, payload.encode("utf-8"), hashlib.sha256).digest()
+
+    try:
+        actual_sig = _b64_decode(sig_dict["signature"])
+    except Exception:
+        return (False, "invalid signature encoding")
+
+    if _hmac.compare_digest(expected_sig, actual_sig):
+        return (True, "valid")
+    return (False, "signature mismatch")
+
+
+# ── Phase 27F: Provenance Chain Verification ──────────────────────────────
+
+def _sign_narrative_with_chain(narrative_body: str, identity: dict,
+                                 prev_sig_path: Path | None = None) -> dict:
+    """Sign a narrative and link to previous version via prev_signature.
+
+    If prev_sig_path exists, reads the previous signature and includes it.
+    Also reads the current sequence number from the narrative frontmatter.
+    """
+    sig = _sign_narrative(narrative_body, identity)
+
+    # Determine sequence number from narrative frontmatter
+    sequence = 1
+    try:
+        _, _, frontmatter_yaml, _ = _split_narrative_frontmatter(narrative_body)
+        seq = int(frontmatter_yaml.get("sequence", 0))
+        sequence = seq + 1
+    except Exception:
+        pass
+
+    # Link to previous signature
+    if prev_sig_path and prev_sig_path.exists():
+        try:
+            prev_sig = json.loads(prev_sig_path.read_text())
+            sig["prev_signature"] = prev_sig.get("signature", "")
+        except Exception:
+            pass
+
+    sig["sequence"] = sequence
+    return sig
+
+
+def _split_narrative_frontmatter(narrative_body: str) -> tuple[str, str, dict, str]:
+    """Split a narrative into pre-fm text, frontmatter yaml text, parsed fm dict, and body."""
+    if narrative_body.startswith("---\n"):
+        parts = narrative_body.split("---\n", 2)
+        if len(parts) >= 3:
+            try:
+                fm_dict = yaml.safe_load(parts[1]) or {}
+            except Exception:
+                fm_dict = {}
+            return (parts[0], parts[1], fm_dict, parts[2] if len(parts) > 2 else "")
+    return ("", "", {}, narrative_body)
+
+
+def _verify_chain(hash_or_path: str, identity: dict, cfg: dict) -> tuple[bool, int, str]:
+    """Verify a full provenance chain from a narrative hash.
+
+    Returns (valid, version_count, breakpoint_message).
+    Walks the chain via prev_signature links, verifying each version.
+    """
+    store = Path(cfg.get("memory", {}).get("store", str(PERSEUS_HOME / "memory")))
+    mp = store / f"{hash_or_path}.md" if "/" not in hash_or_path else Path(hash_or_path)
+    if not mp.exists():
+        return (False, 0, f"narrative not found: {mp}")
+
+    narrative = mp.read_text()
+    sig_path = mp.with_suffix(mp.suffix + ".sig")
+    if not sig_path.exists():
+        return (False, 0, f"no signature: {sig_path}")
+
+    seen = set()
+    count = 0
+    current_mp = mp
+    current_sig_path = sig_path
+
+    while True:
+        if str(current_sig_path) in seen:
+            return (False, count, f"cycle detected at version {count}")
+        seen.add(str(current_sig_path))
+
+        narrative = current_mp.read_text()
+        sig_dict = json.loads(current_sig_path.read_text())
+        valid, reason = _verify_signature(narrative, sig_dict, identity)
+        if not valid:
+            return (False, count, f"version {count} invalid: {reason}")
+
+        count += 1
+        prev_sig = sig_dict.get("prev_signature", "")
+        if not prev_sig:
+            break  # reached genesis
+
+        # Find the previous narrative
+        # Walk the store directory for matching signature
+        found = False
+        for sf in sorted(store.glob("*.md.sig")):
+            try:
+                ps = json.loads(sf.read_text())
+                if ps.get("signature") == prev_sig:
+                    current_sig_path = sf
+                    current_mp = sf.with_suffix("").with_suffix(".md")
+                    found = True
+                    break
+            except Exception:
+                continue
+        if not found:
+            return (False, count, f"chain broken at version {count}: prev_signature not found")
+
+    return (True, count, "chain intact")
+
+
+def _render_provenance(hash_or_path: str, cfg: dict) -> str:
+    """Render a provenance tree for the narrative chain."""
+    identity = _load_identity(cfg)
+    if not identity:
+        return "> ⚠ No workspace identity. Run `perseus identity init`."
+
+    valid, count, msg = _verify_chain(hash_or_path, identity, cfg)
+    if not valid and count == 0:
+        return f"> ⚠ Provenance unavailable: {msg}"
+
+    store = Path(cfg.get("memory", {}).get("store", str(PERSEUS_HOME / "memory")))
+    mp = store / f"{hash_or_path}.md" if "/" not in hash_or_path else Path(hash_or_path)
+
+    lines = [
+        "## Narrative Provenance\n",
+        f"| Version | Signed | Verifiable |",
+        "|---|---|---|",
+    ]
+    if valid:
+        lines.append(f"| {count} (current → genesis) | ✅ | ✅ |")
+        lines.append(f"\n_Chain intact: {msg}_")
+    else:
+        lines.append(f"| {count} of chain verified | ⚠ | ❌ |")
+        lines.append(f"\n_Chain broken: {msg}_")
+
+    return "\n".join(lines)
+
+
+def cmd_memory_provenance(args, cfg) -> int | None:
+    """Handle `perseus memory provenance <hash>`."""
+    hash_arg = getattr(args, "hash", "")
+    if not hash_arg:
+        ws_raw = getattr(args, "workspace", None) or os.getcwd()
+        workspace = Path(ws_raw).expanduser().resolve()
+        mp = _mneme_path(workspace, cfg)
+        hash_arg = mp.stem
+
+    output = _render_provenance(hash_arg, cfg)
+    print(output)
+    return 0
+
+
+def cmd_identity_rotate(args, cfg) -> int | None:
+    """Handle `perseus identity rotate` — generate new keypair, preserve old."""
+    identity = _load_identity(cfg)
+    if identity is None:
+        print("No workspace identity. Run `perseus identity init` first.", file=sys.stderr)
+        return 2
+
+    # Save old identity to history
+    hist_dir = _identity_dir(cfg)
+    hist_dir.mkdir(parents=True, exist_ok=True)
+    hist_path = hist_dir / "identity_history.yaml"
+    history = []
+    if hist_path.exists():
+        try:
+            history = yaml.safe_load(hist_path.read_text()) or []
+            if not isinstance(history, list):
+                history = []
+        except Exception:
+            history = []
+
+    # Store old key (with workspace_id but without secret for safety)
+    history.append({
+        "workspace_id": identity["workspace_id"],
+        "public_key": identity["public_key"],
+        "algorithm": identity.get("algorithm", "hmac-sha256"),
+        "created": identity.get("created", ""),
+        "rotated_at": datetime.now(timezone.utc).isoformat(),
+    })
+    hist_path.write_text(yaml.dump(history, sort_keys=False))
+
+    # Generate new identity
+    new_identity = _generate_identity()
+    p = _identity_path(cfg)
+    p.write_text(yaml.dump(new_identity, sort_keys=False))
+
+    print(f"✅ Identity rotated: {new_identity['workspace_id']}")
+    print(f"   Old key preserved in {hist_path}")
+    print(f"   Old signatures remain verifiable via identity history.")
+    return 0
+
+
+# ── End Phase 27F additions ───────────────────────────────────────────────
+
+
+# ── CLI Commands ─────────────────────────────────────────────────────────────
+
+def cmd_identity(args, cfg) -> int | None:
+    """Handle `perseus identity {init, show}`."""
+    sub = getattr(args, "identity_command", None)
+
+    if sub == "init":
+        p = _identity_path(cfg)
+        if p.exists() and not getattr(args, "force", False):
+            existing = _load_identity(cfg)
+            if existing:
+                print(f"Identity already exists: {existing['workspace_id']}")
+                print(f"  File: {p}")
+                print(f"  Use --force to regenerate (breaks existing signatures).")
+                return 0
+        identity = _generate_identity()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(yaml.dump(identity, sort_keys=False))
+        print(f"✅ Workspace identity created: {identity['workspace_id']}")
+        print(f"   File: {p}")
+        print(f"   Algorithm: {identity['algorithm']}")
+        return 0
+
+    if sub == "show":
+        identity = _load_identity(cfg)
+        if identity is None:
+            print("No workspace identity. Run `perseus identity init`.")
+            return 1
+        use_json = getattr(args, "json", False)
+        if use_json:
+            import json as _json
+            safe = {k: v for k, v in identity.items() if k != "_secret"}
+            print(_json.dumps(safe, indent=2))
+        else:
+            print(f"Workspace ID: {identity['workspace_id']}")
+            print(f"Algorithm:    {identity.get('algorithm', 'hmac-sha256')}")
+            print(f"Created:      {identity.get('created', 'unknown')}")
+            print(f"Public key:   {identity.get('public_key', '?')[:32]}...")
+        return 0
+
+    if sub == "grant":
+        identity = _load_identity(cfg)
+        if identity is None:
+            print("No workspace identity. Run `perseus identity init` first.", file=sys.stderr)
+            return 2
+        target = getattr(args, "workspace_id", "")
+        scope = getattr(args, "scope", "narrative")
+        ttl_days = int(getattr(args, "ttl", 30))
+        output_token = getattr(args, "output", False)
+        rc = _cmd_identity_grant(cfg, identity, target, scope, ttl_days, output_token)
+        if rc is not None:
+            return rc
+        return 0
+
+    if sub == "revoke":
+        identity = _load_identity(cfg)
+        if identity is None:
+            print("No workspace identity.", file=sys.stderr)
+            return 2
+        grant_id = getattr(args, "grant_id", "")
+        rc = _cmd_identity_revoke(cfg, identity, grant_id)
+        if rc is not None:
+            return rc
+        return 0
+
+    if sub == "token":
+        identity = _load_identity(cfg)
+        if identity is None:
+            print("No workspace identity.", file=sys.stderr)
+            return 2
+        target = getattr(args, "for_workspace", "")
+        scope = getattr(args, "scope", "narrative")
+        rc = _cmd_identity_token(cfg, identity, target, scope)
+        if rc is not None:
+            return rc
+        return 0
+
+    if sub == "rotate":
+        rc = cmd_identity_rotate(args, cfg)
+        if rc is not None:
+            return rc
+        return 0
+
+    print(f"Unknown identity subcommand: {sub}", file=sys.stderr)
+    return 2
+
+
+# ── Phase 27D: Access Control & Capability Grants ──────────────────────────
+
+def _grants_path(cfg: dict) -> Path:
+    return _identity_dir(cfg) / "grants.yaml"
+
+
+def _load_grants(cfg: dict) -> list[dict]:
+    p = _grants_path(cfg)
+    if not p.exists():
+        return []
+    try:
+        data = yaml.safe_load(p.read_text()) or {}
+        return data.get("grants", []) if isinstance(data, dict) else []
+    except Exception:
+        return []
+
+
+def _save_grants(cfg: dict, grants: list[dict]) -> Path:
+    p = _grants_path(cfg)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_suffix(p.suffix + ".tmp")
+    tmp.write_text(yaml.dump({"grants": grants}, sort_keys=False))
+    os.replace(tmp, p)
+    return p
+
+
+def _generate_grant_id() -> str:
+    return "gnt_" + _b64(secrets.token_bytes(9))
+
+
+def _issue_grant_token(identity: dict, grant_id: str, workspace_id: str, scope: str) -> str:
+    """Issue a bearer token for a grant. Token format: perseus_gnt_<base64>."""
+    secret_bytes = _b64_decode(identity["_secret"])
+    payload = json.dumps({
+        "g": grant_id,
+        "w": workspace_id,
+        "s": scope,
+        "n": _b64(secrets.token_bytes(8)),
+    }).encode("utf-8")
+    sig = _hmac.new(secret_bytes, payload, hashlib.sha256).digest()
+    token_raw = payload + b"." + sig
+    return "perseus_gnt_" + _b64(token_raw)
+
+
+def _validate_grant_token(token_str: str, identity: dict) -> tuple[bool, str, dict | None]:
+    """Validate a grant bearer token. Returns (valid, reason, payload_dict)."""
+    if not token_str.startswith("perseus_gnt_"):
+        return (False, "invalid token prefix", None)
+    try:
+        raw = _b64_decode(token_str[len("perseus_gnt_"):])
+        payload_bytes, sig_bytes = raw.rsplit(b".", 1)
+        secret_bytes = _b64_decode(identity["_secret"])
+        expected = _hmac.new(secret_bytes, payload_bytes, hashlib.sha256).digest()
+        if not _hmac.compare_digest(expected, sig_bytes):
+            return (False, "token signature mismatch", None)
+        payload = json.loads(payload_bytes.decode("utf-8"))
+        return (True, "valid", payload)
+    except Exception as e:
+        return (False, f"invalid token: {e}", None)
+
+
+def _check_grant(cfg: dict, grant_id: str, required_scope: str) -> tuple[bool, str]:
+    """Check if a grant is valid (exists, not revoked, not expired, scope matches)."""
+    grants = _load_grants(cfg)
+    for g in grants:
+        if g.get("grant_id") == grant_id:
+            if g.get("revoked"):
+                return (False, "grant revoked")
+            expires = g.get("expires", "")
+            if expires:
+                try:
+                    dt = datetime.fromisoformat(expires)
+                    if datetime.now(dt.tzinfo if dt.tzinfo else timezone.utc) > dt:
+                        return (False, "grant expired")
+                except Exception:
+                    pass
+            if required_scope and g.get("scope") != required_scope:
+                return (False, f"scope mismatch: {g.get('scope')} != {required_scope}")
+            return (True, "grant valid")
+    return (False, "grant not found")
+
+
+def _cmd_identity_grant(cfg: dict, identity: dict, target: str, scope: str,
+                         ttl_days: int, output: bool) -> int | None:
+    """Grant access to a workspace identity."""
+    if not target:
+        print("Missing --workspace-id.", file=sys.stderr)
+        return 2
+
+    grant_id = _generate_grant_id()
+    now = datetime.now(timezone.utc)
+    expires = now + timedelta(days=ttl_days)
+    grants = _load_grants(cfg)
+    grants.append({
+        "grant_id": grant_id,
+        "workspace_id": target,
+        "scope": scope,
+        "ttl_days": ttl_days,
+        "issued": now.isoformat(),
+        "expires": expires.isoformat(),
+        "token_hash": "sha256:" + hashlib.sha256(grant_id.encode()).hexdigest()[:16],
+        "revoked": False,
+    })
+    _save_grants(cfg, grants)
+
+    print(f"Grant {grant_id} → {target} (scope: {scope}, expires: {expires.isoformat()})")
+    if output:
+        token = _issue_grant_token(identity, grant_id, target, scope)
+        print(f"\nToken: {token}")
+    return None
+
+
+def _cmd_identity_revoke(cfg: dict, identity: dict, grant_id: str) -> int | None:
+    """Revoke a grant."""
+    if not grant_id:
+        print("Missing --grant-id.", file=sys.stderr)
+        return 2
+    grants = _load_grants(cfg)
+    found = False
+    for g in grants:
+        if g.get("grant_id") == grant_id:
+            g["revoked"] = True
+            found = True
+            break
+    if not found:
+        print(f"Grant {grant_id} not found.", file=sys.stderr)
+        return 1
+    _save_grants(cfg, grants)
+    print(f"Grant {grant_id} revoked.")
+    return None
+
+
+def _cmd_identity_token(cfg: dict, identity: dict, target: str, scope: str) -> int | None:
+    """Generate a token for an existing grant."""
+    if not target:
+        print("Missing --for.", file=sys.stderr)
+        return 2
+    grants = _load_grants(cfg)
+    for g in grants:
+        if g.get("workspace_id") == target and g.get("scope") == scope and not g.get("revoked"):
+            token = _issue_grant_token(identity, g["grant_id"], target, scope)
+            print(token)
+            return None
+    print(f"No active grant for {target} (scope: {scope}).", file=sys.stderr)
+    return 1
+
+
+def _serve_check_grant_auth(cfg: dict, headers, required_scope: str = "narrative") -> tuple[bool, str | None]:
+    """Check if a request has a valid grant bearer token.
+
+    Returns (authorized, workspace_id_or_None).
+    Used by serve middleware for per-subscriber auth.
+    """
+    identity = _load_identity(cfg)
+    if not identity:
+        return (False, None)  # no identity = no grant tokens
+    if not headers:
+        return (False, None)
+    auth = headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        return (False, None)
+    token = auth[len("Bearer "):].strip()
+    if not token.startswith("perseus_gnt_"):
+        return (False, None)
+
+    valid, reason, payload = _validate_grant_token(token, identity)
+    if not valid:
+        return (False, None)
+
+    grant_id = payload.get("g", "")
+    ok, _ = _check_grant(cfg, grant_id, required_scope)
+    if not ok:
+        return (False, None)
+
+    return (True, payload.get("w"))
+
+
+def cmd_memory_sign(args, cfg) -> int | None:
+    """Handle `perseus memory sign [--workspace PATH]`."""
+    identity = _load_identity(cfg)
+    if identity is None:
+        print("No workspace identity. Run `perseus identity init` first.", file=sys.stderr)
+        return 2
+
+    ws_raw = getattr(args, "workspace", None) or os.getcwd()
+    workspace = Path(ws_raw).expanduser().resolve()
+    mp = _mneme_path(workspace, cfg)
+    if not mp.exists():
+        print(f"No narrative at {mp}. Run `perseus memory update` first.", file=sys.stderr)
+        return 1
+
+    narrative_body = mp.read_text()
+    sig = _sign_narrative(narrative_body, identity)
+
+    sig_path = mp.with_suffix(mp.suffix + ".sig")
+    sig_path.write_text(json.dumps(sig, indent=2))
+
+    use_json = getattr(args, "json", False)
+    if use_json:
+        print(json.dumps(sig, indent=2))
+    else:
+        print(f"✅ Narrative signed: {sig['workspace_id']}")
+        print(f"   Narrative: {mp}")
+        print(f"   Signature: {sig_path}")
+    return 0
+
+
+def cmd_memory_verify(args, cfg) -> int | None:
+    """Handle `perseus memory verify <hash> [--key KEY]`."""
+    identity = _load_identity(cfg)
+
+    ws_raw = getattr(args, "workspace", None) or os.getcwd()
+    workspace = Path(ws_raw).expanduser().resolve()
+
+    # Determine narrative path
+    hash_arg = getattr(args, "hash", None)
+    if hash_arg:
+        # Use the provided hash to find the narrative
+        store = Path(cfg.get("memory", {}).get("store", str(PERSEUS_HOME / "memory")))
+        mp = store / f"{hash_arg}.md"
+    else:
+        mp = _mneme_path(workspace, cfg)
+
+    if not mp.exists():
+        print(f"Narrative not found: {mp}", file=sys.stderr)
+        return 1
+
+    sig_path = mp.with_suffix(mp.suffix + ".sig")
+    if not sig_path.exists():
+        print(f"No signature file: {sig_path}", file=sys.stderr)
+        return 2
+
+    try:
+        sig_dict = json.loads(sig_path.read_text())
+        narrative_body = mp.read_text()
+    except Exception as e:
+        print(f"Error reading files: {e}", file=sys.stderr)
+        return 1
+
+    ext_key = getattr(args, "key", None)
+    use_json = getattr(args, "json", False)
+
+    if ext_key:
+        # External verification against a pinned public key
+        is_valid, reason = _verify_signature_external(narrative_body, sig_dict, ext_key)
+    elif identity is not None:
+        # Self-verification
+        is_valid, reason = _verify_signature(narrative_body, sig_dict, identity)
+    else:
+        print("No workspace identity. Use --key for external verification.", file=sys.stderr)
+        return 2
+
+    if use_json:
+        import json as _json
+        print(_json.dumps({"valid": is_valid, "reason": reason, "workspace_id": sig_dict.get("workspace_id")}))
+    else:
+        if is_valid:
+            print(f"✅ Signature valid: {sig_dict.get('workspace_id', '?')}")
+        else:
+            print(f"❌ Signature INVALID: {reason}")
+
+    return 0 if is_valid else 1
 """
 src/perseus/mimir_connector.py — Perseus × Mimir Bridge (Project Synapse v2)
 
@@ -14797,8 +16218,12 @@ def _memory_do_compact(workspace: Path, cfg: dict, provider: str | None) -> str:
                     total_timeout_s=total_timeout,
                     workspace_hash=_workspace_hash(workspace),
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                import logging
+                logging.getLogger("perseus.agora").warning(
+                    "Agora task list parse failed for workspace %s: %s",
+                    getattr(workspace, 'path', workspace), exc
+                )
             new_body = _deterministic_narrative(
                 all_checkpoints, all_pythia, "", workspace, cfg,
             )
@@ -14992,6 +16417,24 @@ def cmd_memory(args, cfg):
 
     if sub == "doctor":
         cmd_memory_doctor(args, cfg)
+        return
+
+    if sub == "sign":
+        rc = cmd_memory_sign(args, cfg)
+        if rc is not None:
+            sys.exit(rc)
+        return
+
+    if sub == "verify":
+        rc = cmd_memory_verify(args, cfg)
+        if rc is not None:
+            sys.exit(rc)
+        return
+
+    if sub == "provenance":
+        rc = cmd_memory_provenance(args, cfg)
+        if rc is not None:
+            sys.exit(rc)
         return
 
     print(f"perseus memory: unknown subcommand '{sub}'.", file=sys.stderr)
@@ -15291,6 +16734,15 @@ def _resolve_memory_vaultmem(mods: dict, cfg: dict) -> str:
 
 def _resolve_memory_federation(args_stripped: str, mods: dict, cfg: dict) -> str:
     """@memory mode=federation — cross-workspace digest."""
+    # Phase 27E: conflicts sub-mode
+    if "conflicts" in args_stripped.lower():
+        return _render_federation_conflicts(cfg)
+    # Phase 27F: provenance sub-mode
+    if "provenance" in args_stripped.lower():
+        # Extract hash from args: "federation provenance <hash>" or "federation provenance"
+        prov_match = re.match(r'federation\s+provenance\s+(\S+)', args_stripped, re.IGNORECASE)
+        hash_arg = prov_match.group(1) if prov_match else ""
+        return _render_provenance(hash_arg, cfg)
     fed_match = re.match(r'^federation\b\s*(.*)$', args_stripped, re.IGNORECASE)
     if fed_match:
         fed_args = fed_match.group(1).strip()
@@ -15337,8 +16789,11 @@ def _resolve_memory_narrative(args_stripped: str, mods: dict, cfg: dict, ws: Pat
                 f"> \u26a0 Mn\u0113m\u0113 narrative is stale (last updated {age_h}).\n"
                 "> Run `perseus memory update` to refresh.\n\n"
             )
-    except Exception:
-        pass
+    except Exception as exc:
+        import logging
+        logging.getLogger("perseus.agora").warning(
+            "Mnēmē narrative staleness check failed: %s", exc
+        )
 
     if not stale_note and body.strip():
         # Touch updated timestamp on every fresh successful render so callers
@@ -15346,8 +16801,11 @@ def _resolve_memory_narrative(args_stripped: str, mods: dict, cfg: dict, ws: Pat
         try:
             fm["updated"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
             _save_narrative(mp, fm, body)
-        except Exception:
-            pass  # best-effort; never break the read path
+        except Exception as exc:
+            import logging
+            logging.getLogger("perseus.agora").warning(
+                "Mnēmē narrative save failed (non-critical): %s", exc
+            )  # best-effort; never break the read path
 
     compact_note = ""
     threshold = int(cfg.get("memory", {}).get("compact_threshold", 20))
@@ -20999,7 +22457,7 @@ def _serve_authorized(headers, token: str | None) -> bool:
 
     if not token:
         return True
-    import hmac
+    import hmac as _serve_hmac
 
     auth = ""
     if headers is not None:
@@ -21010,7 +22468,22 @@ def _serve_authorized(headers, token: str | None) -> bool:
     prefix = "Bearer "
     if not auth.startswith(prefix):
         return False
-    return hmac.compare_digest(auth[len(prefix):].strip(), token)
+    return _serve_hmac.compare_digest(auth[len(prefix):].strip(), token)
+
+
+def _serve_authorized_extended(headers, cfg: dict) -> tuple[bool, str | None]:
+    """Check auth: master token → grant token → deny.
+
+    Returns (authorized, workspace_id_or_None).
+    """
+    token = _serve_auth_token(cfg)
+    if _serve_authorized(headers, token):
+        return (True, None)
+    # Try grant tokens
+    auth_ok, ws_id = _serve_check_grant_auth(cfg, headers, "narrative")
+    if auth_ok:
+        return (True, ws_id)
+    return (False, None)
 
 
 def _serve_unauthorized() -> tuple[int, str, str]:
@@ -21023,6 +22496,62 @@ def _serve_handle_request(endpoint: str, cfg: dict, workspace: Path, query: dict
         audit_event(cfg, "serve_auth_denied", endpoint=endpoint, auth_enabled=True)
         return _serve_unauthorized()
     return _serve_render_endpoint(endpoint, cfg, workspace, query)
+
+
+def _serve_handle_federation_receive(cfg: dict, workspace: Path, raw: bytes, headers=None) -> tuple[int, str, str]:
+    """Handle POST /federation/receive — accept a pushed narrative (Phase 27C).
+
+    Stores the received narrative in the federation cache keyed by workspace_id.
+    Auth: federation.push.receive_token (falls back to serve.auth_token).
+    """
+    import json as _json
+    push_cfg = cfg.get("federation", {}).get("push", {})
+    receive_token = push_cfg.get("receive_token") or _serve_auth_token(cfg)
+
+    # Auth check
+    if receive_token:
+        provided = None
+        if headers:
+            auth = headers.get("Authorization", "")
+            if auth.startswith("Bearer "):
+                provided = auth[len("Bearer "):].strip()
+        if provided != receive_token:
+            audit_event(cfg, "federation_receive_denied", auth_enabled=True)
+            return (401, "application/json; charset=utf-8",
+                    _json.dumps({"error": "unauthorized"}))
+
+    try:
+        data = _json.loads(raw.decode("utf-8")) if raw else {}
+    except Exception as e:
+        return (400, "application/json; charset=utf-8",
+                _json.dumps({"error": f"invalid JSON: {e}"}))
+
+    workspace_id = data.get("workspace_id")
+    narrative = data.get("narrative", "")
+    if not narrative:
+        return (400, "application/json; charset=utf-8",
+                _json.dumps({"error": "missing narrative"}))
+
+    # Store in federation cache keyed by workspace_id (or 'pushed' fallback)
+    cache_key = (workspace_id or "pushed").replace("sha256:", "").replace("/", "_")[:64]
+    cache_dir = Path(cfg.get("federation", {}).get("cache_dir",
+                str(PERSEUS_HOME / "cache" / "federation"))).expanduser()
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_path = cache_dir / f"received-{cache_key}.json"
+    record = {
+        "workspace_id": workspace_id,
+        "narrative": narrative,
+        "signature": data.get("signature"),
+        "updated": data.get("updated", ""),
+        "received_at": datetime.now(timezone.utc).isoformat(),
+    }
+    tmp = cache_path.with_suffix(cache_path.suffix + ".tmp")
+    tmp.write_text(_json.dumps(record, indent=2))
+    os.replace(tmp, cache_path)
+
+    audit_event(cfg, "federation_receive", workspace_id=workspace_id, bytes=len(narrative))
+    return (200, "application/json; charset=utf-8",
+            _json.dumps({"received": True, "workspace_id": workspace_id}))
 
 
 def _serve_render_endpoint(endpoint: str, cfg: dict, workspace: Path, query: dict[str, str]) -> tuple[int, str, str]:
@@ -21056,6 +22585,32 @@ def _serve_render_endpoint(endpoint: str, cfg: dict, workspace: Path, query: dic
                         "No Mnēmē narrative initialized. Run `perseus memory update`.")
             narrative_text, _ = redact_text(mp.read_text(), cfg)
             return (200, "text/markdown; charset=utf-8", narrative_text)
+
+        if endpoint == "/federation/narrative":
+            import json as _json
+            import sys as _sys
+            ws_hash = query.get("ws", "")
+            try:
+                mp = _mneme_path(workspace, cfg)
+            except Exception as e:
+                return (500, "application/json; charset=utf-8",
+                        _json.dumps({"error": f"_mneme_path failed: {e}", "workspace_id": None}))
+            if not mp.exists():
+                return (404, "application/json; charset=utf-8",
+                        _json.dumps({"error": "No Mneme narrative initialized", "workspace_id": None,
+                                     "path": str(mp)}))
+            narrative_text = mp.read_text()
+            # Look up workspace identity for workspace_id field
+            identity = _load_identity(cfg)
+            ws_id = identity.get("workspace_id") if identity else None
+            resp = {
+                "workspace_id": ws_id,
+                "narrative": narrative_text,
+                "signature": None,
+                "updated": datetime.fromtimestamp(mp.stat().st_mtime, tz=timezone.utc).isoformat(),
+                "format_version": 1,
+            }
+            return (200, "application/json; charset=utf-8", _json.dumps(resp, indent=2))
 
         if endpoint == "/health":
             body = _health_report(cfg, workspace)
@@ -21219,6 +22774,16 @@ def cmd_serve(args, cfg):
             self._respond(status, ctype, body)
 
         def do_POST(self):  # noqa: N802
+            parsed = urlsplit(self.path)
+            endpoint = parsed.path or "/"
+            if endpoint == "/federation/receive":
+                length = int(self.headers.get("Content-Length", 0) or 0)
+                raw = self.rfile.read(length) if length else b""
+                status, ctype, body = _serve_handle_federation_receive(
+                    cfg, workspace, raw, self.headers
+                )
+                self._respond(status, ctype, body)
+                return
             self._respond(405, "text/plain; charset=utf-8", "Method Not Allowed (perseus serve is read-only)")
 
         # quiet default logging — one line per request via stderr
@@ -21230,7 +22795,7 @@ def cmd_serve(args, cfg):
     print(f"Perseus serve — {workspace}")
     print(f"  Listening on {url}")
     print(f"  Endpoints: /, /context, /narrative, /health, /agora, /checkpoint/latest, /oracle/log")
-    print(f"             /.well-known/mcp/server-card.json")
+    print(f"             /.well-known/mcp/server-card.json, /federation/narrative (GET), /federation/receive (POST)")
     print(f"  Press Ctrl-C to stop.")
     try:
         server.serve_forever()
@@ -21595,13 +23160,41 @@ def main():
     fed_sub = p_mem_fed.add_subparsers(dest="federation_command", required=True)
     p_fed_list = fed_sub.add_parser("list", help="List subscribed narratives + status")
     p_fed_list.add_argument("--json", action="store_true", help="Machine-readable JSON output")
-    p_fed_sub = fed_sub.add_parser("subscribe", help="Add a subscription")
+    p_fed_sub = fed_sub.add_parser("subscribe", help="Add a subscription (local path or remote URL)")
     p_fed_sub.add_argument("alias", help="User-chosen alias [a-zA-Z0-9_-]+")
-    p_fed_sub.add_argument("path", help="Workspace path to subscribe to")
+    p_fed_sub.add_argument("path", nargs="?", default="", help="Workspace path to subscribe to (omit with --remote-url)")
+    p_fed_sub.add_argument("--remote-url", default=None, help="Remote perseus serve URL for federation (Phase 27A)")
     p_fed_unsub = fed_sub.add_parser("unsubscribe", help="Remove a subscription by alias")
     p_fed_unsub.add_argument("alias", help="Alias to remove")
     p_fed_pull = fed_sub.add_parser("pull", help="Re-read all subscribed narratives (read-only, manual)")
     p_fed_pull.add_argument("--json", action="store_true", help="Machine-readable JSON output")
+    p_fed_push = fed_sub.add_parser("push", help="Push narrative to subscribers with push_url (Phase 27C)")
+    p_fed_push.add_argument("--alias", default=None, help="Push to a specific subscriber alias (default: all)")
+    p_fed_push.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
+    p_fed_push.add_argument("--json", action="store_true", help="Machine-readable JSON output")
+    p_fed_diff = fed_sub.add_parser("diff", help="Side-by-side compare two federated narratives (Phase 27E)")
+    p_fed_diff.add_argument("alias_a", help="First subscription alias")
+    p_fed_diff.add_argument("alias_b", help="Second subscription alias")
+    p_fed_merge = fed_sub.add_parser("merge", help="Draft a reconciliation between conflicting narratives (Phase 27E)")
+    p_fed_merge.add_argument("alias_a", help="First subscription alias")
+    p_fed_merge.add_argument("alias_b", help="Second subscription alias")
+
+    # memory sign (Phase 27B)
+    p_mem_sign = mem_sub.add_parser("sign", help="Sign the current Mneme narrative with workspace identity")
+    p_mem_sign.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
+    p_mem_sign.add_argument("--json", action="store_true", help="Machine-readable JSON output")
+
+    # memory verify (Phase 27B)
+    p_mem_verify = mem_sub.add_parser("verify", help="Verify a narrative signature")
+    p_mem_verify.add_argument("hash", nargs="?", default=None, help="Workspace hash to verify (default: current workspace)")
+    p_mem_verify.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
+    p_mem_verify.add_argument("--key", default=None, help="External public key for cross-workspace verification")
+    p_mem_verify.add_argument("--json", action="store_true", help="Machine-readable JSON output")
+
+    # memory provenance (Phase 27F)
+    p_mem_prov = mem_sub.add_parser("provenance", help="Display narrative provenance chain (Phase 27F)")
+    p_mem_prov.add_argument("hash", nargs="?", default=None, help="Workspace hash (default: current workspace)")
+    p_mem_prov.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
 
     # memory doctor (#128 — legacy MD5 → SHA-256 narrative migration)
     p_mem_doc = mem_sub.add_parser(
@@ -21700,6 +23293,25 @@ def main():
                         help="Append the entry to the current user's crontab (uses `crontab -l` + `crontab -`)")
     p_cron_uninstall = cron_sub.add_parser("uninstall", help="Remove a crontab entry")
     p_cron_uninstall.add_argument("source", help="Path to Perseus source file to remove from crontab")
+
+    # identity (Phase 27B — workspace identity + signing)
+    p_identity = sub.add_parser("identity", help="Manage workspace cryptographic identity (Phase 27B)")
+    id_sub = p_identity.add_subparsers(dest="identity_command", required=True)
+    p_id_init = id_sub.add_parser("init", help="Generate a new workspace identity keypair")
+    p_id_init.add_argument("--force", action="store_true", help="Overwrite existing identity")
+    p_id_show = id_sub.add_parser("show", help="Display the current workspace identity")
+    p_id_show.add_argument("--json", action="store_true", help="Machine-readable output")
+    p_id_grant = id_sub.add_parser("grant", help="Grant narrative access to a workspace (Phase 27D)")
+    p_id_grant.add_argument("--workspace-id", required=True, help="Target workspace ID (sha256:...)")
+    p_id_grant.add_argument("--scope", default="narrative", help="Grant scope (default: narrative)")
+    p_id_grant.add_argument("--ttl", type=int, default=30, help="Grant duration in days (default: 30)")
+    p_id_grant.add_argument("--output", action="store_true", help="Print the bearer token on grant creation")
+    p_id_revoke = id_sub.add_parser("revoke", help="Revoke a grant by ID")
+    p_id_revoke.add_argument("--grant-id", required=True, help="Grant ID to revoke")
+    p_id_token = id_sub.add_parser("token", help="Generate a bearer token for an existing grant")
+    p_id_token.add_argument("--for", dest="for_workspace", required=True, help="Target workspace ID")
+    p_id_token.add_argument("--scope", default="narrative", help="Grant scope (default: narrative)")
+    p_id_rotate = id_sub.add_parser("rotate", help="Rotate workspace identity keys (Phase 27F)")
 
     # launchd
     p_launchd = sub.add_parser("launchd", help="Scaffold or remove a macOS LaunchAgent for periodic rendering")
@@ -21859,6 +23471,10 @@ def main():
         cmd_memory(args, cfg)
     elif args.command == "inbox":
         cmd_inbox(args, cfg)
+    elif args.command == "identity":
+        rc = cmd_identity(args, cfg)
+        if rc is not None:
+            return rc
     elif args.command == "serve":
         # v1.0.5 review: reload with workspace so auth tokens,
         # trust profiles, MCP SSE tokens, and tool allowlists work.
