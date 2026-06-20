@@ -569,8 +569,9 @@ memory:
 
 > **Mimir is the default persistent memory layer for Perseus (v1.0.7+).** It is a
 > lightweight Rust-based MCP server providing SQLite + FTS5 keyword search, Ebbinghaus
-> decay, three-layer memory progression (Buffer → Working → Core), and circuit-breaker
-> protection. To use Mimir, set `mimir.enabled: true` in your config.
+> decay, a five-tier memory model (state · entities · journal · reference · archive),
+> and circuit-breaker protection. It ships **enabled by default**
+> (`mimir.enabled: true`); set `mimir.enabled: false` to turn it off.
 
 When enabled, `@memory` runs a **three-step hybrid resolution**:
 
@@ -606,12 +607,14 @@ cd ~/.mimir && cargo build --release
 cp target/release/mimir ~/.local/bin/mimir
 
 # Verify
-mimir --version   # expect "mimir 0.2.0"
+mimir --version   # expect "mimir 2.0.0"
 ```
 
-> **Mimir MVP scope:** Mimir is an MCP JSON-RPC stdio server with four tools:
-> `mimir_store`, `mimir_recall`, `mimir_health`, and `mimir_stats`. It uses SQLite FTS5 for
-> keyword search. No embedding backend or cloud LLM provider is needed.
+> **Mimir tool surface:** Mimir is an MCP JSON-RPC stdio server exposing ~30 tools
+> across its five tiers — including `mimir_remember`, `mimir_recall`, `mimir_get_entity`,
+> `mimir_journal`, `mimir_state_set`/`mimir_state_get`, `mimir_health`, and `mimir_stats`.
+> Search is SQLite FTS5 keyword by default; embedding/rerank are optional via
+> `mimir_embed` and `mimir_cohere`. No cloud LLM provider is required for core operation.
 >
 > **Binary path:** Use the full absolute path in config if the binary is placed in a directory
 > not in the subprocess's PATH. On containers (Docker/Unraid), paths under `/root/` are
@@ -637,33 +640,37 @@ mimir --version   # expect "mimir 0.2.0"
 
 ### Mimir (PRIMARY — structured five-tier local memory)
 
-Perseus integrates with [Mimir](https://github.com/Perseus-Computing-LLC/mimir), an MIT-licensed, local-first memory engine — a Rust binary with SQLite + FTS5. It provides structured entities with category/key idempotent upsert, journal events, state management with TTL, and entity linking — no vector DB, no embeddings, no cloud dependency.
+Perseus integrates with [Mimir](https://github.com/Perseus-Computing-LLC/mimir), an MIT-licensed, local-first memory engine — a Rust binary with SQLite + FTS5. It provides structured entities with category/key idempotent upsert, journal events, state management with TTL, and entity linking. Search is FTS5 keyword by default (embedding/rerank optional), with no required cloud dependency.
 
-| Tier | Name | Purpose | API |
+| Tier | Name | Purpose | MCP tools |
 |------|------|---------|-----|
-| HOT | state | Live working state, rewritten in place | `set_state()` / `get_state()` |
-| WARM | entities | Single source of truth per (category, name) | `set_entity()` / `get_entity()` |
-| COLD | journal | Append-only event log | `write_event()` / `read_events()` |
-| REFERENCE | reference | Static knowledge, rarely changes | `set_reference()` / `get_reference()` |
-| ARCHIVE | archive | Retired entities, kept for audit | `archive_entity()` |
+| HOT | state | Live working state, rewritten in place | `mimir_state_set` / `mimir_state_get` |
+| WARM | entities | Single source of truth per (category, name) | `mimir_remember` / `mimir_get_entity` |
+| COLD | journal | Append-only event log | `mimir_journal` / `mimir_timeline` |
+| REFERENCE | reference | Static knowledge, rarely changes | `mimir_remember` (category=reference) / `mimir_recall` |
+| ARCHIVE | archive | Retired entities, kept for audit | `mimir_forget` / `mimir_prune` |
 
 **Install:**
 
 ```bash
-pip install mimir binary
+# Bootstrap script (recommended)
+curl -sSL https://raw.githubusercontent.com/Perseus-Computing-LLC/mimir/main/scripts/bootstrap.sh | bash
+
+# Or build from source
+git clone https://github.com/Perseus-Computing-LLC/mimir.git ~/.mimir
+cd ~/.mimir && cargo build --release
+cp target/release/mimir ~/.local/bin/mimir
 ```
 
-**Enable in Perseus:**
+**Enable in Perseus** (`~/.perseus/config.yaml`):
 
 ```yaml
-# ~/.perseus/config.yaml (or env var)
-mimir_connector:
+mimir:
   enabled: true
-  db_path: ~/.mimir/data/mimir.db
-  max_tokens: 1500
+  transport: stdio
+  command: ["mimir", "--db", "~/.mimir/data/mimir.db"]
+  fallback_to_local: true
 ```
-
-Or via environment: `export MIMIR_DB_PATH=~/.mimir/data/mimir.db`
 
 **Use in context.md:**
 
@@ -674,7 +681,7 @@ Or via environment: `export MIMIR_DB_PATH=~/.mimir/data/mimir.db`
 
 > Mimir context is injected automatically by the render pipeline when enabled — no directive resolver needed. The `@memory mode=search` line documents what's being queried so users know what's in their context.
 
-**Degradation:** If `mimir binary` is not installed, the DB is missing, or search returns nothing, the injected block is empty — no crash, no error. Off by default.
+**Degradation:** If the `mimir` binary is not installed, the DB is missing, or search returns nothing, the injected block is empty — no crash, no error. Mimir is **on by default**; set `mimir.enabled: false` to disable and fall back to local Mnēmē FTS5.
 
 No storage cap, no paid tiers, no signup. Fully local and free forever.
 
