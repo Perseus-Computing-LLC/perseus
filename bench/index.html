@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Perseus + Sibyl Memory: Orientation Efficiency — 38% Fewer Discovery Turns</title>
-<meta name="description" content="Benchmark: Perseus pre-loads live context so agents waste 2.7 fewer discovery turns per task — a 38% reduction in orientation overhead. All 8 common traps eliminated." />
+<title>Perseus + Mimir: Orientation Efficiency — 38% Fewer Discovery Turns</title>
+<meta name="description" content="Perseus certified 100.0/100 on the Gauntlet v2 benchmark: 10 phases, 16 hard gates, zero failures. Pre-session context engine for AI assistants." />
 
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -1007,12 +1007,48 @@ perseus render bench/bench_context.md --output AGENTS.md
   </div>
 </section>
 
+<!-- ============ SECTION 11: Gauntlet v2 ============ -->
+<section class="section-block">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-label">Gauntlet v2 &mdash; 10 Phases</div>
+      <h2>Certified: 100.0 / 100</h2>
+    </div>
+    <table>
+      <caption>10-phase comprehensive benchmark on Perseus v1.0.8</caption>
+      <thead>
+        <tr><th>#</th><th>Phase</th><th>Duration</th><th>Success Rate</th><th>Key Metric</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>0</td><td>Pre-Flight</td><td>0s</td><td class="good">100.0%</td><td>&mdash;</td></tr>
+        <tr><td>1</td><td>Render: Cold Baseline</td><td>9m</td><td class="good">100.0%</td><td>P50 317ms (≤ 500ms gate)</td></tr>
+        <tr><td>2</td><td>Render: Warm/Cache</td><td>3m</td><td class="good">100.0%</td><td>P50 314ms</td></tr>
+        <tr><td>3</td><td>Memory: Retrieval</td><td>&lt;1s</td><td class="good">100.0%</td><td>Recall 86.7% (≥ 80% gate)</td></tr>
+        <tr><td>4</td><td>Agent: Single Task</td><td>3s</td><td class="good">100.0%</td><td>Success 100% (≥ 90% gate)</td></tr>
+        <tr><td>5</td><td>Agent: Multi-Agent</td><td>2s</td><td class="good">100.0%</td><td>Success 100% (≥ 80% gate)</td></tr>
+        <tr><td>6</td><td>Enterprise Week</td><td>81m</td><td class="good">100.0%</td><td>Zero failures</td></tr>
+        <tr><td>7</td><td>Adversarial</td><td>60m</td><td class="good">100.0%</td><td>12/12 scenarios passed</td></tr>
+        <tr><td>8</td><td>Sustained Torture</td><td>120m</td><td class="good">100.0%</td><td>RSS growth 0.43% (≤ 5%)</td></tr>
+        <tr><td>9</td><td>Token Efficiency</td><td>22s</td><td class="good">100.0%</td><td>Ratio 1.0 (≤ 1.0 gate)</td></tr>
+      </tbody>
+    </table>
+    <div class="callout good-box" style="margin-top:24px;">
+      <p><strong>16 of 16 hard gates passed.</strong> Zero failures across all 10 phases. Score: 100.0/100 &mdash; PASS &#9733;&#9733;&#9733;&#9733;&#9733;</p>
+    </div>
+    <p class="flow-sub" style="margin-top:18px;">
+      <span>Methodology:</span> <a href="https://github.com/Perseus-Computing-LLC/perseus/blob/main/benchmark/gauntlet/METHODOLOGY.md" target="_blank" rel="noopener" style="color:var(--accent-2);">benchmark/gauntlet/METHODOLOGY.md</a><br>
+      <span>Full report:</span> <a href="https://github.com/Perseus-Computing-LLC/perseus/blob/main/benchmark/gauntlet/v2/gauntlet_v2_report.md" target="_blank" rel="noopener" style="color:var(--accent-2);">benchmark/gauntlet/v2/gauntlet_v2_report.md</a><br>
+      <span>Reproduce:</span> <code style="font-size:12px;">python3 benchmark/gauntlet/v2/gauntlet_v2_orchestrator.py --nodes local --duration full</code>
+    </p>
+  </div>
+</section>
+
 <!-- ============ BOTTOM LINE ============ -->
 <section class="section-block">
   <div class="wrap">
     <div class="verdict">
-      <p>Sibyl Memory gives the agent <em>perfect recall.</em><br>Perseus makes sure the agent <em>never wastes a turn</em> asking &ldquo;where am I and what am I doing?&rdquo;</p>
-      <p class="sub">Together they answer both questions that matter at session start: <strong>what do we know</strong> (Sibyl&rsquo;s 350/350 retrieval) and <strong>what&rsquo;s happening now</strong> (Perseus&rsquo;s 0-turn orientation). An agent productive from turn 1.</p>
+      <p>Mimir gives the agent <em>perfect recall.</em><br>Perseus makes sure the agent <em>never wastes a turn</em> asking &ldquo;where am I and what am I doing?&rdquo;</p>
+      <p class="sub">Together they answer both questions that matter at session start: <strong>what do we know</strong> (Mimir&rsquo;s persistent memory) and <strong>what&rsquo;s happening now</strong> (Perseus&rsquo;s 0-turn orientation). An agent productive from turn 1.</p>
     </div>
   </div>
 </section>
@@ -1033,8 +1069,8 @@ perseus render bench/bench_context.md --output AGENTS.md
       </div>
     </div>
     <div class="footer-meta">
-      <span>Perseus v1.0.6 &middot; Patent Pending</span>
-      <span>Sibyl Memory v0.4.9 &middot; MIT</span>
+      <span>Perseus v1.0.8 &middot; Patent Pending</span>
+      <span>Mimir &middot; MIT</span>
     </div>
   </div>
 </footer>
