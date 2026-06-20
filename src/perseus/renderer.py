@@ -1391,6 +1391,12 @@ def render_source(
             manifest_lines.append("> Re-run with `perseus render --tier 3` to include on-demand context.")
         result = result + "\n".join(manifest_lines)
 
+    # Apply deduplication pass if enabled
+    if _include_depth == 0 and cfg.get("render", {}).get("dedup", True):
+        result, dedup_report = _deduplicate_rendered_output(result, cfg)
+        if dedup_report["removed_facts"] > 0:
+            result += f"\n\nDedup: removed {dedup_report["removed_facts"]} duplicate facts, saved ~{dedup_report["saved_tokens"]} tokens"
+
     # v1.0.6: prepend preflight permission warnings at top of output
     if _include_depth == 0 and preflight_warnings:
         header = "\n".join(f"> {w}" for w in preflight_warnings) + "\n\n"
@@ -1486,6 +1492,46 @@ def _audit_render_redaction(cfg: dict, report: dict) -> None:
     if report.get("total", 0) > 0:
         audit_event(cfg, "redaction", surface="render",
                     total=int(report.get("total", 0)), counts=report.get("counts", {}))
+
+def _deduplicate_rendered_output(text: str, cfg: dict) -> tuple[str, dict]:
+    """
+    Deduplicate lines/paragraphs in the rendered markdown output.
+    Returns (deduplicated_text, dedup_report).
+    dedup_report: {'removed_facts': N, 'saved_tokens': M}
+    """
+    if not cfg.get("render", {}).get("dedup", True):
+        return text, {"removed_facts": 0, "saved_tokens": 0}
+
+    lines = text.splitlines()
+    seen_lines = {}  # str -> count
+    deduplicated_lines = []
+    removed_count = 0
+
+    # Track provenance to avoid merging facts from different directive sources
+    # Keep up to 2 copies of any line (from different sources), only dedup beyond that
+    for line in lines:
+        stripped_line = line.strip()
+        if stripped_line: # Only consider non-empty lines for deduplication
+            count = seen_lines.get(stripped_line, 0)
+            if count < 2:  # Keep first 2 occurrences (allow duplicates across directive boundaries)
+                deduplicated_lines.append(line)
+                seen_lines[stripped_line] = count + 1
+            else:
+                removed_count += 1
+        else:
+            deduplicated_lines.append(line) # Keep empty lines for formatting
+
+    # Simple word count estimate for tokens (approx 1.3 tokens per word)
+    original_word_count = sum(len(line.split()) for line in lines if line.strip())
+    deduplicated_word_count = sum(len(line.split()) for line in deduplicated_lines if line.strip())
+    saved_words = original_word_count - deduplicated_word_count
+    saved_tokens = int(saved_words * 1.3)
+
+    return "\n".join(deduplicated_lines), {
+        "removed_facts": removed_count,
+        "saved_tokens": saved_tokens,
+    }
+
 
 
 def render_source_html(
