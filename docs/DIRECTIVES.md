@@ -4,7 +4,7 @@
 
 ## Directive Protocol Version
 
-Source documents start with `@perseus v1.0.6` on line 1. The value after `@perseus` is the **directive protocol version** (the syntax revision Perseus parses). Existing v0.4/v0.8 context files remain supported for backward compatibility.
+Source documents start with `@perseus v1.0.8` on line 1. The value after `@perseus` is the **directive protocol version** (the syntax revision Perseus parses). Existing v0.4/v0.8 context files remain supported for backward compatibility.
 
 ## Directive Table
 
