@@ -34,7 +34,7 @@ Perseus is the live context engine. Seven specialized products extend it:
 
 ### Mimir — Persistent Memory (MCP)
 
-[Mimir](https://github.com/Perseus-Computing-LLC/mimir) is the persistent memory backend for Perseus — a lightweight Rust MCP server with SQLite + FTS5. Zero network calls, no API keys, no embeddings model required. **v0.5.0** provides **23 MCP tools** across structured entities, layers, confidence decay, journal events, and state management: `mimir_recall`, `mimir_store`, `mimir_entity_*`, `mimir_layer_*`, `mimir_decay_config`, `mimir_stats`, `mimir_health`, and more.
+[Mimir](https://github.com/Perseus-Computing-LLC/mimir) is the persistent memory backend for Perseus — a lightweight Rust MCP server with SQLite + FTS5. Zero network calls, no API keys, no embeddings model required. **v2.0.0** provides **31 MCP tools** across structured entities, hybrid vector search, RAG, connectors, confidence decay, journal events, and state management: `mimir_recall`, `mimir_store`, `mimir_entity_*`, `mimir_layer_*`, `mimir_decay_config`, `mimir_stats`, `mimir_health`, and more.
 
 📄 [Product page →](https://perseus.observer/mimir/) | ⭐ [GitHub →](https://github.com/Perseus-Computing-LLC/mimir)
 
