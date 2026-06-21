@@ -55,3 +55,15 @@ mcts_analysis/
 
 # Build artifacts (see #382)
 build/
+
+# Research repos (cloned for reference, not part of perseus)
+.contextforge/
+Interlock/
+YourMemory/
+codebase-memory-mcp/
+cognirepo/
+contextforge/
+memory-mesh/
+memtrace-public/
+nexo/
+proxcp/
