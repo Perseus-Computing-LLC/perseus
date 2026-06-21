@@ -1,0 +1,906 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Plutus — LLM Credit Monitoring for API Providers</title>
+<meta name="description" content="Plutus tracks API credit balances across Anthropic, OpenAI, Google, AWS, Azure, and more. Real-time balance checks, burn-rate forecasts, and multi-provider cost dashboards. Never run out of credits mid-session again." />
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=fallback" />
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=fallback" rel="stylesheet" />
+
+<style>
+  :root {
+    --bg: #0c0814;
+    --bg-2: #140e22;
+    --bg-3: #1c1430;
+    --line: rgba(63, 185, 80, 0.10);
+    --line-strong: rgba(63, 185, 80, 0.22);
+    --text: #ece4ff;
+    --text-dim: #9a8cc4;
+    --text-muted: #5d5078;
+    --accent: #3fb950;
+    --accent-bright: #56d364;
+    --accent-deep: #238636;
+    --accent-2: #3fb950;
+    --code-bg: #07040d;
+    --good: #3fb950;
+    --warn: #ff6b9d;
+    --serif: "Cormorant Garamond", "EB Garamond", Georgia, serif;
+    --sans: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --mono: "JetBrains Mono", "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    --max: 1060px;
+    --gutter: clamp(20px, 4vw, 56px);
+    --glow-accent: 0 0 24px rgba(63, 185, 80, 0.45);
+    --glow-green: 0 0 18px rgba(63, 185, 80, 0.45);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: "ss01", "cv11";
+    overflow-x: hidden;
+    background-image:
+      radial-gradient(ellipse 80% 60% at 50% 0%, rgba(35, 134, 54, 0.18), transparent 70%),
+      linear-gradient(rgba(63, 185, 80, 0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(63, 185, 80, 0.035) 1px, transparent 1px);
+    background-size: 100% 100%, 80px 80px, 80px 80px;
+    background-position: 0 0, 0 0, 0 0;
+    background-attachment: fixed, fixed, fixed;
+  }
+  ::selection { background: var(--accent); color: #1a1410; }
+
+  a { color: inherit; text-decoration: none; }
+  img { display: block; max-width: 100%; }
+
+  /* ---------- Layout ---------- */
+  .wrap {
+    max-width: var(--max);
+    margin: 0 auto;
+    padding: 0 var(--gutter);
+  }
+  .rule {
+    height: 1px;
+    background: var(--line);
+    margin: 0;
+    border: 0;
+  }
+
+  /* Section header */
+  .sec-head {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    gap: 48px;
+    align-items: baseline;
+    padding-top: 28px;
+    margin-bottom: clamp(40px, 6vw, 60px);
+  }
+  .sec-num {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    color: var(--accent);
+    text-transform: uppercase;
+  }
+  .sec-title {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: clamp(34px, 4.6vw, 60px);
+    line-height: 1.02;
+    letter-spacing: -0.012em;
+    margin: 0;
+    color: var(--text);
+    text-wrap: balance;
+  }
+  .sec-title em {
+    font-style: italic;
+    color: var(--accent);
+    font-weight: 400;
+    text-shadow: 0 0 22px rgba(63, 185, 80, 0.45);
+  }
+  @media (max-width: 680px) {
+    .sec-head { grid-template-columns: 1fr; gap: 12px; }
+  }
+
+  section { position: relative; }
+  .section-block {
+    padding: clamp(60px, 8vw, 100px) 0 clamp(60px, 8vw, 100px);
+    border-top: 1px solid var(--line);
+  }
+  .section-block::after {
+    content: "";
+    display: block;
+    width: 60px;
+    height: 2px;
+    margin: clamp(40px, 6vw, 80px) auto 0;
+    background: linear-gradient(90deg, transparent, var(--accent) 20%, var(--accent-2) 50%, var(--accent) 80%, transparent);
+    opacity: 0.35;
+  }
+  .section-block:last-of-type::after { display: none; }
+
+  /* ---------- Top bar ---------- */
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    background: color-mix(in oklab, var(--bg) 78%, transparent);
+    border-bottom: 1px solid var(--line);
+  }
+  .topbar-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 60px;
+  }
+  .wordmark {
+    font-family: var(--serif);
+    font-size: 21px;
+    font-weight: 500;
+    letter-spacing: 0.005em;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  .wordmark .dot {
+    width: 6px;
+    height: 6px;
+    background: var(--accent);
+    border-radius: 50%;
+    display: inline-block;
+    transform: translateY(-3px);
+    box-shadow: 0 0 8px var(--accent), 0 0 16px rgba(63, 185, 80, 0.7);
+  }
+  .topbar nav {
+    display: flex;
+    gap: 28px;
+    align-items: center;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+  .topbar nav a { transition: color .18s ease; }
+  .topbar nav a:hover { color: var(--text); }
+  .topbar nav .plutus-active {
+    color: var(--accent);
+    text-shadow: 0 0 10px rgba(63, 185, 80, 0.35);
+  }
+  @media (max-width: 720px) {
+    .topbar nav .nav-link { display: none; }
+  }
+
+  /* ---------- Hero ---------- */
+  .hero {
+    padding: clamp(50px, 8vw, 90px) 0 clamp(30px, 5vw, 50px);
+    position: relative;
+    overflow: hidden;
+  }
+  .hero-eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 24px;
+  }
+  .hero h1 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: clamp(38px, 6vw, 68px);
+    line-height: 0.98;
+    letter-spacing: -0.016em;
+    margin: 0 0 24px 0;
+    color: var(--text);
+  }
+  .hero h1 em {
+    font-style: italic;
+    color: var(--accent-2);
+    font-weight: 400;
+    text-shadow: 0 0 24px rgba(63, 185, 80, 0.35);
+  }
+  .hero-lede {
+    font-family: var(--serif);
+    font-size: clamp(18px, 2.5vw, 24px);
+    line-height: 1.45;
+    color: var(--text-dim);
+    margin: 0 0 40px 0;
+    max-width: 800px;
+    font-weight: 400;
+    text-wrap: balance;
+  }
+
+  /* ---------- Stat Cards ---------- */
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+    margin-bottom: 40px;
+  }
+  @media (max-width: 820px) {
+    .stat-grid { grid-template-columns: 1fr; }
+  }
+  .stat-card {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    padding: 24px;
+    border-radius: 4px;
+  }
+  .skey {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+  }
+  .sval {
+    font-family: var(--serif);
+    font-size: clamp(36px, 4vw, 48px);
+    line-height: 1;
+    font-weight: 500;
+    color: var(--accent-2);
+    margin-bottom: 8px;
+  }
+  .sval .unit {
+    font-size: 14px;
+    font-family: var(--mono);
+    color: var(--text-muted);
+    margin-left: 4px;
+  }
+  .sdesc {
+    font-size: 13.5px;
+    color: var(--text-dim);
+    line-height: 1.45;
+  }
+
+  /* ---------- Hero Quote ---------- */
+  .hero-quote {
+    border-left: 2px solid var(--accent);
+    background: linear-gradient(90deg, rgba(63, 185, 80, 0.02), transparent);
+    padding: 20px 24px;
+    font-family: var(--serif);
+    font-size: 17.5px;
+    line-height: 1.5;
+    color: var(--text-dim);
+    font-style: italic;
+    margin-top: 40px;
+  }
+
+  /* ---------- Grids & Splits ---------- */
+  .split-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    margin-bottom: 32px;
+  }
+  @media (max-width: 820px) {
+    .split-grid { grid-template-columns: 1fr; }
+  }
+
+  .provider-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+    margin-bottom: 40px;
+  }
+  @media (max-width: 820px) {
+    .provider-grid { grid-template-columns: 1fr; }
+  }
+
+  /* ---------- Provider Cards ---------- */
+  .provider-card {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 28px 24px;
+    transition: border-color 0.22s ease;
+    position: relative;
+  }
+  .provider-card:hover {
+    border-color: var(--line-strong);
+  }
+  .provider-name {
+    font-family: var(--serif);
+    font-size: 24px;
+    font-weight: 500;
+    color: var(--text);
+    margin: 0 0 8px 0;
+  }
+  .provider-card .badge {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    padding: 3px 10px;
+    border-radius: 2px;
+    margin-bottom: 12px;
+    color: #1a1410;
+  }
+  .badge-live { background: var(--good); }
+  .badge-beta { background: #d29922; }
+  .badge-soon { background: var(--text-muted); }
+  .provider-desc {
+    font-size: 13.5px;
+    color: var(--text-dim);
+    line-height: 1.5;
+    margin: 0;
+  }
+
+  /* ---------- Buttons & UI ---------- */
+  .cta-btn {
+    display: inline-block;
+    border: 1px solid var(--accent);
+    padding: 12px 24px;
+    color: var(--accent);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    transition: all .18s ease;
+    background: transparent;
+    cursor: pointer;
+    text-align: center;
+  }
+  .cta-btn:hover {
+    background: rgba(63, 185, 80, 0.08);
+    box-shadow: 0 0 18px rgba(63, 185, 80, 0.25);
+    color: var(--accent-bright);
+    border-color: var(--accent-bright);
+  }
+  .cta-btn.primary {
+    background: var(--accent);
+    color: #1a1410;
+  }
+  .cta-btn.primary:hover {
+    background: var(--accent-bright);
+    box-shadow: 0 0 24px rgba(63, 185, 80, 0.5);
+    color: #1a1410;
+    border-color: var(--accent-bright);
+  }
+
+  .code-block {
+    position: relative;
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 24px;
+    overflow-x: auto;
+    margin: 16px 0;
+  }
+  .code-block pre {
+    margin: 0;
+    font-family: var(--mono);
+    font-size: 13.5px;
+    line-height: 1.6;
+    color: var(--text-dim);
+  }
+  .code-block .cb-label {
+    position: absolute;
+    top: 0;
+    right: 0;
+    background: var(--bg-3);
+    border-bottom: 1px solid var(--line);
+    border-left: 1px solid var(--line);
+    padding: 4px 12px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+
+  /* ---------- Inline SVG diagram ---------- */
+  .diagram-wrap {
+    display: flex;
+    justify-content: center;
+    margin: 32px 0;
+  }
+  .diagram-wrap svg {
+    max-width: 100%;
+    height: auto;
+  }
+
+  /* ---------- Architecture cards ---------- */
+  .arch-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+    margin-bottom: 40px;
+  }
+  @media (max-width: 820px) {
+    .arch-grid { grid-template-columns: 1fr; }
+  }
+  .arch-card {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 28px 24px;
+    text-align: center;
+    transition: border-color 0.22s ease;
+  }
+  .arch-card:hover {
+    border-color: var(--line-strong);
+  }
+  .arch-card .arch-icon {
+    font-family: var(--serif);
+    font-size: 32px;
+    font-weight: 500;
+    color: var(--accent);
+    margin-bottom: 12px;
+  }
+  .arch-card .arch-name {
+    font-family: var(--serif);
+    font-size: 22px;
+    font-weight: 500;
+    color: var(--text);
+    margin: 0 0 8px 0;
+  }
+  .arch-card .arch-desc {
+    font-size: 13.5px;
+    color: var(--text-dim);
+    line-height: 1.5;
+  }
+
+  /* Footer styling matching the home page */
+  footer {
+    border-top: 1px solid var(--line);
+    padding: 64px 0 56px;
+    background: var(--bg);
+  }
+  .footer-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 48px;
+    margin-bottom: 40px;
+  }
+  @media (max-width: 720px) {
+    .footer-grid { grid-template-columns: 1fr; }
+  }
+  .footer-mark {
+    font-family: var(--serif);
+    font-size: 21px;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+  .footer-mark .dot {
+    width: 6px;
+    height: 6px;
+    background: var(--accent);
+    border-radius: 50%;
+  }
+  .footer-credit {
+    font-size: 13.5px;
+    color: var(--text-dim);
+    line-height: 1.5;
+  }
+  .footer-links {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .footer-links a:hover {
+    color: var(--accent);
+  }
+  .footer-meta {
+    display: flex;
+    justify-content: space-between;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    border-top: 1px solid var(--line);
+    padding-top: 24px;
+  }
+
+  /* animations */
+  .reveal {
+    opacity: 0;
+    transform: translateY(12px);
+    transition: opacity 0.5s cubic-bezier(0.215, 0.61, 0.355, 1), transform 0.5s cubic-bezier(0.215, 0.61, 0.355, 1);
+  }
+  .reveal.in-view {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  #cursor-glow {
+    position: fixed;
+    width: 520px;
+    height: 520px;
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 0;
+    background: radial-gradient(circle, rgba(63, 185, 80, 0.055) 0%, transparent 65%);
+    transform: translate(-50%, -50%);
+    will-change: left, top;
+    top: -9999px; left: -9999px;
+  }
+</style>
+</head>
+<body>
+<div id="cursor-glow" aria-hidden="true"></div>
+
+<!-- ============ TOP BAR ============ -->
+<header class="topbar">
+  <div class="wrap topbar-inner">
+    <a href="/" class="wordmark">Perseus<span class="dot"></span></a>
+    <nav>
+      <a href="/" class="nav-link">Home</a>
+      <a href="/bench/" class="nav-link">Bench</a>
+      <a href="/mimir/" class="nav-link">Mimir</a>
+      <a href="/cloud/" class="nav-link">Cloud</a>
+      <a href="/plutus/" class="plutus-active">Plutus</a>
+      <a href="https://github.com/Perseus-Computing-LLC/plutus" class="nav-link" target="_blank" rel="noopener">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<!-- ============ HERO ============ -->
+<section class="hero">
+  <div class="wrap">
+    <div class="hero-eyebrow">LLM Credit Monitoring &mdash; Multi-Provider Balance Tracking</div>
+    <h1>Plutus &mdash; <em>LLM Credit</em> Monitoring</h1>
+    <p class="hero-lede">Never run out of credits mid-session. Plutus tracks API credit balances across Anthropic, OpenAI, Google, AWS Bedrock, Azure, and more. Real-time balance checks, burn-rate forecasting, and per-model cost breakdowns — all from a single CLI dashboard.</p>
+
+    <div class="stat-grid">
+      <div class="stat-card">
+        <div class="skey">Tracked Providers</div>
+        <div class="sval">6<span class="unit">+</span></div>
+        <div class="sdesc">Anthropic, OpenAI, Google, AWS Bedrock, Azure &mdash; plus custom provider plugins. All from one tool.</div>
+      </div>
+      <div class="stat-card">
+        <div class="skey">Real-Time Checks</div>
+        <div class="sval">&lt; 200<span class="unit">ms</span></div>
+        <div class="sdesc">Balance queries resolve in parallel. Know your remaining credits across every provider in under 200 milliseconds.</div>
+      </div>
+      <div class="stat-card">
+        <div class="skey">Burn Rate Forecast</div>
+        <div class="sval">7<span class="unit">day</span></div>
+        <div class="sdesc">Predictive spend modeling. Plutus analyzes your usage patterns and warns you days before you hit zero.</div>
+      </div>
+    </div>
+
+    <!-- Inline SVG Credit Monitoring Diagram -->
+    <div class="diagram-wrap">
+      <svg viewBox="0 0 900 300" xmlns="http://www.w3.org/2000/svg" style="max-width:900px; width:100%;">
+        <defs>
+          <linearGradient id="plutusGrad" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stop-color="#3fb950" stop-opacity="0.6"/>
+            <stop offset="100%" stop-color="#56d364" stop-opacity="0.6"/>
+          </linearGradient>
+          <linearGradient id="boxGradG" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#1c1430" stop-opacity="1"/>
+            <stop offset="100%" stop-color="#140e22" stop-opacity="1"/>
+          </linearGradient>
+          <filter id="glowG">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="3"/>
+          </filter>
+          <marker id="arrowGreen" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+            <path d="M0,0 L8,3 L0,6 Z" fill="#3fb950"/>
+          </marker>
+        </defs>
+
+        <rect x="0" y="0" width="900" height="300" fill="transparent" rx="8"/>
+
+        <!-- Plutus Engine -->
+        <rect x="340" y="30" width="220" height="80" rx="4" fill="url(#boxGradG)" stroke="#3fb950" stroke-width="2"/>
+        <text x="450" y="60" text-anchor="middle" fill="#3fb950" font-family="Cormorant Garamond, serif" font-size="22" font-weight="500">Plutus</text>
+        <text x="450" y="82" text-anchor="middle" fill="#9a8cc4" font-family="JetBrains Mono, monospace" font-size="9" letter-spacing="0.1em">CREDIT MONITORING ENGINE</text>
+        <text x="450" y="98" text-anchor="middle" fill="#5d5078" font-family="JetBrains Mono, monospace" font-size="8.5">Parallel API Polling · Burn-Rate ML</text>
+
+        <!-- Provider boxes top row -->
+        <rect x="30" y="150" width="120" height="50" rx="4" fill="url(#boxGradG)" stroke="rgba(63,185,80,0.25)" stroke-width="1"/>
+        <text x="90" y="180" text-anchor="middle" fill="#9a8cc4" font-family="IBM Plex Sans, sans-serif" font-size="13">Anthropic</text>
+
+        <rect x="175" y="150" width="110" height="50" rx="4" fill="url(#boxGradG)" stroke="rgba(63,185,80,0.25)" stroke-width="1"/>
+        <text x="230" y="180" text-anchor="middle" fill="#9a8cc4" font-family="IBM Plex Sans, sans-serif" font-size="13">OpenAI</text>
+
+        <rect x="310" y="150" width="110" height="50" rx="4" fill="url(#boxGradG)" stroke="rgba(63,185,80,0.25)" stroke-width="1"/>
+        <text x="365" y="180" text-anchor="middle" fill="#9a8cc4" font-family="IBM Plex Sans, sans-serif" font-size="13">Google</text>
+
+        <rect x="445" y="150" width="110" height="50" rx="4" fill="url(#boxGradG)" stroke="rgba(63,185,80,0.25)" stroke-width="1"/>
+        <text x="500" y="180" text-anchor="middle" fill="#9a8cc4" font-family="IBM Plex Sans, sans-serif" font-size="13">AWS</text>
+
+        <rect x="580" y="150" width="110" height="50" rx="4" fill="url(#boxGradG)" stroke="rgba(63,185,80,0.25)" stroke-width="1"/>
+        <text x="635" y="180" text-anchor="middle" fill="#9a8cc4" font-family="IBM Plex Sans, sans-serif" font-size="13">Azure</text>
+
+        <rect x="715" y="150" width="110" height="50" rx="4" fill="url(#boxGradG)" stroke="rgba(63,185,80,0.25)" stroke-width="1"/>
+        <text x="770" y="180" text-anchor="middle" fill="#9a8cc4" font-family="IBM Plex Sans, sans-serif" font-size="13">+ Customs</text>
+
+        <!-- Data flow connections -->
+        <line x1="450" y1="110" x2="450" y2="148" stroke="#3fb950" stroke-width="2" stroke-dasharray="5,3"/>
+
+        <line x1="90" y1="148" x2="90" y2="130" stroke="#3fb950" stroke-width="1.5" stroke-dasharray="4,3"/>
+        <line x1="90" y1="130" x2="448" y2="130" stroke="#3fb950" stroke-width="1.5" stroke-dasharray="4,3"/>
+        <line x1="230" y1="148" x2="230" y2="138" stroke="#3fb950" stroke-width="1.5" stroke-dasharray="4,3"/>
+        <line x1="230" y1="138" x2="448" y2="138" stroke="#3fb950" stroke-width="1.5" stroke-dasharray="4,3"/>
+        <line x1="365" y1="148" x2="365" y2="146" stroke="#3fb950" stroke-width="1.5" stroke-dasharray="4,3"/>
+        <line x1="365" y1="146" x2="448" y2="146" stroke="#3fb950" stroke-width="1.5" stroke-dasharray="4,3"/>
+
+        <!-- Dashboard output at bottom -->
+        <rect x="200" y="230" width="500" height="45" rx="4" fill="transparent" stroke="rgba(63,185,80,0.18)" stroke-width="1" stroke-dasharray="6,4"/>
+        <text x="450" y="258" text-anchor="middle" fill="#5d5078" font-family="JetBrains Mono, monospace" font-size="9" letter-spacing="0.12em">plutus status → 6 providers · $847.32 remaining · 23 days forecast</text>
+
+        <line x1="450" y1="200" x2="450" y2="228" stroke="#3fb950" stroke-width="1.5" stroke-dasharray="5,3"/>
+      </svg>
+    </div>
+
+    <div class="hero-quote">
+      &ldquo;Plutus is the missing piece in the LLM ops stack. You track your infrastructure, you track your deployments, but nobody tracks their LLM credits. One forgotten API key and you're dead in the water mid-sprint. Plutus fixes that.&rdquo;
+    </div>
+  </div>
+</section>
+
+<!-- ============ SECTION 1: What Plutus Does ============ -->
+<section class="section-block">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-num">§ 01</div>
+      <h2 class="sec-title">What <em>Plutus</em> Does</h2>
+    </div>
+
+    <p style="font-size:17px; line-height:1.6; color:var(--text-dim); margin-bottom:32px; max-width:850px; margin-top:0;">
+      Plutus monitors your API credit balances across every LLM provider you use. It shows remaining credits, calculates your burn rate, and predicts when you'll run out &mdash; all before you open your next context window.
+    </p>
+
+    <div class="arch-grid">
+      <div class="arch-card">
+        <div class="arch-icon">📊</div>
+        <h3 class="arch-name">Balance Tracking</h3>
+        <p class="arch-desc">Poll every provider in parallel. See remaining credits, total spent, and per-model breakdowns. Anthropic, OpenAI, Google, AWS, Azure — one command, all answers.</p>
+      </div>
+      <div class="arch-card">
+        <div class="arch-icon">📈</div>
+        <h3 class="arch-name">Burn Rate Analysis</h3>
+        <p class="arch-desc">Plutus tracks your daily spend velocity and computes a rolling burn rate. Know not just what you have, but how fast you're spending it.</p>
+      </div>
+      <div class="arch-card">
+        <div class="arch-icon">🔮</div>
+        <h3 class="arch-name">Depletion Forecasting</h3>
+        <p class="arch-desc">ML-driven forecasts predict your credit exhaustion date. Get warnings 7, 3, and 1 day before you hit zero — with configurable thresholds.</p>
+      </div>
+    </div>
+
+    <div class="arch-grid">
+      <div class="arch-card">
+        <div class="arch-icon">🔔</div>
+        <h3 class="arch-name">Usage Alerts</h3>
+        <p class="arch-desc">Configurable alert thresholds. Get notified via Slack, Discord, or email when a provider balance drops below your defined limit.</p>
+      </div>
+      <div class="arch-card">
+        <div class="arch-icon">🔌</div>
+        <h3 class="arch-name">Pluggable Providers</h3>
+        <p class="arch-desc">Provider adapters are simple Python plugins. Add a new provider in ~50 lines. Anthropic, OpenAI, Google, AWS, and Azure are built-in.</p>
+      </div>
+      <div class="arch-card">
+        <div class="arch-icon">🪞</div>
+        <h3 class="arch-name">Perseus Native</h3>
+        <p class="arch-desc">Plutus integrates directly with Perseus context directives. Use <code>@plutus</code> to inject your current credit status into every session.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ SECTION 2: Supported Providers ============ -->
+<section class="section-block">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-num">§ 02</div>
+      <h2 class="sec-title">Supported <em>Providers</em></h2>
+    </div>
+
+    <p style="font-size:17px; line-height:1.6; color:var(--text-dim); margin-bottom:40px; max-width:850px; margin-top:0;">
+      Plutus ships with built-in adapters for every major LLM provider. Each adapter handles authentication, rate limiting, and response parsing. Add custom providers in minutes.
+    </p>
+
+    <div class="provider-grid">
+      <div class="provider-card">
+        <h3 class="provider-name">Anthropic</h3>
+        <span class="badge badge-live">LIVE</span>
+        <p class="provider-desc">Claude API credit tracking. Monitors your Anthropic Console balance, usage tiers, and per-model spend (Opus, Sonnet, Haiku).</p>
+      </div>
+
+      <div class="provider-card">
+        <h3 class="provider-name">OpenAI</h3>
+        <span class="badge badge-live">LIVE</span>
+        <p class="provider-desc">OpenAI platform balance and usage. Tracks GPT-4o, GPT-4.1, o3/o4-mini spend. Prepaid and postpaid billing supported.</p>
+      </div>
+
+      <div class="provider-card">
+        <h3 class="provider-name">Google</h3>
+        <span class="badge badge-live">LIVE</span>
+        <p class="provider-desc">Vertex AI and Gemini API credit monitoring. Gemini 2.5 Pro/Flash, Imagen, and embedding model spend tracking.</p>
+      </div>
+
+      <div class="provider-card">
+        <h3 class="provider-name">AWS Bedrock</h3>
+        <span class="badge badge-live">LIVE</span>
+        <p class="provider-desc">Amazon Bedrock usage tracking. Claude, Llama, Titan, and third-party model spend via AWS Cost Explorer integration.</p>
+      </div>
+
+      <div class="provider-card">
+        <h3 class="provider-name">Azure OpenAI</h3>
+        <span class="badge badge-beta">BETA</span>
+        <p class="provider-desc">Azure OpenAI Service credit monitoring. Per-deployment spend, quota tracking, and Azure Cost Management integration.</p>
+      </div>
+
+      <div class="provider-card">
+        <h3 class="provider-name">Custom</h3>
+        <span class="badge badge-soon">PLUGIN</span>
+        <p class="provider-desc">Build your own in ~50 lines of Python. Any API with a balance endpoint. Groq, Together, Fireworks, Replicate — add what you need.</p>
+      </div>
+    </div>
+
+    <div style="text-align:center; margin-top:20px;">
+      <a href="https://github.com/Perseus-Computing-LLC/plutus" class="cta-btn">View All Providers &rarr;</a>
+    </div>
+  </div>
+</section>
+
+<!-- ============ SECTION 3: Quickstart ============ -->
+<section class="section-block">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-num">§ 03</div>
+      <h2 class="sec-title">Quickstart <em>Setup</em></h2>
+    </div>
+
+    <p style="font-size:17px; line-height:1.6; color:var(--text-dim); margin-bottom:32px; max-width:850px; margin-top:0;">
+      Get Plutus running in under 60 seconds. Install, configure your provider keys, and run your first balance check.
+    </p>
+
+    <div class="code-block">
+      <div class="cb-label">1. Install Plutus</div>
+      <pre><code># Install Plutus via pip
+pip install plutus-credit-monitor
+
+# Verify the installation
+plutus --version</code></pre>
+    </div>
+
+    <div class="code-block">
+      <div class="cb-label">2. Configure Providers</div>
+      <pre><code># Quick setup wizard — prompts for API keys
+plutus init
+
+# Or configure manually in ~/.plutus/config.yaml:
+providers:
+  anthropic:
+    api_key: "$ANTHROPIC_API_KEY"
+  openai:
+    api_key: "$OPENAI_API_KEY"
+  google:
+    project_id: "your-gcp-project"
+  aws:
+    region: "us-east-1"
+  azure:
+    endpoint: "https://your-resource.openai.azure.com"</code></pre>
+    </div>
+
+    <div class="code-block">
+      <div class="cb-label">3. Run Your First Check</div>
+      <pre><code># Check balances across all configured providers
+plutus status
+
+# Output:
+# ┌────────────┬──────────────┬────────────┬──────────────┐
+# │ Provider   │ Remaining    │ Burn Rate  │ Days Left    │
+# ├────────────┼──────────────┼────────────┼──────────────┤
+# │ Anthropic  │ $432.18      │ $18.42/day │ 23 days      │
+# │ OpenAI     │ $215.00      │ $12.65/day │ 17 days      │
+# │ Google     │ $300.00      │ $5.20/day  │ 57 days      │
+# │ AWS        │ $500.00      │ $8.90/day  │ 56 days      │
+# │ Azure      │ $150.00      │ $22.00/day │ 6 days ⚠     │
+# └────────────┴──────────────┴────────────┴──────────────┘
+
+# Watch continuously (updates every 60s)
+plutus watch --interval 60</code></pre>
+    </div>
+
+    <div class="code-block">
+      <div class="cb-label">4. Integrate with Perseus</div>
+      <pre><code># Add a @plutus directive to your .perseus/config.yaml
+directives:
+  - "@plutus status --summary"
+
+# Now every Perseus context window opens with your credit status
+perseus render</code></pre>
+    </div>
+
+    <div style="text-align:center; margin-top:32px; display:flex; gap:16px; justify-content:center; flex-wrap:wrap;">
+      <a href="https://github.com/Perseus-Computing-LLC/plutus" class="cta-btn primary">Plutus GitHub &rarr;</a>
+      <a href="https://github.com/Perseus-Computing-LLC/perseus" class="cta-btn">Perseus Docs &rarr;</a>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FOOTER ============ -->
+<footer>
+  <div class="wrap">
+    <div class="footer-grid">
+      <div>
+        <div class="footer-mark"><span class="dot"></span><span>Plutus</span></div>
+        <p class="footer-credit">
+          LLM credit monitoring for every provider you use. Track balances, forecast depletion, and never run out mid-session. Built by Perseus Computing LLC. MIT licensed.
+        </p>
+      </div>
+
+      <div class="footer-links" aria-label="Project links">
+        <a href="/">Home</a>
+        <a href="/bench/">Benchmark Report</a>
+        <a href="/mimir/">Mimir docs</a>
+        <a href="/cloud/">Perseus Cloud</a>
+        <a href="/plutus/" class="plutus-active">Plutus</a>
+        <a href="https://github.com/Perseus-Computing-LLC/plutus" target="_blank" rel="noopener">Plutus GitHub</a>
+        <a href="https://github.com/Perseus-Computing-LLC/perseus" target="_blank" rel="noopener">Perseus GitHub</a>
+      </div>
+    </div>
+
+    <div class="footer-meta">
+      <span>Perseus Computing LLC</span>
+      <span>v1.0.0 &middot; MIT License</span>
+    </div>
+  </div>
+</footer>
+
+<!-- ============ JS ============ -->
+<script>
+  // Cursor glow
+  (function() {
+    var glow = document.getElementById('cursor-glow');
+    var ticking = false;
+    document.addEventListener('mousemove', function(e) {
+      if (!ticking) {
+        requestAnimationFrame(function() {
+          glow.style.left = e.clientX + 'px';
+          glow.style.top = e.clientY + 'px';
+          ticking = false;
+        });
+        ticking = true;
+      }
+    });
+  })();
+
+  // Scroll reveal
+  (function() {
+    var observer = new IntersectionObserver(function(entries) {
+      entries.forEach(function(entry) {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('in-view');
+          observer.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.1 });
+
+    document.querySelectorAll('.reveal').forEach(function(el) {
+      observer.observe(el);
+    });
+  })();
+</script>
+
+</body>
+</html>
