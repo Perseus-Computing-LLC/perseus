@@ -540,7 +540,7 @@
   <div class="wrap">
     <div class="hero-eyebrow">Production Memory Engine &mdash; 15/15 Integration Tests</div>
     <h1>Mimir: <em>Deterministic</em> Persistent Memory for Professional AI Workflows</h1>
-    <p class="hero-lede">A Rust-built persistent memory sidecar with SQLite + FTS5 &mdash; 30 MCP tools, confidence decay, structured entities, and zero cloud dependencies. The default memory engine for Perseus, the backend for CrewAI Memory (54K stars, PR #6208), and a standalone MCP server.</p>
+    <p class="hero-lede">A Rust-built persistent memory sidecar with SQLite + FTS5 &mdash; 36 MCP tools, AES-256-GCM encryption, Ebbinghaus confidence decay, structured entities, and zero cloud dependencies. The default memory engine for Perseus, the backend for CrewAI Memory (54K stars, PR #6208), and a standalone MCP server.</p>
 
     <div class="stat-grid" style="grid-template-columns: repeat(4, 1fr);">
       <div class="stat-card">
@@ -551,7 +551,7 @@
       <div class="stat-card">
         <div class="skey">Integration Tests</div>
         <div class="sval">15<span class="unit">/15</span></div>
-        <div class="sdesc">Full test suite passing. Production-grade reliability across all 23 MCP tools.</div>
+        <div class="sdesc">Full test suite passing. Production-grade reliability across all 36 MCP tools.</div>
       </div>
       <div class="stat-card">
         <div class="skey">Cloud Dependencies</div>
@@ -560,8 +560,8 @@
       </div>
       <div class="stat-card">
         <div class="skey">MCP Tools</div>
-        <div class="sval">30<span class="unit">tools</span></div>
-        <div class="sdesc">Remote MCP server (SSE + HTTP), .mcpb Claude Desktop Extension, 30 tools. Full MCP compliance.</div>
+        <div class="sval">36<span class="unit">tools</span></div>
+        <div class="sdesc">Remote MCP server (SSE + HTTP), .mcpb Claude Desktop Extension, 36 tools. Full MCP compliance.</div>
       </div>
     </div>
 
@@ -658,9 +658,9 @@
         </div>
       </div>
 
-      <!-- COLUMN 3: 23 MCP Tools -->
+      <!-- COLUMN 3: 36 MCP Tools -->
       <div class="mcp-col">
-        <h3 style="font-family:var(--serif); font-size:19px; font-weight:500; margin-top:0; color:var(--text); margin-bottom:16px;">30 Registered MCP Tools</h3>
+        <h3 style="font-family:var(--serif); font-size:19px; font-weight:500; margin-top:0; color:var(--text); margin-bottom:16px;">36 Registered MCP Tools</h3>
         <div class="mcp-tool-list">
           <div class="mcp-tool-item">
             <span class="tool-name">mimir_remember</span>
@@ -683,11 +683,11 @@
             <span class="tool-desc">Export/import .md vaults with YAML frontmatter. Git-trackable, Obsidian-compatible.</span>
           </div>
           <div class="mcp-tool-item">
-            <span class="tool-name">mimir_journal / mimir_timeline / +20 more</span>
+            <span class="tool-name">mimir_journal / mimir_timeline / +28 more</span>
             <span class="tool-desc">Decision journals, health checks, embedding, coherence grooming, state management, and more.</span>
           </div>
         </div>
-        <p style="font-size:12px; color:var(--text-muted); margin-top:12px;">30 tools total &mdash; full list at <a href="https://github.com/Perseus-Computing-LLC/mimir" style="color:var(--accent-2);">github.com/Perseus-Computing-LLC/mimir</a></p>
+        <p style="font-size:12px; color:var(--text-muted); margin-top:12px;">36 tools total &mdash; full list at <a href="https://github.com/Perseus-Computing-LLC/mimir" style="color:var(--accent-2);">github.com/Perseus-Computing-LLC/mimir</a></p>
       </div>
     </div>
   </div>
@@ -704,7 +704,7 @@
     <div class="byom-split">
       <div class="byom-narrative">
         <p style="font-size:17px; line-height:1.6; color:var(--text-dim); margin-top:0; margin-bottom:24px;">
-          Facts lose relevance over time. Mimir models this with <strong>confidence decay curves</strong> — configurable per memory type. An un-reinforced <code>bug_detail</code> decays faster than an <code>architecture</code> decision. Re-accessing or updating a memory resets its confidence to maximum.
+          Facts lose relevance over time. Mimir models this with <strong>Ebbinghaus confidence decay curves</strong> &mdash; configurable per memory type. An un-reinforced <code>bug_detail</code> decays faster than an <code>architecture</code> decision. Re-accessing or updating a memory resets its confidence to maximum.
         </p>
         <div style="background:var(--bg-2); border:1px solid var(--line); border-radius:4px; padding:24px;">
           <h4 style="font-family:var(--serif); font-size:17px; font-weight:500; margin-top:0; color:var(--text); margin-bottom:12px;">Configurable Half-Life</h4>
@@ -772,7 +772,7 @@
     </div>
 
     <p style="font-size:17px; line-height:1.6; color:var(--text-dim); margin-bottom:40px; max-width:850px;">
-      One Rust binary, three roles. Mimir runs identically in each mode &mdash; the same SQLite+FTS5 engine, the same 23 MCP tools, the same production test suite.
+      One Rust binary, three roles. Mimir runs identically in each mode &mdash; the same SQLite+FTS5 engine, the same 36 MCP tools, the same production test suite.
     </p>
 
     <div class="perf-mcp-grid" style="grid-template-columns: 1fr 1fr 1fr;">

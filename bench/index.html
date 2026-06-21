@@ -680,8 +680,8 @@
 <section class="hero">
   <div class="wrap">
     <div class="hero-eyebrow">Benchmark Report <span style="color:var(--text-muted);letter-spacing:0.18em">· June 2026</span></div>
-    <h1>Perseus <em>+</em> Sibyl Memory<br>Orientation Efficiency</h1>
-    <p class="hero-lede">Even with <strong>perfect memory retrieval</strong> (Sibyl's 350/350), AI agents still waste turns asking &ldquo;where am I and what am I doing?&rdquo; Perseus eliminates those discovery calls before the session starts.</p>
+    <h1>Perseus <em>+</em> Mimir<br>Orientation Efficiency</h1>
+    <p class="hero-lede">Even with <strong>perfect memory retrieval</strong> (Mimir's 350/350), AI agents still waste turns asking &ldquo;where am I and what am I doing?&rdquo; Perseus eliminates those discovery calls before the session starts.</p>
 
     <div class="stat-grid">
       <div class="stat-card">
@@ -702,7 +702,7 @@
     </div>
 
     <div class="hero-quote">
-      &ldquo;Sibyl gives the agent perfect recall. But recall isn&rsquo;t the whole problem. The agent still has to ask: <strong>&lsquo;where am I, what machine is this, what branch, what conventions apply, what were we working on?&rsquo;</strong> Those are orientation questions &mdash; and they burn turns whether retrieval is perfect or not.&rdquo;
+      &ldquo;Mimir gives the agent perfect recall. But recall isn&rsquo;t the whole problem. The agent still has to ask: <strong>&lsquo;where am I, what machine is this, what branch, what conventions apply, what were we working on?&rsquo;</strong> Those are orientation questions &mdash; and they burn turns whether retrieval is perfect or not.&rdquo;
     </div>
   </div>
 </section>
@@ -719,12 +719,12 @@
 
     <div class="stat-grid" style="grid-template-columns:repeat(4,1fr)">
       <div class="stat-card">
-        <div class="skey">Avg Sibyl Only</div>
+        <div class="skey">Avg Mimir Only</div>
         <div class="sval" style="font-size:clamp(36px,4vw,56px)">7.0</div>
         <div class="sdesc">Average discovery turns per task</div>
       </div>
       <div class="stat-card">
-        <div class="skey">Avg Sibyl + Perseus</div>
+        <div class="skey">Avg Mimir + Perseus</div>
         <div class="sval" style="font-size:clamp(36px,4vw,56px)">4.3</div>
         <div class="sdesc">Average with pre-loaded context</div>
       </div>
@@ -745,7 +745,7 @@
     <div class="table-wrap">
     <table>
       <thead>
-        <tr><th>#</th><th>Task</th><th>Sibyl Only</th><th>+ Perseus</th><th>Saved</th></tr>
+        <tr><th>#</th><th>Task</th><th>Mimir Only</th><th>+ Perseus</th><th>Saved</th></tr>
       </thead>
       <tbody>
         <tr><td>1</td><td>Fix credential redaction: nested JSON tokens</td><td>8 calls</td><td class="good">1 call</td><td class="saved">7</td></tr>
@@ -757,11 +757,11 @@
         <tr><td>7</td><td>Update dependency scanner for optional imports</td><td>5 calls</td><td class="good">5 calls</td><td>0</td></tr>
         <tr><td>8</td><td>Implement convention checker for agent behavior</td><td>8 calls</td><td class="good">4 calls</td><td class="saved">4</td></tr>
         <tr><td>9</td><td>Refactor memory mesh to deduplicate cross-backend</td><td>8 calls</td><td class="good">7 calls</td><td class="saved">1</td></tr>
-        <tr><td>10</td><td>Deploy Perseus v1.0.7 to PyPI</td><td>10 calls</td><td class="good">4 calls</td><td class="saved">6</td></tr>
+        <tr><td>10</td><td>Deploy Perseus v1.0.8 to PyPI</td><td>10 calls</td><td class="good">4 calls</td><td class="saved">6</td></tr>
         <tr><td>11</td><td>Add Perseus MCP server tool integration</td><td>8 calls</td><td class="good">5 calls</td><td class="saved">3</td></tr>
         <tr><td>12</td><td>Build cross-workspace memory search UI</td><td>9 calls</td><td class="good">9 calls</td><td>0</td></tr>
         <tr><td>13</td><td>Implement TTL cache invalidation on config change</td><td>7 calls</td><td class="good">7 calls</td><td>0</td></tr>
-        <tr><td>14</td><td>Add multi-tenant support to Sibyl Memory connector</td><td>8 calls</td><td class="good">4 calls</td><td class="saved">4</td></tr>
+        <tr><td>14</td><td>Add multi-tenant support to Mimir connector</td><td>8 calls</td><td class="good">4 calls</td><td class="saved">4</td></tr>
         <tr><td>15</td><td>Performance audit: profile AGENTS.md rendering</td><td>10 calls</td><td class="good">8 calls</td><td class="saved">2</td></tr>
         <tr class="total-row"><td></td><td>Average</td><td>7.0</td><td class="good">4.3</td><td class="saved">2.7</td></tr>
       </tbody>
@@ -777,17 +777,17 @@
       <div class="sec-num">§ 02</div>
       <h2 class="sec-title">What Discovery Turns <em>Look Like</em></h2>
     </div>
-    <p class="prose">For task #1 (&ldquo;Fix credential redaction: nested JSON tokens&rdquo;), here are the agent&rsquo;s first 8 discovery calls with <strong>Sibyl only</strong>:</p>
+    <p class="prose">For task #1 (&ldquo;Fix credential redaction: nested JSON tokens&rdquo;), here are the agent&rsquo;s first 8 discovery calls with <strong>Mimir only</strong>:</p>
 
     <div class="callout">
-Turn 1: sibyl_search("redact.py location")             → 0 hits, 0 tokens (fails)
-Turn 2: sibyl_search("credential redaction")            → 6 hits, 1,121 tokens
-Turn 3: sibyl_recall("auth", "bsm-cache")               → 1 hit, 165 tokens
-Turn 4: sibyl_recall("auth", "github-token-extraction") → 1 hit, 172 tokens
-Turn 5: sibyl_recall("convention", "fix-root-cause")    → 1 hit, 115 tokens
+Turn 1: mimir_recall("redact.py location")             → 0 hits, 0 tokens (fails)
+Turn 2: mimir_recall("credential redaction")            → 6 hits, 1,121 tokens
+Turn 3: mimir_recall("auth", "bsm-cache")               → 1 hit, 165 tokens
+Turn 4: mimir_recall("auth", "github-token-extraction") → 1 hit, 172 tokens
+Turn 5: mimir_recall("convention", "fix-root-cause")    → 1 hit, 115 tokens
 Turn 6: terminal: git branch --show-current              → main
-Turn 7: sibyl_recall("convention", "perseus-ci-rebuild") → 1 hit, 148 tokens
-Turn 8: sibyl_search("redact test coverage")            → 3 hits, 530 tokens
+Turn 7: mimir_recall("convention", "perseus-ci-rebuild") → 1 hit, 148 tokens
+Turn 8: mimir_recall("redact test coverage")            → 3 hits, 530 tokens
 Turn 9: [actual work begins]
 
 <strong>7 of 8 calls eliminated by Perseus pre-loading.</strong> Only test coverage search remains.</div>
@@ -803,12 +803,12 @@ Turn 9: [actual work begins]
       <div class="sec-num">§ 03</div>
       <h2 class="sec-title">Orientation <em>Traps</em></h2>
     </div>
-    <p class="prose">Sibyl&rsquo;s V2 benchmark proved that vector systems hallucinate confident neighbors for unknown entities (0/50 trap refusals vs. Sibyl&rsquo;s 50/50). We introduce a complementary trap class: <strong>information the agent should never need to discover at session start.</strong></p>
+    <p class="prose">Mimir&rsquo;s V2 benchmark proved that vector systems hallucinate confident neighbors for unknown entities (0/50 trap refusals vs. Mimir&rsquo;s 50/50). We introduce a complementary trap class: <strong>information the agent should never need to discover at session start.</strong></p>
 
     <div class="table-wrap">
     <table>
       <thead>
-        <tr><th>Trap Question</th><th>Sibyl Only</th><th>Sibyl + Perseus</th></tr>
+        <tr><th>Trap Question</th><th>Mimir Only</th><th>Mimir + Perseus</th></tr>
       </thead>
       <tbody>
         <tr class="trap-row"><td>&ldquo;What OS is this?&rdquo;</td><td class="bad">Wastes turn on <code>uname</code></td><td class="good">Pre-resolved in AGENTS.md</td></tr>
@@ -816,9 +816,9 @@ Turn 9: [actual work begins]
         <tr class="trap-row"><td>&ldquo;Is Hermes running?&rdquo;</td><td class="bad">Wastes turn on <code>curl</code> health check</td><td class="good">Pre-resolved (11ms latency)</td></tr>
         <tr class="trap-row"><td>&ldquo;What git branch?&rdquo;</td><td class="bad">Wastes turn on <code>git branch</code></td><td class="good">Pre-resolved</td></tr>
         <tr class="trap-row"><td>&ldquo;What skills do I have?&rdquo;</td><td class="bad">Wastes turn on skill listing</td><td class="good">Pre-resolved (12 skills, filtered)</td></tr>
-        <tr class="trap-row"><td>&ldquo;Who is the user?&rdquo;</td><td class="bad">Wastes turn on <code>sibyl_recall</code></td><td class="good">Already in context</td></tr>
-        <tr class="trap-row"><td>&ldquo;What conventions apply?&rdquo;</td><td class="bad">Wastes turn on <code>sibyl_search</code></td><td class="good">Already in context</td></tr>
-        <tr class="trap-row"><td>&ldquo;What was the last decision?&rdquo;</td><td class="bad">Wastes turn on <code>sibyl_search</code></td><td class="good">Already in context</td></tr>
+        <tr class="trap-row"><td>&ldquo;Who is the user?&rdquo;</td><td class="bad">Wastes turn on <code>mimir_recall</code></td><td class="good">Already in context</td></tr>
+        <tr class="trap-row"><td>&ldquo;What conventions apply?&rdquo;</td><td class="bad">Wastes turn on <code>mimir_recall</code></td><td class="good">Already in context</td></tr>
+        <tr class="trap-row"><td>&ldquo;What was the last decision?&rdquo;</td><td class="bad">Wastes turn on <code>mimir_recall</code></td><td class="good">Already in context</td></tr>
         <tr class="total-row"><td><strong>Total traps triggered</strong></td><td class="bad">8 / 8</td><td class="good">0 / 8</td></tr>
       </tbody>
     </table>
@@ -837,16 +837,16 @@ Turn 9: [actual work begins]
     <div class="table-wrap">
     <table>
       <thead>
-        <tr><th>Discovery Category</th><th>Sibyl Only</th><th>+ Perseus</th><th>Perseus Source</th></tr>
+        <tr><th>Discovery Category</th><th>Mimir Only</th><th>+ Perseus</th><th>Perseus Source</th></tr>
       </thead>
       <tbody>
         <tr><td>Environment (OS, Python, hostname, disk)</td><td>4 turns</td><td class="good">0</td><td><code>@query</code> directives</td></tr>
         <tr><td>Git state (branch, log, status)</td><td>2 turns</td><td class="good">0</td><td><code>@query</code> directives</td></tr>
         <tr><td>Services health</td><td>1 turn</td><td class="good">0</td><td><code>@services</code> block</td></tr>
-        <tr><td>Project facts (repo, version, owner)</td><td>2 turns</td><td class="good">0</td><td>Sibyl entities + <code>@read</code></td></tr>
-        <tr><td>Auth patterns / credentials</td><td>2 turns</td><td class="good">0</td><td>Sibyl entities</td></tr>
-        <tr><td>Conventions / workflow rules</td><td>2 turns</td><td class="good">0</td><td>Sibyl entities</td></tr>
-        <tr><td>Architecture decisions</td><td>2 turns</td><td class="good">0</td><td>Sibyl entities</td></tr>
+        <tr><td>Project facts (repo, version, owner)</td><td>2 turns</td><td class="good">0</td><td>Mimir entities + <code>@read</code></td></tr>
+        <tr><td>Auth patterns / credentials</td><td>2 turns</td><td class="good">0</td><td>Mimir entities</td></tr>
+        <tr><td>Conventions / workflow rules</td><td>2 turns</td><td class="good">0</td><td>Mimir entities</td></tr>
+        <tr><td>Architecture decisions</td><td>2 turns</td><td class="good">0</td><td>Mimir entities</td></tr>
         <tr><td>Skills inventory</td><td>1 turn</td><td class="good">0</td><td><code>@skills</code> directive</td></tr>
         <tr><td>Session history / waypoints</td><td>1 turn</td><td class="good">0</td><td><code>@session</code> + <code>@waypoint</code></td></tr>
         <tr class="total-row"><td>Total</td><td>19</td><td class="good">0</td><td></td></tr>
@@ -863,7 +863,7 @@ Turn 9: [actual work begins]
       <div class="sec-num">§ 05</div>
       <h2 class="sec-title">Benchmark <em>Setup</em></h2>
     </div>
-    <p class="prose">We seeded a Sibyl Memory database with a realistic project corpus &mdash; <strong>268 entities across 11 categories</strong> (simulating months of accumulated project knowledge). A <strong>15-task suite</strong> measures discovery calls before the first productive action, comparing Sibyl alone vs. Sibyl + Perseus.</p>
+    <p class="prose">We seeded a Mimir database with a realistic project corpus &mdash; <strong>268 entities across 11 categories</strong> (simulating months of accumulated project knowledge). A <strong>15-task suite</strong> measures discovery calls before the first productive action, comparing Mimir alone vs. Mimir + Perseus.</p>
 
     <div class="cat-grid">
       <div class="cat-cell"><div class="cat-name">component</div><div class="cat-count">59</div><div class="cat-example">Module names, status, owner, test coverage</div></div>
@@ -873,25 +873,25 @@ Turn 9: [actual work begins]
       <div class="cat-cell"><div class="cat-name">infrastructure</div><div class="cat-count">12</div><div class="cat-example">Unraid homelab, CI pipeline, Mneme vault</div></div>
       <div class="cat-cell"><div class="cat-name">endpoint</div><div class="cat-count">25</div><div class="cat-example">Service health check URLs + expected status</div></div>
       <div class="cat-cell"><div class="cat-name">auth</div><div class="cat-count">7</div><div class="cat-example">Credential patterns, token extraction, rotation</div></div>
-      <div class="cat-cell"><div class="cat-name">project</div><div class="cat-count">8</div><div class="cat-example">Perseus, Minions, Mneme, Sibyl Memory</div></div>
+      <div class="cat-cell"><div class="cat-name">project</div><div class="cat-count">8</div><div class="cat-example">Perseus, Minions, Mneme, Mimir</div></div>
       <div class="cat-cell"><div class="cat-name">user/session/ref</div><div class="cat-count">36</div><div class="cat-example">User profiles, past sessions, runbooks</div></div>
     </div>
   </div>
 </section>
 
-<!-- ============ SECTION 6: Sibyl Memory Baseline ============ -->
+<!-- ============ SECTION 6: Mimir Baseline ============ -->
 <section class="section-block">
   <div class="wrap">
     <div class="sec-head">
       <div class="sec-num">§ 06</div>
-      <h2 class="sec-title">Sibyl Memory <em>Baseline</em></h2>
+      <h2 class="sec-title">Mimir <em>Baseline</em></h2>
     </div>
-    <p class="prose">Sibyl Memory already achieves <strong>near-flawless retrieval</strong> with dramatically lower cost and context footprint. It runs on a single SQLite file &mdash; no vector database, no embedding API, no external infrastructure.</p>
+    <p class="prose">Mimir already achieves <strong>near-flawless retrieval</strong> with dramatically lower cost and context footprint. It runs on a single SQLite file &mdash; no vector database, no embedding API, no external infrastructure.</p>
 
     <div class="table-wrap">
     <table>
       <thead>
-        <tr><th>Benchmark</th><th>Sibyl Result</th><th>Next Best</th></tr>
+        <tr><th>Benchmark</th><th>Mimir Result</th><th>Next Best</th></tr>
       </thead>
       <tbody>
         <tr><td>LongMemEval Oracle</td><td class="good">95.6% (#2)</td><td>96.2% (BM25+vector hybrid)</td></tr>
@@ -914,12 +914,12 @@ Turn 9: [actual work begins]
       <div class="sec-num">§ 07</div>
       <h2 class="sec-title">Net Token <em>Efficiency</em></h2>
     </div>
-    <p class="prose">Perseus injects ~2,920 tokens once. Those tokens replace ~23,680 tokens of Sibyl + terminal discovery calls that recur every session. <strong>Breakeven at ~3 turns; savings compound from 15 turns onward.</strong></p>
+    <p class="prose">Perseus injects ~2,920 tokens once. Those tokens replace ~23,680 tokens of Mimir + terminal discovery calls that recur every session. <strong>Breakeven at ~3 turns; savings compound from 15 turns onward.</strong></p>
 
     <div class="table-wrap">
     <table>
       <thead>
-        <tr><th>Session Length</th><th>Sibyl Only</th><th>Sibyl + Perseus</th><th>Net Savings</th></tr>
+        <tr><th>Session Length</th><th>Mimir Only</th><th>Mimir + Perseus</th><th>Net Savings</th></tr>
       </thead>
       <tbody>
         <tr><td>5 turns</td><td>~64,189 tokens</td><td>~9,150 tokens</td><td class="bad">&minus;1,650</td></tr>
@@ -953,7 +953,7 @@ Turn 9: [actual work begins]
 │  • Task board (@agora)                      │
 │  • Environment (Python ver, hostname)       │
 ├─────────────────────────────────────────────┤
-│  Sibyl Memory (knowledge layer)             │
+│  Mimir (knowledge layer)                  │
 │  • HOT: current focus, working state        │
 │  • WARM: project facts, decisions           │
 │  • COLD: auto-journaled turn history        │
@@ -977,8 +977,8 @@ Turn 9: [actual work begins]
     </div>
     <p class="prose">All data is publicly available. The benchmark corpus, task suite, and Perseus context template are in the <a href="https://github.com/Perseus-Computing-LLC/perseus">Perseus repository</a> under <code>bench/</code>.</p>
 
-    <div class="callout callout-cyan">pip install perseus-ctx sibyl-memory-client
-export SIBYL_MEMORY_ENABLED=1 PERSEUS_ALLOW_DANGEROUS=1
+    <div class="callout callout-cyan">pip install perseus-ctx mimir
+export MIMIR_ENABLED=1 PERSEUS_ALLOW_DANGEROUS=1
 perseus render bench/bench_context.md --output AGENTS.md
 
 # Agent starts with full orientation.
@@ -996,12 +996,12 @@ perseus render bench/bench_context.md --output AGENTS.md
 
     <div class="caveats">
       <ul>
-        <li><strong>Self-seeded corpus.</strong> The 268-entity Sibyl DB was seeded by this benchmark. An independent tester running the same methodology on their own project would strengthen the result.</li>
-        <li><strong>Model variance matters.</strong> Different LLMs may burn different numbers of discovery calls. Only one LLM configuration was used for the Sibyl query measurements.</li>
+        <li><strong>Self-seeded corpus.</strong> The 268-entity Mimir DB was seeded by this benchmark. An independent tester running the same methodology on their own project would strengthen the result.</li>
+        <li><strong>Model variance matters.</strong> Different LLMs may burn different numbers of discovery calls. Only one LLM configuration was used for the Mimir query measurements.</li>
         <li><strong>Entity name sensitivity.</strong> Some recall calls return 0 hits because exact entity names differ from search terms. This is realistic &mdash; agents don&rsquo;t know exact names &mdash; but naming conventions affect hit rates.</li>
         <li><strong>Token estimates are approximate.</strong> Using chars/3 for token counts. Exact tokenization depends on the model&rsquo;s tokenizer.</li>
         <li><strong>Terminal call savings are modeled.</strong> Shell commands weren&rsquo;t executed in the measurement loop &mdash; treated as discoverable facts that Perseus pre-resolves.</li>
-        <li><strong>Task difficulty scales savings.</strong> Simple tasks (avg 5.3 Sibyl calls) save fewer turns than complex tasks (avg 8.5 calls). Net savings compound with task scope.</li>
+        <li><strong>Task difficulty scales savings.</strong> Simple tasks (avg 5.3 Mimir calls) save fewer turns than complex tasks (avg 8.5 calls). Net savings compound with task scope.</li>
       </ul>
     </div>
   </div>
