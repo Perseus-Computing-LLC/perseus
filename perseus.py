@@ -23097,6 +23097,7 @@ def main():
         description=f"Perseus — Live Context Engine for AI Assistants (v{_PERSEUS_VERSION})",
     )
     parser.add_argument("--version", action="version", version=f"perseus v{_PERSEUS_VERSION} — Patent Pending")
+    parser.add_argument("--offline", action="store_true", help="(Hidden) Enable air-gapped deployment mode. No-op.")
     sub = parser.add_subparsers(dest="command", required=True)
 
     # render
