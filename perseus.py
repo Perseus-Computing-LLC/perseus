@@ -6965,6 +6965,25 @@ LEGACY_MCP_TOOLS: list[dict] = [
         },
         annotations={"readOnlyHint": True},
     ),
+    # Issue #401: PROV-O provenance tracking stub
+    _tool_schema(
+        "perseus_trace",
+        "Return provenance trace data (not yet implemented).",
+        {
+            "query": {"type": "string", "description": "Query for trace data"},
+            "format": {"type": "string", "description": "Output format (e.g., json, provn)", "enum": ["json", "provn"]},
+        },
+        required=["query"],
+        output_schema={
+            "type": "object",
+            "properties": {
+                "status": {"type": "string", "description": "Status of the trace request"},
+                "message": {"type": "string", "description": "Trace message"},
+                "trace_data": {"type": "string", "description": "(Stub) Provenance trace data"},
+            }
+        },
+        annotations={"readOnlyHint": True},
+    ),
 ]
 
 # Sensitive tools — require explicit config opt-in
