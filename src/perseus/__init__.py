@@ -45,10 +45,16 @@ from pathlib import Path
 import yaml  # pyyaml
 from typing import NamedTuple, Callable
 
-# ── Version (injected by scripts/build.py at build time) ──────────────────
-# All other modules reference _PERSEUS_VERSION; the build script's
-# _VERSION_RE replaces the literal "0.0.0" with the VERSION file value.
-_PERSEUS_VERSION = "0.0.0"  # replaced at build time by scripts/build.py — see VERSION file for canonical value
+# ── Version ─────────────────────────────────────────────────────────────
+# Primary: importlib.metadata (resolves the installed package version at
+# runtime). Fallback: hardcoded literal (used when the package is not
+# installed, e.g. during development or when running the single-file
+# artifact). The build script also replaces the literal in the artifact.
+try:
+    from importlib.metadata import version as _metadata_version
+    _PERSEUS_VERSION = _metadata_version('perseus-ctx')
+except Exception:
+    _PERSEUS_VERSION = "0.0.0"  # fallback when package not installed
 
 # Register as 'perseus' so plugins can import from us (task-65)
 import sys as _sys

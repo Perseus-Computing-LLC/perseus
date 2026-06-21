@@ -878,6 +878,9 @@ def serve_mcp(cfg: dict, workspace: Path | None = None) -> int:
     except Exception:
         pass
 
+    # Signal readiness to stderr (MCP protocol uses stdout for JSON-RPC)
+    print(f"perseus: MCP server ready (workspace: {ws}, transport: stdio)", file=sys.stderr)
+
     while True:
         msg = _read_message()
         if msg is None:
