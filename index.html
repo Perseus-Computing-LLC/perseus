@@ -8,7 +8,8 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=fallback" />
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=fallback" rel="stylesheet" />
 
 <template id="__bundler_thumbnail" data-bg-color="#0c0814">
   <svg viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg">
@@ -1946,9 +1947,13 @@
   .sec-title:hover em { text-shadow: 0 0 36px rgba(199, 125, 255, 0.8), 0 0 72px rgba(199, 125, 255, 0.3); }
   .hero h1 em { transition: text-shadow .3s ease; }
   .hero:hover h1 em { text-shadow: 0 0 36px rgba(199, 125, 255, 0.8), 0 0 80px rgba(199, 125, 255, 0.3); }
+  /* No-JS guard: keep .reveal visible before IntersectionObserver boots */
+  html:not(.js) .reveal { opacity: 1; transform: none; }
+  html:not(.js) .hero .reveal { opacity: 1; transform: none; }
 </style>
 </head>
 <body>
+<script>document.documentElement.className+=' js';</script>
 <div id="cursor-glow" aria-hidden="true"></div>
 
 <!-- ============ TOP BAR ============ -->
@@ -2001,7 +2006,7 @@
       <div>
         <div class="hero-eyebrow reveal">
           <span>Live Context Engine by Perseus Computing</span>
-          <span class="ver">v<span data-live="version-bare">1.0.7</span> · MIT</span>
+          <span class="ver">v<span data-live="version-bare">1.0.8</span> · MIT</span>
         </div>
 
         <h1 class="reveal">
@@ -2955,7 +2960,7 @@ mimir --db ~/.mimir/data/mimir.db
 
     <div class="footer-meta">
       <span>&copy; 2026 Perseus Computing LLC</span>
-      <span>v<span data-live="version-bare">1.0.7</span> &middot; built in the open</span>
+      <span>v<span data-live="version-bare">1.0.8</span> &middot; built in the open</span>
     </div>
   </div>
 </footer>
