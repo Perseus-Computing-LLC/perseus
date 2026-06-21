@@ -368,6 +368,10 @@ class _MCPStdioClient:
         self._request_id = 0
         self._server_capabilities: dict = {}
 
+    def __del__(self):
+        """Safety net: ensure subprocess is cleaned up on GC."""
+        self._cleanup_process()
+
         # Parse --db <path> from command to set subprocess CWD.
         # Mimir may ignore the --db flag and
         # write to CWD/mimir.db; setting CWD to the DB directory works
@@ -433,28 +437,33 @@ class _MCPStdioClient:
                 "capabilities": {},
             })
             if err or not init_result:
+                self._cleanup_process()
                 return False
             self._server_capabilities = init_result.get("capabilities", {})
             # Send initialized notification
             self._send_notification("notifications/initialized", {})
             return True
         except Exception:
-            self._process = None
+            self._cleanup_process()
             return False
 
-    def disconnect(self) -> None:
+    def _cleanup_process(self) -> None:
+        """Terminate and wait for the subprocess — used on connect failure."""
         if self._process:
             try:
                 self._process.stdin.close()
                 self._process.stdout.close()
                 self._process.terminate()
-                self._process.wait(timeout=5)
+                self._process.wait(timeout=3)
             except Exception:
                 try:
                     self._process.kill()
                 except Exception:
                     pass
             self._process = None
+
+    def disconnect(self) -> None:
+        self._cleanup_process()
 
     @property
     def is_connected(self) -> bool:
@@ -666,11 +675,17 @@ class MimirConnector:
             else:
                 self._connect_error = f"MCP connect failed (transport: {self._transport})"
                 self._breaker.failure()
+                self._client.disconnect()
                 self._client = None
                 return False
         except Exception as e:
             self._connect_error = str(e)
             self._breaker.failure()
+            if self._client:
+                try:
+                    self._client.disconnect()
+                except Exception:
+                    pass
             self._client = None
             return False
 
