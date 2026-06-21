@@ -11,12 +11,13 @@ import re
 import atexit
 from datetime import datetime, timezone
 
-# Try to obtain the version from the serve module (same package).
-# Fall back to a hard-coded default if the package isn't fully installed.
+# Obtain version from package metadata — works in both the installed
+# package and the single-file build artifact (where .serve doesn't exist).
 try:
-    from .serve import _PERSEUS_VERSION
-except ImportError:
-    _PERSEUS_VERSION = "1.0.8"
+    from importlib.metadata import version as _package_version
+    _PERSEUS_VERSION = _package_version("perseus-ctx")
+except Exception:
+    _PERSEUS_VERSION = "0.0.0"
 
 # ──────────────────────────────── Webhooks ───────────────────────────────────
 

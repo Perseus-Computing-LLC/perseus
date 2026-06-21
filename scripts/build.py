@@ -296,7 +296,7 @@ def render_artifact(repo_root: Path) -> str:
         body_lines = output_lines
     output = shebang_line + "\n" + GENERATED_HEADER + "\n".join(body_lines) + "\n"
     # ── Inject version from VERSION file ────────────────────────────────────
-    _VERSION_RE = re.compile(r'^(_PERSEUS_VERSION\s*=\s*)".*?"(\s*#.*)?$', re.MULTILINE)
+    _VERSION_RE = re.compile(r'^(\s*_PERSEUS_VERSION\s*=\s*)"[^"]*"(\s*#.*)?$', re.MULTILINE)
     output = _VERSION_RE.sub(lambda m: f'{m.group(1)}"{build_version}"{m.group(2) or ""}', output)
     return output
 

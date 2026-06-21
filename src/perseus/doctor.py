@@ -122,8 +122,13 @@ def _find_version() -> str:
             return candidate.read_text().strip()
     return _PERSEUS_VERSION  # fallback to build-time injected literal
 
-_PERSEUS_VERSION = "1.0.8"  # injected by scripts/build.py at build time
-_PERSEUS_VERSION = _find_version()
+# Obtain version from package metadata — works in both the installed
+# package and the single-file build artifact.
+try:
+    from importlib.metadata import version as _package_version
+    _PERSEUS_VERSION = _package_version("perseus-ctx")
+except Exception:
+    _PERSEUS_VERSION = _find_version() or "0.0.0"
 
 
 class DoctorResult(NamedTuple):

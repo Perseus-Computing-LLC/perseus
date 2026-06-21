@@ -50,10 +50,16 @@ from pathlib import Path
 import yaml  # pyyaml
 from typing import NamedTuple, Callable
 
-# ── Version (injected by scripts/build.py at build time) ──────────────────
-# All other modules reference _PERSEUS_VERSION; the build script's
-# _VERSION_RE replaces the literal "0.0.0" with the VERSION file value.
-_PERSEUS_VERSION = "1.0.9"  # replaced at build time by scripts/build.py — see VERSION file for canonical value
+# ── Version ─────────────────────────────────────────────────────────────
+# Primary: importlib.metadata (resolves the installed package version at
+# runtime). Fallback: hardcoded literal (used when the package is not
+# installed, e.g. during development or when running the single-file
+# artifact). The build script also replaces the literal in the artifact.
+try:
+    from importlib.metadata import version as _metadata_version
+    _PERSEUS_VERSION = _metadata_version('perseus-ctx')
+except Exception:
+    _PERSEUS_VERSION = "1.0.9"  # fallback when package not installed
 
 # Register as 'perseus' so plugins can import from us (task-65)
 import sys as _sys
@@ -702,12 +708,13 @@ import re
 import atexit
 from datetime import datetime, timezone
 
-# Try to obtain the version from the serve module (same package).
-# Fall back to a hard-coded default if the package isn't fully installed.
+# Obtain version from package metadata — works in both the installed
+# package and the single-file build artifact (where .serve doesn't exist).
 try:
-    from .serve import _PERSEUS_VERSION
-except ImportError:
-    _PERSEUS_VERSION = "1.0.8"
+    from importlib.metadata import version as _package_version
+    _PERSEUS_VERSION = _package_version("perseus-ctx")
+except Exception:
+    _PERSEUS_VERSION = "1.0.9"
 
 # ──────────────────────────────── Webhooks ───────────────────────────────────
 
@@ -7368,6 +7375,9 @@ def serve_mcp(cfg: dict, workspace: Path | None = None) -> int:
         register_plugins(cfg)
     except Exception:
         pass
+
+    # Signal readiness to stderr (MCP protocol uses stdout for JSON-RPC)
+    print(f"perseus: MCP server ready (workspace: {ws}, transport: stdio)", file=sys.stderr)
 
     while True:
         msg = _read_message()
@@ -19117,8 +19127,13 @@ def _find_version() -> str:
             return candidate.read_text().strip()
     return _PERSEUS_VERSION  # fallback to build-time injected literal
 
-_PERSEUS_VERSION = "1.0.9"  # injected by scripts/build.py at build time
-_PERSEUS_VERSION = _find_version()
+# Obtain version from package metadata — works in both the installed
+# package and the single-file build artifact.
+try:
+    from importlib.metadata import version as _package_version
+    _PERSEUS_VERSION = _package_version("perseus-ctx")
+except Exception:
+    _PERSEUS_VERSION = _find_version() or "0.0.0"
 
 
 class DoctorResult(NamedTuple):
