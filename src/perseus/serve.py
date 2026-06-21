@@ -10,7 +10,12 @@ from perseus.mcp import serve_mcp, print_mcp_config, print_mcp_registry, _build_
 def cmd_render(args, cfg):
     source_path = Path(args.source).expanduser().resolve()
     if not source_path.exists():
-        print(f"Error: file not found: {source_path}", file=sys.stderr)
+        is_default_path = source_path == Path("~/.perseus/context.md").expanduser().resolve() or \
+                          source_path == Path(".perseus/context.md").resolve()
+        if is_default_path:
+            print(f"Error: context file not found: {source_path}. Run `perseus init` to create it.", file=sys.stderr)
+        else:
+            print(f"Error: file not found: {source_path}", file=sys.stderr)
         sys.exit(1)
 
     workspace = _infer_workspace(source_path)
