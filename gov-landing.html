@@ -3,356 +3,136 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Perseus & Mimir — AI Infrastructure for Government</title>
-<meta name="description" content="MIT-licensed, procurement-ready AI infrastructure for federal, defense, and intelligence deployments. Live context engine + persistent memory. SBOMs published. Air-gap ready." />
-<meta name="color-scheme" content="dark" />
-
+<title>Perseus for Government — Auditable AI agent state, air-gapped</title>
+<meta name="description" content="Perseus and Mimir run fully on-premise — telemetry-free, air-gap ready, encrypted at rest. Open source and auditable, with published SBOM, EAR99 classification, and NIST AI RMF alignment. Built for classified and regulated networks." />
+<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+<meta name="theme-color" content="#0A0E16" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=fallback" />
-<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=fallback" rel="stylesheet" />
-
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 <style>
-  :root {
-    --bg: #09090b;
-    --bg-2: #121118;
-    --bg-3: #1a1724;
-    --line: rgba(167, 139, 250, 0.10);
-    --line-strong: rgba(167, 139, 250, 0.20);
-    --text: #f4f0ff;
-    --text-dim: #a89cc4;
-    --text-muted: #5d5078;
-    --accent: #a78bfa;
-    --accent-bright: #c4b5fd;
-    --accent-deep: #7c3aed;
-    --accent-2: #22d3ee;
-    --good: #34d399;
-    --warn: #f59e0b;
-    --danger: #ef4444;
-    --serif: "Cormorant Garamond", "EB Garamond", Georgia, serif;
-    --sans: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    --mono: "JetBrains Mono", "IBM Plex Mono", ui-monospace, monospace;
-    --max: 960px;
-    --gutter: clamp(20px, 5vw, 48px);
-  }
-
-  *, *::before, *::after { box-sizing: border-box; margin: 0; }
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: var(--sans);
-    font-size: 16px;
-    line-height: 1.6;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    background-image:
-      radial-gradient(ellipse 80% 60% at 50% 0%, rgba(124, 58, 237, 0.08), transparent 70%),
-      linear-gradient(rgba(167, 139, 250, 0.015) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(167, 139, 250, 0.015) 1px, transparent 1px);
-    background-size: 100% 100%, 72px 72px, 72px 72px;
-    background-position: 0 0, 0 0, 0 0;
-  }
-  ::selection { background: var(--accent); color: #09090b; }
-
-  .wrap { max-width: var(--max); margin: 0 auto; padding: 0 var(--gutter); }
-
-  /* Topbar */
-  .topbar {
-    position: sticky; top: 0; z-index: 100;
-    background: rgba(9, 9, 11, 0.85);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border-bottom: 1px solid var(--line);
-  }
-  .topbar-inner {
-    display: flex; align-items: center; justify-content: space-between;
-    height: 56px;
-  }
-  .wordmark {
-    font-family: var(--serif); font-size: 20px; font-weight: 600;
-    color: var(--text); letter-spacing: -0.3px;
-    display: flex; align-items: center; gap: 2px;
-  }
-  .wordmark-dot {
-    display: inline-block; width: 5px; height: 5px; border-radius: 50%;
-    background: var(--accent); margin-top: 3px;
-  }
-  .topbar nav { display: flex; gap: 22px; }
-  .topbar nav a {
-    font-size: 14px; color: var(--text-dim); transition: color 0.15s;
-  }
-  .topbar nav a:hover { color: var(--text); }
-
-  /* Hero */
-  .hero {
-    padding: 72px 0 56px; text-align: center;
-  }
-  .hero-badge {
-    display: inline-flex; align-items: center; gap: 8px;
-    background: var(--bg-2); border: 1px solid var(--line-strong);
-    border-radius: 100px; padding: 5px 16px;
-    font-size: 13px; color: var(--text-dim); font-family: var(--mono);
-    margin-bottom: 24px;
-  }
-  .hero-badge .live-dot {
-    width: 7px; height: 7px; border-radius: 50%; background: var(--good);
-    box-shadow: 0 0 8px rgba(52, 211, 153, 0.5);
-    animation: pulse-dot 2s ease-in-out infinite;
-  }
-  @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
-  .hero h1 {
-    font-family: var(--serif); font-size: clamp(32px, 5.5vw, 54px);
-    font-weight: 600; line-height: 1.1; letter-spacing: -1px;
-    margin: 0 0 16px;
-  }
-  .hero h1 .hl { color: var(--accent-bright); }
-  .hero-lede {
-    font-size: 18px; color: var(--text-dim); max-width: 600px;
-    margin: 0 auto 32px; line-height: 1.55;
-  }
-  .btn {
-    display: inline-flex; align-items: center; gap: 6px;
-    padding: 11px 24px; border-radius: 8px; font-size: 15px;
-    font-weight: 500; transition: all 0.2s;
-    border: 1px solid var(--line-strong);
-  }
-  .btn-primary {
-    background: var(--accent); border-color: var(--accent);
-    color: #09090b; font-weight: 600;
-  }
-  .btn-primary:hover { background: var(--accent-bright); }
-
-  /* Sections */
-  .section { padding: 56px 0; }
-  .section-label {
-    font-family: var(--mono); font-size: 12px; color: var(--accent);
-    text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600;
-    margin-bottom: 12px;
-  }
-  .section h2 {
-    font-family: var(--serif); font-size: 28px; font-weight: 600;
-    line-height: 1.18; margin: 0 0 12px; letter-spacing: -0.5px;
-  }
-  .section-lede {
-    font-size: 16px; color: var(--text-dim); max-width: 560px;
-    margin-bottom: 36px; line-height: 1.55;
-  }
-
-  /* Cards */
-  .grid {
-    display: grid; grid-template-columns: 1fr 1fr; gap: 24px;
-    margin: 24px 0;
-  }
-  @media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
-  .card {
-    background: var(--bg-2); border: 1px solid var(--line-strong);
-    border-radius: 10px; padding: 28px;
-  }
-  .card h3 {
-    font-family: var(--serif); font-size: 22px; font-weight: 600;
-    margin: 0 0 10px; letter-spacing: -0.2px;
-  }
-  .card p { color: var(--text-dim); font-size: 15px; margin-bottom: 10px; }
-  .card a { color: var(--accent); font-size: 14px; font-weight: 500; }
-  .card a:hover { color: var(--accent-bright); }
-  .tags {
-    display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px;
-  }
-  .tag {
-    display: inline-block; background: var(--bg-3); border: 1px solid var(--line);
-    border-radius: 5px; padding: 3px 10px; font-size: 12px;
-    font-family: var(--mono); color: var(--text-dim);
-  }
-
-  /* Tables */
-  table {
-    width: 100%; border-collapse: collapse; margin: 20px 0 36px;
-    font-size: 14px; border-radius: 10px; overflow: hidden;
-    border: 1px solid var(--line);
-  }
-  th {
-    background: var(--bg-2); text-align: left; padding: 12px 16px;
-    border-bottom: 1px solid var(--line-strong); font-weight: 600;
-    font-family: var(--mono); font-size: 12px; text-transform: uppercase;
-    letter-spacing: 0.5px; color: var(--text-muted);
-  }
-  td {
-    padding: 12px 16px; border-bottom: 1px solid var(--line);
-    color: var(--text-dim);
-  }
-  td:first-child { color: var(--text); font-weight: 500; }
-  tr:last-child td { border-bottom: none; }
-  .status-yes { color: var(--good); font-weight: 500; }
-  .status-progress { color: var(--warn); font-weight: 500; }
-  .status-na { color: var(--text-muted); }
-
-  /* Footer */
-  footer {
-    border-top: 1px solid var(--line); padding: 40px 0 32px;
-    margin-top: 48px; background: var(--bg-2);
-  }
-  .footer-grid {
-    display: flex; justify-content: space-between; align-items: flex-start;
-    gap: 32px; flex-wrap: wrap;
-  }
-  .footer-brand { font-family: var(--serif); font-size: 18px; font-weight: 600; }
-  .footer-meta { font-size: 13px; color: var(--text-muted); margin-top: 12px; max-width: 500px; }
-  .footer-links { display: flex; gap: 20px; }
-  .footer-links a { font-size: 14px; color: var(--text-dim); }
-  .footer-links a:hover { color: var(--text); }
+  :root{--bg:#0A0E16;--bg-1:#0D131C;--bg-2:#111A26;--code:#070B12;--line:rgba(255,255,255,.07);--line-2:rgba(255,255,255,.13);--text:#EEF2F8;--dim:#9AA6B6;--muted:#5E6B7E;--amber:#F5B63F;--amber-2:#FBCB6B;--green:#54D38A;--coral:#F26A52;--display:'Inter Tight',system-ui,-apple-system,sans-serif;--sans:'Inter',system-ui,-apple-system,sans-serif;--mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,monospace;--max:1180px;--gutter:clamp(20px,4vw,52px)}
+  *,*::before,*::after{box-sizing:border-box}html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;overflow-x:hidden;background-image:radial-gradient(ellipse 70% 55% at 75% -5%,rgba(245,182,63,.07),transparent 60%),radial-gradient(ellipse 60% 50% at 10% 0%,rgba(84,211,138,.05),transparent 55%);background-attachment:fixed}
+  a{color:inherit;text-decoration:none}svg,img{display:block;max-width:100%}::selection{background:var(--amber);color:#10131a}
+  .wrap{max-width:var(--max);margin:0 auto;padding:0 var(--gutter)}
+  .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.24em;text-transform:uppercase;color:var(--amber);display:inline-flex;align-items:center;gap:10px}
+  header.nav{position:sticky;top:0;z-index:60;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);background:color-mix(in srgb,var(--bg) 80%,transparent);border-bottom:1px solid var(--line)}
+  .nav-inner{display:flex;align-items:center;justify-content:space-between;height:62px}
+  .brand{display:inline-flex;align-items:center;gap:10px;font-family:var(--display);font-weight:600;font-size:19px;letter-spacing:-.01em}.brand .mark{width:22px;height:22px}
+  .nav nav{display:flex;align-items:center;gap:26px;font-family:var(--mono);font-size:11.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim)}
+  .nav nav a{transition:color .18s}.nav nav a:hover{color:var(--text)}
+  .nav .btn-gh{border:1px solid var(--line-2);padding:8px 15px;border-radius:5px;color:var(--text);transition:.18s}.nav .btn-gh:hover{border-color:var(--amber);color:var(--amber)}
+  @media(max-width:860px){.nav nav .nav-link{display:none}}
+  .btn{display:inline-flex;align-items:center;gap:9px;font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;padding:13px 22px;border-radius:6px;border:1px solid var(--line-2);color:var(--text);transition:.18s;cursor:pointer}
+  .btn:hover{border-color:var(--amber);color:var(--amber);transform:translateY(-1px)}
+  .btn.primary{background:var(--amber);color:#10131a;border-color:var(--amber);font-weight:600}.btn.primary:hover{background:var(--amber-2)}
+  .hero{position:relative;padding:clamp(60px,9vw,108px) 0 clamp(40px,6vw,56px);overflow:hidden}
+  .hero .constellation{position:absolute;top:-30px;right:-50px;width:min(560px,55vw);opacity:.4;pointer-events:none;z-index:0}
+  .hero .wrap{position:relative;z-index:1}
+  .hero h1{font-family:var(--display);font-weight:700;font-size:clamp(34px,5.4vw,66px);line-height:1.04;letter-spacing:-.03em;margin:24px 0 0;max-width:18ch;text-wrap:balance}
+  .hero h1 em{font-style:normal;color:var(--green)}
+  .hero p.sub{font-size:clamp(16px,1.9vw,19px);line-height:1.6;color:var(--dim);max-width:64ch;margin:22px 0 0}.hero p.sub b{color:var(--text);font-weight:600}
+  .hero-cta{display:flex;flex-wrap:wrap;gap:14px;margin-top:30px;align-items:center}
+  .sec{padding:clamp(56px,7vw,96px) 0;border-top:1px solid var(--line)}
+  .sec-head{max-width:760px;margin:0 0 clamp(32px,4vw,48px)}
+  .sec-head h2{font-family:var(--display);font-weight:600;font-size:clamp(26px,3.6vw,42px);line-height:1.06;letter-spacing:-.022em;margin:16px 0 0;text-wrap:balance}
+  .sec-head h2 em{font-style:normal;color:var(--green)}
+  .sec-head p{color:var(--dim);font-size:16px;line-height:1.6;margin:16px 0 0;max-width:64ch}
+  .grid{display:grid;gap:18px}.g3{grid-template-columns:repeat(3,1fr)}
+  @media(max-width:880px){.g3{grid-template-columns:1fr}}
+  .feat{background:var(--bg-1);border:1px solid var(--line);border-radius:10px;padding:clamp(22px,2.4vw,28px)}
+  .feat .ic{font-family:var(--mono);color:var(--green);font-size:18px;margin-bottom:14px}
+  .feat h3{font-family:var(--display);font-weight:600;font-size:18px;margin:0}
+  .feat p{color:var(--dim);font-size:14.5px;line-height:1.6;margin:9px 0 0}.feat p b{color:var(--text);font-weight:600}
+  /* compliance list */
+  .clist{border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .crow{display:grid;grid-template-columns:26px 1fr auto;gap:16px;align-items:center;padding:18px 22px;border-top:1px solid var(--line)}
+  .crow:first-child{border-top:0}
+  .crow .mk{font-family:var(--mono);font-size:15px;text-align:center}
+  .crow .mk.done{color:var(--green)}.crow .mk.prog{color:var(--amber)}.crow .mk.pend{color:var(--muted)}
+  .crow .ct{font-weight:600;color:var(--text)}.crow .cs{color:var(--dim);font-size:13.5px;font-weight:400}
+  .crow .badge{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;padding:5px 10px;border-radius:5px;border:1px solid var(--line-2);white-space:nowrap}
+  .crow .badge.done{color:var(--green);border-color:rgba(84,211,138,.35)}
+  .crow .badge.prog{color:var(--amber);border-color:rgba(245,182,63,.35)}
+  .crow .badge.pend{color:var(--muted)}
+  .ask{background:linear-gradient(160deg,rgba(245,182,63,.09),rgba(84,211,138,.05) 70%,transparent);border:1px solid var(--line-2);border-radius:14px;padding:clamp(32px,5vw,56px);text-align:center}
+  .ask h2{font-family:var(--display);font-weight:700;font-size:clamp(26px,3.6vw,40px);letter-spacing:-.025em;margin:14px 0 0;text-wrap:balance}
+  .ask p{color:var(--dim);font-size:16px;max-width:58ch;margin:14px auto 0;line-height:1.6}
+  .ask .cta{display:flex;flex-wrap:wrap;gap:14px;justify-content:center;margin-top:28px}
+  footer{border-top:1px solid var(--line);padding:clamp(44px,6vw,64px) 0 40px}
+  .fbot{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;font-family:var(--mono);font-size:11px;letter-spacing:.08em;color:var(--muted)}
 </style>
 </head>
 <body>
-
-<header class="topbar">
-  <div class="wrap topbar-inner">
-    <a href="/" class="wordmark">Perseus<span class="wordmark-dot"></span></a>
-    <nav>
-      <a href="/">Home</a>
-      <a href="/mimir/">Mimir</a>
-      <a href="https://github.com/Perseus-Computing-LLC">GitHub</a>
-    </nav>
-  </div>
-</header>
+<header class="nav"><div class="wrap nav-inner">
+  <a class="brand" href="/"><svg class="mark" viewBox="0 0 64 64" aria-hidden="true"><g stroke="#F5B63F" stroke-width="2" stroke-linecap="round" opacity=".6" fill="none"><path d="M14 44 L24 34 L33 39 L41 24 L50 16"/><path d="M33 39 L37 50"/></g><g fill="#F5B63F"><circle cx="14" cy="44" r="2.4"/><circle cx="24" cy="34" r="2.4"/><circle cx="33" cy="39" r="2.8"/><circle cx="41" cy="24" r="2.4"/><circle cx="37" cy="50" r="2"/></g><circle cx="50" cy="16" r="3.6" fill="#54D38A"/></svg>Perseus</a>
+  <nav><a class="nav-link" href="/#products">Products</a><a class="nav-link" href="/mimir/">Mimir</a><a class="nav-link" href="https://github.com/Perseus-Computing-LLC/perseus/blob/main/SBOM.md">SBOM</a><a class="btn-gh" href="mailto:tcconnally@gmail.com?subject=Perseus%20%E2%80%94%20Government%20inquiry">Contact ↗</a></nav>
+</div></header>
 
 <section class="hero">
+  <svg class="constellation" viewBox="0 0 600 420" aria-hidden="true"><g stroke="#F5B63F" stroke-width="1" opacity=".3" fill="none"><path d="M60 360 L150 280 L250 320 L360 180 L470 110 L540 60"/><path d="M250 320 L300 400"/><path d="M360 180 L420 250"/></g><g fill="#F5B63F" opacity=".7"><circle cx="60" cy="360" r="2.5"/><circle cx="150" cy="280" r="3"/><circle cx="250" cy="320" r="3.5"/><circle cx="360" cy="180" r="3"/><circle cx="470" cy="110" r="2.5"/><circle cx="420" cy="250" r="2.2"/></g><circle cx="540" cy="60" r="4.5" fill="#54D38A"/><circle cx="540" cy="60" r="9" fill="#54D38A" opacity=".25"/></svg>
   <div class="wrap">
-    <div class="hero-badge">
-      <span class="live-dot"></span> Federal Procurement Ready
+    <span class="eyebrow"><span>✦</span> Perseus for Government</span>
+    <h1>Auditable AI agent state for <em>air-gapped</em> networks.</h1>
+    <p class="sub">Perseus and Mimir run <b>fully on-premise</b> — telemetry-free, no network by default, encrypted at rest. They're open source and auditable end-to-end, with a published SBOM, EAR99 classification, and NIST AI RMF alignment. Built to ground AI agents with verifiable state inside classified and regulated environments.</p>
+    <div class="hero-cta">
+      <a class="btn primary" href="mailto:tcconnally@gmail.com?subject=Perseus%20%E2%80%94%20Government%20inquiry">Contact for procurement →</a>
+      <a class="btn" href="https://github.com/Perseus-Computing-LLC/perseus/blob/main/SBOM.md">View SBOM ↗</a>
     </div>
-    <h1>AI Infrastructure for <span class="hl">Government</span></h1>
-    <p class="hero-lede">
-      Perseus and Mimir are MIT-licensed, open-source AI infrastructure tools built for federal, defense, and intelligence deployments. SBOMs published. Air-gap ready. No vendor lock-in.
-    </p>
-    <a href="#compliance" class="btn btn-primary">View compliance posture →</a>
   </div>
 </section>
 
-<div class="wrap">
-  <div class="grid">
-    <div class="card">
-      <h3>Perseus</h3>
-      <p>Live context engine. Grounds AI agents with verifiable state before every turn. Eliminates hallucination from stale context.</p>
-      <div class="tags">
-        <span class="tag">Python 3.10+</span>
-        <span class="tag">MIT</span>
-        <span class="tag">pypi:perseus-ctx</span>
-      </div>
-      <p style="margin-top:14px;"><a href="https://github.com/Perseus-Computing-LLC/perseus">GitHub →</a></p>
-    </div>
-    <div class="card">
-      <h3>Mimir</h3>
-      <p>Persistent memory engine. AES-256-GCM encrypted, FTS5-searchable, fully auditable. MCP-native. Single binary, zero runtime deps.</p>
-      <div class="tags">
-        <span class="tag">Rust</span>
-        <span class="tag">MIT</span>
-        <span class="tag">MCP JSON-RPC 2.0</span>
-      </div>
-      <p style="margin-top:14px;"><a href="https://github.com/Perseus-Computing-LLC/mimir">GitHub →</a></p>
-    </div>
-  </div>
-</div>
-
-<section class="section" id="compliance">
+<section class="sec">
   <div class="wrap">
-    <div class="section-label">§ Compliance</div>
-    <h2>Compliance Posture</h2>
-    <table>
-      <tr><th>Requirement</th><th>Perseus</th><th>Mimir</th></tr>
-      <tr><td>SBOM (EO 14028 / NTIA)</td><td class="status-yes">✅ Published</td><td class="status-yes">✅ Published</td></tr>
-      <tr><td>License</td><td class="status-yes">✅ MIT</td><td class="status-yes">✅ MIT</td></tr>
-      <tr><td>Encryption at rest</td><td class="status-na">N/A (read-only)</td><td class="status-yes">✅ AES-256-GCM</td></tr>
-      <tr><td>Air-gapped / offline</td><td class="status-yes">✅ Zero cloud deps</td><td class="status-yes">✅ Fully offline</td></tr>
-      <tr><td>Telemetry-free</td><td class="status-yes">✅ No phoning home</td><td class="status-yes">✅ No network by default</td></tr>
-      <tr><td>Audit trail</td><td class="status-yes">✅ Decision provenance</td><td class="status-progress">🟡 Chain-of-custody in dev</td></tr>
-      <tr><td>NIST AI RMF alignment</td><td class="status-yes">✅ Documented</td><td class="status-yes">✅ Documented</td></tr>
-      <tr><td>FedRAMP path</td><td class="status-progress">🟡 Gap analysis</td><td class="status-progress">🟡 Gap analysis</td></tr>
-      <tr><td>CMMC</td><td class="status-na">N/A (read-only)</td><td class="status-progress">🟡 Level 2 in progress</td></tr>
-      <tr><td>ITAR / export control</td><td class="status-yes">✅ EAR99 (self-classified)</td><td class="status-yes">✅ EAR99 (self-classified)</td></tr>
-      <tr><td>Supply chain (SLSA)</td><td class="status-progress">🟡 Attestation in dev</td><td class="status-progress">🟡 Attestation in dev</td></tr>
-    </table>
+    <div class="sec-head">
+      <span class="eyebrow"><span>✦</span> Why it fits</span>
+      <h2>Designed for environments where <em>provenance</em> is the requirement.</h2>
+    </div>
+    <div class="grid g3">
+      <div class="feat"><div class="ic">⊘</div><h3>No network by default</h3><p>Air-gap ready. Perseus stores no credentials; Mimir encrypts all memory at rest with <b>AES-256-GCM</b>. Nothing phones home — both tools are telemetry-free.</p></div>
+      <div class="feat"><div class="ic">⎙</div><h3>Auditable end-to-end</h3><p>Fully open source under MIT. Every dependency is enumerated in a published <b>SBOM</b> (EO 14028 / NTIA), and every benchmark is reproducible.</p></div>
+      <div class="feat"><div class="ic">◫</div><h3>Verifiable state</h3><p>Agents act on facts resolved from your actual environment — not stale guesses — with cryptographic <b>Ed25519</b> federation across machines.</p></div>
+    </div>
   </div>
 </section>
 
-<section class="section" id="security">
+<section class="sec">
   <div class="wrap">
-    <div class="section-label">§ Security</div>
-    <h2>Security Architecture</h2>
-    <div class="grid">
-      <div class="card">
-        <h3>Perseus</h3>
-        <p>Read-only context engine. Never writes to your filesystem (except explicit output). Never stores credentials. Directives are sandboxed. Single runtime dependency (PyYAML, MIT).</p>
-        <p><a href="https://github.com/Perseus-Computing-LLC/perseus/blob/main/SECURITY.md">Full security policy →</a></p>
-      </div>
-      <div class="card">
-        <h3>Mimir</h3>
-        <p>AES-256-GCM encryption at rest. SQLite with parameterized queries (no SQL injection). Zero network by default. Rust binary, zero runtime dependencies. &lt;15MB footprint.</p>
-        <p><a href="https://github.com/Perseus-Computing-LLC/mimir/blob/main/SECURITY.md">Full security policy →</a></p>
+    <div class="sec-head">
+      <span class="eyebrow"><span>✦</span> Compliance status</span>
+      <h2>Current posture — stated <em>plainly</em>.</h2>
+      <p>We publish exactly where we are. Items in progress are marked as such; nothing here is asserted before it's real.</p>
+    </div>
+    <div class="clist">
+      <div class="crow"><span class="mk done">✓</span><span><span class="ct">MIT license · open source</span><br><span class="cs">Full source, forkable and auditable</span></span><span class="badge done">In place</span></div>
+      <div class="crow"><span class="mk done">✓</span><span><span class="ct">SBOM published</span><br><span class="cs">Dependency manifest per EO 14028 / NTIA minimum elements</span></span><span class="badge done">In place</span></div>
+      <div class="crow"><span class="mk done">✓</span><span><span class="ct">EAR99 export classification</span><br><span class="cs">Self-classified; no special export license required</span></span><span class="badge done">In place</span></div>
+      <div class="crow"><span class="mk done">✓</span><span><span class="ct">NIST AI RMF alignment</span><br><span class="cs">Mapped across Govern, Map, Measure, Manage</span></span><span class="badge done">In place</span></div>
+      <div class="crow"><span class="mk done">✓</span><span><span class="ct">Air-gapped / on-prem deployment</span><br><span class="cs">No network dependency by default; encrypted at rest</span></span><span class="badge done">In place</span></div>
+      <div class="crow"><span class="mk prog">◐</span><span><span class="ct">FedRAMP &amp; CMMC</span><br><span class="cs">Control mapping underway; not yet certified</span></span><span class="badge prog">In progress</span></div>
+      <div class="crow"><span class="mk pend">○</span><span><span class="ct">UEI &amp; CAGE codes</span><br><span class="cs">Pending SAM.gov registration</span></span><span class="badge pend">Pending</span></div>
+      <div class="crow"><span class="mk pend">○</span><span><span class="ct">SBIR registry</span><br><span class="cs">Application in preparation (NSF SBIR Phase I)</span></span><span class="badge pend">Pending</span></div>
+    </div>
+  </div>
+</section>
+
+<section class="sec">
+  <div class="wrap">
+    <div class="ask">
+      <span class="eyebrow" style="justify-content:center"><span>✦</span> Procurement</span>
+      <h2>Evaluating AI tooling for a regulated or classified network?</h2>
+      <p>We work directly with program offices and integrators on air-gapped pilots, security review, and SBOM / compliance artifacts. No sales layer — you reach the founder.</p>
+      <div class="cta">
+        <a class="btn primary" href="mailto:tcconnally@gmail.com?subject=Perseus%20%E2%80%94%20Government%20inquiry">Email the founder →</a>
+        <a class="btn" href="https://github.com/Perseus-Computing-LLC/perseus/blob/main/SECURITY.md">Security policy ↗</a>
       </div>
     </div>
   </div>
 </section>
 
-<section class="section" id="deployment">
-  <div class="wrap">
-    <div class="section-label">§ Deployment</div>
-    <h2>Deployment Models</h2>
-    <table>
-      <tr><th>Environment</th><th>How</th></tr>
-      <tr><td>Air-gapped / classified</td><td>Single-container deployment. All deps bundled. No internet required. Suitable for DoD IL5+, ICD 503.</td></tr>
-      <tr><td>On-premises</td><td>Deploy on agency infrastructure. Full data sovereignty. Integrate with existing identity providers.</td></tr>
-      <tr><td>Cloud (roadmap)</td><td>AWS GovCloud, Azure Government, GCP Assured Workloads. Contact for timeline.</td></tr>
-    </table>
-  </div>
-</section>
-
-<section class="section" id="sbir">
-  <div class="wrap">
-    <div class="section-label">§ SBIR / RFP</div>
-    <h2>SBIR & RFP Alignment</h2>
-    <table>
-      <tr><th>Government Priority</th><th>How Perseus & Mimir Address It</th></tr>
-      <tr><td>AI Interpretability</td><td>Perseus traces every context injection to source. Mimir provides typed entity provenance.</td></tr>
-      <tr><td>AI Control</td><td>Live context grounding prevents hallucination. Agent decisions anchored to verifiable state.</td></tr>
-      <tr><td>Adversarial Robustness</td><td>Mimir cryptographic journal detects tampering. Perseus context chain is immutable.</td></tr>
-      <tr><td>Audit & Compliance</td><td>PROV-O provenance exports. Immutable journal with SHA-256 chain-of-custody (in dev).</td></tr>
-      <tr><td>Knowledge Management</td><td>Mimir FTS5 search + entity graph for cross-session institutional knowledge.</td></tr>
-      <tr><td>Zero Trust Architecture</td><td>NIST SP 800-207 alignment. Workspace scoping. Access control in roadmap.</td></tr>
-    </table>
-  </div>
-</section>
-
-<section class="section" id="procurement">
-  <div class="wrap">
-    <div class="section-label">§ Procurement</div>
-    <h2>Procurement Information</h2>
-    <table>
-      <tr><td>Entity</td><td>Perseus Computing LLC</td></tr>
-      <tr><td>UEI</td><td class="status-progress">Pending SAM.gov registration</td></tr>
-      <tr><td>CAGE Code</td><td class="status-progress">Pending</td></tr>
-      <tr><td>NAICS Codes</td><td>541715 (Primary), 541511, 541512</td></tr>
-      <tr><td>SBIR Registry</td><td class="status-progress">Pending</td></tr>
-      <tr><td>Contact</td><td><a href="mailto:perseus@perseus.observer" style="color:var(--accent);">perseus@perseus.observer</a></td></tr>
-      <tr><td>Security reports</td><td><a href="mailto:perseus@perseus.observer" style="color:var(--accent);">perseus@perseus.observer</a> (48hr response)</td></tr>
-    </table>
-  </div>
-</section>
-
-<footer>
-  <div class="wrap">
-    <div class="footer-grid">
-      <div>
-        <div class="footer-brand">Perseus Computing LLC</div>
-        <div class="footer-meta">Perseus and Mimir are MIT-licensed open source. No proprietary dependencies. No vendor lock-in. No telemetry. Built in the United States.</div>
-      </div>
-      <div class="footer-links">
-        <a href="/">Home</a>
-        <a href="https://github.com/Perseus-Computing-LLC/perseus">Perseus GitHub</a>
-        <a href="https://github.com/Perseus-Computing-LLC/mimir">Mimir GitHub</a>
-      </div>
-    </div>
-  </div>
-</footer>
-
+<footer><div class="wrap">
+  <div class="fbot"><span>Perseus Computing LLC · Austin, TX · MIT License · EAR99 · SBOM published</span><span>perseus.observer</span></div>
+</div></footer>
 </body>
 </html>
