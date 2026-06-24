@@ -21343,10 +21343,14 @@ def cmd_render(args, cfg):
         if out_path.exists():
             st = out_path.stat()
             out_path.write_text(rendered, encoding="utf-8")
-            try:
-                os.chown(out_path, st.st_uid, st.st_gid)
-            except OSError:
-                pass  # chown may fail in containers without CAP_CHOWN
+            # Preserve ownership where the platform supports it. os.chown is
+            # absent on Windows — calling it would raise AttributeError (not
+            # OSError) and crash the render; st_uid/st_gid are meaningless there.
+            if hasattr(os, "chown"):
+                try:
+                    os.chown(out_path, st.st_uid, st.st_gid)
+                except OSError:
+                    pass  # chown may fail in containers without CAP_CHOWN
         else:
             out_path.write_text(rendered, encoding="utf-8")
     else:
