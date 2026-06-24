@@ -44,7 +44,7 @@ VERSION=$(tr -d '[:space:]' < "$REPO_ROOT/VERSION")
 [ -n "$VERSION" ] || die "VERSION file is empty"
 
 # perseus.py
-PY_VERSION=$(python3 -c 'import ast, pathlib, sys; tree = ast.parse(pathlib.Path(sys.argv[1]).read_text()); print(next(ast.literal_eval(n.value) for n in tree.body if isinstance(n, ast.Assign) for t in n.targets if isinstance(t, ast.Name) and t.id == "_PERSEUS_VERSION"))' "$REPO_ROOT/perseus.py")
+PY_VERSION=$(python3 -c 'import ast, pathlib, sys; tree = ast.parse(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")); print(next(ast.literal_eval(n.value) for n in tree.body if isinstance(n, ast.Assign) for t in n.targets if isinstance(t, ast.Name) and t.id == "_PERSEUS_VERSION"))' "$REPO_ROOT/perseus.py")
 [ -n "$PY_VERSION" ] || die "could not parse _PERSEUS_VERSION from perseus.py"
 [ "$PY_VERSION" = "$VERSION" ] || die "VERSION ($VERSION) != _PERSEUS_VERSION ($PY_VERSION) in perseus.py"
 
