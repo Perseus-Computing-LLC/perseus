@@ -71,6 +71,7 @@ def resolve_agent(args_str: str, cfg: dict, workspace: Path | None = None) -> st
             cmd,
             shell=True,
             executable=shell,
+            stdin=subprocess.DEVNULL,  # avoid OSError [WinError 6] on Windows
             capture_output=True,
             text=True,
             timeout=timeout,
