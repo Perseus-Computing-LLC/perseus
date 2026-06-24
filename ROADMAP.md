@@ -58,23 +58,7 @@ checkpoints feed it.
 | **Hephaestus** | Extensibility architecture — plugin directives, macros, hooks, format adapters, pipe syntax | ✅ Phase 24 |
 | **MCP Integration** | Expose every directive as an MCP tool for universal AI client compatibility | ✅ Phase 25 |
 | **Security Hardening** | MCP SSE auth, Windows timeout, SSRF protection, build robustness | ✅ Phase 26 |
-|  |  |  |
-|| **Federated Context Mesh** | Multi-hop federation, context freshness metadata, graceful degradation at each hop | 📋 Phase 28 |
-|| **Context Marketplace** | Shareable context packs, publish/install, community directory, identity signing | 📋 Phase 29 |
-|| **Autonomous Context** | Daedalus-driven auto-maintenance, usage-pattern learning, human-approval flow | 📋 Phase 30 |
-|| **Model-Aware Context** | Per-model context budgets, token-compressed output, model-optimized formats | 📋 Phase 31 |
-|| **Intent-Driven Context** | Pre-resolved context from session patterns, proactive orientation before first prompt | 📋 Phase 32 |
-|| **Context Diffing** | `perseus diff --context`, session-to-session deltas, context changelogs | 📋 Phase 33 |
-|| **Autonomous Directives** | Daedalus proposes new @directives, user reviews diff, opt-in with rationale | 📋 Phase 34 |
-|| **Context-Aware Routing** | Task-type → best model routing, learns from session outcomes + Plutus cost data | 📋 Phase 35 |
-|| **Directive Registry** | Community directive marketplace, versioning, security scanning, provenance | 📋 Phase 36 |
-|| **Context Adapter SDK** | Language SDKs (Python, TS, Rust, Go) for any app to emit Perseus context | 📋 Phase 37 |
-|| **Multi-Agent Protocol** | Standardized context-passing format for multi-agent systems, framework-agnostic | 📋 Phase 38 |
-|| **Perseus Enterprise** | SSO, audit logging, compliance, on-premise deployment, air-gapped operation | 📋 Phase 39 |
-|| **Zero-Config Context** | System service, ambient context for every terminal/IDE/agent invocation | 📋 Phase 40 |
-|| **Universal Format** | `.perseus/context.md` as an ecosystem standard, RFC process, spec site | 📋 Phase 41 |
-|| **Context-Driven Dev** | Editor shows context per function, git-blame for intentions (Mimir causal graph) | 📋 Phase 42 |
-|| **Perseus Native Apps** | Desktop + mobile apps, context management from anywhere, push notifications | 📋 Phase 43 |
+|| _Exploratory_ | Undated, non-committed directions (federation mesh, context packs, autonomy, model-aware/intent-driven context, enterprise, native apps, …) | 📋 see [Exploratory](#exploratory--directional-not-committed-no-dates) |
 
 ---
 
@@ -1386,122 +1370,33 @@ Phase 27A ─── Remote federation transport (task-96) 🔨 ──┤
 
 ---
 
-## Future Horizon — Phases 28–43 (2027–2031)
+## Exploratory — directional, not committed (no dates)
 
-> These phases are directional — the task breakdown and exact sequencing will firm up as each
-> preceding phase ships. Cross-reference: `ROADMAP_2026-2031.md` in the workspace root.
+Ideas we may pursue once the foundation work and the near-term calendar above are
+settled. Listed to capture intent — **not** commitments — and deliberately without
+dates or phase numbers. (An earlier revision of this section invented a
+quarter-by-quarter plan through 2031; that false precision has been removed.)
 
-### Phase 28 — Federated Context Mesh
-**Window:** Q3 2027 · **Theme:** "Context across organizational boundaries."
+**Federation & sharing**
+- Multi-hop federation across organizational trust boundaries, with freshness metadata per hop
+- Shareable, versioned, signed context packs and a community directive registry (`perseus pack`, `directives.perseus.observer`)
 
-Multi-hop federation where workspace A pulls from B which pulls from C. Trust chains span
-org boundaries. Federation paths resolve with TTL caching and graceful degradation at every
-hop. Context carries freshness metadata: "this fact from workspace X, verified Y minutes ago."
+**Autonomy (Daedalus)**
+- Daedalus proposes `context.md` edits and new `@query`/`@memory` directives from observed usage — human-approved by default
+- Autonomous context maintenance: prune stale directives, surface broken or never-read ones
 
-### Phase 29 — Context Marketplace
-**Window:** Q4 2027 · **Theme:** "Shareable, versioned context packs."
+**Smarter resolution**
+- Model-aware output: per-model token budgets from a single source document
+- Intent-driven pre-resolution on session start (active branch, time of day, recent sessions, Mimir hot entities)
+- Context diffing — "what changed since last session" as a first-class delta
+- Context-aware task routing using Plutus cost data — *cross-product; gated on Plutus reaching 1.0 (see product strategy)*
 
-`perseus pack publish` pushes versioned context manifests to a registry. `perseus pack install`
-pulls them with provenance verification. Community pack directory. Packs signed with workspace
-identity keys (Phase 27 foundation).
-
-### Phase 30 — Autonomous Context Maintenance
-**Window:** Q1 2028 · **Theme:** "Daedalus graduates from scoring to curating."
-
-Daedalus proposes context.md edits: new directives to add, stale ones to remove, ones to update.
-Learns from usage patterns — directives never read, queries always stale, new file patterns.
-Human approval by default; auto-maintenance opt-in with configurable trust windows.
-
-### Phase 31 — Model-Aware Context Optimization
-**Window:** Q2 2028 · **Theme:** "Different models need different context."
-
-Per-model context budgets: token-compressed output for small-context models, long-form synthesis
-for large-context models. Same source document, model-optimized output. Config-driven:
-`output.model_profiles.<name>.token_budget`.
-
-### Phase 32 — Intent-Driven Context
-**Window:** Q3 2028 · **Theme:** "The assistant opens already oriented."
-
-Before the user types, Perseus pre-resolves context from session patterns: time of day, active
-git branch, last N sessions, Mimir's hot entities. The AI assistant receives priorities, not
-just facts. "You're on `fix-auth-bug`. Last session: OAuth flow debugging. Here's the ADR and
-the failing test."
-
-### Phase 33 — Context Diffing
-**Window:** Q4 2028 · **Theme:** "What changed since I was last here?"
-
-`perseus diff --context` shows full environment delta: services up/down, files changed, new
-sessions, shifted priorities. The delta is itself a `@perseus` directive — renders inline.
-Context changelog: "Since your last session 3h ago: API restarted, 2 PRs merged, 1 Mimir decision."
-
-### Phase 34 — Autonomous Directive Generation
-**Window:** Q1 2029 · **Theme:** "Daedalus writes directives, you approve them."
-
-Daedalus observes what works and proposes new `@query` and `@memory` directives. "You always
-run `git diff --stat` after `git status`. I'll add it." "You search for 'deployment' in Mimir
-at deploy-session start. Added to your deploy profile." User reviews a diff — not a blank page.
-
-### Phase 35 — Context-Aware Task Routing
-**Window:** Q2 2029 · **Theme:** "Perseus knows which model handles which task best."
-
-Perseus learns model-task affinity from session outcomes + Plutus cost data. `perseus suggest`
-includes routing: "This code review → Claude Opus. This quick fix → Gemini Flash." Integrates
-with Plutus for cost-aware decisions.
-
-### Phase 36 — Directive Registry
-**Window:** Q3 2029 · **Theme:** "Others write directives; you install them."
-
-Public registry at directives.perseus.observer. `perseus directive install community/docker-health`.
-Versioning, security scanning, provenance (who wrote, reviewed, uses this directive). The
-Hephaestus plugin system (Phase 24) feeds the registry.
-
-### Phase 37 — Context Adapter SDK
-**Window:** Q4 2029 · **Theme:** "Any application can emit Perseus context."
-
-Language-specific SDKs (Python, TypeScript, Rust, Go). Your CI system, database, custom tool —
-all become `@directive` sources. Implement `get_context()` in your language, register as a plugin.
-"The Perseus Context Adapter SDK" landing page, not just a README.
-
-### Phase 38 — Multi-Agent Context Protocol
-**Window:** Q1 2030 · **Theme:** "One resolution, many agents."
-
-Standardized format for passing resolved context between agents. Agent A resolves; Agents B, C, D
-receive without re-resolution. Framework-agnostic: LangGraph, CrewAI, AutoGen, ADK, custom
-orchestrators. Context bundles with versioning: "v3, generated at T, valid for 300s."
-
-### Phase 39 — Perseus Enterprise
-**Window:** Q2 2030 · **Theme:** "The same Perseus, packaged for organizations."
-
-SSO, audit logging, compliance reports, on-premise deployment. Managed `perseus serve` with auth,
-rate limiting, usage dashboards. Air-gapped deployment: works entirely offline with bundled models.
-
-### Phase 40 — Zero-Config Context
-**Window:** Q3 2030 · **Theme:** "Context is ambient. You never see it — you just benefit from it."
-
-Perseus runs as a system service. Every terminal, IDE, agent invocation gets context automatically.
-No explicit render command. Context health monitoring: Perseus alerts when context is stale, broken,
-or incomplete. The assistant always knows your environment.
-
-### Phase 41 — Universal Context Format
-**Window:** Q4 2030 · **Theme:** "`.perseus/context.md` is the `/proc` for projects."
-
-The format becomes an ecosystem standard. CI systems, monitoring tools, documentation generators
-all consume Perseus context. "context.perseus.observer" — spec site with RFC-style proposals.
-Not just an AI assistant tool — project infrastructure.
-
-### Phase 42 — Context-Driven Development
-**Window:** Q1 2031 · **Theme:** "Your editor shows intentions, not just authorship."
-
-Your editor shows context per function: "Modified in a session where task=X, decision=Y,
-constraint=Z." Git-blame for intentions via Mimir's causal memory graph. Context annotations
-in code review: "This code was from decision #1234, superseded by #5678."
-
-### Phase 43 — Perseus Native Apps
-**Window:** Q2 2031 · **Theme:** "Context management, anywhere."
-
-Desktop app: system tray, maintains context for all projects, surfaces stale context, suggests
-new directives. Mobile app: see project context, approve Daedalus suggestions, check Mimir
-memory — from your phone. Perseus graduates from developer tool to productivity platform.
+**Ecosystem & reach**
+- Context Adapter SDK (Python/TS/Rust/Go) so any tool can emit `@directive` sources
+- Multi-agent context protocol: resolve once, share resolved context across LangGraph/CrewAI/AutoGen/custom orchestrators
+- Perseus Enterprise: SSO, audit logging, compliance, on-prem / air-gapped deployment
+- Zero-config ambient context as a system service; the `.perseus/context.md` format as an ecosystem standard
+- Editor/IDE integration and native desktop/mobile apps
 
 ---
 
