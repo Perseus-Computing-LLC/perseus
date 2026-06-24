@@ -1,0 +1,9 @@
+# Runtime dependencies for the single-file `perseus.py` artifact (the Docker image).
+#
+# perseus.py is self-contained: its only hard third-party import is PyYAML.
+# (`tomli` is imported solely as a <3.11 fallback for the stdlib `tomllib`,
+# which is present on the python:3.12-slim base, so it is not required here.)
+#
+# This is deliberately NOT the full dev/CI freeze in requirements.txt — the
+# container ships the runtime, not the toolchain. Keep it minimal.
+PyYAML==6.0.3
