@@ -10,12 +10,7 @@ LAUNCHD_TEMPLATE = """\
     <string>{label}</string>
     <key>ProgramArguments</key>
     <array>
-      <string>{python}</string>
-      <string>{script}</string>
-      <string>render</string>
-      <string>{source}</string>
-      <string>--output</string>
-      <string>{output}</string>
+{program_arguments}
     </array>
     <key>WorkingDirectory</key>
     <string>{workdir}</string>
@@ -30,6 +25,46 @@ LAUNCHD_TEMPLATE = """\
   </dict>
 </plist>
 """
+
+
+def _perseus_launcher() -> tuple[list[str], bool]:
+    """Resolve a version-stable way to invoke ``perseus`` from a scheduled job.
+
+    Scheduled jobs (launchd/cron/systemd) persist for months across Perseus
+    upgrades. Baking in the versioned interpreter path (``sys.executable``) or
+    the versioned site-packages script (``__file__``) means a Python
+    minor-version bump (e.g. 3.13 → 3.14) silently strands the job on the old
+    binary — pip installs the new console script under a new path while the
+    plist keeps calling the old one, with ``LastExitStatus = 0`` and no error
+    (#430).
+
+    Prefer a stable console-script launcher that always resolves to the current
+    install, in order:
+
+      1. ``~/.local/bin/perseus`` — the stable user symlink that survives
+         Python minor-version bumps (recommended in the install docs).
+      2. ``perseus`` on ``PATH`` — the pip console script.
+      3. ``{sys.executable} {__file__}`` — last-resort, version-specific
+         fallback (matches legacy behaviour).
+
+    Returns ``(argv_tokens, is_stable)`` where ``is_stable`` is ``False`` only
+    for the version-specific fallback so callers can warn.
+    """
+    import shutil as _shutil
+
+    local_bin = Path.home() / ".local" / "bin" / "perseus"
+    try:
+        if local_bin.exists():
+            return [str(local_bin)], True
+    except OSError:
+        pass
+
+    which = _shutil.which("perseus")
+    if which:
+        return [which], True
+
+    # Fallback: version-specific interpreter + script (may go stale on upgrade).
+    return [str(Path(sys.executable).resolve()), str(Path(__file__).resolve())], False
 
 
 def cmd_launchd(args, cfg):
@@ -53,18 +88,19 @@ def cmd_launchd(args, cfg):
 
     label = args.label or f"com.perseus.render.{source_path.stem}"
     plist_path = launch_agents / f"{label}.plist"
-    python_path = Path(sys.executable).resolve()
-    script_path = Path(__file__).resolve()
+    launcher, stable = _perseus_launcher()
     workdir = _infer_workspace(source_path)
     stdout_log = logs_dir / f"{label}.out.log"
     stderr_log = logs_dir / f"{label}.err.log"
 
+    # Build the ProgramArguments <string> list from a version-stable launcher
+    # so a Python minor-version upgrade does not strand the job (#430).
+    prog_tokens = launcher + ["render", str(source_path), "--output", str(output_path)]
+    program_arguments = "\n".join(f"      <string>{tok}</string>" for tok in prog_tokens)
+
     content = LAUNCHD_TEMPLATE.format(
         label=label,
-        python=str(python_path),
-        script=str(script_path),
-        source=str(source_path),
-        output=str(output_path),
+        program_arguments=program_arguments,
         workdir=str(workdir),
         interval=int(args.interval),
         stdout_log=str(stdout_log),
@@ -78,6 +114,11 @@ def cmd_launchd(args, cfg):
     plist_path.write_text(content)
 
     print(f"✔ Wrote LaunchAgent plist: {plist_path}")
+    print(f"  Launcher: {' '.join(launcher)}")
+    if not stable:
+        print("  ⚠ Could not find a stable `perseus` launcher (~/.local/bin/perseus or on PATH);")
+        print("    falling back to a version-specific path that may go stale after a Python upgrade.")
+        print("    Install the console script (`pipx install perseus-ctx` or ensure ~/.local/bin is on PATH).")
     print()
     print("Next steps:")
     print(f"  1. Load it:    launchctl load {plist_path}")
@@ -104,8 +145,7 @@ def cmd_cron(args, cfg):
 
     source_path = Path(args.source).expanduser().resolve()
     output_path = Path(args.output).expanduser().resolve()
-    python_path = Path(sys.executable).resolve()
-    script_path = Path(__file__).resolve()
+    launcher, stable = _perseus_launcher()
 
     # Build crontab schedule expression
     if every == 1:
@@ -118,9 +158,12 @@ def cmd_cron(args, cfg):
         hours = every // 60
         schedule = f"0 */{hours} * * *"
 
-    cmd = f"{python_path} {script_path} render {source_path} --output {output_path}"
+    cmd = f"{' '.join(launcher)} render {source_path} --output {output_path}"
     # Suppress crontab MAILTO noise; route stderr to /dev/null on success render
     entry = f"{schedule} {cmd} >/dev/null 2>&1  # perseus-render"
+    if not stable:
+        print("# ⚠ Could not find a stable `perseus` launcher (~/.local/bin/perseus or on PATH);")
+        print("#   the entry below uses a version-specific path that may go stale after a Python upgrade.")
 
     if args.install:
         try:
@@ -171,7 +214,7 @@ After=default.target
 
 [Service]
 Type=oneshot
-ExecStart={python} {script} render {source} --output {output}
+ExecStart={exec_start}
 """
 
 SYSTEMD_TIMER_TEMPLATE = """\
@@ -224,16 +267,14 @@ def cmd_systemd(args, cfg):
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
 
-    python_path = Path(sys.executable).resolve()
-    script_path = Path(__file__).resolve()
+    launcher, stable = _perseus_launcher()
+    exec_start = f"{' '.join(launcher)} render {source_path} --output {output_path}"
 
-    service_content = SYSTEMD_SERVICE_TEMPLATE.format(
-        python=str(python_path),
-        script=str(script_path),
-        source=str(source_path),
-        output=str(output_path),
-    )
+    service_content = SYSTEMD_SERVICE_TEMPLATE.format(exec_start=exec_start)
     timer_content = SYSTEMD_TIMER_TEMPLATE.format(interval=interval)
+    if not stable:
+        print("# ⚠ Could not find a stable `perseus` launcher (~/.local/bin/perseus or on PATH);", file=sys.stderr)
+        print("#   ExecStart uses a version-specific path that may go stale after a Python upgrade.", file=sys.stderr)
 
     if getattr(args, "install", False):
         unit_dir = Path.home() / ".config" / "systemd" / "user"

@@ -13,7 +13,7 @@ Source documents start with `@perseus v1.0.8` on line 1. The value after `@perse
 | `@query "shell cmd" [fallback="text"] [schema="name"]` | Runs a shell command, embeds stdout as a fenced block; requires `render.allow_query_shell=true` and `PERSEUS_ALLOW_DANGEROUS=1`; `fallback=` emits literal text on failure or empty output; `schema=` validates YAML stdout |
 | `@read <file> [path="key"] [schema="name"]` | Reads a file; dot-notation path for JSON/YAML/TOML; `key=` for `.env` files; `schema=` validates full or extracted output |
 | `@env VAR [fallback="x"] [schema="name"]` | Injects an environment variable; `required=true` emits a visible warning if unset; `schema=` validates the value or fallback |
-| `@include <file>` | Embeds a file inline; markdown raw, structured files fenced |
+| `@include <file> [last=N] [since=14d]` | Embeds a file inline; markdown raw, structured files fenced. `last=N` keeps only the final N lines; `since=14d`/`2w`/`24h` keeps only dated sections (markdown headings containing an ISO date) within the window — both bound an appended log so the rendered file does not grow unbounded |
 | `@if <cond>` / `@else` / `@endif` | Conditional blocks: `file.exists/missing`, `env.set/unset/eq/neq`, `query("cmd") [not] matches /regex/[i]` |
 | `@constraint id="..." severity="..."` | Machine-readable rules rendered as a `\| ID \| Severity \| Rule \|` table |
 | `@skills [flag_stale=true] [category=comma,list]` | Scans the assistant's skills dir, reads frontmatter, flags stale entries; `category=` filters to specific skill categories (e.g. `category=devops,github`). Use this to keep the skills table focused — omit `category=` to list all skills. |
