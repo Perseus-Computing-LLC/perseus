@@ -374,3 +374,38 @@ def test_serve_loopback_does_not_require_opt_in():
     except SystemExit:
         # Shouldn't exit
         raise AssertionError("loopback bind triggered the non-loopback gate")
+
+
+# ── regression: render --output to an existing file on Windows (no os.chown) ──
+
+
+def test_cmd_render_existing_output_without_os_chown(tmp_path, monkeypatch):
+    """render --output <existing-file> must not crash where os.chown is absent.
+
+    os.chown does not exist on Windows, so the ownership-preserving branch used
+    to raise AttributeError (not the caught OSError) and crash the render. We
+    simulate that platform by removing os.chown and assert the write succeeds.
+    """
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr(perseus, "PERSEUS_HOME", home)
+
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    src = workspace / "ctx.md"
+    src.write_text("# Context\n\nhello\n")
+
+    output = workspace / "out.md"
+    output.write_text("stale\n")  # pre-existing → triggers the chown branch
+
+    # Reproduce Windows: os.chown is undefined.
+    monkeypatch.delattr(os, "chown", raising=False)
+
+    perseus.cmd_render(
+        argparse.Namespace(command="render", source=str(src), output=str(output)),
+        {},
+    )
+
+    written = output.read_text()
+    assert "stale" not in written  # existing file was overwritten
+    assert "hello" in written
