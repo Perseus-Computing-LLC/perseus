@@ -1,0 +1,82 @@
+name: Publish to PyPI
+
+# Publishes perseus-ctx to PyPI when a GitHub Release is published.
+#
+# Uses PyPI Trusted Publishing (OIDC) — NO API token or secret is stored in this
+# repo. One-time setup on PyPI (project owner, done once):
+#   PyPI → project "perseus-ctx" → Manage → Publishing → Add a pending/published
+#   GitHub Actions trusted publisher with:
+#       Owner:            Perseus-Computing-LLC
+#       Repository:       perseus
+#       Workflow name:    publish.yml
+#       Environment name: pypi
+#   Docs: https://docs.pypi.org/trusted-publishers/
+#
+# To cut a release: bump VERSION + pyproject.toml + CHANGELOG, merge to main,
+# then publish a GitHub Release tagged vX.Y.Z (matching VERSION). This workflow
+# verifies the tag matches VERSION, that perseus.py is in sync with src/, builds
+# the sdist+wheel, and uploads them via OIDC.
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build & verify distribution
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify version matches the release tag
+        run: |
+          set -e
+          file_ver="$(cat VERSION)"
+          tag="${GITHUB_REF_NAME#v}"
+          echo "VERSION file=$file_ver  release tag=$tag"
+          if [ "$file_ver" != "$tag" ]; then
+            echo "::error::VERSION ($file_ver) does not match release tag ($tag) — bump VERSION/pyproject before releasing."
+            exit 1
+          fi
+
+      - name: Verify perseus.py is in sync with src/
+        run: python scripts/build.py --check
+
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install --upgrade pip build twine
+          python -m build
+          python -m twine check dist/*
+
+      - name: Upload distribution artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    name: Publish to PyPI (OIDC)
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/perseus-ctx
+    permissions:
+      id-token: write   # REQUIRED for OIDC trusted publishing; no token needed
+    steps:
+      - name: Download distribution artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
