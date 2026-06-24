@@ -40,7 +40,7 @@ def _seed_narrative(workspace: Path, local: dict, body: str = "# Narrative\n\n##
         updated = datetime.now().astimezone().isoformat(timespec="seconds")
     np.write_text(
         f"---\nupdated: {updated}\nworkspace: {workspace}\n---\n\n{body}"
-    )
+    , encoding="utf-8")
     return np
 
 
@@ -81,7 +81,7 @@ def test_load_manifest_malformed_returns_empty_and_warns(tmp_path, capsys):
     local = _fed_cfg(tmp_path)
     p = perseus._federation_manifest_path(local)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text("not a mapping but a list\n- a\n- b\n")
+    p.write_text("not a mapping but a list\n- a\n- b\n", encoding="utf-8")
     m = perseus._load_federation_manifest(local)
     assert m["subscriptions"] == []
     err = capsys.readouterr().err

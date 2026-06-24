@@ -37,7 +37,7 @@ def _load_cfg(workspace: Path) -> dict:
     cfg = copy.deepcopy(perseus.DEFAULT_CONFIG)
     config_path = workspace / "config.yaml"
     if config_path.exists():
-        loaded = yaml.safe_load(config_path.read_text()) or {}
+        loaded = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
         for section, values in loaded.items():
             if isinstance(values, dict) and isinstance(cfg.get(section), dict):
                 cfg[section].update(values)
@@ -57,13 +57,13 @@ def test_golden_render_snapshots(scenario: Path, request):
     expected = workspace / "expected.md"
     cfg = _load_cfg(workspace)
 
-    actual = perseus.render_source(source.read_text(), cfg, workspace)
+    actual = perseus.render_source(source.read_text(encoding="utf-8"), cfg, workspace)
     actual, _ = perseus.redact_text(actual, cfg)
 
     if request.config.getoption("--update-golden"):
-        expected.write_text(normalize_golden(actual))
+        expected.write_text(normalize_golden(actual), encoding="utf-8")
 
-    assert normalize_golden(actual) == normalize_golden(expected.read_text())
+    assert normalize_golden(actual) == normalize_golden(expected.read_text(encoding="utf-8"))
 
 
 def test_golden_scenario_set_is_complete():
@@ -122,5 +122,5 @@ def test_golden_adapter_outputs_match_profiles(tmp_path):
             check=False,
         )
         assert proc.returncode == 0, proc.stderr
-        rendered = (workspace / output).read_text()
+        rendered = (workspace / output).read_text(encoding="utf-8")
         assert f"# Golden Adapter: {name.split('-', 1)[1]}" in rendered

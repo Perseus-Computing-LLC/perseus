@@ -54,7 +54,7 @@ render:
 memory:
   mneme_vault_path: ""
   mneme_index_path: ""
-""")
+""", encoding="utf-8")
     print(f"  ✓ Config: {config_path}")
 
 
@@ -119,7 +119,7 @@ def create_checkpoints(profile_dir: Path) -> int:
                 "checkpoint_number": ci + 1,
             }
             cp_path = checkpoints_dir / f"checkpoint-{checkpoint_count:03d}.json"
-            cp_path.write_text(json.dumps(cp, indent=2))
+            cp_path.write_text(json.dumps(cp, indent=2), encoding="utf-8")
             checkpoint_count += 1
 
     # Also create checkpoints in the perseus home (cold/warm)
@@ -140,7 +140,7 @@ def create_checkpoints(profile_dir: Path) -> int:
                     "exit_code": 0,
                 }
                 cp_path = home_checkpoints / f"checkpoint-{checkpoint_count:03d}.json"
-                cp_path.write_text(json.dumps(cp, indent=2))
+                cp_path.write_text(json.dumps(cp, indent=2), encoding="utf-8")
                 checkpoint_count += 1
 
     print(f"  ✓ Created {checkpoint_count} checkpoints")
@@ -164,14 +164,14 @@ def create_referenced_files(profile_dir: Path) -> None:
     for name, content in refs.items():
         path = profile_dir / name
         if not path.exists():
-            path.write_text(content)
+            path.write_text(content, encoding="utf-8")
             count += 1
 
     # Also create .perseus/context.md (referenced by architect)
     context_md = profile_dir / ".perseus" / "context.md"
     context_md.parent.mkdir(parents=True, exist_ok=True)
     if not context_md.exists():
-        context_md.write_text("@perseus v1.0\n@prompt Gauntlet benchmark context\n")
+        context_md.write_text("@perseus v1.0\n@prompt Gauntlet benchmark context\n", encoding="utf-8")
 
     print(f"  ✓ Created {count} referenced files + .perseus/context.md")
 

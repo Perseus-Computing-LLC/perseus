@@ -47,7 +47,7 @@ def _load_federation_manifest(cfg: dict) -> dict:
     if not p.exists():
         return {"version": 1, "subscriptions": []}
     try:
-        data = yaml.safe_load(p.read_text()) or {}
+        data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
         if not isinstance(data, dict):
             raise ValueError(f"manifest is not a mapping (got {type(data).__name__})")
         subs = data.get("subscriptions", []) or []
@@ -92,7 +92,7 @@ def _load_federation_manifest(cfg: dict) -> dict:
             d_aliases = {e["alias"] for e in normalized}
             for d_file in sorted(fed_d.glob("*.yaml")):
                 try:
-                    d_data = yaml.safe_load(d_file.read_text()) or {}
+                    d_data = yaml.safe_load(d_file.read_text(encoding="utf-8")) or {}
                     if isinstance(d_data, dict):
                         d_alias = d_data.get("alias", d_file.stem)
                         if d_alias in d_aliases:
@@ -136,7 +136,7 @@ def _save_federation_manifest(cfg: dict, manifest: dict) -> Path:
     p = _federation_manifest_path(cfg)
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_suffix(p.suffix + ".tmp")
-    tmp.write_text(yaml.safe_dump(manifest, sort_keys=False, default_flow_style=False))
+    tmp.write_text(yaml.safe_dump(manifest, sort_keys=False, default_flow_style=False), encoding="utf-8")
     os.replace(tmp, p)
     return p
 
@@ -195,7 +195,7 @@ def _read_remote_cache(cfg: dict, alias: str) -> dict | None:
     if not path.exists():
         return None
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return None
     fetched = data.get("fetched_at", "")
@@ -229,7 +229,7 @@ def _write_remote_cache(cfg: dict, alias: str, narrative: str,
         "format_version": 1,
     }
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(data, indent=2))
+    tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
     os.replace(tmp, path)
     return path
 
@@ -407,7 +407,7 @@ def cmd_memory_federation_push(args, cfg) -> int | None:
         print(f"No narrative at {mp}.", file=sys.stderr)
         return 1
     
-    narrative_body = mp.read_text()
+    narrative_body = mp.read_text(encoding="utf-8")
     sig = _sign_narrative(narrative_body, identity)
     
     manifest = _load_federation_manifest(cfg)
@@ -998,7 +998,7 @@ def cmd_memory_federation(args, cfg) -> None:
                     print(f"  ⚠ {alias}: {err}")
             else:
                 stat = narrative.stat()
-                lines = narrative.read_text(errors="replace").count("\n")
+                lines = narrative.read_text(errors="replace", encoding="utf-8").count("\n")
                 mt = datetime.fromtimestamp(stat.st_mtime).isoformat(timespec="seconds")
                 rec = {"alias": alias, "path": str(narrative),
                        "transport": "local", "status": "ok", "error": None,

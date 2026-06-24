@@ -58,7 +58,7 @@ SCORING_WEIGHTS = {
 def write_json(path: Path | str, data: Any) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2, default=str))
+    path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
 
 
 def read_json(path: Path | str) -> Any:
@@ -104,7 +104,7 @@ def check_nfs_health(
 
     probe = mount_path / ".gauntlet_probe"
     try:
-        probe.write_text(timestamp_iso())
+        probe.write_text(timestamp_iso(), encoding="utf-8")
         probe.unlink()
         mode = "mount" if (sys.platform == "linux" and os.path.ismount(mount_path)) else "local"
         return {"healthy": True, "path": str(mount_path), "mode": mode}

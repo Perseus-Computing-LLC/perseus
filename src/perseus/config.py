@@ -356,6 +356,45 @@ def _apply_permission_profile(
     return name
 
 
+def _lock_file_handle(fh) -> None:
+    """Acquire an exclusive advisory lock on an open file handle, cross-platform.
+
+    POSIX uses ``fcntl.flock``; Windows uses ``msvcrt.locking`` (``fcntl`` does
+    not exist on Windows — importing it raises ModuleNotFoundError). Advisory
+    locking is an optimization layered on top of the atomic ``os.replace``
+    writes the callers already perform, so if the platform primitive is
+    unavailable or refuses we degrade to no-lock rather than crash. ``msvcrt``
+    locks ``nbytes`` from the current file position; callers open the lock file
+    fresh (position 0) and lock a single byte, which the matching
+    :func:`_unlock_file_handle` releases.
+    """
+    try:
+        if os.name == "nt":
+            import msvcrt
+            fh.seek(0)
+            msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+    except OSError:
+        # Best-effort: writes are made durable via os.replace regardless.
+        pass
+
+
+def _unlock_file_handle(fh) -> None:
+    """Release a lock acquired by :func:`_lock_file_handle` (best-effort)."""
+    try:
+        if os.name == "nt":
+            import msvcrt
+            fh.seek(0)
+            msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+    except OSError:
+        pass
+
+
 def _get_shell(cfg: dict) -> str | None:
     """Return the shell executable path, or None to use the system default.
 

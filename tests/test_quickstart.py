@@ -37,13 +37,13 @@ class TestQuickstartBasic:
         assert config_file.exists()
 
         # Context file has the @perseus header
-        content = context_file.read_text()
+        content = context_file.read_text(encoding="utf-8")
         assert "@perseus v" in content
         assert "@skills" in content
         assert "@services" in content
 
         # Config file is valid YAML with balanced profile
-        with open(config_file) as f:
+        with open(config_file, encoding="utf-8") as f:
             config = yaml.safe_load(f)
         assert config["permissions"]["profile"] == "balanced"
         assert config["render"]["allow_query_shell"] is False
@@ -66,7 +66,7 @@ class TestQuickstartBasic:
         assert rc2 == 0
 
         # Context file wasn't replaced (still has same content)
-        context = (tmp_path / ".perseus" / "context.md").read_text()
+        context = (tmp_path / ".perseus" / "context.md").read_text(encoding="utf-8")
         assert "@perseus v" in context
 
     def test_creates_config_only_when_missing(self, tmp_path, monkeypatch):
@@ -76,7 +76,7 @@ class TestQuickstartBasic:
         perseus_dir.mkdir()
         config_file = perseus_dir / "config.yaml"
         # Pre-create a config with custom content
-        config_file.write_text("render:\n  allow_query_shell: true\n")
+        config_file.write_text("render:\n  allow_query_shell: true\n", encoding="utf-8")
 
         ns = argparse.Namespace(
             workspace=str(tmp_path), non_interactive=True, no_llm=True,
@@ -85,7 +85,7 @@ class TestQuickstartBasic:
         assert rc == 0
 
         # Config was NOT overwritten
-        content = config_file.read_text()
+        content = config_file.read_text(encoding="utf-8")
         assert "allow_query_shell: true" in content
         assert "permissions:" not in content
 
@@ -100,7 +100,7 @@ class TestQuickstartBasic:
         rc = perseus.cmd_quickstart(ns, cfg())
         assert rc == 0
 
-        context_text = (tmp_path / ".perseus" / "context.md").read_text()
+        context_text = (tmp_path / ".perseus" / "context.md").read_text(encoding="utf-8")
         _stats = {"directive_count": 0, "cache_hits": 0, "cache_misses": 0}
         rendered = perseus.render_source(context_text, cfg(), tmp_path, _stats=_stats)
         assert rendered is not None
@@ -123,7 +123,7 @@ class TestQuickstartLLM:
         assert rc == 0
 
         config_file = tmp_path / ".perseus" / "config.yaml"
-        with open(config_file) as f:
+        with open(config_file, encoding="utf-8") as f:
             config = yaml.safe_load(f)
 
         assert "generation" in config
@@ -144,7 +144,7 @@ class TestQuickstartLLM:
         assert rc == 0
 
         config_file = tmp_path / ".perseus" / "config.yaml"
-        with open(config_file) as f:
+        with open(config_file, encoding="utf-8") as f:
             config = yaml.safe_load(f)
 
         assert "generation" not in config
@@ -172,7 +172,7 @@ class TestQuickstartLLM:
         }
         config_path = perseus._quickstart_write_config(tmp_path, gen)
 
-        with open(config_path) as f:
+        with open(config_path, encoding="utf-8") as f:
             config = yaml.safe_load(f)
 
         assert config["generation"]["enabled"] is True

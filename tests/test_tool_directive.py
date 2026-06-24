@@ -2,14 +2,16 @@ import pytest
 import os
 import tempfile
 from pathlib import Path
-from conftest import cfg, perseus
+from conftest import cfg, perseus, make_tool_script
 
 def test_tool_by_name(tmp_path):
-    # Create a dummy tool
-    tool_script = tmp_path / "hello.sh"
-    tool_script.write_text("#!/bin/bash\necho \"hello $1\"")
-    tool_script.chmod(0o755)
-    
+    # Create a dummy tool (cross-platform: .sh on POSIX, .bat on Windows)
+    tool_script = make_tool_script(
+        tmp_path, "hello",
+        sh="#!/bin/bash\necho \"hello $1\"",
+        bat="@echo off\r\necho hello %1\r\n",
+    )
+
     c = cfg()
     c["tools"] = {
         "enabled": True,
@@ -31,7 +33,7 @@ def test_tool_by_name(tmp_path):
 
 def test_tool_disallowed_arg(tmp_path):
     tool_script = tmp_path / "hello.sh"
-    tool_script.write_text("#!/bin/bash\necho \"hello $1\"")
+    tool_script.write_text("#!/bin/bash\necho \"hello $1\"", encoding="utf-8")
     tool_script.chmod(0o755)
     
     c = cfg()
@@ -67,10 +69,12 @@ def test_tool_disabled(tmp_path):
     assert "disabled" in out
 
 def test_tool_exit_nonzero(tmp_path):
-    tool_script = tmp_path / "fail.sh"
-    tool_script.write_text("#!/bin/bash\necho 'stderr info' >&2\nexit 1")
-    tool_script.chmod(0o755)
-    
+    tool_script = make_tool_script(
+        tmp_path, "fail",
+        sh="#!/bin/bash\necho 'stderr info' >&2\nexit 1",
+        bat="@echo off\r\necho stderr info 1>&2\r\nexit /b 1\r\n",
+    )
+
     c = cfg()
     c["tools"] = {
         "enabled": True,
@@ -83,10 +87,14 @@ def test_tool_exit_nonzero(tmp_path):
     assert "stderr info" in out
 
 def test_tool_timeout(tmp_path):
-    tool_script = tmp_path / "sleep.sh"
-    tool_script.write_text("#!/bin/bash\nsleep 10")
-    tool_script.chmod(0o755)
-    
+    # Sleep well past the 1s timeout. On Windows `ping -n 11` (~10s) is the
+    # standard stdin-free sleep (timeout.exe needs a usable stdin).
+    tool_script = make_tool_script(
+        tmp_path, "sleep",
+        sh="#!/bin/bash\nsleep 10",
+        bat="@echo off\r\nping -n 11 127.0.0.1 >nul\r\n",
+    )
+
     c = cfg()
     c["tools"] = {
         "enabled": True,
@@ -98,10 +106,12 @@ def test_tool_timeout(tmp_path):
     assert "timed out after 1s" in out
 
 def test_tool_truncation(tmp_path):
-    tool_script = tmp_path / "big.sh"
-    tool_script.write_text("#!/bin/bash\necho '1234567890'")
-    tool_script.chmod(0o755)
-    
+    tool_script = make_tool_script(
+        tmp_path, "big",
+        sh="#!/bin/bash\necho '1234567890'",
+        bat="@echo off\r\necho 1234567890\r\n",
+    )
+
     c = cfg()
     c["tools"] = {
         "enabled": True,
@@ -120,13 +130,22 @@ def test_tool_truncation(tmp_path):
     assert "[truncated to 5 bytes]" in out
 
 def test_tool_with_cache(tmp_path):
-    tool_script = tmp_path / "count.sh"
-    # Create a file to count
+    # Create a file to count — the tool increments it each run, so a cached
+    # second render must NOT re-execute (output stays "1").
     counter_file = tmp_path / "counter.txt"
-    counter_file.write_text("0")
-    tool_script.write_text(f"#!/bin/bash\nval=$(cat {counter_file}); echo $((val+1)) | tee {counter_file}")
-    tool_script.chmod(0o755)
-    
+    counter_file.write_text("0", encoding="utf-8")
+    tool_script = make_tool_script(
+        tmp_path, "count",
+        sh=f"#!/bin/bash\nval=$(cat {counter_file}); echo $((val+1)) | tee {counter_file}",
+        bat=(
+            "@echo off\r\n"
+            f'set /p val=<"{counter_file}"\r\n'
+            "set /a val+=1\r\n"
+            f'>"{counter_file}" echo %val%\r\n'
+            "echo %val%\r\n"
+        ),
+    )
+
     c = cfg()
     c["render"]["cache_dir"] = str(tmp_path / "cache")
     c["tools"] = {
@@ -154,7 +173,7 @@ def test_tool_strict_profile(tmp_path):
     assert "tools" in str(c)  # tools config present
     
     tool_script = tmp_path / "hello.sh"
-    tool_script.write_text("#!/bin/bash\necho hello")
+    tool_script.write_text("#!/bin/bash\necho hello", encoding="utf-8")
     tool_script.chmod(0o755)
     
     c["tools"]["allowlist"] = [{"name": "hello", "path": str(tool_script)}]

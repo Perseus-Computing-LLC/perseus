@@ -164,14 +164,14 @@ def _ensure_task_dir():
 
 def _setup_read_file(tmpdir: Path):
     _ensure_task_dir()
-    (TASK_DIR / "hello.txt").write_text("hello from gauntlet\n")
+    (TASK_DIR / "hello.txt").write_text("hello from gauntlet\n", encoding="utf-8")
 
 
 def _setup_multi_read(tmpdir: Path):
     _ensure_task_dir()
-    (TASK_DIR / "hello.txt").write_text("hello from gauntlet\n")
+    (TASK_DIR / "hello.txt").write_text("hello from gauntlet\n", encoding="utf-8")
     config = {"database": {"host": "localhost", "port": 5432}}
-    (TASK_DIR / "config.json").write_text(json.dumps(config))
+    (TASK_DIR / "config.json").write_text(json.dumps(config), encoding="utf-8")
 
 
 def _setup_file_counter(tmpdir: Path):
@@ -195,7 +195,7 @@ def helper():
 if __name__ == "__main__":
     main()
 """
-    (TASK_DIR / "test_file.py").write_text(code)
+    (TASK_DIR / "test_file.py").write_text(code, encoding="utf-8")
 
 
 def _setup_json_extract(tmpdir: Path):
@@ -204,25 +204,25 @@ def _setup_json_extract(tmpdir: Path):
         "database": {"host": "localhost", "port": 5432},
         "logging": {"level": "debug"},
     }
-    (TASK_DIR / "config.json").write_text(json.dumps(config))
+    (TASK_DIR / "config.json").write_text(json.dumps(config), encoding="utf-8")
     # Write helper script to avoid nested-quote issues in @query
     (TASK_DIR / "extract_host.py").write_text(
         "import json,sys\n"
         "print(json.load(open('/tmp/gauntlet-agent/config.json'))['database']['host'])\n"
-    )
+    , encoding="utf-8")
 
 
 def _setup_text_transform(tmpdir: Path):
     _ensure_task_dir()
     words = "apple\nbanana\nAPPLE\ncherry\nBanana\ndate\napple\nelderberry\n"
-    (TASK_DIR / "words.txt").write_text(words)
+    (TASK_DIR / "words.txt").write_text(words, encoding="utf-8")
 
 
 def _verify_text_transform() -> bool:
     output_file = TASK_DIR / "words_processed.txt"
     if not output_file.is_file():
         return False
-    lines = output_file.read_text().strip().splitlines()
+    lines = output_file.read_text(encoding="utf-8").strip().splitlines()
     # Should be: APPLE, BANANA, CHERRY, DATE, ELDERBERRY
     expected = ["APPLE", "BANANA", "CHERRY", "DATE", "ELDERBERRY"]
     return lines == expected
@@ -238,14 +238,14 @@ books,75,2026-01-03
 clothing,200,2026-01-02
 electronics,1000,2026-01-04
 """
-    (TASK_DIR / "sales.csv").write_text(csv)
+    (TASK_DIR / "sales.csv").write_text(csv, encoding="utf-8")
     # Write helper script to avoid nested-quote issues in @query
     (TASK_DIR / "aggregate_csv.py").write_text(
         "import csv\nfrom collections import defaultdict\ntotals = defaultdict(int)\n"
         "reader = csv.DictReader(open('/tmp/gauntlet-agent/sales.csv'))\n"
         "for row in reader:\n    totals[row['category']] += int(row['amount'])\n"
         "for cat in sorted(totals):\n    print(f'{cat}: {totals[cat]}')\n"
-    )
+    , encoding="utf-8")
 
 
 def _verify_csv_aggregate(output: str) -> bool:
@@ -263,7 +263,7 @@ def _verify_csv_aggregate(output: str) -> bool:
 def _setup_config_validator(tmpdir: Path):
     _ensure_task_dir()
     config = "version: 1.0\ndescription: test config\n# database intentionally missing\n"
-    (TASK_DIR / "config.yaml").write_text(config)
+    (TASK_DIR / "config.yaml").write_text(config, encoding="utf-8")
 
 
 def _verify_config_validator(output: str) -> bool:
@@ -285,7 +285,7 @@ def _setup_log_parser(tmpdir: Path):
     ]
     (TASK_DIR / "app.log").write_text(
         "\n".join(json.dumps(l) for l in logs)
-    )
+    , encoding="utf-8")
 
 
 def _verify_log_parser(output: str) -> bool:
@@ -303,12 +303,12 @@ def _setup_recursive_find(tmpdir: Path):
     _ensure_task_dir()
     project = TASK_DIR / "project"
     project.mkdir(exist_ok=True)
-    (project / "main.py").write_text("print('hello')")
-    (project / "utils.py").write_text("def helper(): pass")
+    (project / "main.py").write_text("print('hello')", encoding="utf-8")
+    (project / "utils.py").write_text("def helper(): pass", encoding="utf-8")
     sub = project / "sub"
     sub.mkdir(exist_ok=True)
-    (sub / "helper.py").write_text("# helper")
-    (sub / "config.json").write_text("{}")
+    (sub / "helper.py").write_text("# helper", encoding="utf-8")
+    (sub / "config.json").write_text("{}", encoding="utf-8")
 
 
 def _verify_recursive_find(output: str) -> bool:
@@ -321,14 +321,14 @@ def _verify_recursive_find(output: str) -> bool:
 def _setup_calculator(tmpdir: Path):
     _ensure_task_dir()
     calc = "5 + 3\n10 - 4\n6 * 7\n100 / 4\n"
-    (TASK_DIR / "calc.txt").write_text(calc)
+    (TASK_DIR / "calc.txt").write_text(calc, encoding="utf-8")
 
 
 def _verify_calculator() -> bool:
     output_file = TASK_DIR / "calc_results.txt"
     if not output_file.is_file():
         return False
-    lines = output_file.read_text().strip().splitlines()
+    lines = output_file.read_text(encoding="utf-8").strip().splitlines()
     expected = ["8", "6", "42", "25.0"]
     return lines == expected
 
@@ -337,10 +337,10 @@ def _setup_shell_pipeline(tmpdir: Path):
     _ensure_task_dir()
     for i in range(5):
         f = TASK_DIR / f"file_{i}.txt"
-        f.write_text(f"content {i}" * (i + 1) * 10)
+        f.write_text(f"content {i}" * (i + 1) * 10, encoding="utf-8")
     # Make one file old
     old_file = TASK_DIR / "old_file.txt"
-    old_file.write_text("old")
+    old_file.write_text("old", encoding="utf-8")
     # Touch it to be old (Unix-specific, but OK for benchmark)
     os.utime(str(old_file), (0, 0))
 
@@ -375,7 +375,7 @@ def run_single_agent_task(
 
     # Write task context file with required headers
     ctx_path = TASK_DIR / f"task_{task['id']}.md"
-    ctx_path.write_text(f"@perseus v0.8\n@prompt gauntlet benchmark task\n\n{task['context']}")
+    ctx_path.write_text(f"@perseus v0.8\n@prompt gauntlet benchmark task\n\n{task['context']}", encoding="utf-8")
 
     perseus = perseus_executable()
     env = os.environ.copy()

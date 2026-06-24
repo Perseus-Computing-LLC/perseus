@@ -98,9 +98,10 @@ def test_query_in_true_if_branch_still_runs_with_parallel_queries(
     """No regression on the happy path: @if true / @query must still run."""
     cfg = _cfg(parallel=True)
     marker = tmp_path / "marker_should_exist"
-    # 'env.set HOME' is always true in any normal test environment.
+    # 'env.set PATH' is always true on every platform (HOME is unset on
+    # Windows, where the home var is USERPROFILE).
     lines = [
-        "@if env.set HOME",
+        "@if env.set PATH",
         f'@query "echo SHOULD_RUN > {marker}"',
         "@endif",
     ]
@@ -182,9 +183,10 @@ def test_nested_if_active_outer_and_inner_means_query_runs(workspace, tmp_path):
     happy path)."""
     cfg = _cfg(parallel=True)
     marker = tmp_path / "marker_nested_should_run"
+    # PATH is set on every platform; HOME is not (Windows uses USERPROFILE).
     lines = [
-        "@if env.set HOME",
-        "@if env.set HOME",
+        "@if env.set PATH",
+        "@if env.set PATH",
         f'@query "echo NESTED_OK > {marker}"',
         "@endif",
         "@endif",

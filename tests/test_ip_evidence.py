@@ -67,7 +67,7 @@ def _write_exhibit(name: str, content: str | dict, *, as_json: bool = False) -> 
     suffix = ".json" if as_json else ".md"
     path = EXHIBITS_DIR / f"{ts}-{name}{suffix}"
     text = json.dumps(content, indent=2) if as_json else content
-    path.write_text(text)
+    path.write_text(text, encoding="utf-8")
     return path
 
 
@@ -118,7 +118,7 @@ def _write_e1_workspace(ws: Path, home: Path) -> Path:
         "      prefetch:\n"
         "        - \"@query \\\"git log --oneline -3\\\" @cache ttl=300\"\n"
         "        - \"@query \\\"git diff --stat\\\" @cache ttl=120\"\n"
-    )
+    , encoding="utf-8")
     source = ws / ".perseus" / "context.md"
     source.write_text(
         "@perseus v0.4\n\n"
@@ -128,7 +128,7 @@ def _write_e1_workspace(ws: Path, home: Path) -> Path:
         "@query \"git diff --stat\" @cache ttl=120 fallback=\"no diff\"\n\n"
         "@env PATH fallback=unset\n\n"
         "@tree . depth=1\n"
-    )
+    , encoding="utf-8")
     return source
 
 
@@ -302,7 +302,7 @@ def _write_e2_workspace(ws: Path) -> Path:
         "        args_contains: git log\n"
         "      prefetch:\n"
         "        - \"@agent \\\"ls -la\\\" @cache ttl=60\"\n"
-    )
+    , encoding="utf-8")
     source = ws / ".perseus" / "context.md"
     source.write_text(
         "@perseus v0.4\n\n"
@@ -310,7 +310,7 @@ def _write_e2_workspace(ws: Path) -> Path:
         "@query \"git status --short\" @cache ttl=300 fallback=\"clean\"\n\n"
         "@query \"git diff --stat\" @cache ttl=60 fallback=\"no diff\"\n\n"
         "@query \"git log --oneline -3\" @cache ttl=300 fallback=\"no log\"\n\n"
-    )
+    , encoding="utf-8")
     return source
 
 
@@ -440,7 +440,7 @@ def _write_e3_source(ws: Path) -> Path:
         "Only directives with explicit cache semantics are eligible for prefetch.\n"
         "The citation gate validates every LLM-drafted claim against exact source text.\n"
         "Claims that cannot be matched to a verbatim source quote are mechanically dropped.\n"
-    )
+    , encoding="utf-8")
     return src
 
 
@@ -479,7 +479,7 @@ def _synthesize_with_mock_response(
         "raw = " + json.dumps({"claims": mock_claims}) + "\n"
         "accepted, dropped = mod._validate_synthesis_claims(raw, [source], 20)\n"
         "print(json.dumps({'accepted': accepted, 'dropped': dropped}))\n"
-    )
+    , encoding="utf-8")
     env = _env(home)
     result = subprocess.run(
         [sys.executable, str(harness)],
@@ -664,7 +664,7 @@ def _write_e4_workspace(ws: Path) -> Path:
     (ws / ".perseus").mkdir(parents=True, exist_ok=True)
     (ws / ".perseus" / "config.yaml").write_text(
         "render:\n  allow_query_shell: true\n"
-    )
+    , encoding="utf-8")
     source = ws / ".perseus" / "context.md"
     source.write_text(
         "@perseus v0.4\n\n"
@@ -677,8 +677,8 @@ def _write_e4_workspace(ws: Path) -> Path:
         "  - name: Local App\n"
         "    url: http://localhost:3000/health\n"
         "@end\n"
-    )
-    (ws / "notes.md").write_text("Project notes.\n")
+    , encoding="utf-8")
+    (ws / "notes.md").write_text("Project notes.\n", encoding="utf-8")
     return source
 
 

@@ -38,7 +38,7 @@ def _write_checkpoint(store: Path, ts: str, task: str, status: str = "", notes: 
         "stale_after": "2999-01-01T00:00:00+00:00",
     }
     fp = store / f"{ts.replace(':', '').replace('-', '').replace('+', '_')[:14]}.yaml"
-    fp.write_text(yaml.dump(cp))
+    fp.write_text(yaml.dump(cp), encoding="utf-8")
     return fp
 
 
@@ -399,7 +399,7 @@ def test_memory_status_json_with_narrative(tmp_path, monkeypatch):
     c["memory"]["store"] = str(tmp_path / "memories")
     narrative = perseus._mneme_path(tmp_path, c)
     narrative.parent.mkdir(parents=True)
-    narrative.write_text("---\nupdated: '2026-05-18T12:00:00'\ncheckpoints_processed: 5\npythia_entries_processed: 3\ncompaction_count: 1\n---\nSome narrative content.\n")
+    narrative.write_text("---\nupdated: '2026-05-18T12:00:00'\ncheckpoints_processed: 5\npythia_entries_processed: 3\ncompaction_count: 1\n---\nSome narrative content.\n", encoding="utf-8")
     ns = argparse.Namespace(workspace=str(tmp_path), memory_command="status", json=True, llm=None)
     out, rc = _capture_json(monkeypatch, perseus.cmd_memory, ns, c)
     assert out["exists"] is True

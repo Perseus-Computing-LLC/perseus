@@ -79,11 +79,16 @@ def _lsp_workspace_from_params(params: dict, doc_uri: str | None = None) -> Path
 
 def _lsp_uri_to_path(uri: str) -> Path:
     """Convert ``file://`` URI to a Path."""
-    from urllib.parse import unquote, urlparse
+    from urllib.parse import urlparse
+    from urllib.request import url2pathname
     parsed = urlparse(uri)
     if parsed.scheme != "file":
         return Path(uri)
-    return Path(unquote(parsed.path)).resolve()
+    # url2pathname handles the Windows drive-letter form: urlparse leaves
+    # `file:///C:/x` as path `/C:/x`, and Path("/C:/x") on Windows yields the
+    # broken `\C:\x`. url2pathname maps it to `C:\x` (and percent-decodes);
+    # on POSIX it is an unquoting passthrough.
+    return Path(url2pathname(parsed.path)).resolve()
 
 
 def _lsp_parse_directive_at_line(line: str) -> tuple[str, str] | None:
