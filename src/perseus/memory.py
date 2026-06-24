@@ -2,24 +2,29 @@
 
 
 def _mneme_vault_path(cfg: dict) -> Path:
-    """Resolve the Mnēmē v2 vault directory from config or auto-detect.
+    """Resolve the Mnēmē v2 vault directory the FTS5 indexer scans.
 
     Resolution order:
       1. memory.mneme_vault_path from config (if set)
-      2. Auto-detect: $PERSEUS_HOME/memory/vault
-      3. Default path even if it doesn't exist (returns empty list)
+      2. memory.store — the directory where per-workspace narrative .md files
+         are actually written (see _mneme_path / mneme_narrative.py)
+      3. $PERSEUS_HOME/memory as a final fallback
+
+    The default deliberately tracks ``memory.store`` rather than a ``vault/``
+    subdirectory. Narratives are written to ``memory.store`` (default
+    ``$PERSEUS_HOME/memory``); if the indexer scanned ``$PERSEUS_HOME/memory/
+    vault`` instead, ``rglob("*.md")`` would find no narratives and recall
+    would silently return nothing on a stock install.
     """
     raw = cfg.get("memory", {}).get("mneme_vault_path", "").strip()
     if raw:
         return Path(raw).expanduser()
 
-    # Auto-detect: $PERSEUS_HOME/memory/vault
-    vault = PERSEUS_HOME / "memory" / "vault"
-    if vault.is_dir():
-        return vault
+    store = str(cfg.get("memory", {}).get("store", "") or "").strip()
+    if store:
+        return Path(store).expanduser()
 
-    # Return the default even if it doesn't exist
-    return vault
+    return PERSEUS_HOME / "memory"
 
 
 def _mneme_index_path(cfg: dict) -> Path:

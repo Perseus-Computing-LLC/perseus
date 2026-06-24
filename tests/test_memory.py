@@ -57,6 +57,53 @@ def test_mneme_path_uses_memory_store(tmp_path):
     assert perseus._workspace_hash(tmp_path) in p.name
 
 
+def test_mneme_vault_path_defaults_to_store(tmp_path):
+    """Regression: the FTS5 indexer must scan the narrative store by default.
+
+    With no explicit ``mneme_vault_path``, the indexer's source dir has to be
+    ``memory.store`` (where narratives are written) — not a ``vault/`` subdir,
+    which previously left the index empty on a stock install.
+    """
+    local = _mneme_cfg(tmp_path)  # sets memory.store, leaves vault path empty
+    assert local["memory"].get("mneme_vault_path", "") == ""
+    assert perseus._mneme_vault_path(local) == Path(local["memory"]["store"])
+    # _mneme_path (writer) and _mneme_vault_path (reader) scan the same dir.
+    narrative = perseus._mneme_path(tmp_path, local)
+    assert narrative.parent == perseus._mneme_vault_path(local)
+
+
+def test_index_rebuild_indexes_narrative_written_to_store(tmp_path):
+    """End-to-end: a narrative written via `memory update` is indexed by
+    `memory index rebuild` and is then recallable — with default paths."""
+    local = _mneme_cfg(tmp_path)  # store set; vault/index paths left to default
+    _write_checkpoint(
+        Path(local["checkpoints"]["store"]),
+        "2026-05-15T10:00:00+00:00",
+        "Initial work",
+        status="complete",
+        notes="We renamed oracle to Pythia.",
+    )
+    perseus.cmd_memory(
+        argparse.Namespace(memory_command="update", workspace=str(tmp_path), llm=None),
+        local,
+    )
+
+    # The narrative file the writer produced must carry the index fields.
+    fm, _ = perseus._load_narrative(perseus._mneme_path(tmp_path, local))
+    assert fm.get("id") and fm.get("title")
+    assert fm.get("type") == "narrative"
+
+    # `index rebuild` indexes it (>0 docs) using the default vault path.
+    count = perseus._mneme_build_index(local, force=True)
+    assert count >= 1
+    assert perseus._mneme_index_stats(local)["doc_count"] >= 1
+
+    # And recall finds it.
+    hits = perseus._mneme_recall(local, "Pythia", k=5)
+    assert len(hits) >= 1
+    assert any(h.get("type") == "narrative" for h in hits)
+
+
 def test_save_and_load_narrative_roundtrip(tmp_path):
     local = _mneme_cfg(tmp_path)
     p = perseus._mneme_path(tmp_path, local)
