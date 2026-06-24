@@ -12,6 +12,60 @@ def _resolve_max_bytes(cfg: dict, key: str) -> int | None:
     except (ValueError, TypeError):
         return None
 
+
+# Heading line (#..######, up to 3 leading spaces per CommonMark) containing an
+# ISO date. Used by @include `since=` to delimit dated sections of a log file.
+_INCLUDE_DATE_HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s+.*?(\d{4}-\d{2}-\d{2})")
+
+
+def _include_since_cutoff(since: str):
+    """Parse a ``since=`` window (e.g. ``14d``, ``2w``, ``24h``) into a cutoff date.
+
+    Returns a ``date`` (sections on/after it are kept) or ``None`` when ``since``
+    is malformed so the caller can surface a warning."""
+    m = re.fullmatch(r"(\d+)\s*([hdw])", since.strip().lower())
+    if not m:
+        return None
+    n = int(m.group(1))
+    hours = {"h": n, "d": n * 24, "w": n * 24 * 7}[m.group(2)]
+    return (datetime.now() - timedelta(hours=hours)).date()
+
+
+def _filter_since(raw: str, cutoff) -> str:
+    """Keep only sections whose dated heading is on/after ``cutoff``.
+
+    A "dated heading" is a markdown heading whose text contains an ISO date
+    (``YYYY-MM-DD``). Content before the first dated heading (preamble) is
+    always kept. Bounds an appended, dated session log (#433)."""
+    out: list[str] = []
+    keep = True  # preamble before the first dated heading is always kept
+    for line in raw.splitlines():
+        m = _INCLUDE_DATE_HEADING_RE.match(line)
+        if m:
+            try:
+                d = datetime.strptime(m.group(1), "%Y-%m-%d").date()
+                keep = d >= cutoff
+            except ValueError:
+                pass  # not a real calendar date — keep current section state
+        if keep:
+            out.append(line)
+    return "\n".join(out)
+
+
+def _apply_include_window(raw: str, last, cutoff) -> str:
+    """Apply @include ``since=``/``last=`` windowing to raw file text (#433).
+
+    ``since`` is applied first (drop old dated sections), then ``last`` caps the
+    result to its final N lines."""
+    if cutoff is not None:
+        raw = _filter_since(raw, cutoff)
+    if last is not None:
+        lines = raw.splitlines()
+        if len(lines) > last:
+            raw = "\n".join(lines[-last:] if last > 0 else [])
+    return raw
+
+
 def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | None = None,
                     *, _depth: int = 0,
                     _path_chain: tuple = (),
@@ -38,8 +92,36 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
     file_path_str, remaining = _extract_quoted_token(args_str.strip())
     if not file_path_str:
         return "> ⚠ @include: no file specified."
+
+    # ── Optional windowing modifiers (#433) ──
+    #   last=N           keep only the final N lines of the file
+    #   since=<Nh|Nd|Nw> keep only dated sections within the window
+    # Bounds an @include'd file that grows without limit (e.g. a session log
+    # appended to each session) so rendered AGENTS.md does not grow unbounded.
+    last_n = None
+    since_cutoff = None
     if remaining.strip():
-        return f"> ⚠ @include: unexpected trailing input: `{remaining.strip()}`"
+        options = _parse_kv_modifiers(remaining)
+        leftover = _KV_PAIR_RE.sub("", remaining).strip()
+        if leftover:
+            return f"> ⚠ @include: unexpected trailing input: `{leftover}`"
+        unknown = set(options) - {"last", "since"}
+        if unknown:
+            return ("> ⚠ @include: unsupported option(s): "
+                    f"{', '.join(sorted(unknown))}. Supported: last=, since=.")
+        if "last" in options:
+            try:
+                last_n = int(options["last"])
+                if last_n < 0:
+                    raise ValueError
+            except ValueError:
+                return ("> ⚠ @include: last= must be a non-negative integer "
+                        f"(got `{options['last']}`).")
+        if "since" in options:
+            since_cutoff = _include_since_cutoff(options["since"])
+            if since_cutoff is None:
+                return ("> ⚠ @include: since= must look like 14d, 2w, or 24h "
+                        f"(got `{options['since']}`).")
 
     render_cfg = (cfg or DEFAULT_CONFIG).get("render", {})
     base = workspace or Path.cwd()
@@ -123,34 +205,55 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
     else:
         trunc_note = ""
 
+    # ── Apply windowing (#433) before dispatching on file type so it bounds
+    #    both fenced and recursively-rendered includes. Applied after the byte
+    #    truncation cap so `last=`/`since=` operate on decoded text.
+    if last_n is not None or since_cutoff is not None:
+        raw = _apply_include_window(raw, last_n, since_cutoff).rstrip()
+
     ext = fp.suffix.lower()
 
-    # ── Recursive rendering for .md files ──
+    # ── Build the included body by file type ──
     if ext == ".md":
         # Check if this is a Perseus source file (starts with @perseus)
         if raw.lstrip().startswith("@perseus"):
             try:
                 # Render the included file through Perseus with incremented depth
-                rendered = render_source(raw, cfg, workspace, _include_depth=_depth + 1,
-                                         _include_path_chain=_path_chain,
-                                         _include_inode_chain=_inode_chain,
-                                         _directive_collector=_directive_collector,
-                                         _stats=_stats)
-                return trunc_note + rendered
+                body = render_source(raw, cfg, workspace, _include_depth=_depth + 1,
+                                     _include_path_chain=_path_chain,
+                                     _include_inode_chain=_inode_chain,
+                                     _directive_collector=_directive_collector,
+                                     _stats=_stats)
             except RecursionError:
                 return "> ⚠ @include: recursion limit exceeded."
         else:
             # Plain markdown — embed as-is (no Perseus header, no rendering needed)
-            return trunc_note + raw
+            body = raw
     elif ext in (".yaml", ".yml"):
-        return trunc_note + f"```yaml\n{raw}\n```"
+        body = f"```yaml\n{raw}\n```"
     elif ext == ".json":
-        return trunc_note + f"```json\n{raw}\n```"
+        body = f"```json\n{raw}\n```"
     elif ext == ".toml":
-        return trunc_note + f"```toml\n{raw}\n```"
+        body = f"```toml\n{raw}\n```"
     elif ext in (".sh", ".bash"):
-        return trunc_note + f"```bash\n{raw}\n```"
+        body = f"```bash\n{raw}\n```"
     elif ext == ".py":
-        return trunc_note + f"```python\n{raw}\n```"
+        body = f"```python\n{raw}\n```"
     else:
-        return trunc_note + f"```text\n{raw}\n```"
+        body = f"```text\n{raw}\n```"
+
+    # ── Optional oversize warning (#433): advisory note when the rendered
+    #    include exceeds render.max_include_warn_bytes. Opt-in (default None);
+    #    the content is still included in full — this only flags growth.
+    warn_note = ""
+    warn_bytes = _resolve_max_bytes(cfg, "max_include_warn_bytes")
+    if warn_bytes is not None:
+        body_bytes = len(body.encode("utf-8", errors="replace"))
+        if body_bytes > warn_bytes:
+            warn_note = (
+                f"> ⚠ @include: rendered output of `{file_path_str}` is "
+                f"{body_bytes:,} bytes (warn threshold {warn_bytes:,}). "
+                f"Bound it with `last=` or `since=`.\n\n"
+            )
+
+    return trunc_note + warn_note + body

@@ -26,8 +26,10 @@ DEFAULT_CONFIG = {
         "max_query_bytes": 262144,    # 256 KB stdout cap
         "max_read_bytes": 524288,    # 512 KB file size cap for @read (None = unlimited)
         "max_include_bytes": 524288, # 512 KB file size cap for @include (None = unlimited)
+        "max_include_warn_bytes": None,  # advisory warning when a single @include renders larger than this (None = disabled) — see #433
         "max_safe_read_bytes": 52428800,  # 50 MB hard pre-read guard for @read/@include before bytes hit memory (None = disabled)
         "max_include_depth": 5,      # max depth for transitive @include recursion
+        "staleness_warn_hours": 48,  # `perseus doctor` warns when a rendered output is older than this (0 = disabled) — see #431
         "integrity_check": False,    # opt-in: detect files modified during render
         "parallel_services": False,   # opt-in: concurrent @services health checks
         "parallel_queries": False,    # opt-in: concurrent @query resolution

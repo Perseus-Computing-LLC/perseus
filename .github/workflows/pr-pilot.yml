@@ -43,9 +43,28 @@ jobs:
         run: pip install -e .
 
       - name: Run PR Pilot Agent Chain
-        # cli.py reads PR context from GITHUB_EVENT_PATH and the PR diff from the
-        # API, so it never needs the PR's checked-out code.
+        # The agent CLI reads PR context from GITHUB_EVENT_PATH and the PR diff
+        # from the API, so it never needs the PR's checked-out code.
+        #
+        # PR Pilot's agent chain is published separately; this repo currently
+        # ships only the product page. Resolve the entrypoint if it is present,
+        # otherwise skip cleanly so the check never red-X's a PR on missing
+        # optional tooling (and never blocks a merge). Also skip when no API key
+        # is available (e.g. forked PRs, which do not receive secrets).
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python src/cli.py
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if [ -z "${GEMINI_API_KEY}" ]; then
+            echo "PR Pilot: GEMINI_API_KEY not available (forked PR?) — skipping autonomous review."
+            exit 0
+          fi
+          for entry in pr-pilot/cli.py src/cli.py src/perseus/pr_pilot.py; do
+            if [ -f "$entry" ]; then
+              echo "PR Pilot: running $entry"
+              exec python "$entry"
+            fi
+          done
+          echo "PR Pilot: agent entrypoint not found in this repo — skipping autonomous review."
+          echo "(Add pr-pilot/cli.py to enable Gemini-based PR review.)"
