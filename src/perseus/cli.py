@@ -46,6 +46,11 @@ def main():
              "Use when env vars (e.g. PERSEUS_ALLOW_DANGEROUS) changed but cached "
              "results are stale.",
     )
+    p_render.add_argument(
+        "--quiet", "-q", action="store_true",
+        help="Suppress the per-render audit line printed after writing --output "
+             "(version, paths, size, timestamp). No effect when rendering to stdout.",
+    )
 
     # watch (Phase 20C)
     p_watch = sub.add_parser("watch", help="Poll and refresh render outputs when context sources change")

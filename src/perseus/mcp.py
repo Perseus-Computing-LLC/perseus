@@ -102,7 +102,7 @@ _PARAM_DESCRIPTIONS: dict[str, dict[str, str]] = {
                      "schema": "JSON Schema to validate command output against"},
     "@perseus":     {"url": "URL of the remote Perseus instance to fetch context from"},
     "@tool":        {"name": "Name of the allowlisted external tool to run"},
-    "@include":     {"path": "File path to include and render (relative to workspace root)"},
+    "@include":     {"path": "File path to include and render (relative to workspace root)", "last": "Keep only the final N lines of the file (bounds a growing log)", "since": "Keep only dated sections within a window, e.g. 14d, 2w, 24h"},
 }
 
 

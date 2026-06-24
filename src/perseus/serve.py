@@ -92,6 +92,20 @@ def cmd_render(args, cfg):
                     pass  # chown may fail in containers without CAP_CHOWN
         else:
             out_path.write_text(rendered, encoding="utf-8")
+
+        # Versioned, timestamped audit line on every render-to-file (#431).
+        # Scheduled jobs route stdout to a log (e.g. perseus-render.out.log),
+        # so this makes the last successful render — and which Perseus version
+        # produced it — auditable, surfacing silent staleness. Suppress with
+        # --quiet for scripted callers that parse stdout.
+        if not getattr(args, "quiet", False):
+            warn_count = rendered.count("⚠")
+            warn_note = f", {warn_count} warning(s)" if warn_count else ""
+            ts = datetime.now().astimezone().isoformat(timespec="seconds")
+            print(
+                f"perseus {_PERSEUS_VERSION}: rendered {source_path} → {out_path} "
+                f"({len(rendered.encode('utf-8', errors='replace')):,} bytes{warn_note}) at {ts}"
+            )
     else:
         print(rendered)
 
