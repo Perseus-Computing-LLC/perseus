@@ -58,10 +58,14 @@ def serve_instance(tmp_path):
             "store": str(home / "memory"),
         }
     }
-    (ws / ".perseus" / "config.yaml").write_text(yaml.dump(config))
+    (ws / ".perseus" / "config.yaml").write_text(yaml.dump(config), encoding="utf-8")
 
     # Initialize narrative
-    env = {"PERSEUS_HOME": str(home), "PATH": os.environ.get("PATH", "")}
+    # Inherit the full parent environment, overriding only PERSEUS_HOME. A
+    # minimal {PERSEUS_HOME, PATH} dict drops USERPROFILE, which Path.home()
+    # needs on Windows (no pwd-database fallback as on POSIX) — the spawned
+    # perseus.py then crashes at import resolving SKILLS_DIR/SESSIONS_DIR.
+    env = {**os.environ, "PERSEUS_HOME": str(home)}
     subprocess.run(
         [sys.executable, str(PERSEUS_PY),
          "memory", "update", "--workspace", str(ws)],

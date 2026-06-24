@@ -1,15 +1,17 @@
 import pytest
 from pathlib import Path
-from conftest import PY_VER, cfg, perseus
+from conftest import PY_VER, cfg, perseus, make_tool_script
 
 pytestmark = pytest.mark.skipif(PY_VER < (3, 10), reason="Perseus requires Python 3.10+")
 
 
 def test_tool_allowed_runs(tmp_path):
     """Allowed tool produces output."""
-    script = tmp_path / "hello.sh"
-    script.write_text("#!/bin/sh\necho hello from tool")
-    script.chmod(0o755)
+    script = make_tool_script(
+        tmp_path, "hello",
+        sh="#!/bin/sh\necho hello from tool",
+        bat="@echo off\r\necho hello from tool\r\n",
+    )
     c = cfg()
     c["tools"]["allowlist"] = [
         {"name": "hello", "path": str(script), "allowed_args": [], "timeout_s": 5, "max_output_bytes": 1048576}

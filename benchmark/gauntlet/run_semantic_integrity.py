@@ -198,7 +198,7 @@ def main():
     result = run_semantic_integrity(args.n_pairs, model=model)
 
     output_path = args.output or (Path(__file__).resolve().parent / "phase_8_result.json")
-    with open(output_path, "w") as f:
+    with open(output_path, "w", encoding="utf-8") as f:
         json.dump(result, f, indent=2, default=str)
 
     print(f"\nSaved to {output_path}")

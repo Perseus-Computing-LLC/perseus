@@ -164,7 +164,7 @@ def resolve_session(args_str: str, cfg: dict) -> str:
         if len(results) >= count:
             break
         try:
-            data = json.loads(sf.read_text(errors="replace"))
+            data = json.loads(sf.read_text(errors="replace", encoding="utf-8"))
         except Exception:
             continue
 

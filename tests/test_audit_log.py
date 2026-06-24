@@ -45,7 +45,7 @@ def test_audit_event_writes_jsonl(tmp_path, monkeypatch):
     perseus.audit_event(cfg, "shell_exec", directive="@query", command="echo hi")
     path = perseus._audit_log_path(cfg)
     assert path.exists()
-    lines = path.read_text().strip().splitlines()
+    lines = path.read_text(encoding="utf-8").strip().splitlines()
     assert len(lines) == 1
     rec = json.loads(lines[0])
     assert rec["event_type"] == "shell_exec"
@@ -75,7 +75,7 @@ def test_audit_event_non_json_field_is_repred(tmp_path, monkeypatch):
             return "<Weird>"
 
     perseus.audit_event(cfg, "model_call", junk=Weird())
-    rec = json.loads(perseus._audit_log_path(cfg).read_text().splitlines()[0])
+    rec = json.loads(perseus._audit_log_path(cfg).read_text(encoding="utf-8").splitlines()[0])
     assert rec["junk"] == "<Weird>"
 
 
@@ -194,13 +194,13 @@ def test_audit_log_never_contains_raw_secret(tmp_path, monkeypatch):
     (home / "config.yaml").write_text(yaml.safe_dump({
         "audit": {"enabled": True, "log_path": str(home / "audit_log.jsonl")},
         "redaction": {"enabled": True},
-    }))
+    }), encoding="utf-8")
 
     secret = "sk-" + "Z" * 40
     workspace = tmp_path / "ws"
     workspace.mkdir()
     src = workspace / "ctx.md"
-    src.write_text(f"key: {secret}\n")
+    src.write_text(f"key: {secret}\n", encoding="utf-8")
     out_path = workspace / "out.md"
 
     perseus.cmd_render(
@@ -208,8 +208,8 @@ def test_audit_log_never_contains_raw_secret(tmp_path, monkeypatch):
         {},
     )
     # Output redacted on disk; audit emitted but no secret in the log.
-    assert secret not in out_path.read_text()
-    audit_text = (home / "audit_log.jsonl").read_text()
+    assert secret not in out_path.read_text(encoding="utf-8")
+    audit_text = (home / "audit_log.jsonl").read_text(encoding="utf-8")
     assert secret not in audit_text
     # And we did record a redaction event.
     assert "\"event_type\": \"redaction\"" in audit_text
@@ -245,7 +245,7 @@ def test_audit_event_redacts_aws_key_in_command_field(tmp_path, monkeypatch):
     perseus.audit_event(cfg, "shell_exec",
                         directive="@query",
                         command=f"aws s3 cp s3://b/k . --access-key {aws_key}")
-    log_text = log_path.read_text()
+    log_text = log_path.read_text(encoding="utf-8")
     assert aws_key not in log_text, (
         f"AWS key leaked to audit log:\n{log_text}"
     )
@@ -259,7 +259,7 @@ def test_audit_event_redacts_bearer_token_in_command_field(tmp_path, monkeypatch
     perseus.audit_event(cfg, "shell_exec",
                         directive="@query",
                         command=f"curl -H 'Authorization: Bearer {token}'")
-    log_text = log_path.read_text()
+    log_text = log_path.read_text(encoding="utf-8")
     assert token not in log_text
 
 
@@ -270,7 +270,7 @@ def test_audit_event_does_not_redact_structural_fields(tmp_path, monkeypatch):
                         directive="@query",
                         exit_code=42,
                         duration_ms=1234)
-    entry = json.loads(log_path.read_text().strip())
+    entry = json.loads(log_path.read_text(encoding="utf-8").strip())
     assert entry["directive"] == "@query"
     assert entry["exit_code"] == 42
     assert entry["duration_ms"] == 1234
@@ -284,7 +284,7 @@ def test_audit_event_redact_fields_can_be_disabled(tmp_path, monkeypatch):
     perseus.audit_event(cfg, "shell_exec",
                         directive="@query",
                         command=f"aws sts --key {aws_key}")
-    log_text = log_path.read_text()
+    log_text = log_path.read_text(encoding="utf-8")
     assert aws_key in log_text  # opt-out works
 
 
@@ -296,7 +296,7 @@ def test_audit_event_walks_nested_dict_fields(tmp_path, monkeypatch):
                         directive="@perseus",
                         env={"GITHUB_TOKEN": token, "DEBUG": "1"},
                         argv=["curl", "-H", f"Authorization: Bearer {token}"])
-    log_text = log_path.read_text()
+    log_text = log_path.read_text(encoding="utf-8")
     assert token not in log_text
 
 

@@ -3,10 +3,10 @@ import copy
 import io
 import json
 import os
-import select
 import socket
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -114,6 +114,15 @@ class LSPHarness:
         self.sock = None
         self._next_id = 0
         self._pending: list[dict] = []
+        # Background reader: select.select() only accepts sockets on Windows
+        # (WinError 10038 on a stdio pipe fd), so instead of select-polling the
+        # reader fd we drain it in a daemon thread into a shared buffer and let
+        # readers block on a Condition with a deadline. Works uniformly for
+        # both --stdio (pipe) and --tcp (socket) transports on every platform.
+        self._buf = bytearray()
+        self._buf_cond = threading.Condition()
+        self._eof = False
+        self._rthread = None
 
     def __enter__(self):
         self.start()
@@ -169,7 +178,26 @@ class LSPHarness:
             )
             self.reader = self.proc.stdout
             self.writer = self.proc.stdin
+        self._rthread = threading.Thread(target=self._reader_loop, daemon=True)
+        self._rthread.start()
         return self
+
+    def _reader_loop(self):
+        """Drain self.reader into the shared buffer until EOF."""
+        try:
+            while True:
+                chunk = self.reader.read(1)
+                if not chunk:
+                    break
+                with self._buf_cond:
+                    self._buf.extend(chunk)
+                    self._buf_cond.notify_all()
+        except Exception:
+            pass
+        finally:
+            with self._buf_cond:
+                self._eof = True
+                self._buf_cond.notify_all()
 
     @staticmethod
     def _free_tcp_port() -> int:
@@ -188,32 +216,21 @@ class LSPHarness:
                 return ""
         return ""
 
-    def _wait_readable(self, deadline: float) -> None:
-        remaining = deadline - time.time()
-        if remaining <= 0:
-            raise AssertionError(f"timed out waiting for LSP response; stderr={self._stderr()}")
-        if self.proc and self.proc.poll() is not None:
-            raise AssertionError(f"LSP exited early: {self._stderr()}")
-        readable, _, _ = select.select([self.reader.fileno()], [], [], remaining)
-        if not readable:
-            raise AssertionError(f"timed out waiting for LSP response; stderr={self._stderr()}")
+    def _read_exact(self, length: int, deadline: float) -> bytes:
+        with self._buf_cond:
+            while len(self._buf) < length:
+                if self._eof:
+                    raise AssertionError(f"LSP stream closed; stderr={self._stderr()}")
+                remaining = deadline - time.time()
+                if remaining <= 0:
+                    raise AssertionError(f"timed out waiting for LSP response; stderr={self._stderr()}")
+                self._buf_cond.wait(timeout=min(remaining, 0.2))
+            data = bytes(self._buf[:length])
+            del self._buf[:length]
+            return data
 
     def _read_byte(self, deadline: float) -> bytes:
-        self._wait_readable(deadline)
-        chunk = os.read(self.reader.fileno(), 1)
-        if not chunk:
-            raise AssertionError(f"LSP stream closed; stderr={self._stderr()}")
-        return chunk
-
-    def _read_exact(self, length: int, deadline: float) -> bytes:
-        data = b""
-        while len(data) < length:
-            self._wait_readable(deadline)
-            chunk = os.read(self.reader.fileno(), length - len(data))
-            if not chunk:
-                raise AssertionError(f"LSP stream closed; stderr={self._stderr()}")
-            data += chunk
-        return data
+        return self._read_exact(1, deadline)
 
     def read(self, timeout: float = 5) -> dict:
         deadline = time.time() + timeout
@@ -388,7 +405,7 @@ def test_lsp_executecommand_compact_memory_requires_mutation_gate(lsp_harness):
 
 def test_lsp_executecommand_render_is_read_only(lsp_harness, tmp_path):
     lsp_harness.initialize()
-    (tmp_path / "data.yaml").write_text("name: demo\n")
+    (tmp_path / "data.yaml").write_text("name: demo\n", encoding="utf-8")
     uri = (tmp_path / "context.md").as_uri()
     lsp_harness.notify("textDocument/didOpen", _lsp_doc(uri, '@read data.yaml path="name"\n'))
     lsp_harness.expect_notification("textDocument/publishDiagnostics")
@@ -406,7 +423,7 @@ def test_lsp_executecommand_open_checkpoint_returns_latest_uri(lsp_harness, tmp_
     checkpoint_store = tmp_path / ".perseus-home" / "checkpoints"
     checkpoint_store.mkdir(parents=True, exist_ok=True)
     latest = checkpoint_store / "latest.yaml"
-    latest.write_text("task: demo\n")
+    latest.write_text("task: demo\n", encoding="utf-8")
 
     rsp = lsp_harness.request("workspace/executeCommand", {
         "command": "perseus.openCheckpoint",

@@ -39,7 +39,7 @@ def _load_identity(cfg: dict) -> dict | None:
     if not p.exists():
         return None
     try:
-        data = yaml.safe_load(p.read_text()) or {}
+        data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
         if isinstance(data, dict) and "workspace_id" in data and "_secret" in data:
             return dict(data)
         return None
@@ -195,7 +195,7 @@ def _sign_narrative_with_chain(narrative_body: str, identity: dict,
     # Link to previous signature
     if prev_sig_path and prev_sig_path.exists():
         try:
-            prev_sig = json.loads(prev_sig_path.read_text())
+            prev_sig = json.loads(prev_sig_path.read_text(encoding="utf-8"))
             sig["prev_signature"] = prev_sig.get("signature", "")
         except Exception:
             pass
@@ -228,7 +228,7 @@ def _verify_chain(hash_or_path: str, identity: dict, cfg: dict) -> tuple[bool, i
     if not mp.exists():
         return (False, 0, f"narrative not found: {mp}")
 
-    narrative = mp.read_text()
+    narrative = mp.read_text(encoding="utf-8")
     sig_path = mp.with_suffix(mp.suffix + ".sig")
     if not sig_path.exists():
         return (False, 0, f"no signature: {sig_path}")
@@ -243,8 +243,8 @@ def _verify_chain(hash_or_path: str, identity: dict, cfg: dict) -> tuple[bool, i
             return (False, count, f"cycle detected at version {count}")
         seen.add(str(current_sig_path))
 
-        narrative = current_mp.read_text()
-        sig_dict = json.loads(current_sig_path.read_text())
+        narrative = current_mp.read_text(encoding="utf-8")
+        sig_dict = json.loads(current_sig_path.read_text(encoding="utf-8"))
         valid, reason = _verify_signature(narrative, sig_dict, identity)
         if not valid:
             return (False, count, f"version {count} invalid: {reason}")
@@ -259,7 +259,7 @@ def _verify_chain(hash_or_path: str, identity: dict, cfg: dict) -> tuple[bool, i
         found = False
         for sf in sorted(store.glob("*.md.sig")):
             try:
-                ps = json.loads(sf.read_text())
+                ps = json.loads(sf.read_text(encoding="utf-8"))
                 if ps.get("signature") == prev_sig:
                     current_sig_path = sf
                     current_mp = sf.with_suffix("").with_suffix(".md")
@@ -329,7 +329,7 @@ def cmd_identity_rotate(args, cfg) -> int | None:
     history = []
     if hist_path.exists():
         try:
-            history = yaml.safe_load(hist_path.read_text()) or []
+            history = yaml.safe_load(hist_path.read_text(encoding="utf-8")) or []
             if not isinstance(history, list):
                 history = []
         except Exception:
@@ -343,12 +343,12 @@ def cmd_identity_rotate(args, cfg) -> int | None:
         "created": identity.get("created", ""),
         "rotated_at": datetime.now(timezone.utc).isoformat(),
     })
-    hist_path.write_text(yaml.dump(history, sort_keys=False))
+    hist_path.write_text(yaml.dump(history, sort_keys=False), encoding="utf-8")
 
     # Generate new identity
     new_identity = _generate_identity()
     p = _identity_path(cfg)
-    p.write_text(yaml.dump(new_identity, sort_keys=False))
+    p.write_text(yaml.dump(new_identity, sort_keys=False), encoding="utf-8")
 
     print(f"✅ Identity rotated: {new_identity['workspace_id']}")
     print(f"   Old key preserved in {hist_path}")
@@ -376,7 +376,7 @@ def cmd_identity(args, cfg) -> int | None:
                 return 0
         identity = _generate_identity()
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(yaml.dump(identity, sort_keys=False))
+        p.write_text(yaml.dump(identity, sort_keys=False), encoding="utf-8")
         print(f"✅ Workspace identity created: {identity['workspace_id']}")
         print(f"   File: {p}")
         print(f"   Algorithm: {identity['algorithm']}")
@@ -457,7 +457,7 @@ def _load_grants(cfg: dict) -> list[dict]:
     if not p.exists():
         return []
     try:
-        data = yaml.safe_load(p.read_text()) or {}
+        data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
         return data.get("grants", []) if isinstance(data, dict) else []
     except Exception:
         return []
@@ -467,7 +467,7 @@ def _save_grants(cfg: dict, grants: list[dict]) -> Path:
     p = _grants_path(cfg)
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_suffix(p.suffix + ".tmp")
-    tmp.write_text(yaml.dump({"grants": grants}, sort_keys=False))
+    tmp.write_text(yaml.dump({"grants": grants}, sort_keys=False), encoding="utf-8")
     os.replace(tmp, p)
     return p
 
@@ -637,11 +637,11 @@ def cmd_memory_sign(args, cfg) -> int | None:
         print(f"No narrative at {mp}. Run `perseus memory update` first.", file=sys.stderr)
         return 1
 
-    narrative_body = mp.read_text()
+    narrative_body = mp.read_text(encoding="utf-8")
     sig = _sign_narrative(narrative_body, identity)
 
     sig_path = mp.with_suffix(mp.suffix + ".sig")
-    sig_path.write_text(json.dumps(sig, indent=2))
+    sig_path.write_text(json.dumps(sig, indent=2), encoding="utf-8")
 
     use_json = getattr(args, "json", False)
     if use_json:
@@ -679,8 +679,8 @@ def cmd_memory_verify(args, cfg) -> int | None:
         return 2
 
     try:
-        sig_dict = json.loads(sig_path.read_text())
-        narrative_body = mp.read_text()
+        sig_dict = json.loads(sig_path.read_text(encoding="utf-8"))
+        narrative_body = mp.read_text(encoding="utf-8")
     except Exception as e:
         print(f"Error reading files: {e}", file=sys.stderr)
         return 1

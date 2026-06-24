@@ -47,8 +47,8 @@ def _write_perf_workspace(workspace: Path) -> Path:
     (workspace / ".perseus" / "config.yaml").write_text(
         "permissions:\n  profile: strict\n"
         "render:\n  allow_query_shell: false\n  allow_agent_shell: false\n"
-    )
-    (workspace / "notes.md").write_text("Perseus performance fixture.\n")
+    , encoding="utf-8")
+    (workspace / "notes.md").write_text("Perseus performance fixture.\n", encoding="utf-8")
     source = workspace / "context.md"
     source.write_text(
         "@perseus v0.4\n\n"
@@ -56,10 +56,10 @@ def _write_perf_workspace(workspace: Path) -> Path:
         "@include \"notes.md\"\n\n"
         "@env PERF_BUDGET_MISSING fallback=unset\n\n"
         "@tree . depth=1\n"
-    )
+    , encoding="utf-8")
     (workspace / "source-a.md").write_text(
         "Project Atlas is green because every release gate has a cited owner.\n"
-    )
+    , encoding="utf-8")
     return source
 
 
@@ -117,7 +117,7 @@ def test_serve_startup_budget(tmp_path: Path, request):
     token = "perf-token"
     (tmp_path / ".perseus" / "config.yaml").write_text(
         "serve:\n  bind: 127.0.0.1\n  auth_token: perf-token\n"
-    )
+    , encoding="utf-8")
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
@@ -189,7 +189,7 @@ def test_watch_first_render_budget(tmp_path: Path, request):
         try:
             deadline = time.perf_counter() + 5
             while time.perf_counter() < deadline:
-                if output.exists() and "Performance Fixture" in output.read_text():
+                if output.exists() and "Performance Fixture" in output.read_text(encoding="utf-8"):
                     return (time.perf_counter() - start) * 1000
                 time.sleep(0.02)
             stderr = proc.stderr.read() if proc.stderr else ""

@@ -21,13 +21,14 @@ from pathlib import Path
 import pytest
 import yaml
 import perseus
+from conftest import marker_touch_command
 
 
 def _make_workspace(tmp_path: Path, ws_cfg: dict | None = None) -> Path:
     ws = tmp_path / "ws"
     (ws / ".perseus").mkdir(parents=True)
     if ws_cfg is not None:
-        (ws / ".perseus" / "config.yaml").write_text(yaml.safe_dump(ws_cfg))
+        (ws / ".perseus" / "config.yaml").write_text(yaml.safe_dump(ws_cfg), encoding="utf-8")
     return ws
 
 
@@ -35,7 +36,7 @@ def _make_home(tmp_path: Path, global_cfg: dict | None = None) -> Path:
     home = tmp_path / "home" / ".perseus"
     home.mkdir(parents=True)
     if global_cfg is not None:
-        (home / "config.yaml").write_text(yaml.safe_dump(global_cfg))
+        (home / "config.yaml").write_text(yaml.safe_dump(global_cfg), encoding="utf-8")
     return home
 
 
@@ -52,7 +53,7 @@ def test_workspace_shell_hook_refused_by_default(tmp_path, monkeypatch):
     ws = _make_workspace(tmp_path, {
         "hooks": {
             "on_render_start": [
-                f"touch {marker}",
+                marker_touch_command(marker),
             ],
         },
     })
@@ -83,7 +84,7 @@ def test_workspace_shell_hook_allowed_with_full_opt_in(tmp_path, monkeypatch):
     ws = _make_workspace(tmp_path, {
         "hooks": {
             "on_render_start": [
-                f"touch {marker}",
+                marker_touch_command(marker),
             ],
         },
     })
@@ -109,7 +110,7 @@ def test_workspace_shell_hook_refused_with_only_global_opt_in(tmp_path, monkeypa
 
     marker = tmp_path / "marker_should_not_exist_global_only"
     ws = _make_workspace(tmp_path, {
-        "hooks": {"on_render_start": [f"touch {marker}"]},
+        "hooks": {"on_render_start": [marker_touch_command(marker)]},
     })
 
     cfg = perseus.load_config(workspace=ws)
@@ -128,7 +129,7 @@ def test_workspace_shell_hook_refused_with_only_env_var(tmp_path, monkeypatch):
 
     marker = tmp_path / "marker_should_not_exist_env_only"
     ws = _make_workspace(tmp_path, {
-        "hooks": {"on_render_start": [f"touch {marker}"]},
+        "hooks": {"on_render_start": [marker_touch_command(marker)]},
     })
 
     cfg = perseus.load_config(workspace=ws)
@@ -146,7 +147,7 @@ def test_global_shell_hook_runs_without_workspace_opt_in(tmp_path, monkeypatch):
     marker = tmp_path / "marker_global_runs"
     home = _make_home(tmp_path, {
         "hooks": {
-            "on_render_start": [f"touch {marker}"],
+            "on_render_start": [marker_touch_command(marker)],
         },
     })
     monkeypatch.setattr(perseus, "PERSEUS_HOME", home)
@@ -234,7 +235,7 @@ def test_workspace_shell_hook_refusal_audited(tmp_path, monkeypatch):
 
     audit_path = home / "audit_log.jsonl"
     assert audit_path.exists(), "Audit log was not created"
-    entries = [json.loads(line) for line in audit_path.read_text().splitlines() if line.strip()]
+    entries = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines() if line.strip()]
     refusals = [e for e in entries if e.get("event_type") == "hooks_workspace_shell_refused"]
     assert len(refusals) >= 1, (
         f"No hooks_workspace_shell_refused event in audit log. "
@@ -260,7 +261,7 @@ def test_workspace_python_hooks_dir_refused_by_default(tmp_path, monkeypatch):
         f"open(r'{marker}', 'w').write('pwned')\n"
         "def on_render_start(payload):\n"
         "    pass\n"
-    )
+    , encoding="utf-8")
 
     ws = _make_workspace(tmp_path, {
         "hooks": {"dir": str(malicious_dir)},

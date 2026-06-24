@@ -33,7 +33,7 @@ class TestIdentityGeneration:
         assert not p.exists()
         identity = perseus._generate_identity()
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(yaml.dump(identity))
+        p.write_text(yaml.dump(identity), encoding="utf-8")
         assert p.exists()
         loaded = perseus._load_identity(c)
         assert loaded is not None
@@ -46,7 +46,7 @@ class TestIdentityGeneration:
         p = perseus._identity_path(c)
         identity = perseus._generate_identity()
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(yaml.dump(identity))
+        p.write_text(yaml.dump(identity), encoding="utf-8")
         # Second generate should produce different keys
         id2 = perseus._generate_identity()
         assert id2["workspace_id"] != identity["workspace_id"]
@@ -61,7 +61,7 @@ class TestIdentityGeneration:
         identity = perseus._generate_identity()
         p = perseus._identity_path(c)
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(yaml.dump(identity))
+        p.write_text(yaml.dump(identity), encoding="utf-8")
         loaded = perseus._load_identity(c)
         safe = {k: v for k, v in loaded.items() if k != "_secret"}
         assert "_secret" not in safe
@@ -77,7 +77,7 @@ class TestSigning:
         # Save identity
         p = perseus._identity_path(c)
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(yaml.dump(identity))
+        p.write_text(yaml.dump(identity), encoding="utf-8")
 
         narrative = "# Test Narrative\n\nHello world.\n"
         sig = perseus._sign_narrative(narrative, identity)
@@ -94,7 +94,7 @@ class TestSigning:
         identity = perseus._generate_identity()
         p = perseus._identity_path(c)
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(yaml.dump(identity))
+        p.write_text(yaml.dump(identity), encoding="utf-8")
 
         narrative = "# Original"
         sig = perseus._sign_narrative(narrative, identity)
@@ -106,7 +106,7 @@ class TestSigning:
         identity = perseus._generate_identity()
         p = perseus._identity_path(c)
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(yaml.dump(identity))
+        p.write_text(yaml.dump(identity), encoding="utf-8")
 
         narrative = "# Original"
         sig = perseus._sign_narrative(narrative, identity)
@@ -119,7 +119,7 @@ class TestSigning:
         identity = perseus._generate_identity()
         p = perseus._identity_path(c)
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(yaml.dump(identity))
+        p.write_text(yaml.dump(identity), encoding="utf-8")
 
         narrative = "# Test"
         sig = perseus._sign_narrative(narrative, identity)
@@ -133,7 +133,7 @@ class TestSigning:
         identity = perseus._generate_identity()
         p = perseus._identity_path(c)
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(yaml.dump(identity))
+        p.write_text(yaml.dump(identity), encoding="utf-8")
 
         narrative = "# External verify test"
         sig = perseus._sign_narrative(narrative, identity)
@@ -147,7 +147,7 @@ class TestSigning:
         identity = perseus._generate_identity()
         p = perseus._identity_path(c)
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(yaml.dump(identity))
+        p.write_text(yaml.dump(identity), encoding="utf-8")
 
         narrative = "# Test"
         sig = perseus._sign_narrative(narrative, identity)
@@ -160,7 +160,7 @@ class TestSigning:
         identity = perseus._generate_identity()
         p = perseus._identity_path(c)
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(yaml.dump(identity))
+        p.write_text(yaml.dump(identity), encoding="utf-8")
 
         narrative = "# Same text"
         sig1 = perseus._sign_narrative(narrative, identity)

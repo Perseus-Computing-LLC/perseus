@@ -28,7 +28,7 @@ def test_container_files_are_present():
 
 
 def test_dockerfile_uses_single_file_runtime():
-    text = DOCKERFILE.read_text()
+    text = DOCKERFILE.read_text(encoding="utf-8")
     assert "COPY perseus.py /usr/local/bin/perseus" in text
     assert "COPY . " not in text
     assert 'ENTRYPOINT ["perseus"]' in text
@@ -37,7 +37,7 @@ def test_dockerfile_uses_single_file_runtime():
 
 
 def test_compose_declares_render_and_authenticated_serve():
-    compose = yaml.safe_load(COMPOSE_FILE.read_text())
+    compose = yaml.safe_load(COMPOSE_FILE.read_text(encoding="utf-8"))
     services = compose["services"]
 
     render = services["render"]
@@ -65,14 +65,14 @@ def test_compose_declares_render_and_authenticated_serve():
 
 
 def test_container_auth_config_is_explicit_placeholder():
-    cfg = yaml.safe_load(CONTAINER_CONFIG.read_text())
+    cfg = yaml.safe_load(CONTAINER_CONFIG.read_text(encoding="utf-8"))
     assert cfg["serve"]["bind_host"] == "0.0.0.0"
     assert cfg["serve"]["auth_token"] == "change-me-before-serving"
-    assert "Replace this token" in CONTAINER_CONFIG.read_text()
+    assert "Replace this token" in CONTAINER_CONFIG.read_text(encoding="utf-8")
 
 
 def test_container_docs_cover_trust_and_read_only_mounts():
-    text = CONTAINER_DOC.read_text()
+    text = CONTAINER_DOC.read_text(encoding="utf-8")
     for needle in [
         "single-file runtime",
         "read-only",
@@ -84,6 +84,10 @@ def test_container_docs_cover_trust_and_read_only_mounts():
 
 
 def test_docker_image_reports_version_when_docker_is_available():
+    # The Perseus image is Linux-based; GitHub's windows-latest runners default
+    # to the Windows-container engine and can't build a Linux image.
+    if os.name == "nt":
+        pytest.skip("Linux container build not supported on Windows runners")
     docker = shutil.which("docker")
     if docker is None:
         pytest.skip("docker CLI not available")

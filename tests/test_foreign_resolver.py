@@ -136,7 +136,7 @@ def test_foreign_resolve_size_cap(mock_server):
 def test_serve_api_context_endpoint(tmp_path):
     # Setup workspace
     (tmp_path / ".perseus").mkdir()
-    (tmp_path / ".perseus" / "context.md").write_text("# Remote Context Content")
+    (tmp_path / ".perseus" / "context.md").write_text("# Remote Context Content", encoding="utf-8")
     
     c = cfg()
     status, ctype, body = perseus._serve_render_endpoint("/api/context", c, tmp_path, {"workspace": "test-ws"})

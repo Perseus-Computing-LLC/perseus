@@ -32,19 +32,19 @@ def _make_skills_dir(tmp_path):
     p1.mkdir(parents=True)
     (p1 / "SKILL.md").write_text(
         "---\nname: docker\ndescription: Docker container management.\n---\n# Docker\n"
-    )
+    , encoding="utf-8")
     # media/spotify
     p2 = root / "media" / "spotify"
     p2.mkdir(parents=True)
     (p2 / "SKILL.md").write_text(
         "---\nname: spotify\ndescription: Spotify playback control.\n---\n# Spotify\n"
-    )
+    , encoding="utf-8")
     # github/github-pr-workflow
     p3 = root / "github" / "github-pr-workflow"
     p3.mkdir(parents=True)
     (p3 / "SKILL.md").write_text(
         "---\nname: github-pr-workflow\ndescription: GitHub PR lifecycle.\n---\n# PR\n"
-    )
+    , encoding="utf-8")
     return root
 
 

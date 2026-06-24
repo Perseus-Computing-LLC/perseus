@@ -33,7 +33,7 @@ def test_tools_list_includes_plugin_directives(tmp_path):
     plugins_dir.mkdir(parents=True)
     (plugins_dir / "my_plugin.py").write_text("""
 REGISTER = {}
-""")
+""", encoding="utf-8")
     c = cfg()
     c["plugins"] = {"enabled": True, "dir": str(plugins_dir)}
     perseus.register_plugins(c, force=True)
@@ -54,7 +54,7 @@ def test_tools_call_query_resolves(tmp_path):
 def test_tools_call_read_resolves(tmp_path):
     """tools/call for perseus_read resolves correctly."""
     test_file = tmp_path / "test.txt"
-    test_file.write_text("mcp read test")
+    test_file.write_text("mcp read test", encoding="utf-8")
     c = cfg()
     result = perseus._call_tool("perseus_read", {"path": str(test_file)}, c, tmp_path)
     assert "mcp read test" in result
@@ -174,10 +174,18 @@ def test_call_tool_timeout_does_not_block_on_executor_shutdown(tmp_path):
     """
     c = _mcp_query_cfg()
 
+    # Cross-platform long-running command: `sleep` does not exist on cmd.exe,
+    # where it fails instantly and defeats the timeout being tested. Use a
+    # sleeper script invoked by the interpreter — and NO double quotes, since
+    # the MCP query wrapper escapes them to \" which cmd.exe cannot parse.
+    sleeper = tmp_path / "sleeper.py"
+    sleeper.write_text("import time; time.sleep(10)\n", encoding="utf-8")
+    long_cmd = f"{sys.executable} {sleeper}"
+
     start = time.time()
     result = perseus._call_tool(
         "perseus_query",
-        {"command": f"sleep 10"},
+        {"command": long_cmd},
         c,
         tmp_path,
     )

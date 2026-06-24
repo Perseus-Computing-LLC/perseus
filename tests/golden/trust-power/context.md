@@ -2,4 +2,4 @@
 
 # Power Trust
 
-@query "printf power-ok"
+@query "echo power-ok"

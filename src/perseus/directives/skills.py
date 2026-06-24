@@ -42,7 +42,7 @@ def resolve_skills(args_str: str, cfg: dict) -> str:
         # Parse description from frontmatter
         description = ""
         try:
-            text = skill_md.read_text(errors="replace")
+            text = skill_md.read_text(errors="replace", encoding="utf-8")
             fm, _body = _parse_frontmatter(text)
             description = str((fm or {}).get("description", ""))
             name = str((fm or {}).get("name", name))

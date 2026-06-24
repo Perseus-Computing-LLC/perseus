@@ -662,7 +662,7 @@ class GauntletV2Orchestrator:
                 / f"phase{phase_num}_node_{node}.json"
             )
             if result_path.is_file():
-                result = json.loads(result_path.read_text())
+                result = json.loads(result_path.read_text(encoding="utf-8"))
                 all_records.append(result)
                 total_failures += result.get("failures", 0)
 
@@ -978,11 +978,11 @@ class GauntletV2Orchestrator:
         write_json(
             self.output_dir / "gauntlet_v2_results.json", final
         )
-        (self.output_dir / "gauntlet_v2_report.md").write_text(report_md)
+        (self.output_dir / "gauntlet_v2_report.md").write_text(report_md, encoding="utf-8")
         (self.output_dir / "gauntlet_v2_score.txt").write_text(
             f"Perseus Gauntlet v2 Score: {score:.1f}/100\n"
             f"Overall: {'PASS' if certification_pass else 'FAIL'}\n"
-        )
+        , encoding="utf-8")
 
         self.telemetry.close()
 

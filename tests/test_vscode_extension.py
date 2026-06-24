@@ -9,7 +9,7 @@ EXT_DIR = REPO_ROOT / "editors" / "vscode"
 
 
 def _package() -> dict:
-    return json.loads((EXT_DIR / "package.json").read_text())
+    return json.loads((EXT_DIR / "package.json").read_text(encoding="utf-8"))
 
 
 def test_vscode_package_commands_match_lsp_surface():
@@ -45,8 +45,8 @@ def test_vscode_package_has_reproducible_scripts():
 
 
 def test_vscode_release_docs_cover_smoke_and_packaging():
-    readme = (EXT_DIR / "README.md").read_text()
-    release = (EXT_DIR / "RELEASE.md").read_text()
+    readme = (EXT_DIR / "README.md").read_text(encoding="utf-8")
+    release = (EXT_DIR / "RELEASE.md").read_text(encoding="utf-8")
     combined = readme + "\n" + release
 
     assert "npm run package" in combined
