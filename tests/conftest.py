@@ -1,6 +1,7 @@
 import copy
 import importlib.util
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -74,6 +75,26 @@ def _allow_dangerous_env(monkeypatch):
     when allow_query_shell=True.  Tests that verify the gated (denied)
     behaviour can override this with monkeypatch.delenv."""
     monkeypatch.setenv("PERSEUS_ALLOW_DANGEROUS", "1")
+
+
+@pytest.fixture(autouse=True)
+def _detach_subprocess_stdin(monkeypatch):
+    """Default subprocess stdin to DEVNULL for any test that doesn't set it.
+
+    Many tests shell out to the perseus CLI. On Windows, pytest replaces the
+    process stdin with a captured stream whose handle is invalid, so a child
+    process inheriting it raises OSError [WinError 6] "The handle is invalid"
+    before the command even runs. These are non-interactive invocations, so
+    detaching stdin is always safe; explicit stdin= (e.g. run(input=...)) is
+    preserved via setdefault. POSIX is unaffected (DEVNULL is cross-platform).
+    """
+    real_init = subprocess.Popen.__init__
+
+    def _init(self, *args, **kwargs):
+        kwargs.setdefault("stdin", subprocess.DEVNULL)
+        return real_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(subprocess.Popen, "__init__", _init)
 
 
 def pytest_addoption(parser):
