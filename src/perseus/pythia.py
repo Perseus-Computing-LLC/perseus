@@ -670,17 +670,18 @@ def _rewrite_pythia_log(entries: list[dict], cfg: dict | None = None) -> None:
         if max_entries > 0 and len(entries) > max_entries:
             entries = entries[-max_entries:]
     lock_path = log_path.with_suffix(".jsonl.lock")
-    # File locking to prevent concurrent corruption (M-6)
-    import fcntl
-    with open(lock_path, "w") as lock_fh:
+    # File locking to prevent concurrent corruption (M-6). Cross-platform:
+    # fcntl on POSIX, msvcrt on Windows (see config._lock_file_handle).
+    from perseus.config import _lock_file_handle, _unlock_file_handle
+    with open(lock_path, "w", encoding="utf-8") as lock_fh:
         try:
-            fcntl.flock(lock_fh, fcntl.LOCK_EX)
+            _lock_file_handle(lock_fh)
             payload = "\n".join(json.dumps(e, ensure_ascii=False) for e in entries) + ("\n" if entries else "")
             tmp = log_path.with_suffix(".jsonl.tmp")
             tmp.write_text(payload, encoding="utf-8")
             os.replace(tmp, log_path)
         finally:
-            fcntl.flock(lock_fh, fcntl.LOCK_UN)
+            _unlock_file_handle(lock_fh)
 
 
 def _label_pythia_entry(log_id: str, accepted: bool) -> tuple[bool, str]:

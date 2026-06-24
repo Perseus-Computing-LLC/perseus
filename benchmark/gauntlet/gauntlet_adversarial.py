@@ -63,7 +63,7 @@ def _kill_switch_triggered() -> bool:
 def _write_sentinel(name: str, data: dict | None = None):
     if SENTINEL_DIR is not None:
         p = SENTINEL_DIR / name
-        p.write_text(json.dumps(data or {"ts": timestamp_iso()}))
+        p.write_text(json.dumps(data or {"ts": timestamp_iso()}), encoding="utf-8")
 
 
 def _cleanup_callback(callback, label: str = "scenario"):
@@ -114,7 +114,7 @@ def run_scenario(
             try:
                 Path(ctx).write_text(
                     "@perseus v0.8\n@prompt adversarial test\n@query \"echo adversarial\" @cache ttl=300\n"
-                )
+                , encoding="utf-8")
             except OSError as exc:
                 _record_error(result, f"Cannot write context file: {exc}")
                 time.sleep(0.05)
@@ -424,7 +424,7 @@ def scenario_a5_cache_poison(
             if isinstance(content, bytes):
                 path.write_bytes(content)
             else:
-                path.write_text(content)
+                path.write_text(content, encoding="utf-8")
             written.append(name)
         except Exception:
             pass
@@ -572,7 +572,7 @@ def scenario_a8_fd_exhaustion(
     result: dict = {"scenario": "A8_fd_exhaustion", "setup": None, "renders": None, "cleanup": None}
     perseus_home.mkdir(parents=True, exist_ok=True)
     ctx_file = perseus_home / "_a8_fd_exhaustion_ctx.md"
-    ctx_file.write_text("@perseus v0.8\n@prompt fd exhaustion\n@query \"echo fd-ok\" @cache ttl=86400\n")
+    ctx_file.write_text("@perseus v0.8\n@prompt fd exhaustion\n@query \"echo fd-ok\" @cache ttl=86400\n", encoding="utf-8")
 
     # Setup: open many file descriptors, but reserve ~100 for Perseus
     fds: list[int] = []
@@ -637,7 +637,7 @@ def scenario_a9_fork_bomb_defense(
 
     # Pre-create context file so run_scenario doesn't need to write
     ctx_file = home / "_adversarial_ctx.md"
-    ctx_file.write_text("@perseus v0.8\n@prompt adversarial test\n@query \"echo survived\" @cache ttl=300\n")
+    ctx_file.write_text("@perseus v0.8\n@prompt adversarial test\n@query \"echo survived\" @cache ttl=300\n", encoding="utf-8")
 
     t0 = time.time()
     renders_ok = 0
@@ -707,12 +707,12 @@ def scenario_a10_symlink_race(
 
     # Setup: create symlink chains
     target = race_dir / "target"
-    target.write_text("sensitive data")
+    target.write_text("sensitive data", encoding="utf-8")
 
     # Create context.md BEFORE renders. The @read keeps this scenario tied to
     # the symlink chain instead of just rendering an inert prompt.
     ctx_file = race_dir / "context.md"
-    ctx_file.write_text("@perseus v0.8\n@prompt symlink race\n@read \"link_0\"\n")
+    ctx_file.write_text("@perseus v0.8\n@prompt symlink race\n@read \"link_0\"\n", encoding="utf-8")
 
     chain = []
     for i in range(20):
@@ -1031,5 +1031,5 @@ if __name__ == "__main__":
 
     output = json.dumps(result, indent=2, default=str)
     if args.output:
-        Path(args.output).write_text(output)
+        Path(args.output).write_text(output, encoding="utf-8")
     print(output)

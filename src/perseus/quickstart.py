@@ -113,7 +113,7 @@ def _quickstart_write_config(workspace: Path, generation: dict | None = None) ->
             "url": generation.get("model_url", "http://localhost:11434"),
         }
 
-    with open(config_path, "w") as f:
+    with open(config_path, "w", encoding="utf-8") as f:
         yaml.safe_dump(config, f, sort_keys=False)
     return config_path
 
@@ -330,7 +330,7 @@ def cmd_quickstart(args, cfg) -> int:
         pass
 
     # Step 4: Verify with a render
-    text = context_file.read_text(errors="replace")
+    text = context_file.read_text(errors="replace", encoding="utf-8")
     _stats = {"directive_count": 0, "cache_hits": 0, "cache_misses": 0}
     render_source(text, cfg, workspace, _stats=_stats)
     print(f"✓ Render verified — {_stats['directive_count']} directives resolved "

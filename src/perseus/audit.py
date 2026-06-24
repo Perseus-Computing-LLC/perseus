@@ -606,7 +606,7 @@ def _load_schema(schema_ref: str, workspace: Path | None = None) -> tuple[Path |
     if schema_path is None:
         return None, None, "schema path is empty"
     try:
-        schema_data = yaml.safe_load(schema_path.read_text()) or {}
+        schema_data = yaml.safe_load(schema_path.read_text(encoding="utf-8")) or {}
     except Exception as exc:
         return schema_path, None, str(exc)
     return schema_path, schema_data, None
@@ -811,6 +811,11 @@ def _resolve_path(file_path_str: str, workspace: Path | None = None, allow_outsi
     applies. A None workspace = unrestricted reads would be a defense gap
     for programmatic consumers that don't pass an explicit workspace.
     """
+    # Reject embedded null bytes explicitly. On POSIX pathlib raises
+    # ValueError("embedded null byte") during resolve(), but Windows raises a
+    # different/no error — check up front so rejection is consistent everywhere.
+    if "\x00" in file_path_str:
+        raise ValueError("embedded null byte")
     fp = Path(file_path_str).expanduser()
     ws = (workspace or Path.cwd()).expanduser().resolve()
     if not fp.is_absolute():
@@ -857,7 +862,7 @@ def _dump_frontmatter_body(frontmatter: dict, body: str) -> str:
 
 def _load_task_file(task_path: Path) -> tuple[dict, str]:
     """Read a task file, waiting for any concurrent write to finish."""
-    text = task_path.read_text(errors="replace")
+    text = task_path.read_text(errors="replace", encoding="utf-8")
     fm, body = _parse_frontmatter(text)
     return dict(fm or {}), body
 
@@ -870,8 +875,9 @@ def _save_task_file(task_path: Path, frontmatter: dict, body: str) -> None:
     advisory locking so concurrent claim/complete/load operations don't
     race.
     """
-    import fcntl
     import tempfile
+    # Cross-platform advisory lock: fcntl on POSIX, msvcrt on Windows.
+    from perseus.config import _lock_file_handle, _unlock_file_handle
 
     content = _dump_frontmatter_body(frontmatter, body)
     lock_path = task_path.with_suffix(task_path.suffix + ".lock")
@@ -879,9 +885,9 @@ def _save_task_file(task_path: Path, frontmatter: dict, body: str) -> None:
     # Open or create the lock file
     lock_dir = lock_path.parent
     lock_dir.mkdir(parents=True, exist_ok=True)
-    lf = open(lock_path, "w")
+    lf = open(lock_path, "w", encoding="utf-8")
     try:
-        fcntl.flock(lf, fcntl.LOCK_EX)
+        _lock_file_handle(lf)
         # Write to temp file in same directory, then atomic replace
         tmp = tempfile.NamedTemporaryFile(
             mode="w",
@@ -898,7 +904,7 @@ def _save_task_file(task_path: Path, frontmatter: dict, body: str) -> None:
             tmp.close()
         os.replace(tmp.name, task_path)
     finally:
-        fcntl.flock(lf, fcntl.LOCK_UN)
+        _unlock_file_handle(lf)
         lf.close()
 
 

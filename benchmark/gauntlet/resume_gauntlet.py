@@ -373,7 +373,7 @@ def main():
         print("ERROR: No intermediate results found. Run the orchestrator first.")
         sys.exit(1)
 
-    with open(intermediate_path) as f:
+    with open(intermediate_path, encoding="utf-8") as f:
         saved = json.load(f)
 
     meta = saved.get("meta", {})
@@ -469,11 +469,11 @@ def main():
     report_md = generate_final_report(phase_results, gate_results, meta=meta)
 
     write_json(output_dir / "gauntlet_results.json", final)
-    (output_dir / "gauntlet_report.md").write_text(report_md)
+    (output_dir / "gauntlet_report.md").write_text(report_md, encoding="utf-8")
     (output_dir / "gauntlet_score.txt").write_text(
         f"Perseus Gauntlet Score: {score:.1f}/100\n"
         f"Overall: {'PASS' if final['overall_pass'] else 'FAIL'}\n"
-    )
+    , encoding="utf-8")
 
     print(f"\nResults written to:")
     print(f"  {output_dir / 'gauntlet_results.json'}")

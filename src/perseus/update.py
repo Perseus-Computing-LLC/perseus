@@ -227,7 +227,7 @@ def _toggle_auto_update(value, cfg):
 
     if cfg2 != data:
         config_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(config_path, "w") as f:
+        with open(config_path, "w", encoding="utf-8") as f:
             yaml.safe_dump(cfg2, f, default_flow_style=False, sort_keys=False)
 
     status = "ON" if enabled else "OFF"

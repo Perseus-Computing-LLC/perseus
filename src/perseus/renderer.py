@@ -265,7 +265,7 @@ def cache_get(key: str, mode: str, ttl: int | None, cfg: dict) -> str | None:
         entry_file = cache_dir / f"{key}.json"
         if entry_file.exists():
             try:
-                entry = json.loads(entry_file.read_text())
+                entry = json.loads(entry_file.read_text(encoding="utf-8"))
                 if time.time() < entry.get("expires", 0):
                     return entry["value"]
                 # expired — remove
@@ -440,7 +440,7 @@ def _load_macros(source_lines: list[str], workspace: Path | None, cfg: dict) -> 
             macros_path = PERSEUS_HOME / "macros.md"
     try:
         if macros_path.is_file():
-            file_lines = macros_path.read_text().splitlines()
+            file_lines = macros_path.read_text(encoding="utf-8").splitlines()
             macros.update(_parse_macros_from_lines(file_lines))
     except (OSError, ValueError):
         pass

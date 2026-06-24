@@ -44,7 +44,7 @@ LLM_PRICING_TIERS: dict[str, dict[str, float]] = {
 def write_json(path: Path | str, data: Any) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2, default=str))
+    path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
 
 
 def read_json(path: Path | str) -> Any:
@@ -92,7 +92,7 @@ def check_nfs_health(mount_path: Path | str = NFS_MOUNT_DIR, require_mount: bool
     # Gate 2: read/write probe
     probe = mount_path / ".gauntlet_probe"
     try:
-        probe.write_text(timestamp_iso())
+        probe.write_text(timestamp_iso(), encoding="utf-8")
         probe.unlink()
         mode = "mount" if os.path.ismount(mount_path) else "local-tmp"
         return {"healthy": True, "path": str(mount_path), "mode": mode}

@@ -51,7 +51,7 @@ def _health_collect(cfg: dict, workspace: Path) -> list[str]:
     ctx_path = workspace / ".perseus" / "context.md"
     if ctx_path.exists():
         try:
-            n_lines = ctx_path.read_text(errors="replace").count("\n") + 1
+            n_lines = ctx_path.read_text(errors="replace", encoding="utf-8").count("\n") + 1
             if n_lines > ctx_warn:
                 lines.append("### Context Source Size")
                 lines.append(
@@ -119,7 +119,7 @@ def _find_version() -> str:
     for p in [start] + list(start.parents):
         candidate = p / "VERSION"
         if candidate.exists():
-            return candidate.read_text().strip()
+            return candidate.read_text(encoding="utf-8").strip()
     return _PERSEUS_VERSION  # fallback to build-time injected literal
 
 _PERSEUS_VERSION = "1.0.8"  # injected by scripts/build.py at build time
@@ -213,7 +213,7 @@ def _doctor_check_mneme(cfg: dict, workspace: Path) -> DoctorResult:
     if not narrative.exists():
         return DoctorResult("mneme_narrative", "warn", "Mnēmē narrative",
                             "not found", "Memory will auto-create on next render with @memory")
-    lines = narrative.read_text(errors="replace").splitlines()
+    lines = narrative.read_text(errors="replace", encoding="utf-8").splitlines()
     max_lines = mem_cfg.get("max_narrative_lines", 300)
     line_count = len(lines)
     val = f"{line_count} lines"
@@ -436,7 +436,7 @@ def _doctor_check_cache_writable(cfg: dict, workspace: Path) -> DoctorResult:
     try:
         cache_dir.mkdir(parents=True, exist_ok=True)
         test_file = cache_dir / ".doctor_test"
-        test_file.write_text("ok")
+        test_file.write_text("ok", encoding="utf-8")
         test_file.unlink()
         # Count cache entries
         entries = len([f for f in cache_dir.iterdir() if f.suffix == ".json"])
@@ -587,7 +587,7 @@ def _doctor_check_version_header(cfg: dict, workspace: Path) -> DoctorResult:
         return DoctorResult("version_header", "ok", "@perseus version header",
                            "no context.md found (skipped)", "")
     try:
-        first_line = ctx_path.read_text(errors="replace").split("\n")[0].strip()
+        first_line = ctx_path.read_text(errors="replace", encoding="utf-8").split("\n")[0].strip()
     except Exception:
         return DoctorResult("version_header", "ok", "@perseus version header",
                            "could not read context.md", "")
