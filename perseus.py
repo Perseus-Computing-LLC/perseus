@@ -110,8 +110,10 @@ DEFAULT_CONFIG = {
         "max_query_bytes": 262144,    # 256 KB stdout cap
         "max_read_bytes": 524288,    # 512 KB file size cap for @read (None = unlimited)
         "max_include_bytes": 524288, # 512 KB file size cap for @include (None = unlimited)
+        "max_include_warn_bytes": None,  # advisory warning when a single @include renders larger than this (None = disabled) — see #433
         "max_safe_read_bytes": 52428800,  # 50 MB hard pre-read guard for @read/@include before bytes hit memory (None = disabled)
         "max_include_depth": 5,      # max depth for transitive @include recursion
+        "staleness_warn_hours": 48,  # `perseus doctor` warns when a rendered output is older than this (0 = disabled) — see #431
         "integrity_check": False,    # opt-in: detect files modified during render
         "parallel_services": False,   # opt-in: concurrent @services health checks
         "parallel_queries": False,    # opt-in: concurrent @query resolution
@@ -981,7 +983,7 @@ def _bind_registry() -> None:
         # Tier 3 — On-demand (bulky, expensive)
         DirectiveSpec("@query",     resolve_query,     ["command=", "fallback=", "schema="],   "inline",  "acw", executes_shell=True,  safe_for_hover=False, cacheable=True,  summary="Run a shell command in the workspace and embed its stdout into the rendered context. Use for dynamic facts: git status, docker ps, system info. REQUIRES allow_query_shell=true and PERSEUS_ALLOW_DANGEROUS=1. Destructive — executes arbitrary commands with the user's permissions.", tier=3),
         DirectiveSpec("@read",      resolve_read,      ["path=", "key=", "fallback=", "schema="], "inline", "acw", reads_files=True, cacheable=True, safe_for_hover=False, summary="Read and embed file contents into the rendered context. Use to inject config values, environment files, or any text file. Can extract specific keys from structured files. Read-only; use perseus_list or perseus_tree to browse before reading.", tier=3),
-        DirectiveSpec("@include",   resolve_include,   ["path="],                         "inline",  "awc", reads_files=True, cacheable=True, safe_for_hover=False, summary="Include and render another Perseus source file, recursively resolving its directives. Use to compose context from multiple files or share common sections across workspaces. Read-only; resolved directives inherit the parent configuration.", tier=3),
+        DirectiveSpec("@include",   resolve_include,   ["path=", "last=", "since="],      "inline",  "awc", reads_files=True, cacheable=True, safe_for_hover=False, summary="Include and render another Perseus source file, recursively resolving its directives. Use to compose context from multiple files or share common sections across workspaces. Bound a growing file with last=N (final N lines) or since=14d/2w/24h (recent dated sections only). Read-only; resolved directives inherit the parent configuration.", tier=3),
         DirectiveSpec("@list",      resolve_list,      ["path=", "limit=", "sort="],        "inline",  "acw", reads_files=True, cacheable=True, safe_for_hover=False, summary="List directory contents or structured data. Use to discover files before reading with perseus_read. Supports sorting by name, modified time, or size. Read-only; for hierarchical view, prefer perseus_tree.", tier=3),
         DirectiveSpec("@tree",      resolve_tree,      ["path=", "depth="],                 "inline",  "acw", reads_files=True, cacheable=True, safe_for_hover=False, summary="Display a directory tree with configurable depth. Use to understand project structure at a glance. For flat file listings with metadata, use perseus_list instead. Read-only; depth limits control output size.", tier=3),
         DirectiveSpec("@agent",     resolve_agent,     ["agent=", "prompt="],                         "inline",  "acw", summary="Execute a local agent subprocess with a given prompt. Use to delegate work to another agent profile. Requires agent and prompt parameters. REQUIRES allow_agent_shell=true. Destructive — spawns a subprocess that may modify the workspace.", tier=3),
@@ -3168,6 +3170,60 @@ def _resolve_max_bytes(cfg: dict, key: str) -> int | None:
     except (ValueError, TypeError):
         return None
 
+
+# Heading line (#..######, up to 3 leading spaces per CommonMark) containing an
+# ISO date. Used by @include `since=` to delimit dated sections of a log file.
+_INCLUDE_DATE_HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s+.*?(\d{4}-\d{2}-\d{2})")
+
+
+def _include_since_cutoff(since: str):
+    """Parse a ``since=`` window (e.g. ``14d``, ``2w``, ``24h``) into a cutoff date.
+
+    Returns a ``date`` (sections on/after it are kept) or ``None`` when ``since``
+    is malformed so the caller can surface a warning."""
+    m = re.fullmatch(r"(\d+)\s*([hdw])", since.strip().lower())
+    if not m:
+        return None
+    n = int(m.group(1))
+    hours = {"h": n, "d": n * 24, "w": n * 24 * 7}[m.group(2)]
+    return (datetime.now() - timedelta(hours=hours)).date()
+
+
+def _filter_since(raw: str, cutoff) -> str:
+    """Keep only sections whose dated heading is on/after ``cutoff``.
+
+    A "dated heading" is a markdown heading whose text contains an ISO date
+    (``YYYY-MM-DD``). Content before the first dated heading (preamble) is
+    always kept. Bounds an appended, dated session log (#433)."""
+    out: list[str] = []
+    keep = True  # preamble before the first dated heading is always kept
+    for line in raw.splitlines():
+        m = _INCLUDE_DATE_HEADING_RE.match(line)
+        if m:
+            try:
+                d = datetime.strptime(m.group(1), "%Y-%m-%d").date()
+                keep = d >= cutoff
+            except ValueError:
+                pass  # not a real calendar date — keep current section state
+        if keep:
+            out.append(line)
+    return "\n".join(out)
+
+
+def _apply_include_window(raw: str, last, cutoff) -> str:
+    """Apply @include ``since=``/``last=`` windowing to raw file text (#433).
+
+    ``since`` is applied first (drop old dated sections), then ``last`` caps the
+    result to its final N lines."""
+    if cutoff is not None:
+        raw = _filter_since(raw, cutoff)
+    if last is not None:
+        lines = raw.splitlines()
+        if len(lines) > last:
+            raw = "\n".join(lines[-last:] if last > 0 else [])
+    return raw
+
+
 def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | None = None,
                     *, _depth: int = 0,
                     _path_chain: tuple = (),
@@ -3194,8 +3250,36 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
     file_path_str, remaining = _extract_quoted_token(args_str.strip())
     if not file_path_str:
         return "> ⚠ @include: no file specified."
+
+    # ── Optional windowing modifiers (#433) ──
+    #   last=N           keep only the final N lines of the file
+    #   since=<Nh|Nd|Nw> keep only dated sections within the window
+    # Bounds an @include'd file that grows without limit (e.g. a session log
+    # appended to each session) so rendered AGENTS.md does not grow unbounded.
+    last_n = None
+    since_cutoff = None
     if remaining.strip():
-        return f"> ⚠ @include: unexpected trailing input: `{remaining.strip()}`"
+        options = _parse_kv_modifiers(remaining)
+        leftover = _KV_PAIR_RE.sub("", remaining).strip()
+        if leftover:
+            return f"> ⚠ @include: unexpected trailing input: `{leftover}`"
+        unknown = set(options) - {"last", "since"}
+        if unknown:
+            return ("> ⚠ @include: unsupported option(s): "
+                    f"{', '.join(sorted(unknown))}. Supported: last=, since=.")
+        if "last" in options:
+            try:
+                last_n = int(options["last"])
+                if last_n < 0:
+                    raise ValueError
+            except ValueError:
+                return ("> ⚠ @include: last= must be a non-negative integer "
+                        f"(got `{options['last']}`).")
+        if "since" in options:
+            since_cutoff = _include_since_cutoff(options["since"])
+            if since_cutoff is None:
+                return ("> ⚠ @include: since= must look like 14d, 2w, or 24h "
+                        f"(got `{options['since']}`).")
 
     render_cfg = (cfg or DEFAULT_CONFIG).get("render", {})
     base = workspace or Path.cwd()
@@ -3279,37 +3363,58 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
     else:
         trunc_note = ""
 
+    # ── Apply windowing (#433) before dispatching on file type so it bounds
+    #    both fenced and recursively-rendered includes. Applied after the byte
+    #    truncation cap so `last=`/`since=` operate on decoded text.
+    if last_n is not None or since_cutoff is not None:
+        raw = _apply_include_window(raw, last_n, since_cutoff).rstrip()
+
     ext = fp.suffix.lower()
 
-    # ── Recursive rendering for .md files ──
+    # ── Build the included body by file type ──
     if ext == ".md":
         # Check if this is a Perseus source file (starts with @perseus)
         if raw.lstrip().startswith("@perseus"):
             try:
                 # Render the included file through Perseus with incremented depth
-                rendered = render_source(raw, cfg, workspace, _include_depth=_depth + 1,
-                                         _include_path_chain=_path_chain,
-                                         _include_inode_chain=_inode_chain,
-                                         _directive_collector=_directive_collector,
-                                         _stats=_stats)
-                return trunc_note + rendered
+                body = render_source(raw, cfg, workspace, _include_depth=_depth + 1,
+                                     _include_path_chain=_path_chain,
+                                     _include_inode_chain=_inode_chain,
+                                     _directive_collector=_directive_collector,
+                                     _stats=_stats)
             except RecursionError:
                 return "> ⚠ @include: recursion limit exceeded."
         else:
             # Plain markdown — embed as-is (no Perseus header, no rendering needed)
-            return trunc_note + raw
+            body = raw
     elif ext in (".yaml", ".yml"):
-        return trunc_note + f"```yaml\n{raw}\n```"
+        body = f"```yaml\n{raw}\n```"
     elif ext == ".json":
-        return trunc_note + f"```json\n{raw}\n```"
+        body = f"```json\n{raw}\n```"
     elif ext == ".toml":
-        return trunc_note + f"```toml\n{raw}\n```"
+        body = f"```toml\n{raw}\n```"
     elif ext in (".sh", ".bash"):
-        return trunc_note + f"```bash\n{raw}\n```"
+        body = f"```bash\n{raw}\n```"
     elif ext == ".py":
-        return trunc_note + f"```python\n{raw}\n```"
+        body = f"```python\n{raw}\n```"
     else:
-        return trunc_note + f"```text\n{raw}\n```"
+        body = f"```text\n{raw}\n```"
+
+    # ── Optional oversize warning (#433): advisory note when the rendered
+    #    include exceeds render.max_include_warn_bytes. Opt-in (default None);
+    #    the content is still included in full — this only flags growth.
+    warn_note = ""
+    warn_bytes = _resolve_max_bytes(cfg, "max_include_warn_bytes")
+    if warn_bytes is not None:
+        body_bytes = len(body.encode("utf-8", errors="replace"))
+        if body_bytes > warn_bytes:
+            warn_note = (
+                f"> ⚠ @include: rendered output of `{file_path_str}` is "
+                f"{body_bytes:,} bytes (warn threshold {warn_bytes:,}). "
+                f"Bound it with `last=` or `since=`.\n\n"
+            )
+
+    return trunc_note + warn_note + body
 # ──────────────────────────────── @read ───────────────────────────────────────
 
 def _parse_read_content_for_validation(content: str, ext: str) -> object:
@@ -6613,7 +6718,7 @@ _PARAM_DESCRIPTIONS: dict[str, dict[str, str]] = {
                      "schema": "JSON Schema to validate command output against"},
     "@perseus":     {"url": "URL of the remote Perseus instance to fetch context from"},
     "@tool":        {"name": "Name of the allowlisted external tool to run"},
-    "@include":     {"path": "File path to include and render (relative to workspace root)"},
+    "@include":     {"path": "File path to include and render (relative to workspace root)", "last": "Keep only the final N lines of the file (bounds a growing log)", "since": "Keep only dated sections within a window, e.g. 14d, 2w, 24h"},
 }
 
 
@@ -19704,6 +19809,85 @@ def _doctor_check_stale_shim(cfg: dict, workspace: Path) -> DoctorResult:
                        "shim at ~/.local/bin/perseus looks current", "")
 
 
+def _doctor_check_render_freshness(cfg: dict, workspace: Path) -> DoctorResult:
+    """Warn when a rendered output is older than render.staleness_warn_hours (#431).
+
+    A scheduled render job that silently stops — e.g. a launchd plist calling a
+    stale binary that exits 0 (#430) — leaves the rendered AGENTS.md/CLAUDE.md
+    frozen with no error and no log warning. This check reads each known
+    rendered output's freshness, preferring the embedded Perseus generation
+    header (deterministic) and falling back to file mtime, and flags staleness
+    so it is visible without manually stat-ing files."""
+    threshold_h = cfg.get("render", {}).get("staleness_warn_hours", 48)
+    try:
+        threshold_h = float(threshold_h)
+    except (TypeError, ValueError):
+        threshold_h = 48.0
+    if threshold_h <= 0:
+        return DoctorResult("render_freshness", "ok", "rendered output freshness",
+                            "disabled (render.staleness_warn_hours=0)", "")
+
+    # Candidate rendered outputs: assistant-format defaults + configured watch list.
+    candidates: list[Path] = []
+    try:
+        for ft in FORMAT_TARGETS.values():
+            candidates.append(workspace / ft.default_output)
+    except Exception:
+        candidates += [workspace / n for n in ("AGENTS.md", "CLAUDE.md", ".cursorrules")]
+    for extra in cfg.get("render", {}).get("staleness_watch", []) or []:
+        p = Path(extra).expanduser()
+        candidates.append(p if p.is_absolute() else workspace / p)
+
+    header_re = re.compile(r"generated by \[Perseus\].*?on (\d{4}-\d{2}-\d{2} \d{2}:\d{2}) UTC")
+    now_utc = datetime.now(timezone.utc)
+
+    found: list[tuple[str, float]] = []
+    seen: set[str] = set()
+    for p in candidates:
+        rp = str(p)
+        if rp in seen:
+            continue
+        seen.add(rp)
+        if not p.is_file():
+            continue
+        gen_dt = None
+        try:
+            m = header_re.search(p.read_text(errors="replace")[:1000])
+            if m:
+                gen_dt = datetime.strptime(m.group(1), "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
+        except Exception:
+            pass
+        if gen_dt is None:
+            try:
+                gen_dt = datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc)
+            except OSError:
+                continue
+        age_h = (now_utc - gen_dt).total_seconds() / 3600.0
+        try:
+            name = str(p.relative_to(workspace))
+        except ValueError:
+            name = p.name
+        found.append((name, age_h))
+
+    if not found:
+        return DoctorResult("render_freshness", "ok", "rendered output freshness",
+                            "no rendered outputs found", "")
+
+    def _fmt_age(h: float) -> str:
+        return f"{h / 24:.1f}d" if h >= 48 else f"{h:.1f}h"
+
+    found.sort(key=lambda t: t[1], reverse=True)
+    oldest_name, oldest_age = found[0]
+    summary = ", ".join(f"{n} {_fmt_age(a)}" for n, a in found[:4])
+    if oldest_age > threshold_h:
+        return DoctorResult(
+            "render_freshness", "warn", "rendered output freshness",
+            f"{summary} (threshold {threshold_h:.0f}h)",
+            f"`{oldest_name}` looks stale — re-run `perseus render` or check the "
+            f"scheduled render job (launchctl/systemctl/crontab)")
+    return DoctorResult("render_freshness", "ok", "rendered output freshness", summary, "")
+
+
 _DOCTOR_CHECKS = [
     _doctor_check_config,
     _doctor_check_context_file,
@@ -19724,6 +19908,7 @@ _DOCTOR_CHECKS = [
     _doctor_check_sessions,
     _doctor_check_version_header,
     _doctor_check_stale_shim,
+    _doctor_check_render_freshness,
 ]
 
 
@@ -19944,12 +20129,7 @@ LAUNCHD_TEMPLATE = """\
     <string>{label}</string>
     <key>ProgramArguments</key>
     <array>
-      <string>{python}</string>
-      <string>{script}</string>
-      <string>render</string>
-      <string>{source}</string>
-      <string>--output</string>
-      <string>{output}</string>
+{program_arguments}
     </array>
     <key>WorkingDirectory</key>
     <string>{workdir}</string>
@@ -19964,6 +20144,52 @@ LAUNCHD_TEMPLATE = """\
   </dict>
 </plist>
 """
+
+
+def _perseus_launcher() -> tuple[list[str], bool]:
+    """Resolve a version-stable way to invoke ``perseus`` from a scheduled job.
+
+    Scheduled jobs (launchd/cron/systemd) persist for months across Perseus
+    upgrades. Baking in the versioned interpreter path (``sys.executable``) or
+    the versioned site-packages script (``__file__``) means a Python
+    minor-version bump (e.g. 3.13 → 3.14) silently strands the job on the old
+    binary — pip installs the new console script under a new path while the
+    plist keeps calling the old one, with ``LastExitStatus = 0`` and no error
+    (#430).
+
+    Prefer a stable console-script launcher that always resolves to the current
+    install, in order:
+
+      1. ``~/.local/bin/perseus`` — the stable user symlink that survives
+         Python minor-version bumps (recommended in the install docs).
+      2. ``perseus`` on ``PATH`` — the pip console script.
+      3. ``{sys.executable} {__file__}`` — last-resort, version-specific
+         fallback (matches legacy behaviour).
+
+    Returns ``(argv_tokens, is_stable)`` where ``is_stable`` is ``False`` only
+    for the version-specific fallback so callers can warn.
+    """
+    import shutil as _shutil
+
+    local_bin = Path.home() / ".local" / "bin" / "perseus"
+    try:
+        if local_bin.exists():
+            return [str(local_bin)], True
+    except OSError:
+        pass
+
+    # shutil.which can raise on some platforms (e.g. its win32 branch touches
+    # _winapi, which is absent off-Windows) — degrade to the fallback instead
+    # of crashing the scheduler command.
+    try:
+        which = _shutil.which("perseus")
+    except Exception:
+        which = None
+    if which:
+        return [which], True
+
+    # Fallback: version-specific interpreter + script (may go stale on upgrade).
+    return [str(Path(sys.executable).resolve()), str(Path(__file__).resolve())], False
 
 
 def cmd_launchd(args, cfg):
@@ -19987,18 +20213,19 @@ def cmd_launchd(args, cfg):
 
     label = args.label or f"com.perseus.render.{source_path.stem}"
     plist_path = launch_agents / f"{label}.plist"
-    python_path = Path(sys.executable).resolve()
-    script_path = Path(__file__).resolve()
+    launcher, stable = _perseus_launcher()
     workdir = _infer_workspace(source_path)
     stdout_log = logs_dir / f"{label}.out.log"
     stderr_log = logs_dir / f"{label}.err.log"
 
+    # Build the ProgramArguments <string> list from a version-stable launcher
+    # so a Python minor-version upgrade does not strand the job (#430).
+    prog_tokens = launcher + ["render", str(source_path), "--output", str(output_path)]
+    program_arguments = "\n".join(f"      <string>{tok}</string>" for tok in prog_tokens)
+
     content = LAUNCHD_TEMPLATE.format(
         label=label,
-        python=str(python_path),
-        script=str(script_path),
-        source=str(source_path),
-        output=str(output_path),
+        program_arguments=program_arguments,
         workdir=str(workdir),
         interval=int(args.interval),
         stdout_log=str(stdout_log),
@@ -20012,6 +20239,11 @@ def cmd_launchd(args, cfg):
     plist_path.write_text(content)
 
     print(f"✔ Wrote LaunchAgent plist: {plist_path}")
+    print(f"  Launcher: {' '.join(launcher)}")
+    if not stable:
+        print("  ⚠ Could not find a stable `perseus` launcher (~/.local/bin/perseus or on PATH);")
+        print("    falling back to a version-specific path that may go stale after a Python upgrade.")
+        print("    Install the console script (`pipx install perseus-ctx` or ensure ~/.local/bin is on PATH).")
     print()
     print("Next steps:")
     print(f"  1. Load it:    launchctl load {plist_path}")
@@ -20038,8 +20270,7 @@ def cmd_cron(args, cfg):
 
     source_path = Path(args.source).expanduser().resolve()
     output_path = Path(args.output).expanduser().resolve()
-    python_path = Path(sys.executable).resolve()
-    script_path = Path(__file__).resolve()
+    launcher, stable = _perseus_launcher()
 
     # Build crontab schedule expression
     if every == 1:
@@ -20052,9 +20283,12 @@ def cmd_cron(args, cfg):
         hours = every // 60
         schedule = f"0 */{hours} * * *"
 
-    cmd = f"{python_path} {script_path} render {source_path} --output {output_path}"
+    cmd = f"{' '.join(launcher)} render {source_path} --output {output_path}"
     # Suppress crontab MAILTO noise; route stderr to /dev/null on success render
     entry = f"{schedule} {cmd} >/dev/null 2>&1  # perseus-render"
+    if not stable:
+        print("# ⚠ Could not find a stable `perseus` launcher (~/.local/bin/perseus or on PATH);")
+        print("#   the entry below uses a version-specific path that may go stale after a Python upgrade.")
 
     if args.install:
         try:
@@ -20105,7 +20339,7 @@ After=default.target
 
 [Service]
 Type=oneshot
-ExecStart={python} {script} render {source} --output {output}
+ExecStart={exec_start}
 """
 
 SYSTEMD_TIMER_TEMPLATE = """\
@@ -20158,16 +20392,14 @@ def cmd_systemd(args, cfg):
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
 
-    python_path = Path(sys.executable).resolve()
-    script_path = Path(__file__).resolve()
+    launcher, stable = _perseus_launcher()
+    exec_start = f"{' '.join(launcher)} render {source_path} --output {output_path}"
 
-    service_content = SYSTEMD_SERVICE_TEMPLATE.format(
-        python=str(python_path),
-        script=str(script_path),
-        source=str(source_path),
-        output=str(output_path),
-    )
+    service_content = SYSTEMD_SERVICE_TEMPLATE.format(exec_start=exec_start)
     timer_content = SYSTEMD_TIMER_TEMPLATE.format(interval=interval)
+    if not stable:
+        print("# ⚠ Could not find a stable `perseus` launcher (~/.local/bin/perseus or on PATH);", file=sys.stderr)
+        print("#   ExecStart uses a version-specific path that may go stale after a Python upgrade.", file=sys.stderr)
 
     if getattr(args, "install", False):
         unit_dir = Path.home() / ".config" / "systemd" / "user"
@@ -21353,6 +21585,20 @@ def cmd_render(args, cfg):
                     pass  # chown may fail in containers without CAP_CHOWN
         else:
             out_path.write_text(rendered, encoding="utf-8")
+
+        # Versioned, timestamped audit line on every render-to-file (#431).
+        # Scheduled jobs route stdout to a log (e.g. perseus-render.out.log),
+        # so this makes the last successful render — and which Perseus version
+        # produced it — auditable, surfacing silent staleness. Suppress with
+        # --quiet for scripted callers that parse stdout.
+        if not getattr(args, "quiet", False):
+            warn_count = rendered.count("⚠")
+            warn_note = f", {warn_count} warning(s)" if warn_count else ""
+            ts = datetime.now().astimezone().isoformat(timespec="seconds")
+            print(
+                f"perseus {_PERSEUS_VERSION}: rendered {source_path} → {out_path} "
+                f"({len(rendered.encode('utf-8', errors='replace')):,} bytes{warn_note}) at {ts}"
+            )
     else:
         print(rendered)
 
@@ -23207,6 +23453,11 @@ def main():
         help="Bypass the render cache entirely — all directives re-resolve fresh. "
              "Use when env vars (e.g. PERSEUS_ALLOW_DANGEROUS) changed but cached "
              "results are stale.",
+    )
+    p_render.add_argument(
+        "--quiet", "-q", action="store_true",
+        help="Suppress the per-render audit line printed after writing --output "
+             "(version, paths, size, timestamp). No effect when rendering to stdout.",
     )
 
     # watch (Phase 20C)
