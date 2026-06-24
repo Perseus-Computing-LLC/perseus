@@ -249,6 +249,49 @@ def _mneme_default_frontmatter(workspace: Path) -> dict:
     }
 
 
+def _enrich_narrative_frontmatter(fm: dict, body: str, workspace: Path) -> None:
+    """Add the vault-index fields the Mnēmē FTS5 indexer requires, in place.
+
+    The indexer's parser (``_mneme_parse_vault_file``) skips any .md file that
+    lacks an ``id`` and ``title``. Without these, a narrative is written to the
+    store but never becomes searchable via ``perseus_memory`` / ``perseus_mimir``
+    recall. This mirrors the schema-2 narrative frontmatter Perseus emits so a
+    stock install indexes its own narratives out of the box.
+
+    ``id`` is the 16-hex workspace hash (matches the parser's id whitelist and
+    is unique per workspace). ``title`` / ``summary`` are derived from the
+    rendered body; ``setdefault`` is used for the descriptive fields so a
+    richer pre-existing value (e.g. operator-set tags) is preserved.
+    """
+    fm["id"] = str(fm.get("workspace_hash") or _workspace_hash(workspace))
+    fm["type"] = "narrative"
+    fm.setdefault("scope", "workspace")
+    fm.setdefault("sensitivity", "team")
+    fm.setdefault("confidence", 1.0)
+    fm.setdefault("tags", [])
+    fm.setdefault("topic_path", [])
+
+    title = ""
+    for line in body.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("# "):
+            title = stripped[2:].strip()
+            break
+    fm["title"] = title or f"Mnēmē — {workspace}"
+
+    summary = " ".join(
+        ln.strip() for ln in body.splitlines()
+        if ln.strip() and not ln.lstrip().startswith(("#", ">", "|"))
+    ).strip()[:200]
+    if summary:
+        fm["summary"] = summary
+
+    # Bump to the indexable narrative schema (parser is schema-agnostic, but
+    # this signals the format and aligns with the on-disk vault docs).
+    if int(fm.get("schema", 1) or 1) < 2:
+        fm["schema"] = 2
+
+
 def _mneme_pythia_hwm(frontmatter: dict) -> int:
     """Read the Pythia high-water mark, accepting legacy Mnēmē frontmatter."""
     return int(frontmatter.get(PYTHIA_HWM_KEY, frontmatter.get(LEGACY_PYTHIA_HWM_KEY, 0)))
