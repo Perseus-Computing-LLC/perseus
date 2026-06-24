@@ -34,6 +34,11 @@ def _run(cmd, **kw):
 
 
 def _bash_available():
+    # release.sh is POSIX bash tooling. Git Bash exists on Windows but is
+    # handed Windows-style script paths it can't resolve, and the release flow
+    # targets POSIX — treat Windows as "no usable bash" so these tests skip.
+    if os.name == "nt":
+        return False
     return shutil.which("bash") is not None
 
 
@@ -49,12 +54,12 @@ def test_release_script_present_and_executable():
 
 def test_version_file_present_and_nonempty():
     assert VERSION_FILE.exists(), "VERSION file missing"
-    assert VERSION_FILE.read_text().strip(), "VERSION file is empty"
+    assert VERSION_FILE.read_text(encoding="utf-8").strip(), "VERSION file is empty"
 
 
 def test_cli_version_matches_version_file():
     """AC #1: `perseus --version` output must match VERSION file."""
-    version = VERSION_FILE.read_text().strip()
+    version = VERSION_FILE.read_text(encoding="utf-8").strip()
     out = _run([sys.executable, str(PERSEUS_PY), "--version"])
     assert out.returncode == 0, f"perseus --version failed: {out.stderr}"
     # Extract version number from output like "perseus v1.0.5 — Patent Pending"
@@ -68,7 +73,7 @@ def test_cli_version_matches_version_file():
 
 def test_py_source_version_matches_version_file():
     """AC #1: CLI --version output must match VERSION file."""
-    version = VERSION_FILE.read_text().strip()
+    version = VERSION_FILE.read_text(encoding="utf-8").strip()
     out = subprocess.run(
         [sys.executable, str(PERSEUS_PY), "--version"],
         capture_output=True, text=True, check=True,
@@ -83,8 +88,8 @@ def test_py_source_version_matches_version_file():
 
 def test_changelog_has_version_section():
     """AC #1: CHANGELOG must have a section for the current version."""
-    version = VERSION_FILE.read_text().strip()
-    changelog = CHANGELOG.read_text()
+    version = VERSION_FILE.read_text(encoding="utf-8").strip()
+    changelog = CHANGELOG.read_text(encoding="utf-8")
     assert f"## [{version}]" in changelog, (
         f"CHANGELOG.md missing '## [{version}]' section"
     )
@@ -97,7 +102,7 @@ def test_changelog_has_version_section():
 
 def test_changelog_release_sections_mention_release_refs():
     """AC #4: each versioned release section references a task-NN or GitHub issue."""
-    changelog = CHANGELOG.read_text()
+    changelog = CHANGELOG.read_text(encoding="utf-8")
     # Find all versioned release sections (skip [Unreleased])
     section_headers = re.findall(r"^## \[(\d+\.\d+[\d.]*)\]", changelog, re.MULTILINE)
     assert section_headers, "CHANGELOG has no versioned release sections"
@@ -142,7 +147,7 @@ def dist_dir(tmp_path):
     if not _bash_available():
         pytest.skip("bash not available")
 
-    version = VERSION_FILE.read_text().strip()
+    version = VERSION_FILE.read_text(encoding="utf-8").strip()
     env = os.environ.copy()
     # Point DIST_DIR at tmp_path by overriding via env not supported directly —
     # release.sh resolves dist relative to REPO_ROOT.  Run with a patched
@@ -179,7 +184,7 @@ def test_release_build_produces_sha256sums(dist_dir):
     assert out.returncode == 0
     sha_file = dist / "SHA256SUMS"
     assert sha_file.exists(), "dist/SHA256SUMS missing"
-    sha_content = sha_file.read_text().strip()
+    sha_content = sha_file.read_text(encoding="utf-8").strip()
     assert sha_content, "dist/SHA256SUMS is empty"
     # Must reference the tarball and the runtime at minimum
     assert f"perseus-{version}.tar.gz" in sha_content
@@ -254,12 +259,12 @@ def test_release_is_repeatable(dist_dir):
     """AC #2: running release.sh twice produces identical SHA256SUMS content."""
     dist, version, out = dist_dir
     assert out.returncode == 0
-    sha1 = (dist / "SHA256SUMS").read_text().strip()
+    sha1 = (dist / "SHA256SUMS").read_text(encoding="utf-8").strip()
 
     # Second build
     out2 = _run(["bash", str(RELEASE_SH)])
     assert out2.returncode == 0, f"Second build failed:\n{out2.stderr}"
-    sha2 = (dist / "SHA256SUMS").read_text().strip()
+    sha2 = (dist / "SHA256SUMS").read_text(encoding="utf-8").strip()
 
     assert sha1 == sha2, "Repeated builds produced different SHA256SUMS (non-reproducible artifacts)"
 

@@ -1,6 +1,7 @@
 import copy
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -38,10 +39,43 @@ def cfg():
     return c
 
 
+def make_tool_script(dir_path, name, *, sh, bat):
+    """Write a directly-executable @tool script appropriate to the platform.
+
+    @tool execs the registered path with no shell (``[path] + args`` via
+    Popen), so on Windows the script must be a ``.bat`` — a ``.sh`` with a
+    shebang raises ``OSError [WinError 193] %1 is not a valid Win32
+    application``. Tests pass the POSIX (``sh``) and Windows (``bat``) bodies;
+    the matching one is written and its path returned, so the *behavior* under
+    test (output, exit code, timeout, truncation, caching) is exercised on both
+    platforms rather than skipped.
+    """
+    if os.name == "nt":
+        p = Path(dir_path) / f"{name}.bat"
+        p.write_text(bat, encoding="utf-8")
+    else:
+        p = Path(dir_path) / f"{name}.sh"
+        p.write_text(sh, encoding="utf-8")
+        p.chmod(0o755)
+    return p
+
+
+def marker_touch_command(path):
+    """Return a shell command that creates an empty file at ``path`` on the
+    current platform's default shell. Hook/query commands run through the
+    platform shell (cmd.exe on Windows, /bin/sh on POSIX), and ``touch`` does
+    not exist on cmd — using it would make "should not run" gate tests pass for
+    the wrong reason (the command fails regardless of the gate)."""
+    p = str(path)
+    if os.name == "nt":
+        return f'type nul > "{p}"'
+    return f'touch "{p}"'
+
+
 def _seed_oracle_log(monkeypatch, tmp_path, entries):
     monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path)
     log = tmp_path / "pythia_log.jsonl"
-    log.write_text("\n".join(json.dumps(e) for e in entries) + "\n")
+    log.write_text("\n".join(json.dumps(e) for e in entries) + "\n", encoding="utf-8")
 
 
 def _capture_json(monkeypatch, fn, *a, **kw):

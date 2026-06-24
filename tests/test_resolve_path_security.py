@@ -53,7 +53,7 @@ class TestWorkspaceBoundary:
 
     def test_path_inside_workspace_allowed(self, workspace):
         """A file inside the workspace should be allowed."""
-        (workspace / "test.txt").write_text("hello")
+        (workspace / "test.txt").write_text("hello", encoding="utf-8")
         fp, warning = _resolve_path("test.txt", workspace, allow_outside_workspace=False)
         assert warning is None
         assert fp.exists()
@@ -62,7 +62,7 @@ class TestWorkspaceBoundary:
         """A file inside a workspace subdirectory should be allowed."""
         sub = workspace / "subdir"
         sub.mkdir()
-        (sub / "nested.txt").write_text("nested")
+        (sub / "nested.txt").write_text("nested", encoding="utf-8")
         fp, warning = _resolve_path("subdir/nested.txt", workspace, allow_outside_workspace=False)
         assert warning is None
         assert fp.exists()
@@ -86,7 +86,7 @@ class TestWorkspaceBoundary:
     def test_symlink_escape_blocked(self, workspace):
         """Symlink inside workspace pointing outside should be blocked."""
         outside = Path(tempfile.gettempdir()) / "perseus_escape_test_target.txt"
-        outside.write_text("target")
+        outside.write_text("target", encoding="utf-8")
         symlink = workspace / "escape_link"
         try:
             symlink.symlink_to(outside)
@@ -145,7 +145,7 @@ def test_resolve_path_within_workspace_has_no_warning(basename):
         ws = Path(tmp) / "ws"
         ws.mkdir()
         try:
-            (ws / basename).write_text("test")
+            (ws / basename).write_text("test", encoding="utf-8")
             fp, warning = _resolve_path(basename, ws, allow_outside_workspace=False)
             if warning is None:
                 assert fp.exists()

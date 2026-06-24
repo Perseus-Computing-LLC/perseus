@@ -41,7 +41,7 @@ def test_legacy_hermes_config_migrates_to_assistant_without_losing_future_fields
         "  future_assistant_field: keep-me\n"
         "unknown_top_level:\n"
         "  future: true\n"
-    )
+    , encoding="utf-8")
 
     loaded = perseus.load_config(workspace)
 
@@ -65,7 +65,7 @@ def test_legacy_oracle_config_migrates_to_pythia_and_warns(tmp_path, monkeypatch
         "  timeout_s: 7\n"
         "pythia:\n"
         "  category: tests\n"
-    )
+    , encoding="utf-8")
 
     loaded = perseus.load_config(workspace)
     err = capsys.readouterr().err
@@ -80,7 +80,7 @@ def test_legacy_oracle_config_migrates_to_pythia_and_warns(tmp_path, monkeypatch
 def test_legacy_oracle_log_file_migrates_once(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path)
     legacy = tmp_path / "oracle_log.jsonl"
-    legacy.write_text(json.dumps({"task": "legacy", "response": "ok"}) + "\n")
+    legacy.write_text(json.dumps({"task": "legacy", "response": "ok"}) + "\n", encoding="utf-8")
 
     path = perseus._pythia_log_path()
     err = capsys.readouterr().err
@@ -89,7 +89,7 @@ def test_legacy_oracle_log_file_migrates_once(tmp_path, monkeypatch, capsys):
     assert path.exists()
     assert not legacy.exists()
     assert "migrated oracle_log.jsonl" in err
-    assert json.loads(path.read_text().strip())["task"] == "legacy"
+    assert json.loads(path.read_text(encoding="utf-8").strip())["task"] == "legacy"
 
 
 def test_old_checkpoint_shapes_load_recover_and_diff_with_future_fields(tmp_path, capsys):
@@ -112,9 +112,9 @@ def test_old_checkpoint_shapes_load_recover_and_diff_with_future_fields(tmp_path
         "status": "complete",
         "workspace": str(workspace),
     }
-    (store / "2026-05-01T1000.yaml").write_text(yaml.safe_dump(old_cp))
-    (store / "2026-05-02T1000.yaml").write_text(yaml.safe_dump(new_cp))
-    (store / "latest.yaml").write_text(yaml.safe_dump(new_cp))
+    (store / "2026-05-01T1000.yaml").write_text(yaml.safe_dump(old_cp), encoding="utf-8")
+    (store / "2026-05-02T1000.yaml").write_text(yaml.safe_dump(new_cp), encoding="utf-8")
+    (store / "latest.yaml").write_text(yaml.safe_dump(new_cp), encoding="utf-8")
 
     loaded = perseus._load_checkpoint_file(store / "2026-05-01T1000.yaml")
     assert loaded["future_checkpoint_field"] == {"kept": True}
@@ -133,7 +133,7 @@ def test_old_checkpoint_shapes_load_recover_and_diff_with_future_fields(tmp_path
 
 def test_legacy_memory_narrative_without_frontmatter_is_read_as_body(tmp_path):
     narrative = tmp_path / "legacy-memory.md"
-    narrative.write_text("# Project Arc\n\nLegacy body without YAML frontmatter.\n")
+    narrative.write_text("# Project Arc\n\nLegacy body without YAML frontmatter.\n", encoding="utf-8")
 
     frontmatter, body = perseus._load_narrative(narrative)
 
@@ -153,7 +153,7 @@ def test_memory_update_preserves_future_narrative_frontmatter_fields(tmp_path):
         "task": "compat task",
         "status": "complete",
         "workspace": str(workspace),
-    }))
+    }), encoding="utf-8")
     narrative = perseus._mneme_path(workspace, local)
     narrative.parent.mkdir(parents=True, exist_ok=True)
     narrative.write_text(
@@ -164,7 +164,7 @@ def test_memory_update_preserves_future_narrative_frontmatter_fields(tmp_path):
         "future_narrative_field: keep-me\n"
         "---\n"
         "# Project Arc\n\nExisting arc.\n"
-    )
+    , encoding="utf-8")
 
     changed, message = perseus._memory_do_update(workspace, local, provider=None)
     frontmatter, body = perseus._load_narrative(narrative)
@@ -190,7 +190,7 @@ def test_federation_manifest_ignores_unknown_future_fields_and_keeps_entry_metad
         "    sync_mode: pull\n"
         "  - alias: broken\n"
         "  - not-a-mapping\n"
-    )
+    , encoding="utf-8")
 
     loaded = perseus._load_federation_manifest(local)
 
@@ -204,8 +204,8 @@ def test_federation_manifest_ignores_unknown_future_fields_and_keeps_entry_metad
 
 
 def test_future_context_pack_fields_are_ignored_where_safe(tmp_path):
-    (tmp_path / "context.md").write_text("@perseus v0.4\n\n# Compat Pack\n")
-    (tmp_path / "source.md").write_text("Compat pack source.\n")
+    (tmp_path / "context.md").write_text("@perseus v0.4\n\n# Compat Pack\n", encoding="utf-8")
+    (tmp_path / "source.md").write_text("Compat pack source.\n", encoding="utf-8")
     (tmp_path / "pack.yaml").write_text(
         "version: 1\n"
         "name: compat-pack\n"
@@ -224,7 +224,7 @@ def test_future_context_pack_fields_are_ignored_where_safe(tmp_path):
         "      - source.md\n"
         "    enabled: false\n"
         "    future_synthesis_field: ignored\n"
-    )
+    , encoding="utf-8")
 
     result = perseus.validate_context_pack(tmp_path, "pack.yaml")
 

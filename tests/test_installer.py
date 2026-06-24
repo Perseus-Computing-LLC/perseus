@@ -29,6 +29,15 @@ def _run(cmd, **kw):
     return subprocess.run(cmd, capture_output=True, text=True, check=False, **kw)
 
 
+def _bash_available():
+    # install.sh is POSIX bash tooling. Git Bash exists on Windows but is handed
+    # Windows-style script paths it can't resolve, and the install flow targets
+    # POSIX — treat Windows as "no usable bash" so these tests skip.
+    if os.name == "nt":
+        return False
+    return shutil.which("bash") is not None
+
+
 def test_installer_script_present_and_executable():
     assert INSTALLER.exists(), "scripts/install.sh missing"
     assert os.access(INSTALLER, os.X_OK), "install.sh must be executable"
@@ -42,6 +51,8 @@ def test_source_checkout_version_still_works():
 
 
 def test_installer_version_dry_run():
+    if not _bash_available():
+        pytest.skip("bash not available")
     out = _run(["bash", str(INSTALLER), "--version"])
     assert out.returncode == 0, out.stderr
     assert out.stdout.startswith("perseus v")
@@ -49,7 +60,7 @@ def test_installer_version_dry_run():
 
 def test_installer_full_install_and_uninstall(tmp_path):
     """AC #1 + AC #2: install into an isolated prefix, shim reports same version."""
-    if shutil.which("bash") is None:
+    if not _bash_available():
         pytest.skip("bash not available")
 
     out = _run(["bash", str(INSTALLER), "--prefix", str(tmp_path)])
@@ -78,6 +89,8 @@ def test_installer_full_install_and_uninstall(tmp_path):
 
 
 def test_installer_rejects_unknown_arg(tmp_path):
+    if not _bash_available():
+        pytest.skip("bash not available")
     out = _run(["bash", str(INSTALLER), "--bogus"])
     assert out.returncode != 0
     assert "unknown argument" in out.stderr
@@ -89,7 +102,7 @@ def test_installer_reports_missing_pyyaml(tmp_path, monkeypatch):
     We simulate "missing pyyaml" by pointing python3 at a wrapper script that
     fails the `python3 -c 'import yaml'` check.
     """
-    if shutil.which("bash") is None:
+    if not _bash_available():
         pytest.skip("bash not available")
     real_python = shutil.which("python3")
     if real_python is None:
@@ -106,7 +119,7 @@ def test_installer_reports_missing_pyyaml(tmp_path, monkeypatch):
         "  case \"$a\" in *'import yaml'*) echo 'ModuleNotFoundError' >&2; exit 1 ;; esac\n"
         "done\n"
         'exec "$REAL" "$@"\n'
-    )
+    , encoding="utf-8")
     fake_py.chmod(0o755)
 
     env = os.environ.copy()

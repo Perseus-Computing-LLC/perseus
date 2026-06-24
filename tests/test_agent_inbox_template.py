@@ -100,7 +100,7 @@ def test_inbox_send_writes_yaml(tmp_path, capsys):
     capsys.readouterr()
     files = list((tmp_path / "inbox").rglob("*.yaml"))
     assert len(files) == 1
-    msg = yaml.safe_load(files[0].read_text())
+    msg = yaml.safe_load(files[0].read_text(encoding="utf-8"))
     assert msg["subject"] == "Hi"
     assert msg["recipient"] == "alice"
     assert msg["sender"] == "bob"
@@ -140,7 +140,7 @@ def test_inbox_read_marks_read(tmp_path, capsys):
     ), local)
     capsys.readouterr()
     files = list((tmp_path / "inbox").rglob("*.yaml"))
-    msg = yaml.safe_load(files[0].read_text())
+    msg = yaml.safe_load(files[0].read_text(encoding="utf-8"))
     assert msg["read_at"] is not None
 
 

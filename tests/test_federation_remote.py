@@ -40,7 +40,7 @@ def _write_manifest(tmp_path, subscriptions):
     manifest = {"version": 1, "subscriptions": subscriptions}
     p = tmp_path / "memory" / "federation.yaml"
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(yaml.dump(manifest))
+    p.write_text(yaml.dump(manifest), encoding="utf-8")
     return p
 
 
@@ -177,9 +177,9 @@ class TestRemoteCacheLayer:
         )
         # Force expiry by setting fetched_at to an old timestamp
         cache_path = perseus._remote_cache_path(c, alias)
-        data = json.loads(cache_path.read_text())
+        data = json.loads(cache_path.read_text(encoding="utf-8"))
         data["fetched_at"] = "2020-01-01T00:00:00"
-        cache_path.write_text(json.dumps(data))
+        cache_path.write_text(json.dumps(data), encoding="utf-8")
 
         result = perseus._read_remote_cache(c, alias)
         assert result is None

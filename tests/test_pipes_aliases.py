@@ -147,9 +147,10 @@ def test_alias_does_not_expand_inside_fence():
 
 
 def test_alias_in_if_block():
+    # PATH is set on every platform; HOME is not (Windows uses USERPROFILE).
     source = """\
 @perseus v0.5
-@if env.set HOME
+@if env.set PATH
 @q "echo home"
 @endif
 """

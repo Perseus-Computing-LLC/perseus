@@ -36,7 +36,7 @@ def test_serve_endpoint_context_missing(tmp_path):
 
 def test_serve_endpoint_context_renders(tmp_path):
     (tmp_path / ".perseus").mkdir()
-    (tmp_path / ".perseus" / "context.md").write_text("@perseus v0.5\n\n# Hello\n")
+    (tmp_path / ".perseus" / "context.md").write_text("@perseus v0.5\n\n# Hello\n", encoding="utf-8")
     status, ctype, body = perseus._serve_render_endpoint("/context", cfg(), tmp_path, {})
     assert status == 200
     assert "Hello" in body
@@ -93,7 +93,7 @@ def test_serve_endpoint_checkpoint_present(tmp_path):
 def test_serve_endpoint_oracle_log_returns_json(tmp_path, monkeypatch):
     monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path)
     log = tmp_path / "pythia_log.jsonl"
-    log.write_text(json.dumps({"timestamp": "t1", "task": "a"}) + "\n")
+    log.write_text(json.dumps({"timestamp": "t1", "task": "a"}) + "\n", encoding="utf-8")
     status, ctype, body = perseus._serve_render_endpoint("/oracle/log", cfg(), tmp_path, {})
     assert status == 200
     assert "application/json" in ctype
@@ -180,19 +180,19 @@ def test_serve_collect_stats_finds_real_data(tmp_path, monkeypatch):
     (tmp_path / "tasks").mkdir()
     (tmp_path / "tasks" / "task-99-fake.md").write_text(
         "---\nid: task-99\ntitle: Fake\nstatus: open\n---\n\n# fake\n"
-    )
+    , encoding="utf-8")
     # Skills
     (tmp_path / "skills" / "git").mkdir(parents=True)
-    (tmp_path / "skills" / "git" / "SKILL.md").write_text("# Git\n")
+    (tmp_path / "skills" / "git" / "SKILL.md").write_text("# Git\n", encoding="utf-8")
     (tmp_path / "skills" / "ci").mkdir(parents=True)
-    (tmp_path / "skills" / "ci" / "SKILL.md").write_text("# CI\n")
+    (tmp_path / "skills" / "ci" / "SKILL.md").write_text("# CI\n", encoding="utf-8")
     # Narrative
     (tmp_path / "memory").mkdir()
     npath = perseus._mneme_path(tmp_path, local)
-    npath.write_text("line one\nline two\nline three\n")
+    npath.write_text("line one\nline two\nline three\n", encoding="utf-8")
     # Context file
     (tmp_path / ".perseus").mkdir()
-    (tmp_path / ".perseus" / "context.md").write_text("hi\n")
+    (tmp_path / ".perseus" / "context.md").write_text("hi\n", encoding="utf-8")
 
     stats = perseus._serve_collect_stats(local, tmp_path)
     assert stats["open_tasks"] == 1
@@ -235,13 +235,25 @@ def test_serve_render_index_includes_stats_and_endpoints(tmp_path):
 
 
 def test_serve_render_index_escapes_workspace_name(tmp_path):
-    weird = tmp_path / "<script>"
-    weird.mkdir()
-    stats = perseus._serve_collect_stats(cfg(), weird)
-    html = perseus._serve_render_index(weird, stats)
-    # Raw tag must NOT survive
-    assert "<script>" not in html.replace("&lt;script&gt;", "")
-    assert "&lt;script&gt;" in html
+    # `<` and `>` are illegal in Windows filenames (and _workspace_hash
+    # resolve()s the path), so a literal "<script>" directory can't exist
+    # there. `&` is HTML-dangerous and legal on both platforms — use the
+    # richest name each OS permits so the escaping is covered everywhere.
+    if os.name == "nt":
+        weird = tmp_path / "a&b"
+        weird.mkdir()
+        stats = perseus._serve_collect_stats(cfg(), weird)
+        html = perseus._serve_render_index(weird, stats)
+        assert "a&b" not in html  # raw & must be escaped
+        assert "&amp;" in html
+    else:
+        weird = tmp_path / "<script>"
+        weird.mkdir()
+        stats = perseus._serve_collect_stats(cfg(), weird)
+        html = perseus._serve_render_index(weird, stats)
+        # Raw tag must NOT survive
+        assert "<script>" not in html.replace("&lt;script&gt;", "")
+        assert "&lt;script&gt;" in html
 
 
 def test_serve_render_endpoint_index_returns_polished_html(tmp_path):
@@ -272,7 +284,7 @@ def test_serve_collect_stats_inbox_unread_reports_real_count(tmp_path, monkeypat
     for i, sender in enumerate(("alice", "bob")):
         (idir / f"2026-05-18T10-00-0{i}-{sender}.yaml").write_text(
             _yaml.safe_dump({"id": f"m{i}", "from": sender, "to": "me", "subject": "x", "body": "y", "read": False})
-        )
+        , encoding="utf-8")
     stats = perseus._serve_collect_stats(cfg_, workspace)
     assert stats.get("inbox_unread") == 2
 def test_serve_refuses_non_loopback_without_opt_in(tmp_path, capsys):

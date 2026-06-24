@@ -31,7 +31,7 @@ def _load_synthesis_sources(refs: list[str], workspace: Path, cfg: dict) -> tupl
         if error or path is None:
             errors.append(error or f"invalid source: {ref}")
             continue
-        text = path.read_text(errors="replace")
+        text = path.read_text(errors="replace", encoding="utf-8")
         truncated = False
         if max_source_bytes > 0 and len(text) > max_source_bytes:
             text = text[:max_source_bytes]

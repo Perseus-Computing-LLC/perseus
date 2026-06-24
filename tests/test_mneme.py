@@ -259,7 +259,7 @@ def test_mneme_path_no_migration_when_sha256_already_exists(tmp_path):
 
     result = perseus._mneme_path(workspace, cfg_)
     assert result == sha_fp
-    assert sha_fp.read_text() == "current\n", "Current file must be untouched"
+    assert sha_fp.read_text(encoding="utf-8") == "current\n", "Current file must be untouched"
     assert legacy_fp.exists(), "Legacy file must NOT be removed in this case"
 
 
@@ -329,8 +329,8 @@ def test_memory_doctor_migrate_renames_legacy_files(tmp_path):
 
     new_A = store / f"{perseus._workspace_hash(wsA)}.md"
     new_B = store / f"{perseus._workspace_hash(wsB)}.md"
-    assert new_A.exists() and new_A.read_text().endswith("A content\n")
-    assert new_B.exists() and new_B.read_text().endswith("B content\n")
+    assert new_A.exists() and new_A.read_text(encoding="utf-8").endswith("A content\n")
+    assert new_B.exists() and new_B.read_text(encoding="utf-8").endswith("B content\n")
 
     # Idempotent: re-running is a no-op.
     second = perseus._mneme_doctor_migrate(cfg_)
@@ -360,4 +360,4 @@ def test_memory_doctor_migrate_skips_when_destination_exists(tmp_path):
     # Both files still present.
     assert legacy_fp.exists()
     assert sha_fp.exists()
-    assert sha_fp.read_text().endswith("current\n")
+    assert sha_fp.read_text(encoding="utf-8").endswith("current\n")

@@ -102,14 +102,14 @@ def cmd_checkpoint(args, cfg):
         try:
             with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
                 yaml.dump(cp, f, default_flow_style=False, allow_unicode=True)
-            # fsync for durability before the rename
-            os_fsync = getattr(os, "fsync", None)
-            if os_fsync:
-                fd2 = os.open(tmp_path, os.O_RDONLY)
-                try:
-                    os_fsync(fd2)
-                finally:
-                    os.close(fd2)
+                # fsync for durability before the rename. Sync the *writable*
+                # handle while it is still open: on Windows os.fsync calls
+                # _commit(), which requires a write-mode fd and raises EBADF
+                # ("Bad file descriptor") on a re-opened read-only one.
+                f.flush()
+                os_fsync = getattr(os, "fsync", None)
+                if os_fsync:
+                    os_fsync(f.fileno())
             os.replace(tmp_path, outfile)
         except Exception:
             Path(tmp_path).unlink(missing_ok=True)
@@ -203,10 +203,10 @@ def cmd_checkpoint(args, cfg):
             mp = _mneme_path(ws2, cfg)
             if mp.exists():
                 try:
-                    narrative_body = mp.read_text()
+                    narrative_body = mp.read_text(encoding="utf-8")
                     sig = _sign_narrative(narrative_body, identity)
                     sig_path = mp.with_suffix(mp.suffix + ".sig")
-                    sig_path.write_text(json.dumps(sig, indent=2))
+                    sig_path.write_text(json.dumps(sig, indent=2), encoding="utf-8")
                 except Exception as e:
                     print(f"Auto-sign warning: {e}", file=sys.stderr)
 
@@ -218,7 +218,7 @@ def cmd_checkpoint(args, cfg):
         mp3 = _mneme_path(ws3, cfg)
         if mp3.exists():
             try:
-                narrative_body = mp3.read_text()
+                narrative_body = mp3.read_text(encoding="utf-8")
                 sig = _sign_narrative(narrative_body, identity) if identity else None
                 _push_to_all_subscribers(cfg, narrative_body, sig)
             except Exception as e:

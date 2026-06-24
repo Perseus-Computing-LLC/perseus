@@ -149,9 +149,9 @@ def test_gauntlet_smoke_role_selection_skips_npx_and_prefers_light_profiles(tmp_
     heavy = tmp_path / "heavy.md"
     light = tmp_path / "light.md"
     medium = tmp_path / "medium.md"
-    heavy.write_text('@perseus v0.8\n@query "npx axe --version"\n')
-    light.write_text("@perseus v0.8\n@read README.md\n")
-    medium.write_text("@perseus v0.8\n@read README.md\n@read ROADMAP.md\n")
+    heavy.write_text('@perseus v0.8\n@query "npx axe --version"\n', encoding="utf-8")
+    light.write_text("@perseus v0.8\n@read README.md\n", encoding="utf-8")
+    medium.write_text("@perseus v0.8\n@read README.md\n@read ROADMAP.md\n", encoding="utf-8")
 
     selected = gauntlet_orchestrator._select_smoke_role_profiles([
         {"name": "heavy", "path": str(heavy), "directive_count": 80},
@@ -171,7 +171,7 @@ def test_gauntlet_smoke_config_uses_short_timeouts(monkeypatch, tmp_path):
     monkeypatch.setenv("GAUNTLET_SMOKE", "1")
     gauntlet_setup.create_config(tmp_path)
 
-    data = yaml.safe_load((tmp_path / "config.yaml").read_text())
+    data = yaml.safe_load((tmp_path / "config.yaml").read_text(encoding="utf-8"))
     assert data["render"]["services_timeout_s"] == 0.2
     assert data["render"]["query_timeout_s"] == 5
     assert data["render"]["parallel_services"] is True

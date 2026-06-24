@@ -8,7 +8,7 @@ def load_latest_checkpoint(cfg: dict) -> dict | None:
     latest = store / "latest.yaml"
     if latest.exists():
         try:
-            return yaml.safe_load(latest.read_text()) or {}
+            return yaml.safe_load(latest.read_text(encoding="utf-8")) or {}
         except Exception:
             pass
     # Fall back to most recent timestamped file
@@ -17,7 +17,7 @@ def load_latest_checkpoint(cfg: dict) -> dict | None:
         if cp.name == "latest.yaml":
             continue
         try:
-            return yaml.safe_load(cp.read_text()) or {}
+            return yaml.safe_load(cp.read_text(encoding="utf-8")) or {}
         except Exception:
             continue
     return None

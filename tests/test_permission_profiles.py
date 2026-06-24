@@ -36,12 +36,12 @@ def _isolate_home(monkeypatch, tmp_path: Path) -> Path:
 
 
 def _write_global_cfg(home: Path, data: dict) -> None:
-    (home / "config.yaml").write_text(yaml.safe_dump(data))
+    (home / "config.yaml").write_text(yaml.safe_dump(data), encoding="utf-8")
 
 
 def _write_workspace_cfg(workspace: Path, data: dict) -> None:
     (workspace / ".perseus").mkdir(exist_ok=True)
-    (workspace / ".perseus" / "config.yaml").write_text(yaml.safe_dump(data))
+    (workspace / ".perseus" / "config.yaml").write_text(yaml.safe_dump(data), encoding="utf-8")
 
 
 # ── DEFAULT_CONFIG shape ─────────────────────────────────────────────────────
@@ -304,7 +304,7 @@ def test_explicit_user_render_key_wins_over_profile(
     (workspace / ".perseus" / "config.yaml").write_text(yaml.safe_dump({
         "permissions": {"profile": profile_name},
         "render": {override_key: override_value},
-    }))
+    }), encoding="utf-8")
 
     cfg = perseus.load_config(workspace=workspace)
     assert cfg["render"][override_key] is override_value, (
@@ -339,7 +339,7 @@ def test_explicit_user_value_wins_when_set_to_same_value_as_profile(
         "permissions": {"profile": "balanced"},
         # Same value as balanced's default for this key
         "render": {"allow_query_shell": False},
-    }))
+    }), encoding="utf-8")
 
     cfg = perseus.load_config(workspace=workspace)
     assert cfg["render"]["allow_query_shell"] is False
@@ -360,12 +360,12 @@ def test_workspace_overrides_global_for_profile_and_render(
     # Global: strict, everything off
     (home / "config.yaml").write_text(yaml.safe_dump({
         "permissions": {"profile": "strict"},
-    }))
+    }), encoding="utf-8")
     # Workspace: balanced profile + power-user-ish override
     (workspace / ".perseus" / "config.yaml").write_text(yaml.safe_dump({
         "permissions": {"profile": "balanced"},
         "render": {"allow_query_shell": True},
-    }))
+    }), encoding="utf-8")
 
     cfg = perseus.load_config(workspace=workspace)
     assert cfg["render"]["allow_query_shell"] is True
@@ -425,7 +425,7 @@ def test_audit_log_records_profile_override_decision(monkeypatch, tmp_path):
         "permissions": {"profile": "balanced"},
         "render": {"allow_query_shell": True},
         "audit": {"enabled": True},
-    }))
+    }), encoding="utf-8")
 
     cfg = perseus.load_config(workspace=workspace)
     assert cfg["render"]["allow_query_shell"] is True
@@ -433,7 +433,7 @@ def test_audit_log_records_profile_override_decision(monkeypatch, tmp_path):
     # Audit log should have a config_profile_overridden entry
     audit_path = home / ".perseus" / "audit_log.jsonl"
     assert audit_path.exists(), "Audit log was not created"
-    lines = [json.loads(line) for line in audit_path.read_text().splitlines() if line.strip()]
+    lines = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines() if line.strip()]
     override_events = [e for e in lines if e.get("event_type") == "config_profile_overridden"]
     assert len(override_events) >= 1, (
         f"No config_profile_overridden event in audit log. Events: "
@@ -462,12 +462,12 @@ def test_no_audit_event_when_user_does_not_override_profile_keys(
         # `cache_dir` is not a profile-managed key
         "render": {"cache_dir": str(home / "cache")},
         "audit": {"enabled": True},
-    }))
+    }), encoding="utf-8")
 
     cfg = perseus.load_config(workspace=workspace)
     audit_path = home / ".perseus" / "audit_log.jsonl"
     if audit_path.exists():
-        lines = [json.loads(line) for line in audit_path.read_text().splitlines() if line.strip()]
+        lines = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines() if line.strip()]
         override_events = [e for e in lines if e.get("event_type") == "config_profile_overridden"]
         assert len(override_events) == 0, (
             "Should not log an override event for non-profile-managed keys"

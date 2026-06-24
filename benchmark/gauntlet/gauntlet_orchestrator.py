@@ -416,7 +416,7 @@ class GauntletOrchestrator:
         for node in self.nodes:
             result_path = self.nfs_path / "results" / f"phase{phase_num}_node_{node}.json"
             if result_path.is_file():
-                result = json.loads(result_path.read_text())
+                result = json.loads(result_path.read_text(encoding="utf-8"))
                 all_records.append(result)
                 total_failures += result.get("failures", 0)
 
@@ -870,12 +870,12 @@ class GauntletOrchestrator:
 
         # Write outputs
         write_json(self.output_dir / "gauntlet_results.json", final)
-        (self.output_dir / "gauntlet_report.md").write_text(report_md)
+        (self.output_dir / "gauntlet_report.md").write_text(report_md, encoding="utf-8")
         (self.output_dir / "gauntlet_score.txt").write_text(
             f"Perseus Gauntlet Score: {final['score']:.1f}/100\n"
             f"Overall: {'PASS' if final['overall_pass'] else 'FAIL'}\n"
             f"Full certification: {'PASS' if final['certification_pass'] else 'not evaluated'}\n"
-        )
+        , encoding="utf-8")
 
         self.telemetry.close()
 

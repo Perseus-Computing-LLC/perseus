@@ -21,7 +21,7 @@ pytestmark = pytest.mark.skipif(PY_VER < (3, 10), reason="Perseus requires Pytho
 def test_infer_workspace_for_non_dot_perseus_source(tmp_path):
     src = tmp_path / "docs" / "context.md"
     src.parent.mkdir(parents=True)
-    src.write_text("@perseus\n")
+    src.write_text("@perseus\n", encoding="utf-8")
     assert perseus._infer_workspace(src) == src.parent.resolve()
 
 
@@ -47,7 +47,7 @@ def test_inline_date_preserves_code_span_examples():
 def test_read_parses_quoted_path_and_fallback_with_quotes(tmp_path):
     workspace = tmp_path
     target = workspace / "a'b.txt"
-    target.write_text("content")
+    target.write_text("content", encoding="utf-8")
     out = perseus.resolve_read(f'"{target.name}" fallback="say \\\"hi\\\""', cfg(), workspace)
     assert "content" in out
     assert out.startswith("```text")
@@ -55,14 +55,14 @@ def test_read_parses_quoted_path_and_fallback_with_quotes(tmp_path):
 
 def test_read_blocks_workspace_escape_by_default(tmp_path):
     outside = tmp_path.parent / "secret.txt"
-    outside.write_text("nope")
+    outside.write_text("nope", encoding="utf-8")
     out = perseus.resolve_read(f'"{outside}"', cfg(), tmp_path)
     assert "escapes workspace" in out
 
 
 def test_include_blocks_workspace_escape_by_default(tmp_path):
     outside = tmp_path.parent / "secret.md"
-    outside.write_text("# secret")
+    outside.write_text("# secret", encoding="utf-8")
     out = perseus.resolve_include(f'"{outside}"', tmp_path, cfg())
     assert "escapes workspace" in out
 
@@ -137,7 +137,7 @@ def test_safe_cache_dir_warns_and_audits_when_override_is_rejected(tmp_path, mon
     audit_log = tmp_path / ".perseus" / "audit_log.jsonl"
     records = [
         json.loads(line)
-        for line in audit_log.read_text().splitlines()
+        for line in audit_log.read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
     assert any(
@@ -205,16 +205,19 @@ mapping:
   "version":
     type: str
     required: true
-""")
+""", encoding="utf-8")
 
-    # Test with valid data
+    # Test with valid data. No single quotes around the YAML: cmd.exe echoes
+    # them literally (yielding a quoted string, not a map), while bash strips
+    # them. Unquoted, bash does not brace-expand it (spaces present) and cmd
+    # echoes it verbatim, so both shells emit the same YAML map.
     valid_yaml = "{name: my-package, version: 1.0.0}"
-    out = perseus.resolve_query(f'"echo \'{valid_yaml}\'" schema="test_schema"', cfg(), workspace)
+    out = perseus.resolve_query(f'"echo {valid_yaml}" schema="test_schema"', cfg(), workspace)
     assert "my-package" in out
 
     # Test with invalid data
     invalid_yaml = "{name: my-package}"
-    out = perseus.resolve_query(f'"echo \'{invalid_yaml}\'" schema="{schema_file}"', cfg(), workspace)
+    out = perseus.resolve_query(f'"echo {invalid_yaml}" schema="{schema_file}"', cfg(), workspace)
     assert "Validation Error" in out
 
 
@@ -249,8 +252,8 @@ mapping:
       port:
         type: int
         required: true
-""")
-    (tmp_path / "service.yaml").write_text("service:\n  port: 3000\n")
+""", encoding="utf-8")
+    (tmp_path / "service.yaml").write_text("service:\n  port: 3000\n", encoding="utf-8")
 
     out = perseus.resolve_read('service.yaml schema="service"', cfg(), tmp_path)
     assert "port: 3000" in out
@@ -259,9 +262,9 @@ mapping:
 def test_read_schema_validates_extracted_path(tmp_path):
     schemas_dir = tmp_path / ".perseus" / "schemas"
     schemas_dir.mkdir(parents=True)
-    (schemas_dir / "port.yaml").write_text("type: int\n")
-    (schemas_dir / "string.yaml").write_text("type: str\n")
-    (tmp_path / "service.yaml").write_text("service:\n  port: 3000\n")
+    (schemas_dir / "port.yaml").write_text("type: int\n", encoding="utf-8")
+    (schemas_dir / "string.yaml").write_text("type: str\n", encoding="utf-8")
+    (tmp_path / "service.yaml").write_text("service:\n  port: 3000\n", encoding="utf-8")
 
     out = perseus.resolve_read('service.yaml path="service.port" schema="port"', cfg(), tmp_path)
     assert out == "3000"
@@ -273,8 +276,8 @@ def test_read_schema_validates_extracted_path(tmp_path):
 def test_read_schema_validates_env_key_and_fallback(tmp_path):
     schemas_dir = tmp_path / ".perseus" / "schemas"
     schemas_dir.mkdir(parents=True)
-    (schemas_dir / "mode.yaml").write_text('type: str\npattern: "^(dev|prod)$"\n')
-    (tmp_path / ".env").write_text("MODE=prod\n")
+    (schemas_dir / "mode.yaml").write_text('type: str\npattern: "^(dev|prod)$"\n', encoding="utf-8")
+    (tmp_path / ".env").write_text("MODE=prod\n", encoding="utf-8")
 
     out = perseus.resolve_read('.env key="MODE" schema="mode"', cfg(), tmp_path)
     assert out == "prod"
@@ -286,7 +289,7 @@ def test_read_schema_validates_env_key_and_fallback(tmp_path):
 def test_env_schema_validates_value_and_fallback(monkeypatch, tmp_path):
     schemas_dir = tmp_path / ".perseus" / "schemas"
     schemas_dir.mkdir(parents=True)
-    (schemas_dir / "env.yaml").write_text('type: str\npattern: "^(dev|prod)$"\n')
+    (schemas_dir / "env.yaml").write_text('type: str\npattern: "^(dev|prod)$"\n', encoding="utf-8")
     monkeypatch.setenv("DEPLOY_ENV", "prod")
 
     out = perseus.resolve_env('DEPLOY_ENV schema="env"', cfg(), tmp_path)
@@ -310,15 +313,15 @@ mapping:
       port:
         type: int
         required: true
-""")
-    (tmp_path / "service.yaml").write_text("service:\n  port: 3000\n")
+""", encoding="utf-8")
+    (tmp_path / "service.yaml").write_text("service:\n  port: 3000\n", encoding="utf-8")
 
     src = '@perseus\n@validate schema="service"\n@read service.yaml\n@end'
     out = perseus.render_source(src, cfg(), tmp_path)
     assert "port: 3000" in out
     assert "Validation Error" not in out
 
-    (tmp_path / "service.yaml").write_text("service:\n  port: no\n")
+    (tmp_path / "service.yaml").write_text("service:\n  port: no\n", encoding="utf-8")
     out = perseus.render_source(src, cfg(), tmp_path)
     assert "Validation Error" in out
 
@@ -341,8 +344,8 @@ def test_registry_output_schema_validates_annotated_directive(monkeypatch):
 def test_explicit_schema_takes_precedence_over_registry_output_schema(monkeypatch, tmp_path):
     schemas_dir = tmp_path / ".perseus" / "schemas"
     schemas_dir.mkdir(parents=True)
-    (schemas_dir / "number.yaml").write_text("type: int\n")
-    (tmp_path / "service.yaml").write_text("service:\n  port: 3000\n")
+    (schemas_dir / "number.yaml").write_text("type: int\n", encoding="utf-8")
+    (tmp_path / "service.yaml").write_text("service:\n  port: 3000\n", encoding="utf-8")
 
     spec = perseus.DIRECTIVE_REGISTRY["@read"]
     monkeypatch.setitem(
@@ -462,7 +465,7 @@ def test_prefetch_reports_no_match_behavior(tmp_path):
 
 
 def test_prefetch_trigger_string_can_include_args(tmp_path):
-    (tmp_path / "README.md").write_text("prefetched read")
+    (tmp_path / "README.md").write_text("prefetched read", encoding="utf-8")
     local = cfg()
     local["render"]["cache_dir"] = str(tmp_path / "cache")
     local["prefetch"]["rules"] = [{
@@ -612,7 +615,7 @@ def test_adaptive_prefetch_skips_below_threshold_without_execution(tmp_path):
 def test_skills_frontmatter_parses_structurally(tmp_path):
     skill_dir = tmp_path / "skills" / "cat" / "demo"
     skill_dir.mkdir(parents=True)
-    (skill_dir / "SKILL.md").write_text("---\nname: demo-name\ndescription: uses --- inside text ok\n---\nbody")
+    (skill_dir / "SKILL.md").write_text("---\nname: demo-name\ndescription: uses --- inside text ok\n---\nbody", encoding="utf-8")
     local_cfg = cfg()
     local_cfg["pythia"]["skill_dir"] = str(tmp_path / "skills")
     out = perseus.resolve_skills("", local_cfg)
@@ -632,7 +635,7 @@ def test_list_directory_simple(tmp_path):
 def test_list_structured_json_table(tmp_path):
     local = cfg()
     pkg = tmp_path / "package.json"
-    pkg.write_text(json.dumps({"scripts": {"dev": "vite dev", "build": "vite build"}}))
+    pkg.write_text(json.dumps({"scripts": {"dev": "vite dev", "build": "vite build"}}), encoding="utf-8")
     out = perseus.resolve_list('./package.json path="scripts" columns="key:Command,value:Runs" as="table"', local, tmp_path)
     assert "| Command | Runs |" in out
     assert "dev" in out
@@ -656,10 +659,10 @@ def test_list_outside_workspace_warns(tmp_path):
 def test_tree_basic(tmp_path):
     local = cfg()
     (tmp_path / "src" / "api").mkdir(parents=True)
-    (tmp_path / "src" / "api" / "routes.py").write_text("")
-    (tmp_path / "src" / "api" / "models.py").write_text("")
+    (tmp_path / "src" / "api" / "routes.py").write_text("", encoding="utf-8")
+    (tmp_path / "src" / "api" / "models.py").write_text("", encoding="utf-8")
     (tmp_path / "src" / "utils").mkdir(parents=True)
-    (tmp_path / "src" / "utils" / "parser.py").write_text("")
+    (tmp_path / "src" / "utils" / "parser.py").write_text("", encoding="utf-8")
     out = perseus.resolve_tree('./src/ depth=3', local, tmp_path)
     assert "```" in out
     assert "src/" in out
@@ -670,10 +673,10 @@ def test_tree_basic(tmp_path):
 def test_tree_match_and_exclude(tmp_path):
     local = cfg()
     (tmp_path / "src").mkdir()
-    (tmp_path / "src" / "a.py").write_text("")
-    (tmp_path / "src" / "b.txt").write_text("")
+    (tmp_path / "src" / "a.py").write_text("", encoding="utf-8")
+    (tmp_path / "src" / "b.txt").write_text("", encoding="utf-8")
     (tmp_path / "src" / "node_modules").mkdir()
-    (tmp_path / "src" / "node_modules" / "x.py").write_text("")
+    (tmp_path / "src" / "node_modules" / "x.py").write_text("", encoding="utf-8")
     out = perseus.resolve_tree('./src/ depth=2 match="*.py" exclude="node_modules"', local, tmp_path)
     assert "a.py" in out
     assert "b.txt" not in out
@@ -734,18 +737,18 @@ def test_cache_fingerprint_read_invalidates_on_file_change(tmp_path):
     """Changing a @read file within TTL invalidates the cache."""
     src = tmp_path / "src.md"
     data_file = tmp_path / "data.txt"
-    data_file.write_text("v1")
-    src.write_text(f'@perseus v0.4\n@read {data_file} @cache ttl=3600')
+    data_file.write_text("v1", encoding="utf-8")
+    src.write_text(f'@perseus v0.4\n@read {data_file} @cache ttl=3600', encoding="utf-8")
 
     c = cfg()
     c["render"]["cache_dir"] = str(tmp_path / "cache")
 
-    r1 = perseus.render_source(src.read_text(), c, tmp_path)
+    r1 = perseus.render_source(src.read_text(encoding="utf-8"), c, tmp_path)
     assert "v1" in r1
 
     # Change the file — cache must invalidate
-    data_file.write_text("v2")
-    r2 = perseus.render_source(src.read_text(), c, tmp_path)
+    data_file.write_text("v2", encoding="utf-8")
+    r2 = perseus.render_source(src.read_text(encoding="utf-8"), c, tmp_path)
     assert "v2" in r2
 
 
@@ -753,17 +756,17 @@ def test_cache_fingerprint_handles_quoted_paths_with_spaces(tmp_path):
     """Quoted file paths with spaces still participate in dependency invalidation."""
     src = tmp_path / "src.md"
     data_file = tmp_path / "data file.txt"
-    data_file.write_text("v1")
-    src.write_text('@perseus v0.4\n@read "data file.txt" @cache ttl=3600')
+    data_file.write_text("v1", encoding="utf-8")
+    src.write_text('@perseus v0.4\n@read "data file.txt" @cache ttl=3600', encoding="utf-8")
 
     c = cfg()
     c["render"]["cache_dir"] = str(tmp_path / "cache")
 
-    r1 = perseus.render_source(src.read_text(), c, tmp_path)
+    r1 = perseus.render_source(src.read_text(encoding="utf-8"), c, tmp_path)
     assert "v1" in r1
 
-    data_file.write_text("v2")
-    r2 = perseus.render_source(src.read_text(), c, tmp_path)
+    data_file.write_text("v2", encoding="utf-8")
+    r2 = perseus.render_source(src.read_text(encoding="utf-8"), c, tmp_path)
     assert "v2" in r2
 
 
@@ -772,7 +775,7 @@ def test_cache_fingerprint_respects_workspace_boundary(monkeypatch, tmp_path):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     outside = tmp_path / "outside.txt"
-    outside.write_text("secret")
+    outside.write_text("secret", encoding="utf-8")
 
     original_read_bytes = Path.read_bytes
 
@@ -797,13 +800,13 @@ def test_cache_fingerprint_respects_workspace_boundary(monkeypatch, tmp_path):
 def test_cache_fingerprint_no_deps_still_caches(tmp_path):
     """@query with no file deps caches and returns consistent output."""
     src = tmp_path / "src.md"
-    src.write_text('@perseus v0.4\n@query "echo hello" @cache ttl=3600')
+    src.write_text('@perseus v0.4\n@query "echo hello" @cache ttl=3600', encoding="utf-8")
 
     c = cfg()
     c["render"]["cache_dir"] = str(tmp_path / "cache")
 
-    r1 = perseus.render_source(src.read_text(), c, tmp_path)
-    r2 = perseus.render_source(src.read_text(), c, tmp_path)
+    r1 = perseus.render_source(src.read_text(encoding="utf-8"), c, tmp_path)
+    r2 = perseus.render_source(src.read_text(encoding="utf-8"), c, tmp_path)
     assert r1 == r2  # cached output matches
 
 
@@ -837,17 +840,17 @@ def test_cache_nofingerprint_ignores_file_change(tmp_path):
     """@cache nofingerprint keeps TTL-only behavior, ignores file changes."""
     src = tmp_path / "src.md"
     data_file = tmp_path / "data.txt"
-    data_file.write_text("v1")
-    src.write_text(f'@perseus v0.4\n@read {data_file} @cache nofingerprint ttl=3600')
+    data_file.write_text("v1", encoding="utf-8")
+    src.write_text(f'@perseus v0.4\n@read {data_file} @cache nofingerprint ttl=3600', encoding="utf-8")
 
     c = cfg()
     c["render"]["cache_dir"] = str(tmp_path / "cache")
 
-    r1 = perseus.render_source(src.read_text(), c, tmp_path)
+    r1 = perseus.render_source(src.read_text(encoding="utf-8"), c, tmp_path)
     assert "v1" in r1
 
-    data_file.write_text("v2")
-    r2 = perseus.render_source(src.read_text(), c, tmp_path)
+    data_file.write_text("v2", encoding="utf-8")
+    r2 = perseus.render_source(src.read_text(encoding="utf-8"), c, tmp_path)
     # With nofingerprint, cache is NOT invalidated by file change
     assert "v1" in r2
 
@@ -1024,7 +1027,7 @@ def test_include_survives_malformed_max_include_bytes(tmp_path):
     c = cfg()
     c["render"]["max_include_bytes"] = "not-an-int"
     f = tmp_path / "hello.md"
-    f.write_text("# hello\n")
+    f.write_text("# hello\n", encoding="utf-8")
     result = perseus.resolve_include(f'"{f.name}"', tmp_path, c)
     assert "# hello" in result
 
@@ -1034,6 +1037,6 @@ def test_read_survives_malformed_max_read_bytes(tmp_path):
     c = cfg()
     c["render"]["max_read_bytes"] = "not-an-int"
     f = tmp_path / "hello.txt"
-    f.write_text("hello")
+    f.write_text("hello", encoding="utf-8")
     result = perseus.resolve_read(f'"{f.name}"', c, tmp_path)
     assert "hello" in result

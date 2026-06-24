@@ -9,7 +9,7 @@ def _structured_load(fp: Path) -> object:
     """Load JSON or YAML based on extension. Returns the parsed object or None on failure."""
     suffix = fp.suffix.lower()
     try:
-        text = fp.read_text(errors="replace")
+        text = fp.read_text(errors="replace", encoding="utf-8")
     except Exception:
         return None
     if suffix == ".json":
