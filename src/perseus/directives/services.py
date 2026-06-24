@@ -80,6 +80,7 @@ def _check_one_service(svc: dict, index: int, timeout: float, cfg: dict) -> tupl
                 command,
                 shell=True,
                 executable=_get_shell(cfg),
+                stdin=subprocess.DEVNULL,  # avoid OSError [WinError 6] on Windows
                 capture_output=True,
                 text=True,
                 timeout=timeout,
