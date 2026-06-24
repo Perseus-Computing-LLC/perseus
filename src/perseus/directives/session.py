@@ -99,7 +99,15 @@ def evaluate_condition(condition: str, workspace: Path | None = None, cfg: dict 
             )
             return False
 
-        shell = _get_shell(cfg) or render_cfg.get("shell")
+        # _get_shell() returns None deliberately to mean "use the platform
+        # default" (cmd.exe on Windows, /bin/sh on POSIX) — both when running on
+        # Windows (where /bin/bash doesn't exist) and when a configured shell
+        # isn't trusted (L-6). Do NOT fall back to render.shell here: that
+        # reintroduces an unvetted/nonexistent path and, on Windows, sets
+        # executable="/bin/bash" → OSError [WinError 3]. Match the other
+        # shell-exec sites (query.py / agent.py / services.py) which use the
+        # resolved value directly.
+        shell = _get_shell(cfg)
         try:
             result = subprocess.run(
                 cmd,
