@@ -55,7 +55,7 @@ def workspace_with_context(tmp_path: Path) -> Path:
     (ws / ".perseus").mkdir(parents=True)
     (ws / ".perseus" / "context.md").write_text(
         f"@perseus\n\nMy AWS token is {SECRET_NEEDLE}.\n"
-    )
+    , encoding="utf-8")
     return ws
 
 
@@ -127,7 +127,7 @@ def test_perseus_read_result_redacts_secret(tmp_path):
     ws = tmp_path / "ws"
     (ws / ".perseus").mkdir(parents=True)
     secret_file = ws / "secrets.txt"
-    secret_file.write_text(f"token: {SECRET_NEEDLE}\n")
+    secret_file.write_text(f"token: {SECRET_NEEDLE}\n", encoding="utf-8")
 
     result = perseus._call_tool(
         "perseus_read", {"path": "secrets.txt"}, cfg, ws,

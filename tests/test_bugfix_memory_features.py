@@ -297,7 +297,7 @@ def test_feat4_checkpoint_workspace_defaults_to_cwd(tmp_path, monkeypatch):
     cps = list(store.glob("*.yaml"))
     cps = [c for c in cps if c.name != "latest.yaml" and not c.name.startswith("latest-")]
     assert cps, "at least one checkpoint should be written"
-    cp = yaml.safe_load(cps[0].read_text())
+    cp = yaml.safe_load(cps[0].read_text(encoding="utf-8"))
     assert cp.get("workspace") == str(tmp_path.resolve()), \
         "workspace field should default to CWD"
 
@@ -327,5 +327,5 @@ def test_feat4_checkpoint_workspace_explicit_flag(tmp_path, monkeypatch):
         key=lambda f: f.name,
     )
     assert cps
-    cp = yaml.safe_load(cps[-1].read_text())
+    cp = yaml.safe_load(cps[-1].read_text(encoding="utf-8"))
     assert str(Path(explicit).resolve()) in cp.get("workspace", "")

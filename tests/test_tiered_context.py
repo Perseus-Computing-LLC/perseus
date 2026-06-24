@@ -1,6 +1,13 @@
 """Tests for Tiered Context Rendering (task-76)."""
+import re
+
 import pytest
 from conftest import cfg, perseus
+
+# @date renders the timezone via strftime("%Z"), which yields the abbreviation
+# (e.g. "CDT") on POSIX but the full name ("Central Daylight Time") on Windows.
+# Assert the stable date portion instead of the platform-dependent zone.
+_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
 def test_tier_field_on_all_directives():
@@ -33,15 +40,15 @@ def test_max_tier_3_resolves_all():
     """max_tier=3 resolves every directive."""
     source = "@perseus\n@date\n@env HOME"
     out = perseus.render_source(source, cfg(), None, max_tier=3)
-    assert "CDT" in out or "UTC" in out  # @date resolved
-    assert "HOME" not in out or "/" in out  # @env resolved something
+    assert _DATE_RE.search(out)  # @date resolved
+    assert "@env HOME" not in out  # @env directive resolved (not left literal)
 
 
 def test_max_tier_1_skips_t2_t3_directives():
     """max_tier=1 skips @skills (T2) and @query (T3) but resolves @date (T1)."""
     source = "@perseus\n@date"
     out = perseus.render_source(source, cfg(), None, max_tier=1)
-    assert "CDT" in out or "UTC" in out  # @date resolved
+    assert _DATE_RE.search(out)  # @date resolved
 
 
 def test_max_tier_1_emits_context_manifest():

@@ -89,3 +89,37 @@ jobs:
           export PERSEUS_ALLOW_DANGEROUS=1
           coverage run -m pytest tests/ -q
           coverage report
+
+  test-windows:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows-specific failures are OS-level (paths, fcntl, sockets, shells),
+        # not Python-version-specific, so one interpreter guards them. The Linux
+        # matrix above covers per-version behavior.
+        python-version: ["3.12"]
+    env:
+      PERSEUS_ALLOW_DANGEROUS: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyyaml pytest coverage hypothesis
+
+      - name: Rebuild build artifact
+        run: python scripts/build.py
+
+      - name: Verify build artifact is in sync
+        run: python scripts/build.py --check
+
+      - name: Run test suite
+        run: python -m pytest tests/ -q
