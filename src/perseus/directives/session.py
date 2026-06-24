@@ -105,6 +105,7 @@ def evaluate_condition(condition: str, workspace: Path | None = None, cfg: dict 
                 cmd,
                 shell=True,
                 executable=shell,
+                stdin=subprocess.DEVNULL,  # avoid OSError [WinError 6] on Windows
                 capture_output=True,
                 text=True,
                 timeout=30,

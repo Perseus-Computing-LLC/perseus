@@ -222,6 +222,9 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
         popen_kwargs = {
             "shell": True,
             "executable": shell,
+            # Detach stdin to avoid OSError [WinError 6] on Windows when the
+            # parent's stdin handle is invalid (e.g. under pytest capture).
+            "stdin": subprocess.DEVNULL,
             "stdout": subprocess.PIPE,
             "stderr": subprocess.PIPE,
             "text": True,
