@@ -195,7 +195,7 @@ def test_cmd_render_redacts_output_but_keeps_source(tmp_path, monkeypatch, capsy
     workspace.mkdir()
     secret = "sk-" + "A" * 40
     src = workspace / "ctx.md"
-    src.write_text(f"# Context\n\nMy key is {secret}\n")
+    src.write_text(f"# Context\n\nMy key is {secret}\n", encoding="utf-8")
 
     output = workspace / "rendered.md"
     args = argparse.Namespace(
@@ -206,9 +206,9 @@ def test_cmd_render_redacts_output_but_keeps_source(tmp_path, monkeypatch, capsy
     perseus.cmd_render(args, {})
 
     # Source file must NOT be mutated (non-goal #2)
-    assert secret in src.read_text()
+    assert secret in src.read_text(encoding="utf-8")
     # Output must NOT contain the secret (AC #1, #2)
-    rendered = output.read_text()
+    rendered = output.read_text(encoding="utf-8")
     assert secret not in rendered
     assert "[REDACTED:openai_api_key]" in rendered
 
@@ -257,20 +257,20 @@ def test_cmd_render_redaction_disabled_passes_secret_through(tmp_path, monkeypat
     monkeypatch.setattr(perseus, "PERSEUS_HOME", home)
     (home / "config.yaml").write_text(yaml.safe_dump({
         "redaction": {"enabled": False},
-    }))
+    }), encoding="utf-8")
 
     workspace = tmp_path / "ws"
     workspace.mkdir()
     secret = "sk-" + "A" * 40
     src = workspace / "ctx.md"
-    src.write_text(f"key={secret}")
+    src.write_text(f"key={secret}", encoding="utf-8")
     output = workspace / "out.md"
 
     perseus.cmd_render(
         argparse.Namespace(command="render", source=str(src), output=str(output)),
         {},
     )
-    assert secret in output.read_text()  # opt-out honored
+    assert secret in output.read_text(encoding="utf-8")  # opt-out honored
 
 
 # ── integration: trust --json reports redaction subsection ──────────────────
@@ -286,7 +286,7 @@ def test_cmd_trust_json_includes_redaction(monkeypatch, tmp_path, capsys):
             "include_defaults": True,
             "patterns": [{"name": "ticket", "pattern": r"T-\d+"}],
         },
-    }))
+    }), encoding="utf-8")
     cfg = perseus.load_config()
     rc = perseus.cmd_trust(
         argparse.Namespace(command="trust", trust_command=None, json=True),
@@ -312,7 +312,7 @@ def test_strict_profile_does_not_disable_redaction(monkeypatch, tmp_path):
     monkeypatch.setattr(perseus, "PERSEUS_HOME", home)
     (home / "config.yaml").write_text(yaml.safe_dump({
         "permissions": {"profile": "strict"},
-    }))
+    }), encoding="utf-8")
     cfg = perseus.load_config()
     assert cfg["redaction"]["enabled"] is True
 

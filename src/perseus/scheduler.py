@@ -117,7 +117,7 @@ def cmd_launchd(args, cfg):
         print(f"Error: {plist_path} already exists. Use --force to overwrite.", file=sys.stderr)
         sys.exit(1)
 
-    plist_path.write_text(content)
+    plist_path.write_text(content, encoding="utf-8")
 
     print(f"✔ Wrote LaunchAgent plist: {plist_path}")
     print(f"  Launcher: {' '.join(launcher)}")
@@ -287,8 +287,8 @@ def cmd_systemd(args, cfg):
         unit_dir.mkdir(parents=True, exist_ok=True)
         service_path = unit_dir / "perseus-render.service"
         timer_path = unit_dir / "perseus-render.timer"
-        service_path.write_text(service_content)
-        timer_path.write_text(timer_content)
+        service_path.write_text(service_content, encoding="utf-8")
+        timer_path.write_text(timer_content, encoding="utf-8")
         print(f"✔ Wrote {service_path}")
         print(f"✔ Wrote {timer_path}")
         print()

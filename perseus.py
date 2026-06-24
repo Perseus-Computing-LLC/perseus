@@ -440,6 +440,45 @@ def _apply_permission_profile(
     return name
 
 
+def _lock_file_handle(fh) -> None:
+    """Acquire an exclusive advisory lock on an open file handle, cross-platform.
+
+    POSIX uses ``fcntl.flock``; Windows uses ``msvcrt.locking`` (``fcntl`` does
+    not exist on Windows — importing it raises ModuleNotFoundError). Advisory
+    locking is an optimization layered on top of the atomic ``os.replace``
+    writes the callers already perform, so if the platform primitive is
+    unavailable or refuses we degrade to no-lock rather than crash. ``msvcrt``
+    locks ``nbytes`` from the current file position; callers open the lock file
+    fresh (position 0) and lock a single byte, which the matching
+    :func:`_unlock_file_handle` releases.
+    """
+    try:
+        if os.name == "nt":
+            import msvcrt
+            fh.seek(0)
+            msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+    except OSError:
+        # Best-effort: writes are made durable via os.replace regardless.
+        pass
+
+
+def _unlock_file_handle(fh) -> None:
+    """Release a lock acquired by :func:`_lock_file_handle` (best-effort)."""
+    try:
+        if os.name == "nt":
+            import msvcrt
+            fh.seek(0)
+            msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+    except OSError:
+        pass
+
+
 def _get_shell(cfg: dict) -> str | None:
     """Return the shell executable path, or None to use the system default.
 
@@ -663,19 +702,40 @@ def _fire_hooks(event: str, payload: dict, cfg: dict) -> None:
 
 
 def _fire_shell_hook(cmd_template: str, payload: dict, event: str) -> None:
-    """Run a shell hook with {{var}} substitution. Timeout 5s."""
+    """Run a shell hook with {{var}} substitution. Timeout 5s.
+
+    On timeout the whole process tree is killed. subprocess.run(timeout=...)
+    alone is insufficient on Windows: shell=True spawns cmd.exe, and killing
+    cmd.exe orphans any grandchild (e.g. `sleep`) that still holds the captured
+    pipes, so the call blocks reading them until the grandchild exits. We spawn
+    in a new process group / session and tree-kill on timeout instead.
+    """
+
     try:
         cmd = cmd_template
         for key, val in payload.items():
             cmd = cmd.replace(f"{{{{{key}}}}}", str(val))
 
+        popen_kwargs = {}
+        if os.name == "nt":
+            popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+        else:
+            popen_kwargs["start_new_session"] = True
+
         # Use shell=True as per spec trust consideration
-        subprocess.run(
-            cmd, shell=True, capture_output=True, text=True,
-            timeout=5,
+        proc = subprocess.Popen(
+            cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            stdin=subprocess.DEVNULL, text=True, **popen_kwargs,
         )
-    except subprocess.TimeoutExpired:
-        print(f"Perseus hook timeout ({event}): {cmd_template[:80]}", file=sys.stderr)
+        try:
+            proc.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            _kill_subprocess_tree(proc)
+            try:
+                proc.communicate(timeout=3)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+            print(f"Perseus hook timeout ({event}): {cmd_template[:80]}", file=sys.stderr)
     except Exception as e:
         print(f"Perseus hook shell error ({event}): {e}", file=sys.stderr)
 
@@ -2400,7 +2460,7 @@ def _load_schema(schema_ref: str, workspace: Path | None = None) -> tuple[Path |
     if schema_path is None:
         return None, None, "schema path is empty"
     try:
-        schema_data = yaml.safe_load(schema_path.read_text()) or {}
+        schema_data = yaml.safe_load(schema_path.read_text(encoding="utf-8")) or {}
     except Exception as exc:
         return schema_path, None, str(exc)
     return schema_path, schema_data, None
@@ -2605,6 +2665,11 @@ def _resolve_path(file_path_str: str, workspace: Path | None = None, allow_outsi
     applies. A None workspace = unrestricted reads would be a defense gap
     for programmatic consumers that don't pass an explicit workspace.
     """
+    # Reject embedded null bytes explicitly. On POSIX pathlib raises
+    # ValueError("embedded null byte") during resolve(), but Windows raises a
+    # different/no error — check up front so rejection is consistent everywhere.
+    if "\x00" in file_path_str:
+        raise ValueError("embedded null byte")
     fp = Path(file_path_str).expanduser()
     ws = (workspace or Path.cwd()).expanduser().resolve()
     if not fp.is_absolute():
@@ -2651,7 +2716,7 @@ def _dump_frontmatter_body(frontmatter: dict, body: str) -> str:
 
 def _load_task_file(task_path: Path) -> tuple[dict, str]:
     """Read a task file, waiting for any concurrent write to finish."""
-    text = task_path.read_text(errors="replace")
+    text = task_path.read_text(errors="replace", encoding="utf-8")
     fm, body = _parse_frontmatter(text)
     return dict(fm or {}), body
 
@@ -2664,8 +2729,8 @@ def _save_task_file(task_path: Path, frontmatter: dict, body: str) -> None:
     advisory locking so concurrent claim/complete/load operations don't
     race.
     """
-    import fcntl
     import tempfile
+    # Cross-platform advisory lock: fcntl on POSIX, msvcrt on Windows.
 
     content = _dump_frontmatter_body(frontmatter, body)
     lock_path = task_path.with_suffix(task_path.suffix + ".lock")
@@ -2673,9 +2738,9 @@ def _save_task_file(task_path: Path, frontmatter: dict, body: str) -> None:
     # Open or create the lock file
     lock_dir = lock_path.parent
     lock_dir.mkdir(parents=True, exist_ok=True)
-    lf = open(lock_path, "w")
+    lf = open(lock_path, "w", encoding="utf-8")
     try:
-        fcntl.flock(lf, fcntl.LOCK_EX)
+        _lock_file_handle(lf)
         # Write to temp file in same directory, then atomic replace
         tmp = tempfile.NamedTemporaryFile(
             mode="w",
@@ -2692,7 +2757,7 @@ def _save_task_file(task_path: Path, frontmatter: dict, body: str) -> None:
             tmp.close()
         os.replace(tmp.name, task_path)
     finally:
-        fcntl.flock(lf, fcntl.LOCK_UN)
+        _unlock_file_handle(lf)
         lf.close()
 
 
@@ -5254,7 +5319,7 @@ def resolve_skills(args_str: str, cfg: dict) -> str:
         # Parse description from frontmatter
         description = ""
         try:
-            text = skill_md.read_text(errors="replace")
+            text = skill_md.read_text(errors="replace", encoding="utf-8")
             fm, _body = _parse_frontmatter(text)
             description = str((fm or {}).get("description", ""))
             name = str((fm or {}).get("name", name))
@@ -5280,7 +5345,7 @@ def load_latest_checkpoint(cfg: dict) -> dict | None:
     latest = store / "latest.yaml"
     if latest.exists():
         try:
-            return yaml.safe_load(latest.read_text()) or {}
+            return yaml.safe_load(latest.read_text(encoding="utf-8")) or {}
         except Exception:
             pass
     # Fall back to most recent timestamped file
@@ -5289,7 +5354,7 @@ def load_latest_checkpoint(cfg: dict) -> dict | None:
         if cp.name == "latest.yaml":
             continue
         try:
-            return yaml.safe_load(cp.read_text()) or {}
+            return yaml.safe_load(cp.read_text(encoding="utf-8")) or {}
         except Exception:
             continue
     return None
@@ -5501,7 +5566,7 @@ def resolve_session(args_str: str, cfg: dict) -> str:
         if len(results) >= count:
             break
         try:
-            data = json.loads(sf.read_text(errors="replace"))
+            data = json.loads(sf.read_text(errors="replace", encoding="utf-8"))
         except Exception:
             continue
 
@@ -5735,7 +5800,7 @@ def _structured_load(fp: Path) -> object:
     """Load JSON or YAML based on extension. Returns the parsed object or None on failure."""
     suffix = fp.suffix.lower()
     try:
-        text = fp.read_text(errors="replace")
+        text = fp.read_text(errors="replace", encoding="utf-8")
     except Exception:
         return None
     if suffix == ".json":
@@ -7295,7 +7360,7 @@ def _call_tool(tool_name: str, arguments: dict, cfg: dict, workspace: Path) -> s
         try:
             ctx_path = workspace / ".perseus" / "context.md"
             if ctx_path.exists():
-                source = ctx_path.read_text()
+                source = ctx_path.read_text(encoding="utf-8")
                 # render_source is a top-level function in the built artifact
                 # In source module context, import from the parent module
                 result = render_source(source, cfg, workspace)
@@ -9869,7 +9934,7 @@ def cache_get(key: str, mode: str, ttl: int | None, cfg: dict) -> str | None:
         entry_file = cache_dir / f"{key}.json"
         if entry_file.exists():
             try:
-                entry = json.loads(entry_file.read_text())
+                entry = json.loads(entry_file.read_text(encoding="utf-8"))
                 if time.time() < entry.get("expires", 0):
                     return entry["value"]
                 # expired — remove
@@ -10044,7 +10109,7 @@ def _load_macros(source_lines: list[str], workspace: Path | None, cfg: dict) -> 
             macros_path = PERSEUS_HOME / "macros.md"
     try:
         if macros_path.is_file():
-            file_lines = macros_path.read_text().splitlines()
+            file_lines = macros_path.read_text(encoding="utf-8").splitlines()
             macros.update(_parse_macros_from_lines(file_lines))
     except (OSError, ValueError):
         pass
@@ -11362,14 +11427,14 @@ def cmd_checkpoint(args, cfg):
         try:
             with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
                 yaml.dump(cp, f, default_flow_style=False, allow_unicode=True)
-            # fsync for durability before the rename
-            os_fsync = getattr(os, "fsync", None)
-            if os_fsync:
-                fd2 = os.open(tmp_path, os.O_RDONLY)
-                try:
-                    os_fsync(fd2)
-                finally:
-                    os.close(fd2)
+                # fsync for durability before the rename. Sync the *writable*
+                # handle while it is still open: on Windows os.fsync calls
+                # _commit(), which requires a write-mode fd and raises EBADF
+                # ("Bad file descriptor") on a re-opened read-only one.
+                f.flush()
+                os_fsync = getattr(os, "fsync", None)
+                if os_fsync:
+                    os_fsync(f.fileno())
             os.replace(tmp_path, outfile)
         except Exception:
             Path(tmp_path).unlink(missing_ok=True)
@@ -11463,10 +11528,10 @@ def cmd_checkpoint(args, cfg):
             mp = _mneme_path(ws2, cfg)
             if mp.exists():
                 try:
-                    narrative_body = mp.read_text()
+                    narrative_body = mp.read_text(encoding="utf-8")
                     sig = _sign_narrative(narrative_body, identity)
                     sig_path = mp.with_suffix(mp.suffix + ".sig")
-                    sig_path.write_text(json.dumps(sig, indent=2))
+                    sig_path.write_text(json.dumps(sig, indent=2), encoding="utf-8")
                 except Exception as e:
                     print(f"Auto-sign warning: {e}", file=sys.stderr)
 
@@ -11478,7 +11543,7 @@ def cmd_checkpoint(args, cfg):
         mp3 = _mneme_path(ws3, cfg)
         if mp3.exists():
             try:
-                narrative_body = mp3.read_text()
+                narrative_body = mp3.read_text(encoding="utf-8")
                 sig = _sign_narrative(narrative_body, identity) if identity else None
                 _push_to_all_subscribers(cfg, narrative_body, sig)
             except Exception as e:
@@ -13012,7 +13077,7 @@ def _load_federation_manifest(cfg: dict) -> dict:
     if not p.exists():
         return {"version": 1, "subscriptions": []}
     try:
-        data = yaml.safe_load(p.read_text()) or {}
+        data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
         if not isinstance(data, dict):
             raise ValueError(f"manifest is not a mapping (got {type(data).__name__})")
         subs = data.get("subscriptions", []) or []
@@ -13057,7 +13122,7 @@ def _load_federation_manifest(cfg: dict) -> dict:
             d_aliases = {e["alias"] for e in normalized}
             for d_file in sorted(fed_d.glob("*.yaml")):
                 try:
-                    d_data = yaml.safe_load(d_file.read_text()) or {}
+                    d_data = yaml.safe_load(d_file.read_text(encoding="utf-8")) or {}
                     if isinstance(d_data, dict):
                         d_alias = d_data.get("alias", d_file.stem)
                         if d_alias in d_aliases:
@@ -13101,7 +13166,7 @@ def _save_federation_manifest(cfg: dict, manifest: dict) -> Path:
     p = _federation_manifest_path(cfg)
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_suffix(p.suffix + ".tmp")
-    tmp.write_text(yaml.safe_dump(manifest, sort_keys=False, default_flow_style=False))
+    tmp.write_text(yaml.safe_dump(manifest, sort_keys=False, default_flow_style=False), encoding="utf-8")
     os.replace(tmp, p)
     return p
 
@@ -13160,7 +13225,7 @@ def _read_remote_cache(cfg: dict, alias: str) -> dict | None:
     if not path.exists():
         return None
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return None
     fetched = data.get("fetched_at", "")
@@ -13194,7 +13259,7 @@ def _write_remote_cache(cfg: dict, alias: str, narrative: str,
         "format_version": 1,
     }
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(data, indent=2))
+    tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
     os.replace(tmp, path)
     return path
 
@@ -13372,7 +13437,7 @@ def cmd_memory_federation_push(args, cfg) -> int | None:
         print(f"No narrative at {mp}.", file=sys.stderr)
         return 1
     
-    narrative_body = mp.read_text()
+    narrative_body = mp.read_text(encoding="utf-8")
     sig = _sign_narrative(narrative_body, identity)
     
     manifest = _load_federation_manifest(cfg)
@@ -13963,7 +14028,7 @@ def cmd_memory_federation(args, cfg) -> None:
                     print(f"  ⚠ {alias}: {err}")
             else:
                 stat = narrative.stat()
-                lines = narrative.read_text(errors="replace").count("\n")
+                lines = narrative.read_text(errors="replace", encoding="utf-8").count("\n")
                 mt = datetime.fromtimestamp(stat.st_mtime).isoformat(timespec="seconds")
                 rec = {"alias": alias, "path": str(narrative),
                        "transport": "local", "status": "ok", "error": None,
@@ -14037,7 +14102,7 @@ def _load_identity(cfg: dict) -> dict | None:
     if not p.exists():
         return None
     try:
-        data = yaml.safe_load(p.read_text()) or {}
+        data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
         if isinstance(data, dict) and "workspace_id" in data and "_secret" in data:
             return dict(data)
         return None
@@ -14193,7 +14258,7 @@ def _sign_narrative_with_chain(narrative_body: str, identity: dict,
     # Link to previous signature
     if prev_sig_path and prev_sig_path.exists():
         try:
-            prev_sig = json.loads(prev_sig_path.read_text())
+            prev_sig = json.loads(prev_sig_path.read_text(encoding="utf-8"))
             sig["prev_signature"] = prev_sig.get("signature", "")
         except Exception:
             pass
@@ -14226,7 +14291,7 @@ def _verify_chain(hash_or_path: str, identity: dict, cfg: dict) -> tuple[bool, i
     if not mp.exists():
         return (False, 0, f"narrative not found: {mp}")
 
-    narrative = mp.read_text()
+    narrative = mp.read_text(encoding="utf-8")
     sig_path = mp.with_suffix(mp.suffix + ".sig")
     if not sig_path.exists():
         return (False, 0, f"no signature: {sig_path}")
@@ -14241,8 +14306,8 @@ def _verify_chain(hash_or_path: str, identity: dict, cfg: dict) -> tuple[bool, i
             return (False, count, f"cycle detected at version {count}")
         seen.add(str(current_sig_path))
 
-        narrative = current_mp.read_text()
-        sig_dict = json.loads(current_sig_path.read_text())
+        narrative = current_mp.read_text(encoding="utf-8")
+        sig_dict = json.loads(current_sig_path.read_text(encoding="utf-8"))
         valid, reason = _verify_signature(narrative, sig_dict, identity)
         if not valid:
             return (False, count, f"version {count} invalid: {reason}")
@@ -14257,7 +14322,7 @@ def _verify_chain(hash_or_path: str, identity: dict, cfg: dict) -> tuple[bool, i
         found = False
         for sf in sorted(store.glob("*.md.sig")):
             try:
-                ps = json.loads(sf.read_text())
+                ps = json.loads(sf.read_text(encoding="utf-8"))
                 if ps.get("signature") == prev_sig:
                     current_sig_path = sf
                     current_mp = sf.with_suffix("").with_suffix(".md")
@@ -14327,7 +14392,7 @@ def cmd_identity_rotate(args, cfg) -> int | None:
     history = []
     if hist_path.exists():
         try:
-            history = yaml.safe_load(hist_path.read_text()) or []
+            history = yaml.safe_load(hist_path.read_text(encoding="utf-8")) or []
             if not isinstance(history, list):
                 history = []
         except Exception:
@@ -14341,12 +14406,12 @@ def cmd_identity_rotate(args, cfg) -> int | None:
         "created": identity.get("created", ""),
         "rotated_at": datetime.now(timezone.utc).isoformat(),
     })
-    hist_path.write_text(yaml.dump(history, sort_keys=False))
+    hist_path.write_text(yaml.dump(history, sort_keys=False), encoding="utf-8")
 
     # Generate new identity
     new_identity = _generate_identity()
     p = _identity_path(cfg)
-    p.write_text(yaml.dump(new_identity, sort_keys=False))
+    p.write_text(yaml.dump(new_identity, sort_keys=False), encoding="utf-8")
 
     print(f"✅ Identity rotated: {new_identity['workspace_id']}")
     print(f"   Old key preserved in {hist_path}")
@@ -14374,7 +14439,7 @@ def cmd_identity(args, cfg) -> int | None:
                 return 0
         identity = _generate_identity()
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(yaml.dump(identity, sort_keys=False))
+        p.write_text(yaml.dump(identity, sort_keys=False), encoding="utf-8")
         print(f"✅ Workspace identity created: {identity['workspace_id']}")
         print(f"   File: {p}")
         print(f"   Algorithm: {identity['algorithm']}")
@@ -14455,7 +14520,7 @@ def _load_grants(cfg: dict) -> list[dict]:
     if not p.exists():
         return []
     try:
-        data = yaml.safe_load(p.read_text()) or {}
+        data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
         return data.get("grants", []) if isinstance(data, dict) else []
     except Exception:
         return []
@@ -14465,7 +14530,7 @@ def _save_grants(cfg: dict, grants: list[dict]) -> Path:
     p = _grants_path(cfg)
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_suffix(p.suffix + ".tmp")
-    tmp.write_text(yaml.dump({"grants": grants}, sort_keys=False))
+    tmp.write_text(yaml.dump({"grants": grants}, sort_keys=False), encoding="utf-8")
     os.replace(tmp, p)
     return p
 
@@ -14635,11 +14700,11 @@ def cmd_memory_sign(args, cfg) -> int | None:
         print(f"No narrative at {mp}. Run `perseus memory update` first.", file=sys.stderr)
         return 1
 
-    narrative_body = mp.read_text()
+    narrative_body = mp.read_text(encoding="utf-8")
     sig = _sign_narrative(narrative_body, identity)
 
     sig_path = mp.with_suffix(mp.suffix + ".sig")
-    sig_path.write_text(json.dumps(sig, indent=2))
+    sig_path.write_text(json.dumps(sig, indent=2), encoding="utf-8")
 
     use_json = getattr(args, "json", False)
     if use_json:
@@ -14677,8 +14742,8 @@ def cmd_memory_verify(args, cfg) -> int | None:
         return 2
 
     try:
-        sig_dict = json.loads(sig_path.read_text())
-        narrative_body = mp.read_text()
+        sig_dict = json.loads(sig_path.read_text(encoding="utf-8"))
+        narrative_body = mp.read_text(encoding="utf-8")
     except Exception as e:
         print(f"Error reading files: {e}", file=sys.stderr)
         return 1
@@ -16161,7 +16226,7 @@ def _inbox_load_all(workspace: Path, cfg: dict) -> list[tuple[Path, dict]]:
     out = []
     for fp in sorted(d.glob("*.yaml")):
         try:
-            msg = yaml.safe_load(fp.read_text()) or {}
+            msg = yaml.safe_load(fp.read_text(encoding="utf-8")) or {}
             if isinstance(msg, dict):
                 out.append((fp, msg))
         except Exception:
@@ -17821,17 +17886,17 @@ def _rewrite_pythia_log(entries: list[dict], cfg: dict | None = None) -> None:
         if max_entries > 0 and len(entries) > max_entries:
             entries = entries[-max_entries:]
     lock_path = log_path.with_suffix(".jsonl.lock")
-    # File locking to prevent concurrent corruption (M-6)
-    import fcntl
-    with open(lock_path, "w") as lock_fh:
+    # File locking to prevent concurrent corruption (M-6). Cross-platform:
+    # fcntl on POSIX, msvcrt on Windows (see config._lock_file_handle).
+    with open(lock_path, "w", encoding="utf-8") as lock_fh:
         try:
-            fcntl.flock(lock_fh, fcntl.LOCK_EX)
+            _lock_file_handle(lock_fh)
             payload = "\n".join(json.dumps(e, ensure_ascii=False) for e in entries) + ("\n" if entries else "")
             tmp = log_path.with_suffix(".jsonl.tmp")
             tmp.write_text(payload, encoding="utf-8")
             os.replace(tmp, log_path)
         finally:
-            fcntl.flock(lock_fh, fcntl.LOCK_UN)
+            _unlock_file_handle(lock_fh)
 
 
 def _label_pythia_entry(log_id: str, accepted: bool) -> tuple[bool, str]:
@@ -18525,11 +18590,16 @@ def _lsp_workspace_from_params(params: dict, doc_uri: str | None = None) -> Path
 
 def _lsp_uri_to_path(uri: str) -> Path:
     """Convert ``file://`` URI to a Path."""
-    from urllib.parse import unquote, urlparse
+    from urllib.parse import urlparse
+    from urllib.request import url2pathname
     parsed = urlparse(uri)
     if parsed.scheme != "file":
         return Path(uri)
-    return Path(unquote(parsed.path)).resolve()
+    # url2pathname handles the Windows drive-letter form: urlparse leaves
+    # `file:///C:/x` as path `/C:/x`, and Path("/C:/x") on Windows yields the
+    # broken `\C:\x`. url2pathname maps it to `C:\x` (and percent-decodes);
+    # on POSIX it is an unquoting passthrough.
+    return Path(url2pathname(parsed.path)).resolve()
 
 
 def _lsp_parse_directive_at_line(line: str) -> tuple[str, str] | None:
@@ -19219,7 +19289,7 @@ def _health_collect(cfg: dict, workspace: Path) -> list[str]:
     ctx_path = workspace / ".perseus" / "context.md"
     if ctx_path.exists():
         try:
-            n_lines = ctx_path.read_text(errors="replace").count("\n") + 1
+            n_lines = ctx_path.read_text(errors="replace", encoding="utf-8").count("\n") + 1
             if n_lines > ctx_warn:
                 lines.append("### Context Source Size")
                 lines.append(
@@ -19287,7 +19357,7 @@ def _find_version() -> str:
     for p in [start] + list(start.parents):
         candidate = p / "VERSION"
         if candidate.exists():
-            return candidate.read_text().strip()
+            return candidate.read_text(encoding="utf-8").strip()
     return _PERSEUS_VERSION  # fallback to build-time injected literal
 
 _PERSEUS_VERSION = "1.0.9"  # injected by scripts/build.py at build time
@@ -19381,7 +19451,7 @@ def _doctor_check_mneme(cfg: dict, workspace: Path) -> DoctorResult:
     if not narrative.exists():
         return DoctorResult("mneme_narrative", "warn", "Mnēmē narrative",
                             "not found", "Memory will auto-create on next render with @memory")
-    lines = narrative.read_text(errors="replace").splitlines()
+    lines = narrative.read_text(errors="replace", encoding="utf-8").splitlines()
     max_lines = mem_cfg.get("max_narrative_lines", 300)
     line_count = len(lines)
     val = f"{line_count} lines"
@@ -19604,7 +19674,7 @@ def _doctor_check_cache_writable(cfg: dict, workspace: Path) -> DoctorResult:
     try:
         cache_dir.mkdir(parents=True, exist_ok=True)
         test_file = cache_dir / ".doctor_test"
-        test_file.write_text("ok")
+        test_file.write_text("ok", encoding="utf-8")
         test_file.unlink()
         # Count cache entries
         entries = len([f for f in cache_dir.iterdir() if f.suffix == ".json"])
@@ -19755,7 +19825,7 @@ def _doctor_check_version_header(cfg: dict, workspace: Path) -> DoctorResult:
         return DoctorResult("version_header", "ok", "@perseus version header",
                            "no context.md found (skipped)", "")
     try:
-        first_line = ctx_path.read_text(errors="replace").split("\n")[0].strip()
+        first_line = ctx_path.read_text(errors="replace", encoding="utf-8").split("\n")[0].strip()
     except Exception:
         return DoctorResult("version_header", "ok", "@perseus version header",
                            "could not read context.md", "")
@@ -20236,7 +20306,7 @@ def cmd_launchd(args, cfg):
         print(f"Error: {plist_path} already exists. Use --force to overwrite.", file=sys.stderr)
         sys.exit(1)
 
-    plist_path.write_text(content)
+    plist_path.write_text(content, encoding="utf-8")
 
     print(f"✔ Wrote LaunchAgent plist: {plist_path}")
     print(f"  Launcher: {' '.join(launcher)}")
@@ -20406,8 +20476,8 @@ def cmd_systemd(args, cfg):
         unit_dir.mkdir(parents=True, exist_ok=True)
         service_path = unit_dir / "perseus-render.service"
         timer_path = unit_dir / "perseus-render.timer"
-        service_path.write_text(service_content)
-        timer_path.write_text(timer_content)
+        service_path.write_text(service_content, encoding="utf-8")
+        timer_path.write_text(timer_content, encoding="utf-8")
         print(f"✔ Wrote {service_path}")
         print(f"✔ Wrote {timer_path}")
         print()
@@ -20524,7 +20594,7 @@ def _load_synthesis_sources(refs: list[str], workspace: Path, cfg: dict) -> tupl
         if error or path is None:
             errors.append(error or f"invalid source: {ref}")
             continue
-        text = path.read_text(errors="replace")
+        text = path.read_text(errors="replace", encoding="utf-8")
         truncated = False
         if max_source_bytes > 0 and len(text) > max_source_bytes:
             text = text[:max_source_bytes]
@@ -21139,7 +21209,7 @@ def _toggle_auto_update(value, cfg):
 
     if cfg2 != data:
         config_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(config_path, "w") as f:
+        with open(config_path, "w", encoding="utf-8") as f:
             yaml.safe_dump(cfg2, f, default_flow_style=False, sort_keys=False)
 
     status = "ON" if enabled else "OFF"
@@ -21263,7 +21333,7 @@ def _quickstart_write_config(workspace: Path, generation: dict | None = None) ->
             "url": generation.get("model_url", "http://localhost:11434"),
         }
 
-    with open(config_path, "w") as f:
+    with open(config_path, "w", encoding="utf-8") as f:
         yaml.safe_dump(config, f, sort_keys=False)
     return config_path
 
@@ -21479,7 +21549,7 @@ def cmd_quickstart(args, cfg) -> int:
         pass
 
     # Step 4: Verify with a render
-    text = context_file.read_text(errors="replace")
+    text = context_file.read_text(errors="replace", encoding="utf-8")
     _stats = {"directive_count": 0, "cache_hits": 0, "cache_misses": 0}
     render_source(text, cfg, workspace, _stats=_stats)
     print(f"✓ Render verified — {_stats['directive_count']} directives resolved "
@@ -21514,7 +21584,7 @@ def cmd_render(args, cfg):
     workspace = _infer_workspace(source_path)
     cfg = load_config(workspace)
 
-    text = source_path.read_text(errors="replace")
+    text = source_path.read_text(errors="replace", encoding="utf-8")
     fmt = getattr(args, "format", "md")
     title = source_path.stem.replace("-", " ").replace("_", " ").title()
 
@@ -21612,7 +21682,7 @@ def cmd_warmup(args, cfg):
 
     workspace = _infer_workspace(source_path)
     cfg = load_config(workspace)
-    text = source_path.read_text(errors="replace")
+    text = source_path.read_text(errors="replace", encoding="utf-8")
 
     _stats = {"directive_count": 0, "cache_hits": 0, "cache_misses": 0}
     render_source(text, cfg, workspace, _stats=_stats)
@@ -21903,7 +21973,7 @@ def cmd_graph(args, cfg) -> int:
     # task-65: ensure plugin directives are visible in the graph
     register_plugins(cfg)
     graph = directive_dependency_graph(
-        source_path.read_text(errors="replace"),
+        source_path.read_text(errors="replace", encoding="utf-8"),
         source_name=str(source_path),
         workspace=workspace,
     )
@@ -21942,7 +22012,7 @@ def cmd_prefetch(args, cfg) -> int:
     # task-65: register plugin directives so prefetch graph rules can target them
     register_plugins(cfg)
     result = prefetch_source(
-        source_path.read_text(errors="replace"),
+        source_path.read_text(errors="replace", encoding="utf-8"),
         cfg,
         workspace=workspace,
         source_name=str(source_path),
@@ -22089,7 +22159,7 @@ def _load_pack_manifest(workspace: Path, manifest: str | None = None) -> tuple[d
     if not path.exists():
         return None, path, [f"manifest not found: {path}"]
     try:
-        data = yaml.safe_load(path.read_text()) or {}
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     except Exception as exc:
         return None, path, [f"could not parse manifest: {exc}"]
     if not isinstance(data, dict):
@@ -22260,7 +22330,7 @@ def _validate_cli_payload(args) -> tuple[object | None, str, str | None]:
 
     payload_path = Path(payload_ref).expanduser()
     try:
-        text = payload_path.read_text(errors="replace")
+        text = payload_path.read_text(errors="replace", encoding="utf-8")
     except Exception as exc:
         return None, str(payload_path), str(exc)
     try:
@@ -22656,7 +22726,7 @@ def _serve_collect_stats(cfg: dict, workspace: Path) -> dict:
     try:
         mp = _mneme_path(workspace, cfg)
         if mp.exists():
-            txt = mp.read_text(errors="replace")
+            txt = mp.read_text(errors="replace", encoding="utf-8")
             stats["narrative_lines"] = txt.count("\n") + (1 if txt and not txt.endswith("\n") else 0)
             stats["narrative_mtime"] = int(mp.stat().st_mtime)
     except Exception:
@@ -22700,7 +22770,7 @@ def _serve_collect_stats(cfg: dict, workspace: Path) -> dict:
             total = 0
             recent = 0
             cutoff = time.time() - 24 * 3600
-            with log_path.open() as f:
+            with log_path.open(encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if not line:
@@ -22731,7 +22801,7 @@ def _serve_collect_stats(cfg: dict, workspace: Path) -> dict:
             n = 0
             for mf in idir.glob("*.yaml"):
                 try:
-                    data = yaml.safe_load(mf.read_text()) or {}
+                    data = yaml.safe_load(mf.read_text(encoding="utf-8")) or {}
                     if not bool(data.get("read", False)):
                         n += 1
                 except Exception:
@@ -22993,7 +23063,7 @@ def _serve_handle_federation_receive(cfg: dict, workspace: Path, raw: bytes, hea
         "received_at": datetime.now(timezone.utc).isoformat(),
     }
     tmp = cache_path.with_suffix(cache_path.suffix + ".tmp")
-    tmp.write_text(_json.dumps(record, indent=2))
+    tmp.write_text(_json.dumps(record, indent=2), encoding="utf-8")
     os.replace(tmp, cache_path)
 
     audit_event(cfg, "federation_receive", workspace_id=workspace_id, bytes=len(narrative))
@@ -23018,7 +23088,7 @@ def _serve_render_endpoint(endpoint: str, cfg: dict, workspace: Path, query: dic
             ctx = workspace / ".perseus" / "context.md"
             if not ctx.exists():
                 return (404, "text/plain; charset=utf-8", f"No .perseus/context.md in {workspace}")
-            text = ctx.read_text(errors="replace")
+            text = ctx.read_text(errors="replace", encoding="utf-8")
             rendered = render_source(text, cfg, workspace)
             # task-46: serve is the highest-risk trust boundary (any client can
             # GET this without auth in --i-understand-no-auth mode). Redact.
@@ -23030,7 +23100,7 @@ def _serve_render_endpoint(endpoint: str, cfg: dict, workspace: Path, query: dic
             if not mp.exists():
                 return (404, "text/plain; charset=utf-8",
                         "No Mnēmē narrative initialized. Run `perseus memory update`.")
-            narrative_text, _ = redact_text(mp.read_text(), cfg)
+            narrative_text, _ = redact_text(mp.read_text(encoding="utf-8"), cfg)
             return (200, "text/markdown; charset=utf-8", narrative_text)
 
         if endpoint == "/federation/narrative":
@@ -23046,7 +23116,7 @@ def _serve_render_endpoint(endpoint: str, cfg: dict, workspace: Path, query: dic
                 return (404, "application/json; charset=utf-8",
                         _json.dumps({"error": "No Mneme narrative initialized", "workspace_id": None,
                                      "path": str(mp)}))
-            narrative_text = mp.read_text()
+            narrative_text = mp.read_text(encoding="utf-8")
             # Look up workspace identity for workspace_id field
             identity = _load_identity(cfg)
             ws_id = identity.get("workspace_id") if identity else None
@@ -23078,7 +23148,7 @@ def _serve_render_endpoint(endpoint: str, cfg: dict, workspace: Path, query: dic
                 ptr = store / "latest.yaml"
             if not ptr.exists():
                 return (404, "text/plain; charset=utf-8", "No checkpoints found.")
-            cp_body, _ = redact_text(ptr.read_text(), cfg)
+            cp_body, _ = redact_text(ptr.read_text(encoding="utf-8"), cfg)
             return (200, "text/yaml; charset=utf-8", cp_body)
 
         if endpoint == "/api/context":
@@ -23090,7 +23160,7 @@ def _serve_render_endpoint(endpoint: str, cfg: dict, workspace: Path, query: dic
             ctx_path = workspace / ".perseus" / "context.md"
             if not ctx_path.exists():
                 return (404, "application/json; charset=utf-8", '{"error": "workspace context not found"}')
-            text = ctx_path.read_text(errors="replace")
+            text = ctx_path.read_text(errors="replace", encoding="utf-8")
             rendered = render_source(text, cfg, workspace)
             rendered, _ = redact_text(rendered, cfg)
             resp_data = {
@@ -23370,7 +23440,7 @@ def cmd_init(args, cfg):
     if profile_name and not getattr(args, "no_pack", False):
         profile = PRODUCT_PROFILES[profile_name]
         manifest = _context_pack_manifest(profile_name, profile, output=output_path, trust_profile=trust_profile)
-        pack_file.write_text(yaml.safe_dump(manifest, sort_keys=False))
+        pack_file.write_text(yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8")
 
     # Also add .hermes.md to .gitignore if there's a git repo here
     gitignore = workspace / ".gitignore"
@@ -23381,16 +23451,16 @@ def cmd_init(args, cfg):
             if output and output not in {"AGENTS.md", "CLAUDE.md"}:
                 gitignore_entries.append(output)
     if gitignore.exists():
-        existing = gitignore.read_text()
+        existing = gitignore.read_text(encoding="utf-8")
         additions = [e for e in gitignore_entries if e not in existing]
         if additions:
-            with gitignore.open("a") as f:
+            with gitignore.open("a", encoding="utf-8") as f:
                 f.write("\n# Perseus generated output\n")
                 for e in additions:
                     f.write(f"{e}\n")
             print(f"✔ Updated {gitignore} with Perseus entries")
     else:
-        gitignore.write_text("# Perseus generated output\n" + "\n".join(gitignore_entries) + "\n")
+        gitignore.write_text("# Perseus generated output\n" + "\n".join(gitignore_entries) + "\n", encoding="utf-8")
         print(f"✔ Created {gitignore}")
 
     print(f"✔ Scaffolded {context_file}")

@@ -46,7 +46,7 @@ tags: [test]
 ---
 {body}
 """
-    file_path.write_text(frontmatter)
+    file_path.write_text(frontmatter, encoding="utf-8")
     return file_path
 
 
@@ -151,7 +151,7 @@ class TestBuildIndex:
         vault = Path(c["memory"]["mneme_vault_path"])
         file_path = _write_memory(vault, "corrupt", "Corrupt Memory", "corrupt-token")
         perseus._mneme_build_index(c)
-        file_path.write_text("---\nschema: 2\nid:\ntitle:\n---\ncorrupt-token\n")
+        file_path.write_text("---\nschema: 2\nid:\ntitle:\n---\ncorrupt-token\n", encoding="utf-8")
 
         perseus._mneme_build_index(c)
         results = perseus._mneme_recall(c, "corrupt-token", k=5)
@@ -172,7 +172,7 @@ summary: new-token
 scope: test
 ---
 body
-""")
+""", encoding="utf-8")
 
         perseus._mneme_build_index(c)
         old_results = perseus._mneme_recall(c, "old-token", k=5)
@@ -311,7 +311,7 @@ created: '2026-05-27'
 tags: [test]
 ---
 New body
-""")
+""", encoding="utf-8")
         assert perseus._mneme_index_document(c, file_path)
 
         conn = perseus._mneme_open_index(c)

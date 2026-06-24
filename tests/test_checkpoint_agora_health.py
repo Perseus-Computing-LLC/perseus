@@ -37,8 +37,8 @@ def test_recover_uses_stale_after(tmp_path, capsys):
         "workspace": str(tmp_path),
     }
     fp = store / "one.yaml"
-    fp.write_text(yaml.dump(cp))
-    (store / "latest.yaml").write_text(yaml.dump(cp))
+    fp.write_text(yaml.dump(cp), encoding="utf-8")
+    (store / "latest.yaml").write_text(yaml.dump(cp), encoding="utf-8")
     local_cfg = cfg()
     local_cfg["checkpoints"]["store"] = str(store)
     local_cfg["checkpoints"]["ttl_s"] = 1
@@ -60,7 +60,7 @@ def test_checkpoint_latest_pointer_falls_back_when_symlink_fails(tmp_path, monke
     perseus.cmd_checkpoint(args, local_cfg)
     latest = store / "latest.yaml"
     assert latest.exists()
-    assert latest.read_text()
+    assert latest.read_text(encoding="utf-8")
     monkeypatch.setattr(Path, "symlink_to", orig_symlink)
 def test_diff_checkpoints_renders_changed_fields():
     old_cp = {"written": "2026-05-18T01:00:00+00:00", "task": "a", "status": "old"}
@@ -82,8 +82,8 @@ def test_cmd_diff_uses_latest_two_checkpoints(tmp_path, capsys):
     store.mkdir()
     older = store / "2026-05-18T0100.yaml"
     newer = store / "2026-05-18T0200.yaml"
-    older.write_text(yaml.dump({"written": "2026-05-18T01:00:00+00:00", "task": "a", "status": "old"}))
-    newer.write_text(yaml.dump({"written": "2026-05-18T02:00:00+00:00", "task": "a", "status": "new"}))
+    older.write_text(yaml.dump({"written": "2026-05-18T01:00:00+00:00", "task": "a", "status": "old"}), encoding="utf-8")
+    newer.write_text(yaml.dump({"written": "2026-05-18T02:00:00+00:00", "task": "a", "status": "new"}), encoding="utf-8")
     local_cfg = cfg()
     local_cfg["checkpoints"]["store"] = str(store)
     perseus.cmd_diff(argparse.Namespace(old=None, new=None, a=None, b=None, workspace=None), local_cfg)
@@ -95,8 +95,8 @@ def test_cmd_diff_uses_latest_two_checkpoints(tmp_path, capsys):
 def test_cmd_diff_accepts_explicit_paths(tmp_path, capsys):
     old_fp = tmp_path / "old.yaml"
     new_fp = tmp_path / "new.yaml"
-    old_fp.write_text(yaml.dump({"written": "2026-05-18T01:00:00+00:00", "task": "a"}))
-    new_fp.write_text(yaml.dump({"written": "2026-05-18T02:00:00+00:00", "task": "b"}))
+    old_fp.write_text(yaml.dump({"written": "2026-05-18T01:00:00+00:00", "task": "a"}), encoding="utf-8")
+    new_fp.write_text(yaml.dump({"written": "2026-05-18T02:00:00+00:00", "task": "b"}), encoding="utf-8")
     perseus.cmd_diff(argparse.Namespace(old=str(old_fp), new=str(new_fp), a=None, b=None, workspace=None), cfg())
     captured = capsys.readouterr()
     assert 'task:' in captured.out
@@ -106,8 +106,8 @@ def test_cmd_diff_accepts_explicit_paths(tmp_path, capsys):
 def test_cmd_diff_supports_index_selectors(tmp_path, capsys):
     store = tmp_path / "checkpoints"
     store.mkdir()
-    (store / "2026-05-18T0100.yaml").write_text(yaml.dump({"written": "2026-05-18T01:00:00+00:00", "task": "older"}))
-    (store / "2026-05-18T0200.yaml").write_text(yaml.dump({"written": "2026-05-18T02:00:00+00:00", "task": "newer"}))
+    (store / "2026-05-18T0100.yaml").write_text(yaml.dump({"written": "2026-05-18T01:00:00+00:00", "task": "older"}), encoding="utf-8")
+    (store / "2026-05-18T0200.yaml").write_text(yaml.dump({"written": "2026-05-18T02:00:00+00:00", "task": "newer"}), encoding="utf-8")
     local_cfg = cfg()
     local_cfg["checkpoints"]["store"] = str(store)
     perseus.cmd_diff(argparse.Namespace(old=None, new=None, a='1', b='0', workspace=None), local_cfg)
@@ -120,8 +120,8 @@ def test_cmd_diff_filters_by_workspace(tmp_path, capsys):
     store.mkdir()
     ws = tmp_path / 'repo'
     ws.mkdir()
-    (store / "2026-05-18T0100.yaml").write_text(yaml.dump({"written": "2026-05-18T01:00:00+00:00", "task": "x", "workspace": str(ws)}))
-    (store / "2026-05-18T0200.yaml").write_text(yaml.dump({"written": "2026-05-18T02:00:00+00:00", "task": "y", "workspace": str(ws)}))
+    (store / "2026-05-18T0100.yaml").write_text(yaml.dump({"written": "2026-05-18T01:00:00+00:00", "task": "x", "workspace": str(ws)}), encoding="utf-8")
+    (store / "2026-05-18T0200.yaml").write_text(yaml.dump({"written": "2026-05-18T02:00:00+00:00", "task": "y", "workspace": str(ws)}), encoding="utf-8")
     local_cfg = cfg()
     local_cfg["checkpoints"]["store"] = str(store)
     perseus.cmd_diff(argparse.Namespace(old=None, new=None, a=None, b=None, workspace=str(ws)), local_cfg)
@@ -133,7 +133,7 @@ def test_cmd_diff_filters_by_workspace(tmp_path, capsys):
 def test_cmd_diff_requires_two_checkpoints(tmp_path, capsys):
     store = tmp_path / "checkpoints"
     store.mkdir()
-    (store / "only.yaml").write_text(yaml.dump({"written": "2026-05-18T01:00:00+00:00", "task": "a"}))
+    (store / "only.yaml").write_text(yaml.dump({"written": "2026-05-18T01:00:00+00:00", "task": "a"}), encoding="utf-8")
     local_cfg = cfg()
     local_cfg["checkpoints"]["store"] = str(store)
     perseus.cmd_diff(argparse.Namespace(old=None, new=None, a=None, b=None, workspace=None), local_cfg)
@@ -152,7 +152,7 @@ def test_cmd_diff_reports_missing_store(capsys, tmp_path):
 def test_agora_list_groups_tasks_by_status(tmp_path, capsys):
     tasks_dir = tmp_path / 'tasks'
     tasks_dir.mkdir()
-    (tasks_dir / 'task-01-demo.md').write_text('---\nid: task-01\ntitle: Demo\nstatus: open\nscope: medium\ndepends_on: []\nclaimed_by: null\nopened: 2026-05-18\nclosed: null\n---\n# Demo\n')
+    (tasks_dir / 'task-01-demo.md').write_text('---\nid: task-01\ntitle: Demo\nstatus: open\nscope: medium\ndepends_on: []\nclaimed_by: null\nopened: 2026-05-18\nclosed: null\n---\n# Demo\n', encoding="utf-8")
     local_cfg = cfg()
     local_cfg['agora'] = {'tasks_dir': str(tasks_dir)}
     perseus.cmd_agora(argparse.Namespace(agora_command='list'), local_cfg)
@@ -165,7 +165,7 @@ def test_agora_claim_and_complete_update_frontmatter(tmp_path):
     tasks_dir = tmp_path / 'tasks'
     tasks_dir.mkdir()
     task = tasks_dir / 'task-01-demo.md'
-    task.write_text('---\nid: task-01\ntitle: Demo\nstatus: open\nscope: medium\ndepends_on: []\nclaimed_by: null\nopened: 2026-05-18\nclosed: null\n---\n# Demo\n')
+    task.write_text('---\nid: task-01\ntitle: Demo\nstatus: open\nscope: medium\ndepends_on: []\nclaimed_by: null\nopened: 2026-05-18\nclosed: null\n---\n# Demo\n', encoding="utf-8")
     local_cfg = cfg()
     local_cfg['agora'] = {'tasks_dir': str(tasks_dir)}
     perseus.cmd_agora(argparse.Namespace(agora_command='claim', task_id='task-01', agent='rovo-dev'), local_cfg)
@@ -181,8 +181,8 @@ def test_agora_claim_and_complete_update_frontmatter(tmp_path):
 def test_resolve_agora_renders_filtered_table(tmp_path):
     tasks_dir = tmp_path / 'tasks'
     tasks_dir.mkdir()
-    (tasks_dir / 'task-01-demo.md').write_text('---\nid: task-01\ntitle: Demo\nstatus: open\nscope: medium\ndepends_on: []\nclaimed_by: null\nopened: 2026-05-18\nclosed: null\n---\n# Demo\n')
-    (tasks_dir / 'task-02-done.md').write_text('---\nid: task-02\ntitle: Done\nstatus: completed\nscope: small\ndepends_on: []\nclaimed_by: null\nopened: 2026-05-18\nclosed: 2026-05-18\n---\n# Done\n')
+    (tasks_dir / 'task-01-demo.md').write_text('---\nid: task-01\ntitle: Demo\nstatus: open\nscope: medium\ndepends_on: []\nclaimed_by: null\nopened: 2026-05-18\nclosed: null\n---\n# Demo\n', encoding="utf-8")
+    (tasks_dir / 'task-02-done.md').write_text('---\nid: task-02\ntitle: Done\nstatus: completed\nscope: small\ndepends_on: []\nclaimed_by: null\nopened: 2026-05-18\nclosed: 2026-05-18\n---\n# Done\n', encoding="utf-8")
     local_cfg = cfg()
     local_cfg['agora'] = {'tasks_dir': str(tasks_dir)}
     out = perseus.resolve_agora('status=open', local_cfg, tmp_path)
@@ -201,7 +201,7 @@ def test_checkpoint_writes_per_workspace_pointer(tmp_path):
     ws_hash = perseus._workspace_hash(tmp_path.resolve())
     ptr = store / f"latest-{ws_hash}.yaml"
     assert ptr.exists()
-    fm = yaml.safe_load(ptr.read_text())
+    fm = yaml.safe_load(ptr.read_text(encoding="utf-8"))
     assert fm["task"] == "t"
 
 
@@ -304,7 +304,7 @@ def test_health_flags_stale_checkpoints(tmp_path):
     store.mkdir(parents=True)
     old_iso = (datetime.now().astimezone() - timedelta(days=10)).isoformat()
     cp = {"version": 1, "written": old_iso, "task": "stale"}
-    (store / "2026-01-01T0000.yaml").write_text(yaml.dump(cp))
+    (store / "2026-01-01T0000.yaml").write_text(yaml.dump(cp), encoding="utf-8")
     lines = perseus._health_collect(local, tmp_path)
     text = "\n".join(lines)
     assert "Stale Checkpoints" in text
@@ -317,7 +317,7 @@ def test_health_flags_duplicates(tmp_path):
     store.mkdir(parents=True)
     for i, ts in enumerate(["2026-05-15T1000", "2026-05-15T1100", "2026-05-15T1200"]):
         cp = {"version": 1, "written": ts + ":00+00:00", "task": "same", "status": "wip", "next": "more"}
-        (store / f"{ts}.yaml").write_text(yaml.dump(cp))
+        (store / f"{ts}.yaml").write_text(yaml.dump(cp), encoding="utf-8")
     lines = perseus._health_collect(local, tmp_path)
     text = "\n".join(lines)
     assert "Duplicate Checkpoints" in text
@@ -328,7 +328,7 @@ def test_health_flags_large_context(tmp_path):
     local["checkpoints"]["store"] = str(tmp_path / "cp")
     local["health"]["context_line_warning"] = 5
     (tmp_path / ".perseus").mkdir()
-    (tmp_path / ".perseus" / "context.md").write_text("\n".join(["line"] * 50))
+    (tmp_path / ".perseus" / "context.md").write_text("\n".join(["line"] * 50), encoding="utf-8")
     lines = perseus._health_collect(local, tmp_path)
     text = "\n".join(lines)
     assert "Context Source Size" in text

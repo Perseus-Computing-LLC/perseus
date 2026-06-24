@@ -20,7 +20,7 @@ def _inbox_load_all(workspace: Path, cfg: dict) -> list[tuple[Path, dict]]:
     out = []
     for fp in sorted(d.glob("*.yaml")):
         try:
-            msg = yaml.safe_load(fp.read_text()) or {}
+            msg = yaml.safe_load(fp.read_text(encoding="utf-8")) or {}
             if isinstance(msg, dict):
                 out.append((fp, msg))
         except Exception:

@@ -680,7 +680,7 @@ def _call_tool(tool_name: str, arguments: dict, cfg: dict, workspace: Path) -> s
         try:
             ctx_path = workspace / ".perseus" / "context.md"
             if ctx_path.exists():
-                source = ctx_path.read_text()
+                source = ctx_path.read_text(encoding="utf-8")
                 # render_source is a top-level function in the built artifact
                 # In source module context, import from the parent module
                 result = render_source(source, cfg, workspace)

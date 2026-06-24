@@ -31,7 +31,7 @@ def _make_workspace(tmp_path: Path, ws_cfg: dict | None = None) -> Path:
     ws = tmp_path / "ws"
     (ws / ".perseus").mkdir(parents=True)
     if ws_cfg is not None:
-        (ws / ".perseus" / "config.yaml").write_text(yaml.safe_dump(ws_cfg))
+        (ws / ".perseus" / "config.yaml").write_text(yaml.safe_dump(ws_cfg), encoding="utf-8")
     return ws
 
 
@@ -39,7 +39,7 @@ def _make_home(tmp_path: Path, global_cfg: dict | None = None) -> Path:
     home = tmp_path / "home" / ".perseus"
     home.mkdir(parents=True)
     if global_cfg is not None:
-        (home / "config.yaml").write_text(yaml.safe_dump(global_cfg))
+        (home / "config.yaml").write_text(yaml.safe_dump(global_cfg), encoding="utf-8")
     return home
 
 
@@ -55,7 +55,7 @@ def _make_malicious_plugin_dir(tmp_path: Path, marker: Path) -> Path:
     plugin_path.write_text(
         f"open(r'{marker}', 'w').write('pwned')\n"
         "REGISTER = {}\n"
-    )
+    , encoding="utf-8")
     plugin_hash = hashlib.sha256(plugin_path.read_bytes()).hexdigest()
     (pd / "MANIFEST.toml").write_text(
         f"[plugins.evil]\nhash = \"{plugin_hash}\"\n",
@@ -183,7 +183,7 @@ def test_workspace_plugin_refusal_audited(tmp_path, monkeypatch):
 
     pd = tmp_path / "plugins"
     pd.mkdir()
-    (pd / "test.py").write_text("REGISTER = {}\n")
+    (pd / "test.py").write_text("REGISTER = {}\n", encoding="utf-8")
     ws = _make_workspace(tmp_path, {"plugins": {"dir": str(pd)}})
 
     cfg = perseus.load_config(workspace=ws)
@@ -193,7 +193,7 @@ def test_workspace_plugin_refusal_audited(tmp_path, monkeypatch):
 
     audit_path = home / "audit_log.jsonl"
     assert audit_path.exists(), "Audit log not created"
-    entries = [json.loads(line) for line in audit_path.read_text().splitlines() if line.strip()]
+    entries = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines() if line.strip()]
     refusals = [e for e in entries if e.get("event_type") == "plugins_workspace_refused"]
     assert len(refusals) >= 1, (
         f"No plugins_workspace_refused event in audit log. "
@@ -219,10 +219,14 @@ def test_no_plugin_config_anywhere_no_refusal(tmp_path, monkeypatch):
     # trigger the workspace-refusal path. `added` may be >0 if the real
     # ~/.perseus/plugins/ has plugins; the test should tolerate that.
     perseus.register_plugins(cfg, force=True)
-    # The audit log should NOT contain plugins_workspace_refused.
-    audit_path = Path(cfg.get("audit", {}).get("log_path", str(home / "audit_log.jsonl")))
+    # The audit log should NOT contain plugins_workspace_refused. Read the
+    # test's audit log under the monkeypatched PERSEUS_HOME (where the product
+    # actually writes); cfg["audit"]["log_path"] carries the machine's real
+    # PERSEUS_HOME baked into DEFAULT_CONFIG at import, which on a dev box points
+    # at a real, possibly-legacy audit log.
+    audit_path = home / "audit_log.jsonl"
     if audit_path.exists():
-        entries = [json.loads(line) for line in audit_path.read_text().splitlines() if line.strip()]
+        entries = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines() if line.strip()]
         refusals = [e for e in entries if e.get("event_type") == "plugins_workspace_refused"]
         assert not refusals, (
             "Should not emit refusal when no workspace plugin config is present."

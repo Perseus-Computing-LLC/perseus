@@ -25,14 +25,14 @@ def _target(tmp_path: Path) -> perseus.WatchTarget:
     source = tmp_path / ".perseus" / "context.md"
     output = tmp_path / ".hermes.md"
     source.parent.mkdir()
-    source.write_text("@perseus v0.4\n\nhello\n")
+    source.write_text("@perseus v0.4\n\nhello\n", encoding="utf-8")
     return perseus.WatchTarget("default", source, output)
 
 
 def test_default_watch_target_uses_workspace_context_and_hermes_output(tmp_path):
     source = tmp_path / ".perseus" / "context.md"
     source.parent.mkdir()
-    source.write_text("@perseus v0.4\n")
+    source.write_text("@perseus v0.4\n", encoding="utf-8")
     args = argparse.Namespace(
         source=None,
         output=None,
@@ -49,7 +49,7 @@ def test_default_watch_target_uses_workspace_context_and_hermes_output(tmp_path)
 def test_watch_uses_context_pack_render_targets(tmp_path):
     source = tmp_path / ".perseus" / "context.md"
     source.parent.mkdir()
-    source.write_text("@perseus v0.4\n")
+    source.write_text("@perseus v0.4\n", encoding="utf-8")
     (tmp_path / ".perseus" / "pack.yaml").write_text(yaml.safe_dump({
         "version": perseus.PACK_VERSION,
         "name": "demo",
@@ -63,7 +63,7 @@ def test_watch_uses_context_pack_render_targets(tmp_path):
                 "assistant": "generic",
             }
         ],
-    }))
+    }), encoding="utf-8")
     args = argparse.Namespace(source=None, output=None, manifest=None, allow_outside_workspace=False)
 
     targets, errors = perseus._watch_targets_from_args(args, _cfg(tmp_path), tmp_path)
@@ -186,7 +186,7 @@ def test_watch_keyboard_interrupt_exits_cleanly(tmp_path):
 
 def test_watch_blocks_outside_workspace_by_default(tmp_path):
     outside = tmp_path.parent / "outside-context.md"
-    outside.write_text("@perseus v0.4\n")
+    outside.write_text("@perseus v0.4\n", encoding="utf-8")
     args = argparse.Namespace(
         source=str(outside),
         output=None,
@@ -203,7 +203,7 @@ def test_watch_blocks_outside_workspace_by_default(tmp_path):
 
 def test_watch_allows_explicit_outside_workspace(tmp_path):
     outside = tmp_path.parent / "outside-context.md"
-    outside.write_text("@perseus v0.4\n")
+    outside.write_text("@perseus v0.4\n", encoding="utf-8")
     args = argparse.Namespace(
         source=str(outside),
         output=str(tmp_path / ".hermes.md"),

@@ -27,8 +27,8 @@ class TestCircularDependency:
     def test_circular_include_two_files(self, tmp_path):
         a = tmp_path / "a.md"
         b = tmp_path / "b.md"
-        a.write_text("@include b.md\n")
-        b.write_text("@include a.md\n")
+        a.write_text("@include b.md\n", encoding="utf-8")
+        b.write_text("@include a.md\n", encoding="utf-8")
         source = '@perseus\n@include "a.md"\n'
         result = perseus.render_source(source, cfg(), tmp_path)
         assert "@include b.md" in result or "circular" in result.lower() or "⚠" in result
@@ -37,7 +37,7 @@ class TestCircularDependency:
 
     def test_circular_self_include(self, tmp_path):
         self_ref = tmp_path / "self.md"
-        self_ref.write_text("@include self.md\n")
+        self_ref.write_text("@include self.md\n", encoding="utf-8")
         source = '@perseus\n@include "self.md"\n'
         result = perseus.render_source(source, cfg(), tmp_path)
         assert "@include self.md" in result or "circular" in result.lower()
@@ -47,9 +47,9 @@ class TestCircularDependency:
         a = tmp_path / "a.md"
         b = tmp_path / "b.md"
         c = tmp_path / "c.md"
-        a.write_text("@include b.md\n")
-        b.write_text("@include c.md\n")
-        c.write_text("@include a.md\n")
+        a.write_text("@include b.md\n", encoding="utf-8")
+        b.write_text("@include c.md\n", encoding="utf-8")
+        c.write_text("@include a.md\n", encoding="utf-8")
         source = '@perseus\n@include "a.md"\n'
         result = perseus.render_source(source, cfg(), tmp_path)
         assert "@include b.md" in result or "circular" in result.lower()
@@ -58,8 +58,8 @@ class TestCircularDependency:
     def test_graph_command_detects_cycle_statically(self, tmp_path):
         a = tmp_path / "a.md"
         b = tmp_path / "b.md"
-        a.write_text("@include b.md\n")
-        b.write_text("@include a.md\n")
+        a.write_text("@include b.md\n", encoding="utf-8")
+        b.write_text("@include a.md\n", encoding="utf-8")
         source = '@perseus\n@include "a.md"\n'
         graph = perseus.directive_dependency_graph(
             source, source_name="ctx.md", workspace=tmp_path
@@ -79,8 +79,8 @@ class TestAtomicDrift:
     def test_file_deleted_during_render(self, tmp_path):
         f1 = tmp_path / "data1.md"
         f2 = tmp_path / "data2.md"
-        f1.write_text("Content from file 1")
-        f2.write_text("Content from file 2")
+        f1.write_text("Content from file 1", encoding="utf-8")
+        f2.write_text("Content from file 2", encoding="utf-8")
         original_resolve_read = perseus.resolve_read
         delete_done = threading.Event()
         def patched_resolve_read(args_str, cfg, workspace=None):
@@ -104,7 +104,7 @@ class TestAtomicDrift:
 
     def test_file_modified_during_render(self, tmp_path):
         shared = tmp_path / "shared.md"
-        shared.write_text("Version A")
+        shared.write_text("Version A", encoding="utf-8")
         source = '@perseus\n@include "shared.md"\n@include "shared.md"\n'
         result = perseus.render_source(source, cfg(), tmp_path)
         count_a = result.count("Version A")
@@ -112,12 +112,12 @@ class TestAtomicDrift:
 
     def test_concurrent_writes_outside_perseus(self, tmp_path):
         target = tmp_path / "live.txt"
-        target.write_text("initial")
+        target.write_text("initial", encoding="utf-8")
         stop_flag = threading.Event()
         write_count = [0]
         def writer():
             while not stop_flag.is_set():
-                target.write_text(f"iteration {write_count[0]}")
+                target.write_text(f"iteration {write_count[0]}", encoding="utf-8")
                 write_count[0] += 1
                 time.sleep(0.001)
         t = threading.Thread(target=writer, daemon=True)
@@ -134,7 +134,7 @@ class TestAtomicDrift:
     def test_many_files_read_consistently(self, tmp_path):
         count = 50
         for i in range(count):
-            (tmp_path / f"f{i}.txt").write_text(f"file_{i}")
+            (tmp_path / f"f{i}.txt").write_text(f"file_{i}", encoding="utf-8")
         lines = "\n".join(f'@include "f{i}.txt"' for i in range(count))
         source = f"@perseus\n{lines}\n"
         result = perseus.render_source(source, cfg(), tmp_path)
@@ -162,7 +162,7 @@ class TestSymlinkLabyrinth:
 
     def test_symlink_to_sensitive_file_blocked(self, tmp_path):
         outside = tmp_path.parent / "secret_data.txt"
-        outside.write_text("TOP SECRET")
+        outside.write_text("TOP SECRET", encoding="utf-8")
         link = tmp_path / "innocent_link"
         try:
             link.symlink_to(str(outside))
@@ -181,7 +181,7 @@ class TestSymlinkLabyrinth:
             loop_link.symlink_to(str(loop_dir))
         except OSError:
             pytest.skip("Cannot create symlinks in this environment")
-        (loop_dir / "real_file.txt").write_text("real")
+        (loop_dir / "real_file.txt").write_text("real", encoding="utf-8")
         source = f'@perseus\n@tree "{loop_dir.name}" depth=5\n'
         try:
             result = perseus.render_source(source, cfg(), tmp_path)
@@ -191,7 +191,7 @@ class TestSymlinkLabyrinth:
 
     def test_symlink_inside_workspace_to_inside_workspace(self, tmp_path):
         real = tmp_path / "real_data.txt"
-        real.write_text("accessible content")
+        real.write_text("accessible content", encoding="utf-8")
         link = tmp_path / "data_link"
         try:
             link.symlink_to("real_data.txt")
@@ -203,7 +203,7 @@ class TestSymlinkLabyrinth:
 
     def test_resolve_path_handles_relative_symlink_escape(self, tmp_path):
         outside = tmp_path.parent / "exfil.txt"
-        outside.write_text("exfiltrated")
+        outside.write_text("exfiltrated", encoding="utf-8")
         inner = tmp_path / "inner"
         inner.mkdir()
         link = inner / "up"
@@ -219,7 +219,7 @@ class TestSymlinkLabyrinth:
 
     def test_nested_symlink_chain_outside(self, tmp_path):
         outside = tmp_path.parent / "target_data.txt"
-        outside.write_text("chained escape")
+        outside.write_text("chained escape", encoding="utf-8")
         link1 = tmp_path / "link1"
         link2 = tmp_path / "link2"
         try:
@@ -245,7 +245,7 @@ class TestLargeObjectPressure:
         chunk = "Line {:06d}: " + "x" * 90 + "\n"
         lines_needed = (10 * 1024 * 1024) // len(chunk.format(0))
         content = "".join(chunk.format(i) for i in range(lines_needed))
-        bigfile.write_text(content)
+        bigfile.write_text(content, encoding="utf-8")
         source = f'@perseus\n@include "{bigfile.name}"\n'
         start = time.monotonic()
         result = perseus.render_source(source, cfg(), tmp_path)
@@ -264,7 +264,7 @@ class TestLargeObjectPressure:
             if not f.exists():
                 chunk = "data " * 20 + "\n"
                 total_lines = (mb * 1024 * 1024) // len(chunk)
-                f.write_text(chunk * total_lines)
+                f.write_text(chunk * total_lines, encoding="utf-8")
             source = f'@perseus\n@include "{f.name}"\n'
             start = time.monotonic()
             try:
@@ -278,9 +278,9 @@ class TestLargeObjectPressure:
     def test_read_large_file_overshadows_other_content(self, tmp_path):
         big = tmp_path / "large.txt"
         small = tmp_path / "small.txt"
-        big.write_text("X" * 500_000)
+        big.write_text("X" * 500_000, encoding="utf-8")
         small_content = "CRITICAL: This is the important bit"
-        small.write_text(small_content)
+        small.write_text(small_content, encoding="utf-8")
         source = (
             "@perseus\n"
             f'@read "small.txt"\n'
@@ -302,7 +302,7 @@ class TestLargeObjectPressure:
 
     def test_cache_ttl_prevents_re_read_of_stale_large_file(self, tmp_path):
         expensive = tmp_path / "expensive.txt"
-        expensive.write_text("costly computation result")
+        expensive.write_text("costly computation result", encoding="utf-8")
         c = cfg()
         c["render"]["cache_dir"] = str(tmp_path / "cache")
         source = f'@perseus\n@read "{expensive.name}" @cache ttl=300\n'
@@ -312,7 +312,7 @@ class TestLargeObjectPressure:
         result2 = perseus.render_source(source, c, tmp_path)
         assert "costly computation" in result2
         # Now change the file — content-addressed fingerprint should invalidate
-        expensive.write_text("updated content")
+        expensive.write_text("updated content", encoding="utf-8")
         result3 = perseus.render_source(source, c, tmp_path)
         assert "updated content" in result3
         assert "costly computation" not in result3
@@ -327,7 +327,7 @@ class TestCompositionStress:
 
     def test_all_directives_combined(self, tmp_path):
         for i in range(10):
-            (tmp_path / f"doc{i}.md").write_text(f"Document {i} content")
+            (tmp_path / f"doc{i}.md").write_text(f"Document {i} content", encoding="utf-8")
         source = "@perseus\n"
         source += "\n".join(f'@include "doc{i}.md"' for i in range(10))
         source += "\n"
@@ -348,7 +348,7 @@ class TestFileSizeTruncation:
 
     def test_read_truncates_when_exceeds_max_read_bytes(self, tmp_path):
         big = tmp_path / "big.txt"
-        big.write_text("X" * 100_000)
+        big.write_text("X" * 100_000, encoding="utf-8")
         c = cfg()
         c["render"]["max_read_bytes"] = 10_000
         result = perseus.resolve_read(f'"{big.name}"', c, tmp_path)
@@ -358,7 +358,7 @@ class TestFileSizeTruncation:
 
     def test_read_no_truncation_within_limit(self, tmp_path):
         small = tmp_path / "small.txt"
-        small.write_text("hello world")
+        small.write_text("hello world", encoding="utf-8")
         c = cfg()
         c["render"]["max_read_bytes"] = 10_000
         result = perseus.resolve_read(f'"{small.name}"', c, tmp_path)
@@ -367,7 +367,7 @@ class TestFileSizeTruncation:
 
     def test_include_truncates_when_exceeds_max_include_bytes(self, tmp_path):
         big = tmp_path / "big.log"
-        big.write_text("L" * 200_000)
+        big.write_text("L" * 200_000, encoding="utf-8")
         c = cfg()
         c["render"]["max_include_bytes"] = 5_000
         source = f'@perseus\n@include "{big.name}"\n'
@@ -377,7 +377,7 @@ class TestFileSizeTruncation:
 
     def test_max_read_bytes_none_allows_unlimited(self, tmp_path):
         med = tmp_path / "medium.txt"
-        med.write_text("M" * 200_000)
+        med.write_text("M" * 200_000, encoding="utf-8")
         c = cfg()
         c["render"]["max_read_bytes"] = None
         result = perseus.resolve_read(f'"{med.name}"', c, tmp_path)
@@ -386,7 +386,7 @@ class TestFileSizeTruncation:
 
     def test_max_include_bytes_none_allows_unlimited(self, tmp_path):
         med = tmp_path / "medium.log"
-        med.write_text("M" * 200_000)
+        med.write_text("M" * 200_000, encoding="utf-8")
         c = cfg()
         c["render"]["max_include_bytes"] = None
         source = f'@perseus\n@include "{med.name}"\n'
@@ -406,9 +406,9 @@ class TestTransitiveInclude:
         a = tmp_path / "a.md"
         b = tmp_path / "b.md"
         c = tmp_path / "c.md"
-        a.write_text('@perseus\n@include "b.md"\n')
-        b.write_text('@perseus\n@include "c.md"\n')
-        c.write_text("Deep content from C")
+        a.write_text('@perseus\n@include "b.md"\n', encoding="utf-8")
+        b.write_text('@perseus\n@include "c.md"\n', encoding="utf-8")
+        c.write_text("Deep content from C", encoding="utf-8")
         source = '@perseus\n@include "a.md"\n'
         result = perseus.render_source(source, cfg(), tmp_path)
         assert "Deep content from C" in result
@@ -416,8 +416,8 @@ class TestTransitiveInclude:
     def test_circular_include_detected_with_warning(self, tmp_path):
         a = tmp_path / "a.md"
         b = tmp_path / "b.md"
-        a.write_text('@perseus\n@include "b.md"\n')
-        b.write_text('@perseus\n@include "a.md"\n')
+        a.write_text('@perseus\n@include "b.md"\n', encoding="utf-8")
+        b.write_text('@perseus\n@include "a.md"\n', encoding="utf-8")
         source = '@perseus\n@include "a.md"\n'
         result = perseus.render_source(source, cfg(), tmp_path)
         assert "circular" in result.lower()
@@ -428,8 +428,8 @@ class TestTransitiveInclude:
             f = tmp_path / f"chain{i}.md"
             chain.append(f)
         for i in range(6):
-            chain[i].write_text(f'@perseus\n@include "chain{i+2}.md"\n')
-        chain[6].write_text("Bottom of chain")
+            chain[i].write_text(f'@perseus\n@include "chain{i+2}.md"\n', encoding="utf-8")
+        chain[6].write_text("Bottom of chain", encoding="utf-8")
         c = cfg()
         c["render"]["max_include_depth"] = 3
         source = '@perseus\n@include "chain1.md"\n'
@@ -439,8 +439,8 @@ class TestTransitiveInclude:
     def test_transitive_include_plain_md_no_perseus_header(self, tmp_path):
         outer = tmp_path / "outer.md"
         inner = tmp_path / "inner.md"
-        outer.write_text('@perseus\n@include "inner.md"\n')
-        inner.write_text("# Just a heading\nNo perseus header here.")
+        outer.write_text('@perseus\n@include "inner.md"\n', encoding="utf-8")
+        inner.write_text("# Just a heading\nNo perseus header here.", encoding="utf-8")
         source = '@perseus\n@include "outer.md"\n'
         result = perseus.render_source(source, cfg(), tmp_path)
         assert "# Just a heading" in result
@@ -454,10 +454,10 @@ class TestTransitiveInclude:
         # "this file was already seen elsewhere". Repeated includes are not
         # deduplicated (d renders once per branch), consistent with
         # TestAtomicDrift.test_file_modified_during_render.
-        (tmp_path / "a.md").write_text('@perseus\n@include "b.md"\n@include "c.md"\n')
-        (tmp_path / "b.md").write_text('@perseus\n@include "d.md"\n')
-        (tmp_path / "c.md").write_text('@perseus\n@include "d.md"\n')
-        (tmp_path / "d.md").write_text("DIAMOND-LEAF-CONTENT")
+        (tmp_path / "a.md").write_text('@perseus\n@include "b.md"\n@include "c.md"\n', encoding="utf-8")
+        (tmp_path / "b.md").write_text('@perseus\n@include "d.md"\n', encoding="utf-8")
+        (tmp_path / "c.md").write_text('@perseus\n@include "d.md"\n', encoding="utf-8")
+        (tmp_path / "d.md").write_text("DIAMOND-LEAF-CONTENT", encoding="utf-8")
         source = '@perseus\n@include "a.md"\n'
         result = perseus.render_source(source, cfg(), tmp_path)
         assert "circular" not in result.lower()
@@ -473,7 +473,7 @@ class TestIntegrityDrift:
 
     def test_integrity_check_disabled_by_default(self, tmp_path):
         f = tmp_path / "data.txt"
-        f.write_text("stable content")
+        f.write_text("stable content", encoding="utf-8")
         source = f'@perseus\n@read "data.txt"\n'
         result = perseus.render_source(source, cfg(), tmp_path)
         assert "Integrity drift" not in result
@@ -481,12 +481,12 @@ class TestIntegrityDrift:
     def test_integrity_check_mechanism_modified_file(self, tmp_path):
         """Snapshot captures mtime; modification is detectable."""
         f = tmp_path / "data.txt"
-        f.write_text("initial content")
+        f.write_text("initial content", encoding="utf-8")
         source_lines = ['@read "data.txt"']
         snap = perseus._capture_file_snapshot(source_lines, tmp_path)
         assert len(snap) == 1, f"Expected 1 file, got {snap}"
         time.sleep(0.01)
-        f.write_text("modified content")
+        f.write_text("modified content", encoding="utf-8")
         for path_str, orig_mtime in snap.items():
             current = Path(path_str).stat().st_mtime
             if current == orig_mtime:
@@ -497,8 +497,8 @@ class TestIntegrityDrift:
         """Snapshot captures file; deletion triggers OSError in drift check."""
         f1 = tmp_path / "f1.txt"
         f2 = tmp_path / "f2.txt"
-        f1.write_text("file 1")
-        f2.write_text("file 2")
+        f1.write_text("file 1", encoding="utf-8")
+        f2.write_text("file 2", encoding="utf-8")
         source_lines = ['@read "f1.txt"', '@read "f2.txt"']
         snap = perseus._capture_file_snapshot(source_lines, tmp_path)
         assert len(snap) >= 2, f"Expected >=2 files, got {snap}"
@@ -516,8 +516,8 @@ class TestIntegrityDrift:
     def test_integrity_check_no_false_positives_stable_files(self, tmp_path):
         f1 = tmp_path / "stable1.txt"
         f2 = tmp_path / "stable2.txt"
-        f1.write_text("stable A")
-        f2.write_text("stable B")
+        f1.write_text("stable A", encoding="utf-8")
+        f2.write_text("stable B", encoding="utf-8")
         c = cfg()
         c["render"]["integrity_check"] = True
         source = '@perseus\n@read "stable1.txt"\n@read "stable2.txt"\n'

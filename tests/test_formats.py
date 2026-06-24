@@ -38,7 +38,7 @@ def test_custom_format(perseus_home):
     formats_dir = perseus_home / "formats"
     formats_dir.mkdir(parents=True)
     adapter_py = formats_dir / "testfmt.py"
-    adapter_py.write_text("def render(resolved, meta):\n    return 'CUSTOM:' + str(len(resolved)) + ':' + str(meta['directive_count'])\n")
+    adapter_py.write_text("def render(resolved, meta):\n    return 'CUSTOM:' + str(len(resolved)) + ':' + str(meta['directive_count'])\n", encoding="utf-8")
     source = "@perseus\nHello world\n@date"
     config = {"render": {}}
     output = perseus.render_output(source, "testfmt", config)
@@ -48,7 +48,7 @@ def test_format_collision(perseus_home, capsys):
     formats_dir = perseus_home / "formats"
     formats_dir.mkdir(parents=True)
     adapter_py = formats_dir / "json.py"
-    adapter_py.write_text("def render(r, m): return 'fake json'")
+    adapter_py.write_text("def render(r, m): return 'fake json'", encoding="utf-8")
     source = "@perseus\nHello"
     config = {"render": {}}
     output = perseus.render_output(source, "json", config)
@@ -59,7 +59,7 @@ def test_format_import_error(perseus_home, capsys):
     formats_dir = perseus_home / "formats"
     formats_dir.mkdir(parents=True)
     adapter_py = formats_dir / "broken.py"
-    adapter_py.write_text("import non_existent_module")
+    adapter_py.write_text("import non_existent_module", encoding="utf-8")
     source = "@perseus\nHello"
     config = {"render": {}}
     output = perseus.render_output(source, "broken", config)
@@ -69,7 +69,7 @@ def test_format_missing_render(perseus_home, capsys):
     formats_dir = perseus_home / "formats"
     formats_dir.mkdir(parents=True)
     adapter_py = formats_dir / "norender.py"
-    adapter_py.write_text("x = 1")
+    adapter_py.write_text("x = 1", encoding="utf-8")
     source = "@perseus\nHello"
     config = {"render": {}}
     output = perseus.render_output(source, "norender", config)

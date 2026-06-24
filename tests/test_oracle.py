@@ -109,7 +109,7 @@ def test_oracle_config_legacy_compat(tmp_path, monkeypatch, capsys):
         "oracle:\n"
         "  skill_dir: /tmp/legacy-skills\n"
         "  stale_skill_days: 12\n"
-    )
+    , encoding="utf-8")
 
     loaded = perseus.load_config()
     err = capsys.readouterr().err
@@ -123,7 +123,7 @@ def test_oracle_config_legacy_compat(tmp_path, monkeypatch, capsys):
 def test_pythia_log_migration(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path)
     legacy = tmp_path / "oracle_log.jsonl"
-    legacy.write_text(json.dumps({"timestamp": "t1", "task": "legacy"}) + "\n")
+    legacy.write_text(json.dumps({"timestamp": "t1", "task": "legacy"}) + "\n", encoding="utf-8")
 
     entries = perseus._read_all_pythia_entries()
     err = capsys.readouterr().err
@@ -306,7 +306,7 @@ def test_oracle_accept_marks_entry(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "accepted=True" in out
     log = tmp_path / "pythia_log.jsonl"
-    lines = [json.loads(l) for l in log.read_text().splitlines() if l]
+    lines = [json.loads(l) for l in log.read_text(encoding="utf-8").splitlines() if l]
     assert lines[-1]["accepted"] is True
 
 
@@ -352,7 +352,7 @@ def test_oracle_export_jsonl_only_accepted(tmp_path, monkeypatch, capsys):
     ])
     out_path = tmp_path / "dataset.jsonl"
     perseus.cmd_oracle(argparse.Namespace(oracle_command="export", output=str(out_path), format="jsonl"), cfg())
-    rows = [json.loads(l) for l in out_path.read_text().splitlines() if l]
+    rows = [json.loads(l) for l in out_path.read_text(encoding="utf-8").splitlines() if l]
     assert len(rows) == 1
     assert rows[0]["prompt"] == "P-A"
     assert rows[0]["completion"] == "R-A"
@@ -364,7 +364,7 @@ def test_oracle_export_alpaca_format(tmp_path, monkeypatch):
     ])
     out_path = tmp_path / "alpaca.jsonl"
     perseus.cmd_oracle(argparse.Namespace(oracle_command="export", output=str(out_path), format="alpaca"), cfg())
-    rows = [json.loads(l) for l in out_path.read_text().splitlines() if l]
+    rows = [json.loads(l) for l in out_path.read_text(encoding="utf-8").splitlines() if l]
     # task-20: export now records label_source so training can weight inferred lower
     assert rows[0]["instruction"] == "P"
     assert rows[0]["input"] == ""
@@ -459,7 +459,7 @@ def test_oracle_export_include_inferred_tags_source(monkeypatch, tmp_path):
     ])
     out_path = tmp_path / "exp.jsonl"
     perseus.cmd_oracle(argparse.Namespace(oracle_command="export", output=str(out_path), format="jsonl", include_inferred=True), cfg())
-    rows = [json.loads(l) for l in out_path.read_text().splitlines() if l]
+    rows = [json.loads(l) for l in out_path.read_text(encoding="utf-8").splitlines() if l]
     assert len(rows) == 2
     sources = sorted([r["label_source"] for r in rows])
     assert sources == ["explicit", "inferred"]
@@ -530,7 +530,7 @@ def test_oracle_export_daedalus_patterns_format(tmp_path, monkeypatch):
     ])
     out_path = tmp_path / "pat.jsonl"
     perseus.cmd_oracle(argparse.Namespace(oracle_command="export", output=str(out_path), format="daedalus-patterns", include_inferred=False), cfg())
-    rows = [json.loads(l) for l in out_path.read_text().splitlines() if l]
+    rows = [json.loads(l) for l in out_path.read_text(encoding="utf-8").splitlines() if l]
     assert rows[0]["completion"] == "- pattern bullet here"
     assert rows[0]["label_source"] == "explicit"
 def test_infer_labels_inferred_none_counter_is_real(tmp_path, monkeypatch):
@@ -542,9 +542,9 @@ def test_infer_labels_inferred_none_counter_is_real(tmp_path, monkeypatch):
         "timestamp": "2026-05-18T10:00:00",
         "prompt": "p", "response": "r",
         # no 'accepted' → eligible for inference; no checkpoints will be in window
-    }) + "\n")
+    }) + "\n", encoding="utf-8")
     monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path)
-    monkeypatch.setattr(perseus, "_pythia_log_entries", lambda: [json.loads(l) for l in log.read_text().splitlines()])
+    monkeypatch.setattr(perseus, "_pythia_log_entries", lambda: [json.loads(l) for l in log.read_text(encoding="utf-8").splitlines()])
     monkeypatch.setattr(perseus, "_load_indexed_checkpoints", lambda cfg: [])
     monkeypatch.setattr(perseus, "_rewrite_pythia_log", lambda entries: None)
     ns = argparse.Namespace(
@@ -595,13 +595,13 @@ def test_oracle_outcomes_json_updates_accepted_entry(tmp_path, monkeypatch):
         "task": "ship the feature",
         "status": "in_progress",
         "notes": "hit error in parser",
-    }))
+    }), encoding="utf-8")
     (store / "later-b.yaml").write_text(yaml.safe_dump({
         "written": "2026-05-18T11:00:00+00:00",
         "task": "ship the feature",
         "status": "completed",
         "notes": "merged to main",
-    }))
+    }), encoding="utf-8")
     args = argparse.Namespace(window_days=1, window_checkpoints=5, dry_run=False, json=True)
 
     out, rc = _capture_json(monkeypatch, perseus.cmd_oracle_outcomes, args, local)
@@ -610,7 +610,7 @@ def test_oracle_outcomes_json_updates_accepted_entry(tmp_path, monkeypatch):
     assert out["scanned"] == 1
     assert out["eligible"] == 1
     assert out["updated"] == 1
-    log_rows = [json.loads(line) for line in (tmp_path / "pythia_log.jsonl").read_text().splitlines()]
+    log_rows = [json.loads(line) for line in (tmp_path / "pythia_log.jsonl").read_text(encoding="utf-8").splitlines()]
     outcome = log_rows[0]["outcome"]
     assert outcome["completed"] is True
     assert outcome["completion_signal"] == "completed"
@@ -634,7 +634,7 @@ def test_oracle_outcomes_dry_run_does_not_write(tmp_path, monkeypatch):
         "written": "2026-05-18T10:05:00+00:00",
         "task": "dry run",
         "status": "done",
-    }))
+    }), encoding="utf-8")
     args = argparse.Namespace(window_days=1, window_checkpoints=5, dry_run=True, json=True)
 
     out, rc = _capture_json(monkeypatch, perseus.cmd_oracle_outcomes, args, local)
@@ -642,7 +642,7 @@ def test_oracle_outcomes_dry_run_does_not_write(tmp_path, monkeypatch):
     assert rc == 0
     assert out["would_update"] == 1
     assert out["updated"] == 0
-    row = json.loads((tmp_path / "pythia_log.jsonl").read_text().strip())
+    row = json.loads((tmp_path / "pythia_log.jsonl").read_text(encoding="utf-8").strip())
     assert "outcome" not in row
 
 

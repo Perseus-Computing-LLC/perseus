@@ -60,7 +60,7 @@ def test_shared_macros(tmp_path, monkeypatch):
     shared_macros_file.write_text("""@macro shared-macro
 Shared Content
 @endmacro
-""")
+""", encoding="utf-8")
     
     # Configure perseus to use this shared macros file
     config = cfg()
@@ -78,7 +78,7 @@ def test_source_macro_overrides_shared(tmp_path):
     shared_macros_file.write_text("""@macro override-me
 Shared Content
 @endmacro
-""")
+""", encoding="utf-8")
     
     config = cfg()
     if "macros" not in config:

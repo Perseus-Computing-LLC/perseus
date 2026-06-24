@@ -31,8 +31,8 @@ def _adapter_dirs() -> list[Path]:
 @pytest.mark.parametrize("fixture_dir", _adapter_dirs(), ids=lambda p: p.name)
 def test_adapter_fixture_matches_registered_profile(fixture_dir: Path):
     profile_name = fixture_dir.name
-    expected_output = (fixture_dir / "expected_output").read_text().strip()
-    manifest = yaml.safe_load((fixture_dir / "pack.yaml").read_text())
+    expected_output = (fixture_dir / "expected_output").read_text(encoding="utf-8").strip()
+    manifest = yaml.safe_load((fixture_dir / "pack.yaml").read_text(encoding="utf-8"))
 
     assert profile_name in perseus.PRODUCT_PROFILES
     profile = perseus.PRODUCT_PROFILES[profile_name]
@@ -60,7 +60,7 @@ def test_adapter_fixture_context_pack_validates(fixture_dir: Path, tmp_path):
 def test_adapter_fixture_renders_to_expected_output(fixture_dir: Path, tmp_path):
     workspace = tmp_path / fixture_dir.name
     shutil.copytree(fixture_dir, workspace)
-    expected_output = (workspace / "expected_output").read_text().strip()
+    expected_output = (workspace / "expected_output").read_text(encoding="utf-8").strip()
     output_path = workspace / expected_output
     env = os.environ.copy()
     env["PERSEUS_HOME"] = str(tmp_path / "perseus-home")
@@ -83,7 +83,7 @@ def test_adapter_fixture_renders_to_expected_output(fixture_dir: Path, tmp_path)
 
     assert proc.returncode == 0, proc.stderr
     assert output_path.exists()
-    rendered = output_path.read_text()
+    rendered = output_path.read_text(encoding="utf-8")
     assert f"# Adapter Fixture: {fixture_dir.name}" in rendered
     assert f"\n{fixture_dir.name}\n" in rendered
     assert f"```text\n{expected_output}\n```" in rendered
@@ -96,7 +96,7 @@ def test_adapter_fixture_set_is_complete():
 
 
 def test_integration_doc_adapter_matrix_references_all_fixtures():
-    integration = (REPO_ROOT / "spec" / "integration.md").read_text()
+    integration = (REPO_ROOT / "spec" / "integration.md").read_text(encoding="utf-8")
 
     assert "Adapter Conformance Matrix" in integration
     for name, profile in perseus.PRODUCT_PROFILES.items():
