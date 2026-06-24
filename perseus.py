@@ -704,13 +704,10 @@ from datetime import datetime, timezone
 
 # Try to obtain the version from the serve module (same package).
 # Fall back to a hard-coded default if the package isn't fully installed.
-# NOTE: this indented literal is NOT rewritten by build.py (which only
-# substitutes the module-level _PERSEUS_VERSION line), so keep it in sync
-# with the VERSION file by hand.
 try:
     from .serve import _PERSEUS_VERSION
 except ImportError:
-    _PERSEUS_VERSION = "1.0.9"
+    _PERSEUS_VERSION = "1.0.8"
 
 # ──────────────────────────────── Webhooks ───────────────────────────────────
 
