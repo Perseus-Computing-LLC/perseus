@@ -702,19 +702,40 @@ def _fire_hooks(event: str, payload: dict, cfg: dict) -> None:
 
 
 def _fire_shell_hook(cmd_template: str, payload: dict, event: str) -> None:
-    """Run a shell hook with {{var}} substitution. Timeout 5s."""
+    """Run a shell hook with {{var}} substitution. Timeout 5s.
+
+    On timeout the whole process tree is killed. subprocess.run(timeout=...)
+    alone is insufficient on Windows: shell=True spawns cmd.exe, and killing
+    cmd.exe orphans any grandchild (e.g. `sleep`) that still holds the captured
+    pipes, so the call blocks reading them until the grandchild exits. We spawn
+    in a new process group / session and tree-kill on timeout instead.
+    """
+
     try:
         cmd = cmd_template
         for key, val in payload.items():
             cmd = cmd.replace(f"{{{{{key}}}}}", str(val))
 
+        popen_kwargs = {}
+        if os.name == "nt":
+            popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+        else:
+            popen_kwargs["start_new_session"] = True
+
         # Use shell=True as per spec trust consideration
-        subprocess.run(
-            cmd, shell=True, capture_output=True, text=True,
-            timeout=5,
+        proc = subprocess.Popen(
+            cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            stdin=subprocess.DEVNULL, text=True, **popen_kwargs,
         )
-    except subprocess.TimeoutExpired:
-        print(f"Perseus hook timeout ({event}): {cmd_template[:80]}", file=sys.stderr)
+        try:
+            proc.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            _kill_subprocess_tree(proc)
+            try:
+                proc.communicate(timeout=3)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+            print(f"Perseus hook timeout ({event}): {cmd_template[:80]}", file=sys.stderr)
     except Exception as e:
         print(f"Perseus hook shell error ({event}): {e}", file=sys.stderr)
 

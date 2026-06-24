@@ -67,11 +67,14 @@ def test_hook_failure_does_not_break_render():
 
 def test_hook_timeout_kills_runaway_hook(tmp_path):
     start = time.time()
+    # ~10s runaway command per platform (`sleep` isn't a cmd.exe builtin;
+    # `ping -n 11` waits ~10s). Verifies the 5s hook timeout tree-kills it.
+    runaway = "ping -n 11 127.0.0.1 >nul" if os.name == "nt" else "sleep 10"
     cfg = {
         "hooks": {
             "enabled": True,
             "on_render_start": [
-                {"command": "sleep 10"}
+                {"command": runaway}
             ]
         }
     }

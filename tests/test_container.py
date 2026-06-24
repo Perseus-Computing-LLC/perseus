@@ -84,6 +84,10 @@ def test_container_docs_cover_trust_and_read_only_mounts():
 
 
 def test_docker_image_reports_version_when_docker_is_available():
+    # The Perseus image is Linux-based; GitHub's windows-latest runners default
+    # to the Windows-container engine and can't build a Linux image.
+    if os.name == "nt":
+        pytest.skip("Linux container build not supported on Windows runners")
     docker = shutil.which("docker")
     if docker is None:
         pytest.skip("docker CLI not available")
