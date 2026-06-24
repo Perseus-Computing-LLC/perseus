@@ -1395,7 +1395,7 @@ def render_source(
     if _include_depth == 0 and cfg.get("render", {}).get("dedup", True):
         result, dedup_report = _deduplicate_rendered_output(result, cfg)
         if dedup_report["removed_facts"] > 0:
-            result += f"\n\nDedup: removed {dedup_report["removed_facts"]} duplicate facts, saved ~{dedup_report["saved_tokens"]} tokens"
+            result += f"\n\nDedup: removed {dedup_report['removed_facts']} duplicate facts, saved ~{dedup_report['saved_tokens']} tokens"
 
     # v1.0.6: prepend preflight permission warnings at top of output
     if _include_depth == 0 and preflight_warnings:
