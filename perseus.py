@@ -3738,6 +3738,9 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
         popen_kwargs = {
             "shell": True,
             "executable": shell,
+            # Detach stdin to avoid OSError [WinError 6] on Windows when the
+            # parent's stdin handle is invalid (e.g. under pytest capture).
+            "stdin": subprocess.DEVNULL,
             "stdout": subprocess.PIPE,
             "stderr": subprocess.PIPE,
             "text": True,
@@ -4709,6 +4712,7 @@ def resolve_agent(args_str: str, cfg: dict, workspace: Path | None = None) -> st
             cmd,
             shell=True,
             executable=shell,
+            stdin=subprocess.DEVNULL,  # avoid OSError [WinError 6] on Windows
             capture_output=True,
             text=True,
             timeout=timeout,
@@ -4853,6 +4857,10 @@ def resolve_tool(args_str: str, cfg: dict, workspace: Path | None = None) -> str
         
         proc = subprocess.Popen(
             cmd,
+            # Detach stdin: on Windows the parent's stdin handle may be invalid
+            # (e.g. under pytest capture), and inheriting it raises
+            # OSError [WinError 6] "The handle is invalid".
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -5329,6 +5337,7 @@ def evaluate_condition(condition: str, workspace: Path | None = None, cfg: dict 
                 cmd,
                 shell=True,
                 executable=shell,
+                stdin=subprocess.DEVNULL,  # avoid OSError [WinError 6] on Windows
                 capture_output=True,
                 text=True,
                 timeout=30,
@@ -5524,6 +5533,7 @@ def _check_one_service(svc: dict, index: int, timeout: float, cfg: dict) -> tupl
                 command,
                 shell=True,
                 executable=_get_shell(cfg),
+                stdin=subprocess.DEVNULL,  # avoid OSError [WinError 6] on Windows
                 capture_output=True,
                 text=True,
                 timeout=timeout,

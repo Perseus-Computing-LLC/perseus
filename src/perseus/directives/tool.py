@@ -106,6 +106,10 @@ def resolve_tool(args_str: str, cfg: dict, workspace: Path | None = None) -> str
         
         proc = subprocess.Popen(
             cmd,
+            # Detach stdin: on Windows the parent's stdin handle may be invalid
+            # (e.g. under pytest capture), and inheriting it raises
+            # OSError [WinError 6] "The handle is invalid".
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
