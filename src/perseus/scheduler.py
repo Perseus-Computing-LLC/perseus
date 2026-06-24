@@ -59,7 +59,13 @@ def _perseus_launcher() -> tuple[list[str], bool]:
     except OSError:
         pass
 
-    which = _shutil.which("perseus")
+    # shutil.which can raise on some platforms (e.g. its win32 branch touches
+    # _winapi, which is absent off-Windows) — degrade to the fallback instead
+    # of crashing the scheduler command.
+    try:
+        which = _shutil.which("perseus")
+    except Exception:
+        which = None
     if which:
         return [which], True
 
