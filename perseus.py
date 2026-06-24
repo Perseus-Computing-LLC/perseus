@@ -11620,24 +11620,29 @@ def cmd_recover(args, cfg):
 
 
 def _mneme_vault_path(cfg: dict) -> Path:
-    """Resolve the Mnēmē v2 vault directory from config or auto-detect.
+    """Resolve the Mnēmē v2 vault directory the FTS5 indexer scans.
 
     Resolution order:
       1. memory.mneme_vault_path from config (if set)
-      2. Auto-detect: $PERSEUS_HOME/memory/vault
-      3. Default path even if it doesn't exist (returns empty list)
+      2. memory.store — the directory where per-workspace narrative .md files
+         are actually written (see _mneme_path / mneme_narrative.py)
+      3. $PERSEUS_HOME/memory as a final fallback
+
+    The default deliberately tracks ``memory.store`` rather than a ``vault/``
+    subdirectory. Narratives are written to ``memory.store`` (default
+    ``$PERSEUS_HOME/memory``); if the indexer scanned ``$PERSEUS_HOME/memory/
+    vault`` instead, ``rglob("*.md")`` would find no narratives and recall
+    would silently return nothing on a stock install.
     """
     raw = cfg.get("memory", {}).get("mneme_vault_path", "").strip()
     if raw:
         return Path(raw).expanduser()
 
-    # Auto-detect: $PERSEUS_HOME/memory/vault
-    vault = PERSEUS_HOME / "memory" / "vault"
-    if vault.is_dir():
-        return vault
+    store = str(cfg.get("memory", {}).get("store", "") or "").strip()
+    if store:
+        return Path(store).expanduser()
 
-    # Return the default even if it doesn't exist
-    return vault
+    return PERSEUS_HOME / "memory"
 
 
 def _mneme_index_path(cfg: dict) -> Path:
@@ -12483,6 +12488,49 @@ def _mneme_default_frontmatter(workspace: Path) -> dict:
         "compaction_count": 0,
         "last_compaction_at_update": 0,
     }
+
+
+def _enrich_narrative_frontmatter(fm: dict, body: str, workspace: Path) -> None:
+    """Add the vault-index fields the Mnēmē FTS5 indexer requires, in place.
+
+    The indexer's parser (``_mneme_parse_vault_file``) skips any .md file that
+    lacks an ``id`` and ``title``. Without these, a narrative is written to the
+    store but never becomes searchable via ``perseus_memory`` / ``perseus_mimir``
+    recall. This mirrors the schema-2 narrative frontmatter Perseus emits so a
+    stock install indexes its own narratives out of the box.
+
+    ``id`` is the 16-hex workspace hash (matches the parser's id whitelist and
+    is unique per workspace). ``title`` / ``summary`` are derived from the
+    rendered body; ``setdefault`` is used for the descriptive fields so a
+    richer pre-existing value (e.g. operator-set tags) is preserved.
+    """
+    fm["id"] = str(fm.get("workspace_hash") or _workspace_hash(workspace))
+    fm["type"] = "narrative"
+    fm.setdefault("scope", "workspace")
+    fm.setdefault("sensitivity", "team")
+    fm.setdefault("confidence", 1.0)
+    fm.setdefault("tags", [])
+    fm.setdefault("topic_path", [])
+
+    title = ""
+    for line in body.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("# "):
+            title = stripped[2:].strip()
+            break
+    fm["title"] = title or f"Mnēmē — {workspace}"
+
+    summary = " ".join(
+        ln.strip() for ln in body.splitlines()
+        if ln.strip() and not ln.lstrip().startswith(("#", ">", "|"))
+    ).strip()[:200]
+    if summary:
+        fm["summary"] = summary
+
+    # Bump to the indexable narrative schema (parser is schema-agnostic, but
+    # this signals the format and aligns with the on-disk vault docs).
+    if int(fm.get("schema", 1) or 1) < 2:
+        fm["schema"] = 2
 
 
 def _mneme_pythia_hwm(frontmatter: dict) -> int:
@@ -16238,6 +16286,7 @@ def _memory_do_update(workspace: Path, cfg: dict, provider: str | None) -> tuple
     fm.setdefault("schema", 1)
     fm.setdefault("compaction_count", 0)
     fm.setdefault("last_compaction_at_update", 0)
+    _enrich_narrative_frontmatter(fm, new_body, workspace)
 
     _save_narrative(mp, fm, new_body)
     return (True, f"Updated {mp} (+{len(new_cp)} checkpoints, +{len(new_py)} Pythia entries)")
@@ -16339,6 +16388,7 @@ def _memory_do_compact(workspace: Path, cfg: dict, provider: str | None) -> str:
     fm["workspace"] = str(workspace)
     fm["workspace_hash"] = _workspace_hash(workspace)
     fm.setdefault("schema", 1)
+    _enrich_narrative_frontmatter(fm, new_body, workspace)
 
     _save_narrative(mp, fm, new_body)
     return f"Compacted {mp} ({len(all_checkpoints)} checkpoints, {len(all_pythia)} Pythia entries)"

@@ -84,6 +84,7 @@ def _memory_do_update(workspace: Path, cfg: dict, provider: str | None) -> tuple
     fm.setdefault("schema", 1)
     fm.setdefault("compaction_count", 0)
     fm.setdefault("last_compaction_at_update", 0)
+    _enrich_narrative_frontmatter(fm, new_body, workspace)
 
     _save_narrative(mp, fm, new_body)
     return (True, f"Updated {mp} (+{len(new_cp)} checkpoints, +{len(new_py)} Pythia entries)")
@@ -185,6 +186,7 @@ def _memory_do_compact(workspace: Path, cfg: dict, provider: str | None) -> str:
     fm["workspace"] = str(workspace)
     fm["workspace_hash"] = _workspace_hash(workspace)
     fm.setdefault("schema", 1)
+    _enrich_narrative_frontmatter(fm, new_body, workspace)
 
     _save_narrative(mp, fm, new_body)
     return f"Compacted {mp} ({len(all_checkpoints)} checkpoints, {len(all_pythia)} Pythia entries)"
