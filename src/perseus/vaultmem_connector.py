@@ -63,8 +63,29 @@ from typing import Optional
 # ── Configuration resolution ─────────────────────────────────────────────────
 
 
+# #448: cache the resolved binary for the process. The npx fallback below runs
+# `npx -y vault-mem-mcp --version`, which can hit the npm registry (10s timeout),
+# and was re-run on the availability check AND once per project per render
+# (≥ 1 + N probes). Non-empty list = already probed; element is the result.
+_VAULTMEM_BIN_CACHE: list = []
+
+
 def _vaultmem_binary() -> Optional[str]:
-    """Resolve the vault-mem-mcp binary/script path."""
+    """Resolve the vault-mem-mcp binary/script path.
+
+    Memoized per process (#448), including the not-found result, so the
+    npm-registry-hitting `npx --version` probe runs at most once per process.
+    """
+    if _VAULTMEM_BIN_CACHE:
+        return _VAULTMEM_BIN_CACHE[0]
+
+    found = _vaultmem_binary_uncached()
+    _VAULTMEM_BIN_CACHE.append(found)
+    return found
+
+
+def _vaultmem_binary_uncached() -> Optional[str]:
+    """Probe for the vault-mem-mcp binary (see _vaultmem_binary for caching)."""
     explicit = os.environ.get("VAULTMEM_BINARY")
     if explicit and os.path.exists(explicit):
         return explicit

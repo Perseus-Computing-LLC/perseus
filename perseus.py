@@ -8680,8 +8680,29 @@ from typing import Optional
 # ── Configuration resolution ─────────────────────────────────────────────────
 
 
+# #448: cache the resolved binary for the process. The npx fallback below runs
+# `npx -y vault-mem-mcp --version`, which can hit the npm registry (10s timeout),
+# and was re-run on the availability check AND once per project per render
+# (≥ 1 + N probes). Non-empty list = already probed; element is the result.
+_VAULTMEM_BIN_CACHE: list = []
+
+
 def _vaultmem_binary() -> Optional[str]:
-    """Resolve the vault-mem-mcp binary/script path."""
+    """Resolve the vault-mem-mcp binary/script path.
+
+    Memoized per process (#448), including the not-found result, so the
+    npm-registry-hitting `npx --version` probe runs at most once per process.
+    """
+    if _VAULTMEM_BIN_CACHE:
+        return _VAULTMEM_BIN_CACHE[0]
+
+    found = _vaultmem_binary_uncached()
+    _VAULTMEM_BIN_CACHE.append(found)
+    return found
+
+
+def _vaultmem_binary_uncached() -> Optional[str]:
+    """Probe for the vault-mem-mcp binary (see _vaultmem_binary for caching)."""
     explicit = os.environ.get("VAULTMEM_BINARY")
     if explicit and os.path.exists(explicit):
         return explicit
@@ -9157,17 +9178,28 @@ from pathlib import Path
 from typing import Any, Optional
 
 
+# #448: cache the resolved binary path for the process (see memtrace for the
+# rationale — _memorymesh_binary_path was re-probed via subprocess on every
+# query). Non-empty list = already probed; element is the path or None.
+_MEMORYMESH_BIN_CACHE: list = []
+
+
 def _memorymesh_binary_path() -> Optional[str]:
     """Find the memorymesh CLI binary.
-    
+
     Returns the full path to the memorymesh CLI, or None if not installed.
+    Memoized per process (#448), including the not-installed result.
     """
+    if _MEMORYMESH_BIN_CACHE:
+        return _MEMORYMESH_BIN_CACHE[0]
+
     # Check common install locations
     candidates = [
         "memorymesh",  # rely on PATH
         os.path.expanduser("~/.local/bin/memorymesh"),
         "/usr/local/bin/memorymesh",
     ]
+    found: Optional[str] = None
     for candidate in candidates:
         try:
             result = subprocess.run(
@@ -9177,10 +9209,12 @@ def _memorymesh_binary_path() -> Optional[str]:
                 timeout=5,
             )
             if result.returncode == 0:
-                return candidate
+                found = candidate
+                break
         except (FileNotFoundError, subprocess.TimeoutExpired):
             continue
-    return None
+    _MEMORYMESH_BIN_CACHE.append(found)
+    return found
 
 
 def _memorymesh_rest_health() -> bool:
@@ -9463,12 +9497,24 @@ from pathlib import Path
 from typing import Any, Optional
 
 
+# #448: cache the resolved binary path for the process. The probe below runs a
+# `--version` subprocess against up to ~7 candidates, and _memtrace_mcp_call (two
+# per repo) re-ran it every time. A non-empty list means "already probed"; its
+# sole element is the path or None. Cleared between tests via conftest.
+_MEMTRACE_BIN_CACHE: list = []
+
+
 def _memtrace_binary_path() -> Optional[str]:
     """Find the memtrace CLI binary.
-    
+
     Returns the full path to the memtrace binary, or None if not installed.
     Typically installed globally via npm: `npm install -g memtrace`.
+    Memoized per process (#448) — including the not-installed result, so a
+    missing binary isn't re-probed on every call.
     """
+    if _MEMTRACE_BIN_CACHE:
+        return _MEMTRACE_BIN_CACHE[0]
+
     candidates = [
         "memtrace",  # rely on PATH
         os.path.expanduser("~/.npm-global/bin/memtrace"),
@@ -9480,6 +9526,7 @@ def _memtrace_binary_path() -> Optional[str]:
         if os.path.isdir(nvm_dir):
             candidates.append(os.path.join(nvm_dir, "bin", "memtrace"))
 
+    found: Optional[str] = None
     for candidate in candidates:
         try:
             result = subprocess.run(
@@ -9489,10 +9536,12 @@ def _memtrace_binary_path() -> Optional[str]:
                 timeout=5,
             )
             if result.returncode == 0:
-                return candidate
+                found = candidate
+                break
         except (FileNotFoundError, subprocess.TimeoutExpired):
             continue
-    return None
+    _MEMTRACE_BIN_CACHE.append(found)
+    return found
 
 
 def _memtrace_mcp_call(tool_name: str, arguments: dict[str, Any], timeout: int = 15) -> Optional[dict]:
