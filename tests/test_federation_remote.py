@@ -178,6 +178,36 @@ class TestManifestRemoteParsing:
         assert result["subscriptions"] == []
 
 
+def test_federation_digest_parallel_resolution_preserves_order(tmp_path, monkeypatch):
+    """#449: digest resolves remote narratives in parallel but must still render
+    sections in subscription order, with each alias's body intact."""
+    _write_manifest(tmp_path, [
+        {"alias": "alpha", "remote": {"url": "https://a", "auth_token": "", "verify_key": None}, "enabled": True},
+        {"alias": "beta", "remote": {"url": "https://b", "auth_token": "", "verify_key": None}, "enabled": True},
+        {"alias": "gamma", "remote": {"url": "https://c", "auth_token": "", "verify_key": None}, "enabled": True},
+    ])
+    c = _fed_cfg(tmp_path)
+
+    bodies = {
+        "alpha": "# N\n\nbody-of-alpha",
+        "beta": "# N\n\nbody-of-beta",
+        "gamma": "# N\n\nbody-of-gamma",
+    }
+
+    def _fake_remote(entry, _cfg):
+        return (bodies[entry["alias"]], None, entry["alias"])
+
+    monkeypatch.setattr(perseus, "_resolve_remote_narrative", _fake_remote)
+    out = perseus._render_federation_digest(c)
+
+    # All three rendered, each with its own body…
+    for alias in ("alpha", "beta", "gamma"):
+        assert f"### `{alias}` (remote)" in out
+        assert f"body-of-{alias}" in out
+    # …and in subscription order despite parallel resolution.
+    assert out.index("alpha") < out.index("beta") < out.index("gamma")
+
+
 # ── Cache Layer ──────────────────────────────────────────────────────────────
 
 class TestRemoteCacheLayer:
