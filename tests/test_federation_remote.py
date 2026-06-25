@@ -44,6 +44,46 @@ def _write_manifest(tmp_path, subscriptions):
     return p
 
 
+def test_detect_conflicts_pretokenized_flags_overlap_above_threshold(tmp_path, monkeypatch):
+    """#447: _detect_conflicts pre-tokenizes each section once; it must still
+    flag sections whose content overlaps >= threshold and ignore shared headings
+    whose content does not."""
+    c = _fed_cfg(tmp_path)
+    c["federation"]["conflict_threshold"] = 0.6
+
+    bodies = {
+        "alpha": "## Shared Topic\nthe quick brown fox jumps over the lazy dog\n",
+        "beta":  "## Shared Topic\nthe quick brown fox jumps over the lazy dog\n",
+        "gamma": "## Shared Topic\ncompletely different unrelated jargon entirely\n",
+    }
+
+    def _fake_remote(sub, _cfg):
+        return (bodies[sub["alias"]], None, sub["alias"])
+
+    monkeypatch.setattr(perseus, "_resolve_remote_narrative", _fake_remote)
+    subs = [{"alias": a, "remote": {"url": "x"}, "enabled": True}
+            for a in ("alpha", "beta", "gamma")]
+
+    conflicts = perseus._detect_conflicts(subs, c)
+    pairs = {(frozenset(x["workspaces"]), x["topic"]) for x in conflicts}
+
+    # alpha/beta share identical content → conflict on "Shared Topic".
+    assert (frozenset({"alpha", "beta"}), "Shared Topic") in pairs
+    # gamma shares the heading but not the words → below threshold.
+    assert not any("gamma" in x["workspaces"] for x in conflicts)
+
+
+def test_jaccard_similarity_refactor_is_equivalent():
+    """#447: refactoring _jaccard_similarity to delegate to _jaccard_tokens must
+    preserve its text-tokenized result."""
+    a, b = "the quick brown fox", "the quick red fox"
+    expected = len({"the", "quick", "brown", "fox"} & {"the", "quick", "red", "fox"}) / \
+        len({"the", "quick", "brown", "fox"} | {"the", "quick", "red", "fox"})
+    assert perseus._jaccard_similarity(a, b) == expected
+    assert perseus._jaccard_similarity("", "") == 0.0
+    assert perseus._jaccard_tokens(set(a.lower().split()), set(b.lower().split())) == expected
+
+
 # ── Manifest Parsing ─────────────────────────────────────────────────────────
 
 class TestManifestRemoteParsing:
