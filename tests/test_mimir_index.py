@@ -123,6 +123,34 @@ class TestBuildIndex:
         assert count1 == 1
         assert count2 == 0  # no new files
 
+    def test_index_currency_gate_skips_rebuild_when_unchanged(self, tmp_path):
+        """#445: _mneme_index_is_current gates the write-transaction rebuild — it
+        reports current after a build and stale on add/delete, matching exactly
+        when the builder would write."""
+        c = _index_cfg(tmp_path)
+        vault = Path(c["memory"]["mneme_vault_path"])
+        _write_memory(vault, "m1", "Title One", "summary one")
+        conn = perseus._mneme_open_index(c)
+
+        # Empty index vs a present file → not current.
+        assert perseus._mneme_index_is_current(conn, vault) is False
+        perseus._mneme_build_index(c)
+        # After build, current → a second build is a gated no-op.
+        assert perseus._mneme_index_is_current(conn, vault) is True
+        assert perseus._mneme_build_index(c) == 0
+
+        # New file → stale → build re-establishes currency.
+        _write_memory(vault, "m2", "Title Two", "summary two")
+        assert perseus._mneme_index_is_current(conn, vault) is False
+        perseus._mneme_build_index(c)
+        assert perseus._mneme_index_is_current(conn, vault) is True
+
+        # Deleted file → stale → build prunes and is current again.
+        (vault / "m1.md").unlink()
+        assert perseus._mneme_index_is_current(conn, vault) is False
+        perseus._mneme_build_index(c)
+        assert perseus._mneme_index_is_current(conn, vault) is True
+
     def test_build_force_reindexes(self, tmp_path):
         c = _index_cfg(tmp_path)
         vault = Path(c["memory"]["mneme_vault_path"])

@@ -188,6 +188,37 @@ def _mneme_parse_vault_file(file_path: Path) -> dict | None:
     }
 
 
+def _mneme_index_is_current(conn, vault_path) -> bool:
+    """Read-only check: does mneme_files already reflect every vault .md file?
+
+    Returns True iff the on-disk set of (resolved path, mtime) exactly matches
+    what is indexed — no new files, no content changes (which bump mtime), and no
+    deletions/renames. This is exactly the condition under which the incremental
+    builder would write nothing, so recall can skip the BEGIN IMMEDIATE
+    transaction entirely on the common unchanged path (#445). Conservative: any
+    stat error or mismatch returns False so the full builder runs. Uses the same
+    `mtime ==` comparison the builder already relies on to skip unchanged files,
+    so it never serves staler results than before.
+    """
+    try:
+        indexed: dict[str, float] = {}
+        for row in conn.execute("SELECT path, mtime FROM mneme_files"):
+            indexed[row["path"]] = row["mtime"]
+    except Exception:
+        return False
+    seen: set[str] = set()
+    for md_file in vault_path.rglob("*.md"):
+        try:
+            file_path_str = str(md_file.resolve())
+            mtime = md_file.stat().st_mtime
+        except Exception:
+            return False
+        if indexed.get(file_path_str) != mtime:
+            return False  # new or content-changed file
+        seen.add(file_path_str)
+    return seen == set(indexed.keys())  # False if any indexed file was deleted/renamed
+
+
 def _mneme_build_index(cfg: dict, force: bool = False) -> int:
     """Build (or rebuild) the FTS5 index from all vault .md files.
 
@@ -200,6 +231,14 @@ def _mneme_build_index(cfg: dict, force: bool = False) -> int:
 
     vault_path = _mneme_vault_path(cfg)
     if not vault_path.is_dir():
+        return 0
+
+    # #445: recall calls this before every search. The old code opened a write
+    # transaction (BEGIN IMMEDIATE) + committed on EVERY call, even when nothing
+    # changed — a hidden write on the read path. Skip straight out when the index
+    # is already current; this is precisely when the builder below would write
+    # nothing, so behaviour (and freshness) is unchanged.
+    if not force and _mneme_index_is_current(conn, vault_path):
         return 0
 
     try:
