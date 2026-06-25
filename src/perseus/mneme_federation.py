@@ -734,13 +734,39 @@ def _render_federation_digest(cfg: dict, alias_filter: str | None = None) -> str
 
     ttl_s = int(cfg.get("checkpoints", {}).get("ttl_s", 86400))
     parts: list[str] = []
-    for entry in subs:
+
+    # #449: resolve each subscription's narrative (remote HTTP fetch or local
+    # file read) in parallel. The per-sub fetch was serial, so N remote subs
+    # each blocking up to fetch_timeout_s made worst-case digest latency
+    # N × timeout. Rendering below stays serial and in subscription order — only
+    # the I/O is parallelized — so the output is byte-identical.
+    def _resolve_one(entry: dict) -> dict:
+        if entry.get("remote"):
+            body, err, _ws_id = _resolve_remote_narrative(entry, cfg)
+            return {"body": body, "err": err}
+        narrative, err = _resolve_subscription_narrative(entry, cfg)
+        if err:
+            return {"err": err}
+        try:
+            fm, body = _load_narrative(narrative)
+            return {"fm": fm, "body": body}
+        except Exception as e:
+            return {"err": f"unreadable: {e}"}
+
+    if len(subs) > 1:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=min(len(subs), 8)) as _ex:
+            resolved = list(_ex.map(_resolve_one, subs))
+    else:
+        resolved = [_resolve_one(s) for s in subs]
+
+    for entry, res in zip(subs, resolved):
         alias = entry.get("alias", "?")
         remote = entry.get("remote")
 
         if remote:
             # ── Remote subscription (Phase 27A) ──
-            body, err, _ws_id = _resolve_remote_narrative(entry, cfg)
+            body, err = res.get("body"), res.get("err")
             if err and body is None:
                 parts.append(f"### `{alias}`\n\n{_federation_warning_block_remote(alias, err)}")
                 continue
@@ -757,15 +783,13 @@ def _render_federation_digest(cfg: dict, alias_filter: str | None = None) -> str
             continue
 
         # ── Local subscription (original behavior) ──
-        narrative, err = _resolve_subscription_narrative(entry, cfg)
+        # _resolve_one already folded the "unreadable: …" case into err, so a
+        # single warning-block branch matches both original call sites.
+        err = res.get("err")
         if err:
             parts.append(f"### `{alias}`\n\n{_federation_warning_block(alias, err)}")
             continue
-        try:
-            fm, body = _load_narrative(narrative)
-        except Exception as e:
-            parts.append(f"### `{alias}`\n\n{_federation_warning_block(alias, f'unreadable: {e}')}")
-            continue
+        fm, body = res["fm"], res["body"]
 
         # Staleness check (informational — body is still included)
         stale_note = ""
