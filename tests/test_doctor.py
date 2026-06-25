@@ -173,3 +173,56 @@ def test_doctor_error_exits_1(tmp_path, monkeypatch):
     monkeypatch.setattr("builtins.print", lambda *a, **k: captured.append(" ".join(str(x) for x in a)))
     rc = perseus.cmd_doctor(ns, cfg())
     assert rc == 1
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# #443 — @perseus version header should not require a hardcoded version
+# ════════════════════════════════════════════════════════════════════════════
+
+
+def _write_ctx(tmp_path, first_line: str) -> Path:
+    pdir = tmp_path / ".perseus"
+    pdir.mkdir(parents=True, exist_ok=True)
+    (pdir / "context.md").write_text(first_line + "\n\n# Context\n", encoding="utf-8")
+    return tmp_path
+
+
+def test_version_header_bare_perseus_is_ok(tmp_path):
+    """A version-less @perseus header is the recommended, upgrade-safe form."""
+    ws = _write_ctx(tmp_path, "@perseus")
+    result = perseus._doctor_check_version_header(cfg(), ws)
+    assert result.status == "ok"
+
+
+def test_version_header_matching_version_is_ok(tmp_path):
+    ws = _write_ctx(tmp_path, f"@perseus v{perseus._PERSEUS_VERSION}")
+    result = perseus._doctor_check_version_header(cfg(), ws)
+    assert result.status == "ok"
+
+
+def test_version_header_stale_pin_warns(tmp_path):
+    """An explicit version that drifts from installed is flagged."""
+    ws = _write_ctx(tmp_path, "@perseus v0.0.1")
+    result = perseus._doctor_check_version_header(cfg(), ws)
+    assert result.status == "warn"
+    assert "0.0.1" in result.value
+    # Recommendation steers toward dropping the pin.
+    assert "drop" in result.remediation.lower() or "update" in result.remediation.lower()
+
+
+def test_version_header_non_perseus_first_line_warns(tmp_path):
+    ws = _write_ctx(tmp_path, "# Just a heading")
+    result = perseus._doctor_check_version_header(cfg(), ws)
+    assert result.status == "warn"
+
+
+def test_init_context_template_is_versionless():
+    """#443: the scaffolding template must not pin a version that goes stale."""
+    assert perseus.INIT_CONTEXT_TEMPLATE.startswith("@perseus\n")
+    assert "@perseus v" not in perseus.INIT_CONTEXT_TEMPLATE
+
+
+def test_scaffolded_context_has_versionless_header(tmp_path):
+    ctx = perseus._ensure_context_md(tmp_path, cfg())
+    first_line = ctx.read_text(encoding="utf-8").splitlines()[0]
+    assert first_line == "@perseus"

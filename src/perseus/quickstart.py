@@ -1,7 +1,7 @@
 # ──────────────────────────────── Quickstart ──────────────────────────────────
 
 QUICKSTART_CONTEXT_TEMPLATE = """\
-@perseus v{version}
+@perseus
 
 @prompt
 This document was rendered live by Perseus. All values below are current —

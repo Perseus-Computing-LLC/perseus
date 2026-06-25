@@ -36,9 +36,11 @@ class TestQuickstartBasic:
         assert context_file.exists()
         assert config_file.exists()
 
-        # Context file has the @perseus header
+        # Context file has a version-less @perseus header (#443: no hardcoded
+        # version that goes stale on upgrade).
         content = context_file.read_text(encoding="utf-8")
-        assert "@perseus v" in content
+        assert content.startswith("@perseus")
+        assert "@perseus v" not in content
         assert "@skills" in content
         assert "@services" in content
 
@@ -67,7 +69,8 @@ class TestQuickstartBasic:
 
         # Context file wasn't replaced (still has same content)
         context = (tmp_path / ".perseus" / "context.md").read_text(encoding="utf-8")
-        assert "@perseus v" in context
+        assert context.startswith("@perseus")
+        assert "@perseus v" not in context
 
     def test_creates_config_only_when_missing(self, tmp_path, monkeypatch):
         """quickstart doesn't overwrite existing config."""
