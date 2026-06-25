@@ -12186,7 +12186,6 @@ def _mneme_build_index(cfg: dict, force: bool = False) -> int:
 
         count = 0
         current_paths: set[str] = set()
-        changed = False
         for md_file in sorted(vault_path.rglob("*.md")):
             file_path_str = str(md_file.resolve())
             current_paths.add(file_path_str)
@@ -12206,7 +12205,6 @@ def _mneme_build_index(cfg: dict, force: bool = False) -> int:
                 if file_path_str in indexed:
                     conn.execute("DELETE FROM mneme_fts WHERE source_path = ?", (file_path_str,))
                     conn.execute("DELETE FROM mneme_files WHERE path = ?", (file_path_str,))
-                    changed = True
                 continue
 
             field_cols = _mneme_build_field_columns(doc)
@@ -12232,19 +12230,17 @@ def _mneme_build_index(cfg: dict, force: bool = False) -> int:
                 (file_path_str, mtime, now, doc.get("sensitivity", "team")),
             )
             count += 1
-            changed = True
 
         # Prune deleted or renamed files during normal incremental builds.
         stale_paths = set(indexed) - current_paths
         for stale_path in sorted(stale_paths):
             conn.execute("DELETE FROM mneme_fts WHERE source_path = ?", (stale_path,))
             conn.execute("DELETE FROM mneme_files WHERE path = ?", (stale_path,))
-            changed = True
 
-        # Rebuild FTS5 index (necessary after DELETE + INSERT)
-        if changed:
-            conn.execute("INSERT INTO mneme_fts(mneme_fts) VALUES('rebuild')")
-
+        # mneme_fts is a regular (self-maintaining) FTS5 table — the INSERT and
+        # DELETE statements above keep the full-text index consistent on their
+        # own. The previous unconditional 'rebuild' reconstructed the ENTIRE
+        # index (O(corpus)) on every changed build; dropped. (#447)
         conn.commit()
     except Exception:
         conn.rollback()
@@ -12356,7 +12352,8 @@ def _mneme_index_document(cfg: dict, file_path: Path) -> bool:
             "INSERT INTO mneme_files (path, mtime, indexed_at, sensitivity) VALUES (?, ?, ?, ?)",
             (file_path_str, file_path.stat().st_mtime, now, doc.get("sensitivity", "team")),
         )
-        conn.execute("INSERT INTO mneme_fts(mneme_fts) VALUES('rebuild')")
+        # Self-maintaining FTS5 table: the DELETE+INSERT above already updated the
+        # index. No O(corpus) 'rebuild' needed for a single-doc upsert. (#447)
         conn.commit()
         return True
     except Exception:
@@ -12393,8 +12390,8 @@ def _mneme_delete_document(cfg: dict, doc_id: str) -> bool:
             "DELETE FROM mneme_files WHERE path GLOB ? OR path GLOB ?",
             (pattern_fwd, pattern_bwd),
         )
-        if deleted:
-            conn.execute("INSERT INTO mneme_fts(mneme_fts) VALUES('rebuild')")
+        # Self-maintaining FTS5 table: the DELETE above already updated the index.
+        # No O(corpus) 'rebuild' needed for a single-doc delete. (#447)
         conn.commit()
         return deleted
     except Exception:
@@ -17817,7 +17814,11 @@ def build_pythia_snapshot(cfg: dict, category: str | None = None, no_services: b
         session_digest = resolve_session("count=3", cfg)
         checkpoint_summary = resolve_waypoint("", cfg)
 
-    outcome_weights = _pythia_online_score_adjustments(_pythia_log_entries(), cfg)
+    # Online scoring only consults the last `online_scoring_recent_entries`
+    # (default 50), so tail-read just those instead of loading the whole log on
+    # every snapshot/suggest. (#447)
+    _recent_n = int(cfg.get("pythia", {}).get("online_scoring_recent_entries", 50))
+    outcome_weights = _pythia_online_score_adjustments(_pythia_recent_entries(_recent_n), cfg)
     snapshot = {
         "rendered_at": now,
         "skills_table": skills_table,
@@ -17972,6 +17973,35 @@ def cmd_suggest(args, cfg):
 
 def _pythia_log_entries() -> list[dict]:
     return _read_all_pythia_entries()
+
+
+def _pythia_recent_entries(n: int) -> list[dict]:
+    """Tail-read up to the last `n` Pythia log entries without reading/parsing the
+    whole file. The log is JSONL — one entry per line (see append_pythia_log /
+    _rewrite_pythia_log) — so a line-bounded deque yields exactly the most recent
+    entries in order. Falls back to a full read when n <= 0. Mirrors
+    _read_all_pythia_entries' blank-/malformed-line tolerance. (#447)"""
+    if n <= 0:
+        return _read_all_pythia_entries()
+    log_path = _pythia_log_path()
+    if not log_path.exists():
+        return []
+    from collections import deque
+    try:
+        with log_path.open("r", encoding="utf-8") as f:
+            tail = deque(f, maxlen=n)
+    except Exception:
+        return []
+    entries: list[dict] = []
+    for raw in tail:
+        line = raw.strip()
+        if not line:
+            continue
+        try:
+            entries.append(json.loads(line))
+        except Exception as exc:
+            sys.stderr.write(f"> ⚠ Pythia: skipping malformed JSONL line: {exc}\n")
+    return entries
 
 
 def _find_pythia_entry(entries: list[dict], log_id: str) -> int | None:
