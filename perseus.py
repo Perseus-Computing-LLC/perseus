@@ -13614,17 +13614,21 @@ def _extract_sections(narrative_body: str) -> dict[str, str]:
     return sections
 
 
-def _jaccard_similarity(text_a: str, text_b: str) -> float:
-    """Compute Jaccard similarity on word tokens (pure Python, no deps)."""
-    tokens_a = set(text_a.lower().split())
-    tokens_b = set(text_b.lower().split())
+def _jaccard_tokens(tokens_a: set, tokens_b: set) -> float:
+    """Jaccard similarity on pre-tokenized word sets (#447). Lets callers that
+    compare the same section many times (the O(B²) conflict pair loop) tokenize
+    each section once up front instead of re-splitting on every comparison."""
     if not tokens_a and not tokens_b:
         return 0.0
-    intersection = tokens_a & tokens_b
     union = tokens_a | tokens_b
     if not union:
         return 0.0
-    return len(intersection) / len(union)
+    return len(tokens_a & tokens_b) / len(union)
+
+
+def _jaccard_similarity(text_a: str, text_b: str) -> float:
+    """Compute Jaccard similarity on word tokens (pure Python, no deps)."""
+    return _jaccard_tokens(set(text_a.lower().split()), set(text_b.lower().split()))
 
 
 def _detect_conflicts(subs: list[dict], cfg: dict) -> list[dict]:
@@ -13634,8 +13638,10 @@ def _detect_conflicts(subs: list[dict], cfg: dict) -> list[dict]:
     """
     threshold = float(cfg.get("federation", {}).get("conflict_threshold", 0.6))
 
-    # Collect all sections from all subscriptions
-    ws_sections: dict[str, dict[str, str]] = {}
+    # Collect all sections from all subscriptions, pre-tokenizing each section
+    # ONCE here (#447). The pair loop below is O(B²) over workspaces; tokenizing
+    # inside it re-split the same section text once per pair it appeared in.
+    ws_sections: dict[str, dict[str, set]] = {}
     for sub in subs:
         alias = sub.get("alias", "?")
         remote = sub.get("remote")
@@ -13652,19 +13658,22 @@ def _detect_conflicts(subs: list[dict], cfg: dict) -> list[dict]:
         if body and body.strip():
             sections = _extract_sections(body)
             if sections:
-                ws_sections[alias] = sections
+                ws_sections[alias] = {
+                    heading: set(text.lower().split())
+                    for heading, text in sections.items()
+                }
 
     conflicts = []
     aliases = list(ws_sections.keys())
     for i in range(len(aliases)):
         for j in range(i + 1, len(aliases)):
             a, b = aliases[i], aliases[j]
-            for heading, body_a in ws_sections[a].items():
+            for heading, toks_a in ws_sections[a].items():
                 if heading == "_preamble":
                     continue
-                if heading in ws_sections[b]:
-                    body_b = ws_sections[b][heading]
-                    sim = _jaccard_similarity(body_a, body_b)
+                toks_b = ws_sections[b].get(heading)
+                if toks_b is not None:
+                    sim = _jaccard_tokens(toks_a, toks_b)
                     if sim >= threshold:
                         conflicts.append({
                             "topic": heading,
