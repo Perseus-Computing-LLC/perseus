@@ -1399,6 +1399,10 @@ def _mimir_context_inject(cfg: dict) -> str | None:
     mcfg = (cfg or {}).get("mimir", {}) if isinstance(cfg, dict) else {}
     if not mcfg.get("enabled", True):
         return None
+    # #442: auto_inject=False suppresses the automatic block so memories are
+    # only included via an explicit @memory/@mimir directive in the source.
+    if not mcfg.get("auto_inject", True):
+        return None
 
     try:
         connector = _get_connector(cfg)
@@ -1414,7 +1418,12 @@ def _mimir_context_inject(cfg: dict) -> str | None:
         # for automatic context injection (a category-name keyword query would
         # only match entities whose *body text* contains those words, which is
         # not what context_categories are meant to filter).
-        limit = int(mcfg.get("context_limit", 10) or 10)
+        # context_limit=0 means "inject nothing". Use an explicit None check so
+        # 0 is honored rather than falling back to the default via `or` (#442).
+        raw_limit = mcfg.get("context_limit", 10)
+        limit = 10 if raw_limit is None else int(raw_limit)
+        if limit <= 0:
+            return None
         segment = connector.recall(query="", max_results=limit)
         if not segment or not getattr(segment, "items", None):
             return None

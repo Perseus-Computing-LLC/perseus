@@ -125,6 +125,7 @@ DEFAULT_CONFIG = {
     },
     "mimir": {                          # Project Synapse — Mimir persistent memory (MCP binary, formerly "mneme")
         "enabled": True,
+        "auto_inject": True,             # Append the Persistent Memory block to every render; set False to require an explicit @memory/@mimir directive (#442)
         "transport": "stdio",            # "stdio" (local binary) or "sse" (remote endpoint)
         "command": ["mimir", "--db", "~/.mimir/data/mimir.db"],
         "endpoint": "",                  # SSE endpoint URL (when transport=sse)
