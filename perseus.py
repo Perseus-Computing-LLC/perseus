@@ -209,6 +209,7 @@ DEFAULT_CONFIG = {
     },
     "mimir": {                          # Project Synapse — Mimir persistent memory (MCP binary, formerly "mneme")
         "enabled": True,
+        "auto_inject": True,             # Append the Persistent Memory block to every render; set False to require an explicit @memory/@mimir directive (#442)
         "transport": "stdio",            # "stdio" (local binary) or "sse" (remote endpoint)
         "command": ["mimir", "--db", "~/.mimir/data/mimir.db"],
         "endpoint": "",                  # SSE endpoint URL (when transport=sse)
@@ -16169,6 +16170,10 @@ def _mimir_context_inject(cfg: dict) -> str | None:
     mcfg = (cfg or {}).get("mimir", {}) if isinstance(cfg, dict) else {}
     if not mcfg.get("enabled", True):
         return None
+    # #442: auto_inject=False suppresses the automatic block so memories are
+    # only included via an explicit @memory/@mimir directive in the source.
+    if not mcfg.get("auto_inject", True):
+        return None
 
     try:
         connector = _get_connector(cfg)
@@ -16184,7 +16189,12 @@ def _mimir_context_inject(cfg: dict) -> str | None:
         # for automatic context injection (a category-name keyword query would
         # only match entities whose *body text* contains those words, which is
         # not what context_categories are meant to filter).
-        limit = int(mcfg.get("context_limit", 10) or 10)
+        # context_limit=0 means "inject nothing". Use an explicit None check so
+        # 0 is honored rather than falling back to the default via `or` (#442).
+        raw_limit = mcfg.get("context_limit", 10)
+        limit = 10 if raw_limit is None else int(raw_limit)
+        if limit <= 0:
+            return None
         segment = connector.recall(query="", max_results=limit)
         if not segment or not getattr(segment, "items", None):
             return None
@@ -19028,17 +19038,18 @@ def _ensure_context_md(workspace: Path, cfg: dict) -> Path:
     if not perseus_dir.exists():
         perseus_dir.mkdir(parents=True, exist_ok=True)
 
-    # Scaffold a minimal context.md
+    # Scaffold a minimal context.md. The @perseus header is intentionally
+    # version-less: pinning a version here goes stale on upgrade (#443). The
+    # rendered output already carries the installed version via wrap_rendered,
+    # and `perseus doctor` flags an explicit header that drifts from installed.
     content = (
-        "@perseus v{version}\n"
+        "@perseus\n"
         "\n"
         "# Project Context\n"
         "\n"
         "@query git branch --show-current\n"
         "@query git log --oneline -5\n"
         "@waypoint\n"
-    ).format(
-        version=cfg.get("version", "1.0.0")
     )
     context_file.write_text(content, encoding="utf-8")
     print(f"  ✓ Created {context_file}")
@@ -19830,22 +19841,28 @@ def _doctor_check_version_header(cfg: dict, workspace: Path) -> DoctorResult:
         return DoctorResult("version_header", "ok", "@perseus version header",
                            "could not read context.md", "")
     
+    installed_ver = _PERSEUS_VERSION
     v_match = re.match(r'@perseus\s+v?([\d.]+)', first_line, re.IGNORECASE)
     if not v_match:
+        # A version-less @perseus header is the recommended form (#443): there is
+        # nothing to go stale, and the rendered output already carries the
+        # installed version. Only flag a line that isn't a @perseus header at all.
+        if re.match(r'@perseus\b', first_line, re.IGNORECASE):
+            return DoctorResult("version_header", "ok", "@perseus version header",
+                               f"version-less @perseus header (resolves to installed v{installed_ver})", "")
         return DoctorResult("version_header", "warn", "@perseus version header",
-                           f"no @perseus version found in context.md (first line: {first_line[:60]})",
-                           "Add @perseus v" + _PERSEUS_VERSION + " as the first line of .perseus/context.md")
-    
+                           f"no @perseus header found in context.md (first line: {first_line[:60]})",
+                           "Start .perseus/context.md with a @perseus line")
+
     header_ver = v_match.group(1)
-    installed_ver = _PERSEUS_VERSION
-    
+
     if header_ver == installed_ver:
         return DoctorResult("version_header", "ok", "@perseus version header",
                            f"v{header_ver} matches installed v{installed_ver}", "")
     else:
         return DoctorResult("version_header", "warn", "@perseus version header",
-                           f"context.md has v{header_ver} but perseus is v{installed_ver}",
-                           f"Update @perseus header to v{installed_ver} in .perseus/context.md")
+                           f"context.md pins v{header_ver} but perseus is v{installed_ver}",
+                           f"Drop the version from the @perseus header so it can't go stale, or update it to v{installed_ver}")
 
 
 def _doctor_check_stale_shim(cfg: dict, workspace: Path) -> DoctorResult:
@@ -21221,7 +21238,7 @@ def _toggle_auto_update(value, cfg):
 # ──────────────────────────────── Quickstart ──────────────────────────────────
 
 QUICKSTART_CONTEXT_TEMPLATE = """\
-@perseus v{version}
+@perseus
 
 @prompt
 This document was rendered live by Perseus. All values below are current —
@@ -21583,6 +21600,7 @@ def cmd_render(args, cfg):
 
     workspace = _infer_workspace(source_path)
     cfg = load_config(workspace)
+    _merge_pack_mimir_config(cfg, workspace)  # #441: per-workspace mimir overrides
 
     text = source_path.read_text(errors="replace", encoding="utf-8")
     fmt = getattr(args, "format", "md")
@@ -22084,7 +22102,7 @@ PRODUCT_PROFILES: dict[str, dict] = {
 
 def _profile_context_template(profile_name: str, profile: dict) -> str:
     label = profile["label"]
-    return f"""@perseus v{_PERSEUS_VERSION}
+    return f"""@perseus
 
 @prompt
 This document was rendered live by Perseus for the {label} profile. Treat the
@@ -22165,6 +22183,40 @@ def _load_pack_manifest(workspace: Path, manifest: str | None = None) -> tuple[d
     if not isinstance(data, dict):
         return None, path, ["manifest must be a YAML mapping"]
     return data, path, []
+
+
+def _deep_merge_into(base: dict, overrides: dict) -> None:
+    """Recursively merge `overrides` into `base` in place (override wins)."""
+    for key, val in overrides.items():
+        if isinstance(val, dict) and isinstance(base.get(key), dict):
+            _deep_merge_into(base[key], val)
+        else:
+            base[key] = val
+
+
+def _merge_pack_mimir_config(cfg: dict, workspace: Path) -> None:
+    """Deep-merge a pack.yaml `mimir:` block over the loaded config (#441).
+
+    `load_config` only layers the global and workspace `config.yaml` files, so a
+    pack manifest's `mimir:` settings (context_limit, enabled, auto_inject, ...)
+    were previously ignored. Merging them here lets a workspace override Mimir
+    behavior per render target. Best-effort: a missing or malformed pack never
+    breaks a render.
+    """
+    try:
+        data, _path, errors = _load_pack_manifest(workspace)
+    except Exception:
+        return
+    if errors or not isinstance(data, dict):
+        return
+    pack_mimir = data.get("mimir")
+    if not isinstance(pack_mimir, dict) or not pack_mimir:
+        return
+    base = cfg.get("mimir")
+    if not isinstance(base, dict):
+        base = {}
+        cfg["mimir"] = base
+    _deep_merge_into(base, pack_mimir)
 
 
 def _pack_rel(path: Path, workspace: Path) -> str:
@@ -22469,7 +22521,7 @@ def _context_appropriate_memory_query(workspace: Path) -> str:
 # ──────────────────────────────── cmd_init ────────────────────────────────────
 
 INIT_CONTEXT_TEMPLATE = """\
-@perseus v{version}
+@perseus
 
 @prompt
 This document was rendered live by Perseus. All values below are current —

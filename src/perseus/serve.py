@@ -20,6 +20,7 @@ def cmd_render(args, cfg):
 
     workspace = _infer_workspace(source_path)
     cfg = load_config(workspace)
+    _merge_pack_mimir_config(cfg, workspace)  # #441: per-workspace mimir overrides
 
     text = source_path.read_text(errors="replace", encoding="utf-8")
     fmt = getattr(args, "format", "md")
@@ -521,7 +522,7 @@ PRODUCT_PROFILES: dict[str, dict] = {
 
 def _profile_context_template(profile_name: str, profile: dict) -> str:
     label = profile["label"]
-    return f"""@perseus v{_PERSEUS_VERSION}
+    return f"""@perseus
 
 @prompt
 This document was rendered live by Perseus for the {label} profile. Treat the
@@ -602,6 +603,40 @@ def _load_pack_manifest(workspace: Path, manifest: str | None = None) -> tuple[d
     if not isinstance(data, dict):
         return None, path, ["manifest must be a YAML mapping"]
     return data, path, []
+
+
+def _deep_merge_into(base: dict, overrides: dict) -> None:
+    """Recursively merge `overrides` into `base` in place (override wins)."""
+    for key, val in overrides.items():
+        if isinstance(val, dict) and isinstance(base.get(key), dict):
+            _deep_merge_into(base[key], val)
+        else:
+            base[key] = val
+
+
+def _merge_pack_mimir_config(cfg: dict, workspace: Path) -> None:
+    """Deep-merge a pack.yaml `mimir:` block over the loaded config (#441).
+
+    `load_config` only layers the global and workspace `config.yaml` files, so a
+    pack manifest's `mimir:` settings (context_limit, enabled, auto_inject, ...)
+    were previously ignored. Merging them here lets a workspace override Mimir
+    behavior per render target. Best-effort: a missing or malformed pack never
+    breaks a render.
+    """
+    try:
+        data, _path, errors = _load_pack_manifest(workspace)
+    except Exception:
+        return
+    if errors or not isinstance(data, dict):
+        return
+    pack_mimir = data.get("mimir")
+    if not isinstance(pack_mimir, dict) or not pack_mimir:
+        return
+    base = cfg.get("mimir")
+    if not isinstance(base, dict):
+        base = {}
+        cfg["mimir"] = base
+    _deep_merge_into(base, pack_mimir)
 
 
 def _pack_rel(path: Path, workspace: Path) -> str:
@@ -906,7 +941,7 @@ def _context_appropriate_memory_query(workspace: Path) -> str:
 # ──────────────────────────────── cmd_init ────────────────────────────────────
 
 INIT_CONTEXT_TEMPLATE = """\
-@perseus v{version}
+@perseus
 
 @prompt
 This document was rendered live by Perseus. All values below are current —

@@ -6,6 +6,7 @@ Covers:
   - resolve_memory() backend routing (file vs mneme)
 """
 
+import copy
 import json
 import sys
 from pathlib import Path
@@ -360,3 +361,84 @@ def test_memory_doctor_migrate_skips_when_destination_exists(tmp_path):
     assert legacy_fp.exists()
     assert sha_fp.exists()
     assert sha_fp.read_text(encoding="utf-8").endswith("current\n")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# #442 — mimir.auto_inject flag + context_limit=0 suppression
+# #441 — per-workspace pack.yaml mimir override
+# ════════════════════════════════════════════════════════════════════════════
+
+
+class TestMimirAutoInject:
+    def _cfg(self, **mimir):
+        c = cfg()
+        c["mimir"].update(mimir)
+        return c
+
+    def test_auto_inject_false_suppresses_block(self):
+        """auto_inject=False returns None without ever consulting the connector."""
+        c = self._cfg(enabled=True, auto_inject=False)
+        with patch.object(perseus, "_get_connector") as gc:
+            assert perseus._mimir_context_inject(c) is None
+            gc.assert_not_called()
+
+    def test_context_limit_zero_suppresses_block(self):
+        """context_limit=0 means 'inject nothing'; recall is never called."""
+        c = self._cfg(enabled=True, auto_inject=True, context_limit=0)
+        connector = MagicMock(available=True)
+        with patch.object(perseus, "_get_connector", return_value=connector):
+            assert perseus._mimir_context_inject(c) is None
+            connector.recall.assert_not_called()
+
+    def test_auto_inject_true_injects_block(self):
+        """Default path still appends the Persistent Memory block when enabled."""
+        c = self._cfg(enabled=True, auto_inject=True, context_limit=5)
+        segment = MagicMock(items=[object()], as_markdown="- a durable memory")
+        connector = MagicMock(available=True)
+        connector.recall.return_value = segment
+        with patch.object(perseus, "_get_connector", return_value=connector):
+            out = perseus._mimir_context_inject(c)
+        assert out is not None
+        assert out.startswith("## Persistent Memory (Mimir)")
+        assert "a durable memory" in out
+
+
+class TestPackMimirMerge:
+    def _ws(self, tmp_path, pack_yaml: str) -> Path:
+        pdir = tmp_path / ".perseus"
+        pdir.mkdir(parents=True, exist_ok=True)
+        (pdir / "pack.yaml").write_text(pack_yaml, encoding="utf-8")
+        return tmp_path
+
+    def test_pack_mimir_overrides_global(self, tmp_path):
+        ws = self._ws(tmp_path, "mimir:\n  enabled: false\n  context_limit: 0\n")
+        c = cfg()
+        c["mimir"]["enabled"] = True
+        c["mimir"]["context_limit"] = 10
+        perseus._merge_pack_mimir_config(c, ws)
+        assert c["mimir"]["enabled"] is False
+        assert c["mimir"]["context_limit"] == 0
+        # Unrelated global keys survive the merge.
+        assert "command" in c["mimir"]
+
+    def test_pack_without_mimir_block_is_noop(self, tmp_path):
+        ws = self._ws(tmp_path, "renders:\n  - source: a.md\n    output: b.md\n")
+        c = cfg()
+        before = copy.deepcopy(c["mimir"])
+        perseus._merge_pack_mimir_config(c, ws)
+        assert c["mimir"] == before
+
+    def test_pack_deep_merges_nested_dicts(self, tmp_path):
+        ws = self._ws(tmp_path, "mimir:\n  circuit_breaker:\n    threshold: 9\n")
+        c = cfg()
+        c["mimir"].setdefault("circuit_breaker", {"threshold": 3, "cooldown": 120})
+        perseus._merge_pack_mimir_config(c, ws)
+        assert c["mimir"]["circuit_breaker"]["threshold"] == 9
+        # cooldown is preserved (deep merge, not wholesale replace).
+        assert c["mimir"]["circuit_breaker"]["cooldown"] == 120
+
+    def test_missing_pack_is_noop(self, tmp_path):
+        c = cfg()
+        before = copy.deepcopy(c["mimir"])
+        perseus._merge_pack_mimir_config(c, tmp_path)  # no .perseus/pack.yaml
+        assert c["mimir"] == before
