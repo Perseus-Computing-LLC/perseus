@@ -77,15 +77,33 @@ DEFAULT_REDACTION_RULES: list[dict[str, str]] = [
 ]
 
 
+# Compiled-rule cache keyed by a stable signature of cfg["redaction"].
+# redact_value recurses into every dict/list leaf and each string leaf calls
+# redact_text -> _compile_redaction_rules, so without this the full ruleset was
+# re-compiled once per leaf (the hottest avoidable cost on the redaction path).
+_REDACTION_RULES_CACHE: dict = {}
+
+
 def _compile_redaction_rules(cfg: dict) -> list[dict]:
     """Build the active rule list (defaults + workspace patterns).
 
     Each compiled rule: {name, regex, replacement}. Invalid patterns are
     skipped silently — a typo in config must not break rendering.
+
+    Compiled rules are memoized by a stable signature of the redaction config
+    (#446); the returned list is shared and must be treated as read-only.
     """
     red_cfg = (cfg.get("redaction") or {}) if isinstance(cfg, dict) else {}
     if not red_cfg.get("enabled", True):
         return []
+    try:
+        _sig = json.dumps(red_cfg, sort_keys=True, default=str)
+    except Exception:
+        _sig = None
+    if _sig is not None:
+        _cached = _REDACTION_RULES_CACHE.get(_sig)
+        if _cached is not None:
+            return _cached
     user_rules = list(red_cfg.get("patterns") or [])
     raw_rules: list[dict] = []
     if red_cfg.get("include_defaults", True):
@@ -138,6 +156,8 @@ def _compile_redaction_rules(cfg: dict) -> list[dict]:
             "anchor_group": anchor_group,
             "prefix_group": prefix_group,
         })
+    if _sig is not None:
+        _REDACTION_RULES_CACHE[_sig] = compiled
     return compiled
 
 
