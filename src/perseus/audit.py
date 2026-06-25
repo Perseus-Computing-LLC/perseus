@@ -395,24 +395,21 @@ def load_config(workspace: Path | None = None) -> dict:
     cfg["_provenance"] = _provenance
 
     def merge_loaded(loaded: dict) -> None:
-        loaded = _normalize_loaded_config(loaded or {}, warn_legacy=False)
-        for section, vals in loaded.items():
+        # #446: `loaded` was already parsed + normalized in the pre-scan above
+        # (into `loaded_sources`). _normalize_loaded_config is a deterministic
+        # transform whose only warn_legacy-dependent side effect is a stderr
+        # warning, so the normalized dict is identical regardless of the flag —
+        # we neither re-read the file nor re-normalize here, halving the config
+        # parse count per render.
+        for section, vals in (loaded or {}).items():
             if section in cfg and isinstance(vals, dict):
                 cfg[section].update(vals)
             else:
                 cfg[section] = vals
 
-
-    global_cfg = PERSEUS_HOME / "config.yaml"
-    if global_cfg.exists():
-        with open(global_cfg, encoding='utf-8') as f:
-            merge_loaded(yaml.safe_load(f) or {})
-
-    if workspace:
-        local_cfg = workspace / ".perseus" / "config.yaml"
-        if local_cfg.exists():
-            with open(local_cfg, encoding='utf-8') as f:
-                merge_loaded(yaml.safe_load(f) or {})
+    # Sources are in global → workspace order, matching merge precedence.
+    for src in loaded_sources:
+        merge_loaded(src)
 
     # Expand ~ in any config key that holds a filesystem path.  Without this,
     # a config.yaml entry like `store: ~/.perseus/checkpoints` is treated as a
