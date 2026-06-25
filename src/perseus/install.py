@@ -82,17 +82,18 @@ def _ensure_context_md(workspace: Path, cfg: dict) -> Path:
     if not perseus_dir.exists():
         perseus_dir.mkdir(parents=True, exist_ok=True)
 
-    # Scaffold a minimal context.md
+    # Scaffold a minimal context.md. The @perseus header is intentionally
+    # version-less: pinning a version here goes stale on upgrade (#443). The
+    # rendered output already carries the installed version via wrap_rendered,
+    # and `perseus doctor` flags an explicit header that drifts from installed.
     content = (
-        "@perseus v{version}\n"
+        "@perseus\n"
         "\n"
         "# Project Context\n"
         "\n"
         "@query git branch --show-current\n"
         "@query git log --oneline -5\n"
         "@waypoint\n"
-    ).format(
-        version=cfg.get("version", "1.0.0")
     )
     context_file.write_text(content, encoding="utf-8")
     print(f"  ✓ Created {context_file}")

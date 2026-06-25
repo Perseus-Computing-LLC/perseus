@@ -592,22 +592,28 @@ def _doctor_check_version_header(cfg: dict, workspace: Path) -> DoctorResult:
         return DoctorResult("version_header", "ok", "@perseus version header",
                            "could not read context.md", "")
     
+    installed_ver = _PERSEUS_VERSION
     v_match = re.match(r'@perseus\s+v?([\d.]+)', first_line, re.IGNORECASE)
     if not v_match:
+        # A version-less @perseus header is the recommended form (#443): there is
+        # nothing to go stale, and the rendered output already carries the
+        # installed version. Only flag a line that isn't a @perseus header at all.
+        if re.match(r'@perseus\b', first_line, re.IGNORECASE):
+            return DoctorResult("version_header", "ok", "@perseus version header",
+                               f"version-less @perseus header (resolves to installed v{installed_ver})", "")
         return DoctorResult("version_header", "warn", "@perseus version header",
-                           f"no @perseus version found in context.md (first line: {first_line[:60]})",
-                           "Add @perseus v" + _PERSEUS_VERSION + " as the first line of .perseus/context.md")
-    
+                           f"no @perseus header found in context.md (first line: {first_line[:60]})",
+                           "Start .perseus/context.md with a @perseus line")
+
     header_ver = v_match.group(1)
-    installed_ver = _PERSEUS_VERSION
-    
+
     if header_ver == installed_ver:
         return DoctorResult("version_header", "ok", "@perseus version header",
                            f"v{header_ver} matches installed v{installed_ver}", "")
     else:
         return DoctorResult("version_header", "warn", "@perseus version header",
-                           f"context.md has v{header_ver} but perseus is v{installed_ver}",
-                           f"Update @perseus header to v{installed_ver} in .perseus/context.md")
+                           f"context.md pins v{header_ver} but perseus is v{installed_ver}",
+                           f"Drop the version from the @perseus header so it can't go stale, or update it to v{installed_ver}")
 
 
 def _doctor_check_stale_shim(cfg: dict, workspace: Path) -> DoctorResult:
