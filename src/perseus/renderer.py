@@ -17,6 +17,13 @@
 
 _SESSION_CACHE: dict[str, str] = {}  # in-memory store for @cache session
 _WARNED_CACHE_DIR_OVERRIDES: set[str] = set()
+# #445: _safe_cache_dir runs several expanduser().resolve() syscalls (the
+# candidate + each allowed root) on every cache get AND set. The result is
+# constant for a given (configured cache_dir, PERSEUS_HOME), so memoize it.
+_SAFE_CACHE_DIR_CACHE: dict[tuple[str, str], "Path"] = {}
+# #445: cache_set walked the parent chain doing mkdir/chmod on every write.
+# Once a leaf dir is ensured this process, skip the walk on subsequent writes.
+_CACHE_DIR_ENSURED: set[str] = set()
 
 
 def _cache_key(directive_line: str) -> str:
@@ -212,11 +219,19 @@ def _safe_cache_dir(cfg: dict) -> Path:
     The system temp dir is an allowed root so that tests and short-lived
     processes can isolate their cache without polluting the shared home.
     """
-    import tempfile
     from pathlib import Path as _Path
     import tempfile as _tempfile
     fallback_dir = PERSEUS_HOME / "cache"
     raw = cfg["render"].get("cache_dir", str(fallback_dir))
+
+    # #445: memoize the resolved dir per (raw cache_dir, PERSEUS_HOME). Both the
+    # candidate and the allowed-root resolution are filesystem syscalls that were
+    # paid on every cache get/set; the answer never changes for a given key.
+    memo_key = (str(raw), str(PERSEUS_HOME))
+    cached = _SAFE_CACHE_DIR_CACHE.get(memo_key)
+    if cached is not None:
+        return cached
+
     candidate = _Path(str(raw)).expanduser().resolve()
     allowed_roots = [
         _Path.home() / ".perseus",
@@ -227,6 +242,7 @@ def _safe_cache_dir(cfg: dict) -> Path:
         for root in allowed_roots:
             root_resolved = root.expanduser().resolve()
             if candidate == root_resolved or candidate.is_relative_to(root_resolved):
+                _SAFE_CACHE_DIR_CACHE[memo_key] = candidate
                 return candidate
     except (OSError, ValueError):
         pass
@@ -244,6 +260,7 @@ def _safe_cache_dir(cfg: dict) -> Path:
             resolved_path=str(candidate),
             fallback_path=str(fallback_dir),
         )
+    _SAFE_CACHE_DIR_CACHE[memo_key] = fallback_dir
     return fallback_dir
 
 
@@ -303,19 +320,24 @@ def cache_set(key: str, value: str, mode: str, ttl: int | None, cfg: dict) -> No
             # level so intermediate dirs aren't left world-readable by
             # the system umask. Permission failures on parent dirs are
             # non-fatal — the leaf is what matters.
-            home = Path.home()
-            p: Path = cache_dir
-            while p != home and p.parent != p:
-                if not p.exists():
+            # #445: do this walk only the first time we write to a given cache
+            # dir this process; once ensured, every later cache_set skips the
+            # mkdir/chmod syscalls.
+            if str(cache_dir) not in _CACHE_DIR_ENSURED:
+                home = Path.home()
+                p: Path = cache_dir
+                while p != home and p.parent != p:
+                    if not p.exists():
+                        try:
+                            p.mkdir(mode=0o700, exist_ok=True)
+                        except Exception:
+                            pass  # parent may not be writable (test envs)
                     try:
-                        p.mkdir(mode=0o700, exist_ok=True)
+                        os.chmod(p, 0o700)
                     except Exception:
-                        pass  # parent may not be writable (test envs)
-                try:
-                    os.chmod(p, 0o700)
-                except Exception:
-                    pass  # parent may not be ownable (test envs, /tmp, /)
-                p = p.parent
+                        pass  # parent may not be ownable (test envs, /tmp, /)
+                    p = p.parent
+                _CACHE_DIR_ENSURED.add(str(cache_dir))
             # v1.0.5 review: redact secrets before persisting to cache.
             # Cached values can contain rendered output with embedded tokens.
             safe_value = value
@@ -333,8 +355,10 @@ def cache_set(key: str, value: str, mode: str, ttl: int | None, cfg: dict) -> No
                 delete=False, encoding="utf-8"
             ) as tmp:
                 json.dump(entry, tmp)
-                tmp.flush()
-                os.fsync(tmp.fileno())
+            # #445: no fsync for render-cache entries. The atomic os.replace
+            # already guarantees readers never see a torn file; durability across
+            # power loss is irrelevant for a regenerable cache, and the per-write
+            # fsync was a real cost on the warm path. (close() flushes to the OS.)
             os.replace(tmp.name, target_path)
         except Exception:
             pass  # cache write failure is non-fatal
