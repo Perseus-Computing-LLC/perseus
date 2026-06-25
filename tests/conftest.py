@@ -99,6 +99,13 @@ def _clear_session_cache():
         perseus._SESSION_CACHE.clear()
         if hasattr(perseus, "_WARNED_CACHE_DIR_OVERRIDES"):
             perseus._WARNED_CACHE_DIR_OVERRIDES.clear()
+        # #445: clear the memoized cache-dir resolution + "dir ensured" set so a
+        # test that monkeypatches PERSEUS_HOME / cache_dir isn't served a value
+        # resolved under a different test's home.
+        if hasattr(perseus, "_SAFE_CACHE_DIR_CACHE"):
+            perseus._SAFE_CACHE_DIR_CACHE.clear()
+        if hasattr(perseus, "_CACHE_DIR_ENSURED"):
+            perseus._CACHE_DIR_ENSURED.clear()
 
 
 @pytest.fixture(autouse=True)
