@@ -148,6 +148,44 @@ def test_safe_cache_dir_warns_and_audits_when_override_is_rejected(tmp_path, mon
     )
 
 
+def test_safe_cache_dir_is_memoized_per_home(tmp_path, monkeypatch):
+    """#445: _safe_cache_dir caches its resolution per (cache_dir, PERSEUS_HOME)
+    and re-resolves when PERSEUS_HOME changes."""
+    monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path / "home1")
+    c = cfg()
+    # Use the PERSEUS_HOME-based fallback (pytest tmp_path lives under the system
+    # temp dir, an allowed root) so the result tracks PERSEUS_HOME.
+    c["render"].pop("cache_dir", None)
+    first = perseus._safe_cache_dir(c)
+    assert first == tmp_path / "home1" / "cache"
+    # Cached value is returned (same object) on the second call.
+    assert perseus._safe_cache_dir(c) is first
+    assert (str(tmp_path / "home1" / "cache"), str(tmp_path / "home1")) in perseus._SAFE_CACHE_DIR_CACHE
+
+    # Changing PERSEUS_HOME yields a different key → re-resolves.
+    monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path / "home2")
+    second = perseus._safe_cache_dir(c)
+    assert second == tmp_path / "home2" / "cache"
+
+
+def test_cache_set_roundtrips_and_ensures_dir_once(tmp_path, monkeypatch):
+    """#445: writes are still readable without fsync, and the mkdir/chmod walk
+    runs once per cache dir (recorded in _CACHE_DIR_ENSURED)."""
+    monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path / ".perseus")
+    c = cfg()
+    cache_dir = perseus._safe_cache_dir(c)
+    assert str(cache_dir) not in perseus._CACHE_DIR_ENSURED
+
+    perseus.cache_set("k1", "value-one", "ttl", 3600, c)
+    assert str(cache_dir) in perseus._CACHE_DIR_ENSURED
+    assert perseus.cache_get("k1", "ttl", 3600, c) == "value-one"
+
+    # A second write to the same dir still roundtrips (ensured-set short-circuits
+    # the mkdir/chmod walk, write path unaffected).
+    perseus.cache_set("k2", "value-two", "ttl", 3600, c)
+    assert perseus.cache_get("k2", "ttl", 3600, c) == "value-two"
+
+
 def test_services_respects_allow_remote_enabled():
     """@services must allow remote URLs when allow_remote_services_health is True."""
     c = cfg()
