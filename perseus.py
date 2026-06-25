@@ -2270,24 +2270,21 @@ def load_config(workspace: Path | None = None) -> dict:
     cfg["_provenance"] = _provenance
 
     def merge_loaded(loaded: dict) -> None:
-        loaded = _normalize_loaded_config(loaded or {}, warn_legacy=False)
-        for section, vals in loaded.items():
+        # #446: `loaded` was already parsed + normalized in the pre-scan above
+        # (into `loaded_sources`). _normalize_loaded_config is a deterministic
+        # transform whose only warn_legacy-dependent side effect is a stderr
+        # warning, so the normalized dict is identical regardless of the flag —
+        # we neither re-read the file nor re-normalize here, halving the config
+        # parse count per render.
+        for section, vals in (loaded or {}).items():
             if section in cfg and isinstance(vals, dict):
                 cfg[section].update(vals)
             else:
                 cfg[section] = vals
 
-
-    global_cfg = PERSEUS_HOME / "config.yaml"
-    if global_cfg.exists():
-        with open(global_cfg, encoding='utf-8') as f:
-            merge_loaded(yaml.safe_load(f) or {})
-
-    if workspace:
-        local_cfg = workspace / ".perseus" / "config.yaml"
-        if local_cfg.exists():
-            with open(local_cfg, encoding='utf-8') as f:
-                merge_loaded(yaml.safe_load(f) or {})
+    # Sources are in global → workspace order, matching merge precedence.
+    for src in loaded_sources:
+        merge_loaded(src)
 
     # Expand ~ in any config key that holds a filesystem path.  Without this,
     # a config.yaml entry like `store: ~/.perseus/checkpoints` is treated as a
@@ -7112,13 +7109,49 @@ def _build_annotations(tool_name: str, spec) -> dict | None:
     return hints if hints else None
 
 
+# #446: generated directive-tool schemas (props, output schemas, the
+# _build_output_schema if-chain, annotations) are static for a given registry
+# state but were rebuilt on every tools/list and tools/call. Cache them keyed on
+# a cheap registry signature so the cache self-invalidates when plugins
+# register/re-register directives at runtime (register_plugins force=True).
+_DIRECTIVE_TOOLS_CACHE: dict = {}
+
+
+def _directive_registry_signature() -> tuple:
+    """Cheap signature of the registry state that affects generated tool schemas.
+
+    Captures every field `_generate_directive_tools` / `_build_annotations` read
+    (`_build_output_schema` keys only on the derived tool name). Iterating the
+    registry is O(N) cheap; the cache it guards skips the O(N × schema-build)
+    work on a hit.
+    """
+    sig = []
+    for name, spec in sorted(DIRECTIVE_REGISTRY.items()):
+        if spec.kind not in ("inline", "block") or spec.resolver is None:
+            continue
+        sig.append((
+            name, spec.kind, spec.summary or "", tuple(spec.args),
+            bool(getattr(spec, "executes_shell", False)),
+            bool(getattr(spec, "reads_files", False)),
+            bool(getattr(spec, "mutates_state", False)),
+        ))
+    return tuple(sig)
+
+
 def _generate_directive_tools() -> list[dict]:
     """Auto-generate MCP tool schemas from all resolvable directives in the registry.
 
     Uses _PARAM_DESCRIPTIONS for human-readable parameter docs,
     _build_output_schema for structured return types, and
     _build_annotations for readOnlyHint/destructiveHint hints.
+
+    Result is cached per registry signature (#446); the returned list is shared
+    and must be treated as read-only.
     """
+    _sig = _directive_registry_signature()
+    _cached = _DIRECTIVE_TOOLS_CACHE.get(_sig)
+    if _cached is not None:
+        return _cached
     tools = []
     for name, spec in sorted(DIRECTIVE_REGISTRY.items()):
         if spec.kind not in ("inline", "block"):
@@ -7142,6 +7175,7 @@ def _generate_directive_tools() -> list[dict]:
         annotations = _build_annotations(tool_name, spec)
         tools.append(_tool_schema(tool_name, desc, props, required,
                                   output_schema=output_schema, annotations=annotations))
+    _DIRECTIVE_TOOLS_CACHE[_sig] = tools
     return tools
 
 
@@ -7220,8 +7254,34 @@ def _mcp_tool_allowed(tool_name: str, cfg: dict) -> tuple[bool, str]:
 
 # ── Tool list builder ────────────────────────────────────────────────────────
 
+# #446: filtered tool list cached per (allowlist, blocklist, registry) signature.
+# _mcp_tool_allowed reads only mcp.tool_allowlist / tool_blocklist (plus the
+# static sensitive set); the registry signature invalidates on plugin changes.
+# Returned list is shared and treated as read-only by all callers (tools/list /
+# registry / server-card / doctor all only read it).
+_MCP_TOOL_LIST_CACHE: dict = {}
+
+
 def _get_all_mcp_tools(cfg: dict) -> list[dict]:
     """Return merged tool list: registry-generated + legacy, filtered by config."""
+    mcp_cfg = cfg.get("mcp", {}) if isinstance(cfg, dict) else {}
+    try:
+        _sig = json.dumps(
+            {
+                "allow": sorted(mcp_cfg.get("tool_allowlist") or []),
+                "block": sorted(mcp_cfg.get("tool_blocklist") or []),
+                "registry": _directive_registry_signature(),
+            },
+            sort_keys=True,
+            default=str,
+        )
+    except Exception:
+        _sig = None
+    if _sig is not None:
+        _cached = _MCP_TOOL_LIST_CACHE.get(_sig)
+        if _cached is not None:
+            return _cached
+
     tools = []
     # Auto-generated from registry
     for tool in _generate_directive_tools():
@@ -7239,6 +7299,8 @@ def _get_all_mcp_tools(cfg: dict) -> list[dict]:
             continue
         tools.append(tool)
 
+    if _sig is not None:
+        _MCP_TOOL_LIST_CACHE[_sig] = tools
     return tools
 
 
@@ -9716,11 +9778,10 @@ def _cache_key(directive_line: str) -> str:
     spaces inside double/single quotes are preserved, preventing two
     distinct directives from colliding on the same cache key.
     """
-    import re as _re
     # Split into quoted and unquoted segments, normalize unquoted only.
     # Handle escaped quotes (\\\" and \\') inside quoted strings, matching the
     # _extract_quoted_token behaviour used by directive resolvers.
-    parts = _re.split(r'("(?:[^"\\\\]|\\\\.)*"|\'(?:[^\'\\\\]|\\\\.)*\')', directive_line)
+    parts = _CACHE_KEY_SPLIT_RE.split(directive_line)
     normalised_parts = []
     for part in parts:
         if part.startswith(('"', "'")):
@@ -10043,6 +10104,15 @@ ELSE_RE = re.compile(r'^@else\s*$', re.IGNORECASE)
 ENDIF_RE = re.compile(r'^@endif\s*$', re.IGNORECASE)
 CONSTRAINT_RE = re.compile(r'^@constraint\s+(.+)$', re.IGNORECASE)
 SYNTHESIZE_BLOCK_RE = re.compile(r'^@synthesize\s*(.*)$', re.IGNORECASE)
+
+# Hot-path patterns hoisted to module level (#446): compiled once at import
+# instead of per render line / per directive.
+# Fenced code-block opener: optional indent, then ``` or ~~~ (3+).
+FENCE_OPEN_RE = re.compile(r'^\s*(`{3,}|~{3,})(.*)$')
+# Cache-key normalisation: split a directive line into quoted / unquoted
+# segments so whitespace inside quotes is preserved (C16). Pattern is byte-for-
+# byte the one previously compiled per call inside _cache_key.
+_CACHE_KEY_SPLIT_RE = re.compile(r'("(?:[^"\\\\]|\\\\.)*"|\'(?:[^\'\\\\]|\\\\.)*\')')
 
 # INLINE_DIRECTIVE_RE — built from DIRECTIVE_REGISTRY after all resolvers are
 # defined.  See _bind_registry() + _build_inline_directive_re() call below
@@ -10496,9 +10566,13 @@ def _render_lines(
             return all(active for active, _ in if_stack)
 
         for idx, raw_line in enumerate(lines):
-            fm = re.match(r'^\s*(`{3,}|~{3,})(.*)$', raw_line)
+            fm = FENCE_OPEN_RE.match(raw_line)
             if in_fence_pre:
-                if re.match(rf'^\s*{re.escape(fc_pre)}{{{fl_pre},}}\s*$', raw_line):
+                # Closing fence: same char, length ≥ opener, only whitespace
+                # around it. Equivalent to the old ^\s*{char}{len,}\s*$ regex
+                # but without compiling a pattern per line (#446).
+                s = raw_line.strip()
+                if s and len(s) >= fl_pre and s == fc_pre * len(s):
                     in_fence_pre = False
                 continue
             if fm:
@@ -10585,10 +10659,11 @@ def _render_lines(
 
     while i < len(lines):
         line = lines[i]
-        fence_match = re.match(r'^\s*(`{3,}|~{3,})(.*)$', line)
+        fence_match = FENCE_OPEN_RE.match(line)
         if in_fence:
             output.append(line)
-            if re.match(rf'^\s*{re.escape(fence_char)}{{{fence_len},}}\s*$', line):
+            s = line.strip()
+            if s and len(s) >= fence_len and s == fence_char * len(s):
                 in_fence = False
                 fence_char = ""
                 fence_len = 0
