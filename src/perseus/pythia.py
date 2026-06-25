@@ -491,7 +491,11 @@ def build_pythia_snapshot(cfg: dict, category: str | None = None, no_services: b
         session_digest = resolve_session("count=3", cfg)
         checkpoint_summary = resolve_waypoint("", cfg)
 
-    outcome_weights = _pythia_online_score_adjustments(_pythia_log_entries(), cfg)
+    # Online scoring only consults the last `online_scoring_recent_entries`
+    # (default 50), so tail-read just those instead of loading the whole log on
+    # every snapshot/suggest. (#447)
+    _recent_n = int(cfg.get("pythia", {}).get("online_scoring_recent_entries", 50))
+    outcome_weights = _pythia_online_score_adjustments(_pythia_recent_entries(_recent_n), cfg)
     snapshot = {
         "rendered_at": now,
         "skills_table": skills_table,
@@ -646,6 +650,35 @@ def cmd_suggest(args, cfg):
 
 def _pythia_log_entries() -> list[dict]:
     return _read_all_pythia_entries()
+
+
+def _pythia_recent_entries(n: int) -> list[dict]:
+    """Tail-read up to the last `n` Pythia log entries without reading/parsing the
+    whole file. The log is JSONL — one entry per line (see append_pythia_log /
+    _rewrite_pythia_log) — so a line-bounded deque yields exactly the most recent
+    entries in order. Falls back to a full read when n <= 0. Mirrors
+    _read_all_pythia_entries' blank-/malformed-line tolerance. (#447)"""
+    if n <= 0:
+        return _read_all_pythia_entries()
+    log_path = _pythia_log_path()
+    if not log_path.exists():
+        return []
+    from collections import deque
+    try:
+        with log_path.open("r", encoding="utf-8") as f:
+            tail = deque(f, maxlen=n)
+    except Exception:
+        return []
+    entries: list[dict] = []
+    for raw in tail:
+        line = raw.strip()
+        if not line:
+            continue
+        try:
+            entries.append(json.loads(line))
+        except Exception as exc:
+            sys.stderr.write(f"> ⚠ Pythia: skipping malformed JSONL line: {exc}\n")
+    return entries
 
 
 def _find_pythia_entry(entries: list[dict], log_id: str) -> int | None:
