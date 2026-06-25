@@ -175,6 +175,37 @@ def test_doctor_error_exits_1(tmp_path, monkeypatch):
     assert rc == 1
 
 
+def test_doctor_parallel_preserves_order_and_isolates_errors(tmp_path, monkeypatch):
+    """#449: running checks in a thread pool must keep _DOCTOR_CHECKS order and
+    keep each check exception-isolated (a raising check → one error result, not a
+    crashed run)."""
+    monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path)
+
+    def _check_a(cfg, ws):
+        return perseus.DoctorResult("a", "ok", "a", "v", "")
+
+    def _doctor_check_boom(cfg, ws):
+        raise RuntimeError("kaboom")
+
+    def _check_c(cfg, ws):
+        return perseus.DoctorResult("c", "warn", "c", "v", "")
+
+    monkeypatch.setattr(perseus, "_DOCTOR_CHECKS", [_check_a, _doctor_check_boom, _check_c])
+    ns = argparse.Namespace(workspace=str(tmp_path), json=True)
+    captured = []
+    monkeypatch.setattr("builtins.print", lambda *a, **k: captured.append(" ".join(str(x) for x in a)))
+    rc = perseus.cmd_doctor(ns, cfg())
+    output = json.loads("\n".join(captured))
+
+    ids = [c["id"] for c in output["checks"]]
+    assert ids == ["a", "boom", "c"], "results must stay in _DOCTOR_CHECKS order"
+    statuses = {c["id"]: c["status"] for c in output["checks"]}
+    assert statuses["a"] == "ok" and statuses["c"] == "warn"
+    assert statuses["boom"] == "error", "a raising check must be isolated as an error result"
+    assert "kaboom" in next(c["value"] for c in output["checks"] if c["id"] == "boom")
+    assert rc == 1  # an error result → exit 1
+
+
 # ════════════════════════════════════════════════════════════════════════════
 # #443 — @perseus version header should not require a hardcoded version
 # ════════════════════════════════════════════════════════════════════════════
