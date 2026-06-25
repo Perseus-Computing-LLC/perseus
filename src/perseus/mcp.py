@@ -410,13 +410,49 @@ def _build_annotations(tool_name: str, spec) -> dict | None:
     return hints if hints else None
 
 
+# #446: generated directive-tool schemas (props, output schemas, the
+# _build_output_schema if-chain, annotations) are static for a given registry
+# state but were rebuilt on every tools/list and tools/call. Cache them keyed on
+# a cheap registry signature so the cache self-invalidates when plugins
+# register/re-register directives at runtime (register_plugins force=True).
+_DIRECTIVE_TOOLS_CACHE: dict = {}
+
+
+def _directive_registry_signature() -> tuple:
+    """Cheap signature of the registry state that affects generated tool schemas.
+
+    Captures every field `_generate_directive_tools` / `_build_annotations` read
+    (`_build_output_schema` keys only on the derived tool name). Iterating the
+    registry is O(N) cheap; the cache it guards skips the O(N × schema-build)
+    work on a hit.
+    """
+    sig = []
+    for name, spec in sorted(DIRECTIVE_REGISTRY.items()):
+        if spec.kind not in ("inline", "block") or spec.resolver is None:
+            continue
+        sig.append((
+            name, spec.kind, spec.summary or "", tuple(spec.args),
+            bool(getattr(spec, "executes_shell", False)),
+            bool(getattr(spec, "reads_files", False)),
+            bool(getattr(spec, "mutates_state", False)),
+        ))
+    return tuple(sig)
+
+
 def _generate_directive_tools() -> list[dict]:
     """Auto-generate MCP tool schemas from all resolvable directives in the registry.
 
     Uses _PARAM_DESCRIPTIONS for human-readable parameter docs,
     _build_output_schema for structured return types, and
     _build_annotations for readOnlyHint/destructiveHint hints.
+
+    Result is cached per registry signature (#446); the returned list is shared
+    and must be treated as read-only.
     """
+    _sig = _directive_registry_signature()
+    _cached = _DIRECTIVE_TOOLS_CACHE.get(_sig)
+    if _cached is not None:
+        return _cached
     tools = []
     for name, spec in sorted(DIRECTIVE_REGISTRY.items()):
         if spec.kind not in ("inline", "block"):
@@ -440,6 +476,7 @@ def _generate_directive_tools() -> list[dict]:
         annotations = _build_annotations(tool_name, spec)
         tools.append(_tool_schema(tool_name, desc, props, required,
                                   output_schema=output_schema, annotations=annotations))
+    _DIRECTIVE_TOOLS_CACHE[_sig] = tools
     return tools
 
 
@@ -518,8 +555,34 @@ def _mcp_tool_allowed(tool_name: str, cfg: dict) -> tuple[bool, str]:
 
 # ── Tool list builder ────────────────────────────────────────────────────────
 
+# #446: filtered tool list cached per (allowlist, blocklist, registry) signature.
+# _mcp_tool_allowed reads only mcp.tool_allowlist / tool_blocklist (plus the
+# static sensitive set); the registry signature invalidates on plugin changes.
+# Returned list is shared and treated as read-only by all callers (tools/list /
+# registry / server-card / doctor all only read it).
+_MCP_TOOL_LIST_CACHE: dict = {}
+
+
 def _get_all_mcp_tools(cfg: dict) -> list[dict]:
     """Return merged tool list: registry-generated + legacy, filtered by config."""
+    mcp_cfg = cfg.get("mcp", {}) if isinstance(cfg, dict) else {}
+    try:
+        _sig = json.dumps(
+            {
+                "allow": sorted(mcp_cfg.get("tool_allowlist") or []),
+                "block": sorted(mcp_cfg.get("tool_blocklist") or []),
+                "registry": _directive_registry_signature(),
+            },
+            sort_keys=True,
+            default=str,
+        )
+    except Exception:
+        _sig = None
+    if _sig is not None:
+        _cached = _MCP_TOOL_LIST_CACHE.get(_sig)
+        if _cached is not None:
+            return _cached
+
     tools = []
     # Auto-generated from registry
     for tool in _generate_directive_tools():
@@ -537,6 +600,8 @@ def _get_all_mcp_tools(cfg: dict) -> list[dict]:
             continue
         tools.append(tool)
 
+    if _sig is not None:
+        _MCP_TOOL_LIST_CACHE[_sig] = tools
     return tools
 
 
