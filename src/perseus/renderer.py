@@ -26,11 +26,10 @@ def _cache_key(directive_line: str) -> str:
     spaces inside double/single quotes are preserved, preventing two
     distinct directives from colliding on the same cache key.
     """
-    import re as _re
     # Split into quoted and unquoted segments, normalize unquoted only.
     # Handle escaped quotes (\\\" and \\') inside quoted strings, matching the
     # _extract_quoted_token behaviour used by directive resolvers.
-    parts = _re.split(r'("(?:[^"\\\\]|\\\\.)*"|\'(?:[^\'\\\\]|\\\\.)*\')', directive_line)
+    parts = _CACHE_KEY_SPLIT_RE.split(directive_line)
     normalised_parts = []
     for part in parts:
         if part.startswith(('"', "'")):
@@ -353,6 +352,15 @@ ELSE_RE = re.compile(r'^@else\s*$', re.IGNORECASE)
 ENDIF_RE = re.compile(r'^@endif\s*$', re.IGNORECASE)
 CONSTRAINT_RE = re.compile(r'^@constraint\s+(.+)$', re.IGNORECASE)
 SYNTHESIZE_BLOCK_RE = re.compile(r'^@synthesize\s*(.*)$', re.IGNORECASE)
+
+# Hot-path patterns hoisted to module level (#446): compiled once at import
+# instead of per render line / per directive.
+# Fenced code-block opener: optional indent, then ``` or ~~~ (3+).
+FENCE_OPEN_RE = re.compile(r'^\s*(`{3,}|~{3,})(.*)$')
+# Cache-key normalisation: split a directive line into quoted / unquoted
+# segments so whitespace inside quotes is preserved (C16). Pattern is byte-for-
+# byte the one previously compiled per call inside _cache_key.
+_CACHE_KEY_SPLIT_RE = re.compile(r'("(?:[^"\\\\]|\\\\.)*"|\'(?:[^\'\\\\]|\\\\.)*\')')
 
 # INLINE_DIRECTIVE_RE — built from DIRECTIVE_REGISTRY after all resolvers are
 # defined.  See _bind_registry() + _build_inline_directive_re() call below
@@ -806,9 +814,13 @@ def _render_lines(
             return all(active for active, _ in if_stack)
 
         for idx, raw_line in enumerate(lines):
-            fm = re.match(r'^\s*(`{3,}|~{3,})(.*)$', raw_line)
+            fm = FENCE_OPEN_RE.match(raw_line)
             if in_fence_pre:
-                if re.match(rf'^\s*{re.escape(fc_pre)}{{{fl_pre},}}\s*$', raw_line):
+                # Closing fence: same char, length ≥ opener, only whitespace
+                # around it. Equivalent to the old ^\s*{char}{len,}\s*$ regex
+                # but without compiling a pattern per line (#446).
+                s = raw_line.strip()
+                if s and len(s) >= fl_pre and s == fc_pre * len(s):
                     in_fence_pre = False
                 continue
             if fm:
@@ -895,10 +907,11 @@ def _render_lines(
 
     while i < len(lines):
         line = lines[i]
-        fence_match = re.match(r'^\s*(`{3,}|~{3,})(.*)$', line)
+        fence_match = FENCE_OPEN_RE.match(line)
         if in_fence:
             output.append(line)
-            if re.match(rf'^\s*{re.escape(fence_char)}{{{fence_len},}}\s*$', line):
+            s = line.strip()
+            if s and len(s) >= fence_len and s == fence_char * len(s):
                 in_fence = False
                 fence_char = ""
                 fence_len = 0

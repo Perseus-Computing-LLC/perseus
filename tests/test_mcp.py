@@ -42,6 +42,50 @@ REGISTER = {}
     assert len(tools) > 0
 
 
+def test_tool_list_cache_distinguishes_allow_block():
+    """#446: the per-signature tool-list cache must not leak one cfg's filtered
+    list to a cfg with a different allowlist/blocklist."""
+    base_names = {t["name"] for t in perseus._get_all_mcp_tools(cfg())}
+    assert "perseus_services" in base_names
+
+    blocked = cfg()
+    blocked["mcp"] = {"tool_blocklist": ["perseus_services"]}
+    blocked_names = {t["name"] for t in perseus._get_all_mcp_tools(blocked)}
+    assert "perseus_services" not in blocked_names
+
+    # Re-querying the unblocked cfg must still include it (no cross-contamination
+    # between cached signatures).
+    assert "perseus_services" in {t["name"] for t in perseus._get_all_mcp_tools(cfg())}
+
+    # A sensitive tool is exposed only when explicitly allowlisted.
+    allowed = cfg()
+    allowed["mcp"] = {"tool_allowlist": ["perseus_query"]}
+    assert "perseus_query" in {t["name"] for t in perseus._get_all_mcp_tools(allowed)}
+
+
+def test_tool_list_cache_invalidates_on_registry_change():
+    """#446: caching generated tool schemas must not hide directives registered
+    (or removed) after the first build — the cache keys on a registry signature."""
+    reg = perseus.DIRECTIVE_REGISTRY
+    base_names = {t["name"] for t in perseus._get_all_mcp_tools(cfg())}
+    assert "perseus_zzz_cache_probe" not in base_names
+
+    # Clone an existing resolvable spec under a synthetic directive name.
+    sample = next(
+        s for s in reg.values()
+        if s.kind in ("inline", "block") and s.resolver is not None
+    )
+    reg["@zzz-cache-probe"] = sample
+    try:
+        after = {t["name"] for t in perseus._get_all_mcp_tools(cfg())}
+        assert "perseus_zzz_cache_probe" in after, "new directive not reflected — stale cache"
+    finally:
+        del reg["@zzz-cache-probe"]
+
+    restored = {t["name"] for t in perseus._get_all_mcp_tools(cfg())}
+    assert "perseus_zzz_cache_probe" not in restored, "removed directive lingered — stale cache"
+
+
 def test_tools_call_query_resolves(tmp_path):
     """tools/call for perseus_query resolves correctly."""
     c = cfg()
