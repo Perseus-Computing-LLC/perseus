@@ -913,15 +913,25 @@ def cmd_doctor(args, cfg) -> int:
     if cfg["render"].get("cache_dir") == DEFAULT_CONFIG.get("render", {}).get("cache_dir"):
         cfg["render"]["cache_dir"] = str(PERSEUS_HOME / "cache")
 
-    results: list[DoctorResult] = []
-    for check_fn in _DOCTOR_CHECKS:
+    # Checks are independent and mostly I/O-bound (HTTP / subprocess / file
+    # probes), so run them in a thread pool instead of serially. User-facing
+    # latency was the SUM of every check's latency, dominated by the slow
+    # network/subprocess ones (llm_reachable's 5s HTTP timeout, llm_functional's
+    # round-trip, mimir_bridge's subprocess + MCP handshake). ThreadPoolExecutor
+    # .map preserves _DOCTOR_CHECKS order; each check stays exception-isolated so
+    # one failure can't abort the run. (#449)
+    def _run_doctor_check(check_fn) -> DoctorResult:
         try:
-            results.append(check_fn(cfg, workspace))
+            return check_fn(cfg, workspace)
         except Exception as exc:
-            results.append(DoctorResult(
+            return DoctorResult(
                 check_fn.__name__.replace("_doctor_check_", ""),
                 "error", check_fn.__name__, str(exc), ""
-            ))
+            )
+
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=min(len(_DOCTOR_CHECKS), 8)) as executor:
+        results: list[DoctorResult] = list(executor.map(_run_doctor_check, _DOCTOR_CHECKS))
 
     ok = sum(1 for r in results if r.status == "ok")
     warn = sum(1 for r in results if r.status == "warn")
