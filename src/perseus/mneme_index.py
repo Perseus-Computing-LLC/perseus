@@ -219,7 +219,6 @@ def _mneme_build_index(cfg: dict, force: bool = False) -> int:
 
         count = 0
         current_paths: set[str] = set()
-        changed = False
         for md_file in sorted(vault_path.rglob("*.md")):
             file_path_str = str(md_file.resolve())
             current_paths.add(file_path_str)
@@ -239,7 +238,6 @@ def _mneme_build_index(cfg: dict, force: bool = False) -> int:
                 if file_path_str in indexed:
                     conn.execute("DELETE FROM mneme_fts WHERE source_path = ?", (file_path_str,))
                     conn.execute("DELETE FROM mneme_files WHERE path = ?", (file_path_str,))
-                    changed = True
                 continue
 
             field_cols = _mneme_build_field_columns(doc)
@@ -265,19 +263,17 @@ def _mneme_build_index(cfg: dict, force: bool = False) -> int:
                 (file_path_str, mtime, now, doc.get("sensitivity", "team")),
             )
             count += 1
-            changed = True
 
         # Prune deleted or renamed files during normal incremental builds.
         stale_paths = set(indexed) - current_paths
         for stale_path in sorted(stale_paths):
             conn.execute("DELETE FROM mneme_fts WHERE source_path = ?", (stale_path,))
             conn.execute("DELETE FROM mneme_files WHERE path = ?", (stale_path,))
-            changed = True
 
-        # Rebuild FTS5 index (necessary after DELETE + INSERT)
-        if changed:
-            conn.execute("INSERT INTO mneme_fts(mneme_fts) VALUES('rebuild')")
-
+        # mneme_fts is a regular (self-maintaining) FTS5 table — the INSERT and
+        # DELETE statements above keep the full-text index consistent on their
+        # own. The previous unconditional 'rebuild' reconstructed the ENTIRE
+        # index (O(corpus)) on every changed build; dropped. (#447)
         conn.commit()
     except Exception:
         conn.rollback()
@@ -389,7 +385,8 @@ def _mneme_index_document(cfg: dict, file_path: Path) -> bool:
             "INSERT INTO mneme_files (path, mtime, indexed_at, sensitivity) VALUES (?, ?, ?, ?)",
             (file_path_str, file_path.stat().st_mtime, now, doc.get("sensitivity", "team")),
         )
-        conn.execute("INSERT INTO mneme_fts(mneme_fts) VALUES('rebuild')")
+        # Self-maintaining FTS5 table: the DELETE+INSERT above already updated the
+        # index. No O(corpus) 'rebuild' needed for a single-doc upsert. (#447)
         conn.commit()
         return True
     except Exception:
@@ -426,8 +423,8 @@ def _mneme_delete_document(cfg: dict, doc_id: str) -> bool:
             "DELETE FROM mneme_files WHERE path GLOB ? OR path GLOB ?",
             (pattern_fwd, pattern_bwd),
         )
-        if deleted:
-            conn.execute("INSERT INTO mneme_fts(mneme_fts) VALUES('rebuild')")
+        # Self-maintaining FTS5 table: the DELETE above already updated the index.
+        # No O(corpus) 'rebuild' needed for a single-doc delete. (#447)
         conn.commit()
         return deleted
     except Exception:

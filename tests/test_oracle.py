@@ -319,6 +319,36 @@ def test_oracle_reject_marks_entry(tmp_path, monkeypatch, capsys):
     assert "accepted=False" in out
 
 
+def test_pythia_recent_entries_tail_reads(tmp_path, monkeypatch):
+    """#447: tail-reading the last N entries must equal a full read sliced to the
+    last N, in order — without depending on reading the whole file."""
+    entries = [
+        {"timestamp": f"2026-05-18T10:{i:02d}:00", "task": f"t{i}", "response": f"r{i}"}
+        for i in range(60)
+    ]
+    _seed_oracle_log(monkeypatch, tmp_path, entries)
+
+    full = perseus._read_all_pythia_entries()
+    assert perseus._pythia_recent_entries(50) == full[-50:]
+    assert perseus._pythia_recent_entries(10) == full[-10:]
+    assert [e["task"] for e in perseus._pythia_recent_entries(3)] == ["t57", "t58", "t59"]
+    # n <= 0 falls back to a full read; over-count returns all.
+    assert perseus._pythia_recent_entries(0) == full
+    assert perseus._pythia_recent_entries(10_000) == full
+
+
+def test_pythia_recent_entries_handles_missing_and_malformed(tmp_path, monkeypatch):
+    """#447: missing log → []; malformed lines skipped, valid tail returned."""
+    monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path)
+    assert perseus._pythia_recent_entries(5) == []
+    log = tmp_path / "pythia_log.jsonl"
+    log.write_text(
+        '{"timestamp":"t1","task":"a"}\nNOT JSON\n{"timestamp":"t2","task":"b"}\n',
+        encoding="utf-8",
+    )
+    assert [e["task"] for e in perseus._pythia_recent_entries(5)] == ["a", "b"]
+
+
 def test_oracle_log_lists_entries(tmp_path, monkeypatch, capsys):
     _seed_oracle_log(monkeypatch, tmp_path, [
         {"timestamp": "2026-05-18T10:00:00", "task": "a", "accepted": True},
