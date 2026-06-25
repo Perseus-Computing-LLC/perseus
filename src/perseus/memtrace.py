@@ -71,12 +71,24 @@ from pathlib import Path
 from typing import Any, Optional
 
 
+# #448: cache the resolved binary path for the process. The probe below runs a
+# `--version` subprocess against up to ~7 candidates, and _memtrace_mcp_call (two
+# per repo) re-ran it every time. A non-empty list means "already probed"; its
+# sole element is the path or None. Cleared between tests via conftest.
+_MEMTRACE_BIN_CACHE: list = []
+
+
 def _memtrace_binary_path() -> Optional[str]:
     """Find the memtrace CLI binary.
-    
+
     Returns the full path to the memtrace binary, or None if not installed.
     Typically installed globally via npm: `npm install -g memtrace`.
+    Memoized per process (#448) — including the not-installed result, so a
+    missing binary isn't re-probed on every call.
     """
+    if _MEMTRACE_BIN_CACHE:
+        return _MEMTRACE_BIN_CACHE[0]
+
     candidates = [
         "memtrace",  # rely on PATH
         os.path.expanduser("~/.npm-global/bin/memtrace"),
@@ -88,6 +100,7 @@ def _memtrace_binary_path() -> Optional[str]:
         if os.path.isdir(nvm_dir):
             candidates.append(os.path.join(nvm_dir, "bin", "memtrace"))
 
+    found: Optional[str] = None
     for candidate in candidates:
         try:
             result = subprocess.run(
@@ -97,10 +110,12 @@ def _memtrace_binary_path() -> Optional[str]:
                 timeout=5,
             )
             if result.returncode == 0:
-                return candidate
+                found = candidate
+                break
         except (FileNotFoundError, subprocess.TimeoutExpired):
             continue
-    return None
+    _MEMTRACE_BIN_CACHE.append(found)
+    return found
 
 
 def _memtrace_mcp_call(tool_name: str, arguments: dict[str, Any], timeout: int = 15) -> Optional[dict]:

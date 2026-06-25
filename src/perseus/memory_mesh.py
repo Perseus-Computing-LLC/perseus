@@ -70,17 +70,28 @@ from pathlib import Path
 from typing import Any, Optional
 
 
+# #448: cache the resolved binary path for the process (see memtrace for the
+# rationale — _memorymesh_binary_path was re-probed via subprocess on every
+# query). Non-empty list = already probed; element is the path or None.
+_MEMORYMESH_BIN_CACHE: list = []
+
+
 def _memorymesh_binary_path() -> Optional[str]:
     """Find the memorymesh CLI binary.
-    
+
     Returns the full path to the memorymesh CLI, or None if not installed.
+    Memoized per process (#448), including the not-installed result.
     """
+    if _MEMORYMESH_BIN_CACHE:
+        return _MEMORYMESH_BIN_CACHE[0]
+
     # Check common install locations
     candidates = [
         "memorymesh",  # rely on PATH
         os.path.expanduser("~/.local/bin/memorymesh"),
         "/usr/local/bin/memorymesh",
     ]
+    found: Optional[str] = None
     for candidate in candidates:
         try:
             result = subprocess.run(
@@ -90,10 +101,12 @@ def _memorymesh_binary_path() -> Optional[str]:
                 timeout=5,
             )
             if result.returncode == 0:
-                return candidate
+                found = candidate
+                break
         except (FileNotFoundError, subprocess.TimeoutExpired):
             continue
-    return None
+    _MEMORYMESH_BIN_CACHE.append(found)
+    return found
 
 
 def _memorymesh_rest_health() -> bool:
