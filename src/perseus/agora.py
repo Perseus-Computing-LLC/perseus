@@ -752,6 +752,7 @@ def _resolve_memory_narrative(args_stripped: str, mods: dict, cfg: dict, ws: Pat
     ttl_s = int(cfg.get("checkpoints", {}).get("ttl_s", 86400))
     updated = str(fm.get("updated", ""))
     stale_note = ""
+    age_s: float | None = None  # #445: age of the recorded `updated`; reused to debounce the touch below
     try:
         dt = datetime.fromisoformat(updated)
         age_s = (datetime.now(dt.tzinfo) - dt).total_seconds()
@@ -768,16 +769,23 @@ def _resolve_memory_narrative(args_stripped: str, mods: dict, cfg: dict, ws: Pat
         )
 
     if not stale_note and body.strip():
-        # Touch updated timestamp on every fresh successful render so callers
-        # can detect when the narrative was last accessed (Feat #2).
-        try:
-            fm["updated"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
-            _save_narrative(mp, fm, body)
-        except Exception as exc:
-            import logging
-            logging.getLogger("perseus.agora").warning(
-                "Mnēmē narrative save failed (non-critical): %s", exc
-            )  # best-effort; never break the read path
+        # Touch the updated timestamp on a fresh successful render so callers can
+        # detect when the narrative was last accessed (Feat #2). Debounced (#445):
+        # this used to rewrite the whole narrative file on EVERY render. Only
+        # re-stamp when the recorded `updated` is older than the debounce window
+        # (or unparseable). Staleness is measured in hours (ttl), so collapsing
+        # sub-window touches costs no meaningful precision while removing the
+        # per-render write under bursty rendering (e.g. an agent loop).
+        debounce_s = int(cfg.get("memory", {}).get("narrative_touch_debounce_s", 60))
+        if age_s is None or age_s >= debounce_s:
+            try:
+                fm["updated"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+                _save_narrative(mp, fm, body)
+            except Exception as exc:
+                import logging
+                logging.getLogger("perseus.agora").warning(
+                    "Mnēmē narrative save failed (non-critical): %s", exc
+                )  # best-effort; never break the read path
 
     compact_note = ""
     threshold = int(cfg.get("memory", {}).get("compact_threshold", 20))

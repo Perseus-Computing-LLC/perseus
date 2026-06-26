@@ -236,6 +236,29 @@ def test_feat2_no_touch_when_stale(tmp_path):
     assert str(fm2["updated"]) == old_ts, "stale narrative timestamp must not be touched by render"
 
 
+def test_feat2_touch_is_debounced_within_window(tmp_path):
+    """#445: a fresh render must NOT rewrite the narrative when `updated` is within
+    the debounce window — the per-render write is collapsed."""
+    local = _mneme_cfg(tmp_path)
+    local.setdefault("memory", {})["narrative_touch_debounce_s"] = 300  # 5-min window
+    # Recent (10s ago): not stale, and within the debounce window.
+    recent_ts = (datetime.now(timezone.utc) - timedelta(seconds=10)).isoformat(timespec="seconds")
+    mp = perseus._mneme_path(tmp_path, local)
+    mp.parent.mkdir(parents=True, exist_ok=True)
+    fm = {
+        "schema": 1, "workspace": str(tmp_path),
+        "workspace_hash": perseus._workspace_hash(tmp_path),
+        "updated": recent_ts,
+        "checkpoints_processed": 1, "last_compact_processed": 0,
+    }
+    perseus._save_narrative(mp, fm, "## Recent Activity\n\nDebounce test.\n")
+
+    perseus.resolve_memory("", local, workspace=tmp_path)
+
+    fm2, _ = perseus._load_narrative(mp)
+    assert str(fm2["updated"]) == recent_ts, "touch within debounce window must not rewrite the file"
+
+
 # ─────────────────────────── Feature #3 tests ─────────────────────────────────
 
 def test_feat3_compact_note_appears_near_threshold(tmp_path):
