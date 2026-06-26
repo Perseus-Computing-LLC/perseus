@@ -297,3 +297,69 @@ class TestWarningBlocks:
         )
         assert "Last known good: 2026-06-19T18:00:00Z" in result
         assert "(cached)" in result
+
+
+# ── #467: cache-first remote narrative resolution ────────────────────────────
+
+def test_resolve_serves_fresh_cache_without_fetching(tmp_path, monkeypatch):
+    """#467: a fresh cache entry must be served without any network fetch.
+    Before the fix, _resolve_remote_narrative always fetched first and only
+    consulted the cache on failure, so cache_ttl_s never prevented a request."""
+    c = _fed_cfg(tmp_path)
+    alias = "fresh-remote"
+    perseus._write_remote_cache(
+        c, alias,
+        narrative="# Cached narrative",
+        workspace_id="sha256:abc",
+        signature=None,
+        updated="2026-06-19T20:00:00Z",
+        url="https://test:7991",
+    )
+
+    calls = []
+
+    def _must_not_fetch(entry, cfg):
+        calls.append(1)
+        return (None, "fetch should not have been called", None)
+
+    monkeypatch.setattr(perseus, "_fetch_remote_narrative", _must_not_fetch)
+
+    entry = {"alias": alias, "remote": {"url": "https://test:7991"}}
+    body, err, ws = perseus._resolve_remote_narrative(entry, c)
+
+    assert body == "# Cached narrative"
+    assert err is None
+    assert calls == [], "fresh cache must not trigger a network fetch"
+
+
+def test_resolve_fetches_when_cache_expired(tmp_path, monkeypatch):
+    """#467: an expired cache must fall through to a fetch (and refresh)."""
+    c = _fed_cfg(tmp_path, federation={"cache_ttl_s": 0})
+    alias = "stale-remote"
+    perseus._write_remote_cache(
+        c, alias,
+        narrative="# Old",
+        workspace_id=None,
+        signature=None,
+        updated="2026-06-19T20:00:00Z",
+        url="https://test:7991",
+    )
+    # Force expiry by backdating fetched_at.
+    cache_path = perseus._remote_cache_path(c, alias)
+    data = json.loads(cache_path.read_text(encoding="utf-8"))
+    data["fetched_at"] = "2020-01-01T00:00:00"
+    cache_path.write_text(json.dumps(data), encoding="utf-8")
+
+    fetched = []
+
+    def _fetch(entry, cfg):
+        fetched.append(1)
+        return ("# Fresh from network", None, "ws1")
+
+    monkeypatch.setattr(perseus, "_fetch_remote_narrative", _fetch)
+
+    entry = {"alias": alias, "remote": {"url": "https://test:7991"}}
+    body, err, ws = perseus._resolve_remote_narrative(entry, c)
+
+    assert fetched == [1], "expired cache must trigger a fetch"
+    assert body == "# Fresh from network"
