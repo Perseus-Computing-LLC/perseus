@@ -1189,37 +1189,50 @@ def _compute_drift(cfg: dict, now_epoch: float | None = None) -> dict:
     baseline_cutoff = now - win_days * 86400
 
     entries = _pythia_log_entries()
-    recent = []
-    baseline = []
+
+    # #447: single pass — classify each entry into the recent/baseline window and
+    # accumulate all three drift metrics (acceptance rate, recommendation-token
+    # set, avg response length) inline. The old code built two lists and then
+    # iterated each THREE times (rate/tokens/avg_len); the token pass re-ran the
+    # _extract_recommendation_tokens regex per entry. Now each entry is visited
+    # once and its tokens extracted once.
+    class _DriftBucket:
+        __slots__ = ("count", "pos", "len_sum", "tokens")
+
+        def __init__(self):
+            self.count = 0
+            self.pos = 0
+            self.len_sum = 0
+            self.tokens: set[str] = set()
+
+    r_bucket = _DriftBucket()
+    b_bucket = _DriftBucket()
     for e in entries:
         ts = _parse_iso_ts(str(e.get("timestamp", "") or ""))
         if ts is None:
             continue
         if ts >= recent_cutoff:
-            recent.append(e)
+            bucket = r_bucket
         elif ts >= baseline_cutoff:
-            baseline.append(e)
+            bucket = b_bucket
+        else:
+            continue
+        bucket.count += 1
+        if e.get("accepted") is True or e.get("inferred_label") == "inferred_accept":
+            bucket.pos += 1
+        resp = str(e.get("response", "") or "")
+        bucket.len_sum += len(resp)
+        bucket.tokens |= _extract_recommendation_tokens(resp)
 
-    def rate(es: list[dict]) -> float:
-        if not es:
-            return 0.0
-        pos = sum(1 for e in es if e.get("accepted") is True or e.get("inferred_label") == "inferred_accept")
-        return pos / len(es)
+    def _rate(b: "_DriftBucket") -> float:
+        return b.pos / b.count if b.count else 0.0
 
-    def tokens(es: list[dict]) -> set[str]:
-        out: set[str] = set()
-        for e in es:
-            out |= _extract_recommendation_tokens(str(e.get("response", "") or ""))
-        return out
+    def _avg_len(b: "_DriftBucket") -> float:
+        return b.len_sum / b.count if b.count else 0.0
 
-    def avg_len(es: list[dict]) -> float:
-        if not es:
-            return 0.0
-        return sum(len(str(e.get("response", "") or "")) for e in es) / len(es)
-
-    r_rate, b_rate = rate(recent), rate(baseline)
-    r_toks, b_toks = tokens(recent), tokens(baseline)
-    r_len, b_len = avg_len(recent), avg_len(baseline)
+    r_rate, b_rate = _rate(r_bucket), _rate(b_bucket)
+    r_toks, b_toks = r_bucket.tokens, b_bucket.tokens
+    r_len, b_len = _avg_len(r_bucket), _avg_len(b_bucket)
     jaccard = _jaccard(r_toks, b_toks)
 
     findings: list[str] = []
@@ -1231,8 +1244,8 @@ def _compute_drift(cfg: dict, now_epoch: float | None = None) -> dict:
         findings.append(f"average response length fell {int((b_len-r_len)/b_len*100)}% (baseline {int(b_len)}c → recent {int(r_len)}c)")
 
     return {
-        "recent_count": len(recent),
-        "baseline_count": len(baseline),
+        "recent_count": r_bucket.count,
+        "baseline_count": b_bucket.count,
         "recent_accept_rate": r_rate,
         "baseline_accept_rate": b_rate,
         "jaccard": jaccard,
