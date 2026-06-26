@@ -2835,9 +2835,11 @@ def _load_tasks(tasks_dir: Path) -> list[tuple[Path, dict, str]]:
         return tasks
     for task_path in sorted(tasks_dir.glob('task-*.md')):
         fm, body = _load_task_file(task_path)
-        fm, body, changed = _normalize_task_frontmatter(task_path, fm, body)
-        if changed:
-            _save_task_file(task_path, fm, body)
+        fm, body, _changed = _normalize_task_frontmatter(task_path, fm, body)
+        # #445: normalize in memory only — do NOT persist on the read path.
+        # The atomic write + fcntl lock + fsync per task was a hidden write
+        # on every @agora render / list.  Mutating commands (claim, close, etc.)
+        # call _save_task_file explicitly.
         tasks.append((task_path, fm, body))
     return tasks
 
@@ -9184,6 +9186,141 @@ from typing import Any, Optional
 _MEMORYMESH_BIN_CACHE: list = []
 
 
+class _PersistentMCPClient:
+    """Lightweight persistent MCP stdio client for satellite connectors (#448).
+
+    The Mimir connector already uses a singleton pattern — one Popen, reused
+    across all calls.  This class brings the same pattern to the lighter-weight
+    satellite connectors (memory_mesh, memtrace) so they don't pay a full
+    subprocess spawn + MCP handshake per query.
+
+    A single instance is created per (command tuple) and kept alive for the
+    process lifetime.  If the subprocess dies the next call transparently
+    reconnects.
+    """
+
+    _registry: dict[tuple, "_PersistentMCPClient"] = {}
+
+    def __init__(self, command: list[str]):
+        self._command = command
+        self._proc: Optional[subprocess.Popen] = None
+        self._next_id: int = 0
+
+    @classmethod
+    def for_command(cls, command: list[str]) -> "_PersistentMCPClient":
+        key = tuple(command)
+        if key not in cls._registry:
+            cls._registry[key] = cls(list(command))
+        return cls._registry[key]
+
+    @property
+    def _alive(self) -> bool:
+        return self._proc is not None and self._proc.poll() is None
+
+    def _connect(self) -> bool:
+        try:
+            self._proc = subprocess.Popen(
+                self._command,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            # MCP initialize handshake
+            resp, err = self._raw_call("initialize", {
+                "protocolVersion": "2025-06-18",
+                "capabilities": {},
+                "clientInfo": {"name": "perseus", "version": "1.0.10"},
+            })
+            if err or not resp:
+                self._disconnect()
+                return False
+            # Send initialized notification
+            self._send_notification("notifications/initialized", {})
+            return True
+        except Exception:
+            self._disconnect()
+            return False
+
+    def _ensure_connected(self) -> bool:
+        if self._alive:
+            return True
+        return self._connect()
+
+    def _disconnect(self) -> None:
+        if self._proc:
+            try:
+                self._proc.stdin.close()
+                self._proc.stdout.close()
+                self._proc.terminate()
+                self._proc.wait(timeout=5)
+            except Exception:
+                try:
+                    self._proc.kill()
+                except Exception:
+                    pass
+            self._proc = None
+
+    def _raw_call(self, method: str, params: dict) -> tuple[dict | None, str | None]:
+        """Send a JSON-RPC request and read exactly one line response."""
+        self._next_id += 1
+        rid = self._next_id
+        request = json.dumps({
+            "jsonrpc": "2.0",
+            "id": rid,
+            "method": method,
+            "params": params,
+        }) + "\n"
+        try:
+            self._proc.stdin.write(request)
+            self._proc.stdin.flush()
+        except (BrokenPipeError, OSError, AttributeError):
+            return None, "pipe write failed"
+        try:
+            line = self._proc.stdout.readline()
+            if not line:
+                return None, "empty response"
+            resp = json.loads(line)
+        except (json.JSONDecodeError, Exception) as e:
+            return None, str(e)
+        if "error" in resp:
+            return None, resp["error"].get("message", str(resp["error"]))
+        return resp.get("result"), None
+
+    def _send_notification(self, method: str, params: dict) -> None:
+        try:
+            note = json.dumps({"jsonrpc": "2.0", "method": method, "params": params}) + "\n"
+            self._proc.stdin.write(note)
+            self._proc.stdin.flush()
+        except Exception:
+            pass
+
+    def call_tool(self, tool_name: str, arguments: dict) -> tuple[dict | None, str | None]:
+        """Call an MCP tool, reconnecting transparently if needed."""
+        if not self._ensure_connected():
+            return None, "connection failed"
+        result, err = self._raw_call("tools/call", {
+            "name": tool_name,
+            "arguments": arguments,
+        })
+        if err:
+            # Transient failure — disconnect so the next call reconnects
+            self._disconnect()
+            return None, err
+        if result is None:
+            return None, "no result"
+        # Unwrap MCP content wrapper
+        content = result.get("content", [])
+        if content and isinstance(content, list):
+            first = content[0]
+            if isinstance(first, dict) and "text" in first:
+                try:
+                    return json.loads(first["text"]), None
+                except (json.JSONDecodeError, TypeError):
+                    return {"text": first["text"]}, None
+        return result, None
+
+
 def _memorymesh_binary_path() -> Optional[str]:
     """Find the memorymesh CLI binary.
 
@@ -9218,16 +9355,18 @@ def _memorymesh_binary_path() -> Optional[str]:
 
 
 def _memorymesh_rest_health() -> bool:
-    """Check if MemoryMesh REST API is running on localhost:8766."""
+    """Check if MemoryMesh REST API is running on localhost:8766.
+
+    #448: Uses urllib instead of an external curl subprocess so the health
+    probe stays in-process (no subprocess spawn per check).
+    """
     try:
-        result = subprocess.run(
-            ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}",
-             "http://localhost:8766/health"],
-            capture_output=True,
-            text=True,
-            timeout=2,
+        req = urllib.request.Request(
+            "http://localhost:8766/health",
+            headers={"User-Agent": "perseus-memorymesh/1.0"},
         )
-        return result.stdout.strip() == "200"
+        with urllib.request.urlopen(req, timeout=2) as resp:
+            return resp.status == 200
     except Exception:
         return False
 
@@ -9258,112 +9397,28 @@ def _memorymesh_search_rest(query: str, top_k: int = 3) -> list[dict]:
 
 
 def _memorymesh_search_mcp(query: str, top_k: int = 3) -> list[dict]:
-    """Search MemoryMesh via MCP JSON-RPC over subprocess.
-    
-    Starts memorymesh in stdio MCP mode, performs the handshake, calls
-    search_memory, and returns results. This is the fallback when the REST
-    API is not available.
+    """Search MemoryMesh via MCP JSON-RPC over persistent subprocess (#448).
+
+    Reuses a single subprocess across calls instead of spawning a fresh
+    process + handshake per query. Falls back to empty list on any failure.
     """
     binary = _memorymesh_binary_path()
     if not binary:
         return []
 
-    try:
-        proc = subprocess.Popen(
-            [binary, "start", "--transport", "stdio"],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-
-        # MCP JSON-RPC handshake: send initialize request
-        init_request = json.dumps({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": {
-                "protocolVersion": "2025-06-18",
-                "capabilities": {},
-                "clientInfo": {"name": "perseus", "version": "1.0.7"},
-            },
-        }) + "\n"
-
-        try:
-            proc.stdin.write(init_request)
-            proc.stdin.flush()
-        except (BrokenPipeError, OSError):
-            proc.terminate()
-            return []
-
-        # Read initialize response
-        try:
-            line = proc.stdout.readline()
-            if not line:
-                proc.terminate()
-                return []
-            init_resp = json.loads(line)
-        except (json.JSONDecodeError, Exception):
-            proc.terminate()
-            return []
-
-        # Send initialized notification
-        proc.stdin.write(json.dumps({
-            "jsonrpc": "2.0",
-            "method": "notifications/initialized",
-        }) + "\n")
-        proc.stdin.flush()
-
-        # Call search_memory tool
-        call_request = json.dumps({
-            "jsonrpc": "2.0",
-            "id": 2,
-            "method": "tools/call",
-            "params": {
-                "name": "search_memory",
-                "arguments": {
-                    "query": query,
-                    "top_k": top_k,
-                    "mode": "hybrid",
-                },
-            },
-        }) + "\n"
-
-        try:
-            proc.stdin.write(call_request)
-            proc.stdin.flush()
-        except (BrokenPipeError, OSError):
-            proc.terminate()
-            return []
-
-        # Read search result
-        try:
-            line = proc.stdout.readline()
-            if not line:
-                proc.terminate()
-                return []
-            search_resp = json.loads(line)
-        except (json.JSONDecodeError, Exception):
-            proc.terminate()
-            return []
-
-        proc.terminate()
-        proc.wait(timeout=5)
-
-        # Extract results
-        result = search_resp.get("result", {})
-        content = result.get("content", [])
-        if content and isinstance(content, list):
-            text = content[0].get("text", "[]") if content else "[]"
-            try:
-                return json.loads(text)
-            except json.JSONDecodeError:
-                return []
-
+    client = _PersistentMCPClient.for_command([binary, "start", "--transport", "stdio"])
+    result, err = client.call_tool("search_memory", {
+        "query": query,
+        "top_k": top_k,
+        "mode": "hybrid",
+    })
+    if err or result is None:
         return []
-
-    except (subprocess.TimeoutExpired, OSError, Exception):
-        return []
+    if isinstance(result, list):
+        return result
+    if isinstance(result, dict) and "results" in result:
+        return result["results"]
+    return []
 
 
 def memorymesh_search(query: str, top_k: int = 3) -> list[dict]:
@@ -9545,114 +9600,24 @@ def _memtrace_binary_path() -> Optional[str]:
 
 
 def _memtrace_mcp_call(tool_name: str, arguments: dict[str, Any], timeout: int = 15) -> Optional[dict]:
-    """Call a Memtrace MCP tool via subprocess.
-    
-    Starts a `memtrace mcp` subprocess, performs the MCP handshake,
-    calls the specified tool, and returns the result content.
-    
-    Args:
-        tool_name: MCP tool name (e.g., 'find_code', 'get_impact').
-        arguments: Tool arguments dict.
-        timeout: Max seconds to wait for the subprocess.
-        
-    Returns:
-        Parsed result dict, or None on any failure.
+    """Call a Memtrace MCP tool via persistent subprocess (#448).
+
+    Reuses a single `memtrace mcp` subprocess across calls instead of
+    spawning a fresh process + handshake per invocation. Falls back to
+    None on any failure.
     """
     binary = _memtrace_binary_path()
     if not binary:
         return None
 
-    try:
-        proc = subprocess.Popen(
-            [binary, "mcp"],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-
-        # MCP handshake
-        init_request = json.dumps({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": {
-                "protocolVersion": "2025-06-18",
-                "capabilities": {},
-                "clientInfo": {"name": "perseus", "version": "1.0.7"},
-            },
-        }) + "\n"
-
-        try:
-            proc.stdin.write(init_request)
-            proc.stdin.flush()
-        except (BrokenPipeError, OSError):
-            proc.terminate()
-            return None
-
-        # Read initialize response
-        try:
-            line = proc.stdout.readline()
-            if not line:
-                proc.terminate()
-                return None
-            init_resp = json.loads(line)
-        except (json.JSONDecodeError, Exception):
-            proc.terminate()
-            return None
-
-        # Send initialized notification
-        proc.stdin.write(json.dumps({
-            "jsonrpc": "2.0",
-            "method": "notifications/initialized",
-        }) + "\n")
-        proc.stdin.flush()
-
-        # Call the tool
-        call_request = json.dumps({
-            "jsonrpc": "2.0",
-            "id": 2,
-            "method": "tools/call",
-            "params": {
-                "name": tool_name,
-                "arguments": arguments,
-            },
-        }) + "\n"
-
-        try:
-            proc.stdin.write(call_request)
-            proc.stdin.flush()
-        except (BrokenPipeError, OSError):
-            proc.terminate()
-            return None
-
-        # Read result
-        try:
-            line = proc.stdout.readline()
-            if not line:
-                proc.terminate()
-                return None
-            resp = json.loads(line)
-        except (json.JSONDecodeError, Exception):
-            proc.terminate()
-            return None
-
-        proc.terminate()
-        proc.wait(timeout=5)
-
-        # Extract content from MCP response
-        result = resp.get("result", {})
-        content = result.get("content", [])
-        if content and isinstance(content, list):
-            text = content[0].get("text", "{}") if content else "{}"
-            try:
-                return json.loads(text)
-            except json.JSONDecodeError:
-                return {"text": text}
-        return result
-
-    except (subprocess.TimeoutExpired, OSError, Exception):
+    client = _PersistentMCPClient.for_command([binary, "mcp"])
+    result, err = client.call_tool(tool_name, arguments)
+    if err or result is None:
         return None
+    # Preserve existing return shape: if the result is a plain dict with a
+    # "text" key it's a content-wrapper miss; return it as-is so callers
+    # that expect a dict still work.
+    return result
 
 
 def memtrace_find_symbol(name: str, repo_id: Optional[str] = None) -> Optional[dict]:
