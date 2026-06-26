@@ -1002,55 +1002,53 @@ def cmd_memory_federation(args, cfg) -> None:
         results = []
         if not use_json:
             print(f"Pulling {len(subs)} federated narrative(s) (read-only):")
-        for entry in subs:
+        # #449: resolve each subscription's narrative (remote HTTP fetch or local
+        # file read) in parallel, returning (record, progress_line); the records
+        # and prints are then emitted serially in subscription order.
+        def _pull_one(entry: dict) -> tuple:
             alias = entry.get("alias", "?")
             remote = entry.get("remote")
-
             if remote:
-                # ── Remote pull (Phase 27A) ──
-                body, err, ws_id = _resolve_remote_narrative(entry, cfg)
+                body, err, _ws_id = _resolve_remote_narrative(entry, cfg)
                 if err and body is None:
                     rec = {"alias": alias, "url": remote.get("url", "?"),
                            "transport": "remote", "status": "error", "error": err,
                            "line_count": None, "mtime": None, "bytes": None}
-                    if not use_json:
-                        print(f"  ⚠ {alias} (remote): {err}")
-                else:
-                    if err:
-                        status = "stale-cached"
-                        note = f" (cached: {err})"
-                    else:
-                        status = "ok"
-                        note = ""
-                    lines = body.count("\n") if body else 0
-                    rec = {"alias": alias, "url": remote.get("url", "?"),
-                           "transport": "remote", "status": status,
-                           "error": err, "line_count": lines,
-                           "mtime": datetime.now().isoformat(timespec="seconds"),
-                           "bytes": len(body) if body else 0}
-                    if not use_json:
-                        print(f"  ✅ {alias} (remote): {lines} lines{note}")
-                results.append(rec)
-                continue
+                    return rec, f"  ⚠ {alias} (remote): {err}"
+                status = "stale-cached" if err else "ok"
+                note = f" (cached: {err})" if err else ""
+                lines = body.count("\n") if body else 0
+                rec = {"alias": alias, "url": remote.get("url", "?"),
+                       "transport": "remote", "status": status,
+                       "error": err, "line_count": lines,
+                       "mtime": datetime.now().isoformat(timespec="seconds"),
+                       "bytes": len(body) if body else 0}
+                return rec, f"  ✅ {alias} (remote): {lines} lines{note}"
 
-            # ── Local pull (original behavior) ──
             narrative, err = _resolve_subscription_narrative(entry, cfg)
             if err:
                 rec = {"alias": alias, "path": entry.get("path", "?"),
                        "status": "error", "error": err,
                        "line_count": None, "mtime": None, "bytes": None}
-                if not use_json:
-                    print(f"  ⚠ {alias}: {err}")
-            else:
-                stat = narrative.stat()
-                lines = narrative.read_text(errors="replace", encoding="utf-8").count("\n")
-                mt = datetime.fromtimestamp(stat.st_mtime).isoformat(timespec="seconds")
-                rec = {"alias": alias, "path": str(narrative),
-                       "transport": "local", "status": "ok", "error": None,
-                       "line_count": lines, "mtime": mt, "bytes": stat.st_size}
-                if not use_json:
-                    print(f"  ✅ {alias}: {lines} lines, modified {mt}")
+                return rec, f"  ⚠ {alias}: {err}"
+            stat = narrative.stat()
+            lines = narrative.read_text(errors="replace", encoding="utf-8").count("\n")
+            mt = datetime.fromtimestamp(stat.st_mtime).isoformat(timespec="seconds")
+            rec = {"alias": alias, "path": str(narrative),
+                   "transport": "local", "status": "ok", "error": None,
+                   "line_count": lines, "mtime": mt, "bytes": stat.st_size}
+            return rec, f"  ✅ {alias}: {lines} lines, modified {mt}"
+
+        if len(subs) > 1:
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=min(len(subs), 8)) as _ex:
+                resolved = list(_ex.map(_pull_one, subs))
+        else:
+            resolved = [_pull_one(s) for s in subs]
+        for rec, progress in resolved:
             results.append(rec)
+            if not use_json:
+                print(progress)
         if use_json:
             import json as _json
             print(_json.dumps(results, indent=2))

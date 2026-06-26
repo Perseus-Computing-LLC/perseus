@@ -282,6 +282,32 @@ def test_resolve_memory_federation_with_alias_filter(tmp_path):
     assert "From B" not in out
 
 
+def test_federation_pull_parallel_preserves_order(tmp_path, monkeypatch, capsys):
+    """#449: pull resolves narratives in parallel but reports records in
+    subscription order."""
+    local = _fed_cfg(tmp_path)
+    manifest = {"version": 1, "subscriptions": [
+        {"alias": a, "remote": {"url": f"https://{a}:7991", "auth_token": "", "verify_key": None},
+         "enabled": True}
+        for a in ("alpha", "beta", "gamma")
+    ]}
+    mp = Path(local["memory"]["federation_manifest"])
+    mp.parent.mkdir(parents=True, exist_ok=True)
+    mp.write_text(yaml.dump(manifest), encoding="utf-8")
+
+    def _fake_remote(entry, _cfg):
+        return (f"# N\n\nbody for {entry['alias']}\n", None, entry["alias"])
+
+    monkeypatch.setattr(perseus, "_resolve_remote_narrative", _fake_remote)
+
+    args = argparse.Namespace(federation_command="pull", json=True)
+    perseus.cmd_memory_federation(args, local)
+    records = json.loads(capsys.readouterr().out)
+
+    assert [r["alias"] for r in records] == ["alpha", "beta", "gamma"]
+    assert all(r["status"] == "ok" for r in records)
+
+
 def test_cmd_memory_federation_subscribe_then_list(tmp_path, capsys):
     local = _fed_cfg(tmp_path)
     other = tmp_path / "ws_other"
