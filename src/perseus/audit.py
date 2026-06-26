@@ -961,9 +961,11 @@ def _load_tasks(tasks_dir: Path) -> list[tuple[Path, dict, str]]:
         return tasks
     for task_path in sorted(tasks_dir.glob('task-*.md')):
         fm, body = _load_task_file(task_path)
-        fm, body, changed = _normalize_task_frontmatter(task_path, fm, body)
-        if changed:
-            _save_task_file(task_path, fm, body)
+        fm, body, _changed = _normalize_task_frontmatter(task_path, fm, body)
+        # #445: normalize in memory only — do NOT persist on the read path.
+        # The atomic write + fcntl lock + fsync per task was a hidden write
+        # on every @agora render / list.  Mutating commands (claim, close, etc.)
+        # call _save_task_file explicitly.
         tasks.append((task_path, fm, body))
     return tasks
 
