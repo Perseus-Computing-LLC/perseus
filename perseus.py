@@ -13498,28 +13498,29 @@ def _resolve_remote_narrative(entry: dict, cfg: dict) -> tuple[str | None, str |
     """Resolve a remote subscription to a narrative body, using cache when fresh.
 
     Returns (narrative_body, error_message, workspace_id).
-    On success from cache: (body, None, ws_id_from_cache).
-    On success from fetch: (body, None, ws_id_from_response).
-    On stale cache + fetch failed: (cached_body, err, ws_id) — use stale with warning.
-    On no cache + fetch failed: (None, reason, None).
+    On fresh cache: (body, None, ws_id) — served without a network round-trip.
+    On cache miss/expiry + fetch success: (body, None, ws_id) and the cache is refreshed.
+    On cache miss/expiry + fetch failed: (None, reason, None).
     """
     alias = entry.get("alias", "?")
     remote = entry.get("remote", {})
 
-    # Try fresh fetch first
+    # Serve from cache when fresh. _read_remote_cache returns None once the
+    # entry is past cache_ttl_s, so a non-None result is within TTL. This is
+    # what makes cache_ttl_s meaningful: a fresh subscription costs no network.
+    cached = _read_remote_cache(cfg, alias)
+    if cached is not None:
+        cached_body = cached.get("narrative", "")
+        if cached_body:
+            return (cached_body, None, cached.get("workspace_id"))
+
+    # Cache absent or expired — fetch and refresh the cache.
     body, err, ws_id = _fetch_remote_narrative(entry, cfg)
     if body is not None:
         _write_remote_cache(cfg, alias, body, ws_id, None,
                            datetime.now().isoformat(timespec="seconds"),
                            remote.get("url", ""))
         return (body, None, ws_id)
-
-    # Fetch failed — try stale cache
-    cached = _read_remote_cache(cfg, alias)
-    if cached is not None:
-        cached_body = cached.get("narrative", "")
-        if cached_body:
-            return (cached_body, err or "using cached data", cached.get("workspace_id"))
 
     return (None, err or "no cached narrative available", None)
 
