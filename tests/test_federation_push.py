@@ -90,6 +90,29 @@ class TestPushFunction:
         # No push_url → no push attempted
         assert results == []
 
+    def test_push_to_all_parallel_preserves_order(self, tmp_path, monkeypatch):
+        """#449: pushes run in parallel but results are reported in subscription
+        order, one per push_url subscriber."""
+        c = _push_cfg(tmp_path)
+        _write_manifest(tmp_path, [
+            {"alias": a,
+             "remote": {"url": f"https://{a}:7991",
+                        "push_url": f"https://{a}:7991/federation/receive",
+                        "push_token": ""},
+             "enabled": True}
+            for a in ("alpha", "beta", "gamma")
+        ])
+
+        def _fake_push(sub, body, sig, cfg):
+            return (True, f"pushed-{sub['alias']}")
+
+        monkeypatch.setattr(perseus, "_push_narrative_to_subscriber", _fake_push)
+        results = perseus._push_to_all_subscribers(c, "# Narrative", None)
+
+        assert [r["alias"] for r in results] == ["alpha", "beta", "gamma"]
+        assert all(r["success"] for r in results)
+        assert [r["message"] for r in results] == ["pushed-alpha", "pushed-beta", "pushed-gamma"]
+
     def test_push_to_unreachable_returns_failure(self, tmp_path):
         c = _push_cfg(tmp_path)
         sub = {
