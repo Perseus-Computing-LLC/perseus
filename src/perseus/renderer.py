@@ -824,7 +824,16 @@ def _render_lines(
     # cache miss — never as a query running when it shouldn't, and never
     # as a query failing to run when it should.
     query_results: dict[int, str] = {}
-    if top_level and cfg["render"].get("parallel_queries", False):
+    # Cache key the pre-scan computed for each pending query, reused verbatim
+    # by the parallel worker on write so the write key cannot drift from the
+    # read key (the workspace suffix was previously dropped on write).
+    query_cache_keys: dict[int, str] = {}
+    # Raw source line per pending query, captured at enqueue. The pending
+    # comprehension below previously paired every idx with the loop's stale
+    # `raw_line` (the LAST scanned line), so all parallel queries ran the
+    # last query's command and clobbered each other's results.
+    query_raw_lines: dict[int, str] = {}
+    if top_level and cfg.get("render", {}).get("parallel_queries", False):
         in_fence_pre = False
         fc_pre = ""
         fl_pre = 0
@@ -902,8 +911,10 @@ def _render_lines(
                     query_results[idx] = cached
                     continue
                 query_results[idx] = None  # sentinel: needs resolution
+                query_cache_keys[idx] = cache_key
+                query_raw_lines[idx] = raw_line
 
-        pending = [(idx, raw_line) for idx, v in query_results.items() if v is None]
+        pending = [(idx, query_raw_lines[idx]) for idx, v in query_results.items() if v is None]
         if len(pending) > 1:
             from concurrent.futures import ThreadPoolExecutor, as_completed
             def _run_one(idx: int, raw_line: str) -> tuple[int, str]:
@@ -914,8 +925,7 @@ def _render_lines(
                 result = _call_resolver(spec2, clean2, cfg, workspace)
                 result = _apply_output_schema_validation(spec2, clean2, result, workspace)
                 if cmode:
-                    ckey = _cache_key(f"@query {clean2}")
-                    cache_set(ckey, result, cmode, cttl, cfg)
+                    cache_set(query_cache_keys[idx], result, cmode, cttl, cfg)
                 return idx, result
             with ThreadPoolExecutor(max_workers=min(len(pending), 8)) as executor:
                 futures = {executor.submit(_run_one, idx, line): idx for idx, line in pending}
@@ -1398,10 +1408,9 @@ def render_source(
     if _include_depth == 0 and _uses_preflight_sensitive_directive(body_lines):
         preflight_warnings = _preflight_permissions(cfg)
 
-    _constraint_rows = []
     if _skipped_directives is None:
         _skipped_directives = []
-    result = _render_lines(body_lines, cfg, workspace, _constraint_rows,
+    result = _render_lines(body_lines, cfg, workspace, None,
                          _include_depth=_include_depth,
                          _include_path_chain=_include_path_chain,
                          _include_inode_chain=_include_inode_chain,
