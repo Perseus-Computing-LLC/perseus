@@ -119,114 +119,24 @@ def _memtrace_binary_path() -> Optional[str]:
 
 
 def _memtrace_mcp_call(tool_name: str, arguments: dict[str, Any], timeout: int = 15) -> Optional[dict]:
-    """Call a Memtrace MCP tool via subprocess.
-    
-    Starts a `memtrace mcp` subprocess, performs the MCP handshake,
-    calls the specified tool, and returns the result content.
-    
-    Args:
-        tool_name: MCP tool name (e.g., 'find_code', 'get_impact').
-        arguments: Tool arguments dict.
-        timeout: Max seconds to wait for the subprocess.
-        
-    Returns:
-        Parsed result dict, or None on any failure.
+    """Call a Memtrace MCP tool via persistent subprocess (#448).
+
+    Reuses a single `memtrace mcp` subprocess across calls instead of
+    spawning a fresh process + handshake per invocation. Falls back to
+    None on any failure.
     """
     binary = _memtrace_binary_path()
     if not binary:
         return None
 
-    try:
-        proc = subprocess.Popen(
-            [binary, "mcp"],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-
-        # MCP handshake
-        init_request = json.dumps({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": {
-                "protocolVersion": "2025-06-18",
-                "capabilities": {},
-                "clientInfo": {"name": "perseus", "version": "1.0.7"},
-            },
-        }) + "\n"
-
-        try:
-            proc.stdin.write(init_request)
-            proc.stdin.flush()
-        except (BrokenPipeError, OSError):
-            proc.terminate()
-            return None
-
-        # Read initialize response
-        try:
-            line = proc.stdout.readline()
-            if not line:
-                proc.terminate()
-                return None
-            init_resp = json.loads(line)
-        except (json.JSONDecodeError, Exception):
-            proc.terminate()
-            return None
-
-        # Send initialized notification
-        proc.stdin.write(json.dumps({
-            "jsonrpc": "2.0",
-            "method": "notifications/initialized",
-        }) + "\n")
-        proc.stdin.flush()
-
-        # Call the tool
-        call_request = json.dumps({
-            "jsonrpc": "2.0",
-            "id": 2,
-            "method": "tools/call",
-            "params": {
-                "name": tool_name,
-                "arguments": arguments,
-            },
-        }) + "\n"
-
-        try:
-            proc.stdin.write(call_request)
-            proc.stdin.flush()
-        except (BrokenPipeError, OSError):
-            proc.terminate()
-            return None
-
-        # Read result
-        try:
-            line = proc.stdout.readline()
-            if not line:
-                proc.terminate()
-                return None
-            resp = json.loads(line)
-        except (json.JSONDecodeError, Exception):
-            proc.terminate()
-            return None
-
-        proc.terminate()
-        proc.wait(timeout=5)
-
-        # Extract content from MCP response
-        result = resp.get("result", {})
-        content = result.get("content", [])
-        if content and isinstance(content, list):
-            text = content[0].get("text", "{}") if content else "{}"
-            try:
-                return json.loads(text)
-            except json.JSONDecodeError:
-                return {"text": text}
-        return result
-
-    except (subprocess.TimeoutExpired, OSError, Exception):
+    client = _PersistentMCPClient.for_command([binary, "mcp"])
+    result, err = client.call_tool(tool_name, arguments)
+    if err or result is None:
         return None
+    # Preserve existing return shape: if the result is a plain dict with a
+    # "text" key it's a content-wrapper miss; return it as-is so callers
+    # that expect a dict still work.
+    return result
 
 
 def memtrace_find_symbol(name: str, repo_id: Optional[str] = None) -> Optional[dict]:
