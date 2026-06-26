@@ -13620,15 +13620,27 @@ def _push_to_all_subscribers(cfg: dict, narrative_body: str, sig: dict | None = 
     """
     manifest = _load_federation_manifest(cfg)
     subs = manifest.get("subscriptions", [])
-    results = []
-    for sub in subs:
+    # #449: push to all subscribers in parallel. Each _push_narrative_to_subscriber
+    # is an independent HTTP POST (urlopen with fetch_timeout); pushing serially
+    # made the total latency the sum, and one slow/dead subscriber blocked the
+    # rest. Resolve concurrently, then report in subscription order.
+    targets = [s for s in subs if s.get("remote", {}).get("push_url")]
+
+    def _push_one(sub: dict) -> dict:
         alias = sub.get("alias", "?")
-        remote = sub.get("remote", {})
-        if remote.get("push_url"):
-            ok, msg = _push_narrative_to_subscriber(sub, narrative_body, sig, cfg)
-            results.append({"alias": alias, "success": ok, "message": msg})
-            if not ok:
-                print(f"Push warning [{alias}]: {msg}", file=sys.stderr)
+        ok, msg = _push_narrative_to_subscriber(sub, narrative_body, sig, cfg)
+        return {"alias": alias, "success": ok, "message": msg}
+
+    if len(targets) > 1:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=min(len(targets), 8)) as _ex:
+            results = list(_ex.map(_push_one, targets))
+    else:
+        results = [_push_one(s) for s in targets]
+
+    for rec in results:
+        if not rec["success"]:
+            print(f"Push warning [{rec['alias']}]: {rec['message']}", file=sys.stderr)
     return results
 
 
