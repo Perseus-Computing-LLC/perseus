@@ -173,6 +173,71 @@ def cmd_scan(args, cfg):
     return 0
 
 
+def cmd_compress(args, cfg):
+    """Render a context, then deterministically compress it and report the
+    token-reduction %.
+
+    Structure-preserving (fenced code blocks kept verbatim) and fully
+    deterministic, so the reported reduction is a citable, build-assertable
+    number. Writes the compressed output to --output or stdout; the stats go to
+    stderr (human) or stdout (--json).
+    """
+    import copy as _copy
+    import json as _json
+
+    source_path = Path(args.source).expanduser().resolve()
+    if not source_path.exists():
+        print(f"Error: file not found: {source_path}", file=sys.stderr)
+        sys.exit(1)
+
+    workspace = _infer_workspace(source_path)
+    cfg = load_config(workspace)
+    _merge_pack_mimir_config(cfg, workspace)
+    text = source_path.read_text(errors="replace", encoding="utf-8")
+
+    max_tier = getattr(args, "tier", None)
+    if max_tier is None:
+        max_tier = cfg.get("render", {}).get("default_tier", 3) or 3
+
+    rendered = render_source(text, cfg, workspace, max_tier=max_tier,
+                             no_cache=getattr(args, "no_cache", False))
+
+    # Force-enable compression for this explicit invocation; let CLI flags
+    # override the configured sub-options.
+    ccfg = _copy.deepcopy(cfg)
+    comp = ccfg.setdefault("compress", {})
+    comp["enabled"] = True
+    if getattr(args, "max_blank_lines", None) is not None:
+        comp["max_blank_lines"] = args.max_blank_lines
+    if getattr(args, "no_dedup", False):
+        comp["dedup_adjacent"] = False
+    if getattr(args, "strip_comments", False):
+        comp["strip_comments"] = True
+
+    compressed, report = compress_text(rendered, ccfg)
+
+    output = getattr(args, "output", None)
+    if output:
+        out_path = Path(output)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(compressed, encoding="utf-8")
+    elif not getattr(args, "json", False):
+        print(compressed)
+
+    if getattr(args, "json", False):
+        print(_json.dumps(report, indent=2))
+    else:
+        r = report
+        rules = f"; rules: {', '.join(r['rules'])}" if r["rules"] else "; no-op"
+        print(
+            f"perseus compress: {r['tokens_before']} -> {r['tokens_after']} tokens "
+            f"(-{r['reduction_pct']}%, ~{r['tokens_saved']} saved); "
+            f"{r['bytes_before']} -> {r['bytes_after']} bytes{rules}",
+            file=sys.stderr,
+        )
+    return 0
+
+
 def cmd_warmup(args, cfg):
     """Pre-populate the render cache for a context file without writing output."""
     source_path = Path(args.source).expanduser().resolve()

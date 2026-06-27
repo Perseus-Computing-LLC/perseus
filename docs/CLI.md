@@ -8,6 +8,7 @@
 |---|---|
 | `perseus render <file>` | Resolve all directives in a source document and print rendered output. Add `--output <path>` to write to disk. `--format json` for structured output with metadata, directive details, and integrity report — consumable by agents and CI pipelines. Custom format plugins in `~/.perseus/formats/<name>.py`. |
 | `perseus scan <file> [--pii] [--json] [--report-only]` | Security build gate. Render the context (with redaction off, in-memory) and scan the resolved output for secret shapes (and, with `--pii`, emails/SSNs/phone numbers/Luhn-valid cards). Prints a masked report and **exits non-zero on findings** so CI can block a leaking context. `--report-only` reports without failing. |
+| `perseus compress <file> [--output FILE] [--json] [--strip-comments]` | Render then **deterministically** compress the context (trim trailing whitespace, collapse blank-line runs, drop adjacent duplicate lines, optional comment strip; fenced code preserved verbatim) and report a citable token-reduction percent. Dependency-free and reproducible — a build can assert on the number. |
 | `perseus graph <file> [--json]` | Build a static directive graph without executing directives; foundation for predictive prefetching. |
 | `perseus prefetch <file> [--json]` | Apply configured `prefetch.rules` to the static graph and warm directive caches. |
 | `perseus synthesize <question> --source FILE [--json]` | Build a cited-synthesis prompt, or explicitly run an LLM drafter with citation validation. Uncited claims are dropped. |
