@@ -111,6 +111,68 @@ def cmd_render(args, cfg):
         print(rendered)
 
 
+def cmd_scan(args, cfg):
+    """Scan a context's *rendered* output for secrets (and optionally PII).
+
+    A build-time gate: render the source with redaction turned OFF (in-memory
+    only — nothing is written to disk), then run the detectors against the raw
+    resolved text so leaks pulled in via @env/@query/@include/@tool are caught.
+    Prints a report and exits non-zero when findings exist, so CI can block a
+    context that would leak credentials or PII. Use --report-only to always
+    exit 0 (report without failing).
+    """
+    import copy as _copy
+    import json as _json
+
+    source_path = Path(args.source).expanduser().resolve()
+    if not source_path.exists():
+        print(f"Error: file not found: {source_path}", file=sys.stderr)
+        sys.exit(1)
+
+    workspace = _infer_workspace(source_path)
+    cfg = load_config(workspace)
+    _merge_pack_mimir_config(cfg, workspace)
+    text = source_path.read_text(errors="replace", encoding="utf-8")
+
+    max_tier = getattr(args, "tier", None)
+    if max_tier is None:
+        max_tier = cfg.get("render", {}).get("default_tier", 3) or 3
+
+    # Render with redaction disabled so the scanner sees raw resolved content.
+    scan_cfg = _copy.deepcopy(cfg)
+    scan_cfg.setdefault("redaction", {})["enabled"] = False
+    rendered = render_source(text, scan_cfg, workspace, max_tier=max_tier,
+                             no_cache=getattr(args, "no_cache", False))
+
+    # PII: --pii / --no-pii override config redaction.detect_pii.
+    include_pii = None
+    if getattr(args, "pii", False):
+        include_pii = True
+    elif getattr(args, "no_pii", False):
+        include_pii = False
+
+    report = scan_text(rendered, cfg, include_pii=include_pii)
+
+    if getattr(args, "json", False):
+        print(_json.dumps(report, indent=2, default=str))
+    else:
+        if report["total"] == 0:
+            scope = "secrets + PII" if report.get("pii_scanned") else "secrets"
+            print(f"perseus scan: clean — no {scope} detected in {source_path.name}")
+        else:
+            print(f"perseus scan: {report['total']} finding(s) in {source_path.name}", file=sys.stderr)
+            by_rule = ", ".join(f"{n}={c}" for n, c in sorted(report["counts"].items()))
+            print(f"  by detector: {by_rule}", file=sys.stderr)
+            for f in report["findings"]:
+                print(f"  line {f['line']}: [{f['rule']}] {f['context']}", file=sys.stderr)
+            if not report.get("pii_scanned"):
+                print("  (re-run with --pii to also scan for emails, SSNs, phone numbers, cards)", file=sys.stderr)
+
+    if report["total"] > 0 and not getattr(args, "report_only", False):
+        sys.exit(2)
+    return 0
+
+
 def cmd_warmup(args, cfg):
     """Pre-populate the render cache for a context file without writing output."""
     source_path = Path(args.source).expanduser().resolve()

@@ -232,6 +232,159 @@ def redact_text(text: str, cfg: dict) -> tuple[str, dict]:
     }
 
 
+# ─────────────────────────── PII detection (scan-only) ───────────────────────
+#
+# PII detectors are deliberately NOT part of the live redaction output path:
+# emails, phone numbers, and the like are frequently *legitimate* context (a
+# CODEOWNERS file, a support runbook), so auto-shredding them would damage
+# real content. Instead they power `perseus scan` — a build-time gate that
+# FLAGS secrets + PII for human review and can fail CI, without mutating output.
+#
+# Precision over recall (same philosophy as the secret detectors): patterns
+# require enough structure to avoid matching version numbers, IDs, and dates.
+
+DEFAULT_PII_RULES: list[dict[str, str]] = [
+    # Email address.
+    {"name": "email", "pattern": r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"},
+    # US Social Security Number — require the dashed form so we don't match any
+    # 9-digit run (order numbers, IDs). Excludes obviously-invalid 000/666/9xx
+    # area numbers.
+    {"name": "us_ssn", "pattern": r"\b(?!000|666|9\d\d)\d{3}-(?!00)\d{2}-(?!0000)\d{4}\b"},
+    # US/NANP phone number — require at least one separator (space/dot/dash or
+    # parenthesised area code) so bare 10-digit integers don't trip it.
+    {"name": "us_phone",
+     "pattern": r"(?<!\d)(?:\+?1[-.\s])?(?:\(\d{3}\)[-.\s]?|\d{3}[-.\s])\d{3}[-.\s]\d{4}(?!\d)"},
+    # Credit-card-shaped digit run (13–19 digits, optional space/dash grouping).
+    # ALWAYS Luhn-validated in the scanner (see _luhn_ok) to cut false positives.
+    {"name": "credit_card", "pattern": r"\b\d(?:[ -]?\d){12,18}\b", "_luhn": True},
+]
+
+
+def _luhn_ok(s: str) -> bool:
+    """Return True if the digits in ``s`` pass the Luhn checksum (13–19 digits)."""
+    digits = [int(c) for c in s if c.isdigit()]
+    if not (13 <= len(digits) <= 19):
+        return False
+    total = 0
+    parity = len(digits) % 2
+    for i, d in enumerate(digits):
+        if i % 2 == parity:
+            d *= 2
+            if d > 9:
+                d -= 9
+        total += d
+    return total % 10 == 0
+
+
+def _compile_pii_rules() -> list[dict]:
+    """Compile the PII detectors into the same shape as secret rules."""
+    compiled: list[dict] = []
+    for rule in DEFAULT_PII_RULES:
+        try:
+            regex = re.compile(str(rule["pattern"]))
+        except re.error:
+            continue
+        compiled.append({
+            "name": rule["name"],
+            "regex": regex,
+            "replacement": f"[REDACTED:{rule['name']}]",
+            "anchor_group": None,
+            "prefix_group": None,
+            "luhn": bool(rule.get("_luhn")),
+        })
+    return compiled
+
+
+def _line_starts(text: str) -> list[int]:
+    """Byte/char offsets where each line begins, for offset→line-number lookup."""
+    starts = [0]
+    for i, ch in enumerate(text):
+        if ch == "\n":
+            starts.append(i + 1)
+    return starts
+
+
+def _line_no(starts: list[int], pos: int) -> int:
+    """1-based line number for character offset ``pos`` (binary search)."""
+    import bisect
+    return bisect.bisect_right(starts, pos)
+
+
+def _redact_line(line: str, rules: list[dict]) -> str:
+    """Mask every secret/PII match in a single line so it is safe to print."""
+    out = line
+    for rule in rules:
+        def _sub(m, _repl=rule["replacement"], _luhn=rule.get("luhn")):
+            if _luhn and not _luhn_ok(m.group(0)):
+                return m.group(0)
+            return _repl
+        out = rule["regex"].sub(_sub, out)
+    return out
+
+
+def scan_text(text: str, cfg: dict, include_pii: "bool | None" = None) -> dict:
+    """Scan ``text`` for secrets (and optionally PII) WITHOUT mutating it.
+
+    Unlike :func:`redact_text`, this is a detector: it reports what was found so
+    a build gate can fail. Secret detectors always run (independent of
+    ``redaction.enabled``, since a scan is an explicit, intentional check). PII
+    detectors run when ``include_pii`` is True, or — when ``include_pii`` is
+    None — when ``redaction.detect_pii`` is set in config.
+
+    Returns a JSON-safe report::
+
+        {
+          "total": int,
+          "counts": {rule_name: count},
+          "findings": [{"rule": name, "line": int, "context": "<redacted line>"}],
+          "pii_scanned": bool,
+        }
+
+    Finding ``context`` is the matched line with **all** secrets/PII masked, so
+    the report never reveals a secret value.
+    """
+    empty = {"total": 0, "counts": {}, "findings": [], "pii_scanned": bool(include_pii)}
+    if not isinstance(text, str) or not text:
+        return empty
+
+    red_cfg = (cfg.get("redaction") or {}) if isinstance(cfg, dict) else {}
+    if include_pii is None:
+        include_pii = bool(red_cfg.get("detect_pii", False))
+
+    # Secret rules: force enabled so a scan works even when live redaction is off.
+    scan_cfg = dict(cfg) if isinstance(cfg, dict) else {}
+    forced = dict(red_cfg)
+    forced["enabled"] = True
+    scan_cfg["redaction"] = forced
+    rules = list(_compile_redaction_rules(scan_cfg))
+    if include_pii:
+        rules = rules + _compile_pii_rules()
+    if not rules:
+        return {"total": 0, "counts": {}, "findings": [], "pii_scanned": bool(include_pii)}
+
+    starts = _line_starts(text)
+    counts: dict[str, int] = {}
+    findings: list[dict] = []
+    for rule in rules:
+        for m in rule["regex"].finditer(text):
+            if rule.get("luhn") and not _luhn_ok(m.group(0)):
+                continue
+            counts[rule["name"]] = counts.get(rule["name"], 0) + 1
+            ln = _line_no(starts, m.start())
+            line_text = text[starts[ln - 1]: (starts[ln] - 1 if ln < len(starts) else len(text))]
+            safe = _redact_line(line_text, rules).strip()
+            if len(safe) > 160:
+                safe = safe[:157] + "..."
+            findings.append({"rule": rule["name"], "line": ln, "context": safe})
+    findings.sort(key=lambda f: (f["line"], f["rule"]))
+    return {
+        "total": sum(counts.values()),
+        "counts": counts,
+        "findings": findings,
+        "pii_scanned": bool(include_pii),
+    }
+
+
 def redact_value(value, cfg: dict) -> tuple[object, dict]:
     """Recursively redact strings inside JSON-like values."""
     if isinstance(value, str):

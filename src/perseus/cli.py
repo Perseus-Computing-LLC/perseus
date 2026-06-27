@@ -52,6 +52,23 @@ def main():
              "(version, paths, size, timestamp). No effect when rendering to stdout.",
     )
 
+    # scan — secrets/PII build gate
+    p_scan = sub.add_parser(
+        "scan",
+        help="Scan a context's rendered output for secrets/PII; exit non-zero on findings (CI gate)",
+    )
+    p_scan.add_argument("source", help="Path to .md file with @perseus header")
+    p_scan.add_argument("--pii", action="store_true",
+                        help="Also scan for PII (emails, US SSNs, phone numbers, Luhn-valid cards)")
+    p_scan.add_argument("--no-pii", action="store_true",
+                        help="Skip PII scanning even if redaction.detect_pii is set in config")
+    p_scan.add_argument("--json", action="store_true", help="Output a machine-readable JSON report")
+    p_scan.add_argument("--report-only", action="store_true",
+                        help="Always exit 0 (report findings without failing the build)")
+    p_scan.add_argument("--tier", type=int, default=None, choices=[1, 2, 3],
+                        help="Context tier limit for the render (default: config / 3)")
+    p_scan.add_argument("--no-cache", action="store_true", help="Bypass the render cache")
+
     # watch (Phase 20C)
     p_watch = sub.add_parser("watch", help="Poll and refresh render outputs when context sources change")
     p_watch.add_argument("--source", default=None, help="Source file (default: .perseus/context.md, unless a context pack is present)")
@@ -490,6 +507,8 @@ def main():
 
     if args.command == "render":
         cmd_render(args, cfg)
+    elif args.command == "scan":
+        return cmd_scan(args, cfg)
     elif args.command == "watch":
         return cmd_watch(args, cfg)
     elif args.command == "graph":
