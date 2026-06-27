@@ -69,6 +69,26 @@ def main():
                         help="Context tier limit for the render (default: config / 3)")
     p_scan.add_argument("--no-cache", action="store_true", help="Bypass the render cache")
 
+    # compress — deterministic token reduction with a citable %
+    p_compress = sub.add_parser(
+        "compress",
+        help="Render then deterministically compress a context; report token-reduction percent",
+    )
+    p_compress.add_argument("source", help="Path to .md file with @perseus header")
+    p_compress.add_argument("--output", "-o", default=None, metavar="FILE",
+                            help="Write compressed output to FILE instead of stdout")
+    p_compress.add_argument("--json", action="store_true",
+                            help="Emit the reduction report as JSON (suppresses stdout body)")
+    p_compress.add_argument("--max-blank-lines", type=int, default=None, dest="max_blank_lines",
+                            help="Collapse runs of blank lines down to this many (default: config / 1)")
+    p_compress.add_argument("--no-dedup", action="store_true",
+                            help="Do not drop adjacent exact-duplicate lines")
+    p_compress.add_argument("--strip-comments", action="store_true",
+                            help="Remove <!-- HTML/markdown comments -->")
+    p_compress.add_argument("--tier", type=int, default=None, choices=[1, 2, 3],
+                            help="Context tier limit for the render (default: config / 3)")
+    p_compress.add_argument("--no-cache", action="store_true", help="Bypass the render cache")
+
     # watch (Phase 20C)
     p_watch = sub.add_parser("watch", help="Poll and refresh render outputs when context sources change")
     p_watch.add_argument("--source", default=None, help="Source file (default: .perseus/context.md, unless a context pack is present)")
@@ -509,6 +529,8 @@ def main():
         cmd_render(args, cfg)
     elif args.command == "scan":
         return cmd_scan(args, cfg)
+    elif args.command == "compress":
+        return cmd_compress(args, cfg)
     elif args.command == "watch":
         return cmd_watch(args, cfg)
     elif args.command == "graph":

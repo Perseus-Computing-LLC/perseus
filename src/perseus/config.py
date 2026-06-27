@@ -219,6 +219,16 @@ DEFAULT_CONFIG = {
         # scan --pii` / `--no-pii` override this per-invocation.
         "detect_pii": False,
     },
+    "compress": {
+        # Deterministic, structure-preserving compression of rendered context,
+        # with a measured token-reduction %. Opt-in (off by default so render
+        # output is unchanged unless asked). `perseus compress <file>` applies
+        # it; fenced code blocks are always preserved verbatim.
+        "enabled": False,
+        "max_blank_lines": 1,        # collapse runs of blank lines down to this
+        "dedup_adjacent": True,      # drop adjacent exact-duplicate lines
+        "strip_comments": False,     # remove <!-- HTML/markdown comments -->
+    },
     "env": {                          # task-61 — @env directive deny-list
         # Glob patterns for environment variable NAMES that must not be
         # rendered into context files. Variables matching any pattern are
