@@ -25,7 +25,6 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Application Frameworks",
     "Topic :: Software Development :: Pre-processors",
     "Topic :: Utilities",
-    "Framework :: MCP (Model Context Protocol)",
 ]
 requires-python = ">=3.10"
 dependencies = ["pyyaml>=6.0.1"]
