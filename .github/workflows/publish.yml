@@ -36,6 +36,14 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install runtime dependencies
+        # build.py --check runs a smoke test that imports the built perseus.py,
+        # whose only hard third-party import is PyYAML. Install it before the
+        # check step so the smoke test can actually run.
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-runtime.txt
+
       - name: Verify version matches the release tag
         run: |
           set -e
