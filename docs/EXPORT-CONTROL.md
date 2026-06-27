@@ -26,9 +26,9 @@ This document provides the analysis and rationale for federal procurement and SB
 - **Distribution:** PyPI (public package registry)
 - **Source:** https://github.com/Perseus-Computing-LLC/perseus (public, MIT license)
 
-### Mimir (v2.0.0)
+### Mimir (v2.2.0)
 - **Type:** Rust binary — persistent memory MCP server for AI agents
-- **Function:** Stores, searches, and retrieves structured entities via JSON-RPC 2.0 over stdio. Includes AES-256-GCM encryption (standard commercial algorithm). Optional embedding via public ONNX models. No cryptographic key management — keys are user-provided.
+- **Function:** Stores, searches, and retrieves structured entities via JSON-RPC 2.0 over stdio. Includes AES-256-GCM encryption (standard commercial algorithm). As of v2.2, a public ONNX embedding model (all-MiniLM-L6-v2) is bundled into the binary by default for offline semantic search (no network, no key); a lean build without it is available. No cryptographic key management — keys are user-provided.
 - **Distribution:** GitHub Releases (public binary downloads)
 - **Source:** https://github.com/Perseus-Computing-LLC/mimir (public, MIT license)
 
