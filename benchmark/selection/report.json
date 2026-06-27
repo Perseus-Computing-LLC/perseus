@@ -1,0 +1,165 @@
+{
+  "benchmark": "perseus-context-selection",
+  "dataset": "perseus-selection-mini",
+  "n_fixtures": 4,
+  "tiers": [
+    1,
+    2,
+    3
+  ],
+  "precision": 1.0,
+  "recall": 1.0,
+  "confusion": {
+    "tp": 14,
+    "fp": 0,
+    "fn": 0,
+    "tn": 25
+  },
+  "gates": [
+    {
+      "name": "selection_precision_recall == 1.0",
+      "pass": true,
+      "observed": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "tp": 14,
+        "fp": 0,
+        "fn": 0,
+        "tn": 25
+      },
+      "threshold": "precision == 1.0 and recall == 1.0",
+      "severity": "hard",
+      "note": "tier-gated context selection must be exact"
+    }
+  ],
+  "pass": true,
+  "offline": true,
+  "platform": "Windows-11-10.0.26200-SP0",
+  "signature_sha256": "ddf5cb5f84c1cc4d8d273b67f10347588367f11e19df3dd460af7e409f5fc887",
+  "per_case": [
+    {
+      "fixture": "all-three-tiers",
+      "tier": 1,
+      "expected_skipped": [
+        "skills",
+        "tree"
+      ],
+      "actual_skipped": [
+        "skills",
+        "tree"
+      ],
+      "match": true
+    },
+    {
+      "fixture": "all-three-tiers",
+      "tier": 2,
+      "expected_skipped": [
+        "tree"
+      ],
+      "actual_skipped": [
+        "tree"
+      ],
+      "match": true
+    },
+    {
+      "fixture": "all-three-tiers",
+      "tier": 3,
+      "expected_skipped": [],
+      "actual_skipped": [],
+      "match": true
+    },
+    {
+      "fixture": "tier1-only",
+      "tier": 1,
+      "expected_skipped": [],
+      "actual_skipped": [],
+      "match": true
+    },
+    {
+      "fixture": "tier1-only",
+      "tier": 2,
+      "expected_skipped": [],
+      "actual_skipped": [],
+      "match": true
+    },
+    {
+      "fixture": "tier1-only",
+      "tier": 3,
+      "expected_skipped": [],
+      "actual_skipped": [],
+      "match": true
+    },
+    {
+      "fixture": "tier2-and-tier3",
+      "tier": 1,
+      "expected_skipped": [
+        "list",
+        "read",
+        "session"
+      ],
+      "actual_skipped": [
+        "list",
+        "read",
+        "session"
+      ],
+      "match": true
+    },
+    {
+      "fixture": "tier2-and-tier3",
+      "tier": 2,
+      "expected_skipped": [
+        "list",
+        "read"
+      ],
+      "actual_skipped": [
+        "list",
+        "read"
+      ],
+      "match": true
+    },
+    {
+      "fixture": "tier2-and-tier3",
+      "tier": 3,
+      "expected_skipped": [],
+      "actual_skipped": [],
+      "match": true
+    },
+    {
+      "fixture": "heavy-tier3",
+      "tier": 1,
+      "expected_skipped": [
+        "list",
+        "tooltrim",
+        "tree"
+      ],
+      "actual_skipped": [
+        "list",
+        "tooltrim",
+        "tree"
+      ],
+      "match": true
+    },
+    {
+      "fixture": "heavy-tier3",
+      "tier": 2,
+      "expected_skipped": [
+        "list",
+        "tooltrim",
+        "tree"
+      ],
+      "actual_skipped": [
+        "list",
+        "tooltrim",
+        "tree"
+      ],
+      "match": true
+    },
+    {
+      "fixture": "heavy-tier3",
+      "tier": 3,
+      "expected_skipped": [],
+      "actual_skipped": [],
+      "match": true
+    }
+  ]
+}
