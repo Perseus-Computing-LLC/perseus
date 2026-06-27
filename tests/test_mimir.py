@@ -395,12 +395,93 @@ class TestMimirAutoInject:
         c = self._cfg(enabled=True, auto_inject=True, context_limit=5)
         segment = MagicMock(items=[object()], as_markdown="- a durable memory")
         connector = MagicMock(available=True)
+        # No hot-entity block available → falls back to recall.
+        connector.context.return_value = None
         connector.recall.return_value = segment
         with patch.object(perseus, "_get_connector", return_value=connector):
             out = perseus._mimir_context_inject(c)
         assert out is not None
         assert out.startswith("## Persistent Memory (Mimir)")
         assert "a durable memory" in out
+
+    def test_hot_entities_injected_via_mimir_context(self):
+        """#473: prefer Mimir's mimir_context tool (always_on hot entities first)."""
+        c = self._cfg(enabled=True, auto_inject=True, context_limit=5)
+        hot_md = (
+            "## Mimir Context\n\n"
+            "### Always On\n\n"
+            "- [always-on] [arch] **db** — SQLite + FTS5 (retrievals: 3, decay: 1.00)\n\n"
+            "- [decision] **auth** — JWT tokens (retrievals: 1, decay: 0.80)\n\n"
+            "> 2 entities recalled\n"
+        )
+        connector = MagicMock(available=True)
+        connector.context.return_value = hot_md
+        with patch.object(perseus, "_get_connector", return_value=connector):
+            out = perseus._mimir_context_inject(c)
+        assert out is not None
+        assert out.startswith("## Persistent Memory (Mimir)")
+        # Hot always_on entity is injected...
+        assert "always-on" in out and "db" in out
+        # ...the server's own header/footer are stripped...
+        assert "## Mimir Context" not in out
+        assert "entities recalled" not in out
+        # ...and the generic recall fallback is NOT consulted.
+        connector.recall.assert_not_called()
+        # context() is scoped by configured categories (intent), empty by default.
+        connector.context.assert_called_once()
+        _, kwargs = connector.context.call_args
+        assert kwargs.get("categories") == []
+        assert kwargs.get("limit") == 5
+
+    def test_context_categories_scope_hot_injection(self):
+        """context_categories is passed through to mimir_context as the intent scope."""
+        c = self._cfg(
+            enabled=True, auto_inject=True, context_limit=8,
+            context_categories=["architecture", "decision"],
+        )
+        connector = MagicMock(available=True)
+        connector.context.return_value = (
+            "## Mimir Context\n\n- [architecture] **db** — note (retrievals: 0, decay: 1.00)\n"
+        )
+        with patch.object(perseus, "_get_connector", return_value=connector):
+            out = perseus._mimir_context_inject(c)
+        assert out is not None and "db" in out
+        _, kwargs = connector.context.call_args
+        assert kwargs.get("categories") == ["architecture", "decision"]
+
+    def test_empty_hot_block_falls_back_to_recall(self):
+        """A hot block with no entity bullets falls back to the recall path."""
+        c = self._cfg(enabled=True, auto_inject=True, context_limit=5)
+        empty_md = "## Mimir Context\n\n\n> 0 entities recalled\n"
+        segment = MagicMock(items=[object()], as_markdown="- a recalled memory")
+        connector = MagicMock(available=True)
+        connector.context.return_value = empty_md
+        connector.recall.return_value = segment
+        with patch.object(perseus, "_get_connector", return_value=connector):
+            out = perseus._mimir_context_inject(c)
+        assert out is not None
+        assert "a recalled memory" in out
+        connector.recall.assert_called_once()
+
+    def test_connector_context_calls_mimir_context_tool(self):
+        """MimirConnector.context() calls the mimir_context MCP tool and returns markdown."""
+        c = self._cfg(enabled=True)
+        connector = perseus.MimirConnector(c)
+
+        class _StubClient:
+            is_connected = True
+            calls: list = []
+
+            def call_tool(self, name, arguments):
+                self.calls.append((name, arguments))
+                return ({"markdown": "## Mimir Context\n\n- [x] **k** — v\n",
+                         "total_chars": 24}, None)
+
+        stub = _StubClient()
+        connector._client = stub
+        md = connector.context(categories=["x"], limit=3)
+        assert md is not None and "**k**" in md
+        assert stub.calls == [("mimir_context", {"categories": ["x"], "limit": 3})]
 
 
 class TestPackMimirMerge:
