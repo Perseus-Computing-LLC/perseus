@@ -296,6 +296,12 @@ DEFAULT_CONFIG = {
         # patterns: list of {name, pattern, replacement?} dicts. See
         # DEFAULT_REDACTION_RULES for the shape of the default set.
         "patterns": [],
+        # detect_pii: when true, `perseus scan` also flags PII (emails, US SSNs,
+        # phone numbers, Luhn-valid card numbers) in addition to secrets. PII is
+        # NOT redacted in normal render output — emails/phones are often
+        # legitimate content; this only affects the scan build-gate. `perseus
+        # scan --pii` / `--no-pii` override this per-invocation.
+        "detect_pii": False,
     },
     "env": {                          # task-61 — @env directive deny-list
         # Glob patterns for environment variable NAMES that must not be
@@ -1834,6 +1840,159 @@ def redact_text(text: str, cfg: dict) -> tuple[str, dict]:
         "total": sum(counts.values()),
         "counts": counts,
         "rules_active": len(rules),
+    }
+
+
+# ─────────────────────────── PII detection (scan-only) ───────────────────────
+#
+# PII detectors are deliberately NOT part of the live redaction output path:
+# emails, phone numbers, and the like are frequently *legitimate* context (a
+# CODEOWNERS file, a support runbook), so auto-shredding them would damage
+# real content. Instead they power `perseus scan` — a build-time gate that
+# FLAGS secrets + PII for human review and can fail CI, without mutating output.
+#
+# Precision over recall (same philosophy as the secret detectors): patterns
+# require enough structure to avoid matching version numbers, IDs, and dates.
+
+DEFAULT_PII_RULES: list[dict[str, str]] = [
+    # Email address.
+    {"name": "email", "pattern": r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"},
+    # US Social Security Number — require the dashed form so we don't match any
+    # 9-digit run (order numbers, IDs). Excludes obviously-invalid 000/666/9xx
+    # area numbers.
+    {"name": "us_ssn", "pattern": r"\b(?!000|666|9\d\d)\d{3}-(?!00)\d{2}-(?!0000)\d{4}\b"},
+    # US/NANP phone number — require at least one separator (space/dot/dash or
+    # parenthesised area code) so bare 10-digit integers don't trip it.
+    {"name": "us_phone",
+     "pattern": r"(?<!\d)(?:\+?1[-.\s])?(?:\(\d{3}\)[-.\s]?|\d{3}[-.\s])\d{3}[-.\s]\d{4}(?!\d)"},
+    # Credit-card-shaped digit run (13–19 digits, optional space/dash grouping).
+    # ALWAYS Luhn-validated in the scanner (see _luhn_ok) to cut false positives.
+    {"name": "credit_card", "pattern": r"\b\d(?:[ -]?\d){12,18}\b", "_luhn": True},
+]
+
+
+def _luhn_ok(s: str) -> bool:
+    """Return True if the digits in ``s`` pass the Luhn checksum (13–19 digits)."""
+    digits = [int(c) for c in s if c.isdigit()]
+    if not (13 <= len(digits) <= 19):
+        return False
+    total = 0
+    parity = len(digits) % 2
+    for i, d in enumerate(digits):
+        if i % 2 == parity:
+            d *= 2
+            if d > 9:
+                d -= 9
+        total += d
+    return total % 10 == 0
+
+
+def _compile_pii_rules() -> list[dict]:
+    """Compile the PII detectors into the same shape as secret rules."""
+    compiled: list[dict] = []
+    for rule in DEFAULT_PII_RULES:
+        try:
+            regex = re.compile(str(rule["pattern"]))
+        except re.error:
+            continue
+        compiled.append({
+            "name": rule["name"],
+            "regex": regex,
+            "replacement": f"[REDACTED:{rule['name']}]",
+            "anchor_group": None,
+            "prefix_group": None,
+            "luhn": bool(rule.get("_luhn")),
+        })
+    return compiled
+
+
+def _line_starts(text: str) -> list[int]:
+    """Byte/char offsets where each line begins, for offset→line-number lookup."""
+    starts = [0]
+    for i, ch in enumerate(text):
+        if ch == "\n":
+            starts.append(i + 1)
+    return starts
+
+
+def _line_no(starts: list[int], pos: int) -> int:
+    """1-based line number for character offset ``pos`` (binary search)."""
+    import bisect
+    return bisect.bisect_right(starts, pos)
+
+
+def _redact_line(line: str, rules: list[dict]) -> str:
+    """Mask every secret/PII match in a single line so it is safe to print."""
+    out = line
+    for rule in rules:
+        def _sub(m, _repl=rule["replacement"], _luhn=rule.get("luhn")):
+            if _luhn and not _luhn_ok(m.group(0)):
+                return m.group(0)
+            return _repl
+        out = rule["regex"].sub(_sub, out)
+    return out
+
+
+def scan_text(text: str, cfg: dict, include_pii: "bool | None" = None) -> dict:
+    """Scan ``text`` for secrets (and optionally PII) WITHOUT mutating it.
+
+    Unlike :func:`redact_text`, this is a detector: it reports what was found so
+    a build gate can fail. Secret detectors always run (independent of
+    ``redaction.enabled``, since a scan is an explicit, intentional check). PII
+    detectors run when ``include_pii`` is True, or — when ``include_pii`` is
+    None — when ``redaction.detect_pii`` is set in config.
+
+    Returns a JSON-safe report::
+
+        {
+          "total": int,
+          "counts": {rule_name: count},
+          "findings": [{"rule": name, "line": int, "context": "<redacted line>"}],
+          "pii_scanned": bool,
+        }
+
+    Finding ``context`` is the matched line with **all** secrets/PII masked, so
+    the report never reveals a secret value.
+    """
+    empty = {"total": 0, "counts": {}, "findings": [], "pii_scanned": bool(include_pii)}
+    if not isinstance(text, str) or not text:
+        return empty
+
+    red_cfg = (cfg.get("redaction") or {}) if isinstance(cfg, dict) else {}
+    if include_pii is None:
+        include_pii = bool(red_cfg.get("detect_pii", False))
+
+    # Secret rules: force enabled so a scan works even when live redaction is off.
+    scan_cfg = dict(cfg) if isinstance(cfg, dict) else {}
+    forced = dict(red_cfg)
+    forced["enabled"] = True
+    scan_cfg["redaction"] = forced
+    rules = list(_compile_redaction_rules(scan_cfg))
+    if include_pii:
+        rules = rules + _compile_pii_rules()
+    if not rules:
+        return {"total": 0, "counts": {}, "findings": [], "pii_scanned": bool(include_pii)}
+
+    starts = _line_starts(text)
+    counts: dict[str, int] = {}
+    findings: list[dict] = []
+    for rule in rules:
+        for m in rule["regex"].finditer(text):
+            if rule.get("luhn") and not _luhn_ok(m.group(0)):
+                continue
+            counts[rule["name"]] = counts.get(rule["name"], 0) + 1
+            ln = _line_no(starts, m.start())
+            line_text = text[starts[ln - 1]: (starts[ln] - 1 if ln < len(starts) else len(text))]
+            safe = _redact_line(line_text, rules).strip()
+            if len(safe) > 160:
+                safe = safe[:157] + "..."
+            findings.append({"rule": rule["name"], "line": ln, "context": safe})
+    findings.sort(key=lambda f: (f["line"], f["rule"]))
+    return {
+        "total": sum(counts.values()),
+        "counts": counts,
+        "findings": findings,
+        "pii_scanned": bool(include_pii),
     }
 
 
@@ -22176,6 +22335,68 @@ def cmd_render(args, cfg):
         print(rendered)
 
 
+def cmd_scan(args, cfg):
+    """Scan a context's *rendered* output for secrets (and optionally PII).
+
+    A build-time gate: render the source with redaction turned OFF (in-memory
+    only — nothing is written to disk), then run the detectors against the raw
+    resolved text so leaks pulled in via @env/@query/@include/@tool are caught.
+    Prints a report and exits non-zero when findings exist, so CI can block a
+    context that would leak credentials or PII. Use --report-only to always
+    exit 0 (report without failing).
+    """
+    import copy as _copy
+    import json as _json
+
+    source_path = Path(args.source).expanduser().resolve()
+    if not source_path.exists():
+        print(f"Error: file not found: {source_path}", file=sys.stderr)
+        sys.exit(1)
+
+    workspace = _infer_workspace(source_path)
+    cfg = load_config(workspace)
+    _merge_pack_mimir_config(cfg, workspace)
+    text = source_path.read_text(errors="replace", encoding="utf-8")
+
+    max_tier = getattr(args, "tier", None)
+    if max_tier is None:
+        max_tier = cfg.get("render", {}).get("default_tier", 3) or 3
+
+    # Render with redaction disabled so the scanner sees raw resolved content.
+    scan_cfg = _copy.deepcopy(cfg)
+    scan_cfg.setdefault("redaction", {})["enabled"] = False
+    rendered = render_source(text, scan_cfg, workspace, max_tier=max_tier,
+                             no_cache=getattr(args, "no_cache", False))
+
+    # PII: --pii / --no-pii override config redaction.detect_pii.
+    include_pii = None
+    if getattr(args, "pii", False):
+        include_pii = True
+    elif getattr(args, "no_pii", False):
+        include_pii = False
+
+    report = scan_text(rendered, cfg, include_pii=include_pii)
+
+    if getattr(args, "json", False):
+        print(_json.dumps(report, indent=2, default=str))
+    else:
+        if report["total"] == 0:
+            scope = "secrets + PII" if report.get("pii_scanned") else "secrets"
+            print(f"perseus scan: clean — no {scope} detected in {source_path.name}")
+        else:
+            print(f"perseus scan: {report['total']} finding(s) in {source_path.name}", file=sys.stderr)
+            by_rule = ", ".join(f"{n}={c}" for n, c in sorted(report["counts"].items()))
+            print(f"  by detector: {by_rule}", file=sys.stderr)
+            for f in report["findings"]:
+                print(f"  line {f['line']}: [{f['rule']}] {f['context']}", file=sys.stderr)
+            if not report.get("pii_scanned"):
+                print("  (re-run with --pii to also scan for emails, SSNs, phone numbers, cards)", file=sys.stderr)
+
+    if report["total"] > 0 and not getattr(args, "report_only", False):
+        sys.exit(2)
+    return 0
+
+
 def cmd_warmup(args, cfg):
     """Pre-populate the render cache for a context file without writing output."""
     source_path = Path(args.source).expanduser().resolve()
@@ -24067,6 +24288,23 @@ def main():
              "(version, paths, size, timestamp). No effect when rendering to stdout.",
     )
 
+    # scan — secrets/PII build gate
+    p_scan = sub.add_parser(
+        "scan",
+        help="Scan a context's rendered output for secrets/PII; exit non-zero on findings (CI gate)",
+    )
+    p_scan.add_argument("source", help="Path to .md file with @perseus header")
+    p_scan.add_argument("--pii", action="store_true",
+                        help="Also scan for PII (emails, US SSNs, phone numbers, Luhn-valid cards)")
+    p_scan.add_argument("--no-pii", action="store_true",
+                        help="Skip PII scanning even if redaction.detect_pii is set in config")
+    p_scan.add_argument("--json", action="store_true", help="Output a machine-readable JSON report")
+    p_scan.add_argument("--report-only", action="store_true",
+                        help="Always exit 0 (report findings without failing the build)")
+    p_scan.add_argument("--tier", type=int, default=None, choices=[1, 2, 3],
+                        help="Context tier limit for the render (default: config / 3)")
+    p_scan.add_argument("--no-cache", action="store_true", help="Bypass the render cache")
+
     # watch (Phase 20C)
     p_watch = sub.add_parser("watch", help="Poll and refresh render outputs when context sources change")
     p_watch.add_argument("--source", default=None, help="Source file (default: .perseus/context.md, unless a context pack is present)")
@@ -24505,6 +24743,8 @@ def main():
 
     if args.command == "render":
         cmd_render(args, cfg)
+    elif args.command == "scan":
+        return cmd_scan(args, cfg)
     elif args.command == "watch":
         return cmd_watch(args, cfg)
     elif args.command == "graph":

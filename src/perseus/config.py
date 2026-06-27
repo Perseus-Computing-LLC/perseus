@@ -212,6 +212,12 @@ DEFAULT_CONFIG = {
         # patterns: list of {name, pattern, replacement?} dicts. See
         # DEFAULT_REDACTION_RULES for the shape of the default set.
         "patterns": [],
+        # detect_pii: when true, `perseus scan` also flags PII (emails, US SSNs,
+        # phone numbers, Luhn-valid card numbers) in addition to secrets. PII is
+        # NOT redacted in normal render output — emails/phones are often
+        # legitimate content; this only affects the scan build-gate. `perseus
+        # scan --pii` / `--no-pii` override this per-invocation.
+        "detect_pii": False,
     },
     "env": {                          # task-61 — @env directive deny-list
         # Glob patterns for environment variable NAMES that must not be
