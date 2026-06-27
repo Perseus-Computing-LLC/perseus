@@ -1,0 +1,50 @@
+{
+  "task": "What authentication method does the service use and which database backs it?",
+  "token_method": "tiktoken/cl100k_base",
+  "corpus_docs": 7,
+  "chunks": 18,
+  "top_k": 4,
+  "naive_tokens": 1832,
+  "gold_facts": [
+    "JWT",
+    "RS256",
+    "OAuth 2.0",
+    "PostgreSQL"
+  ],
+  "rows": [
+    {
+      "path": "naive (stuff all docs)",
+      "tokens": 1832,
+      "reduction_pct": 0.0,
+      "answer_coverage": "4/4",
+      "notes": "\u2014"
+    },
+    {
+      "path": "langchain (BM25 top-4)",
+      "tokens": 504,
+      "reduction_pct": 72.5,
+      "answer_coverage": "3/4",
+      "notes": "deterministic*"
+    },
+    {
+      "path": "llamaindex (BM25 top-4)",
+      "tokens": 443,
+      "reduction_pct": 75.8,
+      "answer_coverage": "4/4",
+      "notes": "deterministic*"
+    },
+    {
+      "path": "perseus (compiled)",
+      "tokens": 434,
+      "reduction_pct": 76.3,
+      "answer_coverage": "4/4",
+      "notes": "deterministic \u2713"
+    }
+  ],
+  "perseus": {
+    "tokens": 434,
+    "deterministic": true,
+    "sha256": "59e30d986b0336a25f14f96d5e27c2e6fe7039b192df618604175f304647eb01",
+    "determinism_runs": 5
+  }
+}
