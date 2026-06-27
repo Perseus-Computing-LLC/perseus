@@ -22619,6 +22619,136 @@ def cmd_compress(args, cfg):
     return 0
 
 
+def cmd_preview(args, cfg):
+    """Render a context, then show a deterministic, diffable token budget — where
+    the tokens go, per directive and per markdown section.
+
+    Pairs with ``perseus compress``: compress shrinks the context, preview shows
+    what is taking up the space to begin with. Output is intentionally **stable
+    and free of volatile fields** (no timestamps, durations, or cache flags), so
+    the same source yields byte-identical output and a build can diff its context
+    budget over time. ``--json`` emits a stable schema for CI diffing.
+    """
+    import json as _json
+    import re as _re
+
+    source_path = Path(args.source).expanduser().resolve()
+    if not source_path.exists():
+        print(f"Error: file not found: {source_path}", file=sys.stderr)
+        sys.exit(1)
+
+    workspace = _infer_workspace(source_path)
+    cfg = load_config(workspace)
+    _merge_pack_mimir_config(cfg, workspace)
+    text = source_path.read_text(errors="replace", encoding="utf-8")
+
+    max_tier = getattr(args, "tier", None)
+    if max_tier is None:
+        max_tier = cfg.get("render", {}).get("default_tier", 3) or 3
+
+    # Render with the directive/skip collectors (the --explain path), so we can
+    # attribute tokens to each resolved directive and report tier-skipped ones.
+    _directives: list = []
+    _skipped: list = []
+    _stats = {"directive_count": 0, "cache_hits": 0, "cache_misses": 0}
+    rendered = render_source(text, cfg, workspace, max_tier=max_tier,
+                             _directive_collector=_directives,
+                             _stats=_stats,
+                             _skipped_directives=_skipped,
+                             no_cache=getattr(args, "no_cache", False))
+
+    total_tokens = estimate_tokens(rendered)
+    total_bytes = len(rendered.encode("utf-8", errors="replace"))
+
+    def _pct(n):
+        return round(100.0 * n / total_tokens, 1) if total_tokens else 0.0
+
+    # Per-directive breakdown in document (collector) order. Volatile fields
+    # (duration_ms, cached) are intentionally dropped so the report is diffable.
+    directives = []
+    for d in _directives:
+        out = d.get("output") or ""
+        tok = estimate_tokens(out)
+        directives.append({
+            "name": d.get("name", ""),
+            "args": d.get("args", ""),
+            "tokens": tok,
+            "pct": _pct(tok),
+        })
+
+    # Per-section breakdown by markdown heading; text before the first heading
+    # is the "(preamble)".
+    heading_re = _re.compile(r"^(#{1,6})\s+(.*)$")
+    sections = []
+    state = {"heading": "(preamble)", "lines": []}
+
+    def _flush():
+        if not state["lines"]:
+            return
+        body = "\n".join(state["lines"])
+        tok = estimate_tokens(body)
+        if state["heading"] == "(preamble)" and tok == 0:
+            return
+        sections.append({"heading": state["heading"], "tokens": tok, "pct": _pct(tok)})
+
+    for line in rendered.splitlines():
+        m = heading_re.match(line)
+        if m:
+            _flush()
+            state = {"heading": m.group(2).strip() or "#", "lines": [line]}
+        else:
+            state["lines"].append(line)
+    _flush()
+
+    skipped = [{"name": str(s.get("name", "")).lstrip("@"), "tier": s.get("tier"),
+                "args": s.get("args", "")} for s in _skipped]
+
+    report = {
+        "source": source_path.name,
+        "tier": max_tier,
+        "total_tokens": total_tokens,
+        "total_bytes": total_bytes,
+        "directive_count": len(directives),
+        "skipped_count": len(skipped),
+        "directives": directives,
+        "sections": sections,
+        "skipped": skipped,
+    }
+
+    if getattr(args, "json", False):
+        print(_json.dumps(report, indent=2, default=str))
+        return 0
+
+    # Human-readable, deterministic table.
+    print(f"perseus preview: {source_path.name} (tier {max_tier})")
+    print(f"total: {total_tokens} tokens, {total_bytes} bytes, "
+          f"{len(directives)} directive(s), {len(skipped)} skipped")
+
+    if directives:
+        print("\nBy directive (document order):")
+        for d in directives:
+            arg = str(d["args"])
+            if len(arg) > 40:
+                arg = arg[:39] + "…"
+            arg = (" " + arg) if arg else ""
+            print(f"  {d['tokens']:>6}  {d['pct']:>5}%  @{d['name']}{arg}")
+
+    if sections:
+        print("\nBy section:")
+        for s in sections:
+            h = s["heading"]
+            if len(h) > 50:
+                h = h[:49] + "…"
+            print(f"  {s['tokens']:>6}  {s['pct']:>5}%  {h}")
+
+    if skipped:
+        print(f"\nSkipped (tier > {max_tier}):")
+        for s in skipped:
+            print(f"  @{s['name']} (tier {s['tier']})")
+
+    return 0
+
+
 def cmd_warmup(args, cfg):
     """Pre-populate the render cache for a context file without writing output."""
     source_path = Path(args.source).expanduser().resolve()
@@ -24547,6 +24677,18 @@ def main():
                             help="Context tier limit for the render (default: config / 3)")
     p_compress.add_argument("--no-cache", action="store_true", help="Bypass the render cache")
 
+    # preview — diffable token-annotated compile preview (where the tokens go)
+    p_preview = sub.add_parser(
+        "preview",
+        help="Render then show a deterministic, diffable token budget: tokens per directive and per section",
+    )
+    p_preview.add_argument("source", help="Path to .md file with @perseus header")
+    p_preview.add_argument("--json", action="store_true",
+                           help="Emit the token-budget report as JSON (stable schema for CI diffing)")
+    p_preview.add_argument("--tier", type=int, default=None, choices=[1, 2, 3],
+                           help="Context tier limit for the render (default: config / 3)")
+    p_preview.add_argument("--no-cache", action="store_true", help="Bypass the render cache")
+
     # watch (Phase 20C)
     p_watch = sub.add_parser("watch", help="Poll and refresh render outputs when context sources change")
     p_watch.add_argument("--source", default=None, help="Source file (default: .perseus/context.md, unless a context pack is present)")
@@ -24989,6 +25131,8 @@ def main():
         return cmd_scan(args, cfg)
     elif args.command == "compress":
         return cmd_compress(args, cfg)
+    elif args.command == "preview":
+        return cmd_preview(args, cfg)
     elif args.command == "watch":
         return cmd_watch(args, cfg)
     elif args.command == "graph":
