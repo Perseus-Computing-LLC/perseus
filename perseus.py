@@ -15816,6 +15816,53 @@ class MimirConnector:
             query_time_ms=int((time.time() - t0) * 1000),
         )
 
+    def context(
+        self,
+        categories: list[str] | None = None,
+        limit: int = 10,
+    ) -> str | None:
+        """Fetch Mimir's pre-formatted hot-entity context block via 'mimir_context'.
+
+        Unlike recall(), this calls Mimir's purpose-built context tool, which
+        injects always_on ("hot") entities first, then the top entities by
+        decay/recency ranking — exactly what Perseus wants to pre-load before
+        work begins (the Memory+Context "compose, don't replace" pre-resolution).
+
+        Args:
+            categories: Restrict to these categories (intent/scope). None/empty = all.
+            limit: Max non-always-on entities to include in the block.
+
+        Returns:
+            The raw markdown block from Mimir, or None when Mimir is unavailable,
+            errors, or returns no markdown. Fails safe so a render is never broken.
+        """
+        if not self.available:
+            return None
+
+        def _do_context():
+            result, err = self._client.call_tool("mimir_context", {
+                "categories": categories or [],
+                "limit": limit,
+            })
+            if err:
+                raise RuntimeError(err)
+            return result
+
+        raw_result, err = _retry_with_backoff(
+            _do_context,
+            max_attempts=self._max_retries,
+            backoff_base=self._backoff_base,
+            circuit_breaker=self._breaker,
+        )
+
+        if err or not isinstance(raw_result, dict):
+            return None
+
+        markdown = raw_result.get("markdown")
+        if not isinstance(markdown, str) or not markdown.strip():
+            return None
+        return markdown
+
     def store(
         self,
         content: str,
@@ -16383,12 +16430,41 @@ def _mimir_recall_when(
     return connector.recall_when(context=context, limit=limit)
 
 
+def _mimir_hot_block(markdown: str) -> str | None:
+    """Normalize Mimir's `mimir_context` markdown for Perseus injection.
+
+    The server block is wrapped in its own ``## Mimir Context`` header and a
+    trailing ``> N entities recalled`` footer. Strip both so the entities sit
+    cleanly under Perseus's own ``## Persistent Memory (Mimir)`` header, and
+    return None when the block carries no actual entities — so the caller can
+    fall back to a generic recall.
+    """
+    kept: list[str] = []
+    for line in markdown.splitlines():
+        stripped = line.strip()
+        if stripped == "## Mimir Context":
+            continue
+        if stripped.startswith("> ") and "entities recalled" in stripped:
+            continue
+        kept.append(line)
+    # Require at least one entity bullet; otherwise the block is effectively empty.
+    if not any(line.lstrip().startswith("- ") for line in kept):
+        return None
+    return "\n".join(kept).strip()
+
+
 def _mimir_context_inject(cfg: dict) -> str | None:
     """Automatic Mimir context block for render_output.
 
     Called by the renderer (markdown / agents-md / claude-md formats) to append
     a curated block of long-lived Mimir memories to every rendered context,
     without requiring an explicit @mimir directive in the source.
+
+    Hot-entity injection (#473): prefer Mimir's purpose-built ``mimir_context``
+    tool, which surfaces always_on ("hot") entities first, then the top entities
+    by decay/recency — the flagship Memory+Context "compose, don't replace"
+    pre-resolution. Falls back to a generic recent-memory recall for older Mimir
+    servers that lack the tool, or when no hot entities exist.
 
     Returns a markdown string, or None when Mimir is disabled/unavailable or
     has no relevant memories. Fails safe: any error returns None so a rendering
@@ -16422,6 +16498,24 @@ def _mimir_context_inject(cfg: dict) -> str | None:
         limit = 10 if raw_limit is None else int(raw_limit)
         if limit <= 0:
             return None
+
+        # #473 hot-entity injection: prefer Mimir's purpose-built context tool.
+        # context_categories scopes the pre-resolution to the relevant intent
+        # (empty = all categories). Always_on entities are injected first by the
+        # server regardless of category.
+        categories = mcfg.get("context_categories") or []
+        try:
+            hot_md = connector.context(categories=categories, limit=limit)
+        except Exception:
+            hot_md = None
+        if isinstance(hot_md, str):
+            hot_body = _mimir_hot_block(hot_md)
+            if hot_body:
+                return "## Persistent Memory (Mimir)\n\n" + hot_body
+
+        # Fallback: generic recent-memory recall (older Mimir without
+        # mimir_context, or an empty hot set). An empty query returns the most
+        # recent entities by Mimir's decay/recency ranking.
         segment = connector.recall(query="", max_results=limit)
         if not segment or not getattr(segment, "items", None):
             return None
