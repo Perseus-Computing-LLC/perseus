@@ -607,7 +607,7 @@ cd ~/.mimir && cargo build --release
 cp target/release/mimir ~/.local/bin/mimir
 
 # Verify
-mimir --version   # expect "mimir 2.0.0"
+mimir --version   # expect "mimir 2.2.1" (or later)
 ```
 
 > **Mimir tool surface:** Mimir is an MCP JSON-RPC stdio server exposing ~30 tools
