@@ -89,6 +89,18 @@ def main():
                             help="Context tier limit for the render (default: config / 3)")
     p_compress.add_argument("--no-cache", action="store_true", help="Bypass the render cache")
 
+    # preview — diffable token-annotated compile preview (where the tokens go)
+    p_preview = sub.add_parser(
+        "preview",
+        help="Render then show a deterministic, diffable token budget: tokens per directive and per section",
+    )
+    p_preview.add_argument("source", help="Path to .md file with @perseus header")
+    p_preview.add_argument("--json", action="store_true",
+                           help="Emit the token-budget report as JSON (stable schema for CI diffing)")
+    p_preview.add_argument("--tier", type=int, default=None, choices=[1, 2, 3],
+                           help="Context tier limit for the render (default: config / 3)")
+    p_preview.add_argument("--no-cache", action="store_true", help="Bypass the render cache")
+
     # watch (Phase 20C)
     p_watch = sub.add_parser("watch", help="Poll and refresh render outputs when context sources change")
     p_watch.add_argument("--source", default=None, help="Source file (default: .perseus/context.md, unless a context pack is present)")
@@ -531,6 +543,8 @@ def main():
         return cmd_scan(args, cfg)
     elif args.command == "compress":
         return cmd_compress(args, cfg)
+    elif args.command == "preview":
+        return cmd_preview(args, cfg)
     elif args.command == "watch":
         return cmd_watch(args, cfg)
     elif args.command == "graph":
