@@ -1,0 +1,14 @@
+@perseus
+# Helios — task context
+
+Context compiled by Perseus for the task:
+"What authentication method does the service use and which database backs it?"
+
+The author declares exactly the two relevant sources; the compile is
+deterministic and cacheable, with no retrieval or LLM round-trip.
+
+## Authentication
+@include corpus/authentication.md
+
+## Database
+@include corpus/database.md
