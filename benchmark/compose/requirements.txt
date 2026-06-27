@@ -1,0 +1,17 @@
+# Optional dependencies for the context-compiler benchmark (benchmark/compose/run.py).
+#
+# The benchmark RUNS WITHOUT these — the framework rows are skipped (with a note)
+# and the token count falls back to a transparent chars/4 estimate. Install them
+# for the full, accurate comparison:
+#
+#     pip install -r benchmark/compose/requirements.txt
+#
+# No LLM or network calls are made at run time; these only provide a real
+# tokenizer and the LangChain / LlamaIndex offline BM25 retrieval paths.
+
+tiktoken>=0.7                          # accurate token counts (cl100k_base)
+rank-bm25>=0.2                         # offline BM25 backend used by both retrievers
+langchain-core>=0.3                    # Document / PromptTemplate
+langchain-community>=0.3               # BM25Retriever
+llama-index-core>=0.11                 # TextNode / PromptTemplate
+llama-index-retrievers-bm25>=0.3       # BM25Retriever
