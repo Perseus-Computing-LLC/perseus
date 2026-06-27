@@ -55,6 +55,7 @@ MODULE_ORDER = [
     "src/perseus/memtrace.py",          # ← Memtrace codebase memory (MONITOR)
     # ───────────────────────────────────────────────────────────────────
     "src/perseus/renderer.py",
+    "src/perseus/adapters.py",           # ← Context Adapter SDK (#473): resolve_context + framework adapters (depends on renderer)
     "src/perseus/checkpoint.py",
     "src/perseus/memory.py",
     "src/perseus/mneme_index.py",        # ← Mnēmē v2: SQLite FTS5 index (depends on memory.py)
