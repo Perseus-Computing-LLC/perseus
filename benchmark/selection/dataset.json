@@ -1,0 +1,43 @@
+{
+  "name": "perseus-selection-mini",
+  "description": "Hand-authored ground truth for tier-based context selection. Each fixture is a @perseus source; every directive it uses is annotated with the tier it SHOULD belong to (1=always, 2=conditional, 3=on-demand). The harness renders each fixture at tier limits 1/2/3 and checks that exactly the directives above the limit are skipped. Frozen ground truth: if a directive's tier changes by mistake, this set catches it.",
+  "fixtures": [
+    {
+      "id": "all-three-tiers",
+      "source": "@perseus\n\n# Always\n@date\n\n# Conditional\n@skills\n\n# On-Demand\n@tree .\n",
+      "directives": [
+        {"name": "date", "tier": 1},
+        {"name": "skills", "tier": 2},
+        {"name": "tree", "tier": 3}
+      ]
+    },
+    {
+      "id": "tier1-only",
+      "source": "@perseus\n\n@date\n@env HOME fallback=none\n",
+      "directives": [
+        {"name": "date", "tier": 1},
+        {"name": "env", "tier": 1}
+      ]
+    },
+    {
+      "id": "tier2-and-tier3",
+      "source": "@perseus\n\n@date\n@session count=1\n@list .\n@read missing.txt fallback=none\n",
+      "directives": [
+        {"name": "date", "tier": 1},
+        {"name": "session", "tier": 2},
+        {"name": "list", "tier": 3},
+        {"name": "read", "tier": 3}
+      ]
+    },
+    {
+      "id": "heavy-tier3",
+      "source": "@perseus\n\n@date\n@tree .\n@list .\n@tooltrim stats\n",
+      "directives": [
+        {"name": "date", "tier": 1},
+        {"name": "tree", "tier": 3},
+        {"name": "list", "tier": 3},
+        {"name": "tooltrim", "tier": 3}
+      ]
+    }
+  ]
+}
