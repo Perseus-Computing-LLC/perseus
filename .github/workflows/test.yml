@@ -123,3 +123,29 @@ jobs:
 
       - name: Run test suite
         run: python -m pytest tests/ -q
+
+  selection-eval:
+    # Offline, deterministic gate: tier-based context selection must be exact.
+    # Fails the run (non-zero exit) on any tier-gating regression. No network,
+    # no API key — imports the built artifact and checks the skip behavior
+    # against frozen ground truth in benchmark/selection/dataset.json.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyyaml
+
+      - name: Build artifact
+        run: python scripts/build.py
+
+      - name: Context-selection eval (offline gate)
+        # No pipe — the script's non-zero exit must propagate to fail the job.
+        run: python benchmark/selection/run.py
