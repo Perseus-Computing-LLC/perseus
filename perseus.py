@@ -11482,7 +11482,7 @@ def render_output(
 # whatever you already use.
 #
 # Core (no third-party deps):
-#   resolve_context(source) -> str          # the "resolve once" primitive
+#   compile_context(source) -> str          # the "resolve once" primitive
 #   as_messages(context)    -> list[dict]    # universal role-tagged chat messages
 #   compose(source, target=...)              # resolve + adapt in one call
 # Framework adapters (lazy-import the framework only when called):
@@ -11490,7 +11490,7 @@ def render_output(
 #   to_llamaindex_messages(context)
 
 
-def resolve_context(source, cfg=None, workspace=None, max_tier=3):
+def compile_context(source, cfg=None, workspace=None, max_tier=3):
     """Compile a Perseus source to its rendered context string ("resolve once").
 
     ``source`` is either an inline ``.perseus`` source string (one that starts
@@ -11560,7 +11560,7 @@ def compose(source, target="messages", role="system", cfg=None, workspace=None):
     ``target`` ∈ ``{"text", "messages", "langchain", "llamaindex"}``. This is the
     one-liner an integrator uses: ``compose("ctx.perseus", target="langchain")``.
     """
-    context = resolve_context(source, cfg=cfg, workspace=workspace)
+    context = compile_context(source, cfg=cfg, workspace=workspace)
     if target == "text":
         return context
     if target == "messages":

@@ -18,8 +18,8 @@ All functions are exported from the top-level `perseus` module.
 import perseus
 
 # 1) Resolve once — compile a .perseus source (inline string or file path) to text.
-ctx = perseus.resolve_context("path/to/context.perseus")
-ctx = perseus.resolve_context("@perseus\n@include notes.md")   # inline also works
+ctx = perseus.compile_context("path/to/context.perseus")
+ctx = perseus.compile_context("@perseus\n@include notes.md")   # inline also works
 
 # 2) Universal chat messages (OpenAI/Anthropic SDKs, LangGraph state, Pydantic AI):
 messages = perseus.as_messages(ctx)              # [{"role": "system", "content": ctx}]
@@ -61,7 +61,7 @@ OpenAI/Anthropic SDK — prepend the compiled context as the system message:
 ```python
 client.chat.completions.create(
     model="...",
-    messages=perseus.as_messages(perseus.resolve_context("agent.perseus")) + user_turns,
+    messages=perseus.as_messages(perseus.compile_context("agent.perseus")) + user_turns,
 )
 ```
 

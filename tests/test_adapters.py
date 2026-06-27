@@ -10,24 +10,24 @@ from conftest import PY_VER, cfg, perseus
 pytestmark = pytest.mark.skipif(PY_VER < (3, 10), reason="Perseus requires Python 3.10+")
 
 
-def test_resolve_context_inline_source():
-    out = perseus.resolve_context("@perseus\nHello world", cfg())
+def test_compile_context_inline_source():
+    out = perseus.compile_context("@perseus\nHello world", cfg())
     assert "Hello world" in out
 
 
-def test_resolve_context_from_file(tmp_path):
+def test_compile_context_from_file(tmp_path):
     src = tmp_path / "ctx.perseus"
     src.write_text("@perseus\nFrom a file", encoding="utf-8")
-    out = perseus.resolve_context(src, cfg())
+    out = perseus.compile_context(src, cfg())
     assert "From a file" in out
 
 
-def test_resolve_context_file_workspace_resolves_includes(tmp_path):
+def test_compile_context_file_workspace_resolves_includes(tmp_path):
     # An @include relative path resolves against the file's directory by default.
     (tmp_path / "part.md").write_text("included body", encoding="utf-8")
     src = tmp_path / "ctx.perseus"
     src.write_text("@perseus\n@include part.md", encoding="utf-8")
-    out = perseus.resolve_context(src, cfg())
+    out = perseus.compile_context(src, cfg())
     assert "included body" in out
 
 
