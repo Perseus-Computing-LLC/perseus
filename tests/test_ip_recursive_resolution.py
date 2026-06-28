@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import copy
 import json
+import time
 from pathlib import Path
 
 import pytest
@@ -29,6 +30,25 @@ import pytest
 from conftest import cfg, perseus
 
 pytestmark = pytest.mark.skipif(perseus is None, reason="requires Python >= 3.10 build artifact")
+
+EXHIBITS_DIR = Path(__file__).resolve().parents[1] / "docs" / "ip" / "exhibits"
+
+
+def _save_exhibits(request) -> bool:
+    try:
+        return bool(request.config.getoption("--save-exhibits"))
+    except (ValueError, AttributeError):
+        return False
+
+
+def _write_exhibit(name: str, content, *, as_json: bool = False) -> Path:
+    EXHIBITS_DIR.mkdir(parents=True, exist_ok=True)
+    ts = time.strftime("%Y%m%d-%H%M%S")
+    suffix = ".json" if as_json else ".md"
+    path = EXHIBITS_DIR / f"{ts}-{name}{suffix}"
+    text = json.dumps(content, indent=2) if as_json else content
+    path.write_text(text, encoding="utf-8")
+    return path
 
 
 def _chain_workspace(tmp_path: Path, levels: int = 3) -> Path:
@@ -132,3 +152,41 @@ def test_multilevel_resolution_is_byte_reproducible(tmp_path, monkeypatch):
     a = perseus.render_source(src, cfg(), workspace=tmp_path)
     b = perseus.render_source(src, cfg(), workspace=tmp_path)
     assert a == b
+
+
+def test_save_exhibit_recursive_resolution(tmp_path, monkeypatch, request):
+    """Emit a timestamped exhibit for recursive, dependency-ordered resolution.
+
+    Only writes when --save-exhibits is passed (CI). Renders the 3-level chain
+    and captures the dependency graph + a cycle-detection demonstration.
+    """
+    monkeypatch.setenv("PERSEUS_ALLOW_DANGEROUS", "1")
+    root = _chain_workspace(tmp_path, levels=3)
+    src = root.read_text(encoding="utf-8")
+    out = perseus.render_source(src, cfg(), workspace=tmp_path)
+    out_clean = "\n".join(l for l in out.splitlines() if not l.startswith("Dedup:")).rstrip() + "\n"
+    for n in range(3):
+        assert f"L{n}-shell" in out_clean
+
+    # Cycle demo
+    (tmp_path / "cycA.md").write_text("@perseus\n# A\n@include cycB.md\n", encoding="utf-8")
+    (tmp_path / "cycB.md").write_text("@perseus\n# B\n@include cycA.md\n", encoding="utf-8")
+    cyc = perseus.render_source((tmp_path / "cycA.md").read_text(encoding="utf-8"), cfg(), workspace=tmp_path)
+    cyc_line = next((l for l in cyc.splitlines() if "circular" in l.lower()), "")
+    assert cyc_line
+
+    if _save_exhibits(request):
+        import hashlib
+        graph = perseus.directive_dependency_graph(src, source_name="root", workspace=tmp_path, cfg=cfg())
+        manifest = {
+            "evidence": "B",
+            "title": "Recursive, dependency-ordered directive resolution",
+            "claim_element": "recursive resolution + cycle detection + dependency graph",
+            "render_sha256": hashlib.sha256(out_clean.encode()).hexdigest(),
+            "levels_resolved": 3,
+            "dependency_order": [f"L{n}-shell" for n in range(3)],
+            "cycle_detection_demo": cyc_line.strip(),
+            "directive_dependency_graph": graph,
+        }
+        _write_exhibit("B-recursive-resolution", manifest, as_json=True)
+        _write_exhibit("B-recursive-resolution", out_clean, as_json=False)

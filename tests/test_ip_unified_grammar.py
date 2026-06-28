@@ -20,6 +20,7 @@ import copy
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -27,6 +28,25 @@ import pytest
 from conftest import cfg, make_tool_script, perseus
 
 pytestmark = pytest.mark.skipif(perseus is None, reason="requires Python >= 3.10 build artifact")
+
+EXHIBITS_DIR = Path(__file__).resolve().parents[1] / "docs" / "ip" / "exhibits"
+
+
+def _save_exhibits(request) -> bool:
+    try:
+        return bool(request.config.getoption("--save-exhibits"))
+    except (ValueError, AttributeError):
+        return False
+
+
+def _write_exhibit(name: str, content, *, as_json: bool = False) -> Path:
+    EXHIBITS_DIR.mkdir(parents=True, exist_ok=True)
+    ts = time.strftime("%Y%m%d-%H%M%S")
+    suffix = ".json" if as_json else ".md"
+    path = EXHIBITS_DIR / f"{ts}-{name}{suffix}"
+    text = json.dumps(content, indent=2) if as_json else content
+    path.write_text(text, encoding="utf-8")
+    return path
 
 
 # The six patent-named source classes from provisional 64/069,842 mapped to the
@@ -201,3 +221,33 @@ def test_directive_graph_labels_each_directives_source_class(tmp_path, monkeypat
     for node in graph["nodes"]:
         assert "metadata" in node and "summary" in node["metadata"]
         assert node["source"] in {"builtin", "plugin"}
+
+
+def test_save_exhibit_unified_grammar(tmp_path, monkeypatch, request):
+    """Emit a timestamped reduction-to-practice exhibit (claim element a).
+
+    Only writes when --save-exhibits is passed (CI). Mirrors the committed
+    SAMPLE-A pair; the rendered all-six output is the human-readable .md and a
+    manifest is the machine-checkable .json.
+    """
+    monkeypatch.setenv("PERSEUS_ALLOW_DANGEROUS", "1")
+    template, c = _write_six_class_template(tmp_path)
+    out = perseus.render_source(template.read_text(encoding="utf-8"), c, workspace=tmp_path)
+    out_clean = "\n".join(l for l in out.splitlines() if not l.startswith("Dedup:")).rstrip() + "\n"
+    # Sanity: all six classes resolved before we emit evidence.
+    for marker in ("service: perseus", "included-ok", "perseus-query-ok",
+                   "perseus-agent-ok", "perseus-tool-ok"):
+        assert marker in out_clean
+
+    if _save_exhibits(request):
+        import hashlib
+        manifest = {
+            "evidence": "A",
+            "title": "Unified typed-directive grammar — six source classes, one resolver interface",
+            "claim_element": "(a) uniform grammar over heterogeneous source classes",
+            "render_sha256": hashlib.sha256(out_clean.encode()).hexdigest(),
+            "registry_size": len(perseus.DIRECTIVE_REGISTRY),
+            "source_classes_resolved": dict(PATENT_SOURCE_CLASSES),
+        }
+        _write_exhibit("A-unified-grammar", manifest, as_json=True)
+        _write_exhibit("A-unified-grammar", out_clean, as_json=False)
