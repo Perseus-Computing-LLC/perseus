@@ -3,27 +3,25 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Mimir — Persistent memory for AI agents</title>
+<title>Mimir: Persistent memory for AI agents</title>
 <script>try{var t=localStorage.getItem('perseus-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
 <link rel="icon" href="/assets/perseus.svg">
 <link rel="canonical" href="https://perseus.observer/mimir/">
-<meta name="description" content="Mimir is a local, encrypted memory server for AI agents — 43 MCP tools, AES-256-GCM at rest, hybrid FTS5 + vector search, confidence decay.">
+<meta name="description" content="Mimir is a local, encrypted memory server for AI agents: 43 MCP tools, AES-256-GCM at rest, hybrid FTS5 + vector search, confidence decay.">
 <meta name="theme-color" content="#0A0A12">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Perseus">
-<meta property="og:title" content="Mimir — persistent memory for AI agents">
-<meta property="og:description" content="Mimir is a local, encrypted memory server for AI agents — 43 MCP tools, AES-256-GCM at rest, hybrid FTS5 + vector search, confidence decay.">
+<meta property="og:title" content="Mimir: persistent memory for AI agents">
+<meta property="og:description" content="Mimir is a local, encrypted memory server for AI agents: 43 MCP tools, AES-256-GCM at rest, hybrid FTS5 + vector search, confidence decay.">
 <meta property="og:url" content="https://perseus.observer/mimir/">
 <meta property="og:image" content="https://perseus.observer/assets/og/mimir.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Mimir — persistent memory for AI agents">
-<meta name="twitter:description" content="Mimir is a local, encrypted memory server for AI agents — 43 MCP tools, AES-256-GCM at rest, hybrid FTS5 + vector search, confidence decay.">
+<meta name="twitter:title" content="Mimir: persistent memory for AI agents">
+<meta name="twitter:description" content="Mimir is a local, encrypted memory server for AI agents: 43 MCP tools, AES-256-GCM at rest, hybrid FTS5 + vector search, confidence decay.">
 <meta name="twitter:image" content="https://perseus.observer/assets/og/mimir.png">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/fonts.css">
 <link rel="stylesheet" href="/assets/tokens.css">
 <link rel="stylesheet" href="/assets/perseus.css">
 </head>
@@ -56,8 +54,8 @@
       <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true"><g stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><line x1="1.5" y1="3" x2="11.5" y2="3"/><line x1="1.5" y1="6.5" x2="11.5" y2="6.5"/><line x1="1.5" y1="10" x2="11.5" y2="10"/></g></svg>
       Persistent memory engine · v2.6.0
     </span>
-    <h1 class="hero-h">Your agent <span style="color:var(--violet);">remembers</span> — across every session.</h1>
-    <p class="lead">Mimir is a local, encrypted memory server for AI agents. Facts, decisions, and context persist in SQLite on your machine — <span class="em">searchable by keyword and meaning</span>, decaying by confidence, never leaving your control.</p>
+    <h1 class="hero-h">Your agent <span style="color:var(--violet);">remembers</span>, across every session.</h1>
+    <p class="lead">Mimir is a local, encrypted memory server for AI agents. Facts, decisions, and context persist in SQLite on your machine: <span class="em">searchable by keyword and meaning</span>, decaying by confidence, never leaving your control.</p>
     <div class="hero-cta">
       <div class="install violet">
         <span><span class="pr">$</span> docker pull ghcr.io/perseus-computing-llc/mimir:2.6.0</span>
@@ -86,22 +84,22 @@
       <div class="card">
         <div class="ic"><svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect x="3" y="4" width="14" height="2.6" rx="1.3" fill="var(--violet)"/><rect x="3" y="9" width="14" height="2.6" rx="1.3" fill="var(--violet)" fill-opacity=".7"/><rect x="3" y="14" width="14" height="2.6" rx="1.3" fill="var(--violet)" fill-opacity=".45"/></svg></div>
         <h3>Hybrid recall</h3>
-        <p>FTS5 keyword search and vector similarity in one query — exact matches and semantic neighbors, ranked together.</p>
+        <p>FTS5 keyword search and vector similarity in one query: exact matches and semantic neighbors, ranked together.</p>
       </div>
       <div class="card">
         <div class="ic"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="var(--violet)" stroke-width="1.6"><rect x="4" y="8" width="12" height="9" rx="2"/><path d="M7 8V6a3 3 0 016 0v2"/></svg></div>
         <h3>Encrypted at rest</h3>
-        <p>AES-256-GCM on a local SQLite store. Your memory never leaves the machine — no cloud, no account, no telemetry.</p>
+        <p>AES-256-GCM on a local SQLite store. Your memory never leaves the machine: no cloud, no account, no telemetry.</p>
       </div>
       <div class="card">
         <div class="ic"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="var(--violet)" stroke-width="1.6"><path d="M3 10a7 7 0 1014 0 7 7 0 00-14 0z"/><path d="M10 6v4l3 2"/></svg></div>
         <h3>Confidence decay</h3>
-        <p>Memories age. Stale facts lose confidence over time and fresh ones surface first — recall stays relevant, not cluttered.</p>
+        <p>Memories age. Stale facts lose confidence over time and fresh ones surface first. Recall stays relevant, not cluttered.</p>
       </div>
       <div class="card">
         <div class="ic"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="var(--violet)" stroke-width="1.6"><circle cx="6" cy="6" r="2.2"/><circle cx="14" cy="6" r="2.2"/><circle cx="10" cy="14" r="2.2"/><path d="M6 8v2a2 2 0 002 2M14 8v2a2 2 0 01-2 2"/></svg></div>
         <h3>43 MCP tools</h3>
-        <p>A full Model Context Protocol surface — store, recall, link, forget, and reflect — usable by any MCP-aware assistant.</p>
+        <p>A full Model Context Protocol surface (store, recall, link, forget, and reflect), usable by any MCP-aware assistant.</p>
       </div>
     </div>
   </div>
@@ -116,7 +114,7 @@
         How memory works
       </span>
       <h2 class="h" style="margin-bottom:20px;">One local store. <span style="color:var(--violet);">Layered</span> by recency and confidence.</h2>
-      <p class="lead" style="font-size:16px;">Every memory is written to an encrypted SQLite file with an embedding and a confidence score. On recall, Mimir blends keyword and vector hits, weights them by freshness, and returns a compact, ranked set — the same shape your assistant already reads.</p>
+      <p class="lead" style="font-size:16px;">Every memory is written to an encrypted SQLite file with an embedding and a confidence score. On recall, Mimir blends keyword and vector hits, weights them by freshness, and returns a compact, ranked set: the same shape your assistant already reads.</p>
     </div>
     <div class="term">
       <div class="term-bar"><span class="d"></span><span class="d"></span><span class="d"></span><span class="f">mimir recall "deploy"</span></div>
@@ -148,7 +146,7 @@
         Compose, don't replace
       </span>
       <h2 class="h" style="font-size:clamp(24px,3vw,36px); margin-bottom:18px;">Mimir remembers. <span style="color:var(--amber);">Perseus</span> compiles.</h2>
-      <p class="lead" style="font-size:16px; max-width:46ch; margin-bottom:26px;">Point Perseus at your Mimir store and your assistant opens with both live environment state <em>and</em> durable memory — resolved into one byte-stable file. Two single-binary tools, one build-pair.</p>
+      <p class="lead" style="font-size:16px; max-width:46ch; margin-bottom:26px;">Point Perseus at your Mimir store and your assistant opens with both live environment state <em>and</em> durable memory, resolved into one byte-stable file. Two single-binary tools, one build-pair.</p>
       <a href="/" class="mono" style="font-size:14px; color:var(--amber); text-decoration:none;">Explore Perseus ↗</a>
     </div>
   </div>

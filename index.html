@@ -3,26 +3,24 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Perseus — Live context engine for AI coding assistants</title>
+<title>Perseus: Live context engine for AI coding assistants</title>
 <link rel="icon" href="/assets/perseus.svg">
 <link rel="canonical" href="https://perseus.observer/">
 <meta name="description" content="Perseus resolves your live environment before the session opens and writes verified facts into the file your AI assistant reads. Local-first, open source, no cloud.">
 <meta name="theme-color" content="#0A0A12">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Perseus">
-<meta property="og:title" content="Perseus — live context engine for AI coding assistants">
+<meta property="og:title" content="Perseus: live context engine for AI coding assistants">
 <meta property="og:description" content="Perseus resolves your live environment before the session opens and writes verified facts into the file your AI assistant reads. Local-first, open source, no cloud.">
 <meta property="og:url" content="https://perseus.observer/">
 <meta property="og:image" content="https://perseus.observer/assets/og/perseus.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Perseus — live context engine for AI coding assistants">
+<meta name="twitter:title" content="Perseus: live context engine for AI coding assistants">
 <meta name="twitter:description" content="Perseus resolves your live environment before the session opens and writes verified facts into the file your AI assistant reads. Local-first, open source, no cloud.">
 <meta name="twitter:image" content="https://perseus.observer/assets/og/perseus.png">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/fonts.css">
 <link rel="stylesheet" href="/assets/tokens.css">
 <link rel="stylesheet" href="/assets/perseus.css">
 <script>try{var t=localStorage.getItem('perseus-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
@@ -78,8 +76,8 @@
         <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true"><g stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><line x1="1.5" y1="2.5" x2="10.5" y2="6.5"/><line x1="1.5" y1="6.5" x2="10.5" y2="6.5"/><line x1="1.5" y1="10.5" x2="10.5" y2="6.5"/></g><circle cx="10.5" cy="6.5" r="1.7" fill="currentColor"/></svg>
         Live context engine for AI coding assistants
       </span>
-      <h1 class="hero-h">Ship code on turn <span class="strike">five</span> — or turn <span class="one">one</span>.</h1>
-      <p class="lead">AI assistants start every session blind — they don't know your branch, your services, or where you left off. Perseus resolves your <span class="em">actual environment, live</span>, and writes verified facts into the file the assistant reads. No probing. No guessing. No wasted turns.</p>
+      <h1 class="hero-h">Ship code on turn <span class="one">one</span>.</h1>
+      <p class="lead">AI assistants start every session blind. They don't know your branch, your services, or where you left off. Perseus resolves your <span class="em">actual environment, live</span>, and writes verified facts into the file the assistant reads. No probing, guessing, or wasted turns.</p>
       <div class="hero-cta">
         <div class="install">
           <span><span class="pr">$</span> pip install perseus-ctx</span>
@@ -96,7 +94,7 @@
     </div>
     <div class="hero-side">
       <div class="term">
-        <div class="term-bar"><span class="d"></span><span class="d"></span><span class="d"></span><span class="f">~/project — perseus render</span></div>
+        <div class="term-bar"><span class="d"></span><span class="d"></span><span class="d"></span><span class="f">~/project · perseus render</span></div>
         <pre id="heroTerm"></pre>
       </div>
     </div>
@@ -111,7 +109,7 @@
       The orientation tax
     </span>
     <h2 class="h" style="max-width:20ch; margin-bottom:18px;">AI assistants start every session <span style="color:var(--violet);">blind</span>.</h2>
-    <p class="lead" style="max-width:64ch; margin-bottom:48px;">They open without your branch, your running services, or your last checkpoint — so the conversation begins with interrogation, not work. Stale context isn't neutral. It's a tax on every session, and it compounds with every developer.</p>
+    <p class="lead" style="max-width:64ch; margin-bottom:48px;">They open without your branch, your running services, or your last checkpoint, so the conversation begins with interrogation, not work. Stale context isn't neutral. It's a tax on every session, and it compounds with every developer.</p>
 
     <div class="compare" style="margin-bottom:36px;">
       <div class="panel">
@@ -142,7 +140,7 @@
       <div class="cell"><div class="big" style="font-size:38px; color:var(--text);">11K</div><div style="font-size:14px; font-weight:600; margin:8px 0 4px;">tokens</div><div class="cap">burned per session, just on orientation</div></div>
       <div class="cell"><div class="big" style="font-size:38px; color:var(--text);">15–40%</div><div style="font-size:14px; font-weight:600; margin:8px 0 4px;">of every session</div><div class="cap">spent rediscovering facts that are already known</div></div>
     </div>
-    <p class="cap mono" style="margin-top:16px; font-size:12px;">Illustrative estimates — orientation cost varies by team and codebase; not a measured benchmark.</p>
+    <p class="cap mono" style="margin-top:16px; font-size:12px;">Illustrative estimates: orientation cost varies by team and codebase; not a measured benchmark.</p>
   </div>
 </section>
 
@@ -166,7 +164,7 @@ Tests: <span class="vi">@query</span>"pytest -q"</pre>
       </div>
       <div class="step">
         <div class="sh"><span class="num a">2</span><h3>Render</h3></div>
-        <p>Resolves directives in parallel, with caching — 31ms typical.</p>
+        <p>Resolves directives in parallel, with caching: 31ms typical.</p>
         <pre><span class="ai">✓</span> 4 directives in 31ms
 <span class="ai">✓</span> wrote CLAUDE.md (3.2 KB)
 <span class="c6"># 76% smaller than naive</span></pre>
@@ -174,7 +172,7 @@ Tests: <span class="vi">@query</span>"pytest -q"</pre>
       </div>
       <div class="step">
         <div class="sh"><span class="num v">3</span><h3>Read</h3></div>
-        <p>The assistant opens the file — all facts verified, zero discovery turns.</p>
+        <p>The assistant opens the file: all facts verified, zero discovery turns.</p>
         <pre>Branch: <span class="br">feat/billing-v2</span>
 Services: <span class="ai">api ✓</span>, <span class="ai">db ✓</span>
 Tests: <span class="br">1,185 passing</span></pre>
@@ -191,7 +189,7 @@ Tests: <span class="br">1,185 passing</span></pre>
       Performance
     </span>
     <h2 class="h" style="max-width:24ch; margin-bottom:14px;">Production-ready, with <span style="color:var(--violet);">verified</span> benchmarks.</h2>
-    <p class="lead" style="font-size:15.5px; max-width:60ch; margin-bottom:44px;">Every figure below is a reproducible benchmark — run the published suites and read the numbers yourself. 1,185 tests passing; Gauntlet v2 scored 100.0 / 100.</p>
+    <p class="lead" style="font-size:15.5px; max-width:60ch; margin-bottom:44px;">Every figure below is a reproducible benchmark. Run the published suites and read the numbers yourself. 1,185 tests passing; Gauntlet v2 scored 100.0 / 100.</p>
     <div class="hairgrid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));">
       <div class="cell" style="padding:26px 24px;"><div class="big" style="font-size:30px; color:var(--amber);">450×</div><div class="cap" style="margin-top:5px;">Cold → warm speedup</div></div>
       <div class="cell" style="padding:26px 24px;"><div class="big" style="font-size:30px; color:var(--amber);">1,190×</div><div class="cap" style="margin-top:5px;">Cache punch throughput</div></div>
@@ -202,7 +200,7 @@ Tests: <span class="br">1,185 passing</span></pre>
       <div class="cell" style="padding:26px 24px;"><div class="big" style="font-size:30px; color:var(--violet);">31ms</div><div class="cap" style="margin-top:5px;">Render, 5 directives</div></div>
       <div class="cell" style="padding:26px 24px;"><div class="big" style="font-size:30px; color:var(--text);">+7.5K</div><div class="cap" style="margin-top:5px;">Tokens saved / 30-turn session</div></div>
     </div>
-    <p class="cap mono" style="margin-top:16px; font-size:12px;">Speedups (450× · 1,190× · 301×) and render time are benchmark figures from modeled scenarios (edge-bench, compose) — reproducible, not production telemetry. Tests and Gauntlet score are hard counts.</p>
+    <p class="cap mono" style="margin-top:16px; font-size:12px;">Speedups (450× · 1,190× · 301×) and render time are benchmark figures from modeled scenarios (edge-bench, compose), reproducible, not production telemetry. Tests and Gauntlet score are hard counts.</p>
   </div>
 </section>
 
@@ -224,10 +222,10 @@ Tests: <span class="br">1,185 passing</span></pre>
           <th>Caching &amp; federation</th>
         </tr></thead>
         <tbody>
-          <tr><td class="lbl"><div class="nm">Manual CLAUDE.md / .cursorrules</div><div class="sub">Hand-written static files — stale within hours</div></td><td class="no">✗</td><td class="yes">✓</td><td class="mid">—</td><td class="no">✗</td></tr>
-          <tr><td class="lbl"><div class="nm">Cursor Rules</div><div class="sub">Static only — locked to one editor</div></td><td class="no">✗</td><td class="no">✗</td><td class="no">✗</td><td class="no">✗</td></tr>
-          <tr><td class="lbl"><div class="nm">Continue.dev config</div><div class="sub">Limited directives — no service health checks</div></td><td class="no">✗</td><td class="no">✗</td><td class="yes">✓</td><td class="no">✗</td></tr>
-          <tr><td class="lbl"><div class="nm">Custom shell scripts</div><div class="sub">Not portable — no directive system or caching</div></td><td class="mid">~</td><td class="no">✗</td><td class="no">✗</td><td class="no">✗</td></tr>
+          <tr><td class="lbl"><div class="nm">Manual CLAUDE.md / .cursorrules</div><div class="sub">Hand-written static files, stale within hours</div></td><td class="no">✗</td><td class="yes">✓</td><td class="mid">·</td><td class="no">✗</td></tr>
+          <tr><td class="lbl"><div class="nm">Cursor Rules</div><div class="sub">Static only, locked to one editor</div></td><td class="no">✗</td><td class="no">✗</td><td class="no">✗</td><td class="no">✗</td></tr>
+          <tr><td class="lbl"><div class="nm">Continue.dev config</div><div class="sub">Limited directives, no service health checks</div></td><td class="no">✗</td><td class="no">✗</td><td class="yes">✓</td><td class="no">✗</td></tr>
+          <tr><td class="lbl"><div class="nm">Custom shell scripts</div><div class="sub">Not portable, no directive system or caching</div></td><td class="mid">~</td><td class="no">✗</td><td class="no">✗</td><td class="no">✗</td></tr>
           <tr class="win"><td class="lbl"><div class="nm"><svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true"><g stroke="var(--amber)" stroke-width="1.4" stroke-linecap="round"><line x1="1.5" y1="2.5" x2="10.5" y2="6.5"/><line x1="1.5" y1="6.5" x2="10.5" y2="6.5"/><line x1="1.5" y1="10.5" x2="10.5" y2="6.5"/></g><circle cx="10.5" cy="6.5" r="1.7" fill="var(--amber)"/></svg>Perseus</div><div class="sub">Live-resolved facts, any assistant, cached &amp; federated</div></td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td></tr>
         </tbody>
       </table>
@@ -243,14 +241,14 @@ Tests: <span class="br">1,185 passing</span></pre>
       Product family
     </span>
     <h2 class="h" style="max-width:24ch; margin-bottom:14px;">Four products covering the full <span style="color:var(--violet);">AI agent lifecycle</span>.</h2>
-    <p class="lead" style="font-size:15.5px; max-width:60ch; margin-bottom:44px;">Each is open source and standalone — and each install is a doorway into the others.</p>
+    <p class="lead" style="font-size:15.5px; max-width:60ch; margin-bottom:44px;">Each is open source and standalone, and each install is a doorway into the others.</p>
     <div class="prodgrid">
       <a href="/" class="prod amber">
         <div class="prod-top">
           <div class="chip"><svg width="40" height="40" viewBox="0 0 48 48" fill="none"><g stroke="var(--amber)" stroke-width="2.4" stroke-linecap="round"><line x1="9" y1="13" x2="33" y2="24"/><line x1="9" y1="20" x2="33" y2="24"/><line x1="9" y1="28" x2="33" y2="24"/><line x1="9" y1="35" x2="33" y2="24"/></g><g fill="var(--amber)"><circle cx="9" cy="13" r="2"/><circle cx="9" cy="20" r="2"/><circle cx="9" cy="28" r="2"/><circle cx="9" cy="35" r="2"/></g><circle cx="35" cy="24" r="3.8" fill="var(--amber)"/></svg></div>
           <span class="pill amber">v1.0.12</span>
         </div>
-        <div><h3>Perseus</h3><p>Live context engine — 26 MCP tools, federated multi-machine context, tiered disclosure. Eliminates the orientation tax.</p></div>
+        <div><h3>Perseus</h3><p>Live context engine: 26 MCP tools, federated multi-machine context, tiered disclosure. Eliminates the orientation tax.</p></div>
         <span class="open" style="color:var(--amber);">Open ↗</span>
       </a>
       <a href="/mimir/" class="prod violet">
@@ -258,7 +256,7 @@ Tests: <span class="br">1,185 passing</span></pre>
           <div class="chip"><svg width="40" height="40" viewBox="0 0 48 48" fill="none"><rect x="9" y="11" width="30" height="4.4" rx="2.2" fill="var(--violet)"/><rect x="9" y="19" width="30" height="4.4" rx="2.2" fill="var(--violet)" fill-opacity=".78"/><rect x="9" y="27" width="30" height="4.4" rx="2.2" fill="var(--violet)" fill-opacity=".58"/><rect x="9" y="35" width="30" height="4.4" rx="2.2" fill="var(--violet)" fill-opacity=".42"/></svg></div>
           <span class="pill violet">v2.6.0</span>
         </div>
-        <div><h3>Mimir</h3><p>Persistent memory server — 43 tools, AES-256-GCM encryption, FTS5 + vector hybrid search, confidence decay. Remembers across sessions.</p></div>
+        <div><h3>Mimir</h3><p>Persistent memory server: 43 tools, AES-256-GCM encryption, FTS5 + vector hybrid search, confidence decay. Remembers across sessions.</p></div>
         <span class="open" style="color:var(--violet);">Open ↗</span>
       </a>
       <a href="/mcts/" class="prod">
@@ -266,7 +264,7 @@ Tests: <span class="br">1,185 passing</span></pre>
           <div class="chip"><svg width="40" height="40" viewBox="0 0 48 48" fill="none"><g stroke="var(--steel)" stroke-width="1.5" opacity=".55"><line x1="14" y1="9" x2="14" y2="39"/><line x1="24" y1="9" x2="24" y2="39"/><line x1="34" y1="9" x2="34" y2="39"/><line x1="9" y1="14" x2="39" y2="14"/><line x1="9" y1="24" x2="39" y2="24"/><line x1="9" y1="34" x2="39" y2="34"/></g><g fill="var(--steel)"><circle cx="14" cy="14" r="2"/><circle cx="34" cy="14" r="2"/><circle cx="14" cy="34" r="2"/><circle cx="34" cy="34" r="2"/></g><circle cx="24" cy="24" r="4" fill="var(--amber)"/></svg></div>
           <span class="pill steel">security</span>
         </div>
-        <div><h3>MCTS</h3><p>120 security analyzers for MCP supply chains — tool-poisoning detection, prompt-injection scanning, credential-leak identification.</p></div>
+        <div><h3>MCTS</h3><p>120 security analyzers for MCP supply chains: tool-poisoning detection, prompt-injection scanning, credential-leak identification.</p></div>
         <span class="open" style="color:var(--text-faint);">Open ↗</span>
       </a>
       <a href="/plutus/" class="prod">
@@ -274,7 +272,7 @@ Tests: <span class="br">1,185 passing</span></pre>
           <div class="chip"><svg width="40" height="40" viewBox="0 0 48 48" fill="none"><rect x="9" y="11" width="22" height="4" rx="2" fill="var(--steel)"/><rect x="9" y="19" width="30" height="4" rx="2" fill="var(--steel)" fill-opacity=".8"/><rect x="9" y="27" width="16" height="4" rx="2" fill="var(--steel)" fill-opacity=".8"/><rect x="9" y="35" width="26" height="4" rx="2" fill="var(--steel)" fill-opacity=".8"/><circle cx="35" cy="13" r="3.4" fill="var(--amber)"/></svg></div>
           <span class="pill steel">ledger</span>
         </div>
-        <div><h3>Plutus</h3><p>Provider credit monitoring — live balance tracking, spend ledger, and hourly refresh across all major LLM providers.</p></div>
+        <div><h3>Plutus</h3><p>Provider credit monitoring: live balance tracking, spend ledger, and hourly refresh across all major LLM providers.</p></div>
         <span class="open" style="color:var(--text-faint);">Open ↗</span>
       </a>
     </div>
@@ -320,7 +318,7 @@ Tests: <span class="br">1,185 passing</span></pre>
       <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true"><g stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><line x1="1.5" y1="3" x2="11.5" y2="3"/><line x1="1.5" y1="6.5" x2="11.5" y2="6.5"/><line x1="1.5" y1="10" x2="11.5" y2="10"/></g></svg>
       Traction &amp; team
     </span>
-    <h2 class="h" style="max-width:26ch; margin-bottom:44px;">Not a pitch — a <span style="color:var(--violet);">working engine</span> with real performance data.</h2>
+    <h2 class="h" style="max-width:26ch; margin-bottom:44px;">Not a pitch, but a <span style="color:var(--violet);">working engine</span> with real performance data.</h2>
     <div class="twocol" style="display:grid; grid-template-columns:1.15fr 1fr; gap:24px; align-items:stretch;">
       <div style="background:var(--surface); border:1px solid var(--border-soft); border-radius:18px; padding:32px;">
         <div style="display:flex; align-items:center; gap:16px; margin-bottom:22px;">
@@ -329,14 +327,14 @@ Tests: <span class="br">1,185 passing</span></pre>
         </div>
         <p style="font-size:15px; line-height:1.65; color:var(--text-dim); margin-bottom:20px;">Technical founder with four shipped, production-grade products and open-source momentum across the stack. A community already contributes across every product.</p>
         <div style="display:flex; flex-direction:column; gap:9px; font-size:14px;">
-          <div style="display:flex; gap:9px;"><span style="color:var(--amber);">✓</span><span style="color:var(--text-dim);"><b style="color:var(--text);">Perseus v1.0.12</b> — 26 MCP tools, live context engine</span></div>
-          <div style="display:flex; gap:9px;"><span style="color:var(--amber);">✓</span><span style="color:var(--text-dim);"><b style="color:var(--text);">Mimir v2.6.0</b> — 43 tools, persistent memory server</span></div>
-          <div style="display:flex; gap:9px;"><span style="color:var(--amber);">✓</span><span style="color:var(--text-dim);"><b style="color:var(--text);">MCTS</b> — 120 security analyzers</span></div>
-          <div style="display:flex; gap:9px;"><span style="color:var(--amber);">✓</span><span style="color:var(--text-dim);"><b style="color:var(--text);">Plutus</b> — provider credit monitoring</span></div>
+          <div style="display:flex; gap:9px;"><span style="color:var(--amber);">✓</span><span style="color:var(--text-dim);"><b style="color:var(--text);">Perseus v1.0.12</b>: 26 MCP tools, live context engine</span></div>
+          <div style="display:flex; gap:9px;"><span style="color:var(--amber);">✓</span><span style="color:var(--text-dim);"><b style="color:var(--text);">Mimir v2.6.0</b>: 43 tools, persistent memory server</span></div>
+          <div style="display:flex; gap:9px;"><span style="color:var(--amber);">✓</span><span style="color:var(--text-dim);"><b style="color:var(--text);">MCTS</b>: 120 security analyzers</span></div>
+          <div style="display:flex; gap:9px;"><span style="color:var(--amber);">✓</span><span style="color:var(--text-dim);"><b style="color:var(--text);">Plutus</b>: provider credit monitoring</span></div>
         </div>
       </div>
       <div style="display:flex; flex-direction:column; gap:16px;">
-        <div style="background:var(--surface); border:1px solid var(--border-soft); border-radius:16px; padding:24px;"><div class="mono" style="font-size:24px; font-weight:600;">v1.0.12 <span style="color:var(--text-faint); font-size:14px;">on PyPI</span></div><div style="font-size:14px; color:var(--text-dim); margin-top:6px;">Install in one command — <span class="mono" style="color:var(--amber);">pip install perseus-ctx</span></div></div>
+        <div style="background:var(--surface); border:1px solid var(--border-soft); border-radius:16px; padding:24px;"><div class="mono" style="font-size:24px; font-weight:600;">v1.0.12 <span style="color:var(--text-faint); font-size:14px;">on PyPI</span></div><div style="font-size:14px; color:var(--text-dim); margin-top:6px;">Install in one command: <span class="mono" style="color:var(--amber);">pip install perseus-ctx</span></div></div>
         <div style="background:var(--surface); border:1px solid var(--border-soft); border-radius:16px; padding:24px;"><div class="mono" style="font-size:24px; font-weight:600;">1,185 <span style="color:var(--text-faint); font-size:14px;">tests passing</span></div><div style="font-size:14px; color:var(--text-dim); margin-top:6px;">Gauntlet v2 scored <span style="color:var(--violet);">100.0 / 100</span></div></div>
         <div style="background:var(--surface); border:1px solid var(--border-soft); border-radius:16px; padding:24px; display:flex; flex-wrap:wrap; gap:8px;">
           <span class="badge" style="background:var(--surface-2);">Google Cloud Hackathon</span>
@@ -405,7 +403,7 @@ Tests: <span class="br">1,185 passing</span></pre>
     form.addEventListener('submit', function (e) {
       e.preventDefault();
       var fd = new FormData(form);
-      var subject = 'Perseus — ' + (fd.get('topic') || 'General inquiry');
+      var subject = 'Perseus: ' + (fd.get('topic') || 'General inquiry');
       var body = 'From: ' + (fd.get('name') || '') + ' <' + (fd.get('email') || '') + '>\n\n' + (fd.get('message') || '');
       window.location.href = 'mailto:perseus@perseus.observer?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
       var note = document.getElementById('formNote');

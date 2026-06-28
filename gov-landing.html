@@ -1,138 +1,21 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Perseus for Government — Auditable AI agent state, air-gapped</title>
-<meta name="description" content="Perseus and Mimir run fully on-premise — telemetry-free, air-gap ready, encrypted at rest. Open source and auditable, with published SBOM, EAR99 classification, and NIST AI RMF alignment. Built for classified and regulated networks." />
-<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-<meta name="theme-color" content="#0A0E16" />
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Perseus for Government</title>
+<link rel="canonical" href="https://perseus.observer/government/">
+<meta name="robots" content="noindex">
+<meta http-equiv="refresh" content="0; url=/government/">
+<link rel="icon" href="/assets/perseus.svg">
 <style>
-  :root{--bg:#0A0E16;--bg-1:#0D131C;--bg-2:#111A26;--code:#070B12;--line:rgba(255,255,255,.07);--line-2:rgba(255,255,255,.13);--text:#EEF2F8;--dim:#9AA6B6;--muted:#5E6B7E;--amber:#F5B63F;--amber-2:#FBCB6B;--green:#54D38A;--coral:#F26A52;--display:'Inter Tight',system-ui,-apple-system,sans-serif;--sans:'Inter',system-ui,-apple-system,sans-serif;--mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,monospace;--max:1180px;--gutter:clamp(20px,4vw,52px)}
-  *,*::before,*::after{box-sizing:border-box}html{scroll-behavior:smooth}
-  body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;overflow-x:hidden;background-image:radial-gradient(ellipse 70% 55% at 75% -5%,rgba(245,182,63,.07),transparent 60%),radial-gradient(ellipse 60% 50% at 10% 0%,rgba(84,211,138,.05),transparent 55%);background-attachment:fixed}
-  a{color:inherit;text-decoration:none}svg,img{display:block;max-width:100%}::selection{background:var(--amber);color:#10131a}
-  .wrap{max-width:var(--max);margin:0 auto;padding:0 var(--gutter)}
-  .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.24em;text-transform:uppercase;color:var(--amber);display:inline-flex;align-items:center;gap:10px}
-  header.nav{position:sticky;top:0;z-index:60;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);background:color-mix(in srgb,var(--bg) 80%,transparent);border-bottom:1px solid var(--line)}
-  .nav-inner{display:flex;align-items:center;justify-content:space-between;height:62px}
-  .brand{display:inline-flex;align-items:center;gap:10px;font-family:var(--display);font-weight:600;font-size:19px;letter-spacing:-.01em}.brand .mark{width:22px;height:22px}
-  .nav nav{display:flex;align-items:center;gap:26px;font-family:var(--mono);font-size:11.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim)}
-  .nav nav a{transition:color .18s}.nav nav a:hover{color:var(--text)}
-  .nav .btn-gh{border:1px solid var(--line-2);padding:8px 15px;border-radius:5px;color:var(--text);transition:.18s}.nav .btn-gh:hover{border-color:var(--amber);color:var(--amber)}
-  @media(max-width:860px){.nav nav .nav-link{display:none}}
-  .btn{display:inline-flex;align-items:center;gap:9px;font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;padding:13px 22px;border-radius:6px;border:1px solid var(--line-2);color:var(--text);transition:.18s;cursor:pointer}
-  .btn:hover{border-color:var(--amber);color:var(--amber);transform:translateY(-1px)}
-  .btn.primary{background:var(--amber);color:#10131a;border-color:var(--amber);font-weight:600}.btn.primary:hover{background:var(--amber-2)}
-  .hero{position:relative;padding:clamp(60px,9vw,108px) 0 clamp(40px,6vw,56px);overflow:hidden}
-  .hero .constellation{position:absolute;top:-30px;right:-50px;width:min(560px,55vw);opacity:.4;pointer-events:none;z-index:0}
-  .hero .wrap{position:relative;z-index:1}
-  .hero h1{font-family:var(--display);font-weight:700;font-size:clamp(34px,5.4vw,66px);line-height:1.04;letter-spacing:-.03em;margin:24px 0 0;max-width:18ch;text-wrap:balance}
-  .hero h1 em{font-style:normal;color:var(--green)}
-  .hero p.sub{font-size:clamp(16px,1.9vw,19px);line-height:1.6;color:var(--dim);max-width:64ch;margin:22px 0 0}.hero p.sub b{color:var(--text);font-weight:600}
-  .hero-cta{display:flex;flex-wrap:wrap;gap:14px;margin-top:30px;align-items:center}
-  .sec{padding:clamp(56px,7vw,96px) 0;border-top:1px solid var(--line)}
-  .sec-head{max-width:760px;margin:0 0 clamp(32px,4vw,48px)}
-  .sec-head h2{font-family:var(--display);font-weight:600;font-size:clamp(26px,3.6vw,42px);line-height:1.06;letter-spacing:-.022em;margin:16px 0 0;text-wrap:balance}
-  .sec-head h2 em{font-style:normal;color:var(--green)}
-  .sec-head p{color:var(--dim);font-size:16px;line-height:1.6;margin:16px 0 0;max-width:64ch}
-  .grid{display:grid;gap:18px}.g3{grid-template-columns:repeat(3,1fr)}
-  @media(max-width:880px){.g3{grid-template-columns:1fr}}
-  .feat{background:var(--bg-1);border:1px solid var(--line);border-radius:10px;padding:clamp(22px,2.4vw,28px)}
-  .feat .ic{font-family:var(--mono);color:var(--green);font-size:18px;margin-bottom:14px}
-  .feat h3{font-family:var(--display);font-weight:600;font-size:18px;margin:0}
-  .feat p{color:var(--dim);font-size:14.5px;line-height:1.6;margin:9px 0 0}.feat p b{color:var(--text);font-weight:600}
-  /* compliance list */
-  .clist{border:1px solid var(--line);border-radius:12px;overflow:hidden}
-  .crow{display:grid;grid-template-columns:26px 1fr auto;gap:16px;align-items:center;padding:18px 22px;border-top:1px solid var(--line)}
-  .crow:first-child{border-top:0}
-  .crow .mk{font-family:var(--mono);font-size:15px;text-align:center}
-  .crow .mk.done{color:var(--green)}.crow .mk.prog{color:var(--amber)}.crow .mk.pend{color:var(--muted)}
-  .crow .ct{font-weight:600;color:var(--text)}.crow .cs{color:var(--dim);font-size:13.5px;font-weight:400}
-  .crow .badge{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;padding:5px 10px;border-radius:5px;border:1px solid var(--line-2);white-space:nowrap}
-  .crow .badge.done{color:var(--green);border-color:rgba(84,211,138,.35)}
-  .crow .badge.prog{color:var(--amber);border-color:rgba(245,182,63,.35)}
-  .crow .badge.pend{color:var(--muted)}
-  .ask{background:linear-gradient(160deg,rgba(245,182,63,.09),rgba(84,211,138,.05) 70%,transparent);border:1px solid var(--line-2);border-radius:14px;padding:clamp(32px,5vw,56px);text-align:center}
-  .ask h2{font-family:var(--display);font-weight:700;font-size:clamp(26px,3.6vw,40px);letter-spacing:-.025em;margin:14px 0 0;text-wrap:balance}
-  .ask p{color:var(--dim);font-size:16px;max-width:58ch;margin:14px auto 0;line-height:1.6}
-  .ask .cta{display:flex;flex-wrap:wrap;gap:14px;justify-content:center;margin-top:28px}
-  footer{border-top:1px solid var(--line);padding:clamp(44px,6vw,64px) 0 40px}
-  .fbot{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;font-family:var(--mono);font-size:11px;letter-spacing:.08em;color:var(--muted)}
+  body{background:#0A0A12;color:#ECEAF4;font-family:'Space Grotesk',-apple-system,BlinkMacSystemFont,sans-serif;
+       display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0;text-align:center;padding:24px;}
+  a{color:#F5A623;}
 </style>
 </head>
 <body>
-<header class="nav"><div class="wrap nav-inner">
-  <a class="brand" href="/"><svg class="mark" viewBox="0 0 64 64" aria-hidden="true"><g stroke="#F5B63F" stroke-width="2" stroke-linecap="round" opacity=".6" fill="none"><path d="M14 44 L24 34 L33 39 L41 24 L50 16"/><path d="M33 39 L37 50"/></g><g fill="#F5B63F"><circle cx="14" cy="44" r="2.4"/><circle cx="24" cy="34" r="2.4"/><circle cx="33" cy="39" r="2.8"/><circle cx="41" cy="24" r="2.4"/><circle cx="37" cy="50" r="2"/></g><circle cx="50" cy="16" r="3.6" fill="#54D38A"/></svg>Perseus</a>
-  <nav><a class="nav-link" href="/#products">Products</a><a class="nav-link" href="/mimir/">Mimir</a><a class="nav-link" href="https://github.com/Perseus-Computing-LLC/perseus/blob/main/SBOM.md">SBOM</a><a class="btn-gh" href="mailto:tcconnally@gmail.com?subject=Perseus%20%E2%80%94%20Government%20inquiry">Contact ↗</a></nav>
-</div></header>
-
-<section class="hero">
-  <svg class="constellation" viewBox="0 0 600 420" aria-hidden="true"><g stroke="#F5B63F" stroke-width="1" opacity=".3" fill="none"><path d="M60 360 L150 280 L250 320 L360 180 L470 110 L540 60"/><path d="M250 320 L300 400"/><path d="M360 180 L420 250"/></g><g fill="#F5B63F" opacity=".7"><circle cx="60" cy="360" r="2.5"/><circle cx="150" cy="280" r="3"/><circle cx="250" cy="320" r="3.5"/><circle cx="360" cy="180" r="3"/><circle cx="470" cy="110" r="2.5"/><circle cx="420" cy="250" r="2.2"/></g><circle cx="540" cy="60" r="4.5" fill="#54D38A"/><circle cx="540" cy="60" r="9" fill="#54D38A" opacity=".25"/></svg>
-  <div class="wrap">
-    <span class="eyebrow"><span>✦</span> Perseus for Government</span>
-    <h1>Auditable AI agent state for <em>air-gapped</em> networks.</h1>
-    <p class="sub">Perseus and Mimir run <b>fully on-premise</b> — telemetry-free, no network by default, encrypted at rest. They're open source and auditable end-to-end, with a published SBOM, EAR99 classification, and NIST AI RMF alignment. Built to ground AI agents with verifiable state inside classified and regulated environments.</p>
-    <div class="hero-cta">
-      <a class="btn primary" href="mailto:tcconnally@gmail.com?subject=Perseus%20%E2%80%94%20Government%20inquiry">Contact for procurement →</a>
-      <a class="btn" href="https://github.com/Perseus-Computing-LLC/perseus/blob/main/SBOM.md">View SBOM ↗</a>
-    </div>
-  </div>
-</section>
-
-<section class="sec">
-  <div class="wrap">
-    <div class="sec-head">
-      <span class="eyebrow"><span>✦</span> Why it fits</span>
-      <h2>Designed for environments where <em>provenance</em> is the requirement.</h2>
-    </div>
-    <div class="grid g3">
-      <div class="feat"><div class="ic">⊘</div><h3>No network by default</h3><p>Air-gap ready. Perseus stores no credentials; Mimir encrypts all memory at rest with <b>AES-256-GCM</b>. Nothing phones home — both tools are telemetry-free.</p></div>
-      <div class="feat"><div class="ic">⎙</div><h3>Auditable end-to-end</h3><p>Fully open source under MIT. Every dependency is enumerated in a published <b>SBOM</b> (EO 14028 / NTIA), and every benchmark is reproducible.</p></div>
-      <div class="feat"><div class="ic">◫</div><h3>Verifiable state</h3><p>Agents act on facts resolved from your actual environment — not stale guesses — with cryptographic <b>Ed25519</b> federation across machines.</p></div>
-    </div>
-  </div>
-</section>
-
-<section class="sec">
-  <div class="wrap">
-    <div class="sec-head">
-      <span class="eyebrow"><span>✦</span> Compliance status</span>
-      <h2>Current posture — stated <em>plainly</em>.</h2>
-      <p>We publish exactly where we are. Items in progress are marked as such; nothing here is asserted before it's real.</p>
-    </div>
-    <div class="clist">
-      <div class="crow"><span class="mk done">✓</span><span><span class="ct">MIT license · open source</span><br><span class="cs">Full source, forkable and auditable</span></span><span class="badge done">In place</span></div>
-      <div class="crow"><span class="mk done">✓</span><span><span class="ct">SBOM published</span><br><span class="cs">Dependency manifest per EO 14028 / NTIA minimum elements</span></span><span class="badge done">In place</span></div>
-      <div class="crow"><span class="mk done">✓</span><span><span class="ct">EAR99 export classification</span><br><span class="cs">Self-classified; no special export license required</span></span><span class="badge done">In place</span></div>
-      <div class="crow"><span class="mk done">✓</span><span><span class="ct">NIST AI RMF alignment</span><br><span class="cs">Mapped across Govern, Map, Measure, Manage</span></span><span class="badge done">In place</span></div>
-      <div class="crow"><span class="mk done">✓</span><span><span class="ct">Air-gapped / on-prem deployment</span><br><span class="cs">No network dependency by default; encrypted at rest</span></span><span class="badge done">In place</span></div>
-      <div class="crow"><span class="mk prog">◐</span><span><span class="ct">FedRAMP &amp; CMMC</span><br><span class="cs">Control mapping underway; not yet certified</span></span><span class="badge prog">In progress</span></div>
-      <div class="crow"><span class="mk pend">○</span><span><span class="ct">UEI &amp; CAGE codes</span><br><span class="cs">Pending SAM.gov registration</span></span><span class="badge pend">Pending</span></div>
-      <div class="crow"><span class="mk pend">○</span><span><span class="ct">SBIR registry</span><br><span class="cs">Application in preparation (NSF SBIR Phase I)</span></span><span class="badge pend">Pending</span></div>
-    </div>
-  </div>
-</section>
-
-<section class="sec">
-  <div class="wrap">
-    <div class="ask">
-      <span class="eyebrow" style="justify-content:center"><span>✦</span> Procurement</span>
-      <h2>Evaluating AI tooling for a regulated or classified network?</h2>
-      <p>We work directly with program offices and integrators on air-gapped pilots, security review, and SBOM / compliance artifacts. No sales layer — you reach the founder.</p>
-      <div class="cta">
-        <a class="btn primary" href="mailto:tcconnally@gmail.com?subject=Perseus%20%E2%80%94%20Government%20inquiry">Email the founder →</a>
-        <a class="btn" href="https://github.com/Perseus-Computing-LLC/perseus/blob/main/SECURITY.md">Security policy ↗</a>
-      </div>
-    </div>
-  </div>
-</section>
-
-<footer><div class="wrap">
-  <div class="fbot"><span>Perseus Computing LLC · Austin, TX · MIT License · EAR99 · SBOM published</span><span>perseus.observer</span></div>
-</div></footer>
+  <p>This page has moved to <a href="/government/">perseus.observer/government</a>. Redirecting now.</p>
+  <script>location.replace('/government/');</script>
 </body>
 </html>
