@@ -1917,11 +1917,16 @@ def _compile_pii_rules() -> list[dict]:
 
 
 def _line_starts(text: str) -> list[int]:
-    """Byte/char offsets where each line begins, for offset→line-number lookup."""
+    """Char offsets where each line begins, for offset→line-number lookup.
+
+    Uses ``str.find`` (C-level newline scan) rather than a per-character Python
+    loop, which dominated the cost of scanning a large rendered context.
+    """
     starts = [0]
-    for i, ch in enumerate(text):
-        if ch == "\n":
-            starts.append(i + 1)
+    idx = text.find("\n")
+    while idx != -1:
+        starts.append(idx + 1)
+        idx = text.find("\n", idx + 1)
     return starts
 
 
@@ -1986,16 +1991,23 @@ def scan_text(text: str, cfg: dict, include_pii: "bool | None" = None) -> dict:
     starts = _line_starts(text)
     counts: dict[str, int] = {}
     findings: list[dict] = []
+    # Mask each line at most once: a line may hold several findings, and masking
+    # re-runs every rule over the whole line, so caching by line number turns an
+    # O(findings × rules) cost into O(distinct-finding-lines × rules).
+    masked_lines: dict[int, str] = {}
     for rule in rules:
         for m in rule["regex"].finditer(text):
             if rule.get("luhn") and not _luhn_ok(m.group(0)):
                 continue
             counts[rule["name"]] = counts.get(rule["name"], 0) + 1
             ln = _line_no(starts, m.start())
-            line_text = text[starts[ln - 1]: (starts[ln] - 1 if ln < len(starts) else len(text))]
-            safe = _redact_line(line_text, rules).strip()
-            if len(safe) > 160:
-                safe = safe[:157] + "..."
+            safe = masked_lines.get(ln)
+            if safe is None:
+                line_text = text[starts[ln - 1]: (starts[ln] - 1 if ln < len(starts) else len(text))]
+                safe = _redact_line(line_text, rules).strip()
+                if len(safe) > 160:
+                    safe = safe[:157] + "..."
+                masked_lines[ln] = safe
             findings.append({"rule": rule["name"], "line": ln, "context": safe})
     findings.sort(key=lambda f: (f["line"], f["rule"]))
     return {
