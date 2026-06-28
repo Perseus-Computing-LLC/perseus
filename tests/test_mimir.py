@@ -483,6 +483,49 @@ class TestMimirAutoInject:
         assert md is not None and "**k**" in md
         assert stub.calls == [("mimir_context", {"categories": ["x"], "limit": 3})]
 
+    def test_connector_as_of_returns_historical_version(self):
+        """MimirConnector.as_of() calls mimir_as_of and returns the past version."""
+        c = self._cfg(enabled=True)
+        connector = perseus.MimirConnector(c)
+
+        class _StubClient:
+            is_connected = True
+            calls: list = []
+
+            def call_tool(self, name, arguments):
+                self.calls.append((name, arguments))
+                return ({"found": True, "category": "facts", "key": "capital",
+                         "body_json": "{\"note\": \"Bonn\"}", "as_of_unix_ms": 123}, None)
+
+        stub = _StubClient()
+        connector._client = stub
+        got = connector.as_of("facts", "capital", 123)
+        assert got is not None and "Bonn" in got["body_json"]
+        assert stub.calls == [("mimir_as_of",
+                               {"category": "facts", "key": "capital", "as_of_unix_ms": 123})]
+
+    def test_connector_as_of_not_found_returns_none(self):
+        """found=false (fact not yet recorded at T) maps to None."""
+        c = self._cfg(enabled=True)
+        connector = perseus.MimirConnector(c)
+
+        class _StubClient:
+            is_connected = True
+
+            def call_tool(self, name, arguments):
+                return ({"found": False, "category": "facts", "key": "capital",
+                         "as_of_unix_ms": 1}, None)
+
+        connector._client = _StubClient()
+        assert connector.as_of("facts", "capital", 1) is None
+
+    def test_connector_as_of_unavailable_returns_none(self):
+        """When Mimir is unavailable, as_of() fails safe to None (never raises)."""
+        c = self._cfg(enabled=True)
+        connector = perseus.MimirConnector(c)
+        connector._client = None  # not connected → available is False
+        assert connector.as_of("facts", "capital", 123) is None
+
 
 class TestPackMimirMerge:
     def _ws(self, tmp_path, pack_yaml: str) -> Path:
