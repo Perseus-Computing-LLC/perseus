@@ -367,6 +367,11 @@ class _MCPStdioClient:
         self._process: Optional[subprocess.Popen] = None
         self._request_id = 0
         self._server_capabilities: dict = {}
+        # Background reader: a daemon thread pumps every stdout line into a queue
+        # so _call can wait with a timeout and correlate responses by id (a bare
+        # readline() blocks forever if the server hangs, defeating the fail-safe).
+        self._recv = None  # queue.Queue[str | None]; None is the EOF sentinel
+        self._reader = None  # threading.Thread
 
         # Parse --db <path> from command to set subprocess CWD.
         # Mimir may ignore the --db flag and
@@ -419,13 +424,18 @@ class _MCPStdioClient:
             popen_kwargs = {
                 "stdin": subprocess.PIPE,
                 "stdout": subprocess.PIPE,
-                "stderr": subprocess.PIPE,
+                # Discard stderr: nothing drains it, so a chatty server that fills
+                # the OS pipe buffer would otherwise block on its stderr write
+                # while we wait on stdout — a classic two-pipe deadlock.
+                "stderr": subprocess.DEVNULL,
                 "text": True,
             }
             if cwd:
                 popen_kwargs["cwd"] = cwd
 
             self._process = subprocess.Popen(self._command, **popen_kwargs)
+            # Start the stdout pump before any request so _call can read with a timeout.
+            self._start_reader()
             # MCP initialize handshake
             init_result, err = self._call("initialize", {
                 "protocolVersion": "2025-06-18",
@@ -433,14 +443,38 @@ class _MCPStdioClient:
                 "capabilities": {},
             })
             if err or not init_result:
+                # Don't leak the spawned subprocess on a failed handshake.
+                self.disconnect()
                 return False
             self._server_capabilities = init_result.get("capabilities", {})
             # Send initialized notification
             self._send_notification("notifications/initialized", {})
             return True
         except Exception:
-            self._process = None
+            self.disconnect()
             return False
+
+    def _start_reader(self) -> None:
+        """Spawn a daemon thread that pumps stdout lines into self._recv."""
+        import threading
+        import queue
+        q = queue.Queue()
+        self._recv = q
+        proc = self._process
+
+        def _pump() -> None:
+            # Bind the queue locally so disconnect() setting self._recv = None
+            # can't turn these puts into AttributeErrors.
+            try:
+                for line in proc.stdout:
+                    q.put(line)
+            except Exception:
+                pass
+            finally:
+                q.put(None)  # signal EOF to any waiter
+
+        self._reader = threading.Thread(target=_pump, daemon=True)
+        self._reader.start()
 
     def disconnect(self) -> None:
         if self._process:
@@ -455,6 +489,10 @@ class _MCPStdioClient:
                 except Exception:
                     pass
             self._process = None
+        # The reader thread is a daemon and exits on EOF once stdout closes;
+        # drop our references so a later connect() starts a fresh queue/thread.
+        self._reader = None
+        self._recv = None
 
     @property
     def is_connected(self) -> bool:
@@ -516,19 +554,43 @@ class _MCPStdioClient:
         except (BrokenPipeError, OSError) as e:
             return None, f"MCP write failed: {e}"
 
-        # Read response line
-        try:
-            line = self._process.stdout.readline()
-            if not line:
+        # Read from the pump queue with a deadline, correlating by request id.
+        # A hung server can no longer block the render indefinitely, and stray
+        # notifications / out-of-order responses are skipped instead of being
+        # mistaken for this call's reply.
+        import queue
+        recv = self._recv
+        if recv is None:
+            return None, "MCP reader not started"
+        deadline = time.monotonic() + self._timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                # Tear the process down so the breaker trips and we don't leak it.
+                self.disconnect()
+                return None, f"MCP timeout after {self._timeout}s awaiting response to {method}"
+            try:
+                line = recv.get(timeout=remaining)
+            except queue.Empty:
+                self.disconnect()
+                return None, f"MCP timeout after {self._timeout}s awaiting response to {method}"
+            if line is None:
                 return None, "MCP EOF (process may have crashed)"
-            response = json.loads(line)
-        except (json.JSONDecodeError, Exception) as e:
-            return None, f"MCP read/parse failed: {e}"
-
-        if "error" in response:
-            err = response["error"]
-            return None, f"MCP error {err.get('code', '')}: {err.get('message', str(err))}"
-        return response.get("result"), None
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                response = json.loads(line)
+            except (json.JSONDecodeError, ValueError):
+                # Non-JSON noise on stdout (e.g. a stray log line) — skip it.
+                continue
+            # Ignore notifications (no id) and replies to other/stale requests.
+            if response.get("id") != req_id:
+                continue
+            if "error" in response:
+                err = response["error"]
+                return None, f"MCP error {err.get('code', '')}: {err.get('message', str(err))}"
+            return response.get("result"), None
 
 
 class _MCPSseClient:
