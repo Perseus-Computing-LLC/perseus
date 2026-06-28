@@ -1,33 +1,16 @@
 # Claims Audit — perseus
 
-**Date:** 2026-06-12 (corrected 2026-06-13) · **Audited:** README.md, MCTS/index.html vs reality
+**Date:** 2026-06-28 (refreshed) · **Audited:** README.md, perseus.observer, code on `main`
 
-> **Correction (2026-06-13):** an earlier revision of this file claimed MCTS did
-> not exist. That was wrong — a methodology error: GitHub's repo search omits
-> forks by default, so a `user:tcconnally` search didn't surface
-> [`Perseus-Computing-LLC/MCTS`](https://github.com/Perseus-Computing-LLC/MCTS) (a fork of the canonical
-> [`MCP-Audit/MCTS`](https://github.com/MCP-Audit/MCTS)), even though the README
-> linked straight to it and a full checkout exists locally. The MCTS section
-> below is rewritten to reflect the real, verified state.
+## Verified claims (source-checked)
 
-## Findings (ranked by judge visibility)
+- **Perseus 26 MCP tools** — `_generate_directive_tools()` returns exactly 26 in perseus-ctx v1.0.12 (verified from the published amalgamation). README and perseus.observer now both say 26. ✓
+- **Mimir 43 MCP tools, v2.6.0** — verified against `Perseus-Computing-LLC/mimir` source (43 distinct `mimir_*` names, `Cargo.toml` = 2.6.0). README references corrected from the stale "v2.2 / 40 tools". ✓
+- **MCTS 31 analyzers** — `MCTS/src/mcts/core/scanner.py::_build_analyzers()` wires 31. Website corrected from the marketing "120" ("12 categories x 10"); MCTS README says "25+". ✓
+- **Perseus itself** (live context engine, MCP server, directives) — running in production. ✓
 
-### MEDIUM — Mimir tool names in the README don't exist
+## History
 
-- **Claim:** README: "v0.5.0 provides 23 MCP tools … `mimir_recall`, `mimir_store`, `mimir_entity_*`, `mimir_layer_*`, `mimir_decay_config`, …"
-- **Reality:** 23 tools is correct, but `mimir_store`, `mimir_entity_*`, `mimir_layer_*`, and `mimir_decay_config` are not among them. Actual names: `mimir_remember`, `mimir_link`/`mimir_traverse`, `mimir_journal`, `mimir_state_*`, `mimir_vault_*`, `mimir_decay`, etc. A reader configuring an assistant from this README will call tools that don't exist.
-- **Fix:** replace the example list with real tool names (see mimir/CLAIMS-AUDIT.md for the full surface).
-
-## Verified claims
-
-- **MCTS — "120 analyzers, one command", scan output, self-testing.** ✓ Verified against [`MCP-Audit/MCTS`](https://github.com/MCP-Audit/MCTS) (canonical) / [`Perseus-Computing-LLC/MCTS`](https://github.com/Perseus-Computing-LLC/MCTS) (fork the README links to) and a local checkout. It's a substantial product: ~120 analyzers, static AST + snapshot + live MCP probe discovery, SARIF/HTML/JSON output, a REST API, and a GitHub Action. The "every analyzer has a regression test" claim is corroborated by the `eval/behavioral/` regression-fixture harness. Test suite: 365 passing, 3 skipped, 4 Windows-only environment failures (encoding/venv-layout assumptions in tests, not product code) — see `code-reviews/MCTS-review.md`. The self-verification invariant in `RiskScoringEngine.verify()` (scan fails loudly on score mismatch) is real and rare. Recent commits already landed the per-analyzer error-isolation and SARIF-URI-normalization fixes from that review.
-- **Mimir: 23 MCP tools, SQLite + FTS5, fully local** — verified against `Perseus-Computing-LLC/mimir` v0.5.0 source. ✓
-- **Perseus itself** (live context engine, MCP server, directives) — running in production in this very session. ✓
-
-## Note on the registry-scan campaign
-
-The "we scanned the top 20 MCP servers — X% have HIGH findings" campaign is
-*feasible*: the scanner exists and runs. Per the user, scans have already been
-run and issues filed against real MCP repos. The anchor stat should be computed
-from those actual scan results (in `code-reviews/` and the MCTS repo), not
-treated as blocked.
+- 2026-06-12/13: earlier revisions had a methodology error (fork search omission) and
+  cited 23 Mimir tools / 120 MCTS analyzers. Superseded by the 2026-06-28 source-verified
+  figures above.
