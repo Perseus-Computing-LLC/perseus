@@ -12,7 +12,7 @@
 [![Status: Patent Pending](https://img.shields.io/badge/status-patent_pending-blue)](./docs/ip/README.md)
 [**perseus.observer →**](https://perseus.observer)
 
-<!-- mcp-name: io.github.tcconnally/perseus -->
+<!-- mcp-name: io.github.Perseus-Computing-LLC/perseus -->
 
 ---
 
