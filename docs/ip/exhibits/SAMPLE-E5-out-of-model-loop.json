@@ -1,0 +1,19 @@
+{
+  "evidence": "E5",
+  "issue": 487,
+  "title": "Directive resolution occurs outside the model control loop",
+  "perseus_version": "1.0.11",
+  "measured": {
+    "directives_resolved": 3,
+    "directive_classes": [
+      "env",
+      "query",
+      "read"
+    ],
+    "model_egress_calls_during_resolution": 0,
+    "rendered_contains_resolved_content": true,
+    "rendered_contains_unexpanded_directives": false
+  },
+  "method": "Imported the built perseus.py artifact and called render_source() in-process while spying on socket.connect, http.client request, and urllib.urlopen \u2014 the only egress paths by which any model client (remote API or local Ollama) could be contacted. Call count asserted == 0 across full resolution of @read/@env/@query directives.",
+  "patent_linkage": "Claim element (f): the resolver selects and expands author-specified directives deterministically and prior to model invocation. Unlike agentic tool-calling, the model does not emit tool-call tokens or decide which directives fire. This defeats the \u00a7103 combination of MCP/observability + agentic tool-calling: that combination keeps the model in the loop, the opposite of this teaching."
+}
