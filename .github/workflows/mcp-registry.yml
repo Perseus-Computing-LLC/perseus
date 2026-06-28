@@ -1,0 +1,33 @@
+name: Publish to MCP Registry
+
+# Publishes server.json to registry.modelcontextprotocol.io.
+# Runs after a GitHub Release, or on demand. Auth is GitHub OIDC (no token):
+# the workflow's identity proves ownership of the io.github.Perseus-Computing-LLC
+# namespace. PyPI package ownership is proven by the "mcp-name" marker in README.md
+# (the perseus-ctx long description).
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mcp-publisher
+        run: |
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_amd64.tar.gz" \
+            | tar -xz mcp-publisher
+
+      - name: Authenticate (GitHub OIDC)
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish server.json
+        run: ./mcp-publisher publish
