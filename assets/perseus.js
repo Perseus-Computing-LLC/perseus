@@ -31,6 +31,7 @@
     var original = btn.textContent;
     btn.addEventListener('click', function () {
       try { navigator.clipboard.writeText(btn.getAttribute('data-copy')); } catch (e) {}
+      try { if (window.umami) umami.track('copy-install', { cmd: btn.getAttribute('data-copy') }); } catch (e) {}
       btn.textContent = 'Copied';
       clearTimeout(btn._t);
       btn._t = setTimeout(function () { btn.textContent = original; }, 1600);
@@ -69,7 +70,11 @@
       say('Sending…');
       fetch(endpoint, { method: 'POST', headers: { 'Accept': 'application/json' }, body: new FormData(form) })
         .then(function (r) {
-          if (r.ok) { form.reset(); say('Thanks. We will be in touch at the email you provided.', 'var(--green)'); }
+          if (r.ok) {
+            form.reset();
+            say('Thanks. We will be in touch at the email you provided.', 'var(--green)');
+            try { var s = form.querySelector('[name=source]'); if (window.umami) umami.track('lead', { source: s ? s.value : 'capture' }); } catch (e) {}
+          }
           else { say('Something went wrong. Please email perseus@perseus.observer directly.', 'var(--red)'); }
         })
         .catch(function () { say('Network error. Please email perseus@perseus.observer directly.', 'var(--red)'); })

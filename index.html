@@ -428,7 +428,7 @@ Tests: <span class="br">1,185 passing</span></pre>
       showNote('Sending…');
       fetch(CONTACT_ENDPOINT, { method: 'POST', headers: { 'Accept': 'application/json' }, body: fd })
         .then(function (r) {
-          if (r.ok) { form.reset(); showNote('Thanks. We will reply to the email you provided.', 'var(--green)'); }
+          if (r.ok) { form.reset(); showNote('Thanks. We will reply to the email you provided.', 'var(--green)'); try { if (window.umami) umami.track('lead', { source: 'contact', topic: (fd.get('topic') || '') }); } catch (e) {} }
           else { showNote('Something went wrong. Please email perseus@perseus.observer directly.', 'var(--red)'); }
         })
         .catch(function () { showNote('Network error. Please email perseus@perseus.observer directly.', 'var(--red)'); })
