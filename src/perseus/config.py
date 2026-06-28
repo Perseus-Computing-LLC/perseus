@@ -92,6 +92,20 @@ DEFAULT_CONFIG = {
     "agora": {
         "tasks_dir": "tasks",
     },
+    # #513: @research directive — external scientific-paper search MCP (BGPT).
+    # `command` is the LOCAL stdio invocation of the provider; BGPT ships an
+    # npx-runnable package (github.com/connerlambden/bgpt-mcp, README Option C:
+    # `npx -y bgpt-mcp`). `tool` is the MCP tool name (BGPT exposes
+    # `search_papers`). default_limit feeds the per-render paper count
+    # (clamped to 25); max_tokens caps the injected context budget.
+    "research": {
+        "enabled": True,
+        "provider": "bgpt",
+        "command": ["npx", "-y", "bgpt-mcp"],
+        "tool": "search_papers",
+        "default_limit": 5,
+        "max_tokens": 1500,
+    },
     "health": {
         "stale_checkpoint_days": 7,
         "duplicate_checkpoint_window": 5,
