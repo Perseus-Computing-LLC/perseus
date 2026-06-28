@@ -78,3 +78,34 @@ def test_generated_version_exits_zero(tmp_path):
     assert "perseus" in result.stdout.lower(), (
         f"--version output did not contain 'perseus': {result.stdout!r}"
     )
+
+
+def test_all_version_literals_injected(tmp_path):
+    """Regression: every _PERSEUS_VERSION literal — including INDENTED fallbacks
+    (e.g. webhooks.py's `except ImportError:` block) — must be replaced with the
+    VERSION file value at build time.
+
+    Previously the injection regex was anchored `^(_PERSEUS_VERSION...)` with no
+    allowance for leading whitespace, so the indented fallback in webhooks.py
+    stayed frozen at a stale literal. In the flattened single-file artifact the
+    `from .serve import _PERSEUS_VERSION` always raises ImportError, so that stale
+    fallback won the global assignment and MCP serverInfo misreported the version.
+    """
+    import re
+    generated = tmp_path / "perseus.py"
+    _run_build("--output", str(generated))
+
+    version = (REPO_ROOT / "VERSION").read_text(encoding="utf-8").strip()
+    text = generated.read_text(encoding="utf-8")
+
+    # Match assignments at any indentation: optional leading whitespace + literal.
+    literals = re.findall(
+        r'^\s*_PERSEUS_VERSION\s*=\s*"([^"]*)"', text, re.MULTILINE
+    )
+    assert literals, "no _PERSEUS_VERSION literal found in artifact"
+    stale = [v for v in literals if v != version]
+    assert not stale, (
+        f"version literal(s) not injected: {stale!r} != VERSION {version!r}. "
+        "An indented _PERSEUS_VERSION assignment was likely missed by the build "
+        "injection regex."
+    )
