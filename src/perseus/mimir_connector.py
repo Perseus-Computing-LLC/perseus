@@ -373,18 +373,18 @@ class _MCPStdioClient:
         self._recv = None  # queue.Queue[str | None]; None is the EOF sentinel
         self._reader = None  # threading.Thread
 
-        # Parse --db <path> from command to set subprocess CWD.
-        # Mimir may ignore the --db flag and
-        # write to CWD/mimir.db; setting CWD to the DB directory works
-        # around this so auto-backfill lands in the right place.
+        # Parse --db <path> from command to record the intended subprocess CWD.
+        # Mimir may ignore the --db flag and write to CWD/mimir.db; setting CWD to
+        # the DB directory works around this so auto-backfill lands in the right
+        # place. The directory is created lazily in connect() — constructing the
+        # client must have no filesystem side effects (it may be built just to read
+        # `.status`).
         self._cwd: str | None = None
         try:
             for i, arg in enumerate(command):
                 if arg == "--db" and i + 1 < len(command):
                     db_path = command[i + 1]
-                    db_dir = os.path.dirname(os.path.abspath(db_path))
-                    os.makedirs(db_dir, exist_ok=True)
-                    self._cwd = db_dir
+                    self._cwd = os.path.dirname(os.path.abspath(db_path))
                     break
         except Exception:
             pass
@@ -418,8 +418,16 @@ class _MCPStdioClient:
                     db_path = arg[5:]
                     db_dir = os.path.dirname(db_path)
                     if db_dir:
-                        os.makedirs(db_dir, exist_ok=True)
-                        cwd = db_dir if os.path.isdir(db_dir) else None
+                        cwd = db_dir
+
+            # Create the resolved working directory lazily here (not in __init__),
+            # so merely constructing the client never touches the filesystem.
+            if cwd:
+                try:
+                    os.makedirs(cwd, exist_ok=True)
+                except Exception:
+                    if not os.path.isdir(cwd):
+                        cwd = None
 
             popen_kwargs = {
                 "stdin": subprocess.PIPE,
