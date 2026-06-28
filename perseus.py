@@ -16232,6 +16232,53 @@ class MimirConnector:
             query_time_ms=int((time.time() - t0) * 1000),
         )
 
+    def as_of(
+        self,
+        category: str,
+        key: str,
+        as_of_unix_ms: int,
+    ) -> dict | None:
+        """Bi-temporal time-travel via Mimir's ``mimir_as_of`` tool.
+
+        Returns the version of a fact (``category`` + ``key``) that Mimir
+        believed at the transaction-time instant ``as_of_unix_ms`` — the content
+        as it was then, even after later overwrites — or ``None`` if the fact had
+        not been recorded yet at that instant, or if Mimir is unavailable.
+
+        Fail-safe like :meth:`recall`: never raises and never blocks a render, so
+        a context can surface "what we believed at time T" without making Mimir a
+        hard dependency. The returned dict carries ``found`` plus the entity
+        fields (``id``, ``category``, ``key``, ``body_json``, ``status``,
+        ``entity_type``, ``as_of_unix_ms``).
+
+        Args:
+            category: Entity category.
+            key: Entity key within the category.
+            as_of_unix_ms: Transaction-time instant (unix ms) to travel to.
+        """
+        if not self.available:
+            return None
+
+        def _do_as_of():
+            result, err = self._client.call_tool("mimir_as_of", {
+                "category": category,
+                "key": key,
+                "as_of_unix_ms": int(as_of_unix_ms),
+            })
+            if err:
+                raise RuntimeError(err)
+            return result
+
+        raw, err = _retry_with_backoff(
+            _do_as_of,
+            max_attempts=self._max_retries,
+            backoff_base=self._backoff_base,
+            circuit_breaker=self._breaker,
+        )
+        if err or not isinstance(raw, dict) or raw.get("found") is False:
+            return None
+        return raw
+
     def context(
         self,
         categories: list[str] | None = None,
