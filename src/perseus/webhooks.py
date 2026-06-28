@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 try:
     from .serve import _PERSEUS_VERSION
 except ImportError:
-    _PERSEUS_VERSION = "1.0.8"
+    _PERSEUS_VERSION = "0.0.0"  # replaced at build time by scripts/build.py (see VERSION file)
 
 # ──────────────────────────────── Webhooks ───────────────────────────────────
 
