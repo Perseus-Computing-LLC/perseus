@@ -1,0 +1,91 @@
+{
+  "exhibit": "B \u2014 recursive / dependency-ordered resolution (claim element)",
+  "issue": 490,
+  "perseus_version": "unknown",
+  "render_sha256": "14d63b604c97bf24dce18cb3cd63a74d75f07de916b3175b740dafcc67fbb2fe",
+  "levels_resolved": 3,
+  "dependency_order": [
+    "L0-shell",
+    "L1-shell",
+    "L2-shell"
+  ],
+  "cycle_detection_demo": "> \u26a0 @include: circular dependency detected. Chain: /tmp/g488/depX/cycB.md \u2192 /tmp/g488/depX/cycA.md \u2192 /tmp/g488/depX/cycB.md",
+  "depth_bound_default": 5,
+  "directive_dependency_graph": {
+    "source": "root",
+    "workspace": "/tmp/g488/depX",
+    "nodes": [
+      {
+        "id": "n1",
+        "directive": "@query",
+        "line": 3,
+        "kind": "inline",
+        "source": "builtin",
+        "args": "\"echo L0-shell\"",
+        "cache": {
+          "mode": "",
+          "ttl": null,
+          "mock": null
+        },
+        "metadata": {
+          "executes_shell": true,
+          "reads_files": false,
+          "mutates_state": false,
+          "safe_for_hover": false,
+          "cacheable": true,
+          "summary": "Run a shell command in the workspace and embed its stdout into the rendered context. Use for dynamic facts: git status, docker ps, system info. REQUIRES allow_query_shell=true and PERSEUS_ALLOW_DANGEROUS=1. Destructive \u2014 executes arbitrary commands with the user's permissions."
+        },
+        "resources": [
+          {
+            "kind": "shell",
+            "value": "echo L0-shell"
+          }
+        ]
+      },
+      {
+        "id": "n2",
+        "directive": "@include",
+        "line": 4,
+        "kind": "inline",
+        "source": "builtin",
+        "args": "level1.md",
+        "cache": {
+          "mode": "",
+          "ttl": null,
+          "mock": null
+        },
+        "metadata": {
+          "executes_shell": false,
+          "reads_files": true,
+          "mutates_state": false,
+          "safe_for_hover": false,
+          "cacheable": true,
+          "summary": "Include and render another Perseus source file, recursively resolving its directives. Use to compose context from multiple files or share common sections across workspaces. Bound a growing file with last=N (final N lines) or since=14d/2w/24h (recent dated sections only). Read-only; resolved directives inherit the parent configuration."
+        },
+        "resources": [
+          {
+            "kind": "file",
+            "value": "level1.md"
+          }
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "from": "n1",
+        "to": "n2",
+        "type": "order"
+      }
+    ],
+    "summary": {
+      "node_count": 2,
+      "edge_count": 1,
+      "directives": [
+        "@include",
+        "@query"
+      ]
+    }
+  },
+  "injection_boundary": "Inline resolver output (@query/@agent stdout) is inserted literally and NOT re-parsed as directives; recursion occurs only through @include via render_source with an incremented depth and immutable ancestor (path+inode) chain.",
+  "note": "Multi-level @include chain resolves in dependency order, terminates under cycle detection (path+inode) and a configurable depth bound. Byte-reproducible; offline; zero model calls."
+}
