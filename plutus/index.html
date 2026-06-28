@@ -3,139 +3,152 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Plutus: provider credit monitoring for LLM spend</title>
-<meta name="description" content="Plutus tracks live balances and spend across major LLM providers in one local ledger. Hourly refresh, per-provider breakdown, no dashboard login.">
-<link rel="icon" href="/assets/perseus.svg">
+<title>Plutus — LLM provider credit & spend monitor</title>
 <script>try{var t=localStorage.getItem('perseus-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="icon" href="/assets/perseus.svg">
+<link rel="canonical" href="https://perseus.observer/plutus/">
+<meta name="description" content="Plutus tracks live LLM provider balances and spend in one local ledger — hourly refresh, per-provider breakdown, no dashboard login.">
+<meta name="theme-color" content="#0A0A12">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Perseus">
+<meta property="og:title" content="Plutus — LLM provider credit &amp; spend monitor">
+<meta property="og:description" content="Plutus tracks live LLM provider balances and spend in one local ledger — hourly refresh, per-provider breakdown, no dashboard login.">
+<meta property="og:url" content="https://perseus.observer/plutus/">
+<meta property="og:image" content="https://perseus.observer/assets/og/plutus.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Plutus — LLM provider credit &amp; spend monitor">
+<meta name="twitter:description" content="Plutus tracks live LLM provider balances and spend in one local ledger — hourly refresh, per-provider breakdown, no dashboard login.">
+<meta name="twitter:image" content="https://perseus.observer/assets/og/plutus.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/assets/site.css">
+<link rel="stylesheet" href="/assets/tokens.css">
+<link rel="stylesheet" href="/assets/perseus.css">
 </head>
 <body>
 
-<header class="site-header">
-  <div class="wrap">
-    <a class="brand" href="/">
-      <svg width="30" height="30" viewBox="0 0 56 56" fill="none" aria-hidden="true">
-        <rect x="3" y="15" width="16" height="3.4" rx="1.7" fill="var(--violet)"/>
-        <rect x="3" y="22" width="16" height="3.4" rx="1.7" fill="var(--violet)" fill-opacity=".7"/>
-        <rect x="3" y="29" width="16" height="3.4" rx="1.7" fill="var(--violet)" fill-opacity=".5"/>
-        <g stroke="var(--amber)" stroke-width="2.4" stroke-linecap="round">
-          <line x1="30" y1="17" x2="48" y2="28"/><line x1="30" y1="24" x2="48" y2="28"/>
-          <line x1="30" y1="31" x2="48" y2="28"/><line x1="30" y1="38" x2="48" y2="28"/></g>
-        <circle cx="49" cy="28" r="4" fill="var(--amber)"/>
-      </svg>
-      Perseus <span class="sub">/ Plutus</span>
+<header class="site">
+  <div class="nav">
+    <a href="/" class="brand" aria-label="Perseus home">
+      <svg width="30" height="30" viewBox="0 0 56 56" fill="none" aria-hidden="true"><rect x="3" y="14" width="17" height="3.6" rx="1.8" fill="var(--violet)"/><rect x="3" y="21" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".75"/><rect x="3" y="28" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".55"/><rect x="3" y="35" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".4"/><g stroke="var(--amber)" stroke-width="2.4" stroke-linecap="round"><line x1="22" y1="16" x2="42" y2="28"/><line x1="22" y1="23" x2="42" y2="28"/><line x1="22" y1="30" x2="42" y2="28"/><line x1="22" y1="37" x2="42" y2="28"/></g><circle cx="44" cy="28" r="4.2" fill="var(--amber)"/></svg>
+      <b>Perseus<span class="sub"> / Plutus</span></b>
     </a>
-    <nav class="nav">
-      <a href="/">Perseus</a>
-      <a href="/mimir/">Mimir</a>
-      <a href="/mcts/">MCTS</a>
-      <a href="/cloud/">Cloud</a>
-      <button class="theme-toggle" onclick="toggleTheme()"><span id="tt">Light</span></button>
-      <a class="btn btn-amber" href="https://github.com/Perseus-Computing-LLC/plutus">GitHub</a>
+    <nav class="navlinks">
+      <a href="#features">Features</a>
+      <a href="#ledger">Ledger</a>
+      <a href="/">Perseus ↗</a>
     </nav>
+    <button class="toggle" data-theme-toggle aria-label="Toggle theme"><span class="dot"></span><span data-theme-label>Light</span></button>
+    <a href="https://github.com/Perseus-Computing-LLC/plutus" class="btn btn-primary">GitHub ↗</a>
   </div>
 </header>
 
-<main>
-
-<section class="section">
-  <div class="wrap">
-    <span class="eyebrow">Provider credit monitoring</span>
-    <h1 class="h1 measure">Know your LLM spend before the bill does.</h1>
-    <p class="lead measure" style="margin-top:20px;">Plutus tracks live balances and spend across major LLM providers in one local ledger. Hourly refresh, per-provider breakdown, no dashboard login.</p>
-    <div class="row" style="margin-top:28px;">
-      <span class="install"><span class="dollar">$</span> pip install plutus-agent <button onclick="copyCmd('pip install plutus-agent',this)">copy</button></span>
-      <a class="btn" href="#features">What it does</a>
+<!-- HERO -->
+<section class="hero" data-screen-label="Plutus hero">
+  <svg class="hero-bg" viewBox="0 0 600 360" preserveAspectRatio="xMidYMid slice" aria-hidden="true" style="opacity:.34;">
+    <g fill="var(--steel)"><rect x="340" y="80" width="150" height="8" rx="4"/><rect x="340" y="120" width="200" height="8" rx="4" opacity=".8"/><rect x="340" y="160" width="110" height="8" rx="4" opacity=".8"/><rect x="340" y="200" width="180" height="8" rx="4" opacity=".8"/><rect x="340" y="240" width="140" height="8" rx="4" opacity=".8"/></g>
+    <circle cx="520" cy="84" r="7" fill="var(--amber)"/>
+  </svg>
+  <div class="hero-inner">
+    <span class="eyebrow amber">
+      <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="6.5" cy="6.5" r="5"/><path d="M6.5 4v5M5 5.2h2.2a1.1 1.1 0 010 2.2H5"/></svg>
+      Provider credit monitoring
+    </span>
+    <h1 class="hero-h" style="max-width:18ch;">Know your LLM spend <span style="color:var(--amber);">before</span> the bill does.</h1>
+    <p class="lead" style="max-width:62ch;">Plutus tracks live balances and spend across every major LLM provider in one local ledger — <span class="em">hourly refresh, per-provider breakdown</span>, no dashboard login required.</p>
+    <div class="hero-cta">
+      <div class="install">
+        <span><span class="pr">$</span> plutus balance</span>
+        <button data-copy="plutus balance">Copy</button>
+      </div>
+      <a href="https://github.com/Perseus-Computing-LLC/plutus" class="btn btn-ghost">View on GitHub ↗</a>
     </div>
-    <div class="stat-strip" style="margin-top:40px;">
-      <div class="stat"><div class="num amber mono">Hourly</div><div class="cap">Balance refresh</div></div>
-      <div class="stat"><div class="num mono">All</div><div class="cap">Major providers</div></div>
-      <div class="stat"><div class="num mono">Local</div><div class="cap">Spend ledger</div></div>
-      <div class="stat"><div class="num mono">0</div><div class="cap">Cloud dependencies</div></div>
-    </div>
-  </div>
-</section>
-
-<section class="section band" id="features">
-  <div class="wrap">
-    <span class="eyebrow">What it does</span>
-    <h2 class="h2 measure">Every provider's spend in one ledger.</h2>
-    <div class="card-grid" style="margin-top:40px;">
-      <div class="card">
-        <div class="h3">Live balances</div>
-        <p>Hourly credit pulls, no manual dashboard checks.</p>
-      </div>
-      <div class="card">
-        <div class="h3">Unified spend ledger</div>
-        <p>Normalized across providers, queryable, exportable, auditable.</p>
-      </div>
-      <div class="card">
-        <div class="h3">Burn-rate alerts</div>
-        <p>Per-provider thresholds, warned locally before a key runs dry.</p>
-      </div>
+    <div class="statstrip">
+      <div class="stat"><div class="n amber">Hourly</div><div class="c">Balance refresh</div></div>
+      <div class="stat"><div class="n">All</div><div class="c">Major providers</div></div>
+      <div class="stat"><div class="n">Local</div><div class="c">Spend ledger</div></div>
+      <div class="stat"><div class="n">0</div><div class="c">Cloud dependencies</div></div>
     </div>
   </div>
 </section>
 
-<section class="section" id="ledger">
-  <div class="wrap grid-2">
+<!-- FEATURES -->
+<section id="features" class="sec" data-screen-label="Features">
+  <div class="wrap reveal">
+    <span class="eyebrow amber">
+      <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="6.5" cy="6.5" r="5"/><path d="M6.5 4v5M5 5.2h2.2a1.1 1.1 0 010 2.2H5"/></svg>
+      What it does
+    </span>
+    <h2 class="h" style="max-width:24ch; margin-bottom:48px;">Every provider's spend in <span style="color:var(--amber);">one ledger</span>.</h2>
+    <div class="cards">
+      <div class="card">
+        <h3>Live balances</h3>
+        <p>Pulls remaining credit from each provider on an hourly cadence — no manual dashboard checks.</p>
+      </div>
+      <div class="card">
+        <h3>Unified spend ledger</h3>
+        <p>Normalizes usage across providers into a single local record you can query, export, and audit.</p>
+      </div>
+      <div class="card">
+        <h3>Burn-rate alerts</h3>
+        <p>Set thresholds per provider and get warned locally before a key runs dry mid-session.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- LEDGER -->
+<section id="ledger" class="sec band" data-screen-label="Ledger">
+  <div class="wrap reveal split">
     <div>
-      <span class="eyebrow">One command</span>
-      <h2 class="h2">A balance check that fits in your prompt.</h2>
-      <p class="lead" style="margin-top:16px;">Run Plutus standalone, or let Perseus pull live balances into your context file so your assistant knows the budget.</p>
+      <span class="eyebrow amber">
+        <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="6.5" cy="6.5" r="5"/><path d="M6.5 4v5M5 5.2h2.2a1.1 1.1 0 010 2.2H5"/></svg>
+        One command
+      </span>
+      <h2 class="h" style="margin-bottom:20px;">A balance check that fits in your prompt.</h2>
+      <p class="lead" style="font-size:16px;">Run it standalone, or let Perseus pull live balances into your context file so your assistant knows the budget it's working against.</p>
     </div>
     <div class="term">
-      <div class="term-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="file">plutus balance</span></div>
-<pre><span class="t-dim">$ plutus balance</span>
+      <div class="term-bar"><span class="d"></span><span class="d"></span><span class="d"></span><span class="f">plutus balance</span></div>
+      <pre>PROVIDER       BALANCE      7D BURN
+<span class="ai">●</span> provider-a   <span class="br">$142.80</span>     $31.20
+<span class="ai">●</span> provider-b   <span class="br">$ 88.05</span>     $12.40
+<span class="gr">●</span> provider-c   <span class="br">$310.00</span>     $ 4.10
 
-PROVIDER       BALANCE      7D BURN
-<span class="t-amber">●</span> provider-a   <span class="t-amber">$140.00</span>     $30.00
-<span class="t-amber">●</span> provider-b   <span class="t-amber">$ 90.00</span>     $12.00
-<span class="t-green">●</span> provider-c   <span class="t-green">$310.00</span>     $ 4.00
-
-<span class="t-dim">updated 14m ago · local ledger · sample data</span></pre>
+<span class="c6">updated 14m ago · local ledger</span></pre>
     </div>
   </div>
 </section>
 
-<section class="section band">
-  <div class="wrap center">
-    <span class="eyebrow">Get started</span>
-    <h2 class="h2 measure">Track every credit, locally.</h2>
-    <p class="lead measure" style="margin-top:16px;">Open source and local-first. Your keys and usage data never leave your machine.</p>
-    <div class="row" style="margin-top:28px; justify-content:center;">
-      <span class="install"><span class="dollar">$</span> pip install plutus-agent <button onclick="copyCmd('pip install plutus-agent',this)">copy</button></span>
-      <a class="btn btn-amber" href="https://github.com/Perseus-Computing-LLC/plutus">GitHub</a>
+<!-- CTA -->
+<section class="sec cta-center" data-screen-label="Get started">
+  <div class="wrap reveal">
+    <h2 class="h" style="max-width:22ch;">Track every credit, locally.</h2>
+    <p class="lead" style="font-size:16px; max-width:48ch;">Open source and local-first. Your keys and usage data never leave your machine.</p>
+    <div class="cta-row" style="margin-bottom:30px;">
+      <a href="https://github.com/Perseus-Computing-LLC/plutus" class="btn btn-amber btn-lg">Get Plutus ↗</a>
+      <a href="mailto:perseus@perseus.observer" class="btn btn-ghost btn-lg">Contact the team</a>
     </div>
-    <div class="badges" style="margin-top:28px; justify-content:center;">
-      <span class="badge">MIT licensed</span><span class="badge">Hourly refresh</span><span class="badge">0 cloud dependencies</span>
+    <div class="badges center">
+      <span class="badge">MIT licensed</span>
+      <span class="badge">Hourly refresh</span>
+      <span class="badge">0 cloud dependencies</span>
     </div>
   </div>
 </section>
 
-</main>
-
-<footer class="footer-compact">
-  <div class="wrap">
-    <a class="brand" href="/">Perseus <span class="sub">/ Plutus</span></a>
-    <div class="links">
-      <a href="/">Perseus</a>
-      <a href="/mimir/">Mimir</a>
-      <a href="/mcts/">MCTS</a>
-      <a href="/cloud/">Cloud</a>
-      <a href="https://github.com/Perseus-Computing-LLC/plutus">GitHub</a>
+<footer class="site">
+  <div class="foot-compact">
+    <div class="brand-line">
+      <svg width="26" height="26" viewBox="0 0 56 56" fill="none" aria-hidden="true"><rect x="3" y="14" width="17" height="3.6" rx="1.8" fill="var(--violet)"/><rect x="3" y="21" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".75"/><rect x="3" y="28" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".55"/><rect x="3" y="35" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".4"/><g stroke="var(--amber)" stroke-width="2.4" stroke-linecap="round"><line x1="22" y1="16" x2="42" y2="28"/><line x1="22" y1="23" x2="42" y2="28"/><line x1="22" y1="30" x2="42" y2="28"/><line x1="22" y1="37" x2="42" y2="28"/></g><circle cx="44" cy="28" r="4.2" fill="var(--amber)"/></svg>
+      <span class="legal-line">Perseus Computing LLC · MIT License · perseus.observer/plutus</span>
     </div>
+    <div class="sib"><a href="/">Perseus</a><a href="/mimir/">Mimir</a><a href="/mcts/">MCTS</a><a href="https://github.com/Perseus-Computing-LLC/plutus">GitHub</a></div>
   </div>
 </footer>
 
-<script>
-function toggleTheme(){var d=document.documentElement;var n=d.getAttribute('data-theme')==='dark'?'light':'dark';d.setAttribute('data-theme',n);try{localStorage.setItem('perseus-theme',n)}catch(e){}syncToggle()}
-function syncToggle(){var l=document.getElementById('tt');if(l)l.textContent=document.documentElement.getAttribute('data-theme')==='dark'?'Light':'Dark'}
-function copyCmd(t,b){navigator.clipboard&&navigator.clipboard.writeText(t);var o=b.textContent;b.textContent='copied';setTimeout(function(){b.textContent=o},1500)}
-syncToggle();
-</script>
+<script src="/assets/perseus.js"></script>
 </body>
 </html>

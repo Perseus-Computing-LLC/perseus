@@ -1,0 +1,100 @@
+/* ============================================================
+   Perseus Design System — Tokens
+   The single source of truth for color. Reference these var()
+   names in every component. Never hardcode a hex.
+
+   Theme: set [data-theme="dark"|"light"] on a root element.
+   Default = dark. Persist the user's choice in
+   localStorage['perseus-theme'].
+   ============================================================ */
+
+:root,
+[data-theme="dark"] {
+  /* — surfaces — */
+  --bg: #0A0A12;
+  --surface: #13111C;
+  --surface-2: #1A1726;
+  --elevate: #211D30;
+  --border: #2A2740;
+  --border-soft: #201D30;
+
+  /* — text — */
+  --text: #ECEAF4;
+  --text-dim: #A7A3B8;
+  --text-faint: #6E6A80;
+
+  /* — brand: violet = memory / Mimir — */
+  --violet: #8B5CF6;
+  --violet-ink: #AD92FF;
+  --violet-soft: rgba(139, 92, 246, .13);
+
+  /* — brand: amber = context / Perseus — */
+  --amber: #F5A623;
+  --amber-ink: #F8BB54;
+  --amber-soft: rgba(245, 166, 35, .13);
+
+  /* — neutral product accent (MCTS, Plutus) — */
+  --steel: #8A93A8;
+  --steel-soft: rgba(138, 147, 168, .12);
+
+  /* — status: terminal output ONLY — */
+  --green: #3FB37F;
+  --green-soft: rgba(63, 179, 127, .13);
+  --red: #E5687A;
+
+  /* — terminal + chrome — */
+  --term-bg: #0C0A14;
+  --term-border: #221F33;
+  --header-bg: rgba(10, 10, 18, .72);
+  --shadow: 0 1px 0 rgba(255, 255, 255, .03), 0 18px 40px -28px rgba(0, 0, 0, .8);
+}
+
+[data-theme="light"] {
+  --bg: #F6F5FC;
+  --surface: #FFFFFF;
+  --surface-2: #FBFAFF;
+  --elevate: #FFFFFF;
+  --border: #E6E3F2;
+  --border-soft: #EEEBF6;
+
+  --text: #161423;
+  --text-dim: #56535F;
+  --text-faint: #8E8A99;
+
+  --violet: #7C4DEF;
+  --violet-ink: #6A38DE;
+  --violet-soft: rgba(124, 77, 239, .08);
+
+  --amber: #C8860F;
+  --amber-ink: #A96E07;
+  --amber-soft: rgba(200, 134, 15, .10);
+
+  --steel: #6B7488;
+  --steel-soft: rgba(107, 116, 136, .10);
+
+  --green: #1F8A5B;
+  --green-soft: rgba(31, 138, 91, .10);
+  --red: #C7415A;
+
+  /* terminal stays dark in both themes — it's a code surface */
+  --term-bg: #0C0A14;
+  --term-border: #221F33;
+  --header-bg: rgba(246, 245, 252, .78);
+  --shadow: 0 1px 2px rgba(20, 18, 40, .04), 0 18px 38px -26px rgba(60, 50, 110, .22);
+}
+
+/* ============================================================
+   Type — Space Grotesk (display/body) + JetBrains Mono (code,
+   metrics, labels, eyebrows). Load both 400/500/600/700.
+   ============================================================ */
+/* @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap'); */
+
+/* ============================================================
+   ⚠ Theme-toggle gotcha
+   Do NOT put a CSS transition on a property whose value is a
+   var() that flips with the theme (e.g. transition:background
+   on the element whose background:var(--bg) changes). The
+   transition prevents the variable re-resolving on some engines
+   and the background appears "stuck". Transition specific
+   properties on interactive elements instead.
+   ============================================================ */

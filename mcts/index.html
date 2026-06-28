@@ -3,138 +3,158 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MCTS: scan the MCP tools your agent trusts</title>
-<meta name="description" content="MCTS audits MCP servers and tool manifests before your agent calls them. 120 analyzers cover tool-poisoning, prompt-injection, and credential-leak vectors. Local-first, fast, assistant-agnostic.">
-<link rel="icon" href="/assets/perseus.svg">
+<title>MCTS — MCP supply-chain security scanner</title>
 <script>try{var t=localStorage.getItem('perseus-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="icon" href="/assets/perseus.svg">
+<link rel="canonical" href="https://perseus.observer/mcts/">
+<meta name="description" content="MCTS audits MCP servers and tool manifests before your agent calls them — 120 analyzers for tool-poisoning, prompt-injection, and credential-leak vectors.">
+<meta name="theme-color" content="#0A0A12">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Perseus">
+<meta property="og:title" content="MCTS — MCP supply-chain security scanner">
+<meta property="og:description" content="MCTS audits MCP servers and tool manifests before your agent calls them — 120 analyzers for tool-poisoning, prompt-injection, and credential-leak vectors.">
+<meta property="og:url" content="https://perseus.observer/mcts/">
+<meta property="og:image" content="https://perseus.observer/assets/og/mcts.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="MCTS — MCP supply-chain security scanner">
+<meta name="twitter:description" content="MCTS audits MCP servers and tool manifests before your agent calls them — 120 analyzers for tool-poisoning, prompt-injection, and credential-leak vectors.">
+<meta name="twitter:image" content="https://perseus.observer/assets/og/mcts.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/assets/site.css">
+<link rel="stylesheet" href="/assets/tokens.css">
+<link rel="stylesheet" href="/assets/perseus.css">
 </head>
 <body>
 
-<header class="site-header">
-  <div class="wrap">
-    <a class="brand" href="/">
-      <svg width="30" height="30" viewBox="0 0 56 56" fill="none" aria-hidden="true">
-        <rect x="3" y="15" width="16" height="3.4" rx="1.7" fill="var(--violet)"/>
-        <rect x="3" y="22" width="16" height="3.4" rx="1.7" fill="var(--violet)" fill-opacity=".7"/>
-        <rect x="3" y="29" width="16" height="3.4" rx="1.7" fill="var(--violet)" fill-opacity=".5"/>
-        <g stroke="var(--amber)" stroke-width="2.4" stroke-linecap="round">
-          <line x1="30" y1="17" x2="48" y2="28"/><line x1="30" y1="24" x2="48" y2="28"/>
-          <line x1="30" y1="31" x2="48" y2="28"/><line x1="30" y1="38" x2="48" y2="28"/></g>
-        <circle cx="49" cy="28" r="4" fill="var(--amber)"/>
-      </svg>
-      Perseus <span class="sub">/ MCTS</span>
+<header class="site">
+  <div class="nav">
+    <a href="/" class="brand" aria-label="Perseus home">
+      <svg width="30" height="30" viewBox="0 0 56 56" fill="none" aria-hidden="true"><rect x="3" y="14" width="17" height="3.6" rx="1.8" fill="var(--violet)"/><rect x="3" y="21" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".75"/><rect x="3" y="28" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".55"/><rect x="3" y="35" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".4"/><g stroke="var(--amber)" stroke-width="2.4" stroke-linecap="round"><line x1="22" y1="16" x2="42" y2="28"/><line x1="22" y1="23" x2="42" y2="28"/><line x1="22" y1="30" x2="42" y2="28"/><line x1="22" y1="37" x2="42" y2="28"/></g><circle cx="44" cy="28" r="4.2" fill="var(--amber)"/></svg>
+      <b>Perseus<span class="sub"> / MCTS</span></b>
     </a>
-    <nav class="nav">
-      <a href="/">Perseus</a>
-      <a href="/mimir/">Mimir</a>
-      <a href="/plutus/">Plutus</a>
-      <a href="/cloud/">Cloud</a>
-      <button class="theme-toggle" onclick="toggleTheme()"><span id="tt">Light</span></button>
-      <a class="btn btn-amber" href="https://github.com/Perseus-Computing-LLC/MCTS">GitHub</a>
+    <nav class="navlinks">
+      <a href="#threats">Threats</a>
+      <a href="#scan">Scanning</a>
+      <a href="/">Perseus ↗</a>
     </nav>
+    <button class="toggle" data-theme-toggle aria-label="Toggle theme"><span class="dot"></span><span data-theme-label>Light</span></button>
+    <a href="https://github.com/Perseus-Computing-LLC/MCTS" class="btn btn-primary">GitHub ↗</a>
   </div>
 </header>
 
-<main>
-
-<section class="section">
-  <div class="wrap">
-    <span class="eyebrow">MCP supply-chain security</span>
-    <h1 class="h1 measure">Scan the tools your agent trusts.</h1>
-    <p class="lead measure" style="margin-top:20px;">MCTS audits MCP servers and tool manifests before your agent calls them. 120 analyzers cover tool-poisoning, prompt-injection, and credential-leak vectors. It runs locally, it is fast, and it works with any assistant.</p>
-    <div class="row" style="margin-top:28px;">
-      <span class="install"><span class="dollar">$</span> mcts scan ./mcp <button onclick="copyCmd('mcts scan ./mcp',this)">copy</button></span>
-      <a class="btn" href="https://github.com/Perseus-Computing-LLC/MCTS">Install from the MCTS repository</a>
+<!-- HERO -->
+<section class="hero" data-screen-label="MCTS hero">
+  <svg class="hero-bg" viewBox="0 0 600 360" preserveAspectRatio="xMidYMid slice" aria-hidden="true" style="opacity:.32;">
+    <g stroke="var(--steel)" stroke-width="1.4" opacity=".5"><line x1="360" y1="60" x2="360" y2="300"/><line x1="420" y1="60" x2="420" y2="300"/><line x1="480" y1="60" x2="480" y2="300"/><line x1="540" y1="60" x2="540" y2="300"/><line x1="330" y1="110" x2="570" y2="110"/><line x1="330" y1="180" x2="570" y2="180"/><line x1="330" y1="250" x2="570" y2="250"/></g>
+    <g fill="var(--steel)"><circle cx="360" cy="110" r="3"/><circle cx="480" cy="110" r="3"/><circle cx="420" cy="250" r="3"/><circle cx="540" cy="180" r="3"/></g>
+    <circle cx="420" cy="180" r="7" fill="var(--amber)"/>
+  </svg>
+  <div class="hero-inner">
+    <span class="eyebrow amber">
+      <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M6.5 1.5l4 1.6v3c0 2.6-1.7 4.4-4 5.4-2.3-1-4-2.8-4-5.4v-3z"/></svg>
+      MCP supply-chain security
+    </span>
+    <h1 class="hero-h" style="max-width:18ch;">Scan the tools your agent <span style="color:var(--amber);">trusts</span>.</h1>
+    <p class="lead" style="max-width:62ch;">MCTS audits MCP servers and tool manifests before your agent ever calls them — <span class="em">120 analyzers</span> for tool-poisoning, prompt-injection, and credential-leak vectors. Local, fast, and assistant-agnostic.</p>
+    <div class="hero-cta">
+      <div class="install">
+        <span><span class="pr">$</span> mcts scan ./mcp</span>
+        <button data-copy="mcts scan ./mcp">Copy</button>
+      </div>
+      <a href="https://github.com/Perseus-Computing-LLC/MCTS" class="btn btn-ghost">View on GitHub ↗</a>
     </div>
-    <div class="stat-strip" style="margin-top:40px;">
-      <div class="stat"><div class="num amber mono">120</div><div class="cap">Security analyzers</div></div>
-      <div class="stat"><div class="num amber mono">3</div><div class="cap">Threat classes covered</div></div>
-      <div class="stat"><div class="num amber mono">CI-ready</div><div class="cap">Exit codes</div></div>
-      <div class="stat"><div class="num amber mono">0</div><div class="cap">Cloud dependencies</div></div>
-    </div>
-  </div>
-</section>
-
-<section class="section" id="threats">
-  <div class="wrap">
-    <span class="eyebrow">What it catches</span>
-    <h2 class="h2 measure">Three classes of supply-chain attack, caught before runtime.</h2>
-    <div class="card-grid" style="margin-top:40px;">
-      <div class="card">
-        <div class="h3 mono" style="color:var(--amber);">01</div>
-        <div class="h3">Tool poisoning</div>
-        <p>Tool poisoning: hidden instructions, deceptive descriptions, schema-divergent behavior.</p>
-      </div>
-      <div class="card">
-        <div class="h3 mono" style="color:var(--amber);">02</div>
-        <div class="h3">Prompt injection</div>
-        <p>Prompt injection: injected directives in tool outputs or manifests that hijack the agent.</p>
-      </div>
-      <div class="card">
-        <div class="h3 mono" style="color:var(--amber);">03</div>
-        <div class="h3">Credential leak</div>
-        <p>Credential leak: tools that read secrets, tokens, or keys and route them to unexpected destinations.</p>
-      </div>
+    <div class="statstrip">
+      <div class="stat"><div class="n amber">120</div><div class="c">Security analyzers</div></div>
+      <div class="stat"><div class="n">3</div><div class="c">Threat classes covered</div></div>
+      <div class="stat"><div class="n">CI</div><div class="c">Pipeline-ready exit codes</div></div>
+      <div class="stat"><div class="n">0</div><div class="c">Cloud dependencies</div></div>
     </div>
   </div>
 </section>
 
-<section class="section band" id="scan">
-  <div class="wrap grid-2">
+<!-- THREATS -->
+<section id="threats" class="sec" data-screen-label="Threats">
+  <div class="wrap reveal">
+    <span class="eyebrow amber">
+      <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M6.5 1.5l4 1.6v3c0 2.6-1.7 4.4-4 5.4-2.3-1-4-2.8-4-5.4v-3z"/></svg>
+      What it catches
+    </span>
+    <h2 class="h" style="max-width:26ch; margin-bottom:48px;">Three classes of supply-chain attack, caught before runtime.</h2>
+    <div class="cards">
+      <div class="card">
+        <div class="kix">01 · TOOL POISONING</div>
+        <h3>Malicious tool definitions</h3>
+        <p>Detects hidden instructions, deceptive descriptions, and behavior that diverges from a tool's declared schema.</p>
+      </div>
+      <div class="card">
+        <div class="kix">02 · PROMPT INJECTION</div>
+        <h3>Embedded instruction attacks</h3>
+        <p>Scans tool outputs and manifests for injected directives designed to hijack the agent's instructions.</p>
+      </div>
+      <div class="card">
+        <div class="kix">03 · CREDENTIAL LEAK</div>
+        <h3>Secret exfiltration paths</h3>
+        <p>Flags tools that read environment secrets, tokens, or keys and route them to unexpected destinations.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SCAN -->
+<section id="scan" class="sec band" data-screen-label="Scanning">
+  <div class="wrap reveal split">
     <div>
-      <span class="eyebrow steel">One command, CI-ready</span>
-      <h2 class="h2">Gate every MCP dependency in your pipeline.</h2>
-      <p class="lead" style="margin-top:16px;">Run MCTS in pre-commit or CI. It produces a structured report and a non-zero exit on any finding above your threshold.</p>
+      <span class="eyebrow amber">
+        <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M6.5 1.5l4 1.6v3c0 2.6-1.7 4.4-4 5.4-2.3-1-4-2.8-4-5.4v-3z"/></svg>
+        One command, CI-ready
+      </span>
+      <h2 class="h" style="margin-bottom:20px;">Gate every MCP dependency in your pipeline.</h2>
+      <p class="lead" style="font-size:16px;">Run MCTS in pre-commit or CI. It returns a structured report and a non-zero exit code on any finding above your threshold — so poisoned tools never reach production agents.</p>
     </div>
     <div class="term">
-      <div class="term-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="file">mcts scan ./mcp</span></div>
-<pre><span class="t-dim">scanning 14 tools · 120 analyzers</span>
-<span class="t-green">✓</span> filesystem-mcp     <span class="t-dim">clean</span>
-<span class="t-green">✓</span> github-mcp         <span class="t-dim">clean</span>
-<span class="t-red">✗</span> notes-mcp          <span class="t-red">tool-poisoning</span>
-  <span class="t-dim">↳ hidden directive in description</span>
-<span class="t-amber">!</span> mailer-mcp         <span class="t-amber">cred-leak (med)</span>
+      <div class="term-bar"><span class="d"></span><span class="d"></span><span class="d"></span><span class="f">mcts scan ./mcp</span></div>
+      <pre><span class="c6">scanning 14 tools · 120 analyzers</span>
+<span class="gr">✓</span> filesystem-mcp     <span class="c6">clean</span>
+<span class="gr">✓</span> github-mcp         <span class="c6">clean</span>
+<span class="rd">✗</span> notes-mcp          <span class="rd">tool-poisoning</span>
+  <span class="c6">↳ hidden directive in description</span>
+<span class="ai">!</span> mailer-mcp         <span class="ai">cred-leak (med)</span>
 
-<span class="t-red">2 findings</span> <span class="t-dim">· exit 1 · report.json</span></pre>
+<span class="rd">2 findings</span> · exit 1 · report.json</pre>
     </div>
   </div>
 </section>
 
-<section class="section">
-  <div class="wrap center">
-    <span class="eyebrow">Get started</span>
-    <h2 class="h2 measure">Audit your MCP supply chain.</h2>
-    <div class="row" style="margin-top:28px; justify-content:center;">
-      <span class="install"><span class="dollar">$</span> mcts scan ./mcp <button onclick="copyCmd('mcts scan ./mcp',this)">copy</button></span>
-      <a class="btn btn-amber" href="https://github.com/Perseus-Computing-LLC/MCTS">GitHub</a>
+<!-- CTA -->
+<section class="sec cta-center" data-screen-label="Get started">
+  <div class="wrap reveal">
+    <h2 class="h" style="max-width:24ch;">Audit your MCP supply chain today.</h2>
+    <p class="lead" style="font-size:16px; max-width:48ch;">Open source, local-first, and built to slot straight into the pipeline you already run.</p>
+    <div class="cta-row" style="margin-bottom:30px;">
+      <a href="https://github.com/Perseus-Computing-LLC/MCTS" class="btn btn-amber btn-lg">Get MCTS ↗</a>
+      <a href="mailto:perseus@perseus.observer" class="btn btn-ghost btn-lg">Contact the team</a>
+    </div>
+    <div class="badges center">
+      <span class="badge">MIT licensed</span>
+      <span class="badge">120 analyzers</span>
+      <span class="badge">CI exit codes</span>
     </div>
   </div>
 </section>
 
-</main>
-
-<footer class="footer-compact">
-  <div class="wrap">
-    <a class="brand" href="/">Perseus <span class="sub">/ MCTS</span></a>
-    <div class="links">
-      <a href="/mimir/">Mimir</a>
-      <a href="/mcts/">MCTS</a>
-      <a href="/plutus/">Plutus</a>
-      <a href="/cloud/">Cloud</a>
-      <a href="/government/">Government</a>
+<footer class="site">
+  <div class="foot-compact">
+    <div class="brand-line">
+      <svg width="26" height="26" viewBox="0 0 56 56" fill="none" aria-hidden="true"><rect x="3" y="14" width="17" height="3.6" rx="1.8" fill="var(--violet)"/><rect x="3" y="21" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".75"/><rect x="3" y="28" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".55"/><rect x="3" y="35" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".4"/><g stroke="var(--amber)" stroke-width="2.4" stroke-linecap="round"><line x1="22" y1="16" x2="42" y2="28"/><line x1="22" y1="23" x2="42" y2="28"/><line x1="22" y1="30" x2="42" y2="28"/><line x1="22" y1="37" x2="42" y2="28"/></g><circle cx="44" cy="28" r="4.2" fill="var(--amber)"/></svg>
+      <span class="legal-line">Perseus Computing LLC · MIT License · perseus.observer/mcts</span>
     </div>
+    <div class="sib"><a href="/">Perseus</a><a href="/mimir/">Mimir</a><a href="/plutus/">Plutus</a><a href="https://github.com/Perseus-Computing-LLC/MCTS">GitHub</a></div>
   </div>
 </footer>
 
-<script>
-function toggleTheme(){var d=document.documentElement;var n=d.getAttribute('data-theme')==='dark'?'light':'dark';d.setAttribute('data-theme',n);try{localStorage.setItem('perseus-theme',n)}catch(e){}syncToggle()}
-function syncToggle(){var l=document.getElementById('tt');if(l)l.textContent=document.documentElement.getAttribute('data-theme')==='dark'?'Light':'Dark'}
-function copyCmd(t,b){navigator.clipboard&&navigator.clipboard.writeText(t);var o=b.textContent;b.textContent='copied';setTimeout(function(){b.textContent=o},1500)}
-syncToggle();
-</script>
+<script src="/assets/perseus.js"></script>
 </body>
 </html>
