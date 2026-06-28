@@ -568,3 +568,28 @@ class TestRealWorldSimulation:
             max_results=5,
         )
         assert len(mseg.items) <= 5, f"max_results=5 should cap at 5, got {len(mseg.items)}"
+
+
+class TestConnectorCacheKeying:
+    """_get_connector keys its singleton on the `mimir` subtree only — cheaper
+    than hashing the whole config, and it must not rebuild on unrelated changes
+    nor miss a real mimir-config change."""
+
+    def test_unrelated_config_change_reuses_connector(self):
+        _reset_connector_singleton()
+        c = _test_cfg()
+        first = perseus._get_connector(c)
+        # Mutate a NON-mimir key; the connector must be reused (no rebuild).
+        c["render"] = {"some_unrelated_flag": True}
+        second = perseus._get_connector(c)
+        assert second is first
+
+    def test_mimir_config_change_rebuilds_connector(self):
+        _reset_connector_singleton()
+        c = _test_cfg()
+        first = perseus._get_connector(c)
+        # Change a value inside the mimir subtree; a rebuild is expected.
+        c["mimir"] = copy.deepcopy(c["mimir"])
+        c["mimir"]["timeout_s"] = c["mimir"].get("timeout_s", 0.5) + 1.0
+        second = perseus._get_connector(c)
+        assert second is not first
