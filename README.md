@@ -22,7 +22,7 @@ Perseus is the live context engine. Seven specialized products extend it:
 
 | Product | Description | Page |
 |---|---|---|
-| **Mimir** | 40 MCP tools — persistent memory with FTS5, entities, layers, confidence decay | [/mimir/](https://perseus.observer/mimir/) |
+| **Mimir** | 43 MCP tools — persistent memory with FTS5, entities, layers, confidence decay | [/mimir/](https://perseus.observer/mimir/) |
 | **MCTS** | 120 security analyzers for MCP servers — tool poisoning, prompt injection, credential leaks | [/mcts/](https://perseus.observer/mcts/) |
 | **PR Pilot** | 5-agent autonomous PR review pipeline — graduated autonomy L1→L3 | [/pr-pilot/](https://perseus.observer/pr-pilot/) |
 | **Blast Radius** | GitLab-native dependency impact analysis — 1 mention, instant risk report | [/blast-radius/](https://perseus.observer/blast-radius/) |
@@ -34,7 +34,7 @@ Perseus is the live context engine. Seven specialized products extend it:
 
 ### Mimir — Persistent Memory (MCP)
 
-[Mimir](https://github.com/Perseus-Computing-LLC/mimir) is the persistent memory backend for Perseus — a lightweight Rust MCP server with SQLite + FTS5. Zero network calls, no API keys. As of **v2.2**, offline dense/hybrid embeddings are **bundled by default** (the model is compiled into the binary), so semantic recall works zero-config with no external model download. v2.2 provides **40 MCP tools** across structured entities, hybrid vector search, RAG, connectors, confidence decay, journal events, and state management: `mimir_remember`, `mimir_recall`, `mimir_context`, `mimir_traverse`, `mimir_decay`, `mimir_stats`, `mimir_health`, and more.
+[Mimir](https://github.com/Perseus-Computing-LLC/mimir) is the persistent memory backend for Perseus — a lightweight Rust MCP server with SQLite + FTS5. Zero network calls, no API keys. As of **v2.6.0**, offline dense/hybrid embeddings are **bundled by default** (the model is compiled into the binary), so semantic recall works zero-config with no external model download. v2.6.0 provides **43 MCP tools** across structured entities, hybrid vector search, RAG, connectors, confidence decay, journal events, and state management: `mimir_remember`, `mimir_recall`, `mimir_context`, `mimir_traverse`, `mimir_decay`, `mimir_stats`, `mimir_health`, and more.
 
 📄 [Product page →](https://perseus.observer/mimir/) | ⭐ [GitHub →](https://github.com/Perseus-Computing-LLC/mimir)
 
