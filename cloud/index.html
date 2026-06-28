@@ -1,173 +1,152 @@
-<!doctype html>
-<html lang="en">
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Perseus Cloud — Memory, context & cost, managed</title>
-<meta name="description" content="Perseus Cloud is managed hosting for the open-source stack: Mimir memory, Perseus live context, and Plutus spend monitoring — with team dashboards, SSO, and priority support. Context injected before the model's window opens." />
-<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-<meta name="theme-color" content="#0A0E16" />
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
-<style>
-  :root{--bg:#0A0E16;--bg-1:#0D131C;--bg-2:#111A26;--code:#070B12;--line:rgba(255,255,255,.07);--line-2:rgba(255,255,255,.13);--text:#EEF2F8;--dim:#9AA6B6;--muted:#5E6B7E;--amber:#F5B63F;--amber-2:#FBCB6B;--green:#54D38A;--coral:#F26A52;--display:'Inter Tight',system-ui,-apple-system,sans-serif;--sans:'Inter',system-ui,-apple-system,sans-serif;--mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,monospace;--max:1180px;--gutter:clamp(20px,4vw,52px)}
-  *,*::before,*::after{box-sizing:border-box}html{scroll-behavior:smooth}
-  body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;overflow-x:hidden;background-image:radial-gradient(ellipse 70% 55% at 75% -5%,rgba(245,182,63,.07),transparent 60%),radial-gradient(ellipse 60% 50% at 10% 0%,rgba(84,211,138,.06),transparent 55%);background-attachment:fixed}
-  a{color:inherit;text-decoration:none}svg,img{display:block;max-width:100%}::selection{background:var(--amber);color:#10131a}
-  .wrap{max-width:var(--max);margin:0 auto;padding:0 var(--gutter)}
-  .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.24em;text-transform:uppercase;color:var(--amber);display:inline-flex;align-items:center;gap:10px}
-  header.nav{position:sticky;top:0;z-index:60;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);background:color-mix(in srgb,var(--bg) 80%,transparent);border-bottom:1px solid var(--line)}
-  .nav-inner{display:flex;align-items:center;justify-content:space-between;height:62px}
-  .brand{display:inline-flex;align-items:center;gap:10px;font-family:var(--display);font-weight:600;font-size:19px;letter-spacing:-.01em}.brand .mark{width:22px;height:22px}
-  .nav nav{display:flex;align-items:center;gap:26px;font-family:var(--mono);font-size:11.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim)}
-  .nav nav a{transition:color .18s}.nav nav a:hover{color:var(--text)}
-  .nav .btn-gh{border:1px solid var(--line-2);padding:8px 15px;border-radius:5px;color:var(--text);transition:.18s}.nav .btn-gh:hover{border-color:var(--amber);color:var(--amber)}
-  @media(max-width:860px){.nav nav .nav-link{display:none}}
-  .btn{display:inline-flex;align-items:center;gap:9px;font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;padding:13px 22px;border-radius:6px;border:1px solid var(--line-2);color:var(--text);transition:.18s;cursor:pointer}
-  .btn:hover{border-color:var(--amber);color:var(--amber);transform:translateY(-1px)}
-  .btn.primary{background:var(--amber);color:#10131a;border-color:var(--amber);font-weight:600}.btn.primary:hover{background:var(--amber-2)}
-  .btn.green{background:var(--green);color:#08130c;border-color:var(--green);font-weight:600}.btn.green:hover{filter:brightness(1.08)}
-  .hero{position:relative;padding:clamp(60px,9vw,108px) 0 clamp(40px,6vw,64px);overflow:hidden}
-  .hero .constellation{position:absolute;top:-30px;right:-50px;width:min(560px,55vw);opacity:.45;pointer-events:none;z-index:0}
-  .hero .wrap{position:relative;z-index:1}
-  .hero h1{font-family:var(--display);font-weight:700;font-size:clamp(38px,6vw,72px);line-height:1.02;letter-spacing:-.03em;margin:24px 0 0;max-width:17ch;text-wrap:balance}
-  .hero h1 em{font-style:normal;color:var(--green)}
-  .hero p.sub{font-size:clamp(16px,1.9vw,19px);line-height:1.6;color:var(--dim);max-width:62ch;margin:22px 0 0}.hero p.sub b{color:var(--text);font-weight:600}
-  .hero-cta{display:flex;flex-wrap:wrap;gap:14px;margin-top:30px;align-items:center}
-  .sec{padding:clamp(60px,8vw,100px) 0;border-top:1px solid var(--line)}
-  .sec-head{max-width:760px;margin:0 0 clamp(36px,4vw,52px)}
-  .sec-head h2{font-family:var(--display);font-weight:600;font-size:clamp(28px,4vw,44px);line-height:1.05;letter-spacing:-.022em;margin:16px 0 0;text-wrap:balance}
-  .sec-head h2 em{font-style:normal;color:var(--green)}
-  .sec-head p{color:var(--dim);font-size:16px;line-height:1.6;margin:16px 0 0;max-width:62ch}
-  .grid{display:grid;gap:18px}.g3{grid-template-columns:repeat(3,1fr)}
-  @media(max-width:880px){.g3{grid-template-columns:1fr}}
-  .feat{background:var(--bg-1);border:1px solid var(--line);border-radius:10px;padding:clamp(22px,2.4vw,30px);transition:.18s;display:flex;flex-direction:column}.feat:hover{border-color:var(--line-2);transform:translateY(-2px)}
-  .feat .ph{display:flex;align-items:baseline;gap:9px}
-  .feat h3{font-family:var(--display);font-weight:600;font-size:20px;margin:0}.feat .v{font-family:var(--mono);font-size:11px;color:var(--muted)}
-  .feat p{color:var(--dim);font-size:14.5px;line-height:1.6;margin:10px 0 0}.feat p b{color:var(--text);font-weight:600}
-  /* pricing */
-  .price-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
-  @media(max-width:880px){.price-grid{grid-template-columns:1fr}}
-  .tier{background:var(--bg-1);border:1px solid var(--line);border-radius:12px;padding:clamp(24px,2.6vw,32px);display:flex;flex-direction:column}
-  .tier.feature{border-color:rgba(84,211,138,.45);background:linear-gradient(165deg,rgba(84,211,138,.07),var(--bg-1) 55%)}
-  .tier .tn{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--amber)}
-  .tier.feature .tn{color:var(--green)}
-  .tier .tp{font-family:var(--display);font-weight:700;font-size:clamp(30px,3.4vw,40px);letter-spacing:-.03em;margin:14px 0 2px;line-height:1}
-  .tier .tp .per{font-family:var(--sans);font-size:14px;font-weight:500;color:var(--dim);letter-spacing:0}
-  .tier .tsub{color:var(--dim);font-size:13.5px;min-height:20px}
-  .tier ul{list-style:none;margin:20px 0 24px;padding:0;flex:1}
-  .tier li{display:flex;gap:10px;padding:7px 0;color:var(--dim);font-size:14px;border-top:1px solid var(--line)}
-  .tier li:first-child{border-top:0}.tier li::before{content:"✓";color:var(--green);font-family:var(--mono)}
-  .tier .btn{justify-content:center;width:100%}
-  .injbar{display:flex;flex-wrap:wrap;gap:10px;margin-top:24px}
-  .chip{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);border:1px solid var(--line-2);border-radius:6px;padding:7px 13px}
-  .chip.gr{color:var(--green);border-color:rgba(84,211,138,.3)}
-  footer{border-top:1px solid var(--line);padding:clamp(44px,6vw,68px) 0 40px}
-  .fgrid{display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:32px}@media(max-width:760px){.fgrid{grid-template-columns:1fr 1fr}}
-  .fgrid h4{font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin:0 0 16px}
-  .fgrid a{display:block;color:var(--dim);font-size:14px;padding:5px 0}.fgrid a:hover{color:var(--text)}
-  .fgrid .blurb{color:var(--dim);font-size:14px;line-height:1.6;max-width:34ch;margin:14px 0 0}
-  .fbot{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-top:46px;padding-top:24px;border-top:1px solid var(--line);font-family:var(--mono);font-size:11px;letter-spacing:.08em;color:var(--muted)}
-</style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Perseus Cloud: the same engine, federated across your team</title>
+<meta name="description" content="Perseus Cloud is the optional managed layer for teams that want shared context federation, encrypted sync, and central policy, without giving up the local-first core. Your data stays encrypted with keys you hold.">
+<link rel="icon" href="/assets/perseus.svg">
+<script>try{var t=localStorage.getItem('perseus-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/site.css">
 </head>
 <body>
-<header class="nav"><div class="wrap nav-inner">
-  <a class="brand" href="/"><svg class="mark" viewBox="0 0 64 64" aria-hidden="true"><g stroke="#F5B63F" stroke-width="2" stroke-linecap="round" opacity=".6" fill="none"><path d="M14 44 L24 34 L33 39 L41 24 L50 16"/><path d="M33 39 L37 50"/></g><g fill="#F5B63F"><circle cx="14" cy="44" r="2.4"/><circle cx="24" cy="34" r="2.4"/><circle cx="33" cy="39" r="2.8"/><circle cx="41" cy="24" r="2.4"/><circle cx="37" cy="50" r="2"/></g><circle cx="50" cy="16" r="3.6" fill="#54D38A"/></svg>Perseus</a>
-  <nav><a class="nav-link" href="/#products">Products</a><a class="nav-link" href="/mimir/">Mimir</a><a class="nav-link" href="/mcts/">MCTS</a><a class="nav-link" href="/plutus/">Plutus</a><a class="btn-gh" href="mailto:tcconnally@gmail.com?subject=Perseus%20Cloud%20waitlist">Join waitlist ↗</a></nav>
-</div></header>
 
-<section class="hero">
-  <svg class="constellation" viewBox="0 0 600 420" aria-hidden="true"><g stroke="#F5B63F" stroke-width="1" opacity=".3" fill="none"><path d="M60 360 L150 280 L250 320 L360 180 L470 110 L540 60"/><path d="M250 320 L300 400"/><path d="M360 180 L420 250"/></g><g fill="#F5B63F" opacity=".7"><circle cx="60" cy="360" r="2.5"/><circle cx="150" cy="280" r="3"/><circle cx="250" cy="320" r="3.5"/><circle cx="360" cy="180" r="3"/><circle cx="470" cy="110" r="2.5"/><circle cx="420" cy="250" r="2.2"/></g><circle cx="540" cy="60" r="4.5" fill="#54D38A"/><circle cx="540" cy="60" r="9" fill="#54D38A" opacity=".25"/></svg>
+<header class="site-header">
   <div class="wrap">
-    <span class="eyebrow"><span>✦</span> Perseus Cloud</span>
-    <h1>Memory, context, and cost — <em>managed</em>.</h1>
-    <p class="sub">The full open-source stack, hosted for teams: <b>Mimir</b> memory, <b>Perseus</b> live context, and <b>Plutus</b> spend monitoring — with shared vaults, team dashboards, SSO, and priority support. Context is injected before the model's window opens, in under 50ms.</p>
-    <div class="hero-cta">
-      <a class="btn green" href="mailto:tcconnally@gmail.com?subject=Perseus%20Cloud%20waitlist">Join the waitlist →</a>
-      <a class="btn" href="/">Start free, self-hosted ↗</a>
+    <a class="brand" href="/">
+      <svg width="30" height="30" viewBox="0 0 56 56" fill="none" aria-hidden="true">
+        <rect x="3" y="15" width="16" height="3.4" rx="1.7" fill="var(--violet)"/>
+        <rect x="3" y="22" width="16" height="3.4" rx="1.7" fill="var(--violet)" fill-opacity=".7"/>
+        <rect x="3" y="29" width="16" height="3.4" rx="1.7" fill="var(--violet)" fill-opacity=".5"/>
+        <g stroke="var(--amber)" stroke-width="2.4" stroke-linecap="round">
+          <line x1="30" y1="17" x2="48" y2="28"/><line x1="30" y1="24" x2="48" y2="28"/>
+          <line x1="30" y1="31" x2="48" y2="28"/><line x1="30" y1="38" x2="48" y2="28"/></g>
+        <circle cx="49" cy="28" r="4" fill="var(--amber)"/>
+      </svg>
+      Perseus <span class="sub">/ Cloud</span>
+    </a>
+    <nav class="nav">
+      <a href="/">Perseus</a>
+      <a href="/mimir/">Mimir</a>
+      <a href="/mcts/">MCTS</a>
+      <a href="/plutus/">Plutus</a>
+      <button class="theme-toggle" onclick="toggleTheme()"><span id="tt">Light</span></button>
+      <a class="btn btn-amber" href="https://github.com/Perseus-Computing-LLC/perseus">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+<section class="section">
+  <div class="wrap">
+    <span class="eyebrow">Optional managed layer</span>
+    <h1 class="h1 measure">The same engine, federated across your team.</h1>
+    <p class="lead measure" style="margin-top:20px;">Perseus Cloud is the optional layer for teams that want shared context federation, encrypted sync, and central policy, without giving up the local-first core. Your data stays encrypted with keys you hold.</p>
+    <p class="faint mono measure" style="margin-top:18px; font-size:13.5px;">The CLI is, and always will be, free and open source. Cloud is additive.</p>
+    <div class="row" style="margin-top:28px;">
+      <a class="btn btn-amber" href="/#contact">Contact us</a>
+      <a class="btn" href="https://github.com/Perseus-Computing-LLC/perseus">Use the free CLI</a>
     </div>
   </div>
 </section>
 
-<section class="sec">
+<section class="section band" id="why">
   <div class="wrap">
-    <div class="sec-head">
-      <span class="eyebrow"><span>✦</span> Three engines, one subscription</span>
-      <h2>Everything an agent team needs, <em>hosted</em>.</h2>
-    </div>
-    <div class="grid g3">
-      <div class="feat"><div class="ph"><h3>Mimir</h3><span class="v">v2.1.0</span></div><p>Persistent memory — <b>40 MCP tools</b>, AES-256-GCM encryption, FTS5 + vector hybrid recall, confidence decay. Shared team vaults in Cloud.</p></div>
-      <div class="feat"><div class="ph"><h3>Perseus</h3><span class="v">v1.0.9</span></div><p>Live context injection — <b>26 MCP tools</b>, <b>1,190× cache-punch throughput</b>, 94% token compression, tiered disclosure (1–3).</p></div>
-      <div class="feat"><div class="ph"><h3>Plutus</h3></div><p>Multi-provider spend monitoring — live balances, burn rate, and depletion forecasts across Anthropic, OpenAI, Google, Bedrock &amp; Azure.</p></div>
-    </div>
-    <div class="injbar">
-      <span class="chip gr">&lt;50ms context injection</span>
-      <span class="chip gr">450× Mimir cold→warm</span>
-      <span class="chip">Team dashboards</span>
-      <span class="chip">Enterprise SSO</span>
-      <span class="chip">Shared vaults</span>
+    <span class="eyebrow">Why Cloud</span>
+    <h2 class="h2 measure">Team scale, without surrendering ownership.</h2>
+    <div class="card-grid" style="margin-top:40px;">
+      <div class="card">
+        <div class="h3">Context federation</div>
+        <p>Ed25519-signed sync across machines and teammates.</p>
+      </div>
+      <div class="card">
+        <div class="h3">Customer-held keys</div>
+        <p>End-to-end encryption. Cloud relays ciphertext and never sees your context.</p>
+      </div>
+      <div class="card">
+        <div class="h3">Central policy</div>
+        <p>Allowed directives and tools org-wide, with an audit trail per render.</p>
+      </div>
+      <div class="card">
+        <div class="h3">Self-host option</div>
+        <p>Run federation in your own VPC or on-prem.</p>
+      </div>
     </div>
   </div>
 </section>
 
-<section class="sec" id="pricing">
+<section class="section" id="plans">
   <div class="wrap">
-    <div class="sec-head">
-      <span class="eyebrow"><span>✦</span> Pricing</span>
-      <h2>Free to start. <em>Open core</em>, always.</h2>
-      <p>The engine is MIT-licensed and free forever, self-hosted. Cloud adds managed hosting and team features when you're ready.</p>
-    </div>
-    <div class="price-grid">
+    <span class="eyebrow">Plans</span>
+    <h2 class="h2 measure">Start free. Scale when the team does.</h2>
+    <div class="pricing" style="margin-top:40px;">
       <div class="tier">
-        <div class="tn">Open Source</div>
-        <div class="tp">Free</div>
-        <div class="tsub">Self-hosted · MIT</div>
+        <div class="h3">Local</div>
+        <div class="price mono">Free</div>
+        <div class="faint" style="font-size:13px;">MIT licensed</div>
         <ul>
-          <li>Full Perseus + Mimir engine</li>
-          <li>All directives, unlimited use</li>
-          <li>Local &amp; air-gapped</li>
+          <li>Full CLI and 26 tools</li>
+          <li>Local federation</li>
+          <li>Unlimited renders</li>
           <li>Community support</li>
         </ul>
-        <a class="btn" href="/">Get started</a>
+        <a class="btn" href="https://github.com/Perseus-Computing-LLC/perseus">Get started</a>
       </div>
-      <div class="tier feature">
-        <div class="tn">Team</div>
-        <div class="tp">$200<span class="per"> / team / mo</span></div>
-        <div class="tsub">Managed hosting for the whole team</div>
+      <div class="tier featured">
+        <div class="row" style="justify-content:space-between; align-items:center;">
+          <span class="h3">Team</span>
+          <span class="pill" style="border-color:var(--amber); color:var(--amber);">EARLY ACCESS</span>
+        </div>
+        <div class="price mono">Contact</div>
+        <div class="faint" style="font-size:13px;">For growing teams</div>
         <ul>
-          <li>Hosted Mimir, Perseus &amp; Plutus</li>
-          <li>Shared team vaults &amp; dashboards</li>
-          <li>Usage analytics</li>
-          <li>Enterprise SSO</li>
+          <li>Everything in Local</li>
+          <li>Encrypted cloud federation</li>
+          <li>Central policy and audit</li>
           <li>Priority support</li>
         </ul>
-        <a class="btn green" href="mailto:tcconnally@gmail.com?subject=Perseus%20Cloud%20Team%20waitlist">Join waitlist</a>
+        <a class="btn btn-amber" href="/#contact">Contact us</a>
       </div>
       <div class="tier">
-        <div class="tn">Enterprise</div>
-        <div class="tp">Custom</div>
-        <div class="tsub">Air-gap, compliance &amp; scale</div>
+        <div class="h3">Enterprise</div>
+        <div class="price mono">Custom</div>
+        <div class="faint" style="font-size:13px;">Self-host or dedicated</div>
         <ul>
-          <li>On-prem / air-gapped deploy</li>
-          <li>NIST AI RMF + SBOM artifacts</li>
-          <li>Dedicated onboarding</li>
-          <li>SLAs &amp; security review</li>
+          <li>Everything in Team</li>
+          <li>VPC and on-prem federation</li>
+          <li>SSO and SCIM</li>
+          <li>SLA and dedicated support</li>
         </ul>
-        <a class="btn" href="mailto:tcconnally@gmail.com?subject=Perseus%20Cloud%20Enterprise">Contact sales</a>
+        <a class="btn" href="/#contact">Contact us</a>
       </div>
     </div>
   </div>
 </section>
 
-<footer><div class="wrap">
-  <div class="fgrid">
-    <div><a class="brand" href="/" style="font-size:18px"><svg class="mark" viewBox="0 0 64 64" aria-hidden="true"><g stroke="#F5B63F" stroke-width="2" stroke-linecap="round" opacity=".6" fill="none"><path d="M14 44 L24 34 L33 39 L41 24 L50 16"/><path d="M33 39 L37 50"/></g><g fill="#F5B63F"><circle cx="14" cy="44" r="2.4"/><circle cx="24" cy="34" r="2.4"/><circle cx="33" cy="39" r="2.8"/><circle cx="41" cy="24" r="2.4"/><circle cx="37" cy="50" r="2"/></g><circle cx="50" cy="16" r="3.6" fill="#54D38A"/></svg>Perseus</a><p class="blurb">Live context engine for AI coding assistants. Open source, on-premise, MIT licensed.</p></div>
-    <div><h4>Products</h4><a href="/">Perseus</a><a href="/mimir/">Mimir</a><a href="/mcts/">MCTS</a><a href="/plutus/">Plutus</a></div>
-    <div><h4>Company</h4><a href="/#company">Founder</a><a href="/#contact">Investors</a><a href="mailto:tcconnally@gmail.com">Contact</a><a href="/gov-landing.html">Government</a></div>
-    <div><h4>Resources</h4><a href="https://github.com/Perseus-Computing-LLC/perseus">Perseus GitHub</a><a href="https://github.com/Perseus-Computing-LLC/mimir">Mimir GitHub</a></div>
+</main>
+
+<footer class="footer-compact">
+  <div class="wrap">
+    <a class="brand" href="/">Perseus <span class="sub">/ Cloud</span></a>
+    <div class="links">
+      <a href="/">Perseus</a>
+      <a href="/mimir/">Mimir</a>
+      <a href="/mcts/">MCTS</a>
+      <a href="/plutus/">Plutus</a>
+      <a href="https://github.com/Perseus-Computing-LLC/perseus">GitHub</a>
+    </div>
   </div>
-  <div class="fbot"><span>Perseus Computing LLC · Austin, TX · MIT License · EAR99</span><span>Perseus Cloud · perseus.observer</span></div>
-</div></footer>
+</footer>
+
+<script>
+function toggleTheme(){var d=document.documentElement;var n=d.getAttribute('data-theme')==='dark'?'light':'dark';d.setAttribute('data-theme',n);try{localStorage.setItem('perseus-theme',n)}catch(e){}syncToggle()}
+function syncToggle(){var l=document.getElementById('tt');if(l)l.textContent=document.documentElement.getAttribute('data-theme')==='dark'?'Light':'Dark'}
+function copyCmd(t,b){navigator.clipboard&&navigator.clipboard.writeText(t);var o=b.textContent;b.textContent='copied';setTimeout(function(){b.textContent=o},1500)}
+syncToggle();
+</script>
 </body>
 </html>

@@ -1,0 +1,16 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Perseus">
+  <rect x="1" y="1" width="126" height="126" rx="29" fill="#FFFFFF" stroke="#E6E3F2" stroke-width="2"></rect>
+  <g stroke="#E08C12" stroke-width="6" stroke-linecap="round">
+    <line x1="34" y1="38" x2="88" y2="63"></line>
+    <line x1="34" y1="55" x2="88" y2="63"></line>
+    <line x1="34" y1="72" x2="88" y2="63"></line>
+    <line x1="34" y1="89" x2="88" y2="63"></line>
+  </g>
+  <g fill="#E08C12">
+    <circle cx="34" cy="38" r="4.5"></circle>
+    <circle cx="34" cy="55" r="4.5"></circle>
+    <circle cx="34" cy="72" r="4.5"></circle>
+    <circle cx="34" cy="89" r="4.5"></circle>
+  </g>
+  <circle cx="90" cy="63" r="10" fill="#E08C12"></circle>
+</svg>
