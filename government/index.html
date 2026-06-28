@@ -3,124 +3,134 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Perseus / Government: sovereign, air-gap-ready context engine</title>
-<meta name="description" content="Perseus runs entirely on-premise. One binary, no cloud calls, no telemetry. Built for classified, regulated, and disconnected environments.">
-<link rel="icon" href="/assets/perseus.svg">
+<title>Perseus for Government — sovereign, air-gap ready</title>
 <script>try{var t=localStorage.getItem('perseus-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="icon" href="/assets/perseus.svg">
+<link rel="canonical" href="https://perseus.observer/government/">
+<meta name="description" content="Perseus runs entirely on-premise — single binary, air-gap ready, EAR99, SBOM published, Ed25519-signed federation. Sovereign context for regulated environments.">
+<meta name="theme-color" content="#0A0A12">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Perseus">
+<meta property="og:title" content="Perseus for Government — sovereign, air-gap ready">
+<meta property="og:description" content="Perseus runs entirely on-premise — single binary, air-gap ready, EAR99, SBOM published, Ed25519-signed federation. Sovereign context for regulated environments.">
+<meta property="og:url" content="https://perseus.observer/government/">
+<meta property="og:image" content="https://perseus.observer/assets/og/government.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Perseus for Government — sovereign, air-gap ready">
+<meta name="twitter:description" content="Perseus runs entirely on-premise — single binary, air-gap ready, EAR99, SBOM published, Ed25519-signed federation. Sovereign context for regulated environments.">
+<meta name="twitter:image" content="https://perseus.observer/assets/og/government.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/assets/site.css">
+<link rel="stylesheet" href="/assets/tokens.css">
+<link rel="stylesheet" href="/assets/perseus.css">
 </head>
 <body>
 
-<header class="site-header">
-  <div class="wrap">
-    <a class="brand" href="/">
-      <svg width="30" height="30" viewBox="0 0 56 56" fill="none" aria-hidden="true">
-        <rect x="3" y="15" width="16" height="3.4" rx="1.7" fill="var(--violet)"/>
-        <rect x="3" y="22" width="16" height="3.4" rx="1.7" fill="var(--violet)" fill-opacity=".7"/>
-        <rect x="3" y="29" width="16" height="3.4" rx="1.7" fill="var(--violet)" fill-opacity=".5"/>
-        <g stroke="var(--amber)" stroke-width="2.4" stroke-linecap="round">
-          <line x1="30" y1="17" x2="48" y2="28"/><line x1="30" y1="24" x2="48" y2="28"/>
-          <line x1="30" y1="31" x2="48" y2="28"/><line x1="30" y1="38" x2="48" y2="28"/></g>
-        <circle cx="49" cy="28" r="4" fill="var(--amber)"/>
-      </svg>
-      Perseus <span class="sub">/ Government</span>
+<header class="site">
+  <div class="nav">
+    <a href="/" class="brand" aria-label="Perseus home">
+      <svg width="30" height="30" viewBox="0 0 56 56" fill="none" aria-hidden="true"><rect x="3" y="14" width="17" height="3.6" rx="1.8" fill="var(--violet)"/><rect x="3" y="21" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".75"/><rect x="3" y="28" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".55"/><rect x="3" y="35" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".4"/><g stroke="var(--amber)" stroke-width="2.4" stroke-linecap="round"><line x1="22" y1="16" x2="42" y2="28"/><line x1="22" y1="23" x2="42" y2="28"/><line x1="22" y1="30" x2="42" y2="28"/><line x1="22" y1="37" x2="42" y2="28"/></g><circle cx="44" cy="28" r="4.2" fill="var(--amber)"/></svg>
+      <b>Perseus<span class="sub"> / Government</span></b>
     </a>
-    <nav class="nav">
-      <a href="/">Perseus</a>
-      <a href="/mimir/">Mimir</a>
-      <a href="/mcts/">MCTS</a>
-      <a href="/cloud/">Cloud</a>
-      <button class="theme-toggle" onclick="toggleTheme()"><span id="tt">Light</span></button>
-      <a class="btn btn-amber" href="https://github.com/Perseus-Computing-LLC/perseus">GitHub</a>
+    <nav class="navlinks">
+      <a href="#posture">Posture</a>
+      <a href="#deploy">Deployment</a>
+      <a href="/">Perseus ↗</a>
     </nav>
+    <button class="toggle" data-theme-toggle aria-label="Toggle theme"><span class="dot"></span><span data-theme-label>Light</span></button>
+    <a href="mailto:perseus@perseus.observer?subject=Government%20inquiry" class="btn btn-primary">Contact</a>
   </div>
 </header>
 
-<main>
-
-<section class="section">
-  <div class="wrap">
-    <span class="eyebrow">Public sector and regulated industry</span>
-    <h1 class="h1 measure">Sovereign by design. Air-gap ready.</h1>
-    <p class="lead measure" style="margin-top:20px;">Perseus runs entirely on-premise. One binary, no cloud calls, no telemetry. Data never leaves your boundary, which makes it a fit for classified, regulated, and disconnected environments.</p>
-    <div class="row" style="margin-top:28px;">
-      <a class="btn btn-amber" href="mailto:perseus@perseus.observer">Request a briefing</a>
-      <a class="btn" href="#deploy">Deployment model</a>
+<!-- HERO -->
+<section class="hero" data-screen-label="Government hero">
+  <svg class="hero-bg" viewBox="0 0 600 360" preserveAspectRatio="xMidYMid slice" aria-hidden="true" style="opacity:.32;">
+    <g stroke="var(--violet)" stroke-width="2.2" stroke-linecap="round" opacity=".45"><line x1="170" y1="100" x2="340" y2="185"/><line x1="170" y1="145" x2="340" y2="185"/><line x1="170" y1="185" x2="340" y2="185"/><line x1="170" y1="225" x2="340" y2="185"/></g>
+    <line x1="340" y1="185" x2="470" y2="185" stroke="var(--amber)" stroke-width="2.2" stroke-linecap="round" opacity=".55"/>
+    <circle cx="472" cy="185" r="7" fill="var(--amber)"/>
+  </svg>
+  <div class="hero-inner">
+    <span class="eyebrow amber">
+      <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M6.5 1.5l4 1.6v3c0 2.6-1.7 4.4-4 5.4-2.3-1-4-2.8-4-5.4v-3z"/></svg>
+      Public sector &amp; regulated industry
+    </span>
+    <h1 class="hero-h" style="font-size:clamp(38px,5.6vw,64px); max-width:20ch;">Sovereign by design. <span style="color:var(--amber);">Air-gap ready</span>.</h1>
+    <p class="lead" style="max-width:64ch;">Perseus runs entirely on-premise — a single binary, no cloud calls, no telemetry. <span class="em">Data never leaves your boundary</span>, which makes it a natural fit for classified, regulated, and disconnected environments.</p>
+    <div class="hero-cta" style="margin-bottom:0;">
+      <a href="mailto:perseus@perseus.observer?subject=Government%20briefing" class="btn btn-amber btn-lg">Request a briefing</a>
+      <a href="https://github.com/Perseus-Computing-LLC/perseus/blob/main/SECURITY.md" class="btn btn-ghost btn-lg">Security docs ↗</a>
     </div>
   </div>
 </section>
 
-<section class="section band" id="posture">
-  <div class="wrap">
-    <span class="eyebrow violet">Security posture</span>
-    <h2 class="h2 measure">Built for environments that cannot trust the cloud.</h2>
-    <div class="metric-grid" style="margin-top:40px;">
-      <div class="stat"><div class="num amber mono">EAR99</div><div class="cap">Broad exportability.</div></div>
-      <div class="stat"><div class="num mono">Air-gap</div><div class="cap">Zero outbound calls.</div></div>
-      <div class="stat"><div class="num mono">SBOM</div><div class="cap">Published per release.</div></div>
-      <div class="stat"><div class="num violet mono">Ed25519</div><div class="cap">Signed federation.</div></div>
-      <div class="stat"><div class="num mono">MIT</div><div class="cap">Open and auditable.</div></div>
-      <div class="stat"><div class="num mono">Single binary</div><div class="cap">Simple to review, approve, and deploy.</div></div>
+<!-- POSTURE -->
+<section id="posture" class="sec" data-screen-label="Posture">
+  <div class="wrap reveal">
+    <span class="eyebrow violet">
+      <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true"><g stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><line x1="1.5" y1="3" x2="11.5" y2="3"/><line x1="1.5" y1="6.5" x2="11.5" y2="6.5"/><line x1="1.5" y1="10" x2="11.5" y2="10"/></g></svg>
+      Security posture
+    </span>
+    <h2 class="h" style="max-width:24ch; margin-bottom:44px;">Built for environments that <span style="color:var(--violet);">can't trust the cloud</span>.</h2>
+    <div class="hairgrid" style="grid-template-columns:repeat(auto-fit,minmax(230px,1fr));">
+      <div class="cell"><div class="big" style="font-size:20px; color:var(--amber); margin-bottom:8px;">EAR99</div><div style="font-size:14px; color:var(--text-dim); line-height:1.55;">Classified for broad exportability — no special license for most destinations.</div></div>
+      <div class="cell"><div class="big" style="font-size:20px; color:var(--text); margin-bottom:8px;">Air-gap</div><div style="font-size:14px; color:var(--text-dim); line-height:1.55;">Zero outbound network calls. Runs fully disconnected — install once, operate offline.</div></div>
+      <div class="cell"><div class="big" style="font-size:20px; color:var(--text); margin-bottom:8px;">SBOM</div><div style="font-size:14px; color:var(--text-dim); line-height:1.55;">Published software bill of materials for every release — full dependency transparency.</div></div>
+      <div class="cell"><div class="big" style="font-size:20px; color:var(--text); margin-bottom:8px;">Ed25519</div><div style="font-size:14px; color:var(--text-dim); line-height:1.55;">Signed federation payloads — every shared context is cryptographically verifiable.</div></div>
+      <div class="cell"><div class="big" style="font-size:20px; color:var(--text); margin-bottom:8px;">MIT</div><div style="font-size:14px; color:var(--text-dim); line-height:1.55;">Open source and auditable end to end. Inspect every line before it touches your network.</div></div>
+      <div class="cell"><div class="big" style="font-size:20px; color:var(--text); margin-bottom:8px;">Single binary</div><div style="font-size:14px; color:var(--text-dim); line-height:1.55;">No runtime sprawl. One self-contained artifact, simple to review, approve, and deploy.</div></div>
     </div>
   </div>
 </section>
 
-<section class="section" id="deploy">
-  <div class="wrap grid-2">
+<!-- DEPLOY -->
+<section id="deploy" class="sec band" data-screen-label="Deployment">
+  <div class="wrap reveal split">
     <div>
-      <span class="eyebrow">Deployment model</span>
-      <h2 class="h2">Install behind the boundary. Operate offline.</h2>
-      <p class="lead" style="margin-top:16px;">Drop the binary into your accredited environment, render against local repos and services, and federate only within your own signed network. Nothing phones home, and you can verify that in the open source.</p>
+      <span class="eyebrow amber">
+        <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M6.5 1.5l4 1.6v3c0 2.6-1.7 4.4-4 5.4-2.3-1-4-2.8-4-5.4v-3z"/></svg>
+        Deployment model
+      </span>
+      <h2 class="h" style="margin-bottom:20px;">Install behind the boundary. Operate offline.</h2>
+      <p class="lead" style="font-size:16px; margin-bottom:22px;">Drop the binary into your accredited environment, render against local repositories and services, and federate only within your own signed network. Nothing phones home — verify it yourself in the open source.</p>
+      <a href="mailto:perseus@perseus.observer?subject=Government%20deployment" class="mono" style="font-size:14px; color:var(--amber); text-decoration:none;">Discuss your environment ↗</a>
     </div>
     <div class="term">
-      <div class="term-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="file">air-gapped host</span></div>
-<pre><span class="t-dim"># single binary, fully offline</span>
-<span class="t-dim">$</span> perseus render --offline
-<span class="t-green">ok</span> 0 outbound connections
-<span class="t-green">ok</span> SBOM verified
-<span class="t-amber">ok</span> wrote context.md (3.2 KB)
+      <div class="term-bar"><span class="d"></span><span class="d"></span><span class="d"></span><span class="f">air-gapped host</span></div>
+      <pre><span class="c6"># single binary, offline</span>
+<span class="c6">$</span> perseus render --offline
+<span class="gr">✓</span> 0 outbound connections
+<span class="gr">✓</span> SBOM verified
+<span class="ai">✓</span> wrote context.md (3.2 KB)
 
-<span class="t-dim"># nothing left the boundary.</span></pre>
+<span class="c6"># nothing left the boundary.</span></pre>
     </div>
   </div>
 </section>
 
-<section class="section band">
-  <div class="wrap center">
-    <span class="eyebrow violet">Request a security briefing</span>
-    <h2 class="h2 measure">Request a security briefing.</h2>
-    <p class="lead measure" style="margin-top:16px;">We will walk your team through the architecture, the SBOM, and a deployment plan for your accredited environment.</p>
-    <div class="row" style="margin-top:28px; justify-content:center;">
-      <a class="btn btn-amber" href="mailto:perseus@perseus.observer">Request a briefing</a>
+<!-- CTA -->
+<section class="sec cta-center" data-screen-label="Briefing">
+  <div class="wrap reveal">
+    <h2 class="h">Request a security briefing.</h2>
+    <p class="lead" style="font-size:16px; max-width:50ch;">We'll walk your team through the architecture, the SBOM, and a deployment plan for your accredited environment.</p>
+    <div class="cta-row">
+      <a href="mailto:perseus@perseus.observer?subject=Government%20briefing" class="btn btn-amber btn-lg">perseus@perseus.observer</a>
     </div>
-    <p class="mono" style="margin-top:18px; color:var(--amber-ink);">perseus@perseus.observer</p>
   </div>
 </section>
 
-</main>
-
-<footer class="footer-compact">
-  <div class="wrap">
-    <a class="brand" href="/">Perseus <span class="sub">/ Government</span></a>
-    <div class="links">
-      <a href="/mimir/">Mimir</a>
-      <a href="/mcts/">MCTS</a>
-      <a href="/plutus/">Plutus</a>
-      <a href="/cloud/">Cloud</a>
-      <a href="/government/">Government</a>
-      <a href="https://github.com/Perseus-Computing-LLC/perseus">GitHub</a>
+<footer class="site">
+  <div class="foot-compact">
+    <div class="brand-line">
+      <svg width="26" height="26" viewBox="0 0 56 56" fill="none" aria-hidden="true"><rect x="3" y="14" width="17" height="3.6" rx="1.8" fill="var(--violet)"/><rect x="3" y="21" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".75"/><rect x="3" y="28" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".55"/><rect x="3" y="35" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".4"/><g stroke="var(--amber)" stroke-width="2.4" stroke-linecap="round"><line x1="22" y1="16" x2="42" y2="28"/><line x1="22" y1="23" x2="42" y2="28"/><line x1="22" y1="30" x2="42" y2="28"/><line x1="22" y1="37" x2="42" y2="28"/></g><circle cx="44" cy="28" r="4.2" fill="var(--amber)"/></svg>
+      <span class="legal-line">Perseus Computing LLC · EAR99 · MIT License · perseus.observer/government</span>
     </div>
+    <div class="sib"><a href="/">Perseus</a><a href="/cloud/">Cloud</a><a href="https://github.com/Perseus-Computing-LLC/perseus">GitHub</a></div>
   </div>
 </footer>
 
-<script>
-function toggleTheme(){var d=document.documentElement;var n=d.getAttribute('data-theme')==='dark'?'light':'dark';d.setAttribute('data-theme',n);try{localStorage.setItem('perseus-theme',n)}catch(e){}syncToggle()}
-function syncToggle(){var l=document.getElementById('tt');if(l)l.textContent=document.documentElement.getAttribute('data-theme')==='dark'?'Light':'Dark'}
-function copyCmd(t,b){navigator.clipboard&&navigator.clipboard.writeText(t);var o=b.textContent;b.textContent='copied';setTimeout(function(){b.textContent=o},1500)}
-syncToggle();
-</script>
+<script src="/assets/perseus.js"></script>
 </body>
 </html>
