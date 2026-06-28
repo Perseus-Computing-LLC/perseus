@@ -40,19 +40,7 @@ PERSEUS_PY = REPO_ROOT / "perseus.py"
 EXHIBITS_DIR = REPO_ROOT / "docs" / "ip" / "exhibits"
 
 
-# ── pytest flag ────────────────────────────────────────────────────────────────
-
-def pytest_addoption(parser):
-    try:
-        parser.addoption(
-            "--save-exhibits",
-            action="store_true",
-            default=False,
-            help="Write timestamped evidence artifacts to docs/ip/exhibits/",
-        )
-    except ValueError:
-        pass  # already registered by another module
-
+# ── pytest flag (--save-exhibits) is registered in tests/conftest.py ───────────
 
 def _save_exhibits(request) -> bool:
     try:
