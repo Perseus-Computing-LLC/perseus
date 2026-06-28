@@ -3,12 +3,12 @@
   "name": "io.github.Perseus-Computing-LLC/perseus",
   "title": "Perseus: MCP server and live context engine",
   "description": "Live context MCP server: resolves git, services, and tests into agent context. Local-first, MIT.",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "perseus-ctx",
-      "version": "1.0.12",
+      "version": "1.0.13",
       "packageArguments": [
         {
           "type": "positional",
