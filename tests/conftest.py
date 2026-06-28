@@ -156,6 +156,12 @@ def pytest_addoption(parser):
         default=False,
         help="Turn advisory performance budget warnings into hard test failures.",
     )
+    parser.addoption(
+        "--save-exhibits",
+        action="store_true",
+        default=False,
+        help="Write timestamped IP/patent evidence artifacts to docs/ip/exhibits/.",
+    )
 
 
 def normalize_golden(text: str) -> str:
