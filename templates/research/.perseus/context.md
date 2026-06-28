@@ -43,6 +43,4 @@ values below are current — do not re-verify, just start work.
 ---
 
 ## Literature Search
-<!-- Placeholder: @research directive lands in #513. Once available, add a
-     @research directive here to pull live literature/web search results into
-     this section. Until then this section is intentionally inert. -->
+@research "{workspace}" --limit 5
