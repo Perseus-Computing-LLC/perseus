@@ -113,9 +113,18 @@
   <div class="wrap reveal">
     <h2 class="h">Request a security briefing.</h2>
     <p class="lead" style="font-size:16px; max-width:50ch;">We'll walk your team through the architecture, the SBOM, and a deployment plan for your accredited environment.</p>
-    <div class="cta-row">
-      <a href="mailto:perseus@perseus.observer?subject=Government%20briefing" class="btn btn-amber btn-lg">perseus@perseus.observer</a>
-    </div>
+    <form data-capture action="https://formspree.io/f/mrewkdvr" style="max-width:560px; margin:8px auto 0; display:flex; flex-direction:column; gap:14px; text-align:left;">
+      <input type="hidden" name="_subject" value="Government: security briefing request">
+      <input type="hidden" name="source" value="government-briefing">
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
+        <input name="name" type="text" required placeholder="Name" aria-label="Name" style="font-family:inherit; font-size:14px; color:var(--text); background:var(--surface-2); border:1px solid var(--border); border-radius:11px; padding:13px 15px; outline:none;">
+        <input name="email" type="email" required placeholder="Email" aria-label="Email" style="font-family:inherit; font-size:14px; color:var(--text); background:var(--surface-2); border:1px solid var(--border); border-radius:11px; padding:13px 15px; outline:none;">
+      </div>
+      <input name="organization" type="text" placeholder="Organization or agency" aria-label="Organization" style="font-family:inherit; font-size:14px; color:var(--text); background:var(--surface-2); border:1px solid var(--border); border-radius:11px; padding:13px 15px; outline:none;">
+      <textarea name="message" rows="3" placeholder="Environment and what you need" aria-label="Message" style="font-family:inherit; font-size:14px; color:var(--text); background:var(--surface-2); border:1px solid var(--border); border-radius:11px; padding:13px 15px; outline:none; resize:vertical;"></textarea>
+      <button type="submit" class="btn btn-amber btn-lg" style="justify-content:center;">Request a briefing</button>
+      <p data-note class="mono" style="display:none; margin:0; font-size:13px; color:var(--violet-ink); text-align:center;"></p>
+    </form>
   </div>
 </section>
 
