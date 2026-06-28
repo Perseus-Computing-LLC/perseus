@@ -1207,7 +1207,7 @@ class MimirConnector:
 
         diagnostics["merge_verified"] = str(len(verified_items))
         diagnostics["merge_mimir_only"] = str(len(mimir_only))
-        diagnostics["merge_mneme_only"] = str(len(mimir_only))
+        diagnostics["merge_mneme_only"] = str(len(local_only))
         diagnostics["merge_local_only"] = str(len(local_only))
 
         if strategy == MergeStrategy.DECAY_FIRST:
@@ -1414,7 +1414,11 @@ def _get_connector(cfg: dict) -> MimirConnector:
     Re-creates if config changed. Used by resolve_memory / resolve_mimir.
     """
     global _connector, _connector_cfg_hash
-    cfg_bytes = str(sorted(cfg.items())).encode()
+    # Hash only the `mimir` subtree — the sole config the connector reads.
+    # Stringifying+hashing the whole (potentially large) Perseus config on every
+    # directive was wasteful, and rebuilt the connector on unrelated config
+    # changes; keying on the mimir subtree is both cheaper and more correct.
+    cfg_bytes = json.dumps(cfg.get("mimir") or {}, sort_keys=True, default=str).encode()
     cfg_hash = hashlib.sha256(cfg_bytes).hexdigest()
 
     if _connector is None or cfg_hash != _connector_cfg_hash:
