@@ -95,6 +95,7 @@ jobs:
         run: |
           export PERSEUS_ALLOW_DANGEROUS=1
           python -m pytest tests/test_ip_evidence.py tests/test_benchmark_resolve_vs_agentic.py \
+            tests/test_ip_unified_grammar.py tests/test_ip_recursive_resolution.py \
             -q --save-exhibits
 
       - name: Upload IP evidence exhibits
