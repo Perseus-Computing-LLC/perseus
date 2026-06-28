@@ -473,3 +473,110 @@ class TestEdgeCases:
         result = perseus._parse_entity_hits({"items": [{"id": "test"}]})
         assert len(result) == 1
         assert result[0].content == ""  # defaults to empty
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MCP stdio client hardening (timeout, response correlation)
+# ─────────────────────────────────────────────────────────────────────────────
+
+import threading as _threading
+
+
+class _FakeStdin:
+    def __init__(self):
+        self.writes = []
+
+    def write(self, s):
+        self.writes.append(s)
+
+    def flush(self):
+        pass
+
+    def close(self):
+        pass
+
+
+class _ScriptedStdout:
+    """Yields preset lines, then blocks (no EOF) until released — simulating a
+    server that goes silent after emitting some output."""
+
+    def __init__(self, lines, block_after):
+        self._lines = list(lines)
+        self._i = 0
+        self._block_after = block_after
+        self._release = _threading.Event()
+        self._closed = False
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self._i < len(self._lines):
+            line = self._lines[self._i]
+            self._i += 1
+            return line
+        if self._block_after and not self._closed:
+            self._release.wait()  # block until close()/terminate()
+        raise StopIteration
+
+    def close(self):
+        self._closed = True
+        self._release.set()
+
+
+class _FakeProc:
+    def __init__(self, stdout_lines, block_after):
+        self.stdin = _FakeStdin()
+        self.stdout = _ScriptedStdout(stdout_lines, block_after)
+        self._alive = True
+
+    def poll(self):
+        return None if self._alive else 0
+
+    def terminate(self):
+        self._alive = False
+        self.stdout.close()
+
+    def kill(self):
+        self._alive = False
+        self.stdout.close()
+
+    def wait(self, timeout=None):
+        return 0
+
+
+class TestStdioClientHardening:
+    """The fail-safe MCP stdio client must not block forever and must match
+    responses to their request id (regressions for the convergence surface)."""
+
+    def test_call_times_out_when_server_hangs(self):
+        client = perseus._MCPStdioClient(["mimir"], timeout_s=0.2)
+        client._process = _FakeProc([], block_after=True)  # never responds
+        client._start_reader()
+
+        t0 = time.monotonic()
+        result, err = client._call("tools/list", {})
+        elapsed = time.monotonic() - t0
+
+        assert result is None
+        assert "timeout" in err.lower()
+        assert elapsed < 2.0, "must not block indefinitely on a hung server"
+        # Torn down so the circuit breaker trips instead of leaking the process.
+        assert client._process is None
+
+    def test_call_skips_notifications_and_stale_ids(self):
+        # First request id is 1; the matching reply is preceded by noise.
+        lines = [
+            '{"jsonrpc":"2.0","method":"notifications/progress","params":{}}\n',  # no id
+            '{"jsonrpc":"2.0","id":999,"result":{"stale":true}}\n',              # wrong id
+            'not json at all\n',                                                  # garbage
+            '{"jsonrpc":"2.0","id":1,"result":{"ok":true}}\n',                   # the answer
+        ]
+        client = perseus._MCPStdioClient(["mimir"], timeout_s=2.0)
+        client._process = _FakeProc(lines, block_after=True)
+        client._start_reader()
+
+        result, err = client._call("tools/list", {})
+        assert err is None
+        assert result == {"ok": True}
+        client.disconnect()
