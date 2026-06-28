@@ -397,17 +397,40 @@ Tests: <span class="br">1,185 passing</span></pre>
 (function () {
   var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  // contact form → mailto
+  // Contact form. Set CONTACT_ENDPOINT to a real form handler to enable AJAX
+  // submit (e.g. a Formspree form: "https://formspree.io/f/XXXXXXXX"). While it
+  // is empty the form falls back to a mailto: so it always works.
+  var CONTACT_ENDPOINT = '';
   var form = document.getElementById('contactForm');
   if (form) {
+    var note = document.getElementById('formNote');
+    var showNote = function (msg, color) {
+      if (!note) return;
+      note.textContent = msg;
+      note.style.color = color || 'var(--violet)';
+      note.style.display = 'block';
+    };
     form.addEventListener('submit', function (e) {
       e.preventDefault();
       var fd = new FormData(form);
-      var subject = 'Perseus: ' + (fd.get('topic') || 'General inquiry');
-      var body = 'From: ' + (fd.get('name') || '') + ' <' + (fd.get('email') || '') + '>\n\n' + (fd.get('message') || '');
-      window.location.href = 'mailto:perseus@perseus.observer?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
-      var note = document.getElementById('formNote');
-      if (note) note.style.display = 'block';
+      if (!CONTACT_ENDPOINT) {
+        var subject = 'Perseus: ' + (fd.get('topic') || 'General inquiry');
+        var body = 'From: ' + (fd.get('name') || '') + ' <' + (fd.get('email') || '') + '>\n\n' + (fd.get('message') || '');
+        window.location.href = 'mailto:perseus@perseus.observer?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
+        showNote('Opening your mail client to perseus@perseus.observer…');
+        return;
+      }
+      var btn = form.querySelector('button[type=submit]');
+      var label = btn ? btn.textContent : '';
+      if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+      showNote('Sending…');
+      fetch(CONTACT_ENDPOINT, { method: 'POST', headers: { 'Accept': 'application/json' }, body: fd })
+        .then(function (r) {
+          if (r.ok) { form.reset(); showNote('Thanks. We will reply to the email you provided.', 'var(--green)'); }
+          else { showNote('Something went wrong. Please email perseus@perseus.observer directly.', 'var(--red)'); }
+        })
+        .catch(function () { showNote('Network error. Please email perseus@perseus.observer directly.', 'var(--red)'); })
+        .finally(function () { if (btn) { btn.disabled = false; btn.textContent = label; } });
     });
   }
 
