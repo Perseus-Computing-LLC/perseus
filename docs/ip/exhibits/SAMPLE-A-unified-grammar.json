@@ -1,0 +1,17 @@
+{
+  "exhibit": "A \u2014 unified typed-directive grammar (claim element a)",
+  "issue": 488,
+  "generated_by": "tests/test_ip_unified_grammar.py + docs/ip/exhibits generator",
+  "perseus_version": "unknown",
+  "render_sha256": "2ed5ca40bb722d4ca721ddec04f6ecc9581dc5fb7ecea65be1c990fc95a44025",
+  "source_classes_resolved": {
+    "filesystem": "@read",
+    "recursive_composition": "@include",
+    "live_shell": "@query",
+    "semantic_memory": "@memory",
+    "sub_agent": "@agent",
+    "external_tool": "@tool"
+  },
+  "registry_size": 32,
+  "note": "Single source document resolves all six patent-named source classes through one DIRECTIVE_REGISTRY + _call_resolver dispatch. Byte-reproducible; offline; zero model calls."
+}
