@@ -1,0 +1,35 @@
+{
+  "evidence": "E4",
+  "issue": 486,
+  "title": "Resolve-before-context vs. agentic round-trip benchmark",
+  "perseus_version": "1.0.11",
+  "measured": {
+    "directive_count": 5,
+    "per_directive_duration_ms": [
+      0,
+      0,
+      0,
+      1,
+      1
+    ],
+    "median_resolution_latency_ms": 226.69,
+    "all_run_latencies_ms": [
+      200.16,
+      226.69,
+      246.12
+    ],
+    "assembled_context_tokens": 65,
+    "token_count_method": "tiktoken:cl100k_base",
+    "context_sha256": "28dc598375ff6d0140ba83e4ff3b00b2284316e84ee48b8ba324c3b6a3034ad2",
+    "reproducible_runs": 3,
+    "byte_identical": true
+  },
+  "structural_roundtrip_model": {
+    "note": "Round-trip counts are an architectural property derived from the real directive manifest, NOT a timed live-model measurement. In an agentic tool-calling design the model performs one round-trip per context-gathering operation plus a final synthesis call; the resolve-before-context pipeline resolves all directives in one pre-model pass and issues exactly one model call.",
+    "agentic_model_round_trips": 6,
+    "resolve_before_context_round_trips": 1,
+    "round_trips_eliminated": 5,
+    "round_trip_reduction_pct": 83.3
+  },
+  "patent_linkage": "Supports the \u00a7101 technical-effect narrative: deterministic single-pass resolution yields one model round-trip instead of N, with a byte-reproducible, auditable assembled context."
+}
