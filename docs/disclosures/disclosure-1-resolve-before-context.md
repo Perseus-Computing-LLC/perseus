@@ -63,6 +63,61 @@ The architecture has these concrete components:
 | Offline operation | Yes | Depends | Depends | Depends | **Yes** |
 | Output is plain markdown | Yes | No | No | No | **Yes** |
 
+## Distinction from Agentic Tool-Calling
+
+The closest prior approach is **agentic tool-calling** (function calling / ReAct
+/ MCP): the model, at inference time, emits a tool-call request, an orchestrator
+executes it, the result is appended to the conversation, and the model is
+invoked again — looping until the model decides it has enough context. Perseus
+is categorically different on four axes:
+
+1. **Who decides what to fetch, and when.** In agentic tool-calling the *model*
+   decides at inference time which tools to call; resolution is interleaved with
+   generation across multiple model round-trips. In Perseus the *source
+   document* declares the directives, and a deterministic resolver expands them
+   **before any model invocation** — the model is never in the resolution loop
+   (see Disclosure: resolution-outside-model-loop).
+
+2. **Round-trip count.** Agentic gathering of N context items costs O(N) model
+   round-trips (each re-sending a growing prompt). Perseus resolves all N
+   directives in one pre-pass and issues **one** model round-trip regardless of
+   N. This is a measurable technical effect — fewer round-trips, lower latency,
+   lower token cost (quantified in the benchmark and cost-attribution exhibits).
+
+3. **Determinism and reproducibility.** Agentic control flow is
+   model-mediated and therefore non-deterministic: the same task can take
+   different tool-call paths on different runs. Perseus resolution is a pure,
+   byte-reproducible function of the source document plus frozen external state
+   (verified by byte-identical render hashes).
+
+4. **Injection boundary.** In agentic loops, tool output re-enters the model and
+   can steer subsequent tool calls (a prompt-injection surface). In Perseus,
+   resolver output is inserted as literal data and is **never re-parsed as
+   directives**; only author-designated `@include` edges recurse. Resolved
+   content cannot trigger further resolution.
+
+The distinction is **structural**, not a tuning of agentic tool-calling: Perseus
+removes the model from the context-acquisition control loop entirely.
+
+## Published Prior-Art Contrast (defensive publication)
+
+The following references are the closest located art. None discloses the
+resolve-before-context mechanism — deterministic, pre-inference expansion of a
+uniform typed-directive grammar over heterogeneous source classes, outside the
+model loop. Published here as differentiation.
+
+| Reference | What it covers | Why it differs |
+|---|---|---|
+| **MCP (Model Context Protocol)** | Client–server tool/resource protocol; model fetches context at inference time | Inference-time, model-mediated, multi-round-trip; no pre-inference deterministic expansion or single policy registry |
+| **Helicone "prompt templates"** | Variable substitution into prompt strings | Shallow string interpolation; no live resolution, no source classes, no recursion/cycle detection |
+| **WSO2 `template://` resources** | Template resource references resolved by a gateway | Single resource class; no uniform grammar across filesystem/shell/memory/sub-agent/tool; no offline determinism guarantee |
+| **Twilio (conversational context)** | Context injection for conversational AI flows | Domain-specific flow context; no typed-directive compiler, no resolve-before-inference guarantee |
+| **Accenture US12511287** | Context/prompt management for enterprise LLM workflows | Workflow orchestration; resolution interleaved with model calls, not a pre-inference deterministic pass |
+| **Intuit US20250139367 / US12423313** | Prompt construction / context assembly for LLM applications | Assembles context but does not claim a uniform directive grammar resolved deterministically outside the model loop |
+
+(Full claim-element-to-disclosure mapping and §112(f) language hygiene: see
+`docs/disclosures/CLAIM-MAP.md`.)
+
 ## Implementation Reference
 
 - **Repo:** https://github.com/Perseus-Computing-LLC/perseus (commit `2e5caf5` and later)
