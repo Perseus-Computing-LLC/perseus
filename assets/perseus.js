@@ -1,5 +1,5 @@
 /* ============================================================
-   Perseus — shared site behaviour
+   Perseus shared site behaviour
    Theme toggle (+ persistence), copy-to-clipboard buttons,
    scroll reveal. Page-specific JS (hero typewriter, contact
    form) lives inline on the page that needs it.
@@ -50,4 +50,30 @@
     }, { threshold: 0.12 });
     reveals.forEach(function (r) { io.observe(r); });
   }
+
+  // ---- demand-capture forms (Cloud early access, Government briefing) ----
+  document.querySelectorAll('form[data-capture]').forEach(function (form) {
+    var note = form.querySelector('[data-note]');
+    var endpoint = form.getAttribute('action');
+    function say(msg, color) {
+      if (!note) return;
+      note.textContent = msg;
+      note.style.color = color || 'var(--violet-ink)';
+      note.style.display = 'block';
+    }
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var btn = form.querySelector('[type=submit]');
+      var label = btn ? btn.textContent : '';
+      if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+      say('Sending…');
+      fetch(endpoint, { method: 'POST', headers: { 'Accept': 'application/json' }, body: new FormData(form) })
+        .then(function (r) {
+          if (r.ok) { form.reset(); say('Thanks. We will be in touch at the email you provided.', 'var(--green)'); }
+          else { say('Something went wrong. Please email perseus@perseus.observer directly.', 'var(--red)'); }
+        })
+        .catch(function () { say('Network error. Please email perseus@perseus.observer directly.', 'var(--red)'); })
+        .finally(function () { if (btn) { btn.disabled = false; btn.textContent = label; } });
+    });
+  });
 })();
