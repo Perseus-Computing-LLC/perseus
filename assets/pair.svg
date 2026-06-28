@@ -1,0 +1,14 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Mimir + Perseus">
+  <rect width="128" height="128" rx="30" fill="#161420"></rect>
+  <rect x="22" y="33" width="38" height="10" rx="5" fill="#8B5CF6"></rect>
+  <rect x="22" y="50" width="38" height="10" rx="5" fill="#8B5CF6" fill-opacity="0.8"></rect>
+  <rect x="22" y="67" width="38" height="10" rx="5" fill="#8B5CF6" fill-opacity="0.62"></rect>
+  <rect x="22" y="84" width="38" height="10" rx="5" fill="#8B5CF6" fill-opacity="0.46"></rect>
+  <g stroke="#F5A623" stroke-width="5.5" stroke-linecap="round">
+    <line x1="60" y1="38" x2="94" y2="63"></line>
+    <line x1="60" y1="55" x2="94" y2="63"></line>
+    <line x1="60" y1="72" x2="94" y2="63"></line>
+    <line x1="60" y1="89" x2="94" y2="63"></line>
+  </g>
+  <circle cx="98" cy="63" r="9" fill="#F5A623"></circle>
+</svg>
