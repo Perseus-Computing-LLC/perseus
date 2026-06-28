@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>404 — Perseus</title>
+<script>try{var t=localStorage.getItem('perseus-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="icon" href="/assets/perseus.svg">
+<meta name="theme-color" content="#0A0A12">
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/tokens.css">
+<link rel="stylesheet" href="/assets/perseus.css">
+<style>
+  .nf { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 40px 24px; gap: 22px; }
+  .nf svg.mark { width: 72px; height: 72px; }
+  .nf .code { font-family: 'JetBrains Mono', monospace; font-size: 13px; letter-spacing: .18em; text-transform: uppercase; color: var(--amber); }
+  .nf h1 { font-size: clamp(34px, 6vw, 56px); font-weight: 600; letter-spacing: -.025em; margin: 0; }
+  .nf p { color: var(--text-dim); max-width: 46ch; font-size: 16px; line-height: 1.6; margin: 0; }
+  .nf .links { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="nf">
+  <svg class="mark" viewBox="0 0 56 56" fill="none" aria-hidden="true">
+    <rect x="3" y="14" width="17" height="3.6" rx="1.8" fill="var(--violet)"/><rect x="3" y="21" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".75"/><rect x="3" y="28" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".55"/><rect x="3" y="35" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".4"/>
+    <g stroke="var(--amber)" stroke-width="2.4" stroke-linecap="round"><line x1="22" y1="16" x2="42" y2="28"/><line x1="22" y1="23" x2="42" y2="28"/><line x1="22" y1="30" x2="42" y2="28"/><line x1="22" y1="37" x2="42" y2="28"/></g><circle cx="44" cy="28" r="4.2" fill="var(--amber)"/>
+  </svg>
+  <span class="code">Error 404 · directive unresolved</span>
+  <h1>This page didn't resolve.</h1>
+  <p>The path you followed isn't part of the context. Head back and pick up where you left off.</p>
+  <div class="links">
+    <a href="/" class="btn btn-amber btn-lg">Back to Perseus</a>
+    <a href="https://github.com/Perseus-Computing-LLC/perseus" class="btn btn-ghost btn-lg">GitHub ↗</a>
+  </div>
+</div>
+<script src="/assets/perseus.js"></script>
+</body>
+</html>
