@@ -12,6 +12,13 @@ Public technical disclosures describing Perseus's architecture. These documents 
 | 4 | [Resolver-Generator Boundary with Citation Gate](disclosure-4-resolver-generator-boundary.md) | Significant | Published 2026-05-19 |
 | 5 | [Static Directive Dependency Graph + Predictive Prefetch](disclosure-5-directive-dependency-graph.md) | Significant | Published 2026-05-19 |
 | 6 | [File-Based Async Multi-Agent Coordination (Agora)](disclosure-6-agora-multiagent-coordination.md) | Significant | Published 2026-05-19 |
+| 7 | [Resolution Outside the Model Loop](2026-06-27-resolution-outside-model-loop.md) | Core | Published 2026-06-27 |
+| 8 | [Unified Typed-Directive Grammar](2026-06-27-unified-directive-grammar.md) | Core | Published 2026-06-27 |
+| 9 | [Recursive, Dependency-Ordered Resolution](2026-06-27-recursive-dependency-resolution.md) | Significant | Published 2026-06-27 |
+
+**[CLAIM-MAP.md](CLAIM-MAP.md)** — disclosure↔claim-element map, published
+prior-art contrast (MCP, Helicone, WSO2, Twilio, Accenture US12511287, Intuit),
+and §112(f)/§101 language-hygiene note. Published 2026-06-27.
 
 ## Purpose
 
