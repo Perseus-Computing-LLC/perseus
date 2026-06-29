@@ -11041,6 +11041,41 @@ def _load_macros(source_lines: list[str], workspace: Path | None, cfg: dict) -> 
     return macros
 
 
+def _parse_macro_args(args_text: str, param_names: list[str]) -> dict[str, str]:
+    """Map macro invocation args to params.
+
+    Supports quoted multi-word args (``key="a b c"`` or positional ``"a b c"``)
+    via shlex; named ``key=value`` args bind to the matching param, remaining
+    tokens fill params positionally in order. Falls back to a plain whitespace
+    split on malformed quotes so a bad invocation never raises.
+    """
+    if not args_text.strip():
+        return {}
+    import shlex
+    try:
+        tokens = shlex.split(args_text)
+    except ValueError:
+        tokens = args_text.split()
+    param_set = set(param_names)
+    mapping: dict[str, str] = {}
+    positional: list[str] = []
+    for tok in tokens:
+        name, sep, val = tok.partition("=")
+        if sep and name in param_set:
+            mapping[name] = val
+        else:
+            positional.append(tok)
+    pos = iter(positional)
+    for pname in param_names:
+        if pname in mapping:
+            continue
+        try:
+            mapping[pname] = next(pos)
+        except StopIteration:
+            break
+    return mapping
+
+
 def _expand_macros(lines: list[str], macros: dict[str, tuple[list[str], list[str]]]) -> list[str]:
     """Walk lines, expand macro invocations in place. Recursive up to MAX_MACRO_DEPTH.
 
@@ -11077,14 +11112,9 @@ def _expand_macros(lines: list[str], macros: dict[str, tuple[list[str], list[str
             if invocation in macros:
                 macro_body, param_names = macros[invocation]
                 # Substitute parameters
-                arg_values = args_text.split() if args_text.strip() else []
-                # Pre-map param names to their arg values (one pass) to avoid
-                # O(n²) param_names.index() inside the inner loop.
-                param_to_arg: dict[str, str] = {
-                    pname: arg_values[idx]
-                    for idx, pname in enumerate(param_names)
-                    if idx < len(arg_values)
-                }
+                # Map args to params: quote-aware (multi-word + named key=val),
+                # with a whitespace-split fallback on malformed quotes.
+                param_to_arg: dict[str, str] = _parse_macro_args(args_text, param_names)
                 substituted: list[str] = []
                 for bline in macro_body:
                     bline_sub = bline
