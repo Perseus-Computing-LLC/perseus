@@ -152,3 +152,57 @@ def test_macro_graph_expansion(tmp_path):
     directives = [node["directive"] for node in graph["nodes"]]
     assert "@read" in directives
     assert "@my-macro" not in directives
+
+
+def test_macro_quoted_multiword_args():
+    # Quoted args may contain spaces; each maps to one positional param.
+    text = """@perseus
+@macro card
+**%what%**
+- Why: %why%
+@endmacro
+
+@card what="HOT-127068 Automation Rules" why="2 items past due\""""
+    out = perseus.render_source(text, cfg(), None)
+    assert "**HOT-127068 Automation Rules**" in out
+    assert "- Why: 2 items past due" in out
+    assert "@card" not in out
+
+
+def test_macro_unquoted_args_backward_compatible():
+    # No quotes -> plain whitespace split, exactly as before.
+    text = """@perseus
+@macro pair
+%a%-%b%
+@endmacro
+
+@pair foo bar"""
+    out = perseus.render_source(text, cfg(), None)
+    assert "foo-bar" in out
+
+
+def test_macro_malformed_quotes_fall_back():
+    # Unbalanced quote must not raise; falls back to whitespace split.
+    text = """@perseus
+@macro one
+[%x%]
+@endmacro
+
+@one "unbalanced"""
+    out = perseus.render_source(text, cfg(), None)
+    # Should render without error; first token used for %x%.
+    assert "@one" not in out
+
+
+def test_macro_positional_quoted_args():
+    # Positional quoted args (no key=) map in order and may contain spaces.
+    text = """@perseus
+@macro card
+**%what%**
+- Why: %why%
+@endmacro
+
+@card "HOT-1 big summary" "very important\""""
+    out = perseus.render_source(text, cfg(), None)
+    assert "**HOT-1 big summary**" in out
+    assert "- Why: very important" in out
