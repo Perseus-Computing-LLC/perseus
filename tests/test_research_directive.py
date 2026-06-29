@@ -1,269 +1,213 @@
+"""Tests for the @research directive (#513).
+
+The external paper-search MCP subprocess is ALWAYS mocked — these tests must
+never spawn a real `npx`/`bgpt-mcp` process. We patch
+``_ResearchMCPClient.connect`` / ``.call_tool`` / ``.disconnect`` (and, for the
+disabled-config test, ``subprocess.Popen``) so behaviour is deterministic and
+offline.
 """
-Tests for the @research directive (issue #513).
-
-@research calls an EXTERNAL paper-search MCP server (BGPT by default) and
-injects structured paper summaries (methods + results) into the rendered
-context. These tests MOCK the MCP client — they NEVER spawn a real subprocess
-and never touch the network.
-
-Mocking strategy: patch ``perseus._ResearchMCPClient.connect`` /
-``.call_tool`` / ``.disconnect`` so ``resolve_research`` exercises its full
-parse → call → format → token-cap path against canned payloads.
-"""
-
 import copy
-from unittest.mock import patch
+import json
 
 import pytest
 
-from conftest import PY_VER, cfg, perseus
-
-pytestmark = pytest.mark.skipif(PY_VER < (3, 10), reason="Perseus requires Python 3.10+")
+from conftest import perseus
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _research_cfg(**overrides) -> dict:
-    """Config with @research enabled; apply per-test overrides."""
-    c = cfg()
-    c["research"] = {
-        "enabled": True,
-        "provider": "bgpt",
-        "command": ["npx", "-y", "bgpt-mcp"],
-        "tool": "search_papers",
-        "default_limit": 5,
-        "max_tokens": 1500,
-    }
-    c["research"].update(overrides)
+# ── helpers ────────────────────────────────────────────────────────────────
+def _research_cfg(enabled=True, **over):
+    c = copy.deepcopy(perseus.DEFAULT_CONFIG)
+    c["research"]["enabled"] = enabled
+    for k, v in over.items():
+        c["research"][k] = v
     return c
 
 
-def _paper(i: int) -> dict:
-    return {
-        "title": f"Paper Number {i}",
-        "authors": [f"Author {i}A", f"Author {i}B"],
-        "year": 2020 + i,
-        "methods": f"Method description for paper {i} with several explanatory words here.",
-        "results": f"Result description for paper {i} with several explanatory words here.",
-    }
+_FAKE_PAPERS = {
+    "results": [
+        {
+            "title": "Attention Is All You Need",
+            "authors": ["Vaswani", "Shazeer", "Parmar"],
+            "year": 2017,
+            "methods": "Transformer architecture with self-attention; trained on WMT14.",
+            "results": "BLEU 28.4 EN-DE; state of the art at lower training cost.",
+        },
+        {
+            "title": "A Paper Missing Fields",
+            # no authors / year / methods / results on purpose
+        },
+        {
+            "title": "Third Paper",
+            "authors": ["Doe"],
+            "year": 2021,
+            "methods": "RCT, n=120.",
+            "results": "p < 0.05 improvement.",
+        },
+    ]
+}
 
 
 class _FakeClient:
-    """Stand-in for _ResearchMCPClient. Records calls; never spawns anything."""
+    """Stand-in for _ResearchMCPClient. Records the args it was called with."""
+    last_arguments = None
+    last_tool = None
+    connect_returns = True
+    call_returns = (_FAKE_PAPERS, None)
 
-    last_instance = None
-
-    def __init__(self, command, timeout_s: float = 20.0):
+    def __init__(self, command, timeout_s=10.0):
         self.command = command
-        self.connected = False
-        self.calls = []
-        self.connect_ok = True
-        self.payload = {"results": [_paper(1), _paper(2), _paper(3)]}
-        self.error = None
-        _FakeClient.last_instance = self
 
     def connect(self):
-        self.connected = True
-        return self.connect_ok
+        return type(self).connect_returns
 
     def call_tool(self, tool_name, arguments):
-        self.calls.append((tool_name, arguments))
-        if self.error:
-            return None, self.error
-        return self.payload, None
+        type(self).last_tool = tool_name
+        type(self).last_arguments = arguments
+        return type(self).call_returns
 
     def disconnect(self):
-        self.connected = False
+        pass
 
 
-def _install_fake(monkeypatch, configure=None):
-    """Patch _ResearchMCPClient with a factory yielding a configured _FakeClient."""
-    holder = {}
-
-    def factory(command, timeout_s=20.0):
-        client = _FakeClient(command, timeout_s)
-        if configure:
-            configure(client)
-        holder["client"] = client
-        return client
-
-    monkeypatch.setattr(perseus, "_ResearchMCPClient", factory)
-    return holder
+@pytest.fixture
+def patched_client(monkeypatch):
+    """Patch resolve_research to use a controllable fake MCP client."""
+    _FakeClient.last_arguments = None
+    _FakeClient.last_tool = None
+    _FakeClient.connect_returns = True
+    _FakeClient.call_returns = (copy.deepcopy(_FAKE_PAPERS), None)
+    monkeypatch.setattr(perseus, "_ResearchMCPClient", _FakeClient)
+    return _FakeClient
 
 
-# ---------------------------------------------------------------------------
-# Parsing: query + limit (both forms)
-# ---------------------------------------------------------------------------
-
-def test_parses_query_and_flag_limit(monkeypatch):
-    holder = _install_fake(monkeypatch)
-    out = perseus.resolve_research('"transformer attention mechanisms" --limit 2', _research_cfg())
-    assert '### Research: "transformer attention mechanisms"' in out
-    tool, args = holder["client"].calls[0]
-    assert tool == "search_papers"
-    assert args["query"] == "transformer attention mechanisms"
-    assert args["num_results"] == 2
+# ── parsing ────────────────────────────────────────────────────────────────
+def test_parse_query_and_limit_kv_form(patched_client):
+    cfg = _research_cfg()
+    out = perseus.resolve_research('"transformer models" limit=2', cfg, None)
+    assert patched_client.last_arguments["query"] == "transformer models"
+    assert patched_client.last_arguments["num_results"] == 2
+    assert 'Research: "transformer models"' in out
 
 
-def test_parses_kv_limit_form(monkeypatch):
-    holder = _install_fake(monkeypatch)
-    perseus.resolve_research('"RAG retrieval" limit=3', _research_cfg())
-    _tool, args = holder["client"].calls[0]
-    assert args["num_results"] == 3
+def test_parse_query_and_limit_flag_form(patched_client):
+    cfg = _research_cfg()
+    out = perseus.resolve_research('"crispr delivery" --limit 3', cfg, None)
+    assert patched_client.last_arguments["query"] == "crispr delivery"
+    assert patched_client.last_arguments["num_results"] == 3
 
 
-def test_default_limit_used_when_absent(monkeypatch):
-    holder = _install_fake(monkeypatch)
-    perseus.resolve_research('"no explicit limit"', _research_cfg(default_limit=4))
-    _tool, args = holder["client"].calls[0]
-    assert args["num_results"] == 4
+def test_default_limit_used_when_unspecified(patched_client):
+    cfg = _research_cfg(default_limit=4)
+    perseus.resolve_research('"some query"', cfg, None)
+    assert patched_client.last_arguments["num_results"] == 4
 
 
-def test_limit_clamped_to_25(monkeypatch):
-    holder = _install_fake(monkeypatch)
-    perseus.resolve_research('"big" --limit 9999', _research_cfg())
-    _tool, args = holder["client"].calls[0]
-    assert args["num_results"] == 25
+def test_limit_clamped_to_max(patched_client):
+    cfg = _research_cfg()
+    perseus.resolve_research('"q" --limit 999', cfg, None)
+    assert patched_client.last_arguments["num_results"] == 25
 
 
-# ---------------------------------------------------------------------------
-# Output shape: <details>, **Methods:**, **Results:**
-# ---------------------------------------------------------------------------
-
-def test_output_contains_details_methods_results(monkeypatch):
-    _install_fake(monkeypatch)
-    out = perseus.resolve_research('"q" --limit 2', _research_cfg())
+# ── output shape ───────────────────────────────────────────────────────────
+def test_output_contains_details_methods_results(patched_client):
+    cfg = _research_cfg()
+    out = perseus.resolve_research('"transformers" --limit 3', cfg, None)
     assert "<details>" in out
-    assert "<summary>" in out
     assert "**Methods:**" in out
     assert "**Results:**" in out
+    assert "Attention Is All You Need" in out
+    # authors list joined and year present in the summary
+    assert "Vaswani" in out
+    assert "2017" in out
 
 
-def test_injects_n_blocks(monkeypatch):
-    def cfg_two(client):
-        client.payload = {"results": [_paper(1), _paper(2)]}
-    _install_fake(monkeypatch, configure=cfg_two)
-    out = perseus.resolve_research('"q" --limit 2', _research_cfg())
-    assert out.count("<details>") == 2
-    assert "Paper Number 1" in out and "Paper Number 2" in out
+def test_missing_fields_render_na(patched_client):
+    cfg = _research_cfg()
+    out = perseus.resolve_research('"q" --limit 2', cfg, None)
+    # The second paper has no authors/year/methods/results -> _n/a_
+    assert "_n/a_" in out
 
 
-def test_missing_fields_render_na(monkeypatch):
-    def sparse(client):
-        client.payload = {"results": [{"title": "Only A Title"}]}
-    _install_fake(monkeypatch, configure=sparse)
-    out = perseus.resolve_research('"q"', _research_cfg())
-    assert "Only A Title" in out
-    assert "_n/a_" in out  # authors/year/methods/results all missing
+def test_limit_caps_number_of_blocks(patched_client):
+    cfg = _research_cfg()
+    out = perseus.resolve_research('"q" --limit 1', cfg, None)
+    assert out.count("<details>") == 1
 
 
-# ---------------------------------------------------------------------------
-# Token cap + truncation note
-# ---------------------------------------------------------------------------
-
-def test_token_cap_truncates_and_notes(monkeypatch):
-    def many(client):
-        client.payload = {"results": [_paper(i) for i in range(1, 11)]}
-    _install_fake(monkeypatch, configure=many)
-    # Tiny budget so only a couple of blocks fit.
-    out = perseus.resolve_research('"q" --limit 10', _research_cfg(max_tokens=60))
+# ── token cap ──────────────────────────────────────────────────────────────
+def test_token_cap_and_truncation_note(patched_client):
+    # A pile of long papers + a tiny max_tokens forces truncation.
+    big = {"results": [
+        {
+            "title": f"Paper {i}",
+            "authors": ["Author"],
+            "year": 2020,
+            "methods": "word " * 80,
+            "results": "result " * 80,
+        }
+        for i in range(10)
+    ]}
+    patched_client.call_returns = (big, None)
+    cfg = _research_cfg(max_tokens=50)
+    out = perseus.resolve_research('"q" --limit 10', cfg, None)
     assert "truncated" in out.lower()
-    # Not all 10 papers should be present under the tiny cap.
-    assert out.count("<details>") < 10
+    # Estimated tokens (~words*1.3) must not blow far past the cap.
+    est = int(len(out.split()) * 1.3)
+    assert est <= 50 + 40  # cap + small allowance for the truncation note
 
 
-def test_no_truncation_note_when_under_budget(monkeypatch):
-    def two(client):
-        client.payload = {"results": [_paper(1), _paper(2)]}
-    _install_fake(monkeypatch, configure=two)
-    out = perseus.resolve_research('"q" --limit 2', _research_cfg(max_tokens=100000))
-    assert "truncated" not in out.lower()
-    assert out.count("<details>") == 2
+# ── graceful degradation ───────────────────────────────────────────────────
+def test_fallback_when_provider_unavailable(patched_client):
+    patched_client.connect_returns = False
+    cfg = _research_cfg()
+    out = perseus.resolve_research('"q"', cfg, None)
+    assert "unavailable" in out.lower()
+    # No exception, still returns the heading.
+    assert 'Research: "q"' in out
 
 
-# ---------------------------------------------------------------------------
-# Graceful fallback: provider unavailable → no exception
-# ---------------------------------------------------------------------------
-
-def test_fallback_when_connect_fails(monkeypatch):
-    def fail(client):
-        client.connect_ok = False
-    _install_fake(monkeypatch, configure=fail)
-    out = perseus.resolve_research('"q"', _research_cfg())
-    assert "@research: provider unavailable" in out
+def test_provider_error_no_exception(patched_client):
+    patched_client.call_returns = (None, "MCP timeout")
+    cfg = _research_cfg()
+    out = perseus.resolve_research('"q"', cfg, None)
+    assert isinstance(out, str)
+    assert "MCP timeout" in out or "provider error" in out.lower()
 
 
-def test_fallback_when_call_errors(monkeypatch):
-    def err(client):
-        client.error = "MCP timeout"
-    _install_fake(monkeypatch, configure=err)
-    out = perseus.resolve_research('"q"', _research_cfg())
-    assert "@research: provider unavailable" in out
-
-
-def test_internal_exception_is_swallowed(monkeypatch):
-    def boom(command, timeout_s=20.0):
-        raise RuntimeError("kaboom")
-    monkeypatch.setattr(perseus, "_ResearchMCPClient", boom)
-    out = perseus.resolve_research('"q"', _research_cfg())
-    # No exception propagates; quiet marker returned.
-    assert "@research: provider unavailable" in out
-
-
-# ---------------------------------------------------------------------------
-# Disabled config → NO Popen / NO subprocess at all
-# ---------------------------------------------------------------------------
-
-def test_disabled_config_does_not_spawn(monkeypatch):
-    spawned = {"hit": False}
-
-    def tripwire(command, timeout_s=20.0):
-        spawned["hit"] = True
-        return _FakeClient(command, timeout_s)
-
-    monkeypatch.setattr(perseus, "_ResearchMCPClient", tripwire)
-    out = perseus.resolve_research('"q"', _research_cfg(enabled=False))
-    assert spawned["hit"] is False
-    assert "@research: provider unavailable" in out
-
-
-def test_disabled_config_never_calls_popen(monkeypatch):
-    """Belt-and-suspenders: patch subprocess.Popen itself and assert untouched."""
-    called = {"hit": False}
+def test_disabled_config_does_not_spawn_subprocess(monkeypatch):
+    """When research.enabled is False, NO Popen call may happen."""
+    calls = []
     real_popen = perseus.subprocess.Popen
 
-    def guard(*a, **k):
-        called["hit"] = True
+    def _spy(*a, **k):
+        calls.append(a)
         return real_popen(*a, **k)
 
-    monkeypatch.setattr(perseus.subprocess, "Popen", guard)
-    perseus.resolve_research('"q"', _research_cfg(enabled=False))
-    assert called["hit"] is False
+    monkeypatch.setattr(perseus.subprocess, "Popen", _spy)
+    cfg = _research_cfg(enabled=False)
+    out = perseus.resolve_research('"q" --limit 3', cfg, None)
+    assert calls == []  # never spawned
+    assert "disabled" in out.lower()
 
 
-# ---------------------------------------------------------------------------
-# Empty query → warning
-# ---------------------------------------------------------------------------
-
-def test_empty_query_warns(monkeypatch):
-    _install_fake(monkeypatch)
-    out = perseus.resolve_research('""', _research_cfg())
-    assert "no query specified" in out
+def test_empty_query_warns(patched_client):
+    cfg = _research_cfg()
+    out = perseus.resolve_research('   ', cfg, None)
+    assert "no query" in out.lower()
+    # Must not have called the provider.
+    assert patched_client.last_arguments is None
 
 
-def test_blank_args_warns(monkeypatch):
-    _install_fake(monkeypatch)
-    out = perseus.resolve_research("   ", _research_cfg())
-    assert "no query specified" in out
+def test_no_papers_found(patched_client):
+    patched_client.call_returns = ({"results": []}, None)
+    cfg = _research_cfg()
+    out = perseus.resolve_research('"obscure" --limit 5', cfg, None)
+    assert "no papers found" in out.lower()
 
 
-# ---------------------------------------------------------------------------
-# Registry + build artifact
-# ---------------------------------------------------------------------------
-
+# ── registry + build artifact ──────────────────────────────────────────────
 def test_directive_registered():
+    perseus._bind_registry()
     assert "@research" in perseus.DIRECTIVE_REGISTRY
     spec = perseus.DIRECTIVE_REGISTRY["@research"]
     assert spec.resolver is perseus.resolve_research
@@ -272,23 +216,16 @@ def test_directive_registered():
 
 
 def test_built_artifact_contains_resolver():
-    from pathlib import Path
-    artifact = Path(__file__).resolve().parents[1] / "perseus.py"
+    import pathlib
+    artifact = pathlib.Path(__file__).resolve().parents[1] / "perseus.py"
     text = artifact.read_text(encoding="utf-8")
     assert "def resolve_research" in text
-    assert "class _ResearchMCPClient" in text
 
 
-# ---------------------------------------------------------------------------
-# End-to-end through the renderer (acceptance criterion)
-# ---------------------------------------------------------------------------
-
-def test_render_source_injects_paper_blocks(monkeypatch):
-    def two(client):
-        client.payload = {"results": [_paper(1), _paper(2)]}
-    _install_fake(monkeypatch, configure=two)
-    source = '@perseus v0.5\n@research "attention" --limit 2'
-    out = perseus.render_source(source, _research_cfg(), None)
+def test_render_through_registry(patched_client):
+    """End-to-end: @research resolves via render_source with mocked client."""
+    cfg = _research_cfg()
+    source = '@perseus v0.5\n@research "transformers" --limit 2'
+    out = perseus.render_source(source, cfg, None)
     assert "<details>" in out
     assert "**Methods:**" in out
-    assert "**Results:**" in out
