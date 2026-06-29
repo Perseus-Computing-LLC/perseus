@@ -176,20 +176,6 @@ DEFAULT_CONFIG = {
     "agora": {
         "tasks_dir": "tasks",
     },
-    # #513: @research directive — external scientific-paper search MCP (BGPT).
-    # `command` is the LOCAL stdio invocation of the provider; BGPT ships an
-    # npx-runnable package (github.com/connerlambden/bgpt-mcp, README Option C:
-    # `npx -y bgpt-mcp`). `tool` is the MCP tool name (BGPT exposes
-    # `search_papers`). default_limit feeds the per-render paper count
-    # (clamped to 25); max_tokens caps the injected context budget.
-    "research": {
-        "enabled": True,
-        "provider": "bgpt",
-        "command": ["npx", "-y", "bgpt-mcp"],
-        "tool": "search_papers",
-        "default_limit": 5,
-        "max_tokens": 1500,
-    },
     "health": {
         "stale_checkpoint_days": 7,
         "duplicate_checkpoint_window": 5,
@@ -239,6 +225,22 @@ DEFAULT_CONFIG = {
             "max_attempts": 3,
             "backoff_base": 1.5,
         },
+    },
+    "research": {                       # #513 — @research external paper-search MCP
+        # Inject structured paper-search results (Methods/Results per paper)
+        # from an EXTERNAL literature-search MCP server. Default provider is
+        # BGPT (bgpt.pro), whose stdio server ships as the `bgpt-mcp` npm
+        # package and exposes the `search_papers` tool (arg `num_results`,
+        # 1–100). The local stdio invocation is `npx -y bgpt-mcp`.
+        "enabled": True,
+        "provider": "bgpt",
+        "command": ["npx", "-y", "bgpt-mcp"],
+        "tool_name": "search_papers",   # MCP tool to call
+        "query_key": "query",           # argument key for the search string
+        "limit_key": "num_results",     # argument key for the result count
+        "default_limit": 5,             # papers per query when none specified (clamped ≤ 25)
+        "max_tokens": 1500,             # token budget for the rendered block (words*1.3 heuristic)
+        "timeout_s": 10.0,
     },
     "inbox": {                       # task-16 (Phase 8 P8.3)
         "store": str(PERSEUS_HOME / "inbox"),
@@ -1081,7 +1083,7 @@ def _bind_registry() -> None:
         DirectiveSpec("@tool",      resolve_tool,      ["name="],                         "inline",  "acw", executes_shell=True, safe_for_hover=False, summary="Run an external tool that has been allowlisted in the Perseus configuration. Use for approved integrations only. Requires the tool name to be present in the allowlist. Destructive — executes the tool with the user's permissions.", tier=3),
         DirectiveSpec("@tooltrim",  resolve_tooltrim,  ["stats", "full"],          "inline",  "acw", reads_files=True,  cacheable=True,  safe_for_hover=True,  summary="Return filtered toolset metadata and usage statistics. Use to understand what tools are available and how they are being used. For full tool metadata, set full=true. Read-only; stats mode returns aggregated counts.", tier=3),
         DirectiveSpec("@mason",     resolve_mason_tool_directive, ["query="],              "inline",  "a",   cacheable=True,  safe_for_hover=True,  summary="Query the Mason code architecture concept map to find which files implement a feature. Use before editing code to understand where changes should go. Read-only; returns concept map and mapped file list.", tier=3),
-        DirectiveSpec("@research",  resolve_research,  ["limit="],                 "inline",  "acw", executes_shell=False, reads_files=False, cacheable=True, safe_for_hover=False, summary="Pre-load structured scientific-paper summaries (methods + results) from an external paper-search MCP server (BGPT by default). Use to inject research context before a session, the way @file pre-loads code. Self-gates on research.enabled; degrades gracefully when the provider is unreachable. Read-only; does NOT execute a shell.", tier=3, is_semantic_hint=True),
+        DirectiveSpec("@research",  resolve_research,  ["limit="],                 "inline",  "acw", executes_shell=False, reads_files=False, cacheable=True, safe_for_hover=False, summary="Search an EXTERNAL paper-search MCP server (BGPT by default) for scientific literature and inject per-paper Methods/Results blocks. Use to ground claims in published studies. Self-gates on research.enabled; degrades gracefully when the provider is unreachable. Read-only; speaks JSON-RPC over stdio (no shell).", tier=3, is_semantic_hint=True),
 
         # Block / control (resolved by renderer, tier doesn't apply)
         DirectiveSpec("@prompt",    resolve_prompt_block, [],                      "block",   "block", summary="Define a system prompt block that instructs the AI assistant about how to use the rendered context. Use to set behavioral rules, memory hygiene gates, or context interpretation guidelines. Read-only; rendered as-is into the output.", tier=1),
@@ -6541,56 +6543,60 @@ def resolve_tokens(context: str) -> str:
     return f"## Context Budget\n{token_count} tokens rendered | ~{saved_tokens} saved vs runtime discovery ({ratio:.1f}x)"
 # ──────────────────────────────── @research ───────────────────────────────────
 #
-# Issue #513 — first Perseus directive that calls an EXTERNAL MCP tool (BGPT,
-# github.com/connerlambden/bgpt-mcp) rather than the local filesystem/memory.
-# Pre-loads structured scientific-paper summaries (methods + results) into the
-# rendered context the same way @file pre-loads code.
+# @research "<query>" [limit=N | --limit N]
 #
-# Design constraints (issue #513 + reviewer notes):
-#   * SELF-CONTAINED MCP stdio client lives INSIDE this module — we do not edit
-#     mimir_connector.py. The client mirrors the _MCPStdioClient SHAPE there:
-#     Popen(PIPE/PIPE/DEVNULL), a DAEMON reader thread feeding a queue with a
-#     timeout (so a wedged child never hangs readline()), the JSON-RPC
-#     `initialize` handshake, `tools/call`, then unwrap result.content[0].text.
-#   * executes_shell=False — @research self-gates on cfg["research"]["enabled"]
-#     and degrades gracefully on any failure (the registry also catches at
-#     registry.py _call_resolver). No exception ever escapes resolve_research.
+# Inject structured paper-search results from an EXTERNAL paper-search MCP
+# server (BGPT by default) into the rendered context. Unlike @memory / @mimir
+# (which recall *our* stored facts), @research reaches out to a scientific
+# literature index and returns per-paper Methods/Results blocks so an agent can
+# ground claims in published studies.
+#
+# Self-gating: respects cfg["research"]["enabled"]. When disabled (or the
+# provider is unreachable) it returns a quiet, exception-free fallback string —
+# it must never break a render. The directive does NOT execute a shell
+# (executes_shell=False); it speaks JSON-RPC 2.0 over stdio to the configured
+# MCP subprocess via a SELF-CONTAINED client kept inside this module (we do not
+# touch mimir_connector.py).
 
+import threading
+import queue as _queue
 
-# Hard ceiling on --limit / limit= regardless of config (avoids pathological
-# subprocess payloads and runaway token budgets).
+# Hard clamp on the number of paper blocks we will ever request/render, no
+# matter what the caller or config asks for. Keeps context bounded.
 _RESEARCH_MAX_LIMIT = 25
 
-# Approx tokens-per-word heuristic, mirroring renderer.py's dedup estimator
-# (saved_tokens = int(saved_words * 1.3)).
-_RESEARCH_TOKENS_PER_WORD = 1.3
-
-# --limit N (space form, distinct from the key=value `limit=` modifier).
-_RESEARCH_LIMIT_FLAG_RE = re.compile(r"--limit\s+(\d+)")
+# Default token budget when cfg["research"]["max_tokens"] is missing/invalid.
+_RESEARCH_DEFAULT_MAX_TOKENS = 1500
 
 
 class _ResearchMCPClient:
-    """Minimal, self-contained MCP stdio client for @research.
+    """Minimal JSON-RPC 2.0 MCP client over stdio for paper-search servers.
 
-    Deliberately mirrors the _MCPStdioClient SHAPE in mimir_connector.py but is
-    kept local so research.py has zero coupling to the Mimir bridge. Only the
-    pieces @research needs are implemented: connect + handshake, call_tool,
-    disconnect. A daemon reader thread drains stdout into a queue so every read
-    is bounded by ``timeout_s`` — readline() can never wedge the render.
+    Modelled on mimir_connector._MCPStdioClient but kept fully self-contained
+    here (issue #513): we must not import from / edit mimir_connector.py.
+
+    Robustness notes:
+    - A DAEMON reader thread drains stdout into a Queue so a hung/silent server
+      can never block render forever on a bare readline() — every read is
+      bounded by ``timeout_s``.
+    - stderr is routed to DEVNULL so a chatty server cannot fill a pipe buffer
+      and deadlock.
+    - Every public method is exception-safe; failures degrade to (None, error).
     """
 
-    def __init__(self, command, timeout_s: float = 20.0):
-        self._command = list(command)
-        self._timeout = timeout_s
+    def __init__(self, command: "list[str]", timeout_s: float = 10.0):
+        self._command = list(command or [])
+        self._timeout = float(timeout_s) if timeout_s else 10.0
         self._process = None
         self._request_id = 0
-        self._reader = None
-        self._queue = None
+        self._reader_thread = None
+        self._out_queue: "_queue.Queue[str]" = _queue.Queue()
 
+    # ── lifecycle ──────────────────────────────────────────────────────────
     def connect(self) -> bool:
-        """Spawn the MCP subprocess and perform the JSON-RPC handshake."""
-        import threading
-        import queue as _queue
+        """Spawn the MCP subprocess and perform the initialize handshake."""
+        if not self._command:
+            return False
         try:
             self._process = subprocess.Popen(
                 self._command,
@@ -6603,55 +6609,49 @@ class _ResearchMCPClient:
             self._process = None
             return False
 
-        # Daemon reader: pull complete stdout lines into a queue. Daemon so it
-        # never blocks interpreter shutdown if the child outlives us.
-        self._queue = _queue.Queue()
-
-        def _pump(proc, q):
-            try:
-                for line in iter(proc.stdout.readline, ""):
-                    q.put(line)
-            except Exception:
-                pass
-            finally:
-                q.put(None)  # sentinel: stream closed
-
-        self._reader = threading.Thread(
-            target=_pump, args=(self._process, self._queue), daemon=True
+        # Start the daemon reader so readline() can never hang the render.
+        self._reader_thread = threading.Thread(
+            target=self._reader_loop, daemon=True
         )
-        self._reader.start()
+        self._reader_thread.start()
 
-        init_result, err = self._call("initialize", {
-            "protocolVersion": "2025-06-18",
-            "clientInfo": {"name": "perseus-research-connector", "version": "1.0.0"},
-            "capabilities": {},
-        })
-        if err or not init_result:
+        try:
+            init_result, err = self._call("initialize", {
+                "protocolVersion": "2025-06-18",
+                "clientInfo": {"name": "perseus-research-connector", "version": "1.0.0"},
+                "capabilities": {},
+            })
+            if err or not init_result:
+                return False
+            self._send_notification("notifications/initialized", {})
+            return True
+        except Exception:
             return False
-        # Best-effort initialized notification (server may ignore it).
-        self._send_notification("notifications/initialized", {})
-        return True
 
     def disconnect(self) -> None:
-        if not self._process:
-            return
-        try:
-            if self._process.stdin:
-                self._process.stdin.close()
-            self._process.terminate()
-            self._process.wait(timeout=5)
-        except Exception:
+        if self._process:
             try:
-                self._process.kill()
+                if self._process.stdin:
+                    self._process.stdin.close()
             except Exception:
                 pass
-        self._process = None
+            try:
+                self._process.terminate()
+                self._process.wait(timeout=5)
+            except Exception:
+                try:
+                    self._process.kill()
+                except Exception:
+                    pass
+            self._process = None
 
-    def call_tool(self, tool_name: str, arguments: dict):
-        """Call an MCP tool via tools/call. Returns (payload, error_string).
+    # ── tool call ──────────────────────────────────────────────────────────
+    def call_tool(self, tool_name: str, arguments: dict) -> "tuple[dict | None, str | None]":
+        """Call an MCP tool via tools/call. Returns (result_dict, error_string).
 
         Unwraps the standard MCP envelope result.content[0].text (a JSON
-        string) into a Python object, matching mimir_connector's behaviour.
+        string) into a dict. Falls back to {"text": ...} when the text payload
+        is not itself JSON.
         """
         result, err = self._call("tools/call", {
             "name": tool_name,
@@ -6661,7 +6661,7 @@ class _ResearchMCPClient:
             return None, err
         if result is None:
             return None, "no result"
-        content = result.get("content", [])
+        content = result.get("content", []) if isinstance(result, dict) else []
         if content and isinstance(content, list):
             first = content[0]
             if isinstance(first, dict) and "text" in first:
@@ -6671,18 +6671,31 @@ class _ResearchMCPClient:
                     return {"text": first["text"]}, None
         return result, None
 
-    def _send_notification(self, method: str, params: dict) -> None:
-        if not (self._process and self._process.stdin):
+    # ── internals ──────────────────────────────────────────────────────────
+    def _reader_loop(self) -> None:
+        """Daemon: push each stdout line onto the queue until EOF."""
+        proc = self._process
+        if not proc or not proc.stdout:
             return
         try:
-            msg = json.dumps({"jsonrpc": "2.0", "method": method, "params": params})
-            self._process.stdin.write(msg + "\n")
-            self._process.stdin.flush()
+            for line in iter(proc.stdout.readline, ""):
+                self._out_queue.put(line)
         except Exception:
             pass
+        finally:
+            # Sentinel so a blocked _call() wakes on EOF instead of timing out.
+            self._out_queue.put("")
 
-    def _call(self, method: str, params: dict):
-        import queue as _queue
+    def _send_notification(self, method: str, params: dict) -> None:
+        msg = json.dumps({"jsonrpc": "2.0", "method": method, "params": params})
+        if self._process and self._process.stdin:
+            try:
+                self._process.stdin.write(msg + "\n")
+                self._process.stdin.flush()
+            except Exception:
+                pass
+
+    def _call(self, method: str, params: dict) -> "tuple[dict | None, str | None]":
         if not self._process or self._process.poll() is not None:
             return None, "MCP process not running"
         self._request_id += 1
@@ -6699,94 +6712,124 @@ class _ResearchMCPClient:
         except (BrokenPipeError, OSError) as e:
             return None, f"MCP write failed: {e}"
 
-        # Bounded read loop: tolerate interleaved notifications/log lines and
-        # only return on the matching response id. The queue timeout guarantees
-        # we give up instead of hanging on a wedged child.
-        import time as _time
-        deadline = _time.monotonic() + self._timeout
+        # Bounded read via the daemon queue — never block past the deadline.
+        deadline = time.monotonic() + self._timeout
         while True:
-            remaining = deadline - _time.monotonic()
+            remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return None, "MCP timeout"
             try:
-                line = self._queue.get(timeout=remaining)
+                line = self._out_queue.get(timeout=remaining)
             except _queue.Empty:
                 return None, "MCP timeout"
-            if line is None:
-                return None, "MCP EOF (process may have crashed)"
-            line = line.strip()
-            if not line:
+            if line == "":
+                # EOF sentinel from the reader loop.
+                if self._process.poll() is not None:
+                    return None, "MCP EOF (process exited)"
+                continue
+            if not line.strip():
                 continue
             try:
                 response = json.loads(line)
-            except (json.JSONDecodeError, ValueError):
-                continue  # non-JSON log line — skip
-            if not isinstance(response, dict):
+            except json.JSONDecodeError:
+                # Server may emit non-JSON log noise on stdout; skip it.
                 continue
-            if response.get("id") != req_id:
-                continue  # notification or stale response — keep waiting
-            if "error" in response:
+            # Match our request id; ignore notifications / mismatched ids.
+            if isinstance(response, dict) and response.get("id") not in (req_id, None):
+                continue
+            if isinstance(response, dict) and "error" in response:
                 err = response["error"]
-                if isinstance(err, dict):
-                    return None, f"MCP error {err.get('code', '')}: {err.get('message', str(err))}"
-                return None, f"MCP error: {err}"
-            return response.get("result"), None
+                return None, f"MCP error {err.get('code', '')}: {err.get('message', str(err))}"
+            return (response.get("result") if isinstance(response, dict) else None), None
 
 
-def _research_unavailable(reason: str = "") -> str:
-    """Quiet, non-fatal fallback marker. Mirrors issue #513's spec:
-    skip with an HTML comment so the rendered context stays clean."""
-    suffix = f" ({reason})" if reason else ""
-    return f"<!-- @research: provider unavailable{suffix} -->"
+def _research_cfg(cfg: dict) -> dict:
+    """Return the research config block, tolerant of missing/partial config."""
+    block = {}
+    if isinstance(cfg, dict):
+        raw = cfg.get("research")
+        if isinstance(raw, dict):
+            block = raw
+    return block
 
 
-def _research_extract_papers(payload) -> list:
-    """Normalise BGPT's response into a list of paper dicts.
+def _parse_research_args(args_str: str, default_limit: int) -> "tuple[str | None, int]":
+    """Parse the query + limit.
 
-    BGPT (and the REST mirror) returns ``{"results": [...]}``; be liberal and
-    also accept a bare list or other common envelope keys.
+    Query: a leading quoted (or bare) token via _extract_quoted_token.
+    Limit: either ``--limit N`` anywhere in the remainder, or a ``limit=N``
+    key=value modifier via _parse_kv_modifiers. ``--limit`` wins when both are
+    present. Result is clamped to 1.._RESEARCH_MAX_LIMIT.
     """
-    if payload is None:
-        return []
-    if isinstance(payload, list):
-        return [p for p in payload if isinstance(p, dict)]
-    if isinstance(payload, dict):
-        for key in ("results", "papers", "data", "items"):
-            val = payload.get(key)
+    raw = (args_str or "").strip()
+
+    # Pull a --limit N form out first so it doesn't get swallowed as the query
+    # when the query is bare/unquoted.
+    limit_val = None
+    m = re.search(r"(?:^|\s)--limit(?:=|\s+)(\d+)", raw)
+    if m:
+        try:
+            limit_val = int(m.group(1))
+        except ValueError:
+            limit_val = None
+        raw = (raw[:m.start()] + " " + raw[m.end():]).strip()
+
+    query, remainder = _extract_quoted_token(raw)
+
+    if limit_val is None:
+        modifiers = _parse_kv_modifiers(remainder)
+        if "limit" in modifiers:
+            try:
+                limit_val = int(str(modifiers["limit"]).strip())
+            except (ValueError, TypeError):
+                limit_val = None
+
+    if limit_val is None:
+        limit_val = default_limit
+
+    # Clamp.
+    try:
+        limit_val = int(limit_val)
+    except (ValueError, TypeError):
+        limit_val = default_limit
+    if limit_val < 1:
+        limit_val = 1
+    if limit_val > _RESEARCH_MAX_LIMIT:
+        limit_val = _RESEARCH_MAX_LIMIT
+
+    if query is not None:
+        query = query.strip()
+    if not query:
+        query = None
+    return query, limit_val
+
+
+def _research_field(paper: dict, *names) -> str:
+    """Return the first present, non-empty field value (stringified) or ''."""
+    for name in names:
+        if name in paper and paper[name] not in (None, "", [], {}):
+            val = paper[name]
             if isinstance(val, list):
-                return [p for p in val if isinstance(p, dict)]
-        # A single paper object.
-        if any(k in payload for k in ("title", "methods", "results")):
-            return [payload]
-    return []
-
-
-def _research_field(paper: dict, *names: str) -> str:
-    """Return the first present, non-empty field among aliases, else ''."""
-    for n in names:
-        v = paper.get(n)
-        if v is None:
-            continue
-        if isinstance(v, (list, tuple)):
-            v = ", ".join(str(x) for x in v if str(x).strip())
-        s = str(v).strip()
-        if s:
-            return s
+                val = ", ".join(str(v) for v in val if v not in (None, ""))
+            return str(val).strip()
     return ""
 
 
-def _research_format_paper(paper: dict) -> str:
-    """Render one paper as a collapsible <details> block.
+def _format_paper_block(paper: dict) -> str:
+    """Render a single paper as a collapsible <details> block.
 
-    Missing fields render as ``_n/a_`` (never blank), so the structure is
-    stable regardless of how sparse a given paper record is.
+    Missing fields render as ``_n/a_`` rather than being dropped, so the shape
+    is stable and the agent can see what the provider failed to extract.
     """
+    if not isinstance(paper, dict):
+        return ""
     na = "_n/a_"
-    title = _research_field(paper, "title", "name") or na
+    title = _research_field(paper, "title") or na
     authors = _research_field(paper, "authors", "author") or na
-    year = _research_field(paper, "year", "published_year", "publication_year", "date") or na
-    methods = _research_field(paper, "methods", "method", "methodology") or na
-    results = _research_field(paper, "results", "result", "findings", "outcomes") or na
+    year = _research_field(paper, "year", "published_year", "date") or na
+    methods = _research_field(paper, "methods", "methodology", "experimental_design") or na
+    results = _research_field(paper, "results", "findings", "key_findings", "conclusions") or na
+
     summary = f"{title} — {authors} ({year})"
     return (
         f"<details><summary>{summary}</summary>\n\n"
@@ -6796,137 +6839,149 @@ def _research_format_paper(paper: dict) -> str:
     )
 
 
-def _research_estimate_tokens(text: str) -> int:
-    """Word-count token estimate (~1.3 tokens/word), matching renderer.py."""
-    words = sum(len(line.split()) for line in text.splitlines() if line.strip())
-    return int(words * _RESEARCH_TOKENS_PER_WORD)
+def _apply_token_cap(body: str, max_tokens: int) -> str:
+    """Truncate ``body`` to roughly ``max_tokens`` using the words*1.3 heuristic.
 
-
-def _research_apply_token_cap(heading: str, blocks: list, max_tokens) -> str:
-    """Assemble heading + paper blocks under a token budget.
-
-    Greedily include whole paper blocks until the next one would exceed
-    ``max_tokens``; if anything was dropped, append a truncation note. A
-    ``max_tokens`` of None/<=0 disables the cap.
+    Mirrors renderer.py's estimate (~1.3 tokens per word). When the body
+    exceeds the budget we cut on a word boundary and append a truncation note
+    so the omission is visible.
     """
-    if not blocks:
-        return heading
-    try:
-        cap = int(max_tokens) if max_tokens is not None else 0
-    except (TypeError, ValueError):
-        cap = 0
-
-    if cap <= 0:
-        return heading + "\n\n" + "\n\n".join(blocks)
-
-    out = heading
-    included = 0
-    for block in blocks:
-        candidate = out + "\n\n" + block
-        if _research_estimate_tokens(candidate) > cap and included > 0:
-            break
-        out = candidate
-        included += 1
-        # Even the first block may blow the budget; include at least one but
-        # then stop so we always surface something useful.
-        if _research_estimate_tokens(out) > cap:
-            break
-
-    dropped = len(blocks) - included
-    if dropped > 0:
-        out += (
-            f"\n\n> ⚠ @research: output truncated to {included} of {len(blocks)} "
-            f"papers to stay within max_tokens={cap}."
-        )
-    return out
+    if max_tokens is None or max_tokens <= 0:
+        return body
+    words = body.split()
+    est_tokens = int(len(words) * 1.3)
+    if est_tokens <= max_tokens:
+        return body
+    # Max words we can keep within the token budget.
+    max_words = max(1, int(max_tokens / 1.3))
+    kept = words[:max_words]
+    truncated = " ".join(kept)
+    note = (
+        f"\n\n> ⚠ @research: output truncated to ~{max_tokens} tokens "
+        f"(estimated {est_tokens}). Lower the result limit or raise "
+        f"`research.max_tokens` for the full set."
+    )
+    return truncated + note
 
 
 def resolve_research(args_str: str, cfg: dict, workspace: "Path | None" = None) -> str:
-    """
-    @research "<query>" [--limit N] [limit=N]
+    """@research "<query>" [limit=N | --limit N]
 
-    Pre-load structured scientific-paper summaries (methods + results) from an
-    external paper-search MCP server (BGPT by default) into the rendered
-    context. Read-only; never executes a shell. Self-gates on
-    cfg["research"]["enabled"] and degrades gracefully on any failure:
-      * disabled / empty query  → quiet marker, NO subprocess spawned
-      * provider unreachable     → quiet `<!-- @research: provider unavailable -->`
-
-    Limit precedence: explicit `limit=` / `--limit N` (whichever parses) over
-    cfg["research"]["default_limit"], clamped to [1, 25].
+    Inject structured paper-search results from the configured external
+    paper-search MCP server. Always returns a string; never raises.
     """
     try:
-        research_cfg = {}
-        if isinstance(cfg, dict) and isinstance(cfg.get("research"), dict):
-            research_cfg = cfg["research"]
+        rcfg = _research_cfg(cfg)
 
-        # ── Self-gate: disabled → no subprocess, quiet marker ──
-        if not research_cfg.get("enabled", False):
-            return _research_unavailable("disabled")
+        # ── default_limit (config-driven, clamped) ──
+        try:
+            default_limit = int(rcfg.get("default_limit", 5))
+        except (ValueError, TypeError):
+            default_limit = 5
+        if default_limit < 1:
+            default_limit = 1
+        if default_limit > _RESEARCH_MAX_LIMIT:
+            default_limit = _RESEARCH_MAX_LIMIT
 
-        # ── Parse the quoted query ──
-        query, remaining = _extract_quoted_token(args_str.strip())
-        if not query or not query.strip():
-            return "> ⚠ @research: no query specified."
-        query = query.strip()
+        query, limit = _parse_research_args(args_str, default_limit)
 
-        # ── Parse limit: key=value form, then --limit N form, then default ──
-        modifiers = _parse_kv_modifiers(remaining)
-        limit = None
-        if "limit" in modifiers:
-            try:
-                limit = int(str(modifiers["limit"]).strip())
-            except (TypeError, ValueError):
-                limit = None
-        if limit is None:
-            flag = _RESEARCH_LIMIT_FLAG_RE.search(remaining)
-            if flag:
-                try:
-                    limit = int(flag.group(1))
-                except (TypeError, ValueError):
-                    limit = None
-        if limit is None:
-            try:
-                limit = int(research_cfg.get("default_limit", 5))
-            except (TypeError, ValueError):
-                limit = 5
-        # Clamp to a sane, bounded range.
-        limit = max(1, min(limit, _RESEARCH_MAX_LIMIT))
-
-        command = research_cfg.get("command") or ["npx", "-y", "bgpt-mcp"]
-        if not isinstance(command, list) or not command:
-            return _research_unavailable("no command configured")
-        tool_name = research_cfg.get("tool", "search_papers")
-        max_tokens = research_cfg.get("max_tokens", 1500)
+        if query is None:
+            return "> ⚠ @research: no query specified. Usage: `@research \"<query>\" [--limit N]`"
 
         heading = f'### Research: "{query}"'
 
-        # ── Call the external MCP server (self-contained stdio client) ──
-        client = _ResearchMCPClient(command)
+        # ── self-gate on config: disabled → quiet fallback, NO subprocess ──
+        if not rcfg.get("enabled", False):
+            return (
+                f"{heading}\n\n"
+                f"> @research is disabled (`research.enabled=false`). "
+                f"No external paper search performed."
+            )
+
+        command = rcfg.get("command")
+        if not isinstance(command, list) or not command:
+            return (
+                f"{heading}\n\n"
+                f"> ⚠ @research: no provider command configured "
+                f"(`research.command`). Skipping external search."
+            )
+
         try:
-            if not client.connect():
-                return _research_unavailable("could not start provider")
-            payload, err = client.call_tool(tool_name, {
-                "query": query,
-                "num_results": limit,
-            })
+            timeout_s = float(rcfg.get("timeout_s", cfg.get("mimir", {}).get("timeout_s", 10.0)
+                                       if isinstance(cfg, dict) else 10.0))
+        except (ValueError, TypeError):
+            timeout_s = 10.0
+
+        try:
+            max_tokens = int(rcfg.get("max_tokens", _RESEARCH_DEFAULT_MAX_TOKENS))
+        except (ValueError, TypeError):
+            max_tokens = _RESEARCH_DEFAULT_MAX_TOKENS
+
+        # ── connect + query the provider ──
+        client = _ResearchMCPClient(command, timeout_s=timeout_s)
+        connected = False
+        try:
+            connected = client.connect()
+            if not connected:
+                return (
+                    f"{heading}\n\n"
+                    f"> @research: provider unavailable — could not start "
+                    f"`{command[0]}`. No results."
+                )
+
+            # BGPT (default) exposes `search_papers` with a `num_results` arg
+            # (1–100). The tool name + arg keys are configurable so alternative
+            # providers can be wired without code changes.
+            tool_name = rcfg.get("tool_name", "search_papers")
+            query_key = rcfg.get("query_key", "query")
+            limit_key = rcfg.get("limit_key", "num_results")
+            arguments = {query_key: query, limit_key: limit}
+
+            data, err = client.call_tool(tool_name, arguments)
         finally:
-            client.disconnect()
+            try:
+                client.disconnect()
+            except Exception:
+                pass
 
-        if err:
-            return _research_unavailable(err)
+        if err or data is None:
+            return (
+                f"{heading}\n\n"
+                f"> @research: provider error — {err or 'no data returned'}. "
+                f"No results."
+            )
 
-        papers = _research_extract_papers(payload)
+        # ── normalize the provider payload into a list of paper dicts ──
+        papers = None
+        if isinstance(data, list):
+            papers = data
+        elif isinstance(data, dict):
+            for key in ("results", "papers", "data", "items"):
+                if isinstance(data.get(key), list):
+                    papers = data[key]
+                    break
+            if papers is None and "text" in data:
+                # Non-JSON text payload — surface it raw under the heading.
+                text = str(data["text"]).strip()
+                return _apply_token_cap(f"{heading}\n\n{text}", max_tokens)
         if not papers:
-            return heading + "\n\n_No papers found._"
+            return f"{heading}\n\n> @research: no papers found for this query."
 
-        blocks = [_research_format_paper(p) for p in papers[:limit]]
-        return _research_apply_token_cap(heading, blocks, max_tokens)
+        blocks = []
+        for paper in papers[:limit]:
+            block = _format_paper_block(paper)
+            if block:
+                blocks.append(block)
+        if not blocks:
+            return f"{heading}\n\n> @research: no renderable results for this query."
 
+        body = f"{heading}\n\n" + "\n\n".join(blocks)
+        return _apply_token_cap(body, max_tokens)
     except Exception as e:
-        # Belt-and-suspenders: the registry also catches, but @research must
-        # NEVER surface a traceback into a user's rendered context.
-        return _research_unavailable(f"error: {e}")
+        # Defensive: registry._call_resolver also catches, but @research must
+        # degrade gracefully on its own so a provider/parsing bug never aborts
+        # a render.
+        return f"> ⚠ @research: unavailable ({type(e).__name__}). Skipping external search."
 # ─────────────────────────────── HTML Template ────────────────────────────────
 # Phase 23: Self-contained HTML output for perseus render --format html.
 # Known limitations: custom parser is minimal — no tables, footnotes,
