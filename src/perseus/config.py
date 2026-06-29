@@ -92,20 +92,6 @@ DEFAULT_CONFIG = {
     "agora": {
         "tasks_dir": "tasks",
     },
-    # #513: @research directive — external scientific-paper search MCP (BGPT).
-    # `command` is the LOCAL stdio invocation of the provider; BGPT ships an
-    # npx-runnable package (github.com/connerlambden/bgpt-mcp, README Option C:
-    # `npx -y bgpt-mcp`). `tool` is the MCP tool name (BGPT exposes
-    # `search_papers`). default_limit feeds the per-render paper count
-    # (clamped to 25); max_tokens caps the injected context budget.
-    "research": {
-        "enabled": True,
-        "provider": "bgpt",
-        "command": ["npx", "-y", "bgpt-mcp"],
-        "tool": "search_papers",
-        "default_limit": 5,
-        "max_tokens": 1500,
-    },
     "health": {
         "stale_checkpoint_days": 7,
         "duplicate_checkpoint_window": 5,
@@ -155,6 +141,22 @@ DEFAULT_CONFIG = {
             "max_attempts": 3,
             "backoff_base": 1.5,
         },
+    },
+    "research": {                       # #513 — @research external paper-search MCP
+        # Inject structured paper-search results (Methods/Results per paper)
+        # from an EXTERNAL literature-search MCP server. Default provider is
+        # BGPT (bgpt.pro), whose stdio server ships as the `bgpt-mcp` npm
+        # package and exposes the `search_papers` tool (arg `num_results`,
+        # 1–100). The local stdio invocation is `npx -y bgpt-mcp`.
+        "enabled": True,
+        "provider": "bgpt",
+        "command": ["npx", "-y", "bgpt-mcp"],
+        "tool_name": "search_papers",   # MCP tool to call
+        "query_key": "query",           # argument key for the search string
+        "limit_key": "num_results",     # argument key for the result count
+        "default_limit": 5,             # papers per query when none specified (clamped ≤ 25)
+        "max_tokens": 1500,             # token budget for the rendered block (words*1.3 heuristic)
+        "timeout_s": 10.0,
     },
     "inbox": {                       # task-16 (Phase 8 P8.3)
         "store": str(PERSEUS_HOME / "inbox"),

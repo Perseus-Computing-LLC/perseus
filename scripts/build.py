@@ -42,7 +42,7 @@ MODULE_ORDER = [
     "src/perseus/directives/services.py",
     "src/perseus/directives/misc.py",
     "src/perseus/directives/tokens.py",
-    "src/perseus/directives/research.py",  # ← #513: @research external paper-search MCP directive
+    "src/perseus/directives/research.py",  # ← #513: @research external paper-search MCP (BGPT default)
     "src/perseus/html_format.py",     # ← Phase 23: HTML output — before renderer (renderer imports from it)
     "src/perseus/assistant_formats.py", # ← Phase 24: assistant format targets (AGENTS.md, CLAUDE.md, etc.)
     "src/perseus/mcp.py",               # ← Phase 24: MCP server (depends on registry, before serve)
