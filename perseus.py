@@ -11041,6 +11041,41 @@ def _load_macros(source_lines: list[str], workspace: Path | None, cfg: dict) -> 
     return macros
 
 
+def _split_macro_args(args_text: str) -> tuple[list[str], dict[str, str]]:
+    """Split a macro invocation's argument string into (positional, named).
+
+    Supports two styles, which may be mixed:
+      - positional, quoted to allow spaces:  @card "HOT-1 summary" "past due"
+      - named key=value, also quotable:      @card what="HOT-1 summary" why="past due"
+
+    Backward compatible: an argument string with no quotes and no ``=`` splits on
+    whitespace exactly as before, returning only positional values. If shlex
+    cannot parse the string (e.g. an unbalanced quote), fall back to a plain
+    whitespace split so a malformed line never raises during render.
+    """
+    if not args_text.strip():
+        return [], {}
+    if '"' not in args_text and "'" not in args_text and "=" not in args_text:
+        return args_text.split(), {}
+    try:
+        import shlex
+        tokens = shlex.split(args_text)
+    except ValueError:
+        return args_text.split(), {}
+    positional: list[str] = []
+    named: dict[str, str] = {}
+    for tok in tokens:
+        # Treat a token as named only when the part before '=' is a bare
+        # identifier (so values that merely contain '=' stay positional).
+        if "=" in tok:
+            key, _, val = tok.partition("=")
+            if key and key.replace("-", "_").isidentifier():
+                named[key] = val
+                continue
+        positional.append(tok)
+    return positional, named
+
+
 def _expand_macros(lines: list[str], macros: dict[str, tuple[list[str], list[str]]]) -> list[str]:
     """Walk lines, expand macro invocations in place. Recursive up to MAX_MACRO_DEPTH.
 
@@ -11076,15 +11111,22 @@ def _expand_macros(lines: list[str], macros: dict[str, tuple[list[str], list[str
             args_text = parts[1] if len(parts) > 1 else ""
             if invocation in macros:
                 macro_body, param_names = macros[invocation]
-                # Substitute parameters
-                arg_values = args_text.split() if args_text.strip() else []
-                # Pre-map param names to their arg values (one pass) to avoid
-                # O(n²) param_names.index() inside the inner loop.
+                # Substitute parameters.
+                # task-66 follow-up: support quoted multi-word args, e.g.
+                #   @card what="HOT-1 summary" why="past due"
+                # Falls back to plain whitespace split if the line has no quotes
+                # or is not shlex-parseable, preserving the original behavior.
+                arg_values, named_args = _split_macro_args(args_text)
+                # Map positional values to params in order, then let explicit
+                # name=value args override by parameter name.
                 param_to_arg: dict[str, str] = {
                     pname: arg_values[idx]
                     for idx, pname in enumerate(param_names)
                     if idx < len(arg_values)
                 }
+                for pname in param_names:
+                    if pname in named_args:
+                        param_to_arg[pname] = named_args[pname]
                 substituted: list[str] = []
                 for bline in macro_body:
                     bline_sub = bline
