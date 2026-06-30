@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent memory and context that never leaves your machine</title>
+<script>try{var t=localStorage.getItem('perseus-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="icon" href="/assets/perseus.svg">
+<link rel="canonical" href="https://perseus.observer/blog/agent-memory-context-never-leaves-your-machine/">
+<meta name="description" content="Most agent memory and context tools ship your data to someone else's cloud. Mimir and Perseus are MIT, local-first MCP servers that don't.">
+<meta name="theme-color" content="#0A0A12">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Perseus">
+<meta property="og:title" content="Agent memory and context that never leaves your machine">
+<meta property="og:description" content="Most agent memory and context tools ship your data to someone else's cloud. Mimir and Perseus are MIT, local-first MCP servers that don't.">
+<meta property="og:url" content="https://perseus.observer/blog/agent-memory-context-never-leaves-your-machine/">
+<meta property="og:image" content="https://perseus.observer/assets/og/perseus.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Agent memory and context that never leaves your machine">
+<meta name="twitter:description" content="Most agent memory and context tools ship your data to someone else's cloud. Mimir and Perseus are MIT, local-first MCP servers that don't.">
+<meta name="twitter:image" content="https://perseus.observer/assets/og/perseus.png">
+<link rel="stylesheet" href="/assets/fonts.css">
+<link rel="stylesheet" href="/assets/tokens.css">
+<link rel="stylesheet" href="/assets/perseus.css">
+<script defer src="https://stats.perseus.observer/script.js" data-website-id="74dc0a11-f2dd-4d6f-b0b7-4a550116bbe5"></script>
+</head>
+<body>
+
+<header class="site">
+  <div class="nav">
+    <a href="/" class="brand" aria-label="Perseus home">
+      <svg width="30" height="30" viewBox="0 0 56 56" fill="none" aria-hidden="true"><rect x="3" y="14" width="17" height="3.6" rx="1.8" fill="var(--violet)"/><rect x="3" y="21" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".75"/><rect x="3" y="28" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".55"/><rect x="3" y="35" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".4"/><g stroke="var(--amber)" stroke-width="2.4" stroke-linecap="round"><line x1="22" y1="16" x2="42" y2="28"/><line x1="22" y1="23" x2="42" y2="28"/><line x1="22" y1="30" x2="42" y2="28"/><line x1="22" y1="37" x2="42" y2="28"/></g><circle cx="44" cy="28" r="4.2" fill="var(--amber)"/></svg>
+      <b>Perseus<span class="sub"> / Blog</span></b>
+    </a>
+    <nav class="navlinks">
+      <a href="/services/">Services</a>
+      <a href="/">Perseus ↗</a>
+    </nav>
+    <button class="toggle" data-theme-toggle aria-label="Toggle theme"><span class="dot"></span><span data-theme-label>Light</span></button>
+  </div>
+</header>
+
+<section class="sec" data-screen-label="Article">
+  <div class="wrap reveal" style="max-width:720px;">
+    <span class="eyebrow amber">
+      <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M3.5 9.5a2.5 2.5 0 010-5 3.2 3.2 0 016.2-1 2.3 2.3 0 01.8 4.5z"/></svg>
+      Launch
+    </span>
+    <h1 class="h" style="margin-bottom:8px;">Agent memory and context that never leaves your machine</h1>
+    <p class="mono" style="color:var(--text-faint); font-size:13.5px; margin-bottom:36px;">Thomas Connally, Perseus Computing</p>
+
+    <p class="lead" style="margin-bottom:28px;">Most "agent memory" and "agent context" tools today require sending your data to someone else's cloud. If you operate in a regulated, air-gapped, or simply privacy-conscious environment, that rules them out before you've even tried them. I build the opposite: two MIT-licensed, local-first MCP servers that do this work entirely on your own hardware.</p>
+
+    <h2 class="h" style="font-size:26px; margin:36px 0 14px;">The problem</h2>
+    <p style="color:var(--text-dim); line-height:1.7; margin-bottom:18px;">Agent memory and context assembly are converging on a cloud-only default. That's a non-starter for defense, healthcare, finance, legal, and any team that can't or won't let agent context leave their VPC. It's also just slower and less deterministic than it needs to be: agents re-discover the same facts about your repo and services every session, burning tokens and turns before doing any real work.</p>
+
+    <h2 class="h" style="font-size:26px; margin:36px 0 14px;">Mimir: persistent memory, fully offline</h2>
+    <p style="color:var(--text-dim); line-height:1.7; margin-bottom:18px;">Mimir is a single ~8MB Rust binary. It encrypts everything at rest with AES-256-GCM, and it works with no API key, no model download, and no network access at all, because the embeddings used for dense search are bundled directly into the binary. It's bi-temporal: every fact carries a validity window, so you can query memory "as of" any past point and supersede facts without deleting history. 43 MCP tools, SQLite + FTS5 hybrid search under the hood.</p>
+    <p style="color:var(--text-dim); line-height:1.7; margin-bottom:18px;">One honest tradeoff worth naming: the FTS5 index needed for fast keyword search currently sits over plaintext, even though the underlying record is encrypted at rest. We're upfront about this in the docs rather than overstating the encryption story.</p>
+
+    <h2 class="h" style="font-size:26px; margin:36px 0 14px;">Perseus: compile-before-context</h2>
+    <p style="color:var(--text-dim); line-height:1.7; margin-bottom:18px;">Perseus takes a different approach to context than runtime tool-call discovery. Instead of letting an agent rediscover your git state, running services, and test status through a chain of tool calls every session, it compiles all of that into a ready briefing the moment a session starts. The result is deterministic and byte-stable: the same repo state always produces the same compiled context.</p>
+
+    <h2 class="h" style="font-size:26px; margin:36px 0 14px;">Honest, reproducible benchmarks</h2>
+    <p style="color:var(--text-dim); line-height:1.7; margin-bottom:18px;">On paraphrased queries, Mimir's bundled offline embeddings hit 91.7% recall@1 and 100% recall@5, versus 4.2% recall@1 for naive keyword search. Perseus holds full answer coverage at a fixed, deterministic context size where tuned RAG baselines start dropping facts at the same budget. Both benchmark harnesses are offline and re-runnable: run them yourself rather than taking our word for it.</p>
+
+    <h2 class="h" style="font-size:26px; margin:36px 0 14px;">Try it in two minutes</h2>
+    <pre style="background:var(--surface); border:1px solid var(--border-soft); border-radius:12px; padding:18px; overflow-x:auto; font-size:13.5px; line-height:1.6;"># Mimir (memory)
+docker pull ghcr.io/perseus-computing-llc/mimir:2.7.0
+
+# Perseus (context)
+pip install perseus-ctx</pre>
+    <p style="color:var(--text-dim); line-height:1.7; margin:18px 0 18px;">Both work with any MCP client: Claude Code, Cursor, Cline, or a custom agent. Both are listed on the official MCP Registry.</p>
+
+    <p style="color:var(--text-dim); line-height:1.7; margin-bottom:18px;">If your team is building agents somewhere cloud-only memory is a non-starter, <a href="/services/" style="color:var(--amber);">we take on a small number of integration pilots</a>: we deploy Mimir and Perseus into your environment and prove recall quality on your own data in 2 to 4 weeks.</p>
+
+    <div style="display:flex; gap:14px; flex-wrap:wrap; margin-top:32px;">
+      <a href="https://github.com/Perseus-Computing-LLC/mimir" class="btn btn-amber">Mimir on GitHub ↗</a>
+      <a href="https://github.com/Perseus-Computing-LLC/perseus" class="btn btn-ghost">Perseus on GitHub ↗</a>
+    </div>
+  </div>
+</section>
+
+<footer class="site">
+  <div class="foot-compact">
+    <div class="brand-line">
+      <svg width="26" height="26" viewBox="0 0 56 56" fill="none" aria-hidden="true"><rect x="3" y="14" width="17" height="3.6" rx="1.8" fill="var(--violet)"/><rect x="3" y="21" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".75"/><rect x="3" y="28" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".55"/><rect x="3" y="35" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".4"/><g stroke="var(--amber)" stroke-width="2.4" stroke-linecap="round"><line x1="22" y1="16" x2="42" y2="28"/><line x1="22" y1="23" x2="42" y2="28"/><line x1="22" y1="30" x2="42" y2="28"/><line x1="22" y1="37" x2="42" y2="28"/></g><circle cx="44" cy="28" r="4.2" fill="var(--amber)"/></svg>
+      <span class="legal-line">Perseus Computing LLC · perseus.observer/blog</span>
+    </div>
+    <div class="sib"><a href="/">Perseus</a><a href="/mimir/">Mimir</a><a href="/services/">Services</a><a href="https://github.com/Perseus-Computing-LLC/perseus">GitHub</a></div>
+  </div>
+</footer>
+
+<script src="/assets/perseus.js"></script>
+</body>
+</html>
