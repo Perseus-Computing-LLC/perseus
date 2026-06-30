@@ -2157,7 +2157,7 @@ def cmd_init(args, cfg):
     mneme_cfg = cfg.get("mimir", {}) if cfg else {}
     if mneme_cfg.get("enabled", True):
         from perseus.doctor import _find_mimir_binary
-        command = mneme_cfg.get("command", ["mimir", "--db", "~/.mimir/data/mimir.db"])
+        command = mneme_cfg.get("command", ["mimir", "serve", "--db", "~/.mimir/data/mimir.db"])
         binary_path = _find_mimir_binary(command)
         if binary_path is None:
             print(f"💡 Mimir not found. For persistent cross-session memory, run:")
