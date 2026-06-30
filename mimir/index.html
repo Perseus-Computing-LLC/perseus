@@ -3,185 +3,40 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Mimir: Persistent memory for AI agents</title>
+<title>Mimir has moved — now Mneme</title>
 <script>try{var t=localStorage.getItem('perseus-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
 <link rel="icon" href="/assets/perseus.svg">
-<link rel="canonical" href="https://perseus.observer/mimir/">
-<meta name="description" content="Mimir is a local, encrypted memory server for AI agents: 43 MCP tools, AES-256-GCM at rest, hybrid FTS5 + vector search, confidence decay.">
+<link rel="canonical" href="https://perseus.observer/mneme/">
+<meta http-equiv="refresh" content="0; url=/mneme/">
+<meta name="robots" content="noindex">
 <meta name="theme-color" content="#0A0A12">
-<meta property="og:type" content="website">
-<meta property="og:site_name" content="Perseus">
-<meta property="og:title" content="Mimir: persistent memory for AI agents">
-<meta property="og:description" content="Mimir is a local, encrypted memory server for AI agents: 43 MCP tools, AES-256-GCM at rest, hybrid FTS5 + vector search, confidence decay.">
-<meta property="og:url" content="https://perseus.observer/mimir/">
-<meta property="og:image" content="https://perseus.observer/assets/og/mimir.png">
-<meta property="og:image:width" content="1200">
-<meta property="og:image:height" content="630">
-<meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Mimir: persistent memory for AI agents">
-<meta name="twitter:description" content="Mimir is a local, encrypted memory server for AI agents: 43 MCP tools, AES-256-GCM at rest, hybrid FTS5 + vector search, confidence decay.">
-<meta name="twitter:image" content="https://perseus.observer/assets/og/mimir.png">
 <link rel="stylesheet" href="/assets/fonts.css">
 <link rel="stylesheet" href="/assets/tokens.css">
 <link rel="stylesheet" href="/assets/perseus.css">
+<style>
+  .nf { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 40px 24px; gap: 22px; }
+  .nf svg.mark { width: 72px; height: 72px; }
+  .nf .code { font-family: 'JetBrains Mono', monospace; font-size: 13px; letter-spacing: .18em; text-transform: uppercase; color: var(--amber); }
+  .nf h1 { font-size: clamp(34px, 6vw, 56px); font-weight: 600; letter-spacing: -.025em; margin: 0; }
+  .nf p { color: var(--text-dim); max-width: 46ch; font-size: 16px; line-height: 1.6; margin: 0; }
+  .nf .links { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin-top: 8px; }
+</style>
 <script defer src="https://stats.perseus.observer/script.js" data-website-id="74dc0a11-f2dd-4d6f-b0b7-4a550116bbe5"></script>
 </head>
 <body>
-
-<header class="site">
-  <div class="nav">
-    <a href="/" class="brand" aria-label="Perseus home">
-      <svg width="30" height="30" viewBox="0 0 56 56" fill="none" aria-hidden="true"><rect x="3" y="14" width="17" height="3.6" rx="1.8" fill="var(--violet)"/><rect x="3" y="21" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".75"/><rect x="3" y="28" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".55"/><rect x="3" y="35" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".4"/><g stroke="var(--amber)" stroke-width="2.4" stroke-linecap="round"><line x1="22" y1="16" x2="42" y2="28"/><line x1="22" y1="23" x2="42" y2="28"/><line x1="22" y1="30" x2="42" y2="28"/><line x1="22" y1="37" x2="42" y2="28"/></g><circle cx="44" cy="28" r="4.2" fill="var(--amber)"/></svg>
-      <b>Perseus<span class="sub"> / Mimir</span></b>
-    </a>
-    <nav class="navlinks">
-      <a href="#capabilities">Capabilities</a>
-      <a href="#architecture">Architecture</a>
-      <a href="#pair">The pair</a>
-      <a href="/">Perseus ↗</a>
-    </nav>
-    <button class="toggle" data-theme-toggle aria-label="Toggle theme"><span class="dot"></span><span data-theme-label>Light</span></button>
-    <a href="https://github.com/Perseus-Computing-LLC/mimir" class="btn btn-primary">GitHub ↗</a>
-  </div>
-</header>
-
-<!-- HERO -->
-<section class="hero" data-screen-label="Mimir hero">
-  <svg class="hero-bg" viewBox="0 0 600 360" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
-    <g fill="var(--violet)"><rect x="330" y="70" width="200" height="9" rx="4.5"/><rect x="330" y="110" width="200" height="9" rx="4.5" opacity=".78"/><rect x="330" y="150" width="200" height="9" rx="4.5" opacity=".58"/><rect x="330" y="190" width="200" height="9" rx="4.5" opacity=".42"/><rect x="330" y="230" width="200" height="9" rx="4.5" opacity=".3"/><rect x="330" y="270" width="200" height="9" rx="4.5" opacity=".2"/></g>
+<div class="nf">
+  <svg class="mark" viewBox="0 0 56 56" fill="none" aria-hidden="true">
+    <rect x="3" y="14" width="17" height="3.6" rx="1.8" fill="var(--violet)"/><rect x="3" y="21" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".75"/><rect x="3" y="28" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".55"/><rect x="3" y="35" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".4"/>
+    <g stroke="var(--amber)" stroke-width="2.4" stroke-linecap="round"><line x1="22" y1="16" x2="42" y2="28"/><line x1="22" y1="23" x2="42" y2="28"/><line x1="22" y1="30" x2="42" y2="28"/><line x1="22" y1="37" x2="42" y2="28"/></g><circle cx="44" cy="28" r="4.2" fill="var(--amber)"/>
   </svg>
-  <div class="hero-inner">
-    <span class="eyebrow violet">
-      <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true"><g stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><line x1="1.5" y1="3" x2="11.5" y2="3"/><line x1="1.5" y1="6.5" x2="11.5" y2="6.5"/><line x1="1.5" y1="10" x2="11.5" y2="10"/></g></svg>
-      Persistent memory engine · v2.7.0
-    </span>
-    <h1 class="hero-h">Your agent <span style="color:var(--violet);">remembers</span>, across every session.</h1>
-    <p class="lead">Mimir is a local, encrypted memory server for AI agents. Facts, decisions, and context persist in SQLite on your machine: <span class="em">searchable by keyword and meaning</span>, decaying by confidence, never leaving your control.</p>
-    <div class="hero-cta">
-      <div class="install violet">
-        <span><span class="pr">$</span> docker pull ghcr.io/perseus-computing-llc/mimir:2.7.0</span>
-        <button data-copy="docker pull ghcr.io/perseus-computing-llc/mimir:2.7.0">Copy</button>
-      </div>
-      <a href="https://github.com/Perseus-Computing-LLC/mimir" class="btn btn-ghost">View on GitHub ↗</a>
-    </div>
-    <div class="statstrip">
-      <div class="stat"><div class="n violet">43</div><div class="c">MCP tools</div></div>
-      <div class="stat"><div class="n">AES-256</div><div class="c">GCM encryption at rest</div></div>
-      <div class="stat"><div class="n">FTS5 + vec</div><div class="c">Hybrid search</div></div>
-      <div class="stat"><div class="n">0</div><div class="c">Cloud dependencies</div></div>
-    </div>
+  <span class="code">Mimir is now Mneme</span>
+  <h1>This page has moved.</h1>
+  <p>Mimir has been renamed to Mneme. Same memory engine, same team, new name. You'll be redirected automatically, or follow the link below.</p>
+  <div class="links">
+    <a href="/mneme/" class="btn btn-amber btn-lg">Go to Mneme →</a>
+    <a href="https://github.com/Perseus-Computing-LLC/mneme" class="btn btn-ghost btn-lg">GitHub ↗</a>
   </div>
-</section>
-
-<!-- CAPABILITIES -->
-<section id="capabilities" class="sec" data-screen-label="Capabilities">
-  <div class="wrap reveal">
-    <span class="eyebrow violet">
-      <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true"><g stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><line x1="1.5" y1="3" x2="11.5" y2="3"/><line x1="1.5" y1="6.5" x2="11.5" y2="6.5"/><line x1="1.5" y1="10" x2="11.5" y2="10"/></g></svg>
-      What it does
-    </span>
-    <h2 class="h" style="max-width:24ch; margin-bottom:48px;">Memory that's <span style="color:var(--violet);">layered</span>, searchable, and yours.</h2>
-    <div class="cards">
-      <div class="card">
-        <div class="ic"><svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect x="3" y="4" width="14" height="2.6" rx="1.3" fill="var(--violet)"/><rect x="3" y="9" width="14" height="2.6" rx="1.3" fill="var(--violet)" fill-opacity=".7"/><rect x="3" y="14" width="14" height="2.6" rx="1.3" fill="var(--violet)" fill-opacity=".45"/></svg></div>
-        <h3>Hybrid recall</h3>
-        <p>FTS5 keyword search and vector similarity in one query: exact matches and semantic neighbors, ranked together.</p>
-      </div>
-      <div class="card">
-        <div class="ic"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="var(--violet)" stroke-width="1.6"><rect x="4" y="8" width="12" height="9" rx="2"/><path d="M7 8V6a3 3 0 016 0v2"/></svg></div>
-        <h3>Encrypted at rest</h3>
-        <p>AES-256-GCM on a local SQLite store. Your memory never leaves the machine: no cloud, no account, no telemetry.</p>
-      </div>
-      <div class="card">
-        <div class="ic"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="var(--violet)" stroke-width="1.6"><path d="M3 10a7 7 0 1014 0 7 7 0 00-14 0z"/><path d="M10 6v4l3 2"/></svg></div>
-        <h3>Confidence decay</h3>
-        <p>Memories age. Stale facts lose confidence over time and fresh ones surface first. Recall stays relevant, not cluttered.</p>
-      </div>
-      <div class="card">
-        <div class="ic"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="var(--violet)" stroke-width="1.6"><circle cx="6" cy="6" r="2.2"/><circle cx="14" cy="6" r="2.2"/><circle cx="10" cy="14" r="2.2"/><path d="M6 8v2a2 2 0 002 2M14 8v2a2 2 0 01-2 2"/></svg></div>
-        <h3>43 MCP tools</h3>
-        <p>A full Model Context Protocol surface (store, recall, link, forget, and reflect), usable by any MCP-aware assistant.</p>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- ARCHITECTURE -->
-<section id="architecture" class="sec band" data-screen-label="Architecture">
-  <div class="wrap reveal split">
-    <div>
-      <span class="eyebrow violet">
-        <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true"><g stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><line x1="1.5" y1="3" x2="11.5" y2="3"/><line x1="1.5" y1="6.5" x2="11.5" y2="6.5"/><line x1="1.5" y1="10" x2="11.5" y2="10"/></g></svg>
-        How memory works
-      </span>
-      <h2 class="h" style="margin-bottom:20px;">One local store. <span style="color:var(--violet);">Layered</span> by recency and confidence.</h2>
-      <p class="lead" style="font-size:16px;">Every memory is written to an encrypted SQLite file with an embedding and a confidence score. On recall, Mimir blends keyword and vector hits, weights them by freshness, and returns a compact, ranked set: the same shape your assistant already reads.</p>
-    </div>
-    <div class="term">
-      <div class="term-bar"><span class="d"></span><span class="d"></span><span class="d"></span><span class="f">mimir recall "deploy"</span></div>
-      <pre><span class="vi">▸</span> staging = eu-west-2/stg-a  <span class="c6">conf 0.98</span>
-<span class="vi">▸</span> deploy via ./scripts/deploy.sh  <span class="c6">conf 0.95</span>
-<span class="vi">▸</span> helm chart v0.4.1  <span class="c6">conf 0.91</span>
-<span class="c6">▸ old: helm v0.3  conf 0.22 (decayed)</span>
-
-<span class="ai">✓</span> 3 memories · 7ms · FTS5+vector</pre>
-    </div>
-  </div>
-</section>
-
-<!-- THE PAIR -->
-<section id="pair" class="sec" data-screen-label="The pair">
-  <div class="wrap reveal split">
-    <div style="display:flex; justify-content:center;">
-      <svg width="260" height="180" viewBox="0 0 260 180" fill="none" aria-hidden="true">
-        <g fill="var(--violet)"><rect x="20" y="48" width="78" height="11" rx="5.5"/><rect x="20" y="70" width="78" height="11" rx="5.5" opacity=".78"/><rect x="20" y="92" width="78" height="11" rx="5.5" opacity=".58"/><rect x="20" y="114" width="78" height="11" rx="5.5" opacity=".42"/></g>
-        <g stroke="var(--amber)" stroke-width="3" stroke-linecap="round"><line x1="100" y1="53" x2="200" y2="88"/><line x1="100" y1="75" x2="200" y2="88"/><line x1="100" y1="97" x2="200" y2="88"/><line x1="100" y1="119" x2="200" y2="88"/></g>
-        <circle cx="208" cy="88" r="9" fill="var(--amber)"/>
-        <text x="59" y="150" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="11" fill="var(--violet)">memory</text>
-        <text x="190" y="150" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="11" fill="var(--amber)">context</text>
-      </svg>
-    </div>
-    <div>
-      <span class="eyebrow amber">
-        <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true"><g stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><line x1="1.5" y1="2.5" x2="10.5" y2="6.5"/><line x1="1.5" y1="6.5" x2="10.5" y2="6.5"/><line x1="1.5" y1="10.5" x2="10.5" y2="6.5"/></g><circle cx="10.5" cy="6.5" r="1.7" fill="currentColor"/></svg>
-        Compose, don't replace
-      </span>
-      <h2 class="h" style="font-size:clamp(24px,3vw,36px); margin-bottom:18px;">Mimir remembers. <span style="color:var(--amber);">Perseus</span> compiles.</h2>
-      <p class="lead" style="font-size:16px; max-width:46ch; margin-bottom:26px;">Point Perseus at your Mimir store and your assistant opens with both live environment state <em>and</em> durable memory, resolved into one byte-stable file. Two single-binary tools, one build-pair.</p>
-      <a href="/" class="mono" style="font-size:14px; color:var(--amber); text-decoration:none;">Explore Perseus ↗</a>
-    </div>
-  </div>
-</section>
-
-<!-- GET STARTED -->
-<section class="sec band cta-center" data-screen-label="Get started">
-  <div class="wrap reveal">
-    <h2 class="h" style="max-width:22ch;">Local-first memory in <span style="color:var(--violet);">60 seconds</span>.</h2>
-    <p class="lead" style="font-size:16px; max-width:48ch;">Install the server, point your assistant at it. Everything stays encrypted on your machine.</p>
-    <div class="cta-row" style="margin-bottom:30px;">
-      <a href="https://github.com/Perseus-Computing-LLC/mimir" class="btn btn-violet btn-lg">Get Mimir ↗</a>
-      <a href="mailto:perseus@perseus.observer" class="btn btn-ghost btn-lg">Contact the team</a>
-    </div>
-    <div class="badges center">
-      <span class="badge">MIT licensed</span>
-      <span class="badge">AES-256-GCM</span>
-      <span class="badge">0 cloud dependencies</span>
-      <span class="badge">v2.7.0</span>
-      <span class="badge" style="border-color:#76B900; color:#76B900;">NVIDIA Inception Member</span>
-    </div>
-  </div>
-</section>
-
-<footer class="site">
-  <div class="foot-compact">
-    <div class="brand-line">
-      <svg width="26" height="26" viewBox="0 0 56 56" fill="none" aria-hidden="true"><rect x="3" y="14" width="17" height="3.6" rx="1.8" fill="var(--violet)"/><rect x="3" y="21" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".75"/><rect x="3" y="28" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".55"/><rect x="3" y="35" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".4"/><g stroke="var(--amber)" stroke-width="2.4" stroke-linecap="round"><line x1="22" y1="16" x2="42" y2="28"/><line x1="22" y1="23" x2="42" y2="28"/><line x1="22" y1="30" x2="42" y2="28"/><line x1="22" y1="37" x2="42" y2="28"/></g><circle cx="44" cy="28" r="4.2" fill="var(--amber)"/></svg>
-      <span class="legal-line">Perseus Computing LLC · NVIDIA Inception Member · MIT License · perseus.observer/mimir</span>
-    </div>
-    <div class="sib"><a href="/">Perseus</a><a href="/mcts/">MCTS</a><a href="/plutus/">Plutus</a><a href="https://github.com/Perseus-Computing-LLC/mimir">GitHub</a></div>
-  </div>
-</footer>
-
+</div>
 <script src="/assets/perseus.js"></script>
 </body>
 </html>
