@@ -233,7 +233,7 @@ memory:
 mimir:                                 # Mimir MCP-based persistent memory (default, v1.0.7+)
   enabled: true                         # Master switch. Set true to use Mimir.
   transport: "stdio"                    # "stdio" (local mimir binary) or "sse" (remote endpoint)
-  command: ["mimir", "--db", "~/.mimir/data/mimir.db"] # Command to launch Mimir in MCP mode
+  command: ["mimir", "serve", "--db", "~/.mimir/data/mimir.db"] # Command to launch Mimir in MCP mode
   endpoint: ""                          # SSE endpoint URL (only used when transport=sse)
   timeout_s: 10.0
   merge_strategy: "local_first"         # local_first | remote_first | interleave | decay_first
@@ -587,7 +587,7 @@ When enabled, `@memory` runs a **three-step hybrid resolution**:
 mimir:
   enabled: true                         # Master switch
   transport: "stdio"                    # stdio (local binary) or sse (remote)
-  command: ["mimir", "--db", "~/.mimir/data/mimir.db"] # Command to launch Mimir in MCP mode
+  command: ["mimir", "serve", "--db", "~/.mimir/data/mimir.db"] # Command to launch Mimir in MCP mode
   merge_strategy: "local_first"         # local_first | remote_first | interleave | decay_first
   fallback_to_local: true               # Graceful degradation: Mnēmē FTS5 if Mimir offline
   circuit_breaker:
@@ -668,7 +668,7 @@ cp target/release/mimir ~/.local/bin/mimir
 mimir:
   enabled: true
   transport: stdio
-  command: ["mimir", "--db", "~/.mimir/data/mimir.db"]
+  command: ["mimir", "serve", "--db", "~/.mimir/data/mimir.db"]
   fallback_to_local: true
 ```
 

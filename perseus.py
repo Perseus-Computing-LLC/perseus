@@ -211,7 +211,7 @@ DEFAULT_CONFIG = {
         "enabled": True,
         "auto_inject": True,             # Append the Persistent Memory block to every render; set False to require an explicit @memory/@mimir directive (#442)
         "transport": "stdio",            # "stdio" (local binary) or "sse" (remote endpoint)
-        "command": ["mimir", "--db", "~/.mimir/data/mimir.db"],
+        "command": ["mimir", "serve", "--db", "~/.mimir/data/mimir.db"],
         "endpoint": "",                  # SSE endpoint URL (when transport=sse)
         "timeout_s": 10.0,
         "merge_strategy": "local_first", # local_first | remote_first | interleave | decay_first
@@ -16612,7 +16612,7 @@ class MimirConnector:
     Configuration (from `config.yaml` → `mimir`):
         enabled: bool              = true
         transport: str             = "stdio"  — "stdio" or "sse"
-        command: list[str]         = ["mimir", "--db", "~/.mimir/data/mimir.db"]
+        command: list[str]         = ["mimir", "serve", "--db", "~/.mimir/data/mimir.db"]
         endpoint: str              = "http://localhost:50052/sse"  (for sse)
         timeout_s: float           = 10.0
         merge_strategy: str        = "local_first"
@@ -16637,7 +16637,7 @@ class MimirConnector:
         self._enabled = bool(mcfg.get("enabled", True))
         self._transport = mcfg.get("transport", "stdio")
         self._timeout = float(mcfg.get("timeout_s", 10.0))
-        self._command = mcfg.get("command", ["mimir", "--db", "~/.mimir/data/mimir.db"])
+        self._command = mcfg.get("command", ["mimir", "serve", "--db", "~/.mimir/data/mimir.db"])
         self._endpoint = mcfg.get("endpoint", "http://localhost:50052/sse")
         self._fallback_to_local = bool(mcfg.get("fallback_to_local", True))
         self._decay_priority_weight = float(mcfg.get("decay_priority_weight", 0.4))
@@ -21266,7 +21266,7 @@ def _doctor_check_mimir_bridge(cfg: dict, workspace: Path) -> DoctorResult:
         return DoctorResult("mimir_connectivity", "ok", "Mimir",
                            "disabled", "")
 
-    command = list(mneme_cfg.get("command", ["mimir", "--db", "~/.mimir/data/mimir.db"]))
+    command = list(mneme_cfg.get("command", ["mimir", "serve", "--db", "~/.mimir/data/mimir.db"]))
     binary_name = command[0] if command else "mimir"
 
     # Step 1: Auto-discover binary if not on PATH (#227)
@@ -22839,7 +22839,7 @@ def _quickstart_write_config(workspace: Path, generation: dict | None = None) ->
         "mimir": {
             "enabled": True,
             "transport": "stdio",
-            "command": ["mimir", "--db", "~/.mimir/data/mimir.db"],
+            "command": ["mimir", "serve", "--db", "~/.mimir/data/mimir.db"],
         },
     }
     if generation:
@@ -23037,7 +23037,7 @@ def cmd_quickstart(args, cfg) -> int:
     try:
         mcfg = cfg.get("mimir", {}) if cfg else {}
         if mcfg.get("enabled", True):
-            command = mcfg.get("command", ["mimir", "--db", "~/.mimir/data/mimir.db"])
+            command = mcfg.get("command", ["mimir", "serve", "--db", "~/.mimir/data/mimir.db"])
             binary_path = _find_mimir_binary(command)
             if binary_path is None:
                 print("💡 Mimir persistent memory engine was not found on this system.")
@@ -25239,7 +25239,7 @@ def cmd_init(args, cfg):
     # If mimir is not installed, suggest the bootstrap script
     mneme_cfg = cfg.get("mimir", {}) if cfg else {}
     if mneme_cfg.get("enabled", True):
-        command = mneme_cfg.get("command", ["mimir", "--db", "~/.mimir/data/mimir.db"])
+        command = mneme_cfg.get("command", ["mimir", "serve", "--db", "~/.mimir/data/mimir.db"])
         binary_path = _find_mimir_binary(command)
         if binary_path is None:
             print(f"💡 Mimir not found. For persistent cross-session memory, run:")
