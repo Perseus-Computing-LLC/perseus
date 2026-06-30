@@ -1742,10 +1742,10 @@ def render_output(
         rendered = dedup_context_if_available(rendered, cfg)
         from perseus.vaultmem_connector import inject_vaultmem_context
         rendered = inject_vaultmem_context(rendered, cfg)
-        from perseus.mimir_connector import _mimir_context_inject
-        mimir_block = _mimir_context_inject(cfg)
-        if mimir_block:
-            rendered += "\n\n" + mimir_block
+        from perseus.mneme_connector import _mneme_context_inject
+        mneme_block = _mneme_context_inject(cfg)
+        if mneme_block:
+            rendered += "\n\n" + mneme_block
         return rendered
     elif fmt == "html":
         t = title or "Workspace Context"
@@ -1762,10 +1762,10 @@ def render_output(
         rendered = dedup_context_if_available(rendered, cfg)
         from perseus.vaultmem_connector import inject_vaultmem_context
         rendered = inject_vaultmem_context(rendered, cfg)
-        from perseus.mimir_connector import _mimir_context_inject
-        mimir_block = _mimir_context_inject(cfg)
-        if mimir_block:
-            rendered += "\n\n" + mimir_block
+        from perseus.mneme_connector import _mneme_context_inject
+        mneme_block = _mneme_context_inject(cfg)
+        if mneme_block:
+            rendered += "\n\n" + mneme_block
         return wrap_rendered(rendered, fmt, _PERSEUS_VERSION)
 
     # Custom formats (task-68)

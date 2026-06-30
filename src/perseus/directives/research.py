@@ -14,7 +14,7 @@
 # it must never break a render. The directive does NOT execute a shell
 # (executes_shell=False); it speaks JSON-RPC 2.0 over stdio to the configured
 # MCP subprocess via a SELF-CONTAINED client kept inside this module (we do not
-# touch mimir_connector.py).
+# touch mneme_connector.py).
 
 import threading
 import queue as _queue
@@ -30,8 +30,8 @@ _RESEARCH_DEFAULT_MAX_TOKENS = 1500
 class _ResearchMCPClient:
     """Minimal JSON-RPC 2.0 MCP client over stdio for paper-search servers.
 
-    Modelled on mimir_connector._MCPStdioClient but kept fully self-contained
-    here (issue #513): we must not import from / edit mimir_connector.py.
+    Modelled on mneme_connector._MCPStdioClient but kept fully self-contained
+    here (issue #513): we must not import from / edit mneme_connector.py.
 
     Robustness notes:
     - A DAEMON reader thread drains stdout into a Queue so a hung/silent server

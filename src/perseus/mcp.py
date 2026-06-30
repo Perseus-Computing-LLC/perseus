@@ -207,7 +207,7 @@ def _build_output_schema(tool_name: str, spec) -> dict | None:
                 "count": {"type": "integer", "description": "Number of results returned"}
             }
         }
-    if tool_name == "perseus_mimir":
+    if tool_name in ("perseus_mimir", "perseus_mneme"):
         return {
             "type": "object",
             "properties": {
@@ -402,7 +402,7 @@ def _build_annotations(tool_name: str, spec) -> dict | None:
     if tool_name in ("perseus_date", "perseus_drift", "perseus_env"):
         hints["readOnlyHint"] = True
     # Read-only tools that escape the reads_files / executes_shell checks
-    if tool_name in ("perseus_auto_skill", "perseus_perseus", "perseus_mimir", "perseus_mason",
+    if tool_name in ("perseus_auto_skill", "perseus_perseus", "perseus_mimir", "perseus_mneme", "perseus_mason",
                       "perseus_skills", "perseus_inbox", "perseus_include", "perseus_read",
                       "perseus_list", "perseus_tree", "perseus_tooltrim", "perseus_validate",
                       "perseus_prompt"):
@@ -528,6 +528,33 @@ LEGACY_MCP_TOOLS: list[dict] = [
         },
         annotations={"readOnlyHint": True},
     ),
+    # Mneme is the new primary name for the @mimir directive's MCP tool;
+    # perseus_mimir is kept as a deprecated alias (same underlying
+    # directive/resolver — see _TOOL_TO_DIRECTIVE below). Props/output_schema
+    # mirror what _generate_directive_tools() would auto-generate for @mimir.
+    _tool_schema(
+        "perseus_mneme",
+        "Query the EXTERNAL Mneme memory server for cross-session, curated facts that survive across workspaces. "
+        "Use for long-lived knowledge (bug patterns, design decisions). For fast local recall, prefer perseus_memory. "
+        "Read-only; falls back to local FTS5 if Mneme is unreachable. This is the primary name for this tool; "
+        "perseus_mimir is a deprecated alias kept for backward compatibility.",
+        {
+            "query": {"type": "string", "description": "BM25 FTS5 search query for persistent memory recall"},
+            "scope": {"type": "string", "description": "Memory scope filter"},
+            "k": {"type": "string", "description": "Number of results to return (default: 5)"},
+            "type": {"type": "string", "description": "Memory type filter"},
+        },
+        required=[],
+        output_schema={
+            "type": "object",
+            "properties": {
+                "results": {"type": "array", "items": {"type": "object"}},
+                "query": {"type": "string"},
+                "count": {"type": "integer"}
+            }
+        },
+        annotations={"readOnlyHint": True},
+    ),
 ]
 
 # Sensitive tools — require explicit config opt-in
@@ -536,6 +563,7 @@ _MCP_SENSITIVE_TOOLS = {"perseus_query", "perseus_agent"}
 # Reverse mapping: MCP tool name → directive name (normalizes hyphen→underscore)
 _TOOL_TO_DIRECTIVE = {
     "perseus_auto_skill": "@auto-skill",
+    "perseus_mneme": "@mimir",
 }
 
 

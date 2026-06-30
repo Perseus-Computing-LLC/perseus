@@ -569,13 +569,13 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path, limit_n: int 
     # Query Mimir persistent memory backend for additional historical
     # context (Architecture, Decision, Insight types) with Ebbinghaus
     # decay scoring. Results are merged below alongside local Mnēmē FTS5 hits.
-    mimir_items: list = []
+    mneme_items: list = []
     try:
-        mseg = _mimir_hybrid_search(
+        mseg = _mneme_hybrid_search(
             cfg=cfg, query=query, workspace=str(workspace),
             local_hits=hits, max_results=k,
         )
-        mimir_items = mseg.items if mseg else []
+        mneme_items = mseg.items if mseg else []
     except Exception as e:
         import sys
         import logging
@@ -583,7 +583,7 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path, limit_n: int 
             "Mimir recall failed, falling back to local Mnēmē FTS5: %s", e
         )
 
-    if not hits and not mimir_items:
+    if not hits and not mneme_items:
         return "> \u2139\ufe0f No Mn\u0113m\u0113 memories matched yet — this is expected on a fresh install. Populate the vault with memory files or run `perseus memory update` to initialize.\n"
 
     lines = ["> \U0001f9e0 **Mn\u0113m\u0113 memories:**\n"]
@@ -634,10 +634,10 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path, limit_n: int 
             lines.append(" ".join(parts))
 
     # ── Mneme results ─────────────────────────────────────────────────
-    if mimir_items:
+    if mneme_items:
         lines.append("")
         lines.append("> 🧠 **Mimir context:**")
-        for mi in mimir_items:
+        for mi in mneme_items:
             title = mi.summary or (mi.content[:80] + "…" if len(mi.content) > 80 else mi.content)
             lines.append(f"  - [mimir] [{mi.type.value}] {title}")
             if mi.links:
