@@ -379,7 +379,7 @@ class TestMimirAutoInject:
         """auto_inject=False returns None without ever consulting the connector."""
         c = self._cfg(enabled=True, auto_inject=False)
         with patch.object(perseus, "_get_connector") as gc:
-            assert perseus._mimir_context_inject(c) is None
+            assert perseus._mneme_context_inject(c) is None
             gc.assert_not_called()
 
     def test_context_limit_zero_suppresses_block(self):
@@ -387,7 +387,7 @@ class TestMimirAutoInject:
         c = self._cfg(enabled=True, auto_inject=True, context_limit=0)
         connector = MagicMock(available=True)
         with patch.object(perseus, "_get_connector", return_value=connector):
-            assert perseus._mimir_context_inject(c) is None
+            assert perseus._mneme_context_inject(c) is None
             connector.recall.assert_not_called()
 
     def test_auto_inject_true_injects_block(self):
@@ -399,7 +399,7 @@ class TestMimirAutoInject:
         connector.context.return_value = None
         connector.recall.return_value = segment
         with patch.object(perseus, "_get_connector", return_value=connector):
-            out = perseus._mimir_context_inject(c)
+            out = perseus._mneme_context_inject(c)
         assert out is not None
         assert out.startswith("## Persistent Memory (Mimir)")
         assert "a durable memory" in out
@@ -417,7 +417,7 @@ class TestMimirAutoInject:
         connector = MagicMock(available=True)
         connector.context.return_value = hot_md
         with patch.object(perseus, "_get_connector", return_value=connector):
-            out = perseus._mimir_context_inject(c)
+            out = perseus._mneme_context_inject(c)
         assert out is not None
         assert out.startswith("## Persistent Memory (Mimir)")
         # Hot always_on entity is injected...
@@ -444,7 +444,7 @@ class TestMimirAutoInject:
             "## Mimir Context\n\n- [architecture] **db** — note (retrievals: 0, decay: 1.00)\n"
         )
         with patch.object(perseus, "_get_connector", return_value=connector):
-            out = perseus._mimir_context_inject(c)
+            out = perseus._mneme_context_inject(c)
         assert out is not None and "db" in out
         _, kwargs = connector.context.call_args
         assert kwargs.get("categories") == ["architecture", "decision"]
@@ -458,7 +458,7 @@ class TestMimirAutoInject:
         connector.context.return_value = empty_md
         connector.recall.return_value = segment
         with patch.object(perseus, "_get_connector", return_value=connector):
-            out = perseus._mimir_context_inject(c)
+            out = perseus._mneme_context_inject(c)
         assert out is not None
         assert "a recalled memory" in out
         connector.recall.assert_called_once()
@@ -466,7 +466,7 @@ class TestMimirAutoInject:
     def test_connector_context_calls_mimir_context_tool(self):
         """MimirConnector.context() calls the mimir_context MCP tool and returns markdown."""
         c = self._cfg(enabled=True)
-        connector = perseus.MimirConnector(c)
+        connector = perseus.MnemeConnector(c)
 
         class _StubClient:
             is_connected = True
@@ -487,7 +487,7 @@ class TestMimirAutoInject:
         """store() upserts via mimir_remember (not the nonexistent mimir_store),
         with category/key/type/body_json and a string tag list (perseus#525)."""
         c = self._cfg(enabled=True)
-        connector = perseus.MimirConnector(c)
+        connector = perseus.MnemeConnector(c)
 
         class _StubClient:
             is_connected = True
@@ -519,7 +519,7 @@ class TestMimirAutoInject:
     def test_connector_as_of_returns_historical_version(self):
         """MimirConnector.as_of() calls mimir_as_of and returns the past version."""
         c = self._cfg(enabled=True)
-        connector = perseus.MimirConnector(c)
+        connector = perseus.MnemeConnector(c)
 
         class _StubClient:
             is_connected = True
@@ -540,7 +540,7 @@ class TestMimirAutoInject:
     def test_connector_as_of_not_found_returns_none(self):
         """found=false (fact not yet recorded at T) maps to None."""
         c = self._cfg(enabled=True)
-        connector = perseus.MimirConnector(c)
+        connector = perseus.MnemeConnector(c)
 
         class _StubClient:
             is_connected = True
@@ -555,7 +555,7 @@ class TestMimirAutoInject:
     def test_connector_as_of_unavailable_returns_none(self):
         """When Mimir is unavailable, as_of() fails safe to None (never raises)."""
         c = self._cfg(enabled=True)
-        connector = perseus.MimirConnector(c)
+        connector = perseus.MnemeConnector(c)
         connector._client = None  # not connected → available is False
         assert connector.as_of("facts", "capital", 123) is None
 

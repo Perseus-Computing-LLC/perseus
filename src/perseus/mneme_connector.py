@@ -1,10 +1,10 @@
 """
-src/perseus/mimir_connector.py — Perseus × Mimir Bridge (Project Synapse v2)
+src/perseus/mneme_connector.py — Perseus × Mneme Bridge (Project Synapse v2)
 
 Hybrid context resolution: Perseus live state (Sense) + Mneme persistent
 memory (Memory) → unified ContextPackage for LLM injection.
 
-Mimir is a high-performance Rust memory engine using:
+Mneme (formerly "Mimir") is a high-performance Rust memory engine using:
   - Three-layer memory: Buffer → Working → Core (time-based progression)
   - Ebbinghaus decay algorithm (forgetting curve)
   - Topic Trees (hierarchical knowledge organization)
@@ -13,17 +13,22 @@ Mimir is a high-performance Rust memory engine using:
 Protocol: MCP (Model Context Protocol) — JSON-RPC 2.0 over stdio or SSE.
 Fallback: Local Mnēmē v2 SQLite FTS5 when Mneme is unreachable.
 
+Config back-compat: reads the `mneme:` config block (preferred); falls back
+to the legacy `mimir:` block when `mneme:` is absent so existing config.yaml
+files keep working unchanged (see _resolve_mneme_config()).
+
 Key features:
   - Circuit Breaker with configurable threshold/cooldown
   - Exponential backoff retry policy
   - Configurable merge strategies with decay-aware ordering
-  - Source-tagged memory items (local vs mimir)
+  - Source-tagged memory items (local vs mneme)
 """
 # stdlib imports available from build artifact header
 import hashlib
 import json
 import os
 import subprocess
+import sys
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -261,7 +266,7 @@ class CircuitBreaker:
 
     States: closed → open (after threshold failures) → half_open (after cooldown)
 
-    Config keys (from mimir.circuit_breaker):
+    Config keys (from mneme.circuit_breaker, or legacy mimir.circuit_breaker):
         threshold: int = 3   — consecutive failures before opening
         cooldown: int = 120  — seconds before attempting recovery
     """
@@ -630,13 +635,46 @@ class _MCPSseClient:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# MimirConnector — MCP client with circuit breaker, backoff, and fallback
+# MnemeConnector — MCP client with circuit breaker, backoff, and fallback
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class MimirConnector:
+# Emitted once per process the first time a config.yaml is found using the
+# legacy `mimir:` block instead of `mneme:` — avoids spamming stderr on every
+# directive resolution / singleton rebuild.
+_warned_legacy_mimir_config = False
+
+
+def _resolve_mneme_config(cfg: dict) -> dict:
+    """Resolve the connector's config block, preferring `mneme:` over legacy `mimir:`.
+
+    Lookup order:
+      1. `cfg["mneme"]` if present and non-empty — the current, preferred key.
+      2. `cfg["mimir"]` if present and non-empty — legacy key, still supported
+         for backward compatibility. Emits a one-time deprecation notice to
+         stderr (only the first time this is hit in the process).
+      3. `{}` otherwise, so every `.get(...)` call downstream keeps working
+         with its existing defaults.
+    """
+    global _warned_legacy_mimir_config
+    mneme_cfg = cfg.get("mneme")
+    if isinstance(mneme_cfg, dict) and mneme_cfg:
+        return mneme_cfg
+    legacy_cfg = cfg.get("mimir")
+    if isinstance(legacy_cfg, dict) and legacy_cfg:
+        if not _warned_legacy_mimir_config:
+            sys.stderr.write(
+                "perseus: config.yaml `mimir:` block is deprecated, please rename "
+                "to `mneme:` (legacy key still supported)\n"
+            )
+            _warned_legacy_mimir_config = True
+        return legacy_cfg
+    return {}
+
+
+class MnemeConnector:
     """Bridge between Perseus (Python) and Mneme (MCP/JSON-RPC).
 
-    Configuration (from `config.yaml` → `mimir`):
+    Configuration (from `config.yaml` → `mneme`, with legacy `mimir` fallback):
         enabled: bool              = true
         transport: str             = "stdio"  — "stdio" or "sse"
         command: list[str]         = ["mimir", "serve", "--db", "~/.mimir/data/mimir.db"]
@@ -653,14 +691,14 @@ class MimirConnector:
         fallback_to_local: bool    = True
 
     Usage:
-        connector = MimirConnector(cfg)
+        connector = MnemeConnector(cfg)
         package = connector.hybrid_recall("project architecture", workspace="/opt/...")
         print(package.assemble())
     """
 
     def __init__(self, cfg: dict):
         self._cfg = cfg
-        mcfg = cfg.get("mimir", {})
+        mcfg = _resolve_mneme_config(cfg)
         self._enabled = bool(mcfg.get("enabled", True))
         self._transport = mcfg.get("transport", "stdio")
         self._timeout = float(mcfg.get("timeout_s", 10.0))
@@ -1436,27 +1474,29 @@ _local_hits_to_entity_hits = _local_hits_to_memory_hits
 # Singleton connector — initialized lazily, reused across directive resolutions
 # ═══════════════════════════════════════════════════════════════════════════════
 
-_connector: MimirConnector | None = None
+_connector: MnemeConnector | None = None
 _connector_cfg_hash: str = ""
 
 
-def _get_connector(cfg: dict) -> MimirConnector:
-    """Get or create the singleton MimirConnector.
+def _get_connector(cfg: dict) -> MnemeConnector:
+    """Get or create the singleton MnemeConnector.
 
     Re-creates if config changed. Used by resolve_memory / resolve_mimir.
     """
     global _connector, _connector_cfg_hash
-    # Hash only the `mimir` subtree — the sole config the connector reads.
-    # Stringifying+hashing the whole (potentially large) Perseus config on every
-    # directive was wasteful, and rebuilt the connector on unrelated config
-    # changes; keying on the mimir subtree is both cheaper and more correct.
-    cfg_bytes = json.dumps(cfg.get("mimir") or {}, sort_keys=True, default=str).encode()
+    # Hash only the resolved mneme/mimir subtree — the sole config the connector
+    # reads. Stringifying+hashing the whole (potentially large) Perseus config on
+    # every directive was wasteful, and rebuilt the connector on unrelated config
+    # changes; keying on the resolved subtree is both cheaper and more correct.
+    # Uses _resolve_mneme_config() (not a raw cfg.get("mimir")) so configs that
+    # only set `mneme:` still invalidate the singleton when that block changes.
+    cfg_bytes = json.dumps(_resolve_mneme_config(cfg), sort_keys=True, default=str).encode()
     cfg_hash = hashlib.sha256(cfg_bytes).hexdigest()
 
     if _connector is None or cfg_hash != _connector_cfg_hash:
         if _connector:
             _connector.close()
-        _connector = MimirConnector(cfg)
+        _connector = MnemeConnector(cfg)
         _connector_cfg_hash = cfg_hash
 
     return _connector
@@ -1467,7 +1507,7 @@ def _get_connector(cfg: dict) -> MimirConnector:
 # These are the functions agora.py calls to augment @memory / @mimir directives
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _mimir_hybrid_search(
+def _mneme_hybrid_search(
     cfg: dict,
     query: str,
     workspace: str = "",
@@ -1521,7 +1561,7 @@ def _mimir_hybrid_search(
     return segment
 
 
-def _mimir_hybrid_recall(
+def _mneme_hybrid_recall(
     cfg: dict,
     query: str,
     scope: str | None = None,
@@ -1552,7 +1592,7 @@ def _mimir_hybrid_recall(
     return MemorySegment(strategy_used="local_only")
 
 
-def _mimir_recall_when(
+def _mneme_recall_when(
     cfg: dict,
     context: str,
     limit: int = 10,
@@ -1577,7 +1617,7 @@ def _mimir_recall_when(
     return connector.recall_when(context=context, limit=limit)
 
 
-def _mimir_hot_block(markdown: str) -> str | None:
+def _mneme_hot_block(markdown: str) -> str | None:
     """Normalize Mimir's `mimir_context` markdown for Perseus injection.
 
     The server block is wrapped in its own ``## Mimir Context`` header and a
@@ -1600,7 +1640,7 @@ def _mimir_hot_block(markdown: str) -> str | None:
     return "\n".join(kept).strip()
 
 
-def _mimir_context_inject(cfg: dict) -> str | None:
+def _mneme_context_inject(cfg: dict) -> str | None:
     """Automatic Mimir context block for render_output.
 
     Called by the renderer (markdown / agents-md / claude-md formats) to append
@@ -1617,7 +1657,7 @@ def _mimir_context_inject(cfg: dict) -> str | None:
     has no relevant memories. Fails safe: any error returns None so a rendering
     can never be broken by the memory layer.
     """
-    mcfg = (cfg or {}).get("mimir", {}) if isinstance(cfg, dict) else {}
+    mcfg = _resolve_mneme_config(cfg) if isinstance(cfg, dict) else {}
     if not mcfg.get("enabled", True):
         return None
     # #442: auto_inject=False suppresses the automatic block so memories are
@@ -1656,7 +1696,7 @@ def _mimir_context_inject(cfg: dict) -> str | None:
         except Exception:
             hot_md = None
         if isinstance(hot_md, str):
-            hot_body = _mimir_hot_block(hot_md)
+            hot_body = _mneme_hot_block(hot_md)
             if hot_body:
                 return "## Persistent Memory (Mimir)\n\n" + hot_body
 

@@ -1050,7 +1050,7 @@ class DirectiveSpec(NamedTuple):
     diagnostic_fn: "Callable | None" = None  # Optional per-directive LSP diagnostic (task-25)
     source: str = "builtin"             # task-65: "builtin" for shipped specs, "plugin" for ~/.perseus/plugins/*.py
     tier: int = 1                       # Context tier: 1=always, 2=conditional, 3=on-demand
-    is_semantic_hint: bool = False       # If True, the directive's value is a valid search hint for Mimir / Mneme
+    is_semantic_hint: bool = False       # If True, the directive's value is a valid search hint for Mneme
 
 
 # NOTE: resolver references are forward-declared as strings and bound after
@@ -1065,7 +1065,7 @@ def _bind_registry() -> None:
         # Tier 1 — Always (lightweight, core context)
         DirectiveSpec("@date",      resolve_date,      ["format="],                "inline",  "a",   cacheable=False, safe_for_hover=True, summary="Current date/time", output_schema={"type": "str", "pattern": ".+"}, tier=1),
         DirectiveSpec("@waypoint",  resolve_waypoint,  ["ttl="],                   "inline",  "ac",  reads_files=True, cacheable=True, summary="Return the most recent session checkpoint: what was being worked on, status, and next steps. Use at session start to resume where you left off. Stale after TTL (default 24h). Read-only; lightweight — call freely.", tier=1),
-        DirectiveSpec("@memory",    resolve_memory,    ["mode=", "query=", "scope=", "k=", "type=", "render=", "focus=", "federation", "include_federation=", "alias=", "workspace=", "project=", "max_tokens="], "inline", "acw", reads_files=True, cacheable=True, summary="Search LOCAL project memory (FTS5, zero-network) for past decisions and architecture notes. Use for in-workspace recall. For cross-session persistent facts, use perseus_mimir instead. Read-only; returns results array with mode and count.", tier=1, is_semantic_hint=True),
+        DirectiveSpec("@memory",    resolve_memory,    ["mode=", "query=", "scope=", "k=", "type=", "render=", "focus=", "federation", "include_federation=", "alias=", "workspace=", "project=", "max_tokens="], "inline", "acw", reads_files=True, cacheable=True, summary="Search LOCAL project memory (FTS5, zero-network) for past decisions and architecture notes. Use for in-workspace recall. For cross-session persistent facts, use perseus_mneme instead. Read-only; returns results array with mode and count.", tier=1, is_semantic_hint=True),
         DirectiveSpec("@auto-skill", resolve_auto_skill, ["skill="],              "inline",  "ac",  cacheable=True,  safe_for_hover=True, summary="Instruct the agent to load a specific skill before starting work. Use at the top of context documents to enforce critical hygiene skills (e.g., memory-hygiene, agent-safety). Renders as a mandatory instruction block. Read-only.", tier=1),
         DirectiveSpec("@health",    resolve_health,    [],                         "inline",  "acw", reads_files=True, summary="Audit workspace context health: stale skills, duplicate tasks, oversized output. Use before starting work to catch drift. For deep Daedalus heuristics (cache, directive stats), use perseus_get_health. Read-only; returns status enum and metric counts.", tier=1),
         DirectiveSpec("@env",       resolve_env,       ["required=", "fallback=", "schema="], "inline", "acw", cacheable=False, safe_for_hover=True, summary="Embed environment variable", tier=1),
@@ -1079,7 +1079,7 @@ def _bind_registry() -> None:
         DirectiveSpec("@inbox",     resolve_inbox,     ["unread=", "limit="],      "inline",  "acw", reads_files=True, cacheable=True, summary="Read agent-to-agent messages from the workspace inbox. Use to check for coordination messages from other agents. Filter to unread only. Read-only; returns message array with read/unread status.", tier=2),
         DirectiveSpec("@drift",     resolve_drift,     [],                         "inline",  "ac",  reads_files=True, summary="Detect drift between predicted and actual tool usage patterns via the Pythia oracle. Use when tool behavior seems off or after config changes. For workspace hygiene checks, prefer perseus_health. Read-only; returns a markdown drift report.", tier=2),
         DirectiveSpec("@perseus",   resolve_perseus,   ["url="],                         "inline",  "acw", cacheable=True, safe_for_hover=False, summary="Fetch rendered context from a remote Perseus instance by URL. Use to pull live workspace state from another machine or container. Read-only; caches results — re-fetch when remote state may have changed.", tier=2),
-        DirectiveSpec("@mimir",    resolve_mimir,    ["query=", "scope=", "k=", "type="], "inline", "acw", safe_for_hover=True, summary="Query the EXTERNAL Mimir memory server for cross-session, curated facts that survive across workspaces. Use for long-lived knowledge (bug patterns, design decisions). For fast local recall, prefer perseus_memory. Read-only; falls back to local FTS5 if Mimir is unreachable.", tier=2, is_semantic_hint=True),
+        DirectiveSpec("@mimir",    resolve_mimir,    ["query=", "scope=", "k=", "type="], "inline", "acw", safe_for_hover=True, summary="Query the EXTERNAL Mneme memory server for cross-session, curated facts that survive across workspaces. Use for long-lived knowledge (bug patterns, design decisions). For fast local recall, prefer perseus_memory. Read-only; falls back to local FTS5 if Mneme is unreachable. (Also exposed as perseus_mneme; perseus_mimir is a deprecated alias.)", tier=2, is_semantic_hint=True),
 
         # Tier 3 — On-demand (bulky, expensive)
         DirectiveSpec("@query",     resolve_query,     ["command=", "fallback=", "schema="],   "inline",  "acw", executes_shell=True,  safe_for_hover=False, cacheable=True,  summary="Run a shell command in the workspace and embed its stdout into the rendered context. Use for dynamic facts: git status, docker ps, system info. REQUIRES allow_query_shell=true and PERSEUS_ALLOW_DANGEROUS=1. Destructive — executes arbitrary commands with the user's permissions.", tier=3),
@@ -6564,7 +6564,7 @@ def resolve_tokens(context: str) -> str:
 # it must never break a render. The directive does NOT execute a shell
 # (executes_shell=False); it speaks JSON-RPC 2.0 over stdio to the configured
 # MCP subprocess via a SELF-CONTAINED client kept inside this module (we do not
-# touch mimir_connector.py).
+# touch mneme_connector.py).
 
 import threading
 import queue as _queue
@@ -6580,8 +6580,8 @@ _RESEARCH_DEFAULT_MAX_TOKENS = 1500
 class _ResearchMCPClient:
     """Minimal JSON-RPC 2.0 MCP client over stdio for paper-search servers.
 
-    Modelled on mimir_connector._MCPStdioClient but kept fully self-contained
-    here (issue #513): we must not import from / edit mimir_connector.py.
+    Modelled on mneme_connector._MCPStdioClient but kept fully self-contained
+    here (issue #513): we must not import from / edit mneme_connector.py.
 
     Robustness notes:
     - A DAEMON reader thread drains stdout into a Queue so a hung/silent server
@@ -7702,7 +7702,7 @@ def _build_output_schema(tool_name: str, spec) -> dict | None:
                 "count": {"type": "integer", "description": "Number of results returned"}
             }
         }
-    if tool_name == "perseus_mimir":
+    if tool_name in ("perseus_mimir", "perseus_mneme"):
         return {
             "type": "object",
             "properties": {
@@ -7897,7 +7897,7 @@ def _build_annotations(tool_name: str, spec) -> dict | None:
     if tool_name in ("perseus_date", "perseus_drift", "perseus_env"):
         hints["readOnlyHint"] = True
     # Read-only tools that escape the reads_files / executes_shell checks
-    if tool_name in ("perseus_auto_skill", "perseus_perseus", "perseus_mimir", "perseus_mason",
+    if tool_name in ("perseus_auto_skill", "perseus_perseus", "perseus_mimir", "perseus_mneme", "perseus_mason",
                       "perseus_skills", "perseus_inbox", "perseus_include", "perseus_read",
                       "perseus_list", "perseus_tree", "perseus_tooltrim", "perseus_validate",
                       "perseus_prompt"):
@@ -8023,6 +8023,33 @@ LEGACY_MCP_TOOLS: list[dict] = [
         },
         annotations={"readOnlyHint": True},
     ),
+    # Mneme is the new primary name for the @mimir directive's MCP tool;
+    # perseus_mimir is kept as a deprecated alias (same underlying
+    # directive/resolver — see _TOOL_TO_DIRECTIVE below). Props/output_schema
+    # mirror what _generate_directive_tools() would auto-generate for @mimir.
+    _tool_schema(
+        "perseus_mneme",
+        "Query the EXTERNAL Mneme memory server for cross-session, curated facts that survive across workspaces. "
+        "Use for long-lived knowledge (bug patterns, design decisions). For fast local recall, prefer perseus_memory. "
+        "Read-only; falls back to local FTS5 if Mneme is unreachable. This is the primary name for this tool; "
+        "perseus_mimir is a deprecated alias kept for backward compatibility.",
+        {
+            "query": {"type": "string", "description": "BM25 FTS5 search query for persistent memory recall"},
+            "scope": {"type": "string", "description": "Memory scope filter"},
+            "k": {"type": "string", "description": "Number of results to return (default: 5)"},
+            "type": {"type": "string", "description": "Memory type filter"},
+        },
+        required=[],
+        output_schema={
+            "type": "object",
+            "properties": {
+                "results": {"type": "array", "items": {"type": "object"}},
+                "query": {"type": "string"},
+                "count": {"type": "integer"}
+            }
+        },
+        annotations={"readOnlyHint": True},
+    ),
 ]
 
 # Sensitive tools — require explicit config opt-in
@@ -8031,6 +8058,7 @@ _MCP_SENSITIVE_TOOLS = {"perseus_query", "perseus_agent"}
 # Reverse mapping: MCP tool name → directive name (normalizes hyphen→underscore)
 _TOOL_TO_DIRECTIVE = {
     "perseus_auto_skill": "@auto-skill",
+    "perseus_mneme": "@mimir",
 }
 
 
@@ -12299,9 +12327,9 @@ def render_output(
         _audit_render_redaction(cfg, _report)
         rendered = dedup_context_if_available(rendered, cfg)
         rendered = inject_vaultmem_context(rendered, cfg)
-        mimir_block = _mimir_context_inject(cfg)
-        if mimir_block:
-            rendered += "\n\n" + mimir_block
+        mneme_block = _mneme_context_inject(cfg)
+        if mneme_block:
+            rendered += "\n\n" + mneme_block
         return rendered
     elif fmt == "html":
         t = title or "Workspace Context"
@@ -12316,9 +12344,9 @@ def render_output(
         _audit_render_redaction(cfg, _report)
         rendered = dedup_context_if_available(rendered, cfg)
         rendered = inject_vaultmem_context(rendered, cfg)
-        mimir_block = _mimir_context_inject(cfg)
-        if mimir_block:
-            rendered += "\n\n" + mimir_block
+        mneme_block = _mneme_context_inject(cfg)
+        if mneme_block:
+            rendered += "\n\n" + mneme_block
         return wrap_rendered(rendered, fmt, _PERSEUS_VERSION)
 
     # Custom formats (task-68)
@@ -15974,12 +16002,12 @@ def cmd_memory_verify(args, cfg) -> int | None:
 
     return 0 if is_valid else 1
 """
-src/perseus/mimir_connector.py — Perseus × Mimir Bridge (Project Synapse v2)
+src/perseus/mneme_connector.py — Perseus × Mneme Bridge (Project Synapse v2)
 
 Hybrid context resolution: Perseus live state (Sense) + Mneme persistent
 memory (Memory) → unified ContextPackage for LLM injection.
 
-Mimir is a high-performance Rust memory engine using:
+Mneme (formerly "Mimir") is a high-performance Rust memory engine using:
   - Three-layer memory: Buffer → Working → Core (time-based progression)
   - Ebbinghaus decay algorithm (forgetting curve)
   - Topic Trees (hierarchical knowledge organization)
@@ -15988,16 +16016,21 @@ Mimir is a high-performance Rust memory engine using:
 Protocol: MCP (Model Context Protocol) — JSON-RPC 2.0 over stdio or SSE.
 Fallback: Local Mnēmē v2 SQLite FTS5 when Mneme is unreachable.
 
+Config back-compat: reads the `mneme:` config block (preferred); falls back
+to the legacy `mimir:` block when `mneme:` is absent so existing config.yaml
+files keep working unchanged (see _resolve_mneme_config()).
+
 Key features:
   - Circuit Breaker with configurable threshold/cooldown
   - Exponential backoff retry policy
   - Configurable merge strategies with decay-aware ordering
-  - Source-tagged memory items (local vs mimir)
+  - Source-tagged memory items (local vs mneme)
 """
 import hashlib
 import json
 import os
 import subprocess
+import sys
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -16235,7 +16268,7 @@ class CircuitBreaker:
 
     States: closed → open (after threshold failures) → half_open (after cooldown)
 
-    Config keys (from mimir.circuit_breaker):
+    Config keys (from mneme.circuit_breaker, or legacy mimir.circuit_breaker):
         threshold: int = 3   — consecutive failures before opening
         cooldown: int = 120  — seconds before attempting recovery
     """
@@ -16603,13 +16636,46 @@ class _MCPSseClient:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# MimirConnector — MCP client with circuit breaker, backoff, and fallback
+# MnemeConnector — MCP client with circuit breaker, backoff, and fallback
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class MimirConnector:
+# Emitted once per process the first time a config.yaml is found using the
+# legacy `mimir:` block instead of `mneme:` — avoids spamming stderr on every
+# directive resolution / singleton rebuild.
+_warned_legacy_mimir_config = False
+
+
+def _resolve_mneme_config(cfg: dict) -> dict:
+    """Resolve the connector's config block, preferring `mneme:` over legacy `mimir:`.
+
+    Lookup order:
+      1. `cfg["mneme"]` if present and non-empty — the current, preferred key.
+      2. `cfg["mimir"]` if present and non-empty — legacy key, still supported
+         for backward compatibility. Emits a one-time deprecation notice to
+         stderr (only the first time this is hit in the process).
+      3. `{}` otherwise, so every `.get(...)` call downstream keeps working
+         with its existing defaults.
+    """
+    global _warned_legacy_mimir_config
+    mneme_cfg = cfg.get("mneme")
+    if isinstance(mneme_cfg, dict) and mneme_cfg:
+        return mneme_cfg
+    legacy_cfg = cfg.get("mimir")
+    if isinstance(legacy_cfg, dict) and legacy_cfg:
+        if not _warned_legacy_mimir_config:
+            sys.stderr.write(
+                "perseus: config.yaml `mimir:` block is deprecated, please rename "
+                "to `mneme:` (legacy key still supported)\n"
+            )
+            _warned_legacy_mimir_config = True
+        return legacy_cfg
+    return {}
+
+
+class MnemeConnector:
     """Bridge between Perseus (Python) and Mneme (MCP/JSON-RPC).
 
-    Configuration (from `config.yaml` → `mimir`):
+    Configuration (from `config.yaml` → `mneme`, with legacy `mimir` fallback):
         enabled: bool              = true
         transport: str             = "stdio"  — "stdio" or "sse"
         command: list[str]         = ["mimir", "serve", "--db", "~/.mimir/data/mimir.db"]
@@ -16626,14 +16692,14 @@ class MimirConnector:
         fallback_to_local: bool    = True
 
     Usage:
-        connector = MimirConnector(cfg)
+        connector = MnemeConnector(cfg)
         package = connector.hybrid_recall("project architecture", workspace="/opt/...")
         print(package.assemble())
     """
 
     def __init__(self, cfg: dict):
         self._cfg = cfg
-        mcfg = cfg.get("mimir", {})
+        mcfg = _resolve_mneme_config(cfg)
         self._enabled = bool(mcfg.get("enabled", True))
         self._transport = mcfg.get("transport", "stdio")
         self._timeout = float(mcfg.get("timeout_s", 10.0))
@@ -17408,27 +17474,29 @@ _local_hits_to_entity_hits = _local_hits_to_memory_hits
 # Singleton connector — initialized lazily, reused across directive resolutions
 # ═══════════════════════════════════════════════════════════════════════════════
 
-_connector: MimirConnector | None = None
+_connector: MnemeConnector | None = None
 _connector_cfg_hash: str = ""
 
 
-def _get_connector(cfg: dict) -> MimirConnector:
-    """Get or create the singleton MimirConnector.
+def _get_connector(cfg: dict) -> MnemeConnector:
+    """Get or create the singleton MnemeConnector.
 
     Re-creates if config changed. Used by resolve_memory / resolve_mimir.
     """
     global _connector, _connector_cfg_hash
-    # Hash only the `mimir` subtree — the sole config the connector reads.
-    # Stringifying+hashing the whole (potentially large) Perseus config on every
-    # directive was wasteful, and rebuilt the connector on unrelated config
-    # changes; keying on the mimir subtree is both cheaper and more correct.
-    cfg_bytes = json.dumps(cfg.get("mimir") or {}, sort_keys=True, default=str).encode()
+    # Hash only the resolved mneme/mimir subtree — the sole config the connector
+    # reads. Stringifying+hashing the whole (potentially large) Perseus config on
+    # every directive was wasteful, and rebuilt the connector on unrelated config
+    # changes; keying on the resolved subtree is both cheaper and more correct.
+    # Uses _resolve_mneme_config() (not a raw cfg.get("mimir")) so configs that
+    # only set `mneme:` still invalidate the singleton when that block changes.
+    cfg_bytes = json.dumps(_resolve_mneme_config(cfg), sort_keys=True, default=str).encode()
     cfg_hash = hashlib.sha256(cfg_bytes).hexdigest()
 
     if _connector is None or cfg_hash != _connector_cfg_hash:
         if _connector:
             _connector.close()
-        _connector = MimirConnector(cfg)
+        _connector = MnemeConnector(cfg)
         _connector_cfg_hash = cfg_hash
 
     return _connector
@@ -17439,7 +17507,7 @@ def _get_connector(cfg: dict) -> MimirConnector:
 # These are the functions agora.py calls to augment @memory / @mimir directives
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _mimir_hybrid_search(
+def _mneme_hybrid_search(
     cfg: dict,
     query: str,
     workspace: str = "",
@@ -17493,7 +17561,7 @@ def _mimir_hybrid_search(
     return segment
 
 
-def _mimir_hybrid_recall(
+def _mneme_hybrid_recall(
     cfg: dict,
     query: str,
     scope: str | None = None,
@@ -17524,7 +17592,7 @@ def _mimir_hybrid_recall(
     return MemorySegment(strategy_used="local_only")
 
 
-def _mimir_recall_when(
+def _mneme_recall_when(
     cfg: dict,
     context: str,
     limit: int = 10,
@@ -17549,7 +17617,7 @@ def _mimir_recall_when(
     return connector.recall_when(context=context, limit=limit)
 
 
-def _mimir_hot_block(markdown: str) -> str | None:
+def _mneme_hot_block(markdown: str) -> str | None:
     """Normalize Mimir's `mimir_context` markdown for Perseus injection.
 
     The server block is wrapped in its own ``## Mimir Context`` header and a
@@ -17572,7 +17640,7 @@ def _mimir_hot_block(markdown: str) -> str | None:
     return "\n".join(kept).strip()
 
 
-def _mimir_context_inject(cfg: dict) -> str | None:
+def _mneme_context_inject(cfg: dict) -> str | None:
     """Automatic Mimir context block for render_output.
 
     Called by the renderer (markdown / agents-md / claude-md formats) to append
@@ -17589,7 +17657,7 @@ def _mimir_context_inject(cfg: dict) -> str | None:
     has no relevant memories. Fails safe: any error returns None so a rendering
     can never be broken by the memory layer.
     """
-    mcfg = (cfg or {}).get("mimir", {}) if isinstance(cfg, dict) else {}
+    mcfg = _resolve_mneme_config(cfg) if isinstance(cfg, dict) else {}
     if not mcfg.get("enabled", True):
         return None
     # #442: auto_inject=False suppresses the automatic block so memories are
@@ -17628,7 +17696,7 @@ def _mimir_context_inject(cfg: dict) -> str | None:
         except Exception:
             hot_md = None
         if isinstance(hot_md, str):
-            hot_body = _mimir_hot_block(hot_md)
+            hot_body = _mneme_hot_block(hot_md)
             if hot_body:
                 return "## Persistent Memory (Mimir)\n\n" + hot_body
 
@@ -18409,13 +18477,13 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path, limit_n: int 
     # Query Mimir persistent memory backend for additional historical
     # context (Architecture, Decision, Insight types) with Ebbinghaus
     # decay scoring. Results are merged below alongside local Mnēmē FTS5 hits.
-    mimir_items: list = []
+    mneme_items: list = []
     try:
-        mseg = _mimir_hybrid_search(
+        mseg = _mneme_hybrid_search(
             cfg=cfg, query=query, workspace=str(workspace),
             local_hits=hits, max_results=k,
         )
-        mimir_items = mseg.items if mseg else []
+        mneme_items = mseg.items if mseg else []
     except Exception as e:
         import sys
         import logging
@@ -18423,7 +18491,7 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path, limit_n: int 
             "Mimir recall failed, falling back to local Mnēmē FTS5: %s", e
         )
 
-    if not hits and not mimir_items:
+    if not hits and not mneme_items:
         return "> \u2139\ufe0f No Mn\u0113m\u0113 memories matched yet — this is expected on a fresh install. Populate the vault with memory files or run `perseus memory update` to initialize.\n"
 
     lines = ["> \U0001f9e0 **Mn\u0113m\u0113 memories:**\n"]
@@ -18474,10 +18542,10 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path, limit_n: int 
             lines.append(" ".join(parts))
 
     # ── Mneme results ─────────────────────────────────────────────────
-    if mimir_items:
+    if mneme_items:
         lines.append("")
         lines.append("> 🧠 **Mimir context:**")
-        for mi in mimir_items:
+        for mi in mneme_items:
             title = mi.summary or (mi.content[:80] + "…" if len(mi.content) > 80 else mi.content)
             lines.append(f"  - [mimir] [{mi.type.value}] {title}")
             if mi.links:
@@ -21286,7 +21354,7 @@ def _doctor_check_mimir_bridge(cfg: dict, workspace: Path) -> DoctorResult:
         test_cfg["mimir"] = dict(mneme_cfg)
         test_cfg["mimir"]["command"] = command
 
-        connector = MimirConnector(test_cfg)
+        connector = MnemeConnector(test_cfg)
         if connector.available:
             # Run health check
             healthy, status = connector.health_check()
