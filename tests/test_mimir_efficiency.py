@@ -88,7 +88,7 @@ class TestTokenBudget:
     """Validate that merged & assembled context stays within token budgets."""
 
     def _connector(self, strategy="local_first"):
-        return perseus.MimirConnector(_test_cfg(strategy))
+        return perseus.MnemeConnector(_test_cfg(strategy))
 
     def test_merged_segment_stays_within_budget(self):
         """A merged result with 10 items should be well under 10K tokens."""
@@ -176,7 +176,7 @@ class TestDeduplicationEfficiency:
     """Measure how much token waste is eliminated by deduplication."""
 
     def _connector(self):
-        return perseus.MimirConnector(_test_cfg())
+        return perseus.MnemeConnector(_test_cfg())
 
     def test_dedup_eliminates_duplicate_tokens(self):
         """Identical content in both sources → only one copy in result.
@@ -258,7 +258,7 @@ class TestInformationDensity:
     """Measure unique information per token — the core efficiency metric."""
 
     def _connector(self):
-        return perseus.MimirConnector(_test_cfg())
+        return perseus.MnemeConnector(_test_cfg())
 
     def test_all_unique_content_high_density(self):
         """When all items are unique, information density approaches 1.0."""
@@ -353,7 +353,7 @@ class TestStrategyTokenProfiles:
 
     def _merge_with_strategy(self, strategy_name):
         _reset_connector_singleton()
-        conn = perseus.MimirConnector(_test_cfg(strategy_name))
+        conn = perseus.MnemeConnector(_test_cfg(strategy_name))
         strategy_enum = {
             "local_first": perseus.MergeStrategy.LOCAL_FIRST,
             "remote_first": perseus.MergeStrategy.REMOTE_FIRST,
@@ -531,7 +531,7 @@ class TestRealWorldSimulation:
         ]
 
         _reset_connector_singleton()
-        conn = perseus.MimirConnector(_test_cfg())
+        conn = perseus.MnemeConnector(_test_cfg())
         merged = conn._merge_results(
             local_items=hybrid_local, mimir_items=hybrid_engram,
             strategy=perseus.MergeStrategy.LOCAL_FIRST, diagnostics={},
@@ -562,7 +562,7 @@ class TestRealWorldSimulation:
         c = _test_cfg()
         # With a very small max_results, even large inputs should produce small output
         local_items = [_make_hit(f"l-{i}", f"Local memory {i}", "local", "insight") for i in range(100)]
-        mseg = perseus._mimir_hybrid_search(
+        mseg = perseus._mneme_hybrid_search(
             cfg=c, query="test", workspace="/tmp/test",
             local_hits=[{"id": f"x-{i}", "content": f"c{i}"} for i in range(100)],
             max_results=5,

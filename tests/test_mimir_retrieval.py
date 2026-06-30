@@ -70,7 +70,7 @@ class TestMergeStrategies:
         _reset_connector_singleton()
         c = _test_cfg()
         c["mimir"]["merge_strategy"] = strategy
-        return perseus.MimirConnector(c)
+        return perseus.MnemeConnector(c)
 
     @property
     def local_items(self):
@@ -182,7 +182,7 @@ class TestDeduplication:
 
     def _connector(self):
         _reset_connector_singleton()
-        return perseus.MimirConnector(_test_cfg())
+        return perseus.MnemeConnector(_test_cfg())
 
     def test_identical_content_deduped(self):
         """Same content in both sources → one item, verified=True, Engram source."""
@@ -492,7 +492,7 @@ class TestNeedleInHaystack:
         _reset_connector_singleton()
         c = _test_cfg()
         c["mimir"]["merge_strategy"] = strategy
-        return perseus.MimirConnector(c)
+        return perseus.MnemeConnector(c)
 
     @pytest.mark.parametrize("query_entry", GOLDEN_QUERIES, ids=[q["query"][:60] for q in GOLDEN_QUERIES])
     def test_golden_set_needle_found_in_top_k(self, query_entry):
@@ -622,7 +622,7 @@ class TestDecayPriority:
 
     def _connector(self):
         _reset_connector_singleton()
-        return perseus.MimirConnector(_test_cfg())
+        return perseus.MnemeConnector(_test_cfg())
 
     def test_decay_first_prioritizes_fresh_over_stale(self):
         """Fresh items (decay=1.0) should appear before stale ones (decay=0.1)."""
@@ -691,7 +691,7 @@ class TestConflictResolution:
         _reset_connector_singleton()
         c = _test_cfg()
         c["mimir"]["merge_strategy"] = strategy
-        return perseus.MimirConnector(c)
+        return perseus.MnemeConnector(c)
 
     def test_conflicting_data_both_surfaced(self):
         """When local and remote have DIFFERENT data for the same topic,
