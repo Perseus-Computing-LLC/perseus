@@ -483,6 +483,39 @@ class TestMimirAutoInject:
         assert md is not None and "**k**" in md
         assert stub.calls == [("mimir_context", {"categories": ["x"], "limit": 3})]
 
+    def test_connector_store_calls_mimir_remember_with_typed_fields(self):
+        """store() upserts via mimir_remember (not the nonexistent mimir_store),
+        with category/key/type/body_json and a string tag list (perseus#525)."""
+        c = self._cfg(enabled=True)
+        connector = perseus.MimirConnector(c)
+
+        class _StubClient:
+            is_connected = True
+            calls: list = []
+
+            def call_tool(self, name, arguments):
+                self.calls.append((name, arguments))
+                return ({"id": "mem-abc123", "action": "created"}, None)
+
+        stub = _StubClient()
+        connector._client = stub
+        ok, mem_id = connector.store(
+            "we chose postgres 16",
+            memory_type=perseus.MemoryTypeEnum.DECISION,
+            category="decision",
+            key="db-choice",
+            tags={"area": "db"},
+        )
+        assert ok is True and mem_id == "mem-abc123"
+        assert len(stub.calls) == 1
+        name, args = stub.calls[0]
+        assert name == "mimir_remember"
+        assert args["category"] == "decision"
+        assert args["key"] == "db-choice"
+        assert args["type"] == "decision"
+        assert args["tags"] == ["area:db"]
+        assert json.loads(args["body_json"]) == {"content": "we chose postgres 16"}
+
     def test_connector_as_of_returns_historical_version(self):
         """MimirConnector.as_of() calls mimir_as_of and returns the past version."""
         c = self._cfg(enabled=True)
