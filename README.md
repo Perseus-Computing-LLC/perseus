@@ -67,7 +67,7 @@ mcp_servers:
 ```yaml
 mimir:
   enabled: true
-  command: ["mimir", "--db", "~/.mimir/data/mimir.db"]
+  command: ["mimir", "serve", "--db", "~/.mimir/data/mimir.db"]
 ```
 Then add `@memory mode=search query="your terms"` to `.perseus/context.md` and Perseus resolves live recall at render time.
 
