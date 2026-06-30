@@ -987,16 +987,24 @@ class MimirConnector:
         content: str,
         memory_type: MemoryTypeEnum = MemoryTypeEnum.INSIGHT,
         workspace_hash: str | None = None,
-        tags: dict[str, str] | None = None,
+        tags: dict[str, str] | list[str] | None = None,
         links: list[MemoryLink] | None = None,
         importance: float = 0.5,
         topic_path: str | None = None,
+        category: str | None = None,
+        key: str | None = None,
         **kwargs,
     ) -> tuple[bool, str]:
-        """Store a new memory in Mimir via MCP 'mimir_store' tool.
+        """Persist a memory in Mimir via the ``mimir_remember`` MCP tool.
 
-        Memories enter the Buffer layer and progress to Working → Core
-        based on retrieval frequency and decay survival.
+        Entities are addressed by (category, key) and are idempotent — storing
+        the same key updates in place. ``category`` defaults to the memory type
+        (e.g. ``decision``); ``key`` defaults to a content hash so repeated
+        writes of the same fact dedupe rather than pile up. The body is stored
+        as a JSON object — a plain string is wrapped as ``{"content": ...}``.
+
+        Previously this called a non-existent ``mimir_store`` tool, so every
+        write errored out (perseus#525); Mimir registers ``mimir_remember``.
 
         Returns (success, memory_id_or_error).
         """
@@ -1012,22 +1020,38 @@ class MimirConnector:
                 memory_type = entity_type
 
         if not self.available:
-            return False, f"Mneme unavailable: {self._connect_error}"
+            return False, f"Mimir unavailable: {self._connect_error}"
 
-        links_json = [
-            {"target_id": l.target_id, "relationship": l.relationship, "weight": l.weight}
-            for l in (links or [])
-        ]
+        # (category, key) are required by mimir_remember. Default category to the
+        # type label and key to a stable content hash for idempotent upserts.
+        cat = category or memory_type.value
+        ent_key = key or f"mem-{hashlib.md5(content.encode()).hexdigest()[:12]}"
+
+        # body_json must be a valid JSON string; wrap plain text as an object.
+        try:
+            json.loads(content)
+            body_json = content
+        except (ValueError, TypeError):
+            body_json = json.dumps({"content": content})
+
+        # mimir_remember expects tags as a list of strings (not a dict).
+        if isinstance(tags, dict):
+            tag_list = [f"{k}:{v}" for k, v in tags.items()]
+        elif isinstance(tags, list):
+            tag_list = [str(t) for t in tags]
+        else:
+            tag_list = []
 
         def _do_store():
-            result, err = self._client.call_tool("mimir_store", {
-                "content": content,
-                "memory_type": memory_type.value,
-                "workspace_hash": workspace_hash or "",
-                "tags": tags or {},
-                "links": links_json,
+            result, err = self._client.call_tool("mimir_remember", {
+                "category": cat,
+                "key": ent_key,
+                "body_json": body_json,
+                "type": memory_type.value,
+                "tags": tag_list,
                 "importance": importance,
                 "topic_path": topic_path or "",
+                "workspace_hash": workspace_hash or "",
             })
             if err:
                 raise RuntimeError(err)
