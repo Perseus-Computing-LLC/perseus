@@ -768,6 +768,33 @@ technical disclosures and evidence exhibits.
 (Pythia, Daedalus, Agora, Mnēmē) are not independently trademarked and
 are covered under the PERSEUS mark.
 
+## Privacy Policy
+
+Perseus is a **local-first context engine** — it runs entirely on your machine.
+
+### Data Collection
+- **No data collection.** Perseus does not collect, transmit, or phone home any user data, usage statistics, or telemetry.
+- All context resolution happens locally on your filesystem.
+
+### Data Usage & Storage
+- Perseus reads project files, git state, and environment variables to resolve context directives.
+- No project data leaves your machine. Perseus does not cache or store file contents beyond the render pipeline.
+- When paired with Mimir for persistent memory, memory data is stored locally per Mimir's privacy policy.
+
+### Third-Party Sharing
+- **None.** Perseus is fully offline by default — no API calls, no cloud services, no external network requests.
+- Optional MCP server connections (e.g., to remote services) are explicitly configured by the user and only made when that server is declared in your configuration.
+
+### Data Retention
+- Perseus does not retain data independently. Rendered context is ephemeral and regenerated on each invocation.
+- For persistent memory, see [Mimir's privacy policy](https://github.com/Perseus-Computing-LLC/mimir#privacy-policy).
+
+### Contact
+- **Email:** privacy@perseus.observer
+- **GitHub:** [Perseus-Computing-LLC/perseus](https://github.com/Perseus-Computing-LLC/perseus)
+
+## License
+
 **License:** MIT — see [LICENSE](./LICENSE). This license does not include
 a patent grant; patent rights are reserved separately.
 
