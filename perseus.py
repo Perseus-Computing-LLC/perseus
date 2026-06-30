@@ -552,6 +552,14 @@ def _get_shell(cfg: dict) -> str | None:
 # (hooks fire internally) but no external delivery occurs. To actually deliver
 # events, add endpoint URLs to the endpoints list. This split allows the
 # internal hook pipeline to run without inadvertently exposing events.
+# #511 — structured context metadata for agent observability (Langfuse / LangSmith / Rifft).
+# Opt-in: when enabled, render prepends an HTML-comment metadata block (invisible to the
+# LLM, parseable by tracers). Default off so the deterministic, byte-stable render path
+# and all snapshot tests are unaffected.
+DEFAULT_CONFIG["observability"] = {
+    "emit_metadata": False,
+}
+
 DEFAULT_CONFIG["webhooks"] = {
     "enabled": True,
     "timeout_s": 10,
@@ -11936,6 +11944,52 @@ def _render_lines(
     return "\n".join(output)
 
 
+_SOURCE_CATEGORY = {
+    "memory": "mimir", "mimir": "mimir",
+    "read": "files", "include": "files", "tree": "files",
+    "services": "services", "query": "query", "tool": "tools",
+    "agent": "agents", "env": "env", "git": "git", "session": "session",
+}
+
+
+def _derive_render_sources(source_text: str) -> list[str]:
+    """Distinct, sorted source categories from the directives used in a source."""
+    found: set[str] = set()
+    for line in source_text.splitlines():
+        s = line.strip()
+        if not s.startswith("@") or len(s) < 2:
+            continue
+        name = s[1:].split()[0].split("(")[0].strip().lower()
+        if name and name != "perseus":
+            found.add(_SOURCE_CATEGORY.get(name, name))
+    return sorted(found)
+
+
+def _observability_meta_comment(text: str, source_text: str, workspace: Path | None) -> str:
+    """Build the `<!-- perseus:meta -->` block for observability tools (#511).
+
+    HTML comment, so it is invisible to the LLM but parseable by tracers. The
+    context_hash and span_id are derived from the rendered content, so identical
+    content yields an identical block on the same day.
+    """
+    import hashlib
+
+    context_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    now = datetime.now(timezone.utc)
+    span_id = f"perseus-{now:%Y%m%d}-{context_hash[:8]}"
+    sources = _derive_render_sources(source_text)
+    return "\n".join([
+        "<!-- perseus:meta",
+        f"  version: {_PERSEUS_VERSION}",
+        f"  context_hash: sha256:{context_hash}",
+        f"  span_id: {span_id}",
+        f"  workspace: {workspace if workspace else Path.cwd()}",
+        f"  rendered_at: {now.isoformat()}",
+        f"  sources: [{', '.join(sources)}]",
+        "-->",
+    ])
+
+
 def render_source(
     source_text: str,
     cfg: dict,
@@ -12059,6 +12113,10 @@ def render_source(
                _total_us, _assemble_us, _total_us)
         )
         sys.stderr.flush()
+
+    # #511: opt-in observability metadata block (top-level render only).
+    if _include_depth == 0 and cfg.get("observability", {}).get("emit_metadata"):
+        result = _observability_meta_comment(result, source_text, workspace) + "\n" + result
 
     return result
 

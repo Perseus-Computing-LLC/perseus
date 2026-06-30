@@ -468,6 +468,14 @@ def _get_shell(cfg: dict) -> str | None:
 # (hooks fire internally) but no external delivery occurs. To actually deliver
 # events, add endpoint URLs to the endpoints list. This split allows the
 # internal hook pipeline to run without inadvertently exposing events.
+# #511 — structured context metadata for agent observability (Langfuse / LangSmith / Rifft).
+# Opt-in: when enabled, render prepends an HTML-comment metadata block (invisible to the
+# LLM, parseable by tracers). Default off so the deterministic, byte-stable render path
+# and all snapshot tests are unaffected.
+DEFAULT_CONFIG["observability"] = {
+    "emit_metadata": False,
+}
+
 DEFAULT_CONFIG["webhooks"] = {
     "enabled": True,
     "timeout_s": 10,
