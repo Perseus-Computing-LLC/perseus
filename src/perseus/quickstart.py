@@ -98,7 +98,7 @@ def _quickstart_write_config(workspace: Path, generation: dict | None = None) ->
         "mimir": {
             "enabled": True,
             "transport": "stdio",
-            "command": ["mimir", "--db", "~/.mimir/data/mimir.db"],
+            "command": ["mimir", "serve", "--db", "~/.mimir/data/mimir.db"],
         },
     }
     if generation:
@@ -297,7 +297,7 @@ def cmd_quickstart(args, cfg) -> int:
         from perseus.doctor import _find_mimir_binary
         mcfg = cfg.get("mimir", {}) if cfg else {}
         if mcfg.get("enabled", True):
-            command = mcfg.get("command", ["mimir", "--db", "~/.mimir/data/mimir.db"])
+            command = mcfg.get("command", ["mimir", "serve", "--db", "~/.mimir/data/mimir.db"])
             binary_path = _find_mimir_binary(command)
             if binary_path is None:
                 print("💡 Mimir persistent memory engine was not found on this system.")
