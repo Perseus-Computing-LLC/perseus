@@ -18,7 +18,16 @@ PLUGINS_ENABLED_DEFAULT = True
 DEFAULT_CONFIG = {
     "render": {
         "cache_dir": str(PERSEUS_HOME / "cache"),
-        "persist_cache_ttl_s": 3600,  # task-09: default TTL for @cache persist
+        # task-09: default TTL for @cache persist. Also the TTL for the Track
+        # A10 auto-cache path used by every cacheable=True directive in
+        # registry.py (@perseus, @waypoint, @memory, @session, @agora,
+        # @inbox, @skills, @read, @include, ...). Several of those read
+        # mutable state their cache fingerprint doesn't cover -- e.g. a task
+        # completed in Agora can still render "claimed" for up to this long.
+        # Lowered from 3600 (2026-07-01 audit) as a blanket staleness bound;
+        # explicit `@cache ttl=N`/`@cache persist` call sites are unaffected
+        # (they set their own value or accept this default deliberately).
+        "persist_cache_ttl_s": 60,
         "allow_agent_shell": False,   # task-15: @agent gate (mirrors allow_query_shell). Default off for security; opt-in via power-user profile or explicit config.
         "session_digest_count": 5,
         "services_timeout_s": 3,
