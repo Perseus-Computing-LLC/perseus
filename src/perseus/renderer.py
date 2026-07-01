@@ -279,7 +279,7 @@ def cache_get(key: str, mode: str, ttl: int | None, cfg: dict) -> str | None:
     if mode in {"ttl", "persist", "fingerprint", "nofingerprint"}:
         effective_ttl = ttl
         if mode in ("persist", "fingerprint"):
-            effective_ttl = int(cfg.get("render", {}).get("persist_cache_ttl_s", 3600))
+            effective_ttl = int(cfg.get("render", {}).get("persist_cache_ttl_s", 60))
         if effective_ttl is None:
             return None
         cache_dir = _safe_cache_dir(cfg)
@@ -310,7 +310,7 @@ def cache_set(key: str, value: str, mode: str, ttl: int | None, cfg: dict) -> No
     if mode in {"ttl", "persist", "fingerprint", "nofingerprint"}:
         effective_ttl = ttl
         if mode in ("persist", "fingerprint"):
-            effective_ttl = int(cfg.get("render", {}).get("persist_cache_ttl_s", 3600))
+            effective_ttl = int(cfg.get("render", {}).get("persist_cache_ttl_s", 60))
         if effective_ttl is None:
             return
         cache_dir = _safe_cache_dir(cfg)
