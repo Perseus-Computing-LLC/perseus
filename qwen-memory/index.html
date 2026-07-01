@@ -56,7 +56,7 @@ footer{border-top:1px solid var(--line);padding:48px 0;background:var(--bg);marg
 <section class="hero"><div class="wrap">
 <div class="hero-eyebrow">Qwen Cloud Hackathon — MemoryAgent Track</div>
 <h1>An agent that gets <em>smarter</em> every session.</h1>
-<p class="hero-lede">Perseus Qwen Memory demonstrates persistent memory, timely forgetting, and cross-session compounding — the three pillars of the MemoryAgent track. Powered by Qwen Cloud + Mimir/Engram-rs.</p>
+<p class="hero-lede">Perseus Qwen Memory demonstrates persistent memory, timely forgetting, and cross-session compounding — the three pillars of the MemoryAgent track. Powered by Qwen Cloud + Mneme/Engram-rs.</p>
 
 <div class="stat-grid">
 <div class="stat-card"><div class="skey">Track Alignment</div><div class="sval">3<span style="font-size:14px;color:var(--text-muted);">/3</span></div><div class="sdesc">Persistent memory across sessions, timely forgetting via confidence decay, increasingly accurate over time.</div></div>
@@ -73,7 +73,7 @@ footer{border-top:1px solid var(--line);padding:48px 0;background:var(--bg);marg
 <table class="track-table">
 <thead><tr><th>Requirement</th><th>How We Deliver</th><th>Demo Beat</th></tr></thead>
 <tbody>
-<tr><td>Persistent memory across sessions</td><td>Mimir/Engram-rs SQLite backend. Memory stored in <code>mimir.db</code>, survives process restart.</td><td>"Session 1: I tell the agent my name. Session 3: it greets me by name without being told again."</td></tr>
+<tr><td>Persistent memory across sessions</td><td>Mneme/Engram-rs SQLite backend. Memory stored in <code>mneme.db</code>, survives process restart.</td><td>"Session 1: I tell the agent my name. Session 3: it greets me by name without being told again."</td></tr>
 <tr><td>Timely forgetting</td><td>Confidence decay per memory type. Un-reinforced facts lose confidence over configurable half-lives.</td><td>"An old fact about Pinecone at 15% confidence. The agent flags it as uncertain rather than asserting it."</td></tr>
 <tr><td>Increasingly accurate</td><td>Cross-session compounding. Agent generates insights from patterns across sessions.</td><td>"Session 1: 60% accuracy on project questions. Session 5: 92% — same question set, compounding knowledge."</td></tr>
 </tbody>
