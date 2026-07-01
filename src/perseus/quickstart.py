@@ -295,7 +295,7 @@ def cmd_quickstart(args, cfg) -> int:
     # ── Mimir Installation & Wiring Check (#301) ──
     try:
         from perseus.doctor import _find_mimir_binary
-        mcfg = cfg.get("mimir", {}) if cfg else {}
+        mcfg = _resolve_mneme_config(cfg) if cfg else {}
         if mcfg.get("enabled", True):
             command = mcfg.get("command", ["mimir", "serve", "--db", "~/.mimir/data/mimir.db"])
             binary_path = _find_mimir_binary(command)
