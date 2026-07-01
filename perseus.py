@@ -6915,7 +6915,7 @@ def resolve_research(args_str: str, cfg: dict, workspace: "Path | None" = None) 
             )
 
         try:
-            timeout_s = float(rcfg.get("timeout_s", cfg.get("mimir", {}).get("timeout_s", 10.0)
+            timeout_s = float(rcfg.get("timeout_s", _resolve_mneme_config(cfg).get("timeout_s", 10.0)
                                        if isinstance(cfg, dict) else 10.0))
         except (ValueError, TypeError):
             timeout_s = 10.0
@@ -10783,7 +10783,7 @@ def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path | N
     parts.append(f"env:PERSEUS_ALLOW_DANGEROUS={dangerous}")
 
     if directive in ("@memory", "@mimir"):
-        mcfg = cfg.get("mimir", {})
+        mcfg = _resolve_mneme_config(cfg)
         import json as _json
         try:
             mcfg_str = _json.dumps(mcfg, sort_keys=True)
@@ -21327,7 +21327,7 @@ def _doctor_check_mimir_bridge(cfg: dict, workspace: Path) -> DoctorResult:
       2. Attempts MCP handshake + mimir_health tool call (#226)
       3. Surfaces a clear warning (not silent Mneme fallback) if unreachable
     """
-    mneme_cfg = cfg.get("mimir", {})
+    mneme_cfg = _resolve_mneme_config(cfg)
     enabled = bool(mneme_cfg.get("enabled", True))
 
     if not enabled:
@@ -23103,7 +23103,7 @@ def cmd_quickstart(args, cfg) -> int:
 
     # ── Mimir Installation & Wiring Check (#301) ──
     try:
-        mcfg = cfg.get("mimir", {}) if cfg else {}
+        mcfg = _resolve_mneme_config(cfg) if cfg else {}
         if mcfg.get("enabled", True):
             command = mcfg.get("command", ["mimir", "serve", "--db", "~/.mimir/data/mimir.db"])
             binary_path = _find_mimir_binary(command)
@@ -24041,10 +24041,18 @@ def _merge_pack_mimir_config(cfg: dict, workspace: Path) -> None:
     pack_mimir = data.get("mimir")
     if not isinstance(pack_mimir, dict) or not pack_mimir:
         return
-    base = cfg.get("mimir")
-    if not isinstance(base, dict):
-        base = {}
-        cfg["mimir"] = base
+    # Merge into whichever key _resolve_mneme_config() will actually read back
+    # (mneme: preferred over legacy mimir:, same lookup order) -- merging into
+    # a key that resolution ignores silently drops the override for anyone
+    # who has migrated their config.yaml to mneme:-only.
+    mneme_cfg = cfg.get("mneme")
+    if isinstance(mneme_cfg, dict) and mneme_cfg:
+        base = mneme_cfg
+    else:
+        base = cfg.get("mimir")
+        if not isinstance(base, dict):
+            base = {}
+            cfg["mimir"] = base
     _deep_merge_into(base, pack_mimir)
 
 
@@ -25305,7 +25313,7 @@ def cmd_init(args, cfg):
 
     # ── Mimir binary auto-discovery (#227) ──
     # If mimir is not installed, suggest the bootstrap script
-    mneme_cfg = cfg.get("mimir", {}) if cfg else {}
+    mneme_cfg = _resolve_mneme_config(cfg) if cfg else {}
     if mneme_cfg.get("enabled", True):
         command = mneme_cfg.get("command", ["mimir", "serve", "--db", "~/.mimir/data/mimir.db"])
         binary_path = _find_mimir_binary(command)

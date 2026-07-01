@@ -365,7 +365,7 @@ def resolve_research(args_str: str, cfg: dict, workspace: "Path | None" = None) 
             )
 
         try:
-            timeout_s = float(rcfg.get("timeout_s", cfg.get("mimir", {}).get("timeout_s", 10.0)
+            timeout_s = float(rcfg.get("timeout_s", _resolve_mneme_config(cfg).get("timeout_s", 10.0)
                                        if isinstance(cfg, dict) else 10.0))
         except (ValueError, TypeError):
             timeout_s = 10.0

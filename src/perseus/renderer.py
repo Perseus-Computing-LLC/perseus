@@ -195,7 +195,7 @@ def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path | N
     parts.append(f"env:PERSEUS_ALLOW_DANGEROUS={dangerous}")
 
     if directive in ("@memory", "@mimir"):
-        mcfg = cfg.get("mimir", {})
+        mcfg = _resolve_mneme_config(cfg)
         import json as _json
         try:
             mcfg_str = _json.dumps(mcfg, sort_keys=True)
