@@ -53,7 +53,7 @@ from typing import NamedTuple, Callable
 # ── Version (injected by scripts/build.py at build time) ──────────────────
 # All other modules reference _PERSEUS_VERSION; the build script's
 # _VERSION_RE replaces the literal "0.0.0" with the VERSION file value.
-_PERSEUS_VERSION = "1.0.13"  # replaced at build time by scripts/build.py — see VERSION file for canonical value
+_PERSEUS_VERSION = "1.0.14"  # replaced at build time by scripts/build.py — see VERSION file for canonical value
 
 # Register as 'perseus' so plugins can import from us (task-65)
 import sys as _sys
@@ -819,7 +819,7 @@ from datetime import datetime, timezone
 try:
     from .serve import _PERSEUS_VERSION
 except ImportError:
-    _PERSEUS_VERSION = "1.0.13"  # replaced at build time by scripts/build.py (see VERSION file)
+    _PERSEUS_VERSION = "1.0.14"  # replaced at build time by scripts/build.py (see VERSION file)
 
 # ──────────────────────────────── Webhooks ───────────────────────────────────
 
@@ -16205,6 +16205,13 @@ class MemorySegment:
     strategy_used: str = "hybrid"
     total_available: int = 0
     query_time_ms: int = 0
+    # #539: human-readable reason the vault produced zero items via MCP, e.g.
+    # "unavailable: mimir binary not found" or "mimir_recall error: <msg>".
+    # Empty string means "no error — query genuinely ran and returned N items
+    # (possibly 0)". Distinguishes "vault unreachable" from "no matches" so
+    # callers (agora._resolve_memory_search, --explain) can render the right
+    # message instead of the generic "fresh install" copy for both cases.
+    error: str = ""
 
     @property
     def as_markdown(self) -> str:
@@ -16844,7 +16851,11 @@ class MnemeConnector:
         t0 = time.time()
 
         if not self.available:
-            return MemorySegment(query_time_ms=int((time.time() - t0) * 1000))
+            return MemorySegment(
+                query_time_ms=int((time.time() - t0) * 1000),
+                strategy_used="unavailable",
+                error=self.status,
+            )
 
         types_str = [t.value for t in memory_types] if memory_types else []
 
@@ -16871,7 +16882,11 @@ class MnemeConnector:
         )
 
         if err:
-            return MemorySegment(query_time_ms=int((time.time() - t0) * 1000))
+            return MemorySegment(
+                query_time_ms=int((time.time() - t0) * 1000),
+                strategy_used="mimir_recall_error",
+                error=f"mimir_recall failed: {err}",
+            )
 
         items = _parse_memory_hits(raw_result or {})
         return MemorySegment(
@@ -17543,13 +17558,22 @@ def _mneme_hybrid_search(
     connector = _get_connector(cfg)
 
     if not connector.available:
+        # #539: preserve *why* the vault was unreachable even when local FTS5
+        # hits let us fall back gracefully — otherwise the caller (agora.py)
+        # can't distinguish "vault down" from "vault up, zero matches" and the
+        # rendered output silently claims "no memories" when the real story is
+        # "the vault never got queried." Exception: a deliberately disabled
+        # vault (mimir.enabled=false) is not an error — it's a configuration
+        # choice — so we don't surface "disabled" as if it were a failure.
+        vault_error = "" if connector.status == "disabled" else connector.status
         if local_hits:
             return MemorySegment(
                 items=_local_hits_to_memory_hits(local_hits[:max_results]),
                 strategy_used="local_fallback",
                 total_available=len(local_hits),
+                error=vault_error,
             )
-        return MemorySegment(strategy_used="local_only")
+        return MemorySegment(strategy_used="local_only", error=vault_error)
 
     # Query Mneme via MCP
     segment = connector.recall(
@@ -17559,12 +17583,15 @@ def _mneme_hybrid_search(
         include_federation=include_federation,
     )
 
-    # If Mneme returned nothing, use local hits as fallback
+    # If Mneme returned nothing, use local hits as fallback. Preserve any
+    # error the vault query hit (e.g. mimir_recall_error) so it's still
+    # surfaced even though local results paper over the failure.
     if not segment.items and local_hits:
         segment = MemorySegment(
             items=_local_hits_to_memory_hits(local_hits[:max_results]),
             strategy_used="local_fallback",
             total_available=len(local_hits),
+            error=segment.error,
         )
 
     return segment
@@ -18487,23 +18514,42 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path, limit_n: int 
     # context (Architecture, Decision, Insight types) with Ebbinghaus
     # decay scoring. Results are merged below alongside local Mnēmē FTS5 hits.
     mneme_items: list = []
+    # #539: distinguish "vault unreachable / errored" from "vault reachable,
+    # genuinely zero matches" so the render can say which one happened
+    # instead of silently reporting the generic "fresh install" message for
+    # both. Populated from MemorySegment.error (never raises — MnemeConnector
+    # methods catch their own failures) or from an unexpected exception in
+    # the hybrid-search call itself (defensive: connector bugs shouldn't take
+    # down the whole @memory directive).
+    vault_error: str = ""
     try:
         mseg = _mneme_hybrid_search(
             cfg=cfg, query=query, workspace=str(workspace),
             local_hits=hits, max_results=k,
         )
         mneme_items = mseg.items if mseg else []
+        vault_error = (mseg.error if mseg else "") or ""
     except Exception as e:
-        import sys
         import logging
         logging.getLogger("perseus.mimir").warning(
             "Mimir recall failed, falling back to local Mnēmē FTS5: %s", e
         )
+        vault_error = f"unexpected error calling vault: {e}"
 
     if not hits and not mneme_items:
+        if vault_error:
+            return (
+                f"> \u26a0 Vault unreachable ({vault_error}) — showing local results only "
+                f"(none found). This is NOT the same as \"no memories exist\"; the vault "
+                f"was never successfully queried.\n"
+            )
         return "> \u2139\ufe0f No Mn\u0113m\u0113 memories matched yet — this is expected on a fresh install. Populate the vault with memory files or run `perseus memory update` to initialize.\n"
 
     lines = ["> \U0001f9e0 **Mn\u0113m\u0113 memories:**\n"]
+    if vault_error and not mneme_items:
+        # We do have local hits, but the vault contribution silently failed.
+        # Surface that so callers don't mistake "local-only" for "hybrid".
+        lines.append(f"> \u26a0 Vault unreachable ({vault_error}) — showing local Mn\u0113m\u0113 results only.\n")
     for h in hits:
         title = h.get("title", "untitled")
         summary = h.get("summary", "")
@@ -20942,7 +20988,7 @@ def _find_version() -> str:
             return candidate.read_text(encoding="utf-8").strip()
     return _PERSEUS_VERSION  # fallback to build-time injected literal
 
-_PERSEUS_VERSION = "1.0.13"  # replaced at build time by scripts/build.py (see VERSION file)
+_PERSEUS_VERSION = "1.0.14"  # replaced at build time by scripts/build.py (see VERSION file)
 _PERSEUS_VERSION = _find_version()
 
 
