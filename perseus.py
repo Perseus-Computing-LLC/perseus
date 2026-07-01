@@ -37,6 +37,10 @@ import sys
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    # stdin too: the MCP stdio server reads JSON-RPC (UTF-8) from clients, and a
+    # cp1252 stdin on Windows raises UnicodeDecodeError on any multibyte
+    # argument, crashing the server loop.
+    sys.stdin.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
     pass
 
@@ -8408,16 +8412,31 @@ def _call_tool(tool_name: str, arguments: dict, cfg: dict, workspace: Path) -> s
 
 # ── JSON-RPC 2.0 message handling ────────────────────────────────────────────
 
-def _read_message(stream=None) -> dict | None:
-    """Read a single JSON-RPC message from stdin (or given stream)."""
+# Sentinel distinguishing a malformed line (keep serving, reply parse-error)
+# from real EOF (stop). Returning None for both made one bad line kill the
+# whole server.
+_PARSE_ERROR = object()
+
+
+def _read_message(stream=None):
+    """Read a single JSON-RPC message from stdin (or given stream).
+
+    Returns the parsed dict, ``None`` on EOF, or ``_PARSE_ERROR`` when the line
+    was not valid JSON (so the caller can reply -32700 and keep serving).
+    """
     src = stream or sys.stdin
     try:
         line = src.readline()
-        if not line:
-            return None
-        return json.loads(line.strip())
-    except (json.JSONDecodeError, EOFError):
+    except UnicodeDecodeError:
+        # A byte the stdin codec can't decode (e.g. UTF-8 under a cp1252 stdin
+        # on Windows) must not crash the server.
+        return _PARSE_ERROR
+    if not line:
         return None
+    try:
+        return json.loads(line.strip())
+    except (json.JSONDecodeError, ValueError):
+        return _PARSE_ERROR
 
 
 def _write_message(msg: dict, stream=None) -> None:
@@ -8476,9 +8495,17 @@ def serve_mcp(cfg: dict, workspace: Path | None = None) -> int:
     while True:
         msg = _read_message()
         if msg is None:
-            break
+            break  # real EOF: client closed stdin
+        if msg is _PARSE_ERROR:
+            # Malformed line: reply parse-error (spec) and keep serving instead
+            # of exiting the whole server on one bad line.
+            _write_message(_make_error(None, -32700, "Parse error"))
+            continue
         method = msg.get("method", "")
         msg_id = msg.get("id")
+        # A request has an id; a notification does not. Per JSON-RPC 2.0 a server
+        # must NEVER reply to a notification — including unknown ones.
+        is_notification = "id" not in msg
         try:
             if method == "initialize":
                 _write_message(_handle_initialize(msg, version))
@@ -8490,10 +8517,13 @@ def serve_mcp(cfg: dict, workspace: Path | None = None) -> int:
                 _write_message(_handle_tools_call(msg, cfg, ws))
             elif method == "ping":
                 _write_message(_make_response(msg_id, {}))
+            elif is_notification:
+                pass  # unknown notification: silently ignore, never respond
             else:
                 _write_message(_make_error(msg_id, -32601, f"Method not found: {method}"))
         except Exception as exc:
-            _write_message(_make_error(msg_id, -32603, f"Internal error: {exc}"))
+            if not is_notification:
+                _write_message(_make_error(msg_id, -32603, f"Internal error: {exc}"))
     return 0
 
 
@@ -9662,6 +9692,10 @@ def fetch_project_memory(
             timeout=30,
             env=env,
             text=True,
+            # Decode as UTF-8, not the locale codec (cp1252 on Windows), so
+            # non-ASCII project memory isn't mojibaked or crashed on decode.
+            encoding="utf-8",
+            errors="replace",
         )
 
         t1 = time.perf_counter_ns()
@@ -16385,11 +16419,23 @@ class _MCPStdioClient:
     """
 
     def __init__(self, command: list[str], timeout_s: float = 10.0):
-        self._command = command
+        # Copy the command list: connect() rewrites command[0] to an absolute
+        # path, and this list is the SAME object as cfg["mimir"]["command"]. In
+        # place mutation changed the config subtree the singleton is hashed on,
+        # so the next directive saw a different hash and needlessly killed and
+        # respawned a healthy vault process.
+        self._command = list(command)
         self._timeout = timeout_s
         self._process: Optional[subprocess.Popen] = None
         self._request_id = 0
         self._server_capabilities: dict = {}
+        # Serialize _call: the MCP server abandons slow worker threads after its
+        # tool timeout and issues the next request on this same client. Without a
+        # lock two workers interleave stdin writes (corrupt line) and steal each
+        # other's responses off the one queue. The lock makes the abandoned
+        # worker merely delay the next, instead of corrupting the stream.
+        import threading as _threading
+        self._call_lock = _threading.Lock()
         # Background reader: a daemon thread pumps every stdout line into a queue
         # so _call can wait with a timeout and correlate responses by id (a bare
         # readline() blocks forever if the server hangs, defeating the fail-safe).
@@ -16415,8 +16461,10 @@ class _MCPStdioClient:
     def connect(self) -> bool:
         """Spawn the Mneme MCP subprocess and perform handshake."""
         try:
-            # Resolve binary path if not fully qualified (#302)
-            if self._command and not self._command[0].startswith("/"):
+            # Resolve binary path if not fully qualified (#302). Use os.path.isabs
+            # so Windows absolute paths (C:\...) are recognized too — startswith
+            # ("/") missed them, re-running doctor discovery on every connect.
+            if self._command and not os.path.isabs(self._command[0]):
                 try:
                     binary_path = _find_mimir_binary(self._command)
                     if binary_path:
@@ -16459,6 +16507,15 @@ class _MCPStdioClient:
                 # while we wait on stdout — a classic two-pipe deadlock.
                 "stderr": subprocess.DEVNULL,
                 "text": True,
+                # Force UTF-8: the vault emits raw UTF-8 (serde_json), but text
+                # mode otherwise decodes with the locale codec (cp1252 on
+                # Windows). A single non-ASCII byte then either mojibakes the
+                # memory content or raises UnicodeDecodeError in the reader
+                # thread, tripping the breaker and dropping the vault for the
+                # whole session. errors="replace" keeps one bad char from
+                # killing the link.
+                "encoding": "utf-8",
+                "errors": "replace",
             }
             if cwd:
                 popen_kwargs["cwd"] = cwd
@@ -16508,16 +16565,35 @@ class _MCPStdioClient:
 
     def disconnect(self) -> None:
         if self._process:
+            # Terminate the process FIRST, then close pipes. The daemon reader
+            # thread is always blocked reading stdout; closing stdout while it
+            # reads must acquire the same buffer lock the read holds, so
+            # stdout.close() would block until the child produces output or
+            # exits. On a wedged server that never happens — the old order
+            # (close → terminate) hung here, defeating the whole point of the
+            # timeout fail-safe. terminate() unblocks the reader (EOF), then the
+            # closes are safe.
             try:
-                self._process.stdin.close()
-                self._process.stdout.close()
+                if self._process.stdin:
+                    self._process.stdin.close()
+            except Exception:
+                pass
+            try:
                 self._process.terminate()
                 self._process.wait(timeout=5)
             except Exception:
                 try:
                     self._process.kill()
+                    # Reap the killed child so it doesn't linger as a zombie on
+                    # POSIX (kill() only sends the signal; wait() collects it).
+                    self._process.wait(timeout=2)
                 except Exception:
                     pass
+            try:
+                if self._process.stdout:
+                    self._process.stdout.close()
+            except Exception:
+                pass
             self._process = None
         # The reader thread is a daemon and exits on EOF once stdout closes;
         # drop our references so a later connect() starts a fresh queue/thread.
@@ -16538,6 +16614,18 @@ class _MCPStdioClient:
             return None, err
         if result is None:
             return None, "no result"
+        # Per MCP spec §3.3 the server returns TOOL failures as a successful
+        # JSON-RPC response carrying result.isError=true (not a protocol error),
+        # so `err` is None here. Surface it as an error instead of parsing the
+        # error text as an empty result — otherwise a locked DB / bad argument
+        # looks like "zero matches", silently dropping vault data while the
+        # briefing reports success (undoes the #539/#542 vault-down signal).
+        if isinstance(result, dict) and result.get("isError"):
+            text = ""
+            content = result.get("content", [])
+            if content and isinstance(content, list) and isinstance(content[0], dict):
+                text = str(content[0].get("text", ""))
+            return None, f"tool error: {text or 'unknown'}"
         # MCP tool result wraps content in result.content[0].text (JSON string)
         content = result.get("content", [])
         if content and isinstance(content, list):
@@ -16568,6 +16656,13 @@ class _MCPStdioClient:
 
     def _call(self, method: str, params: dict) -> tuple[dict | None, str | None]:
         """Send a JSON-RPC request and return the result."""
+        # Serialize the whole request/response exchange: concurrent callers
+        # sharing this client (see _call_lock rationale) must not interleave
+        # writes or race on the response queue.
+        with self._call_lock:
+            return self._call_locked(method, params)
+
+    def _call_locked(self, method: str, params: dict) -> tuple[dict | None, str | None]:
         if not self._process or self._process.poll() is not None:
             return None, "MCP process not running"
         self._request_id += 1
@@ -16798,6 +16893,26 @@ class MnemeConnector:
             self._client = None
             return False
 
+    def _ensure_connected(self) -> bool:
+        """Reconnect if a previously-live session has since dropped.
+
+        _try_connect used to run only once, in __init__, so after any timeout
+        (which tears the process down) or crash-EOF the connector was dead for
+        the rest of the process — invisible in a one-shot CLI render, but in the
+        long-lived `perseus mcp serve` process one vault hiccup disabled memory
+        until Perseus restarted. The circuit breaker gates re-probing so this
+        can't hammer a truly-down vault. Also refreshes _connect_error so
+        `status` reports the real failure instead of the stale "not configured".
+        """
+        if self.available:
+            return True
+        if not self._enabled:
+            return False
+        if self._breaker.is_open:
+            self._connect_error = f"circuit breaker open ({self._breaker.stats()})"
+            return False
+        return self._try_connect()
+
     @property
     def available(self) -> bool:
         """Is Mneme reachable via MCP?"""
@@ -16850,7 +16965,7 @@ class MnemeConnector:
         """
         t0 = time.time()
 
-        if not self.available:
+        if not self._ensure_connected():
             return MemorySegment(
                 query_time_ms=int((time.time() - t0) * 1000),
                 strategy_used="unavailable",
@@ -16914,10 +17029,11 @@ class MnemeConnector:
         """
         t0 = time.time()
 
-        if not self.available:
+        if not self._ensure_connected():
             return MemorySegment(
                 query_time_ms=int((time.time() - t0) * 1000),
                 strategy_used="recall_when_unavailable",
+                error=self.status,
             )
 
         def _do_recall_when():
@@ -16940,6 +17056,7 @@ class MnemeConnector:
             return MemorySegment(
                 query_time_ms=int((time.time() - t0) * 1000),
                 strategy_used="recall_when_error",
+                error=f"mimir_recall_when failed: {err}",
             )
 
         items = _parse_memory_hits(raw_result or {})
@@ -16974,7 +17091,7 @@ class MnemeConnector:
             key: Entity key within the category.
             as_of_unix_ms: Transaction-time instant (unix ms) to travel to.
         """
-        if not self.available:
+        if not self._ensure_connected():
             return None
 
         def _do_as_of():
@@ -17017,7 +17134,7 @@ class MnemeConnector:
             The raw markdown block from Mimir, or None when Mimir is unavailable,
             errors, or returns no markdown. Fails safe so a render is never broken.
         """
-        if not self.available:
+        if not self._ensure_connected():
             return None
 
         def _do_context():
@@ -17081,7 +17198,7 @@ class MnemeConnector:
             else:
                 memory_type = entity_type
 
-        if not self.available:
+        if not self._ensure_connected():
             return False, f"Mimir unavailable: {self._connect_error}"
 
         # (category, key) are required by mimir_remember. Default category to the
@@ -17662,10 +17779,18 @@ def _mneme_hot_block(markdown: str) -> str | None:
     return None when the block carries no actual entities — so the caller can
     fall back to a generic recall.
     """
+    # The server header changed across the rename (Mimir → Mneme → Perseus
+    # Vault); strip whichever variant this server emits so it never leaks into
+    # the briefing under Perseus's own header.
+    _server_headers = {
+        "## Mimir Context",
+        "## Mneme Context",
+        "## Perseus Vault Context",
+    }
     kept: list[str] = []
     for line in markdown.splitlines():
         stripped = line.strip()
-        if stripped == "## Mimir Context":
+        if stripped in _server_headers:
             continue
         if stripped.startswith("> ") and "entities recalled" in stripped:
             continue

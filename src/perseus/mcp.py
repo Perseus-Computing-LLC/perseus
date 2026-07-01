@@ -905,16 +905,31 @@ def _call_tool(tool_name: str, arguments: dict, cfg: dict, workspace: Path) -> s
 
 # ── JSON-RPC 2.0 message handling ────────────────────────────────────────────
 
-def _read_message(stream=None) -> dict | None:
-    """Read a single JSON-RPC message from stdin (or given stream)."""
+# Sentinel distinguishing a malformed line (keep serving, reply parse-error)
+# from real EOF (stop). Returning None for both made one bad line kill the
+# whole server.
+_PARSE_ERROR = object()
+
+
+def _read_message(stream=None):
+    """Read a single JSON-RPC message from stdin (or given stream).
+
+    Returns the parsed dict, ``None`` on EOF, or ``_PARSE_ERROR`` when the line
+    was not valid JSON (so the caller can reply -32700 and keep serving).
+    """
     src = stream or sys.stdin
     try:
         line = src.readline()
-        if not line:
-            return None
-        return json.loads(line.strip())
-    except (json.JSONDecodeError, EOFError):
+    except UnicodeDecodeError:
+        # A byte the stdin codec can't decode (e.g. UTF-8 under a cp1252 stdin
+        # on Windows) must not crash the server.
+        return _PARSE_ERROR
+    if not line:
         return None
+    try:
+        return json.loads(line.strip())
+    except (json.JSONDecodeError, ValueError):
+        return _PARSE_ERROR
 
 
 def _write_message(msg: dict, stream=None) -> None:
@@ -974,9 +989,17 @@ def serve_mcp(cfg: dict, workspace: Path | None = None) -> int:
     while True:
         msg = _read_message()
         if msg is None:
-            break
+            break  # real EOF: client closed stdin
+        if msg is _PARSE_ERROR:
+            # Malformed line: reply parse-error (spec) and keep serving instead
+            # of exiting the whole server on one bad line.
+            _write_message(_make_error(None, -32700, "Parse error"))
+            continue
         method = msg.get("method", "")
         msg_id = msg.get("id")
+        # A request has an id; a notification does not. Per JSON-RPC 2.0 a server
+        # must NEVER reply to a notification — including unknown ones.
+        is_notification = "id" not in msg
         try:
             if method == "initialize":
                 _write_message(_handle_initialize(msg, version))
@@ -988,10 +1011,13 @@ def serve_mcp(cfg: dict, workspace: Path | None = None) -> int:
                 _write_message(_handle_tools_call(msg, cfg, ws))
             elif method == "ping":
                 _write_message(_make_response(msg_id, {}))
+            elif is_notification:
+                pass  # unknown notification: silently ignore, never respond
             else:
                 _write_message(_make_error(msg_id, -32601, f"Method not found: {method}"))
         except Exception as exc:
-            _write_message(_make_error(msg_id, -32603, f"Internal error: {exc}"))
+            if not is_notification:
+                _write_message(_make_error(msg_id, -32603, f"Internal error: {exc}"))
     return 0
 
 
