@@ -22,8 +22,8 @@ Perseus is the live context engine. Seven specialized products extend it:
 
 | Product | Description | Page |
 |---|---|---|
-| **Mimir** | 43 MCP tools — persistent memory with FTS5, entities, layers, confidence decay | [/mimir/](https://perseus.observer/mimir/) |
-| **MCTS** | 120 security analyzers for MCP servers — tool poisoning, prompt injection, credential leaks | [/mcts/](https://perseus.observer/mcts/) |
+| **Mimir** | 48 MCP tools — persistent memory with FTS5, entities, layers, confidence decay | [/mimir/](https://perseus.observer/mimir/) |
+| **MCTS** | 31 security analyzers for MCP servers — tool poisoning, prompt injection, credential leaks | [/mcts/](https://perseus.observer/mcts/) |
 | **PR Pilot** | 5-agent autonomous PR review pipeline — graduated autonomy L1→L3 | [/pr-pilot/](https://perseus.observer/pr-pilot/) |
 | **Blast Radius** | GitLab-native dependency impact analysis — 1 mention, instant risk report | [/blast-radius/](https://perseus.observer/blast-radius/) |
 | **Rapid Agent** | Dual-backend memory agent (Elastic ↔ Engram-rs) — Google Cloud Hackathon | [/rapid-agent/](https://perseus.observer/rapid-agent/) |
@@ -34,7 +34,7 @@ Perseus is the live context engine. Seven specialized products extend it:
 
 ### Mimir — Persistent Memory (MCP)
 
-[Mimir](https://github.com/Perseus-Computing-LLC/mimir) is the persistent memory backend for Perseus — a lightweight Rust MCP server with SQLite + FTS5. Zero network calls, no API keys. As of **v2.7.0**, offline dense/hybrid embeddings are **bundled by default** (the model is compiled into the binary), so semantic recall works zero-config with no external model download. v2.7.0 provides **43 MCP tools** across structured entities, hybrid vector search, RAG, connectors, confidence decay, journal events, and state management: `mimir_remember`, `mimir_recall`, `mimir_context`, `mimir_traverse`, `mimir_decay`, `mimir_stats`, `mimir_health`, and more.
+[Mimir](https://github.com/Perseus-Computing-LLC/mimir) is the persistent memory backend for Perseus — a lightweight Rust MCP server with SQLite + FTS5. Zero network calls, no API keys. As of **v2.7.0**, offline dense/hybrid embeddings are **bundled by default** (the model is compiled into the binary), so semantic recall works zero-config with no external model download. v2.12.0 provides **48 MCP tools** across structured entities, hybrid vector search, RAG, connectors, confidence decay, journal events, and state management: `mimir_remember`, `mimir_recall`, `mimir_context`, `mimir_traverse`, `mimir_decay`, `mimir_stats`, `mimir_health`, and more.
 
 📄 [Product page →](https://perseus.observer/mimir/) | ⭐ [GitHub →](https://github.com/Perseus-Computing-LLC/mimir)
 
@@ -214,7 +214,7 @@ Published as [`io.github.Perseus-Computing-LLC/perseus`](https://registry.modelc
 ### MCP Tools
 
 <!-- test-count: 1032 -->
-26 MCP tools resolve live state at invocation time. Two sensitive tools (`perseus_query` and `perseus_agent`) require explicit `mcp.tool_allowlist` opt-in because they execute commands in the user's local shell — **not sandboxed, full user permissions apply**:
+27 MCP tools resolve live state at invocation time (plus legacy aliases like `perseus_get_context`/`perseus_get_health`). Two sensitive tools (`perseus_query` and `perseus_agent`) require explicit `mcp.tool_allowlist` opt-in because they execute commands in the user's local shell — **not sandboxed, full user permissions apply**:
 
 | Tool | Description |
 |---|---|
@@ -240,6 +240,11 @@ Published as [`io.github.Perseus-Computing-LLC/perseus`](https://registry.modelc
 | `perseus_validate` | Validate rendered block against schema |
 | `perseus_tool` | Run allowlisted external tool |
 | `perseus_perseus` | Fetch context from remote Perseus instance |
+| `perseus_auto_skill` | Instruct the agent to load a specific skill before starting work |
+| `perseus_mason` | Query the Mason code architecture concept map |
+| `perseus_research` | Per-paper Methods/Results blocks from an external paper-search MCP server (opt-in) |
+| `perseus_tokens` | Embed token budget for rendered context |
+| `perseus_tooltrim` | Filtered toolset metadata and usage statistics |
 | `perseus_get_context` | Full rendered workspace context |
 | `perseus_get_health` | Daedalus context-maintenance heuristics |
 

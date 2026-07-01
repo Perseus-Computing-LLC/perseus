@@ -1854,7 +1854,9 @@ def _serve_render_endpoint(endpoint: str, cfg: dict, workspace: Path, query: dic
                 return (404, "application/json; charset=utf-8",
                         _json.dumps({"error": "No Mneme narrative initialized", "workspace_id": None,
                                      "path": str(mp)}))
-            narrative_text = mp.read_text(encoding="utf-8")
+            # Same trust boundary as /narrative: federation peers must not
+            # receive secrets the human-facing endpoint strips.
+            narrative_text, _ = redact_text(mp.read_text(encoding="utf-8"), cfg)
             # Look up workspace identity for workspace_id field
             identity = _load_identity(cfg)
             ws_id = identity.get("workspace_id") if identity else None

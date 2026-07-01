@@ -57,6 +57,28 @@ DEFAULT_REDACTION_RULES: list[dict[str, str]] = [
     {"name": "long_hex_secret",
      "pattern": r"(?i)(?:secret|token|key|password|passwd|api[_-]?key|auth(?:orization)?)\s*[:=]\s*[\"']?([a-fA-F0-9]{40,})[\"']?",
      "_anchor_group": 1},
+    # AWS secret access key / session token. The aws_access_key_id rule above
+    # only catches the AKIA/ASIA *ID* — the 40-char base64 secret and the long
+    # session token need their own credential-anchored rules.
+    {"name": "aws_secret_access_key",
+     "pattern": r"(?i)aws_?secret_?access_?key\s*[:=]\s*[\"']?([A-Za-z0-9/+=]{40})[\"']?",
+     "_anchor_group": 1},
+    {"name": "aws_session_token",
+     "pattern": r"(?i)aws_?session_?token\s*[:=]\s*[\"']?([A-Za-z0-9/+=]{50,})[\"']?",
+     "_anchor_group": 1},
+    # Credentials embedded in URLs (connection strings): scheme://user:pass@host.
+    # Redacts only the password component; user/host stay readable for triage.
+    {"name": "url_credentials",
+     "pattern": r"\b[a-zA-Z][a-zA-Z0-9+.-]*://[^\s:/@\"']+:([^\s/@\"']+)@",
+     "_anchor_group": 1},
+    # Non-hex secrets in an explicit credential-assignment slot. Complements
+    # long_hex_secret (hex-only, see #136): most real config secrets are
+    # base64/alphanumeric. Guarded against shredding identifiers/code by
+    # (a) strong anchors only (no bare `key`/`auth`), (b) 20+ char minimum,
+    # (c) at least one digit required in the value.
+    {"name": "credential_assignment",
+     "pattern": r"(?i)(?:client[_-]?secret|api[_-]?key|access[_-]?key|auth[_-]?token|secret|password|passwd|token)\s*[:=]\s*[\"']?((?=[A-Za-z0-9+/_=-]*\d)[A-Za-z0-9+/_=-]{20,})[\"']?",
+     "_anchor_group": 1},
     # Atlassian API token: ATATT3... (Confluence/Jira personal access tokens)
     # See: https://github.com/Perseus-Computing-LLC/perseus/issues/142
     {"name": "atlassian_api_token", "pattern": r"\bATATT3[A-Za-z0-9+/=_-]{40,}\b"},
