@@ -70,14 +70,25 @@ jobs:
           python perseus.py render /tmp/ci-smoke-context.md --output /tmp/ci-smoke-output.md
           echo "SMOKE: render succeeded ($(wc -l < /tmp/ci-smoke-output.md) lines)"
           python3 -c "
-          import sys
+          import sys, datetime
           text = open('/tmp/ci-smoke-output.md').read()
           errors = []
           if text.strip().startswith(chr(64) + 'perseus') and 'v1.0.8' not in text:
               errors.append('version pin not resolved')
-          resolved = 'date' in text and len(text) > 20
-          if not resolved:
-              errors.append('no resolved output')
+          # @date resolves to a timestamp; assert the current year is present (a
+          # robust signal it resolved) rather than the literal word 'date', which
+          # a rendered timestamp never contains and which is absent on a clean
+          # runner with no memory backend — the old check failed here. Also
+          # assert no directive markers were left unresolved.
+          year = str(datetime.date.today().year)
+          at = chr(64)
+          unresolved = [d for d in (at+'date', at+'query', at+'memory') if d in text]
+          if unresolved:
+              errors.append('unresolved directives: ' + ', '.join(unresolved))
+          if year not in text:
+              errors.append('@date did not resolve (no current year in output)')
+          if len(text) <= 20:
+              errors.append('output too short')
           if errors:
               print('SMOKE FAIL:', errors)
               sys.exit(1)
