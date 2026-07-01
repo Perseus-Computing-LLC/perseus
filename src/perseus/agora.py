@@ -570,23 +570,42 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path, limit_n: int 
     # context (Architecture, Decision, Insight types) with Ebbinghaus
     # decay scoring. Results are merged below alongside local Mnēmē FTS5 hits.
     mneme_items: list = []
+    # #539: distinguish "vault unreachable / errored" from "vault reachable,
+    # genuinely zero matches" so the render can say which one happened
+    # instead of silently reporting the generic "fresh install" message for
+    # both. Populated from MemorySegment.error (never raises — MnemeConnector
+    # methods catch their own failures) or from an unexpected exception in
+    # the hybrid-search call itself (defensive: connector bugs shouldn't take
+    # down the whole @memory directive).
+    vault_error: str = ""
     try:
         mseg = _mneme_hybrid_search(
             cfg=cfg, query=query, workspace=str(workspace),
             local_hits=hits, max_results=k,
         )
         mneme_items = mseg.items if mseg else []
+        vault_error = (mseg.error if mseg else "") or ""
     except Exception as e:
-        import sys
         import logging
         logging.getLogger("perseus.mimir").warning(
             "Mimir recall failed, falling back to local Mnēmē FTS5: %s", e
         )
+        vault_error = f"unexpected error calling vault: {e}"
 
     if not hits and not mneme_items:
+        if vault_error:
+            return (
+                f"> \u26a0 Vault unreachable ({vault_error}) — showing local results only "
+                f"(none found). This is NOT the same as \"no memories exist\"; the vault "
+                f"was never successfully queried.\n"
+            )
         return "> \u2139\ufe0f No Mn\u0113m\u0113 memories matched yet — this is expected on a fresh install. Populate the vault with memory files or run `perseus memory update` to initialize.\n"
 
     lines = ["> \U0001f9e0 **Mn\u0113m\u0113 memories:**\n"]
+    if vault_error and not mneme_items:
+        # We do have local hits, but the vault contribution silently failed.
+        # Surface that so callers don't mistake "local-only" for "hybrid".
+        lines.append(f"> \u26a0 Vault unreachable ({vault_error}) — showing local Mn\u0113m\u0113 results only.\n")
     for h in hits:
         title = h.get("title", "untitled")
         summary = h.get("summary", "")

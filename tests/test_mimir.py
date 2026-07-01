@@ -50,7 +50,10 @@ class TestResolveMimir:
     def test_no_hits_returns_info_message(self):
         with patch.object(perseus, "_mneme_recall", return_value=[]):
             result = perseus.resolve_mimir('query="test search"', cfg())
-        assert "No Mnēmē memories matched" in result
+        # #539: the default test config has no real mimir binary on PATH, so
+        # the vault is genuinely unreachable — the message must say so
+        # explicitly rather than claiming "fresh install, no memories".
+        assert "Vault unreachable" in result
 
     def test_hits_rendered_as_list(self):
         hits = [
@@ -142,7 +145,10 @@ class TestResolveMemoryUnified:
             result = perseus.resolve_memory('query="test"', cfg(), workspace=tmp_path)
 
         assert called, "_mneme_recall should be called for search mode"
-        assert "No Mnēmē memories matched" in result
+        # #539: same reasoning as test_no_hits_returns_info_message — no real
+        # vault is reachable in the test config, so the message must name
+        # that explicitly rather than the generic "fresh install" copy.
+        assert "Vault unreachable" in result
 
     def test_search_renders_hits(self, tmp_path):
         hits = [{"title": "Arch decision", "summary": "Chose monorepo.", "score": 80, "type": "decision"}]
@@ -152,6 +158,67 @@ class TestResolveMemoryUnified:
 
         assert "Arch decision" in result
         assert "Chose monorepo" in result
+
+    # ── #539 regression: vault-unreachable vs genuinely-no-matches ──────────
+
+    def test_vault_unreachable_is_distinguished_from_no_matches(self, tmp_path):
+        """When the vault genuinely errors/is unreachable, the message must
+        say so explicitly instead of the generic 'fresh install' copy — the
+        core bug in #539 was these two states being indistinguishable."""
+
+        def fake_mneme(*a, **kw):
+            return []
+
+        def broken_hybrid_search(*a, **kw):
+            raise RuntimeError("MCP handshake timed out")
+
+        with patch.object(perseus, "_mneme_recall", side_effect=fake_mneme), \
+             patch.object(perseus, "_mneme_hybrid_search", side_effect=broken_hybrid_search):
+            result = perseus.resolve_memory('query="test"', cfg(), workspace=tmp_path)
+
+        assert "Vault unreachable" in result
+        assert "MCP handshake timed out" in result
+        # Must NOT claim "fresh install" when the real cause is a live error.
+        assert "fresh install" not in result
+
+    def test_genuinely_no_matches_still_shows_fresh_install_message(self, tmp_path):
+        """When the vault IS reachable (or cleanly reports zero items, no
+        error) and local FTS5 also finds nothing, the original 'fresh
+        install' copy is still correct and must be preserved."""
+
+        def fake_mneme(*a, **kw):
+            return []
+
+        def clean_empty_segment(*a, **kw):
+            return perseus.MemorySegment(items=[], strategy_used="mimir_recall", error="")
+
+        with patch.object(perseus, "_mneme_recall", side_effect=fake_mneme), \
+             patch.object(perseus, "_mneme_hybrid_search", side_effect=clean_empty_segment):
+            result = perseus.resolve_memory('query="test"', cfg(), workspace=tmp_path)
+
+        assert "fresh install" in result
+        assert "Vault unreachable" not in result
+
+    def test_local_hits_present_but_vault_errored_surfaces_warning(self, tmp_path):
+        """Local FTS5 found something, but the vault contribution silently
+        failed — the render must still surface that the vault half is
+        missing rather than looking like a clean hybrid result."""
+        hits = [{"title": "Local only fact", "summary": "x", "score": 50, "type": "insight"}]
+
+        def fake_mneme(*a, **kw):
+            return hits
+
+        def broken_hybrid_search(*a, **kw):
+            raise RuntimeError("vault subprocess exited")
+
+        with patch.object(perseus, "_mneme_recall", side_effect=fake_mneme), \
+             patch.object(perseus, "_mneme_hybrid_search", side_effect=broken_hybrid_search):
+            result = perseus.resolve_memory('query="test"', cfg(), workspace=tmp_path)
+
+        assert "Local only fact" in result
+        assert "Vault unreachable" in result
+        assert "vault subprocess exited" in result
+
 
     def test_search_forwards_type_filter(self, tmp_path):
         captured = {}
