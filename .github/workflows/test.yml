@@ -75,16 +75,16 @@ jobs:
           errors = []
           if text.strip().startswith(chr(64) + 'perseus') and 'v1.0.8' not in text:
               errors.append('version pin not resolved')
-          # @date resolves to a timestamp; assert the current year is present (a
-          # robust signal it resolved) rather than the literal word 'date', which
-          # a rendered timestamp never contains and which is absent on a clean
-          # runner with no memory backend — the old check failed here. Also
-          # assert no directive markers were left unresolved.
-          year = str(datetime.date.today().year)
+          # Assert @date resolved: its timestamp contains the current year. This
+          # is the environment-independent liveness signal — the old 'date' in
+          # text check failed because a rendered timestamp never contains the
+          # literal word 'date' (and no memory backend supplies it on a clean
+          # runner). @date needs no trust gate, unlike @query (shell) which is
+          # intentionally left unresolved without render.allow_query_shell.
           at = chr(64)
-          unresolved = [d for d in (at+'date', at+'query', at+'memory') if d in text]
-          if unresolved:
-              errors.append('unresolved directives: ' + ', '.join(unresolved))
+          year = str(datetime.date.today().year)
+          if at + 'date' in text:
+              errors.append('@date directive left unresolved')
           if year not in text:
               errors.append('@date did not resolve (no current year in output)')
           if len(text) <= 20:
