@@ -116,6 +116,54 @@ def test_doctor_checkpoint_ok_recent(tmp_path, monkeypatch):
     assert result.status == "ok"
 
 
+def _write_mneme_vault_doc(vault_dir: Path, doc_id: str) -> Path:
+    """Write a minimal valid Mnēmē v2 memory .md file (see test_mimir_index.py)."""
+    vault_dir.mkdir(parents=True, exist_ok=True)
+    file_path = vault_dir / f"{doc_id}.md"
+    file_path.write_text(
+        f"""---
+schema: 2
+id: {doc_id}
+title: test doc
+type: decision
+summary: test summary
+scope: test
+created: '2026-05-27'
+tags: [test]
+---
+body
+""",
+        encoding="utf-8",
+    )
+    return file_path
+
+
+def test_doctor_mneme_index_reports_orphaned_entries(tmp_path):
+    """Doctor's Mnēmē FTS index check flags entries whose source file is gone.
+
+    Regression test: _doctor_check_mneme_index used to query the nonexistent
+    "file_path" column (the real schema column is "path"), which raised
+    sqlite3.OperationalError on every call -- silently swallowed by a bare
+    `except Exception: pass`, so the orphan count stayed 0 forever and this
+    check could never surface a moved/deleted vault.
+    """
+    vault = tmp_path / "vault"
+    doc_path = _write_mneme_vault_doc(vault, "orphan-doc")
+    c = cfg()
+    c["memory"]["mneme_vault_path"] = str(vault)
+    c["memory"]["mneme_index_path"] = str(vault / "mneme.index")
+
+    assert perseus._mneme_build_index(c) == 1
+
+    # Delete the source file without rebuilding the index -- mneme_files
+    # still has a row for it, exactly like a vault that moved/was deleted.
+    doc_path.unlink()
+
+    result = perseus._doctor_check_mneme_index(c, tmp_path)
+    assert result.status == "warn"
+    assert "1 orphaned entries" in result.value
+
+
 def test_doctor_mneme_oversized(tmp_path):
     """Doctor warns when narrative exceeds max_narrative_lines."""
     mem_dir = tmp_path / "memories"

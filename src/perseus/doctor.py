@@ -342,19 +342,31 @@ def _doctor_check_mneme_index(_cfg: dict, _workspace: Path) -> DoctorResult:
         file_count = stats["indexed_files"]
         index_path = stats["index_path"]
 
-        # Orphan check: files in index that no longer exist in vault
+        # Orphan check: files in index that no longer exist in vault. The
+        # mneme_files schema column is "path" (see mneme_index.py), not
+        # "file_path" -- a stale query name here previously made this check a
+        # permanent silent no-op via the bare except below (always 0 orphans,
+        # even with a moved/deleted vault).
         orphans = 0
+        orphan_check_failed = False
         try:
             conn = _mneme_open_index(_cfg)
             if conn:
-                rows = conn.execute("SELECT file_path FROM mneme_files").fetchall()
+                rows = conn.execute("SELECT path FROM mneme_files").fetchall()
                 for (fp,) in rows:
                     if not Path(fp).exists():
                         orphans += 1
-        except Exception:
-            pass
+        except sqlite3.OperationalError:
+            # Schema drift (e.g. a renamed/missing column) -- surface it
+            # instead of silently reporting a healthy 0.
+            orphan_check_failed = True
 
         parts = [f"{doc_count} docs, {file_count} files tracked"]
+        if orphan_check_failed:
+            parts.append("orphan check failed (index schema mismatch)")
+            return DoctorResult("mneme_fts_index", "warn", "Mnēmē FTS index",
+                                ", ".join(parts),
+                                "Run `perseus memory index rebuild` to recreate the index")
         if orphans > 0:
             parts.append(f"{orphans} orphaned entries")
             return DoctorResult("mneme_fts_index", "warn", "Mnēmē FTS index",
