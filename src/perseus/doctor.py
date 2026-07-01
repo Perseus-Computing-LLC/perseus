@@ -516,7 +516,7 @@ def _doctor_check_mimir_bridge(cfg: dict, workspace: Path) -> DoctorResult:
       2. Attempts MCP handshake + mimir_health tool call (#226)
       3. Surfaces a clear warning (not silent Mneme fallback) if unreachable
     """
-    mneme_cfg = cfg.get("mimir", {})
+    mneme_cfg = _resolve_mneme_config(cfg)
     enabled = bool(mneme_cfg.get("enabled", True))
 
     if not enabled:

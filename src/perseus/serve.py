@@ -889,10 +889,18 @@ def _merge_pack_mimir_config(cfg: dict, workspace: Path) -> None:
     pack_mimir = data.get("mimir")
     if not isinstance(pack_mimir, dict) or not pack_mimir:
         return
-    base = cfg.get("mimir")
-    if not isinstance(base, dict):
-        base = {}
-        cfg["mimir"] = base
+    # Merge into whichever key _resolve_mneme_config() will actually read back
+    # (mneme: preferred over legacy mimir:, same lookup order) -- merging into
+    # a key that resolution ignores silently drops the override for anyone
+    # who has migrated their config.yaml to mneme:-only.
+    mneme_cfg = cfg.get("mneme")
+    if isinstance(mneme_cfg, dict) and mneme_cfg:
+        base = mneme_cfg
+    else:
+        base = cfg.get("mimir")
+        if not isinstance(base, dict):
+            base = {}
+            cfg["mimir"] = base
     _deep_merge_into(base, pack_mimir)
 
 
@@ -2154,7 +2162,7 @@ def cmd_init(args, cfg):
 
     # ── Mimir binary auto-discovery (#227) ──
     # If mimir is not installed, suggest the bootstrap script
-    mneme_cfg = cfg.get("mimir", {}) if cfg else {}
+    mneme_cfg = _resolve_mneme_config(cfg) if cfg else {}
     if mneme_cfg.get("enabled", True):
         from perseus.doctor import _find_mimir_binary
         command = mneme_cfg.get("command", ["mimir", "serve", "--db", "~/.mimir/data/mimir.db"])
