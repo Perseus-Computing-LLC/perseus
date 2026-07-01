@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Mneme + CrewAI — Persistent memory backend (in review)</title>
-<meta name="description" content="A proposed integration adding Mneme as a persistent, cross-session memory backend for CrewAI agents. Open pull request #6208, in active review — local SQLite, confidence decay, no external embeddings." />
+<title>Perseus Vault + CrewAI — Persistent memory backend (in review)</title>
+<meta name="description" content="A proposed integration adding Perseus Vault as a persistent, cross-session memory backend for CrewAI agents. Open pull request #6208, in active review — local SQLite, confidence decay, no external embeddings." />
 <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
 <meta name="theme-color" content="#0A0E16" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -59,18 +59,18 @@
 <body>
 <header class="nav"><div class="wrap nav-inner">
   <a class="brand" href="/"><svg class="mark" viewBox="0 0 64 64" aria-hidden="true"><g stroke="#F5B63F" stroke-width="2" stroke-linecap="round" opacity=".6" fill="none"><path d="M14 44 L24 34 L33 39 L41 24 L50 16"/><path d="M33 39 L37 50"/></g><g fill="#F5B63F"><circle cx="14" cy="44" r="2.4"/><circle cx="24" cy="34" r="2.4"/><circle cx="33" cy="39" r="2.8"/><circle cx="41" cy="24" r="2.4"/><circle cx="37" cy="50" r="2"/></g><circle cx="50" cy="16" r="3.6" fill="#54D38A"/></svg>Perseus</a>
-  <nav><a class="nav-link" href="/mneme/">Mneme</a><a class="nav-link" href="/#products">Products</a><a class="btn-gh" href="https://github.com/crewAIInc/crewAI/pull/6208">PR #6208 ↗</a></nav>
+  <nav><a class="nav-link" href="/perseus-vault/">Perseus Vault</a><a class="nav-link" href="/#products">Products</a><a class="btn-gh" href="https://github.com/crewAIInc/crewAI/pull/6208">PR #6208 ↗</a></nav>
 </div></header>
 
 <section class="hero">
   <svg class="constellation" viewBox="0 0 600 420" aria-hidden="true"><g stroke="#F5B63F" stroke-width="1" opacity=".3" fill="none"><path d="M60 360 L150 280 L250 320 L360 180 L470 110 L540 60"/><path d="M250 320 L300 400"/><path d="M360 180 L420 250"/></g><g fill="#F5B63F" opacity=".7"><circle cx="60" cy="360" r="2.5"/><circle cx="150" cy="280" r="3"/><circle cx="250" cy="320" r="3.5"/><circle cx="360" cy="180" r="3"/><circle cx="470" cy="110" r="2.5"/><circle cx="420" cy="250" r="2.2"/></g><circle cx="540" cy="60" r="4.5" fill="#54D38A"/><circle cx="540" cy="60" r="9" fill="#54D38A" opacity=".25"/></svg>
   <div class="wrap">
     <span class="status-pill"><span class="dot"></span> Open PR · in active review</span>
-    <h1>Bringing <em>Mneme</em> memory to CrewAI.</h1>
-    <p class="sub">We've opened a pull request to add <b>Mneme as a persistent, cross-session memory backend</b> for CrewAI agents — local SQLite, confidence decay, and no external embedding service. It's in active review with the maintainers; here's what it does and exactly where it stands.</p>
+    <h1>Bringing <em>Perseus Vault</em> memory to CrewAI.</h1>
+    <p class="sub">We've opened a pull request to add <b>Perseus Vault as a persistent, cross-session memory backend</b> for CrewAI agents — local SQLite, confidence decay, and no external embedding service. It's in active review with the maintainers; here's what it does and exactly where it stands.</p>
     <div class="hero-cta">
       <a class="btn primary" href="https://github.com/crewAIInc/crewAI/pull/6208">Follow PR #6208 ↗</a>
-      <a class="btn" href="/mneme/">About Mneme →</a>
+      <a class="btn" href="/perseus-vault/">About Perseus Vault →</a>
     </div>
   </div>
 </section>
@@ -83,8 +83,8 @@
       <p>CrewAI agents are powerful but stateless between runs. This integration lets a crew remember decisions and patterns — and share them across crews — without standing up any external service.</p>
     </div>
     <div class="grid g2">
-      <div class="feat"><div class="ic">⟲</div><h3>Cross-session recall</h3><p>Agents retain decisions, facts, and context across separate runs and deployments — via the standard MCP interface to the Mneme binary.</p></div>
-      <div class="feat"><div class="ic">⇄</div><h3>Cross-crew sharing</h3><p>Point multiple crews at the same <b>mneme.db</b>. Knowledge learned by one crew is recallable by the next — scoped by agent and category.</p></div>
+      <div class="feat"><div class="ic">⟲</div><h3>Cross-session recall</h3><p>Agents retain decisions, facts, and context across separate runs and deployments — via the standard MCP interface to the Perseus Vault binary.</p></div>
+      <div class="feat"><div class="ic">⇄</div><h3>Cross-crew sharing</h3><p>Point multiple crews at the same <b>perseus-vault.db</b>. Knowledge learned by one crew is recallable by the next — scoped by agent and category.</p></div>
       <div class="feat"><div class="ic">◷</div><h3>Confidence decay</h3><p>Facts fade if unreinforced, so memory stays current instead of accumulating stale state.</p></div>
       <div class="feat"><div class="ic">⊘</div><h3>No external dependencies</h3><p>Local SQLite + FTS5. No external APIs, no embedding models, no cloud — memory never leaves your machine.</p></div>
     </div>
@@ -101,7 +101,7 @@
       <h3>Pull request #6208 — open, in review</h3>
       <ul>
         <li><b>Not yet merged.</b> The PR is open against <a href="https://github.com/crewAIInc/crewAI/pull/6208" style="color:var(--amber)">crewAIInc/crewAI</a> and under active review.</li>
-        <li>Implements the integration over the official <b>MCP standard</b> (stdio to the Mneme binary), after early review moved it off a direct-CLI approach.</li>
+        <li>Implements the integration over the official <b>MCP standard</b> (stdio to the Perseus Vault binary), after early review moved it off a direct-CLI approach.</li>
         <li>Memory is <b>scoped by agent and category</b> to prevent cross-crew data leakage.</li>
         <li>Open review items remain (e.g. aligning the <code>search()</code> signature to the storage-backend protocol). We'll mark this <b>shipped</b> here only once it merges.</li>
       </ul>
