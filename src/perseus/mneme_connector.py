@@ -194,6 +194,13 @@ class MemorySegment:
     strategy_used: str = "hybrid"
     total_available: int = 0
     query_time_ms: int = 0
+    # #539: human-readable reason the vault produced zero items via MCP, e.g.
+    # "unavailable: mimir binary not found" or "mimir_recall error: <msg>".
+    # Empty string means "no error — query genuinely ran and returned N items
+    # (possibly 0)". Distinguishes "vault unreachable" from "no matches" so
+    # callers (agora._resolve_memory_search, --explain) can render the right
+    # message instead of the generic "fresh install" copy for both cases.
+    error: str = ""
 
     @property
     def as_markdown(self) -> str:
@@ -835,7 +842,11 @@ class MnemeConnector:
         t0 = time.time()
 
         if not self.available:
-            return MemorySegment(query_time_ms=int((time.time() - t0) * 1000))
+            return MemorySegment(
+                query_time_ms=int((time.time() - t0) * 1000),
+                strategy_used="unavailable",
+                error=self.status,
+            )
 
         types_str = [t.value for t in memory_types] if memory_types else []
 
@@ -862,7 +873,11 @@ class MnemeConnector:
         )
 
         if err:
-            return MemorySegment(query_time_ms=int((time.time() - t0) * 1000))
+            return MemorySegment(
+                query_time_ms=int((time.time() - t0) * 1000),
+                strategy_used="mimir_recall_error",
+                error=f"mimir_recall failed: {err}",
+            )
 
         items = _parse_memory_hits(raw_result or {})
         return MemorySegment(
@@ -1534,13 +1549,22 @@ def _mneme_hybrid_search(
     connector = _get_connector(cfg)
 
     if not connector.available:
+        # #539: preserve *why* the vault was unreachable even when local FTS5
+        # hits let us fall back gracefully — otherwise the caller (agora.py)
+        # can't distinguish "vault down" from "vault up, zero matches" and the
+        # rendered output silently claims "no memories" when the real story is
+        # "the vault never got queried." Exception: a deliberately disabled
+        # vault (mimir.enabled=false) is not an error — it's a configuration
+        # choice — so we don't surface "disabled" as if it were a failure.
+        vault_error = "" if connector.status == "disabled" else connector.status
         if local_hits:
             return MemorySegment(
                 items=_local_hits_to_memory_hits(local_hits[:max_results]),
                 strategy_used="local_fallback",
                 total_available=len(local_hits),
+                error=vault_error,
             )
-        return MemorySegment(strategy_used="local_only")
+        return MemorySegment(strategy_used="local_only", error=vault_error)
 
     # Query Mneme via MCP
     segment = connector.recall(
@@ -1550,12 +1574,15 @@ def _mneme_hybrid_search(
         include_federation=include_federation,
     )
 
-    # If Mneme returned nothing, use local hits as fallback
+    # If Mneme returned nothing, use local hits as fallback. Preserve any
+    # error the vault query hit (e.g. mimir_recall_error) so it's still
+    # surfaced even though local results paper over the failure.
     if not segment.items and local_hits:
         segment = MemorySegment(
             items=_local_hits_to_memory_hits(local_hits[:max_results]),
             strategy_used="local_fallback",
             total_available=len(local_hits),
+            error=segment.error,
         )
 
     return segment
