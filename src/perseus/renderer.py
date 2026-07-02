@@ -1723,6 +1723,31 @@ def _derive_query_hints(source_text: str, workspace) -> list[str]:
 
     return hints
 
+def _inject_external_memory(rendered: str, cfg: dict) -> str:
+    """Append the vault-mem and Mnēmē auto-injected memory blocks, redacted.
+
+    These blocks are pulled from external memory stores and appended AFTER the
+    render_source redaction pass, so they must go through their own redaction
+    pass — memories routinely hold user-entered notes containing credentials,
+    and skipping this wrote them verbatim into AGENTS.md/CLAUDE.md.
+    """
+    from perseus.merlin_dedup import dedup_context_if_available
+    from perseus.vaultmem_connector import inject_vaultmem_context
+    from perseus.mneme_connector import _mneme_context_inject
+    rendered = dedup_context_if_available(rendered, cfg)
+    injected = inject_vaultmem_context(rendered, cfg)
+    mneme_block = _mneme_context_inject(cfg)
+    if mneme_block:
+        injected = injected + "\n\n" + mneme_block
+    if injected != rendered:
+        # Only the appended blocks are new, but redaction placeholders are
+        # inert so re-running over the full text is idempotent and keeps the
+        # boundary in one place.
+        injected, _report = redact_text(injected, cfg)
+        _audit_render_redaction(cfg, _report)
+    return injected
+
+
 def render_output(
     source_text: str,
     fmt: str,
@@ -1738,14 +1763,7 @@ def render_output(
         rendered = render_source(source_text, cfg, workspace, max_tier=max_tier, no_cache=no_cache)
         rendered, _report = redact_text(rendered, cfg)
         _audit_render_redaction(cfg, _report)
-        from perseus.merlin_dedup import dedup_context_if_available
-        rendered = dedup_context_if_available(rendered, cfg)
-        from perseus.vaultmem_connector import inject_vaultmem_context
-        rendered = inject_vaultmem_context(rendered, cfg)
-        from perseus.mneme_connector import _mneme_context_inject
-        mneme_block = _mneme_context_inject(cfg)
-        if mneme_block:
-            rendered += "\n\n" + mneme_block
+        rendered = _inject_external_memory(rendered, cfg)
         return rendered
     elif fmt == "html":
         t = title or "Workspace Context"
@@ -1758,14 +1776,7 @@ def render_output(
         rendered = render_source(source_text, cfg, workspace, max_tier=max_tier, no_cache=no_cache)
         rendered, _report = redact_text(rendered, cfg)
         _audit_render_redaction(cfg, _report)
-        from perseus.merlin_dedup import dedup_context_if_available
-        rendered = dedup_context_if_available(rendered, cfg)
-        from perseus.vaultmem_connector import inject_vaultmem_context
-        rendered = inject_vaultmem_context(rendered, cfg)
-        from perseus.mneme_connector import _mneme_context_inject
-        mneme_block = _mneme_context_inject(cfg)
-        if mneme_block:
-            rendered += "\n\n" + mneme_block
+        rendered = _inject_external_memory(rendered, cfg)
         return wrap_rendered(rendered, fmt, _PERSEUS_VERSION)
 
     # Custom formats (task-68)
