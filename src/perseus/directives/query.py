@@ -750,10 +750,14 @@ def _execute_prefetch_directive(
         value = _call_resolver(spec, clean_args, cfg, workspace)
         value = _apply_output_schema_validation(spec, clean_args, value, workspace)
         # #635: a resolver that flagged its result as a failure (timeout,
-        # exit != 0, error) must not warm the cache — persisting the degraded
-        # banner would serve it to every render for the full TTL.
+        # exit != 0, error, no output) must not warm the cache — persisting
+        # the degraded banner would serve it to every render for the full
+        # TTL. Accounting is unchanged: the directive still RAN (status
+        # "ran", so `prefetch` keeps exit code 0) — "failed" stays reserved
+        # for the resolver itself raising. Only the cache write is skipped,
+        # so the next render retries instead of hitting a memoized failure.
         if _pop_resolver_failure():
-            result["status"] = "failed"
+            result["status"] = "ran"
             result["reason"] = "resolver returned a failure result; not cached"
             return result
         cache_set(cache_key, value, cache_mode, cache_ttl, cfg)

@@ -217,6 +217,38 @@ class TestIssue635FailureNotMemoized:
             f"fallback result was not cached (ran {runs}x, expected 1)"
         )
 
+    def test_prefetch_failure_skips_cache_but_still_counts_as_ran(self, workspace, tmp_path):
+        """#635 must not change prefetch's ran/failed ACCOUNTING (or the CLI
+        exit code derived from summary["failed"]): a directive whose resolver
+        flags a degraded result (e.g. empty stdout, exit != 0) still RAN —
+        "failed" stays reserved for the resolver raising. Only the cache
+        write is skipped. Regression for the CI break in
+        tests/test_ip_evidence.py (E1/E2 warm `git ...` queries that
+        legitimately produce empty output on a fresh repo)."""
+        cfg = _cfg(tmp_path)
+        cfg["prefetch"] = {"rules": [{
+            "name": "warm-rule",
+            "trigger": {"directive": "query", "args_contains": "echo trigger"},
+            # A redirect produces no stdout → flagged "(no output)" failure.
+            "prefetch": [f'@query "echo X >> {tmp_path / "pf_runs"}" @cache ttl=300'],
+        }]}
+        source = '@perseus\n@query "echo trigger" @cache ttl=300\n'
+
+        result = perseus.prefetch_source(source, cfg, workspace=workspace)
+
+        assert result["summary"]["failed"] == 0, (
+            f"flagged-but-rendered result counted as failed: {result['summary']}"
+        )
+        assert result["summary"]["ran"] == 1, (
+            f"flagged-but-rendered result not counted as ran: {result['summary']}"
+        )
+        entry = [r for r in result["results"] if r["status"] == "ran"][0]
+        assert "not cached" in entry["reason"]
+        # ... and the failure result must NOT have been persisted.
+        cache_dir = tmp_path / "cache"
+        entries = list(cache_dir.glob("*.json")) if cache_dir.exists() else []
+        assert entries == [], f"failure result was warmed into the cache: {entries}"
+
     def test_parallel_worker_does_not_memoize_failure(self, workspace, tmp_path):
         """The parallel worker's cache_set must apply the same failure gate."""
         cfg = _cfg(tmp_path, parallel=True)
