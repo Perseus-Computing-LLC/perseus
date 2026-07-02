@@ -100,6 +100,37 @@ def kill_active_subprocess_for_thread(thread_id: int) -> bool:
     return True
 
 
+# ── #635: structured resolver-failure signal ─────────────────────────────────
+#
+# A resolver that produced degraded output (timeout, exit != 0, execution
+# error, no output) must say so STRUCTURALLY so the renderer's cache-write
+# gate can skip persisting it — otherwise a one-off slow command freezes its
+# "timed out" banner into every render for the full TTL window. A string
+# prefix sniff ("> ⚠") would misfire on legitimate content, so resolvers set
+# this flag instead. Thread-local because parallel_queries resolves @query
+# lines on worker threads concurrently. Every renderer call site pops
+# (read-and-clear) immediately after the resolver returns, so the flag can
+# never leak from one directive to the next on the same thread.
+#
+# NOTE: results returned via `fallback=` are NOT flagged. The fallback is the
+# user's designed graceful value for an EXPECTED failure (task-14 — e.g.
+# `git status` outside a repo, a stable condition), so it stays cacheable.
+
+_RESOLVER_FAILURE = threading.local()
+
+
+def _mark_resolver_failure() -> None:
+    """Flag the current thread's in-flight resolver result as a failure."""
+    _RESOLVER_FAILURE.failed = True
+
+
+def _pop_resolver_failure() -> bool:
+    """Read-and-clear the current thread's resolver-failure flag (#635)."""
+    failed = getattr(_RESOLVER_FAILURE, "failed", False)
+    _RESOLVER_FAILURE.failed = False
+    return failed
+
+
 def _unescape_fallback(s: str) -> str:
     """Unescape standard escape sequences without mangling non-ASCII.
 
@@ -285,6 +316,7 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
         if exit_code != 0:
             if fallback is not None:
                 return fallback
+            _mark_resolver_failure()  # #635: transient failure — do not memoize
             # #137: redact secrets out of `cmd` and `stderr` before interpolating
             # them into render output. Without this, a command like
             # `@query "curl -H 'Authorization: Bearer *** leaks the bearer
@@ -299,6 +331,7 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
         if not stdout:
             if fallback is not None:
                 return fallback
+            _mark_resolver_failure()  # #635: likely transient — do not memoize
             safe_cmd, _ = redact_text(cmd, cfg)
             return f"> (no output from `{safe_cmd}`)"
 
@@ -335,11 +368,13 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
     except subprocess.TimeoutExpired:
         if fallback is not None:
             return fallback
+        _mark_resolver_failure()  # #635: transient failure — do not memoize
         safe_cmd, _ = redact_text(cmd, cfg)
         return f"> ⚠ `@query` timed out ({timeout}s): `{safe_cmd}`"
     except Exception as exc:
         if fallback is not None:
             return fallback
+        _mark_resolver_failure()  # #635: transient failure — do not memoize
         # exc.args often includes argv[0] which contains the full cmd; redact.
         safe_err, _ = redact_text(str(exc), cfg)
         return f"> ⚠ `@query` error: {safe_err}"
@@ -714,6 +749,17 @@ def _execute_prefetch_directive(
     try:
         value = _call_resolver(spec, clean_args, cfg, workspace)
         value = _apply_output_schema_validation(spec, clean_args, value, workspace)
+        # #635: a resolver that flagged its result as a failure (timeout,
+        # exit != 0, error, no output) must not warm the cache — persisting
+        # the degraded banner would serve it to every render for the full
+        # TTL. Accounting is unchanged: the directive still RAN (status
+        # "ran", so `prefetch` keeps exit code 0) — "failed" stays reserved
+        # for the resolver itself raising. Only the cache write is skipped,
+        # so the next render retries instead of hitting a memoized failure.
+        if _pop_resolver_failure():
+            result["status"] = "ran"
+            result["reason"] = "resolver returned a failure result; not cached"
+            return result
         cache_set(cache_key, value, cache_mode, cache_ttl, cfg)
         if _fp and (directive or "") not in _ENV_GATED_DIRECTIVES:
             # Mirror the renderer's base-key TTL fallback (consulted when a
