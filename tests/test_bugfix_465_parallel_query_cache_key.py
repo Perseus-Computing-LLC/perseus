@@ -19,6 +19,7 @@ This test asserts a cached parallel @query is NOT re-executed on the next render
 The parallel branch only engages with more than one pending query, so two queries
 are used; each appends to its own counter file every time it actually runs.
 """
+import os
 from pathlib import Path
 
 import pytest
@@ -54,9 +55,13 @@ def test_parallel_query_cache_is_reused_across_renders(workspace, tmp_path):
     counter_a = tmp_path / "count_a"
     counter_b = tmp_path / "count_b"
     # Two queries so the parallel branch (len(pending) > 1) actually runs.
+    # #635: the commands must also produce stdout — a no-output result is now
+    # structurally flagged as a failure and intentionally never cached, which
+    # would mask the key-consistency behavior this test asserts.
+    sep = "&" if os.name == "nt" else ";"
     lines = [
-        f'@query "echo A >> {counter_a}" @cache ttl=300',
-        f'@query "echo B >> {counter_b}" @cache ttl=300',
+        f'@query "echo ran-a {sep} echo A >> {counter_a}" @cache ttl=300',
+        f'@query "echo ran-b {sep} echo B >> {counter_b}" @cache ttl=300',
     ]
 
     _render(lines, cfg, workspace)
