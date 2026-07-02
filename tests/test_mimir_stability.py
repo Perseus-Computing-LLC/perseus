@@ -580,3 +580,115 @@ class TestStdioClientHardening:
         assert err is None
         assert result == {"ok": True}
         client.disconnect()
+
+    def test_call_tool_surfaces_iserror_result_as_error(self):
+        # MCP tool failures come back as a SUCCESSFUL JSON-RPC response with
+        # result.isError=true. call_tool must report it as an error, not parse
+        # the error text as an empty result (which looked like "zero matches").
+        lines = [
+            '{"jsonrpc":"2.0","id":1,"result":{"isError":true,'
+            '"content":[{"type":"text","text":"database is locked"}]}}\n',
+        ]
+        client = perseus._MCPStdioClient(["mimir"], timeout_s=2.0)
+        client._process = _FakeProc(lines, block_after=True)
+        client._start_reader()
+
+        result, err = client.call_tool("mimir_recall", {"query": "x"})
+        assert result is None
+        assert err is not None
+        assert "database is locked" in err
+        client.disconnect()
+
+    def test_command_list_is_copied_not_aliased(self):
+        # connect() rewrites command[0]; the client must not mutate the caller's
+        # (config's) list, or the singleton hash churns and respawns the vault.
+        cmd = ["mimir", "serve", "--db", "x.db"]
+        client = perseus._MCPStdioClient(cmd, timeout_s=1.0)
+        client._command[0] = "/abs/path/mimir"
+        assert cmd[0] == "mimir", "caller's command list must be untouched"
+
+    def test_disconnect_terminates_before_closing_stdout(self):
+        # Ordering regression: terminate() must be called before stdout.close(),
+        # else close() blocks on the reader thread's in-progress read of a
+        # wedged server and the timeout fail-safe hangs.
+        events = []
+
+        class _OrderProc:
+            def __init__(self):
+                self.stdin = _FakeStdin()
+                outer = self
+
+                class _Out:
+                    def close(self_inner):
+                        events.append("stdout.close")
+                self.stdout = _Out()
+                self._alive = True
+
+            def poll(self):
+                return None if self._alive else 0
+
+            def terminate(self):
+                events.append("terminate")
+                self._alive = False
+
+            def kill(self):
+                events.append("kill")
+                self._alive = False
+
+            def wait(self, timeout=None):
+                events.append("wait")
+                return 0
+
+        client = perseus._MCPStdioClient(["mimir"], timeout_s=1.0)
+        client._process = _OrderProc()
+        client.disconnect()
+        assert "terminate" in events and "stdout.close" in events
+        assert events.index("terminate") < events.index("stdout.close"), events
+
+
+class TestConnectorReconnect:
+    """Regression for F5: a dropped session must re-probe (guarded by the
+    breaker) instead of staying dead for the process lifetime, and status must
+    report the real failure, not a stale 'not configured'."""
+
+    def test_status_reports_real_error_not_not_configured(self):
+        _reset_connector_singleton()
+        conn = perseus.MnemeConnector(_cfg_with_mneme())  # nonexistent binary
+        assert not conn.available
+        assert "not configured" not in conn.status
+        assert "not found" in conn.status.lower() or "binary" in conn.status.lower()
+
+    def test_ensure_connected_reprobes_when_breaker_closed(self):
+        _reset_connector_singleton()
+        conn = perseus.MnemeConnector(_cfg_with_mneme())
+        calls = {"n": 0}
+
+        def _fake_try():
+            calls["n"] += 1
+            return False
+
+        conn._try_connect = _fake_try
+        conn._breaker = perseus.CircuitBreaker(threshold=5, cooldown_s=120)  # closed
+        conn._client = None
+        # A recall on a dropped-but-not-broken connector attempts a reconnect.
+        conn.recall(query="anything")
+        assert calls["n"] >= 1
+
+    def test_ensure_connected_does_not_reprobe_when_breaker_open(self):
+        _reset_connector_singleton()
+        conn = perseus.MnemeConnector(_cfg_with_mneme())
+        calls = {"n": 0}
+
+        def _fake_try():
+            calls["n"] += 1
+            return False
+
+        conn._try_connect = _fake_try
+        # cfg breaker threshold=1, so the failed __init__ connect already opened
+        # it; add more failures to be certain. No reconnect storm while open.
+        for _ in range(3):
+            conn._breaker.failure()
+        assert conn._breaker.is_open
+        conn._client = None
+        conn.recall(query="anything")
+        assert calls["n"] == 0, "must not re-probe while the breaker is open"

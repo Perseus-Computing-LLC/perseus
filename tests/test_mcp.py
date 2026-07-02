@@ -191,6 +191,64 @@ def test_stdio_handshake():
         proc.wait(timeout=5)
 
 
+def test_malformed_line_does_not_kill_server():
+    """A malformed JSON line must get a -32700 parse error and the server must
+    keep serving (previously one bad line returned None == EOF and exited)."""
+    ROOT = str(Path(__file__).resolve().parent.parent)
+    proc = subprocess.Popen(
+        [sys.executable, "perseus.py", "mcp", "serve", "--workspace", "/tmp"],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, encoding="utf-8", cwd=ROOT
+    )
+    try:
+        # Garbage line first.
+        proc.stdin.write("this is not json\n")
+        proc.stdin.flush()
+        resp = json.loads(proc.stdout.readline())
+        assert resp["error"]["code"] == -32700
+        assert resp["id"] is None
+
+        # Server is still alive: a real request after the bad line still works,
+        # including a non-ASCII argument (UTF-8 stdin, not cp1252).
+        list_msg = json.dumps(
+            {"jsonrpc": "2.0", "id": 7, "method": "tools/list",
+             "params": {"_note": "café-Mnēmē-📌"}}
+        ) + "\n"
+        proc.stdin.write(list_msg)
+        proc.stdin.flush()
+        resp2 = json.loads(proc.stdout.readline())
+        assert resp2["id"] == 7
+        assert "tools" in resp2["result"]
+    finally:
+        proc.stdin.close()
+        proc.wait(timeout=5)
+
+
+def test_unknown_notification_gets_no_response():
+    """Per JSON-RPC 2.0 the server must never reply to a notification, even an
+    unknown one; a following request's response must be the next line out."""
+    ROOT = str(Path(__file__).resolve().parent.parent)
+    proc = subprocess.Popen(
+        [sys.executable, "perseus.py", "mcp", "serve", "--workspace", "/tmp"],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, encoding="utf-8", cwd=ROOT
+    )
+    try:
+        # Unknown notification (no id) — must produce NO output line.
+        proc.stdin.write(json.dumps({"jsonrpc": "2.0", "method": "notifications/bogus"}) + "\n")
+        proc.stdin.flush()
+        # Follow with a ping (id=5). If the notification had wrongly produced a
+        # response, this readline would return that instead.
+        proc.stdin.write(json.dumps({"jsonrpc": "2.0", "id": 5, "method": "ping"}) + "\n")
+        proc.stdin.flush()
+        resp = json.loads(proc.stdout.readline())
+        assert resp["id"] == 5
+        assert "result" in resp
+    finally:
+        proc.stdin.close()
+        proc.wait(timeout=5)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # #139 regression: _call_tool timeout must kill the subprocess tree and
 # must not block on executor shutdown
