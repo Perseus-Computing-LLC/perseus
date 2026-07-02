@@ -15549,8 +15549,14 @@ def cmd_memory_federation(args, cfg) -> None:
 #   workspace_id: "sha256:<hex>"   # content-addressed identity
 #   created: "2026-06-19T..."
 #   algorithm: "hmac-sha256"
-#   public_key: "<base64>"         # for pinning (identity claim)
-#   _secret: "<base64>"            # signing key (NOT shared)
+#   public_key: "<base64>"         # identity-pinning value ONLY (workspace_id
+#                                  #   is derived from it). It is NOT a
+#                                  #   verification key: HMAC is symmetric, so
+#                                  #   verifying a signature requires _secret.
+#   _secret: "<base64>"            # signing AND verification key. Share it
+#                                  #   out-of-band ONLY with peers who must
+#                                  #   verify this workspace's signatures
+#                                  #   (`perseus memory verify --key <secret>`).
 #
 # Signature file: ~/.perseus/memory/<hash>.sig (JSON)
 #   workspace_id: "sha256:..."
@@ -15573,6 +15579,19 @@ def _identity_dir(cfg: dict) -> Path:
 
 def _identity_path(cfg: dict) -> Path:
     return _identity_dir(cfg) / "identity.yaml"
+
+
+def _write_private_text(p: Path, text: str) -> None:
+    """Write a secret-bearing file with owner-only permissions (#564 side note).
+
+    chmod(0o600) is effective on POSIX; on Windows it is a best-effort no-op
+    (NTFS ACLs on the user profile already restrict access).
+    """
+    p.write_text(text, encoding="utf-8")
+    try:
+        os.chmod(p, 0o600)
+    except OSError:
+        pass
 
 
 def _load_identity(cfg: dict) -> dict | None:
@@ -15598,8 +15617,11 @@ def _generate_identity() -> dict:
     """Generate a new workspace identity with fresh keys.
 
     Returns a dict ready to write to identity.yaml.
-    The secret is 32 random bytes (base64-encoded).
-    The public key is a separate 32 random bytes (for pinning).
+    The secret is 32 random bytes (base64-encoded) — it is BOTH the signing
+    and the verification key (HMAC is symmetric).
+    The public key is a separate, unrelated 32 random bytes used only as an
+    identity-pinning value (workspace_id is derived from it); it cannot
+    verify signatures.
     """
     secret_bytes = secrets.token_bytes(32)
     public_bytes = secrets.token_bytes(32)
@@ -15686,16 +15708,21 @@ def _verify_signature(narrative_body: str, sig_dict: dict,
 
 
 def _verify_signature_external(narrative_body: str, sig_dict: dict,
-                                public_key: str) -> tuple[bool, str]:
-    """Verify a signature using only a pinned public key (external workspace).
+                                verification_key: str) -> tuple[bool, str]:
+    """Verify a signature using a shared verification key (external workspace).
 
-    For HMAC-SHA256 v1, the public key IS the verification key (the secret).
-    This is a placeholder for ed25519 where public key ≠ signing key.
+    HMAC-SHA256 v1 is SYMMETRIC: the verification key is the signing secret
+    (identity.yaml `_secret`), shared out-of-band by the signing workspace.
+    The identity's `public_key` field CANNOT verify signatures — it is an
+    unrelated pinning value used only to derive workspace_id (#564).
+    True asymmetric verification (ed25519, where a public key genuinely
+    verifies) remains the documented upgrade path.
     """
     try:
-        secret_bytes = _b64_decode(public_key)
+        secret_bytes = _b64_decode(verification_key)
     except Exception:
-        return (False, "invalid public key encoding")
+        return (False, "invalid verification key encoding (expected the "
+                       "signer's shared HMAC secret, base64)")
     if not sig_dict.get("workspace_id"):
         return (False, "missing workspace_id in signature")
 
@@ -15711,7 +15738,8 @@ def _verify_signature_external(narrative_body: str, sig_dict: dict,
 
     if _hmac.compare_digest(expected_sig, actual_sig):
         return (True, "valid")
-    return (False, "signature mismatch")
+    return (False, "signature mismatch (hint: --key takes the signer's shared "
+                   "HMAC secret; the identity 'public_key' cannot verify)")
 
 
 # ── Phase 27F: Provenance Chain Verification ──────────────────────────────
@@ -15759,18 +15787,60 @@ def _split_narrative_frontmatter(narrative_body: str) -> tuple[str, str, dict, s
     return ("", "", {}, narrative_body)
 
 
+def _load_identity_history(cfg: dict) -> list[dict]:
+    """Load rotated-out identities from identity_history.yaml (#564).
+
+    Entries written by `identity rotate` retain `_secret` so pre-rotation
+    signatures stay verifiable (HMAC verification requires the secret).
+    """
+    hist_path = _identity_dir(cfg) / "identity_history.yaml"
+    if not hist_path.exists():
+        return []
+    try:
+        history = yaml.safe_load(hist_path.read_text(encoding="utf-8")) or []
+        return [h for h in history if isinstance(h, dict)]
+    except Exception:
+        return []
+
+
+def _verify_signature_any_epoch(narrative_body: str, sig_dict: dict,
+                                 identity: dict, cfg: dict) -> tuple[bool, str]:
+    """Verify against the current identity, then historical identities (#564).
+
+    After `identity rotate`, versions signed pre-rotation carry the old
+    workspace_id and were HMAC'd with the old secret; identity_history.yaml
+    supplies them per-epoch so rotation does not break the chain.
+    """
+    try:
+        valid, reason = _verify_signature(narrative_body, sig_dict, identity)
+    except Exception as e:  # malformed sig dict (missing keys etc.) — #565
+        return (False, f"malformed signature: {e}")
+    if valid:
+        return (True, "valid")
+    for old in _load_identity_history(cfg):
+        if not old.get("_secret") or not old.get("workspace_id"):
+            continue  # pre-#564 history entries lack the secret — unverifiable
+        try:
+            old_valid, _ = _verify_signature(narrative_body, sig_dict, old)
+        except Exception:
+            continue
+        if old_valid:
+            return (True, "valid (historical key)")
+    return (False, reason)
+
+
 def _verify_chain(hash_or_path: str, identity: dict, cfg: dict) -> tuple[bool, int, str]:
     """Verify a full provenance chain from a narrative hash.
 
     Returns (valid, version_count, breakpoint_message).
     Walks the chain via prev_signature links, verifying each version.
+    Consults identity_history.yaml so rotated-out keys still verify (#564).
     """
     store = Path(cfg.get("memory", {}).get("store", str(PERSEUS_HOME / "memory")))
     mp = store / f"{hash_or_path}.md" if "/" not in hash_or_path else Path(hash_or_path)
     if not mp.exists():
         return (False, 0, f"narrative not found: {mp}")
 
-    narrative = mp.read_text(encoding="utf-8")
     sig_path = mp.with_suffix(mp.suffix + ".sig")
     if not sig_path.exists():
         return (False, 0, f"no signature: {sig_path}")
@@ -15785,9 +15855,16 @@ def _verify_chain(hash_or_path: str, identity: dict, cfg: dict) -> tuple[bool, i
             return (False, count, f"cycle detected at version {count}")
         seen.add(str(current_sig_path))
 
-        narrative = current_mp.read_text(encoding="utf-8")
-        sig_dict = json.loads(current_sig_path.read_text(encoding="utf-8"))
-        valid, reason = _verify_signature(narrative, sig_dict, identity)
+        # #565: corrupt .sig / deleted .md must degrade to the designed
+        # warning, not raise through _render_provenance.
+        try:
+            narrative = current_mp.read_text(encoding="utf-8")
+            sig_dict = json.loads(current_sig_path.read_text(encoding="utf-8"))
+        except Exception as e:
+            return (False, count, f"version {count} unreadable: {e}")
+        if not isinstance(sig_dict, dict):
+            return (False, count, f"version {count} unreadable: signature file is not a JSON object")
+        valid, reason = _verify_signature_any_epoch(narrative, sig_dict, identity, cfg)
         if not valid:
             return (False, count, f"version {count} invalid: {reason}")
 
@@ -15877,23 +15954,29 @@ def cmd_identity_rotate(args, cfg) -> int | None:
         except Exception:
             history = []
 
-    # Store old key (with workspace_id but without secret for safety)
+    # Store the old identity INCLUDING its secret (#564): HMAC verification
+    # requires the secret, so dropping it made "old signatures remain
+    # verifiable" false. The history file lives in the same keys dir / trust
+    # domain as identity.yaml and is written with the same 0o600 permissions;
+    # the retired secret can no longer mint current-epoch signatures once the
+    # chain is re-signed, but it still verifies pre-rotation versions.
     history.append({
         "workspace_id": identity["workspace_id"],
         "public_key": identity["public_key"],
+        "_secret": identity["_secret"],
         "algorithm": identity.get("algorithm", "hmac-sha256"),
         "created": identity.get("created", ""),
         "rotated_at": datetime.now(timezone.utc).isoformat(),
     })
-    hist_path.write_text(yaml.dump(history, sort_keys=False), encoding="utf-8")
+    _write_private_text(hist_path, yaml.dump(history, sort_keys=False))
 
     # Generate new identity
     new_identity = _generate_identity()
     p = _identity_path(cfg)
-    p.write_text(yaml.dump(new_identity, sort_keys=False), encoding="utf-8")
+    _write_private_text(p, yaml.dump(new_identity, sort_keys=False))
 
     print(f"✅ Identity rotated: {new_identity['workspace_id']}")
-    print(f"   Old key preserved in {hist_path}")
+    print(f"   Old key preserved in {hist_path} (keep it private — it can verify old signatures)")
     print(f"   Old signatures remain verifiable via identity history.")
     return 0
 
@@ -15918,7 +16001,7 @@ def cmd_identity(args, cfg) -> int | None:
                 return 0
         identity = _generate_identity()
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(yaml.dump(identity, sort_keys=False), encoding="utf-8")
+        _write_private_text(p, yaml.dump(identity, sort_keys=False))
         print(f"✅ Workspace identity created: {identity['workspace_id']}")
         print(f"   File: {p}")
         print(f"   Algorithm: {identity['algorithm']}")
@@ -16019,7 +16102,15 @@ def _generate_grant_id() -> str:
 
 
 def _issue_grant_token(identity: dict, grant_id: str, workspace_id: str, scope: str) -> str:
-    """Issue a bearer token for a grant. Token format: perseus_gnt_<base64>."""
+    """Issue a bearer token for a grant.
+
+    Token format (v2): perseus_gnt_<b64url(payload)>.<b64url(hmac_sig)>.
+    Payload and signature are base64url-encoded SEPARATELY (#563): the old
+    format joined raw bytes with b"." and the raw 32-byte HMAC digest contains
+    0x2E with ~11.8% probability, corrupting the rsplit and making freshly
+    issued tokens fail validation. The b64url alphabet (A-Za-z0-9_-) can never
+    contain ".", so the split is now unambiguous.
+    """
     secret_bytes = _b64_decode(identity["_secret"])
     payload = json.dumps({
         "g": grant_id,
@@ -16028,22 +16119,32 @@ def _issue_grant_token(identity: dict, grant_id: str, workspace_id: str, scope: 
         "n": _b64(secrets.token_bytes(8)),
     }).encode("utf-8")
     sig = _hmac.new(secret_bytes, payload, hashlib.sha256).digest()
-    token_raw = payload + b"." + sig
-    return "perseus_gnt_" + _b64(token_raw)
+    return "perseus_gnt_" + _b64(payload) + "." + _b64(sig)
 
 
 def _validate_grant_token(token_str: str, identity: dict) -> tuple[bool, str, dict | None]:
-    """Validate a grant bearer token. Returns (valid, reason, payload_dict)."""
+    """Validate a grant bearer token (v2 format). Returns (valid, reason, payload_dict).
+
+    Tokens issued before the #563 format fix are rejected; grants are
+    unaffected — re-issue via `perseus identity token`.
+    """
     if not token_str.startswith("perseus_gnt_"):
         return (False, "invalid token prefix", None)
+    body = token_str[len("perseus_gnt_"):]
+    if "." not in body:
+        return (False, "malformed token (expected payload.signature; "
+                       "pre-v2 tokens must be re-issued)", None)
     try:
-        raw = _b64_decode(token_str[len("perseus_gnt_"):])
-        payload_bytes, sig_bytes = raw.rsplit(b".", 1)
+        payload_b64, sig_b64 = body.rsplit(".", 1)
+        payload_bytes = _b64_decode(payload_b64)
+        sig_bytes = _b64_decode(sig_b64)
         secret_bytes = _b64_decode(identity["_secret"])
         expected = _hmac.new(secret_bytes, payload_bytes, hashlib.sha256).digest()
         if not _hmac.compare_digest(expected, sig_bytes):
             return (False, "token signature mismatch", None)
         payload = json.loads(payload_bytes.decode("utf-8"))
+        if not isinstance(payload, dict):
+            return (False, "invalid token payload", None)
         return (True, "valid", payload)
     except Exception as e:
         return (False, f"invalid token: {e}", None)
@@ -16058,12 +16159,16 @@ def _check_grant(cfg: dict, grant_id: str, required_scope: str) -> tuple[bool, s
                 return (False, "grant revoked")
             expires = g.get("expires", "")
             if expires:
+                # #565: fail CLOSED. datetime.now(dt.tzinfo) is naive when dt
+                # is naive and aware when dt is aware, so the comparison never
+                # raises — and if the expiry is unparseable we treat the grant
+                # as expired instead of skipping the check.
                 try:
-                    dt = datetime.fromisoformat(expires)
-                    if datetime.now(dt.tzinfo if dt.tzinfo else timezone.utc) > dt:
+                    dt = datetime.fromisoformat(str(expires))
+                    if datetime.now(dt.tzinfo) > dt:
                         return (False, "grant expired")
                 except Exception:
-                    pass
+                    return (False, "grant expiry unparseable (treated as expired)")
             if required_scope and g.get("scope") != required_scope:
                 return (False, f"scope mismatch: {g.get('scope')} != {required_scope}")
             return (True, "grant valid")
@@ -25279,17 +25384,33 @@ def _serve_trust_summary(cfg: dict) -> dict:
     }
 
 
-def _serve_authorized(headers, token: str | None) -> bool:
-    # Host header validation for DNS rebinding protection (H-4)
-    if headers is not None:
-        try:
-            host = headers.get("Host", "") or ""
-        except AttributeError:
-            host = ""
-        if host:
-            hostname = host.split(":")[0]
-            if hostname not in ("127.0.0.1", "localhost", "::1"):
-                return False
+def _serve_host_header_ok(headers, bind_host: str | None = None) -> bool:
+    """Host-header check for DNS-rebinding protection (H-4).
+
+    Only enforced for loopback binds: a browser on the same machine can be
+    tricked into sending a request to 127.0.0.1 with an attacker-controlled
+    Host header (DNS rebinding). For a deliberate non-loopback bind, remote
+    clients legitimately send ``Host: <server-ip>``, so the loopback
+    allowlist would 401 every valid request (#559) — and rebinding
+    protection is meaningless for an intentionally public bind anyway.
+    """
+    if bind_host is not None and not _serve_is_loopback(bind_host):
+        return True
+    if headers is None:
+        return True
+    try:
+        host = headers.get("Host", "") or ""
+    except AttributeError:
+        host = ""
+    if not host:
+        return True
+    hostname = host.split(":")[0]
+    return hostname in ("127.0.0.1", "localhost", "::1")
+
+
+def _serve_authorized(headers, token: str | None, bind_host: str | None = None) -> bool:
+    if not _serve_host_header_ok(headers, bind_host):
+        return False
 
     if not token:
         return True
@@ -25307,18 +25428,30 @@ def _serve_authorized(headers, token: str | None) -> bool:
     return _serve_hmac.compare_digest(auth[len(prefix):].strip(), token)
 
 
-def _serve_authorized_extended(headers, cfg: dict) -> tuple[bool, str | None]:
+# Endpoints reachable with a per-subscriber grant token, mapped to the grant
+# scope they require (#560). Everything else needs the master serve.auth_token.
+_SERVE_GRANT_ENDPOINT_SCOPES = {
+    "/narrative": "narrative",
+    "/federation/narrative": "narrative",
+}
+
+
+def _serve_authorized_extended(headers, cfg: dict, endpoint: str | None = None,
+                               bind_host: str | None = None) -> tuple[bool, str | None]:
     """Check auth: master token → grant token → deny.
 
     Returns (authorized, workspace_id_or_None).
     """
     token = _serve_auth_token(cfg)
-    if _serve_authorized(headers, token):
+    if _serve_authorized(headers, token, bind_host):
         return (True, None)
-    # Try grant tokens
-    auth_ok, ws_id = _serve_check_grant_auth(cfg, headers, "narrative")
-    if auth_ok:
-        return (True, ws_id)
+    # Try grant tokens — only on endpoints with a grant scope, and never
+    # bypassing the host-header (DNS-rebinding) gate.
+    scope = _SERVE_GRANT_ENDPOINT_SCOPES.get(endpoint or "")
+    if scope and _serve_host_header_ok(headers, bind_host):
+        auth_ok, ws_id = _serve_check_grant_auth(cfg, headers, scope)
+        if auth_ok:
+            return (True, ws_id)
     return (False, None)
 
 
@@ -25326,9 +25459,16 @@ def _serve_unauthorized() -> tuple[int, str, str]:
     return (401, "application/json; charset=utf-8", '{"error": "unauthorized"}')
 
 
-def _serve_handle_request(endpoint: str, cfg: dict, workspace: Path, query: dict[str, str], headers=None) -> tuple[int, str, str]:
-    token = _serve_auth_token(cfg)
-    if not _serve_authorized(headers, token):
+def _serve_handle_request(endpoint: str, cfg: dict, workspace: Path, query: dict[str, str], headers=None,
+                          bind_host: str | None = None) -> tuple[int, str, str]:
+    # #562: the MCP server card is a public capability document — capability
+    # scanners (e.g. Smithery) must be able to read it on authenticated
+    # deployments. It contains no workspace data (name/version/tool metadata,
+    # redacted before serving), so it is exempt from auth by design.
+    if endpoint == "/.well-known/mcp/server-card.json":
+        return _serve_render_endpoint(endpoint, cfg, workspace, query)
+    authorized, _grant_ws = _serve_authorized_extended(headers, cfg, endpoint, bind_host)
+    if not authorized:
         audit_event(cfg, "serve_auth_denied", endpoint=endpoint, auth_enabled=True)
         return _serve_unauthorized()
     return _serve_render_endpoint(endpoint, cfg, workspace, query)
@@ -25346,12 +25486,15 @@ def _serve_handle_federation_receive(cfg: dict, workspace: Path, raw: bytes, hea
 
     # Auth check
     if receive_token:
+        import hmac as _recv_hmac
         provided = None
         if headers:
             auth = headers.get("Authorization", "")
             if auth.startswith("Bearer "):
                 provided = auth[len("Bearer "):].strip()
-        if provided != receive_token:
+        # #561: constant-time comparison — the network-supplied token must not
+        # be compared with `!=` (timing side channel).
+        if provided is None or not _recv_hmac.compare_digest(provided, receive_token):
             audit_event(cfg, "federation_receive_denied", auth_enabled=True)
             return (401, "application/json; charset=utf-8",
                     _json.dumps({"error": "unauthorized"}))
@@ -25368,8 +25511,13 @@ def _serve_handle_federation_receive(cfg: dict, workspace: Path, raw: bytes, hea
         return (400, "application/json; charset=utf-8",
                 _json.dumps({"error": "missing narrative"}))
 
-    # Store in federation cache keyed by workspace_id (or 'pushed' fallback)
-    cache_key = (workspace_id or "pushed").replace("sha256:", "").replace("/", "_")[:64]
+    # Store in federation cache keyed by workspace_id (or 'pushed' fallback).
+    # #561: workspace_id is untrusted POST JSON — restrict the cache key to a
+    # strict charset so `..`, `/`, and Windows `\` can never escape cache_dir.
+    cache_key = re.sub(r"[^A-Za-z0-9_-]", "_",
+                       (workspace_id or "pushed").replace("sha256:", ""))[:64]
+    if not cache_key.strip("._"):
+        cache_key = "pushed"
     cache_dir = Path(cfg.get("federation", {}).get("cache_dir",
                 str(PERSEUS_HOME / "cache" / "federation"))).expanduser()
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -25514,9 +25662,13 @@ def _serve_render_endpoint(endpoint: str, cfg: dict, workspace: Path, query: dic
 
         if endpoint == "/.well-known/mcp/server-card.json":
             # Static metadata for Smithery capability discovery.
-            # Served without auth so Smithery's scanner can read it.
+            # Served without auth (bypass in _serve_handle_request, #562) so
+            # Smithery's scanner can read it — redact defensively since it is
+            # reachable unauthenticated.
             card = _build_server_card(cfg)
-            return (200, "application/json; charset=utf-8", json.dumps(card, indent=2))
+            body = json.dumps(card, indent=2)
+            body, _ = redact_text(body, cfg)
+            return (200, "application/json; charset=utf-8", body)
 
         return (404, "text/plain; charset=utf-8", f"Unknown endpoint: {endpoint}")
     except Exception as exc:
@@ -25608,14 +25760,33 @@ def cmd_serve(args, cfg):
             parsed = urlsplit(self.path)
             endpoint = parsed.path or "/"
             qs = dict(parse_qsl(parsed.query))
-            status, ctype, body = _serve_handle_request(endpoint, cfg, workspace, qs, self.headers)
+            status, ctype, body = _serve_handle_request(
+                endpoint, cfg, workspace, qs, self.headers, bind_host=host
+            )
             self._respond(status, ctype, body)
 
         def do_POST(self):  # noqa: N802
             parsed = urlsplit(self.path)
             endpoint = parsed.path or "/"
             if endpoint == "/federation/receive":
-                length = int(self.headers.get("Content-Length", 0) or 0)
+                # #561: a malformed Content-Length must 400 (not traceback),
+                # and a huge declared length must not force an unbounded
+                # in-memory read (matches federation.max_fetch_bytes pattern).
+                try:
+                    length = int(self.headers.get("Content-Length", 0) or 0)
+                except (TypeError, ValueError):
+                    self._respond(400, "application/json; charset=utf-8",
+                                  '{"error": "invalid Content-Length"}')
+                    return
+                try:
+                    max_bytes = int(cfg.get("federation", {}).get("push", {})
+                                    .get("max_receive_bytes", 4 * 1024 * 1024))
+                except (TypeError, ValueError):
+                    max_bytes = 4 * 1024 * 1024
+                if length < 0 or length > max_bytes:
+                    self._respond(413, "application/json; charset=utf-8",
+                                  '{"error": "payload too large"}')
+                    return
                 raw = self.rfile.read(length) if length else b""
                 status, ctype, body = _serve_handle_federation_receive(
                     cfg, workspace, raw, self.headers
