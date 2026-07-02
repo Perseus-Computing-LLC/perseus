@@ -53,7 +53,9 @@ MODULE_ORDER = [
     "src/perseus/tooltrim_connector.py",# ← @tooltrim directive (INTEGRATE)
     "src/perseus/vaultmem_connector.py",# ← vault-mem project memory (INTEGRATE)
     "src/perseus/kondukt_validator.py", # ← Kondukt MCP validator (PASS)
-    "src/perseus/memory_mesh.py",       # ← MemoryMesh persistent (MONITOR)
+    # memory_mesh.py (MemoryMesh PoC) deleted in #648 — zero callers, and its
+    # stdio MCP client carried every pre-#544 defect (blocking readline,
+    # undrained stderr pipe, no response-id correlation, locale-codec text mode).
     "src/perseus/memtrace.py",          # ← Memtrace codebase memory (MONITOR)
     # ───────────────────────────────────────────────────────────────────
     "src/perseus/bandit.py",            # ← #605: @bandit adaptive directive selection (before renderer: renderer's loop calls its hooks)

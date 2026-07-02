@@ -58,4 +58,14 @@ def _mneme_recall(cfg: dict, query: str, k: int = 5,
         return _mneme_search(conn, query, k, scope, type_filter, sensitivity)
     except Exception as exc:
         sys.stderr.write(f"> ⚠ Mnēmē recall failed (FTS5 index may be corrupt): {exc}\n")
+        # #645: page-level corruption that surfaces at query time (the file
+        # header still parses, so _mneme_open_index succeeded). Quarantine so
+        # the NEXT recall recreates + reindexes instead of failing forever.
+        # OperationalError (locks, missing FTS5 module) is transient/
+        # environmental — never quarantine for it.
+        if isinstance(exc, sqlite3.DatabaseError) and not isinstance(exc, sqlite3.OperationalError):
+            try:
+                _mneme_quarantine_corrupt_index(_mneme_index_path(cfg), exc)
+            except Exception:
+                pass
         return []
