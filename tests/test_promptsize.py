@@ -12,6 +12,12 @@ Covers:
 - @budget assertion: pass (silent) / warn (rc 0) / strict-fail (rc 1),
   including CLI --strict escalation and fence-awareness of the parser.
 - @budget renders as empty text (declaration costs nothing).
+- @budget scope edges (#626): a declaration inside an @include'd file is NOT
+  enforced but IS surfaced (included_budgets field + stderr warning); a
+  declaration in a false @if branch IS enforced (text-level scan, documented
+  contract).
+- static.tokens derivation (#626): clamped at 0 (BPE non-additivity in exact
+  mode) and flagged tokens_derived.
 - --since diff mode against a real temp git repository.
 """
 from __future__ import annotations
@@ -229,6 +235,108 @@ def test_budget_parser_is_fence_aware_and_flags_missing_max(tmp_path, monkeypatc
     assert len(budgets) == 1
     assert budgets[0]["max_tokens"] is None
     assert budgets[0]["strict"] is True
+
+
+# ── @budget scope edges (#626) ───────────────────────────────────────────────
+
+def test_included_budget_not_enforced_but_warned(tmp_path, monkeypatch, capsys):
+    # A strict, hopelessly-over budget declared INSIDE an @include'd Perseus
+    # source: must NOT be enforced (rc 0, no budgets rows) but MUST be
+    # surfaced — JSON included_budgets field + stderr warning (#626).
+    ws, src = _write(
+        tmp_path, monkeypatch,
+        '@perseus\n\n# Top\n' + ("filler words " * 50) + '\n@include "sub.md"\n',
+        extra={"sub.md": "@perseus\nnested body\n@budget max=1 strict\n"})
+    rc = perseus.cmd_prompt_size(_args(src, json=True, no_cache=True), {})
+    captured = capsys.readouterr()
+    report = json.loads(captured.out)
+    assert rc == 0, "include-declared budget must not be enforced"
+    assert report["budgets"] == []
+    assert report["included_budgets"] == [{"file": "sub.md", "count": 1}]
+    assert "not enforced" in captured.err
+    assert "declare budgets at top level" in captured.err
+    assert "sub.md" in captured.err
+
+
+def test_included_budget_scan_is_fence_aware_and_deduped(tmp_path, monkeypatch,
+                                                         capsys):
+    # The include scan reuses the fence-aware parser: a fenced @budget in an
+    # included file is content, not a declaration. Including the same file
+    # twice reports it once.
+    ws, src = _write(
+        tmp_path, monkeypatch,
+        '@perseus\n\n@include "fenced.md"\n@include "real.md"\n'
+        '@include "real.md"\n',
+        extra={"fenced.md": "plain text\n```\n@budget max=1\n```\n",
+               "real.md": "@perseus\nbody\n@budget max=2\n@budget max=3\n"})
+    report, rc = _report(src, capsys, no_cache=True)
+    assert rc == 0
+    assert report["included_budgets"] == [{"file": "real.md", "count": 2}]
+
+
+def test_no_included_budgets_stays_silent(tmp_path, monkeypatch, capsys):
+    ws, src = _write(tmp_path, monkeypatch,
+                     '@perseus\n\nbody\n@include "sub.md"\n@budget max=100000\n',
+                     extra={"sub.md": "plain include body, no declarations\n"})
+    rc = perseus.cmd_prompt_size(_args(src, json=True, no_cache=True), {})
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert "not enforced" not in captured.err
+    assert json.loads(captured.out)["included_budgets"] == []
+
+
+def test_budget_in_false_if_branch_is_still_enforced(tmp_path, monkeypatch,
+                                                     capsys):
+    # Documented scope contract (#626): the @budget scan is text-level and
+    # runs before conditionals — a declaration inside a false @if branch is
+    # parsed and enforced even though the branch renders nothing.
+    monkeypatch.delenv("PSTEST_DEFINITELY_UNSET", raising=False)
+    ws, src = _write(
+        tmp_path, monkeypatch,
+        "@perseus\n\n@if env.set PSTEST_DEFINITELY_UNSET\n"
+        "@budget max=1 strict\n@endif\n" + ("many words here " * 30) + "\n")
+    cfg = perseus.load_config(ws)
+    rendered = perseus.render_source(src.read_text(encoding="utf-8"), cfg, ws)
+    assert "many words here" in rendered  # sanity: body rendered ...
+    assert "@budget" not in rendered      # ... false branch did not
+    rc = perseus.cmd_prompt_size(_args(src, json=True), {})
+    captured = capsys.readouterr()
+    assert rc == 1, "text-level scan enforces budgets in false @if branches"
+    assert "FAIL" in captured.err
+    assert json.loads(captured.out)["budgets"][0]["status"] == "over"
+
+
+# ── static.tokens derivation (#626) ──────────────────────────────────────────
+
+def test_static_tokens_clamped_to_zero_and_flagged_derived(tmp_path, monkeypatch,
+                                                           capsys):
+    # BPE counts are not additive across span boundaries, so in exact mode
+    # total − Σ(directive tokens) can go slightly negative. Simulate the
+    # pathology with a tokenizer that counts every string as 1 token: two
+    # directives → 2 attributed tokens vs 1 total. static.tokens must clamp
+    # to 0 (never negative) and be flagged as derived; bytes stay exact.
+    monkeypatch.setenv("PSTEST_VALUE", "some-env-payload")
+    monkeypatch.setattr(perseus, "_PROMPTSIZE_TOKENIZER",
+                        [(lambda text: 1, "pathological-test", "exact")])
+    ws, src = _write(tmp_path, monkeypatch,
+                     "@perseus\n\nstatic body\n@env PSTEST_VALUE\n"
+                     "@env PSTEST_VALUE\n")
+    report, rc = _report(src, capsys, no_cache=True)
+    assert rc == 0
+    assert report["total"]["tokens"] == 1
+    assert sum(d["tokens"] for d in report["directives"]) == 2
+    assert report["static"]["tokens"] == 0, "derived static tokens must clamp at 0"
+    assert report["static"]["tokens_derived"] is True
+    assert report["accounting"]["exact"] is True  # byte invariant untouched
+
+
+def test_static_tokens_normal_path_nonnegative_and_flagged(tmp_path, monkeypatch,
+                                                           capsys):
+    ws, src = _write(tmp_path, monkeypatch,
+                     "@perseus\n\nplenty of static text here\n@date\n")
+    report, _ = _report(src, capsys, no_cache=True)
+    assert report["static"]["tokens"] >= 0
+    assert report["static"]["tokens_derived"] is True
 
 
 # ── --since diff mode ────────────────────────────────────────────────────────
