@@ -10441,385 +10441,6 @@ def inject_validation_if_available(context: str, cfg: dict) -> str:
         return context.rstrip() + "\n\n" + report + "\n"
     return context
 """
-Perseus → MemoryMesh integration hook.
-
-Plugs into Perseus's render_output() pipeline. At render time, optionally
-calls the MemoryMesh MCP server to enrich AGENTS.md with relevant personal
-knowledge base content — indexed files, notes, documents, email, etc.
-
-Integration design:
-  - **MCP subprocess**: calls `memorymesh start` via subprocess to run the MCP
-    server in stdio mode, then sends a `search_memory` tool call.
-    Alternatively, calls the REST API if MemoryMesh is running in HTTP mode.
-  - **Graceful degradation**: If memorymesh is not installed, the server fails
-    to start, or the search returns an error, returns empty results. Perseus
-    continues unchanged.
-  - **Opt-in**: Controlled by `MEMORY_MESH_ENABLED=1` env var. Off by default.
-  - **Token-aware**: Returns trimmed results (max 3 hits, 500 chars each).
-    Skips if the query is empty.
-
-Architecture fit: Perseus renders AGENTS.md at session start by resolving
-directives. MemoryMesh enriches that context with recent/relevant documents
-from the user's local knowledge base. Strong complement — Perseus handles
-pre-session context resolution, MemoryMesh provides mid-session document
-recall that can be injected into the pre-session context.
-
-Integration surface: Minimal — single Python module (~120 lines). Can be
-called via a `@memorymesh` directive in context.md or as a post-render hook.
-Uses subprocess to communicate with the MemoryMesh MCP server over stdio
-(JSON-RPC 2.0), OR the REST API at localhost:8766 if HTTP transport is
-configured. No SDK dependency — pure stdlib JSON-RPC over subprocess.
-
-Token efficiency: Adds overhead of running the MCP server subprocess (1-3s),
-but the retrieved content is high-value context that would otherwise be missing.
-Best used sparingly — 2-4 targeted queries per render. Each result limited to
-500 chars / 3 results per query = max ~1,500 extra tokens per directive.
-
-Maintenance burden: One-time integration. MemoryMesh is an independent pip
-package. If it disappears, Perseus continues unchanged. Bus factor: 1 (solo
-developer, first public project). This is the HIGHEST risk factor — a solo dev
-could abandon the project at any time. Mitigation: Perseus integration is
-~120 lines with graceful degradation; zero ongoing dependency.
-
-User-facing value: Moderate. A Perseus user with indexed personal documents
-would see relevant knowledge base content in their AGENTS.md at session start.
-For users without MemoryMesh configured, the directive is invisible overhead.
-
-Overlap: Partial. Perseus's mneme provides semantic + keyword memory via
-SQLite FTS5. MemoryMesh provides dense vector + BM25 hybrid search over files,
-with ChromaDB and sentence-transformers. They're complementary: mneme stores
-agent-authored memories (insights, architecture decisions), MemoryMesh indexes
-the user's existing files (notes, docs, code). However, there IS functional
-overlap in "search my project knowledge" — both could answer "how did I
-configure X". The key differentiator: MemoryMesh indexes external files;
-mneme stores agent-authored semantic memories.
-
-Decision recommendation: MONITOR
-- High bus factor risk (solo dev, first project)
-- Significant functional overlap with mneme
-- Heavy dependencies (ChromaDB, sentence-transformers) would need to work in the
-  Perseus render pipeline
-- Value add over mneme alone is incremental, not transformative
-- Re-evaluate if the project gains traction (stars, contributors, v1.0)
-"""
-
-import json
-import os
-import subprocess
-import time
-from pathlib import Path
-from typing import Any, Optional
-
-
-# #448: cache the resolved binary path for the process (see memtrace for the
-# rationale — _memorymesh_binary_path was re-probed via subprocess on every
-# query). Non-empty list = already probed; element is the path or None.
-_MEMORYMESH_BIN_CACHE: list = []
-
-
-class _PersistentMCPClient:
-    """Lightweight persistent MCP stdio client for satellite connectors (#448).
-
-    The Mimir connector already uses a singleton pattern — one Popen, reused
-    across all calls.  This class brings the same pattern to the lighter-weight
-    satellite connectors (memory_mesh, memtrace) so they don't pay a full
-    subprocess spawn + MCP handshake per query.
-
-    A single instance is created per (command tuple) and kept alive for the
-    process lifetime.  If the subprocess dies the next call transparently
-    reconnects.
-    """
-
-    _registry: dict[tuple, "_PersistentMCPClient"] = {}
-
-    def __init__(self, command: list[str]):
-        self._command = command
-        self._proc: Optional[subprocess.Popen] = None
-        self._next_id: int = 0
-
-    @classmethod
-    def for_command(cls, command: list[str]) -> "_PersistentMCPClient":
-        key = tuple(command)
-        if key not in cls._registry:
-            cls._registry[key] = cls(list(command))
-        return cls._registry[key]
-
-    @property
-    def _alive(self) -> bool:
-        return self._proc is not None and self._proc.poll() is None
-
-    def _connect(self) -> bool:
-        try:
-            self._proc = subprocess.Popen(
-                self._command,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
-            # MCP initialize handshake
-            resp, err = self._raw_call("initialize", {
-                "protocolVersion": "2025-06-18",
-                "capabilities": {},
-                "clientInfo": {"name": "perseus", "version": "1.0.10"},
-            })
-            if err or not resp:
-                self._disconnect()
-                return False
-            # Send initialized notification
-            self._send_notification("notifications/initialized", {})
-            return True
-        except Exception:
-            self._disconnect()
-            return False
-
-    def _ensure_connected(self) -> bool:
-        if self._alive:
-            return True
-        return self._connect()
-
-    def _disconnect(self) -> None:
-        if self._proc:
-            try:
-                self._proc.stdin.close()
-                self._proc.stdout.close()
-                self._proc.terminate()
-                self._proc.wait(timeout=5)
-            except Exception:
-                try:
-                    self._proc.kill()
-                except Exception:
-                    pass
-            self._proc = None
-
-    def _raw_call(self, method: str, params: dict) -> tuple[dict | None, str | None]:
-        """Send a JSON-RPC request and read exactly one line response."""
-        self._next_id += 1
-        rid = self._next_id
-        request = json.dumps({
-            "jsonrpc": "2.0",
-            "id": rid,
-            "method": method,
-            "params": params,
-        }) + "\n"
-        try:
-            self._proc.stdin.write(request)
-            self._proc.stdin.flush()
-        except (BrokenPipeError, OSError, AttributeError):
-            return None, "pipe write failed"
-        try:
-            line = self._proc.stdout.readline()
-            if not line:
-                return None, "empty response"
-            resp = json.loads(line)
-        except (json.JSONDecodeError, Exception) as e:
-            return None, str(e)
-        if "error" in resp:
-            return None, resp["error"].get("message", str(resp["error"]))
-        return resp.get("result"), None
-
-    def _send_notification(self, method: str, params: dict) -> None:
-        try:
-            note = json.dumps({"jsonrpc": "2.0", "method": method, "params": params}) + "\n"
-            self._proc.stdin.write(note)
-            self._proc.stdin.flush()
-        except Exception:
-            pass
-
-    def call_tool(self, tool_name: str, arguments: dict) -> tuple[dict | None, str | None]:
-        """Call an MCP tool, reconnecting transparently if needed."""
-        if not self._ensure_connected():
-            return None, "connection failed"
-        result, err = self._raw_call("tools/call", {
-            "name": tool_name,
-            "arguments": arguments,
-        })
-        if err:
-            # Transient failure — disconnect so the next call reconnects
-            self._disconnect()
-            return None, err
-        if result is None:
-            return None, "no result"
-        # Unwrap MCP content wrapper
-        content = result.get("content", [])
-        if content and isinstance(content, list):
-            first = content[0]
-            if isinstance(first, dict) and "text" in first:
-                try:
-                    return json.loads(first["text"]), None
-                except (json.JSONDecodeError, TypeError):
-                    return {"text": first["text"]}, None
-        return result, None
-
-
-def _memorymesh_binary_path() -> Optional[str]:
-    """Find the memorymesh CLI binary.
-
-    Returns the full path to the memorymesh CLI, or None if not installed.
-    Memoized per process (#448), including the not-installed result.
-    """
-    if _MEMORYMESH_BIN_CACHE:
-        return _MEMORYMESH_BIN_CACHE[0]
-
-    # Check common install locations
-    candidates = [
-        "memorymesh",  # rely on PATH
-        os.path.expanduser("~/.local/bin/memorymesh"),
-        "/usr/local/bin/memorymesh",
-    ]
-    found: Optional[str] = None
-    for candidate in candidates:
-        try:
-            result = subprocess.run(
-                [candidate, "--version"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            if result.returncode == 0:
-                found = candidate
-                break
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            continue
-    _MEMORYMESH_BIN_CACHE.append(found)
-    return found
-
-
-def _memorymesh_rest_health() -> bool:
-    """Check if MemoryMesh REST API is running on localhost:8766.
-
-    #448: Uses urllib instead of an external curl subprocess so the health
-    probe stays in-process (no subprocess spawn per check).
-    """
-    # #552: local import so this module is self-contained — this file's own
-    # top-level imports don't include urllib; without this, the function
-    # only worked because the build concatenation happened to put another
-    # module's `import urllib.request` in scope first (and a NameError here
-    # would be silently swallowed by the bare except below). Matches the
-    # pattern already used in _memorymesh_search_rest.
-    import urllib.request
-
-    try:
-        req = urllib.request.Request(
-            "http://localhost:8766/health",
-            headers={"User-Agent": "perseus-memorymesh/1.0"},
-        )
-        with urllib.request.urlopen(req, timeout=2) as resp:
-            return resp.status == 200
-    except Exception:
-        return False
-
-
-def _memorymesh_search_rest(query: str, top_k: int = 3) -> list[dict]:
-    """Search MemoryMesh via the REST API (when running in HTTP mode)."""
-    import urllib.request
-    import urllib.error
-
-    payload = json.dumps({
-        "query": query,
-        "top_k": top_k,
-        "mode": "hybrid",
-    }).encode("utf-8")
-
-    req = urllib.request.Request(
-        "http://localhost:8766/api/search",
-        data=payload,
-        headers={"Content-Type": "application/json"},
-    )
-
-    try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            return data.get("results", [])
-    except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError):
-        return []
-
-
-def _memorymesh_search_mcp(query: str, top_k: int = 3) -> list[dict]:
-    """Search MemoryMesh via MCP JSON-RPC over persistent subprocess (#448).
-
-    Reuses a single subprocess across calls instead of spawning a fresh
-    process + handshake per query. Falls back to empty list on any failure.
-    """
-    binary = _memorymesh_binary_path()
-    if not binary:
-        return []
-
-    client = _PersistentMCPClient.for_command([binary, "start", "--transport", "stdio"])
-    result, err = client.call_tool("search_memory", {
-        "query": query,
-        "top_k": top_k,
-        "mode": "hybrid",
-    })
-    if err or result is None:
-        return []
-    if isinstance(result, list):
-        return result
-    if isinstance(result, dict) and "results" in result:
-        return result["results"]
-    return []
-
-
-def memorymesh_search(query: str, top_k: int = 3) -> list[dict]:
-    """Search MemoryMesh for content relevant to the given query.
-
-    Tries the REST API first (faster, no startup cost), falls back to the
-    MCP subprocess if the REST API is not running.
-
-    Args:
-        query: Natural language query to search for.
-        top_k: Maximum number of results to return (1-10).
-
-    Returns:
-        List of result dicts with keys: path, preview, score, source.
-        Empty list if MemoryMesh is unavailable, not configured, or the
-        search returns no results.
-    """
-    if not os.environ.get("MEMORY_MESH_ENABLED", "").strip() in ("1", "true", "yes"):
-        return []
-
-    if not query or not query.strip():
-        return []
-
-    top_k = max(1, min(top_k, 10))
-
-    # Try REST API first (faster — no server startup)
-    if _memorymesh_rest_health():
-        return _memorymesh_search_rest(query, top_k)
-
-    # Fall back to MCP subprocess
-    return _memorymesh_search_mcp(query, top_k)
-
-
-def memorymesh_format_for_context(results: list[dict], max_chars: int = 500) -> str:
-    """Format MemoryMesh search results for injection into AGENTS.md.
-
-    Args:
-        results: List of result dicts from memorymesh_search().
-        max_chars: Maximum characters per result preview.
-
-    Returns:
-        Formatted markdown string suitable for AGENTS.md inclusion.
-        Empty string if no results.
-    """
-    if not results:
-        return ""
-
-    lines = ["\n## MemoryMesh Knowledge Base\n"]
-    for i, r in enumerate(results[:3]):
-        path = r.get("path", "unknown")
-        preview = r.get("preview", "")
-        score = r.get("score", 0)
-        source = r.get("source", "unknown")
-
-        if len(preview) > max_chars:
-            preview = preview[:max_chars] + "..."
-
-        lines.append(f"### {i + 1}. `{path}` ({source}, score: {score:.3f})")
-        lines.append(f"```\n{preview}\n```\n")
-
-    return "\n".join(lines)
-"""
 Perseus → Memtrace integration hook.
 
 Plugs into Perseus's render_output() pipeline. At render time, optionally
@@ -14952,6 +14573,16 @@ def _mneme_recall(cfg: dict, query: str, k: int = 5,
         return _mneme_search(conn, query, k, scope, type_filter, sensitivity)
     except Exception as exc:
         sys.stderr.write(f"> ⚠ Mnēmē recall failed (FTS5 index may be corrupt): {exc}\n")
+        # #645: page-level corruption that surfaces at query time (the file
+        # header still parses, so _mneme_open_index succeeded). Quarantine so
+        # the NEXT recall recreates + reindexes instead of failing forever.
+        # OperationalError (locks, missing FTS5 module) is transient/
+        # environmental — never quarantine for it.
+        if isinstance(exc, sqlite3.DatabaseError) and not isinstance(exc, sqlite3.OperationalError):
+            try:
+                _mneme_quarantine_corrupt_index(_mneme_index_path(cfg), exc)
+            except Exception:
+                pass
         return []
 # ─────────────────────── Mnēmē v2 — SQLite FTS5 Index ────────────────────────
 # Persistent BM25 index over Perseus-native vault .md files.
@@ -15026,34 +14657,73 @@ _MNEME_FIELD_WEIGHTS = {
 # Keyed by pid so forked processes get their own connection.
 _MNEME_CONN_CACHE: dict[tuple[str, int], sqlite3.Connection] = {}
 
+# #645: index paths already warned about corruption in this process — the
+# quarantine warning fires once per index, not once per recall.
+_MNEME_CORRUPT_WARNED: set[str] = set()
 
-def _mneme_open_index(cfg: dict):
-    """Open (or create) the SQLite FTS5 index. Returns sqlite3.Connection.
 
-    Enables WAL mode for concurrent reads. Creates tables on first open.
-    Returns None if the vault directory cannot be determined.
-    Connections are cached per-process for the lifetime of the interpreter.
+def _mneme_quarantine_corrupt_index(index_path: Path, exc: "Exception | None" = None):
+    """Quarantine a corrupt FTS5 index so the next open recreates it (#645).
+
+    Closes and evicts any cached connection to the file (Windows cannot
+    rename an open file), renames the DB to ``<name>.corrupt-<timestamp>``
+    (WAL/SHM sidecars follow), and warns ONCE per index path on stderr.
+    If the rename fails, the file is deleted instead — the index is a derived
+    artifact, fully rebuildable from the vault ``.md`` files.
+
+    Returns the quarantine Path when the DB file was renamed, else None.
     """
-    try:
-        index_path = _mneme_index_path(cfg)
-    except Exception:
-        return None
-
-    cache_key = (str(index_path), os.getpid())
-    cached = _MNEME_CONN_CACHE.get(cache_key)
-    if cached is not None:
-        # Check that the cached connection hasn't been closed externally
-        # (tests, signal handlers, explicit close). If closed, re-create.
+    index_str = str(index_path)
+    for key in [k for k in _MNEME_CONN_CACHE if k[0] == index_str]:
         try:
-            cached.execute("SELECT 1")
-            return cached
-        except (sqlite3.ProgrammingError, sqlite3.OperationalError):
-            del _MNEME_CONN_CACHE[cache_key]
+            _MNEME_CONN_CACHE[key].close()
+        except Exception:
+            pass
+        del _MNEME_CONN_CACHE[key]
 
-    index_path.parent.mkdir(parents=True, exist_ok=True)
-
+    stamp = datetime.now().strftime("%Y%m%dT%H%M%S")
+    quarantine = index_path.with_name(f"{index_path.name}.corrupt-{stamp}")
+    renamed = None
     try:
-        conn = sqlite3.connect(str(index_path), check_same_thread=False)
+        if index_path.exists():
+            os.replace(index_path, quarantine)
+            renamed = quarantine
+    except OSError:
+        try:
+            index_path.unlink(missing_ok=True)
+        except OSError:
+            return None  # cannot move or remove — nothing more we can do
+    for suffix in ("-wal", "-shm"):
+        sidecar = index_path.with_name(index_path.name + suffix)
+        try:
+            if sidecar.exists():
+                os.replace(sidecar, quarantine.with_name(quarantine.name + suffix))
+        except OSError:
+            try:
+                sidecar.unlink(missing_ok=True)
+            except OSError:
+                pass
+    if index_str not in _MNEME_CORRUPT_WARNED:
+        _MNEME_CORRUPT_WARNED.add(index_str)
+        where = f" — quarantined to {renamed.name}" if renamed else " — removed"
+        detail = f" ({exc})" if exc else ""
+        sys.stderr.write(
+            f"> ⚠ Mnēmē FTS5 index at {index_path} is corrupt{detail}{where}. "
+            "Recreating; memories are reindexed from the vault .md files on "
+            "the next recall.\n"
+        )
+    return renamed
+
+
+def _mneme_connect(index_path: Path) -> sqlite3.Connection:
+    """Connect to the index, configure pragmas, and create/migrate the schema.
+
+    Raises on failure (``sqlite3.DatabaseError`` for a corrupt DB file),
+    closing the half-open connection first so the file can be quarantined
+    (renamed) even on Windows.
+    """
+    conn = sqlite3.connect(str(index_path), check_same_thread=False)
+    try:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
         conn.execute("PRAGMA busy_timeout=5000")
@@ -15085,12 +14755,73 @@ def _mneme_open_index(cfg: dict):
                 conn.execute("DELETE FROM mneme_files")
                 conn.execute("DELETE FROM mneme_meta WHERE key LIKE 'schema_%'")
                 conn.executescript(_MNEME_SCHEMA_SQL)
+        except sqlite3.OperationalError:
+            pass  # Table doesn't exist yet / transient lock — fine
+        except sqlite3.DatabaseError:
+            raise  # #645: corruption — surface to the recovery path
         except Exception:
-            pass  # Table doesn't exist yet — fine
-        _MNEME_CONN_CACHE[cache_key] = conn
+            pass  # Defensive: pre-#645 behavior for non-database errors
         return conn
     except Exception:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        raise
+
+
+def _mneme_open_index(cfg: dict):
+    """Open (or create) the SQLite FTS5 index. Returns sqlite3.Connection.
+
+    Enables WAL mode for concurrent reads. Creates tables on first open.
+    Returns None if the vault directory cannot be determined.
+    Connections are cached per-process for the lifetime of the interpreter.
+
+    #645: a corrupt index file (bad disk sector, truncated write, garbage
+    bytes) is quarantined and recreated — with a one-time stderr warning —
+    instead of being swallowed into a silent ``None`` that turned recall off
+    forever. The recreated index is empty, so the caller's usual
+    ``_mneme_build_index`` pass performs the full reindex from the vault.
+    """
+    try:
+        index_path = _mneme_index_path(cfg)
+    except Exception:
+        return None  # vault dir undeterminable — silent by design
+
+    cache_key = (str(index_path), os.getpid())
+    cached = _MNEME_CONN_CACHE.get(cache_key)
+    if cached is not None:
+        # Check that the cached connection hasn't been closed externally
+        # (tests, signal handlers, explicit close). If closed, re-create.
+        try:
+            cached.execute("SELECT 1")
+            return cached
+        except (sqlite3.ProgrammingError, sqlite3.OperationalError):
+            del _MNEME_CONN_CACHE[cache_key]
+
+    try:
+        index_path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError:
         return None
+
+    try:
+        conn = _mneme_connect(index_path)
+    except sqlite3.OperationalError:
+        # Locked / cannot open / FTS5 unavailable — environment problem, not
+        # file corruption. Do NOT quarantine a file another process may hold.
+        return None
+    except sqlite3.DatabaseError as exc:
+        # Corrupt index file (#645): quarantine, recreate, warn once. The
+        # source .md files are intact — a rebuild fully recovers.
+        _mneme_quarantine_corrupt_index(index_path, exc)
+        try:
+            conn = _mneme_connect(index_path)
+        except Exception:
+            return None
+    except Exception:
+        return None
+    _MNEME_CONN_CACHE[cache_key] = conn
+    return conn
 
 
 def _mneme_build_field_columns(doc: dict) -> tuple[str, str, str, str, str]:
@@ -15342,10 +15073,11 @@ def _mneme_search(conn, query: str, k: int = 5,
         f"LIMIT {max(1, min(k, 100))}"
     )
 
-    try:
-        rows = conn.execute(sql, params).fetchall()
-    except Exception:
-        return []
+    # #645: do NOT swallow query-time errors here. A corrupt index page or a
+    # broken FTS5 table used to become a silent [] — the "index may be
+    # corrupt" warning in memory._mneme_recall was dead code. Let the caller
+    # see the failure so it can warn and trigger quarantine/rebuild.
+    rows = conn.execute(sql, params).fetchall()
 
     results = []
     for row in rows:
@@ -16694,10 +16426,47 @@ def _jaccard_similarity(text_a: str, text_b: str) -> float:
     return _jaccard_tokens(set(text_a.lower().split()), set(text_b.lower().split()))
 
 
-def _detect_conflicts(subs: list[dict], cfg: dict) -> list[dict]:
+def _federation_peer_body(sub: "dict | None", cfg: dict) -> tuple["str | None", "str | None"]:
+    """Resolve a subscription to its narrative body — (body, reason).
+
+    Returns (body, None) on success and (None, human-readable reason) when
+    the peer's narrative is missing, unreadable, or empty. #650: callers must
+    surface the reason (briefing marker or stderr note) instead of silently
+    dropping the peer and presenting a partial cross-workspace view as
+    complete.
+    """
+    if not sub:
+        return None, "no such subscription"
+    remote = sub.get("remote")
+    if remote:
+        body, err, _ws_id = _resolve_remote_narrative(sub, cfg)
+        if body and body.strip():
+            return body, None
+        return None, err or "remote narrative empty or unavailable"
+    narrative, err = _resolve_subscription_narrative(sub, cfg)
+    if err:
+        return None, err
+    try:
+        _fm, body = _load_narrative(narrative)
+    except Exception as e:
+        return None, f"narrative unreadable: {e}"
+    if not body or not body.strip():
+        # _load_narrative maps read failures (permissions, not-a-file) to an
+        # empty body — either way there is nothing usable to compare.
+        return None, "narrative empty or unreadable"
+    return body, None
+
+
+def _detect_conflicts(subs: list[dict], cfg: dict,
+                      unreadable: "list | None" = None) -> list[dict]:
     """Detect overlapping topics across federated narratives.
 
     Returns list of {topic, workspaces, similarity} dicts.
+
+    unreadable (#650): optional out-list; receives (alias, reason) for every
+    peer whose narrative could not be read, so callers can annotate the
+    rendered view instead of silently claiming a complete cross-workspace
+    comparison.
     """
     threshold = float(cfg.get("federation", {}).get("conflict_threshold", 0.6))
 
@@ -16707,24 +16476,17 @@ def _detect_conflicts(subs: list[dict], cfg: dict) -> list[dict]:
     ws_sections: dict[str, dict[str, set]] = {}
     for sub in subs:
         alias = sub.get("alias", "?")
-        remote = sub.get("remote")
-        if remote:
-            body, _err, _ws_id = _resolve_remote_narrative(sub, cfg)
-        else:
-            narrative, err = _resolve_subscription_narrative(sub, cfg)
-            if err:
-                continue
-            try:
-                fm, body = _load_narrative(narrative)
-            except Exception:
-                continue
-        if body and body.strip():
-            sections = _extract_sections(body)
-            if sections:
-                ws_sections[alias] = {
-                    heading: set(text.lower().split())
-                    for heading, text in sections.items()
-                }
+        body, reason = _federation_peer_body(sub, cfg)
+        if body is None:
+            if unreadable is not None:
+                unreadable.append((alias, reason or "narrative unreadable"))
+            continue
+        sections = _extract_sections(body)
+        if sections:
+            ws_sections[alias] = {
+                heading: set(text.lower().split())
+                for heading, text in sections.items()
+            }
 
     conflicts = []
     aliases = list(ws_sections.keys())
@@ -16754,15 +16516,23 @@ def _render_federation_conflicts(cfg: dict) -> str:
     if len(subs) < 2:
         return "> _Need at least 2 enabled subscriptions for conflict detection._"
 
-    conflicts = _detect_conflicts(subs, cfg)
+    unreadable: list = []
+    conflicts = _detect_conflicts(subs, cfg, unreadable=unreadable)
+    # #650: peers whose narratives could not be read must not silently vanish
+    # — the view would otherwise claim a complete cross-workspace comparison.
+    notes = [f"> _(peer {alias}: narrative unreadable — {reason})_"
+             for alias, reason in unreadable]
     if not conflicts:
-        return "> ✅ No narrative conflicts detected across federated workspaces."
+        lines = ["> ✅ No narrative conflicts detected across federated workspaces."]
+        lines.extend(notes)
+        return "\n".join(lines)
 
     lines = ["> ⚠ Narrative conflicts detected:\n", ">", "> | Topic | Workspaces | Similarity |", "> |---|---|---|"]
     for c in conflicts:
         ws_list = ", ".join(c["workspaces"])
         lines.append(f"> | {c['topic']} | {ws_list} | {c['similarity']:.0%} |")
     lines.append(">")
+    lines.extend(notes)
     lines.append(f"> Run `perseus memory federation diff` to inspect.")
     return "\n".join(lines)
 
@@ -16772,29 +16542,14 @@ def _render_federation_diff(cfg: dict, alias_a: str, alias_b: str) -> str:
     manifest = _load_federation_manifest(cfg)
     subs = {s.get("alias"): s for s in manifest.get("subscriptions", [])}
 
-    def _get_body(sub):
-        if not sub:
-            return None
-        remote = sub.get("remote")
-        if remote:
-            body, err, _ = _resolve_remote_narrative(sub, cfg)
-            return body if body else None
-        narrative, err = _resolve_subscription_narrative(sub, cfg)
-        if err:
-            return None
-        try:
-            fm, body = _load_narrative(narrative)
-            return body
-        except Exception:
-            return None
+    body_a, why_a = _federation_peer_body(subs.get(alias_a), cfg)
+    body_b, why_b = _federation_peer_body(subs.get(alias_b), cfg)
 
-    body_a = _get_body(subs.get(alias_a))
-    body_b = _get_body(subs.get(alias_b))
-
+    # #650: say WHY the peer is missing instead of dropping it wordlessly.
     if body_a is None:
-        return f"> ⚠ {alias_a}: narrative unavailable."
+        return f"> ⚠ {alias_a}: narrative unavailable — {why_a}."
     if body_b is None:
-        return f"> ⚠ {alias_b}: narrative unavailable."
+        return f"> ⚠ {alias_b}: narrative unavailable — {why_b}."
 
     lines = [f"## {alias_a} vs {alias_b}\n"]
     secs_a = _extract_sections(body_a)
@@ -16841,26 +16596,14 @@ def cmd_memory_federation_merge(args, cfg) -> int | None:
     manifest = _load_federation_manifest(cfg)
     subs = {s.get("alias"): s for s in manifest.get("subscriptions", [])}
 
-    def _get_body(sub):
-        if not sub:
-            return None
-        remote = sub.get("remote")
-        if remote:
-            body, err, _ = _resolve_remote_narrative(sub, cfg)
-            return body
-        narrative, err = _resolve_subscription_narrative(sub, cfg)
-        if err:
-            return None
-        try:
-            fm, body = _load_narrative(narrative)
-            return body
-        except Exception:
-            return None
-
-    body_a = _get_body(subs.get(alias_a))
-    body_b = _get_body(subs.get(alias_b))
+    body_a, why_a = _federation_peer_body(subs.get(alias_a), cfg)
+    body_b, why_b = _federation_peer_body(subs.get(alias_b), cfg)
 
     if body_a is None or body_b is None:
+        # #650: name the unreadable peer(s) and the reason on stderr.
+        for alias, body, why in ((alias_a, body_a, why_a), (alias_b, body_b, why_b)):
+            if body is None:
+                print(f"⚠ {alias}: narrative unreadable — {why}", file=sys.stderr)
         print("One or both narratives unavailable.", file=sys.stderr)
         return 1
 
@@ -18441,11 +18184,23 @@ def _retry_with_backoff(
     max_attempts: int = 3,
     backoff_base: float = 1.5,
     circuit_breaker: Optional[CircuitBreaker] = None,
+    abort_check: Optional[Callable] = None,
 ) -> tuple[Any, Optional[str]]:
     """Call fn() with exponential backoff. Returns (result, error_string).
 
     If circuit_breaker is provided, each failure is reported to it, and
     if the breaker is open, the call is skipped entirely.
+
+    abort_check (#649): called after a failed attempt; when it returns True
+    the remaining attempts AND their backoff sleeps are skipped. Used to stop
+    retrying once the MCP transport has been torn down (`_call` disconnects
+    the client on timeout/EOF) — every remaining attempt would fail instantly
+    with "MCP process not running", so the sleeps between them are pure dead
+    time (~3.75s per query with the defaults). The skipped attempts are still
+    reported to the circuit breaker — they would have failed exactly the same
+    way had they run — so breaker behavior (e.g. opening after ONE fully
+    failed query when threshold == max_attempts) is byte-identical to
+    actually performing them.
     """
     last_error = None
     for attempt in range(max_attempts):
@@ -18461,6 +18216,17 @@ def _retry_with_backoff(
             if circuit_breaker:
                 circuit_breaker.failure()
             if attempt < max_attempts - 1:
+                aborted = False
+                if abort_check is not None:
+                    try:
+                        aborted = bool(abort_check())
+                    except Exception:
+                        aborted = False
+                if aborted:
+                    if circuit_breaker:
+                        for _ in range(attempt + 1, max_attempts):
+                            circuit_breaker.failure()
+                    break
                 delay = backoff_base ** attempt
                 time.sleep(delay)
     return None, last_error
@@ -18976,6 +18742,17 @@ class MnemeConnector:
         """Is Mneme reachable via MCP?"""
         return self._client is not None and self._client.is_connected
 
+    def _transport_gone(self) -> bool:
+        """True when the MCP transport has been torn down mid-query (#649).
+
+        `_call` disconnects the client on timeout or crash-EOF; once that has
+        happened, further retry attempts inside the same `_retry_with_backoff`
+        loop fail instantly with "MCP process not running" — sleeping between
+        them cannot help. Passed as `abort_check` so those dead sleeps are
+        skipped (reconnecting is deliberately left to the NEXT query via
+        `_ensure_connected`, which is gated by the circuit breaker)."""
+        return not self.available
+
     @property
     def status(self) -> str:
         """Human-readable connection status."""
@@ -19052,6 +18829,7 @@ class MnemeConnector:
             max_attempts=self._max_retries,
             backoff_base=self._backoff_base,
             circuit_breaker=self._breaker,
+            abort_check=self._transport_gone,
         )
 
         if err:
@@ -19108,6 +18886,7 @@ class MnemeConnector:
             max_attempts=self._max_retries,
             backoff_base=self._backoff_base,
             circuit_breaker=self._breaker,
+            abort_check=self._transport_gone,
         )
 
         if err:
@@ -19167,6 +18946,7 @@ class MnemeConnector:
             max_attempts=self._max_retries,
             backoff_base=self._backoff_base,
             circuit_breaker=self._breaker,
+            abort_check=self._transport_gone,
         )
         if err or not isinstance(raw, dict) or raw.get("found") is False:
             return None
@@ -19209,6 +18989,7 @@ class MnemeConnector:
             max_attempts=self._max_retries,
             backoff_base=self._backoff_base,
             circuit_breaker=self._breaker,
+            abort_check=self._transport_gone,
         )
 
         if err or not isinstance(raw_result, dict):
@@ -19299,6 +19080,7 @@ class MnemeConnector:
             max_attempts=self._max_retries,
             backoff_base=self._backoff_base,
             circuit_breaker=self._breaker,
+            abort_check=self._transport_gone,
         )
 
         if err:
@@ -25985,7 +25767,8 @@ def _speculate_build_predictor(scfg: dict):
 # ───────────────────────── Intent history (waypoints) ────────────────────────
 
 def _speculate_intent_history(cfg: dict, workspace: "Path | None" = None,
-                              window: int = 200) -> list[str]:
+                              window: int = 200,
+                              files: "list | None" = None) -> list[str]:
     """Chronological task-intent sequence from the checkpoint (waypoint) store.
 
     Checkpoints ARE the waypoint transitions: each `perseus checkpoint
@@ -25993,6 +25776,18 @@ def _speculate_intent_history(cfg: dict, workspace: "Path | None" = None,
     tagged with a different workspace are excluded (untagged ones are kept).
     Ordering comes from the checkpoint filename sort (deterministic under a
     fixed corpus — no wall-clock reads here).
+
+    #636: bounded work. Every opted-in render used to read + yaml-parse EVERY
+    checkpoint file and apply the `window` slice only afterwards — O(store
+    size) per render (~+155 ms at 200 files, ~+287 ms at 1000). Now the
+    newest-first listing is walked with an early stop once `window` matching
+    intents are collected. The newest `window` matching intents, reversed,
+    ARE the old `seq[-window:]` — identical output for every store, mixed
+    workspaces included — but parsing stops as soon as the window is full
+    instead of always visiting every file. With `window <= 0` (unbounded)
+    behavior is unchanged. `files` lets callers reuse one
+    `_list_checkpoint_files` listing across history + marker instead of
+    re-listing the store.
     """
     ws_resolved = None
     if workspace is not None:
@@ -26000,8 +25795,12 @@ def _speculate_intent_history(cfg: dict, workspace: "Path | None" = None,
             ws_resolved = str(Path(workspace).expanduser().resolve())
         except (OSError, ValueError):
             ws_resolved = str(workspace)
-    seq: list[str] = []
-    for fp in reversed(_list_checkpoint_files(cfg)):  # ascending chronological
+    if files is None:
+        files = _list_checkpoint_files(cfg)
+    newest_first: list[str] = []
+    for fp in files:  # newest-first (reverse chronological)
+        if window > 0 and len(newest_first) >= window:
+            break  # enough intents collected — skip the older tail entirely
         cp = _load_checkpoint_file(fp)
         if not cp:
             continue
@@ -26014,16 +25813,19 @@ def _speculate_intent_history(cfg: dict, workspace: "Path | None" = None,
                 continue
         task = str(cp.get("task") or "").strip()
         if task:
-            seq.append(task)
-    if window > 0:
-        seq = seq[-window:]
-    return seq
+            newest_first.append(task)
+    newest_first.reverse()  # ascending chronological, like the old seq[-window:]
+    return newest_first
 
 
-def _speculate_latest_marker(cfg: dict) -> str:
+def _speculate_latest_marker(cfg: dict, files: "list | None" = None) -> str:
     """Identity of the newest checkpoint — used to detect that a real turn
-    happened between two speculation passes (settlement trigger)."""
-    files = _list_checkpoint_files(cfg)
+    happened between two speculation passes (settlement trigger).
+
+    #636: accepts a pre-computed `_list_checkpoint_files` listing so callers
+    that already listed the store don't pay a second directory scan."""
+    if files is None:
+        files = _list_checkpoint_files(cfg)
     return files[0].name if files else ""
 
 
@@ -26211,10 +26013,13 @@ def run_speculation(cfg: dict, workspace: "Path | None" = None,
     if not scfg["enabled"]:
         return out
 
-    history = _speculate_intent_history(cfg, workspace, scfg["history_window"])
+    # #636: one store listing shared by history + marker (was two scans).
+    cp_files = _list_checkpoint_files(cfg)
+    history = _speculate_intent_history(cfg, workspace, scfg["history_window"],
+                                        files=cp_files)
     current = history[-1] if history else None
     out["current_intent"] = current
-    marker = _speculate_latest_marker(cfg)
+    marker = _speculate_latest_marker(cfg, files=cp_files)
 
     stats = _load_speculate_stats(cfg, workspace)
 
