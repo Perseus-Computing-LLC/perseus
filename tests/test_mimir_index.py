@@ -462,3 +462,61 @@ class TestPersistence:
         conn.close()
         assert len(results) >= 1
         assert results[0]["title"] == "Persistent"
+
+
+# ---------------------------------------------------------------------------
+# #550: metadata columns must not influence BM25 ranking
+# ---------------------------------------------------------------------------
+
+class TestBm25MetadataWeights:
+    """SQLite defaults unspecified bm25() column weights to 1.0, not 0.0 —
+    every column must get an explicit weight or metadata (id, source_path,
+    updated, ...) silently participates in ranking."""
+
+    def test_fts_columns_constant_matches_schema(self, tmp_path):
+        """_MNEME_FTS_COLUMNS (drives the bm25() weight list) must mirror
+        the actual FTS5 table so the two can never drift apart."""
+        c = _index_cfg(tmp_path)
+        conn = perseus._mneme_open_index(c)
+        cols = [row[1] for row in conn.execute("PRAGMA table_info(mneme_fts)")]
+        conn.close()
+        assert cols == perseus._MNEME_FTS_COLUMNS
+
+    def test_metadata_match_does_not_outrank_body_match(self, tmp_path):
+        c = _index_cfg(tmp_path)
+        vault = Path(c["memory"]["mneme_vault_path"])
+        # Doc whose BODY contains the query term.
+        _write_memory(vault, "body-doc", "Deployment notes", "How we deploy",
+                      body="The zebra pattern is used for rollouts.")
+        # Doc whose ONLY occurrence of the term is metadata — its id and
+        # source_path (the vault filename) both contain 'zebra'.
+        _write_memory(vault, "zebra-metadata-doc", "Unrelated title",
+                      "Unrelated summary", body="Nothing relevant here.")
+        perseus._mneme_build_index(c)
+
+        conn = perseus._mneme_open_index(c)
+        results = perseus._mneme_search(conn, "zebra", k=5)
+        conn.close()
+
+        assert results, "the body match must be found"
+        assert results[0]["id"] == "body-doc", (
+            "metadata-only match outranked a genuine body match — "
+            "bm25() metadata columns are participating in ranking again"
+        )
+        by_id = {r["id"]: r for r in results}
+        if "zebra-metadata-doc" in by_id:
+            # A metadata-only match contributes zero ranking weight: its
+            # bm25 score is exactly 0.0, strictly worse (higher) than any
+            # weighted match (bm25 is negative for good matches).
+            assert by_id["zebra-metadata-doc"]["score"] == 0.0
+
+    def test_bm25_weight_list_covers_every_column(self):
+        """Weighted content columns + zero-weighted metadata == full schema."""
+        weighted = set(perseus._MNEME_FIELD_WEIGHTS)
+        all_cols = set(perseus._MNEME_FTS_COLUMNS)
+        assert weighted <= all_cols
+        # Metadata columns are present in the schema list (weight 0.0).
+        for meta in ("id", "type", "scope", "sensitivity", "confidence",
+                     "source_path", "updated"):
+            assert meta in all_cols
+            assert meta not in weighted

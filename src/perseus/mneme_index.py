@@ -46,8 +46,18 @@ _MNEME_MIGRATIONS = [
 ]
 
 # Per-column BM25 weights for FTS5 native weighting (bm25() positional args).
-# Column order in CREATE VIRTUAL TABLE: id, title, summary, tags, topic_path, body, type, scope, updated
-#   bm25(mneme_fts, 0.0, 3.0, 2.0, 2.0, 1.0, 1.0)  — remaining columns default to 0.0
+# #550: SQLite defaults UNSPECIFIED trailing columns to weight 1.0 (not 0.0),
+# so every column must get an explicit weight or metadata columns
+# (source_path, updated, ...) silently participate in ranking at full weight.
+# The bm25() argument list is generated from _MNEME_FTS_COLUMNS +
+# _MNEME_FIELD_WEIGHTS below (see _mneme_search) so they cannot drift apart.
+# Columns absent from _MNEME_FIELD_WEIGHTS get weight 0.0 (excluded from
+# ranking): id + the metadata columns type, scope, sensitivity, confidence,
+# source_path, updated.
+_MNEME_FTS_COLUMNS = [
+    "id", "title", "summary", "tags", "topic_path", "body",
+    "type", "scope", "sensitivity", "confidence", "source_path", "updated",
+]
 _MNEME_FIELD_WEIGHTS = {
     "title": 3,
     "summary": 2,
@@ -357,12 +367,21 @@ def _mneme_search(conn, query: str, k: int = 5,
     type_clause = "AND mneme_fts.type = ?" if type_filter else ""
     sensitivity_clause = "AND mneme_fts.sensitivity = ?" if sensitivity else ""
 
+    # #550: explicit weight for EVERY column — SQLite defaults unspecified
+    # trailing bm25() weights to 1.0, which let metadata columns
+    # (source_path, updated, ...) influence ranking. Generated from
+    # _MNEME_FIELD_WEIGHTS so the declared weights are the single source
+    # of truth; unlisted columns are pinned to 0.0.
+    bm25_weights = ", ".join(
+        f"{float(_MNEME_FIELD_WEIGHTS.get(col, 0.0))}" for col in _MNEME_FTS_COLUMNS
+    )
+
     sql = (
         "SELECT mneme_fts.id, mneme_fts.title, mneme_fts.type, mneme_fts.scope, "
         "mneme_fts.summary, mneme_fts.updated, mneme_fts.sensitivity, "
         "mneme_fts.confidence, mneme_fts.source_path, "
         "snippet(mneme_fts, 5, '<mark>', '</mark>', '…', 40) AS snippet, "
-        "bm25(mneme_fts, 0.0, 3.0, 2.0, 2.0, 1.0, 1.0) AS score "
+        f"bm25(mneme_fts, {bm25_weights}) AS score "
         "FROM mneme_fts "
         f"WHERE mneme_fts MATCH ? {scope_clause} {type_clause} {sensitivity_clause} "
         "ORDER BY score "
