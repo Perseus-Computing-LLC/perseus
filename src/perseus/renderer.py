@@ -120,13 +120,12 @@ def _parse_cache_modifier(line: str) -> tuple[str, str, int | None, str | None]:
 
 # #612: directives whose rendered output depends on PERSEUS_ALLOW_DANGEROUS
 # (they emit a "gate not set" warning instead of running when it's unset, per
-# their resolvers in directives/agent.py and directives/services.py). Their
-# cache fingerprint must include the env var so a flip auto-invalidates; every
-# other directive keeps an empty fingerprint (bare base key + TTL fallback).
-# NOTE: @query is deliberately NOT here — its resolver gates on the
-# render.allow_query_shell CONFIG flag, not this env var (see #616). Config
-# values were never part of the fingerprint, so @query stays empty-fingerprint.
-_ENV_GATED_DIRECTIVES = frozenset({"@agent", "@services"})
+# their resolvers in directives/agent.py, directives/services.py, and
+# directives/query.py). Their cache fingerprint must include the env var so a
+# flip auto-invalidates; every other directive keeps an empty fingerprint
+# (bare base key + TTL fallback). @query joined in #616 when its resolver
+# gained the same defense-in-depth env gate as its shell-exec siblings.
+_ENV_GATED_DIRECTIVES = frozenset({"@agent", "@services", "@query"})
 
 
 def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path | None, cfg: dict) -> str:
@@ -150,14 +149,14 @@ def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path | N
       @tree <dir>          → sha256 of recursive directory listing
       @env <VAR>           → no fingerprint (value changes per-process)
       @query ...           → no file fingerprint (shell output depends on system
-                              state, not static files — let TTL handle staleness)
+                              state, not static files — let TTL handle staleness),
+                              but carries the env-gate fragment (#616, below)
       @perseus <url>       → no fingerprint (remote content changes independently)
 
-    Env-gated directives (#612): @agent and @services carry a
+    Env-gated directives (#612, #616): @agent, @services, and @query carry a
     PERSEUS_ALLOW_DANGEROUS fragment (see _ENV_GATED_DIRECTIVES) so a flip of
     that env var — which toggles their "gate not set" warning vs. real output —
-    invalidates their cache. @query is config-gated (allow_query_shell), not
-    env-gated, so it is excluded (#616).
+    invalidates their cache.
     """
     import hashlib as _hashlib
     import stat as _stat
