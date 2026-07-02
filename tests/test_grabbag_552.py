@@ -1,14 +1,15 @@
 """
 Tests for the #552 grab-bag fixes:
 
-1. memory_mesh._memorymesh_rest_health — self-contained urllib import.
-2. mneme_federation._fetch_remote_narrative — read_timeout_s applied +
+1. mneme_federation._fetch_remote_narrative — read_timeout_s applied +
    max_fetch_bytes size cap on remote narrative fetches.
-3. mneme_connector — bm25 score normalized to 0.0-1.0 relevance (was
+2. mneme_connector — bm25 score normalized to 0.0-1.0 relevance (was
    divided by 100 as if a percentage, producing small negative values).
+
+(The #552 memory_mesh urllib-import tests were removed with the module's
+deletion in #648 — it was dead code with zero callers.)
 """
 
-import ast
 import json
 import time
 import urllib.error
@@ -25,42 +26,7 @@ _SRC = Path(__file__).resolve().parents[1] / "src" / "perseus"
 
 
 # ---------------------------------------------------------------------------
-# 1. memory_mesh: _memorymesh_rest_health must not rely on concat ordering
-# ---------------------------------------------------------------------------
-
-def test_memorymesh_rest_health_imports_urllib_locally():
-    """The src module's own scope must provide urllib — not another module's
-    top-level import that happens to precede it in the built artifact."""
-    src_text = (_SRC / "memory_mesh.py").read_text(encoding="utf-8")
-    tree = ast.parse(src_text)
-    fn = next(n for n in ast.walk(tree)
-              if isinstance(n, ast.FunctionDef) and n.name == "_memorymesh_rest_health")
-    imported = {alias.name for node in ast.walk(fn)
-                if isinstance(node, ast.Import) for alias in node.names}
-    assert "urllib.request" in imported, (
-        "_memorymesh_rest_health lost its local urllib.request import — "
-        "it would NameError (silently swallowed) if build order changes"
-    )
-
-
-def test_memorymesh_rest_health_false_on_connection_error(monkeypatch):
-    def _boom(*a, **kw):
-        raise urllib.error.URLError("connection refused")
-    monkeypatch.setattr(urllib.request, "urlopen", _boom)
-    assert perseus._memorymesh_rest_health() is False
-
-
-def test_memorymesh_rest_health_true_on_200(monkeypatch):
-    class _Resp:
-        status = 200
-        def __enter__(self): return self
-        def __exit__(self, *a): return False
-    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **kw: _Resp())
-    assert perseus._memorymesh_rest_health() is True
-
-
-# ---------------------------------------------------------------------------
-# 2. mneme_federation: read timeout + size cap on remote narrative fetch
+# 1. mneme_federation: read timeout + size cap on remote narrative fetch
 # ---------------------------------------------------------------------------
 
 class _FakeResp:
@@ -130,7 +96,7 @@ def test_federation_fetch_applies_read_timeout(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# 3. mneme_connector: bm25 → relevance normalization
+# 2. mneme_connector: bm25 → relevance normalization
 # ---------------------------------------------------------------------------
 
 def test_bm25_to_relevance_range_and_monotonicity():

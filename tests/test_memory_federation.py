@@ -454,3 +454,64 @@ def test_federation_pull_json_empty(tmp_path, monkeypatch):
                             federation_command="pull", json=True, llm=None)
     out, rc = _capture_json(monkeypatch, perseus.cmd_memory, ns, c)
     assert out == []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# #650 — unreadable peer narratives must be annotated, never silently dropped
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _seed_unreadable_narrative(workspace: Path, local: dict) -> Path:
+    """Make the peer's narrative path exist but be unreadable.
+
+    The narrative path is created as a DIRECTORY: it passes the existence
+    check in _resolve_subscription_narrative, but read_text() raises, which
+    _load_narrative maps to an empty body — the silent-drop path of #650.
+    """
+    workspace.mkdir(parents=True, exist_ok=True)
+    np = perseus._mneme_path(workspace, local)
+    np.mkdir(parents=True, exist_ok=True)
+    return np
+
+
+def _two_peer_manifest(tmp_path):
+    local = _fed_cfg(tmp_path)
+    ws_good = tmp_path / "ws-good"
+    _seed_narrative(ws_good, local)
+    ws_bad = tmp_path / "ws-bad"
+    _seed_unreadable_narrative(ws_bad, local)
+    perseus._save_federation_manifest(local, {
+        "version": 1,
+        "subscriptions": [
+            {"alias": "good", "path": str(ws_good), "enabled": True},
+            {"alias": "bad", "path": str(ws_bad), "enabled": True},
+        ],
+    })
+    return local
+
+
+def test_conflicts_render_marks_unreadable_peer(tmp_path):
+    """#650: a peer whose narrative cannot be read must be annotated in the
+    conflicts view — otherwise the render claims a complete cross-workspace
+    comparison that silently excludes that peer."""
+    local = _two_peer_manifest(tmp_path)
+    out = perseus._render_federation_conflicts(local)
+    assert "peer bad: narrative unreadable" in out
+    assert "peer good:" not in out, "readable peers must not be flagged"
+
+
+def test_federation_diff_reports_unreadable_reason(tmp_path):
+    """#650: diff must say WHY the peer is missing, not a bare 'unavailable.'"""
+    local = _two_peer_manifest(tmp_path)
+    out = perseus._render_federation_diff(local, "good", "bad")
+    assert "bad" in out
+    assert "narrative unavailable — " in out
+
+
+def test_federation_merge_names_unreadable_peer(tmp_path, capsys):
+    """#650: merge must name the unreadable peer and the reason on stderr."""
+    local = _two_peer_manifest(tmp_path)
+    args = argparse.Namespace(alias_a="good", alias_b="bad")
+    rc = perseus.cmd_memory_federation_merge(args, local)
+    err = capsys.readouterr().err
+    assert rc == 1
+    assert "bad" in err and "unreadable" in err
