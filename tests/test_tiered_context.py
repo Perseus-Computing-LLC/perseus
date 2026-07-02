@@ -178,3 +178,186 @@ def test_render_output_passes_max_tier():
     source = "@perseus\n@date\n@skills"
     out = perseus.render_output(source, "md", cfg(), None, max_tier=1)
     assert "Context Manifest" in out
+
+
+# ── #631: @tier:N must not leak into resolver args ───────────────────────────
+#
+# Both extraction paths (sequential main loop + parallel @query pre-scan)
+# previously took directive args from the regex match made BEFORE the tier
+# strip, so `@query "cmd" @tier:2` passed the literal `@tier:2` into resolver
+# args, modifier parsing, cache keys — and, for unquoted commands, the
+# executed command itself.
+
+def _spy_query(monkeypatch):
+    """Replace the @query resolver with a spy; returns the calls list."""
+    calls: list[str] = []
+
+    def _spy(args, cfg_, workspace=None):
+        calls.append(args)
+        return f"ran:{args}"
+
+    spec = perseus.DIRECTIVE_REGISTRY["@query"]
+    monkeypatch.setitem(perseus.DIRECTIVE_REGISTRY, "@query",
+                        spec._replace(resolver=_spy))
+    return calls
+
+
+def _c631(tmp_path, _sub="cache", **render_overrides):
+    c = cfg()
+    c["render"]["cache_dir"] = str(tmp_path / _sub)
+    c["render"].update(render_overrides)
+    return c
+
+
+def test_tier_args_stripped_on_sequential_path(tmp_path, monkeypatch):
+    """#631: `@query "cmd" @tier:2` (tier passes the gate) resolves with args
+    exactly '"cmd"' on the sequential path — no @tier residue."""
+    calls = _spy_query(monkeypatch)
+    out = perseus.render_source('@perseus\n@query "cmd" @tier:2\n',
+                                _c631(tmp_path), tmp_path)
+    assert calls == ['"cmd"']
+    assert 'ran:"cmd"' in out and "@tier" not in out
+
+
+def test_tier_args_stripped_on_parallel_prescan_path(tmp_path, monkeypatch):
+    """#631: same contract on the parallel pre-scan path."""
+    calls = _spy_query(monkeypatch)
+    out = perseus.render_source('@perseus\n@query "cmd" @tier:2\n',
+                                _c631(tmp_path, parallel_queries=True), tmp_path)
+    assert calls == ['"cmd"']
+    assert 'ran:"cmd"' in out and "@tier" not in out
+
+
+def test_tier_args_stripped_for_unquoted_command(tmp_path, monkeypatch):
+    """#631: for unquoted commands the leak previously put `@tier:2` into the
+    executed command string itself."""
+    calls = _spy_query(monkeypatch)
+    perseus.render_source('@perseus\n@query echo hello @tier:2\n',
+                          _c631(tmp_path), tmp_path)
+    assert calls == ["echo hello"]
+
+
+def test_tier_modifier_interplay_with_fallback_and_cache(tmp_path, monkeypatch):
+    """#631: fallback=/@cache modifiers parse correctly with no @tier residue."""
+    calls = _spy_query(monkeypatch)
+    perseus.render_source('@perseus\n@query "cmd" fallback="x" @tier:2\n',
+                          _c631(tmp_path), tmp_path)
+    assert calls == ['"cmd" fallback="x"']
+
+    calls.clear()
+    c = _c631(tmp_path)
+    src = '@perseus\n@query "cmd2" @tier:2 @cache ttl=60\n'
+    perseus.render_source(src, c, tmp_path)
+    perseus.render_source(src, c, tmp_path)  # ttl cache hit — no re-execution
+    assert calls == ['"cmd2"'], "@cache parsed despite @tier; single execution"
+
+
+def test_tier_annotated_query_shares_cache_across_paths(tmp_path, monkeypatch):
+    """#631: cache keys derive from the tier-stripped args on BOTH paths, so a
+    sequentially-warmed entry is consumed by the parallel pre-scan without a
+    second execution — and a tier annotation does not partition the cache
+    (tier gates whether the directive RUNS, not what it produces, exactly
+    like @cache modifiers, which are also excluded from the key)."""
+    calls = _spy_query(monkeypatch)
+    c = _c631(tmp_path)
+    line = '@query "shared-cmd" @tier:2 @cache ttl=300\n'
+
+    perseus.render_source("@perseus\n" + line, c, tmp_path)  # warm: sequential
+    assert calls == ['"shared-cmd"']
+
+    out = perseus.render_source("@perseus\n" + line,
+                                _c631(tmp_path, parallel_queries=True), tmp_path)
+    assert calls == ['"shared-cmd"'], "pre-scan must hit the sequential entry"
+    assert 'ran:"shared-cmd"' in out
+
+    # An identical un-annotated invocation shares the same entry.
+    out2 = perseus.render_source('@perseus\n@query "shared-cmd" @cache ttl=300\n',
+                                 c, tmp_path)
+    assert calls == ['"shared-cmd"']
+    assert 'ran:"shared-cmd"' in out2
+
+
+def test_tier_args_stripped_for_generic_inline_directives(tmp_path):
+    """#631: the fix lives at the shared extraction point, so every generic
+    inline directive gets tier-clean args (not just @query)."""
+    (tmp_path / "note.txt").write_text("tier-note-content", encoding="utf-8")
+    out = perseus.render_source('@perseus\n@read "note.txt" @tier:2\n',
+                                _c631(tmp_path), tmp_path)
+    assert "tier-note-content" in out
+    assert "@tier" not in out
+
+
+# ── PR #632 review: quoted literal @tier:N is content, not a modifier ────────
+
+def test_parse_tier_modifier_is_quote_aware():
+    """Unit contract: quoted @tier:N spans are untouched; a real modifier
+    outside quotes still parses and strips (single- and double-quoted)."""
+    line = '@query "grep @tier:3 notes.md"'
+    assert perseus._parse_tier_modifier(line) == (line, None)
+    assert perseus._parse_tier_modifier(line + " @tier:2") == (line, 2)
+    line_sq = "@query 'grep @tier:3 notes.md'"
+    assert perseus._parse_tier_modifier(line_sq) == (line_sq, None)
+    assert perseus._parse_tier_modifier(line_sq + " @tier:2") == (line_sq, 2)
+
+
+def test_quoted_tier_literal_preserved_in_executed_command(tmp_path, monkeypatch):
+    """#632 review (BLOCK): a literal @tier:N inside a quoted @query command
+    is payload — it must reach the resolver intact. The quote-naive strip
+    silently corrupted the executed command on the DEFAULT path
+    (`"grep @tier:3 notes.md"` → `"grep  notes.md"`)."""
+    calls = _spy_query(monkeypatch)
+    out = perseus.render_source('@perseus\n@query "grep @tier:3 notes.md"\n',
+                                _c631(tmp_path), tmp_path)
+    assert calls == ['"grep @tier:3 notes.md"']
+    assert 'ran:"grep @tier:3 notes.md"' in out
+
+
+def test_single_quoted_tier_literal_preserved(tmp_path, monkeypatch):
+    """#632 review: same contract for single-quoted commands."""
+    calls = _spy_query(monkeypatch)
+    perseus.render_source("@perseus\n@query 'grep @tier:3 notes.md'\n",
+                          _c631(tmp_path, "c-sq1"), tmp_path)
+    assert calls == ["'grep @tier:3 notes.md'"]
+
+    calls.clear()
+    perseus.render_source("@perseus\n@query 'grep @tier:3 notes.md' @tier:2\n",
+                          _c631(tmp_path, "c-sq2"), tmp_path)
+    assert calls == ["'grep @tier:3 notes.md'"], "real trailing @tier:2 stripped"
+
+
+def test_quoted_tier_literal_does_not_trigger_gate(tmp_path, monkeypatch):
+    """#632 review: quoted @tier:N must not feed the tier gate either — a
+    tier-1 directive quoting "@tier:3" renders at every max_tier. (Pre-fix
+    the gate misparsed it as instance tier 3 and skipped the line at
+    max_tier<3 — the reviewer-confirmed half-broken-gate behavior.)"""
+    spec = perseus.DIRECTIVE_REGISTRY["@memory"]
+    monkeypatch.setitem(perseus.DIRECTIVE_REGISTRY, "@memory",
+                        spec._replace(resolver=lambda a, c_, w=None: f"mem:{a}"))
+    src = '@perseus\n@memory "recall @tier:3 usage"\n'
+    for tier in (1, 2, 3):
+        out = perseus.render_source(src, _c631(tmp_path, f"c-gate{tier}"),
+                                    tmp_path, max_tier=tier)
+        assert 'mem:"recall @tier:3 usage"' in out, f"skipped at max_tier={tier}"
+
+
+def test_quoted_tier_literal_with_real_trailing_modifier(tmp_path, monkeypatch):
+    """#632 review: the quoted literal survives while a REAL trailing @tier:2
+    both gates (instance override beats @query's registry tier 3) and is
+    stripped from the resolver args — on both execution paths."""
+    calls = _spy_query(monkeypatch)
+    src = '@perseus\n@query "grep @tier:3 notes.md" @tier:2\n'
+
+    perseus.render_source(src, _c631(tmp_path, "c1"), tmp_path)
+    assert calls == ['"grep @tier:3 notes.md"']
+
+    calls.clear()  # instance @tier:2 renders at max_tier=2 (registry tier is 3)
+    perseus.render_source(src, _c631(tmp_path, "c2"), tmp_path, max_tier=2)
+    assert calls == ['"grep @tier:3 notes.md"']
+
+    calls.clear()  # ... and gates below it
+    out1 = perseus.render_source(src, _c631(tmp_path, "c3"), tmp_path, max_tier=1)
+    assert calls == [] and "Context Manifest" in out1
+
+    calls.clear()  # parallel pre-scan path agrees
+    perseus.render_source(src, _c631(tmp_path, "c4", parallel_queries=True), tmp_path)
+    assert calls == ['"grep @tier:3 notes.md"']
