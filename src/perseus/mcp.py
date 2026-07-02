@@ -101,6 +101,7 @@ _PARAM_DESCRIPTIONS: dict[str, dict[str, str]] = {
                      "fallback": "Fallback value if the command fails or is blocked",
                      "schema": "JSON Schema to validate command output against"},
     "@perseus":     {"url": "URL of the remote Perseus instance to fetch context from"},
+    "@profile":     {"model": "Model name (or context-window class) whose profile to resolve, e.g. claude-sonnet-4-6; unknown names fall back to default"},
     "@tool":        {"name": "Name of the allowlisted external tool to run"},
     "@include":     {"path": "File path to include and render (relative to workspace root)", "last": "Keep only the final N lines of the file (bounds a growing log)", "since": "Keep only dated sections within a window, e.g. 14d, 2w, 24h"},
 }
@@ -402,7 +403,7 @@ def _build_annotations(tool_name: str, spec) -> dict | None:
     if tool_name in ("perseus_date", "perseus_drift", "perseus_env"):
         hints["readOnlyHint"] = True
     # Read-only tools that escape the reads_files / executes_shell checks
-    if tool_name in ("perseus_auto_skill", "perseus_perseus", "perseus_mimir", "perseus_mneme", "perseus_mason",
+    if tool_name in ("perseus_auto_skill", "perseus_profile", "perseus_perseus", "perseus_mimir", "perseus_mneme", "perseus_mason",
                       "perseus_skills", "perseus_inbox", "perseus_include", "perseus_read",
                       "perseus_list", "perseus_tree", "perseus_tooltrim", "perseus_validate",
                       "perseus_prompt"):

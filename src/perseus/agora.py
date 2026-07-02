@@ -468,6 +468,48 @@ def _memory_federation_diagnostic(name: str, args_str: str, cfg: dict, workspace
     return diagnostics
 
 
+def resolve_profile(args_str: str, cfg: dict,
+                    workspace: Path | None = None) -> str:
+    """Render the `@profile <model>` directive (#608).
+
+    Selects the per-model context profile for this document and renders a
+    one-line banner stating the resolved context target and memory posture.
+    The posture itself is applied by the automatic memory injection layer
+    (`_mneme_context_inject`), which scans the source for this directive.
+
+    Accepts `@profile claude-sonnet-4-6` or `@profile model=claude-sonnet-4-6`.
+    Unknown names fall back to the `default` profile deterministically, with
+    an explicit note so a typo is visible rather than silent.
+    """
+    mods = _parse_kv_modifiers(args_str)
+    name = (mods.get("model") or "").strip()
+    if not name:
+        for tok in (args_str or "").split():
+            if "=" not in tok:
+                name = tok.strip().strip('"').strip("'")
+                break
+    requested = name or "default"
+
+    profiles_cfg = cfg.get("profiles") if isinstance(cfg, dict) else None
+    profiles_cfg = profiles_cfg if isinstance(profiles_cfg, dict) else {}
+    known = requested == "default" or isinstance(profiles_cfg.get(requested), dict)
+
+    profile = _resolve_context_profile(cfg, requested)
+    posture = _memory_posture(profile)
+    try:
+        target = int(profile.get("context_target", 200000))
+    except (TypeError, ValueError):
+        target = 200000
+
+    line = (
+        f"> 🎛 Context profile: **{requested}** — "
+        f"context target {target:,} tokens, memory: {posture}"
+    )
+    if not known:
+        line += " (unknown profile; resolved from `default`)"
+    return line + "\n"
+
+
 def resolve_mimir(args_str: str, cfg: dict,
                    workspace: Path | None = None) -> str:
     """@mimir shim → forwards to unified @memory mode=search.
