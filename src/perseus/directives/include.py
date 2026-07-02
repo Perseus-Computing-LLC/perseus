@@ -89,6 +89,12 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
     Inode tracking (task-63): hard links bypass path-based cycle detection.
     _inode_chain tracks (st_dev, st_ino) pairs for every file visited.
     """
+    # #596: the signature advertises cfg=None as valid — normalize once so
+    # every downstream cfg use (render_cfg, _resolve_max_bytes, recursion)
+    # sees a real dict instead of crashing on None.get(...).
+    if cfg is None:
+        cfg = DEFAULT_CONFIG
+
     file_path_str, remaining = _extract_quoted_token(args_str.strip())
     if not file_path_str:
         return "> ⚠ @include: no file specified."
@@ -111,10 +117,13 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
                     f"{', '.join(sorted(unknown))}. Supported: last=, since=.")
         if "last" in options:
             try:
+                # #596: catch TypeError too — _parse_kv_modifiers can return
+                # None for an empty quoted value (last=""), and int(None)
+                # raises TypeError, not ValueError.
                 last_n = int(options["last"])
                 if last_n < 0:
                     raise ValueError
-            except ValueError:
+            except (TypeError, ValueError):
                 return ("> ⚠ @include: last= must be a non-negative integer "
                         f"(got `{options['last']}`).")
         if "since" in options:
@@ -123,7 +132,7 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
                 return ("> ⚠ @include: since= must look like 14d, 2w, or 24h "
                         f"(got `{options['since']}`).")
 
-    render_cfg = (cfg or DEFAULT_CONFIG).get("render", {})
+    render_cfg = cfg.get("render", {})
     base = workspace or Path.cwd()
     fp, path_warning = _resolve_path(
         file_path_str,
@@ -205,18 +214,30 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
     else:
         trunc_note = ""
 
+    ext = fp.suffix.lower()
+
+    # #597: detect the @perseus header BEFORE windowing. `last=N` on a growing
+    # log always drops line 1, which silently disabled directive rendering of
+    # included Perseus sources (directives appeared as literal @... text).
+    is_perseus_source = ext == ".md" and raw.lstrip().startswith("@perseus")
+
     # ── Apply windowing (#433) before dispatching on file type so it bounds
     #    both fenced and recursively-rendered includes. Applied after the byte
     #    truncation cap so `last=`/`since=` operate on decoded text.
     if last_n is not None or since_cutoff is not None:
-        raw = _apply_include_window(raw, last_n, since_cutoff).rstrip()
-
-    ext = fp.suffix.lower()
+        if is_perseus_source:
+            # Preserve the @perseus header line (render_source requires it on
+            # line 1) and window only the body.
+            head, _, body_text = raw.lstrip().partition("\n")
+            windowed = _apply_include_window(body_text, last_n, since_cutoff).rstrip()
+            raw = head + ("\n" + windowed if windowed else "")
+        else:
+            raw = _apply_include_window(raw, last_n, since_cutoff).rstrip()
 
     # ── Build the included body by file type ──
     if ext == ".md":
         # Check if this is a Perseus source file (starts with @perseus)
-        if raw.lstrip().startswith("@perseus"):
+        if is_perseus_source:
             try:
                 # Render the included file through Perseus with incremented depth
                 body = render_source(raw, cfg, workspace, _include_depth=_depth + 1,

@@ -99,14 +99,17 @@ def test_foreign_resolve_hmac_fail(mock_server):
     assert "HMAC signature mismatch" in result
 
 def test_foreign_resolve_no_ttl_warning(mock_server):
+    # #590: the renderer strips @cache before calling the resolver, so ttl is
+    # undetectable here — the old "missing @cache ttl=" warning fired on EVERY
+    # fetch (even with @cache ttl= present) and was removed.
     c = cfg()
     c["foreign"]["enabled"] = True
     c["foreign"]["verify_signatures"] = False  # Phase 26C: disable HMAC for basic fetch test
     c["render"]["allow_remote_services_health"] = True
-    
+
     url = f"{mock_server}/workspace/infra"
     result = perseus.resolve_perseus(url, c)
-    assert "missing @cache ttl=" in result
+    assert "missing @cache ttl=" not in result
     assert "# Infra Context" in result
 
 def test_foreign_resolve_connection_failure():

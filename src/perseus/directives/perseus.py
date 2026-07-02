@@ -42,20 +42,12 @@ def resolve_perseus(args_str: str, cfg: dict, workspace: Path | None = None) -> 
         return "> ⚠ @perseus: URL argument required."
     
     url_str = parts[0]
-    
-    # Check for @cache ttl=
-    ttl = 60
-    has_ttl = False
-    for i, part in enumerate(parts):
-        if part == "@cache" and i + 1 < len(parts) and parts[i+1].startswith("ttl="):
-            try:
-                ttl = int(parts[i+1].split("=")[1])
-                has_ttl = True
-            except (ValueError, IndexError):
-                pass
-    
-    if not has_ttl:
-        pass
+
+    # #590: caching (including @cache ttl=N) is handled entirely by the
+    # renderer, which strips the @cache modifier BEFORE calling this
+    # resolver. TTL is therefore undetectable here — the old scan was dead
+    # code and its "missing @cache ttl=" warning fired on EVERY fetch, even
+    # when the user wrote @cache ttl=300. No warning is emitted.
 
     # Parse URL to get base and workspace
     # Format: https://host:port/workspace/name
@@ -133,9 +125,9 @@ def resolve_perseus(args_str: str, cfg: dict, workspace: Path | None = None) -> 
             ctx.verify_mode = ssl.CERT_NONE
 
         req = urllib.request.Request(api_url, headers=headers)
-        
+
         # S3: Limit redirects and re-check destination IP after each redirect
-        from urllib.request import HTTPRedirectHandler, build_opener
+        from urllib.request import HTTPRedirectHandler, HTTPSHandler, build_opener
         class _LimitedRedirectHandler(HTTPRedirectHandler):
             def __init__(self, max_redirects, allow_internal):
                 self.max_redirects = max_redirects
@@ -155,8 +147,14 @@ def resolve_perseus(args_str: str, cfg: dict, workspace: Path | None = None) -> 
                             f"Redirect to internal host blocked: {new_parsed.hostname}")
                 return super().redirect_request(req, fp, code, msg, hdrs, newurl)
         
-        opener = build_opener(_LimitedRedirectHandler(max_redirects,
-                                f_cfg.get("allow_internal", False)))
+        # #590: tls_verify=false must actually take effect — install an
+        # HTTPSHandler carrying the unverified SSL context, otherwise the
+        # option is silently ignored and self-signed instances fail.
+        handlers = [_LimitedRedirectHandler(max_redirects,
+                                            f_cfg.get("allow_internal", False))]
+        if ctx is not None:
+            handlers.append(HTTPSHandler(context=ctx))
+        opener = build_opener(*handlers)
         
         # We need to read the response to verify signature, but also need to handle timeout/size.
         with opener.open(req, timeout=timeout) as resp:
@@ -195,8 +193,6 @@ def resolve_perseus(args_str: str, cfg: dict, workspace: Path | None = None) -> 
                 resolved = data.get("resolved", "")
                 if truncated:
                     resolved += "\n\n> ⚠ @perseus: response truncated (exceeded max_response_bytes)"
-                if not has_ttl:
-                    resolved = f"> ⚠ @perseus: missing @cache ttl=, using default 60s\n\n" + resolved
                 return resolved
             except json.JSONDecodeError:
                 err_msg = f"> ⚠ @perseus: invalid JSON response from {url_str}"

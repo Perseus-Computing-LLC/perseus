@@ -86,9 +86,15 @@ def _var_name_is_denied(var_name: str, cfg: dict) -> bool:
             extra = env_cfg.get("deny_list")
             if isinstance(extra, list):
                 deny_list.extend(extra)
+    # #598: fnmatch.fnmatch only case-folds on Windows, so on POSIX lowercase
+    # secret names (github_token, npm_token) bypassed the *TOKEN*/*_KEY*
+    # patterns. Use fnmatchcase over upper-cased name/pattern for
+    # platform-independent, case-insensitive matching (mirrors
+    # _pattern_matches in query.py).
+    name_upper = var_name.upper()
     for pattern in deny_list:
         if not isinstance(pattern, str) or not pattern.strip():
             continue
-        if fnmatch.fnmatch(var_name, pattern.strip()):
+        if fnmatch.fnmatchcase(name_upper, pattern.strip().upper()):
             return True
     return False
