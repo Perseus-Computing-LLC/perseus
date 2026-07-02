@@ -142,6 +142,25 @@ class TestFederationNarrativeEndpoint:
             content_type = resp.headers.get("Content-Type", "")
             assert "application/json" in content_type
 
+    def test_narrative_is_redacted(self, serve_instance):
+        """Secrets in the narrative never leave the /federation/narrative
+        endpoint — same trust boundary as the redacting sibling /narrative."""
+        home = serve_instance["home"]
+        secret = "sk-ant-" + "Zq7" * 20
+        narrative_files = list((home / "memory").glob("*.md"))
+        assert narrative_files, "fixture should have initialized a narrative"
+        with open(narrative_files[0], "a", encoding="utf-8") as f:
+            f.write(f"\n- note: api key {secret}\n")
+
+        port = serve_instance["port"]
+        url = f"http://localhost:{port}/federation/narrative"
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+
+        assert secret not in data["narrative"]
+        assert "[REDACTED:anthropic_api_key]" in data["narrative"]
+
     def test_nonexistent_endpoint_returns_404(self, serve_instance):
         """Other endpoints still return 404 when appropriate."""
         port = serve_instance["port"]

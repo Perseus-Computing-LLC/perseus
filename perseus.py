@@ -1712,6 +1712,28 @@ DEFAULT_REDACTION_RULES: list[dict[str, str]] = [
     {"name": "long_hex_secret",
      "pattern": r"(?i)(?:secret|token|key|password|passwd|api[_-]?key|auth(?:orization)?)\s*[:=]\s*[\"']?([a-fA-F0-9]{40,})[\"']?",
      "_anchor_group": 1},
+    # AWS secret access key / session token. The aws_access_key_id rule above
+    # only catches the AKIA/ASIA *ID* — the 40-char base64 secret and the long
+    # session token need their own credential-anchored rules.
+    {"name": "aws_secret_access_key",
+     "pattern": r"(?i)aws_?secret_?access_?key\s*[:=]\s*[\"']?([A-Za-z0-9/+=]{40})[\"']?",
+     "_anchor_group": 1},
+    {"name": "aws_session_token",
+     "pattern": r"(?i)aws_?session_?token\s*[:=]\s*[\"']?([A-Za-z0-9/+=]{50,})[\"']?",
+     "_anchor_group": 1},
+    # Credentials embedded in URLs (connection strings): scheme://user:pass@host.
+    # Redacts only the password component; user/host stay readable for triage.
+    {"name": "url_credentials",
+     "pattern": r"\b[a-zA-Z][a-zA-Z0-9+.-]*://[^\s:/@\"']+:([^\s/@\"']+)@",
+     "_anchor_group": 1},
+    # Non-hex secrets in an explicit credential-assignment slot. Complements
+    # long_hex_secret (hex-only, see #136): most real config secrets are
+    # base64/alphanumeric. Guarded against shredding identifiers/code by
+    # (a) strong anchors only (no bare `key`/`auth`), (b) 20+ char minimum,
+    # (c) at least one digit required in the value.
+    {"name": "credential_assignment",
+     "pattern": r"(?i)(?:client[_-]?secret|api[_-]?key|access[_-]?key|auth[_-]?token|secret|password|passwd|token)\s*[:=]\s*[\"']?((?=[A-Za-z0-9+/_=-]*\d)[A-Za-z0-9+/_=-]{20,})[\"']?",
+     "_anchor_group": 1},
     # Atlassian API token: ATATT3... (Confluence/Jira personal access tokens)
     # See: https://github.com/Perseus-Computing-LLC/perseus/issues/142
     {"name": "atlassian_api_token", "pattern": r"\bATATT3[A-Za-z0-9+/=_-]{40,}\b"},
@@ -12319,6 +12341,28 @@ def _derive_query_hints(source_text: str, workspace) -> list[str]:
 
     return hints
 
+def _inject_external_memory(rendered: str, cfg: dict) -> str:
+    """Append the vault-mem and Mnēmē auto-injected memory blocks, redacted.
+
+    These blocks are pulled from external memory stores and appended AFTER the
+    render_source redaction pass, so they must go through their own redaction
+    pass — memories routinely hold user-entered notes containing credentials,
+    and skipping this wrote them verbatim into AGENTS.md/CLAUDE.md.
+    """
+    rendered = dedup_context_if_available(rendered, cfg)
+    injected = inject_vaultmem_context(rendered, cfg)
+    mneme_block = _mneme_context_inject(cfg)
+    if mneme_block:
+        injected = injected + "\n\n" + mneme_block
+    if injected != rendered:
+        # Only the appended blocks are new, but redaction placeholders are
+        # inert so re-running over the full text is idempotent and keeps the
+        # boundary in one place.
+        injected, _report = redact_text(injected, cfg)
+        _audit_render_redaction(cfg, _report)
+    return injected
+
+
 def render_output(
     source_text: str,
     fmt: str,
@@ -12334,11 +12378,7 @@ def render_output(
         rendered = render_source(source_text, cfg, workspace, max_tier=max_tier, no_cache=no_cache)
         rendered, _report = redact_text(rendered, cfg)
         _audit_render_redaction(cfg, _report)
-        rendered = dedup_context_if_available(rendered, cfg)
-        rendered = inject_vaultmem_context(rendered, cfg)
-        mneme_block = _mneme_context_inject(cfg)
-        if mneme_block:
-            rendered += "\n\n" + mneme_block
+        rendered = _inject_external_memory(rendered, cfg)
         return rendered
     elif fmt == "html":
         t = title or "Workspace Context"
@@ -12351,11 +12391,7 @@ def render_output(
         rendered = render_source(source_text, cfg, workspace, max_tier=max_tier, no_cache=no_cache)
         rendered, _report = redact_text(rendered, cfg)
         _audit_render_redaction(cfg, _report)
-        rendered = dedup_context_if_available(rendered, cfg)
-        rendered = inject_vaultmem_context(rendered, cfg)
-        mneme_block = _mneme_context_inject(cfg)
-        if mneme_block:
-            rendered += "\n\n" + mneme_block
+        rendered = _inject_external_memory(rendered, cfg)
         return wrap_rendered(rendered, fmt, _PERSEUS_VERSION)
 
     # Custom formats (task-68)
@@ -25072,7 +25108,9 @@ def _serve_render_endpoint(endpoint: str, cfg: dict, workspace: Path, query: dic
                 return (404, "application/json; charset=utf-8",
                         _json.dumps({"error": "No Mneme narrative initialized", "workspace_id": None,
                                      "path": str(mp)}))
-            narrative_text = mp.read_text(encoding="utf-8")
+            # Same trust boundary as /narrative: federation peers must not
+            # receive secrets the human-facing endpoint strips.
+            narrative_text, _ = redact_text(mp.read_text(encoding="utf-8"), cfg)
             # Look up workspace identity for workspace_id field
             identity = _load_identity(cfg)
             ws_id = identity.get("workspace_id") if identity else None
