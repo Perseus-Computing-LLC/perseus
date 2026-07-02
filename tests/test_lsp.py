@@ -488,3 +488,41 @@ def test_lsp_hover_still_works_for_safe_directives(tmp_path):
     # Should produce a 4-digit year (deterministic, no shell)
     assert len(result.strip()) == 4
     assert result.strip().isdigit()
+
+
+# ── #578: malformed params must not kill the server loop ─────────────────────
+
+def test_lsp_malformed_request_params_get_error_reply(lsp_harness):
+    """#578: a well-framed request with semantically malformed params (hover
+    without textDocument/position → KeyError in the handler) must produce an
+    error response, not kill the server."""
+    lsp_harness.initialize()
+    rsp = lsp_harness.request("textDocument/hover", {})
+    assert "error" in rsp
+    assert rsp["error"]["code"] == -32603
+
+    # Server is still alive: a valid request round-trips.
+    rsp2 = lsp_harness.request("textDocument/hover", {
+        "textDocument": {"uri": "file:///nonexistent.md"},
+        "position": {"line": 0, "character": 0},
+    })
+    assert "result" in rsp2
+    lsp_harness.shutdown()
+
+
+def test_lsp_malformed_notification_is_ignored(lsp_harness):
+    """#578: malformed params in a NOTIFICATION (didOpen without uri) must be
+    dropped silently — LSP forbids responding to notifications — and the
+    server must keep serving."""
+    lsp_harness.initialize()
+    lsp_harness.notify("textDocument/didOpen", {})
+    lsp_harness.notify("textDocument/didChange", {"contentChanges": []})
+
+    # Next request still gets its own response as the next message out.
+    rsp = lsp_harness.request("textDocument/completion", {
+        "textDocument": {"uri": "file:///x.md"},
+        "position": {"line": 0, "character": 1},
+    })
+    assert rsp.get("id") is not None
+    assert "result" in rsp or "error" not in rsp
+    lsp_harness.shutdown()

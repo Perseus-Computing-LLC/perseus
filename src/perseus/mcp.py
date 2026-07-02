@@ -509,25 +509,10 @@ LEGACY_MCP_TOOLS: list[dict] = [
         },
         annotations={"readOnlyHint": True},
     ),
-    # Issue #401: PROV-O provenance tracking stub
-    _tool_schema(
-        "perseus_trace",
-        "Return provenance trace data (not yet implemented).",
-        {
-            "query": {"type": "string", "description": "Query for trace data"},
-            "format": {"type": "string", "description": "Output format (e.g., json, provn)", "enum": ["json", "provn"]},
-        },
-        required=["query"],
-        output_schema={
-            "type": "object",
-            "properties": {
-                "status": {"type": "string", "description": "Status of the trace request"},
-                "message": {"type": "string", "description": "Trace message"},
-                "trace_data": {"type": "string", "description": "(Stub) Provenance trace data"},
-            }
-        },
-        annotations={"readOnlyHint": True},
-    ),
+    # #576: the perseus_trace stub (#401 PROV-O provenance) was removed from
+    # this list — it was advertised in tools/list but had no @trace directive
+    # or special-case handler, so every call errored "directive @trace not
+    # registered". Re-add it here only once a real trace implementation exists.
     # Mneme is the new primary name for the @mimir directive's MCP tool;
     # perseus_mimir is kept as a deprecated alias (same underlying
     # directive/resolver — see _TOOL_TO_DIRECTIVE below). Props/output_schema
@@ -667,6 +652,21 @@ def _mcp_quote(value: str) -> str:
     return (value or "").strip().replace('"', '\\"')
 
 
+def _mcp_int(value, name: str) -> int:
+    """#575: validate a numeric MCP tool argument at the boundary.
+
+    ttl/count/limit are string-typed in the tool schemas and were interpolated
+    into the directive arg string unvalidated (unlike command/path, which go
+    through _mcp_quote) — a value like ``"1; rm"`` reached directive parsing
+    raw. Raises ValueError for anything that isn't a plain integer; _call_tool
+    turns that into a tool-level error string.
+    """
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        raise ValueError(f"argument '{name}' must be an integer, got {value!r}") from None
+
+
 # Special arg builders for directives with positional/non-standard arg formats
 _DIRECTIVE_ARG_BUILDERS = {
     "@query": lambda args: f'"{_mcp_quote(args.get("command", ""))}"',
@@ -679,11 +679,11 @@ _DIRECTIVE_ARG_BUILDERS = {
     "@services": lambda args: "",
     "@drift": lambda args: "",
     "@date": lambda args: f'format="{_mcp_quote(args.get("format", "%Y-%m-%d %H:%M:%S"))}"',
-    "@waypoint": lambda args: f'ttl={(args.get("ttl") or 86400)}' if args.get("ttl") else "",
-    "@session": lambda args: f'count={(args.get("count") or 3)}',
+    "@waypoint": lambda args: f'ttl={_mcp_int(args.get("ttl"), "ttl")}' if args.get("ttl") else "",
+    "@session": lambda args: f'count={_mcp_int(args.get("count") or 3, "count")}',
     "@list": lambda args: f'path="{_mcp_quote(args.get("path", "."))}"',
     "@tree": lambda args: f'path="{_mcp_quote(args.get("path", "."))}"',
-    "@inbox": lambda args: (f'limit={(args.get("limit") or 5)}' if args.get("limit") else "") + (" unread=true" if args.get("unread") else ""),
+    "@inbox": lambda args: (f'limit={_mcp_int(args.get("limit"), "limit")}' if args.get("limit") else "") + (" unread=true" if args.get("unread") else ""),
     "@skills": lambda args: (f'category="{_mcp_quote(args.get("category", ""))}"' if args.get("category") else "") + (" flag_stale=true" if args.get("flag_stale") else ""),
 }
 
@@ -817,7 +817,13 @@ def _call_tool(tool_name: str, arguments: dict, cfg: dict, workspace: Path) -> s
     if spec.resolver is None:
         return f"Error: directive {directive_name} has no resolver"
 
-    args_str = _build_tool_args_generic(tool_name, arguments)
+    # #575: numeric arg builders (ttl/count/limit) raise ValueError on
+    # non-integer input; surface that as a tool-level error instead of
+    # letting it bubble to the JSON-RPC loop as -32603.
+    try:
+        args_str = _build_tool_args_generic(tool_name, arguments)
+    except ValueError as exc:
+        return f"Error: invalid arguments for {tool_name}: {exc}"
 
     # #139 — Timeout enforcement across all platforms.
     #
@@ -910,11 +916,17 @@ def _call_tool(tool_name: str, arguments: dict, cfg: dict, workspace: Path) -> s
 # whole server.
 _PARSE_ERROR = object()
 
+# #575: distinct EOF sentinel. EOF was previously signalled with None, but
+# json.loads("null") is ALSO None — so a client sending a bare `null` line
+# silently shut the server down.
+_EOF = object()
+
 
 def _read_message(stream=None):
     """Read a single JSON-RPC message from stdin (or given stream).
 
-    Returns the parsed dict, ``None`` on EOF, or ``_PARSE_ERROR`` when the line
+    Returns the parsed JSON value (any type — the caller must check it is a
+    dict, #575), ``_EOF`` on end of input, or ``_PARSE_ERROR`` when the line
     was not valid JSON (so the caller can reply -32700 and keep serving).
     """
     src = stream or sys.stdin
@@ -925,7 +937,7 @@ def _read_message(stream=None):
         # on Windows) must not crash the server.
         return _PARSE_ERROR
     if not line:
-        return None
+        return _EOF
     try:
         return json.loads(line.strip())
     except (json.JSONDecodeError, ValueError):
@@ -988,12 +1000,19 @@ def serve_mcp(cfg: dict, workspace: Path | None = None) -> int:
 
     while True:
         msg = _read_message()
-        if msg is None:
+        if msg is _EOF:
             break  # real EOF: client closed stdin
         if msg is _PARSE_ERROR:
             # Malformed line: reply parse-error (spec) and keep serving instead
             # of exiting the whole server on one bad line.
             _write_message(_make_error(None, -32700, "Parse error"))
+            continue
+        if not isinstance(msg, dict):
+            # #575: valid JSON but not an object (`123`, `"x"`, `[]`, `null`).
+            # Pre-fix this AttributeError'd on msg.get() and killed the whole
+            # server (and a bare `null` line looked like EOF). Reply Invalid
+            # Request per JSON-RPC 2.0 and keep serving.
+            _write_message(_make_error(None, -32600, "Invalid Request: message must be a JSON object"))
             continue
         method = msg.get("method", "")
         msg_id = msg.get("id")
@@ -1073,13 +1092,17 @@ def serve_mcp_sse(cfg: dict, workspace: Path | None = None, port: int = 8420) ->
             # can read it even when the server requires auth for MCP operations.
             if self.path == "/.well-known/mcp/server-card.json":
                 card = _build_server_card(cfg)
-                body = json.dumps(card, indent=2)
+                # #577: Content-Length must count UTF-8 BYTES, not code points.
+                # len(str) short-framed the JSON whenever the card contained
+                # non-ASCII (tool descriptions include em-dashes), truncating
+                # the body for spec-compliant HTTP clients.
+                encoded = json.dumps(card, indent=2).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Content-Length", str(len(encoded)))
                 self.send_header("Access-Control-Allow-Origin", "*")
                 self.end_headers()
-                self.wfile.write(body.encode())
+                self.wfile.write(encoded)
                 return
             if not _check_auth(self):
                 self.send_response(401)

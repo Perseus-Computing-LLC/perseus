@@ -376,3 +376,127 @@ def test_kill_active_subprocess_for_thread_returns_false_when_no_subprocess():
     fake_tid = threading.get_ident() + 12345  # ident no thread will use
     result = perseus.kill_active_subprocess_for_thread(fake_tid)
     assert result is False
+
+
+# ── #575: stdio server must survive non-object JSON and `null` lines ─────────
+
+def test_non_object_json_line_does_not_kill_server():
+    """#575: `123`, `\"str\"`, `[]` and `null` are valid JSON but not JSON-RPC
+    messages. Each must get a -32600 Invalid Request reply (id null) and the
+    server must keep serving. Pre-fix, `123` crashed the whole server with
+    AttributeError and `null` looked like the EOF sentinel (silent shutdown)."""
+    ROOT = str(Path(__file__).resolve().parent.parent)
+    proc = subprocess.Popen(
+        [sys.executable, "perseus.py", "mcp", "serve", "--workspace", "/tmp"],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, encoding="utf-8", cwd=ROOT
+    )
+    try:
+        for bad_line in ('123\n', '"just a string"\n', '[]\n', 'null\n'):
+            proc.stdin.write(bad_line)
+            proc.stdin.flush()
+            resp = json.loads(proc.stdout.readline())
+            assert resp["error"]["code"] == -32600, bad_line
+            assert resp["id"] is None
+
+        # Server is still alive after all four.
+        list_msg = json.dumps({"jsonrpc": "2.0", "id": 5, "method": "tools/list", "params": {}}) + "\n"
+        proc.stdin.write(list_msg)
+        proc.stdin.flush()
+        resp2 = json.loads(proc.stdout.readline())
+        assert resp2["id"] == 5
+        assert "tools" in resp2["result"]
+    finally:
+        proc.stdin.close()
+        proc.wait(timeout=5)
+
+
+def test_numeric_args_validated_at_boundary(tmp_path):
+    """#575: ttl/count/limit are string-typed JSON args; non-integer values
+    must be rejected at the MCP boundary, never interpolated into the
+    directive arg string."""
+    c = cfg()
+    for tool, args in (
+        ("perseus_waypoint", {"ttl": "1; rm -rf /"}),
+        ("perseus_session", {"count": "3 unread=true"}),
+        ("perseus_inbox", {"limit": "5; @env PATH"}),
+    ):
+        result = perseus._call_tool(tool, args, c, tmp_path)
+        assert result.startswith("Error: invalid arguments"), (tool, result)
+
+    # Valid integers (as the string-typed schema delivers them) still work.
+    for tool, args in (
+        ("perseus_waypoint", {"ttl": "3600"}),
+        ("perseus_session", {"count": "2"}),
+        ("perseus_inbox", {"limit": "5"}),
+    ):
+        result = perseus._call_tool(tool, args, c, tmp_path)
+        assert not result.startswith("Error: invalid arguments"), (tool, result)
+
+
+def test_mcp_int_helper():
+    assert perseus._mcp_int("5", "ttl") == 5
+    assert perseus._mcp_int(7, "count") == 7
+    assert perseus._mcp_int(" 42 ", "limit") == 42
+    for bad in ("1; rm", "abc", None, "1.5", ""):
+        with pytest.raises(ValueError):
+            perseus._mcp_int(bad, "ttl")
+
+
+# ── #576: perseus_trace was advertised but unroutable — now removed ──────────
+
+def test_perseus_trace_not_advertised():
+    """#576: perseus_trace had no @trace directive or special-case handler, so
+    every call errored. It must no longer be advertised in tools/list."""
+    names = {t["name"] for t in perseus._get_all_mcp_tools({})}
+    assert "perseus_trace" not in names
+    names_default_cfg = {t["name"] for t in perseus._get_all_mcp_tools(cfg())}
+    assert "perseus_trace" not in names_default_cfg
+
+
+# ── #577: server-card Content-Length must count bytes, not code points ───────
+
+def test_server_card_content_length_is_bytes():
+    """#577: the card contains non-ASCII (em-dashes in tool descriptions);
+    Content-Length in characters short-framed the JSON for compliant HTTP
+    clients. http.client trusts Content-Length, so a truncated body fails
+    json.loads here pre-fix."""
+    import http.client
+    import socket
+    import threading as _threading
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+
+    c = cfg()
+    c["mcp"] = {"allow_no_auth": True}
+    t = _threading.Thread(
+        target=perseus.serve_mcp_sse, args=(c, None, port), daemon=True
+    )
+    t.start()
+
+    deadline = time.time() + 5
+    body = None
+    content_length = None
+    while time.time() < deadline:
+        try:
+            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=2)
+            conn.request("GET", "/.well-known/mcp/server-card.json",
+                         headers={"Host": "127.0.0.1"})
+            resp = conn.getresponse()
+            content_length = int(resp.getheader("Content-Length"))
+            body = resp.read()
+            conn.close()
+            break
+        except (ConnectionRefusedError, OSError):
+            time.sleep(0.1)
+    assert body is not None, "SSE server never came up"
+    # Content-Length must equal the BYTE length actually sent. (json.dumps
+    # currently escapes non-ASCII via ensure_ascii=True, so today's card is
+    # ASCII-only — this pins bytes-based framing so a future
+    # ensure_ascii=False or non-ASCII serverInfo field cannot reintroduce
+    # short-framing.)
+    assert content_length == len(body)
+    card = json.loads(body.decode("utf-8"))  # truncated JSON would raise here
+    assert card["serverInfo"]["name"] == "perseus"

@@ -88,9 +88,20 @@ def _fire_webhook(event: str, payload: dict, cfg: dict) -> None:
                 continue
 
         with _WEBHOOK_LOCK:
-            # Use a unique ID for the thread per endpoint config
-            ep_id = f"{url}|{ep.get('secret','')}|{ep.get('timeout_s', 10)}"
-            
+            # Use a unique ID for the thread per endpoint config.
+            # #574: the worker thread captures `ep` (incl. extra headers) and
+            # `wh_cfg` (retry config) at first creation, so the key must cover
+            # every dimension of that captured config — two endpoints sharing
+            # url/secret/timeout but differing in headers, or a retry-config
+            # change, must not silently reuse the first worker's config.
+            try:
+                _headers_sig = json.dumps(ep.get("headers", {}), sort_keys=True, default=str)
+                _retry_sig = json.dumps(wh_cfg.get("retry", {}), sort_keys=True, default=str)
+            except Exception:
+                _headers_sig = str(ep.get("headers", {}))
+                _retry_sig = str(wh_cfg.get("retry", {}))
+            ep_id = f"{url}|{ep.get('secret','')}|{ep.get('timeout_s', 10)}|{_headers_sig}|{_retry_sig}"
+
             if ep_id not in _WEBHOOK_QUEUES:
                 _WEBHOOK_QUEUES[ep_id] = queue.Queue()
                 t = threading.Thread(
@@ -101,8 +112,11 @@ def _fire_webhook(event: str, payload: dict, cfg: dict) -> None:
                 t.start()
                 _WEBHOOK_THREADS[ep_id] = t
             
-            # Use a copy of the payload to avoid mutations if the renderer continues
-            _WEBHOOK_QUEUES[ep_id].put((event, payload.copy(), datetime.now(timezone.utc).isoformat()))
+            # Use a copy of the payload to avoid mutations if the renderer continues.
+            # cfg travels with the item (#573): the worker needs it for redaction,
+            # and per-send delivery keeps redaction rules current instead of
+            # freezing the first render's config for the thread's lifetime.
+            _WEBHOOK_QUEUES[ep_id].put((event, payload.copy(), datetime.now(timezone.utc).isoformat(), cfg))
 
 def _webhook_worker(url, ep, wh_cfg, q):
     retry_cfg = wh_cfg.get("retry", {"max_attempts": 3, "backoff_s": 5})
@@ -123,8 +137,8 @@ def _webhook_worker(url, ep, wh_cfg, q):
             q.task_done()
             break
         
-        event, payload, ts_iso = item
-        
+        event, payload, ts_iso, cfg = item
+
         # Prepare payload
         version = _PERSEUS_VERSION
         
@@ -139,12 +153,16 @@ def _webhook_worker(url, ep, wh_cfg, q):
             "version": version,
             "data": payload
         }
-        # #167: redact secrets from webhook payload before external delivery.
+        # #167/#573: redact secrets from webhook payload before external delivery.
         # Pre-1.0.6, directive args and output snippets in payload["data"]
         # were sent verbatim to webhook endpoints, leaking secrets.
+        # #573: the original fix called str-only redact_text() on the payload
+        # DICT, which returned it unchanged — a silent no-op (and `cfg` wasn't
+        # even in scope, so it NameError'd into the bare except). redact_value()
+        # walks the structure and redacts every string field.
         try:
-            from perseus.redaction import redact_text
-            redacted_data, _ = redact_text(payload, cfg)
+            from perseus.redaction import redact_value
+            redacted_data, _ = redact_value(payload, cfg)
             body_dict["data"] = redacted_data
         except Exception:
             pass  # redaction failure must not block webhook delivery

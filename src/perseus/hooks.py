@@ -160,8 +160,42 @@ def _fire_hooks(event: str, payload: dict, cfg: dict) -> None:
     _fire_webhook(event, payload, cfg)
 
 
+# cmd.exe characters that force best-effort quoting on Windows (#574).
+_CMD_UNSAFE_CHARS = ' \t&|<>^"%!;,=()'
+
+
+def _shell_quote_hook_value(val) -> str:
+    """#574: shell-quote a payload value before substituting it into a
+    shell=True hook command.
+
+    POSIX: shlex.quote — fully safe (values like ``x; rm -rf ~`` become a
+    single literal argument).
+
+    Windows: cmd.exe has NO fully safe quoting mechanism (e.g. %VAR%
+    expansion happens even inside double quotes). The hook template is
+    operator-owned — that trust boundary is documented in #168/#574 — so
+    this is best-effort hardening, not a sandbox: values containing cmd
+    metacharacters are wrapped in double quotes with embedded quotes
+    doubled, which neutralizes ``&``, ``|``, ``>``, ``<`` and friends.
+
+    Plain values (no metacharacters) pass through unchanged on both
+    platforms so simple templates keep producing unquoted output.
+    """
+    s = str(val)
+    if os.name == "nt":
+        if s and not any(ch in _CMD_UNSAFE_CHARS for ch in s):
+            return s
+        return '"' + s.replace('"', '""') + '"'
+    import shlex
+    return shlex.quote(s)
+
+
 def _fire_shell_hook(cmd_template: str, payload: dict, event: str) -> None:
     """Run a shell hook with {{var}} substitution. Timeout 5s.
+
+    #574: substituted payload values are shell-quoted (see
+    _shell_quote_hook_value) so attacker-influenced rendered context
+    (e.g. {{args}} / {{result_truncated}}) cannot inject commands.
 
     On timeout the whole process tree is killed. subprocess.run(timeout=...)
     alone is insufficient on Windows: shell=True spawns cmd.exe, and killing
@@ -174,7 +208,7 @@ def _fire_shell_hook(cmd_template: str, payload: dict, event: str) -> None:
     try:
         cmd = cmd_template
         for key, val in payload.items():
-            cmd = cmd.replace(f"{{{{{key}}}}}", str(val))
+            cmd = cmd.replace(f"{{{{{key}}}}}", _shell_quote_hook_value(val))
 
         popen_kwargs = {}
         if os.name == "nt":
