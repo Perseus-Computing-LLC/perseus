@@ -19640,16 +19640,26 @@ def _pythia_recent_entries(n: int) -> list[dict]:
 
 
 def _find_pythia_entry(entries: list[dict], log_id: str) -> int | None:
+    """Find the entry index for a user-supplied log_id.
+
+    Raises ValueError when a prefix matches more than one entry — silently
+    picking the first would mislabel a different entry than the caller
+    intended, corrupting the accept/reject training signal (#548).
+    """
     if log_id == "latest":
         return len(entries) - 1 if entries else None
     for i, e in enumerate(entries):
         if str(e.get("timestamp", "")) == log_id:
             return i
-    # match by prefix
-    for i, e in enumerate(entries):
-        if str(e.get("timestamp", "")).startswith(log_id):
-            return i
-    return None
+    # match by prefix — refuse to guess when the prefix is ambiguous
+    matches = [i for i, e in enumerate(entries)
+               if str(e.get("timestamp", "")).startswith(log_id)]
+    if len(matches) > 1:
+        raise ValueError(
+            f"ambiguous log_id `{log_id}` matches {len(matches)} entries — "
+            "use a longer prefix or 'latest'"
+        )
+    return matches[0] if matches else None
 
 
 def _rewrite_pythia_log(entries: list[dict], cfg: dict | None = None) -> None:
@@ -19676,7 +19686,10 @@ def _rewrite_pythia_log(entries: list[dict], cfg: dict | None = None) -> None:
 
 def _label_pythia_entry(log_id: str, accepted: bool) -> tuple[bool, str]:
     entries = _pythia_log_entries()
-    idx = _find_pythia_entry(entries, log_id)
+    try:
+        idx = _find_pythia_entry(entries, log_id)
+    except ValueError as exc:
+        return (False, str(exc))
     if idx is None:
         return (False, f"No Pythia log entry matched `{log_id}`")
     entries[idx]["accepted"] = bool(accepted)
