@@ -83,8 +83,16 @@ def test_mcp_config_fallback_survives_which_failure(monkeypatch, capsys, tmp_pat
 # ── (b) perseus install hook command ─────────────────────────────────────────
 
 def test_command_string_entry_point_stays_bare(monkeypatch):
-    """Entry point on PATH → hook commands keep the stable bare name (#430)."""
+    """Entry point on PATH → hook commands keep the stable bare name (#430).
+
+    The version probe is stubbed to ``None`` (unverifiable) so this exercises
+    the entry-point path independent of whatever version the real installed
+    ``perseus`` on this machine reports — the stale-shim guard is covered
+    separately in test_bugfix_660_cold_start_followup.py.
+    """
     monkeypatch.setattr(shutil, "which", lambda name, **kw: "/usr/local/bin/perseus")
+    monkeypatch.setattr(perseus, "_entry_point_version", lambda path: None)
+    monkeypatch.setattr(perseus.Path, "home", staticmethod(lambda: Path("/nonexistent-home")))
     assert perseus._perseus_command_string() == "perseus"
 
 
