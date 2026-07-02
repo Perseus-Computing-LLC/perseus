@@ -339,11 +339,18 @@ def cmd_quickstart(args, cfg) -> int:
     print()
 
     # Step 5: Print next steps
+    #
+    # Emit hints with the invocation that actually works on THIS install
+    # (#660): a bare ``perseus`` is dead advice for single-file / curl-install
+    # users who have no console script on PATH. ``_perseus_command_string``
+    # resolves to the entry point when available, else ``<python> <artifact>``.
+    from perseus.mcp import _perseus_command_string
+    launcher = _perseus_command_string()
     print("Perseus ready! Next steps:")
-    print(f"  perseus render {context_file}        — refresh context")
-    print(f"  perseus serve                         — start LSP for your editor")
-    print(f"  perseus suggest \"<task>\"             — get task suggestions")
-    print(f"  perseus doctor --workspace {workspace}  — health check")
+    print(f"  {launcher} render {context_file}        — refresh context")
+    print(f"  {launcher} serve                         — start LSP for your editor")
+    print(f"  {launcher} suggest \"<task>\"             — get task suggestions")
+    print(f"  {launcher} doctor --workspace {workspace}  — health check")
     print()
 
     return 0
