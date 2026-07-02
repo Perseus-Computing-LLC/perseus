@@ -56,6 +56,46 @@ def test_query_executes_with_both_gates(tmp_path, monkeypatch):
     assert "GATES-OPEN" in out
 
 
+def test_if_query_condition_denied_without_env_gate(tmp_path, monkeypatch):
+    """#616 review follow-up: @if query(...) is the same arbitrary-shell
+    surface as @query and must enforce the same env gate. The denied path
+    must not spawn ANY subprocess and must evaluate to False."""
+    monkeypatch.delenv("PERSEUS_ALLOW_DANGEROUS", raising=False)
+    spawned = []
+    monkeypatch.setattr(
+        perseus.subprocess, "run",
+        lambda *a, **kw: spawned.append(a) or (_ for _ in ()).throw(
+            AssertionError("subprocess.run must not be reached")),
+    )
+    result = perseus.evaluate_condition(
+        'query("echo HELLO") matches /HELLO/', tmp_path, _cfg(tmp_path))
+    assert result is False
+    assert spawned == [], "@if query executed a subprocess despite unset env gate"
+
+
+def test_if_query_condition_runs_with_both_gates(tmp_path, monkeypatch):
+    monkeypatch.setenv("PERSEUS_ALLOW_DANGEROUS", "1")
+    result = perseus.evaluate_condition(
+        'query("echo HELLO") matches /HELLO/', tmp_path, _cfg(tmp_path))
+    assert result is True
+
+
+def test_if_query_condition_denied_emits_policy_audit(tmp_path, monkeypatch):
+    monkeypatch.delenv("PERSEUS_ALLOW_DANGEROUS", raising=False)
+    events = []
+    monkeypatch.setattr(
+        perseus, "audit_event",
+        lambda cfg, event, **kw: events.append((event, kw)),
+    )
+    perseus.evaluate_condition(
+        'query("echo x") matches /x/', tmp_path, _cfg(tmp_path))
+    assert events, "denied @if query must emit an audit event"
+    event, kw = events[0]
+    assert event == "policy_denied"
+    assert kw.get("directive") == "@if query"
+    assert kw.get("reason") == "PERSEUS_ALLOW_DANGEROUS not set"
+
+
 def test_query_fingerprint_tracks_env_gate(tmp_path, monkeypatch):
     """@query is now env-gated (#616): its cache fingerprint must flip with
     PERSEUS_ALLOW_DANGEROUS so a cached 'gate not set' warning cannot be
