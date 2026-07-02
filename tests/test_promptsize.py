@@ -1,0 +1,307 @@
+"""Tests for `perseus prompt-size` / `@budget` forensics (#606).
+
+Covers:
+- byte-sum exactness: sum(per-directive bytes) + static bytes == total bytes,
+  with the total independently reconciled against the actual rendered output.
+- @include attribution: the include itself is attributed once; directives
+  nested inside the included file (depth > 0) are never double-counted.
+- --json stability: byte-identical output across two runs (cache-state
+  independent) with frozen dynamic inputs.
+- tokenizer labeling: mode is "exact" iff tiktoken is importable, else
+  "estimate".
+- @budget assertion: pass (silent) / warn (rc 0) / strict-fail (rc 1),
+  including CLI --strict escalation and fence-awareness of the parser.
+- @budget renders as empty text (declaration costs nothing).
+- --since diff mode against a real temp git repository.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+import subprocess
+
+import pytest
+
+from conftest import perseus
+
+if perseus is None:  # pragma: no cover
+    pytest.skip("perseus build artifact unavailable", allow_module_level=True)
+
+
+def _args(src, **kw):
+    base = dict(command="prompt-size", source=str(src), json=False,
+                since=None, strict=False, tier=None, no_cache=False)
+    base.update(kw)
+    return argparse.Namespace(**base)
+
+
+def _write(tmp_path, monkeypatch, body, extra=None):
+    home = tmp_path / "home"; home.mkdir(exist_ok=True)
+    monkeypatch.setattr(perseus, "PERSEUS_HOME", home)
+    ws = tmp_path / "ws"; ws.mkdir(exist_ok=True)
+    src = ws / "ctx.md"
+    src.write_text(body, encoding="utf-8")
+    for name, content in (extra or {}).items():
+        (ws / name).write_text(content, encoding="utf-8")
+    return ws, src
+
+
+def _report(src, capsys, **kw):
+    rc = perseus.cmd_prompt_size(_args(src, json=True, **kw), {})
+    return json.loads(capsys.readouterr().out), rc
+
+
+# ── Byte-sum exactness ───────────────────────────────────────────────────────
+
+def test_byte_sum_is_exact(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("PSTEST_VALUE", "fixed-env-value")
+    ws, src = _write(
+        tmp_path, monkeypatch,
+        '@perseus\n\n# Header\nstatic text here\n\n@env PSTEST_VALUE\n'
+        '@include "sub.md"\n\ntail static\n',
+        extra={"sub.md": "included body line one\nincluded body line two\n"})
+    report, rc = _report(src, capsys)
+    assert rc == 0
+    acc = report["accounting"]
+    assert acc["exact"] is True
+    assert acc["attributed_bytes"] + acc["static_bytes"] == acc["total_bytes"]
+    assert acc["attributed_bytes"] == sum(d["bytes"] for d in report["directives"])
+    # Every resolved directive was located verbatim in the rendered output.
+    assert all(d["located"] for d in report["directives"])
+
+
+def test_total_reconciles_with_actual_render(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("PSTEST_VALUE", "fixed-env-value")
+    ws, src = _write(tmp_path, monkeypatch,
+                     "@perseus\n\n# A\nalpha\n@env PSTEST_VALUE\n")
+    report, _ = _report(src, capsys)
+    cfg = perseus.load_config(ws)
+    perseus._merge_pack_mimir_config(cfg, ws)
+    rendered = perseus.render_source(src.read_text(encoding="utf-8"), cfg, ws,
+                                     max_tier=3)
+    assert report["total"]["bytes"] == len(rendered.encode("utf-8"))
+
+
+def test_include_attributed_once_no_double_count(tmp_path, monkeypatch, capsys):
+    # The included file is itself a Perseus source, so a directive resolves
+    # INSIDE the include (collected at depth 1). Its bytes belong to the
+    # include's row; it must not appear as a second attributed row.
+    monkeypatch.setenv("PSTEST_VALUE", "nested-value-xyz")
+    ws, src = _write(
+        tmp_path, monkeypatch,
+        '@perseus\n\n# Top\n@include "sub.md"\n',
+        extra={"sub.md": "@perseus\nnested static\n@env PSTEST_VALUE\n"})
+    report, _ = _report(src, capsys, no_cache=True)
+    names = [d["name"] for d in report["directives"]]
+    assert "include" in names
+    assert "env" not in names, "nested directive must not be attributed twice"
+    inc = next(d for d in report["directives"] if d["name"] == "include")
+    assert inc["bytes"] > len("nested static")
+    assert report["accounting"]["exact"] is True
+
+
+def test_biggest_offender_sorted_first_with_source_line(tmp_path, monkeypatch, capsys):
+    big = "word " * 500
+    ws, src = _write(tmp_path, monkeypatch,
+                     '@perseus\n\n# H\n@date\n@include "big.md"\n',
+                     extra={"big.md": big + "\n"})
+    report, _ = _report(src, capsys, no_cache=True)
+    rows = report["directives"]
+    assert rows[0]["name"] == "include"
+    assert rows[0]["line"] == 5
+    assert rows[0]["pct"] > 50.0
+    assert rows == sorted(rows, key=lambda r: -r["bytes"])
+
+
+def test_static_vs_dynamic_split_sums(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("PSTEST_VALUE", "v")
+    ws, src = _write(tmp_path, monkeypatch,
+                     "@perseus\n\nstatic\n@env PSTEST_VALUE\n")
+    report, _ = _report(src, capsys)
+    s = report["split"]
+    assert (s["static_bytes"] + s["cacheable_bytes"] + s["volatile_bytes"]
+            == report["total"]["bytes"])
+    # @env is cacheable=False in the registry → volatile.
+    env_row = next(d for d in report["directives"] if d["name"] == "env")
+    assert env_row["cacheable"] is False
+
+
+# ── JSON stability / determinism ─────────────────────────────────────────────
+
+def test_json_stable_across_runs(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("PSTEST_VALUE", "frozen")
+    ws, src = _write(tmp_path, monkeypatch,
+                     '@perseus\n\n# S\nbody\n@env PSTEST_VALUE\n@include "sub.md"\n',
+                     extra={"sub.md": "stable include body\n"})
+    perseus.cmd_prompt_size(_args(src, json=True), {})
+    first = capsys.readouterr().out
+    # Second run may hit the render cache for @include — the report must not
+    # change (no cached/duration fields, depth-0 rows identical either way).
+    perseus.cmd_prompt_size(_args(src, json=True), {})
+    second = capsys.readouterr().out
+    assert first == second
+
+
+def test_json_has_no_volatile_fields(tmp_path, monkeypatch, capsys):
+    ws, src = _write(tmp_path, monkeypatch, "@perseus\n\n# H\n@date\n")
+    report, _ = _report(src, capsys)
+    assert "timestamp" not in report
+    for d in report["directives"]:
+        assert "duration_ms" not in d and "cached" not in d and "depth" not in d
+
+
+def test_tokenizer_mode_labeled(tmp_path, monkeypatch, capsys):
+    ws, src = _write(tmp_path, monkeypatch, "@perseus\n\nplain body text\n")
+    report, _ = _report(src, capsys)
+    try:
+        import tiktoken  # noqa: F401
+        expected = "exact"
+    except ImportError:
+        expected = "estimate"
+    assert report["tokenizer"]["mode"] == expected
+    assert report["total"]["tokens"] > 0
+
+
+# ── @budget directive ────────────────────────────────────────────────────────
+
+def test_budget_directive_renders_empty(tmp_path, monkeypatch):
+    ws, src = _write(tmp_path, monkeypatch,
+                     "@perseus\n\nbody\n@budget max=8000 strict\n")
+    cfg = perseus.load_config(ws)
+    rendered = perseus.render_source(src.read_text(encoding="utf-8"), cfg, ws)
+    assert "@budget" not in rendered
+    assert "body" in rendered
+
+
+def test_budget_pass_is_silent(tmp_path, monkeypatch, capsys):
+    ws, src = _write(tmp_path, monkeypatch,
+                     "@perseus\n\nsmall body\n@budget max=100000\n")
+    rc = perseus.cmd_prompt_size(_args(src, json=True), {})
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert captured.err == ""
+    report = json.loads(captured.out)
+    assert report["budgets"][0]["status"] == "pass"
+    assert report["budgets"][0]["over_by"] == 0
+
+
+def test_budget_over_warns_but_passes_without_strict(tmp_path, monkeypatch, capsys):
+    ws, src = _write(tmp_path, monkeypatch,
+                     "@perseus\n\n@budget max=1\n" + ("lots of words here " * 20) + "\n")
+    rc = perseus.cmd_prompt_size(_args(src, json=True), {})
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert "WARN" in captured.err
+    assert "over @budget max=1" in captured.err
+    report = json.loads(captured.out)
+    assert report["budgets"][0]["status"] == "over"
+    assert report["budgets"][0]["over_by"] > 0
+
+
+def test_budget_strict_fails_with_offender_list(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("PSTEST_VALUE", "offending-content " * 30)
+    ws, src = _write(tmp_path, monkeypatch,
+                     "@perseus\n\n@budget max=1 strict forensic\n@env PSTEST_VALUE\n")
+    rc = perseus.cmd_prompt_size(_args(src, json=True), {})
+    captured = capsys.readouterr()
+    assert rc == 1
+    assert "FAIL" in captured.err
+    assert "@env" in captured.err              # offender named in the breakdown
+    assert "split:" in captured.err            # forensic adds the split line
+
+
+def test_cli_strict_flag_escalates_warn_to_fail(tmp_path, monkeypatch, capsys):
+    ws, src = _write(tmp_path, monkeypatch,
+                     "@perseus\n\n@budget max=1\n" + ("words " * 30) + "\n")
+    rc = perseus.cmd_prompt_size(_args(src, json=True, strict=True), {})
+    captured = capsys.readouterr()
+    assert rc == 1
+    assert "FAIL" in captured.err
+
+
+def test_budget_parser_is_fence_aware_and_flags_missing_max(tmp_path, monkeypatch):
+    src_text = ("@perseus\n\n```\n@budget max=1 strict\n```\n"
+                "@budget strict\n")
+    budgets = perseus._parse_budget_directives(src_text)
+    # The fenced declaration is content, not a directive; the real one is
+    # malformed (no max=) and reported as such rather than dropped.
+    assert len(budgets) == 1
+    assert budgets[0]["max_tokens"] is None
+    assert budgets[0]["strict"] is True
+
+
+# ── --since diff mode ────────────────────────────────────────────────────────
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git not available")
+def test_since_diff_reports_added_include(tmp_path, monkeypatch, capsys):
+    home = tmp_path / "home"; home.mkdir()
+    monkeypatch.setattr(perseus, "PERSEUS_HOME", home)
+    repo = tmp_path / "repo"; repo.mkdir()
+
+    def _git(*cmd):
+        subprocess.run(["git", "-C", str(repo), *cmd], check=True,
+                       capture_output=True)
+
+    _git("init", "-q")
+    _git("config", "user.email", "t@example.com")
+    _git("config", "user.name", "t")
+    src = repo / "ctx.md"
+    src.write_text("@perseus\n\n# H\nstatic body\n", encoding="utf-8")
+    (repo / "extra.md").write_text("a sizeable include body with many words\n",
+                                   encoding="utf-8")
+    _git("add", "-A")
+    _git("commit", "-q", "-m", "v1")
+    src.write_text('@perseus\n\n# H\nstatic body\n@include "extra.md"\n',
+                   encoding="utf-8")
+
+    rc = perseus.cmd_prompt_size(_args(src, json=True, since="HEAD",
+                                       no_cache=True), {})
+    diff = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    assert diff["mode"] == "diff" and diff["since"] == "HEAD"
+    assert diff["delta"]["bytes"] > 0
+    added = [c for c in diff["changes"] if c["status"] == "added"]
+    assert any(c["name"] == "include" for c in added)
+    inc = next(c for c in added if c["name"] == "include")
+    assert inc["bytes_old"] == 0 and inc["bytes_new"] > 0
+    assert inc["bytes_delta"] == inc["bytes_new"]
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git not available")
+def test_since_outside_git_repo_errors_cleanly(tmp_path, monkeypatch, capsys):
+    ws, src = _write(tmp_path, monkeypatch, "@perseus\n\nbody\n")
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path))
+    rc = perseus.cmd_prompt_size(_args(src, json=True, since="HEAD"), {})
+    captured = capsys.readouterr()
+    assert rc == 1
+    assert "--since" in captured.err
+
+
+# ── misc ─────────────────────────────────────────────────────────────────────
+
+def test_prompt_size_does_not_mutate_source(tmp_path, monkeypatch, capsys):
+    ws, src = _write(tmp_path, monkeypatch, "@perseus\n\n# Keep\noriginal\n")
+    before = src.read_text(encoding="utf-8")
+    perseus.cmd_prompt_size(_args(src), {})
+    capsys.readouterr()
+    assert src.read_text(encoding="utf-8") == before
+
+
+def test_missing_source_returns_error(tmp_path, monkeypatch, capsys):
+    home = tmp_path / "home"; home.mkdir()
+    monkeypatch.setattr(perseus, "PERSEUS_HOME", home)
+    rc = perseus.cmd_prompt_size(_args(tmp_path / "nope.md"), {})
+    captured = capsys.readouterr()
+    assert rc == 1
+    assert "not found" in captured.err
+
+
+def test_budget_registered_and_hover_safe():
+    spec = perseus.DIRECTIVE_REGISTRY.get("@budget")
+    assert spec is not None
+    assert spec.kind == "inline"
+    assert spec.safe_for_hover is True
+    assert spec.executes_shell is False
+    assert spec.cacheable is False
+    assert perseus.resolve_budget("max=100") == ""
