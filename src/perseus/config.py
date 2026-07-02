@@ -538,4 +538,20 @@ DEFAULT_CONFIG["foreign"] = {
     "max_response_bytes": 1048576,
 }
 
+# #607 — @speculate: speculative context prefetch via next-intent prediction.
+# DEFAULT OFF: with enabled=false the engine never predicts, never warms the
+# cache, and never writes stats — render/prefetch behavior is unchanged.
+DEFAULT_CONFIG["speculate"] = {
+    "enabled": False,
+    "k": 3,                        # top-k predicted next intents to consider
+    "budget_tokens": 2000,         # cumulative token budget per speculation pass
+    "confidence_threshold": 0.30,  # only warm predictions at/above this probability
+    "history_window": 200,         # checkpoint (waypoint) transitions to learn from
+    "backend": "markov",           # transparent Markov/frequency predictor (no ML deps);
+                                   # pluggable — see speculate.py predictor interface docs
+    "intents": {},                 # intent pattern (fnmatch) -> prefetch directive line(s),
+                                   # e.g. {"deploy*": ['@read "runbook.md" @cache ttl=300']}
+    "max_records": 200,            # bounded speculation-outcome history in the stats file
+}
+
 

@@ -484,6 +484,23 @@ def main():
     p_warmup.add_argument("source", help="Path to .md file with @perseus header")
     p_warmup.add_argument("--workspace", default=None, help="Workspace path (default: inferred)")
 
+    # explain (#607 — @speculate next-intent speculation observability)
+    p_explain = sub.add_parser(
+        "explain",
+        help="Explain engine predictions (currently: --speculate for next-intent speculation)",
+    )
+    p_explain.add_argument(
+        "--speculate", action="store_true",
+        help="Show predicted next intents + probabilities, past speculation "
+             "hit/miss rate, and per-candidate cache warmth",
+    )
+    p_explain.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
+    p_explain.add_argument(
+        "--source", default=None,
+        help="Optional Perseus source file; its @speculate pragma (k=N) adjusts the view",
+    )
+    p_explain.add_argument("--json", action="store_true", help="Machine-readable JSON output")
+
     # oracle (Daedalus dataset / labeling)
     p_oracle = sub.add_parser("oracle", help="Pythia log labeling and dataset export")
     oracle_sub = p_oracle.add_subparsers(dest="oracle_command", required=True)
@@ -643,6 +660,8 @@ def main():
         return cmd_update(args, cfg)
     elif args.command == "warmup":
         cmd_warmup(args, cfg)
+    elif args.command == "explain":
+        return cmd_explain(args, cfg)
     elif args.command == "oracle":
         rc = cmd_oracle(args, cfg)
         if isinstance(rc, int):
