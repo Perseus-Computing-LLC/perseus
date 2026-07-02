@@ -250,6 +250,14 @@ def _memorymesh_rest_health() -> bool:
     #448: Uses urllib instead of an external curl subprocess so the health
     probe stays in-process (no subprocess spawn per check).
     """
+    # #552: local import so this module is self-contained — this file's own
+    # top-level imports don't include urllib; without this, the function
+    # only worked because the build concatenation happened to put another
+    # module's `import urllib.request` in scope first (and a NameError here
+    # would be silently swallowed by the bare except below). Matches the
+    # pattern already used in _memorymesh_search_rest.
+    import urllib.request
+
     try:
         req = urllib.request.Request(
             "http://localhost:8766/health",
