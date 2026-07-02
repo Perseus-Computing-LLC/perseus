@@ -1514,7 +1514,11 @@ def _render_lines(
                         "args": clean_args,
                         "output": cached,
                         "cached": True,
-                        "duration_ms": 0
+                        "duration_ms": 0,
+                        # #606 (prompt-size): include depth so consumers can
+                        # attribute bytes exactly once — depth>0 records are
+                        # embedded in their parent @include's output.
+                        "depth": _include_depth,
                     })
                 if spec and spec.kind == "inline":
                     cached = _apply_output_schema_validation(spec, clean_args, cached, workspace)
@@ -1530,6 +1534,7 @@ def _render_lines(
                 }, cfg)
 
             if directive == "@include" and spec and spec.resolver:
+                _inc_ts = time.time()
                 result = spec.resolver(clean_args, workspace, cfg,
                                        _depth=_include_depth,
                                        _path_chain=_include_path_chain,
@@ -1537,6 +1542,21 @@ def _render_lines(
                                        _directive_collector=_directive_collector,
                                        _stats=_stats)
                 result = _apply_output_schema_validation(spec, clean_args, result, workspace)
+                # #606 (prompt-size): record the @include itself. Directives
+                # resolved INSIDE the included file were already collected by
+                # the recursion above with depth=_include_depth+1; this record
+                # (at the current depth) carries the include's full output so
+                # per-directive byte attribution can count the include exactly
+                # once. Additive — rendered output is unchanged.
+                if _directive_collector is not None:
+                    _directive_collector.append({
+                        "name": "include",
+                        "args": clean_args,
+                        "output": result,
+                        "cached": False,
+                        "duration_ms": int((time.time() - _inc_ts) * 1000),
+                        "depth": _include_depth,
+                    })
             elif spec and spec.resolver and spec.kind == "inline":
                 _resolve_ts = time.time()
                 result = _call_resolver(spec, clean_args, cfg, workspace)
@@ -1548,7 +1568,9 @@ def _render_lines(
                         "args": clean_args,
                         "output": result,
                         "cached": False,
-                        "duration_ms": _duration_ms
+                        "duration_ms": _duration_ms,
+                        # #606 (prompt-size): see the cached-path record above.
+                        "depth": _include_depth,
                     })
                 _fire_hooks("on_directive_resolved", {
                     "name": directive,

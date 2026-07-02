@@ -213,9 +213,9 @@ Published as [`io.github.Perseus-Computing-LLC/perseus`](https://registry.modelc
 
 ### MCP Tools
 
-<!-- test-count: 1440 — recount with: grep -rE "^\s*def test_" tests/ | wc -l -->
-<!-- The table below is the exact default output of _get_all_mcp_tools({}) — 29 rows. Recount before editing. -->
-29 MCP tools resolve live state at invocation time (including the legacy aliases `perseus_get_context`/`perseus_get_health`). Two additional sensitive tools — `perseus_query` (run a shell command) and `perseus_agent` (execute a local agent subprocess) — are **not** part of this default set: they require explicit `mcp.tool_allowlist` opt-in because they execute commands in the user's local shell (**not sandboxed, full user permissions apply**).
+<!-- test-count: 1478 — recount with: grep -rE "^\s*def test_" tests/ | wc -l -->
+<!-- The table below is the exact default output of _get_all_mcp_tools({}) — 30 rows. Recount before editing. -->
+30 MCP tools resolve live state at invocation time (including the legacy aliases `perseus_get_context`/`perseus_get_health`). Two additional sensitive tools — `perseus_query` (run a shell command) and `perseus_agent` (execute a local agent subprocess) — are **not** part of this default set: they require explicit `mcp.tool_allowlist` opt-in because they execute commands in the user's local shell (**not sandboxed, full user permissions apply**).
 
 | Tool | Description |
 |---|---|
@@ -245,6 +245,7 @@ Published as [`io.github.Perseus-Computing-LLC/perseus`](https://registry.modelc
 | `perseus_mason` | Query the Mason code architecture concept map |
 | `perseus_research` | Per-paper Methods/Results blocks from an external paper-search MCP server (external server is opt-in via config) |
 | `perseus_tokens` | Embed token budget for rendered context |
+| `perseus_budget` | Declare a token budget enforced by `perseus prompt-size` |
 | `perseus_tooltrim` | Filtered toolset metadata and usage statistics |
 | `perseus_get_context` | Full rendered workspace context (legacy alias) |
 | `perseus_get_health` | Daedalus context-maintenance heuristics (legacy alias) |
@@ -653,6 +654,41 @@ nginx
 ```
 
 Set `render.default_tier: 1` in `~/.perseus/config.yaml` to make lean context the default for all renders. No embedding model, no LLM routing — one integer comparison per directive gates resolution. The agent sees what's available and can pull it on demand.
+
+### Prompt-Size Forensics (`perseus prompt-size` + `@budget`)
+
+Context is the scarcest resource in agent systems — and it's usually spent blind. `perseus prompt-size` renders a context and shows exactly where every byte went, attributed **per directive**, with a static-vs-dynamic split:
+
+```bash
+perseus prompt-size .perseus/context.md          # human table, largest offenders first
+perseus prompt-size .perseus/context.md --json   # stable, deterministic JSON for CI diffing
+perseus prompt-size .perseus/context.md --since HEAD~5   # per-directive budget delta vs a git ref
+```
+
+```
+perseus prompt-size: context.md (tier 3)
+total: 5950 bytes, 2270 tokens [tiktoken:cl100k_base — exact]
+split: static 43 B / cacheable 45 B / volatile 5862 B (attributed 5907 + static 43 = 5950 — exact)
+
+Per directive (largest first):
+      5862 B     2249 tok   98.52%  [ volatile]  @env PATH  line 7
+        45 B        9 tok    0.76%  [cacheable]  @include "sub.md"  line 8
+```
+
+- **Byte-exact accounting** — per-directive bytes + static template bytes sum to the rendered total with no unattributed remainder (the `accounting.exact` field asserts this in `--json`).
+- **Tokenizer-aware** — real BPE counts via `tiktoken` (cl100k_base) when it happens to be installed (labeled `exact`); otherwise a deterministic offline heuristic clearly labeled `estimate`. Never a network call.
+- **Static vs. dynamic split** — see how much of the render is a cacheable prefix vs. per-render volatility (`@env`, `@date`, `@query`).
+- **`--since <git-ref>` diff mode** — renders the file's content at the ref (via `git show`, offline) and reports which directive's contribution grew, so "someone added an `@include` that doubled the prompt" is caught in review.
+
+Pair it with a **`@budget`** declaration in the source to gate context bloat in CI:
+
+```markdown
+@perseus
+@budget max=8000 strict forensic
+...
+```
+
+`perseus prompt-size` checks every `@budget` after the render: under budget passes silently; over budget warns with the per-directive offender breakdown — or exits non-zero when the declaration says `strict` (or the CLI is invoked with `--strict`). `forensic` expands the overflow report to the full per-directive table plus the static/cacheable/volatile split. The directive itself renders as empty text, so it costs nothing in the context it guards.
 
 ### Directive Aliases
 

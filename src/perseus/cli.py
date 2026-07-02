@@ -101,6 +101,24 @@ def main():
                            help="Context tier limit for the render (default: config / 3)")
     p_preview.add_argument("--no-cache", action="store_true", help="Bypass the render cache")
 
+    # prompt-size (#606) — per-directive context budget forensics
+    p_psize = sub.add_parser(
+        "prompt-size",
+        help="Per-directive byte/token breakdown of a rendered context; enforces @budget declarations",
+    )
+    p_psize.add_argument("source", help="Path to .md file with @perseus header")
+    p_psize.add_argument("--json", action="store_true",
+                         help="Emit the budget report as stable, deterministic JSON (no volatile fields)")
+    p_psize.add_argument("--since", default=None, metavar="GIT_REF",
+                         help="Diff mode: render the file's content at GIT_REF (via git show, offline) "
+                              "vs the working tree and report the per-directive budget delta")
+    p_psize.add_argument("--strict", action="store_true",
+                         help="Exit non-zero when ANY @budget declaration is exceeded "
+                              "(same as marking every @budget with `strict`)")
+    p_psize.add_argument("--tier", type=int, default=None, choices=[1, 2, 3],
+                         help="Context tier limit for the render (default: config / 3)")
+    p_psize.add_argument("--no-cache", action="store_true", help="Bypass the render cache")
+
     # watch (Phase 20C)
     p_watch = sub.add_parser("watch", help="Poll and refresh render outputs when context sources change")
     p_watch.add_argument("--source", default=None, help="Source file (default: .perseus/context.md, unless a context pack is present)")
@@ -583,6 +601,8 @@ def main():
         return cmd_compress(args, cfg)
     elif args.command == "preview":
         return cmd_preview(args, cfg)
+    elif args.command == "prompt-size":
+        return cmd_prompt_size(args, cfg)
     elif args.command == "watch":
         return cmd_watch(args, cfg)
     elif args.command == "graph":
