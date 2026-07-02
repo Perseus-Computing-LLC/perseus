@@ -1513,6 +1513,14 @@ def _render_lines(
                                            no_cache=no_cache,
                                            _query_results=_block_results,
                                            _query_sources=_block_sources)
+            # #656: pop-and-fold the flag the nested frame may have re-marked
+            # at its exit (same hygiene as the pipe site above) — otherwise a
+            # failure inside this @validate block leaks into the NEXT sibling
+            # directive's cache decision and that sibling loses its cache
+            # write on every render. Folding preserves the propagation: this
+            # frame's own exit re-mark still reaches the enclosing @include.
+            if _pop_resolver_failure():
+                _saw_resolver_failure = True
             output.append(resolve_validate_block(rendered_block, schema_ref, cfg, workspace))
             continue
 
@@ -1703,6 +1711,15 @@ def _render_lines(
                                              no_cache=no_cache,
                                              _query_results=_branch_results,
                                              _query_sources=_branch_sources))
+                # #656: pop-and-fold the flag the branch frame may have
+                # re-marked at its exit (same hygiene as the pipe and
+                # @validate sites) — otherwise a failure inside this @if
+                # branch leaks into the NEXT sibling directive's cache
+                # decision and that sibling loses its cache write on every
+                # render. Folding preserves propagation to the enclosing
+                # @include via this frame's own exit re-mark.
+                if _pop_resolver_failure():
+                    _saw_resolver_failure = True
             continue
 
         # ── inline directives ──

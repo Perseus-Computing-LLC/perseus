@@ -34,6 +34,20 @@ def workspace(tmp_path: Path) -> Path:
     return ws
 
 
+@pytest.fixture(autouse=True)
+def _isolated_session_cache():
+    """Belt-and-braces isolation of the process-global _SESSION_CACHE.
+
+    conftest's autouse _clear_session_cache already clears it before each
+    test, but the #657 tests below assert over ALL session values (and one
+    intentionally plants a RAW secret with redaction disabled), so this file
+    scopes the store explicitly on both sides — it must stay order-independent
+    under randomization and never leak a planted secret to a later test."""
+    perseus._SESSION_CACHE.clear()
+    yield
+    perseus._SESSION_CACHE.clear()
+
+
 def _render(lines: list[str], cfg: dict, workspace: Path) -> str:
     source = "\n".join(["@perseus", *lines])
     return perseus.render_source(source, cfg, workspace=workspace)
@@ -126,6 +140,71 @@ class TestIssue656IncludeFailureNotFrozen:
             f"failing @query two include levels deep ran {_runs(counter)}x "
             "over 2 renders (expected 2) — an intermediate include entry "
             "froze the failure"
+        )
+
+    def test_sibling_after_failing_if_branch_keeps_its_cache(self, workspace, tmp_path):
+        """Review fix for PR #658: the frame-exit re-mark must not LEAK into
+        the next sibling directive's cache decision. An @if branch inside an
+        include re-marks the flag at its recursion frame's exit; without the
+        pop-and-fold at the @if call site, the cache-miss sibling's
+        unconditional pop consumed it as its own failure and the sibling lost
+        its cache write on EVERY render. The failure must still propagate to
+        the include level (include entry skipped, failing query retries)."""
+        cfg = _cfg(tmp_path)
+        fail_counter = tmp_path / "fail_runs"
+        ok_counter = tmp_path / "ok_runs"
+        (workspace / "inc.md").write_text(
+            "@perseus\n"
+            "@if env.set PATH\n"
+            f'@query "{_failing_cmd(fail_counter)}"\n'
+            "@endif\n"
+            f'@query "{_ok_cmd(ok_counter)}" @cache ttl=300\n',
+            encoding="utf-8",
+        )
+        lines = ['@include "inc.md"']
+
+        for _ in range(3):
+            out = _render(lines, cfg, workspace)
+            assert "exited 7" in out
+            assert "hello" in out
+
+        assert _runs(fail_counter) == 3, (
+            f"failing @query in the @if branch ran {_runs(fail_counter)}x over "
+            "3 renders (expected 3) — the include-level entry froze the failure"
+        )
+        assert _runs(ok_counter) == 1, (
+            f"successful cacheable SIBLING of the @if block ran "
+            f"{_runs(ok_counter)}x over 3 renders (expected 1) — the branch "
+            "frame's exit re-mark leaked into the sibling's cache decision"
+        )
+
+    def test_sibling_after_failing_validate_block_keeps_its_cache(self, workspace, tmp_path):
+        """Same leak guard for the @validate recursion site."""
+        cfg = _cfg(tmp_path)
+        fail_counter = tmp_path / "fail_runs"
+        ok_counter = tmp_path / "ok_runs"
+        (workspace / "inc.md").write_text(
+            "@perseus\n"
+            '@validate schema="nosuch"\n'
+            f'@query "{_failing_cmd(fail_counter)}"\n'
+            "@end\n"
+            f'@query "{_ok_cmd(ok_counter)}" @cache ttl=300\n',
+            encoding="utf-8",
+        )
+        lines = ['@include "inc.md"']
+
+        for _ in range(3):
+            out = _render(lines, cfg, workspace)
+            assert "hello" in out
+
+        assert _runs(fail_counter) == 3, (
+            f"failing @query in the @validate block ran {_runs(fail_counter)}x "
+            "over 3 renders (expected 3) — the include-level entry froze it"
+        )
+        assert _runs(ok_counter) == 1, (
+            f"successful cacheable SIBLING of the @validate block ran "
+            f"{_runs(ok_counter)}x over 3 renders (expected 1) — the block "
+            "frame's exit re-mark leaked into the sibling's cache decision"
         )
 
     def test_include_with_only_successful_content_still_cached(self, workspace, tmp_path):
