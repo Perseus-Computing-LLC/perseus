@@ -102,15 +102,18 @@ def test_611_health_check_does_not_follow_redirects(monkeypatch):
 
 # ── #612: env var in fingerprint for gated directives only ───────────────────
 
-def test_612_query_fingerprint_tracks_dangerous_env(monkeypatch):
+def test_612_query_is_not_env_gated(monkeypatch):
+    # #616: @query gates on the render.allow_query_shell CONFIG flag, NOT on
+    # PERSEUS_ALLOW_DANGEROUS. Its fingerprint must therefore stay empty for a
+    # no-file-dependency invocation regardless of the env var (config values
+    # were never part of the fingerprint). An env flip must not touch it.
     c = cfg()
     monkeypatch.setenv("PERSEUS_ALLOW_DANGEROUS", "0")
     fp_off = perseus._dependency_fingerprint("@query", '"echo hi"', None, c)
     monkeypatch.setenv("PERSEUS_ALLOW_DANGEROUS", "1")
     fp_on = perseus._dependency_fingerprint("@query", '"echo hi"', None, c)
-    assert fp_off != ""
-    assert fp_on != ""
-    assert fp_off != fp_on, "flipping the env gate must change @query's fingerprint"
+    assert fp_off == "", f"@query should have empty fingerprint, got {fp_off!r}"
+    assert fp_on == "", f"@query should have empty fingerprint, got {fp_on!r}"
 
 
 def test_612_nongated_directive_keeps_empty_fingerprint(monkeypatch):
