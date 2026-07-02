@@ -3768,10 +3768,16 @@ def _var_name_is_denied(var_name: str, cfg: dict) -> bool:
             extra = env_cfg.get("deny_list")
             if isinstance(extra, list):
                 deny_list.extend(extra)
+    # #598: fnmatch.fnmatch only case-folds on Windows, so on POSIX lowercase
+    # secret names (github_token, npm_token) bypassed the *TOKEN*/*_KEY*
+    # patterns. Use fnmatchcase over upper-cased name/pattern for
+    # platform-independent, case-insensitive matching (mirrors
+    # _pattern_matches in query.py).
+    name_upper = var_name.upper()
     for pattern in deny_list:
         if not isinstance(pattern, str) or not pattern.strip():
             continue
-        if fnmatch.fnmatch(var_name, pattern.strip()):
+        if fnmatch.fnmatchcase(name_upper, pattern.strip().upper()):
             return True
     return False
 # ──────────────────────────────── @include ────────────────────────────────────
@@ -3864,6 +3870,12 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
     Inode tracking (task-63): hard links bypass path-based cycle detection.
     _inode_chain tracks (st_dev, st_ino) pairs for every file visited.
     """
+    # #596: the signature advertises cfg=None as valid — normalize once so
+    # every downstream cfg use (render_cfg, _resolve_max_bytes, recursion)
+    # sees a real dict instead of crashing on None.get(...).
+    if cfg is None:
+        cfg = DEFAULT_CONFIG
+
     file_path_str, remaining = _extract_quoted_token(args_str.strip())
     if not file_path_str:
         return "> ⚠ @include: no file specified."
@@ -3886,10 +3898,13 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
                     f"{', '.join(sorted(unknown))}. Supported: last=, since=.")
         if "last" in options:
             try:
+                # #596: catch TypeError too — _parse_kv_modifiers can return
+                # None for an empty quoted value (last=""), and int(None)
+                # raises TypeError, not ValueError.
                 last_n = int(options["last"])
                 if last_n < 0:
                     raise ValueError
-            except ValueError:
+            except (TypeError, ValueError):
                 return ("> ⚠ @include: last= must be a non-negative integer "
                         f"(got `{options['last']}`).")
         if "since" in options:
@@ -3898,7 +3913,7 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
                 return ("> ⚠ @include: since= must look like 14d, 2w, or 24h "
                         f"(got `{options['since']}`).")
 
-    render_cfg = (cfg or DEFAULT_CONFIG).get("render", {})
+    render_cfg = cfg.get("render", {})
     base = workspace or Path.cwd()
     fp, path_warning = _resolve_path(
         file_path_str,
@@ -3980,18 +3995,30 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
     else:
         trunc_note = ""
 
+    ext = fp.suffix.lower()
+
+    # #597: detect the @perseus header BEFORE windowing. `last=N` on a growing
+    # log always drops line 1, which silently disabled directive rendering of
+    # included Perseus sources (directives appeared as literal @... text).
+    is_perseus_source = ext == ".md" and raw.lstrip().startswith("@perseus")
+
     # ── Apply windowing (#433) before dispatching on file type so it bounds
     #    both fenced and recursively-rendered includes. Applied after the byte
     #    truncation cap so `last=`/`since=` operate on decoded text.
     if last_n is not None or since_cutoff is not None:
-        raw = _apply_include_window(raw, last_n, since_cutoff).rstrip()
-
-    ext = fp.suffix.lower()
+        if is_perseus_source:
+            # Preserve the @perseus header line (render_source requires it on
+            # line 1) and window only the body.
+            head, _, body_text = raw.lstrip().partition("\n")
+            windowed = _apply_include_window(body_text, last_n, since_cutoff).rstrip()
+            raw = head + ("\n" + windowed if windowed else "")
+        else:
+            raw = _apply_include_window(raw, last_n, since_cutoff).rstrip()
 
     # ── Build the included body by file type ──
     if ext == ".md":
         # Check if this is a Perseus source file (starts with @perseus)
-        if raw.lstrip().startswith("@perseus"):
+        if is_perseus_source:
             try:
                 # Render the included file through Perseus with incremented depth
                 body = render_source(raw, cfg, workspace, _include_depth=_depth + 1,
@@ -4128,7 +4155,8 @@ def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str
 
     # ── File size limit check (byte-counted, not character-counted) ──
     max_bytes = _resolve_max_bytes(cfg, "max_read_bytes")
-    if max_bytes is not None and len(data) > max_bytes:
+    truncated = max_bytes is not None and len(data) > max_bytes
+    if truncated:
         content = data[:max_bytes].decode(errors="replace")
         trunc_note = (
             f"> ⚠ @read: file `{file_path_str}` exceeds max_read_bytes "
@@ -4136,8 +4164,12 @@ def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str
             f"{max_bytes:,} bytes.\n\n"
         )
         if schema_ref is not None:
-            # Can't validate truncated content — skip validation for this run
-            pass
+            # #592: can't validate truncated content — actually skip the
+            # validation block below (the old bare `pass` fell through and
+            # parse-failed on the truncated bytes, withholding all output).
+            trunc_note += (
+                "> ⚠ @read: schema validation skipped (content truncated).\n\n"
+            )
     else:
         trunc_note = ""
 
@@ -4148,7 +4180,7 @@ def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str
                     ".toml": "toml", ".env": "text", ".md": "markdown",
                     ".sh": "bash", ".py": "python", ".txt": "text"}
         lang = lang_map.get(ext, "text")
-        if schema_ref:
+        if schema_ref and not truncated:
             try:
                 data = _parse_read_content_for_validation(content, ext)
             except Exception as exc:
@@ -4385,11 +4417,25 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
                     args=args_str[:200])
         return "> ⚠ @query is disabled by config (`render.allow_query_shell=false`)."
 
-    # Strip @cache modifier first, then extract the command string.
-    # Use the opening quote character to find the correct closing quote,
-    # so commands containing the other quote type (e.g. "bash -c 'foo'")
-    # are parsed correctly.
-    raw = re.sub(r'\s+@cache\s.*$', '', args_str.strip())
+    # #588: extract the quoted command FIRST so modifier stripping (@cache,
+    # schema=, fallback=, timeout=) only ever sees the remainder and can
+    # never mutate what gets executed. Use the opening quote character to
+    # find the correct closing quote, so commands containing the other
+    # quote type (e.g. "bash -c 'foo'") are parsed correctly.
+    raw = args_str.strip()
+    cmd = None
+    cmd_match = re.match(r'^"((?:[^"\\]|\\.)*)"', raw)   # double-quoted
+    if not cmd_match:
+        cmd_match = re.match(r"^'((?:[^'\\]|\\.)*)'", raw)  # single-quoted
+    if cmd_match:
+        cmd = cmd_match.group(1)
+        # Modifier remainder only. Leading whitespace is preserved so the
+        # `\s+`-prefixed modifier patterns below match at its start.
+        raw = raw[cmd_match.end():]
+
+    # Strip @cache modifier from the modifier remainder (unquoted commands
+    # keep the historical behavior: modifiers are stripped from the tail).
+    raw = re.sub(r'(?:^|\s)@cache\s.*$', '', raw)
 
     # Extract schema="..." modifier before command parsing.
     schema_path = None
@@ -4410,28 +4456,22 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
         fallback = _unescape_fallback(fallback)
         raw = (raw[:fb_match.start()] + raw[fb_match.end():]).rstrip()
 
-    # #138: strip timeout=N modifier BEFORE command extraction to prevent
-    # it from leaking into the executed shell command.
+    # #138: strip timeout=N modifier so it never leaks into an unquoted
+    # executed shell command (quoted commands were already extracted above).
 
     # Extract timeout=N modifier (per-directive override, default 30s)
     timeout = int(cfg["render"].get("query_timeout_s", 30))
-    tm_match = re.search(r'\s+timeout=(\d+)(?:\s|$)', raw)
+    tm_match = re.search(r'(^|\s)timeout=(\d+)(?:\s|$)', raw)
     if tm_match:
-        timeout = int(tm_match.group(1))
+        timeout = int(tm_match.group(2))
         raw = (raw[:tm_match.start()] + raw[tm_match.end():]).rstrip()
 
-
-    cmd_match = re.match(r'^"((?:[^"\\]|\\.)*)"', raw)   # double-quoted
-    if not cmd_match:
-        cmd_match = re.match(r"^'((?:[^'\\]|\\.)*)'", raw)  # single-quoted
-    if not cmd_match:
-        # Unquoted — everything remaining
+    if cmd is None:
+        # Unquoted — everything remaining after modifier stripping
         cmd_raw = raw.strip()
         if not cmd_raw:
             return "> ⚠ @query: no command specified."
         cmd = cmd_raw
-    else:
-        cmd = cmd_match.group(1)
 
     # Detect language hint for syntax highlighting (best-effort)
     lang = _guess_lang(cmd)
@@ -5662,20 +5702,12 @@ def resolve_perseus(args_str: str, cfg: dict, workspace: Path | None = None) -> 
         return "> ⚠ @perseus: URL argument required."
     
     url_str = parts[0]
-    
-    # Check for @cache ttl=
-    ttl = 60
-    has_ttl = False
-    for i, part in enumerate(parts):
-        if part == "@cache" and i + 1 < len(parts) and parts[i+1].startswith("ttl="):
-            try:
-                ttl = int(parts[i+1].split("=")[1])
-                has_ttl = True
-            except (ValueError, IndexError):
-                pass
-    
-    if not has_ttl:
-        pass
+
+    # #590: caching (including @cache ttl=N) is handled entirely by the
+    # renderer, which strips the @cache modifier BEFORE calling this
+    # resolver. TTL is therefore undetectable here — the old scan was dead
+    # code and its "missing @cache ttl=" warning fired on EVERY fetch, even
+    # when the user wrote @cache ttl=300. No warning is emitted.
 
     # Parse URL to get base and workspace
     # Format: https://host:port/workspace/name
@@ -5753,9 +5785,9 @@ def resolve_perseus(args_str: str, cfg: dict, workspace: Path | None = None) -> 
             ctx.verify_mode = ssl.CERT_NONE
 
         req = urllib.request.Request(api_url, headers=headers)
-        
+
         # S3: Limit redirects and re-check destination IP after each redirect
-        from urllib.request import HTTPRedirectHandler, build_opener
+        from urllib.request import HTTPRedirectHandler, HTTPSHandler, build_opener
         class _LimitedRedirectHandler(HTTPRedirectHandler):
             def __init__(self, max_redirects, allow_internal):
                 self.max_redirects = max_redirects
@@ -5775,8 +5807,14 @@ def resolve_perseus(args_str: str, cfg: dict, workspace: Path | None = None) -> 
                             f"Redirect to internal host blocked: {new_parsed.hostname}")
                 return super().redirect_request(req, fp, code, msg, hdrs, newurl)
         
-        opener = build_opener(_LimitedRedirectHandler(max_redirects,
-                                f_cfg.get("allow_internal", False)))
+        # #590: tls_verify=false must actually take effect — install an
+        # HTTPSHandler carrying the unverified SSL context, otherwise the
+        # option is silently ignored and self-signed instances fail.
+        handlers = [_LimitedRedirectHandler(max_redirects,
+                                            f_cfg.get("allow_internal", False))]
+        if ctx is not None:
+            handlers.append(HTTPSHandler(context=ctx))
+        opener = build_opener(*handlers)
         
         # We need to read the response to verify signature, but also need to handle timeout/size.
         with opener.open(req, timeout=timeout) as resp:
@@ -5815,8 +5853,6 @@ def resolve_perseus(args_str: str, cfg: dict, workspace: Path | None = None) -> 
                 resolved = data.get("resolved", "")
                 if truncated:
                     resolved += "\n\n> ⚠ @perseus: response truncated (exceeded max_response_bytes)"
-                if not has_ttl:
-                    resolved = f"> ⚠ @perseus: missing @cache ttl=, using default 60s\n\n" + resolved
                 return resolved
             except json.JSONDecodeError:
                 err_msg = f"> ⚠ @perseus: invalid JSON response from {url_str}"
@@ -5853,8 +5889,11 @@ def resolve_skills(args_str: str, cfg: dict) -> str:
     for skill_md in sorted(skill_dir.rglob("SKILL.md")):
         rel = skill_md.relative_to(skill_dir)
         parts = list(rel.parts)
-        # category = first dir component; name = second (or same if flat)
-        if len(parts) >= 2:
+        # #594: the standard layout is skills/<name>/SKILL.md — with exactly
+        # two components the folder is the skill NAME (no category), not the
+        # category. A category only exists with 3+ components
+        # (category/name/SKILL.md).
+        if len(parts) >= 3:
             category = parts[0]
             name = parts[1]
         else:
@@ -6186,11 +6225,19 @@ def resolve_session(args_str: str, cfg: dict) -> str:
 
 def health_check_url(url: str, timeout: float, cfg: dict) -> tuple[str, float | None]:
     """Returns (status_emoji, latency_ms | None)."""
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    # #591: scheme allowlist + hostname requirement (unconditional, mirroring
+    # @perseus's C15 check). file:// URLs have no hostname and previously
+    # bypassed the localhost gate entirely, opening local files (SSRF /
+    # file-existence oracle) even with allow_remote_services_health=false.
+    if parsed.scheme not in ("http", "https"):
+        return f"🔒 scheme blocked ({parsed.scheme or 'none'})", None
+    if not parsed.hostname:
+        return "🔒 invalid URL (no hostname)", None
     # Security gate: restrict to localhost by default (SSRF prevention)
     if not cfg["render"].get("allow_remote_services_health", False):
-        from urllib.parse import urlparse
-        parsed = urlparse(url)
-        if parsed.hostname and parsed.hostname not in ("127.0.0.1", "localhost", "::1"):
+        if parsed.hostname not in ("127.0.0.1", "localhost", "::1"):
             return "🔒 remote blocked", None
     start = time.monotonic()
     try:
@@ -6296,7 +6343,9 @@ def resolve_services(block_content: str, cfg: dict) -> str:
         # Use safe_load_all when the block contains YAML document separators
         # (---) so multi-document streams parse correctly. Otherwise, use
         # safe_load to preserve the existing mapping-format detection.
-        if "\\n---" in block_content or block_content.startswith("---"):
+        # #591: match a real newline followed by the separator (the previous
+        # pattern tested the 5-char literal backslash-n, never matching).
+        if "\n---" in block_content or block_content.startswith("---"):
             docs = list(yaml.safe_load_all(block_content))
             services = []
             for doc in docs:
@@ -6505,7 +6554,11 @@ def resolve_list(args_str: str, cfg: dict, workspace: Path | None = None) -> str
         except ValueError:
             continue
         if cur_depth >= depth:
+            # #593: entries under this root would sit at cur_depth + 1 —
+            # beyond the requested depth. Prune dirs AND skip the files loop
+            # (previously only dirs were bounded; files leaked one level deep).
             dirs[:] = []
+            continue
         if list_type in {"dirs", "all"}:
             for d in sorted(dirs):
                 entries.append((root_p / d, cur_depth + 1))
@@ -6647,16 +6700,28 @@ def resolve_date(args_str: str) -> str:
 
     now = datetime.now() + delta
 
-    # Map human tokens to strftime
-    result = fmt
-    result = result.replace("YYYY", now.strftime("%Y"))
-    result = result.replace("MM", now.strftime("%m"))
-    result = result.replace("DD", now.strftime("%d"))
-    result = result.replace("HH", now.strftime("%H"))
-    result = result.replace("mm", now.strftime("%M"))
-    result = result.replace("ss", now.strftime("%S"))
-    result = result.replace("z", now.astimezone().strftime("%Z"))
-    return result
+    # Map human tokens to strftime values in a SINGLE tokenizing pass (#595).
+    # Sequential str.replace corrupted literal text containing token
+    # substrings (e.g. the "z" in "zulu" became the timezone name).
+    # A run of adjacent tokens (YYYYMMDD) is matched only when not glued to
+    # other letters, so words like "zulu" or "HAMMER" are left intact.
+    token_values = {
+        "YYYY": now.strftime("%Y"),
+        "MM": now.strftime("%m"),
+        "DD": now.strftime("%d"),
+        "HH": now.strftime("%H"),
+        "mm": now.strftime("%M"),
+        "ss": now.strftime("%S"),
+        "z": now.astimezone().strftime("%Z"),
+    }
+    _token_alt = r"YYYY|MM|DD|HH|mm|ss|z"
+    _run_re = re.compile(r"(?<![A-Za-z])(?:%s)+(?![A-Za-z])" % _token_alt)
+    _one_re = re.compile(_token_alt)
+
+    def _sub_run(m: "re.Match") -> str:
+        return _one_re.sub(lambda tm: token_values[tm.group(0)], m.group(0))
+
+    return _run_re.sub(_sub_run, fmt)
 def resolve_prompt_block(content: str) -> str:
     """@prompt...@end blocks are included as an AI instruction callout."""
     return f"> 📌 **Perseus prompt:** {content.strip()}"
@@ -6921,13 +6986,18 @@ class _ResearchMCPClient:
             except json.JSONDecodeError:
                 # Server may emit non-JSON log noise on stdout; skip it.
                 continue
-            # Match our request id; ignore notifications / mismatched ids.
-            if isinstance(response, dict) and response.get("id") not in (req_id, None):
+            # #599: match our request id EXACTLY. id-less server notifications
+            # (e.g. notifications/message) previously fell through the old
+            # `not in (req_id, None)` check and were mistaken for the awaited
+            # response, degrading the render to "no result". Skip anything
+            # that is not a dict carrying our id and keep reading until the
+            # matching response, EOF, or timeout.
+            if not isinstance(response, dict) or response.get("id") != req_id:
                 continue
-            if isinstance(response, dict) and "error" in response:
+            if "error" in response:
                 err = response["error"]
                 return None, f"MCP error {err.get('code', '')}: {err.get('message', str(err))}"
-            return (response.get("result") if isinstance(response, dict) else None), None
+            return response.get("result"), None
 
 
 def _research_cfg(cfg: dict) -> dict:
@@ -22804,11 +22874,24 @@ def _load_synthesis_sources(refs: list[str], workspace: Path, cfg: dict) -> tupl
         if error or path is None:
             errors.append(error or f"invalid source: {ref}")
             continue
-        text = path.read_text(errors="replace", encoding="utf-8")
+        # #587 item 1: guard the read per-source. Permission-denied, Windows
+        # file locks, or check-to-read deletion must accumulate into errors
+        # (the function's design) instead of crashing cmd_synthesize.
+        try:
+            text = path.read_text(errors="replace", encoding="utf-8")
+        except OSError as exc:
+            errors.append(f"could not read source: {ref} ({exc})")
+            continue
         truncated = False
-        if max_source_bytes > 0 and len(text) > max_source_bytes:
-            text = text[:max_source_bytes]
-            truncated = True
+        # #587 item 3: enforce the budget in BYTES, not characters — multibyte
+        # sources previously exceeded max_source_bytes by up to 4x.
+        if max_source_bytes > 0:
+            encoded = text.encode("utf-8")
+            if len(encoded) > max_source_bytes:
+                # errors="ignore" drops a partial trailing multibyte sequence
+                # cleanly instead of raising or emitting U+FFFD.
+                text = encoded[:max_source_bytes].decode("utf-8", errors="ignore")
+                truncated = True
         lines = text.splitlines()
         sources.append({
             "id": f"src{index}",
@@ -23074,9 +23157,18 @@ def synthesize_question(
         result["error"] = "generation is disabled; set generation.enabled=true or pass --enable-generation"
         return result, 2
 
-    provider_used = llm.strip().lower()
-    if ":" in provider_used and not model:
-        provider_used, _, model = provider_used.partition(":")
+    # #587 item 2: ALWAYS split a provider:model shorthand — the renderer
+    # passes both llm and model whenever generation.model/llm.model is set,
+    # so gating the split on `not model` left "ollama:llama3" as the provider
+    # and broke exact-match dispatch for ALL synthesis. An explicitly passed
+    # model wins over the shorthand suffix. Lowercase only the provider part:
+    # model IDs are case-sensitive and must be preserved.
+    provider_used = llm.strip()
+    if ":" in provider_used:
+        provider_used, _, shorthand_model = provider_used.partition(":")
+        if not model:
+            model = shorthand_model.strip() or None
+    provider_used = provider_used.strip().lower()
     model_used = model or generation_cfg.get("model") or cfg.get("llm", {}).get("model")
     # task-47: audit the model call before it crosses the LLM trust boundary.
     audit_event(cfg, "model_call",
