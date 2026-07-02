@@ -147,11 +147,25 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
                     args=args_str[:200])
         return "> ⚠ @query is disabled by config (`render.allow_query_shell=false`)."
 
-    # Strip @cache modifier first, then extract the command string.
-    # Use the opening quote character to find the correct closing quote,
-    # so commands containing the other quote type (e.g. "bash -c 'foo'")
-    # are parsed correctly.
-    raw = re.sub(r'\s+@cache\s.*$', '', args_str.strip())
+    # #588: extract the quoted command FIRST so modifier stripping (@cache,
+    # schema=, fallback=, timeout=) only ever sees the remainder and can
+    # never mutate what gets executed. Use the opening quote character to
+    # find the correct closing quote, so commands containing the other
+    # quote type (e.g. "bash -c 'foo'") are parsed correctly.
+    raw = args_str.strip()
+    cmd = None
+    cmd_match = re.match(r'^"((?:[^"\\]|\\.)*)"', raw)   # double-quoted
+    if not cmd_match:
+        cmd_match = re.match(r"^'((?:[^'\\]|\\.)*)'", raw)  # single-quoted
+    if cmd_match:
+        cmd = cmd_match.group(1)
+        # Modifier remainder only. Leading whitespace is preserved so the
+        # `\s+`-prefixed modifier patterns below match at its start.
+        raw = raw[cmd_match.end():]
+
+    # Strip @cache modifier from the modifier remainder (unquoted commands
+    # keep the historical behavior: modifiers are stripped from the tail).
+    raw = re.sub(r'(?:^|\s)@cache\s.*$', '', raw)
 
     # Extract schema="..." modifier before command parsing.
     schema_path = None
@@ -172,28 +186,22 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
         fallback = _unescape_fallback(fallback)
         raw = (raw[:fb_match.start()] + raw[fb_match.end():]).rstrip()
 
-    # #138: strip timeout=N modifier BEFORE command extraction to prevent
-    # it from leaking into the executed shell command.
+    # #138: strip timeout=N modifier so it never leaks into an unquoted
+    # executed shell command (quoted commands were already extracted above).
 
     # Extract timeout=N modifier (per-directive override, default 30s)
     timeout = int(cfg["render"].get("query_timeout_s", 30))
-    tm_match = re.search(r'\s+timeout=(\d+)(?:\s|$)', raw)
+    tm_match = re.search(r'(^|\s)timeout=(\d+)(?:\s|$)', raw)
     if tm_match:
-        timeout = int(tm_match.group(1))
+        timeout = int(tm_match.group(2))
         raw = (raw[:tm_match.start()] + raw[tm_match.end():]).rstrip()
 
-
-    cmd_match = re.match(r'^"((?:[^"\\]|\\.)*)"', raw)   # double-quoted
-    if not cmd_match:
-        cmd_match = re.match(r"^'((?:[^'\\]|\\.)*)'", raw)  # single-quoted
-    if not cmd_match:
-        # Unquoted — everything remaining
+    if cmd is None:
+        # Unquoted — everything remaining after modifier stripping
         cmd_raw = raw.strip()
         if not cmd_raw:
             return "> ⚠ @query: no command specified."
         cmd = cmd_raw
-    else:
-        cmd = cmd_match.group(1)
 
     # Detect language hint for syntax highlighting (best-effort)
     lang = _guess_lang(cmd)

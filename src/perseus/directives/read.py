@@ -95,7 +95,8 @@ def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str
 
     # ── File size limit check (byte-counted, not character-counted) ──
     max_bytes = _resolve_max_bytes(cfg, "max_read_bytes")
-    if max_bytes is not None and len(data) > max_bytes:
+    truncated = max_bytes is not None and len(data) > max_bytes
+    if truncated:
         content = data[:max_bytes].decode(errors="replace")
         trunc_note = (
             f"> ⚠ @read: file `{file_path_str}` exceeds max_read_bytes "
@@ -103,8 +104,12 @@ def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str
             f"{max_bytes:,} bytes.\n\n"
         )
         if schema_ref is not None:
-            # Can't validate truncated content — skip validation for this run
-            pass
+            # #592: can't validate truncated content — actually skip the
+            # validation block below (the old bare `pass` fell through and
+            # parse-failed on the truncated bytes, withholding all output).
+            trunc_note += (
+                "> ⚠ @read: schema validation skipped (content truncated).\n\n"
+            )
     else:
         trunc_note = ""
 
@@ -115,7 +120,7 @@ def resolve_read(args_str: str, cfg: dict, workspace: Path | None = None) -> str
                     ".toml": "toml", ".env": "text", ".md": "markdown",
                     ".sh": "bash", ".py": "python", ".txt": "text"}
         lang = lang_map.get(ext, "text")
-        if schema_ref:
+        if schema_ref and not truncated:
             try:
                 data = _parse_read_content_for_validation(content, ext)
             except Exception as exc:
