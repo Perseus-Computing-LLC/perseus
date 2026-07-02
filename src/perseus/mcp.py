@@ -1273,27 +1273,81 @@ def serve_mcp_sse(cfg: dict, workspace: Path | None = None, port: int = 8420) ->
 
 # ── Config printer ───────────────────────────────────────────────────────────
 
+def _entry_point_version(path: str) -> str | None:
+    """Return the version reported by a ``perseus`` entry point, or ``None``.
+
+    Spawns ``<path> --version`` (output form: ``perseus v1.2.3 — …``) and
+    parses the ``vX.Y.Z`` token. Returns ``None`` when the probe cannot run
+    or the output is unparseable, so callers can decide how to treat an
+    unverifiable candidate. Config emission is a one-shot, human-invoked
+    operation, so the extra cold start this probe costs is acceptable.
+    """
+    import re
+    import subprocess
+    try:
+        r = subprocess.run(
+            [path, "--version"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except Exception:
+        return None
+    if r.returncode != 0:
+        return None
+    m = re.search(r"\bv?(\d+\.\d+\.\d+(?:[.-][0-9A-Za-z.]+)?)", r.stdout or "")
+    return m.group(1) if m else None
+
+
 def _resolve_perseus_invocation() -> list[str]:
     """Resolve the argv prefix that launches Perseus, for emitted configs (#642b).
 
-    Prefer the installed console script (``perseus``) when it is on PATH:
-    the entry point imports the module, so CPython's normal ``.pyc`` bytecode
-    cache applies and cold starts skip the ~150 ms artifact re-compile that
-    ``python perseus.py`` pays on every spawn.
+    Prefer a console-script entry point over ``<python> <artifact>``: the entry
+    point imports the module, so CPython's normal ``.pyc`` bytecode cache
+    applies and cold starts skip the ~150 ms artifact re-compile that
+    ``python perseus.py`` pays on every spawn (#642). Candidate order matches
+    the scheduler's :func:`_perseus_launcher` (#430):
+
+      1. ``~/.local/bin/perseus`` — the stable user symlink that survives
+         Python minor-version bumps (recommended in the install docs).
+      2. ``perseus`` on ``PATH`` — the pip console script.
+
+    **Stale-shim guard (#660):** an entry point can point at a DIFFERENT,
+    older install than the artifact currently running (e.g. a global
+    ``perseus`` shadowing a freshly curl-installed single-file build). Before
+    trusting a candidate, probe its ``--version`` and require it to match this
+    build's :data:`SERVER_VERSION`. A mismatch means the shim would launch the
+    wrong Perseus, so we fall back to the artifact — the code the operator
+    actually invoked. An *unverifiable* candidate (probe failed to run) is
+    still trusted: that preserves the normal-pip-install speed win and the
+    prior behaviour for the common case where only the artifact path differs.
 
     Fall back to ``<current interpreter> <artifact path>`` for single-file
-    installs. The old fallback emitted a bare ``perseus`` even when nothing
-    by that name existed, producing a config that could not spawn at all —
-    and MCP clients (Claude Desktop) often launch with a minimal PATH, so
-    absolute paths are the safe form here.
+    installs, or when every entry point is a stale shim. The old fallback
+    emitted a bare ``perseus`` even when nothing by that name existed,
+    producing a config that could not spawn at all — and MCP clients (Claude
+    Desktop) often launch with a minimal PATH, so absolute paths are safe here.
     """
     import shutil
+    candidates: list[str] = []
+    try:
+        local_bin = Path.home() / ".local" / "bin" / "perseus"
+        if local_bin.exists():
+            candidates.append(str(local_bin))
+    except OSError:
+        pass
     try:
         which = shutil.which("perseus")
     except Exception:
         which = None
-    if which:
-        return [which]
+    if which and which not in candidates:
+        candidates.append(which)
+
+    for cand in candidates:
+        reported = _entry_point_version(cand)
+        # Trust the candidate when it matches this build, or when its version
+        # could not be probed at all (preserves the pre-#660 fast path).
+        if reported is None or reported == SERVER_VERSION:
+            return [cand]
+    # No candidate, or every candidate is a stale shim → run the artifact.
     return [sys.executable, str(Path(__file__).resolve())]
 
 
