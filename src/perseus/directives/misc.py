@@ -308,6 +308,21 @@ def resolve_date(args_str: str) -> str:
 
     now = datetime.now() + delta
 
+    # #641: also map strftime-style tokens (%Y %m %d %H %M %S) so clients
+    # that send strftime formats (many MCP agents were taught to by the old
+    # tool description) get a date instead of the format string verbatim.
+    # The leading % is an unambiguous marker, so no word-boundary guards are
+    # needed (unlike the human tokens below) and literal text is safe.
+    _strftime_values = {
+        "%Y": now.strftime("%Y"),
+        "%m": now.strftime("%m"),
+        "%d": now.strftime("%d"),
+        "%H": now.strftime("%H"),
+        "%M": now.strftime("%M"),
+        "%S": now.strftime("%S"),
+    }
+    fmt = re.sub(r"%[YmdHMS]", lambda m: _strftime_values[m.group(0)], fmt)
+
     # Map human tokens to strftime values in a SINGLE tokenizing pass (#595).
     # Sequential str.replace corrupted literal text containing token
     # substrings (e.g. the "z" in "zulu" became the timezone name).

@@ -305,3 +305,46 @@ def test_scaffolded_context_has_versionless_header(tmp_path):
     ctx = perseus._ensure_context_md(tmp_path, cfg())
     first_line = ctx.read_text(encoding="utf-8").splitlines()[0]
     assert first_line == "@perseus"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# #644: _find_version must only honor VERSION beside a repo marker
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_version_ignores_stray_ancestor_version_file(tmp_path):
+    """#644 regression (fails pre-fix): _find_version walks EVERY ancestor of
+    the artifact, so an unrelated VERSION file above a deployed perseus.py
+    silently overrode the baked-in version reported by --version and MCP
+    serverInfo. A VERSION file with no repo marker beside it must be ignored."""
+    import shutil
+    artifact = Path(__file__).resolve().parents[1] / "perseus.py"
+    (tmp_path / "VERSION").write_text("9.9.9", encoding="utf-8")
+    deploy = tmp_path / "deploy"
+    deploy.mkdir()
+    shutil.copy(artifact, deploy / "perseus.py")
+    out = subprocess.run(
+        [sys.executable, str(deploy / "perseus.py"), "--version"],
+        capture_output=True, text=True, timeout=120,
+    )
+    assert out.returncode == 0
+    assert "9.9.9" not in out.stdout, f"stray VERSION honored: {out.stdout!r}"
+    assert "perseus v" in out.stdout
+
+
+def test_version_honors_repo_version_beside_marker(tmp_path):
+    """#644: dev-repo behavior preserved -- a VERSION file with
+    scripts/build.py (repo marker) beside it still overrides the baked-in
+    literal."""
+    import shutil
+    artifact = Path(__file__).resolve().parents[1] / "perseus.py"
+    (tmp_path / "VERSION").write_text("7.7.7", encoding="utf-8")
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts" / "build.py").write_text("# repo marker\n", encoding="utf-8")
+    shutil.copy(artifact, tmp_path / "perseus.py")
+    out = subprocess.run(
+        [sys.executable, str(tmp_path / "perseus.py"), "--version"],
+        capture_output=True, text=True, timeout=120,
+    )
+    assert out.returncode == 0
+    assert "7.7.7" in out.stdout, out.stdout
