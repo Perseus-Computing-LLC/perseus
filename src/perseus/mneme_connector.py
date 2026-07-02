@@ -1527,6 +1527,24 @@ def _parse_memory_hits(data: dict) -> list[MemoryHit]:
     return hits
 
 
+def _bm25_to_relevance(score) -> float:
+    """Map a raw SQLite FTS5 bm25() score to a normalized 0.0-1.0 relevance.
+
+    #552: bm25() returns 0.0 or NEGATIVE values where more negative = better
+    match — it is not a 0-100 percentage, so dividing by 100 produced small
+    negative "relevances". Squash monotonically with a rational sigmoid:
+    0.0 → 0.0, -1.0 → 0.5, -inf → 1.0. Missing/malformed scores map to a
+    neutral 0.5; positive values (not produced by bm25) clamp to 0.0.
+    """
+    try:
+        s = float(score)
+    except (TypeError, ValueError):
+        return 0.5
+    if s >= 0.0:
+        return 0.0
+    return -s / (1.0 - s)
+
+
 def _local_hits_to_memory_hits(local_results: list[dict]) -> list[MemoryHit]:
     """Convert local Mnēmē FTS5 recall results to MemoryHit format.
 
@@ -1552,7 +1570,7 @@ def _local_hits_to_memory_hits(local_results: list[dict]) -> list[MemoryHit]:
             content=content,
             source=MemorySource.LOCAL,
             summary=r.get("summary", r.get("content", "")[:80]),
-            relevance=r.get("relevance", r.get("score", 0.5) / 100.0),
+            relevance=r.get("relevance", _bm25_to_relevance(r.get("score"))),
             decay_score=1.0,           # Local items treated as fresh
             retrieval_count=0,
             layer=MemoryLayer.WORKING,
