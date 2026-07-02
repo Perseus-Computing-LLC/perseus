@@ -56,6 +56,7 @@ MODULE_ORDER = [
     "src/perseus/memory_mesh.py",       # ← MemoryMesh persistent (MONITOR)
     "src/perseus/memtrace.py",          # ← Memtrace codebase memory (MONITOR)
     # ───────────────────────────────────────────────────────────────────
+    "src/perseus/bandit.py",            # ← #605: @bandit adaptive directive selection (before renderer: renderer's loop calls its hooks)
     "src/perseus/renderer.py",
     "src/perseus/adapters.py",           # ← Context Adapter SDK (#473): resolve_context + framework adapters (depends on renderer)
     "src/perseus/checkpoint.py",
