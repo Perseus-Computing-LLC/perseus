@@ -406,7 +406,7 @@ def _build_annotations(tool_name: str, spec) -> dict | None:
     if tool_name in ("perseus_auto_skill", "perseus_profile", "perseus_perseus", "perseus_mimir", "perseus_mneme", "perseus_mason",
                       "perseus_skills", "perseus_inbox", "perseus_include", "perseus_read",
                       "perseus_list", "perseus_tree", "perseus_tooltrim", "perseus_validate",
-                      "perseus_prompt"):
+                      "perseus_prompt", "perseus_budget"):
         hints["readOnlyHint"] = True
     return hints if hints else None
 
