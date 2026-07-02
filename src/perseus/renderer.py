@@ -997,6 +997,7 @@ def _render_lines(
     _skipped_directives: list[dict] | None = None,
     no_cache: bool = False,
     _query_results: dict[int, str] | None = None,
+    _query_sources: dict[int, str] | None = None,
 ) -> str:
     """Core rendering loop. Processes a list of lines and returns resolved markdown.
 
@@ -1007,6 +1008,10 @@ def _render_lines(
     Populated by the top-level parallel pre-scan and remapped when recursing
     into @if branches / @validate blocks (#581) so a pre-executed query is
     never run a second time by the recursion.
+
+    _query_sources: how each _query_results entry was resolved by the pre-scan
+    ("cache" | "mock" | "exec"), same keying/remapping. Used by the #625
+    prefetch-cost collector record so its `cached` flag is accurate.
     """
     # Top-level call owns the constraint rows list and decides when to flush it
     top_level = _constraint_rows is None
@@ -1041,6 +1046,9 @@ def _render_lines(
     # #581: recursion levels receive the pre-scan's results (remapped to their
     # own line indices) instead of re-running the queries.
     query_results: dict[int, str] = dict(_query_results) if _query_results else {}
+    # PR #628 review: resolution source per prefetched entry ("cache" | "mock"
+    # | "exec") so the #625 collector record below reports `cached` truthfully.
+    query_sources: dict[int, str] = dict(_query_sources) if _query_sources else {}
     # Cache key the pre-scan computed for each pending query, reused verbatim
     # by the parallel worker on write so the write key cannot drift from the
     # read key (the workspace suffix was previously dropped on write).
@@ -1119,7 +1127,7 @@ def _render_lines(
                 # #581: honour the tier gate — a @query that `--tier` excludes
                 # must not execute its shell command in the pre-scan. The main
                 # loop records it in the skipped manifest; here we only decide.
-                _pre_skip, _ = _check_directive_tier(raw_line, "@query", max_tier, None)
+                _pre_skip, _pre_clean = _check_directive_tier(raw_line, "@query", max_tier, None)
                 if _pre_skip:
                     continue
                 # #625: consult the bandit policy BEFORE pre-executing. A
@@ -1131,7 +1139,13 @@ def _render_lines(
                 # below) reuses exactly this decision — no re-sampling drift
                 # between pre-scan and render loop. No active bandit context
                 # (the default) ⇒ no-op, pre-scan behavior unchanged.
-                if _bandit_drop_directive("@query", raw_line):
+                # NOTE (PR #628 review): decide on the tier-STRIPPED line
+                # (_pre_clean), exactly like the main loop does — deciding on
+                # raw_line would derive a different arm key for tier-annotated
+                # queries (`@tier:N` is not a cache modifier, so
+                # _parse_cache_modifier keeps it in the args) and the two call
+                # sites would miss the memo and sample independently.
+                if _bandit_drop_directive("@query", _pre_clean):
                     continue
                 # #581: pipe lines (@query ... | @x) are executed by
                 # _execute_pipe in the main loop; pre-executing them here ran
@@ -1143,6 +1157,7 @@ def _render_lines(
                 )
                 if cache_mode == "mock":
                     query_results[idx] = cache_mock or "(mock)"
+                    query_sources[idx] = "mock"
                     continue
                 # #612: @query now carries a non-empty fingerprint (the env
                 # gate). The main-loop read path and prefetch key off
@@ -1156,8 +1171,10 @@ def _render_lines(
                 cached = cache_get(cache_key, cache_mode, cache_ttl, cfg)
                 if cached is not None:
                     query_results[idx] = cached
+                    query_sources[idx] = "cache"
                     continue
                 query_results[idx] = None  # sentinel: needs resolution
+                query_sources[idx] = "exec"
                 query_cache_keys[idx] = cache_key
                 query_raw_lines[idx] = raw_line
 
@@ -1447,6 +1464,11 @@ def _render_lines(
                     for new_i, orig_i in enumerate(branch_idx)
                     if query_results.get(orig_i) is not None
                 }
+                _branch_sources = {
+                    new_i: query_sources[orig_i]
+                    for new_i, orig_i in enumerate(branch_idx)
+                    if query_results.get(orig_i) is not None and orig_i in query_sources
+                }
                 output.append(_render_lines(branch, cfg, workspace, _constraint_rows,
                                              _include_depth=_include_depth,
                                              _include_path_chain=_include_path_chain,
@@ -1456,7 +1478,8 @@ def _render_lines(
                                              max_tier=max_tier,
                                              _skipped_directives=_skipped_directives,
                                              no_cache=no_cache,
-                                             _query_results=_branch_results))
+                                             _query_results=_branch_results,
+                                             _query_sources=_branch_sources))
             continue
 
         # ── inline directives ──
@@ -1501,14 +1524,25 @@ def _render_lines(
                 # prefetch path hid. Gated on an active bandit context so the
                 # default render path (and its collector consumers, e.g.
                 # --explain manifests) is byte-identical to before.
-                if _directive_collector is not None and _BANDIT_ACTIVE is not None:
+                # PR #628 review: `cached` reflects how the pre-scan actually
+                # resolved the entry; mock entries get no record, matching the
+                # non-prefetch mock path (which never reaches the collector).
+                # Args are derived from the tier-STRIPPED `line` (not the
+                # pre-strip `raw_args` from `m`) so the charged arm matches
+                # the decision arm for tier-annotated queries.
+                _qsrc = query_sources.get(i, "exec")
+                if (_directive_collector is not None and _BANDIT_ACTIVE is not None
+                        and _qsrc != "mock"):
+                    _qm = INLINE_DIRECTIVE_RE.match(line.strip())
+                    _qargs = (_qm.group(2) or "").strip() if _qm else raw_args
                     _directive_collector.append({
                         "name": directive.lstrip("@"),
-                        "args": _parse_cache_modifier(raw_args)[0].strip(),
+                        "args": _parse_cache_modifier(_qargs)[0].strip(),
                         "output": query_results[i],
-                        "cached": False,
+                        "cached": _qsrc == "cache",
                         "prefetched": True,
                         "duration_ms": 0,
+                        "depth": _include_depth,
                     })
                 output.append(query_results[i])
                 i += 1

@@ -127,11 +127,14 @@ def _bandit_save_ledger(cfg: dict, workspace, ledger: dict) -> None:
 
 def _bandit_max_arms(cfg: dict) -> int:
     """#623: cap on persisted arms, configurable via render.bandit_max_arms
-    (defensive parsing, like bandit_max_renders)."""
+    (defensive parsing, like bandit_max_renders). Non-positive values fall
+    back to the default — a negative cap would otherwise make the prune
+    slice evict EVERY arm on each persist (PR #628 review)."""
     try:
-        return int(cfg.get("render", {}).get("bandit_max_arms", 200) or 200)
+        n = int(cfg.get("render", {}).get("bandit_max_arms", 200) or 200)
     except (TypeError, ValueError):
         return 200
+    return n if n > 0 else 200
 
 
 def _bandit_prune_arms(ledger: dict, cfg: dict) -> None:
@@ -333,11 +336,22 @@ class BanditContext:
         are represented by the decision log instead (no cost this render)."""
         if not self.record:
             return
-        # #623: monotone render sequence for last-seen arm eviction.
+        # #623: monotone render sequence for last-seen arm eviction. Clamped
+        # to the highest existing last_seen stamp (PR #628 review): if `seq`
+        # is corrupt/lost, falling back to 1 would let stale high stamps
+        # outrank fresh arms until the sequence caught back up.
         try:
-            seq = int(self.ledger.get("seq", 0) or 0) + 1
+            prev = int(self.ledger.get("seq", 0) or 0)
         except (TypeError, ValueError):
-            seq = 1
+            prev = 0
+        arms_map = self.ledger.get("arms", {})
+        for st in (arms_map.values() if isinstance(arms_map, dict) else ()):
+            if isinstance(st, dict):
+                try:
+                    prev = max(prev, int(st.get("last_seen", 0) or 0))
+                except (TypeError, ValueError):
+                    pass
+        seq = prev + 1
         self.ledger["seq"] = seq
         directives: dict[str, dict] = {}
         for entry in collector or []:

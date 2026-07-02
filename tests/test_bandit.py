@@ -461,6 +461,11 @@ def test_prune_arms_treats_legacy_arms_as_oldest(tmp_path, ws):
     c_bad = _cfg(tmp_path, bandit_max_arms="lots")
     perseus._bandit_prune_arms(ledger, c_bad)
     assert set(ledger["arms"]) == {"@read#recent01", "@read#recent02"}
+    # PR #628 review: a NEGATIVE cap must also fall back to the default —
+    # before the guard, the prune slice evicted EVERY arm on each persist.
+    c_neg = _cfg(tmp_path, bandit_max_arms=-5)
+    perseus._bandit_prune_arms(ledger, c_neg)
+    assert set(ledger["arms"]) == {"@read#recent01", "@read#recent02"}
 
 
 def test_malformed_seed_and_budget_fall_back_with_warning(tmp_path, ws, capsys):
@@ -524,6 +529,91 @@ def test_prefetched_query_costs_reach_the_ledger(tmp_path, ws, monkeypatch):
     for args in ('"spy-a"', '"spy-b"'):
         st = arms[_arm("@query", args)]
         assert st["tokens_n"] >= 1 and st["tokens_sum"] > 0, st
+
+
+def test_tier_annotated_query_uses_one_arm_across_prescan_and_main_loop(tmp_path, ws, monkeypatch):
+    """PR #628 review (BLOCK): the pre-scan must decide on the tier-STRIPPED
+    line like the main loop does. `@tier:N` is not a cache modifier, so
+    deciding on the raw line derived a different arm key — memo miss, two
+    independent Thompson samples, and a dropped query that had already been
+    pre-executed (cost paid, never charged) plus a phantom arm in decisions."""
+    spec = perseus.DIRECTIVE_REGISTRY["@query"]
+    calls: list[str] = []
+
+    def _spy(args, cfg_, workspace=None):
+        calls.append(args)
+        return f"ran:{args}"
+
+    monkeypatch.setitem(perseus.DIRECTIVE_REGISTRY, "@query", spec._replace(resolver=_spy))
+    arm = _arm("@query", '"spy-tiered"')  # the main loop's (tier-stripped) arm
+
+    # Dropped case: bad ledger → both call sites must agree on ONE drop, and
+    # the pre-scan must not have executed the query.
+    c = _cfg(tmp_path, bandit="auto", bandit_seed=1, parallel_queries=True)
+    _seed_arm_stats(c, ws, arm, good=0, bad=100)
+    src = '@perseus\n# corpus\n@query "spy-tiered" @tier:2\n'
+    out = perseus.render_source(src, c, ws)
+    decisions = perseus._BANDIT_LAST.decisions
+    assert len(decisions) == 1, f"expected one memoized decision, got {decisions}"
+    assert decisions[0]["arm"] == arm and decisions[0]["decision"] == "drop"
+    assert calls == [], "bandit-dropped tier-annotated @query must not execute"
+    assert "spy-tiered" not in out
+
+    # Included case (cold start, fresh cache dir → fresh ledger): one arm,
+    # one decision, executed exactly once (by the pre-scan).
+    c2 = _cfg(tmp_path, bandit="auto", bandit_seed=1, parallel_queries=True)
+    c2["render"]["cache_dir"] = str(tmp_path / "cache-inc")
+    out2 = perseus.render_source(src, c2, ws)
+    decisions2 = perseus._BANDIT_LAST.decisions
+    assert len(decisions2) == 1
+    assert decisions2[0]["arm"] == arm and decisions2[0]["decision"] == "include"
+    # Exactly one execution (by the pre-scan). NOTE: the exact call args are
+    # not pinned — @tier:N currently leaks into the pre-scan's resolver args
+    # (pre-existing, tracked separately).
+    assert len(calls) == 1 and calls[0].startswith('"spy-tiered"'), calls
+    assert 'ran:"spy-tiered"' in out2
+    # The prefetched cost is charged to the SAME arm the decision used.
+    assert _arm("@query", '"spy-tiered"') in perseus._bandit_load_ledger(c2, ws)["arms"]
+
+
+def test_prefetched_collector_record_reports_cache_hits_and_depth(tmp_path, ws, monkeypatch):
+    """PR #628 review: the #625 prefetch collector record must report `cached`
+    truthfully (pre-scan cache hit vs execution) and carry the `depth` key
+    sibling records have (prompt-size attribution reads it)."""
+    c = _cfg(tmp_path, bandit="record", parallel_queries=True)
+    src = '@perseus\n# corpus\n@query "spy-c" @cache ttl=300\n'
+    spec = perseus.DIRECTIVE_REGISTRY["@query"]
+    monkeypatch.setitem(perseus.DIRECTIVE_REGISTRY, "@query",
+                        spec._replace(resolver=lambda a, c_, w=None: "cached-payload"))
+
+    col1: list = []
+    perseus.render_source(src, c, ws, _directive_collector=col1)
+    rec1 = [e for e in col1 if e.get("prefetched")]
+    assert rec1 and rec1[0]["cached"] is False and rec1[0]["depth"] == 0
+
+    col2: list = []
+    perseus.render_source(src, c, ws, _directive_collector=col2)
+    rec2 = [e for e in col2 if e.get("prefetched")]
+    assert rec2 and rec2[0]["cached"] is True and rec2[0]["depth"] == 0
+    assert rec2[0]["output"] == "cached-payload"
+
+
+def test_finish_seq_clamps_to_highest_last_seen(tmp_path, ws):
+    """PR #628 review: a corrupt/lost ledger `seq` must not fall below
+    existing last_seen stamps, or stale arms would outrank fresh ones in
+    eviction until the sequence caught back up."""
+    c = _cfg(tmp_path, bandit="record")
+    ledger = perseus._bandit_empty_ledger(ws)
+    ledger["seq"] = "junk"  # corrupt
+    ledger["arms"]["@read#stale001"] = {"name": "@read", "good": 1, "bad": 0,
+                                        "last_seen": 40}
+    perseus._bandit_save_ledger(c, ws, ledger)
+
+    perseus.render_source(SOURCE, c, ws)
+
+    after = perseus._bandit_load_ledger(c, ws)
+    assert after["seq"] == 41  # clamped past the stale stamp, not reset to 1
+    assert after["arms"][ARM_GOOD]["last_seen"] == 41  # fresh arms outrank stale
 
 
 def test_explain_is_read_only(tmp_path, ws, monkeypatch):
