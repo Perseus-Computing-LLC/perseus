@@ -212,6 +212,10 @@ def fetch_project_memory(
             timeout=30,
             env=env,
             text=True,
+            # Decode as UTF-8, not the locale codec (cp1252 on Windows), so
+            # non-ASCII project memory isn't mojibaked or crashed on decode.
+            encoding="utf-8",
+            errors="replace",
         )
 
         t1 = time.perf_counter_ns()
