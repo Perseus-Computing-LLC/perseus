@@ -261,11 +261,35 @@ def _fetch_remote_narrative(entry: dict, cfg: dict) -> tuple[str | None, str | N
 
         fetch_timeout = int(cfg.get("federation", {}).get("fetch_timeout_s", 10))
         read_timeout = int(cfg.get("federation", {}).get("read_timeout_s", 30))
+        # #552: cap how much a remote peer may send. The local vault parser
+        # caps documents at 1 MB (mneme_index); remote narratives get a
+        # slightly more generous default, config-overridable.
+        max_bytes = int(cfg.get("federation", {}).get("max_fetch_bytes", 4 * 1024 * 1024))
 
         with urllib.request.urlopen(req, timeout=fetch_timeout) as resp:
             if resp.status == 304:
                 return (None, "not modified (304)", None)
-            body = resp.read().decode("utf-8")
+            # #552: read_timeout_s was parsed but never applied, and
+            # resp.read() had no size cap — a slow or malicious peer could
+            # stall the client or buffer an arbitrarily large body into
+            # memory. Chunked read with a wall-clock deadline (each chunk
+            # additionally bounded by the urlopen socket timeout) + cap.
+            deadline = time.monotonic() + max(1, read_timeout)
+            chunks: list[bytes] = []
+            total = 0
+            while True:
+                if time.monotonic() > deadline:
+                    return (None, f"read timed out after {read_timeout}s", None)
+                chunk = resp.read(65536)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > max_bytes:
+                    return (None,
+                            f"response exceeded max_fetch_bytes ({max_bytes})",
+                            None)
+                chunks.append(chunk)
+            body = b"".join(chunks).decode("utf-8")
             data = json.loads(body)
             narrative = data.get("narrative", "")
             ws_id = data.get("workspace_id")
