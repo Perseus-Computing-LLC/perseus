@@ -1185,7 +1185,7 @@ def _bind_registry() -> None:
         DirectiveSpec("@health",    resolve_health,    [],                         "inline",  "acw", reads_files=True, summary="Audit workspace context health: stale skills, duplicate tasks, oversized output. Use before starting work to catch drift. For deep Daedalus heuristics (cache, directive stats), use perseus_get_health. Read-only; returns status enum and metric counts.", tier=1),
         DirectiveSpec("@env",       resolve_env,       ["required=", "fallback=", "schema="], "inline", "acw", cacheable=False, safe_for_hover=True, summary="Embed environment variable", tier=1),
         DirectiveSpec("@tokens",    resolve_tokens,    [],                         "block",   "a",   executes_shell=True, safe_for_hover=False, summary="Embed token budget for rendered context", tier=1),
-        DirectiveSpec("@budget",    resolve_budget,    ["max=", "strict", "forensic"], "inline", "a", cacheable=False, safe_for_hover=True, summary="Declare a token budget for the rendered context (renders as empty text). Enforced by `perseus prompt-size`: an over-budget render warns — or fails with `strict` — with a per-directive byte/token breakdown (#606). Read-only.", tier=1),
+        DirectiveSpec("@budget",    resolve_budget,    ["max=", "strict", "forensic"], "inline", "a", cacheable=False, safe_for_hover=True, summary="Declare a token budget for the rendered context (renders as empty text). Enforced by `perseus prompt-size`: an over-budget render warns — or fails with `strict` — with a per-directive byte/token breakdown (#606). Declarations are read from source text before conditionals are evaluated; top-level only — a @budget inside an @include'd file is not enforced (prompt-size warns) (#626). Read-only.", tier=1),
 
         # Tier 2 — Conditional (heavier, task-specific)
         DirectiveSpec("@services",  resolve_services,  [],                         "block",   "block", executes_shell=True, safe_for_hover=False, summary="Health-check all services listed in the workspace context (HTTP endpoints, Docker containers, shell commands). Use to verify the environment is healthy before starting work. May make network calls and execute shell commands per service definition — side effects depend on configured checks.", tier=2),
@@ -28237,6 +28237,15 @@ def resolve_budget(args_str: str) -> str:
     Render-time no-op declaration of a token budget for the rendered context.
     Renders as empty text; parsed and enforced by ``perseus prompt-size``
     (see ``_parse_budget_directives`` / ``cmd_prompt_size``).
+
+    Scope contract (#626): declarations are read from the top-level source
+    text before conditionals are evaluated — top-level only. A ``@budget``
+    inside an ``@include``'d file is NOT enforced (prompt-size warns when it
+    finds one); a ``@budget`` inside a false ``@if`` branch IS enforced,
+    because the scan is text-level, not render-level (statically evaluating
+    ``@if`` conditions would require running the same env/session/shell-query
+    machinery as the renderer, so the text-level contract is kept explicit
+    instead).
     """
     return ""
 
@@ -28288,6 +28297,17 @@ def _parse_budget_directives(source_text: str) -> list:
     document order. ``max_tokens`` is None for a malformed declaration
     (missing ``max=``) so callers can surface a warning instead of silently
     ignoring it.
+
+    Scope contract (#626): this is a TEXT-LEVEL scan of the given source
+    only — declarations are read before conditionals are evaluated, so a
+    ``@budget`` inside a false ``@if`` branch is still parsed and enforced.
+    Conversely a ``@budget`` inside an ``@include``'d file never reaches this
+    scan (only the top-level source is passed in); ``compute_prompt_size``
+    detects those separately and surfaces a not-enforced warning
+    (``_scan_included_budgets``). Statically evaluating/stripping ``@if``
+    branches here is deliberately avoided: conditions may depend on env,
+    session state, or shell queries, and re-implementing the renderer's
+    evaluation would be neither cheap nor clearly correct.
     """
     budgets = []
     in_fence = False
@@ -28318,6 +28338,113 @@ def _parse_budget_directives(source_text: str) -> list:
             "forensic": bool(re.search(r"(^|\s)(--)?forensic\b", low)),
         })
     return budgets
+
+
+_PS_INCLUDE_LINE_RE = re.compile(r"^\s*@include\b(.*)$", re.IGNORECASE)
+
+
+def _ps_include_targets(source_text: str) -> list:
+    """Fence-aware extraction of ``@include`` target paths from source text.
+
+    Same fence handling as ``_parse_budget_directives`` (a fenced ``@include``
+    is content, not a directive). Returns the as-written path tokens in
+    document order; lines without a parseable path token are skipped."""
+    targets = []
+    in_fence = False
+    fence_char = ""
+    fence_len = 0
+    for raw in source_text.splitlines():
+        fm = _PS_FENCE_RE.match(raw)
+        if in_fence:
+            s = raw.strip()
+            if s and len(s) >= fence_len and s == fence_char * len(s):
+                in_fence = False
+            continue
+        if fm:
+            in_fence = True
+            fence_char = fm.group(1)[0]
+            fence_len = len(fm.group(1))
+            continue
+        m = _PS_INCLUDE_LINE_RE.match(raw)
+        if not m:
+            continue
+        path_str, _rest = _extract_quoted_token((m.group(1) or "").strip())
+        if path_str:
+            targets.append(path_str)
+    return targets
+
+
+def _scan_included_budgets(source_text: str, workspace: "Path | None",
+                           cfg: dict) -> list:
+    """Find ``@budget`` declarations inside ``@include``'d files (#626).
+
+    ``@budget`` is enforced from the TOP-LEVEL source only; one declared in
+    an included file renders empty but is silently unenforced. This scans
+    each included file's text with the same fence-aware parser as the
+    top-level scan so ``prompt-size`` can warn instead of staying silent.
+
+    Entirely TEXT-driven and cache-independent: the walk is seeded from the
+    top-level source text's own ``@include`` lines and recurses through each
+    included file's text — never through renderer collector records, which
+    omit transitive includes on a warm ``@include`` cache hit (the cached
+    path replays without recursing), so a record-driven scan would report
+    differently on cold vs warm runs, violating ``compute_prompt_size``'s
+    determinism contract. Paths resolve workspace-relative exactly like
+    ``resolve_include`` (same ``allow_outside_workspace`` gate); recursion is
+    bounded by dedup on resolved path (which also terminates include cycles)
+    and by the renderer's ``render.max_include_depth`` limit, so a file the
+    renderer would never include past the depth cap is not scanned either.
+
+    Best-effort by design: only ``.md`` includes are scanned (structured
+    files embed as fenced literals where ``@budget`` is never a directive),
+    each resolved file is scanned once, and unresolvable/unreadable paths are
+    skipped. Because the scan is text-level (like the ``@budget`` scan
+    itself), a ``@budget``-looking line in a plain non-``@perseus`` included
+    markdown file also warns (best-effort — it would render as literal text,
+    still unenforced), and ``@include`` lines inside false ``@if`` branches
+    are followed too. Returns
+    ``[{"file": <path as written>, "count": N}, ...]`` in first-seen document
+    order for includes that contain at least one declaration. Enforcement
+    semantics are unchanged — this is a warning signal only.
+    """
+    render_cfg = (cfg or {}).get("render", {})
+    allow_outside = bool(render_cfg.get("allow_outside_workspace", False))
+    try:
+        max_depth = int(render_cfg.get("max_include_depth", 5))
+    except (TypeError, ValueError):
+        max_depth = 5
+    base = workspace or Path.cwd()
+    seen: set = set()
+    findings: list = []
+
+    def _walk(text: str, depth: int) -> None:
+        # Mirrors resolve_include's `_depth >= max_depth` stop: the deepest
+        # file the renderer will include sits at include-depth == max_depth.
+        if depth > max_depth:
+            return
+        for path_str in _ps_include_targets(text):
+            try:
+                fp, path_warning = _resolve_path(
+                    path_str, base, allow_outside_workspace=allow_outside)
+            except Exception:
+                continue
+            if path_warning or fp.suffix.lower() != ".md":
+                continue
+            try:
+                resolved = str(fp.resolve())
+                if resolved in seen:
+                    continue
+                seen.add(resolved)
+                sub_text = fp.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            count = len(_parse_budget_directives(sub_text))
+            if count:
+                findings.append({"file": path_str, "count": count})
+            _walk(sub_text, depth + 1)
+
+    _walk(source_text, 1)
+    return findings
 
 
 # ── Core attribution ─────────────────────────────────────────────────────────
@@ -28428,6 +28555,12 @@ def compute_prompt_size(source_text: str, cfg: dict, workspace: "Path | None",
                              r["name"], r["args"]))
 
     static_bytes = total_bytes - attributed_bytes
+    # #626: static tokens are DERIVED (total − Σ per-directive tokens), not
+    # measured. BPE token counts are not additive across span boundaries, so
+    # in exact (tiktoken) mode the difference can come out slightly negative —
+    # clamp to 0 and flag the derivation. The byte invariant
+    # (attributed + static == total) is measured and stays untouched.
+    static_tokens = max(0, total_tokens - directive_tokens)
     budgets = []
     for bd in _parse_budget_directives(source_text):
         if bd["max_tokens"] is None:
@@ -28445,7 +28578,10 @@ def compute_prompt_size(source_text: str, cfg: dict, workspace: "Path | None",
         "tokenizer": {"name": tok_name, "mode": tok_mode},
         "total": {"bytes": total_bytes, "tokens": total_tokens},
         "static": {"bytes": static_bytes,
-                   "tokens": total_tokens - directive_tokens},
+                   "tokens": static_tokens,
+                   # derived = total − Σ(directive tokens), clamped at 0;
+                   # bytes above are exact, this token figure is not measured.
+                   "tokens_derived": True},
         "split": {
             "static_bytes": static_bytes,
             "cacheable_bytes": cacheable_bytes,
@@ -28455,6 +28591,11 @@ def compute_prompt_size(source_text: str, cfg: dict, workspace: "Path | None",
         "skipped": [{"name": str(s.get("name", "")).lstrip("@"),
                      "tier": s.get("tier")} for s in skipped],
         "budgets": budgets,
+        # #626: @budget declarations found inside @include'd files — parsed
+        # for visibility only, never enforced (top-level-only contract).
+        # Text-driven from source_text (not collector records) so the field
+        # is identical on cold and warm @include cache runs.
+        "included_budgets": _scan_included_budgets(source_text, workspace, cfg),
         "accounting": {
             "attributed_bytes": attributed_bytes,
             "static_bytes": static_bytes,
@@ -28555,8 +28696,21 @@ def _enforce_budgets(report: dict, rows: list, cli_strict: bool) -> int:
 
     Passes silently under budget. Over-budget prints the offender breakdown to
     stderr and exits 1 when the declaration says ``strict`` (or the CLI passed
-    ``--strict``); otherwise it warns and exits 0."""
+    ``--strict``); otherwise it warns and exits 0.
+
+    Also surfaces @budget declarations found inside @include'd files (#626):
+    those are never enforced (top-level-only contract), so staying silent
+    about them would let a mis-placed budget pass CI forever. Warning only —
+    never affects the exit code."""
     rc = 0
+    included = report.get("included_budgets") or []
+    n_included = sum(int(f.get("count", 0)) for f in included)
+    if n_included:
+        files = ", ".join(f["file"] for f in included)
+        sys.stderr.write(
+            f"perseus prompt-size: ⚠ {n_included} @budget declaration(s) found "
+            "inside included files are not enforced — declare budgets at top "
+            f"level ({files})\n")
     for b in report["budgets"]:
         if b["status"] == "invalid":
             sys.stderr.write(f"perseus prompt-size: ⚠ @budget (line {b['line']}) "
