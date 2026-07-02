@@ -12018,6 +12018,38 @@ def cache_get(key: str, mode: str, ttl: int | None, cfg: dict) -> str | None:
     return None
 
 
+def _redact_for_cache(value: str, cfg: dict) -> str | None:
+    """Redact secrets from a value about to enter a cache tier.
+
+    Returns the redacted value, or None when redaction itself errored — the
+    caller must then skip the store entirely (fail CLOSED, #647/#657): a
+    cache miss is safe by design (the entry regenerates); a silently
+    bypassed trust.redact_secrets is not. Rate-limited stderr note + audit
+    so the degradation is observable.
+    """
+    try:
+        safe_value, _report = redact_text(value, cfg)
+        return safe_value
+    except Exception as exc:
+        warn_key = f"redact:{type(exc).__name__}"
+        if warn_key not in _WARNED_CACHE_WRITE_FAILURES:
+            _WARNED_CACHE_WRITE_FAILURES.add(warn_key)
+            sys.stderr.write(
+                "perseus cache: secret redaction failed "
+                f"({type(exc).__name__}: {exc}); "
+                "skipping cache write (fail closed)\n"
+            )
+            try:
+                audit_event(
+                    cfg,
+                    "cache_redaction_failed",
+                    error=f"{type(exc).__name__}: {exc}"[:500],
+                )
+            except Exception:
+                pass  # reporting must not break the caller's render
+        return None
+
+
 def cache_set(key: str, value: str, mode: str, ttl: int | None, cfg: dict) -> None:
     """Store value in the appropriate cache tier.
 
@@ -12025,7 +12057,16 @@ def cache_set(key: str, value: str, mode: str, ttl: int | None, cfg: dict) -> No
     "persist" writes to the disk cache using cfg["render"]["persist_cache_ttl_s"].
     """
     if mode == "session":
-        _SESSION_CACHE[key] = value
+        # #657: session entries live for the whole process lifetime (relevant
+        # for long-running `perseus serve` / `mcp serve`), so the same
+        # redact-before-store contract as the disk path applies. Behavior is
+        # identical when redaction is disabled (redact_text returns the value
+        # unchanged); on redaction ERROR the store is skipped (fail closed,
+        # same policy as #647 on the disk path).
+        safe_value = _redact_for_cache(value, cfg)
+        if safe_value is None:
+            return
+        _SESSION_CACHE[key] = safe_value
         return
 
     if mode in {"ttl", "persist", "fingerprint", "nofingerprint"}:
@@ -12063,25 +12104,9 @@ def cache_set(key: str, value: str, mode: str, ttl: int | None, cfg: dict) -> No
             # Cached values can contain rendered output with embedded tokens.
             # #647: fail CLOSED — if redaction itself errors, skip the disk
             # write entirely rather than persisting potentially unredacted
-            # output. A cache miss is safe by design (the entry regenerates);
-            # a silently bypassed trust.redact_secrets is not. Rate-limited
-            # stderr note + audit so the degradation is observable.
-            try:
-                safe_value, _report = redact_text(value, cfg)
-            except Exception as exc:
-                warn_key = f"redact:{type(exc).__name__}"
-                if warn_key not in _WARNED_CACHE_WRITE_FAILURES:
-                    _WARNED_CACHE_WRITE_FAILURES.add(warn_key)
-                    sys.stderr.write(
-                        "perseus cache: secret redaction failed "
-                        f"({type(exc).__name__}: {exc}); "
-                        "skipping disk cache write (fail closed)\n"
-                    )
-                    audit_event(
-                        cfg,
-                        "cache_redaction_failed",
-                        error=f"{type(exc).__name__}: {exc}"[:500],
-                    )
+            # output (shared helper with the session branch, #657).
+            safe_value = _redact_for_cache(value, cfg)
+            if safe_value is None:
                 return
             entry = {"expires": time.time() + effective_ttl, "value": safe_value}
             # Prior #15: atomic write via tempfile + os.replace to avoid
@@ -12623,6 +12648,11 @@ def _execute_pipe(stages: list[str], cfg: dict, workspace, line_index: int, quer
 
     if cache_mode and not pipe_failed:
         cache_set(cache_key, prev_output, cache_mode, cache_ttl, cfg)
+    if pipe_failed:
+        # #656: leave the (consumed) failure visible to the calling frame so
+        # an @include embedding this pipe is not memoized with the degraded
+        # stage output. _render_lines pops it right after this call returns.
+        _mark_resolver_failure()
     return prev_output
 
 
@@ -12769,6 +12799,15 @@ def _render_lines(
         # post-render speculation pass) left on this thread, so it cannot
         # suppress the first cache write of this render.
         _pop_resolver_failure()
+
+    # #656: set when any directive resolved by THIS frame flagged a failure
+    # result. The per-directive pop below consumes the thread-local flag for
+    # its own cache decision, which used to make a failure inside an included
+    # file invisible to the enclosing @include's cache-write site — the
+    # degraded banner was frozen by the include-level fingerprint entry for
+    # the whole TTL window. Re-marked at frame exit for nested renders (see
+    # the end of this function).
+    _saw_resolver_failure = False
 
     # ── File integrity pre-check (top-level only) ──
     _integrity_snapshot: dict[str, float] = {}
@@ -12956,7 +12995,7 @@ def _render_lines(
         # "\n".join(output) crashed with a TypeError and rendered nothing.
         if pending:
             from concurrent.futures import ThreadPoolExecutor, as_completed
-            def _run_one(idx: int, raw_line: str) -> tuple[int, str]:
+            def _run_one(idx: int, raw_line: str) -> tuple[int, str, bool]:
                 m2 = INLINE_DIRECTIVE_RE.match(raw_line)
                 args2 = (m2.group(2) or "").strip()
                 clean2, cmode, cttl, _ = _parse_cache_modifier(args2)
@@ -12970,15 +13009,20 @@ def _render_lines(
                 # #635: pop the failure flag unconditionally (thread-local to
                 # this worker) so a flagged failure is never persisted and
                 # never leaks to a later task on the same pool thread.
+                # #656: return the flag — it lives on the WORKER's thread, so
+                # the render thread must be told explicitly for the enclosing
+                # @include's cache decision.
                 _failed = _pop_resolver_failure()
                 if cmode and not no_cache and not _failed:
                     cache_set(query_cache_keys[idx], result, cmode, cttl, cfg)
-                return idx, result
+                return idx, result, _failed
             with ThreadPoolExecutor(max_workers=min(len(pending), 8)) as executor:
                 futures = {executor.submit(_run_one, idx, line): idx for idx, line in pending}
                 for future in as_completed(futures):
-                    idx, result = future.result()
+                    idx, result, _failed = future.result()
                     query_results[idx] = result
+                    if _failed:
+                        _saw_resolver_failure = True
 
     output = []
     i = 0
@@ -13300,6 +13344,12 @@ def _render_lines(
             pipe_stages = _parse_pipe_stages(raw_line)
             if len(pipe_stages) > 1:
                 result = _execute_pipe(pipe_stages, cfg, workspace, i, query_results)
+                # #656: pop unconditionally (matching the #635 hygiene below)
+                # so a pipe-stage failure re-marked by _execute_pipe reaches
+                # the enclosing @include's cache decision without leaking into
+                # the NEXT directive's cache decision in this frame.
+                if _pop_resolver_failure():
+                    _saw_resolver_failure = True
                 if result is not None:
                     output.append(result)
                     i += 1
@@ -13506,6 +13556,8 @@ def _render_lines(
             # on this thread. A failure result (timeout, exit != 0, error) is
             # still rendered, but never persisted — the next render retries.
             _resolver_failed = _pop_resolver_failure()
+            if _resolver_failed:
+                _saw_resolver_failure = True  # #656: propagate at frame exit
             if cache_mode and not no_cache and not _resolver_failed:
                 cache_set(cache_key, result, cache_mode, cache_ttl, cfg)
                 if _fp and directive not in _ENV_GATED_DIRECTIVES:
@@ -13551,6 +13603,15 @@ def _render_lines(
     # a cheap count so single/no-@profile renders are untouched (byte-identical).
     if top_level and rendered.count(_PROFILE_BANNER_PREFIX) > 1:
         rendered = _mark_ignored_profile_banners(rendered)
+    # #656: a failure consumed by this frame's own cache decisions must stay
+    # visible to the ENCLOSING @include's cache-write site — same policy as
+    # #635 (never memoize failures), one level up. Only nested renders
+    # (_include_depth > 0, i.e. reached via the @include resolver) re-mark:
+    # a depth-0 frame has no enclosing cache site and must leave the flag
+    # clear, exactly as before. @if/@validate recursion inside an include
+    # carries the same depth, so failures inside branches propagate too.
+    if _saw_resolver_failure and _include_depth > 0:
+        _mark_resolver_failure()
     return rendered
 
 
