@@ -70,14 +70,25 @@ jobs:
           python perseus.py render /tmp/ci-smoke-context.md --output /tmp/ci-smoke-output.md
           echo "SMOKE: render succeeded ($(wc -l < /tmp/ci-smoke-output.md) lines)"
           python3 -c "
-          import sys
+          import sys, datetime
           text = open('/tmp/ci-smoke-output.md').read()
           errors = []
           if text.strip().startswith(chr(64) + 'perseus') and 'v1.0.8' not in text:
               errors.append('version pin not resolved')
-          resolved = 'date' in text and len(text) > 20
-          if not resolved:
-              errors.append('no resolved output')
+          # Assert @date resolved: its timestamp contains the current year. This
+          # is the environment-independent liveness signal — the old 'date' in
+          # text check failed because a rendered timestamp never contains the
+          # literal word 'date' (and no memory backend supplies it on a clean
+          # runner). @date needs no trust gate, unlike @query (shell) which is
+          # intentionally left unresolved without render.allow_query_shell.
+          at = chr(64)
+          year = str(datetime.date.today().year)
+          if at + 'date' in text:
+              errors.append('@date directive left unresolved')
+          if year not in text:
+              errors.append('@date did not resolve (no current year in output)')
+          if len(text) <= 20:
+              errors.append('output too short')
           if errors:
               print('SMOKE FAIL:', errors)
               sys.exit(1)
