@@ -147,6 +147,21 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
                     args=args_str[:200])
         return "> ⚠ @query is disabled by config (`render.allow_query_shell=false`)."
 
+    # Defense-in-depth (#616): even with allow_query_shell=true, require the
+    # PERSEUS_ALLOW_DANGEROUS env var — the gate the registry summary promises
+    # and the sibling shell-exec directives (@agent, @services command) enforce.
+    if not os.environ.get("PERSEUS_ALLOW_DANGEROUS"):
+        audit_event(cfg, "policy_denied",
+                    directive="@query",
+                    reason="PERSEUS_ALLOW_DANGEROUS not set",
+                    args=args_str[:200])
+        return (
+            "> ⚠ @query is enabled in config but PERSEUS_ALLOW_DANGEROUS=1 is not set.\n"
+            "> Fix: export PERSEUS_ALLOW_DANGEROUS=1\n"
+            "> This is a defense-in-depth gate to prevent accidental shell execution.\n"
+            "> Set the environment variable to acknowledge the risk."
+        )
+
     # #588: extract the quoted command FIRST so modifier stripping (@cache,
     # schema=, fallback=, timeout=) only ever sees the remainder and can
     # never mutate what gets executed. Use the opening quote character to

@@ -99,6 +99,21 @@ def evaluate_condition(condition: str, workspace: Path | None = None, cfg: dict 
             )
             return False
 
+        # Defense-in-depth (#616): @if query(...) is the same arbitrary-shell
+        # surface as @query — enforce the PERSEUS_ALLOW_DANGEROUS env gate the
+        # other shell-exec sites (query.py / agent.py / services.py) enforce.
+        if not os.environ.get("PERSEUS_ALLOW_DANGEROUS"):
+            audit_event(cfg or {}, "policy_denied",
+                        directive="@if query",
+                        reason="PERSEUS_ALLOW_DANGEROUS not set",
+                        args=cmd[:200])
+            print(
+                "⚠ @if query(...) skipped: PERSEUS_ALLOW_DANGEROUS=1 is not set "
+                "(export it to acknowledge the risk). Condition evaluates to False.",
+                file=sys.stderr,
+            )
+            return False
+
         # _get_shell() returns None deliberately to mean "use the platform
         # default" (cmd.exe on Windows, /bin/sh on POSIX) — both when running on
         # Windows (where /bin/bash doesn't exist) and when a configured shell
