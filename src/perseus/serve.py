@@ -126,6 +126,13 @@ def cmd_render(args, cfg):
                     os.chown(out_path, st.st_uid, st.st_gid)
                 except OSError:
                     pass  # chown may fail in containers without CAP_CHOWN
+            # Also restore the mode: NamedTemporaryFile creates 0600 on POSIX
+            # and os.replace carries that onto the output — a previously
+            # world-readable AGENTS.md must not become owner-only.
+            try:
+                os.chmod(out_path, st.st_mode & 0o7777)
+            except OSError:
+                pass
         else:
             _atomic_write_text(out_path, rendered)
 

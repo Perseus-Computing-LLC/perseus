@@ -951,8 +951,10 @@ _EOF = object()
 # #643: cap on a single JSON-RPC line. readline() previously buffered an
 # unbounded line fully in memory before parsing — a buggy/hostile client
 # streaming a multi-GB line ate memory without limit. 32 MB comfortably
-# exceeds any legitimate MCP message. (Text-mode readline counts characters;
-# characters >= bytes decoded, so the byte bound holds.)
+# exceeds any legitimate MCP message. (Text-mode readline counts CHARACTERS,
+# and multi-byte UTF-8 means wire bytes >= characters — so a 32M-char line can
+# represent somewhat more than 32MB of wire bytes and a few times that as an
+# in-memory str. Still firmly bounded, which is what #643 requires.)
 _MCP_MAX_LINE_BYTES = 32 * 1024 * 1024
 
 # #643: per-session malformed-input counters. The serve loop previously

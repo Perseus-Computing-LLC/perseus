@@ -627,6 +627,9 @@ DEFAULT_CONFIG["observability"] = {
 DEFAULT_CONFIG["webhooks"] = {
     "enabled": True,
     "timeout_s": 10,
+    # Total atexit delivery-flush budget across all endpoints (#651): a dead
+    # endpoint must not hold CLI exit for its full per-delivery retry cycle.
+    "flush_timeout_s": 3.0,
     "retry": {
         "max_attempts": 3,
         "backoff_s": 5,
@@ -8972,8 +8975,10 @@ _EOF = object()
 # #643: cap on a single JSON-RPC line. readline() previously buffered an
 # unbounded line fully in memory before parsing — a buggy/hostile client
 # streaming a multi-GB line ate memory without limit. 32 MB comfortably
-# exceeds any legitimate MCP message. (Text-mode readline counts characters;
-# characters >= bytes decoded, so the byte bound holds.)
+# exceeds any legitimate MCP message. (Text-mode readline counts CHARACTERS,
+# and multi-byte UTF-8 means wire bytes >= characters — so a 32M-char line can
+# represent somewhat more than 32MB of wire bytes and a few times that as an
+# in-memory str. Still firmly bounded, which is what #643 requires.)
 _MCP_MAX_LINE_BYTES = 32 * 1024 * 1024
 
 # #643: per-session malformed-input counters. The serve loop previously
@@ -26541,6 +26546,13 @@ def cmd_render(args, cfg):
                     os.chown(out_path, st.st_uid, st.st_gid)
                 except OSError:
                     pass  # chown may fail in containers without CAP_CHOWN
+            # Also restore the mode: NamedTemporaryFile creates 0600 on POSIX
+            # and os.replace carries that onto the output — a previously
+            # world-readable AGENTS.md must not become owner-only.
+            try:
+                os.chmod(out_path, st.st_mode & 0o7777)
+            except OSError:
+                pass
         else:
             _atomic_write_text(out_path, rendered)
 
