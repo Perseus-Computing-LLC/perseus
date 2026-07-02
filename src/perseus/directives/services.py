@@ -19,13 +19,25 @@ def health_check_url(url: str, timeout: float, cfg: dict) -> tuple[str, float | 
             return "🔒 remote blocked", None
     start = time.monotonic()
     try:
-        req = urllib.request.urlopen(url, timeout=timeout)  # noqa: S310
+        # #611: do NOT follow redirects. urlopen's default opener chases 3xx,
+        # so a localhost service could 302 the probe to an arbitrary remote
+        # host — a status/latency oracle for hosts the gate above blocks.
+        # A no-redirect opener surfaces 3xx as HTTPError, reported below.
+        class _NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, req, fp, code, msg, headers, newurl):
+                return None
+
+        opener = urllib.request.build_opener(_NoRedirect)
+        req = opener.open(url, timeout=timeout)  # noqa: S310
         latency = (time.monotonic() - start) * 1000
         if req.status < 400:
             return "✅", latency
         return f"❌ HTTP {req.status}", latency
     except urllib.error.HTTPError as e:
         latency = (time.monotonic() - start) * 1000
+        if 300 <= e.code < 400:
+            # #611: redirect reported as up-ish but never followed.
+            return f"⚠ HTTP {e.code} (redirect not followed)", latency
         # Some health endpoints return non-200 but are "up enough"
         if e.code < 500:
             return f"⚠ HTTP {e.code}", latency
