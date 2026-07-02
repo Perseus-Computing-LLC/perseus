@@ -4934,7 +4934,16 @@ def _execute_prefetch_directive(
     # (git status, docker ps, etc.), so two workspaces sharing the same
     # directive text must not collide in the disk cache within TTL.
     _ws = str(workspace.resolve()) if workspace else ""
-    cache_key = _cache_key(f"{directive} {clean_args} :: {_ws}")
+    _base_key = _cache_key(f"{directive} {clean_args} :: {_ws}")
+    # #589: the renderer READS `<base>.<fingerprint>` when the directive has
+    # file dependencies, and the bare base key when the fingerprint is empty
+    # (see renderer._render_lines / _dependency_fingerprint). Prefetch used to
+    # write only the bare base key, so every warmed entry for a fingerprinted
+    # directive was dead — compute the same fingerprint so write == read key.
+    _fp = ""
+    if cache_mode != "nofingerprint":
+        _fp = _dependency_fingerprint(directive or "", clean_args, workspace, cfg)
+    cache_key = f"{_base_key}.{_fp}" if _fp else _base_key
     result["cache"] = {"mode": cache_mode, "ttl": cache_ttl, "key": cache_key}
 
     trust_reason = _prefetch_trust_block_reason(directive or "", spec, cfg)
@@ -4961,6 +4970,10 @@ def _execute_prefetch_directive(
         value = _call_resolver(spec, clean_args, cfg, workspace)
         value = _apply_output_schema_validation(spec, clean_args, value, workspace)
         cache_set(cache_key, value, cache_mode, cache_ttl, cfg)
+        if _fp:
+            # Mirror the renderer's base-key TTL fallback (consulted when a
+            # dependency later disappears and the fingerprint goes empty).
+            cache_set(_base_key, value, cache_mode, cache_ttl, cfg)
     except Exception as exc:
         result["status"] = "failed"
         result["reason"] = str(exc)
@@ -10958,15 +10971,19 @@ def _parse_cache_modifier(line: str) -> tuple[str, str, int | None, str | None]:
     stop at the first whitespace.
     """
     # @cache nofingerprint (opt out of fingerprinting; checked before ttl)
-    m = re.search(r'\s*@cache\s+nofingerprint\b', line, re.IGNORECASE)
+    # #585: the ttl=N may follow nofingerprint directly (`@cache nofingerprint
+    # ttl=N`) or come as a separate `@cache ttl=N`. Both forms are anchored —
+    # the old fallback `\bttl=(\d+)` matched a ttl=N anywhere in the directive
+    # arguments (e.g. inside a quoted URL query string) and stole it.
+    m = re.search(r'\s*@cache\s+nofingerprint\b(?:\s+ttl=(\d+)\b)?', line, re.IGNORECASE)
     if m:
         clean = line[:m.start()] + line[m.end():]
-        # After removing nofingerprint, the ttl=N may be bare (no @cache prefix)
-        m2 = re.search(r'\s*@cache\s+ttl=(\d+)|\bttl=(\d+)', clean, re.IGNORECASE)
-        ttl_val = None
-        if m2:
-            ttl_val = int(m2.group(1) or m2.group(2))
-            clean = clean[:m2.start()] + clean[m2.end():]
+        ttl_val = int(m.group(1)) if m.group(1) else None
+        if ttl_val is None:
+            m2 = re.search(r'\s*@cache\s+ttl=(\d+)', clean, re.IGNORECASE)
+            if m2:
+                ttl_val = int(m2.group(1))
+                clean = clean[:m2.start()] + clean[m2.end():]
         return clean.rstrip(), "nofingerprint", ttl_val, None
 
     # @cache fingerprint (explicit)
@@ -11087,11 +11104,6 @@ def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path | N
             except (OSError, PermissionError):
                 pass  # can't read → no fingerprint (cache miss is safe)
 
-    # Include PERSEUS_ALLOW_DANGEROUS in the fingerprint so cache
-    # auto-invalidates when the env var changes (#253)
-    dangerous = os.environ.get('PERSEUS_ALLOW_DANGEROUS', '0')
-    parts.append(f"env:PERSEUS_ALLOW_DANGEROUS={dangerous}")
-
     if directive in ("@memory", "@mimir"):
         mcfg = _resolve_mneme_config(cfg)
         import json as _json
@@ -11101,8 +11113,21 @@ def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path | N
         except Exception:
             pass
 
+    # #583: directives with no dependencies must genuinely return "" so the
+    # renderer (and prefetch, #589) use the bare base cache key. The env part
+    # below is only meaningful as an invalidator for keys that exist because
+    # of real dependencies — appending it unconditionally made the fingerprint
+    # non-empty for EVERY directive, which broke the documented contract,
+    # doubled cache writes on every miss, and made the base-key TTL fallback
+    # unreachable (a deleted dependency still produced a non-empty fingerprint).
     if not parts:
         return ""
+
+    # Include PERSEUS_ALLOW_DANGEROUS in the fingerprint so cache
+    # auto-invalidates when the env var changes (#253)
+    dangerous = os.environ.get('PERSEUS_ALLOW_DANGEROUS', '0')
+    parts.append(f"env:PERSEUS_ALLOW_DANGEROUS={dangerous}")
+
     return _hashlib.sha256("|".join(parts).encode()).hexdigest()
 
 
@@ -11280,9 +11305,90 @@ SYNTHESIZE_BLOCK_RE = re.compile(r'^@synthesize\s*(.*)$', re.IGNORECASE)
 # Fenced code-block opener: optional indent, then ``` or ~~~ (3+).
 FENCE_OPEN_RE = re.compile(r'^\s*(`{3,}|~{3,})(.*)$')
 # Cache-key normalisation: split a directive line into quoted / unquoted
-# segments so whitespace inside quotes is preserved (C16). Pattern is byte-for-
-# byte the one previously compiled per call inside _cache_key.
-_CACHE_KEY_SPLIT_RE = re.compile(r'("(?:[^"\\\\]|\\\\.)*"|\'(?:[^\'\\\\]|\\\\.)*\')')
+# segments so whitespace inside quotes is preserved (C16).
+# #585: the escape branch must match a SINGLE backslash followed by any char
+# (`\\.` at regex level). The previous pattern used `\\\\.` (two regex-level
+# backslashes), so a `\"` inside quotes broke the quoted-segment match and
+# inner whitespace was wrongly normalised — distinct directives collided.
+_CACHE_KEY_SPLIT_RE = re.compile(r'("(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\')')
+
+# ── Fence-state tracking (#582/#584/#586) ────────────────────────────────────
+# Shared helper so every pass that walks source/output lines (block collectors,
+# macro expansion, dedup) agrees with the main render loop about what is inside
+# a fenced code block. State dict: {"in": bool, "char": str, "len": int}.
+
+def _new_fence_state() -> dict:
+    return {"in": False, "char": "", "len": 0}
+
+
+def _fence_step(state: dict, line: str) -> bool:
+    """Advance fence state for one line.
+
+    Returns True when the line is part of a fenced code block — including the
+    opening and closing delimiter lines themselves. Mirrors the main render
+    loop's open/close rules (same char, length >= opener, whitespace-only line).
+    """
+    if state["in"]:
+        s = line.strip()
+        if s and len(s) >= state["len"] and s == state["char"] * len(s):
+            state["in"] = False
+        return True
+    m = FENCE_OPEN_RE.match(line)
+    if m:
+        state["in"] = True
+        state["char"] = m.group(1)[0]
+        state["len"] = len(m.group(1))
+        return True
+    return False
+
+
+def _collect_until_end(lines: list[str], i: int, end_re: "re.Pattern[str] | None" = None) -> tuple[list[str], int, bool]:
+    """Collect lines[i:] until a non-fenced terminator match (#586).
+
+    Returns (block_lines, next_index, found_end). next_index points past the
+    terminator when found. A terminator (e.g. @end) inside a fenced code block
+    is block content, not a terminator — the old collectors matched it and
+    truncated the block, leaking the real terminator as literal output text
+    and breaking fence parity for the rest of the document.
+    """
+    if end_re is None:
+        end_re = END_RE
+    block: list[str] = []
+    fence = _new_fence_state()
+    while i < len(lines):
+        if not _fence_step(fence, lines[i]) and end_re.match(lines[i]):
+            return block, i + 1, True
+        block.append(lines[i])
+        i += 1
+    return block, i, False
+
+
+_TRUTHY_VALUES = {"1", "true", "yes", "on"}
+
+
+def _parse_consistency_mode(attrs_str: str) -> bool:
+    """Parse the @synthesize consistency_mode flag from its attribute string (#586).
+
+    Rules:
+      - `consistency_mode` / `consistency-mode` as a bare token → True
+      - `consistency_mode=<value>` → truthiness of the value (1/true/yes/on)
+      - occurrences inside quoted spans (e.g. question="...") are ignored
+    """
+    segs = _CACHE_KEY_SPLIT_RE.split(attrs_str)
+    for si, seg in enumerate(segs):
+        if seg.startswith(('"', "'")):
+            continue
+        m = re.search(r'(?<![\w-])consistency[_-]mode\b(\s*=\s*)?(\S+)?', seg, re.IGNORECASE)
+        if not m:
+            continue
+        if not m.group(1):
+            return True  # bare flag
+        val = m.group(2)
+        if val is None and si + 1 < len(segs) and segs[si + 1].startswith(('"', "'")):
+            val = segs[si + 1][1:-1]  # quoted value landed in the next segment
+        return (val or "").strip().strip("\"'").lower() in _TRUTHY_VALUES
+    return False
+
 
 # INLINE_DIRECTIVE_RE — built from DIRECTIVE_REGISTRY after all resolvers are
 # defined.  See _bind_registry() + _build_inline_directive_re() call below
@@ -11323,7 +11429,13 @@ def _parse_macros_from_lines(lines: list[str], start: int = 0) -> dict[str, tupl
     """
     macros: dict[str, tuple[list[str], list[str]]] = {}
     i = start
+    fence = _new_fence_state()
     while i < len(lines):
+        # #584: a `@macro` inside a fenced code block is documentation, not a
+        # definition — skip fenced lines entirely.
+        if _fence_step(fence, lines[i]):
+            i += 1
+            continue
         m = MACRO_START_RE.match(lines[i])
         if m:
             name = m.group(1).lower()
@@ -11437,8 +11549,15 @@ def _expand_macros(lines: list[str], macros: dict[str, tuple[list[str], list[str
 
     expanded: list[str] = []
     i = 0
+    fence = _new_fence_state()
     while i < len(lines):
         line = lines[i]
+        # #584: never expand (or parse definitions) inside fenced code blocks —
+        # documentation examples of macros must render verbatim.
+        if _fence_step(fence, line):
+            expanded.append(line)
+            i += 1
+            continue
         # Skip macro definition blocks
         m_start = MACRO_START_RE.match(line)
         if m_start:
@@ -11452,8 +11571,12 @@ def _expand_macros(lines: list[str], macros: dict[str, tuple[list[str], list[str
         # Check if this line is a macro invocation
         stripped = line.strip()
         parts = stripped.split(None, 1)
-        if parts:
-            invocation = parts[0].lstrip("@").lower()
+        # #584: an invocation REQUIRES the literal `@` prefix. The old
+        # `lstrip("@")` returned the word unchanged when there was no `@`,
+        # so any prose line whose first word matched a macro name was
+        # silently replaced by the macro body.
+        if parts and parts[0].startswith("@"):
+            invocation = parts[0][1:].lower()
             args_text = parts[1] if len(parts) > 1 else ""
             if invocation in macros:
                 macro_body, param_names = macros[invocation]
@@ -11483,7 +11606,12 @@ def _expand_macros(lines: list[str], macros: dict[str, tuple[list[str], list[str
     while depth < MAX_MACRO_DEPTH:
         has_macros = False
         result: list[str] = []
+        fence = _new_fence_state()
         for line in expanded:
+            # #584: the recursive inline pass must not rewrite fenced content.
+            if _fence_step(fence, line):
+                result.append(line)
+                continue
             new_line = line
             m = _macro_invocation_re.search(new_line)
             while m:
@@ -11518,9 +11646,18 @@ def _expand_macros(lines: list[str], macros: dict[str, tuple[list[str], list[str
 
 
 def _strip_macro_defs(lines: list[str]) -> "iter":
-    """Generator: yield lines, skipping @macro...@endmacro definition blocks."""
+    """Generator: yield lines, skipping @macro...@endmacro definition blocks.
+
+    #584: fence-aware — a `@macro` inside a fenced code block is documentation
+    and must be yielded verbatim, not treated as a definition to strip.
+    """
     i = 0
+    fence = _new_fence_state()
     while i < len(lines):
+        if _fence_step(fence, lines[i]):
+            yield lines[i]
+            i += 1
+            continue
         if MACRO_START_RE.match(lines[i]):
             i += 1
             while i < len(lines) and not MACRO_END_RE.match(lines[i]):
@@ -11563,8 +11700,12 @@ def _execute_pipe(stages: list[str], cfg: dict, workspace, line_index: int, quer
 
     # Compute cache key from the directive stages (excluding @cache modifier)
     # so the key reflects the actual computation, not the modifier line.
+    # #580: fold the workspace into the key — the disk cache is shared
+    # per-user, so the same pipe line in two workspaces must not collide
+    # (matches the non-pipe path and the @query pre-scan).
     directive_stages = stages[:resolve_count]
-    cache_key = _cache_key(" | ".join(directive_stages))
+    _ws = workspace.resolve() if workspace else ""
+    cache_key = _cache_key(f'{" | ".join(directive_stages)} :: {_ws}')
 
     # Check cache before executing (pipe stages were never cached before).
     if cache_only_last:
@@ -11715,11 +11856,17 @@ def _render_lines(
     max_tier: int = 3,
     _skipped_directives: list[dict] | None = None,
     no_cache: bool = False,
+    _query_results: dict[int, str] | None = None,
 ) -> str:
     """Core rendering loop. Processes a list of lines and returns resolved markdown.
 
     max_tier: render directives up to this tier (1=always, 2=conditional, 3=all).
     Directives above max_tier are skipped and recorded in _skipped_directives.
+
+    _query_results: pre-resolved @query outputs keyed by index into `lines`.
+    Populated by the top-level parallel pre-scan and remapped when recursing
+    into @if branches / @validate blocks (#581) so a pre-executed query is
+    never run a second time by the recursion.
     """
     # Top-level call owns the constraint rows list and decides when to flush it
     top_level = _constraint_rows is None
@@ -11751,7 +11898,9 @@ def _render_lines(
     # in evaluation between pre-scan and main loop only manifests as a
     # cache miss — never as a query running when it shouldn't, and never
     # as a query failing to run when it should.
-    query_results: dict[int, str] = {}
+    # #581: recursion levels receive the pre-scan's results (remapped to their
+    # own line indices) instead of re-running the queries.
+    query_results: dict[int, str] = dict(_query_results) if _query_results else {}
     # Cache key the pre-scan computed for each pending query, reused verbatim
     # by the parallel worker on write so the write key cannot drift from the
     # read key (the workspace suffix was previously dropped on write).
@@ -11827,6 +11976,17 @@ def _render_lines(
 
             m = INLINE_DIRECTIVE_RE.match(raw_line)
             if m and m.group(1).lower() == "@query":
+                # #581: honour the tier gate — a @query that `--tier` excludes
+                # must not execute its shell command in the pre-scan. The main
+                # loop records it in the skipped manifest; here we only decide.
+                _pre_skip, _ = _check_directive_tier(raw_line, "@query", max_tier, None)
+                if _pre_skip:
+                    continue
+                # #581: pipe lines (@query ... | @x) are executed by
+                # _execute_pipe in the main loop; pre-executing them here ran
+                # the query twice.
+                if len(_parse_pipe_stages(raw_line)) > 1:
+                    continue
                 clean_args, cache_mode, cache_ttl, cache_mock = _parse_cache_modifier(
                     (m.group(2) or "").strip()
                 )
@@ -11843,7 +12003,11 @@ def _render_lines(
                 query_raw_lines[idx] = raw_line
 
         pending = [(idx, query_raw_lines[idx]) for idx, v in query_results.items() if v is None]
-        if len(pending) > 1:
+        # #579: run the executor for ANY pending count. Gating on `> 1` left
+        # the None sentinel in query_results when exactly one query was
+        # pending, and the main loop appended None to output — the final
+        # "\n".join(output) crashed with a TypeError and rendered nothing.
+        if pending:
             from concurrent.futures import ThreadPoolExecutor, as_completed
             def _run_one(idx: int, raw_line: str) -> tuple[int, str]:
                 m2 = INLINE_DIRECTIVE_RE.match(raw_line)
@@ -11892,17 +12056,9 @@ def _render_lines(
         if PROMPT_BLOCK_RE.match(line):
             should_skip, line = _check_directive_tier(line, "@prompt", max_tier, _skipped_directives)
             if should_skip:
-                i += 1
-                while i < len(lines) and not END_RE.match(lines[i]):
-                    i += 1
-                i += 1
+                _, i, _ = _collect_until_end(lines, i + 1)
                 continue
-            block_lines = []
-            i += 1
-            while i < len(lines) and not END_RE.match(lines[i]):
-                block_lines.append(lines[i])
-                i += 1
-            i += 1  # skip @end
+            block_lines, i, _ = _collect_until_end(lines, i + 1)
             output.append(resolve_prompt_block("\n".join(block_lines)))
             continue
 
@@ -11910,10 +12066,7 @@ def _render_lines(
         if m_con:
             should_skip, line = _check_directive_tier(line, "@constraint", max_tier, _skipped_directives)
             if should_skip:
-                i += 1
-                while i < len(lines) and not END_RE.match(lines[i]):
-                    i += 1
-                i += 1
+                _, i, _ = _collect_until_end(lines, i + 1)
                 continue
             attrs_str = m_con.group(1)
             con_id = ""
@@ -11922,13 +12075,8 @@ def _render_lines(
             if mid: con_id = mid.group(1)
             msev = re.search(r'severity=["\']([^"\']+)["\']', attrs_str)
             if msev: con_sev = msev.group(1).upper()
-            body_lines = []
-            i += 1
-            while i < len(lines) and not END_RE.match(lines[i]):
-                body_lines.append(lines[i].strip())
-                i += 1
-            i += 1  # skip @end
-            rule_text = " ".join(body_lines).strip()
+            body_lines, i, _ = _collect_until_end(lines, i + 1)
+            rule_text = " ".join(l.strip() for l in body_lines).strip()
             _constraint_rows.append(f"| {con_id} | {con_sev} | {rule_text} |")
             continue
 
@@ -11936,10 +12084,7 @@ def _render_lines(
         if m_validate:
             should_skip, line = _check_directive_tier(line, "@validate", max_tier, _skipped_directives)
             if should_skip:
-                i += 1
-                while i < len(lines) and not END_RE.match(lines[i]):
-                    i += 1
-                i += 1
+                _, i, _ = _collect_until_end(lines, i + 1)
                 continue
             attrs = _parse_kv_modifiers(m_validate.group(1))
             schema_ref = attrs.get("schema")
@@ -11947,19 +12092,18 @@ def _render_lines(
                 output.append('> \u26a0 @validate: missing schema="..."')
                 i += 1
                 continue
-            block_lines = []
-            i += 1
-            explicit_end = False
-            while i < len(lines):
-                if END_RE.match(lines[i]):
-                    explicit_end = True
-                    i += 1
-                    break
-                block_lines.append(lines[i])
-                i += 1
+            _vstart = i + 1
+            block_lines, i, explicit_end = _collect_until_end(lines, _vstart)
             if not explicit_end:
                 output.append(f"> \u26a0 unmatched @validate: missing @end for schema `{schema_ref}`")
                 break
+            # #581: remap pre-executed @query results into the recursion
+            # (block is contiguous, so indices just shift by _vstart).
+            _block_results = {
+                j: query_results[_vstart + j]
+                for j in range(len(block_lines))
+                if query_results.get(_vstart + j) is not None
+            }
             rendered_block = _render_lines(block_lines, cfg, workspace, _constraint_rows,
                                            _include_depth=_include_depth,
                                            _include_path_chain=_include_path_chain,
@@ -11968,7 +12112,8 @@ def _render_lines(
                                            _stats=_stats,
                                            max_tier=max_tier,
                                            _skipped_directives=_skipped_directives,
-                                           no_cache=no_cache)
+                                           no_cache=no_cache,
+                                           _query_results=_block_results)
             output.append(resolve_validate_block(rendered_block, schema_ref, cfg, workspace))
             continue
 
@@ -11976,10 +12121,7 @@ def _render_lines(
         if m_syn:
             should_skip, line = _check_directive_tier(line, "@synthesize", max_tier, _skipped_directives)
             if should_skip:
-                i += 1
-                while i < len(lines) and not END_RE.match(lines[i]):
-                    i += 1
-                i += 1
+                _, i, _ = _collect_until_end(lines, i + 1)
                 continue
             attrs_str = m_syn.group(1).strip()
             attrs = _parse_kv_modifiers(attrs_str)
@@ -11987,13 +12129,11 @@ def _render_lines(
             source_attr = attrs.get("source", "")
             sources_list = [s.strip() for s in source_attr.split(",") if s.strip()] if source_attr else []
             label = attrs.get("label", "Generated synthesis")
-            consistency_mode = "consistency_mode" in attrs_str.lower().replace("-", "_")
-            body_lines = []
-            i += 1
-            while i < len(lines) and not END_RE.match(lines[i]):
-                body_lines.append(lines[i])
-                i += 1
-            i += 1  # skip @end
+            # #586: parse the consistency_mode VALUE instead of a substring
+            # check — `consistency_mode=false`, `=0`, or the phrase inside
+            # question="..." must not switch it on. Bare flag still means on.
+            consistency_mode = _parse_consistency_mode(attrs_str)
+            body_lines, i, _ = _collect_until_end(lines, i + 1)
             for bline in body_lines:
                 stripped = bline.strip()
                 if stripped and not stripped.startswith("#"):
@@ -12052,8 +12192,12 @@ def _render_lines(
             should_skip, line = _check_directive_tier(line, "@services", max_tier, _skipped_directives)
             if should_skip:
                 i += 1
+                _svc_fence = _new_fence_state()
                 while i < len(lines):
                     next_line = lines[i]
+                    if _fence_step(_svc_fence, next_line):
+                        i += 1
+                        continue
                     if END_RE.match(next_line):
                         i += 1
                         break
@@ -12064,8 +12208,15 @@ def _render_lines(
             block_lines = []
             i += 1
             explicit_end = False
+            # #586: fence-aware \u2014 @end (or another @directive) inside a fenced
+            # code block within the services body must not terminate the block.
+            _svc_fence = _new_fence_state()
             while i < len(lines):
                 next_line = lines[i]
+                if _fence_step(_svc_fence, next_line):
+                    block_lines.append(next_line)
+                    i += 1
+                    continue
                 if END_RE.match(next_line):
                     explicit_end = True
                     i += 1
@@ -12088,12 +12239,20 @@ def _render_lines(
         if m_if:
             condition_str = m_if.group(1).strip()
             true_lines, false_lines = [], []
+            # #581: original line index of each collected branch line, so the
+            # pre-scan's query_results can be remapped into the recursion.
+            true_idx, false_idx = [], []
             in_else = False
             i += 1
             depth = 1
+            # #586: fence-aware \u2014 an @endif/@else/@if inside a fenced code
+            # block is content, not control flow.
+            _if_fence = _new_fence_state()
             while i < len(lines):
                 inner = lines[i]
-                if IF_RE.match(inner): depth += 1
+                if _fence_step(_if_fence, inner):
+                    pass  # fenced line \u2014 plain branch content
+                elif IF_RE.match(inner): depth += 1
                 elif ENDIF_RE.match(inner):
                     depth -= 1
                     if depth == 0:
@@ -12103,18 +12262,32 @@ def _render_lines(
                     in_else = True
                     i += 1
                     continue
-                if in_else: false_lines.append(inner)
-                else: true_lines.append(inner)
+                if in_else:
+                    false_lines.append(inner)
+                    false_idx.append(i)
+                else:
+                    true_lines.append(inner)
+                    true_idx.append(i)
                 i += 1
             if depth != 0:
                 output.append(f"> \u26a0 unmatched @if: missing @endif for `{condition_str}`")
                 break
             try:
-                branch = true_lines if evaluate_condition(condition_str, workspace, cfg) else false_lines
+                if evaluate_condition(condition_str, workspace, cfg):
+                    branch, branch_idx = true_lines, true_idx
+                else:
+                    branch, branch_idx = false_lines, false_idx
             except ConditionParseError as exc:
                 output.append(f"> \u26a0 @if error: {exc}")
                 continue
             if branch:
+                # #581: hand the recursion any pre-executed @query results,
+                # remapped from this scope's indices to the branch's own.
+                _branch_results = {
+                    new_i: query_results[orig_i]
+                    for new_i, orig_i in enumerate(branch_idx)
+                    if query_results.get(orig_i) is not None
+                }
                 output.append(_render_lines(branch, cfg, workspace, _constraint_rows,
                                              _include_depth=_include_depth,
                                              _include_path_chain=_include_path_chain,
@@ -12123,7 +12296,8 @@ def _render_lines(
                                              _stats=_stats,
                                              max_tier=max_tier,
                                              _skipped_directives=_skipped_directives,
-                                             no_cache=no_cache))
+                                             no_cache=no_cache,
+                                             _query_results=_branch_results))
             continue
 
         # ── inline directives ──
@@ -12147,16 +12321,27 @@ def _render_lines(
                     continue
             raw_args = (m.group(2) or "").strip()
 
-            if directive == "@query" and i in query_results:
+            # #579: `get(i) is not None` (not `i in query_results`) — if a
+            # sentinel somehow survives the executor, fall through to normal
+            # sequential resolution instead of appending None to output.
+            if directive == "@query" and query_results.get(i) is not None:
                 output.append(query_results[i])
                 i += 1
                 continue
 
             if directive == "@memory" and "@cache" not in raw_args.lower():
-                m_ttl = re.search(r'\bttl=(\d+)\b', raw_args, re.IGNORECASE)
-                if m_ttl:
-                    raw_args = (raw_args[:m_ttl.start()] + raw_args[m_ttl.end():]).strip()
-                    raw_args = f"{raw_args} @cache ttl={m_ttl.group(1)}".strip()
+                # #585: rewrite a bare ttl=N into @cache ttl=N, but only when
+                # it appears OUTSIDE quoted spans — a ttl=N inside the quoted
+                # memory query text is search content, not a cache modifier.
+                _segs = _CACHE_KEY_SPLIT_RE.split(raw_args)
+                for _si, _seg in enumerate(_segs):
+                    if _seg.startswith(('"', "'")):
+                        continue
+                    m_ttl = re.search(r'\bttl=(\d+)\b', _seg, re.IGNORECASE)
+                    if m_ttl:
+                        _segs[_si] = _seg[:m_ttl.start()] + _seg[m_ttl.end():]
+                        raw_args = f"{''.join(_segs).strip()} @cache ttl={m_ttl.group(1)}".strip()
+                        break
 
             clean_args, cache_mode, cache_ttl, cache_mock = _parse_cache_modifier(raw_args)
             _base_key = _cache_key(f"{directive} {clean_args} :: {workspace.resolve() if workspace else ''}")
@@ -12472,6 +12657,7 @@ def render_source_with_meta(
     cfg: dict,
     workspace: Path | None = None,
     no_cache: bool = False,
+    max_tier: int = 3,
 ) -> RenderResult:
     """Like render_source() but returns structured RenderResult with metadata."""
     _stats = {
@@ -12480,7 +12666,7 @@ def render_source_with_meta(
         "cache_misses": 0,
     }
     _directives_collector = []
-    text = render_source(source_text, cfg, workspace, no_cache=no_cache,
+    text = render_source(source_text, cfg, workspace, max_tier=max_tier, no_cache=no_cache,
                          _directive_collector=_directives_collector,
                          _stats=_stats)
 
@@ -12504,9 +12690,12 @@ def render_source_json(
     source_text: str,
     cfg: dict,
     workspace: Path | None = None,
+    max_tier: int = 3,
+    no_cache: bool = False,
 ) -> str:
     """Resolve a @perseus source document and return structured JSON."""
-    result = render_source_with_meta(source_text, cfg, workspace)
+    result = render_source_with_meta(source_text, cfg, workspace,
+                                     max_tier=max_tier, no_cache=no_cache)
     payload = {
         "resolved": result.text,
         "directives": result.directives,
@@ -12522,11 +12711,33 @@ def _audit_render_redaction(cfg: dict, report: dict) -> None:
         audit_event(cfg, "redaction", surface="render",
                     total=int(report.get("total", 0)), counts=report.get("counts", {}))
 
+# #582: structural markdown lines legitimately repeat and must never be
+# deduplicated — deleting a fence delimiter flips fence parity for the entire
+# remainder of the document; deleting hrules/table separators corrupts layout.
+_DEDUP_HRULE_RE = re.compile(r'^(-{3,}|\*{3,}|_{3,})$')
+
+
+def _is_structural_line(stripped: str) -> bool:
+    """True for lines whitelisted from dedup: fences, hrules, table separators."""
+    if FENCE_OPEN_RE.match(stripped):
+        return True
+    if _DEDUP_HRULE_RE.match(stripped):
+        return True
+    # Table separator: only |, -, : and spaces, with at least one of each of | and -
+    if "|" in stripped and "-" in stripped and re.fullmatch(r'[|:\s-]+', stripped):
+        return True
+    return False
+
+
 def _deduplicate_rendered_output(text: str, cfg: dict) -> tuple[str, dict]:
     """
     Deduplicate lines/paragraphs in the rendered markdown output.
     Returns (deduplicated_text, dedup_report).
     dedup_report: {'removed_facts': N, 'saved_tokens': M}
+
+    #582: fence-aware — lines inside fenced code blocks (and the fence
+    delimiters themselves) are never removed or counted, and structural
+    lines (hrules, table separators) are whitelisted.
     """
     if not cfg.get("render", {}).get("dedup", True):
         return text, {"removed_facts": 0, "saved_tokens": 0}
@@ -12535,12 +12746,16 @@ def _deduplicate_rendered_output(text: str, cfg: dict) -> tuple[str, dict]:
     seen_lines = {}  # str -> count
     deduplicated_lines = []
     removed_count = 0
+    fence = _new_fence_state()
 
     # Track provenance to avoid merging facts from different directive sources
     # Keep up to 2 copies of any line (from different sources), only dedup beyond that
     for line in lines:
+        if _fence_step(fence, line):
+            deduplicated_lines.append(line)  # fenced content is verbatim
+            continue
         stripped_line = line.strip()
-        if stripped_line: # Only consider non-empty lines for deduplication
+        if stripped_line and not _is_structural_line(stripped_line):
             count = seen_lines.get(stripped_line, 0)
             if count < 2:  # Keep first 2 occurrences (allow duplicates across directive boundaries)
                 deduplicated_lines.append(line)
@@ -12548,7 +12763,7 @@ def _deduplicate_rendered_output(text: str, cfg: dict) -> tuple[str, dict]:
             else:
                 removed_count += 1
         else:
-            deduplicated_lines.append(line) # Keep empty lines for formatting
+            deduplicated_lines.append(line) # Keep empty/structural lines for formatting
 
     # Simple word count estimate for tokens (approx 1.3 tokens per word)
     original_word_count = sum(len(line.split()) for line in lines if line.strip())
@@ -12568,6 +12783,8 @@ def render_source_html(
     cfg: dict,
     workspace: Path | None = None,
     title: str = "Workspace Context",
+    max_tier: int = 3,
+    no_cache: bool = False,
 ) -> str:
     """Resolve a @perseus source document and return self-contained HTML.
 
@@ -12575,7 +12792,7 @@ def render_source_html(
     the resolved markdown to semantic HTML using the built-in template.
     Zero external dependencies — the CSS is embedded.
     """
-    md_output = render_source(source_text, cfg, workspace)
+    md_output = render_source(source_text, cfg, workspace, max_tier=max_tier, no_cache=no_cache)
     md_output, report = redact_text(md_output, cfg)
     _audit_render_redaction(cfg, report)
     body = markdown_to_html_body(md_output)
@@ -12661,9 +12878,11 @@ def render_output(
         return rendered
     elif fmt == "html":
         t = title or "Workspace Context"
-        return render_source_html(source_text, cfg, workspace, title=t)
+        return render_source_html(source_text, cfg, workspace, title=t,
+                                  max_tier=max_tier, no_cache=no_cache)
     elif fmt == "json":
-        return render_source_json(source_text, cfg, workspace)
+        return render_source_json(source_text, cfg, workspace,
+                                  max_tier=max_tier, no_cache=no_cache)
 
     # Assistant formats (Phase 24)
     if fmt in ("agents-md", "claude-md", "cursorrules", "copilot-instructions"):
@@ -12676,7 +12895,8 @@ def render_output(
     # Custom formats (task-68)
     custom_formats = _discover_formats(cfg)
     if fmt in custom_formats:
-        result = render_source_with_meta(source_text, cfg, workspace)
+        result = render_source_with_meta(source_text, cfg, workspace,
+                                         max_tier=max_tier, no_cache=no_cache)
         text, text_report = redact_text(result.text, cfg)
         metadata = result.meta.copy()
         metadata["directives"] = result.directives
@@ -12697,7 +12917,9 @@ def render_output(
     # Default: markdown with a warning if format unknown
     if fmt:
         print(f"Perseus warning: unknown format '{fmt}'; falling back to markdown", file=sys.stderr)
-    return render_output(source_text, "markdown", cfg, workspace)
+    # #586: preserve tier/cache/title options through the fallback recursion.
+    return render_output(source_text, "markdown", cfg, workspace,
+                         title=title, max_tier=max_tier, no_cache=no_cache)
 # ──────────────────────────────── Context Adapter SDK ──────────────────────────
 # "Resolve once, compose into the stack" (#473). Compile a Perseus context a single
 # time, then drop the resulting context string into any agent framework — LangGraph,
