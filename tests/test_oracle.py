@@ -725,3 +725,59 @@ def test_drift_prose_unchanged(tmp_path, monkeypatch):
     perseus.cmd_oracle_drift(ns, cfg())
     text = "\n".join(captured)
     assert "Drift report" in text
+
+
+# ───── #548: ambiguous log_id prefix must error, not silently pick first ─────
+
+_PYTHIA_ENTRIES = [
+    {"timestamp": "2026-07-01T08:00:00", "accepted": None},
+    {"timestamp": "2026-07-01T09:30:00", "accepted": None},
+    {"timestamp": "2026-06-30T09:30:00", "accepted": None},
+]
+
+
+def test_find_pythia_entry_exact_and_latest():
+    assert perseus._find_pythia_entry(_PYTHIA_ENTRIES, "2026-07-01T09:30:00") == 1
+    assert perseus._find_pythia_entry(_PYTHIA_ENTRIES, "latest") == 2
+    assert perseus._find_pythia_entry(_PYTHIA_ENTRIES, "1999") is None
+
+
+def test_find_pythia_entry_unique_prefix_ok():
+    assert perseus._find_pythia_entry(_PYTHIA_ENTRIES, "2026-06-30") == 2
+    assert perseus._find_pythia_entry(_PYTHIA_ENTRIES, "2026-07-01T08") == 0
+
+
+def test_find_pythia_entry_ambiguous_prefix_raises():
+    """A bare date matching two same-day entries must not label the first."""
+    with pytest.raises(ValueError) as exc_info:
+        perseus._find_pythia_entry(_PYTHIA_ENTRIES, "2026-07-01")
+    msg = str(exc_info.value)
+    assert "ambiguous" in msg
+    assert "2 entries" in msg
+
+
+def test_label_pythia_entry_ambiguous_returns_error(monkeypatch):
+    """_label_pythia_entry surfaces the ambiguity instead of mislabeling."""
+    entries = copy.deepcopy(_PYTHIA_ENTRIES)
+    monkeypatch.setattr(perseus, "_pythia_log_entries", lambda: entries)
+    rewritten = []
+    monkeypatch.setattr(perseus, "_rewrite_pythia_log",
+                        lambda e, cfg=None: rewritten.append(e))
+
+    ok, msg = perseus._label_pythia_entry("2026-07-01", accepted=True)
+
+    assert ok is False
+    assert "ambiguous" in msg
+    assert rewritten == []                     # nothing written
+    assert all(e["accepted"] is None for e in entries)  # nothing mislabeled
+
+
+def test_label_pythia_entry_unique_prefix_still_works(monkeypatch):
+    entries = copy.deepcopy(_PYTHIA_ENTRIES)
+    monkeypatch.setattr(perseus, "_pythia_log_entries", lambda: entries)
+    monkeypatch.setattr(perseus, "_rewrite_pythia_log", lambda e, cfg=None: None)
+
+    ok, msg = perseus._label_pythia_entry("2026-06-30", accepted=True)
+
+    assert ok is True
+    assert entries[2]["accepted"] is True
