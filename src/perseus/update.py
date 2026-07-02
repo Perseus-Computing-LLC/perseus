@@ -1,12 +1,5 @@
 # ─────────────────────────────── Self-Update ──────────────────────────────────
 
-def cmd_update(args, cfg) -> int:
-    """Self-update: check for or apply Perseus updates from git.
-
-    Perseus is installed in editable mode — updating the source via git pull
-    automatically updates the CLI. No reinstall needed.
-    """
-    import subprocess as _sp
 # ── GPG signature verification ──────────────────────────────────────────────
 # Trusted public key fingerprint for Perseus releases.
 # To generate: gpg --detach-sign --armor perseus.py
@@ -16,7 +9,7 @@ PERSEUS_GPG_FINGERPRINT = None  # Set to your GPG key fingerprint (40-char hex)
 PERSEUS_GPG_FINGERPRINT_SHORT = None  # Set to your GPG key ID (16-char hex)
 
 
-def _gpg_verify_signature(repo: Path, args) -> tuple[bool, str]:
+def _gpg_verify_signature(repo: Path, args, cfg: dict | None = None) -> tuple[bool, str]:
     """Verify the GPG signature on the current HEAD or latest tag.
 
     Returns (verified: bool, message: str).
@@ -25,7 +18,7 @@ def _gpg_verify_signature(repo: Path, args) -> tuple[bool, str]:
     """
     update_cfg = {}
     try:
-        update_cfg = cfg.get("update", {}) if "cfg" in dir() else {}
+        update_cfg = (cfg or {}).get("update", {}) or {}
     except Exception:
         pass
     skip = getattr(args, "skip_signature_check", False)
@@ -62,6 +55,14 @@ def _gpg_verify_signature(repo: Path, args) -> tuple[bool, str]:
     except Exception as exc:
         return True, f"GPG verification error (non-fatal): {exc}"
 
+
+def cmd_update(args, cfg) -> int:
+    """Self-update: check for or apply Perseus updates from git.
+
+    Perseus is installed in editable mode — updating the source via git pull
+    automatically updates the CLI. No reinstall needed.
+    """
+    import subprocess as _sp
 
     update_cfg = cfg.get("update", {})
     repo_path_str = update_cfg.get("repo_path", "")
@@ -104,14 +105,14 @@ def _gpg_verify_signature(repo: Path, args) -> tuple[bool, str]:
     remote = _git(["rev-parse", f"origin/{branch}"])
 
     if local == remote:
-        print(f"\u2713 Perseus is up to date ({local[:8]} on {branch})")
+        print(f"✓ Perseus is up to date ({local[:8]} on {branch})")
         return 0
 
     # Determine relationship: is local ahead, behind, or diverged?
     merge_base = _git(["merge-base", local, remote])
     if merge_base == remote:
         # local is ahead of or same as remote — nothing to pull
-        print(f"\u2713 Perseus is up to date (local is ahead of origin/{branch})")
+        print(f"✓ Perseus is up to date (local is ahead of origin/{branch})")
         print(f"  Local:  {local[:8]}")
         print(f"  Remote: {remote[:8]} (behind)")
         return 0
@@ -120,7 +121,7 @@ def _gpg_verify_signature(repo: Path, args) -> tuple[bool, str]:
         pass
     else:
         # Diverged — both have commits the other doesn't
-        print(f"\u26a0 Local and origin/{branch} have diverged.", file=sys.stderr)
+        print(f"⚠ Local and origin/{branch} have diverged.", file=sys.stderr)
         print(f"  Local:  {local[:8]}", file=sys.stderr)
         print(f"  Remote: {remote[:8]}", file=sys.stderr)
         print("  Fast-forward not possible. Manual merge required.", file=sys.stderr)
@@ -144,14 +145,14 @@ def _gpg_verify_signature(repo: Path, args) -> tuple[bool, str]:
 
     if apply_update:
         # GPG signature verification before applying update
-        verified, gpg_msg = _gpg_verify_signature(repo, args)
+        verified, gpg_msg = _gpg_verify_signature(repo, args, cfg)
         if not verified:
-            print(f"\u26a0 GPG signature verification FAILED: {gpg_msg}", file=sys.stderr)
+            print(f"⚠ GPG signature verification FAILED: {gpg_msg}", file=sys.stderr)
             print("  Use --skip-signature-check to bypass.", file=sys.stderr)
             return 1
         if "verification skipped" in gpg_msg.lower():
             pass  # Non-fatal
-        print(f"\u2713 GPG: {gpg_msg}")
+        print(f"✓ GPG: {gpg_msg}")
 
         print("Applying update …")
         try:
@@ -161,7 +162,7 @@ def _gpg_verify_signature(repo: Path, args) -> tuple[bool, str]:
             )
             print(result.stdout.strip())
             new_local = _git(["rev-parse", "HEAD"])
-            print(f"\u2713 Updated to {new_local[:8]}")
+            print(f"✓ Updated to {new_local[:8]}")
         except _sp.CalledProcessError as e:
             print(f"Error: git pull failed: {e.stderr.strip()}", file=sys.stderr)
             print(f"  Try: cd {repo} && git pull --ff-only origin {branch}",
