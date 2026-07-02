@@ -76,6 +76,7 @@ MODULE_ORDER = [
     "src/perseus/synthesis.py",         # ← serve.py extraction: @synthesize
     "src/perseus/update.py",            # ← serve.py extraction: self-update
     "src/perseus/quickstart.py",        # ← Track B: perseus quickstart bootstrap + LLM auto-config
+    "src/perseus/speculate.py",         # ← #607: @speculate next-intent speculative prefetch (called at runtime from renderer/query/cli)
     "src/perseus/serve.py",             # ← still contains PRODUCT_PROFILES + trust CLI (not yet decomposed)
     "src/perseus/cli.py",  # includes _bind_registry() call before dispatch
 ]

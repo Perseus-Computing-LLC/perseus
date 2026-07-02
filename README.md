@@ -696,6 +696,68 @@ webhooks:
     - on_directive_error
 ```
 
+### Speculative Prefetch (`@speculate`)
+
+Speculative execution for context assembly (#607): a transparent Markov /
+frequency predictor over your recorded waypoint (checkpoint) transitions
+predicts the next task, and Perseus pre-warms that task's context **after the
+current render completes** — so the first render of the next turn is already
+hot. No ML dependencies; the predictor interface is pluggable for a future
+LLM backend.
+
+**Off by default.** Enable it in config and opt a source in with the pragma:
+
+```yaml
+# ~/.perseus/config.yaml
+speculate:
+  enabled: true              # master gate — default false (zero behavior change)
+  k: 3                       # top-k predicted next intents to consider
+  budget_tokens: 2000        # cumulative token budget per speculation pass
+  confidence_threshold: 0.30 # only warm predictions at/above this probability
+  intents:                   # intent pattern (fnmatch) → prefetch directive line(s)
+    "deploy*":
+      - '@read "runbook.md" @cache ttl=300'
+    "review*":
+      - '@query "git log --oneline -10" @cache ttl=120'
+```
+
+```markdown
+@perseus v1
+
+Your context here...
+@speculate k=3 budget=2000
+```
+
+The `@speculate` pragma never appears in rendered output; `k=` / `budget=`
+override the config for that source. Speculation is synchronous-after-render:
+it can never delay or interleave with the live render, and a failure inside
+speculation never breaks a render.
+
+**Cache safety:** speculative warms run through the same prefetch executor and
+use the exact key derivation the renderer reads (workspace-scoped base key +
+dependency fingerprint), so a speculative entry is just an *early* warm — it
+can never shadow or poison real reads. On the real turn the renderer
+re-derives the fingerprint and TTL as usual, so a wrong prediction costs
+nothing.
+
+**Observability:**
+
+```console
+$ perseus explain --speculate
+Speculate: enabled=true backend=markov k=3 threshold=0.30
+History: 42 intent(s); current: review PR
+Predicted next intents:
+  1. deploy staging  p=0.67  [1 candidate(s), 1 warm]
+     - warm: @read "runbook.md" @cache ttl=300
+Past speculation: hits=12 misses=4 hit_rate=0.75 (settled=16)
+```
+
+Prediction outcomes (hit/miss per settled prediction, budget spend, warm
+results) persist to a workspace-keyed stats file
+(`<cache_dir>/speculate_stats-<workspace_hash>.json`, atomic writes) with a
+documented shape — a future `@bandit` ledger integration can consume it as a
+value signal.
+
 ---
 
 ## Context Profiles & Recall-First Memory (`@profile`)

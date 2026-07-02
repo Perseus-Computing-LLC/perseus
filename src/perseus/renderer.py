@@ -1697,6 +1697,11 @@ def render_source(
     if macros:
         body_lines = _expand_macros(body_lines, macros)
 
+    # #607 (@speculate): extract speculation pragma lines before rendering.
+    # The pragma configures the post-render speculation pass (speculate.py);
+    # it is engine configuration, not content, so it never reaches output.
+    body_lines, _speculate_params = _extract_speculate_pragmas(body_lines)
+
     # v1.0.6: preflight permission check — surface environment issues before
     # directives that depend on writable Perseus state.
     if _include_depth == 0 and _uses_preflight_sensitive_directive(body_lines):
@@ -1792,6 +1797,20 @@ def render_source(
     # #511: opt-in observability metadata block (top-level render only).
     if _include_depth == 0 and cfg.get("observability", {}).get("emit_metadata"):
         result = _observability_meta_comment(result, source_text, workspace) + "\n" + result
+
+    # #607 (@speculate): after the render has fully completed, speculatively
+    # warm the predicted next contexts. Synchronous-after-render by design —
+    # it can never delay or interleave with the live render above. No-op
+    # unless BOTH speculate.enabled is true (default false) AND the source
+    # opted in with an @speculate pragma; failures are swallowed because
+    # speculation must never break a render.
+    if _include_depth == 0 and _speculate_params is not None:
+        try:
+            run_speculation(cfg, workspace,
+                            k=_speculate_params.get("k"),
+                            budget_tokens=_speculate_params.get("budget"))
+        except Exception:
+            pass
 
     return result
 
