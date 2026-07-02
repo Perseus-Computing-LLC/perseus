@@ -42,14 +42,24 @@ def _identity_path(cfg: dict) -> Path:
 def _write_private_text(p: Path, text: str) -> None:
     """Write a secret-bearing file with owner-only permissions (#564 side note).
 
-    chmod(0o600) is effective on POSIX; on Windows it is a best-effort no-op
-    (NTFS ACLs on the user profile already restrict access).
+    #614: create the file 0o600 atomically via os.open — the previous
+    write-then-chmod left a brief window where the secret was readable
+    under a permissive umask. Mode is effective on POSIX; on Windows it is
+    a best-effort no-op (NTFS ACLs on the user profile already restrict
+    access).
     """
-    p.write_text(text, encoding="utf-8")
-    try:
-        os.chmod(p, 0o600)
-    except OSError:
-        pass
+    fd = os.open(str(p), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        # O_CREAT's mode only applies when the file is newly created. If the
+        # file pre-existed with looser perms (e.g. a legacy 0o644 identity),
+        # enforce 0o600 on the open descriptor too. POSIX only — fchmod is
+        # absent on Windows, where NTFS ACLs already restrict the profile.
+        if hasattr(os, "fchmod"):
+            try:
+                os.fchmod(fh.fileno(), 0o600)
+            except OSError:
+                pass
+        fh.write(text)
 
 
 def _load_identity(cfg: dict) -> dict | None:

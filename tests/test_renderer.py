@@ -463,7 +463,12 @@ def test_prefetch_rules_match_graph_and_write_cache(tmp_path):
     assert result["summary"]["matches"] == 1
     assert result["summary"]["ran"] == 1
     ws = str(tmp_path.resolve())
-    cache_key = perseus._cache_key(f'@query "printf prefetched" :: {ws}')
+    # #612: @query is now env-fingerprinted, so the entry lands under
+    # <base>.<fp>, not the bare base key. Mirror the code's key derivation.
+    clean_args, _, _, _ = perseus._parse_cache_modifier('"printf prefetched" @cache ttl=120')
+    _base = perseus._cache_key(f'@query {clean_args} :: {ws}')
+    _fp = perseus._dependency_fingerprint("@query", clean_args, tmp_path, local)
+    cache_key = f"{_base}.{_fp}" if _fp else _base
     cached = perseus.cache_get(cache_key, "ttl", 120, local)
     assert cached is not None
     assert "prefetched" in cached
@@ -586,7 +591,11 @@ def test_adaptive_prefetch_deterministic_scores_patterns(monkeypatch, tmp_path):
     assert result["results"][0]["rule"] == "adaptive:decision-memory"
     assert "matched patterns" in result["results"][0]["reason"]
     ws = str(tmp_path.resolve())
-    cache_key = perseus._cache_key(f'@query "printf adaptive" :: {ws}')
+    # #612: @query entry lands under <base>.<fp> (env-fingerprinted).
+    clean_args, _, _, _ = perseus._parse_cache_modifier('"printf adaptive" @cache ttl=120')
+    _base = perseus._cache_key(f'@query {clean_args} :: {ws}')
+    _fp = perseus._dependency_fingerprint("@query", clean_args, tmp_path, local)
+    cache_key = f"{_base}.{_fp}" if _fp else _base
     assert "adaptive" in perseus.cache_get(cache_key, "ttl", 120, local)
 
 

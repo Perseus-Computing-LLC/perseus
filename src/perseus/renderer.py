@@ -118,6 +118,17 @@ def _parse_cache_modifier(line: str) -> tuple[str, str, int | None, str | None]:
     return line, "", None, None
 
 
+# #612: directives whose rendered output depends on PERSEUS_ALLOW_DANGEROUS
+# (they emit a "gate not set" warning instead of running when it's unset, per
+# their resolvers in directives/agent.py and directives/services.py). Their
+# cache fingerprint must include the env var so a flip auto-invalidates; every
+# other directive keeps an empty fingerprint (bare base key + TTL fallback).
+# NOTE: @query is deliberately NOT here — its resolver gates on the
+# render.allow_query_shell CONFIG flag, not this env var (see #616). Config
+# values were never part of the fingerprint, so @query stays empty-fingerprint.
+_ENV_GATED_DIRECTIVES = frozenset({"@agent", "@services"})
+
+
 def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path | None, cfg: dict) -> str:
     """Return a stable fingerprint of all file dependencies for this directive.
 
@@ -138,10 +149,15 @@ def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path | N
       @list <dir>          → sha256 of directory listing (file names + mtimes)
       @tree <dir>          → sha256 of recursive directory listing
       @env <VAR>           → no fingerprint (value changes per-process)
-      @query ...           → no fingerprint (shell output depends on system state,
-                              not static files — let TTL handle staleness)
-      @services            → no fingerprint (service health is ephemeral)
+      @query ...           → no file fingerprint (shell output depends on system
+                              state, not static files — let TTL handle staleness)
       @perseus <url>       → no fingerprint (remote content changes independently)
+
+    Env-gated directives (#612): @agent and @services carry a
+    PERSEUS_ALLOW_DANGEROUS fragment (see _ENV_GATED_DIRECTIVES) so a flip of
+    that env var — which toggles their "gate not set" warning vs. real output —
+    invalidates their cache. @query is config-gated (allow_query_shell), not
+    env-gated, so it is excluded (#616).
     """
     import hashlib as _hashlib
     import stat as _stat
@@ -202,20 +218,26 @@ def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path | N
         except Exception:
             pass
 
-    # #583: directives with no dependencies must genuinely return "" so the
-    # renderer (and prefetch, #589) use the bare base cache key. The env part
-    # below is only meaningful as an invalidator for keys that exist because
-    # of real dependencies — appending it unconditionally made the fingerprint
-    # non-empty for EVERY directive, which broke the documented contract,
-    # doubled cache writes on every miss, and made the base-key TTL fallback
-    # unreachable (a deleted dependency still produced a non-empty fingerprint).
+    # #612 / #253 / #583: PERSEUS_ALLOW_DANGEROUS only changes rendered
+    # OUTPUT for the directives it actually gates (@query/@services/@agent —
+    # all dependency-free), toggling a "gate not set" warning vs the real
+    # result. Fold it into the fingerprint for exactly those so flipping the
+    # env var auto-invalidates the cached warning within the TTL. The #583
+    # fix had moved this behind `if not parts`, which put the env var in the
+    # fingerprint only for FILE-dependency directives (@read/@include/… where
+    # it never affects output) and dropped it from the gated ones — the
+    # reverse of what's useful. It is NOT appended for non-gated directives,
+    # so their empty-fingerprint contract (bare base key + TTL fallback) is
+    # preserved. NOTE: the parallel pre-scan (@query) and prefetch both call
+    # this same function, so read/write keys stay in sync automatically.
+    if directive in _ENV_GATED_DIRECTIVES:
+        dangerous = os.environ.get('PERSEUS_ALLOW_DANGEROUS', '0')
+        parts.append(f"env:PERSEUS_ALLOW_DANGEROUS={dangerous}")
+
+    # Directives with no dependencies must genuinely return "" so the renderer
+    # (and prefetch, #589) use the bare base cache key.
     if not parts:
         return ""
-
-    # Include PERSEUS_ALLOW_DANGEROUS in the fingerprint so cache
-    # auto-invalidates when the env var changes (#253)
-    dangerous = os.environ.get('PERSEUS_ALLOW_DANGEROUS', '0')
-    parts.append(f"env:PERSEUS_ALLOW_DANGEROUS={dangerous}")
 
     return _hashlib.sha256("|".join(parts).encode()).hexdigest()
 
@@ -1082,7 +1104,15 @@ def _render_lines(
                 if cache_mode == "mock":
                     query_results[idx] = cache_mock or "(mock)"
                     continue
-                cache_key = _cache_key(f"@query {clean_args} :: {workspace.resolve() if workspace else ''}")
+                # #612: @query now carries a non-empty fingerprint (the env
+                # gate). The main-loop read path and prefetch key off
+                # `<base>.<fp>`, so the pre-scan must use the same key or it
+                # would read/write a stale bare-base entry and re-run every
+                # query. Mirror renderer._render_lines / query.prefetch.
+                _base_key = _cache_key(f"@query {clean_args} :: {workspace.resolve() if workspace else ''}")
+                _fp = "" if cache_mode == "nofingerprint" else _dependency_fingerprint(
+                    "@query", clean_args, workspace, cfg)
+                cache_key = f"{_base_key}.{_fp}" if _fp else _base_key
                 cached = cache_get(cache_key, cache_mode, cache_ttl, cfg)
                 if cached is not None:
                     query_results[idx] = cached
@@ -1521,11 +1551,16 @@ def _render_lines(
 
             if cache_mode and not no_cache:
                 cache_set(cache_key, result, cache_mode, cache_ttl, cfg)
-                if _fp:
+                if _fp and directive not in _ENV_GATED_DIRECTIVES:
                     # Keep a TTL fallback under the base key. If a dependency is
                     # deleted or temporarily unreadable later, fingerprinting has
                     # no content hash to recreate the old key, so this preserves
                     # the existing "serve cached output until TTL" contract.
+                    # #612: env-gated directives (@query/@services/@agent) have
+                    # NO file dependencies — their fingerprint is env-driven, so
+                    # there is no disappearing-dependency case to fall back for,
+                    # and a base-key entry would be served across an env flip
+                    # (defeating the invalidation). Single write, no fallback.
                     cache_set(_base_key, result, cache_mode, cache_ttl, cfg)
 
             output.append(result)
