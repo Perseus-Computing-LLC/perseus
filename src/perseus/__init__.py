@@ -32,6 +32,10 @@ import sys
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    # stdin too: the MCP stdio server reads JSON-RPC (UTF-8) from clients, and a
+    # cp1252 stdin on Windows raises UnicodeDecodeError on any multibyte
+    # argument, crashing the server loop.
+    sys.stdin.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
     pass
 
