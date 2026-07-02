@@ -212,3 +212,111 @@ def test_webhook_event_filtering(webhook_server):
     while not WebhookHandler.received_requests and time.time() - start < 5:
         time.sleep(0.1)
     assert len(WebhookHandler.received_requests) == 1
+
+
+# ── #573: payload redaction must actually redact (was a str-only no-op) ──────
+
+def test_webhook_payload_redaction(webhook_server):
+    """#573: string fields anywhere in the payload (incl. nested structures)
+    must be redacted before the POST leaves the process. Pre-fix, redact_text
+    was called on the payload DICT and returned it unchanged."""
+    cfg = {
+        "webhooks": {
+            "enabled": True,
+            "endpoints": [{
+                "url": webhook_server,
+                "events": ["on_directive_resolved"],
+            }]
+        },
+        "redaction": {
+            "enabled": True,
+            "patterns": [
+                {"name": "test_token", "pattern": r"SECRET-[A-Z0-9]+"},
+            ],
+        },
+    }
+    payload = {
+        "workspace": "/test/ws",
+        "name": "@query",
+        "args": "curl -H 'X-Auth: SECRET-AAA111'",
+        "result_truncated": "token=SECRET-BBB222 rest of output",
+        "nested": {"deep": ["SECRET-CCC333", 42, None]},
+    }
+    perseus._fire_webhook("on_directive_resolved", payload, cfg)
+
+    start = time.time()
+    while not WebhookHandler.received_requests and time.time() - start < 5:
+        time.sleep(0.1)
+
+    assert len(WebhookHandler.received_requests) == 1
+    data = WebhookHandler.received_requests[0]["body"]["data"]
+    body_text = json.dumps(WebhookHandler.received_requests[0]["body"])
+    # No secret anywhere in the delivered body
+    assert "SECRET-AAA111" not in body_text
+    assert "SECRET-BBB222" not in body_text
+    assert "SECRET-CCC333" not in body_text
+    # Structure preserved, non-string leaves untouched
+    assert data["name"] == "@query"
+    assert data["nested"]["deep"][1] == 42
+    assert data["nested"]["deep"][2] is None
+    assert "[REDACTED:test_token]" in data["args"]
+
+
+def test_webhook_default_rules_redact_real_token_shape(webhook_server):
+    """#573 repro from the issue: a directive output containing a token
+    matching a DEFAULT redaction rule must not reach the endpoint verbatim."""
+    token = "ghp_" + "a1B2" * 10  # matches default github_token rule
+    cfg = {
+        "webhooks": {
+            "enabled": True,
+            "endpoints": [{
+                "url": webhook_server,
+                "events": ["on_directive_resolved"],
+            }]
+        },
+    }
+    perseus._fire_webhook(
+        "on_directive_resolved",
+        {"workspace": "/w", "result_truncated": f"remote uses {token} for auth"},
+        cfg,
+    )
+    start = time.time()
+    while not WebhookHandler.received_requests and time.time() - start < 5:
+        time.sleep(0.1)
+    assert len(WebhookHandler.received_requests) == 1
+    body_text = json.dumps(WebhookHandler.received_requests[0]["body"])
+    assert token not in body_text
+
+
+# ── #574: worker cache key must include headers/retry dimensions ─────────────
+
+def test_webhook_distinct_headers_get_distinct_workers(webhook_server):
+    """#574: two endpoints sharing url/secret/timeout but differing in extra
+    headers must NOT share a worker thread (pre-fix the second silently kept
+    the first endpoint's headers)."""
+    cfg = {
+        "webhooks": {
+            "enabled": True,
+            "endpoints": [
+                {
+                    "url": webhook_server,
+                    "events": ["on_render_complete"],
+                    "headers": {"X-Test-Endpoint": "alpha"},
+                },
+                {
+                    "url": webhook_server,
+                    "events": ["on_render_complete"],
+                    "headers": {"X-Test-Endpoint": "beta"},
+                },
+            ]
+        }
+    }
+    perseus._fire_webhook("on_render_complete", {"workspace": "/w"}, cfg)
+
+    start = time.time()
+    while len(WebhookHandler.received_requests) < 2 and time.time() - start < 5:
+        time.sleep(0.1)
+
+    assert len(WebhookHandler.received_requests) >= 2
+    seen = {r["headers"].get("X-Test-Endpoint") for r in WebhookHandler.received_requests}
+    assert seen == {"alpha", "beta"}

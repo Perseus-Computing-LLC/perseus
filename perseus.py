@@ -755,8 +755,42 @@ def _fire_hooks(event: str, payload: dict, cfg: dict) -> None:
     _fire_webhook(event, payload, cfg)
 
 
+# cmd.exe characters that force best-effort quoting on Windows (#574).
+_CMD_UNSAFE_CHARS = ' \t&|<>^"%!;,=()'
+
+
+def _shell_quote_hook_value(val) -> str:
+    """#574: shell-quote a payload value before substituting it into a
+    shell=True hook command.
+
+    POSIX: shlex.quote — fully safe (values like ``x; rm -rf ~`` become a
+    single literal argument).
+
+    Windows: cmd.exe has NO fully safe quoting mechanism (e.g. %VAR%
+    expansion happens even inside double quotes). The hook template is
+    operator-owned — that trust boundary is documented in #168/#574 — so
+    this is best-effort hardening, not a sandbox: values containing cmd
+    metacharacters are wrapped in double quotes with embedded quotes
+    doubled, which neutralizes ``&``, ``|``, ``>``, ``<`` and friends.
+
+    Plain values (no metacharacters) pass through unchanged on both
+    platforms so simple templates keep producing unquoted output.
+    """
+    s = str(val)
+    if os.name == "nt":
+        if s and not any(ch in _CMD_UNSAFE_CHARS for ch in s):
+            return s
+        return '"' + s.replace('"', '""') + '"'
+    import shlex
+    return shlex.quote(s)
+
+
 def _fire_shell_hook(cmd_template: str, payload: dict, event: str) -> None:
     """Run a shell hook with {{var}} substitution. Timeout 5s.
+
+    #574: substituted payload values are shell-quoted (see
+    _shell_quote_hook_value) so attacker-influenced rendered context
+    (e.g. {{args}} / {{result_truncated}}) cannot inject commands.
 
     On timeout the whole process tree is killed. subprocess.run(timeout=...)
     alone is insufficient on Windows: shell=True spawns cmd.exe, and killing
@@ -768,7 +802,7 @@ def _fire_shell_hook(cmd_template: str, payload: dict, event: str) -> None:
     try:
         cmd = cmd_template
         for key, val in payload.items():
-            cmd = cmd.replace(f"{{{{{key}}}}}", str(val))
+            cmd = cmd.replace(f"{{{{{key}}}}}", _shell_quote_hook_value(val))
 
         popen_kwargs = {}
         if os.name == "nt":
@@ -895,9 +929,20 @@ def _fire_webhook(event: str, payload: dict, cfg: dict) -> None:
                 continue
 
         with _WEBHOOK_LOCK:
-            # Use a unique ID for the thread per endpoint config
-            ep_id = f"{url}|{ep.get('secret','')}|{ep.get('timeout_s', 10)}"
-            
+            # Use a unique ID for the thread per endpoint config.
+            # #574: the worker thread captures `ep` (incl. extra headers) and
+            # `wh_cfg` (retry config) at first creation, so the key must cover
+            # every dimension of that captured config — two endpoints sharing
+            # url/secret/timeout but differing in headers, or a retry-config
+            # change, must not silently reuse the first worker's config.
+            try:
+                _headers_sig = json.dumps(ep.get("headers", {}), sort_keys=True, default=str)
+                _retry_sig = json.dumps(wh_cfg.get("retry", {}), sort_keys=True, default=str)
+            except Exception:
+                _headers_sig = str(ep.get("headers", {}))
+                _retry_sig = str(wh_cfg.get("retry", {}))
+            ep_id = f"{url}|{ep.get('secret','')}|{ep.get('timeout_s', 10)}|{_headers_sig}|{_retry_sig}"
+
             if ep_id not in _WEBHOOK_QUEUES:
                 _WEBHOOK_QUEUES[ep_id] = queue.Queue()
                 t = threading.Thread(
@@ -908,8 +953,11 @@ def _fire_webhook(event: str, payload: dict, cfg: dict) -> None:
                 t.start()
                 _WEBHOOK_THREADS[ep_id] = t
             
-            # Use a copy of the payload to avoid mutations if the renderer continues
-            _WEBHOOK_QUEUES[ep_id].put((event, payload.copy(), datetime.now(timezone.utc).isoformat()))
+            # Use a copy of the payload to avoid mutations if the renderer continues.
+            # cfg travels with the item (#573): the worker needs it for redaction,
+            # and per-send delivery keeps redaction rules current instead of
+            # freezing the first render's config for the thread's lifetime.
+            _WEBHOOK_QUEUES[ep_id].put((event, payload.copy(), datetime.now(timezone.utc).isoformat(), cfg))
 
 def _webhook_worker(url, ep, wh_cfg, q):
     retry_cfg = wh_cfg.get("retry", {"max_attempts": 3, "backoff_s": 5})
@@ -930,8 +978,8 @@ def _webhook_worker(url, ep, wh_cfg, q):
             q.task_done()
             break
         
-        event, payload, ts_iso = item
-        
+        event, payload, ts_iso, cfg = item
+
         # Prepare payload
         version = _PERSEUS_VERSION
         
@@ -946,11 +994,15 @@ def _webhook_worker(url, ep, wh_cfg, q):
             "version": version,
             "data": payload
         }
-        # #167: redact secrets from webhook payload before external delivery.
+        # #167/#573: redact secrets from webhook payload before external delivery.
         # Pre-1.0.6, directive args and output snippets in payload["data"]
         # were sent verbatim to webhook endpoints, leaking secrets.
+        # #573: the original fix called str-only redact_text() on the payload
+        # DICT, which returned it unchanged — a silent no-op (and `cfg` wasn't
+        # even in scope, so it NameError'd into the bare except). redact_value()
+        # walks the structure and redacts every string field.
         try:
-            redacted_data, _ = redact_text(payload, cfg)
+            redacted_data, _ = redact_value(payload, cfg)
             body_dict["data"] = redacted_data
         except Exception:
             pass  # redaction failure must not block webhook delivery
@@ -8131,25 +8183,10 @@ LEGACY_MCP_TOOLS: list[dict] = [
         },
         annotations={"readOnlyHint": True},
     ),
-    # Issue #401: PROV-O provenance tracking stub
-    _tool_schema(
-        "perseus_trace",
-        "Return provenance trace data (not yet implemented).",
-        {
-            "query": {"type": "string", "description": "Query for trace data"},
-            "format": {"type": "string", "description": "Output format (e.g., json, provn)", "enum": ["json", "provn"]},
-        },
-        required=["query"],
-        output_schema={
-            "type": "object",
-            "properties": {
-                "status": {"type": "string", "description": "Status of the trace request"},
-                "message": {"type": "string", "description": "Trace message"},
-                "trace_data": {"type": "string", "description": "(Stub) Provenance trace data"},
-            }
-        },
-        annotations={"readOnlyHint": True},
-    ),
+    # #576: the perseus_trace stub (#401 PROV-O provenance) was removed from
+    # this list — it was advertised in tools/list but had no @trace directive
+    # or special-case handler, so every call errored "directive @trace not
+    # registered". Re-add it here only once a real trace implementation exists.
     # Mneme is the new primary name for the @mimir directive's MCP tool;
     # perseus_mimir is kept as a deprecated alias (same underlying
     # directive/resolver — see _TOOL_TO_DIRECTIVE below). Props/output_schema
@@ -8289,6 +8326,21 @@ def _mcp_quote(value: str) -> str:
     return (value or "").strip().replace('"', '\\"')
 
 
+def _mcp_int(value, name: str) -> int:
+    """#575: validate a numeric MCP tool argument at the boundary.
+
+    ttl/count/limit are string-typed in the tool schemas and were interpolated
+    into the directive arg string unvalidated (unlike command/path, which go
+    through _mcp_quote) — a value like ``"1; rm"`` reached directive parsing
+    raw. Raises ValueError for anything that isn't a plain integer; _call_tool
+    turns that into a tool-level error string.
+    """
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        raise ValueError(f"argument '{name}' must be an integer, got {value!r}") from None
+
+
 # Special arg builders for directives with positional/non-standard arg formats
 _DIRECTIVE_ARG_BUILDERS = {
     "@query": lambda args: f'"{_mcp_quote(args.get("command", ""))}"',
@@ -8301,11 +8353,11 @@ _DIRECTIVE_ARG_BUILDERS = {
     "@services": lambda args: "",
     "@drift": lambda args: "",
     "@date": lambda args: f'format="{_mcp_quote(args.get("format", "%Y-%m-%d %H:%M:%S"))}"',
-    "@waypoint": lambda args: f'ttl={(args.get("ttl") or 86400)}' if args.get("ttl") else "",
-    "@session": lambda args: f'count={(args.get("count") or 3)}',
+    "@waypoint": lambda args: f'ttl={_mcp_int(args.get("ttl"), "ttl")}' if args.get("ttl") else "",
+    "@session": lambda args: f'count={_mcp_int(args.get("count") or 3, "count")}',
     "@list": lambda args: f'path="{_mcp_quote(args.get("path", "."))}"',
     "@tree": lambda args: f'path="{_mcp_quote(args.get("path", "."))}"',
-    "@inbox": lambda args: (f'limit={(args.get("limit") or 5)}' if args.get("limit") else "") + (" unread=true" if args.get("unread") else ""),
+    "@inbox": lambda args: (f'limit={_mcp_int(args.get("limit"), "limit")}' if args.get("limit") else "") + (" unread=true" if args.get("unread") else ""),
     "@skills": lambda args: (f'category="{_mcp_quote(args.get("category", ""))}"' if args.get("category") else "") + (" flag_stale=true" if args.get("flag_stale") else ""),
 }
 
@@ -8438,7 +8490,13 @@ def _call_tool(tool_name: str, arguments: dict, cfg: dict, workspace: Path) -> s
     if spec.resolver is None:
         return f"Error: directive {directive_name} has no resolver"
 
-    args_str = _build_tool_args_generic(tool_name, arguments)
+    # #575: numeric arg builders (ttl/count/limit) raise ValueError on
+    # non-integer input; surface that as a tool-level error instead of
+    # letting it bubble to the JSON-RPC loop as -32603.
+    try:
+        args_str = _build_tool_args_generic(tool_name, arguments)
+    except ValueError as exc:
+        return f"Error: invalid arguments for {tool_name}: {exc}"
 
     # #139 — Timeout enforcement across all platforms.
     #
@@ -8531,11 +8589,17 @@ def _call_tool(tool_name: str, arguments: dict, cfg: dict, workspace: Path) -> s
 # whole server.
 _PARSE_ERROR = object()
 
+# #575: distinct EOF sentinel. EOF was previously signalled with None, but
+# json.loads("null") is ALSO None — so a client sending a bare `null` line
+# silently shut the server down.
+_EOF = object()
+
 
 def _read_message(stream=None):
     """Read a single JSON-RPC message from stdin (or given stream).
 
-    Returns the parsed dict, ``None`` on EOF, or ``_PARSE_ERROR`` when the line
+    Returns the parsed JSON value (any type — the caller must check it is a
+    dict, #575), ``_EOF`` on end of input, or ``_PARSE_ERROR`` when the line
     was not valid JSON (so the caller can reply -32700 and keep serving).
     """
     src = stream or sys.stdin
@@ -8546,7 +8610,7 @@ def _read_message(stream=None):
         # on Windows) must not crash the server.
         return _PARSE_ERROR
     if not line:
-        return None
+        return _EOF
     try:
         return json.loads(line.strip())
     except (json.JSONDecodeError, ValueError):
@@ -8608,12 +8672,19 @@ def serve_mcp(cfg: dict, workspace: Path | None = None) -> int:
 
     while True:
         msg = _read_message()
-        if msg is None:
+        if msg is _EOF:
             break  # real EOF: client closed stdin
         if msg is _PARSE_ERROR:
             # Malformed line: reply parse-error (spec) and keep serving instead
             # of exiting the whole server on one bad line.
             _write_message(_make_error(None, -32700, "Parse error"))
+            continue
+        if not isinstance(msg, dict):
+            # #575: valid JSON but not an object (`123`, `"x"`, `[]`, `null`).
+            # Pre-fix this AttributeError'd on msg.get() and killed the whole
+            # server (and a bare `null` line looked like EOF). Reply Invalid
+            # Request per JSON-RPC 2.0 and keep serving.
+            _write_message(_make_error(None, -32600, "Invalid Request: message must be a JSON object"))
             continue
         method = msg.get("method", "")
         msg_id = msg.get("id")
@@ -8693,13 +8764,17 @@ def serve_mcp_sse(cfg: dict, workspace: Path | None = None, port: int = 8420) ->
             # can read it even when the server requires auth for MCP operations.
             if self.path == "/.well-known/mcp/server-card.json":
                 card = _build_server_card(cfg)
-                body = json.dumps(card, indent=2)
+                # #577: Content-Length must count UTF-8 BYTES, not code points.
+                # len(str) short-framed the JSON whenever the card contained
+                # non-ASCII (tool descriptions include em-dashes), truncating
+                # the body for spec-compliant HTTP clients.
+                encoded = json.dumps(card, indent=2).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Content-Length", str(len(encoded)))
                 self.send_header("Access-Control-Allow-Origin", "*")
                 self.end_headers()
-                self.wfile.write(body.encode())
+                self.wfile.write(encoded)
                 return
             if not _check_auth(self):
                 self.send_response(401)
@@ -20900,144 +20975,156 @@ def _run_lsp_server(args, cfg) -> int:
         params = msg.get("params") or {}
         req_id = msg.get("id")
 
-        if method == "initialize":
-            server_state["workspace"] = _lsp_workspace_from_params(params)
-            respond(req_id, {
-                "capabilities": {
-                    "textDocumentSync": 1,  # full
-                    "hoverProvider": True,
-                    "definitionProvider": True,
-                    "completionProvider": {"triggerCharacters": ["@", " ", "="]},
-                    "codeLensProvider": {"resolveProvider": False},
-                    "executeCommandProvider": {"commands": ["perseus.render", "perseus.openCheckpoint", "perseus.compactMemory"]},
-                },
-                "serverInfo": {"name": "perseus-lsp", "version": "0.8"},
-            })
-        elif method == "initialized":
-            pass  # notification, no response
-        elif method == "shutdown":
-            server_state["shutdown"] = True
-            respond(req_id, None)
-        elif method == "exit":
-            break
-        elif method == "textDocument/didOpen":
-            doc = params.get("textDocument", {})
-            documents[doc["uri"]] = doc.get("text", "")
-            publish_diags(doc["uri"])
-        elif method == "textDocument/didChange":
-            uri = params["textDocument"]["uri"]
-            changes = params.get("contentChanges", [])
-            if changes:
-                documents[uri] = changes[-1].get("text", "")
-            publish_diags(uri)
-        elif method == "textDocument/didClose":
-            documents.pop(params["textDocument"]["uri"], None)
-        elif method == "textDocument/hover":
-            uri = params["textDocument"]["uri"]
-            line_no = params["position"]["line"]
-            text = documents.get(uri, "")
-            lines = text.splitlines()
-            preview = "(no directive on this line)"
-            if 0 <= line_no < len(lines):
-                parsed = _lsp_parse_directive_at_line(lines[line_no])
-                if parsed:
-                    name, args_str = parsed
-                    preview = _lsp_resolve_directive_for_hover(name, args_str, cfg, server_state["workspace"])
-            respond(req_id, {"contents": {"kind": "markdown", "value": f"```\n{preview[:2000]}\n```"}})
-
-        elif method == "textDocument/definition":
-            uri = params["textDocument"]["uri"]
-            line_no = params["position"]["line"]
-            text = documents.get(uri, "")
-            lines = text.splitlines()
-            result = None
-            if 0 <= line_no < len(lines):
-                parsed = _lsp_parse_directive_at_line(lines[line_no])
-                if parsed and parsed[0] in ("@include", "@read"):
-                    # Resolve the file path relative to workspace
-                    path_str, _ = _extract_quoted_token(parsed[1].strip())
-                    if path_str:
-                        ws = server_state["workspace"]
-                        fp, _ = _resolve_path(path_str, ws, allow_outside_workspace=True)
-                        if fp.exists():
-                            result = {"uri": fp.as_uri(), "range": {
-                                "start": {"line": 0, "character": 0},
-                                "end": {"line": 0, "character": 0},
-                            }}
-            if result:
-                respond(req_id, result)
-            else:
+        # #578: a well-framed but semantically malformed message (e.g. hover
+        # without position, didOpen without uri) used to raise KeyError out of
+        # the while-loop and kill the whole server. Guard per-message dispatch:
+        # requests get a JSON-RPC error reply; notifications are dropped (LSP
+        # forbids responding to notifications).
+        try:
+            if method == "initialize":
+                server_state["workspace"] = _lsp_workspace_from_params(params)
+                respond(req_id, {
+                    "capabilities": {
+                        "textDocumentSync": 1,  # full
+                        "hoverProvider": True,
+                        "definitionProvider": True,
+                        "completionProvider": {"triggerCharacters": ["@", " ", "="]},
+                        "codeLensProvider": {"resolveProvider": False},
+                        "executeCommandProvider": {"commands": ["perseus.render", "perseus.openCheckpoint", "perseus.compactMemory"]},
+                    },
+                    "serverInfo": {"name": "perseus-lsp", "version": "0.8"},
+                })
+            elif method == "initialized":
+                pass  # notification, no response
+            elif method == "shutdown":
+                server_state["shutdown"] = True
                 respond(req_id, None)
-        elif method == "textDocument/completion":
-            uri = params["textDocument"]["uri"]
-            line_no = params["position"]["line"]
-            char = params["position"]["character"]
-            text = documents.get(uri, "")
-            lines = text.splitlines()
-            cur_line = lines[line_no] if 0 <= line_no < len(lines) else ""
-            prefix = cur_line[:char]
-            items: list[dict] = []
-            # If line starts with @ but no directive complete yet, offer directive names
-            if "@" in prefix and not any(prefix.lstrip().lower().startswith(d) for d in _LSP_DIRECTIVE_NAMES):
-                for d in _LSP_DIRECTIVE_NAMES:
-                    items.append({
-                        "label": d,
-                        "kind": 14,  # Keyword
-                        "insertText": d + " $0",
-                        "insertTextFormat": 2,  # Snippet
-                    })
-            else:
-                # offer arg keys for the directive on this line
-                parsed = _lsp_parse_directive_at_line(cur_line)
-                if parsed:
-                    for arg in _LSP_DIRECTIVE_ARGS.get(parsed[0], []):
-                        items.append({"label": arg, "kind": 5})  # Field
-            respond(req_id, {"isIncomplete": False, "items": items})
-        elif method == "textDocument/codeLens":
-            uri = params["textDocument"]["uri"]
-            text = documents.get(uri, "")
-            lenses = []
-            for i, line in enumerate(text.splitlines()):
-                if _lsp_parse_directive_at_line(line):
-                    lenses.append({
-                        "range": {"start": {"line": i, "character": 0}, "end": {"line": i, "character": 0}},
-                        "command": {"title": "▶ Render", "command": "perseus.render", "arguments": [uri]},
-                    })
-                    break
-            respond(req_id, lenses)
-        elif method == "workspace/executeCommand":
-            cmd = params.get("command")
-            cmd_args = params.get("arguments") or []
-            if cmd == "perseus.render":
-                uri = cmd_args[0] if cmd_args else ""
+            elif method == "exit":
+                break
+            elif method == "textDocument/didOpen":
+                doc = params.get("textDocument", {})
+                documents[doc["uri"]] = doc.get("text", "")
+                publish_diags(doc["uri"])
+            elif method == "textDocument/didChange":
+                uri = params["textDocument"]["uri"]
+                changes = params.get("contentChanges", [])
+                if changes:
+                    documents[uri] = changes[-1].get("text", "")
+                publish_diags(uri)
+            elif method == "textDocument/didClose":
+                documents.pop(params["textDocument"]["uri"], None)
+            elif method == "textDocument/hover":
+                uri = params["textDocument"]["uri"]
+                line_no = params["position"]["line"]
                 text = documents.get(uri, "")
-                try:
-                    rendered = _render_lines(text.splitlines(), cfg, workspace=server_state["workspace"])
-                except Exception as exc:
-                    rendered = f"(render failed: {exc})"
-                respond(req_id, {"rendered": rendered})
-            elif cmd == "perseus.openCheckpoint":
-                store = Path(cfg["checkpoints"]["store"])
-                pointer = store / f"latest-{_workspace_hash(server_state['workspace'])}.yaml"
-                if not pointer.exists():
-                    pointer = store / "latest.yaml"
-                respond(req_id, {"uri": pointer.as_uri() if pointer.exists() else None})
-            elif cmd == "perseus.compactMemory":
-                if not server_state["allow_mutations"]:
-                    respond(req_id, None, error={
-                        "code": -32000,
-                        "message": "Mutation command disabled; restart Perseus LSP with --allow-lsp-mutations",
-                    })
-                    continue
-                ws = server_state["workspace"]
-                msg = _memory_do_compact(ws, cfg, provider=None)
-                respond(req_id, {"message": msg})
+                lines = text.splitlines()
+                preview = "(no directive on this line)"
+                if 0 <= line_no < len(lines):
+                    parsed = _lsp_parse_directive_at_line(lines[line_no])
+                    if parsed:
+                        name, args_str = parsed
+                        preview = _lsp_resolve_directive_for_hover(name, args_str, cfg, server_state["workspace"])
+                respond(req_id, {"contents": {"kind": "markdown", "value": f"```\n{preview[:2000]}\n```"}})
+
+            elif method == "textDocument/definition":
+                uri = params["textDocument"]["uri"]
+                line_no = params["position"]["line"]
+                text = documents.get(uri, "")
+                lines = text.splitlines()
+                result = None
+                if 0 <= line_no < len(lines):
+                    parsed = _lsp_parse_directive_at_line(lines[line_no])
+                    if parsed and parsed[0] in ("@include", "@read"):
+                        # Resolve the file path relative to workspace
+                        path_str, _ = _extract_quoted_token(parsed[1].strip())
+                        if path_str:
+                            ws = server_state["workspace"]
+                            fp, _ = _resolve_path(path_str, ws, allow_outside_workspace=True)
+                            if fp.exists():
+                                result = {"uri": fp.as_uri(), "range": {
+                                    "start": {"line": 0, "character": 0},
+                                    "end": {"line": 0, "character": 0},
+                                }}
+                if result:
+                    respond(req_id, result)
+                else:
+                    respond(req_id, None)
+            elif method == "textDocument/completion":
+                uri = params["textDocument"]["uri"]
+                line_no = params["position"]["line"]
+                char = params["position"]["character"]
+                text = documents.get(uri, "")
+                lines = text.splitlines()
+                cur_line = lines[line_no] if 0 <= line_no < len(lines) else ""
+                prefix = cur_line[:char]
+                items: list[dict] = []
+                # If line starts with @ but no directive complete yet, offer directive names
+                if "@" in prefix and not any(prefix.lstrip().lower().startswith(d) for d in _LSP_DIRECTIVE_NAMES):
+                    for d in _LSP_DIRECTIVE_NAMES:
+                        items.append({
+                            "label": d,
+                            "kind": 14,  # Keyword
+                            "insertText": d + " $0",
+                            "insertTextFormat": 2,  # Snippet
+                        })
+                else:
+                    # offer arg keys for the directive on this line
+                    parsed = _lsp_parse_directive_at_line(cur_line)
+                    if parsed:
+                        for arg in _LSP_DIRECTIVE_ARGS.get(parsed[0], []):
+                            items.append({"label": arg, "kind": 5})  # Field
+                respond(req_id, {"isIncomplete": False, "items": items})
+            elif method == "textDocument/codeLens":
+                uri = params["textDocument"]["uri"]
+                text = documents.get(uri, "")
+                lenses = []
+                for i, line in enumerate(text.splitlines()):
+                    if _lsp_parse_directive_at_line(line):
+                        lenses.append({
+                            "range": {"start": {"line": i, "character": 0}, "end": {"line": i, "character": 0}},
+                            "command": {"title": "▶ Render", "command": "perseus.render", "arguments": [uri]},
+                        })
+                        break
+                respond(req_id, lenses)
+            elif method == "workspace/executeCommand":
+                cmd = params.get("command")
+                cmd_args = params.get("arguments") or []
+                if cmd == "perseus.render":
+                    uri = cmd_args[0] if cmd_args else ""
+                    text = documents.get(uri, "")
+                    try:
+                        rendered = _render_lines(text.splitlines(), cfg, workspace=server_state["workspace"])
+                    except Exception as exc:
+                        rendered = f"(render failed: {exc})"
+                    respond(req_id, {"rendered": rendered})
+                elif cmd == "perseus.openCheckpoint":
+                    store = Path(cfg["checkpoints"]["store"])
+                    pointer = store / f"latest-{_workspace_hash(server_state['workspace'])}.yaml"
+                    if not pointer.exists():
+                        pointer = store / "latest.yaml"
+                    respond(req_id, {"uri": pointer.as_uri() if pointer.exists() else None})
+                elif cmd == "perseus.compactMemory":
+                    if not server_state["allow_mutations"]:
+                        respond(req_id, None, error={
+                            "code": -32000,
+                            "message": "Mutation command disabled; restart Perseus LSP with --allow-lsp-mutations",
+                        })
+                        continue
+                    ws = server_state["workspace"]
+                    msg = _memory_do_compact(ws, cfg, provider=None)
+                    respond(req_id, {"message": msg})
+                else:
+                    respond(req_id, None, error={"code": -32601, "message": f"Unknown command: {cmd}"})
             else:
-                respond(req_id, None, error={"code": -32601, "message": f"Unknown command: {cmd}"})
-        else:
-            # Unknown — respond with method-not-found for requests, ignore for notifications
+                # Unknown — respond with method-not-found for requests, ignore for notifications
+                if req_id is not None:
+                    respond(req_id, None, error={"code": -32601, "message": f"Method not found: {method}"})
+        except Exception as exc:
             if req_id is not None:
-                respond(req_id, None, error={"code": -32601, "message": f"Method not found: {method}"})
+                try:
+                    respond(req_id, None, error={"code": -32603, "message": f"Internal error: {exc}"})
+                except Exception:
+                    break  # writer is gone; nothing left to serve
     return 0
 # Perseus Install Module (Phase 24)
 # ────────────────────────────────────
