@@ -534,6 +534,39 @@ def main():
     p_llm_ping.add_argument("--url", default=None, help="Override llm.url (base URL, no trailing /v1)")
     p_llm_ping.add_argument("--json", action="store_true", help="Machine-readable JSON output")
 
+    # bandit (#605) — outcome feedback + decision transparency for @bandit
+    # adaptive directive selection. Self-contained block: both subparsers are
+    # dispatched through the single cmd_bandit_cli entry point below.
+    p_feedback = sub.add_parser(
+        "feedback",
+        help="Record a good/bad outcome for a directive in a past render (@bandit value ledger)",
+    )
+    p_feedback.add_argument("render_id", help="Render id (prefix ok) from `perseus render --explain` / `perseus explain`")
+    p_feedback.add_argument("directive", nargs="?", default=None,
+                            help="Directive arm id (e.g. '@read#1a2b3c4d') or bare name (e.g. '@read')")
+    p_feedback.add_argument("outcome", nargs="?", default=None, choices=["good", "bad"],
+                            help="Outcome signal: good (block earned its tokens) or bad (ignored/unhelpful)")
+    p_feedback.add_argument("--from-payload", dest="from_payload", default=None, metavar="FILE",
+                            help="Heuristic mode: mark directives whose rendered output appears "
+                                 "verbatim in FILE as good, unmatched ones as bad")
+    p_feedback.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
+    p_feedback.add_argument("--json", action="store_true", help="Machine-readable JSON output")
+
+    p_explain = sub.add_parser(
+        "explain",
+        help="Explain a render: directive manifest, render_id, and (with --bandit) "
+             "per-directive value/cost, arm posteriors, and include/drop decisions",
+    )
+    p_explain.add_argument("source", nargs="?", default=None,
+                           help="Path to .md file with @perseus header (default: .perseus/context.md)")
+    p_explain.add_argument("--bandit", action="store_true",
+                           help="Include the @bandit report: value/cost ratio, Thompson-sampling "
+                                "posterior, and the include/drop decision + reason per directive")
+    p_explain.add_argument("--workspace", default=None, help="Workspace path (default: inferred from source)")
+    p_explain.add_argument("--tier", type=int, default=None, choices=[1, 2, 3],
+                           help="Context tier limit for the render (default: config / 3)")
+    p_explain.add_argument("--json", action="store_true", help="Machine-readable JSON output (always JSON currently)")
+
     args = parser.parse_args()
     cfg = load_config()
 
@@ -616,6 +649,9 @@ def main():
             return rc
     elif args.command == "llm":
         return cmd_llm(args, cfg)
+    elif args.command in ("feedback", "explain"):
+        # #605: @bandit outcome feedback + decision transparency
+        return cmd_bandit_cli(args, cfg)
     elif args.command == "init":
         cmd_init(args, cfg)
     elif args.command == "quickstart":
