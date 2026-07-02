@@ -192,13 +192,18 @@ class _ResearchMCPClient:
             except json.JSONDecodeError:
                 # Server may emit non-JSON log noise on stdout; skip it.
                 continue
-            # Match our request id; ignore notifications / mismatched ids.
-            if isinstance(response, dict) and response.get("id") not in (req_id, None):
+            # #599: match our request id EXACTLY. id-less server notifications
+            # (e.g. notifications/message) previously fell through the old
+            # `not in (req_id, None)` check and were mistaken for the awaited
+            # response, degrading the render to "no result". Skip anything
+            # that is not a dict carrying our id and keep reading until the
+            # matching response, EOF, or timeout.
+            if not isinstance(response, dict) or response.get("id") != req_id:
                 continue
-            if isinstance(response, dict) and "error" in response:
+            if "error" in response:
                 err = response["error"]
                 return None, f"MCP error {err.get('code', '')}: {err.get('message', str(err))}"
-            return (response.get("result") if isinstance(response, dict) else None), None
+            return response.get("result"), None
 
 
 def _research_cfg(cfg: dict) -> dict:
