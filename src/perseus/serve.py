@@ -1144,8 +1144,8 @@ def resolve_auto_skill(args_str: str, cfg: dict, workspace: Path | None = None) 
 
     Designed for critical hygiene skills (memory-hygiene, agent-safety) that
     agents must load proactively. Without this, agents skip optional skill
-    loads under execution pressure — the memory tool fills silently until
-    the 2,200-char hard limit blocks genuinely important saves.
+    loads under execution pressure — and miss the retrieval-first discipline
+    that keeps durable knowledge in the Vault instead of pre-loaded per turn.
     """
     name = args_str.strip()
     if not name:
@@ -1220,19 +1220,32 @@ this injected copy is authoritative. Reading the disk version will give you
 outdated information. Use only what you see here.
 @end
 
-## Memory Gate — STOP. Answer these three questions before saving ANYTHING.
+## Memory — Recall-First. Retrieve on demand; do NOT pre-load.
 
-Before storing a fact in the `memory` tool, verify ALL three:
+Perseus is a retrieval engine. Memory is **queried when a turn needs it**, not
+stapled into every turn. There is no "hot cache" to feed — that pattern is what
+you build when you have no retrieval layer. You have one. Use it.
 
-1. **Will this fact still be relevant in 2+ sessions?** If NO → do NOT save.
-2. **Is this a procedure, workflow, or how-to?** If YES → use `skill_manage` (not memory).
-3. **Could this be re-discovered in < 30 seconds?** If YES → do NOT save.
+**Default posture: `@memory mode=search` / `mimir_recall` at the moment of need.**
+Before writing code, making a decision, or answering from prior context, pull
+exactly the facts this turn requires — then let them fall away. Nothing is
+injected unconditionally; the working budget stays on the task, not on a
+standing memory tax. (This matters most on ~200k-context models, the common
+deployment target — a per-turn memory blob is pure waste there.)
 
-Only facts that pass ALL THREE gates belong in `memory` (2,200 char hard limit).
-Everything else has a better home:
-- 🔁 **Procedures** → `skill_manage` (create/update a skill)
-- 🧠 **Cross-session context** → mimir (MCP `mimir_store` / `mimir_recall`)
-- 🚫 **Ephemeral state, one-time fixes, completed tasks** → discard
+Where knowledge belongs:
+- 🧠 **Durable cross-session facts, decisions, architecture** → Perseus Vault
+  (`mimir_remember` to write, `mimir_recall` / `@memory mode=search` to retrieve
+  on demand). This is the primary store.
+- ⚡ **`recall_when` triggers** → attach retrieval hints to entities so the right
+  memory surfaces just-in-time for a matching task, instead of being always-on.
+- 🔁 **Procedures, workflows, how-tos** → `skill_manage` (create/update a skill).
+- 🚫 **Ephemeral state, one-time fixes, completed tasks** → discard.
+
+Reserve unconditional injection for a handful of identity-critical facts only.
+Prefer a `recall_when` trigger over an always-on entity every time. If you find
+yourself wanting to pre-load context "just in case," write it to the Vault and
+retrieve it when it's actually relevant.
 
 🚫 **Flat files (.txt, .json, .csv, .md) are BANNED as a memory backend.**
 
