@@ -477,6 +477,60 @@ class TestProfileFenceAwareness:
         assert DUMP_HEADER in out
         assert POINTER_HEADER not in out
 
+    def test_scan_ignores_indented_directive(self):
+        """The renderer only resolves column-0 directives (INLINE_DIRECTIVE_RE
+        anchors at ^); an indented `@profile` (indented-code-block doc example)
+        renders as literal text with no banner, so it must not govern the
+        scan either."""
+        assert perseus._scan_profile_name("    @profile opus-x\n") is None
+        assert perseus._scan_profile_name("\t@profile opus-x\n") is None
+        assert perseus._scan_profile_name(
+            "docs:\n\n    @profile opus-x\n\nmore docs\n") is None
+
+    def test_indented_profile_neither_governs_nor_banners(self, tmp_path):
+        """An indented doc-example @profile must not silently switch posture
+        (scan) and must not render a banner (renderer) — the invariant is
+        that the two agree exactly."""
+        c = _cfg()
+        c["profiles"]["dump-model"] = {"context_target": 200000, "memory": "always"}
+        source = (
+            "@perseus\n"
+            "Example usage:\n\n"
+            "    @profile dump-model\n\n"
+            "plain context\n"
+        )
+        connector = _connector(context=HOT_MD)
+        with patch.object(perseus, "_get_connector", return_value=connector):
+            out = _render_md(source, c, tmp_path)
+        assert POINTER_HEADER in out       # default on_demand still governs
+        assert DUMP_HEADER not in out
+        assert "Context profile:" not in out      # no banner rendered
+        assert "    @profile dump-model" in out   # doc example stays literal
+        connector.context.assert_not_called()
+
+    def test_column0_profile_governs_despite_earlier_indented_example(self, tmp_path):
+        """Combined case: an indented doc example followed by a real column-0
+        @profile — the real one governs AND its banner is the unmarked first."""
+        c = _cfg()
+        c["profiles"]["dump-model"] = {"context_target": 200000, "memory": "always"}
+        source = (
+            "@perseus\n"
+            "Example usage:\n\n"
+            "    @profile some-doc-example\n\n"
+            "@profile dump-model\n\n"
+            "plain context\n"
+        )
+        connector = _connector(context=HOT_MD)
+        with patch.object(perseus, "_get_connector", return_value=connector):
+            out = _render_md(source, c, tmp_path)
+        assert DUMP_HEADER in out          # the real directive governs
+        assert POINTER_HEADER not in out
+        banners = [l for l in out.splitlines()
+                   if "Context profile:" in l and not l.startswith("    ")]
+        assert len(banners) == 1           # only the real directive banners
+        assert "dump-model" in banners[0]
+        assert "ignored — first @profile governs" not in out
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # #627 fix 2 — multiple @profile directives: first wins, rest are marked

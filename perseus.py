@@ -19427,8 +19427,13 @@ _PROFILE_FALLBACK: dict = {"context_target": 200000, "memory": "on_demand"}
 
 # `@profile <model>` scan for the render source. Accepts bare and model= forms,
 # with optional quotes: `@profile claude-sonnet-4-6`, `@profile model="x"`.
+# Column-0 anchored (#627): the renderer's INLINE_DIRECTIVE_RE only resolves
+# directives at the start of a line, so an INDENTED `@profile` (e.g. an
+# indented-code-block doc example) renders as literal text with no banner —
+# it must not govern the scan either. The fence strip (_strip_fenced_blocks)
+# handles the ```/~~~ doc-example form; this anchor handles the indented one.
 _PROFILE_DIRECTIVE_RE = re.compile(
-    r'(?m)^\s*@profile\s+(?:model=)?["\']?([A-Za-z0-9._:\-]+)'
+    r'(?m)^@profile\s+(?:model=)?["\']?([A-Za-z0-9._:\-]+)'
 )
 
 # #553 fix 1 — memory-section headers that mean "this render already carries a
@@ -19444,7 +19449,7 @@ _PROFILE_DIRECTIVE_RE = re.compile(
 # a section like "## Persistent Memory Design" silently lost injection.
 _MEMORY_SECTION_HEADER_RE = re.compile(
     r"(?im)^\s{0,3}#{1,6}\s+(?:"
-    r"persistent\s+memory\s*\((?:mimir|mneme|mnēmē|perseus\s+vault)\)"   # ## Persistent Memory (Mimir/Mneme)
+    r"persistent\s+memory\s*\((?:mimir|mneme|mnēmē|perseus\s+vault)\)"   # ## Persistent Memory (Mimir) — injector/templates; (Mneme) — hybrid context
     r"|long-term\s+memory\s*\((?:mimir|mneme|mnēmē|perseus\s+vault)\)"  # ## Long-Term Memory (Mneme) — historical
     r"|(?:mimir|mneme|mnēmē|perseus\s+vault)\s*(?:—|--|-)?\s*persistent\s+cross-session\s+memory"
     r"|(?:mimir|mneme|mnēmē|perseus\s+vault)\s+context\b"       # server-emitted block headers
@@ -19550,7 +19555,8 @@ def _scan_profile_name(source_text: str) -> str | None:
     one governs the render's memory posture (the renderer marks every
     subsequent banner as ignored — #627 fix 2). Fence-aware (#627 fix 1):
     a `@profile` inside a ``` / ~~~ code fence is documentation, not a
-    directive, and never changes posture.
+    directive, and never changes posture — and so is an INDENTED `@profile`
+    (column-0 anchor), mirroring exactly what the renderer resolves.
     """
     if not source_text or "@profile" not in source_text:
         return None
