@@ -700,9 +700,12 @@ def _execute_prefetch_directive(
         value = _call_resolver(spec, clean_args, cfg, workspace)
         value = _apply_output_schema_validation(spec, clean_args, value, workspace)
         cache_set(cache_key, value, cache_mode, cache_ttl, cfg)
-        if _fp:
+        if _fp and (directive or "") not in _ENV_GATED_DIRECTIVES:
             # Mirror the renderer's base-key TTL fallback (consulted when a
             # dependency later disappears and the fingerprint goes empty).
+            # #612: skip for env-gated directives (no file deps → no
+            # disappearing-dependency case; a base entry would survive an
+            # env flip and defeat invalidation). Matches renderer._render_lines.
             cache_set(_base_key, value, cache_mode, cache_ttl, cfg)
     except Exception as exc:
         result["status"] = "failed"
@@ -714,14 +717,24 @@ def _execute_prefetch_directive(
     return result
 
 
-def _prefetch_skipped_entry(item: object, rule_name: str, trigger_node: dict, reason: str) -> dict:
+def _prefetch_skipped_entry(item: object, rule_name: str, trigger_node: dict, reason: str,
+                            cfg: dict | None = None, workspace: Path | None = None) -> dict:
     directive, raw_args, raw, _ = _prefetch_directive_from_config(item)
     cache_mode = ""
     cache_ttl = None
     cache_key = None
     if directive:
         clean_args, cache_mode, cache_ttl, _ = _parse_cache_modifier(raw_args)
-        cache_key = _cache_key(f"{directive} {clean_args}")
+        # #613: report the SAME key the execute path would read/write
+        # (workspace-suffixed base + dependency fingerprint) — the old
+        # name-only key matched no real cache entry, which misled prefetch-
+        # report debugging. cfg=None keeps old callers working (base only).
+        _ws = str(workspace.resolve()) if workspace else ""
+        _base_key = _cache_key(f"{directive} {clean_args} :: {_ws}")
+        _fp = ""
+        if cfg is not None and cache_mode != "nofingerprint":
+            _fp = _dependency_fingerprint(directive or "", clean_args, workspace, cfg)
+        cache_key = f"{_base_key}.{_fp}" if _fp else _base_key
     return {
         "rule": rule_name,
         "trigger": trigger_node.get("id"),
@@ -991,7 +1004,7 @@ def adaptive_prefetch(graph: dict, cfg: dict, workspace: Path | None) -> dict:
         adaptive_meta = {"id": cid, "score": score, "backend": backend, "reason": score_reason}
 
         if candidate.get("error"):
-            entry = _prefetch_skipped_entry("", f"adaptive:{cid}", {"id": "adaptive", "directive": "adaptive"}, candidate["error"])
+            entry = _prefetch_skipped_entry("", f"adaptive:{cid}", {"id": "adaptive", "directive": "adaptive"}, candidate["error"], cfg, workspace)
             entry["adaptive"] = adaptive_meta
             result["results"].append(entry)
             continue
@@ -1001,6 +1014,8 @@ def adaptive_prefetch(graph: dict, cfg: dict, workspace: Path | None) -> dict:
                 f"adaptive:{cid}",
                 {"id": "adaptive", "directive": "adaptive"},
                 trigger_reasons[cid],
+                cfg,
+                workspace,
             )
             entry["adaptive"] = adaptive_meta
             result["results"].append(entry)
@@ -1011,6 +1026,8 @@ def adaptive_prefetch(graph: dict, cfg: dict, workspace: Path | None) -> dict:
                 f"adaptive:{cid}",
                 node or {"id": "adaptive", "directive": "adaptive"},
                 f"adaptive score {score:.2f} < threshold {threshold:.2f}: {score_reason}",
+                cfg,
+                workspace,
             )
             entry["adaptive"] = adaptive_meta
             result["results"].append(entry)
@@ -1021,6 +1038,8 @@ def adaptive_prefetch(graph: dict, cfg: dict, workspace: Path | None) -> dict:
                 f"adaptive:{cid}",
                 node or {"id": "adaptive", "directive": "adaptive"},
                 f"outside max_candidates={max_candidates}: adaptive score {score:.2f}: {score_reason}",
+                cfg,
+                workspace,
             )
             entry["adaptive"] = adaptive_meta
             result["results"].append(entry)

@@ -194,10 +194,17 @@ def test_582_prose_dedup_still_works(workspace, tmp_path):
 # ── #583: _dependency_fingerprint contract ────────────────────────────────────
 
 def test_583_no_dependency_directives_return_empty_fingerprint(workspace):
+    # #612 refined this: env-GATED directives (@query/@services/@agent) now
+    # carry an env-only fingerprint so PERSEUS_ALLOW_DANGEROUS flips
+    # invalidate their cache. Non-gated, no-dependency directives must still
+    # return "" (bare base key + TTL fallback contract).
     cfg = _cfg()
-    for directive in ("@date", "@query", "@env", "@services"):
+    for directive in ("@date", "@env"):
         fp = perseus._dependency_fingerprint(directive, "", workspace, cfg)
         assert fp == "", f"#583: {directive} fingerprint should be empty, got {fp!r}"
+    for directive in ("@query", "@services", "@agent"):
+        fp = perseus._dependency_fingerprint(directive, "", workspace, cfg)
+        assert fp != "", f"#612: {directive} must carry an env fingerprint, got {fp!r}"
 
 
 def test_583_file_directives_still_fingerprint(workspace):

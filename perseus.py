@@ -4970,9 +4970,12 @@ def _execute_prefetch_directive(
         value = _call_resolver(spec, clean_args, cfg, workspace)
         value = _apply_output_schema_validation(spec, clean_args, value, workspace)
         cache_set(cache_key, value, cache_mode, cache_ttl, cfg)
-        if _fp:
+        if _fp and (directive or "") not in _ENV_GATED_DIRECTIVES:
             # Mirror the renderer's base-key TTL fallback (consulted when a
             # dependency later disappears and the fingerprint goes empty).
+            # #612: skip for env-gated directives (no file deps → no
+            # disappearing-dependency case; a base entry would survive an
+            # env flip and defeat invalidation). Matches renderer._render_lines.
             cache_set(_base_key, value, cache_mode, cache_ttl, cfg)
     except Exception as exc:
         result["status"] = "failed"
@@ -4984,14 +4987,24 @@ def _execute_prefetch_directive(
     return result
 
 
-def _prefetch_skipped_entry(item: object, rule_name: str, trigger_node: dict, reason: str) -> dict:
+def _prefetch_skipped_entry(item: object, rule_name: str, trigger_node: dict, reason: str,
+                            cfg: dict | None = None, workspace: Path | None = None) -> dict:
     directive, raw_args, raw, _ = _prefetch_directive_from_config(item)
     cache_mode = ""
     cache_ttl = None
     cache_key = None
     if directive:
         clean_args, cache_mode, cache_ttl, _ = _parse_cache_modifier(raw_args)
-        cache_key = _cache_key(f"{directive} {clean_args}")
+        # #613: report the SAME key the execute path would read/write
+        # (workspace-suffixed base + dependency fingerprint) — the old
+        # name-only key matched no real cache entry, which misled prefetch-
+        # report debugging. cfg=None keeps old callers working (base only).
+        _ws = str(workspace.resolve()) if workspace else ""
+        _base_key = _cache_key(f"{directive} {clean_args} :: {_ws}")
+        _fp = ""
+        if cfg is not None and cache_mode != "nofingerprint":
+            _fp = _dependency_fingerprint(directive or "", clean_args, workspace, cfg)
+        cache_key = f"{_base_key}.{_fp}" if _fp else _base_key
     return {
         "rule": rule_name,
         "trigger": trigger_node.get("id"),
@@ -5261,7 +5274,7 @@ def adaptive_prefetch(graph: dict, cfg: dict, workspace: Path | None) -> dict:
         adaptive_meta = {"id": cid, "score": score, "backend": backend, "reason": score_reason}
 
         if candidate.get("error"):
-            entry = _prefetch_skipped_entry("", f"adaptive:{cid}", {"id": "adaptive", "directive": "adaptive"}, candidate["error"])
+            entry = _prefetch_skipped_entry("", f"adaptive:{cid}", {"id": "adaptive", "directive": "adaptive"}, candidate["error"], cfg, workspace)
             entry["adaptive"] = adaptive_meta
             result["results"].append(entry)
             continue
@@ -5271,6 +5284,8 @@ def adaptive_prefetch(graph: dict, cfg: dict, workspace: Path | None) -> dict:
                 f"adaptive:{cid}",
                 {"id": "adaptive", "directive": "adaptive"},
                 trigger_reasons[cid],
+                cfg,
+                workspace,
             )
             entry["adaptive"] = adaptive_meta
             result["results"].append(entry)
@@ -5281,6 +5296,8 @@ def adaptive_prefetch(graph: dict, cfg: dict, workspace: Path | None) -> dict:
                 f"adaptive:{cid}",
                 node or {"id": "adaptive", "directive": "adaptive"},
                 f"adaptive score {score:.2f} < threshold {threshold:.2f}: {score_reason}",
+                cfg,
+                workspace,
             )
             entry["adaptive"] = adaptive_meta
             result["results"].append(entry)
@@ -5291,6 +5308,8 @@ def adaptive_prefetch(graph: dict, cfg: dict, workspace: Path | None) -> dict:
                 f"adaptive:{cid}",
                 node or {"id": "adaptive", "directive": "adaptive"},
                 f"outside max_candidates={max_candidates}: adaptive score {score:.2f}: {score_reason}",
+                cfg,
+                workspace,
             )
             entry["adaptive"] = adaptive_meta
             result["results"].append(entry)
@@ -6254,13 +6273,25 @@ def health_check_url(url: str, timeout: float, cfg: dict) -> tuple[str, float | 
             return "🔒 remote blocked", None
     start = time.monotonic()
     try:
-        req = urllib.request.urlopen(url, timeout=timeout)  # noqa: S310
+        # #611: do NOT follow redirects. urlopen's default opener chases 3xx,
+        # so a localhost service could 302 the probe to an arbitrary remote
+        # host — a status/latency oracle for hosts the gate above blocks.
+        # A no-redirect opener surfaces 3xx as HTTPError, reported below.
+        class _NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, req, fp, code, msg, headers, newurl):
+                return None
+
+        opener = urllib.request.build_opener(_NoRedirect)
+        req = opener.open(url, timeout=timeout)  # noqa: S310
         latency = (time.monotonic() - start) * 1000
         if req.status < 400:
             return "✅", latency
         return f"❌ HTTP {req.status}", latency
     except urllib.error.HTTPError as e:
         latency = (time.monotonic() - start) * 1000
+        if 300 <= e.code < 400:
+            # #611: redirect reported as up-ish but never followed.
+            return f"⚠ HTTP {e.code} (redirect not followed)", latency
         # Some health endpoints return non-200 but are "up enough"
         if e.code < 500:
             return f"⚠ HTTP {e.code}", latency
@@ -11029,6 +11060,14 @@ def _parse_cache_modifier(line: str) -> tuple[str, str, int | None, str | None]:
     return line, "", None, None
 
 
+# #612: the only directives whose rendered output depends on
+# PERSEUS_ALLOW_DANGEROUS (they emit a "gate not set" warning instead of
+# running when it's unset). Their cache fingerprint must include the env
+# var so a flip auto-invalidates; every other directive keeps an empty
+# fingerprint (bare base key + TTL fallback).
+_ENV_GATED_DIRECTIVES = frozenset({"@query", "@services", "@agent"})
+
+
 def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path | None, cfg: dict) -> str:
     """Return a stable fingerprint of all file dependencies for this directive.
 
@@ -11113,20 +11152,26 @@ def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path | N
         except Exception:
             pass
 
-    # #583: directives with no dependencies must genuinely return "" so the
-    # renderer (and prefetch, #589) use the bare base cache key. The env part
-    # below is only meaningful as an invalidator for keys that exist because
-    # of real dependencies — appending it unconditionally made the fingerprint
-    # non-empty for EVERY directive, which broke the documented contract,
-    # doubled cache writes on every miss, and made the base-key TTL fallback
-    # unreachable (a deleted dependency still produced a non-empty fingerprint).
+    # #612 / #253 / #583: PERSEUS_ALLOW_DANGEROUS only changes rendered
+    # OUTPUT for the directives it actually gates (@query/@services/@agent —
+    # all dependency-free), toggling a "gate not set" warning vs the real
+    # result. Fold it into the fingerprint for exactly those so flipping the
+    # env var auto-invalidates the cached warning within the TTL. The #583
+    # fix had moved this behind `if not parts`, which put the env var in the
+    # fingerprint only for FILE-dependency directives (@read/@include/… where
+    # it never affects output) and dropped it from the gated ones — the
+    # reverse of what's useful. It is NOT appended for non-gated directives,
+    # so their empty-fingerprint contract (bare base key + TTL fallback) is
+    # preserved. NOTE: the parallel pre-scan (@query) and prefetch both call
+    # this same function, so read/write keys stay in sync automatically.
+    if directive in _ENV_GATED_DIRECTIVES:
+        dangerous = os.environ.get('PERSEUS_ALLOW_DANGEROUS', '0')
+        parts.append(f"env:PERSEUS_ALLOW_DANGEROUS={dangerous}")
+
+    # Directives with no dependencies must genuinely return "" so the renderer
+    # (and prefetch, #589) use the bare base cache key.
     if not parts:
         return ""
-
-    # Include PERSEUS_ALLOW_DANGEROUS in the fingerprint so cache
-    # auto-invalidates when the env var changes (#253)
-    dangerous = os.environ.get('PERSEUS_ALLOW_DANGEROUS', '0')
-    parts.append(f"env:PERSEUS_ALLOW_DANGEROUS={dangerous}")
 
     return _hashlib.sha256("|".join(parts).encode()).hexdigest()
 
@@ -11993,7 +12038,15 @@ def _render_lines(
                 if cache_mode == "mock":
                     query_results[idx] = cache_mock or "(mock)"
                     continue
-                cache_key = _cache_key(f"@query {clean_args} :: {workspace.resolve() if workspace else ''}")
+                # #612: @query now carries a non-empty fingerprint (the env
+                # gate). The main-loop read path and prefetch key off
+                # `<base>.<fp>`, so the pre-scan must use the same key or it
+                # would read/write a stale bare-base entry and re-run every
+                # query. Mirror renderer._render_lines / query.prefetch.
+                _base_key = _cache_key(f"@query {clean_args} :: {workspace.resolve() if workspace else ''}")
+                _fp = "" if cache_mode == "nofingerprint" else _dependency_fingerprint(
+                    "@query", clean_args, workspace, cfg)
+                cache_key = f"{_base_key}.{_fp}" if _fp else _base_key
                 cached = cache_get(cache_key, cache_mode, cache_ttl, cfg)
                 if cached is not None:
                     query_results[idx] = cached
@@ -12432,11 +12485,16 @@ def _render_lines(
 
             if cache_mode and not no_cache:
                 cache_set(cache_key, result, cache_mode, cache_ttl, cfg)
-                if _fp:
+                if _fp and directive not in _ENV_GATED_DIRECTIVES:
                     # Keep a TTL fallback under the base key. If a dependency is
                     # deleted or temporarily unreadable later, fingerprinting has
                     # no content hash to recreate the old key, so this preserves
                     # the existing "serve cached output until TTL" contract.
+                    # #612: env-gated directives (@query/@services/@agent) have
+                    # NO file dependencies — their fingerprint is env-driven, so
+                    # there is no disappearing-dependency case to fall back for,
+                    # and a base-key entry would be served across an env flip
+                    # (defeating the invalidation). Single write, no fallback.
                     cache_set(_base_key, result, cache_mode, cache_ttl, cfg)
 
             output.append(result)
@@ -15951,14 +16009,16 @@ def _identity_path(cfg: dict) -> Path:
 def _write_private_text(p: Path, text: str) -> None:
     """Write a secret-bearing file with owner-only permissions (#564 side note).
 
-    chmod(0o600) is effective on POSIX; on Windows it is a best-effort no-op
-    (NTFS ACLs on the user profile already restrict access).
+    #614: create the file 0o600 atomically via os.open — the previous
+    write-then-chmod left a brief window where the secret was readable
+    under a permissive umask. Mode is effective on POSIX; on Windows it is
+    a best-effort no-op (NTFS ACLs on the user profile already restrict
+    access). O_TRUNC keeps overwrite semantics for existing files (whose
+    mode is already 0o600 from a prior call).
     """
-    p.write_text(text, encoding="utf-8")
-    try:
-        os.chmod(p, 0o600)
-    except OSError:
-        pass
+    fd = os.open(str(p), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(text)
 
 
 def _load_identity(cfg: dict) -> dict | None:
@@ -25839,7 +25899,12 @@ def _serve_authorized(headers, token: str | None, bind_host: str | None = None) 
     prefix = "Bearer "
     if not auth.startswith(prefix):
         return False
-    return _serve_hmac.compare_digest(auth[len(prefix):].strip(), token)
+    # #609: compare bytes, not str. HTTP headers are latin-1 decoded, and
+    # compare_digest(str, str) raises TypeError on non-ASCII input (a probe
+    # turned a clean 401 into a dropped connection). surrogateescape keeps
+    # arbitrary header bytes encodable; str() tolerates YAML-integer tokens.
+    provided_b = auth[len(prefix):].strip().encode("utf-8", "surrogateescape")
+    return _serve_hmac.compare_digest(provided_b, str(token).encode("utf-8"))
 
 
 # Endpoints reachable with a per-subscriber grant token, mapped to the grant
@@ -25908,7 +25973,12 @@ def _serve_handle_federation_receive(cfg: dict, workspace: Path, raw: bytes, hea
                 provided = auth[len("Bearer "):].strip()
         # #561: constant-time comparison — the network-supplied token must not
         # be compared with `!=` (timing side channel).
-        if provided is None or not _recv_hmac.compare_digest(provided, receive_token):
+        # #609: compare bytes — compare_digest(str, str) raises TypeError on
+        # non-ASCII header values (latin-1 decoded) and on YAML-integer tokens.
+        provided_b = (provided.encode("utf-8", "surrogateescape")
+                      if provided is not None else None)
+        if provided_b is None or not _recv_hmac.compare_digest(
+                provided_b, str(receive_token).encode("utf-8")):
             audit_event(cfg, "federation_receive_denied", auth_enabled=True)
             return (401, "application/json; charset=utf-8",
                     _json.dumps({"error": "unauthorized"}))
@@ -26182,6 +26252,16 @@ def cmd_serve(args, cfg):
         def do_POST(self):  # noqa: N802
             parsed = urlsplit(self.path)
             endpoint = parsed.path or "/"
+            # #610: POST must pass the same DNS-rebinding host-header gate as
+            # GET (do_GET routes through _serve_handle_request, which checks
+            # it; do_POST previously never did, so a rebinding page could
+            # write federation-cache entries on tokenless loopback deploys).
+            if not _serve_host_header_ok(self.headers, bind_host=host):
+                audit_event(cfg, "serve_auth_denied", endpoint=endpoint,
+                            auth_enabled=True)
+                self._respond(401, "application/json; charset=utf-8",
+                              '{"error": "unauthorized"}')
+                return
             if endpoint == "/federation/receive":
                 # #561: a malformed Content-Length must 400 (not traceback),
                 # and a huge declared length must not force an unbounded
