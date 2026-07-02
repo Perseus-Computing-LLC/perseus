@@ -440,6 +440,11 @@ class TestMimirAutoInject:
     def _cfg(self, **mimir):
         c = cfg()
         c["mimir"].update(mimir)
+        # #608: the pre-materialized dump these tests exercise is now the
+        # LEGACY opt-in posture (`memory: always`); the default posture is
+        # on_demand (retrieval pointer only) — covered by
+        # test_memory_posture_profiles.py.
+        c["profiles"] = {"default": {"memory": "always"}}
         return c
 
     def test_auto_inject_false_suppresses_block(self):

@@ -142,9 +142,32 @@ DEFAULT_CONFIG = {
         # The daedalus path falls back to deterministic on any failure.
         "pattern_extractor": "deterministic",
     },
+    # ── #608 — per-model context profiles (recall-first posture) ────────────
+    # Keyed by model name (or context-window class). Selected per render via
+    # the `@profile <model>` directive in the source document; unknown or
+    # missing names fall back to "default" deterministically.
+    #
+    # Keys per profile:
+    #   context_target: int   — advertised context budget for the model
+    #   memory:         str   — memory posture:
+    #       "on_demand" (DEFAULT) — inject a short retrieval pointer + tools,
+    #                               never a pre-materialized memory dump
+    #       "relevant"            — inject only entities whose recall_when
+    #                               triggers match the current render context
+    #       "always"              — LEGACY: unconditional memory dump on every
+    #                               render (the pre-#608 behavior; opt-in)
+    #   always_inject:  bool  — legacy alias; true == memory: "always"
+    #   inject_limit:   int   — max entities admitted when posture != on_demand
+    #                           (defaults tier-aware: 5 for ≤200k targets, 10 above)
+    "profiles": {
+        "default":           {"context_target": 200000,  "memory": "on_demand"},
+        "claude-sonnet-4-6": {"context_target": 200000,  "memory": "on_demand"},
+        "claude-opus-4-8":   {"context_target": 1000000, "memory": "on_demand"},  # big window is not an excuse to bloat
+    },
     "mimir": {                          # Project Synapse — Mimir persistent memory (MCP binary, formerly "mneme")
         "enabled": True,
-        "auto_inject": True,             # Append the Persistent Memory block to every render; set False to require an explicit @memory/@mimir directive (#442)
+        "auto_inject": True,             # Allow the automatic memory section (pointer or dump per profile posture); set False to require an explicit @memory/@mimir directive (#442). NOTE (#608): whether a pre-materialized dump is injected is now governed by the active profile's `memory` posture — on_demand (default) injects only a retrieval pointer.
+        "workspace_scope": True,         # #553: pass the workspace hash to vault recall calls that support it, so unrelated workspaces don't share one undifferentiated memory pool at the render layer
         "transport": "stdio",            # "stdio" (local binary) or "sse" (remote endpoint)
         "command": ["mimir", "serve", "--db", "~/.mimir/data/mimir.db"],
         "endpoint": "",                  # SSE endpoint URL (when transport=sse)
