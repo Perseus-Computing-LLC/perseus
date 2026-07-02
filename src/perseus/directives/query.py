@@ -1117,7 +1117,7 @@ def prefetch_source(
     adaptive = adaptive_prefetch(graph, cfg, workspace)
     entries.extend(adaptive["results"])
 
-    return {
+    out = {
         "source": source_name,
         "workspace": str(workspace) if workspace else None,
         "graph_summary": graph["summary"],
@@ -1131,6 +1131,17 @@ def prefetch_source(
             "failed": sum(1 for e in entries if e["status"] == "failed"),
         },
     }
+
+    # #607 (@speculate): speculative next-intent prefetch. Additive — the key
+    # is only present when speculate.enabled is true, so the disabled JSON
+    # surface (and all existing consumers) are byte-identical to before.
+    if _speculate_config(cfg)["enabled"]:
+        try:
+            out["speculate"] = speculate_source(source_text, cfg, workspace)
+        except Exception as exc:
+            out["speculate"] = {"enabled": True, "error": str(exc)}
+
+    return out
 
 
 def format_prefetch_human(result: dict) -> str:
@@ -1163,4 +1174,22 @@ def format_prefetch_human(result: dict) -> str:
         reason = f" ({entry['reason']})" if entry.get("reason") else ""
         trigger = entry.get("trigger") or "no-trigger"
         lines.append(f"- {entry['status']}: {entry['rule']} {trigger} -> {target}{reason}")
+
+    # #607 (@speculate): only present when speculate.enabled is true.
+    speculate = result.get("speculate")
+    if speculate:
+        if speculate.get("error"):
+            lines.append(f"Speculate: error — {speculate['error']}")
+        else:
+            s = speculate.get("summary", {})
+            lines.append(
+                f"Speculate: backend={speculate.get('backend')} k={speculate.get('k')} "
+                f"budget={speculate.get('budget_tokens')} warmed={s.get('warmed')} "
+                f"spent={s.get('spent_tokens')} tokens"
+                + (" (budget exhausted)" if s.get("budget_exhausted") else "")
+            )
+            for entry in speculate.get("results", []):
+                target = entry.get("line") or "(none)"
+                reason = f" ({entry['reason']})" if entry.get("reason") else ""
+                lines.append(f"- {entry['status']}: {entry['rule']} -> {target}{reason}")
     return "\n".join(lines)
