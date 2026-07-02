@@ -56,15 +56,14 @@ def test_memtrace_binary_path_caches_not_installed(monkeypatch):
     assert calls["n"] == probes_after_first
 
 
-def test_memorymesh_and_vaultmem_binary_paths_memoize(monkeypatch):
-    perseus._MEMORYMESH_BIN_CACHE.clear()
+def test_vaultmem_binary_path_memoizes(monkeypatch):
+    # (memory_mesh's probe was covered here too until the module's deletion
+    # in #648 — it was dead code with zero callers.)
     perseus._VAULTMEM_BIN_CACHE.clear()
-    # No binary present anywhere → both resolve to None and cache it.
+    # No binary present anywhere → resolves to None and caches it.
     monkeypatch.setattr(perseus.subprocess, "run",
                         lambda *a, **k: (_ for _ in ()).throw(FileNotFoundError()))
     monkeypatch.setattr(perseus.os.path, "exists", lambda p: False)
 
-    assert perseus._memorymesh_binary_path() is None
-    assert perseus._memorymesh_binary_path() is None  # cached, no raise
     assert perseus._vaultmem_binary() is None
     assert perseus._vaultmem_binary() is None  # cached, no raise

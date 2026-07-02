@@ -178,7 +178,8 @@ def _speculate_build_predictor(scfg: dict):
 # ───────────────────────── Intent history (waypoints) ────────────────────────
 
 def _speculate_intent_history(cfg: dict, workspace: "Path | None" = None,
-                              window: int = 200) -> list[str]:
+                              window: int = 200,
+                              files: "list | None" = None) -> list[str]:
     """Chronological task-intent sequence from the checkpoint (waypoint) store.
 
     Checkpoints ARE the waypoint transitions: each `perseus checkpoint
@@ -186,6 +187,18 @@ def _speculate_intent_history(cfg: dict, workspace: "Path | None" = None,
     tagged with a different workspace are excluded (untagged ones are kept).
     Ordering comes from the checkpoint filename sort (deterministic under a
     fixed corpus — no wall-clock reads here).
+
+    #636: bounded work. Every opted-in render used to read + yaml-parse EVERY
+    checkpoint file and apply the `window` slice only afterwards — O(store
+    size) per render (~+155 ms at 200 files, ~+287 ms at 1000). Now the
+    newest-first listing is walked with an early stop once `window` matching
+    intents are collected. The newest `window` matching intents, reversed,
+    ARE the old `seq[-window:]` — identical output for every store, mixed
+    workspaces included — but parsing stops as soon as the window is full
+    instead of always visiting every file. With `window <= 0` (unbounded)
+    behavior is unchanged. `files` lets callers reuse one
+    `_list_checkpoint_files` listing across history + marker instead of
+    re-listing the store.
     """
     ws_resolved = None
     if workspace is not None:
@@ -193,8 +206,12 @@ def _speculate_intent_history(cfg: dict, workspace: "Path | None" = None,
             ws_resolved = str(Path(workspace).expanduser().resolve())
         except (OSError, ValueError):
             ws_resolved = str(workspace)
-    seq: list[str] = []
-    for fp in reversed(_list_checkpoint_files(cfg)):  # ascending chronological
+    if files is None:
+        files = _list_checkpoint_files(cfg)
+    newest_first: list[str] = []
+    for fp in files:  # newest-first (reverse chronological)
+        if window > 0 and len(newest_first) >= window:
+            break  # enough intents collected — skip the older tail entirely
         cp = _load_checkpoint_file(fp)
         if not cp:
             continue
@@ -207,16 +224,19 @@ def _speculate_intent_history(cfg: dict, workspace: "Path | None" = None,
                 continue
         task = str(cp.get("task") or "").strip()
         if task:
-            seq.append(task)
-    if window > 0:
-        seq = seq[-window:]
-    return seq
+            newest_first.append(task)
+    newest_first.reverse()  # ascending chronological, like the old seq[-window:]
+    return newest_first
 
 
-def _speculate_latest_marker(cfg: dict) -> str:
+def _speculate_latest_marker(cfg: dict, files: "list | None" = None) -> str:
     """Identity of the newest checkpoint — used to detect that a real turn
-    happened between two speculation passes (settlement trigger)."""
-    files = _list_checkpoint_files(cfg)
+    happened between two speculation passes (settlement trigger).
+
+    #636: accepts a pre-computed `_list_checkpoint_files` listing so callers
+    that already listed the store don't pay a second directory scan."""
+    if files is None:
+        files = _list_checkpoint_files(cfg)
     return files[0].name if files else ""
 
 
@@ -404,10 +424,13 @@ def run_speculation(cfg: dict, workspace: "Path | None" = None,
     if not scfg["enabled"]:
         return out
 
-    history = _speculate_intent_history(cfg, workspace, scfg["history_window"])
+    # #636: one store listing shared by history + marker (was two scans).
+    cp_files = _list_checkpoint_files(cfg)
+    history = _speculate_intent_history(cfg, workspace, scfg["history_window"],
+                                        files=cp_files)
     current = history[-1] if history else None
     out["current_intent"] = current
-    marker = _speculate_latest_marker(cfg)
+    marker = _speculate_latest_marker(cfg, files=cp_files)
 
     stats = _load_speculate_stats(cfg, workspace)
 

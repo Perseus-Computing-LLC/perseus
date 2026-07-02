@@ -516,10 +516,47 @@ def _jaccard_similarity(text_a: str, text_b: str) -> float:
     return _jaccard_tokens(set(text_a.lower().split()), set(text_b.lower().split()))
 
 
-def _detect_conflicts(subs: list[dict], cfg: dict) -> list[dict]:
+def _federation_peer_body(sub: "dict | None", cfg: dict) -> tuple["str | None", "str | None"]:
+    """Resolve a subscription to its narrative body — (body, reason).
+
+    Returns (body, None) on success and (None, human-readable reason) when
+    the peer's narrative is missing, unreadable, or empty. #650: callers must
+    surface the reason (briefing marker or stderr note) instead of silently
+    dropping the peer and presenting a partial cross-workspace view as
+    complete.
+    """
+    if not sub:
+        return None, "no such subscription"
+    remote = sub.get("remote")
+    if remote:
+        body, err, _ws_id = _resolve_remote_narrative(sub, cfg)
+        if body and body.strip():
+            return body, None
+        return None, err or "remote narrative empty or unavailable"
+    narrative, err = _resolve_subscription_narrative(sub, cfg)
+    if err:
+        return None, err
+    try:
+        _fm, body = _load_narrative(narrative)
+    except Exception as e:
+        return None, f"narrative unreadable: {e}"
+    if not body or not body.strip():
+        # _load_narrative maps read failures (permissions, not-a-file) to an
+        # empty body — either way there is nothing usable to compare.
+        return None, "narrative empty or unreadable"
+    return body, None
+
+
+def _detect_conflicts(subs: list[dict], cfg: dict,
+                      unreadable: "list | None" = None) -> list[dict]:
     """Detect overlapping topics across federated narratives.
 
     Returns list of {topic, workspaces, similarity} dicts.
+
+    unreadable (#650): optional out-list; receives (alias, reason) for every
+    peer whose narrative could not be read, so callers can annotate the
+    rendered view instead of silently claiming a complete cross-workspace
+    comparison.
     """
     threshold = float(cfg.get("federation", {}).get("conflict_threshold", 0.6))
 
@@ -529,24 +566,17 @@ def _detect_conflicts(subs: list[dict], cfg: dict) -> list[dict]:
     ws_sections: dict[str, dict[str, set]] = {}
     for sub in subs:
         alias = sub.get("alias", "?")
-        remote = sub.get("remote")
-        if remote:
-            body, _err, _ws_id = _resolve_remote_narrative(sub, cfg)
-        else:
-            narrative, err = _resolve_subscription_narrative(sub, cfg)
-            if err:
-                continue
-            try:
-                fm, body = _load_narrative(narrative)
-            except Exception:
-                continue
-        if body and body.strip():
-            sections = _extract_sections(body)
-            if sections:
-                ws_sections[alias] = {
-                    heading: set(text.lower().split())
-                    for heading, text in sections.items()
-                }
+        body, reason = _federation_peer_body(sub, cfg)
+        if body is None:
+            if unreadable is not None:
+                unreadable.append((alias, reason or "narrative unreadable"))
+            continue
+        sections = _extract_sections(body)
+        if sections:
+            ws_sections[alias] = {
+                heading: set(text.lower().split())
+                for heading, text in sections.items()
+            }
 
     conflicts = []
     aliases = list(ws_sections.keys())
@@ -576,15 +606,23 @@ def _render_federation_conflicts(cfg: dict) -> str:
     if len(subs) < 2:
         return "> _Need at least 2 enabled subscriptions for conflict detection._"
 
-    conflicts = _detect_conflicts(subs, cfg)
+    unreadable: list = []
+    conflicts = _detect_conflicts(subs, cfg, unreadable=unreadable)
+    # #650: peers whose narratives could not be read must not silently vanish
+    # — the view would otherwise claim a complete cross-workspace comparison.
+    notes = [f"> _(peer {alias}: narrative unreadable — {reason})_"
+             for alias, reason in unreadable]
     if not conflicts:
-        return "> ✅ No narrative conflicts detected across federated workspaces."
+        lines = ["> ✅ No narrative conflicts detected across federated workspaces."]
+        lines.extend(notes)
+        return "\n".join(lines)
 
     lines = ["> ⚠ Narrative conflicts detected:\n", ">", "> | Topic | Workspaces | Similarity |", "> |---|---|---|"]
     for c in conflicts:
         ws_list = ", ".join(c["workspaces"])
         lines.append(f"> | {c['topic']} | {ws_list} | {c['similarity']:.0%} |")
     lines.append(">")
+    lines.extend(notes)
     lines.append(f"> Run `perseus memory federation diff` to inspect.")
     return "\n".join(lines)
 
@@ -594,29 +632,14 @@ def _render_federation_diff(cfg: dict, alias_a: str, alias_b: str) -> str:
     manifest = _load_federation_manifest(cfg)
     subs = {s.get("alias"): s for s in manifest.get("subscriptions", [])}
 
-    def _get_body(sub):
-        if not sub:
-            return None
-        remote = sub.get("remote")
-        if remote:
-            body, err, _ = _resolve_remote_narrative(sub, cfg)
-            return body if body else None
-        narrative, err = _resolve_subscription_narrative(sub, cfg)
-        if err:
-            return None
-        try:
-            fm, body = _load_narrative(narrative)
-            return body
-        except Exception:
-            return None
+    body_a, why_a = _federation_peer_body(subs.get(alias_a), cfg)
+    body_b, why_b = _federation_peer_body(subs.get(alias_b), cfg)
 
-    body_a = _get_body(subs.get(alias_a))
-    body_b = _get_body(subs.get(alias_b))
-
+    # #650: say WHY the peer is missing instead of dropping it wordlessly.
     if body_a is None:
-        return f"> ⚠ {alias_a}: narrative unavailable."
+        return f"> ⚠ {alias_a}: narrative unavailable — {why_a}."
     if body_b is None:
-        return f"> ⚠ {alias_b}: narrative unavailable."
+        return f"> ⚠ {alias_b}: narrative unavailable — {why_b}."
 
     lines = [f"## {alias_a} vs {alias_b}\n"]
     secs_a = _extract_sections(body_a)
@@ -663,26 +686,14 @@ def cmd_memory_federation_merge(args, cfg) -> int | None:
     manifest = _load_federation_manifest(cfg)
     subs = {s.get("alias"): s for s in manifest.get("subscriptions", [])}
 
-    def _get_body(sub):
-        if not sub:
-            return None
-        remote = sub.get("remote")
-        if remote:
-            body, err, _ = _resolve_remote_narrative(sub, cfg)
-            return body
-        narrative, err = _resolve_subscription_narrative(sub, cfg)
-        if err:
-            return None
-        try:
-            fm, body = _load_narrative(narrative)
-            return body
-        except Exception:
-            return None
-
-    body_a = _get_body(subs.get(alias_a))
-    body_b = _get_body(subs.get(alias_b))
+    body_a, why_a = _federation_peer_body(subs.get(alias_a), cfg)
+    body_b, why_b = _federation_peer_body(subs.get(alias_b), cfg)
 
     if body_a is None or body_b is None:
+        # #650: name the unreadable peer(s) and the reason on stderr.
+        for alias, body, why in ((alias_a, body_a, why_a), (alias_b, body_b, why_b)):
+            if body is None:
+                print(f"⚠ {alias}: narrative unreadable — {why}", file=sys.stderr)
         print("One or both narratives unavailable.", file=sys.stderr)
         return 1
 
