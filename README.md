@@ -213,13 +213,13 @@ Published as [`io.github.Perseus-Computing-LLC/perseus`](https://registry.modelc
 
 ### MCP Tools
 
-<!-- test-count: 1032 -->
-27 MCP tools resolve live state at invocation time (plus legacy aliases like `perseus_get_context`/`perseus_get_health`). Two sensitive tools (`perseus_query` and `perseus_agent`) require explicit `mcp.tool_allowlist` opt-in because they execute commands in the user's local shell — **not sandboxed, full user permissions apply**:
+<!-- test-count: 1198 — recount with: grep -rE "^\s*def test_" tests/ | wc -l -->
+<!-- The table below is the exact default output of _get_all_mcp_tools({}) — 29 rows. Recount before editing. -->
+29 MCP tools resolve live state at invocation time (including the legacy aliases `perseus_get_context`/`perseus_get_health`). Two additional sensitive tools — `perseus_query` (run a shell command) and `perseus_agent` (execute a local agent subprocess) — are **not** part of this default set: they require explicit `mcp.tool_allowlist` opt-in because they execute commands in the user's local shell (**not sandboxed, full user permissions apply**).
 
 | Tool | Description |
 |---|---|
 | `perseus_services` | Health-check running services |
-| `perseus_query` | Run a shell command and return stdout |
 | `perseus_read` | Read file contents |
 | `perseus_list` | List directory or structured data |
 | `perseus_tree` | Tree view of directory |
@@ -229,24 +229,32 @@ Published as [`io.github.Perseus-Computing-LLC/perseus`](https://registry.modelc
 | `perseus_session` | Recent session digests |
 | `perseus_health` | Context maintenance report |
 | `perseus_drift` | Oracle drift report |
-| `perseus_memory` | Mnēmē narrative memory (+ Mimir persistent store) |
-| `perseus_mimir` | Recall persistent memories via Mimir BM25 |
+| `perseus_memory` | Mnēmē narrative memory (+ persistent store) |
+| `perseus_mimir` | Recall persistent memories via BM25 (legacy name of `perseus_mneme`) |
+| `perseus_mneme` | Recall persistent memories from the external Mneme server via BM25 |
 | `perseus_skills` | List available skills with staleness flags |
 | `perseus_include` | Include and render another file |
-| `perseus_agent` | Execute local agent subprocess |
 | `perseus_agora` | Task board from tasks/*.md |
 | `perseus_inbox` | Agent message inbox |
 | `perseus_prompt` | System prompt block |
 | `perseus_validate` | Validate rendered block against schema |
 | `perseus_tool` | Run allowlisted external tool |
+| `perseus_trace` | Provenance trace data (reserved — not yet implemented) |
 | `perseus_perseus` | Fetch context from remote Perseus instance |
 | `perseus_auto_skill` | Instruct the agent to load a specific skill before starting work |
 | `perseus_mason` | Query the Mason code architecture concept map |
-| `perseus_research` | Per-paper Methods/Results blocks from an external paper-search MCP server (opt-in) |
+| `perseus_research` | Per-paper Methods/Results blocks from an external paper-search MCP server (external server is opt-in via config) |
 | `perseus_tokens` | Embed token budget for rendered context |
 | `perseus_tooltrim` | Filtered toolset metadata and usage statistics |
-| `perseus_get_context` | Full rendered workspace context |
-| `perseus_get_health` | Daedalus context-maintenance heuristics |
+| `perseus_get_context` | Full rendered workspace context (legacy alias) |
+| `perseus_get_health` | Daedalus context-maintenance heuristics (legacy alias) |
+
+Opt-in only (excluded from the default set until added to `mcp.tool_allowlist`):
+
+| Tool | Description |
+|---|---|
+| `perseus_query` | Run a shell command and return stdout |
+| `perseus_agent` | Execute local agent subprocess |
 
 ---
 
