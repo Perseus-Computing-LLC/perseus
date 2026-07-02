@@ -13,7 +13,9 @@ Covers:
   including CLI --strict escalation and fence-awareness of the parser.
 - @budget renders as empty text (declaration costs nothing).
 - @budget scope edges (#626): a declaration inside an @include'd file is NOT
-  enforced but IS surfaced (included_budgets field + stderr warning); a
+  enforced but IS surfaced (included_budgets field + stderr warning); the
+  scan is text-driven and cache-independent (identical on cold/warm @include
+  cache, transitive includes covered, cycle-safe, depth-capped); a
   declaration in a false @if branch IS enforced (text-level scan, documented
   contract).
 - static.tokens derivation (#626): clamped at 0 (BPE non-additivity in exact
@@ -283,6 +285,69 @@ def test_no_included_budgets_stays_silent(tmp_path, monkeypatch, capsys):
     assert rc == 0
     assert "not enforced" not in captured.err
     assert json.loads(captured.out)["included_budgets"] == []
+
+
+def test_transitive_included_budget_identical_cold_and_warm_cache(tmp_path,
+                                                                  monkeypatch,
+                                                                  capsys):
+    # Regression (#626 review): the scan is text-driven, so a @budget two
+    # includes deep (ctx → a → b) must be reported IDENTICALLY on a cold and
+    # a warm @include cache. (A collector-record-driven scan missed it on
+    # warm runs: the renderer's cache-hit path replays an @include without
+    # recursing, so depth>0 include records vanish.)
+    ws, src = _write(
+        tmp_path, monkeypatch,
+        '@perseus\n\ntop body\n@include "a.md"\n',
+        extra={"a.md": '@perseus\nmid body\n@include "b.md"\n',
+               "b.md": "@perseus\ndeep body\n@budget max=1 strict\n"})
+    rc1 = perseus.cmd_prompt_size(_args(src, json=True), {})   # cold cache
+    cap1 = capsys.readouterr()
+    rc2 = perseus.cmd_prompt_size(_args(src, json=True), {})   # warm cache
+    cap2 = capsys.readouterr()
+    assert rc1 == 0 and rc2 == 0
+    r1, r2 = json.loads(cap1.out), json.loads(cap2.out)
+    assert r1["included_budgets"] == [{"file": "b.md", "count": 1}]
+    assert r2["included_budgets"] == r1["included_budgets"]
+    assert cap1.out == cap2.out, "report must be byte-identical across cache states"
+    for cap in (cap1, cap2):
+        assert "not enforced" in cap.err and "b.md" in cap.err, \
+            "warning must fire on every run, not just the cold one"
+
+
+def test_included_budget_scan_terminates_on_include_cycle(tmp_path, monkeypatch,
+                                                          capsys):
+    # a.md and b.md include each other; the resolved-path dedup must bound
+    # the walk and still report a.md's declaration exactly once.
+    ws, src = _write(
+        tmp_path, monkeypatch,
+        '@perseus\n\n@include "a.md"\n',
+        extra={"a.md": '@perseus\n@include "b.md"\n@budget max=5\n',
+               "b.md": '@perseus\n@include "a.md"\nno declarations here\n'})
+    report, rc = _report(src, capsys, no_cache=True)
+    assert rc == 0
+    assert report["included_budgets"] == [{"file": "a.md", "count": 1}]
+
+
+def test_included_budget_scan_respects_include_depth_cap(tmp_path, monkeypatch,
+                                                         capsys):
+    # Chain c1 → c2 → ... one file past render.max_include_depth. A @budget
+    # at exactly the cap is reported; one just past it (a file the renderer
+    # would never include) is not.
+    cap = int(perseus.DEFAULT_CONFIG["render"]["max_include_depth"])
+    last = cap + 1
+    files = {}
+    for i in range(1, last + 1):
+        body = "@perseus\n"
+        if i < last:
+            body += f'@include "c{i + 1}.md"\n'
+        if i in (cap, last):
+            body += "@budget max=1\n"
+        files[f"c{i}.md"] = body
+    ws, src = _write(tmp_path, monkeypatch, '@perseus\n\n@include "c1.md"\n',
+                     extra=files)
+    report, rc = _report(src, capsys, no_cache=True)
+    assert rc == 0
+    assert report["included_budgets"] == [{"file": f"c{cap}.md", "count": 1}]
 
 
 def test_budget_in_false_if_branch_is_still_enforced(tmp_path, monkeypatch,

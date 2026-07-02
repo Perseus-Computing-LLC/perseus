@@ -28340,52 +28340,110 @@ def _parse_budget_directives(source_text: str) -> list:
     return budgets
 
 
-def _scan_included_budgets(entries: list, workspace: "Path | None",
+_PS_INCLUDE_LINE_RE = re.compile(r"^\s*@include\b(.*)$", re.IGNORECASE)
+
+
+def _ps_include_targets(source_text: str) -> list:
+    """Fence-aware extraction of ``@include`` target paths from source text.
+
+    Same fence handling as ``_parse_budget_directives`` (a fenced ``@include``
+    is content, not a directive). Returns the as-written path tokens in
+    document order; lines without a parseable path token are skipped."""
+    targets = []
+    in_fence = False
+    fence_char = ""
+    fence_len = 0
+    for raw in source_text.splitlines():
+        fm = _PS_FENCE_RE.match(raw)
+        if in_fence:
+            s = raw.strip()
+            if s and len(s) >= fence_len and s == fence_char * len(s):
+                in_fence = False
+            continue
+        if fm:
+            in_fence = True
+            fence_char = fm.group(1)[0]
+            fence_len = len(fm.group(1))
+            continue
+        m = _PS_INCLUDE_LINE_RE.match(raw)
+        if not m:
+            continue
+        path_str, _rest = _extract_quoted_token((m.group(1) or "").strip())
+        if path_str:
+            targets.append(path_str)
+    return targets
+
+
+def _scan_included_budgets(source_text: str, workspace: "Path | None",
                            cfg: dict) -> list:
     """Find ``@budget`` declarations inside ``@include``'d files (#626).
 
     ``@budget`` is enforced from the TOP-LEVEL source only; one declared in
     an included file renders empty but is silently unenforced. This scans
     each included file's text with the same fence-aware parser as the
-    top-level scan, using the include records' source paths, so
-    ``prompt-size`` can warn instead of staying silent.
+    top-level scan so ``prompt-size`` can warn instead of staying silent.
+
+    Entirely TEXT-driven and cache-independent: the walk is seeded from the
+    top-level source text's own ``@include`` lines and recurses through each
+    included file's text — never through renderer collector records, which
+    omit transitive includes on a warm ``@include`` cache hit (the cached
+    path replays without recursing), so a record-driven scan would report
+    differently on cold vs warm runs, violating ``compute_prompt_size``'s
+    determinism contract. Paths resolve workspace-relative exactly like
+    ``resolve_include`` (same ``allow_outside_workspace`` gate); recursion is
+    bounded by dedup on resolved path (which also terminates include cycles)
+    and by the renderer's ``render.max_include_depth`` limit, so a file the
+    renderer would never include past the depth cap is not scanned either.
 
     Best-effort by design: only ``.md`` includes are scanned (structured
     files embed as fenced literals where ``@budget`` is never a directive),
     each resolved file is scanned once, and unresolvable/unreadable paths are
-    skipped. Returns ``[{"file": <path as written>, "count": N}, ...]`` in
-    first-seen order for includes that contain at least one declaration.
-    Enforcement semantics are unchanged — this is a warning signal only.
+    skipped. Because the scan is text-level (like the ``@budget`` scan
+    itself), a ``@budget``-looking line in a plain non-``@perseus`` included
+    markdown file also warns (best-effort — it would render as literal text,
+    still unenforced), and ``@include`` lines inside false ``@if`` branches
+    are followed too. Returns
+    ``[{"file": <path as written>, "count": N}, ...]`` in first-seen document
+    order for includes that contain at least one declaration. Enforcement
+    semantics are unchanged — this is a warning signal only.
     """
     render_cfg = (cfg or {}).get("render", {})
     allow_outside = bool(render_cfg.get("allow_outside_workspace", False))
+    try:
+        max_depth = int(render_cfg.get("max_include_depth", 5))
+    except (TypeError, ValueError):
+        max_depth = 5
     base = workspace or Path.cwd()
     seen: set = set()
-    findings = []
-    for e in entries:
-        if str(e.get("name", "")) != "include":
-            continue
-        path_str, _rest = _extract_quoted_token(str(e.get("args", "")).strip())
-        if not path_str:
-            continue
-        try:
-            fp, path_warning = _resolve_path(path_str, base,
-                                             allow_outside_workspace=allow_outside)
-        except Exception:
-            continue
-        if path_warning or fp.suffix.lower() != ".md":
-            continue
-        try:
-            resolved = str(fp.resolve())
-            if resolved in seen:
+    findings: list = []
+
+    def _walk(text: str, depth: int) -> None:
+        # Mirrors resolve_include's `_depth >= max_depth` stop: the deepest
+        # file the renderer will include sits at include-depth == max_depth.
+        if depth > max_depth:
+            return
+        for path_str in _ps_include_targets(text):
+            try:
+                fp, path_warning = _resolve_path(
+                    path_str, base, allow_outside_workspace=allow_outside)
+            except Exception:
                 continue
-            seen.add(resolved)
-            text = fp.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-        count = len(_parse_budget_directives(text))
-        if count:
-            findings.append({"file": path_str, "count": count})
+            if path_warning or fp.suffix.lower() != ".md":
+                continue
+            try:
+                resolved = str(fp.resolve())
+                if resolved in seen:
+                    continue
+                seen.add(resolved)
+                sub_text = fp.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            count = len(_parse_budget_directives(sub_text))
+            if count:
+                findings.append({"file": path_str, "count": count})
+            _walk(sub_text, depth + 1)
+
+    _walk(source_text, 1)
     return findings
 
 
@@ -28535,7 +28593,9 @@ def compute_prompt_size(source_text: str, cfg: dict, workspace: "Path | None",
         "budgets": budgets,
         # #626: @budget declarations found inside @include'd files — parsed
         # for visibility only, never enforced (top-level-only contract).
-        "included_budgets": _scan_included_budgets(entries, workspace, cfg),
+        # Text-driven from source_text (not collector records) so the field
+        # is identical on cold and warm @include cache runs.
+        "included_budgets": _scan_included_budgets(source_text, workspace, cfg),
         "accounting": {
             "attributed_bytes": attributed_bytes,
             "static_bytes": static_bytes,
