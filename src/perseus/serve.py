@@ -4,7 +4,7 @@
 # Phase 24 — internal imports (stripped by build; defined earlier in concatenated artifact)
 from perseus.assistant_formats import wrap_rendered, get_default_output_path
 from perseus.install import install_target
-from perseus.mcp import serve_mcp, print_mcp_config, print_mcp_registry, _build_server_card
+from perseus.mcp import serve_mcp, print_mcp_config, print_mcp_registry, _build_server_card, _perseus_command_string
 
 
 def _atomic_write_text(out_path: Path, text: str) -> None:
@@ -1365,7 +1365,10 @@ def cmd_install(args, cfg) -> int:
     workspace = Path(args.workspace).expanduser().resolve() if args.workspace else None
     dry_run = getattr(args, "dry_run", False)
     json_out = getattr(args, "json", False)
-    perseus_cmd = getattr(args, "perseus_cmd", "perseus")
+    # #642b: default resolves to the installed entry point when on PATH
+    # (bytecode-cached import path), else `<python> <artifact>` — a bare
+    # "perseus" hook command is dead on arrival for single-file installs.
+    perseus_cmd = getattr(args, "perseus_cmd", None) or _perseus_command_string()
 
     result = install_target(
         target=target,

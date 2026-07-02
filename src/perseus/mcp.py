@@ -3,7 +3,11 @@
 # Each directive in DIRECTIVE_REGISTRY is auto-exposed as an MCP tool.
 # Legacy hardcoded tools preserved for backward compatibility.
 
-import concurrent.futures
+# NOTE: concurrent.futures is intentionally NOT imported here (#642c). It
+# transitively imports logging → traceback (~18 ms of every cold start) but
+# is only needed once a tools/call actually executes — _handle_tools_call
+# imports it lazily. Keep it lazy: it was the only eager importer of the
+# logging/traceback subtree in the whole artifact.
 import json
 import sys
 import time
@@ -886,6 +890,7 @@ def _call_tool(tool_name: str, arguments: dict, cfg: dict, workspace: Path) -> s
         worker_tid_holder["tid"] = threading.get_ident()
         return _call_resolver(spec, args_str, cfg, workspace)
 
+    import concurrent.futures  # lazy (#642c): pulls logging → traceback
     executor = concurrent.futures.ThreadPoolExecutor(
         max_workers=1, thread_name_prefix=f"mcp-{tool_name}",
     )
@@ -1268,17 +1273,55 @@ def serve_mcp_sse(cfg: dict, workspace: Path | None = None, port: int = 8420) ->
 
 # ── Config printer ───────────────────────────────────────────────────────────
 
+def _resolve_perseus_invocation() -> list[str]:
+    """Resolve the argv prefix that launches Perseus, for emitted configs (#642b).
+
+    Prefer the installed console script (``perseus``) when it is on PATH:
+    the entry point imports the module, so CPython's normal ``.pyc`` bytecode
+    cache applies and cold starts skip the ~150 ms artifact re-compile that
+    ``python perseus.py`` pays on every spawn.
+
+    Fall back to ``<current interpreter> <artifact path>`` for single-file
+    installs. The old fallback emitted a bare ``perseus`` even when nothing
+    by that name existed, producing a config that could not spawn at all —
+    and MCP clients (Claude Desktop) often launch with a minimal PATH, so
+    absolute paths are the safe form here.
+    """
+    import shutil
+    try:
+        which = shutil.which("perseus")
+    except Exception:
+        which = None
+    if which:
+        return [which]
+    return [sys.executable, str(Path(__file__).resolve())]
+
+
+def _perseus_command_string() -> str:
+    """Shell-command form of :func:`_resolve_perseus_invocation` (#642b).
+
+    Used for emitted hook commands (strings executed via a shell). When the
+    console script is on PATH, emit the bare ``perseus`` name — it stays
+    stable across Python minor-version bumps (#430) and hooks resolve PATH
+    normally. Otherwise quote any token containing spaces (``C:\\Program
+    Files`` interpreters, artifact paths with spaces).
+    """
+    argv = _resolve_perseus_invocation()
+    if len(argv) == 1:
+        return "perseus"
+    return " ".join(f'"{tok}"' if " " in tok else tok for tok in argv)
+
+
 def print_mcp_config(cfg: dict, workspace: Path | None = None) -> None:
     """Print MCP client configuration for Claude Desktop / Cursor / etc."""
-    import shutil
-    perseus_path = shutil.which("perseus") or "perseus"
+    invocation = _resolve_perseus_invocation()
     ws = workspace or Path.cwd()
     version = cfg.get("version", SERVER_VERSION)
     config = {
         "mcpServers": {
             "perseus": {
-                "command": perseus_path,
-                "args": ["mcp", "serve", "--workspace", str(ws)],
+                "command": invocation[0],
+                "args": invocation[1:] + ["mcp", "serve", "--workspace", str(ws)],
             }
         }
     }
