@@ -288,6 +288,11 @@ def cmd_preview(args, cfg):
     # (duration_ms, cached) are intentionally dropped so the report is diffable.
     directives = []
     for d in _directives:
+        # #606 review: nested records (inside an @include) are already covered
+        # by the include's own depth-0 record — counting both double-counts
+        # the include's contents and pushes the pct sum past 100%.
+        if d.get("depth", 0) > 0:
+            continue
         out = d.get("output") or ""
         tok = estimate_tokens(out)
         directives.append({

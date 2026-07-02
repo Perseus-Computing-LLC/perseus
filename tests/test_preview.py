@@ -110,3 +110,26 @@ def test_cmd_preview_does_not_mutate_source(tmp_path, monkeypatch, capsys):
     perseus.cmd_preview(_args(src), {})
     capsys.readouterr()
     assert src.read_text(encoding="utf-8") == before
+
+
+def test_preview_does_not_double_count_include_contents(tmp_path, monkeypatch, capsys):
+    """#606 review follow-up: nested directive records (depth>0, inside an
+    @include) are already covered by the include's own depth-0 record —
+    preview must not list both, or per-directive pcts sum past 100%."""
+    ws, src = _write(tmp_path, monkeypatch, "@perseus\n\n# A\n@include inc.md\n")
+    (ws / "inc.md").write_text("included body\n@env PATH\n", encoding="utf-8")
+    rc = perseus.cmd_preview(_args(src, json=True), {})
+    assert rc == 0
+    report = json.loads(capsys.readouterr().out)
+    names = [d["name"] for d in report["directives"]]
+    assert "include" in names
+    assert "env" not in names, "nested directive leaked into preview breakdown"
+    directive_tokens = sum(d["tokens"] for d in report["directives"])
+    assert directive_tokens <= report["total_tokens"]
+
+
+def test_perseus_budget_tool_is_read_only_annotated():
+    """#606 review follow-up: perseus_budget is inert (resolver returns "")
+    and must carry readOnlyHint like the other pure read-only tools."""
+    hints = perseus._build_annotations("perseus_budget", perseus.DIRECTIVE_REGISTRY.get("@budget"))
+    assert hints and hints.get("readOnlyHint") is True

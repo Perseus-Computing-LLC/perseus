@@ -8279,7 +8279,7 @@ def _build_annotations(tool_name: str, spec) -> dict | None:
     if tool_name in ("perseus_auto_skill", "perseus_profile", "perseus_perseus", "perseus_mimir", "perseus_mneme", "perseus_mason",
                       "perseus_skills", "perseus_inbox", "perseus_include", "perseus_read",
                       "perseus_list", "perseus_tree", "perseus_tooltrim", "perseus_validate",
-                      "perseus_prompt"):
+                      "perseus_prompt", "perseus_budget"):
         hints["readOnlyHint"] = True
     return hints if hints else None
 
@@ -26136,6 +26136,11 @@ def cmd_preview(args, cfg):
     # (duration_ms, cached) are intentionally dropped so the report is diffable.
     directives = []
     for d in _directives:
+        # #606 review: nested records (inside an @include) are already covered
+        # by the include's own depth-0 record — counting both double-counts
+        # the include's contents and pushes the pct sum past 100%.
+        if d.get("depth", 0) > 0:
+            continue
         out = d.get("output") or ""
         tok = estimate_tokens(out)
         directives.append({
@@ -28442,7 +28447,7 @@ def _git_show_source(source_path: "Path", ref: str) -> "tuple[str | None, str]":
             return None, f"not inside a git repository: {top.stderr.strip()}"
         root = top.stdout.strip()
         rel = os.path.relpath(str(source_path), root).replace(os.sep, "/")
-        show = subprocess.run(["git", "-C", root, "show", f"{ref}:{rel}"],
+        show = subprocess.run(["git", "-C", root, "show", "--end-of-options", f"{ref}:{rel}"],
                               capture_output=True, text=True, timeout=15,
                               encoding="utf-8", errors="replace")
         if show.returncode != 0:

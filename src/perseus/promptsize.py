@@ -274,7 +274,7 @@ def _git_show_source(source_path: "Path", ref: str) -> "tuple[str | None, str]":
             return None, f"not inside a git repository: {top.stderr.strip()}"
         root = top.stdout.strip()
         rel = os.path.relpath(str(source_path), root).replace(os.sep, "/")
-        show = subprocess.run(["git", "-C", root, "show", f"{ref}:{rel}"],
+        show = subprocess.run(["git", "-C", root, "show", "--end-of-options", f"{ref}:{rel}"],
                               capture_output=True, text=True, timeout=15,
                               encoding="utf-8", errors="replace")
         if show.returncode != 0:
