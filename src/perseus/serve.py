@@ -7,6 +7,38 @@ from perseus.install import install_target
 from perseus.mcp import serve_mcp, print_mcp_config, print_mcp_registry, _build_server_card
 
 
+def _atomic_write_text(out_path: Path, text: str) -> None:
+    """Write ``text`` to ``out_path`` atomically (tempfile + os.replace).
+
+    #646: rendered outputs (AGENTS.md, .hermes.md) are rewritten by
+    `perseus watch` while an agent may be mid-read, and a hard stop can land
+    mid-write — especially on Windows, where SIGTERM handlers never fire
+    (task kill = TerminateProcess), so any non-Ctrl-C stop of `watch` can
+    truncate the file. A torn context file silently degrades every agent
+    that reads it. Writing to a tempfile in the SAME directory and
+    os.replace()-ing guarantees readers see either the old or the new file,
+    never a partial one — mirroring the render cache's cache_set pattern.
+    """
+    import tempfile
+    tmp_name = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", prefix=out_path.name + ".", suffix=".tmp",
+            dir=str(out_path.parent), delete=False, encoding="utf-8",
+        ) as tmp:
+            tmp_name = tmp.name
+            tmp.write(text)
+        os.replace(tmp_name, out_path)
+    except BaseException:
+        # Never leave a stray tempfile beside the output on failure.
+        if tmp_name is not None:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
+        raise
+
+
 def cmd_render(args, cfg):
     source_path = Path(args.source).expanduser().resolve()
     if not source_path.exists():
@@ -82,9 +114,10 @@ def cmd_render(args, cfg):
         out_path = Path(output)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         # Preserve existing file ownership if output already exists (#228)
+        # #646: both branches write atomically — see _atomic_write_text.
         if out_path.exists():
             st = out_path.stat()
-            out_path.write_text(rendered, encoding="utf-8")
+            _atomic_write_text(out_path, rendered)
             # Preserve ownership where the platform supports it. os.chown is
             # absent on Windows — calling it would raise AttributeError (not
             # OSError) and crash the render; st_uid/st_gid are meaningless there.
@@ -93,8 +126,15 @@ def cmd_render(args, cfg):
                     os.chown(out_path, st.st_uid, st.st_gid)
                 except OSError:
                     pass  # chown may fail in containers without CAP_CHOWN
+            # Also restore the mode: NamedTemporaryFile creates 0600 on POSIX
+            # and os.replace carries that onto the output — a previously
+            # world-readable AGENTS.md must not become owner-only.
+            try:
+                os.chmod(out_path, st.st_mode & 0o7777)
+            except OSError:
+                pass
         else:
-            out_path.write_text(rendered, encoding="utf-8")
+            _atomic_write_text(out_path, rendered)
 
         # Versioned, timestamped audit line on every render-to-file (#431).
         # Scheduled jobs route stdout to a log (e.g. perseus-render.out.log),
@@ -2041,7 +2081,7 @@ def cmd_serve(args, cfg):
         import secrets
         print(secrets.token_urlsafe(32))
         return 0
-    from http.server import BaseHTTPRequestHandler, HTTPServer
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
     from urllib.parse import urlsplit, parse_qsl
 
     ws_raw = getattr(args, "workspace", None) or os.getcwd()
@@ -2155,7 +2195,16 @@ def cmd_serve(args, cfg):
         def log_message(self, fmt, *fargs):
             sys.stderr.write(f"[perseus serve] {fmt % fargs}\n")
 
-    server = HTTPServer((host, port), PerseusHandler)
+    # #652: ThreadingHTTPServer so /health (the monitoring probe) is never
+    # serialized behind a slow /context render — a probe timeout during a
+    # legitimate render looks like an outage. Handler state is safe under
+    # concurrency: PerseusHandler is instantiated per request, its closures
+    # capture cfg/workspace/host read-only, and _serve_render_endpoint is a
+    # pure dispatch whose render path is already exercised concurrently
+    # (doctor's ThreadPoolExecutor, #454; render cache writes are atomic).
+    # daemon_threads so a stuck in-flight request can't block shutdown.
+    server = ThreadingHTTPServer((host, port), PerseusHandler)
+    server.daemon_threads = True
     url = f"http://{host}:{port}"
     print(f"Perseus serve — {workspace}")
     print(f"  Listening on {url}")
