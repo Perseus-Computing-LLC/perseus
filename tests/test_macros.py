@@ -132,8 +132,12 @@ def test_macro_with_cache_modifier(tmp_path):
     out = perseus.render_source(text, local_cfg, None)
     assert "cached-output" in out
     
-    # Check if it was actually cached
-    cache_key = perseus._cache_key('@query "echo cached-output" :: ')  # workspace=None
+    # Check if it was actually cached. #612: @query now carries an env
+    # fingerprint, so the entry lands under <base>.<fp>, not the bare base key.
+    clean_args, _, _, _ = perseus._parse_cache_modifier('"echo cached-output" @cache ttl=60')
+    _base = perseus._cache_key(f"@query {clean_args} :: ")  # workspace=None
+    _fp = perseus._dependency_fingerprint("@query", clean_args, None, local_cfg)
+    cache_key = f"{_base}.{_fp}" if _fp else _base
     cached = perseus.cache_get(cache_key, "ttl", 60, local_cfg)
     assert cached is not None
     assert "cached-output" in cached

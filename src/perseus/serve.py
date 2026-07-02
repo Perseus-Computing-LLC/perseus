@@ -1752,7 +1752,12 @@ def _serve_authorized(headers, token: str | None, bind_host: str | None = None) 
     prefix = "Bearer "
     if not auth.startswith(prefix):
         return False
-    return _serve_hmac.compare_digest(auth[len(prefix):].strip(), token)
+    # #609: compare bytes, not str. HTTP headers are latin-1 decoded, and
+    # compare_digest(str, str) raises TypeError on non-ASCII input (a probe
+    # turned a clean 401 into a dropped connection). surrogateescape keeps
+    # arbitrary header bytes encodable; str() tolerates YAML-integer tokens.
+    provided_b = auth[len(prefix):].strip().encode("utf-8", "surrogateescape")
+    return _serve_hmac.compare_digest(provided_b, str(token).encode("utf-8"))
 
 
 # Endpoints reachable with a per-subscriber grant token, mapped to the grant
@@ -1821,7 +1826,12 @@ def _serve_handle_federation_receive(cfg: dict, workspace: Path, raw: bytes, hea
                 provided = auth[len("Bearer "):].strip()
         # #561: constant-time comparison — the network-supplied token must not
         # be compared with `!=` (timing side channel).
-        if provided is None or not _recv_hmac.compare_digest(provided, receive_token):
+        # #609: compare bytes — compare_digest(str, str) raises TypeError on
+        # non-ASCII header values (latin-1 decoded) and on YAML-integer tokens.
+        provided_b = (provided.encode("utf-8", "surrogateescape")
+                      if provided is not None else None)
+        if provided_b is None or not _recv_hmac.compare_digest(
+                provided_b, str(receive_token).encode("utf-8")):
             audit_event(cfg, "federation_receive_denied", auth_enabled=True)
             return (401, "application/json; charset=utf-8",
                     _json.dumps({"error": "unauthorized"}))
@@ -2095,6 +2105,16 @@ def cmd_serve(args, cfg):
         def do_POST(self):  # noqa: N802
             parsed = urlsplit(self.path)
             endpoint = parsed.path or "/"
+            # #610: POST must pass the same DNS-rebinding host-header gate as
+            # GET (do_GET routes through _serve_handle_request, which checks
+            # it; do_POST previously never did, so a rebinding page could
+            # write federation-cache entries on tokenless loopback deploys).
+            if not _serve_host_header_ok(self.headers, bind_host=host):
+                audit_event(cfg, "serve_auth_denied", endpoint=endpoint,
+                            auth_enabled=True)
+                self._respond(401, "application/json; charset=utf-8",
+                              '{"error": "unauthorized"}')
+                return
             if endpoint == "/federation/receive":
                 # #561: a malformed Content-Length must 400 (not traceback),
                 # and a huge declared length must not force an unbounded
