@@ -520,3 +520,78 @@ class TestBm25MetadataWeights:
                      "source_path", "updated"):
             assert meta in all_cols
             assert meta not in weighted
+
+
+# ---------------------------------------------------------------------------
+# #645 — corrupt index: quarantine + rebuild + warn (never silent forever)
+# ---------------------------------------------------------------------------
+
+def _evict_cached_conns():
+    """Close and drop every cached index connection (simulates a fresh process)."""
+    for key in list(perseus._MNEME_CONN_CACHE):
+        try:
+            perseus._MNEME_CONN_CACHE[key].close()
+        except Exception:
+            pass
+        del perseus._MNEME_CONN_CACHE[key]
+
+
+class TestCorruptIndexRecovery:
+    """#645: a corrupt mneme.index made every recall silently return []
+    forever — no detection, no rebuild, no warning — even though the source
+    .md files were intact. Recall must quarantine, rebuild, and warn."""
+
+    def test_recall_recovers_from_corrupt_index_file(self, tmp_path, capsys):
+        c = _index_cfg(tmp_path)
+        vault = Path(c["memory"]["mneme_vault_path"])
+        _write_memory(vault, "pg-choice", "Postgres choice", "we chose postgres",
+                      body="postgres is the primary store")
+        assert perseus._mneme_recall(c, "postgres", k=5), "baseline recall must hit"
+
+        # Simulate a fresh process finding a corrupted file: drop the cached
+        # connection, then overwrite the index with garbage bytes.
+        index_path = Path(c["memory"]["mneme_index_path"])
+        _evict_cached_conns()
+        index_path.write_bytes(b"this is definitely not a sqlite database\x00" * 64)
+        perseus._MNEME_CORRUPT_WARNED.clear()
+        capsys.readouterr()  # reset captured output
+
+        results = perseus._mneme_recall(c, "postgres", k=5)
+        err = capsys.readouterr().err
+
+        assert results and results[0]["id"] == "pg-choice", (
+            "recall must rebuild from the intact vault .md files, not return []")
+        assert "corrupt" in err.lower(), "corruption must warn on stderr"
+        assert list(index_path.parent.glob("mneme.index.corrupt-*")), (
+            "the corrupt file must be quarantined for post-mortem, not destroyed")
+
+    def test_corruption_warns_once_per_process(self, tmp_path, capsys):
+        c = _index_cfg(tmp_path)
+        index_path = Path(c["memory"]["mneme_index_path"])
+        perseus._MNEME_CORRUPT_WARNED.clear()
+        index_path.write_bytes(b"garbage")
+        perseus._mneme_quarantine_corrupt_index(index_path)
+        index_path.write_bytes(b"garbage again")
+        perseus._mneme_quarantine_corrupt_index(index_path)
+        err = capsys.readouterr().err
+        assert err.count("Mnēmē FTS5 index") == 1, "warning must fire once per index"
+
+    def test_undeterminable_vault_dir_stays_silent(self, monkeypatch, capsys):
+        # The OTHER None path must stay silent by design: no vault dir is a
+        # normal fresh-environment state, not corruption.
+        def _boom(cfg_):
+            raise RuntimeError("no vault dir")
+        monkeypatch.setattr(perseus, "_mneme_index_path", _boom)
+        assert perseus._mneme_open_index(cfg()) is None
+        assert capsys.readouterr().err == ""
+
+    def test_search_no_longer_swallows_database_errors(self, tmp_path):
+        # #645: query-time errors used to become a silent [] inside
+        # _mneme_search, making the "index may be corrupt" warning in
+        # memory._mneme_recall dead code. They must propagate to the caller.
+        c = _index_cfg(tmp_path)
+        conn = perseus._mneme_open_index(c)
+        conn.execute("DROP TABLE mneme_fts")
+        with pytest.raises(perseus.sqlite3.OperationalError):
+            perseus._mneme_search(conn, "anything", k=5)
+        _evict_cached_conns()

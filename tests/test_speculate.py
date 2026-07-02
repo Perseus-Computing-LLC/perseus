@@ -441,3 +441,52 @@ def test_stats_file_is_workspace_keyed(tmp_path):
     assert p_a != p_b != p_global
     assert p_a.name.startswith("speculate_stats-")
     assert p_global.name == "speculate_stats-global.json"
+
+
+# ── #636: bounded history parsing + one shared store listing ─────────────────
+
+def test_intent_history_identical_and_parses_at_most_window_files(tmp_path, monkeypatch):
+    """#636: windowed history must (a) equal the old parse-everything-then-
+    slice result exactly, and (b) parse at most `window` checkpoint files."""
+    c = _mkcfg(tmp_path)
+    tasks = [f"T{i % 5}" for i in range(50)]
+    _seed_checkpoints(Path(c["checkpoints"]["store"]), tasks)
+
+    # (a) decisions identical: windowed == unbounded result sliced afterwards.
+    full = perseus._speculate_intent_history(c, None, 0)
+    assert full == tasks
+    windowed = perseus._speculate_intent_history(c, None, 10)
+    assert windowed == full[-10:]
+
+    # (b) bounded work: only the newest `window` files are opened/parsed.
+    real_load = perseus._load_checkpoint_file
+    calls = {"n": 0}
+
+    def _counting(fp):
+        calls["n"] += 1
+        return real_load(fp)
+
+    monkeypatch.setattr(perseus, "_load_checkpoint_file", _counting)
+    assert perseus._speculate_intent_history(c, None, 10) == windowed
+    assert calls["n"] == 10, (
+        f"parsed {calls['n']} checkpoint files for a window of 10 "
+        "(pre-#636: the whole store, every opted-in render)")
+
+
+def test_run_speculation_lists_checkpoint_store_once(tmp_path, monkeypatch):
+    """#636: history and the settlement marker must share ONE store listing."""
+    c = _mkcfg(tmp_path)
+    c["speculate"] = {"enabled": True}
+    _seed_checkpoints(Path(c["checkpoints"]["store"]), ["A", "B", "A", "B"])
+    real_list = perseus._list_checkpoint_files
+    calls = {"n": 0}
+
+    def _counting(cfg_):
+        calls["n"] += 1
+        return real_list(cfg_)
+
+    monkeypatch.setattr(perseus, "_list_checkpoint_files", _counting)
+    out = perseus.run_speculation(c, None)
+    assert out["enabled"] is True
+    assert out["predicted"], "sanity: the pass must still predict"
+    assert calls["n"] == 1, f"store listed {calls['n']}x per speculation pass"

@@ -338,11 +338,23 @@ def _retry_with_backoff(
     max_attempts: int = 3,
     backoff_base: float = 1.5,
     circuit_breaker: Optional[CircuitBreaker] = None,
+    abort_check: Optional[Callable] = None,
 ) -> tuple[Any, Optional[str]]:
     """Call fn() with exponential backoff. Returns (result, error_string).
 
     If circuit_breaker is provided, each failure is reported to it, and
     if the breaker is open, the call is skipped entirely.
+
+    abort_check (#649): called after a failed attempt; when it returns True
+    the remaining attempts AND their backoff sleeps are skipped. Used to stop
+    retrying once the MCP transport has been torn down (`_call` disconnects
+    the client on timeout/EOF) — every remaining attempt would fail instantly
+    with "MCP process not running", so the sleeps between them are pure dead
+    time (~3.75s per query with the defaults). The skipped attempts are still
+    reported to the circuit breaker — they would have failed exactly the same
+    way had they run — so breaker behavior (e.g. opening after ONE fully
+    failed query when threshold == max_attempts) is byte-identical to
+    actually performing them.
     """
     last_error = None
     for attempt in range(max_attempts):
@@ -358,6 +370,17 @@ def _retry_with_backoff(
             if circuit_breaker:
                 circuit_breaker.failure()
             if attempt < max_attempts - 1:
+                aborted = False
+                if abort_check is not None:
+                    try:
+                        aborted = bool(abort_check())
+                    except Exception:
+                        aborted = False
+                if aborted:
+                    if circuit_breaker:
+                        for _ in range(attempt + 1, max_attempts):
+                            circuit_breaker.failure()
+                    break
                 delay = backoff_base ** attempt
                 time.sleep(delay)
     return None, last_error
@@ -875,6 +898,17 @@ class MnemeConnector:
         """Is Mneme reachable via MCP?"""
         return self._client is not None and self._client.is_connected
 
+    def _transport_gone(self) -> bool:
+        """True when the MCP transport has been torn down mid-query (#649).
+
+        `_call` disconnects the client on timeout or crash-EOF; once that has
+        happened, further retry attempts inside the same `_retry_with_backoff`
+        loop fail instantly with "MCP process not running" — sleeping between
+        them cannot help. Passed as `abort_check` so those dead sleeps are
+        skipped (reconnecting is deliberately left to the NEXT query via
+        `_ensure_connected`, which is gated by the circuit breaker)."""
+        return not self.available
+
     @property
     def status(self) -> str:
         """Human-readable connection status."""
@@ -951,6 +985,7 @@ class MnemeConnector:
             max_attempts=self._max_retries,
             backoff_base=self._backoff_base,
             circuit_breaker=self._breaker,
+            abort_check=self._transport_gone,
         )
 
         if err:
@@ -1007,6 +1042,7 @@ class MnemeConnector:
             max_attempts=self._max_retries,
             backoff_base=self._backoff_base,
             circuit_breaker=self._breaker,
+            abort_check=self._transport_gone,
         )
 
         if err:
@@ -1066,6 +1102,7 @@ class MnemeConnector:
             max_attempts=self._max_retries,
             backoff_base=self._backoff_base,
             circuit_breaker=self._breaker,
+            abort_check=self._transport_gone,
         )
         if err or not isinstance(raw, dict) or raw.get("found") is False:
             return None
@@ -1108,6 +1145,7 @@ class MnemeConnector:
             max_attempts=self._max_retries,
             backoff_base=self._backoff_base,
             circuit_breaker=self._breaker,
+            abort_check=self._transport_gone,
         )
 
         if err or not isinstance(raw_result, dict):
@@ -1198,6 +1236,7 @@ class MnemeConnector:
             max_attempts=self._max_retries,
             backoff_base=self._backoff_base,
             circuit_breaker=self._breaker,
+            abort_check=self._transport_gone,
         )
 
         if err:

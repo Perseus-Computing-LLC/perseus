@@ -692,3 +692,75 @@ class TestConnectorReconnect:
         conn._client = None
         conn.recall(query="anything")
         assert calls["n"] == 0, "must not re-probe while the breaker is open"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# #649 — retries after transport teardown must not dead-sleep
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestRetryAfterTransportTeardown:
+    """Once `_call` tears the transport down (timeout/EOF → disconnect), every
+    remaining retry attempt fails instantly with "MCP process not running" —
+    the backoff sleeps between them are pure dead time (~3.75s per query with
+    defaults) and must be skipped, without weakening breaker accounting."""
+
+    def test_retry_with_backoff_abort_skips_sleeps_and_keeps_breaker_parity(self):
+        calls = {"n": 0}
+
+        def _fail():
+            calls["n"] += 1
+            raise RuntimeError("MCP process not running")
+
+        breaker = perseus.CircuitBreaker(threshold=3, cooldown_s=120)
+        t0 = time.monotonic()
+        result, err = perseus._retry_with_backoff(
+            _fail, max_attempts=3, backoff_base=1.5,
+            circuit_breaker=breaker, abort_check=lambda: True)
+        elapsed = time.monotonic() - t0
+
+        assert result is None and "not running" in err
+        assert calls["n"] == 1, "aborted retries must not re-invoke fn"
+        assert elapsed < 0.5, f"backoff sleeps must be skipped, took {elapsed:.2f}s"
+        # Breaker parity: skipped attempts are charged as failures, so ONE
+        # fully failed query still opens a threshold==max_attempts breaker
+        # exactly as it did when the dead attempts actually ran.
+        assert breaker.is_open
+
+    def test_retry_without_abort_signal_still_retries(self):
+        calls = {"n": 0}
+
+        def _flaky():
+            calls["n"] += 1
+            if calls["n"] < 2:
+                raise RuntimeError("transient")
+            return {"ok": True}
+
+        result, err = perseus._retry_with_backoff(
+            _flaky, max_attempts=3, backoff_base=0.01,
+            abort_check=lambda: False)
+        assert err is None and result == {"ok": True}
+        assert calls["n"] == 2, "a live transport must keep its retries"
+
+    def test_recall_against_wedged_then_torn_down_server_returns_fast(self):
+        _reset_connector_singleton()
+        conn = perseus.MnemeConnector(_cfg_with_mneme())
+        # Wedged server (the #544 fake): handshaken but never answers again.
+        # _call times out at 0.2s and disconnects; pre-#649 the two remaining
+        # retries then slept 1.0s + 1.5s (backoff_base 1.5) for nothing.
+        client = perseus._MCPStdioClient(["mimir"], timeout_s=0.2)
+        client._process = _FakeProc([], block_after=True)
+        client._start_reader()
+        conn._client = client
+        conn._breaker = perseus.CircuitBreaker(threshold=3, cooldown_s=120)
+        conn._max_retries = 3
+        conn._backoff_base = 1.5
+
+        t0 = time.monotonic()
+        seg = conn.recall(query="anything")
+        elapsed = time.monotonic() - t0
+
+        assert seg.error, "a wedged vault must surface an error"
+        assert elapsed < 1.0, (
+            f"retries after transport teardown must short-circuit, took {elapsed:.2f}s"
+            " (pre-#649: ~2.7s of which ~2.5s dead sleep)")
+        assert conn._breaker.is_open, "one fully failed query still opens the breaker"

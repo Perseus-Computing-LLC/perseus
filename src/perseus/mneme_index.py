@@ -72,34 +72,73 @@ _MNEME_FIELD_WEIGHTS = {
 # Keyed by pid so forked processes get their own connection.
 _MNEME_CONN_CACHE: dict[tuple[str, int], sqlite3.Connection] = {}
 
+# #645: index paths already warned about corruption in this process — the
+# quarantine warning fires once per index, not once per recall.
+_MNEME_CORRUPT_WARNED: set[str] = set()
 
-def _mneme_open_index(cfg: dict):
-    """Open (or create) the SQLite FTS5 index. Returns sqlite3.Connection.
 
-    Enables WAL mode for concurrent reads. Creates tables on first open.
-    Returns None if the vault directory cannot be determined.
-    Connections are cached per-process for the lifetime of the interpreter.
+def _mneme_quarantine_corrupt_index(index_path: Path, exc: "Exception | None" = None):
+    """Quarantine a corrupt FTS5 index so the next open recreates it (#645).
+
+    Closes and evicts any cached connection to the file (Windows cannot
+    rename an open file), renames the DB to ``<name>.corrupt-<timestamp>``
+    (WAL/SHM sidecars follow), and warns ONCE per index path on stderr.
+    If the rename fails, the file is deleted instead — the index is a derived
+    artifact, fully rebuildable from the vault ``.md`` files.
+
+    Returns the quarantine Path when the DB file was renamed, else None.
     """
-    try:
-        index_path = _mneme_index_path(cfg)
-    except Exception:
-        return None
-
-    cache_key = (str(index_path), os.getpid())
-    cached = _MNEME_CONN_CACHE.get(cache_key)
-    if cached is not None:
-        # Check that the cached connection hasn't been closed externally
-        # (tests, signal handlers, explicit close). If closed, re-create.
+    index_str = str(index_path)
+    for key in [k for k in _MNEME_CONN_CACHE if k[0] == index_str]:
         try:
-            cached.execute("SELECT 1")
-            return cached
-        except (sqlite3.ProgrammingError, sqlite3.OperationalError):
-            del _MNEME_CONN_CACHE[cache_key]
+            _MNEME_CONN_CACHE[key].close()
+        except Exception:
+            pass
+        del _MNEME_CONN_CACHE[key]
 
-    index_path.parent.mkdir(parents=True, exist_ok=True)
-
+    stamp = datetime.now().strftime("%Y%m%dT%H%M%S")
+    quarantine = index_path.with_name(f"{index_path.name}.corrupt-{stamp}")
+    renamed = None
     try:
-        conn = sqlite3.connect(str(index_path), check_same_thread=False)
+        if index_path.exists():
+            os.replace(index_path, quarantine)
+            renamed = quarantine
+    except OSError:
+        try:
+            index_path.unlink(missing_ok=True)
+        except OSError:
+            return None  # cannot move or remove — nothing more we can do
+    for suffix in ("-wal", "-shm"):
+        sidecar = index_path.with_name(index_path.name + suffix)
+        try:
+            if sidecar.exists():
+                os.replace(sidecar, quarantine.with_name(quarantine.name + suffix))
+        except OSError:
+            try:
+                sidecar.unlink(missing_ok=True)
+            except OSError:
+                pass
+    if index_str not in _MNEME_CORRUPT_WARNED:
+        _MNEME_CORRUPT_WARNED.add(index_str)
+        where = f" — quarantined to {renamed.name}" if renamed else " — removed"
+        detail = f" ({exc})" if exc else ""
+        sys.stderr.write(
+            f"> ⚠ Mnēmē FTS5 index at {index_path} is corrupt{detail}{where}. "
+            "Recreating; memories are reindexed from the vault .md files on "
+            "the next recall.\n"
+        )
+    return renamed
+
+
+def _mneme_connect(index_path: Path) -> sqlite3.Connection:
+    """Connect to the index, configure pragmas, and create/migrate the schema.
+
+    Raises on failure (``sqlite3.DatabaseError`` for a corrupt DB file),
+    closing the half-open connection first so the file can be quarantined
+    (renamed) even on Windows.
+    """
+    conn = sqlite3.connect(str(index_path), check_same_thread=False)
+    try:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
         conn.execute("PRAGMA busy_timeout=5000")
@@ -131,12 +170,73 @@ def _mneme_open_index(cfg: dict):
                 conn.execute("DELETE FROM mneme_files")
                 conn.execute("DELETE FROM mneme_meta WHERE key LIKE 'schema_%'")
                 conn.executescript(_MNEME_SCHEMA_SQL)
+        except sqlite3.OperationalError:
+            pass  # Table doesn't exist yet / transient lock — fine
+        except sqlite3.DatabaseError:
+            raise  # #645: corruption — surface to the recovery path
         except Exception:
-            pass  # Table doesn't exist yet — fine
-        _MNEME_CONN_CACHE[cache_key] = conn
+            pass  # Defensive: pre-#645 behavior for non-database errors
         return conn
     except Exception:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        raise
+
+
+def _mneme_open_index(cfg: dict):
+    """Open (or create) the SQLite FTS5 index. Returns sqlite3.Connection.
+
+    Enables WAL mode for concurrent reads. Creates tables on first open.
+    Returns None if the vault directory cannot be determined.
+    Connections are cached per-process for the lifetime of the interpreter.
+
+    #645: a corrupt index file (bad disk sector, truncated write, garbage
+    bytes) is quarantined and recreated — with a one-time stderr warning —
+    instead of being swallowed into a silent ``None`` that turned recall off
+    forever. The recreated index is empty, so the caller's usual
+    ``_mneme_build_index`` pass performs the full reindex from the vault.
+    """
+    try:
+        index_path = _mneme_index_path(cfg)
+    except Exception:
+        return None  # vault dir undeterminable — silent by design
+
+    cache_key = (str(index_path), os.getpid())
+    cached = _MNEME_CONN_CACHE.get(cache_key)
+    if cached is not None:
+        # Check that the cached connection hasn't been closed externally
+        # (tests, signal handlers, explicit close). If closed, re-create.
+        try:
+            cached.execute("SELECT 1")
+            return cached
+        except (sqlite3.ProgrammingError, sqlite3.OperationalError):
+            del _MNEME_CONN_CACHE[cache_key]
+
+    try:
+        index_path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError:
         return None
+
+    try:
+        conn = _mneme_connect(index_path)
+    except sqlite3.OperationalError:
+        # Locked / cannot open / FTS5 unavailable — environment problem, not
+        # file corruption. Do NOT quarantine a file another process may hold.
+        return None
+    except sqlite3.DatabaseError as exc:
+        # Corrupt index file (#645): quarantine, recreate, warn once. The
+        # source .md files are intact — a rebuild fully recovers.
+        _mneme_quarantine_corrupt_index(index_path, exc)
+        try:
+            conn = _mneme_connect(index_path)
+        except Exception:
+            return None
+    except Exception:
+        return None
+    _MNEME_CONN_CACHE[cache_key] = conn
+    return conn
 
 
 def _mneme_build_field_columns(doc: dict) -> tuple[str, str, str, str, str]:
@@ -388,10 +488,11 @@ def _mneme_search(conn, query: str, k: int = 5,
         f"LIMIT {max(1, min(k, 100))}"
     )
 
-    try:
-        rows = conn.execute(sql, params).fetchall()
-    except Exception:
-        return []
+    # #645: do NOT swallow query-time errors here. A corrupt index page or a
+    # broken FTS5 table used to become a silent [] — the "index may be
+    # corrupt" warning in memory._mneme_recall was dead code. Let the caller
+    # see the failure so it can warn and trigger quarantine/rebuild.
+    rows = conn.execute(sql, params).fetchall()
 
     results = []
     for row in rows:
