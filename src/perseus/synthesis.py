@@ -31,11 +31,24 @@ def _load_synthesis_sources(refs: list[str], workspace: Path, cfg: dict) -> tupl
         if error or path is None:
             errors.append(error or f"invalid source: {ref}")
             continue
-        text = path.read_text(errors="replace", encoding="utf-8")
+        # #587 item 1: guard the read per-source. Permission-denied, Windows
+        # file locks, or check-to-read deletion must accumulate into errors
+        # (the function's design) instead of crashing cmd_synthesize.
+        try:
+            text = path.read_text(errors="replace", encoding="utf-8")
+        except OSError as exc:
+            errors.append(f"could not read source: {ref} ({exc})")
+            continue
         truncated = False
-        if max_source_bytes > 0 and len(text) > max_source_bytes:
-            text = text[:max_source_bytes]
-            truncated = True
+        # #587 item 3: enforce the budget in BYTES, not characters — multibyte
+        # sources previously exceeded max_source_bytes by up to 4x.
+        if max_source_bytes > 0:
+            encoded = text.encode("utf-8")
+            if len(encoded) > max_source_bytes:
+                # errors="ignore" drops a partial trailing multibyte sequence
+                # cleanly instead of raising or emitting U+FFFD.
+                text = encoded[:max_source_bytes].decode("utf-8", errors="ignore")
+                truncated = True
         lines = text.splitlines()
         sources.append({
             "id": f"src{index}",
@@ -301,9 +314,18 @@ def synthesize_question(
         result["error"] = "generation is disabled; set generation.enabled=true or pass --enable-generation"
         return result, 2
 
-    provider_used = llm.strip().lower()
-    if ":" in provider_used and not model:
-        provider_used, _, model = provider_used.partition(":")
+    # #587 item 2: ALWAYS split a provider:model shorthand — the renderer
+    # passes both llm and model whenever generation.model/llm.model is set,
+    # so gating the split on `not model` left "ollama:llama3" as the provider
+    # and broke exact-match dispatch for ALL synthesis. An explicitly passed
+    # model wins over the shorthand suffix. Lowercase only the provider part:
+    # model IDs are case-sensitive and must be preserved.
+    provider_used = llm.strip()
+    if ":" in provider_used:
+        provider_used, _, shorthand_model = provider_used.partition(":")
+        if not model:
+            model = shorthand_model.strip() or None
+    provider_used = provider_used.strip().lower()
     model_used = model or generation_cfg.get("model") or cfg.get("llm", {}).get("model")
     # task-47: audit the model call before it crosses the LLM trust boundary.
     audit_event(cfg, "model_call",

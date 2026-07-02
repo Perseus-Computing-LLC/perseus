@@ -162,7 +162,11 @@ def resolve_list(args_str: str, cfg: dict, workspace: Path | None = None) -> str
         except ValueError:
             continue
         if cur_depth >= depth:
+            # #593: entries under this root would sit at cur_depth + 1 —
+            # beyond the requested depth. Prune dirs AND skip the files loop
+            # (previously only dirs were bounded; files leaked one level deep).
             dirs[:] = []
+            continue
         if list_type in {"dirs", "all"}:
             for d in sorted(dirs):
                 entries.append((root_p / d, cur_depth + 1))
@@ -304,16 +308,28 @@ def resolve_date(args_str: str) -> str:
 
     now = datetime.now() + delta
 
-    # Map human tokens to strftime
-    result = fmt
-    result = result.replace("YYYY", now.strftime("%Y"))
-    result = result.replace("MM", now.strftime("%m"))
-    result = result.replace("DD", now.strftime("%d"))
-    result = result.replace("HH", now.strftime("%H"))
-    result = result.replace("mm", now.strftime("%M"))
-    result = result.replace("ss", now.strftime("%S"))
-    result = result.replace("z", now.astimezone().strftime("%Z"))
-    return result
+    # Map human tokens to strftime values in a SINGLE tokenizing pass (#595).
+    # Sequential str.replace corrupted literal text containing token
+    # substrings (e.g. the "z" in "zulu" became the timezone name).
+    # A run of adjacent tokens (YYYYMMDD) is matched only when not glued to
+    # other letters, so words like "zulu" or "HAMMER" are left intact.
+    token_values = {
+        "YYYY": now.strftime("%Y"),
+        "MM": now.strftime("%m"),
+        "DD": now.strftime("%d"),
+        "HH": now.strftime("%H"),
+        "mm": now.strftime("%M"),
+        "ss": now.strftime("%S"),
+        "z": now.astimezone().strftime("%Z"),
+    }
+    _token_alt = r"YYYY|MM|DD|HH|mm|ss|z"
+    _run_re = re.compile(r"(?<![A-Za-z])(?:%s)+(?![A-Za-z])" % _token_alt)
+    _one_re = re.compile(_token_alt)
+
+    def _sub_run(m: "re.Match") -> str:
+        return _one_re.sub(lambda tm: token_values[tm.group(0)], m.group(0))
+
+    return _run_re.sub(_sub_run, fmt)
 def resolve_prompt_block(content: str) -> str:
     """@prompt...@end blocks are included as an AI instruction callout."""
     return f"> 📌 **Perseus prompt:** {content.strip()}"

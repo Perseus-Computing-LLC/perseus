@@ -3,11 +3,19 @@
 
 def health_check_url(url: str, timeout: float, cfg: dict) -> tuple[str, float | None]:
     """Returns (status_emoji, latency_ms | None)."""
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    # #591: scheme allowlist + hostname requirement (unconditional, mirroring
+    # @perseus's C15 check). file:// URLs have no hostname and previously
+    # bypassed the localhost gate entirely, opening local files (SSRF /
+    # file-existence oracle) even with allow_remote_services_health=false.
+    if parsed.scheme not in ("http", "https"):
+        return f"🔒 scheme blocked ({parsed.scheme or 'none'})", None
+    if not parsed.hostname:
+        return "🔒 invalid URL (no hostname)", None
     # Security gate: restrict to localhost by default (SSRF prevention)
     if not cfg["render"].get("allow_remote_services_health", False):
-        from urllib.parse import urlparse
-        parsed = urlparse(url)
-        if parsed.hostname and parsed.hostname not in ("127.0.0.1", "localhost", "::1"):
+        if parsed.hostname not in ("127.0.0.1", "localhost", "::1"):
             return "🔒 remote blocked", None
     start = time.monotonic()
     try:
@@ -113,7 +121,9 @@ def resolve_services(block_content: str, cfg: dict) -> str:
         # Use safe_load_all when the block contains YAML document separators
         # (---) so multi-document streams parse correctly. Otherwise, use
         # safe_load to preserve the existing mapping-format detection.
-        if "\\n---" in block_content or block_content.startswith("---"):
+        # #591: match a real newline followed by the separator (the previous
+        # pattern tested the 5-char literal backslash-n, never matching).
+        if "\n---" in block_content or block_content.startswith("---"):
             docs = list(yaml.safe_load_all(block_content))
             services = []
             for doc in docs:

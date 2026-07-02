@@ -24,8 +24,11 @@ def resolve_skills(args_str: str, cfg: dict) -> str:
     for skill_md in sorted(skill_dir.rglob("SKILL.md")):
         rel = skill_md.relative_to(skill_dir)
         parts = list(rel.parts)
-        # category = first dir component; name = second (or same if flat)
-        if len(parts) >= 2:
+        # #594: the standard layout is skills/<name>/SKILL.md — with exactly
+        # two components the folder is the skill NAME (no category), not the
+        # category. A category only exists with 3+ components
+        # (category/name/SKILL.md).
+        if len(parts) >= 3:
             category = parts[0]
             name = parts[1]
         else:
