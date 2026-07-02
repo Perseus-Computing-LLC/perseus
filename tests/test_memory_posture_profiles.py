@@ -423,6 +423,166 @@ class TestDedupRegression:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# #627 fix 1 — fence-aware @profile scan
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestProfileFenceAwareness:
+
+    def test_scan_ignores_fenced_directive(self):
+        src = (
+            "docs\n\n```\n@profile fenced-model\n```\nmore docs\n"
+        )
+        assert perseus._scan_profile_name(src) is None
+
+    def test_scan_ignores_tilde_fenced_directive(self):
+        src = "~~~\n@profile fenced-model\n~~~\n"
+        assert perseus._scan_profile_name(src) is None
+
+    def test_scan_picks_first_nonfenced_directive(self):
+        src = (
+            "```\n@profile fenced-model\n```\n"
+            "@profile real-model\n"
+        )
+        assert perseus._scan_profile_name(src) == "real-model"
+
+    def test_fenced_profile_does_not_change_posture(self, tmp_path):
+        """A @profile shown in documentation (inside a code fence) must not
+        silently switch the render's memory posture."""
+        c = _cfg()
+        c["profiles"]["dump-model"] = {"context_target": 200000, "memory": "always"}
+        source = (
+            "@perseus\n"
+            "```\n@profile dump-model\n```\n\n"
+            "plain context\n"
+        )
+        connector = _connector(context=HOT_MD)
+        with patch.object(perseus, "_get_connector", return_value=connector):
+            out = _render_md(source, c, tmp_path)
+        assert POINTER_HEADER in out       # default on_demand still governs
+        assert DUMP_HEADER not in out
+        connector.context.assert_not_called()
+
+    def test_nonfenced_profile_still_governs_alongside_fenced_docs(self, tmp_path):
+        c = _cfg()
+        c["profiles"]["dump-model"] = {"context_target": 200000, "memory": "always"}
+        source = (
+            "@perseus\n"
+            "```\n@profile some-doc-example\n```\n"
+            "@profile dump-model\n\n"
+            "plain context\n"
+        )
+        connector = _connector(context=HOT_MD)
+        with patch.object(perseus, "_get_connector", return_value=connector):
+            out = _render_md(source, c, tmp_path)
+        assert DUMP_HEADER in out
+        assert POINTER_HEADER not in out
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# #627 fix 2 — multiple @profile directives: first wins, rest are marked
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestMultipleProfileDirectives:
+
+    IGNORED_NOTE = "ignored — first @profile governs"
+
+    def test_first_governs_second_banner_warns(self, tmp_path):
+        c = _cfg()
+        c["profiles"]["dump-model"] = {"context_target": 200000, "memory": "always"}
+        source = (
+            "@perseus\n"
+            "@profile dump-model\n"
+            "@profile claude-sonnet-4-6\n\n"
+            "plain context\n"
+        )
+        connector = _connector(context=HOT_MD)
+        with patch.object(perseus, "_get_connector", return_value=connector):
+            out = _render_md(source, c, tmp_path)
+        # First directive governs the posture (always → dump, no pointer).
+        assert DUMP_HEADER in out
+        assert POINTER_HEADER not in out
+        banners = [l for l in out.splitlines() if "Context profile:" in l]
+        assert len(banners) == 2
+        assert self.IGNORED_NOTE not in banners[0]
+        assert self.IGNORED_NOTE in banners[1]
+
+    def test_single_profile_banner_is_unmarked(self, tmp_path):
+        c = _cfg()
+        out = _render_md("@perseus\n@profile claude-sonnet-4-6\n\nplain",
+                         c, tmp_path)
+        assert "Context profile: **claude-sonnet-4-6**" in out
+        assert self.IGNORED_NOTE not in out
+
+    def test_marking_is_idempotent(self):
+        marked = perseus._mark_ignored_profile_banners(
+            "> 🎛 Context profile: **a** — context target 200,000 tokens, memory: on_demand\n"
+            "> 🎛 Context profile: **b** — context target 200,000 tokens, memory: on_demand"
+        )
+        assert perseus._mark_ignored_profile_banners(marked) == marked
+        assert marked.count(self.IGNORED_NOTE) == 1
+
+    def test_marking_skips_fenced_banner_lookalikes(self):
+        text = (
+            "```\n> 🎛 Context profile: **doc** — example\n```\n"
+            "> 🎛 Context profile: **real** — context target 200,000 tokens, memory: on_demand"
+        )
+        assert perseus._mark_ignored_profile_banners(text) == text
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# #627 fix 3 — dedup gate matches only Perseus-generated headers
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestDedupGateTightened:
+
+    def test_user_memory_like_heading_does_not_suppress(self, capsys):
+        """A user-authored 'Persistent Memory Design' section is docs, not an
+        injected memory block — injection proceeds, with a stderr note."""
+        c = _cfg()  # on_demand → pointer expected
+        rendered = "# Doc\n\n## Persistent Memory Design\n\nour design notes\n"
+        out = perseus._mneme_context_inject(c, rendered=rendered)
+        assert out is not None and out.startswith(POINTER_HEADER)
+        assert "memory dedup (#627)" in capsys.readouterr().err
+
+    @pytest.mark.parametrize("heading", [
+        "## Persistent Memory Design",
+        "## Long-Term Memory Strategy",
+        "### Persistent memory considerations",
+    ])
+    def test_memory_like_user_headings_render_level(self, heading, tmp_path):
+        c = _cfg()
+        out = _render_md(f"# Doc\n\n{heading}\n\nprose about memory\n",
+                         c, tmp_path)
+        assert POINTER_HEADER in out
+
+    def test_generated_headers_still_suppress_exactly(self):
+        """Every header Perseus itself generates (current + historical) still
+        trips the gate — no warning, no injection."""
+        for header in [
+            "## Persistent Memory (Mimir)",
+            "## Persistent Memory (Mneme)",
+            "## Persistent Memory (Perseus Vault)",
+            "## Long-Term Memory (Mneme)",
+            "## Mimir — Persistent Cross-Session Memory",
+            "## Mimir Context",
+            "## Mneme Context",
+            "## Perseus Vault Context",
+            "## Memory Recall (on demand)",
+        ]:
+            c = _cfg(posture="always")
+            rendered = f"# Doc\n\n{header}\n\n- a fact\n"
+            assert perseus._mneme_context_inject(c, rendered=rendered) is None, header
+
+    def test_vaultmem_project_memory_header_never_suppresses(self):
+        """`## Project Memory (via vault-mem)` is a DIFFERENT memory stream —
+        it must not suppress the Mnēmē section (and emits no warning)."""
+        c = _cfg()
+        rendered = "# Doc\n\n## Project Memory (via vault-mem)\n\n- vm fact\n"
+        out = perseus._mneme_context_inject(c, rendered=rendered)
+        assert out is not None and out.startswith(POINTER_HEADER)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # #553 fix 4 — framing softened in shipped templates
 # ═══════════════════════════════════════════════════════════════════════════
 

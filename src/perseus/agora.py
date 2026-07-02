@@ -480,6 +480,13 @@ def resolve_profile(args_str: str, cfg: dict,
     Accepts `@profile claude-sonnet-4-6` or `@profile model=claude-sonnet-4-6`.
     Unknown names fall back to the `default` profile deterministically, with
     an explicit note so a typo is visible rather than silent.
+
+    First-wins (#627): when a document carries multiple `@profile` lines,
+    only the FIRST non-fenced one governs the render's posture
+    (`_scan_profile_name`). Each directive still renders its banner, but the
+    renderer appends an "ignored — first @profile governs" note to every
+    banner after the first (`_mark_ignored_profile_banners`), so a
+    non-governing directive is never silently confusing.
     """
     mods = _parse_kv_modifiers(args_str)
     name = (mods.get("model") or "").strip()
@@ -501,8 +508,10 @@ def resolve_profile(args_str: str, cfg: dict,
     except (TypeError, ValueError):
         target = 200000
 
+    # _PROFILE_BANNER_PREFIX (renderer) — the marker the #627 first-wins
+    # post-pass keys on; keep the banner shape and the constant in lockstep.
     line = (
-        f"> 🎛 Context profile: **{requested}** — "
+        f"{_PROFILE_BANNER_PREFIX}{requested}** — "
         f"context target {target:,} tokens, memory: {posture}"
     )
     if not known:

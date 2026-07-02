@@ -1181,7 +1181,7 @@ def _bind_registry() -> None:
         DirectiveSpec("@waypoint",  resolve_waypoint,  ["ttl="],                   "inline",  "ac",  reads_files=True, cacheable=True, summary="Return the most recent session checkpoint: what was being worked on, status, and next steps. Use at session start to resume where you left off. Stale after TTL (default 24h). Read-only; lightweight — call freely.", tier=1),
         DirectiveSpec("@memory",    resolve_memory,    ["mode=", "query=", "scope=", "k=", "type=", "render=", "focus=", "federation", "include_federation=", "alias=", "workspace=", "project=", "max_tokens="], "inline", "acw", reads_files=True, cacheable=True, summary="Search LOCAL project memory (FTS5, zero-network) for past decisions and architecture notes. Use for in-workspace recall. For cross-session persistent facts, use perseus_mneme instead. Read-only; returns results array with mode and count.", tier=1, is_semantic_hint=True),
         DirectiveSpec("@auto-skill", resolve_auto_skill, ["skill="],              "inline",  "ac",  cacheable=True,  safe_for_hover=True, summary="Instruct the agent to load a specific skill before starting work. Use at the top of context documents to enforce critical hygiene skills (e.g., memory-hygiene, agent-safety). Renders as a mandatory instruction block. Read-only.", tier=1),
-        DirectiveSpec("@profile",   resolve_profile,   ["model="],                 "inline",  "acw", cacheable=False, safe_for_hover=True, summary="Select the per-model context profile for this document (#608): sets the context target and memory posture (on_demand/relevant/always) used by the automatic memory injection layer. Use at the top of a context document, e.g. @profile claude-sonnet-4-6. Unknown names fall back to the default profile. Read-only.", tier=1),
+        DirectiveSpec("@profile",   resolve_profile,   ["model="],                 "inline",  "acw", cacheable=False, safe_for_hover=True, summary="Select the per-model context profile for this document (#608): sets the context target and memory posture (on_demand/relevant/always) used by the automatic memory injection layer. Use at the top of a context document, e.g. @profile claude-sonnet-4-6. Unknown names fall back to the default profile. First-wins (#627): with multiple @profile lines only the first non-fenced one governs — later banners are marked ignored, and @profile inside a code fence is documentation, never a directive. Read-only.", tier=1),
         DirectiveSpec("@health",    resolve_health,    [],                         "inline",  "acw", reads_files=True, summary="Audit workspace context health: stale skills, duplicate tasks, oversized output. Use before starting work to catch drift. For deep Daedalus heuristics (cache, directive stats), use perseus_get_health. Read-only; returns status enum and metric counts.", tier=1),
         DirectiveSpec("@env",       resolve_env,       ["required=", "fallback=", "schema="], "inline", "acw", cacheable=False, safe_for_hover=True, summary="Embed environment variable", tier=1),
         DirectiveSpec("@tokens",    resolve_tokens,    [],                         "block",   "a",   executes_shell=True, safe_for_hover=False, summary="Embed token budget for rendered context", tier=1),
@@ -12147,6 +12147,36 @@ def _collect_until_end(lines: list[str], i: int, end_re: "re.Pattern[str] | None
     return block, i, False
 
 
+# ── @profile first-wins banner marking (#627 fix 2) ─────────────────────────
+# `_scan_profile_name` (mneme_connector) applies the FIRST non-fenced
+# `@profile` in the source; every subsequent directive still renders a banner
+# but does not govern. Mark those banners so the non-governing directives are
+# visible instead of silently confusing.
+_PROFILE_BANNER_PREFIX = "> 🎛 Context profile: **"
+_PROFILE_IGNORED_NOTE = " ⚠ ignored — first @profile governs"
+
+
+def _mark_ignored_profile_banners(text: str) -> str:
+    """Append the ignored-note to every @profile banner after the first.
+
+    Fence-aware: banner-shaped lines inside fenced code blocks are content,
+    not banners. Idempotent: a banner already carrying the note is left
+    untouched, so re-rendering marked output cannot double-mark it.
+    """
+    seen = False
+    fence = _new_fence_state()
+    out: list[str] = []
+    # split("\n") (not splitlines) so join("\n") is its exact inverse — the
+    # pass must be byte-identical when there is nothing to mark.
+    for line in text.split("\n"):
+        if not _fence_step(fence, line) and line.startswith(_PROFILE_BANNER_PREFIX):
+            if seen and not line.endswith(_PROFILE_IGNORED_NOTE):
+                line += _PROFILE_IGNORED_NOTE
+            seen = True
+        out.append(line)
+    return "\n".join(out)
+
+
 _TRUTHY_VALUES = {"1", "true", "yes", "on"}
 
 
@@ -13294,7 +13324,13 @@ def _render_lines(
         header = "| ID | Severity | Rule |\n|---|---|---|"
         output.append(header + "\n" + "\n".join(_constraint_rows))
 
-    return "\n".join(output)
+    rendered = "\n".join(output)
+    # #627 fix 2: with multiple @profile directives only the first governs
+    # (see _scan_profile_name); mark every later banner as ignored. Guarded by
+    # a cheap count so single/no-@profile renders are untouched (byte-identical).
+    if top_level and rendered.count(_PROFILE_BANNER_PREFIX) > 1:
+        rendered = _mark_ignored_profile_banners(rendered)
+    return rendered
 
 
 _SOURCE_CATEGORY = {
@@ -19400,13 +19436,33 @@ _PROFILE_DIRECTIVE_RE = re.compile(
 # explicit @memory/@mimir directive in the source, a template section, or a
 # previous injection pass over an already-rendered file), the automatic block
 # is skipped so AGENTS.md content can never carry the same memory dump twice.
+#
+# #627 fix 3 — the pattern is EXACT: it matches only headers Perseus itself
+# generates (current + every historical variant the dedup was built to catch),
+# never memory-like user-authored headings. The pre-#627 pattern matched any
+# `persistent memory` / `long-term memory` prefix, so a user writing docs with
+# a section like "## Persistent Memory Design" silently lost injection.
 _MEMORY_SECTION_HEADER_RE = re.compile(
     r"(?im)^\s{0,3}#{1,6}\s+(?:"
-    r"persistent\s+memory\b"                                    # ## Persistent Memory (Mimir/Mneme)
-    r"|long-term\s+memory\b"                                    # ## Long-Term Memory (Mneme)
-    r"|(?:mimir|mneme|perseus\s+vault)\s*(?:—|--|-)?\s*persistent\s+cross-session\s+memory"
-    r"|(?:mimir|mneme|perseus\s+vault)\s+context\b"             # server-emitted block headers
+    r"persistent\s+memory\s*\((?:mimir|mneme|mnēmē|perseus\s+vault)\)"   # ## Persistent Memory (Mimir/Mneme)
+    r"|long-term\s+memory\s*\((?:mimir|mneme|mnēmē|perseus\s+vault)\)"  # ## Long-Term Memory (Mneme) — historical
+    r"|(?:mimir|mneme|mnēmē|perseus\s+vault)\s*(?:—|--|-)?\s*persistent\s+cross-session\s+memory"
+    r"|(?:mimir|mneme|mnēmē|perseus\s+vault)\s+context\b"       # server-emitted block headers
     r"|memory\s+recall\s+\(on\s+demand\)"                       # our own pointer (idempotency)
+    r")"
+)
+
+# #627 fix 3 — the pre-#627 loose pattern, kept ONLY for the warning path:
+# when this would have suppressed but the exact pattern above does not, the
+# heading is user-authored (e.g. "## Persistent Memory Design"). Injection
+# proceeds normally, with a stderr note so the near-miss is visible.
+_MEMORY_SECTION_HEADER_LOOSE_RE = re.compile(
+    r"(?im)^\s{0,3}#{1,6}\s+(?:"
+    r"persistent\s+memory\b"
+    r"|long-term\s+memory\b"
+    r"|(?:mimir|mneme|perseus\s+vault)\s*(?:—|--|-)?\s*persistent\s+cross-session\s+memory"
+    r"|(?:mimir|mneme|perseus\s+vault)\s+context\b"
+    r"|memory\s+recall\s+\(on\s+demand\)"
     r")"
 )
 
@@ -19473,11 +19529,32 @@ def _profile_inject_limit(profile: dict) -> int:
     return 5 if target <= 200_000 else 10
 
 
+def _strip_fenced_blocks(text: str) -> str:
+    """Drop fenced code-block lines (``` / ~~~, delimiters included) from text.
+
+    #627 fix 1: directive scans over raw source must agree with the render
+    loop about what is inside a fenced code block — a `@profile` shown in
+    documentation must not govern the render. Reuses the renderer's shared
+    fence-state helpers so the open/close rules can never drift.
+    """
+    fence = _new_fence_state()
+    return "\n".join(
+        line for line in text.splitlines() if not _fence_step(fence, line)
+    )
+
+
 def _scan_profile_name(source_text: str) -> str | None:
-    """Return the profile name selected by the first `@profile` directive."""
-    if not source_text:
+    """Return the profile name selected by the first `@profile` directive.
+
+    First-wins: when a document carries multiple `@profile` lines, the FIRST
+    one governs the render's memory posture (the renderer marks every
+    subsequent banner as ignored — #627 fix 2). Fence-aware (#627 fix 1):
+    a `@profile` inside a ``` / ~~~ code fence is documentation, not a
+    directive, and never changes posture.
+    """
+    if not source_text or "@profile" not in source_text:
         return None
-    m = _PROFILE_DIRECTIVE_RE.search(source_text)
+    m = _PROFILE_DIRECTIVE_RE.search(_strip_fenced_blocks(source_text))
     return m.group(1) if m else None
 
 
@@ -19553,7 +19630,10 @@ def _mneme_context_inject(
     De-duplication (#553 fix 1): when the rendered output already contains a
     persistent/long-term memory section (explicit @memory directive, template
     section, or a previous injection pass), nothing is appended — the same
-    memory block can never appear twice in one context.
+    memory block can never appear twice in one context. #627 fix 3: the gate
+    only recognizes exact Perseus-generated headers; user-authored headings
+    that merely look memory-like no longer suppress injection (a stderr note
+    flags the near-miss).
 
     Workspace scoping (#553 fix 3): recall calls that support it receive the
     active workspace hash so unrelated workspaces don't share one memory pool.
@@ -19571,9 +19651,21 @@ def _mneme_context_inject(
     if not mcfg.get("auto_inject", True):
         return None
 
-    # #553 fix 1: never append a second memory section.
-    if rendered and _MEMORY_SECTION_HEADER_RE.search(rendered):
-        return None
+    # #553 fix 1: never append a second memory section. #627 fix 3: only the
+    # exact Perseus-generated headers suppress; a memory-like USER heading
+    # (e.g. "## Persistent Memory Design") that the pre-#627 loose pattern
+    # would have swallowed injects normally, with a visible stderr note.
+    if rendered:
+        if _MEMORY_SECTION_HEADER_RE.search(rendered):
+            return None
+        loose = _MEMORY_SECTION_HEADER_LOOSE_RE.search(rendered)
+        if loose:
+            print(
+                "[perseus] memory dedup (#627): heading "
+                f"{loose.group(0).strip()!r} looks memory-like but is not a "
+                "Perseus-generated section — injecting normally.",
+                file=sys.stderr,
+            )
 
     # context_limit=0 means "inject nothing" — pointer AND dump. Use an
     # explicit None check so 0 is honored rather than falling back to the
@@ -20351,6 +20443,13 @@ def resolve_profile(args_str: str, cfg: dict,
     Accepts `@profile claude-sonnet-4-6` or `@profile model=claude-sonnet-4-6`.
     Unknown names fall back to the `default` profile deterministically, with
     an explicit note so a typo is visible rather than silent.
+
+    First-wins (#627): when a document carries multiple `@profile` lines,
+    only the FIRST non-fenced one governs the render's posture
+    (`_scan_profile_name`). Each directive still renders its banner, but the
+    renderer appends an "ignored — first @profile governs" note to every
+    banner after the first (`_mark_ignored_profile_banners`), so a
+    non-governing directive is never silently confusing.
     """
     mods = _parse_kv_modifiers(args_str)
     name = (mods.get("model") or "").strip()
@@ -20372,8 +20471,10 @@ def resolve_profile(args_str: str, cfg: dict,
     except (TypeError, ValueError):
         target = 200000
 
+    # _PROFILE_BANNER_PREFIX (renderer) — the marker the #627 first-wins
+    # post-pass keys on; keep the banner shape and the constant in lockstep.
     line = (
-        f"> 🎛 Context profile: **{requested}** — "
+        f"{_PROFILE_BANNER_PREFIX}{requested}** — "
         f"context target {target:,} tokens, memory: {posture}"
     )
     if not known:
