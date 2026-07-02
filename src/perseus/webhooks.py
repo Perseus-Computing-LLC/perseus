@@ -2,7 +2,9 @@ import threading
 import queue
 import time
 import json
-import urllib.request
+# #642(c): urllib.request is imported lazily inside _webhook_worker — it pulls
+# in http.client/email (~30 ms) and only the delivery path needs it. A
+# top-level import here would defeat the header's lazy urllib.request shim.
 import hmac
 import hashlib
 import os
@@ -25,6 +27,13 @@ _WEBHOOK_QUEUES = {}  # {ep_id: Queue}
 _WEBHOOK_THREADS = {} # {ep_id: Thread}
 _WEBHOOK_LOCK = threading.Lock()
 
+# #651: TOTAL budget (seconds) for the atexit webhook flush, across ALL
+# endpoints. The old per-thread join(timeout=10) meant one unreachable
+# endpoint mid-retry (5s+10s in-delivery sleeps) held EVERY CLI exit ~10s.
+# Updated from webhooks.flush_timeout_s on each _fire_webhook call so the
+# atexit hook (which has no cfg in scope) honors the operator's setting.
+_WEBHOOK_FLUSH_TIMEOUT_S = 3.0
+
 def _expand_env_vars(s):
     if not isinstance(s, str): return s
     return re.sub(r"\${(\w+)}", lambda m: os.environ.get(m.group(1), m.group(0)), s)
@@ -46,6 +55,13 @@ def _fire_webhook(event: str, payload: dict, cfg: dict) -> None:
     wh_cfg = cfg.get("webhooks", {})
     if not wh_cfg.get("enabled", True):
         return
+
+    # #651: capture the operator's exit-flush budget for the atexit hook.
+    global _WEBHOOK_FLUSH_TIMEOUT_S
+    try:
+        _WEBHOOK_FLUSH_TIMEOUT_S = float(wh_cfg.get("flush_timeout_s", 3.0))
+    except (TypeError, ValueError):
+        pass  # malformed config: keep the previous/default budget
 
     endpoints = wh_cfg.get("endpoints", [])
     if not endpoints:
@@ -119,6 +135,11 @@ def _fire_webhook(event: str, payload: dict, cfg: dict) -> None:
             _WEBHOOK_QUEUES[ep_id].put((event, payload.copy(), datetime.now(timezone.utc).isoformat(), cfg))
 
 def _webhook_worker(url, ep, wh_cfg, q):
+    # #642(c): lazy — only webhook delivery pays the urllib.request import
+    # cost (~30 ms of http.client/email), not every CLI cold start. Runs on
+    # the worker thread, off the render critical path.
+    import urllib.request
+    import urllib.error
     retry_cfg = wh_cfg.get("retry", {"max_attempts": 3, "backoff_s": 5})
     max_attempts = retry_cfg.get("max_attempts", 3)
     base_backoff = retry_cfg.get("backoff_s", 5)
@@ -241,11 +262,30 @@ def _webhook_worker(url, ep, wh_cfg, q):
         q.task_done()
 
 def _wait_for_webhooks():
-    """Wait for all pending webhooks to be delivered before exit."""
+    """Flush pending webhooks at exit, bounded by a TOTAL deadline (#651).
+
+    Delivery-vs-latency tradeoff: workers are daemon threads, so anything not
+    delivered inside the budget is dropped at interpreter exit — but a
+    monitoring-integration outage must not add 10s to every CLI call. Budget:
+    webhooks.flush_timeout_s (default 3s), shared across ALL endpoints.
+    """
     with _WEBHOOK_LOCK:
+        if not _WEBHOOK_THREADS:
+            return
+        # Undelivered work? (unfinished_tasks counts queued + in-flight items;
+        # sentinels aren't queued yet.) Decides whether to announce the pause.
+        pending = any(q.unfinished_tasks > 0 for q in _WEBHOOK_QUEUES.values())
         for ep_id, q in _WEBHOOK_QUEUES.items():
-            q.put(None)
-        for ep_id, t in _WEBHOOK_THREADS.items():
-            t.join(timeout=10)
+            q.put(None)  # sentinel: worker exits after draining
+        threads = list(_WEBHOOK_THREADS.values())
+    if pending:
+        # #651: make the exit pause attributable instead of a silent hang.
+        print("Perseus: flushing webhooks…", file=sys.stderr)
+    deadline = time.monotonic() + _WEBHOOK_FLUSH_TIMEOUT_S
+    for t in threads:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        t.join(timeout=remaining)
 
 atexit.register(_wait_for_webhooks)

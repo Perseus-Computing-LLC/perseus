@@ -522,6 +522,9 @@ DEFAULT_CONFIG["observability"] = {
 DEFAULT_CONFIG["webhooks"] = {
     "enabled": True,
     "timeout_s": 10,
+    # Total atexit delivery-flush budget across all endpoints (#651): a dead
+    # endpoint must not hold CLI exit for its full per-delivery retry cycle.
+    "flush_timeout_s": 3.0,
     "retry": {
         "max_attempts": 3,
         "backoff_s": 5,

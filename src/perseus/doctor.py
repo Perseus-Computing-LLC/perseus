@@ -114,11 +114,20 @@ def resolve_health(args_str: str, cfg: dict, workspace: Path | None = None) -> s
 # ─────────────────────────────── Doctor ──────────────────────────────────────
 
 def _find_version() -> str:
-    """Read version from VERSION file in repo root if present, else use baked-in."""
+    """Read version from VERSION file in repo root if present, else use baked-in.
+
+    #644: only honor a VERSION file that sits beside a repo marker (.git or
+    scripts/build.py). The walk covers ALL ancestors of the artifact, so an
+    unrelated VERSION file anywhere above a deployed perseus.py used to
+    silently override the baked-in version reported by --version and MCP
+    serverInfo — wrong version strings in support tickets are expensive.
+    """
     start = Path(__file__).resolve().parent
     for p in [start] + list(start.parents):
         candidate = p / "VERSION"
-        if candidate.exists():
+        if candidate.exists() and (
+            (p / ".git").exists() or (p / "scripts" / "build.py").exists()
+        ):
             return candidate.read_text(encoding="utf-8").strip()
     return _PERSEUS_VERSION  # fallback to build-time injected literal
 
