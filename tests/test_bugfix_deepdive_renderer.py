@@ -474,12 +474,22 @@ class TestIssue647RedactionFailClosed:
         )
         assert any(ev == "cache_redaction_failed" for ev, _ in events)
 
-    def test_redaction_error_leaves_session_cache_usable(self, tmp_path, monkeypatch):
-        """Session (in-memory) caching never touches disk and stays available."""
+    def test_redaction_error_fails_closed_for_session_too(self, tmp_path, monkeypatch):
+        """#657 extended the redact-before-store contract to the session
+        (in-memory) tier, so the #647 fail-closed policy now applies there as
+        well: a redaction error skips the store instead of keeping the raw
+        value resident for the process lifetime. A miss is safe — the
+        directive re-resolves on the next render. (Pre-#657 this test
+        asserted the raw value was stored, because the session branch
+        returned before redaction ran at all.)"""
         cfg = _cfg(tmp_path)
         monkeypatch.setattr(
             perseus, "redact_text",
             lambda value, cfg: (_ for _ in ()).throw(RuntimeError("boom")),
         )
+        perseus.cache_set("k647s", "value", "session", None, cfg)
+        assert perseus.cache_get("k647s", "session", None, cfg) is None
+        # The session tier itself stays usable once redaction recovers.
+        monkeypatch.setattr(perseus, "redact_text", lambda value, cfg: (value, {}))
         perseus.cache_set("k647s", "value", "session", None, cfg)
         assert perseus.cache_get("k647s", "session", None, cfg) == "value"
