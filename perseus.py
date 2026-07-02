@@ -14281,9 +14281,14 @@ def _deterministic_narrative(
             if _line.startswith("## "):
                 _h_name = _line[3:].strip().lower().rstrip(":")
                 _in_custom = _h_name not in _std_headings
+                # #549: only custom headings enter the preserved block —
+                # standard headings (and their bodies) are rebuilt above
+                # and must not leak in as bare duplicates.
                 if _in_custom:
                     _custom_sections.append("")
-            if _in_custom or _line.startswith("## "):
+                    _custom_sections.append(_line)
+                continue
+            if _in_custom:
                 _custom_sections.append(_line)
         if _custom_sections:
             result += "\n---\n## Operator-Added Sections\n\n"
