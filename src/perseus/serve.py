@@ -50,6 +50,8 @@ def cmd_render(args, cfg):
             "source": str(source_path),
             "workspace": str(workspace),
             "version": _PERSEUS_VERSION,
+            # #605: stable id for outcome feedback — `perseus feedback <render_id> ...`
+            "render_id": _bandit_render_id(text, workspace),
             "tier": max_tier,
             "summary": {
                 "directive_count": _stats["directive_count"],

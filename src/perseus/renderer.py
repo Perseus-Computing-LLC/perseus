@@ -1430,6 +1430,17 @@ def _render_lines(
                 i += 1
                 continue
 
+            # ── @bandit decision point (#605) ─────────────────────────────
+            # Config-gated adaptive include/drop (`render.bandit: auto` or a
+            # top-level `@bandit` line — DEFAULT OFF). With no active bandit
+            # context this is a no-op and the render is byte-identical to
+            # previous behavior. Safety floors: @constraint/@prompt/@validate
+            # never reach this path (block directives), and the policy never
+            # drops tier-1 or configured-floor directives.
+            if _bandit_drop_directive(directive, line):
+                i += 1
+                continue
+
             raw_line = line
             pipe_stages = _parse_pipe_stages(raw_line)
             if len(pipe_stages) > 1:
@@ -1693,6 +1704,19 @@ def render_source(
 
     if _skipped_directives is None:
         _skipped_directives = []
+
+    # ── @bandit (#605): adaptive, outcome-driven directive selection ──────
+    # Config-gated via `render.bandit` or a top-level `@bandit` line (DEFAULT
+    # OFF). When inactive, _bandit_begin returns the lines unchanged and no
+    # context — the render is byte-identical to previous behavior.
+    _bandit_ctx = None
+    if _include_depth == 0:
+        body_lines, _bandit_ctx = _bandit_begin(body_lines, cfg, workspace, source_text)
+        if _bandit_ctx is not None and _directive_collector is None:
+            # The ledger needs per-directive token costs; reuse the existing
+            # collector mechanism when the caller didn't request one.
+            _directive_collector = []
+
     result = _render_lines(body_lines, cfg, workspace, None,
                          _include_depth=_include_depth,
                          _include_path_chain=_include_path_chain,
@@ -1702,6 +1726,10 @@ def render_source(
                          max_tier=max_tier,
                          _skipped_directives=_skipped_directives,
                          no_cache=no_cache)
+
+    # ── @bandit (#605): persist directive costs + decisions, clear context ──
+    if _bandit_ctx is not None:
+        _bandit_end(_bandit_ctx, _directive_collector)
 
     # ── Context Manifest: report skipped directives for transparency ──
     if _include_depth == 0 and _skipped_directives and max_tier < 3:
