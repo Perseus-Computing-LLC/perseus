@@ -1122,6 +1122,17 @@ def _render_lines(
                 _pre_skip, _ = _check_directive_tier(raw_line, "@query", max_tier, None)
                 if _pre_skip:
                     continue
+                # #625: consult the bandit policy BEFORE pre-executing. A
+                # @query the bandit drops must not pay the shell-execution
+                # cost here — for @query, execution is the expensive and
+                # sensitive part, not the prompt tokens the drop saves.
+                # Decisions are memoized per arm on the active context, so
+                # the main loop's decision point (_bandit_drop_directive
+                # below) reuses exactly this decision — no re-sampling drift
+                # between pre-scan and render loop. No active bandit context
+                # (the default) ⇒ no-op, pre-scan behavior unchanged.
+                if _bandit_drop_directive("@query", raw_line):
+                    continue
                 # #581: pipe lines (@query ... | @x) are executed by
                 # _execute_pipe in the main loop; pre-executing them here ran
                 # the query twice.
@@ -1484,6 +1495,21 @@ def _render_lines(
             # sentinel somehow survives the executor, fall through to normal
             # sequential resolution instead of appending None to output.
             if directive == "@query" and query_results.get(i) is not None:
+                # #625: prefetched costs must still reach the collector, or
+                # the ledger under-charges prefetched arms and biases future
+                # include/drop decisions toward directives whose cost the
+                # prefetch path hid. Gated on an active bandit context so the
+                # default render path (and its collector consumers, e.g.
+                # --explain manifests) is byte-identical to before.
+                if _directive_collector is not None and _BANDIT_ACTIVE is not None:
+                    _directive_collector.append({
+                        "name": directive.lstrip("@"),
+                        "args": _parse_cache_modifier(raw_args)[0].strip(),
+                        "output": query_results[i],
+                        "cached": False,
+                        "prefetched": True,
+                        "duration_ms": 0,
+                    })
                 output.append(query_results[i])
                 i += 1
                 continue
@@ -1779,15 +1805,25 @@ def render_source(
             # collector mechanism when the caller didn't request one.
             _directive_collector = []
 
-    result = _render_lines(body_lines, cfg, workspace, None,
-                         _include_depth=_include_depth,
-                         _include_path_chain=_include_path_chain,
-                         _include_inode_chain=_include_inode_chain,
-                         _directive_collector=_directive_collector,
-                         _stats=_stats,
-                         max_tier=max_tier,
-                         _skipped_directives=_skipped_directives,
-                         no_cache=no_cache)
+    try:
+        result = _render_lines(body_lines, cfg, workspace, None,
+                             _include_depth=_include_depth,
+                             _include_path_chain=_include_path_chain,
+                             _include_inode_chain=_include_inode_chain,
+                             _directive_collector=_directive_collector,
+                             _stats=_stats,
+                             max_tier=max_tier,
+                             _skipped_directives=_skipped_directives,
+                             no_cache=no_cache)
+    except BaseException:
+        # #622: a directive error aborting the render must not leave the
+        # module-global bandit context set — direct _render_lines callers
+        # (LSP hover/render, lsp.py) never call _bandit_begin and would
+        # otherwise inherit stale drop decisions. Abort clears the context
+        # without persisting the incomplete render to the ledger.
+        if _bandit_ctx is not None:
+            _bandit_abort(_bandit_ctx)
+        raise
 
     # ── @bandit (#605): persist directive costs + decisions, clear context ──
     if _bandit_ctx is not None:

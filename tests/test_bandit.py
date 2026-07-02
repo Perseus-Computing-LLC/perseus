@@ -395,6 +395,137 @@ def test_explain_bandit_reports_decisions_that_match_the_render(tmp_path, ws, mo
         assert (marker in out) == (d["decision"] == "include"), d
 
 
+# ── Wave-5 hardening (#622–#625) ─────────────────────────────────────────────
+
+def test_aborted_render_clears_stale_bandit_context(tmp_path, ws, monkeypatch):
+    """#622: a directive error escaping _render_lines must not leave
+    _BANDIT_ACTIVE set — direct _render_lines callers (the LSP hover/render
+    path) never go through _bandit_begin and would inherit stale drop
+    decisions. The aborted render must also not persist to the ledger."""
+    c = _cfg(tmp_path, bandit="record")
+    real = perseus._call_resolver
+    calls = {"n": 0}
+
+    def _boom_once(spec, args, cfg_, workspace):
+        if calls["n"] == 0:
+            calls["n"] += 1
+            raise RuntimeError("boom mid-render")
+        return real(spec, args, cfg_, workspace)
+
+    monkeypatch.setattr(perseus, "_call_resolver", _boom_once)
+    with pytest.raises(RuntimeError, match="boom mid-render"):
+        perseus.render_source(SOURCE, c, ws)
+    assert perseus._BANDIT_ACTIVE is None, "#622: stale context survived the abort"
+    assert not _ledger_path(c, ws).exists(), "aborted render must not persist"
+
+    # A subsequent plain _render_lines render (the LSP path, no _bandit_begin)
+    # is unaffected: nothing is dropped.
+    out = perseus._render_lines(SOURCE.splitlines()[1:], _cfg(tmp_path), ws)
+    assert GOOD_NOTE in out and "low value boilerplate" in out
+
+
+def test_ledger_arms_are_pruned_with_last_seen_eviction(tmp_path, ws):
+    """#623: arms beyond render.bandit_max_arms are evicted oldest-seen-first
+    on persist; the current render's arms and the most-recently-seen synthetic
+    arms survive."""
+    c = _cfg(tmp_path, bandit="record", bandit_max_arms=5)
+    ledger = perseus._bandit_empty_ledger(ws)
+    ledger["seq"] = 10
+    for i in range(10):
+        ledger["arms"][f"@read#{i:08d}"] = {"name": "@read", "good": 1, "bad": 0,
+                                            "tokens_sum": 10, "tokens_n": 1,
+                                            "last_seen": i}
+    perseus._bandit_save_ledger(c, ws, ledger)
+
+    perseus.render_source(SOURCE, c, ws)  # prune-on-persist via finish()
+
+    arms = perseus._bandit_load_ledger(c, ws)["arms"]
+    assert len(arms) <= 5
+    # the render's own arms are the most recently seen — they survive
+    assert {ARM_GOOD, ARM_BAD, ARM_ENV} <= set(arms)
+    # of the synthetic arms, only the most-recently-seen survive
+    assert sorted(a for a in arms if a.startswith("@read#0")) == \
+        ["@read#00000008", "@read#00000009"]
+
+
+def test_prune_arms_treats_legacy_arms_as_oldest(tmp_path, ws):
+    """#623: arms from pre-#623 ledgers (no last_seen) are evicted first."""
+    c = _cfg(tmp_path, bandit_max_arms=2)
+    ledger = perseus._bandit_empty_ledger(ws)
+    ledger["arms"]["@read#legacy01"] = {"name": "@read", "good": 1, "bad": 0}
+    ledger["arms"]["@read#recent01"] = {"name": "@read", "good": 1, "bad": 0, "last_seen": 3}
+    ledger["arms"]["@read#recent02"] = {"name": "@read", "good": 1, "bad": 0, "last_seen": 7}
+    perseus._bandit_prune_arms(ledger, c)
+    assert set(ledger["arms"]) == {"@read#recent01", "@read#recent02"}
+    # garbage cap config falls back to the default (no crash, nothing pruned)
+    c_bad = _cfg(tmp_path, bandit_max_arms="lots")
+    perseus._bandit_prune_arms(ledger, c_bad)
+    assert set(ledger["arms"]) == {"@read#recent01", "@read#recent02"}
+
+
+def test_malformed_seed_and_budget_fall_back_with_warning(tmp_path, ws, capsys):
+    """#624: garbage bandit_seed/bandit_budget config values must not raise
+    out of an opted-in render — default + stderr warning, like the sibling
+    threshold/min_trials parsing."""
+    c = _cfg(tmp_path, bandit="auto", bandit_seed="not-a-number", bandit_budget="lots")
+    out = perseus.render_source(SOURCE, c, ws)
+    assert GOOD_NOTE in out and "low value boilerplate" in out  # cold start: all included
+    err = capsys.readouterr().err
+    assert "bandit_seed" in err and "bandit_budget" in err
+
+    ctx = perseus.BanditContext(c, ws, "corpus", "auto")
+    assert ctx.budget is None  # malformed budget → unlimited (the default)
+
+
+def test_prescan_does_not_execute_bandit_dropped_query(tmp_path, ws, monkeypatch):
+    """#625 (execution side): a @query arm the bandit drops must not be
+    pre-executed by the parallel pre-scan — for @query, execution is the
+    expensive/sensitive part. The resolver spy stands in for the subprocess."""
+    c = _cfg(tmp_path, bandit="auto", bandit_seed=1, parallel_queries=True)
+    src = '@perseus\n# corpus\n@query "spy-dropped"\n@query "spy-kept"\n'
+    _seed_arm_stats(c, ws, _arm("@query", '"spy-dropped"'), good=0, bad=100)
+
+    calls: list[str] = []
+    spec = perseus.DIRECTIVE_REGISTRY["@query"]
+
+    def _spy(args, cfg_, workspace=None):
+        calls.append(args)
+        return f"ran:{args}"
+
+    monkeypatch.setitem(perseus.DIRECTIVE_REGISTRY, "@query", spec._replace(resolver=_spy))
+    out = perseus.render_source(src, c, ws)
+    assert calls == ['"spy-kept"'], "dropped @query must not execute in the pre-scan"
+    assert 'ran:"spy-kept"' in out
+    assert "spy-dropped" not in out
+
+    # The pre-scan decision and the main-loop decision point are one memoized
+    # decision per arm — no re-sampling drift between the two call sites.
+    decisions = {d["arm"]: d for d in perseus._BANDIT_LAST.decisions}
+    assert decisions[_arm("@query", '"spy-dropped"')]["decision"] == "drop"
+    assert decisions[_arm("@query", '"spy-kept"')]["decision"] == "include"
+    assert len(perseus._BANDIT_LAST.decisions) == 2
+
+
+def test_prefetched_query_costs_reach_the_ledger(tmp_path, ws, monkeypatch):
+    """#625 (accounting side): @query results resolved by the parallel
+    pre-scan must still be charged to the collector/ledger, or future
+    include/drop decisions are biased toward arms whose cost the prefetch
+    path hid."""
+    c = _cfg(tmp_path, bandit="record", parallel_queries=True)
+    src = '@perseus\n# corpus\n@query "spy-a"\n@query "spy-b"\n'
+    spec = perseus.DIRECTIVE_REGISTRY["@query"]
+    monkeypatch.setitem(
+        perseus.DIRECTIVE_REGISTRY, "@query",
+        spec._replace(resolver=lambda a, c_, w=None: f"prefetched output for {a}"))
+
+    out = perseus.render_source(src, c, ws)
+    assert "prefetched output" in out
+    arms = perseus._bandit_load_ledger(c, ws)["arms"]
+    for args in ('"spy-a"', '"spy-b"'):
+        st = arms[_arm("@query", args)]
+        assert st["tokens_n"] >= 1 and st["tokens_sum"] > 0, st
+
+
 def test_explain_is_read_only(tmp_path, ws, monkeypatch):
     """explain must never mutate the ledger (bandit_record=False)."""
     c = _cfg(tmp_path, bandit="record")

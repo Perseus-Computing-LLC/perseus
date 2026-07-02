@@ -125,6 +125,40 @@ def _bandit_save_ledger(cfg: dict, workspace, ledger: dict) -> None:
     os.replace(tmp.name, path)
 
 
+def _bandit_max_arms(cfg: dict) -> int:
+    """#623: cap on persisted arms, configurable via render.bandit_max_arms
+    (defensive parsing, like bandit_max_renders)."""
+    try:
+        return int(cfg.get("render", {}).get("bandit_max_arms", 200) or 200)
+    except (TypeError, ValueError):
+        return 200
+
+
+def _bandit_prune_arms(ledger: dict, cfg: dict) -> None:
+    """#623: the renders history is capped (bandit_max_renders) but arm
+    identity folds in directive args, so templated args (timestamps, rotating
+    paths, generated queries) grow the arms map monotonically. Cap it with
+    last-seen eviction: every render/feedback that touches an arm stamps it
+    with the ledger's monotone render sequence (`seq`); when the map exceeds
+    render.bandit_max_arms, the oldest-seen arms are evicted first. Arms from
+    legacy ledgers (no last_seen) are treated as oldest."""
+    max_arms = _bandit_max_arms(cfg)
+    arms = ledger.get("arms")
+    if not isinstance(arms, dict) or len(arms) <= max_arms:
+        return
+
+    def _last_seen(item):
+        key, st = item
+        try:
+            seen = int(st.get("last_seen", 0) or 0) if isinstance(st, dict) else 0
+        except (TypeError, ValueError):
+            seen = 0
+        return (seen, key)  # deterministic tiebreak on the arm key
+
+    for key, _st in sorted(arms.items(), key=_last_seen)[: len(arms) - max_arms]:
+        del arms[key]
+
+
 # ── Identity helpers ──────────────────────────────────────────────────────────
 
 def _bandit_norm_name(name: str) -> str:
@@ -168,16 +202,30 @@ class BanditContext:
         self.render_id = _bandit_render_id(source_text, workspace)
         self.ledger = _bandit_load_ledger(cfg, workspace)
 
+        # #624: config parsing is defensive across the board — a malformed
+        # seed/budget falls back to the default with a warning, mirroring the
+        # threshold/min_trials parsing below. A ValueError must never escape
+        # ledger construction and break an opted-in render.
         seed = overrides.get("seed", rcfg.get("bandit_seed"))
         if rng is not None:
             self.rng = rng
         elif seed is not None:
-            self.rng = random.Random(int(seed))
+            try:
+                self.rng = random.Random(int(seed))
+            except (TypeError, ValueError):
+                sys.stderr.write(
+                    f"perseus bandit: invalid bandit_seed {seed!r}; using unseeded RNG\n")
+                self.rng = random.Random()
         else:
             self.rng = random.Random()
 
         budget = overrides.get("budget", rcfg.get("bandit_budget"))
-        self.budget = int(budget) if budget else None
+        try:
+            self.budget = int(budget) if budget else None
+        except (TypeError, ValueError):
+            sys.stderr.write(
+                f"perseus bandit: invalid bandit_budget {budget!r}; budget disabled\n")
+            self.budget = None
         try:
             self.drop_threshold = float(
                 overrides.get("threshold", rcfg.get("bandit_drop_threshold", 0.5)) or 0.5)
@@ -196,6 +244,14 @@ class BanditContext:
 
         self.budget_used = 0.0
         self.decisions: list[dict] = []
+        # #625: one decision per arm per render. The parallel @query pre-scan
+        # consults the policy BEFORE the main loop reaches the same line; both
+        # call sites must agree or a query could be pre-executed and then
+        # dropped (paying the execution cost the drop was meant to save), or
+        # dropped from the pre-scan and then re-sampled as "include" with no
+        # prefetched result. Memoizing also keeps duplicate occurrences of one
+        # arm consistent within a single render.
+        self._memo: dict[str, bool] = {}
 
     # -- decision point -------------------------------------------------------
 
@@ -215,6 +271,8 @@ class BanditContext:
         """
         name = _bandit_norm_name(directive_name)
         arm = _bandit_arm_key(name, args)
+        if arm in self._memo:  # #625: pre-scan and main loop must agree
+            return self._memo[arm]
         stats = self.ledger["arms"].get(arm, {})
         good = int(stats.get("good", 0))
         bad = int(stats.get("bad", 0))
@@ -262,6 +320,7 @@ class BanditContext:
         info["decision"] = "include" if include else "drop"
         info["reason"] = reason
         self.decisions.append(info)
+        self._memo[arm] = not include
         return not include
 
     # -- post-render recording --------------------------------------------------
@@ -274,6 +333,12 @@ class BanditContext:
         are represented by the decision log instead (no cost this render)."""
         if not self.record:
             return
+        # #623: monotone render sequence for last-seen arm eviction.
+        try:
+            seq = int(self.ledger.get("seq", 0) or 0) + 1
+        except (TypeError, ValueError):
+            seq = 1
+        self.ledger["seq"] = seq
         directives: dict[str, dict] = {}
         for entry in collector or []:
             name = _bandit_norm_name(entry.get("name", ""))
@@ -304,6 +369,15 @@ class BanditContext:
                 arm, {"name": name, "good": 0, "bad": 0, "tokens_sum": 0, "tokens_n": 0})
             st["tokens_sum"] = int(st.get("tokens_sum", 0)) + tokens
             st["tokens_n"] = int(st.get("tokens_n", 0)) + 1
+            st["last_seen"] = seq
+
+        # #623: an arm that reached the decision point this render (including
+        # dropped arms — evicting them would reset their learning) counts as
+        # "seen" for eviction purposes.
+        for d in self.decisions:
+            st = self.ledger["arms"].get(d.get("arm"))
+            if isinstance(st, dict):
+                st["last_seen"] = seq
 
         render_entry = {
             "render_id": self.render_id,
@@ -324,6 +398,7 @@ class BanditContext:
                    if r.get("render_id") != self.render_id]
         renders.append(render_entry)
         self.ledger["renders"] = renders[-max_renders:]
+        _bandit_prune_arms(self.ledger, self.cfg)  # #623
         try:
             _bandit_save_ledger(self.cfg, self.workspace, self.ledger)
         except Exception as exc:  # persistence failure must never break a render
@@ -440,6 +515,19 @@ def _bandit_end(ctx: "BanditContext", collector: "list[dict] | None") -> None:
         _BANDIT_ACTIVE = None
 
 
+def _bandit_abort(ctx: "BanditContext") -> None:
+    """#622: aborted-render hook. Clears the module-global context WITHOUT
+    persisting — the render never completed, so its partial costs/decisions
+    must not reach the ledger, but the stale context must not leak into later
+    renders either. Direct _render_lines callers (the LSP hover/render path,
+    lsp.py) never go through _bandit_begin, so without this a bandit-enabled
+    render that raised mid-way would silently drop directives from a
+    subsequent hover render that never opted into bandit."""
+    global _BANDIT_ACTIVE
+    if _BANDIT_ACTIVE is ctx:
+        _BANDIT_ACTIVE = None
+
+
 # ── CLI: perseus feedback / perseus explain ──────────────────────────────────
 
 def _bandit_resolve_render(ledger: dict, render_id: str):
@@ -462,6 +550,12 @@ def _bandit_apply_outcome(ledger: dict, arm: str, name: str, outcome: str) -> No
         arm, {"name": name, "good": 0, "bad": 0, "tokens_sum": 0, "tokens_n": 0})
     key = "good" if outcome == "good" else "bad"
     st[key] = int(st.get(key, 0)) + 1
+    # #623: outcome feedback refreshes recency — an arm the user is actively
+    # scoring must not be evicted before its learning pays off.
+    try:
+        st["last_seen"] = int(ledger.get("seq", 0) or 0)
+    except (TypeError, ValueError):
+        pass
 
 
 def _cmd_feedback(args, cfg) -> int:
@@ -520,6 +614,7 @@ def _cmd_feedback(args, cfg) -> int:
             _bandit_apply_outcome(ledger, arm, rendered[arm].get("name", arm), outcome)
             applied.append({"arm": arm, "outcome": outcome, "source": "cli"})
 
+    _bandit_prune_arms(ledger, cfg)  # #623
     _bandit_save_ledger(cfg, ws, ledger)
     result = {"render_id": entry.get("render_id"), "applied": applied}
     if getattr(args, "json", False):

@@ -60,6 +60,7 @@ DEFAULT_CONFIG = {
         "bandit_floor": [],           # extra directive names never auto-dropped (on top of @constraint/tier-1)
         "bandit_record": True,        # persist ledger updates after renders (`perseus explain` sets False)
         "bandit_max_renders": 50,     # render entries kept in the ledger for feedback correlation
+        "bandit_max_arms": 200,       # #623: arms kept in the ledger (last-seen eviction beyond the cap)
     },
     "checkpoints": {
         "store": str(PERSEUS_HOME / "checkpoints"),
