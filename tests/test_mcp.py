@@ -500,3 +500,116 @@ def test_server_card_content_length_is_bytes():
     assert content_length == len(body)
     card = json.loads(body.decode("utf-8"))  # truncated JSON would raise here
     assert card["serverInfo"]["name"] == "perseus"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# #641: zero-arg perseus_date must return a date, not the format string
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_perseus_date_zero_arg_returns_current_date(tmp_path):
+    """#641 regression: tools/call perseus_date with NO arguments must return
+    a real, current date. Pre-fix the zero-arg default was strftime syntax
+    ("%Y-%m-%d %H:%M:%S"), which resolve_date does not substitute — every MCP
+    client's happy path got the literal format string back verbatim."""
+    from datetime import datetime
+    msg = {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+           "params": {"name": "perseus_date", "arguments": {}}}
+    resp = perseus._handle_tools_call(msg, cfg(), tmp_path)
+    text = resp["result"]["content"][0]["text"].strip()
+    assert "%" not in text, f"format string leaked through: {text!r}"
+    parsed = datetime.strptime(text, "%Y-%m-%d %H:%M:%S")
+    # It is the CURRENT date/time, not a fixed or garbage value.
+    assert abs((parsed - datetime.now()).total_seconds()) < 300
+
+
+def test_perseus_date_strftime_format_also_mapped(tmp_path):
+    """#641: clients that were taught strftime syntax by the old tool
+    description keep working — resolve_date now maps %Y %m %d %H %M %S."""
+    from datetime import datetime
+    msg = {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+           "params": {"name": "perseus_date",
+                      "arguments": {"format": "%Y-%m-%dT%H:%M:%S"}}}
+    resp = perseus._handle_tools_call(msg, cfg(), tmp_path)
+    text = resp["result"]["content"][0]["text"].strip()
+    datetime.strptime(text, "%Y-%m-%dT%H:%M:%S")  # raises if unsubstituted
+
+
+def test_resolve_date_human_tokens_and_literals_still_work():
+    """#641: the strftime pre-pass must not disturb human tokens or literal
+    words (the #595 word-boundary protection)."""
+    import re as _re
+    from datetime import datetime
+    out = perseus.resolve_date('format="YYYY-MM-DD"')
+    datetime.strptime(out, "%Y-%m-%d")
+    # Literal words containing token substrings stay intact (#595).
+    out2 = perseus.resolve_date('format="zulu HHmm"')
+    assert _re.fullmatch(r"zulu \d{4}", out2), out2
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# #643: MCP serve loop observability + bounded readline
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _reset_mcp_session_stats():
+    for k in perseus._MCP_SESSION_STATS:
+        perseus._MCP_SESSION_STATS[k] = 0
+
+
+def test_read_message_oversized_line_capped_and_drained(monkeypatch, capsys):
+    """#643: a single line exceeding the cap must be drained in bounded chunks
+    (never fully buffered), counted, and reported as a parse error (-32700 at
+    the loop level); the NEXT line must still parse normally."""
+    import io
+    _reset_mcp_session_stats()
+    monkeypatch.setattr(perseus, "_MCP_MAX_LINE_BYTES", 64)
+    stream = io.StringIO("x" * 500 + "\n" + '{"jsonrpc": "2.0", "id": 1, "method": "ping"}\n')
+    try:
+        assert perseus._read_message(stream) is perseus._PARSE_ERROR
+        assert perseus._MCP_SESSION_STATS["oversized_lines"] == 1
+        # The oversized line was drained: the following message is intact.
+        nxt = perseus._read_message(stream)
+        assert isinstance(nxt, dict) and nxt["id"] == 1
+        # And EOF afterwards.
+        assert perseus._read_message(stream) is perseus._EOF
+        err = capsys.readouterr().err
+        assert "malformed client input" in err
+        assert "perseus_get_health" in err
+    finally:
+        _reset_mcp_session_stats()
+
+
+def test_malformed_line_counted_and_warning_rate_limited(capsys):
+    """#643: malformed lines are counted per session; stderr warns on the
+    first occurrence and every Nth after — not on every bad line."""
+    import io
+    _reset_mcp_session_stats()
+    try:
+        assert perseus._read_message(io.StringIO("this is not json\n")) is perseus._PARSE_ERROR
+        err1 = capsys.readouterr().err
+        assert "malformed client input #1" in err1
+        assert perseus._read_message(io.StringIO("still not json\n")) is perseus._PARSE_ERROR
+        err2 = capsys.readouterr().err
+        assert "malformed client input" not in err2  # rate-limited
+        assert perseus._MCP_SESSION_STATS["malformed_lines"] == 2
+    finally:
+        _reset_mcp_session_stats()
+
+
+def test_malformed_counters_surface_in_get_health(tmp_path, capsys):
+    """#643: perseus_get_health exposes the per-session malformed-input
+    counters so a misframing client is diagnosable from the client side."""
+    _reset_mcp_session_stats()
+    try:
+        c = cfg()
+        clean = perseus._call_tool("perseus_get_health", {}, c, tmp_path)
+        assert "MCP session: 0 malformed inputs" in clean
+        perseus._note_malformed("malformed_lines")
+        perseus._note_malformed("invalid_requests")
+        report = perseus._call_tool("perseus_get_health", {}, c, tmp_path)
+        assert "2 malformed input(s)" in report
+        assert "1 unparseable" in report
+        assert "1 non-object" in report
+    finally:
+        _reset_mcp_session_stats()

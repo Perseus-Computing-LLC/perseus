@@ -45,10 +45,27 @@ except Exception:
     pass
 
 import time
-import urllib.request
 import urllib.error
 import urllib.parse
 from datetime import datetime, timezone
+
+# ── Lazy urllib.request (#642c) ────────────────────────────────────────────
+# urllib.request drags in http.client/email (~30 ms of the ~150 ms stdlib
+# import tax on every cold start) but is only needed by network paths
+# (webhooks, self-update, LLM doctor check, federation, connectors). A PEP
+# 562 module __getattr__ on the urllib package imports it on first attribute
+# access, so the many existing `urllib.request.X` call sites work unchanged
+# while `perseus render`/`--version`/hook spawns skip the cost entirely.
+# (urllib.parse and urllib.error above stay eager: they're cheap and used on
+# hot paths.) Once anything does a real `import urllib.request`, the package
+# attribute is set and this shim is bypassed.
+def _perseus_lazy_urllib_request(name, _urllib=urllib):
+    if name == "request":
+        import urllib.request  # sets the attribute on the urllib package
+        return urllib.request
+    raise AttributeError(f"module 'urllib' has no attribute {name!r}")
+urllib.__getattr__ = _perseus_lazy_urllib_request
+
 from pathlib import Path
 
 import yaml  # pyyaml
@@ -893,7 +910,9 @@ import threading
 import queue
 import time
 import json
-import urllib.request
+# #642(c): urllib.request is imported lazily inside _webhook_worker — it pulls
+# in http.client/email (~30 ms) and only the delivery path needs it. A
+# top-level import here would defeat the header's lazy urllib.request shim.
 import hmac
 import hashlib
 import os
@@ -916,6 +935,13 @@ _WEBHOOK_QUEUES = {}  # {ep_id: Queue}
 _WEBHOOK_THREADS = {} # {ep_id: Thread}
 _WEBHOOK_LOCK = threading.Lock()
 
+# #651: TOTAL budget (seconds) for the atexit webhook flush, across ALL
+# endpoints. The old per-thread join(timeout=10) meant one unreachable
+# endpoint mid-retry (5s+10s in-delivery sleeps) held EVERY CLI exit ~10s.
+# Updated from webhooks.flush_timeout_s on each _fire_webhook call so the
+# atexit hook (which has no cfg in scope) honors the operator's setting.
+_WEBHOOK_FLUSH_TIMEOUT_S = 3.0
+
 def _expand_env_vars(s):
     if not isinstance(s, str): return s
     return re.sub(r"\${(\w+)}", lambda m: os.environ.get(m.group(1), m.group(0)), s)
@@ -937,6 +963,13 @@ def _fire_webhook(event: str, payload: dict, cfg: dict) -> None:
     wh_cfg = cfg.get("webhooks", {})
     if not wh_cfg.get("enabled", True):
         return
+
+    # #651: capture the operator's exit-flush budget for the atexit hook.
+    global _WEBHOOK_FLUSH_TIMEOUT_S
+    try:
+        _WEBHOOK_FLUSH_TIMEOUT_S = float(wh_cfg.get("flush_timeout_s", 3.0))
+    except (TypeError, ValueError):
+        pass  # malformed config: keep the previous/default budget
 
     endpoints = wh_cfg.get("endpoints", [])
     if not endpoints:
@@ -1010,6 +1043,11 @@ def _fire_webhook(event: str, payload: dict, cfg: dict) -> None:
             _WEBHOOK_QUEUES[ep_id].put((event, payload.copy(), datetime.now(timezone.utc).isoformat(), cfg))
 
 def _webhook_worker(url, ep, wh_cfg, q):
+    # #642(c): lazy — only webhook delivery pays the urllib.request import
+    # cost (~30 ms of http.client/email), not every CLI cold start. Runs on
+    # the worker thread, off the render critical path.
+    import urllib.request
+    import urllib.error
     retry_cfg = wh_cfg.get("retry", {"max_attempts": 3, "backoff_s": 5})
     max_attempts = retry_cfg.get("max_attempts", 3)
     base_backoff = retry_cfg.get("backoff_s", 5)
@@ -1131,12 +1169,31 @@ def _webhook_worker(url, ep, wh_cfg, q):
         q.task_done()
 
 def _wait_for_webhooks():
-    """Wait for all pending webhooks to be delivered before exit."""
+    """Flush pending webhooks at exit, bounded by a TOTAL deadline (#651).
+
+    Delivery-vs-latency tradeoff: workers are daemon threads, so anything not
+    delivered inside the budget is dropped at interpreter exit — but a
+    monitoring-integration outage must not add 10s to every CLI call. Budget:
+    webhooks.flush_timeout_s (default 3s), shared across ALL endpoints.
+    """
     with _WEBHOOK_LOCK:
+        if not _WEBHOOK_THREADS:
+            return
+        # Undelivered work? (unfinished_tasks counts queued + in-flight items;
+        # sentinels aren't queued yet.) Decides whether to announce the pause.
+        pending = any(q.unfinished_tasks > 0 for q in _WEBHOOK_QUEUES.values())
         for ep_id, q in _WEBHOOK_QUEUES.items():
-            q.put(None)
-        for ep_id, t in _WEBHOOK_THREADS.items():
-            t.join(timeout=10)
+            q.put(None)  # sentinel: worker exits after draining
+        threads = list(_WEBHOOK_THREADS.values())
+    if pending:
+        # #651: make the exit pause attributable instead of a silent hang.
+        print("Perseus: flushing webhooks…", file=sys.stderr)
+    deadline = time.monotonic() + _WEBHOOK_FLUSH_TIMEOUT_S
+    for t in threads:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        t.join(timeout=remaining)
 
 atexit.register(_wait_for_webhooks)
 import traceback
@@ -6906,6 +6963,21 @@ def resolve_date(args_str: str) -> str:
 
     now = datetime.now() + delta
 
+    # #641: also map strftime-style tokens (%Y %m %d %H %M %S) so clients
+    # that send strftime formats (many MCP agents were taught to by the old
+    # tool description) get a date instead of the format string verbatim.
+    # The leading % is an unambiguous marker, so no word-boundary guards are
+    # needed (unlike the human tokens below) and literal text is safe.
+    _strftime_values = {
+        "%Y": now.strftime("%Y"),
+        "%m": now.strftime("%m"),
+        "%d": now.strftime("%d"),
+        "%H": now.strftime("%H"),
+        "%M": now.strftime("%M"),
+        "%S": now.strftime("%S"),
+    }
+    fmt = re.sub(r"%[YmdHMS]", lambda m: _strftime_values[m.group(0)], fmt)
+
     # Map human tokens to strftime values in a SINGLE tokenizing pass (#595).
     # Sequential str.replace corrupted literal text containing token
     # substrings (e.g. the "z" in "zulu" became the timezone name).
@@ -8003,7 +8075,13 @@ def _tool_schema(name: str, description: str, props: dict, required: list[str] |
 _PARAM_DESCRIPTIONS: dict[str, dict[str, str]] = {
     "@agora":       {"status": "Filter tasks by status: open, in_progress, completed, cancelled"},
     "@auto-skill":  {"skill": "Name of the skill the agent should load before beginning work"},
-    "@date":        {"format": "strftime format string (default: %Y-%m-%d %H:%M:%S)"},
+    # #641: @date uses human tokens, not raw strftime — advertising strftime
+    # taught MCP clients a syntax resolve_date didn't substitute, so the
+    # format string came back verbatim. strftime %-tokens are now ALSO
+    # mapped (resolve_date), but the human-token syntax is canonical.
+    "@date":        {"format": "Date format using tokens YYYY, MM, DD, HH, mm, ss, z "
+                               "(default: YYYY-MM-DD HH:mm:ss). strftime-style "
+                               "%Y %m %d %H %M %S tokens are also accepted."},
     "@env":         {"required": "If 'true', render fails when the variable is unset",
                      "fallback": "Value to use when the environment variable is not set",
                      "schema": "JSON Schema to validate the env var value against"},
@@ -8629,7 +8707,11 @@ _DIRECTIVE_ARG_BUILDERS = {
     "@suggest": lambda args: args.get("task") or args.get("args", ""),
     "@services": lambda args: "",
     "@drift": lambda args: "",
-    "@date": lambda args: f'format="{_mcp_quote(args.get("format", "%Y-%m-%d %H:%M:%S"))}"',
+    # #641: default must be human-token syntax — resolve_date substitutes
+    # YYYY/MM/DD/HH/mm/ss tokens; a strftime default came back verbatim on
+    # the zero-arg path (every MCP client's happy path got the literal
+    # "%Y-%m-%d %H:%M:%S" instead of a date).
+    "@date": lambda args: f'format="{_mcp_quote(args.get("format", "YYYY-MM-DD HH:mm:ss"))}"',
     "@waypoint": lambda args: f'ttl={_mcp_int(args.get("ttl"), "ttl")}' if args.get("ttl") else "",
     "@session": lambda args: f'count={_mcp_int(args.get("count") or 3, "count")}',
     "@list": lambda args: f'path="{_mcp_quote(args.get("path", "."))}"',
@@ -8744,7 +8826,23 @@ def _call_tool(tool_name: str, arguments: dict, cfg: dict, workspace: Path) -> s
     if tool_name == "perseus_get_health":
         spec = DIRECTIVE_REGISTRY.get("@health")
         if spec and spec.resolver:
-            return _mcp_redact(_call_resolver(spec, "", cfg, workspace), cfg)
+            report = _call_resolver(spec, "", cfg, workspace)
+            # #643: surface the per-session malformed-input counters so a
+            # misframing client is diagnosable from the client side too
+            # (not only via the rate-limited stderr warnings).
+            s = _MCP_SESSION_STATS
+            total = s["malformed_lines"] + s["oversized_lines"] + s["invalid_requests"]
+            if total:
+                report += (
+                    f"\n- ⚠ MCP session: {total} malformed input(s) this session "
+                    f"({s['malformed_lines']} unparseable, "
+                    f"{s['oversized_lines']} oversized, "
+                    f"{s['invalid_requests']} non-object) — "
+                    f"the connected client may be misframing JSON-RPC messages"
+                )
+            else:
+                report += "\n- MCP session: 0 malformed inputs"
+            return _mcp_redact(report, cfg)
         return "Error: @health directive not registered"
 
     # Trust gate: block shell execution for sensitive tools
@@ -8871,6 +8969,55 @@ _PARSE_ERROR = object()
 # silently shut the server down.
 _EOF = object()
 
+# #643: cap on a single JSON-RPC line. readline() previously buffered an
+# unbounded line fully in memory before parsing — a buggy/hostile client
+# streaming a multi-GB line ate memory without limit. 32 MB comfortably
+# exceeds any legitimate MCP message. (Text-mode readline counts characters;
+# characters >= bytes decoded, so the byte bound holds.)
+_MCP_MAX_LINE_BYTES = 32 * 1024 * 1024
+
+# #643: per-session malformed-input counters. The serve loop previously
+# replied to bad input correctly but recorded NOTHING — an operator whose
+# client is misframing messages saw an entirely quiet server. Surfaced via
+# perseus_get_health and a rate-limited stderr warning (_note_malformed).
+_MCP_SESSION_STATS: dict = {
+    "malformed_lines": 0,   # not valid JSON (includes undecodable bytes)
+    "oversized_lines": 0,   # single line exceeded _MCP_MAX_LINE_BYTES
+    "invalid_requests": 0,  # valid JSON but not an object
+}
+
+# Warn on the first malformed input and every Nth after — visible without
+# flooding stderr when a broken client loops.
+_MCP_MALFORMED_WARN_EVERY = 100
+
+
+def _note_malformed(kind: str, detail: str = "") -> None:
+    """#643: count a malformed input and emit a rate-limited stderr warning."""
+    _MCP_SESSION_STATS[kind] = _MCP_SESSION_STATS.get(kind, 0) + 1
+    total = (_MCP_SESSION_STATS["malformed_lines"]
+             + _MCP_SESSION_STATS["oversized_lines"]
+             + _MCP_SESSION_STATS["invalid_requests"])
+    if total == 1 or total % _MCP_MALFORMED_WARN_EVERY == 0:
+        extra = f" ({detail})" if detail else ""
+        print(
+            f"Perseus MCP warning: malformed client input #{total} — "
+            f"{kind.replace('_', ' ')}{extra}. The client may be misframing "
+            f"messages; counters are visible via perseus_get_health.",
+            file=sys.stderr,
+        )
+        try:
+            sys.stderr.flush()
+        except Exception:
+            pass
+
+
+def _drain_to_newline(src) -> None:
+    """#643: discard the remainder of an oversized line in bounded chunks."""
+    while True:
+        chunk = src.readline(_MCP_MAX_LINE_BYTES)
+        if not chunk or chunk.endswith("\n"):
+            return
+
 
 def _read_message(stream=None):
     """Read a single JSON-RPC message from stdin (or given stream).
@@ -8881,16 +9028,25 @@ def _read_message(stream=None):
     """
     src = stream or sys.stdin
     try:
-        line = src.readline()
+        # #643: bounded read. A line hitting the cap without a newline is
+        # oversized — drain the rest without buffering it and treat the
+        # message as a parse error (-32700) rather than exhausting memory.
+        line = src.readline(_MCP_MAX_LINE_BYTES)
+        if line and len(line) >= _MCP_MAX_LINE_BYTES and not line.endswith("\n"):
+            _drain_to_newline(src)
+            _note_malformed("oversized_lines", f"line exceeded {_MCP_MAX_LINE_BYTES} bytes")
+            return _PARSE_ERROR
     except UnicodeDecodeError:
         # A byte the stdin codec can't decode (e.g. UTF-8 under a cp1252 stdin
         # on Windows) must not crash the server.
+        _note_malformed("malformed_lines", "undecodable bytes")
         return _PARSE_ERROR
     if not line:
         return _EOF
     try:
         return json.loads(line.strip())
     except (json.JSONDecodeError, ValueError):
+        _note_malformed("malformed_lines")
         return _PARSE_ERROR
 
 
@@ -8961,6 +9117,7 @@ def serve_mcp(cfg: dict, workspace: Path | None = None) -> int:
             # Pre-fix this AttributeError'd on msg.get() and killed the whole
             # server (and a bare `null` line looked like EOF). Reply Invalid
             # Request per JSON-RPC 2.0 and keep serving.
+            _note_malformed("invalid_requests")  # #643: count + rate-limited warn
             _write_message(_make_error(None, -32600, "Invalid Request: message must be a JSON object"))
             continue
         method = msg.get("method", "")
@@ -23323,11 +23480,20 @@ def resolve_health(args_str: str, cfg: dict, workspace: Path | None = None) -> s
 # ─────────────────────────────── Doctor ──────────────────────────────────────
 
 def _find_version() -> str:
-    """Read version from VERSION file in repo root if present, else use baked-in."""
+    """Read version from VERSION file in repo root if present, else use baked-in.
+
+    #644: only honor a VERSION file that sits beside a repo marker (.git or
+    scripts/build.py). The walk covers ALL ancestors of the artifact, so an
+    unrelated VERSION file anywhere above a deployed perseus.py used to
+    silently override the baked-in version reported by --version and MCP
+    serverInfo — wrong version strings in support tickets are expensive.
+    """
     start = Path(__file__).resolve().parent
     for p in [start] + list(start.parents):
         candidate = p / "VERSION"
-        if candidate.exists():
+        if candidate.exists() and (
+            (p / ".git").exists() or (p / "scripts" / "build.py").exists()
+        ):
             return candidate.read_text(encoding="utf-8").strip()
     return _PERSEUS_VERSION  # fallback to build-time injected literal
 
@@ -26256,6 +26422,38 @@ def cmd_explain(args, cfg) -> int:
 # Phase 24 — internal imports (stripped by build; defined earlier in concatenated artifact)
 
 
+def _atomic_write_text(out_path: Path, text: str) -> None:
+    """Write ``text`` to ``out_path`` atomically (tempfile + os.replace).
+
+    #646: rendered outputs (AGENTS.md, .hermes.md) are rewritten by
+    `perseus watch` while an agent may be mid-read, and a hard stop can land
+    mid-write — especially on Windows, where SIGTERM handlers never fire
+    (task kill = TerminateProcess), so any non-Ctrl-C stop of `watch` can
+    truncate the file. A torn context file silently degrades every agent
+    that reads it. Writing to a tempfile in the SAME directory and
+    os.replace()-ing guarantees readers see either the old or the new file,
+    never a partial one — mirroring the render cache's cache_set pattern.
+    """
+    import tempfile
+    tmp_name = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", prefix=out_path.name + ".", suffix=".tmp",
+            dir=str(out_path.parent), delete=False, encoding="utf-8",
+        ) as tmp:
+            tmp_name = tmp.name
+            tmp.write(text)
+        os.replace(tmp_name, out_path)
+    except BaseException:
+        # Never leave a stray tempfile beside the output on failure.
+        if tmp_name is not None:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
+        raise
+
+
 def cmd_render(args, cfg):
     source_path = Path(args.source).expanduser().resolve()
     if not source_path.exists():
@@ -26331,9 +26529,10 @@ def cmd_render(args, cfg):
         out_path = Path(output)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         # Preserve existing file ownership if output already exists (#228)
+        # #646: both branches write atomically — see _atomic_write_text.
         if out_path.exists():
             st = out_path.stat()
-            out_path.write_text(rendered, encoding="utf-8")
+            _atomic_write_text(out_path, rendered)
             # Preserve ownership where the platform supports it. os.chown is
             # absent on Windows — calling it would raise AttributeError (not
             # OSError) and crash the render; st_uid/st_gid are meaningless there.
@@ -26343,7 +26542,7 @@ def cmd_render(args, cfg):
                 except OSError:
                     pass  # chown may fail in containers without CAP_CHOWN
         else:
-            out_path.write_text(rendered, encoding="utf-8")
+            _atomic_write_text(out_path, rendered)
 
         # Versioned, timestamped audit line on every render-to-file (#431).
         # Scheduled jobs route stdout to a log (e.g. perseus-render.out.log),
@@ -28289,7 +28488,7 @@ def cmd_serve(args, cfg):
         import secrets
         print(secrets.token_urlsafe(32))
         return 0
-    from http.server import BaseHTTPRequestHandler, HTTPServer
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
     from urllib.parse import urlsplit, parse_qsl
 
     ws_raw = getattr(args, "workspace", None) or os.getcwd()
@@ -28403,7 +28602,16 @@ def cmd_serve(args, cfg):
         def log_message(self, fmt, *fargs):
             sys.stderr.write(f"[perseus serve] {fmt % fargs}\n")
 
-    server = HTTPServer((host, port), PerseusHandler)
+    # #652: ThreadingHTTPServer so /health (the monitoring probe) is never
+    # serialized behind a slow /context render — a probe timeout during a
+    # legitimate render looks like an outage. Handler state is safe under
+    # concurrency: PerseusHandler is instantiated per request, its closures
+    # capture cfg/workspace/host read-only, and _serve_render_endpoint is a
+    # pure dispatch whose render path is already exercised concurrently
+    # (doctor's ThreadPoolExecutor, #454; render cache writes are atomic).
+    # daemon_threads so a stuck in-flight request can't block shutdown.
+    server = ThreadingHTTPServer((host, port), PerseusHandler)
+    server.daemon_threads = True
     url = f"http://{host}:{port}"
     print(f"Perseus serve — {workspace}")
     print(f"  Listening on {url}")

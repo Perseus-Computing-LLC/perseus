@@ -320,3 +320,59 @@ def test_webhook_distinct_headers_get_distinct_workers(webhook_server):
     assert len(WebhookHandler.received_requests) >= 2
     seen = {r["headers"].get("X-Test-Endpoint") for r in WebhookHandler.received_requests}
     assert seen == {"alpha", "beta"}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# #651: atexit webhook flush must be bounded by a TOTAL budget
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_atexit_flush_bounded_total_and_attributed(monkeypatch, capsys):
+    """#651 regression: with an endpoint down mid-retry, the exit flush must
+    be bounded by webhooks.flush_timeout_s across ALL endpoints (pre-fix:
+    join(timeout=10) PER worker meant ~10s added to every CLI exit) and must
+    print an attributable "flushing webhooks" stderr line."""
+    import socket
+
+    # Isolate global worker state so this test cannot orphan another test's
+    # workers (the flush puts a poison sentinel in every registered queue).
+    monkeypatch.setattr(perseus, "_WEBHOOK_QUEUES", {})
+    monkeypatch.setattr(perseus, "_WEBHOOK_THREADS", {})
+
+    # A loopback port that refuses connections (bound then closed).
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+
+    cfg = {
+        "webhooks": {
+            "enabled": True,
+            "flush_timeout_s": 0.5,
+            # Long backoff guarantees the worker is mid-retry-sleep when we
+            # flush -- exactly the scenario that used to eat the join timeout.
+            "retry": {"max_attempts": 3, "backoff_s": 30},
+            "endpoints": [{
+                "url": f"http://127.0.0.1:{port}",
+                "events": ["on_render_complete"],
+                "timeout_s": 1,
+            }],
+        }
+    }
+    perseus._fire_webhook("on_render_complete", {"workspace": "/w"}, cfg)
+    time.sleep(0.4)  # let the worker pick up the item and fail attempt 1
+
+    start = time.monotonic()
+    perseus._wait_for_webhooks()
+    elapsed = time.monotonic() - start
+
+    assert elapsed < 3.0, f"exit flush not bounded: took {elapsed:.1f}s"
+    assert "flushing webhooks" in capsys.readouterr().err
+
+
+def test_atexit_flush_quiet_when_nothing_pending(monkeypatch, capsys):
+    """#651: no "flushing webhooks" noise when there is no undelivered work."""
+    monkeypatch.setattr(perseus, "_WEBHOOK_QUEUES", {})
+    monkeypatch.setattr(perseus, "_WEBHOOK_THREADS", {})
+    perseus._wait_for_webhooks()  # no workers at all: returns silently
+    assert "flushing webhooks" not in capsys.readouterr().err

@@ -53,7 +53,13 @@ def _tool_schema(name: str, description: str, props: dict, required: list[str] |
 _PARAM_DESCRIPTIONS: dict[str, dict[str, str]] = {
     "@agora":       {"status": "Filter tasks by status: open, in_progress, completed, cancelled"},
     "@auto-skill":  {"skill": "Name of the skill the agent should load before beginning work"},
-    "@date":        {"format": "strftime format string (default: %Y-%m-%d %H:%M:%S)"},
+    # #641: @date uses human tokens, not raw strftime — advertising strftime
+    # taught MCP clients a syntax resolve_date didn't substitute, so the
+    # format string came back verbatim. strftime %-tokens are now ALSO
+    # mapped (resolve_date), but the human-token syntax is canonical.
+    "@date":        {"format": "Date format using tokens YYYY, MM, DD, HH, mm, ss, z "
+                               "(default: YYYY-MM-DD HH:mm:ss). strftime-style "
+                               "%Y %m %d %H %M %S tokens are also accepted."},
     "@env":         {"required": "If 'true', render fails when the variable is unset",
                      "fallback": "Value to use when the environment variable is not set",
                      "schema": "JSON Schema to validate the env var value against"},
@@ -679,7 +685,11 @@ _DIRECTIVE_ARG_BUILDERS = {
     "@suggest": lambda args: args.get("task") or args.get("args", ""),
     "@services": lambda args: "",
     "@drift": lambda args: "",
-    "@date": lambda args: f'format="{_mcp_quote(args.get("format", "%Y-%m-%d %H:%M:%S"))}"',
+    # #641: default must be human-token syntax — resolve_date substitutes
+    # YYYY/MM/DD/HH/mm/ss tokens; a strftime default came back verbatim on
+    # the zero-arg path (every MCP client's happy path got the literal
+    # "%Y-%m-%d %H:%M:%S" instead of a date).
+    "@date": lambda args: f'format="{_mcp_quote(args.get("format", "YYYY-MM-DD HH:mm:ss"))}"',
     "@waypoint": lambda args: f'ttl={_mcp_int(args.get("ttl"), "ttl")}' if args.get("ttl") else "",
     "@session": lambda args: f'count={_mcp_int(args.get("count") or 3, "count")}',
     "@list": lambda args: f'path="{_mcp_quote(args.get("path", "."))}"',
@@ -795,7 +805,23 @@ def _call_tool(tool_name: str, arguments: dict, cfg: dict, workspace: Path) -> s
     if tool_name == "perseus_get_health":
         spec = DIRECTIVE_REGISTRY.get("@health")
         if spec and spec.resolver:
-            return _mcp_redact(_call_resolver(spec, "", cfg, workspace), cfg)
+            report = _call_resolver(spec, "", cfg, workspace)
+            # #643: surface the per-session malformed-input counters so a
+            # misframing client is diagnosable from the client side too
+            # (not only via the rate-limited stderr warnings).
+            s = _MCP_SESSION_STATS
+            total = s["malformed_lines"] + s["oversized_lines"] + s["invalid_requests"]
+            if total:
+                report += (
+                    f"\n- ⚠ MCP session: {total} malformed input(s) this session "
+                    f"({s['malformed_lines']} unparseable, "
+                    f"{s['oversized_lines']} oversized, "
+                    f"{s['invalid_requests']} non-object) — "
+                    f"the connected client may be misframing JSON-RPC messages"
+                )
+            else:
+                report += "\n- MCP session: 0 malformed inputs"
+            return _mcp_redact(report, cfg)
         return "Error: @health directive not registered"
 
     # Trust gate: block shell execution for sensitive tools
@@ -922,6 +948,55 @@ _PARSE_ERROR = object()
 # silently shut the server down.
 _EOF = object()
 
+# #643: cap on a single JSON-RPC line. readline() previously buffered an
+# unbounded line fully in memory before parsing — a buggy/hostile client
+# streaming a multi-GB line ate memory without limit. 32 MB comfortably
+# exceeds any legitimate MCP message. (Text-mode readline counts characters;
+# characters >= bytes decoded, so the byte bound holds.)
+_MCP_MAX_LINE_BYTES = 32 * 1024 * 1024
+
+# #643: per-session malformed-input counters. The serve loop previously
+# replied to bad input correctly but recorded NOTHING — an operator whose
+# client is misframing messages saw an entirely quiet server. Surfaced via
+# perseus_get_health and a rate-limited stderr warning (_note_malformed).
+_MCP_SESSION_STATS: dict = {
+    "malformed_lines": 0,   # not valid JSON (includes undecodable bytes)
+    "oversized_lines": 0,   # single line exceeded _MCP_MAX_LINE_BYTES
+    "invalid_requests": 0,  # valid JSON but not an object
+}
+
+# Warn on the first malformed input and every Nth after — visible without
+# flooding stderr when a broken client loops.
+_MCP_MALFORMED_WARN_EVERY = 100
+
+
+def _note_malformed(kind: str, detail: str = "") -> None:
+    """#643: count a malformed input and emit a rate-limited stderr warning."""
+    _MCP_SESSION_STATS[kind] = _MCP_SESSION_STATS.get(kind, 0) + 1
+    total = (_MCP_SESSION_STATS["malformed_lines"]
+             + _MCP_SESSION_STATS["oversized_lines"]
+             + _MCP_SESSION_STATS["invalid_requests"])
+    if total == 1 or total % _MCP_MALFORMED_WARN_EVERY == 0:
+        extra = f" ({detail})" if detail else ""
+        print(
+            f"Perseus MCP warning: malformed client input #{total} — "
+            f"{kind.replace('_', ' ')}{extra}. The client may be misframing "
+            f"messages; counters are visible via perseus_get_health.",
+            file=sys.stderr,
+        )
+        try:
+            sys.stderr.flush()
+        except Exception:
+            pass
+
+
+def _drain_to_newline(src) -> None:
+    """#643: discard the remainder of an oversized line in bounded chunks."""
+    while True:
+        chunk = src.readline(_MCP_MAX_LINE_BYTES)
+        if not chunk or chunk.endswith("\n"):
+            return
+
 
 def _read_message(stream=None):
     """Read a single JSON-RPC message from stdin (or given stream).
@@ -932,16 +1007,25 @@ def _read_message(stream=None):
     """
     src = stream or sys.stdin
     try:
-        line = src.readline()
+        # #643: bounded read. A line hitting the cap without a newline is
+        # oversized — drain the rest without buffering it and treat the
+        # message as a parse error (-32700) rather than exhausting memory.
+        line = src.readline(_MCP_MAX_LINE_BYTES)
+        if line and len(line) >= _MCP_MAX_LINE_BYTES and not line.endswith("\n"):
+            _drain_to_newline(src)
+            _note_malformed("oversized_lines", f"line exceeded {_MCP_MAX_LINE_BYTES} bytes")
+            return _PARSE_ERROR
     except UnicodeDecodeError:
         # A byte the stdin codec can't decode (e.g. UTF-8 under a cp1252 stdin
         # on Windows) must not crash the server.
+        _note_malformed("malformed_lines", "undecodable bytes")
         return _PARSE_ERROR
     if not line:
         return _EOF
     try:
         return json.loads(line.strip())
     except (json.JSONDecodeError, ValueError):
+        _note_malformed("malformed_lines")
         return _PARSE_ERROR
 
 
@@ -1013,6 +1097,7 @@ def serve_mcp(cfg: dict, workspace: Path | None = None) -> int:
             # Pre-fix this AttributeError'd on msg.get() and killed the whole
             # server (and a bare `null` line looked like EOF). Reply Invalid
             # Request per JSON-RPC 2.0 and keep serving.
+            _note_malformed("invalid_requests")  # #643: count + rate-limited warn
             _write_message(_make_error(None, -32600, "Invalid Request: message must be a JSON object"))
             continue
         method = msg.get("method", "")

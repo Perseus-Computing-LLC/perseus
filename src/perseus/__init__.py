@@ -40,10 +40,27 @@ except Exception:
     pass
 
 import time
-import urllib.request
 import urllib.error
 import urllib.parse
 from datetime import datetime, timezone
+
+# ── Lazy urllib.request (#642c) ────────────────────────────────────────────
+# urllib.request drags in http.client/email (~30 ms of the ~150 ms stdlib
+# import tax on every cold start) but is only needed by network paths
+# (webhooks, self-update, LLM doctor check, federation, connectors). A PEP
+# 562 module __getattr__ on the urllib package imports it on first attribute
+# access, so the many existing `urllib.request.X` call sites work unchanged
+# while `perseus render`/`--version`/hook spawns skip the cost entirely.
+# (urllib.parse and urllib.error above stay eager: they're cheap and used on
+# hot paths.) Once anything does a real `import urllib.request`, the package
+# attribute is set and this shim is bypassed.
+def _perseus_lazy_urllib_request(name, _urllib=urllib):
+    if name == "request":
+        import urllib.request  # sets the attribute on the urllib package
+        return urllib.request
+    raise AttributeError(f"module 'urllib' has no attribute {name!r}")
+urllib.__getattr__ = _perseus_lazy_urllib_request
+
 from pathlib import Path
 
 import yaml  # pyyaml

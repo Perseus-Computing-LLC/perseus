@@ -306,8 +306,10 @@ def test_serve_refuses_non_loopback_without_opt_in(tmp_path, capsys):
 
 def test_serve_non_loopback_with_token_reaches_http_server(tmp_path, capsys):
     import http.server as hs
-    sentinel = RuntimeError("reached HTTPServer")
-    class _Boom(hs.HTTPServer):
+    # #652: cmd_serve now constructs ThreadingHTTPServer, so that's the class
+    # to intercept.
+    sentinel = RuntimeError("reached ThreadingHTTPServer")
+    class _Boom(hs.ThreadingHTTPServer):
         def __init__(self, *a, **kw):
             raise sentinel
 
@@ -321,14 +323,14 @@ def test_serve_non_loopback_with_token_reaches_http_server(tmp_path, capsys):
     )
     local = cfg()
     local["serve"]["auth_token"] = "secret"
-    old = hs.HTTPServer
-    hs.HTTPServer = _Boom
+    old = hs.ThreadingHTTPServer
+    hs.ThreadingHTTPServer = _Boom
     try:
         with pytest.raises(RuntimeError) as exc:
             perseus.cmd_serve(ns, local)
         assert exc.value is sentinel
     finally:
-        hs.HTTPServer = old
+        hs.ThreadingHTTPServer = old
     assert "bearer auth enabled" in capsys.readouterr().err
 
 
@@ -362,11 +364,12 @@ def test_serve_loopback_does_not_require_opt_in():
     """Default bind (127.0.0.1) must not require the opt-in."""
     # We don't actually start the server — just verify the gate doesn't trip.
     # The gate is the first thing checked after host parsing, before any socket op.
-    # If it tripped we'd get rc=2 immediately. Instead we monkeypatch HTTPServer
-    # to raise sentinel so we know we reached past the gate.
+    # If it tripped we'd get rc=2 immediately. Instead we monkeypatch the server
+    # class (ThreadingHTTPServer since #652) to raise sentinel so we know we
+    # reached past the gate.
     import http.server as hs
-    sentinel = RuntimeError("reached HTTPServer")
-    class _Boom(hs.HTTPServer):
+    sentinel = RuntimeError("reached ThreadingHTTPServer")
+    class _Boom(hs.ThreadingHTTPServer):
         def __init__(self, *a, **kw):
             raise sentinel
     ns = argparse.Namespace(
@@ -374,15 +377,15 @@ def test_serve_loopback_does_not_require_opt_in():
     )
     try:
         # Patch via import-as
-        old = hs.HTTPServer
-        hs.HTTPServer = _Boom
+        old = hs.ThreadingHTTPServer
+        hs.ThreadingHTTPServer = _Boom
         try:
             perseus.cmd_serve(ns, cfg())
         except RuntimeError as exc:
             assert exc is sentinel  # we passed the gate
             return
         finally:
-            hs.HTTPServer = old
+            hs.ThreadingHTTPServer = old
     except SystemExit:
         # Shouldn't exit
         raise AssertionError("loopback bind triggered the non-loopback gate")
@@ -421,3 +424,130 @@ def test_cmd_render_existing_output_without_os_chown(tmp_path, monkeypatch):
     written = output.read_text()
     assert "stale" not in written  # existing file was overwritten
     assert "hello" in written
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# #646: rendered output files must be written atomically
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class _TornWrite(Exception):
+    """Simulates a hard kill landing mid-write (Windows task kill never runs
+    SIGTERM handlers, so `perseus watch` can die inside write_text)."""
+
+
+def test_render_output_never_torn_on_midwrite_interrupt(tmp_path, monkeypatch):
+    """#646 regression (fails pre-fix): interrupting the output write halfway
+    must leave either the complete OLD file or the complete NEW file -- never
+    a torn prefix. Pre-fix cmd_render wrote straight to the target via
+    Path.write_text; a mid-write death left a truncated context file, which
+    silently degrades every agent reading it. Post-fix the write lands in a
+    same-directory tempfile + os.replace, so the target is never written
+    directly."""
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr(perseus, "PERSEUS_HOME", home)
+
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    src = workspace / "ctx.md"
+    src.write_text(
+        "MARKER-BEGIN\n" + ("filler line for bulk\n" * 200) + "MARKER-END-SENTINEL\n",
+        encoding="utf-8",
+    )
+    out = workspace / "out.md"
+    out.write_text("OLD-COMPLETE-CONTENT", encoding="utf-8")
+
+    real_write_text = Path.write_text
+
+    def torn_write_text(self, data, *args, **kwargs):
+        if Path(self) == out:
+            # Half the bytes, then death -- the pre-fix direct-write path.
+            with open(self, "w", encoding="utf-8") as f:
+                f.write(data[: len(data) // 2])
+            raise _TornWrite()
+        return real_write_text(self, data, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", torn_write_text)
+
+    try:
+        perseus.cmd_render(
+            argparse.Namespace(command="render", source=str(src), output=str(out)),
+            {},
+        )
+    except _TornWrite:
+        pass
+
+    content = out.read_text(encoding="utf-8")
+    complete_old = content == "OLD-COMPLETE-CONTENT"
+    complete_new = "MARKER-BEGIN" in content and "MARKER-END-SENTINEL" in content
+    assert complete_old or complete_new, (
+        "torn output file (begin=%s, end=%s): %r"
+        % ("MARKER-BEGIN" in content, "MARKER-END-SENTINEL" in content, content[:80])
+    )
+    # No tempfile litter beside the output.
+    assert not list(workspace.glob("out.md.*.tmp"))
+
+
+def test_atomic_write_text_failure_leaves_target_intact(tmp_path, monkeypatch):
+    """#646: if the atomic write fails at any point, the existing output file
+    keeps its previous content and no temp file is left behind."""
+    out = tmp_path / "target.md"
+    out.write_text("OLD", encoding="utf-8")
+
+    def boom(src, dst):
+        raise OSError("simulated failure at replace time")
+
+    monkeypatch.setattr(os, "replace", boom)
+    with pytest.raises(OSError):
+        perseus._atomic_write_text(out, "NEW")
+    monkeypatch.undo()
+
+    assert out.read_text(encoding="utf-8") == "OLD"
+    assert not list(tmp_path.glob("target.md.*.tmp"))
+
+
+def test_atomic_write_text_writes_and_replaces(tmp_path):
+    """#646: happy path -- content lands complete, temp file is gone."""
+    out = tmp_path / "target.md"
+    out.write_text("OLD", encoding="utf-8")
+    perseus._atomic_write_text(out, "NEW-CONTENT")
+    assert out.read_text(encoding="utf-8") == "NEW-CONTENT"
+    assert list(tmp_path.iterdir()) == [out]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# #652: perseus serve must use a threading HTTP server
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_serve_uses_threading_http_server(tmp_path):
+    """#652 regression: cmd_serve must construct ThreadingHTTPServer (with
+    daemon threads) so /health -- the monitoring probe -- is never serialized
+    behind a slow /context render. Pre-fix it constructed plain HTTPServer."""
+    import http.server as hs
+    chosen = {}
+    sentinel = RuntimeError("constructed")
+
+    class _RecordThreading(hs.ThreadingHTTPServer):
+        def __init__(self, *a, **kw):
+            chosen["cls"] = "threading"
+            raise sentinel
+
+    class _RecordPlain(hs.HTTPServer):
+        def __init__(self, *a, **kw):
+            chosen["cls"] = "plain"
+            raise sentinel
+
+    ns = argparse.Namespace(
+        lsp=False, host="127.0.0.1", port=0, workspace=str(tmp_path),
+        i_understand_no_auth=False, generate_token=False,
+    )
+    old_t, old_p = hs.ThreadingHTTPServer, hs.HTTPServer
+    hs.ThreadingHTTPServer, hs.HTTPServer = _RecordThreading, _RecordPlain
+    try:
+        with pytest.raises(RuntimeError):
+            perseus.cmd_serve(ns, cfg())
+    finally:
+        hs.ThreadingHTTPServer, hs.HTTPServer = old_t, old_p
+    assert chosen.get("cls") == "threading"
