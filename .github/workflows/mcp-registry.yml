@@ -21,6 +21,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Wait for PyPI to serve this version
+        # The release event triggers this workflow and publish.yml (PyPI)
+        # concurrently; the registry validates the package against PyPI and
+        # loses that race (observed on v1.0.15: "PyPI package 'perseus-ctx'
+        # not found (status: 404)"). Poll until the version in VERSION is
+        # live on PyPI before publishing, up to ~10 minutes.
+        run: |
+          ver="$(tr -d '[:space:]' < VERSION)"
+          echo "waiting for perseus-ctx==$ver on PyPI"
+          for i in $(seq 1 60); do
+            if curl -fsS "https://pypi.org/pypi/perseus-ctx/$ver/json" > /dev/null 2>&1; then
+              echo "perseus-ctx $ver is live on PyPI"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::perseus-ctx $ver never appeared on PyPI after 10 minutes — check the 'Publish to PyPI' workflow, then re-run this one."
+          exit 1
+
       - name: Install mcp-publisher
         run: |
           curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_amd64.tar.gz" \
