@@ -11,9 +11,6 @@ _MAX_QUOTED_TOKEN_LEN = 65536
 def _load_plugin_validator(validator_name: str, workspace: Path | None) -> Callable | None:
     """Load a custom validator from .perseus/schemas/<name>.py.
     Returns the validate() function or None."""
-    if validator_name in _VALIDATOR_CACHE:
-        return _VALIDATOR_CACHE[validator_name]
-
     # Discovery: .perseus/schemas/<name>.py
     # Try workspace first, then relative to current dir
     candidates = []
@@ -25,6 +22,15 @@ def _load_plugin_validator(validator_name: str, workspace: Path | None) -> Calla
     if not py_file:
         return None
 
+    # #568: key the cache by the RESOLVED validator path, not the bare name.
+    # Discovery is workspace-relative, so a name-only key let the first
+    # workspace to load `plugin:foo` pin its validate() for every other
+    # workspace in the same (long-lived serve) process — silent cross-
+    # workspace validator poisoning. Same family as the #465 @query-cache fix.
+    cache_key = str(py_file.expanduser().resolve())
+    if cache_key in _VALIDATOR_CACHE:
+        return _VALIDATOR_CACHE[cache_key]
+
     try:
         spec = importlib.util.spec_from_file_location(
             f"perseus_validator_{validator_name}", py_file
@@ -35,7 +41,7 @@ def _load_plugin_validator(validator_name: str, workspace: Path | None) -> Calla
         spec.loader.exec_module(mod)
         fn = getattr(mod, "validate", None)
         if fn and callable(fn):
-            _VALIDATOR_CACHE[validator_name] = fn
+            _VALIDATOR_CACHE[cache_key] = fn
             return fn
     except Exception as e:
         # Rethrow so the caller can handle it as a skip-and-pass or render warning
@@ -46,11 +52,26 @@ def _load_plugin_validator(validator_name: str, workspace: Path | None) -> Calla
 def _audit_log_path(cfg: dict) -> Path:
     """Return the audit log path, constrained to a safe location.
 
-    S5: Prevents workspace config from pointing audit.log_path at system
-    paths. Always resolves relative to PERSEUS_HOME, ignoring any stale
-    log_path that may have been cached from a previous config load.
+    #571: honor the configured `audit.log_path` (it was previously parsed,
+    tilde-expanded, and preflight-checked but silently ignored). S5 is
+    preserved: the configured path must resolve inside an allowed root
+    (~/.perseus, the system temp dir, or PERSEUS_HOME) — anything else
+    (e.g. workspace config pointing at system paths) falls back to the
+    PERSEUS_HOME default.
     """
-    raw = str(PERSEUS_HOME / "audit_log.jsonl")
+    audit_cfg = cfg.get("audit") or {}
+    configured = audit_cfg.get("log_path")
+    try:
+        baked_default = str(DEFAULT_CONFIG.get("audit", {}).get("log_path", ""))
+    except Exception:
+        baked_default = ""
+    if not configured or str(configured) == baked_default:
+        # Unset, or still the import-time DEFAULT_CONFIG value (which baked in
+        # the ORIGINAL PERSEUS_HOME): follow the LIVE PERSEUS_HOME so env/test
+        # overrides of PERSEUS_HOME keep working ("stale log_path" guard).
+        raw = str(PERSEUS_HOME / "audit_log.jsonl")
+    else:
+        raw = str(configured)
     candidate = Path(str(raw)).expanduser().resolve()
     import tempfile as _tempfile
     allowed_roots = [
@@ -229,7 +250,9 @@ def _audit_summary(cfg: dict) -> dict:
     last_ts = entries[-1].get("ts") if entries else None
     log_path = _audit_log_path(cfg)
     return {
-        "enabled": bool(audit_cfg.get("enabled", False)),
+        # #571: default True, matching audit_event / cmd_audit / DEFAULT_CONFIG.
+        # A partial cfg previously reported "disabled" while events were written.
+        "enabled": bool(audit_cfg.get("enabled", True)),
         "log_path": str(log_path),
         "exists": log_path.exists(),
         "total_events": len(entries),
@@ -394,6 +417,22 @@ def load_config(workspace: Path | None = None) -> dict:
                 _provenance[f"{section}_workspace_sourced"] = True
     cfg["_provenance"] = _provenance
 
+    def _deep_merge(dst: dict, src: dict) -> None:
+        # #569: recursive merge so partial nested overrides (e.g.
+        # `mimir: {circuit_breaker: {threshold: 5}}`) update just that key
+        # instead of replacing the whole nested dict and silently dropping
+        # sibling defaults (cooldown, prefetch.adaptive, federation.signing…).
+        # Nested dicts are copied before merging so DEFAULT_CONFIG's shared
+        # inner dicts are never mutated in place.
+        for key, val in src.items():
+            cur = dst.get(key)
+            if isinstance(cur, dict) and isinstance(val, dict):
+                merged = dict(cur)
+                _deep_merge(merged, val)
+                dst[key] = merged
+            else:
+                dst[key] = val
+
     def merge_loaded(loaded: dict) -> None:
         # #446: `loaded` was already parsed + normalized in the pre-scan above
         # (into `loaded_sources`). _normalize_loaded_config is a deterministic
@@ -402,8 +441,13 @@ def load_config(workspace: Path | None = None) -> dict:
         # we neither re-read the file nor re-normalize here, halving the config
         # parse count per render.
         for section, vals in (loaded or {}).items():
-            if section in cfg and isinstance(vals, dict):
-                cfg[section].update(vals)
+            # #569: type-check BOTH sides before merging. If a lower-priority
+            # source set the section to a scalar (`audit: false`) and a
+            # higher-priority source sets a mapping (or vice versa), the
+            # higher-priority value REPLACES the section instead of crashing
+            # with AttributeError on `.update()`.
+            if section in cfg and isinstance(cfg[section], dict) and isinstance(vals, dict):
+                _deep_merge(cfg[section], vals)
             else:
                 cfg[section] = vals
 
@@ -456,7 +500,6 @@ def _extract_quoted_token(raw: str) -> tuple[str | None, str]:
     quote = raw[0]
     escaped = False
     buf: list[str] = []
-    _escape_buffer = ""  # C10: accumulate escape sequence chars
     # Cap loop to prevent memory exhaustion on unclosed/malicious quotes
     for idx in range(1, min(len(raw), _MAX_QUOTED_TOKEN_LEN + 1)):
         ch = raw[idx]
@@ -464,20 +507,17 @@ def _extract_quoted_token(raw: str) -> tuple[str | None, str]:
             # v1.0.5 review: only decode quote-escaping and literal backslash.
             # Decoding \n, \t, \r, \0 corrupts Windows paths (C:\Users\tccon\...\n).
             # fallback= text can use literal newlines/tabs instead.
-            if _escape_buffer:
-                _escape_buffer += ch
-                if len(_escape_buffer) >= 4:  # \uNNNN or \xNN or unknown
-                    # Keep the raw escape sequence as-is; don't mangle paths
-                    buf.append(_escape_buffer)
-                    _escape_buffer = ""
-                    escaped = False
-                continue
+            #
+            # #566: \u and \x are handled by the same literal-preserving
+            # branch as every other unknown escape. A previous buffered
+            # accumulation scheme (C10) seeded an escape buffer but fell
+            # through to `escaped = False`, leaving the buffer stale and
+            # corrupting quoted Windows paths ("C:\utils\bin" -> "C:tils\ubin").
+            # Emitting the literal backslash + char yields byte-identical
+            # output for \uNNNN / \xNN sequences ("keep the raw escape
+            # sequence as-is") without any cross-character state.
             if ch in {"\\", '"', "'"}:
                 buf.append(ch)
-            elif ch == "u":
-                _escape_buffer = "\\u"
-            elif ch == "x":
-                _escape_buffer = "\\x"
             else:
                 # Unknown escape — keep literal backslash + char (preserves Windows paths)
                 buf.append("\\" + ch)
@@ -515,7 +555,10 @@ def _parse_kv_modifiers(raw: str) -> dict[str, str]:
     out: dict[str, str] = {}
     for m in _KV_PAIR_RE.finditer(raw):
         key = m.group(1)
-        value = m.group(2) or m.group(3) or m.group(4)
+        # #567: pick the first group that IS NOT None, not the first truthy
+        # one — an empty quoted value (key="") matches group 2 as "" (falsy),
+        # which previously fell through to None and crashed re.sub below.
+        value = next(g for g in m.group(2, 3, 4) if g is not None)
         # Apply backslash escape decoding inside quoted values.
         # Only decode \\, \", \' — keep other escapes literal to avoid
         # corrupting Windows paths (same as v1.0.5 char-by-char logic).
@@ -864,19 +907,40 @@ def _load_task_file(task_path: Path) -> tuple[dict, str]:
     return dict(fm or {}), body
 
 
+def _write_task_file_atomic(task_path: Path, frontmatter: dict, body: str) -> None:
+    """Write a task file atomically (temp file + os.replace). No locking —
+    callers that need mutual exclusion hold the task lock around this call."""
+    import tempfile
+
+    content = _dump_frontmatter_body(frontmatter, body)
+    tmp = tempfile.NamedTemporaryFile(
+        mode="w",
+        suffix=".md",
+        dir=str(task_path.parent),
+        delete=False,
+        encoding="utf-8",
+    )
+    try:
+        tmp.write(content)
+        tmp.flush()
+        os.fsync(tmp.fileno())
+    finally:
+        tmp.close()
+    os.replace(tmp.name, task_path)
+
+
 def _save_task_file(task_path: Path, frontmatter: dict, body: str) -> None:
     """Write a task file atomically.
 
     task-65: Uses temp file + os.replace to prevent partial/corrupt reads
     when multiple processes write concurrently. Also uses fcntl.flock for
-    advisory locking so concurrent claim/complete/load operations don't
-    race.
+    advisory locking so concurrent writes don't race. NOTE (#570): the lock
+    only serializes the WRITE — decisions based on a pre-lock read (like
+    claim) must re-read under the lock; see _claim_task_under_lock.
     """
-    import tempfile
     # Cross-platform advisory lock: fcntl on POSIX, msvcrt on Windows.
     from perseus.config import _lock_file_handle, _unlock_file_handle
 
-    content = _dump_frontmatter_body(frontmatter, body)
     lock_path = task_path.with_suffix(task_path.suffix + ".lock")
 
     # Open or create the lock file
@@ -885,21 +949,42 @@ def _save_task_file(task_path: Path, frontmatter: dict, body: str) -> None:
     lf = open(lock_path, "w", encoding="utf-8")
     try:
         _lock_file_handle(lf)
-        # Write to temp file in same directory, then atomic replace
-        tmp = tempfile.NamedTemporaryFile(
-            mode="w",
-            suffix=".md",
-            dir=str(task_path.parent),
-            delete=False,
-            encoding="utf-8",
-        )
-        try:
-            tmp.write(content)
-            tmp.flush()
-            os.fsync(tmp.fileno())
-        finally:
-            tmp.close()
-        os.replace(tmp.name, task_path)
+        _write_task_file_atomic(task_path, frontmatter, body)
+    finally:
+        _unlock_file_handle(lf)
+        lf.close()
+
+
+def _claim_task_under_lock(task_path: Path, agent: str) -> tuple[bool, str | None]:
+    """Atomically claim a task via compare-and-swap under the task lock.
+
+    #570: the old claim path read all tasks UNLOCKED, decided, then locked
+    only around the write — two concurrent claimers both saw `status: open`
+    and both "won" (last writer silently). We now re-read the task file and
+    re-check `claimed_by` while HOLDING the same advisory lock the writer
+    uses, so exactly one claimer wins.
+
+    Returns (won, holder): won=True when the claim succeeded (re-claiming a
+    task you already hold is idempotent); holder is the claiming agent on
+    success or the current owner on conflict.
+    """
+    from perseus.config import _lock_file_handle, _unlock_file_handle
+
+    lock_path = task_path.with_suffix(task_path.suffix + ".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lf = open(lock_path, "w", encoding="utf-8")
+    try:
+        _lock_file_handle(lf)
+        # Fresh read under the lock — the caller's pre-lock snapshot may be stale.
+        fm, body = _load_task_file(task_path)
+        fm, body, _changed = _normalize_task_frontmatter(task_path, fm, body)
+        holder = fm.get("claimed_by")
+        if holder and str(holder) != agent:
+            return False, str(holder)
+        fm["status"] = "in_progress"
+        fm["claimed_by"] = agent
+        _write_task_file_atomic(task_path, fm, body)
+        return True, agent
     finally:
         _unlock_file_handle(lf)
         lf.close()
@@ -1065,11 +1150,19 @@ def cmd_agora(args, cfg):
     task_path, fm, body = task_map[task_id]
 
     if args.agora_command == 'claim':
-        fm['status'] = 'in_progress'
-        fm['claimed_by'] = args.agent
-        _save_task_file(task_path, fm, body)
+        # #570: compare-and-swap under the task lock. The pre-lock read above
+        # only located the task file; the claim decision is re-made from a
+        # fresh read while holding the lock so concurrent claimers can't both win.
+        won, holder = _claim_task_under_lock(task_path, args.agent)
+        if not won:
+            print(
+                f"Claim conflict: {task_id} is already claimed by {holder} "
+                f"(requested by {args.agent}).",
+                file=sys.stderr,
+            )
+            return 1
         print(f'Claimed {task_id} as {args.agent}')
-        return
+        return 0
 
     if args.agora_command == 'complete':
         fm['status'] = 'completed'
@@ -1120,9 +1213,9 @@ def _preflight_permissions(cfg: dict) -> list[str]:
     inbox_path = Path(
         cfg.get("inbox", {}).get("store", str(home / "inbox"))
     ).expanduser()
-    audit_log = Path(
-        cfg.get("audit", {}).get("log_path", str(home / "audit_log.jsonl"))
-    ).expanduser()
+    # #571: probe the EFFECTIVE audit log path (config honored, constrained
+    # to safe roots) so preflight checks the directory the log actually uses.
+    audit_log = _audit_log_path(cfg)
     memory_path = Path(
         cfg.get("memory", {}).get("store", str(home / "memory"))
     ).expanduser()

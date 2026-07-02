@@ -1,6 +1,50 @@
 # stdlib imports available from build artifact header
 # ──────────────────────────────── Checkpoint ──────────────────────────────────
 
+# P-1 helper: cross-platform PID liveness check.
+# os.kill(pid, 0) works on POSIX but on Windows signal 0 calls
+# TerminateProcess — we must use OpenProcess instead.
+def _pid_alive(pid):
+    if os.name == "nt":
+        try:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            # PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            handle = kernel32.OpenProcess(0x1000, False, pid)
+            if handle:
+                kernel32.CloseHandle(handle)
+                return True
+            return False
+        except Exception:
+            return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except PermissionError:
+        # #572: EPERM — the process EXISTS but belongs to another user.
+        # Cross-user is the NORMAL case for agents sharing a checkpoint
+        # store over NFS/SMB; treating it as dead let a second writer
+        # unlink a live lock and clobber. Only ESRCH means dead.
+        return True
+    except OSError:
+        return False
+
+
+# #572: checkpoint filenames are `<ts>.yaml` or `<ts>_<n>.yaml` where <n> is
+# an UNPADDED same-minute collision counter. Plain string sort orders
+# `..._10.yaml` before `..._2.yaml`, so pruning could delete newer
+# checkpoints and diff/recover could pick the wrong "most recent".
+# Natural-sort key: (timestamp stem, numeric suffix).
+_CHECKPOINT_SUFFIX_RE = re.compile(r"^(?P<stem>.*?)(?:_(?P<suffix>\d+))?\.yaml$")
+
+
+def _checkpoint_sort_key(fp: Path) -> tuple[str, int]:
+    m = _CHECKPOINT_SUFFIX_RE.match(fp.name)
+    if m:
+        return (m.group("stem"), int(m.group("suffix") or 0))
+    return (fp.name, 0)
+
+
 def cmd_checkpoint(args, cfg):
     store = Path(cfg["checkpoints"]["store"])
     store.mkdir(parents=True, exist_ok=True)
@@ -27,28 +71,6 @@ def cmd_checkpoint(args, cfg):
     cp["workspace"] = effective_workspace
 
     outfile = store / f"{ts}.yaml"
-
-    # P-1 helper: cross-platform PID liveness check.
-    # os.kill(pid, 0) works on POSIX but on Windows signal 0 calls
-    # TerminateProcess — we must use OpenProcess instead.
-    def _pid_alive(pid):
-        if os.name == "nt":
-            try:
-                import ctypes
-                kernel32 = ctypes.windll.kernel32
-                # PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-                handle = kernel32.OpenProcess(0x1000, False, pid)
-                if handle:
-                    kernel32.CloseHandle(handle)
-                    return True
-                return False
-            except Exception:
-                return False
-        try:
-            os.kill(pid, 0)
-            return True
-        except OSError:
-            return False
 
     # ── Lock file for multi-agent coordination ──────────────────────────
     # Prevents two concurrent writers (agents sharing a checkpoint store
@@ -141,7 +163,7 @@ def cmd_checkpoint(args, cfg):
         all_cps = sorted(
             [f for f in store.glob("*.yaml")
              if f.name != "latest.yaml" and not f.name.startswith("latest-")],
-            key=lambda f: f.name,
+            key=_checkpoint_sort_key,  # #572: numeric same-minute suffix order
             reverse=True,
         )
         pruned = set()
@@ -238,7 +260,7 @@ def _list_checkpoint_files(cfg: dict) -> list[Path]:
         return []
     return sorted(
         [f for f in store.glob("*.yaml") if f.name != "latest.yaml" and not f.name.startswith("latest-")],
-        key=lambda f: f.name,
+        key=_checkpoint_sort_key,  # #572: numeric same-minute suffix order
         reverse=True,
     )
 

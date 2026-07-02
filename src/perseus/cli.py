@@ -564,7 +564,8 @@ def main():
     elif args.command == "diff":
         cmd_diff(args, cfg)
     elif args.command == "agora":
-        cmd_agora(args, cfg)
+        # #570: propagate the exit code so a losing concurrent `claim` exits nonzero.
+        return cmd_agora(args, cfg)
     elif args.command == "suggest":
         cmd_suggest(args, cfg)
     elif args.command == "memory":
