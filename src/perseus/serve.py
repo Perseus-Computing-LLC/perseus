@@ -1698,17 +1698,33 @@ def _serve_trust_summary(cfg: dict) -> dict:
     }
 
 
-def _serve_authorized(headers, token: str | None) -> bool:
-    # Host header validation for DNS rebinding protection (H-4)
-    if headers is not None:
-        try:
-            host = headers.get("Host", "") or ""
-        except AttributeError:
-            host = ""
-        if host:
-            hostname = host.split(":")[0]
-            if hostname not in ("127.0.0.1", "localhost", "::1"):
-                return False
+def _serve_host_header_ok(headers, bind_host: str | None = None) -> bool:
+    """Host-header check for DNS-rebinding protection (H-4).
+
+    Only enforced for loopback binds: a browser on the same machine can be
+    tricked into sending a request to 127.0.0.1 with an attacker-controlled
+    Host header (DNS rebinding). For a deliberate non-loopback bind, remote
+    clients legitimately send ``Host: <server-ip>``, so the loopback
+    allowlist would 401 every valid request (#559) — and rebinding
+    protection is meaningless for an intentionally public bind anyway.
+    """
+    if bind_host is not None and not _serve_is_loopback(bind_host):
+        return True
+    if headers is None:
+        return True
+    try:
+        host = headers.get("Host", "") or ""
+    except AttributeError:
+        host = ""
+    if not host:
+        return True
+    hostname = host.split(":")[0]
+    return hostname in ("127.0.0.1", "localhost", "::1")
+
+
+def _serve_authorized(headers, token: str | None, bind_host: str | None = None) -> bool:
+    if not _serve_host_header_ok(headers, bind_host):
+        return False
 
     if not token:
         return True
@@ -1726,18 +1742,30 @@ def _serve_authorized(headers, token: str | None) -> bool:
     return _serve_hmac.compare_digest(auth[len(prefix):].strip(), token)
 
 
-def _serve_authorized_extended(headers, cfg: dict) -> tuple[bool, str | None]:
+# Endpoints reachable with a per-subscriber grant token, mapped to the grant
+# scope they require (#560). Everything else needs the master serve.auth_token.
+_SERVE_GRANT_ENDPOINT_SCOPES = {
+    "/narrative": "narrative",
+    "/federation/narrative": "narrative",
+}
+
+
+def _serve_authorized_extended(headers, cfg: dict, endpoint: str | None = None,
+                               bind_host: str | None = None) -> tuple[bool, str | None]:
     """Check auth: master token → grant token → deny.
 
     Returns (authorized, workspace_id_or_None).
     """
     token = _serve_auth_token(cfg)
-    if _serve_authorized(headers, token):
+    if _serve_authorized(headers, token, bind_host):
         return (True, None)
-    # Try grant tokens
-    auth_ok, ws_id = _serve_check_grant_auth(cfg, headers, "narrative")
-    if auth_ok:
-        return (True, ws_id)
+    # Try grant tokens — only on endpoints with a grant scope, and never
+    # bypassing the host-header (DNS-rebinding) gate.
+    scope = _SERVE_GRANT_ENDPOINT_SCOPES.get(endpoint or "")
+    if scope and _serve_host_header_ok(headers, bind_host):
+        auth_ok, ws_id = _serve_check_grant_auth(cfg, headers, scope)
+        if auth_ok:
+            return (True, ws_id)
     return (False, None)
 
 
@@ -1745,9 +1773,16 @@ def _serve_unauthorized() -> tuple[int, str, str]:
     return (401, "application/json; charset=utf-8", '{"error": "unauthorized"}')
 
 
-def _serve_handle_request(endpoint: str, cfg: dict, workspace: Path, query: dict[str, str], headers=None) -> tuple[int, str, str]:
-    token = _serve_auth_token(cfg)
-    if not _serve_authorized(headers, token):
+def _serve_handle_request(endpoint: str, cfg: dict, workspace: Path, query: dict[str, str], headers=None,
+                          bind_host: str | None = None) -> tuple[int, str, str]:
+    # #562: the MCP server card is a public capability document — capability
+    # scanners (e.g. Smithery) must be able to read it on authenticated
+    # deployments. It contains no workspace data (name/version/tool metadata,
+    # redacted before serving), so it is exempt from auth by design.
+    if endpoint == "/.well-known/mcp/server-card.json":
+        return _serve_render_endpoint(endpoint, cfg, workspace, query)
+    authorized, _grant_ws = _serve_authorized_extended(headers, cfg, endpoint, bind_host)
+    if not authorized:
         audit_event(cfg, "serve_auth_denied", endpoint=endpoint, auth_enabled=True)
         return _serve_unauthorized()
     return _serve_render_endpoint(endpoint, cfg, workspace, query)
@@ -1765,12 +1800,15 @@ def _serve_handle_federation_receive(cfg: dict, workspace: Path, raw: bytes, hea
 
     # Auth check
     if receive_token:
+        import hmac as _recv_hmac
         provided = None
         if headers:
             auth = headers.get("Authorization", "")
             if auth.startswith("Bearer "):
                 provided = auth[len("Bearer "):].strip()
-        if provided != receive_token:
+        # #561: constant-time comparison — the network-supplied token must not
+        # be compared with `!=` (timing side channel).
+        if provided is None or not _recv_hmac.compare_digest(provided, receive_token):
             audit_event(cfg, "federation_receive_denied", auth_enabled=True)
             return (401, "application/json; charset=utf-8",
                     _json.dumps({"error": "unauthorized"}))
@@ -1787,8 +1825,13 @@ def _serve_handle_federation_receive(cfg: dict, workspace: Path, raw: bytes, hea
         return (400, "application/json; charset=utf-8",
                 _json.dumps({"error": "missing narrative"}))
 
-    # Store in federation cache keyed by workspace_id (or 'pushed' fallback)
-    cache_key = (workspace_id or "pushed").replace("sha256:", "").replace("/", "_")[:64]
+    # Store in federation cache keyed by workspace_id (or 'pushed' fallback).
+    # #561: workspace_id is untrusted POST JSON — restrict the cache key to a
+    # strict charset so `..`, `/`, and Windows `\` can never escape cache_dir.
+    cache_key = re.sub(r"[^A-Za-z0-9_-]", "_",
+                       (workspace_id or "pushed").replace("sha256:", ""))[:64]
+    if not cache_key.strip("._"):
+        cache_key = "pushed"
     cache_dir = Path(cfg.get("federation", {}).get("cache_dir",
                 str(PERSEUS_HOME / "cache" / "federation"))).expanduser()
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -1933,9 +1976,13 @@ def _serve_render_endpoint(endpoint: str, cfg: dict, workspace: Path, query: dic
 
         if endpoint == "/.well-known/mcp/server-card.json":
             # Static metadata for Smithery capability discovery.
-            # Served without auth so Smithery's scanner can read it.
+            # Served without auth (bypass in _serve_handle_request, #562) so
+            # Smithery's scanner can read it — redact defensively since it is
+            # reachable unauthenticated.
             card = _build_server_card(cfg)
-            return (200, "application/json; charset=utf-8", json.dumps(card, indent=2))
+            body = json.dumps(card, indent=2)
+            body, _ = redact_text(body, cfg)
+            return (200, "application/json; charset=utf-8", body)
 
         return (404, "text/plain; charset=utf-8", f"Unknown endpoint: {endpoint}")
     except Exception as exc:
@@ -2027,14 +2074,33 @@ def cmd_serve(args, cfg):
             parsed = urlsplit(self.path)
             endpoint = parsed.path or "/"
             qs = dict(parse_qsl(parsed.query))
-            status, ctype, body = _serve_handle_request(endpoint, cfg, workspace, qs, self.headers)
+            status, ctype, body = _serve_handle_request(
+                endpoint, cfg, workspace, qs, self.headers, bind_host=host
+            )
             self._respond(status, ctype, body)
 
         def do_POST(self):  # noqa: N802
             parsed = urlsplit(self.path)
             endpoint = parsed.path or "/"
             if endpoint == "/federation/receive":
-                length = int(self.headers.get("Content-Length", 0) or 0)
+                # #561: a malformed Content-Length must 400 (not traceback),
+                # and a huge declared length must not force an unbounded
+                # in-memory read (matches federation.max_fetch_bytes pattern).
+                try:
+                    length = int(self.headers.get("Content-Length", 0) or 0)
+                except (TypeError, ValueError):
+                    self._respond(400, "application/json; charset=utf-8",
+                                  '{"error": "invalid Content-Length"}')
+                    return
+                try:
+                    max_bytes = int(cfg.get("federation", {}).get("push", {})
+                                    .get("max_receive_bytes", 4 * 1024 * 1024))
+                except (TypeError, ValueError):
+                    max_bytes = 4 * 1024 * 1024
+                if length < 0 or length > max_bytes:
+                    self._respond(413, "application/json; charset=utf-8",
+                                  '{"error": "payload too large"}')
+                    return
                 raw = self.rfile.read(length) if length else b""
                 status, ctype, body = _serve_handle_federation_receive(
                     cfg, workspace, raw, self.headers
