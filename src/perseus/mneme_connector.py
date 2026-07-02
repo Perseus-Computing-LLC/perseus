@@ -1776,30 +1776,216 @@ def _mneme_hot_block(markdown: str) -> str | None:
     return "\n".join(kept).strip()
 
 
-def _mneme_context_inject(cfg: dict) -> str | None:
-    """Automatic Mimir context block for render_output.
+# ═══════════════════════════════════════════════════════════════════════════════
+# #608 — per-model context profiles (recall-first posture)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Fallback profile applied when the config has no `profiles:` block at all.
+# Mirrors DEFAULT_CONFIG["profiles"]["default"].
+_PROFILE_FALLBACK: dict = {"context_target": 200000, "memory": "on_demand"}
+
+# `@profile <model>` scan for the render source. Accepts bare and model= forms,
+# with optional quotes: `@profile claude-sonnet-4-6`, `@profile model="x"`.
+_PROFILE_DIRECTIVE_RE = re.compile(
+    r'(?m)^\s*@profile\s+(?:model=)?["\']?([A-Za-z0-9._:\-]+)'
+)
+
+# #553 fix 1 — memory-section headers that mean "this render already carries a
+# memory block". If any of these is present in the rendered output (from an
+# explicit @memory/@mimir directive in the source, a template section, or a
+# previous injection pass over an already-rendered file), the automatic block
+# is skipped so AGENTS.md content can never carry the same memory dump twice.
+_MEMORY_SECTION_HEADER_RE = re.compile(
+    r"(?im)^\s{0,3}#{1,6}\s+(?:"
+    r"persistent\s+memory\b"                                    # ## Persistent Memory (Mimir/Mneme)
+    r"|long-term\s+memory\b"                                    # ## Long-Term Memory (Mneme)
+    r"|(?:mimir|mneme|perseus\s+vault)\s*(?:—|--|-)?\s*persistent\s+cross-session\s+memory"
+    r"|(?:mimir|mneme|perseus\s+vault)\s+context\b"             # server-emitted block headers
+    r"|memory\s+recall\s+\(on\s+demand\)"                       # our own pointer (idempotency)
+    r")"
+)
+
+_MEMORY_POINTER_HEADER = "## Memory Recall (on demand)"
+
+
+def _resolve_context_profile(cfg: dict, name: str | None = None) -> dict:
+    """Resolve a context profile by name, deterministically.
+
+    Layering: built-in fallback ← `profiles.default` ← `profiles.<name>`.
+    Unknown or missing names fall back to the default profile cleanly, so a
+    typo in `@profile` can never change behavior non-deterministically.
+    """
+    profiles = cfg.get("profiles") if isinstance(cfg, dict) else None
+    if not isinstance(profiles, dict):
+        profiles = {}
+    prof = dict(_PROFILE_FALLBACK)
+    base = profiles.get("default")
+    if isinstance(base, dict):
+        prof.update(base)
+    if name and name != "default":
+        override = profiles.get(name)
+        if isinstance(override, dict):
+            prof.update(override)
+    return prof
+
+
+def _memory_posture(profile: dict) -> str:
+    """Normalize a profile's memory posture to on_demand | relevant | always.
+
+    Explicit `memory:` wins; the legacy `always_inject: true` alias maps to
+    "always"; everything else (including unknown strings) is the recall-first
+    default, on_demand.
+    """
+    raw = str(profile.get("memory") or "").strip().lower()
+    if raw in ("always", "always_inject", "inject", "legacy"):
+        return "always"
+    if raw in ("relevant", "gated", "recall_when", "recall-when"):
+        return "relevant"
+    if raw in ("on_demand", "on-demand", "ondemand", "recall", "recall_first"):
+        return "on_demand"
+    if not raw and profile.get("always_inject"):
+        return "always"
+    return "on_demand"
+
+
+def _profile_inject_limit(profile: dict) -> int:
+    """Tier-aware injection budget: max entities admitted per profile.
+
+    Explicit `inject_limit` wins; otherwise a 200k-class profile admits only a
+    handful of identity-critical facts (5) while larger windows may admit more
+    (10) — but the default posture is lean either way (#608 point 3).
+    """
+    raw = profile.get("inject_limit")
+    if raw is not None:
+        try:
+            return max(1, int(raw))
+        except (TypeError, ValueError):
+            pass
+    try:
+        target = int(profile.get("context_target", 200000))
+    except (TypeError, ValueError):
+        target = 200000
+    return 5 if target <= 200_000 else 10
+
+
+def _scan_profile_name(source_text: str) -> str | None:
+    """Return the profile name selected by the first `@profile` directive."""
+    if not source_text:
+        return None
+    m = _PROFILE_DIRECTIVE_RE.search(source_text)
+    return m.group(1) if m else None
+
+
+def _active_context_profile(cfg: dict, source_text: str = "") -> tuple[str, dict]:
+    """Resolve (profile_name, profile_dict) for a render.
+
+    Selection order: `@profile <model>` in the source document, else
+    `render.context_profile` from config, else "default".
+    """
+    name = _scan_profile_name(source_text)
+    if not name and isinstance(cfg, dict):
+        cfg_name = (cfg.get("render", {}) or {}).get("context_profile")
+        if cfg_name:
+            name = str(cfg_name).strip()
+    name = name or "default"
+    return name, _resolve_context_profile(cfg, name)
+
+
+def _memory_pointer_block(profile_name: str, profile: dict) -> str:
+    """The on_demand posture block: a short retrieval pointer + tools.
+
+    Deliberately STATIC with respect to vault contents — the fixed prompt
+    prefix must not change when a memory fact changes (prefix-cache stability,
+    #608 acceptance criteria). Only the profile identity appears, which is
+    stable per config.
+    """
+    return (
+        f"{_MEMORY_POINTER_HEADER}\n\n"
+        f"Long-term memory is not pre-loaded into this context "
+        f"(profile: {profile_name}, memory posture: on_demand).\n"
+        "Retrieve exactly what a task needs, when it needs it:\n\n"
+        "- `@memory mode=search query=\"<topic>\" k=5` — local project memory (FTS5)\n"
+        "- `@memory mode=narrative` — the distilled project narrative\n"
+        "- MCP tools: `perseus_memory` (local recall), `perseus_mneme` (cross-session vault)\n\n"
+        "Query the vault when a past decision, architecture note, or prior-session\n"
+        "fact would change your answer; otherwise proceed without it."
+    )
+
+
+# #553 fix 4 — advisory note attached to any injected memory dump. Recalled
+# content must not assert priority it hasn't earned: it may be stale or
+# tangential, and live workspace state / the current conversation win on
+# conflict.
+_MEMORY_DUMP_ADVISORY = (
+    "> Recalled from long-term memory; entries may be stale or tangential.\n"
+    "> Prefer live workspace state and the current conversation when they disagree.\n"
+)
+
+
+def _mneme_context_inject(
+    cfg: dict,
+    rendered: str = "",
+    source_text: str = "",
+    workspace=None,
+) -> str | None:
+    """Automatic memory section for render_output — recall-first by default.
 
     Called by the renderer (markdown / agents-md / claude-md formats) to append
-    a curated block of long-lived Mimir memories to every rendered context,
-    without requiring an explicit @mimir directive in the source.
+    an automatic memory section to a rendered context, without requiring an
+    explicit @mimir directive in the source.
 
-    Hot-entity injection (#473): prefer Mimir's purpose-built ``mimir_context``
-    tool, which surfaces always_on ("hot") entities first, then the top entities
-    by decay/recency — the flagship Memory+Context "compose, don't replace"
-    pre-resolution. Falls back to a generic recent-memory recall for older Mimir
-    servers that lack the tool, or when no hot entities exist.
+    Behavior is governed by the active context profile (#608):
+      - ``memory: on_demand`` (DEFAULT) — a short, static retrieval pointer
+        (query the vault when relevant + the recall tools). NO pre-materialized
+        memory dump; the fixed prompt prefix stays stable across vault writes.
+      - ``memory: relevant`` — recall_when trigger matching against the current
+        render context (#553 fix 2); only entities whose triggers match are
+        injected. No match → no dump.
+      - ``memory: always`` — LEGACY opt-in: the pre-#608 unconditional dump.
+        Hot-entity injection (#473) prefers Mimir's purpose-built
+        ``mimir_context`` tool, falling back to a generic recent-memory recall.
 
-    Returns a markdown string, or None when Mimir is disabled/unavailable or
-    has no relevant memories. Fails safe: any error returns None so a rendering
-    can never be broken by the memory layer.
+    De-duplication (#553 fix 1): when the rendered output already contains a
+    persistent/long-term memory section (explicit @memory directive, template
+    section, or a previous injection pass), nothing is appended — the same
+    memory block can never appear twice in one context.
+
+    Workspace scoping (#553 fix 3): recall calls that support it receive the
+    active workspace hash so unrelated workspaces don't share one memory pool.
+
+    Returns a markdown string, or None when disabled/unavailable/deduplicated.
+    Fails safe: any error returns None so a rendering can never be broken by
+    the memory layer.
     """
     mcfg = _resolve_mneme_config(cfg) if isinstance(cfg, dict) else {}
     if not mcfg.get("enabled", True):
         return None
-    # #442: auto_inject=False suppresses the automatic block so memories are
-    # only included via an explicit @memory/@mimir directive in the source.
+    # #442: auto_inject=False suppresses the automatic section entirely
+    # (pointer AND dump) so memories are only included via an explicit
+    # @memory/@mimir directive in the source.
     if not mcfg.get("auto_inject", True):
         return None
+
+    # #553 fix 1: never append a second memory section.
+    if rendered and _MEMORY_SECTION_HEADER_RE.search(rendered):
+        return None
+
+    # context_limit=0 means "inject nothing" — pointer AND dump. Use an
+    # explicit None check so 0 is honored rather than falling back to the
+    # default via `or` (#442).
+    raw_limit = mcfg.get("context_limit", 10)
+    try:
+        limit = 10 if raw_limit is None else int(raw_limit)
+    except (TypeError, ValueError):
+        limit = 10
+    if limit <= 0:
+        return None
+
+    profile_name, profile = _active_context_profile(cfg, source_text)
+    posture = _memory_posture(profile)
+
+    if posture == "on_demand":
+        return _memory_pointer_block(profile_name, profile)
 
     try:
         connector = _get_connector(cfg)
@@ -1810,18 +1996,44 @@ def _mneme_context_inject(cfg: dict) -> str | None:
             # 95% of users who haven't installed Mimir yet.
             return None
 
-        # Pull recent durable memories. An empty query returns the most recent
-        # entities ordered by Mimir's decay/recency ranking — the right behavior
-        # for automatic context injection (a category-name keyword query would
-        # only match entities whose *body text* contains those words, which is
-        # not what context_categories are meant to filter).
-        # context_limit=0 means "inject nothing". Use an explicit None check so
-        # 0 is honored rather than falling back to the default via `or` (#442).
-        raw_limit = mcfg.get("context_limit", 10)
-        limit = 10 if raw_limit is None else int(raw_limit)
-        if limit <= 0:
-            return None
+        # #608 point 3: tier-aware injection budget per profile.
+        limit = min(limit, _profile_inject_limit(profile))
 
+        # #553 fix 3: workspace-scope recall calls where the connector supports it.
+        ws_hash = None
+        if workspace is not None and mcfg.get("workspace_scope", True):
+            try:
+                ws_hash = _workspace_hash(Path(workspace))
+            except Exception:
+                ws_hash = None
+
+        if posture == "relevant":
+            # #553 fix 2: relevance-gate injection through recall_when trigger
+            # matching instead of an unconditional recency/retrieval-count dump.
+            hints: list = []
+            try:
+                from perseus.renderer import _derive_query_hints
+                hints = _derive_query_hints(source_text or "", workspace)
+            except Exception:
+                hints = []
+            context_str = " ".join(str(h) for h in hints if h).strip()
+            if not context_str:
+                # Nothing to match against → the gate holds; no dump.
+                return None
+            segment = connector.recall_when(context=context_str, limit=limit)
+            if segment is not None and not segment.error:
+                if not segment.items:
+                    return None  # vault reachable, no triggers matched → no dump
+                return (
+                    "## Persistent Memory (Mimir)\n\n"
+                    + _MEMORY_DUMP_ADVISORY
+                    + "\n"
+                    + segment.as_markdown
+                )
+            # recall_when unavailable on this server (older vault) — degrade
+            # gracefully to the legacy hot-entity path below.
+
+        # posture == "always" (legacy opt-in), or "relevant" degraded above.
         # #473 hot-entity injection: prefer Mimir's purpose-built context tool.
         # context_categories scopes the pre-resolution to the relevant intent
         # (empty = all categories). Always_on entities are injected first by the
@@ -1834,12 +2046,18 @@ def _mneme_context_inject(cfg: dict) -> str | None:
         if isinstance(hot_md, str):
             hot_body = _mneme_hot_block(hot_md)
             if hot_body:
-                return "## Persistent Memory (Mimir)\n\n" + hot_body
+                return (
+                    "## Persistent Memory (Mimir)\n\n"
+                    + _MEMORY_DUMP_ADVISORY
+                    + "\n"
+                    + hot_body
+                )
 
         # Fallback: generic recent-memory recall (older Mimir without
         # mimir_context, or an empty hot set). An empty query returns the most
-        # recent entities by Mimir's decay/recency ranking.
-        segment = connector.recall(query="", max_results=limit)
+        # recent entities by Mimir's decay/recency ranking. Workspace-scoped
+        # (#553 fix 3) when a workspace is known.
+        segment = connector.recall(query="", max_results=limit, workspace_hash=ws_hash)
         if not segment or not getattr(segment, "items", None):
             return None
 
@@ -1847,7 +2065,12 @@ def _mneme_context_inject(cfg: dict) -> str | None:
         if not body or body.strip() == "_(no persistent memories found)_":
             return None
 
-        return "## Persistent Memory (Mimir)\n\n" + body
+        return (
+            "## Persistent Memory (Mimir)\n\n"
+            + _MEMORY_DUMP_ADVISORY
+            + "\n"
+            + body
+        )
     except Exception:
         # Never let the memory layer break a render.
         return None

@@ -213,9 +213,9 @@ Published as [`io.github.Perseus-Computing-LLC/perseus`](https://registry.modelc
 
 ### MCP Tools
 
-<!-- test-count: 1382 — recount with: grep -rE "^\s*def test_" tests/ | wc -l -->
-<!-- The table below is the exact default output of _get_all_mcp_tools({}) — 28 rows. Recount before editing. -->
-28 MCP tools resolve live state at invocation time (including the legacy aliases `perseus_get_context`/`perseus_get_health`). Two additional sensitive tools — `perseus_query` (run a shell command) and `perseus_agent` (execute a local agent subprocess) — are **not** part of this default set: they require explicit `mcp.tool_allowlist` opt-in because they execute commands in the user's local shell (**not sandboxed, full user permissions apply**).
+<!-- test-count: 1440 — recount with: grep -rE "^\s*def test_" tests/ | wc -l -->
+<!-- The table below is the exact default output of _get_all_mcp_tools({}) — 29 rows. Recount before editing. -->
+29 MCP tools resolve live state at invocation time (including the legacy aliases `perseus_get_context`/`perseus_get_health`). Two additional sensitive tools — `perseus_query` (run a shell command) and `perseus_agent` (execute a local agent subprocess) — are **not** part of this default set: they require explicit `mcp.tool_allowlist` opt-in because they execute commands in the user's local shell (**not sandboxed, full user permissions apply**).
 
 | Tool | Description |
 |---|---|
@@ -241,6 +241,7 @@ Published as [`io.github.Perseus-Computing-LLC/perseus`](https://registry.modelc
 | `perseus_tool` | Run allowlisted external tool |
 | `perseus_perseus` | Fetch context from remote Perseus instance |
 | `perseus_auto_skill` | Instruct the agent to load a specific skill before starting work |
+| `perseus_profile` | Resolve a per-model context profile (context target + memory posture) |
 | `perseus_mason` | Query the Mason code architecture concept map |
 | `perseus_research` | Per-paper Methods/Results blocks from an external paper-search MCP server (external server is opt-in via config) |
 | `perseus_tokens` | Embed token budget for rendered context |
@@ -694,6 +695,46 @@ webhooks:
     - on_render_complete
     - on_directive_error
 ```
+
+---
+
+## Context Profiles & Recall-First Memory (`@profile`)
+
+**A context engine should retrieve, not pre-load.** As of v1.0.14, Perseus is **recall-first by default**: the automatic long-term-memory dump that used to be stapled into every rendered context is replaced by a short, static retrieval pointer plus the recall tools. On a 200k-context model, a fixed memory blob on every turn is a permanent token tax that poisons prefix-cache stability the moment any fact changes — Perseus already has the retrieval layer (`@memory`, `@mimir`, `perseus_mneme`), so the default context now spends the budget on the task.
+
+Per-model **context profiles** make the posture first-class and model-aware:
+
+```yaml
+# ~/.perseus/config.yaml
+profiles:
+  default:            { context_target: 200000,  memory: on_demand }
+  claude-sonnet-4-6:  { context_target: 200000,  memory: on_demand }
+  claude-opus-4-8:    { context_target: 1000000, memory: on_demand }   # big window is not an excuse to bloat
+  legacy-dump:        { context_target: 200000,  memory: always, inject_limit: 5 }
+```
+
+Select a profile per document with the `@profile` directive (unknown names fall back to `default` deterministically):
+
+```markdown
+@profile claude-sonnet-4-6
+```
+
+Three memory postures:
+
+| Posture | Behavior |
+|---|---|
+| `on_demand` (**default**) | Inject a static retrieval pointer + tools. **No pre-materialized memory dump.** The fixed prompt prefix stays byte-stable across vault writes (prefix-cache friendly). |
+| `relevant` | Inject only entities whose `recall_when` triggers match the current render context (via the vault's trigger matching). No match → no dump. |
+| `always` | **Legacy opt-in.** The pre-v1.0.14 unconditional dump on every render. Kept for back-compat; documented as an anti-pattern. `always_inject: true` is accepted as an alias. |
+
+Injection hygiene (all postures that inject content):
+
+- **De-duplicated** — if the rendered document already contains a memory section (an explicit `@memory` directive, a template section, or a previous injection pass), the automatic block is skipped. The same memory content can never appear twice in one context.
+- **Workspace-scoped** — recall calls that support it receive the active workspace hash, so personal and project memories don't share one undifferentiated pool at the render layer.
+- **Budgeted per profile** — a 200k-class profile admits at most a handful of entities (`inject_limit`, default 5; 10 for larger windows).
+- **Advisory framing** — injected memory carries a note that it may be stale or tangential and that live workspace state wins on conflict, instead of asserting authority.
+
+To suppress the automatic section entirely (pointer included) set `mimir.auto_inject: false`; to restore the old behavior globally set `profiles.default.memory: always`.
 
 ---
 

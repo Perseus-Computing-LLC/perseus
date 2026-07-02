@@ -1990,20 +1990,28 @@ def _derive_query_hints(source_text: str, workspace) -> list[str]:
 
     return hints
 
-def _inject_external_memory(rendered: str, cfg: dict) -> str:
+def _inject_external_memory(rendered: str, cfg: dict,
+                            source_text: str = "", workspace=None) -> str:
     """Append the vault-mem and Mnēmē auto-injected memory blocks, redacted.
 
     These blocks are pulled from external memory stores and appended AFTER the
     render_source redaction pass, so they must go through their own redaction
     pass — memories routinely hold user-entered notes containing credentials,
     and skipping this wrote them verbatim into AGENTS.md/CLAUDE.md.
+
+    #553/#608 hook: `source_text` and `workspace` are threaded through to
+    `_mneme_context_inject` so it can (a) skip injection when the rendered
+    output already carries a memory section (de-dup), (b) resolve the active
+    `@profile` posture, and (c) relevance-gate / workspace-scope the recall.
     """
     from perseus.merlin_dedup import dedup_context_if_available
     from perseus.vaultmem_connector import inject_vaultmem_context
     from perseus.mneme_connector import _mneme_context_inject
     rendered = dedup_context_if_available(rendered, cfg)
     injected = inject_vaultmem_context(rendered, cfg)
-    mneme_block = _mneme_context_inject(cfg)
+    mneme_block = _mneme_context_inject(
+        cfg, rendered=injected, source_text=source_text, workspace=workspace,
+    )
     if mneme_block:
         injected = injected + "\n\n" + mneme_block
     if injected != rendered:
@@ -2030,7 +2038,7 @@ def render_output(
         rendered = render_source(source_text, cfg, workspace, max_tier=max_tier, no_cache=no_cache)
         rendered, _report = redact_text(rendered, cfg)
         _audit_render_redaction(cfg, _report)
-        rendered = _inject_external_memory(rendered, cfg)
+        rendered = _inject_external_memory(rendered, cfg, source_text, workspace)
         return rendered
     elif fmt == "html":
         t = title or "Workspace Context"
@@ -2045,7 +2053,7 @@ def render_output(
         rendered = render_source(source_text, cfg, workspace, max_tier=max_tier, no_cache=no_cache)
         rendered, _report = redact_text(rendered, cfg)
         _audit_render_redaction(cfg, _report)
-        rendered = _inject_external_memory(rendered, cfg)
+        rendered = _inject_external_memory(rendered, cfg, source_text, workspace)
         return wrap_rendered(rendered, fmt, _PERSEUS_VERSION)
 
     # Custom formats (task-68)
