@@ -555,13 +555,18 @@ def main():
     p_explain = sub.add_parser(
         "explain",
         help="Explain a render: directive manifest, render_id, and (with --bandit) "
-             "per-directive value/cost, arm posteriors, and include/drop decisions",
+             "per-directive value/cost, arm posteriors, and include/drop decisions; "
+             "with --speculate, next-intent speculation observability instead",
     )
     p_explain.add_argument("source", nargs="?", default=None,
-                           help="Path to .md file with @perseus header (default: .perseus/context.md)")
+                           help="Path to .md file with @perseus header (default: .perseus/context.md; "
+                                "with --speculate, its @speculate pragma (k=N) adjusts the view)")
     p_explain.add_argument("--bandit", action="store_true",
                            help="Include the @bandit report: value/cost ratio, Thompson-sampling "
                                 "posterior, and the include/drop decision + reason per directive")
+    p_explain.add_argument("--speculate", action="store_true",
+                           help="Show predicted next intents + probabilities, past speculation "
+                                "hit/miss rate, and per-candidate cache warmth (#607)")
     p_explain.add_argument("--workspace", default=None, help="Workspace path (default: inferred from source)")
     p_explain.add_argument("--tier", type=int, default=None, choices=[1, 2, 3],
                            help="Context tier limit for the render (default: config / 3)")
@@ -643,14 +648,20 @@ def main():
         return cmd_update(args, cfg)
     elif args.command == "warmup":
         cmd_warmup(args, cfg)
+    elif args.command == "explain":
+        # One `explain` command, two views: --speculate → #607 speculation
+        # observability; otherwise the #605 manifest/bandit explain.
+        if getattr(args, "speculate", False):
+            return cmd_explain(args, cfg)
+        return cmd_bandit_cli(args, cfg)
     elif args.command == "oracle":
         rc = cmd_oracle(args, cfg)
         if isinstance(rc, int):
             return rc
     elif args.command == "llm":
         return cmd_llm(args, cfg)
-    elif args.command in ("feedback", "explain"):
-        # #605: @bandit outcome feedback + decision transparency
+    elif args.command == "feedback":
+        # #605: @bandit outcome feedback
         return cmd_bandit_cli(args, cfg)
     elif args.command == "init":
         cmd_init(args, cfg)
