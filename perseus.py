@@ -148,6 +148,7 @@ DEFAULT_CONFIG = {
         "bandit_floor": [],           # extra directive names never auto-dropped (on top of @constraint/tier-1)
         "bandit_record": True,        # persist ledger updates after renders (`perseus explain` sets False)
         "bandit_max_renders": 50,     # render entries kept in the ledger for feedback correlation
+        "bandit_max_arms": 200,       # #623: arms kept in the ledger (last-seen eviction beyond the cap)
     },
     "checkpoints": {
         "store": str(PERSEUS_HOME / "checkpoints"),
@@ -11183,6 +11184,43 @@ def _bandit_save_ledger(cfg: dict, workspace, ledger: dict) -> None:
     os.replace(tmp.name, path)
 
 
+def _bandit_max_arms(cfg: dict) -> int:
+    """#623: cap on persisted arms, configurable via render.bandit_max_arms
+    (defensive parsing, like bandit_max_renders). Non-positive values fall
+    back to the default — a negative cap would otherwise make the prune
+    slice evict EVERY arm on each persist (PR #628 review)."""
+    try:
+        n = int(cfg.get("render", {}).get("bandit_max_arms", 200) or 200)
+    except (TypeError, ValueError):
+        return 200
+    return n if n > 0 else 200
+
+
+def _bandit_prune_arms(ledger: dict, cfg: dict) -> None:
+    """#623: the renders history is capped (bandit_max_renders) but arm
+    identity folds in directive args, so templated args (timestamps, rotating
+    paths, generated queries) grow the arms map monotonically. Cap it with
+    last-seen eviction: every render/feedback that touches an arm stamps it
+    with the ledger's monotone render sequence (`seq`); when the map exceeds
+    render.bandit_max_arms, the oldest-seen arms are evicted first. Arms from
+    legacy ledgers (no last_seen) are treated as oldest."""
+    max_arms = _bandit_max_arms(cfg)
+    arms = ledger.get("arms")
+    if not isinstance(arms, dict) or len(arms) <= max_arms:
+        return
+
+    def _last_seen(item):
+        key, st = item
+        try:
+            seen = int(st.get("last_seen", 0) or 0) if isinstance(st, dict) else 0
+        except (TypeError, ValueError):
+            seen = 0
+        return (seen, key)  # deterministic tiebreak on the arm key
+
+    for key, _st in sorted(arms.items(), key=_last_seen)[: len(arms) - max_arms]:
+        del arms[key]
+
+
 # ── Identity helpers ──────────────────────────────────────────────────────────
 
 def _bandit_norm_name(name: str) -> str:
@@ -11226,16 +11264,30 @@ class BanditContext:
         self.render_id = _bandit_render_id(source_text, workspace)
         self.ledger = _bandit_load_ledger(cfg, workspace)
 
+        # #624: config parsing is defensive across the board — a malformed
+        # seed/budget falls back to the default with a warning, mirroring the
+        # threshold/min_trials parsing below. A ValueError must never escape
+        # ledger construction and break an opted-in render.
         seed = overrides.get("seed", rcfg.get("bandit_seed"))
         if rng is not None:
             self.rng = rng
         elif seed is not None:
-            self.rng = random.Random(int(seed))
+            try:
+                self.rng = random.Random(int(seed))
+            except (TypeError, ValueError):
+                sys.stderr.write(
+                    f"perseus bandit: invalid bandit_seed {seed!r}; using unseeded RNG\n")
+                self.rng = random.Random()
         else:
             self.rng = random.Random()
 
         budget = overrides.get("budget", rcfg.get("bandit_budget"))
-        self.budget = int(budget) if budget else None
+        try:
+            self.budget = int(budget) if budget else None
+        except (TypeError, ValueError):
+            sys.stderr.write(
+                f"perseus bandit: invalid bandit_budget {budget!r}; budget disabled\n")
+            self.budget = None
         try:
             self.drop_threshold = float(
                 overrides.get("threshold", rcfg.get("bandit_drop_threshold", 0.5)) or 0.5)
@@ -11254,6 +11306,14 @@ class BanditContext:
 
         self.budget_used = 0.0
         self.decisions: list[dict] = []
+        # #625: one decision per arm per render. The parallel @query pre-scan
+        # consults the policy BEFORE the main loop reaches the same line; both
+        # call sites must agree or a query could be pre-executed and then
+        # dropped (paying the execution cost the drop was meant to save), or
+        # dropped from the pre-scan and then re-sampled as "include" with no
+        # prefetched result. Memoizing also keeps duplicate occurrences of one
+        # arm consistent within a single render.
+        self._memo: dict[str, bool] = {}
 
     # -- decision point -------------------------------------------------------
 
@@ -11273,6 +11333,8 @@ class BanditContext:
         """
         name = _bandit_norm_name(directive_name)
         arm = _bandit_arm_key(name, args)
+        if arm in self._memo:  # #625: pre-scan and main loop must agree
+            return self._memo[arm]
         stats = self.ledger["arms"].get(arm, {})
         good = int(stats.get("good", 0))
         bad = int(stats.get("bad", 0))
@@ -11320,6 +11382,7 @@ class BanditContext:
         info["decision"] = "include" if include else "drop"
         info["reason"] = reason
         self.decisions.append(info)
+        self._memo[arm] = not include
         return not include
 
     # -- post-render recording --------------------------------------------------
@@ -11332,6 +11395,23 @@ class BanditContext:
         are represented by the decision log instead (no cost this render)."""
         if not self.record:
             return
+        # #623: monotone render sequence for last-seen arm eviction. Clamped
+        # to the highest existing last_seen stamp (PR #628 review): if `seq`
+        # is corrupt/lost, falling back to 1 would let stale high stamps
+        # outrank fresh arms until the sequence caught back up.
+        try:
+            prev = int(self.ledger.get("seq", 0) or 0)
+        except (TypeError, ValueError):
+            prev = 0
+        arms_map = self.ledger.get("arms", {})
+        for st in (arms_map.values() if isinstance(arms_map, dict) else ()):
+            if isinstance(st, dict):
+                try:
+                    prev = max(prev, int(st.get("last_seen", 0) or 0))
+                except (TypeError, ValueError):
+                    pass
+        seq = prev + 1
+        self.ledger["seq"] = seq
         directives: dict[str, dict] = {}
         for entry in collector or []:
             name = _bandit_norm_name(entry.get("name", ""))
@@ -11362,6 +11442,15 @@ class BanditContext:
                 arm, {"name": name, "good": 0, "bad": 0, "tokens_sum": 0, "tokens_n": 0})
             st["tokens_sum"] = int(st.get("tokens_sum", 0)) + tokens
             st["tokens_n"] = int(st.get("tokens_n", 0)) + 1
+            st["last_seen"] = seq
+
+        # #623: an arm that reached the decision point this render (including
+        # dropped arms — evicting them would reset their learning) counts as
+        # "seen" for eviction purposes.
+        for d in self.decisions:
+            st = self.ledger["arms"].get(d.get("arm"))
+            if isinstance(st, dict):
+                st["last_seen"] = seq
 
         render_entry = {
             "render_id": self.render_id,
@@ -11382,6 +11471,7 @@ class BanditContext:
                    if r.get("render_id") != self.render_id]
         renders.append(render_entry)
         self.ledger["renders"] = renders[-max_renders:]
+        _bandit_prune_arms(self.ledger, self.cfg)  # #623
         try:
             _bandit_save_ledger(self.cfg, self.workspace, self.ledger)
         except Exception as exc:  # persistence failure must never break a render
@@ -11498,6 +11588,19 @@ def _bandit_end(ctx: "BanditContext", collector: "list[dict] | None") -> None:
         _BANDIT_ACTIVE = None
 
 
+def _bandit_abort(ctx: "BanditContext") -> None:
+    """#622: aborted-render hook. Clears the module-global context WITHOUT
+    persisting — the render never completed, so its partial costs/decisions
+    must not reach the ledger, but the stale context must not leak into later
+    renders either. Direct _render_lines callers (the LSP hover/render path,
+    lsp.py) never go through _bandit_begin, so without this a bandit-enabled
+    render that raised mid-way would silently drop directives from a
+    subsequent hover render that never opted into bandit."""
+    global _BANDIT_ACTIVE
+    if _BANDIT_ACTIVE is ctx:
+        _BANDIT_ACTIVE = None
+
+
 # ── CLI: perseus feedback / perseus explain ──────────────────────────────────
 
 def _bandit_resolve_render(ledger: dict, render_id: str):
@@ -11520,6 +11623,12 @@ def _bandit_apply_outcome(ledger: dict, arm: str, name: str, outcome: str) -> No
         arm, {"name": name, "good": 0, "bad": 0, "tokens_sum": 0, "tokens_n": 0})
     key = "good" if outcome == "good" else "bad"
     st[key] = int(st.get(key, 0)) + 1
+    # #623: outcome feedback refreshes recency — an arm the user is actively
+    # scoring must not be evicted before its learning pays off.
+    try:
+        st["last_seen"] = int(ledger.get("seq", 0) or 0)
+    except (TypeError, ValueError):
+        pass
 
 
 def _cmd_feedback(args, cfg) -> int:
@@ -11578,6 +11687,7 @@ def _cmd_feedback(args, cfg) -> int:
             _bandit_apply_outcome(ledger, arm, rendered[arm].get("name", arm), outcome)
             applied.append({"arm": arm, "outcome": outcome, "source": "cli"})
 
+    _bandit_prune_arms(ledger, cfg)  # #623
     _bandit_save_ledger(cfg, ws, ledger)
     result = {"render_id": entry.get("render_id"), "applied": applied}
     if getattr(args, "json", False):
@@ -12671,6 +12781,7 @@ def _render_lines(
     _skipped_directives: list[dict] | None = None,
     no_cache: bool = False,
     _query_results: dict[int, str] | None = None,
+    _query_sources: dict[int, str] | None = None,
 ) -> str:
     """Core rendering loop. Processes a list of lines and returns resolved markdown.
 
@@ -12681,6 +12792,10 @@ def _render_lines(
     Populated by the top-level parallel pre-scan and remapped when recursing
     into @if branches / @validate blocks (#581) so a pre-executed query is
     never run a second time by the recursion.
+
+    _query_sources: how each _query_results entry was resolved by the pre-scan
+    ("cache" | "mock" | "exec"), same keying/remapping. Used by the #625
+    prefetch-cost collector record so its `cached` flag is accurate.
     """
     # Top-level call owns the constraint rows list and decides when to flush it
     top_level = _constraint_rows is None
@@ -12715,6 +12830,9 @@ def _render_lines(
     # #581: recursion levels receive the pre-scan's results (remapped to their
     # own line indices) instead of re-running the queries.
     query_results: dict[int, str] = dict(_query_results) if _query_results else {}
+    # PR #628 review: resolution source per prefetched entry ("cache" | "mock"
+    # | "exec") so the #625 collector record below reports `cached` truthfully.
+    query_sources: dict[int, str] = dict(_query_sources) if _query_sources else {}
     # Cache key the pre-scan computed for each pending query, reused verbatim
     # by the parallel worker on write so the write key cannot drift from the
     # read key (the workspace suffix was previously dropped on write).
@@ -12793,8 +12911,25 @@ def _render_lines(
                 # #581: honour the tier gate — a @query that `--tier` excludes
                 # must not execute its shell command in the pre-scan. The main
                 # loop records it in the skipped manifest; here we only decide.
-                _pre_skip, _ = _check_directive_tier(raw_line, "@query", max_tier, None)
+                _pre_skip, _pre_clean = _check_directive_tier(raw_line, "@query", max_tier, None)
                 if _pre_skip:
+                    continue
+                # #625: consult the bandit policy BEFORE pre-executing. A
+                # @query the bandit drops must not pay the shell-execution
+                # cost here — for @query, execution is the expensive and
+                # sensitive part, not the prompt tokens the drop saves.
+                # Decisions are memoized per arm on the active context, so
+                # the main loop's decision point (_bandit_drop_directive
+                # below) reuses exactly this decision — no re-sampling drift
+                # between pre-scan and render loop. No active bandit context
+                # (the default) ⇒ no-op, pre-scan behavior unchanged.
+                # NOTE (PR #628 review): decide on the tier-STRIPPED line
+                # (_pre_clean), exactly like the main loop does — deciding on
+                # raw_line would derive a different arm key for tier-annotated
+                # queries (`@tier:N` is not a cache modifier, so
+                # _parse_cache_modifier keeps it in the args) and the two call
+                # sites would miss the memo and sample independently.
+                if _bandit_drop_directive("@query", _pre_clean):
                     continue
                 # #581: pipe lines (@query ... | @x) are executed by
                 # _execute_pipe in the main loop; pre-executing them here ran
@@ -12806,6 +12941,7 @@ def _render_lines(
                 )
                 if cache_mode == "mock":
                     query_results[idx] = cache_mock or "(mock)"
+                    query_sources[idx] = "mock"
                     continue
                 # #612: @query now carries a non-empty fingerprint (the env
                 # gate). The main-loop read path and prefetch key off
@@ -12819,8 +12955,10 @@ def _render_lines(
                 cached = cache_get(cache_key, cache_mode, cache_ttl, cfg)
                 if cached is not None:
                     query_results[idx] = cached
+                    query_sources[idx] = "cache"
                     continue
                 query_results[idx] = None  # sentinel: needs resolution
+                query_sources[idx] = "exec"
                 query_cache_keys[idx] = cache_key
                 query_raw_lines[idx] = raw_line
 
@@ -12926,6 +13064,18 @@ def _render_lines(
                 for j in range(len(block_lines))
                 if query_results.get(_vstart + j) is not None
             }
+            # PR #628 review: thread the resolution sources alongside the
+            # results (like the @if-branch remap) — the pre-scan is
+            # top_level-gated, so the recursion cannot repopulate them, and
+            # without this a prefetched cache hit inside a @validate block
+            # would mislabel `cached: False` (and a mock entry would accrue
+            # phantom ledger cost) under bandit.
+            _block_sources = {
+                j: query_sources[_vstart + j]
+                for j in range(len(block_lines))
+                if query_results.get(_vstart + j) is not None
+                and (_vstart + j) in query_sources
+            }
             rendered_block = _render_lines(block_lines, cfg, workspace, _constraint_rows,
                                            _include_depth=_include_depth,
                                            _include_path_chain=_include_path_chain,
@@ -12935,7 +13085,8 @@ def _render_lines(
                                            max_tier=max_tier,
                                            _skipped_directives=_skipped_directives,
                                            no_cache=no_cache,
-                                           _query_results=_block_results)
+                                           _query_results=_block_results,
+                                           _query_sources=_block_sources)
             output.append(resolve_validate_block(rendered_block, schema_ref, cfg, workspace))
             continue
 
@@ -13110,6 +13261,11 @@ def _render_lines(
                     for new_i, orig_i in enumerate(branch_idx)
                     if query_results.get(orig_i) is not None
                 }
+                _branch_sources = {
+                    new_i: query_sources[orig_i]
+                    for new_i, orig_i in enumerate(branch_idx)
+                    if query_results.get(orig_i) is not None and orig_i in query_sources
+                }
                 output.append(_render_lines(branch, cfg, workspace, _constraint_rows,
                                              _include_depth=_include_depth,
                                              _include_path_chain=_include_path_chain,
@@ -13119,7 +13275,8 @@ def _render_lines(
                                              max_tier=max_tier,
                                              _skipped_directives=_skipped_directives,
                                              no_cache=no_cache,
-                                             _query_results=_branch_results))
+                                             _query_results=_branch_results,
+                                             _query_sources=_branch_sources))
             continue
 
         # ── inline directives ──
@@ -13158,6 +13315,32 @@ def _render_lines(
             # sentinel somehow survives the executor, fall through to normal
             # sequential resolution instead of appending None to output.
             if directive == "@query" and query_results.get(i) is not None:
+                # #625: prefetched costs must still reach the collector, or
+                # the ledger under-charges prefetched arms and biases future
+                # include/drop decisions toward directives whose cost the
+                # prefetch path hid. Gated on an active bandit context so the
+                # default render path (and its collector consumers, e.g.
+                # --explain manifests) is byte-identical to before.
+                # PR #628 review: `cached` reflects how the pre-scan actually
+                # resolved the entry; mock entries get no record, matching the
+                # non-prefetch mock path (which never reaches the collector).
+                # Args are derived from the tier-STRIPPED `line` (not the
+                # pre-strip `raw_args` from `m`) so the charged arm matches
+                # the decision arm for tier-annotated queries.
+                _qsrc = query_sources.get(i, "exec")
+                if (_directive_collector is not None and _BANDIT_ACTIVE is not None
+                        and _qsrc != "mock"):
+                    _qm = INLINE_DIRECTIVE_RE.match(line.strip())
+                    _qargs = (_qm.group(2) or "").strip() if _qm else raw_args
+                    _directive_collector.append({
+                        "name": directive.lstrip("@"),
+                        "args": _parse_cache_modifier(_qargs)[0].strip(),
+                        "output": query_results[i],
+                        "cached": _qsrc == "cache",
+                        "prefetched": True,
+                        "duration_ms": 0,
+                        "depth": _include_depth,
+                    })
                 output.append(query_results[i])
                 i += 1
                 continue
@@ -13453,15 +13636,25 @@ def render_source(
             # collector mechanism when the caller didn't request one.
             _directive_collector = []
 
-    result = _render_lines(body_lines, cfg, workspace, None,
-                         _include_depth=_include_depth,
-                         _include_path_chain=_include_path_chain,
-                         _include_inode_chain=_include_inode_chain,
-                         _directive_collector=_directive_collector,
-                         _stats=_stats,
-                         max_tier=max_tier,
-                         _skipped_directives=_skipped_directives,
-                         no_cache=no_cache)
+    try:
+        result = _render_lines(body_lines, cfg, workspace, None,
+                             _include_depth=_include_depth,
+                             _include_path_chain=_include_path_chain,
+                             _include_inode_chain=_include_inode_chain,
+                             _directive_collector=_directive_collector,
+                             _stats=_stats,
+                             max_tier=max_tier,
+                             _skipped_directives=_skipped_directives,
+                             no_cache=no_cache)
+    except BaseException:
+        # #622: a directive error aborting the render must not leave the
+        # module-global bandit context set — direct _render_lines callers
+        # (LSP hover/render, lsp.py) never call _bandit_begin and would
+        # otherwise inherit stale drop decisions. Abort clears the context
+        # without persisting the incomplete render to the ledger.
+        if _bandit_ctx is not None:
+            _bandit_abort(_bandit_ctx)
+        raise
 
     # ── @bandit (#605): persist directive costs + decisions, clear context ──
     if _bandit_ctx is not None:
