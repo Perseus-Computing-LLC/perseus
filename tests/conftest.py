@@ -99,6 +99,14 @@ def _clear_session_cache():
         perseus._SESSION_CACHE.clear()
         if hasattr(perseus, "_WARNED_CACHE_DIR_OVERRIDES"):
             perseus._WARNED_CACHE_DIR_OVERRIDES.clear()
+        # #638/#647: clear the rate-limit set for cache write/redaction
+        # failure warnings so each test observes its own first warning.
+        if hasattr(perseus, "_WARNED_CACHE_WRITE_FAILURES"):
+            perseus._WARNED_CACHE_WRITE_FAILURES.clear()
+        # #637: clear the render-scoped path memos so a test that reuses a
+        # workspace path across monkeypatched environments starts fresh.
+        if hasattr(perseus, "_clear_render_path_memos"):
+            perseus._clear_render_path_memos()
         # #445: clear the memoized cache-dir resolution + "dir ensured" set so a
         # test that monkeypatches PERSEUS_HOME / cache_dir isn't served a value
         # resolved under a different test's home.

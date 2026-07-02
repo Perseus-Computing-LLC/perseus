@@ -4427,6 +4427,37 @@ def kill_active_subprocess_for_thread(thread_id: int) -> bool:
     return True
 
 
+# ── #635: structured resolver-failure signal ─────────────────────────────────
+#
+# A resolver that produced degraded output (timeout, exit != 0, execution
+# error, no output) must say so STRUCTURALLY so the renderer's cache-write
+# gate can skip persisting it — otherwise a one-off slow command freezes its
+# "timed out" banner into every render for the full TTL window. A string
+# prefix sniff ("> ⚠") would misfire on legitimate content, so resolvers set
+# this flag instead. Thread-local because parallel_queries resolves @query
+# lines on worker threads concurrently. Every renderer call site pops
+# (read-and-clear) immediately after the resolver returns, so the flag can
+# never leak from one directive to the next on the same thread.
+#
+# NOTE: results returned via `fallback=` are NOT flagged. The fallback is the
+# user's designed graceful value for an EXPECTED failure (task-14 — e.g.
+# `git status` outside a repo, a stable condition), so it stays cacheable.
+
+_RESOLVER_FAILURE = threading.local()
+
+
+def _mark_resolver_failure() -> None:
+    """Flag the current thread's in-flight resolver result as a failure."""
+    _RESOLVER_FAILURE.failed = True
+
+
+def _pop_resolver_failure() -> bool:
+    """Read-and-clear the current thread's resolver-failure flag (#635)."""
+    failed = getattr(_RESOLVER_FAILURE, "failed", False)
+    _RESOLVER_FAILURE.failed = False
+    return failed
+
+
 def _unescape_fallback(s: str) -> str:
     """Unescape standard escape sequences without mangling non-ASCII.
 
@@ -4612,6 +4643,7 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
         if exit_code != 0:
             if fallback is not None:
                 return fallback
+            _mark_resolver_failure()  # #635: transient failure — do not memoize
             # #137: redact secrets out of `cmd` and `stderr` before interpolating
             # them into render output. Without this, a command like
             # `@query "curl -H 'Authorization: Bearer *** leaks the bearer
@@ -4626,6 +4658,7 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
         if not stdout:
             if fallback is not None:
                 return fallback
+            _mark_resolver_failure()  # #635: likely transient — do not memoize
             safe_cmd, _ = redact_text(cmd, cfg)
             return f"> (no output from `{safe_cmd}`)"
 
@@ -4662,11 +4695,13 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
     except subprocess.TimeoutExpired:
         if fallback is not None:
             return fallback
+        _mark_resolver_failure()  # #635: transient failure — do not memoize
         safe_cmd, _ = redact_text(cmd, cfg)
         return f"> ⚠ `@query` timed out ({timeout}s): `{safe_cmd}`"
     except Exception as exc:
         if fallback is not None:
             return fallback
+        _mark_resolver_failure()  # #635: transient failure — do not memoize
         # exc.args often includes argv[0] which contains the full cmd; redact.
         safe_err, _ = redact_text(str(exc), cfg)
         return f"> ⚠ `@query` error: {safe_err}"
@@ -5041,6 +5076,13 @@ def _execute_prefetch_directive(
     try:
         value = _call_resolver(spec, clean_args, cfg, workspace)
         value = _apply_output_schema_validation(spec, clean_args, value, workspace)
+        # #635: a resolver that flagged its result as a failure (timeout,
+        # exit != 0, error) must not warm the cache — persisting the degraded
+        # banner would serve it to every render for the full TTL.
+        if _pop_resolver_failure():
+            result["status"] = "failed"
+            result["reason"] = "resolver returned a failure result; not cached"
+            return result
         cache_set(cache_key, value, cache_mode, cache_ttl, cfg)
         if _fp and (directive or "") not in _ENV_GATED_DIRECTIVES:
             # Mirror the renderer's base-key TTL fallback (consulted when a
@@ -11808,6 +11850,56 @@ _SAFE_CACHE_DIR_CACHE: dict[tuple[str, str], "Path"] = {}
 # #445: cache_set walked the parent chain doing mkdir/chmod on every write.
 # Once a leaf dir is ensured this process, skip the walk on subsequent writes.
 _CACHE_DIR_ENSURED: set[str] = set()
+# #638/#647: rate-limit stderr warnings for cache-write and cache-redaction
+# failures (same pattern as _WARNED_CACHE_DIR_OVERRIDES above) — warn once
+# per failure signature, not once per directive per render.
+_WARNED_CACHE_WRITE_FAILURES: set[str] = set()
+
+# #637: render-scoped memos for filesystem path resolution. Warm renders of
+# directive-heavy docs spent ~40% of wall time re-running Path.resolve():
+# workspace.resolve() once per directive in the cache-key build (main loop,
+# parallel pre-scan, and pipe path) plus expanduser().resolve() once per
+# dependency fingerprint. Both answers are stable for the duration of one
+# render, so memoize them and clear at the start of every top-level render —
+# staleness (moved workspace, changed symlink) is bounded by a single pass.
+_WS_RESOLVE_MEMO: dict[str, str] = {}
+_RESOLVE_PATH_MEMO: dict[tuple[str, str, bool], "tuple[Path, str | None]"] = {}
+
+
+def _clear_render_path_memos() -> None:
+    """Reset the #637 path-resolution memos (top-level render entry)."""
+    _WS_RESOLVE_MEMO.clear()
+    _RESOLVE_PATH_MEMO.clear()
+
+
+def _resolved_workspace_str(workspace: "Path | None") -> str:
+    """str(workspace.resolve()), memoized for the current render (#637).
+
+    Byte-compatible with the previous inline f-string interpolation of
+    `workspace.resolve()` (f-strings stringify the Path), so cache keys are
+    unchanged."""
+    if workspace is None:
+        return ""
+    key = str(workspace)
+    val = _WS_RESOLVE_MEMO.get(key)
+    if val is None:
+        val = str(workspace.resolve())
+        _WS_RESOLVE_MEMO[key] = val
+    return val
+
+
+def _resolve_path_memoized(
+    raw_path: str, workspace: "Path | None", allow_outside_workspace: bool
+) -> "tuple[Path, str | None]":
+    """_resolve_path(), memoized for the current render (#637)."""
+    key = (raw_path, str(workspace) if workspace else "", allow_outside_workspace)
+    hit = _RESOLVE_PATH_MEMO.get(key)
+    if hit is None:
+        hit = _resolve_path(
+            raw_path, workspace, allow_outside_workspace=allow_outside_workspace
+        )
+        _RESOLVE_PATH_MEMO[key] = hit
+    return hit
 
 
 def _cache_key(directive_line: str) -> str:
@@ -11912,6 +12004,29 @@ def _parse_cache_modifier(line: str) -> tuple[str, str, int | None, str | None]:
 _ENV_GATED_DIRECTIVES = frozenset({"@agent", "@services", "@query"})
 
 
+def _auto_cache_mode(directive: str, cache_mode: str) -> str:
+    """Track A10 auto-cache upgrade — the ONE shared implementation (#634).
+
+    A cacheable directive with no explicit @cache modifier is upgraded to
+    fingerprint mode (content-addressed, TTL from persist_cache_ttl_s).
+    Directives with cacheable=False (@env, @date, @tool, ...) still
+    re-resolve every render.
+
+    Used by the main render loop, the parallel @query pre-scan, and the
+    parallel worker. Keeping it in one helper is the point: the pre-scan and
+    worker previously lacked the upgrade, so enabling parallel_queries
+    silently DISABLED caching for bare @query lines — the pre-scan's
+    cache_get never read (mode "") and the worker's cache_set never wrote,
+    making repeated parallel renders strictly slower than sequential.
+    """
+    if cache_mode:
+        return cache_mode
+    spec = DIRECTIVE_REGISTRY.get(directive)
+    if spec and spec.cacheable:
+        return "fingerprint"
+    return cache_mode
+
+
 def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path | None, cfg: dict) -> str:
     """Return a stable fingerprint of all file dependencies for this directive.
 
@@ -11951,10 +12066,12 @@ def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path | N
         raw_path, _remaining = _extract_quoted_token(clean_args)
         if not raw_path:
             return None
-        path, warning = _resolve_path(
+        # #637: memoized — this ran expanduser().resolve() (multiple
+        # _getfinalpathname syscalls) once per fingerprint, per render.
+        path, warning = _resolve_path_memoized(
             raw_path,
             workspace,
-            allow_outside_workspace=bool(cfg["render"].get("allow_outside_workspace", False)),
+            bool(cfg["render"].get("allow_outside_workspace", False)),
         )
         if warning:
             return None
@@ -12157,11 +12274,28 @@ def cache_set(key: str, value: str, mode: str, ttl: int | None, cfg: dict) -> No
                 _CACHE_DIR_ENSURED.add(str(cache_dir))
             # v1.0.5 review: redact secrets before persisting to cache.
             # Cached values can contain rendered output with embedded tokens.
-            safe_value = value
+            # #647: fail CLOSED — if redaction itself errors, skip the disk
+            # write entirely rather than persisting potentially unredacted
+            # output. A cache miss is safe by design (the entry regenerates);
+            # a silently bypassed trust.redact_secrets is not. Rate-limited
+            # stderr note + audit so the degradation is observable.
             try:
                 safe_value, _report = redact_text(value, cfg)
-            except Exception:
-                pass  # redaction failure must not block caching
+            except Exception as exc:
+                warn_key = f"redact:{type(exc).__name__}"
+                if warn_key not in _WARNED_CACHE_WRITE_FAILURES:
+                    _WARNED_CACHE_WRITE_FAILURES.add(warn_key)
+                    sys.stderr.write(
+                        "perseus cache: secret redaction failed "
+                        f"({type(exc).__name__}: {exc}); "
+                        "skipping disk cache write (fail closed)\n"
+                    )
+                    audit_event(
+                        cfg,
+                        "cache_redaction_failed",
+                        error=f"{type(exc).__name__}: {exc}"[:500],
+                    )
+                return
             entry = {"expires": time.time() + effective_ttl, "value": safe_value}
             # Prior #15: atomic write via tempfile + os.replace to avoid
             # partial/corrupt reads if a reader hits the file mid-write.
@@ -12177,8 +12311,26 @@ def cache_set(key: str, value: str, mode: str, ttl: int | None, cfg: dict) -> No
             # power loss is irrelevant for a regenerable cache, and the per-write
             # fsync was a real cost on the warm path. (close() flushes to the OS.)
             os.replace(tmp.name, target_path)
-        except Exception:
-            pass  # cache write failure is non-fatal
+        except Exception as exc:
+            # #638: cache write failure stays non-fatal (a miss is safe), but
+            # not invisible — ENOSPC or a permission regression otherwise
+            # silently degrades to "re-execute every shell command every
+            # render". Rate-limited stderr + audit, mirroring the
+            # _WARNED_CACHE_DIR_OVERRIDES pattern in _safe_cache_dir.
+            warn_key = f"write:{cache_dir}:{type(exc).__name__}"
+            if warn_key not in _WARNED_CACHE_WRITE_FAILURES:
+                _WARNED_CACHE_WRITE_FAILURES.add(warn_key)
+                sys.stderr.write(
+                    f"perseus cache: write to {cache_dir} failed "
+                    f"({type(exc).__name__}: {exc}); directives will "
+                    "re-execute until cache writes recover\n"
+                )
+                audit_event(
+                    cfg,
+                    "cache_write_failed",
+                    cache_dir=str(cache_dir),
+                    error=f"{type(exc).__name__}: {exc}"[:500],
+                )
 
 
 # ──────────────────────────────── Renderer ────────────────────────────────────
@@ -12628,6 +12780,7 @@ def _execute_pipe(stages: list[str], cfg: dict, workspace, line_index: int, quer
     prev_output = ""
     cache_mode = ""
     cache_ttl = None
+    pipe_failed = False  # #635: set when any stage flags a failure result
 
     # Check if last stage is just a @cache modifier
     last_stage = stages[-1].strip()
@@ -12640,7 +12793,7 @@ def _execute_pipe(stages: list[str], cfg: dict, workspace, line_index: int, quer
     # per-user, so the same pipe line in two workspaces must not collide
     # (matches the non-pipe path and the @query pre-scan).
     directive_stages = stages[:resolve_count]
-    _ws = workspace.resolve() if workspace else ""
+    _ws = _resolved_workspace_str(workspace)  # #637: memoized per render
     cache_key = _cache_key(f'{" | ".join(directive_stages)} :: {_ws}')
 
     # Check cache before executing (pipe stages were never cached before).
@@ -12674,10 +12827,14 @@ def _execute_pipe(stages: list[str], cfg: dict, workspace, line_index: int, quer
         if spec and spec.resolver and spec.kind == "inline":
             prev_output = _call_resolver(spec, clean_args, cfg, workspace)
             prev_output = _apply_output_schema_validation(spec, clean_args, prev_output, workspace)
+            # #635: any stage that flagged a failure poisons the pipe result;
+            # don't persist it (pop unconditionally so the flag never leaks).
+            if _pop_resolver_failure():
+                pipe_failed = True
         else:
             return f"> ⚠ pipe stage {idx+1}: {directive} cannot be resolved"
 
-    if cache_mode:
+    if cache_mode and not pipe_failed:
         cache_set(cache_key, prev_output, cache_mode, cache_ttl, cfg)
     return prev_output
 
@@ -12815,6 +12972,16 @@ def _render_lines(
         _constraint_rows = []
         if _skipped_directives is None:
             _skipped_directives = []
+    if top_level and _include_depth == 0:
+        # #637: path-resolution memos live for exactly one top-level render
+        # (render_source and direct callers like the LSP both land here;
+        # @include recursion re-enters with _include_depth > 0 and reuses
+        # the warm memos).
+        _clear_render_path_memos()
+        # #635: drop any resolver-failure flag a non-render caller (e.g. the
+        # post-render speculation pass) left on this thread, so it cannot
+        # suppress the first cache write of this render.
+        _pop_resolver_failure()
 
     # ── File integrity pre-check (top-level only) ──
     _integrity_snapshot: dict[str, float] = {}
@@ -12962,19 +13129,30 @@ def _render_lines(
                     query_results[idx] = cache_mock or "(mock)"
                     query_sources[idx] = "mock"
                     continue
+                # #634: apply the Track A10 auto-cache upgrade with the SAME
+                # shared helper as the main loop. Without it a bare @query
+                # arrived here with cache_mode="" — cache_get below never
+                # read, the worker never wrote, and enabling the parallelism
+                # feature silently disabled caching for bare queries.
+                cache_mode = _auto_cache_mode("@query", cache_mode)
                 # #612: @query now carries a non-empty fingerprint (the env
                 # gate). The main-loop read path and prefetch key off
                 # `<base>.<fp>`, so the pre-scan must use the same key or it
                 # would read/write a stale bare-base entry and re-run every
                 # query. Mirror renderer._render_lines / query.prefetch.
-                _base_key = _cache_key(f"@query {clean_args} :: {workspace.resolve() if workspace else ''}")
+                _base_key = _cache_key(f"@query {clean_args} :: {_resolved_workspace_str(workspace)}")
                 _fp = "" if cache_mode == "nofingerprint" else _dependency_fingerprint(
                     "@query", clean_args, workspace, cfg)
                 cache_key = f"{_base_key}.{_fp}" if _fp else _base_key
-                cached = cache_get(cache_key, cache_mode, cache_ttl, cfg)
+                # #634: honour no_cache in the pre-scan read, matching the
+                # main loop's `None if no_cache else cache_get(...)`.
+                cached = None if no_cache else cache_get(cache_key, cache_mode, cache_ttl, cfg)
                 if cached is not None:
                     query_results[idx] = cached
                     query_sources[idx] = "cache"
+                    # #639: keep the key so the main loop's prefetched-result
+                    # early return can report it in the on_cache_hit payload.
+                    query_cache_keys[idx] = cache_key
                     continue
                 query_results[idx] = None  # sentinel: needs resolution
                 query_sources[idx] = "exec"
@@ -12995,10 +13173,18 @@ def _render_lines(
                 m2 = INLINE_DIRECTIVE_RE.match(raw_line)
                 args2 = (m2.group(2) or "").strip()
                 clean2, cmode, cttl, _ = _parse_cache_modifier(args2)
+                # #634: same shared auto-cache upgrade as the pre-scan and
+                # main loop — a bare cacheable @query writes the fingerprint
+                # entry the pre-scan will read on the next render.
+                cmode = _auto_cache_mode("@query", cmode)
                 spec2 = DIRECTIVE_REGISTRY.get("@query")
                 result = _call_resolver(spec2, clean2, cfg, workspace)
                 result = _apply_output_schema_validation(spec2, clean2, result, workspace)
-                if cmode:
+                # #635: pop the failure flag unconditionally (thread-local to
+                # this worker) so a flagged failure is never persisted and
+                # never leaks to a later task on the same pool thread.
+                _failed = _pop_resolver_failure()
+                if cmode and not no_cache and not _failed:
                     cache_set(query_cache_keys[idx], result, cmode, cttl, cfg)
                 return idx, result
             with ThreadPoolExecutor(max_workers=min(len(pending), 8)) as executor:
@@ -13361,6 +13547,32 @@ def _render_lines(
                 # the shared extraction point above, so it matches the
                 # decision arm directly (the #628 re-match workaround is gone).
                 _qsrc = query_sources.get(i, "exec")
+                # #639: a prefetched result must still reach _stats and the
+                # cache hooks, or --explain / meta JSON / hook dashboards
+                # report hits=0 misses=0 exactly when parallel_queries is on.
+                # Mirrors the sequential path: mock entries record nothing
+                # (the sequential mock path exits before the stats bump);
+                # "cache" ⇒ hit, "exec" ⇒ miss. The key was captured by the
+                # pre-scan; recursion levels receive remapped results without
+                # keys, so the payload key may be "" there.
+                if _qsrc != "mock":
+                    if _stats is not None:
+                        _stats["directive_count"] += 1
+                    if _qsrc == "cache":
+                        if _stats is not None:
+                            _stats["cache_hits"] += 1
+                        _fire_hooks("on_cache_hit", {
+                            "directive_name": directive,
+                            "cache_key": query_cache_keys.get(i, ""),
+                            "age_s": 0,
+                        }, cfg)
+                    else:
+                        if _stats is not None:
+                            _stats["cache_misses"] += 1
+                        _fire_hooks("on_cache_miss", {
+                            "directive_name": directive,
+                            "cache_key": query_cache_keys.get(i, ""),
+                        }, cfg)
                 if (_directive_collector is not None and _BANDIT_ACTIVE is not None
                         and _qsrc != "mock"):
                     _directive_collector.append({
@@ -13391,7 +13603,9 @@ def _render_lines(
                         break
 
             clean_args, cache_mode, cache_ttl, cache_mock = _parse_cache_modifier(raw_args)
-            _base_key = _cache_key(f"{directive} {clean_args} :: {workspace.resolve() if workspace else ''}")
+            # #637: memoized — workspace.resolve() was re-run here for every
+            # directive on every render (≈3 uncached syscalls per warm hit).
+            _base_key = _cache_key(f"{directive} {clean_args} :: {_resolved_workspace_str(workspace)}")
             _fp = ""
             if cache_mode == "nofingerprint":
                 cache_key = _base_key
@@ -13413,9 +13627,9 @@ def _render_lines(
             # @cache modifier. Uses fingerprint mode (content-addressed, TTL from
             # persist_cache_ttl_s) so cached results invalidate when source files
             # change. Directives with cacheable=False (e.g. @env, @date, @tool)
-            # still re-resolve every render.
-            if not cache_mode and spec and spec.cacheable:
-                cache_mode = "fingerprint"
+            # still re-resolve every render. #634: shared helper — the parallel
+            # pre-scan and worker apply the identical upgrade.
+            cache_mode = _auto_cache_mode(directive, cache_mode)
 
             cached = None if no_cache else cache_get(cache_key, cache_mode, cache_ttl, cfg)
             if cached is not None:
@@ -13499,7 +13713,13 @@ def _render_lines(
             else:
                 result = line
 
-            if cache_mode and not no_cache:
+            # #635: read-and-clear the resolver failure flag UNCONDITIONALLY
+            # (even when cache_mode is empty or no_cache is set) so a flagged
+            # failure can never leak into a later directive's cache decision
+            # on this thread. A failure result (timeout, exit != 0, error) is
+            # still rendered, but never persisted — the next render retries.
+            _resolver_failed = _pop_resolver_failure()
+            if cache_mode and not no_cache and not _resolver_failed:
                 cache_set(cache_key, result, cache_mode, cache_ttl, cfg)
                 if _fp and directive not in _ENV_GATED_DIRECTIVES:
                     # Keep a TTL fallback under the base key. If a dependency is
@@ -13764,8 +13984,20 @@ def render_source(
             run_speculation(cfg, workspace,
                             k=_speculate_params.get("k"),
                             budget_tokens=_speculate_params.get("budget"))
-        except Exception:
-            pass
+        except Exception as exc:
+            # #640: speculation must never break a render, but a crash must
+            # not be invisible either — an operator who enabled the feature
+            # couldn't tell "broken" from "predicting nothing". One stderr
+            # line + audit event, mirroring speculate's own stats-write
+            # handler (_save_speculate_stats).
+            sys.stderr.write(
+                f"perseus speculate: post-render speculation pass failed: {exc}\n"
+            )
+            try:
+                audit_event(cfg, "speculation_pass_failed",
+                            error=f"{type(exc).__name__}: {exc}"[:500])
+            except Exception:
+                pass  # reporting must not break the render either
 
     return result
 
