@@ -363,7 +363,11 @@ def main():
         help="Target assistant (claude-code, cursor, gemini-cli, copilot)",
     )
     p_install.add_argument("--workspace", default=None, help="Workspace path (default: auto-detect)")
-    p_install.add_argument("--perseus-cmd", default="perseus", help="Path or name of the perseus CLI")
+    p_install.add_argument(
+        "--perseus-cmd", default=None,
+        help="Path or name of the perseus CLI (default: auto — `perseus` when "
+             "on PATH, else the current interpreter + artifact path) (#642b)",
+    )
     p_install.add_argument("--dry-run", action="store_true", help="Print actions without writing files")
     p_install.add_argument("--json", action="store_true", help="Output machine-readable JSON")
 

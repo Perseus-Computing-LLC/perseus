@@ -1,5 +1,7 @@
 # stdlib imports available from build artifact header
-import traceback
+# NOTE: `traceback` is intentionally NOT imported here (#642c). It costs
+# ~17 ms of every cold start but is only needed on directive-error paths —
+# _call_resolver imports it lazily inside its except block.
 
 # ─────────────────────────────── Directive Registry ───────────────────────────
 #
@@ -271,6 +273,8 @@ def _call_resolver(spec: DirectiveSpec, args_str: str, cfg: dict, workspace: "Pa
         else:
             raise ValueError(f"Unknown call_sig {sig!r} for {spec.name}")
     except Exception as e:
+        # Lazy import (#642c): only error paths pay for traceback.
+        import traceback
         # Log full traceback to stderr for diagnostics.
         # Without this, resolver bugs (NameError, AttributeError, etc.)
         # are invisible in production — the render just shows a terse
