@@ -41,6 +41,7 @@ See the patent disclosure for how this unification reads on claim element (a):
 | `@health` | `resolve_health` | inline | `acw` | 1 | filesystem / workspace |  |
 | `@if` | `— (control)` | control | `block` | 1 | control/structural |  |
 | `@memory` | `resolve_memory` | inline | `acw` | 1 | semantic memory (FTS5/Mneme/Mimir) | @search (semantic memory) |
+| `@profile` | `resolve_profile` | inline | `acw` | 1 | in-process / computed |  |
 | `@prompt` | `resolve_prompt_block` | block | `block` | 1 | in-process / computed |  |
 | `@tokens` | `resolve_tokens` | block | `a` | 1 | shell / live system |  |
 | `@validate` | `resolve_validate_block` | block | `block` | 1 | filesystem / workspace |  |
