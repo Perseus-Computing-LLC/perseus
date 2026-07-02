@@ -13064,6 +13064,18 @@ def _render_lines(
                 for j in range(len(block_lines))
                 if query_results.get(_vstart + j) is not None
             }
+            # PR #628 review: thread the resolution sources alongside the
+            # results (like the @if-branch remap) — the pre-scan is
+            # top_level-gated, so the recursion cannot repopulate them, and
+            # without this a prefetched cache hit inside a @validate block
+            # would mislabel `cached: False` (and a mock entry would accrue
+            # phantom ledger cost) under bandit.
+            _block_sources = {
+                j: query_sources[_vstart + j]
+                for j in range(len(block_lines))
+                if query_results.get(_vstart + j) is not None
+                and (_vstart + j) in query_sources
+            }
             rendered_block = _render_lines(block_lines, cfg, workspace, _constraint_rows,
                                            _include_depth=_include_depth,
                                            _include_path_chain=_include_path_chain,
@@ -13073,7 +13085,8 @@ def _render_lines(
                                            max_tier=max_tier,
                                            _skipped_directives=_skipped_directives,
                                            no_cache=no_cache,
-                                           _query_results=_block_results)
+                                           _query_results=_block_results,
+                                           _query_sources=_block_sources)
             output.append(resolve_validate_block(rendered_block, schema_ref, cfg, workspace))
             continue
 

@@ -598,6 +598,37 @@ def test_prefetched_collector_record_reports_cache_hits_and_depth(tmp_path, ws, 
     assert rec2[0]["output"] == "cached-payload"
 
 
+def test_prefetched_sources_thread_into_validate_blocks(tmp_path, ws, monkeypatch):
+    """PR #628 review residual: the @validate-block recursion must thread
+    _query_sources alongside _query_results (like the @if remap) — the
+    pre-scan is top_level-gated, so without it a prefetched cache hit inside
+    the block mislabels `cached: False` and a mock @query accrues phantom
+    ledger cost."""
+    c = _cfg(tmp_path, bandit="record", parallel_queries=True)
+    src = ('@perseus\n# corpus\n'
+           '@validate schema="nosuch"\n'
+           '@query "spy-v" @cache ttl=300\n'
+           '@query "spy-m" @cache mock="mocked-out"\n'
+           '@end\n')
+    spec = perseus.DIRECTIVE_REGISTRY["@query"]
+    monkeypatch.setitem(perseus.DIRECTIVE_REGISTRY, "@query",
+                        spec._replace(resolver=lambda a, c_, w=None: "v-payload"))
+
+    col1: list = []
+    perseus.render_source(src, c, ws, _directive_collector=col1)
+    rec1 = [(e["args"], e["cached"]) for e in col1 if e.get("prefetched")]
+    assert rec1 == [('"spy-v"', False)]  # executed this render; mock: no record
+
+    col2: list = []
+    perseus.render_source(src, c, ws, _directive_collector=col2)
+    rec2 = [(e["args"], e["cached"]) for e in col2 if e.get("prefetched")]
+    assert rec2 == [('"spy-v"', True)]  # pre-scan cache hit, inside @validate
+
+    arms = perseus._bandit_load_ledger(c, ws)["arms"]
+    assert _arm("@query", '"spy-v"') in arms
+    assert _arm("@query", '"spy-m"') not in arms  # mock: no phantom cost
+
+
 def test_finish_seq_clamps_to_highest_last_seen(tmp_path, ws):
     """PR #628 review: a corrupt/lost ledger `seq` must not fall below
     existing last_seen stamps, or stale arms would outrank fresh ones in
