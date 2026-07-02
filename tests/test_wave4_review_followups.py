@@ -182,6 +182,20 @@ def test_614_overwrite_preserves_owner_only(tmp_path):
     assert p.read_text(encoding="utf-8") == "v: 2\n"
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits only")
+def test_614_preexisting_loose_perms_file_is_tightened(tmp_path):
+    # The CI repro: a file created elsewhere with 0o644, then written via
+    # _write_private_text — O_CREAT's mode doesn't apply to an existing file,
+    # so fchmod must enforce 0o600.
+    p = tmp_path / "legacy.yaml"
+    p.write_text("old\n", encoding="utf-8")
+    os.chmod(p, 0o644)
+    assert (p.stat().st_mode & 0o777) == 0o644
+    perseus._write_private_text(p, "new\n")
+    assert (p.stat().st_mode & 0o777) == 0o600
+    assert p.read_text(encoding="utf-8") == "new\n"
+
+
 def test_614_write_and_readback_roundtrip(tmp_path):
     # Cross-platform: content integrity regardless of permission enforcement.
     p = tmp_path / "id.yaml"
