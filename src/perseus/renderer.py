@@ -552,12 +552,24 @@ TIER_MODIFIER_RE = re.compile(r'@tier:(\d+)', re.IGNORECASE)
 def _parse_tier_modifier(line: str) -> tuple[str, int | None]:
     """Strip @tier:N modifier from a directive line.
     Returns (clean_line, tier_number) or (original_line, None) if no modifier.
+
+    #632 review: quote-aware — a literal `@tier:N` inside a quoted span
+    (e.g. `@query "grep @tier:3 notes.md"`) is command/content text, not a
+    modifier: it must neither trigger the tier gate nor be stripped from the
+    executed command. Same segment approach as the #585 @memory ttl rewrite
+    (_CACHE_KEY_SPLIT_RE keeps quoted spans intact; only unquoted segments
+    are scanned). First match outside quotes wins, matching the historical
+    first-match semantics. Both consumers — the tier gate's instance_tier
+    and the stripped dispatch/args line — go through this single function.
     """
-    m = TIER_MODIFIER_RE.search(line)
-    if m:
-        tier = int(m.group(1))
-        clean = line[:m.start()] + line[m.end():]
-        return clean.rstrip(), tier
+    segs = _CACHE_KEY_SPLIT_RE.split(line)
+    for si, seg in enumerate(segs):
+        if seg.startswith(('"', "'")):
+            continue  # quoted span: literal content, never a modifier
+        m = TIER_MODIFIER_RE.search(seg)
+        if m:
+            segs[si] = seg[:m.start()] + seg[m.end():]
+            return "".join(segs).rstrip(), int(m.group(1))
     return line, None
 
 
