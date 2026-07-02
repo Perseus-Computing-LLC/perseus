@@ -230,9 +230,32 @@ DEFAULT_CONFIG = {
         # The daedalus path falls back to deterministic on any failure.
         "pattern_extractor": "deterministic",
     },
+    # ── #608 — per-model context profiles (recall-first posture) ────────────
+    # Keyed by model name (or context-window class). Selected per render via
+    # the `@profile <model>` directive in the source document; unknown or
+    # missing names fall back to "default" deterministically.
+    #
+    # Keys per profile:
+    #   context_target: int   — advertised context budget for the model
+    #   memory:         str   — memory posture:
+    #       "on_demand" (DEFAULT) — inject a short retrieval pointer + tools,
+    #                               never a pre-materialized memory dump
+    #       "relevant"            — inject only entities whose recall_when
+    #                               triggers match the current render context
+    #       "always"              — LEGACY: unconditional memory dump on every
+    #                               render (the pre-#608 behavior; opt-in)
+    #   always_inject:  bool  — legacy alias; true == memory: "always"
+    #   inject_limit:   int   — max entities admitted when posture != on_demand
+    #                           (defaults tier-aware: 5 for ≤200k targets, 10 above)
+    "profiles": {
+        "default":           {"context_target": 200000,  "memory": "on_demand"},
+        "claude-sonnet-4-6": {"context_target": 200000,  "memory": "on_demand"},
+        "claude-opus-4-8":   {"context_target": 1000000, "memory": "on_demand"},  # big window is not an excuse to bloat
+    },
     "mimir": {                          # Project Synapse — Mimir persistent memory (MCP binary, formerly "mneme")
         "enabled": True,
-        "auto_inject": True,             # Append the Persistent Memory block to every render; set False to require an explicit @memory/@mimir directive (#442)
+        "auto_inject": True,             # Allow the automatic memory section (pointer or dump per profile posture); set False to require an explicit @memory/@mimir directive (#442). NOTE (#608): whether a pre-materialized dump is injected is now governed by the active profile's `memory` posture — on_demand (default) injects only a retrieval pointer.
+        "workspace_scope": True,         # #553: pass the workspace hash to vault recall calls that support it, so unrelated workspaces don't share one undifferentiated memory pool at the render layer
         "transport": "stdio",            # "stdio" (local binary) or "sse" (remote endpoint)
         "command": ["mimir", "serve", "--db", "~/.mimir/data/mimir.db"],
         "endpoint": "",                  # SSE endpoint URL (when transport=sse)
@@ -1142,6 +1165,7 @@ def _bind_registry() -> None:
         DirectiveSpec("@waypoint",  resolve_waypoint,  ["ttl="],                   "inline",  "ac",  reads_files=True, cacheable=True, summary="Return the most recent session checkpoint: what was being worked on, status, and next steps. Use at session start to resume where you left off. Stale after TTL (default 24h). Read-only; lightweight — call freely.", tier=1),
         DirectiveSpec("@memory",    resolve_memory,    ["mode=", "query=", "scope=", "k=", "type=", "render=", "focus=", "federation", "include_federation=", "alias=", "workspace=", "project=", "max_tokens="], "inline", "acw", reads_files=True, cacheable=True, summary="Search LOCAL project memory (FTS5, zero-network) for past decisions and architecture notes. Use for in-workspace recall. For cross-session persistent facts, use perseus_mneme instead. Read-only; returns results array with mode and count.", tier=1, is_semantic_hint=True),
         DirectiveSpec("@auto-skill", resolve_auto_skill, ["skill="],              "inline",  "ac",  cacheable=True,  safe_for_hover=True, summary="Instruct the agent to load a specific skill before starting work. Use at the top of context documents to enforce critical hygiene skills (e.g., memory-hygiene, agent-safety). Renders as a mandatory instruction block. Read-only.", tier=1),
+        DirectiveSpec("@profile",   resolve_profile,   ["model="],                 "inline",  "acw", cacheable=False, safe_for_hover=True, summary="Select the per-model context profile for this document (#608): sets the context target and memory posture (on_demand/relevant/always) used by the automatic memory injection layer. Use at the top of a context document, e.g. @profile claude-sonnet-4-6. Unknown names fall back to the default profile. Read-only.", tier=1),
         DirectiveSpec("@health",    resolve_health,    [],                         "inline",  "acw", reads_files=True, summary="Audit workspace context health: stale skills, duplicate tasks, oversized output. Use before starting work to catch drift. For deep Daedalus heuristics (cache, directive stats), use perseus_get_health. Read-only; returns status enum and metric counts.", tier=1),
         DirectiveSpec("@env",       resolve_env,       ["required=", "fallback=", "schema="], "inline", "acw", cacheable=False, safe_for_hover=True, summary="Embed environment variable", tier=1),
         DirectiveSpec("@tokens",    resolve_tokens,    [],                         "block",   "a",   executes_shell=True, safe_for_hover=False, summary="Embed token budget for rendered context", tier=1),
@@ -7904,6 +7928,7 @@ _PARAM_DESCRIPTIONS: dict[str, dict[str, str]] = {
                      "fallback": "Fallback value if the command fails or is blocked",
                      "schema": "JSON Schema to validate command output against"},
     "@perseus":     {"url": "URL of the remote Perseus instance to fetch context from"},
+    "@profile":     {"model": "Model name (or context-window class) whose profile to resolve, e.g. claude-sonnet-4-6; unknown names fall back to default"},
     "@tool":        {"name": "Name of the allowlisted external tool to run"},
     "@include":     {"path": "File path to include and render (relative to workspace root)", "last": "Keep only the final N lines of the file (bounds a growing log)", "since": "Keep only dated sections within a window, e.g. 14d, 2w, 24h"},
 }
@@ -8205,7 +8230,7 @@ def _build_annotations(tool_name: str, spec) -> dict | None:
     if tool_name in ("perseus_date", "perseus_drift", "perseus_env"):
         hints["readOnlyHint"] = True
     # Read-only tools that escape the reads_files / executes_shell checks
-    if tool_name in ("perseus_auto_skill", "perseus_perseus", "perseus_mimir", "perseus_mneme", "perseus_mason",
+    if tool_name in ("perseus_auto_skill", "perseus_profile", "perseus_perseus", "perseus_mimir", "perseus_mneme", "perseus_mason",
                       "perseus_skills", "perseus_inbox", "perseus_include", "perseus_read",
                       "perseus_list", "perseus_tree", "perseus_tooltrim", "perseus_validate",
                       "perseus_prompt"):
@@ -13562,17 +13587,25 @@ def _derive_query_hints(source_text: str, workspace) -> list[str]:
 
     return hints
 
-def _inject_external_memory(rendered: str, cfg: dict) -> str:
+def _inject_external_memory(rendered: str, cfg: dict,
+                            source_text: str = "", workspace=None) -> str:
     """Append the vault-mem and Mnēmē auto-injected memory blocks, redacted.
 
     These blocks are pulled from external memory stores and appended AFTER the
     render_source redaction pass, so they must go through their own redaction
     pass — memories routinely hold user-entered notes containing credentials,
     and skipping this wrote them verbatim into AGENTS.md/CLAUDE.md.
+
+    #553/#608 hook: `source_text` and `workspace` are threaded through to
+    `_mneme_context_inject` so it can (a) skip injection when the rendered
+    output already carries a memory section (de-dup), (b) resolve the active
+    `@profile` posture, and (c) relevance-gate / workspace-scope the recall.
     """
     rendered = dedup_context_if_available(rendered, cfg)
     injected = inject_vaultmem_context(rendered, cfg)
-    mneme_block = _mneme_context_inject(cfg)
+    mneme_block = _mneme_context_inject(
+        cfg, rendered=injected, source_text=source_text, workspace=workspace,
+    )
     if mneme_block:
         injected = injected + "\n\n" + mneme_block
     if injected != rendered:
@@ -13599,7 +13632,7 @@ def render_output(
         rendered = render_source(source_text, cfg, workspace, max_tier=max_tier, no_cache=no_cache)
         rendered, _report = redact_text(rendered, cfg)
         _audit_render_redaction(cfg, _report)
-        rendered = _inject_external_memory(rendered, cfg)
+        rendered = _inject_external_memory(rendered, cfg, source_text, workspace)
         return rendered
     elif fmt == "html":
         t = title or "Workspace Context"
@@ -13614,7 +13647,7 @@ def render_output(
         rendered = render_source(source_text, cfg, workspace, max_tier=max_tier, no_cache=no_cache)
         rendered, _report = redact_text(rendered, cfg)
         _audit_render_redaction(cfg, _report)
-        rendered = _inject_external_memory(rendered, cfg)
+        rendered = _inject_external_memory(rendered, cfg, source_text, workspace)
         return wrap_rendered(rendered, fmt, _PERSEUS_VERSION)
 
     # Custom formats (task-68)
@@ -19232,30 +19265,216 @@ def _mneme_hot_block(markdown: str) -> str | None:
     return "\n".join(kept).strip()
 
 
-def _mneme_context_inject(cfg: dict) -> str | None:
-    """Automatic Mimir context block for render_output.
+# ═══════════════════════════════════════════════════════════════════════════════
+# #608 — per-model context profiles (recall-first posture)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Fallback profile applied when the config has no `profiles:` block at all.
+# Mirrors DEFAULT_CONFIG["profiles"]["default"].
+_PROFILE_FALLBACK: dict = {"context_target": 200000, "memory": "on_demand"}
+
+# `@profile <model>` scan for the render source. Accepts bare and model= forms,
+# with optional quotes: `@profile claude-sonnet-4-6`, `@profile model="x"`.
+_PROFILE_DIRECTIVE_RE = re.compile(
+    r'(?m)^\s*@profile\s+(?:model=)?["\']?([A-Za-z0-9._:\-]+)'
+)
+
+# #553 fix 1 — memory-section headers that mean "this render already carries a
+# memory block". If any of these is present in the rendered output (from an
+# explicit @memory/@mimir directive in the source, a template section, or a
+# previous injection pass over an already-rendered file), the automatic block
+# is skipped so AGENTS.md content can never carry the same memory dump twice.
+_MEMORY_SECTION_HEADER_RE = re.compile(
+    r"(?im)^\s{0,3}#{1,6}\s+(?:"
+    r"persistent\s+memory\b"                                    # ## Persistent Memory (Mimir/Mneme)
+    r"|long-term\s+memory\b"                                    # ## Long-Term Memory (Mneme)
+    r"|(?:mimir|mneme|perseus\s+vault)\s*(?:—|--|-)?\s*persistent\s+cross-session\s+memory"
+    r"|(?:mimir|mneme|perseus\s+vault)\s+context\b"             # server-emitted block headers
+    r"|memory\s+recall\s+\(on\s+demand\)"                       # our own pointer (idempotency)
+    r")"
+)
+
+_MEMORY_POINTER_HEADER = "## Memory Recall (on demand)"
+
+
+def _resolve_context_profile(cfg: dict, name: str | None = None) -> dict:
+    """Resolve a context profile by name, deterministically.
+
+    Layering: built-in fallback ← `profiles.default` ← `profiles.<name>`.
+    Unknown or missing names fall back to the default profile cleanly, so a
+    typo in `@profile` can never change behavior non-deterministically.
+    """
+    profiles = cfg.get("profiles") if isinstance(cfg, dict) else None
+    if not isinstance(profiles, dict):
+        profiles = {}
+    prof = dict(_PROFILE_FALLBACK)
+    base = profiles.get("default")
+    if isinstance(base, dict):
+        prof.update(base)
+    if name and name != "default":
+        override = profiles.get(name)
+        if isinstance(override, dict):
+            prof.update(override)
+    return prof
+
+
+def _memory_posture(profile: dict) -> str:
+    """Normalize a profile's memory posture to on_demand | relevant | always.
+
+    Explicit `memory:` wins; the legacy `always_inject: true` alias maps to
+    "always"; everything else (including unknown strings) is the recall-first
+    default, on_demand.
+    """
+    raw = str(profile.get("memory") or "").strip().lower()
+    if raw in ("always", "always_inject", "inject", "legacy"):
+        return "always"
+    if raw in ("relevant", "gated", "recall_when", "recall-when"):
+        return "relevant"
+    if raw in ("on_demand", "on-demand", "ondemand", "recall", "recall_first"):
+        return "on_demand"
+    if not raw and profile.get("always_inject"):
+        return "always"
+    return "on_demand"
+
+
+def _profile_inject_limit(profile: dict) -> int:
+    """Tier-aware injection budget: max entities admitted per profile.
+
+    Explicit `inject_limit` wins; otherwise a 200k-class profile admits only a
+    handful of identity-critical facts (5) while larger windows may admit more
+    (10) — but the default posture is lean either way (#608 point 3).
+    """
+    raw = profile.get("inject_limit")
+    if raw is not None:
+        try:
+            return max(1, int(raw))
+        except (TypeError, ValueError):
+            pass
+    try:
+        target = int(profile.get("context_target", 200000))
+    except (TypeError, ValueError):
+        target = 200000
+    return 5 if target <= 200_000 else 10
+
+
+def _scan_profile_name(source_text: str) -> str | None:
+    """Return the profile name selected by the first `@profile` directive."""
+    if not source_text:
+        return None
+    m = _PROFILE_DIRECTIVE_RE.search(source_text)
+    return m.group(1) if m else None
+
+
+def _active_context_profile(cfg: dict, source_text: str = "") -> tuple[str, dict]:
+    """Resolve (profile_name, profile_dict) for a render.
+
+    Selection order: `@profile <model>` in the source document, else
+    `render.context_profile` from config, else "default".
+    """
+    name = _scan_profile_name(source_text)
+    if not name and isinstance(cfg, dict):
+        cfg_name = (cfg.get("render", {}) or {}).get("context_profile")
+        if cfg_name:
+            name = str(cfg_name).strip()
+    name = name or "default"
+    return name, _resolve_context_profile(cfg, name)
+
+
+def _memory_pointer_block(profile_name: str, profile: dict) -> str:
+    """The on_demand posture block: a short retrieval pointer + tools.
+
+    Deliberately STATIC with respect to vault contents — the fixed prompt
+    prefix must not change when a memory fact changes (prefix-cache stability,
+    #608 acceptance criteria). Only the profile identity appears, which is
+    stable per config.
+    """
+    return (
+        f"{_MEMORY_POINTER_HEADER}\n\n"
+        f"Long-term memory is not pre-loaded into this context "
+        f"(profile: {profile_name}, memory posture: on_demand).\n"
+        "Retrieve exactly what a task needs, when it needs it:\n\n"
+        "- `@memory mode=search query=\"<topic>\" k=5` — local project memory (FTS5)\n"
+        "- `@memory mode=narrative` — the distilled project narrative\n"
+        "- MCP tools: `perseus_memory` (local recall), `perseus_mneme` (cross-session vault)\n\n"
+        "Query the vault when a past decision, architecture note, or prior-session\n"
+        "fact would change your answer; otherwise proceed without it."
+    )
+
+
+# #553 fix 4 — advisory note attached to any injected memory dump. Recalled
+# content must not assert priority it hasn't earned: it may be stale or
+# tangential, and live workspace state / the current conversation win on
+# conflict.
+_MEMORY_DUMP_ADVISORY = (
+    "> Recalled from long-term memory; entries may be stale or tangential.\n"
+    "> Prefer live workspace state and the current conversation when they disagree.\n"
+)
+
+
+def _mneme_context_inject(
+    cfg: dict,
+    rendered: str = "",
+    source_text: str = "",
+    workspace=None,
+) -> str | None:
+    """Automatic memory section for render_output — recall-first by default.
 
     Called by the renderer (markdown / agents-md / claude-md formats) to append
-    a curated block of long-lived Mimir memories to every rendered context,
-    without requiring an explicit @mimir directive in the source.
+    an automatic memory section to a rendered context, without requiring an
+    explicit @mimir directive in the source.
 
-    Hot-entity injection (#473): prefer Mimir's purpose-built ``mimir_context``
-    tool, which surfaces always_on ("hot") entities first, then the top entities
-    by decay/recency — the flagship Memory+Context "compose, don't replace"
-    pre-resolution. Falls back to a generic recent-memory recall for older Mimir
-    servers that lack the tool, or when no hot entities exist.
+    Behavior is governed by the active context profile (#608):
+      - ``memory: on_demand`` (DEFAULT) — a short, static retrieval pointer
+        (query the vault when relevant + the recall tools). NO pre-materialized
+        memory dump; the fixed prompt prefix stays stable across vault writes.
+      - ``memory: relevant`` — recall_when trigger matching against the current
+        render context (#553 fix 2); only entities whose triggers match are
+        injected. No match → no dump.
+      - ``memory: always`` — LEGACY opt-in: the pre-#608 unconditional dump.
+        Hot-entity injection (#473) prefers Mimir's purpose-built
+        ``mimir_context`` tool, falling back to a generic recent-memory recall.
 
-    Returns a markdown string, or None when Mimir is disabled/unavailable or
-    has no relevant memories. Fails safe: any error returns None so a rendering
-    can never be broken by the memory layer.
+    De-duplication (#553 fix 1): when the rendered output already contains a
+    persistent/long-term memory section (explicit @memory directive, template
+    section, or a previous injection pass), nothing is appended — the same
+    memory block can never appear twice in one context.
+
+    Workspace scoping (#553 fix 3): recall calls that support it receive the
+    active workspace hash so unrelated workspaces don't share one memory pool.
+
+    Returns a markdown string, or None when disabled/unavailable/deduplicated.
+    Fails safe: any error returns None so a rendering can never be broken by
+    the memory layer.
     """
     mcfg = _resolve_mneme_config(cfg) if isinstance(cfg, dict) else {}
     if not mcfg.get("enabled", True):
         return None
-    # #442: auto_inject=False suppresses the automatic block so memories are
-    # only included via an explicit @memory/@mimir directive in the source.
+    # #442: auto_inject=False suppresses the automatic section entirely
+    # (pointer AND dump) so memories are only included via an explicit
+    # @memory/@mimir directive in the source.
     if not mcfg.get("auto_inject", True):
         return None
+
+    # #553 fix 1: never append a second memory section.
+    if rendered and _MEMORY_SECTION_HEADER_RE.search(rendered):
+        return None
+
+    # context_limit=0 means "inject nothing" — pointer AND dump. Use an
+    # explicit None check so 0 is honored rather than falling back to the
+    # default via `or` (#442).
+    raw_limit = mcfg.get("context_limit", 10)
+    try:
+        limit = 10 if raw_limit is None else int(raw_limit)
+    except (TypeError, ValueError):
+        limit = 10
+    if limit <= 0:
+        return None
+
+    profile_name, profile = _active_context_profile(cfg, source_text)
+    posture = _memory_posture(profile)
+
+    if posture == "on_demand":
+        return _memory_pointer_block(profile_name, profile)
 
     try:
         connector = _get_connector(cfg)
@@ -19266,18 +19485,43 @@ def _mneme_context_inject(cfg: dict) -> str | None:
             # 95% of users who haven't installed Mimir yet.
             return None
 
-        # Pull recent durable memories. An empty query returns the most recent
-        # entities ordered by Mimir's decay/recency ranking — the right behavior
-        # for automatic context injection (a category-name keyword query would
-        # only match entities whose *body text* contains those words, which is
-        # not what context_categories are meant to filter).
-        # context_limit=0 means "inject nothing". Use an explicit None check so
-        # 0 is honored rather than falling back to the default via `or` (#442).
-        raw_limit = mcfg.get("context_limit", 10)
-        limit = 10 if raw_limit is None else int(raw_limit)
-        if limit <= 0:
-            return None
+        # #608 point 3: tier-aware injection budget per profile.
+        limit = min(limit, _profile_inject_limit(profile))
 
+        # #553 fix 3: workspace-scope recall calls where the connector supports it.
+        ws_hash = None
+        if workspace is not None and mcfg.get("workspace_scope", True):
+            try:
+                ws_hash = _workspace_hash(Path(workspace))
+            except Exception:
+                ws_hash = None
+
+        if posture == "relevant":
+            # #553 fix 2: relevance-gate injection through recall_when trigger
+            # matching instead of an unconditional recency/retrieval-count dump.
+            hints: list = []
+            try:
+                hints = _derive_query_hints(source_text or "", workspace)
+            except Exception:
+                hints = []
+            context_str = " ".join(str(h) for h in hints if h).strip()
+            if not context_str:
+                # Nothing to match against → the gate holds; no dump.
+                return None
+            segment = connector.recall_when(context=context_str, limit=limit)
+            if segment is not None and not segment.error:
+                if not segment.items:
+                    return None  # vault reachable, no triggers matched → no dump
+                return (
+                    "## Persistent Memory (Mimir)\n\n"
+                    + _MEMORY_DUMP_ADVISORY
+                    + "\n"
+                    + segment.as_markdown
+                )
+            # recall_when unavailable on this server (older vault) — degrade
+            # gracefully to the legacy hot-entity path below.
+
+        # posture == "always" (legacy opt-in), or "relevant" degraded above.
         # #473 hot-entity injection: prefer Mimir's purpose-built context tool.
         # context_categories scopes the pre-resolution to the relevant intent
         # (empty = all categories). Always_on entities are injected first by the
@@ -19290,12 +19534,18 @@ def _mneme_context_inject(cfg: dict) -> str | None:
         if isinstance(hot_md, str):
             hot_body = _mneme_hot_block(hot_md)
             if hot_body:
-                return "## Persistent Memory (Mimir)\n\n" + hot_body
+                return (
+                    "## Persistent Memory (Mimir)\n\n"
+                    + _MEMORY_DUMP_ADVISORY
+                    + "\n"
+                    + hot_body
+                )
 
         # Fallback: generic recent-memory recall (older Mimir without
         # mimir_context, or an empty hot set). An empty query returns the most
-        # recent entities by Mimir's decay/recency ranking.
-        segment = connector.recall(query="", max_results=limit)
+        # recent entities by Mimir's decay/recency ranking. Workspace-scoped
+        # (#553 fix 3) when a workspace is known.
+        segment = connector.recall(query="", max_results=limit, workspace_hash=ws_hash)
         if not segment or not getattr(segment, "items", None):
             return None
 
@@ -19303,7 +19553,12 @@ def _mneme_context_inject(cfg: dict) -> str | None:
         if not body or body.strip() == "_(no persistent memories found)_":
             return None
 
-        return "## Persistent Memory (Mimir)\n\n" + body
+        return (
+            "## Persistent Memory (Mimir)\n\n"
+            + _MEMORY_DUMP_ADVISORY
+            + "\n"
+            + body
+        )
     except Exception:
         # Never let the memory layer break a render.
         return None
@@ -19966,6 +20221,48 @@ def _memory_federation_diagnostic(name: str, args_str: str, cfg: dict, workspace
                     "message": f"Federation alias `{alias}` is not subscribed (run `perseus memory federation subscribe`)",
                 })
     return diagnostics
+
+
+def resolve_profile(args_str: str, cfg: dict,
+                    workspace: Path | None = None) -> str:
+    """Render the `@profile <model>` directive (#608).
+
+    Selects the per-model context profile for this document and renders a
+    one-line banner stating the resolved context target and memory posture.
+    The posture itself is applied by the automatic memory injection layer
+    (`_mneme_context_inject`), which scans the source for this directive.
+
+    Accepts `@profile claude-sonnet-4-6` or `@profile model=claude-sonnet-4-6`.
+    Unknown names fall back to the `default` profile deterministically, with
+    an explicit note so a typo is visible rather than silent.
+    """
+    mods = _parse_kv_modifiers(args_str)
+    name = (mods.get("model") or "").strip()
+    if not name:
+        for tok in (args_str or "").split():
+            if "=" not in tok:
+                name = tok.strip().strip('"').strip("'")
+                break
+    requested = name or "default"
+
+    profiles_cfg = cfg.get("profiles") if isinstance(cfg, dict) else None
+    profiles_cfg = profiles_cfg if isinstance(profiles_cfg, dict) else {}
+    known = requested == "default" or isinstance(profiles_cfg.get(requested), dict)
+
+    profile = _resolve_context_profile(cfg, requested)
+    posture = _memory_posture(profile)
+    try:
+        target = int(profile.get("context_target", 200000))
+    except (TypeError, ValueError):
+        target = 200000
+
+    line = (
+        f"> 🎛 Context profile: **{requested}** — "
+        f"context target {target:,} tokens, memory: {posture}"
+    )
+    if not known:
+        line += " (unknown profile; resolved from `default`)"
+    return line + "\n"
 
 
 def resolve_mimir(args_str: str, cfg: dict,
@@ -24484,15 +24781,16 @@ QUICKSTART_CONTEXT_TEMPLATE = """\
 @perseus
 
 @prompt
-This document was rendered live by Perseus. All values below are current —
-do not verify services, re-scan skills, or re-read session history. Trust the
-rendered output and skip orientation. Start work immediately.
+This document was rendered by Perseus at session start. Values below reflect
+the workspace at render time — prefer this snapshot over re-verifying services,
+re-scanning skills, or re-reading session history, and start work promptly.
+When a value is stale, surprising, or load-bearing for a decision, verify it
+with live tools; rendered context is a snapshot, not ground truth.
 
-⚠️ IMPORTANT: The content below IS the AGENTS.md. It has already been injected
-into your system prompt — you are reading it right now. Do NOT search for
-AGENTS.md on the filesystem. The filesystem copy (if any) is a stale snapshot;
-this injected copy is authoritative. Reading the disk version will give you
-outdated information. Use only what you see here.
+Note: this content is already part of your context — you do not need to search
+for or re-read AGENTS.md on disk (the disk copy is an earlier snapshot of the
+same render). Weigh any injected memory below by its relevance to the current
+task, not by the fact that it was injected.
 @end
 
 ## Memory Gate — STOP. Answer these three questions before saving ANYTHING.
@@ -25607,9 +25905,10 @@ def _profile_context_template(profile_name: str, profile: dict) -> str:
     return f"""@perseus
 
 @prompt
-This document was rendered live by Perseus for the {label} profile. Treat the
-resolved content below as current workspace context. Do not spend initial turns
-re-discovering the same facts unless the user asks you to verify them.
+This document was rendered by Perseus for the {label} profile. The resolved
+content below reflects the workspace at render time. Avoid re-discovering the
+same facts, but verify anything stale, surprising, or load-bearing with live
+tools before relying on it — rendered context is a snapshot, not ground truth.
 @end
 
 # Workspace Context — @date format="YYYY-MM-DD HH:mm z"
@@ -26034,15 +26333,16 @@ INIT_CONTEXT_TEMPLATE = """\
 @perseus
 
 @prompt
-This document was rendered live by Perseus. All values below are current —
-do not verify services, re-scan skills, or re-read session history. Trust the
-rendered output and skip orientation. Start work immediately.
+This document was rendered by Perseus at session start. Values below reflect
+the workspace at render time — prefer this snapshot over re-verifying services,
+re-scanning skills, or re-reading session history, and start work promptly.
+When a value is stale, surprising, or load-bearing for a decision, verify it
+with live tools; rendered context is a snapshot, not ground truth.
 
-⚠️ IMPORTANT: The content below IS the AGENTS.md. It has already been injected
-into your system prompt — you are reading it right now. Do NOT search for
-AGENTS.md on the filesystem. The filesystem copy (if any) is a stale snapshot;
-this injected copy is authoritative. Reading the disk version will give you
-outdated information. Use only what you see here.
+Note: this content is already part of your context — you do not need to search
+for or re-read AGENTS.md on disk (the disk copy is an earlier snapshot of the
+same render). Weigh any injected memory below by its relevance to the current
+task, not by the fact that it was injected.
 @end
 
 ## Memory — Recall-First. Retrieve on demand; do NOT pre-load.

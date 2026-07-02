@@ -4,15 +4,16 @@ QUICKSTART_CONTEXT_TEMPLATE = """\
 @perseus
 
 @prompt
-This document was rendered live by Perseus. All values below are current —
-do not verify services, re-scan skills, or re-read session history. Trust the
-rendered output and skip orientation. Start work immediately.
+This document was rendered by Perseus at session start. Values below reflect
+the workspace at render time — prefer this snapshot over re-verifying services,
+re-scanning skills, or re-reading session history, and start work promptly.
+When a value is stale, surprising, or load-bearing for a decision, verify it
+with live tools; rendered context is a snapshot, not ground truth.
 
-⚠️ IMPORTANT: The content below IS the AGENTS.md. It has already been injected
-into your system prompt — you are reading it right now. Do NOT search for
-AGENTS.md on the filesystem. The filesystem copy (if any) is a stale snapshot;
-this injected copy is authoritative. Reading the disk version will give you
-outdated information. Use only what you see here.
+Note: this content is already part of your context — you do not need to search
+for or re-read AGENTS.md on disk (the disk copy is an earlier snapshot of the
+same render). Weigh any injected memory below by its relevance to the current
+task, not by the fact that it was injected.
 @end
 
 ## Memory Gate — STOP. Answer these three questions before saving ANYTHING.
