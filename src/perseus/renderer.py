@@ -473,6 +473,36 @@ def _collect_until_end(lines: list[str], i: int, end_re: "re.Pattern[str] | None
     return block, i, False
 
 
+# ── @profile first-wins banner marking (#627 fix 2) ─────────────────────────
+# `_scan_profile_name` (mneme_connector) applies the FIRST non-fenced
+# `@profile` in the source; every subsequent directive still renders a banner
+# but does not govern. Mark those banners so the non-governing directives are
+# visible instead of silently confusing.
+_PROFILE_BANNER_PREFIX = "> 🎛 Context profile: **"
+_PROFILE_IGNORED_NOTE = " ⚠ ignored — first @profile governs"
+
+
+def _mark_ignored_profile_banners(text: str) -> str:
+    """Append the ignored-note to every @profile banner after the first.
+
+    Fence-aware: banner-shaped lines inside fenced code blocks are content,
+    not banners. Idempotent: a banner already carrying the note is left
+    untouched, so re-rendering marked output cannot double-mark it.
+    """
+    seen = False
+    fence = _new_fence_state()
+    out: list[str] = []
+    # split("\n") (not splitlines) so join("\n") is its exact inverse — the
+    # pass must be byte-identical when there is nothing to mark.
+    for line in text.split("\n"):
+        if not _fence_step(fence, line) and line.startswith(_PROFILE_BANNER_PREFIX):
+            if seen and not line.endswith(_PROFILE_IGNORED_NOTE):
+                line += _PROFILE_IGNORED_NOTE
+            seen = True
+        out.append(line)
+    return "\n".join(out)
+
+
 _TRUTHY_VALUES = {"1", "true", "yes", "on"}
 
 
@@ -1620,7 +1650,13 @@ def _render_lines(
         header = "| ID | Severity | Rule |\n|---|---|---|"
         output.append(header + "\n" + "\n".join(_constraint_rows))
 
-    return "\n".join(output)
+    rendered = "\n".join(output)
+    # #627 fix 2: with multiple @profile directives only the first governs
+    # (see _scan_profile_name); mark every later banner as ignored. Guarded by
+    # a cheap count so single/no-@profile renders are untouched (byte-identical).
+    if top_level and rendered.count(_PROFILE_BANNER_PREFIX) > 1:
+        rendered = _mark_ignored_profile_banners(rendered)
+    return rendered
 
 
 _SOURCE_CATEGORY = {
