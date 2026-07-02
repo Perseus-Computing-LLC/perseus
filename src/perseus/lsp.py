@@ -295,142 +295,154 @@ def _run_lsp_server(args, cfg) -> int:
         params = msg.get("params") or {}
         req_id = msg.get("id")
 
-        if method == "initialize":
-            server_state["workspace"] = _lsp_workspace_from_params(params)
-            respond(req_id, {
-                "capabilities": {
-                    "textDocumentSync": 1,  # full
-                    "hoverProvider": True,
-                    "definitionProvider": True,
-                    "completionProvider": {"triggerCharacters": ["@", " ", "="]},
-                    "codeLensProvider": {"resolveProvider": False},
-                    "executeCommandProvider": {"commands": ["perseus.render", "perseus.openCheckpoint", "perseus.compactMemory"]},
-                },
-                "serverInfo": {"name": "perseus-lsp", "version": "0.8"},
-            })
-        elif method == "initialized":
-            pass  # notification, no response
-        elif method == "shutdown":
-            server_state["shutdown"] = True
-            respond(req_id, None)
-        elif method == "exit":
-            break
-        elif method == "textDocument/didOpen":
-            doc = params.get("textDocument", {})
-            documents[doc["uri"]] = doc.get("text", "")
-            publish_diags(doc["uri"])
-        elif method == "textDocument/didChange":
-            uri = params["textDocument"]["uri"]
-            changes = params.get("contentChanges", [])
-            if changes:
-                documents[uri] = changes[-1].get("text", "")
-            publish_diags(uri)
-        elif method == "textDocument/didClose":
-            documents.pop(params["textDocument"]["uri"], None)
-        elif method == "textDocument/hover":
-            uri = params["textDocument"]["uri"]
-            line_no = params["position"]["line"]
-            text = documents.get(uri, "")
-            lines = text.splitlines()
-            preview = "(no directive on this line)"
-            if 0 <= line_no < len(lines):
-                parsed = _lsp_parse_directive_at_line(lines[line_no])
-                if parsed:
-                    name, args_str = parsed
-                    preview = _lsp_resolve_directive_for_hover(name, args_str, cfg, server_state["workspace"])
-            respond(req_id, {"contents": {"kind": "markdown", "value": f"```\n{preview[:2000]}\n```"}})
-
-        elif method == "textDocument/definition":
-            uri = params["textDocument"]["uri"]
-            line_no = params["position"]["line"]
-            text = documents.get(uri, "")
-            lines = text.splitlines()
-            result = None
-            if 0 <= line_no < len(lines):
-                parsed = _lsp_parse_directive_at_line(lines[line_no])
-                if parsed and parsed[0] in ("@include", "@read"):
-                    # Resolve the file path relative to workspace
-                    path_str, _ = _extract_quoted_token(parsed[1].strip())
-                    if path_str:
-                        ws = server_state["workspace"]
-                        fp, _ = _resolve_path(path_str, ws, allow_outside_workspace=True)
-                        if fp.exists():
-                            result = {"uri": fp.as_uri(), "range": {
-                                "start": {"line": 0, "character": 0},
-                                "end": {"line": 0, "character": 0},
-                            }}
-            if result:
-                respond(req_id, result)
-            else:
+        # #578: a well-framed but semantically malformed message (e.g. hover
+        # without position, didOpen without uri) used to raise KeyError out of
+        # the while-loop and kill the whole server. Guard per-message dispatch:
+        # requests get a JSON-RPC error reply; notifications are dropped (LSP
+        # forbids responding to notifications).
+        try:
+            if method == "initialize":
+                server_state["workspace"] = _lsp_workspace_from_params(params)
+                respond(req_id, {
+                    "capabilities": {
+                        "textDocumentSync": 1,  # full
+                        "hoverProvider": True,
+                        "definitionProvider": True,
+                        "completionProvider": {"triggerCharacters": ["@", " ", "="]},
+                        "codeLensProvider": {"resolveProvider": False},
+                        "executeCommandProvider": {"commands": ["perseus.render", "perseus.openCheckpoint", "perseus.compactMemory"]},
+                    },
+                    "serverInfo": {"name": "perseus-lsp", "version": "0.8"},
+                })
+            elif method == "initialized":
+                pass  # notification, no response
+            elif method == "shutdown":
+                server_state["shutdown"] = True
                 respond(req_id, None)
-        elif method == "textDocument/completion":
-            uri = params["textDocument"]["uri"]
-            line_no = params["position"]["line"]
-            char = params["position"]["character"]
-            text = documents.get(uri, "")
-            lines = text.splitlines()
-            cur_line = lines[line_no] if 0 <= line_no < len(lines) else ""
-            prefix = cur_line[:char]
-            items: list[dict] = []
-            # If line starts with @ but no directive complete yet, offer directive names
-            if "@" in prefix and not any(prefix.lstrip().lower().startswith(d) for d in _LSP_DIRECTIVE_NAMES):
-                for d in _LSP_DIRECTIVE_NAMES:
-                    items.append({
-                        "label": d,
-                        "kind": 14,  # Keyword
-                        "insertText": d + " $0",
-                        "insertTextFormat": 2,  # Snippet
-                    })
-            else:
-                # offer arg keys for the directive on this line
-                parsed = _lsp_parse_directive_at_line(cur_line)
-                if parsed:
-                    for arg in _LSP_DIRECTIVE_ARGS.get(parsed[0], []):
-                        items.append({"label": arg, "kind": 5})  # Field
-            respond(req_id, {"isIncomplete": False, "items": items})
-        elif method == "textDocument/codeLens":
-            uri = params["textDocument"]["uri"]
-            text = documents.get(uri, "")
-            lenses = []
-            for i, line in enumerate(text.splitlines()):
-                if _lsp_parse_directive_at_line(line):
-                    lenses.append({
-                        "range": {"start": {"line": i, "character": 0}, "end": {"line": i, "character": 0}},
-                        "command": {"title": "▶ Render", "command": "perseus.render", "arguments": [uri]},
-                    })
-                    break
-            respond(req_id, lenses)
-        elif method == "workspace/executeCommand":
-            cmd = params.get("command")
-            cmd_args = params.get("arguments") or []
-            if cmd == "perseus.render":
-                uri = cmd_args[0] if cmd_args else ""
+            elif method == "exit":
+                break
+            elif method == "textDocument/didOpen":
+                doc = params.get("textDocument", {})
+                documents[doc["uri"]] = doc.get("text", "")
+                publish_diags(doc["uri"])
+            elif method == "textDocument/didChange":
+                uri = params["textDocument"]["uri"]
+                changes = params.get("contentChanges", [])
+                if changes:
+                    documents[uri] = changes[-1].get("text", "")
+                publish_diags(uri)
+            elif method == "textDocument/didClose":
+                documents.pop(params["textDocument"]["uri"], None)
+            elif method == "textDocument/hover":
+                uri = params["textDocument"]["uri"]
+                line_no = params["position"]["line"]
                 text = documents.get(uri, "")
-                try:
-                    rendered = _render_lines(text.splitlines(), cfg, workspace=server_state["workspace"])
-                except Exception as exc:
-                    rendered = f"(render failed: {exc})"
-                respond(req_id, {"rendered": rendered})
-            elif cmd == "perseus.openCheckpoint":
-                store = Path(cfg["checkpoints"]["store"])
-                pointer = store / f"latest-{_workspace_hash(server_state['workspace'])}.yaml"
-                if not pointer.exists():
-                    pointer = store / "latest.yaml"
-                respond(req_id, {"uri": pointer.as_uri() if pointer.exists() else None})
-            elif cmd == "perseus.compactMemory":
-                if not server_state["allow_mutations"]:
-                    respond(req_id, None, error={
-                        "code": -32000,
-                        "message": "Mutation command disabled; restart Perseus LSP with --allow-lsp-mutations",
-                    })
-                    continue
-                ws = server_state["workspace"]
-                msg = _memory_do_compact(ws, cfg, provider=None)
-                respond(req_id, {"message": msg})
+                lines = text.splitlines()
+                preview = "(no directive on this line)"
+                if 0 <= line_no < len(lines):
+                    parsed = _lsp_parse_directive_at_line(lines[line_no])
+                    if parsed:
+                        name, args_str = parsed
+                        preview = _lsp_resolve_directive_for_hover(name, args_str, cfg, server_state["workspace"])
+                respond(req_id, {"contents": {"kind": "markdown", "value": f"```\n{preview[:2000]}\n```"}})
+
+            elif method == "textDocument/definition":
+                uri = params["textDocument"]["uri"]
+                line_no = params["position"]["line"]
+                text = documents.get(uri, "")
+                lines = text.splitlines()
+                result = None
+                if 0 <= line_no < len(lines):
+                    parsed = _lsp_parse_directive_at_line(lines[line_no])
+                    if parsed and parsed[0] in ("@include", "@read"):
+                        # Resolve the file path relative to workspace
+                        path_str, _ = _extract_quoted_token(parsed[1].strip())
+                        if path_str:
+                            ws = server_state["workspace"]
+                            fp, _ = _resolve_path(path_str, ws, allow_outside_workspace=True)
+                            if fp.exists():
+                                result = {"uri": fp.as_uri(), "range": {
+                                    "start": {"line": 0, "character": 0},
+                                    "end": {"line": 0, "character": 0},
+                                }}
+                if result:
+                    respond(req_id, result)
+                else:
+                    respond(req_id, None)
+            elif method == "textDocument/completion":
+                uri = params["textDocument"]["uri"]
+                line_no = params["position"]["line"]
+                char = params["position"]["character"]
+                text = documents.get(uri, "")
+                lines = text.splitlines()
+                cur_line = lines[line_no] if 0 <= line_no < len(lines) else ""
+                prefix = cur_line[:char]
+                items: list[dict] = []
+                # If line starts with @ but no directive complete yet, offer directive names
+                if "@" in prefix and not any(prefix.lstrip().lower().startswith(d) for d in _LSP_DIRECTIVE_NAMES):
+                    for d in _LSP_DIRECTIVE_NAMES:
+                        items.append({
+                            "label": d,
+                            "kind": 14,  # Keyword
+                            "insertText": d + " $0",
+                            "insertTextFormat": 2,  # Snippet
+                        })
+                else:
+                    # offer arg keys for the directive on this line
+                    parsed = _lsp_parse_directive_at_line(cur_line)
+                    if parsed:
+                        for arg in _LSP_DIRECTIVE_ARGS.get(parsed[0], []):
+                            items.append({"label": arg, "kind": 5})  # Field
+                respond(req_id, {"isIncomplete": False, "items": items})
+            elif method == "textDocument/codeLens":
+                uri = params["textDocument"]["uri"]
+                text = documents.get(uri, "")
+                lenses = []
+                for i, line in enumerate(text.splitlines()):
+                    if _lsp_parse_directive_at_line(line):
+                        lenses.append({
+                            "range": {"start": {"line": i, "character": 0}, "end": {"line": i, "character": 0}},
+                            "command": {"title": "▶ Render", "command": "perseus.render", "arguments": [uri]},
+                        })
+                        break
+                respond(req_id, lenses)
+            elif method == "workspace/executeCommand":
+                cmd = params.get("command")
+                cmd_args = params.get("arguments") or []
+                if cmd == "perseus.render":
+                    uri = cmd_args[0] if cmd_args else ""
+                    text = documents.get(uri, "")
+                    try:
+                        rendered = _render_lines(text.splitlines(), cfg, workspace=server_state["workspace"])
+                    except Exception as exc:
+                        rendered = f"(render failed: {exc})"
+                    respond(req_id, {"rendered": rendered})
+                elif cmd == "perseus.openCheckpoint":
+                    store = Path(cfg["checkpoints"]["store"])
+                    pointer = store / f"latest-{_workspace_hash(server_state['workspace'])}.yaml"
+                    if not pointer.exists():
+                        pointer = store / "latest.yaml"
+                    respond(req_id, {"uri": pointer.as_uri() if pointer.exists() else None})
+                elif cmd == "perseus.compactMemory":
+                    if not server_state["allow_mutations"]:
+                        respond(req_id, None, error={
+                            "code": -32000,
+                            "message": "Mutation command disabled; restart Perseus LSP with --allow-lsp-mutations",
+                        })
+                        continue
+                    ws = server_state["workspace"]
+                    msg = _memory_do_compact(ws, cfg, provider=None)
+                    respond(req_id, {"message": msg})
+                else:
+                    respond(req_id, None, error={"code": -32601, "message": f"Unknown command: {cmd}"})
             else:
-                respond(req_id, None, error={"code": -32601, "message": f"Unknown command: {cmd}"})
-        else:
-            # Unknown — respond with method-not-found for requests, ignore for notifications
+                # Unknown — respond with method-not-found for requests, ignore for notifications
+                if req_id is not None:
+                    respond(req_id, None, error={"code": -32601, "message": f"Method not found: {method}"})
+        except Exception as exc:
             if req_id is not None:
-                respond(req_id, None, error={"code": -32601, "message": f"Method not found: {method}"})
+                try:
+                    respond(req_id, None, error={"code": -32603, "message": f"Internal error: {exc}"})
+                except Exception:
+                    break  # writer is gone; nothing left to serve
     return 0

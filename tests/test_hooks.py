@@ -128,3 +128,35 @@ def test_per_hook_disable(tmp_path):
     source = "@perseus\nHello"
     perseus.render_source(source, cfg)
     assert not log_file.exists()
+
+# ── #574: payload values are shell-quoted at substitution time ───────────────
+
+def test_shell_quote_hook_value_plain_passthrough():
+    """Plain values (no shell metacharacters) pass through unquoted so simple
+    templates keep producing unquoted output on both platforms."""
+    assert perseus._shell_quote_hook_value("plain-value_123") == "plain-value_123"
+    assert perseus._shell_quote_hook_value(42) == "42"
+
+
+def test_shell_quote_hook_value_quotes_metacharacters():
+    q = perseus._shell_quote_hook_value("a & echo pwned")
+    assert q.startswith(('"', "'")) and q.endswith(('"', "'"))
+
+
+def test_shell_hook_payload_injection_neutralized(tmp_path):
+    """#574: a payload value carrying a command separator must not execute a
+    second command when substituted into a shell=True hook template.
+    `&` is a command separator on both bash and cmd.exe."""
+    pwned = tmp_path / "pwned.log"
+    ok = tmp_path / "ok.log"
+    injected = f"harmless & echo pwned> {pwned}"
+    perseus._fire_shell_hook("echo {{msg}}> " + str(ok), {"msg": injected}, "test_event")
+    assert ok.exists(), "hook command itself must still run"
+    assert not pwned.exists(), "injected sub-command must NOT have executed"
+
+
+def test_shell_hook_substitution_still_roundtrips_plain_values(tmp_path):
+    """Quoting must not change the output for metacharacter-free values."""
+    log_file = tmp_path / "plain.log"
+    perseus._fire_shell_hook("echo {{val}}> " + str(log_file), {"val": "hello-123"}, "test_event")
+    assert log_file.read_text(encoding="utf-8").strip() == "hello-123"
