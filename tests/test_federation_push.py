@@ -259,3 +259,50 @@ class TestReceiveEndpoint:
                 assert resp.status in (404, 405)
         except urllib.error.HTTPError as e:
             assert e.code in (404, 405)
+
+
+# ── #561: Content-Length hardening on POST /federation/receive ───────────────
+
+def _raw_http_status(port, request_bytes):
+    """Send raw bytes to the server and return the HTTP status code."""
+    import socket
+    with socket.create_connection(("127.0.0.1", port), timeout=10) as s:
+        s.sendall(request_bytes)
+        s.settimeout(10)
+        data = b""
+        while b"\r\n" not in data:
+            chunk = s.recv(4096)
+            if not chunk:
+                break
+            data += chunk
+    status_line = data.split(b"\r\n", 1)[0].decode("latin-1", "replace")
+    return int(status_line.split()[1])
+
+
+class TestReceiveContentLengthHardening:
+
+    def test_non_numeric_content_length_returns_400(self, receiver_serve):
+        """#561: malformed Content-Length must 400, not raise ValueError."""
+        port = receiver_serve["port"]
+        req = (b"POST /federation/receive HTTP/1.1\r\n"
+               b"Host: 127.0.0.1\r\n"
+               b"Content-Length: abc\r\n"
+               b"Connection: close\r\n\r\n")
+        assert _raw_http_status(port, req) == 400
+
+    def test_huge_content_length_returns_413(self, receiver_serve):
+        """#561: an enormous declared length must be capped, not read into memory."""
+        port = receiver_serve["port"]
+        req = (b"POST /federation/receive HTTP/1.1\r\n"
+               b"Host: 127.0.0.1\r\n"
+               b"Content-Length: 99999999999\r\n"
+               b"Connection: close\r\n\r\n")
+        assert _raw_http_status(port, req) == 413
+
+    def test_negative_content_length_returns_413(self, receiver_serve):
+        port = receiver_serve["port"]
+        req = (b"POST /federation/receive HTTP/1.1\r\n"
+               b"Host: 127.0.0.1\r\n"
+               b"Content-Length: -5\r\n"
+               b"Connection: close\r\n\r\n")
+        assert _raw_http_status(port, req) == 413
