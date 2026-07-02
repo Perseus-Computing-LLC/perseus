@@ -1152,8 +1152,15 @@ def _render_lines(
                 # the query twice.
                 if len(_parse_pipe_stages(raw_line)) > 1:
                     continue
+                # #631: extract args from the tier-STRIPPED text (_pre_clean),
+                # mirroring the main loop's shared extraction point — raw_line
+                # args would leak `@tier:N` into the resolver args, the cache
+                # key (diverging from the main-loop key → spurious misses /
+                # double execution), and, for unquoted commands, the executed
+                # command itself.
+                _m_clean = INLINE_DIRECTIVE_RE.match(_pre_clean)
                 clean_args, cache_mode, cache_ttl, cache_mock = _parse_cache_modifier(
-                    (m.group(2) or "").strip()
+                    ((_m_clean.group(2) if _m_clean else m.group(2)) or "").strip()
                 )
                 if cache_mode == "mock":
                     query_results[idx] = cache_mock or "(mock)"
@@ -1176,7 +1183,10 @@ def _render_lines(
                 query_results[idx] = None  # sentinel: needs resolution
                 query_sources[idx] = "exec"
                 query_cache_keys[idx] = cache_key
-                query_raw_lines[idx] = raw_line
+                # #631: hand the worker the tier-stripped text — _run_one
+                # re-extracts args from it, and must see the same args this
+                # scan used for the cache key.
+                query_raw_lines[idx] = _pre_clean
 
         pending = [(idx, query_raw_lines[idx]) for idx, v in query_results.items() if v is None]
         # #579: run the executor for ANY pending count. Gating on `> 1` left
@@ -1525,7 +1535,18 @@ def _render_lines(
                     output.append(result)
                     i += 1
                     continue
-            raw_args = (m.group(2) or "").strip()
+            # #631: extract args from the tier-STRIPPED `line`, not from `m`
+            # (matched BEFORE the tier strip above). The pre-strip args would
+            # leak `@tier:N` into resolver args, modifier parsing
+            # (fallback=/schema=/timeout= scanning), cache keys (spurious
+            # misses vs the pre-scan path), and — for unquoted @query
+            # commands — the executed command itself. Tier gates whether the
+            # directive RUNS, not what it produces, so the stripped args (and
+            # hence the cache key) are the directive's true identity. This is
+            # the shared extraction point for every generic inline directive
+            # (@query, @agent, @read, ...), so the fix covers them all.
+            m_stripped = INLINE_DIRECTIVE_RE.match(line)
+            raw_args = ((m_stripped.group(2) if m_stripped else m.group(2)) or "").strip()
 
             # #579: `get(i) is not None` (not `i in query_results`) — if a
             # sentinel somehow survives the executor, fall through to normal
@@ -1540,17 +1561,15 @@ def _render_lines(
                 # PR #628 review: `cached` reflects how the pre-scan actually
                 # resolved the entry; mock entries get no record, matching the
                 # non-prefetch mock path (which never reaches the collector).
-                # Args are derived from the tier-STRIPPED `line` (not the
-                # pre-strip `raw_args` from `m`) so the charged arm matches
-                # the decision arm for tier-annotated queries.
+                # #631: raw_args is now derived from the tier-stripped line at
+                # the shared extraction point above, so it matches the
+                # decision arm directly (the #628 re-match workaround is gone).
                 _qsrc = query_sources.get(i, "exec")
                 if (_directive_collector is not None and _BANDIT_ACTIVE is not None
                         and _qsrc != "mock"):
-                    _qm = INLINE_DIRECTIVE_RE.match(line.strip())
-                    _qargs = (_qm.group(2) or "").strip() if _qm else raw_args
                     _directive_collector.append({
                         "name": directive.lstrip("@"),
-                        "args": _parse_cache_modifier(_qargs)[0].strip(),
+                        "args": _parse_cache_modifier(raw_args)[0].strip(),
                         "output": query_results[i],
                         "cached": _qsrc == "cache",
                         "prefetched": True,
