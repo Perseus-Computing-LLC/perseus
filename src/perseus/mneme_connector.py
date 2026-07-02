@@ -36,6 +36,16 @@ from enum import Enum
 from typing import Any, Optional, Callable
 
 
+# The heading emitted above every injected persistent-memory block. Rebranded
+# for #662 (Mimir → Mneme → Perseus Vault): the generator used to emit
+# ``## Persistent Memory (Mneme)`` / ``(Mimir)`` even though the memory layer
+# is now "Perseus Vault". The backward-compatible matcher
+# (_MEMORY_SECTION_HEADER_RE below) still recognises the historical
+# ``(Mimir)`` / ``(Mneme)`` variants, so a doc rendered under an old header is
+# still found and replaced with this one on the next render.
+PERSISTENT_MEMORY_HEADER = "## Persistent Memory (Perseus Vault)"
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Data Models — Mneme Schema
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -250,7 +260,7 @@ class ContextPackage:
         else:
             parts.append("_(live state not resolved)_")
         parts.append("")
-        parts.append("## Persistent Memory (Mneme)")
+        parts.append(PERSISTENT_MEMORY_HEADER)
         if self.memory:
             parts.append(self.memory.as_markdown)
         else:
@@ -729,36 +739,45 @@ class _MCPSseClient:
 # MnemeConnector — MCP client with circuit breaker, backoff, and fallback
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# Emitted once per process the first time a config.yaml is found using the
-# legacy `mimir:` block instead of `mneme:` — avoids spamming stderr on every
-# directive resolution / singleton rebuild.
-_warned_legacy_mimir_config = False
+# Set of deprecated config keys already warned about this process — avoids
+# spamming stderr on every directive resolution / singleton rebuild. Tracked
+# per-key so renaming `mimir:` → `mneme:` still surfaces the next-hop notice.
+_warned_legacy_config_keys: set[str] = set()
+
+# Canonical → deprecated-alias precedence for the memory connector's config
+# block. #662 completes the Mimir → Mneme → Perseus Vault rename on the Perseus
+# side: `perseus_vault:` is the canonical key; `mneme:` and `mimir:` remain
+# accepted aliases (canonical wins when several are present). Order matters —
+# the first non-empty block in this list is used.
+_MEMORY_CONFIG_KEYS = ("perseus_vault", "mneme", "mimir")
+_MEMORY_CONFIG_CANONICAL = _MEMORY_CONFIG_KEYS[0]
 
 
 def _resolve_mneme_config(cfg: dict) -> dict:
-    """Resolve the connector's config block, preferring `mneme:` over legacy `mimir:`.
+    """Resolve the connector's config block across the rename aliases (#662).
 
-    Lookup order:
-      1. `cfg["mneme"]` if present and non-empty — the current, preferred key.
-      2. `cfg["mimir"]` if present and non-empty — legacy key, still supported
-         for backward compatibility. Emits a one-time deprecation notice to
-         stderr (only the first time this is hit in the process).
-      3. `{}` otherwise, so every `.get(...)` call downstream keeps working
+    Lookup order (first non-empty dict wins):
+      1. `cfg["perseus_vault"]` — the current, canonical key.
+      2. `cfg["mneme"]`         — deprecated alias (former product name).
+      3. `cfg["mimir"]`         — deprecated alias (original product name).
+      4. `{}` otherwise, so every `.get(...)` call downstream keeps working
          with its existing defaults.
+
+    When a deprecated key is used it emits a one-time (per-key, per-process)
+    deprecation notice to stderr pointing at the canonical key.
     """
-    global _warned_legacy_mimir_config
-    mneme_cfg = cfg.get("mneme")
-    if isinstance(mneme_cfg, dict) and mneme_cfg:
-        return mneme_cfg
-    legacy_cfg = cfg.get("mimir")
-    if isinstance(legacy_cfg, dict) and legacy_cfg:
-        if not _warned_legacy_mimir_config:
-            sys.stderr.write(
-                "perseus: config.yaml `mimir:` block is deprecated, please rename "
-                "to `mneme:` (legacy key still supported)\n"
-            )
-            _warned_legacy_mimir_config = True
-        return legacy_cfg
+    if not isinstance(cfg, dict):
+        return {}
+    for key in _MEMORY_CONFIG_KEYS:
+        block = cfg.get(key)
+        if isinstance(block, dict) and block:
+            if key != _MEMORY_CONFIG_CANONICAL and key not in _warned_legacy_config_keys:
+                sys.stderr.write(
+                    f"perseus: config.yaml `{key}:` block is deprecated, please rename "
+                    f"to `{_MEMORY_CONFIG_CANONICAL}:` (legacy key still supported)\n"
+                )
+                _warned_legacy_config_keys.add(key)
+            return block
     return {}
 
 
@@ -1789,7 +1808,7 @@ def _mneme_hot_block(markdown: str) -> str | None:
 
     The server block is wrapped in its own ``## Mimir Context`` header and a
     trailing ``> N entities recalled`` footer. Strip both so the entities sit
-    cleanly under Perseus's own ``## Persistent Memory (Mimir)`` header, and
+    cleanly under Perseus's own ``## Persistent Memory (Perseus Vault)`` header, and
     return None when the block carries no actual entities — so the caller can
     fall back to a generic recall.
     """
@@ -2127,7 +2146,7 @@ def _mneme_context_inject(
                 if not segment.items:
                     return None  # vault reachable, no triggers matched → no dump
                 return (
-                    "## Persistent Memory (Mimir)\n\n"
+                    PERSISTENT_MEMORY_HEADER + "\n\n"
                     + _MEMORY_DUMP_ADVISORY
                     + "\n"
                     + segment.as_markdown
@@ -2149,7 +2168,7 @@ def _mneme_context_inject(
             hot_body = _mneme_hot_block(hot_md)
             if hot_body:
                 return (
-                    "## Persistent Memory (Mimir)\n\n"
+                    PERSISTENT_MEMORY_HEADER + "\n\n"
                     + _MEMORY_DUMP_ADVISORY
                     + "\n"
                     + hot_body
@@ -2168,7 +2187,7 @@ def _mneme_context_inject(
             return None
 
         return (
-            "## Persistent Memory (Mimir)\n\n"
+            PERSISTENT_MEMORY_HEADER + "\n\n"
             + _MEMORY_DUMP_ADVISORY
             + "\n"
             + body

@@ -30,7 +30,7 @@ if perseus is None:  # pragma: no cover
     pytest.skip("Requires Python 3.10+", allow_module_level=True)
 
 
-DUMP_HEADER = "## Persistent Memory (Mimir)"
+DUMP_HEADER = "## Persistent Memory (Perseus Vault)"  # #662: rebranded injected header
 POINTER_HEADER = "## Memory Recall (on demand)"
 
 HOT_MD = (

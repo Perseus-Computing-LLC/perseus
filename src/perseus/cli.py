@@ -546,6 +546,9 @@ def main():
                               help="Skip interactive LLM prompts — auto-detect env keys only")
     p_quickstart.add_argument("--no-llm", action="store_true",
                               help="Skip LLM backend detection entirely")
+    p_quickstart.add_argument("--with-memory", action="store_true",
+                              help="Wire the Perseus Vault memory connector and print exact "
+                                   "install/next-step commands (does not silently build the Rust binary)")
 
     # llm ping — verify the configured LLM provider is reachable.
     p_llm = sub.add_parser("llm", help="LLM provider utilities (ping)")

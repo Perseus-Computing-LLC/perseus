@@ -920,13 +920,18 @@ def _deep_merge_into(base: dict, overrides: dict) -> None:
 
 
 def _merge_pack_mimir_config(cfg: dict, workspace: Path) -> None:
-    """Deep-merge a pack.yaml `mimir:` block over the loaded config (#441).
+    """Deep-merge a pack.yaml memory-connector block over the loaded config (#441).
 
     `load_config` only layers the global and workspace `config.yaml` files, so a
-    pack manifest's `mimir:` settings (context_limit, enabled, auto_inject, ...)
-    were previously ignored. Merging them here lets a workspace override Mimir
-    behavior per render target. Best-effort: a missing or malformed pack never
-    breaks a render.
+    pack manifest's memory settings (context_limit, enabled, auto_inject, ...)
+    were previously ignored. Merging them here lets a workspace override the
+    Perseus Vault behavior per render target. Best-effort: a missing or
+    malformed pack never breaks a render.
+
+    Reads the pack's connector block under any of the rename aliases
+    (`perseus_vault:`/`mneme:`/`mimir:`, #662) and merges into whichever key
+    `_resolve_mneme_config()` will actually read back — merging into a key that
+    resolution ignores would silently drop the override.
     """
     try:
         data, _path, errors = _load_pack_manifest(workspace)
@@ -934,21 +939,28 @@ def _merge_pack_mimir_config(cfg: dict, workspace: Path) -> None:
         return
     if errors or not isinstance(data, dict):
         return
-    pack_mimir = data.get("mimir")
+    # Accept the pack override under any alias (canonical first).
+    pack_mimir = None
+    for _key in ("perseus_vault", "mneme", "mimir"):
+        _block = data.get(_key)
+        if isinstance(_block, dict) and _block:
+            pack_mimir = _block
+            break
     if not isinstance(pack_mimir, dict) or not pack_mimir:
         return
     # Merge into whichever key _resolve_mneme_config() will actually read back
-    # (mneme: preferred over legacy mimir:, same lookup order) -- merging into
-    # a key that resolution ignores silently drops the override for anyone
-    # who has migrated their config.yaml to mneme:-only.
-    mneme_cfg = cfg.get("mneme")
-    if isinstance(mneme_cfg, dict) and mneme_cfg:
-        base = mneme_cfg
-    else:
-        base = cfg.get("mimir")
-        if not isinstance(base, dict):
-            base = {}
-            cfg["mimir"] = base
+    # (perseus_vault: preferred, then mneme:, then legacy mimir:, same lookup
+    # order) -- merging into a key that resolution ignores silently drops the
+    # override for anyone who has migrated their config.yaml.
+    base = None
+    for _key in ("perseus_vault", "mneme", "mimir"):
+        _block = cfg.get(_key)
+        if isinstance(_block, dict) and _block:
+            base = _block
+            break
+    if base is None:
+        base = {}
+        cfg["perseus_vault"] = base
     _deep_merge_into(base, pack_mimir)
 
 
@@ -1340,7 +1352,7 @@ retrieve it when it's actually relevant.
 
 ---
 
-## Persistent Memory (Mimir)
+## Persistent Memory (Perseus Vault)
 
 > 💡 **Query tips:** FTS5 treats multi-word queries as exact phrases.
 > Split long queries across multiple directives for better recall:
@@ -1349,8 +1361,8 @@ retrieve it when it's actually relevant.
 > @memory mode=search query="another topic" k=2
 > ```
 > Each sub-query is short enough to match effectively; the relay layer merges results.
-> Falls back gracefully to local Mnēmē FTS5 if Mimir is unavailable.
-> Requires `mimir.enabled: true` in `.perseus/config.yaml`.
+> Falls back gracefully to local Mnēmē FTS5 if Perseus Vault is unavailable.
+> Requires `perseus_vault.enabled: true` (or the legacy `mimir.enabled: true`) in `.perseus/config.yaml`.
 
 @memory mode=search query="{mneme_query}" k=5
 """
