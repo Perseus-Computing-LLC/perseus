@@ -664,7 +664,16 @@ def _execute_prefetch_directive(
     # (git status, docker ps, etc.), so two workspaces sharing the same
     # directive text must not collide in the disk cache within TTL.
     _ws = str(workspace.resolve()) if workspace else ""
-    cache_key = _cache_key(f"{directive} {clean_args} :: {_ws}")
+    _base_key = _cache_key(f"{directive} {clean_args} :: {_ws}")
+    # #589: the renderer READS `<base>.<fingerprint>` when the directive has
+    # file dependencies, and the bare base key when the fingerprint is empty
+    # (see renderer._render_lines / _dependency_fingerprint). Prefetch used to
+    # write only the bare base key, so every warmed entry for a fingerprinted
+    # directive was dead — compute the same fingerprint so write == read key.
+    _fp = ""
+    if cache_mode != "nofingerprint":
+        _fp = _dependency_fingerprint(directive or "", clean_args, workspace, cfg)
+    cache_key = f"{_base_key}.{_fp}" if _fp else _base_key
     result["cache"] = {"mode": cache_mode, "ttl": cache_ttl, "key": cache_key}
 
     trust_reason = _prefetch_trust_block_reason(directive or "", spec, cfg)
@@ -691,6 +700,10 @@ def _execute_prefetch_directive(
         value = _call_resolver(spec, clean_args, cfg, workspace)
         value = _apply_output_schema_validation(spec, clean_args, value, workspace)
         cache_set(cache_key, value, cache_mode, cache_ttl, cfg)
+        if _fp:
+            # Mirror the renderer's base-key TTL fallback (consulted when a
+            # dependency later disappears and the fingerprint goes empty).
+            cache_set(_base_key, value, cache_mode, cache_ttl, cfg)
     except Exception as exc:
         result["status"] = "failed"
         result["reason"] = str(exc)
