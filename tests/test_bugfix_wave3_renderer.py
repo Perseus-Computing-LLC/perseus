@@ -97,17 +97,27 @@ def test_581_query_in_active_if_branch_executes_once(workspace, tmp_path):
 def test_581_two_queries_in_active_if_branch_each_execute_once(workspace, tmp_path):
     """Exact issue repro: 2 queries in an active @if showed 4 executions."""
     cfg = _cfg(tmp_path, parallel_queries=True, allow_query_shell=True)
-    marker = tmp_path / "count_581_two"
+    # One marker file PER query: the two queries run concurrently in the
+    # pre-scan pool, and on Windows cmd.exe `>>` opens the target without
+    # FILE_SHARE_WRITE, so overlapping appends to a SHARED file can drop a
+    # write (flaky on loaded CI). A double-exec regression still shows up
+    # as 2 lines in a single query's own marker.
+    marker_one = tmp_path / "count_581_one"
+    marker_two = tmp_path / "count_581_two"
     src = (
         "@perseus\n"
         "@if env.set PATH\n"
-        f'@query "echo one >> {marker}"\n'
-        f'@query "echo two >> {marker}"\n'
+        f'@query "echo one >> {marker_one}"\n'
+        f'@query "echo two >> {marker_two}"\n'
         "@endif\n"
     )
     perseus.render_source(src, cfg, workspace=workspace)
-    runs = len(marker.read_text().splitlines())
-    assert runs == 2, f"#581: 2 queries produced {runs} executions (expected 2)"
+    runs_one = len(marker_one.read_text().splitlines()) if marker_one.exists() else 0
+    runs_two = len(marker_two.read_text().splitlines()) if marker_two.exists() else 0
+    assert (runs_one, runs_two) == (1, 1), (
+        f"#581: queries executed (one={runs_one}, two={runs_two}) times "
+        "(expected exactly 1 each)"
+    )
 
 
 def test_581_prescan_respects_tier_gate(workspace, tmp_path):
