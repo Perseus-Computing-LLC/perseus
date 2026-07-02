@@ -10247,6 +10247,14 @@ def _memorymesh_rest_health() -> bool:
     #448: Uses urllib instead of an external curl subprocess so the health
     probe stays in-process (no subprocess spawn per check).
     """
+    # #552: local import so this module is self-contained — this file's own
+    # top-level imports don't include urllib; without this, the function
+    # only worked because the build concatenation happened to put another
+    # module's `import urllib.request` in scope first (and a NameError here
+    # would be silently swallowed by the bare except below). Matches the
+    # pattern already used in _memorymesh_search_rest.
+    import urllib.request
+
     try:
         req = urllib.request.Request(
             "http://localhost:8766/health",
@@ -14556,11 +14564,35 @@ def _fetch_remote_narrative(entry: dict, cfg: dict) -> tuple[str | None, str | N
 
         fetch_timeout = int(cfg.get("federation", {}).get("fetch_timeout_s", 10))
         read_timeout = int(cfg.get("federation", {}).get("read_timeout_s", 30))
+        # #552: cap how much a remote peer may send. The local vault parser
+        # caps documents at 1 MB (mneme_index); remote narratives get a
+        # slightly more generous default, config-overridable.
+        max_bytes = int(cfg.get("federation", {}).get("max_fetch_bytes", 4 * 1024 * 1024))
 
         with urllib.request.urlopen(req, timeout=fetch_timeout) as resp:
             if resp.status == 304:
                 return (None, "not modified (304)", None)
-            body = resp.read().decode("utf-8")
+            # #552: read_timeout_s was parsed but never applied, and
+            # resp.read() had no size cap — a slow or malicious peer could
+            # stall the client or buffer an arbitrarily large body into
+            # memory. Chunked read with a wall-clock deadline (each chunk
+            # additionally bounded by the urlopen socket timeout) + cap.
+            deadline = time.monotonic() + max(1, read_timeout)
+            chunks: list[bytes] = []
+            total = 0
+            while True:
+                if time.monotonic() > deadline:
+                    return (None, f"read timed out after {read_timeout}s", None)
+                chunk = resp.read(65536)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > max_bytes:
+                    return (None,
+                            f"response exceeded max_fetch_bytes ({max_bytes})",
+                            None)
+                chunks.append(chunk)
+            body = b"".join(chunks).decode("utf-8")
             data = json.loads(body)
             narrative = data.get("narrative", "")
             ws_id = data.get("workspace_id")
@@ -17606,6 +17638,24 @@ def _parse_memory_hits(data: dict) -> list[MemoryHit]:
     return hits
 
 
+def _bm25_to_relevance(score) -> float:
+    """Map a raw SQLite FTS5 bm25() score to a normalized 0.0-1.0 relevance.
+
+    #552: bm25() returns 0.0 or NEGATIVE values where more negative = better
+    match — it is not a 0-100 percentage, so dividing by 100 produced small
+    negative "relevances". Squash monotonically with a rational sigmoid:
+    0.0 → 0.0, -1.0 → 0.5, -inf → 1.0. Missing/malformed scores map to a
+    neutral 0.5; positive values (not produced by bm25) clamp to 0.0.
+    """
+    try:
+        s = float(score)
+    except (TypeError, ValueError):
+        return 0.5
+    if s >= 0.0:
+        return 0.0
+    return -s / (1.0 - s)
+
+
 def _local_hits_to_memory_hits(local_results: list[dict]) -> list[MemoryHit]:
     """Convert local Mnēmē FTS5 recall results to MemoryHit format.
 
@@ -17631,7 +17681,7 @@ def _local_hits_to_memory_hits(local_results: list[dict]) -> list[MemoryHit]:
             content=content,
             source=MemorySource.LOCAL,
             summary=r.get("summary", r.get("content", "")[:80]),
-            relevance=r.get("relevance", r.get("score", 0.5) / 100.0),
+            relevance=r.get("relevance", _bm25_to_relevance(r.get("score"))),
             decay_score=1.0,           # Local items treated as fresh
             retrieval_count=0,
             layer=MemoryLayer.WORKING,
