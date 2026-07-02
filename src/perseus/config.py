@@ -50,6 +50,16 @@ DEFAULT_CONFIG = {
         "allow_outside_workspace": False,
         "query_shell_meta_warning": False,
         "default_tier": 3,            # task-76: context tier for rendering (1=always, 2=conditional, 3=all). Set to 1 or 2 for smaller context windows.
+        # #605 — @bandit adaptive, outcome-driven directive selection. DEFAULT OFF:
+        # with "off" the renderer behaves byte-identically to pre-#605 output.
+        "bandit": "off",              # "off" | "record" (ledger only) | "auto" (adaptive include/drop)
+        "bandit_seed": None,          # int → deterministic Thompson sampling (replays/tests)
+        "bandit_budget": None,        # estimated-token budget for learned arms (None = unlimited)
+        "bandit_drop_threshold": 0.5, # drop when the sampled inclusion probability falls below this
+        "bandit_min_trials": 3,       # arms with fewer recorded outcomes are always included (cold start)
+        "bandit_floor": [],           # extra directive names never auto-dropped (on top of @constraint/tier-1)
+        "bandit_record": True,        # persist ledger updates after renders (`perseus explain` sets False)
+        "bandit_max_renders": 50,     # render entries kept in the ledger for feedback correlation
     },
     "checkpoints": {
         "store": str(PERSEUS_HOME / "checkpoints"),

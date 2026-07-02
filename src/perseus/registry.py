@@ -74,6 +74,11 @@ def _bind_registry() -> None:
         DirectiveSpec("@validate",  resolve_validate_block, ["schema="],           "block",   "block", reads_files=True, summary="Validate a rendered block against a JSON Schema. Use to enforce structure on configuration blocks, task definitions, or any schema-constrained section. Read-only; returns pass/fail with error messages.", tier=1),
         DirectiveSpec("@synthesize", None,                  ["question=", "source=", "label=", "consistency_mode"], "block", "block", reads_files=True, safe_for_hover=False, summary="Optional curated synthesis section (generation.enabled required)", tier=3),
         # Control directives — structural, no resolver
+        # #605: @bandit is a render-mode switch (adaptive directive selection),
+        # consumed and stripped by _bandit_begin before the render loop runs.
+        # resolver=None + kind="control" keeps it out of the MCP tool set and
+        # the inline directive regex.
+        DirectiveSpec("@bandit",    None,              ["tier=", "budget=", "seed=", "threshold=", "min_trials="], "control", "block", summary="Enable adaptive, outcome-driven directive selection for this document (Thompson sampling over the per-workspace value ledger; see `perseus explain --bandit`)", tier=1),
         DirectiveSpec("@if",        None,              [],                         "control", "block", summary="Conditional block start", tier=1),
         DirectiveSpec("@else",      None,              [],                         "control", "block", summary="Conditional block else", tier=1),
         DirectiveSpec("@endif",     None,              [],                         "control", "block", summary="Conditional block end", tier=1),
