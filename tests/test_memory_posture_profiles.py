@@ -42,7 +42,8 @@ HOT_MD = (
 
 def _cfg(posture: str | None = None, **mimir):
     c = cfg()
-    c["mimir"].update(mimir)
+    # #665: canonical memory key is now `perseus_vault` in DEFAULT_CONFIG.
+    c["perseus_vault"].update(mimir)
     if posture is not None:
         c["profiles"] = dict(c.get("profiles") or {})
         c["profiles"]["default"] = {"context_target": 200000, "memory": posture}

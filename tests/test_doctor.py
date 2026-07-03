@@ -348,3 +348,39 @@ def test_version_honors_repo_version_beside_marker(tmp_path):
     )
     assert out.returncode == 0
     assert "7.7.7" in out.stdout, out.stdout
+
+
+def test_doctor_labels_use_perseus_vault_brand(tmp_path):
+    """#666 (P5): no user-facing doctor check LABEL may carry a legacy brand
+    ('Mimir'/'Mnēmē'/'Mneme'). The memory checks now route their labels through
+    the shared MEMORY_BRAND constant ('Perseus Vault').
+
+    (FAILS on pre-#666 main, where labels read 'Mnēmē narrative',
+    'Mnēmē FTS index', and 'Mimir'.)
+    """
+    c = cfg()
+
+    # Narrative check (missing narrative → warn) and FTS-index check.
+    labels = [
+        perseus._doctor_check_mneme(c, tmp_path).label,
+        perseus._doctor_check_mneme_index(c, tmp_path).label,
+    ]
+    # Connectivity check across all outcome branches: disabled, absent-binary,
+    # and unreachable (absent binary name guarantees the warn branch).
+    disabled = dict(c)
+    disabled["perseus_vault"] = {"enabled": False}
+    labels.append(perseus._doctor_check_mimir_bridge(disabled, tmp_path).label)
+
+    absent = dict(c)
+    absent["perseus_vault"] = {
+        "enabled": True,
+        "transport": "stdio",
+        "command": ["perseus-vault-absent-xyz", "serve"],
+    }
+    labels.append(perseus._doctor_check_mimir_bridge(absent, tmp_path).label)
+
+    forbidden = ("Mimir", "mimir", "Mnēmē", "Mneme")
+    for label in labels:
+        for bad in forbidden:
+            assert bad not in label, f"legacy brand {bad!r} leaked into doctor label {label!r}"
+        assert "Perseus Vault" in label, f"label not rebranded: {label!r}"
