@@ -165,7 +165,12 @@ DEFAULT_CONFIG = {
         "claude-sonnet-4-6": {"context_target": 200000,  "memory": "on_demand"},
         "claude-opus-4-8":   {"context_target": 1000000, "memory": "on_demand"},  # big window is not an excuse to bloat
     },
-    "mimir": {                          # Project Synapse — Mimir persistent memory (MCP binary, formerly "mneme")
+    # Perseus Vault persistent memory (MCP binary; formerly "Mimir"/"Mneme").
+    # #662: the canonical config key is now `perseus_vault:`; this default is
+    # still emitted under the legacy `mimir:` key (both accepted — see
+    # _resolve_mneme_config), so existing config.yaml files keep working and
+    # nothing downstream that reads DEFAULT_CONFIG["mimir"] needs to change.
+    "mimir": {
         "enabled": True,
         "auto_inject": True,             # Allow the automatic memory section (pointer or dump per profile posture); set False to require an explicit @memory/@mimir directive (#442). NOTE (#608): whether a pre-materialized dump is injected is now governed by the active profile's `memory` posture — on_demand (default) injects only a retrieval pointer.
         "workspace_scope": True,         # #553: pass the workspace hash to vault recall calls that support it, so unrelated workspaces don't share one undifferentiated memory pool at the render layer
