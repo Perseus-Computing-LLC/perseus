@@ -2,7 +2,7 @@
 *Model-agnostic · Environment-agnostic · Tested with Hermes Agent, Rovo Dev (Claude Sonnet), Rovo web agent, and Claude Code*
 
 > **Last updated:** 2026-07-03  
-> **Perseus version tested:** v1.0.16
+> **Perseus version tested:** v1.0.17
 > **Platforms verified:** macOS · Linux · Windows 10 (git-bash) · Docker  
 > **Source:** https://github.com/Perseus-Computing-LLC/perseus · https://pypi.org/project/perseus-ctx/  
 > **New in this version:** Perseus Vault as primary persistent store (structured memory, canonical `perseus_vault:` config key; legacy `mimir:`/`mneme:` still accepted)

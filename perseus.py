@@ -74,7 +74,7 @@ from typing import NamedTuple, Callable
 # ── Version (injected by scripts/build.py at build time) ──────────────────
 # All other modules reference _PERSEUS_VERSION; the build script's
 # _VERSION_RE replaces the literal "0.0.0" with the VERSION file value.
-_PERSEUS_VERSION = "1.0.16"  # replaced at build time by scripts/build.py — see VERSION file for canonical value
+_PERSEUS_VERSION = "1.0.17"  # replaced at build time by scripts/build.py — see VERSION file for canonical value
 
 # Register as 'perseus' so plugins can import from us (task-65)
 import sys as _sys
@@ -936,7 +936,7 @@ from datetime import datetime, timezone
 try:
     from .serve import _PERSEUS_VERSION
 except ImportError:
-    _PERSEUS_VERSION = "1.0.16"  # replaced at build time by scripts/build.py (see VERSION file)
+    _PERSEUS_VERSION = "1.0.17"  # replaced at build time by scripts/build.py (see VERSION file)
 
 # ──────────────────────────────── Webhooks ───────────────────────────────────
 
@@ -23794,7 +23794,7 @@ def _find_version() -> str:
             return candidate.read_text(encoding="utf-8").strip()
     return _PERSEUS_VERSION  # fallback to build-time injected literal
 
-_PERSEUS_VERSION = "1.0.16"  # replaced at build time by scripts/build.py (see VERSION file)
+_PERSEUS_VERSION = "1.0.17"  # replaced at build time by scripts/build.py (see VERSION file)
 _PERSEUS_VERSION = _find_version()
 
 
