@@ -8379,14 +8379,11 @@ def _build_output_schema(tool_name: str, spec) -> dict | None:
             }
         }
     if tool_name == "perseus_tooltrim":
-        # resolve_tooltrim() returns rendered markdown (a str), like
-        # perseus_auto_skill/perseus_drift. The output schema must match the
-        # resolver's return type or strict MCP clients reject the result with
-        # "has an output schema but did not return structured content".
         return {
             "type": "object",
             "properties": {
-                "rendered": {"type": "string", "description": "Resolved tooltrim output as markdown"}
+                "tools": {"type": "array", "items": {"type": "object"}},
+                "count": {"type": "integer", "description": "Number of tools listed"}
             }
         }
     if tool_name == "perseus_validate":
@@ -9109,29 +9106,9 @@ def _handle_tools_call(msg: dict, cfg: dict, workspace: Path) -> dict:
     tool_name = params.get("name", "")
     arguments = params.get("arguments", {})
     result_text = _call_tool(tool_name, arguments, cfg, workspace)
-    result = {"content": [{"type": "text", "text": result_text}]}
-    # If the tool advertises an output schema, we MUST also return
-    # structuredContent matching it, or strict MCP clients reject the call with
-    # "has an output schema but did not return structured content". The vast
-    # majority of directive tools declare the {"rendered": string} shape (their
-    # resolvers return markdown); populate that here. Richer schemas (e.g.
-    # perseus_agora/perseus_health) are intentionally left text-only until their
-    # resolvers emit real structured payloads.
-    try:
-        spec = DIRECTIVE_REGISTRY.get("@" + tool_name[len("perseus_"):].replace("_", "-")) \
-            if tool_name.startswith("perseus_") else None
-        out_schema = _build_output_schema(tool_name, spec) if spec is not None else None
-        if isinstance(out_schema, dict):
-            props = out_schema.get("properties", {})
-            if "rendered" in props and props["rendered"].get("type") == "string":
-                # Covers the {"rendered": ...} family (tooltrim/auto_skill/drift)
-                # and schemas that lead with a rendered markdown field (e.g.
-                # include's {"rendered","source"}). Extra declared fields without
-                # a real structured payload are omitted deliberately.
-                result["structuredContent"] = {"rendered": result_text}
-    except Exception:
-        pass  # never let structuredContent shaping break a tool call
-    return _make_response(msg["id"], result)
+    return _make_response(msg["id"], {
+        "content": [{"type": "text", "text": result_text}],
+    })
 
 
 # ── Server loop (stdio) ─────────────────────────────────────────────────────
