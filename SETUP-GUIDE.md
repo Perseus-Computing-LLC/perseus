@@ -1,11 +1,11 @@
 # Perseus Setup & Configuration Guide
 *Model-agnostic · Environment-agnostic · Tested with Hermes Agent, Rovo Dev (Claude Sonnet), Rovo web agent, and Claude Code*
 
-> **Last updated:** 2026-06-06  
-> **Perseus version tested:** v1.0.7
+> **Last updated:** 2026-07-03  
+> **Perseus version tested:** v1.0.16
 > **Platforms verified:** macOS · Linux · Windows 10 (git-bash) · Docker  
 > **Source:** https://github.com/Perseus-Computing-LLC/perseus · https://pypi.org/project/perseus-ctx/  
-> **New in this version:** Mimir as primary persistent store (structured five-tier memory) · Mneme MCP connector available as optional alternative
+> **New in this version:** Perseus Vault as primary persistent store (structured memory, canonical `perseus_vault:` config key; legacy `mimir:`/`mneme:` still accepted)
 
 ---
 
@@ -230,15 +230,15 @@ memory:
   # narrative_file and mneme_vault_path are legacy fields; current versions use
   # ~/.perseus/memory/<sha256_hash>.md (see Workspace Hash section below)
 
-mimir:                                 # Mimir MCP-based persistent memory (default, v1.0.7+)
-  enabled: true                         # Master switch. Set true to use Mimir.
-  transport: "stdio"                    # "stdio" (local mimir binary) or "sse" (remote endpoint)
-  command: ["mimir", "serve", "--db", "~/.mimir/data/mimir.db"] # Command to launch Mimir in MCP mode
+perseus_vault:                         # Perseus Vault MCP persistent memory (default; canonical key)
+  enabled: true                         # Master switch. Set true to use Perseus Vault.
+  transport: "stdio"                    # "stdio" (local perseus-vault binary) or "sse" (remote endpoint)
+  command: ["perseus-vault", "serve"]   # Launch Perseus Vault in MCP mode (self-resolves its default DB path — no --db needed)
   endpoint: ""                          # SSE endpoint URL (only used when transport=sse)
   timeout_s: 10.0
   merge_strategy: "local_first"         # local_first | remote_first | interleave | decay_first
-  decay_priority_weight: 0.4            # Weight of Mimir's decay_score in merge ordering (0.0–1.0)
-  fallback_to_local: true               # Use Mnēmē FTS5 when Mimir is unreachable
+  decay_priority_weight: 0.4            # Weight of the vault's decay_score in merge ordering (0.0–1.0)
+  fallback_to_local: true               # Use local FTS5 when Perseus Vault is unreachable
   circuit_breaker:
     threshold: 3                        # Consecutive failures before opening circuit
     cooldown: 120                       # Seconds before attempting recovery
@@ -1273,6 +1273,5 @@ perseus doctor
 
 ---
 
-*Built from production experience wiring Perseus v1.0.7 into Hermes Agent, Rovo Dev CLI, and Rovo web agent — with Mimir as primary persistent store (Mneme available as optional alternative).*
-*Issues filed: [#128](https://github.com/Perseus-Computing-LLC/perseus/issues/128) – [#135](https://github.com/Perseus-Computing-LLC/perseus/issues/135)*  
-*Guide maintained at: `~/rovodev/docs/perseus-setup-guide.md` (canonical) · this copy: `~/Downloads/perseus-setup-guide.md`*
+*Built from production experience wiring Perseus into Hermes Agent, Rovo Dev CLI, and Rovo web agent — with Perseus Vault as primary persistent store (legacy `mimir:`/`mneme:` config keys still accepted).*
+*Issues filed: [#128](https://github.com/Perseus-Computing-LLC/perseus/issues/128) – [#135](https://github.com/Perseus-Computing-LLC/perseus/issues/135)*
