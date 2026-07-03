@@ -54,3 +54,26 @@ failing due to transient load while still making regressions visible.
 When updating budgets, prefer changing the fixture or threshold only after
 confirming the regression is expected and documented. Do not tune the numbers to
 a single developer machine.
+
+## Cold-start invocation (single-file installs)
+
+The single-file `perseus.py` artifact is ~1.3 MB, and CPython compiles the
+**entire** script before executing line 1. So `python perseus.py …` pays that
+~150 ms parse on *every* spawn (~330 ms median cold start here). Two ways to
+avoid it:
+
+- **pip install** — the `perseus` console-script entry point imports the module,
+  so CPython's normal `.pyc` bytecode cache applies and cold start drops to
+  ~170–240 ms. This is what emitted MCP/hook configs prefer when it is present.
+- **`python -m perseus …`** — the distribution ships `perseus` as a top-level
+  py-module, so `python -m perseus` (run where `perseus` is importable — its own
+  directory, or with the artifact dir on `PYTHONPATH`) also uses the `.pyc`
+  cache. Measured here: ~180 ms vs ~330 ms for `python perseus.py` — ~1.9×
+  faster. Prefer it over `python perseus.py` for repeated spawns.
+
+`bench/scripts/cold_start_gate.py` pins these numbers (module `--version`
+median, `-X importtime` total, a guard that the lazily-imported
+`traceback`/`concurrent.futures` stay out of the startup path, and a
+spawn→`initialize` round-trip). It runs in CI via the **Perf Gate** workflow
+with generous headroom over the local baselines, so a cold-start regression is
+caught rather than left to drift (#642, #659, #660).

@@ -176,3 +176,37 @@ def test_quickstart_hints_use_resolved_command(monkeypatch, tmp_path, capsys):
             break
     else:
         pytest.fail("no 'refresh context' next-steps line found in quickstart output")
+
+
+# ── `python -m perseus` fast invocation (option 2) ───────────────────────────
+
+def test_python_m_perseus_version_runs():
+    """`python -m perseus --version` must work: it is the .pyc-cached module
+    path (~2x faster cold start than `python <artifact>` because CPython caches
+    the compiled module instead of re-parsing the 1.3MB artifact every spawn).
+    The distribution ships `perseus` as a top-level py-module, so `-m perseus`
+    resolves the artifact from its own directory (#660, option 2)."""
+    import subprocess
+
+    r = subprocess.run(
+        [sys.executable, "-m", "perseus", "--version"],
+        capture_output=True, text=True, cwd=str(ARTIFACT.parent), timeout=60,
+    )
+    assert r.returncode == 0, f"`python -m perseus --version` failed: {r.stderr}"
+    assert "perseus" in (r.stdout + r.stderr).lower()
+
+
+def test_cold_start_gate_script_is_importable():
+    """The #660 CI perf-gate script imports cleanly and exposes its budget
+    knobs, so a syntax/API break is caught by the normal test run rather than
+    only when the perf-gate workflow fires."""
+    import importlib.util
+
+    gate_path = ARTIFACT.parent / "bench" / "scripts" / "cold_start_gate.py"
+    assert gate_path.exists(), f"perf-gate script missing at {gate_path}"
+    spec = importlib.util.spec_from_file_location("cold_start_gate", gate_path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert "version_module_ms" in mod.BUDGETS
+    assert "importtime_total_ms" in mod.BUDGETS
+    assert "traceback" in mod.FORBIDDEN_STARTUP_IMPORTS
