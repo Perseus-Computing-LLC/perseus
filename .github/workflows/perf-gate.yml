@@ -1,0 +1,45 @@
+name: Perf Gate (cold start)
+
+# #660: pin the residual cold-start numbers from #642 / #659 so a regression
+# (an eager import #659 made lazy, or a spawn-time blowup) is caught in CI
+# instead of drifting silently. Budgets in bench/scripts/cold_start_gate.py
+# carry generous headroom over locally-measured values, so this flags real
+# regressions, not runner noise. Every metric prints a `PERF-GATE |` row to the
+# job log, so a failure is diagnosable from the run.
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+jobs:
+  cold-start:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyyaml tiktoken
+
+      - name: Rebuild build artifact
+        run: python scripts/build.py
+
+      - name: Install the module (so `python -m perseus` resolves the .pyc path)
+        run: pip install -e .
+
+      - name: Cold-start perf gate
+        # Budgets are generous vs. local baselines (module --version ~180ms,
+        # importtime ~18ms, init RTT ~170ms); override via PERF_GATE_* env if a
+        # runner class needs different headroom.
+        run: python bench/scripts/cold_start_gate.py perseus.py
