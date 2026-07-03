@@ -551,3 +551,48 @@ def test_serve_uses_threading_http_server(tmp_path):
     finally:
         hs.ThreadingHTTPServer, hs.HTTPServer = old_t, old_p
     assert chosen.get("cls") == "threading"
+
+
+# ── #672: render/atomic-write to a non-regular output target ─────────────────
+
+def test_atomic_write_text_regular_file_roundtrips(tmp_path):
+    """Baseline: a normal regular-file target is written atomically."""
+    out = tmp_path / "AGENTS.md"
+    perseus._atomic_write_text(out, "hello\n")
+    assert out.read_text(encoding="utf-8") == "hello\n"
+    # No stray sibling tempfile left behind.
+    assert not any(p.name.startswith("AGENTS.md.") for p in tmp_path.iterdir())
+
+
+def test_atomic_write_text_devnull_does_not_crash(tmp_path):
+    """#672: writing to a non-regular target (os.devnull) must not raise.
+
+    The sibling-tempfile scheme would try to create `<target>.<rand>.tmp` in
+    the target's parent (e.g. /dev/), which fails with PermissionError. The
+    non-regular target must instead be written through directly.
+    """
+    # Regression: this raised PermissionError on POSIX before the fix.
+    perseus._atomic_write_text(Path(os.devnull), "discard me\n")
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFO requires POSIX")
+def test_atomic_write_text_fifo_writes_through(tmp_path):
+    """A FIFO is non-regular: the write must go straight through, not via
+    a sibling temp + os.replace (which cannot replace a FIFO in place)."""
+    import threading
+    fifo = tmp_path / "sink.fifo"
+    os.mkfifo(fifo)
+    received = {}
+
+    def _reader():
+        with open(fifo, "r", encoding="utf-8") as fh:
+            received["data"] = fh.read()
+
+    t = threading.Thread(target=_reader)
+    t.start()
+    perseus._atomic_write_text(fifo, "streamed\n")
+    t.join(timeout=5)
+    assert received.get("data") == "streamed\n"
+    # The FIFO is still a FIFO — it was not replaced by a regular file.
+    import stat as _stat
+    assert _stat.S_ISFIFO(fifo.stat().st_mode)
