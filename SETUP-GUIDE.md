@@ -1,11 +1,11 @@
 # Perseus Setup & Configuration Guide
 *Model-agnostic · Environment-agnostic · Tested with Hermes Agent, Rovo Dev (Claude Sonnet), Rovo web agent, and Claude Code*
 
-> **Last updated:** 2026-06-06  
-> **Perseus version tested:** v1.0.7
+> **Last updated:** 2026-07-03  
+> **Perseus version tested:** v1.0.16
 > **Platforms verified:** macOS · Linux · Windows 10 (git-bash) · Docker  
 > **Source:** https://github.com/Perseus-Computing-LLC/perseus · https://pypi.org/project/perseus-ctx/  
-> **New in this version:** Mimir as primary persistent store (structured five-tier memory) · Mneme MCP connector available as optional alternative
+> **New in this version:** Perseus Vault as primary persistent store (structured memory, canonical `perseus_vault:` config key; legacy `mimir:`/`mneme:` still accepted)
 
 ---
 
@@ -117,11 +117,11 @@ perseus render .perseus/context.md --output AGENTS.md
 > the example `@query` commands with your own helpers (see helper script guidance
 > below), and add `@agora`, `@inbox`, and `@health` directives if you need them.
 >
-The `@memory mode=search` directive queries Mimir persistent memory (FTS5).
+The `@memory mode=search` directive queries Perseus Vault persistent memory (FTS5).
 **Query tip:** FTS5 treats multi-word queries as exact phrases — split long
 queries across multiple directives for better recall. Falls back gracefully to
-local Mnēmē FTS5 if Mimir is unavailable. Requires `mimir.enabled: true`
-in `.perseus/config.yaml`.
+local FTS5 if Perseus Vault is unavailable. Requires `perseus_vault.enabled: true`
+(legacy `mimir.enabled: true` still accepted) in `.perseus/config.yaml`.
 
 ---
 
@@ -230,15 +230,15 @@ memory:
   # narrative_file and mneme_vault_path are legacy fields; current versions use
   # ~/.perseus/memory/<sha256_hash>.md (see Workspace Hash section below)
 
-mimir:                                 # Mimir MCP-based persistent memory (default, v1.0.7+)
-  enabled: true                         # Master switch. Set true to use Mimir.
-  transport: "stdio"                    # "stdio" (local mimir binary) or "sse" (remote endpoint)
-  command: ["mimir", "serve", "--db", "~/.mimir/data/mimir.db"] # Command to launch Mimir in MCP mode
+perseus_vault:                         # Perseus Vault MCP persistent memory (default; canonical key)
+  enabled: true                         # Master switch. Set true to use Perseus Vault.
+  transport: "stdio"                    # "stdio" (local perseus-vault binary) or "sse" (remote endpoint)
+  command: ["perseus-vault", "serve"]   # Launch Perseus Vault in MCP mode (self-resolves its default DB path — no --db needed)
   endpoint: ""                          # SSE endpoint URL (only used when transport=sse)
   timeout_s: 10.0
   merge_strategy: "local_first"         # local_first | remote_first | interleave | decay_first
-  decay_priority_weight: 0.4            # Weight of Mimir's decay_score in merge ordering (0.0–1.0)
-  fallback_to_local: true               # Use Mnēmē FTS5 when Mimir is unreachable
+  decay_priority_weight: 0.4            # Weight of the vault's decay_score in merge ordering (0.0–1.0)
+  fallback_to_local: true               # Use local FTS5 when Perseus Vault is unreachable
   circuit_breaker:
     threshold: 3                        # Consecutive failures before opening circuit
     cooldown: 120                       # Seconds before attempting recovery
@@ -358,13 +358,13 @@ Your system prompt goes here. This is injected before the rendered content.
 ## Project Memory
 @memory focus=recent ttl=300
 
-## Long-Term Memory (Mimir)
+## Long-Term Memory (Perseus Vault)
 
-> 💡 Mimir is the primary persistent store — a lightweight, zero-dependency Rust MCP
-> server with SQLite + FTS5. Perseus auto-injects Mimir memory context at render time
-> when `mimir.enabled: true` in `.perseus/config.yaml`.
+> 💡 Perseus Vault is the primary persistent store — a lightweight, zero-dependency Rust MCP
+> server with SQLite + FTS5. Perseus auto-injects Perseus Vault memory context at render time
+> when `perseus_vault.enabled: true` in `.perseus/config.yaml`.
 >
-> **Graceful Fallback:** Mimir falls back gracefully to local Mnēmē FTS5 if the Mimir
+> **Graceful Fallback:** Perseus Vault falls back gracefully to local FTS5 if the vault
 > server is unreachable.
 >
 > **Query tips:** FTS5 treats multi-word queries as exact phrases.
@@ -376,10 +376,10 @@ Your system prompt goes here. This is injected before the rendered content.
 
 @memory mode=search query="project architecture setup build deploy" k=5
 
-## Persistent Memory (Mimir)
+## Persistent Memory (Perseus Vault)
 @cache ttl=300
 @memory mode=search query="project architecture decisions" k=5
-> Mimir context is injected automatically by the render pipeline when `mimir.enabled: true` is set in `.perseus/config.yaml`.
+> Perseus Vault context is injected automatically by the render pipeline when `perseus_vault.enabled: true` is set in `.perseus/config.yaml`.
 
 ## Recent Sessions
 @session count=5 format=digest
@@ -565,31 +565,33 @@ memory:
 > ⚠️ `perseus memory update --llm none` crashes. See [#130](https://github.com/Perseus-Computing-LLC/perseus/issues/130).
 > To force deterministic mode: omit `--llm` flag (leave `llm_provider` unset in config).
 
-### Mimir Persistent Memory (Default)
+### Perseus Vault Persistent Memory (Default)
 
-> **Mimir is the default persistent memory layer for Perseus (v1.0.7+).** It is a
+> **Perseus Vault is the default persistent memory layer for Perseus.** It is a
 > lightweight Rust-based MCP server providing SQLite + FTS5 keyword search, Ebbinghaus
 > decay, a five-tier memory model (state · entities · journal · reference · archive),
 > and circuit-breaker protection. It ships **enabled by default**
-> (`mimir.enabled: true`); set `mimir.enabled: false` to turn it off.
+> (`perseus_vault.enabled: true`); set `perseus_vault.enabled: false` to turn it off.
+> The canonical config key is `perseus_vault:`; the legacy `mimir:`/`mneme:` keys are
+> still accepted for back-compat.
 
 When enabled, `@memory` runs a **three-step hybrid resolution**:
 
 | Step | Layer | What it provides |
 |---|---|---|
 | A — Sense | Perseus (live) | Current environment, services, filesystem state |
-| B — Memory | Mimir (persistent) | Historical decisions, architecture, learned lessons |
+| B — Memory | Perseus Vault (persistent) | Historical decisions, architecture, learned lessons |
 | C — Merge | Hybrid resolver | Combined ContextPackage with source tags and decay priority |
 
 **Configuration (in `~/.perseus/config.yaml`):**
 
 ```yaml
-mimir:
+perseus_vault:
   enabled: true                         # Master switch
   transport: "stdio"                    # stdio (local binary) or sse (remote)
-  command: ["mimir", "serve", "--db", "~/.mimir/data/mimir.db"] # Command to launch Mimir in MCP mode
+  command: ["perseus-vault", "serve"]   # Launch Perseus Vault in MCP mode (self-resolves its default DB path — no --db needed)
   merge_strategy: "local_first"         # local_first | remote_first | interleave | decay_first
-  fallback_to_local: true               # Graceful degradation: Mnēmē FTS5 if Mimir offline
+  fallback_to_local: true               # Graceful degradation: local FTS5 if Perseus Vault offline
   circuit_breaker:
     threshold: 3                        # Failures before opening circuit
     cooldown: 120                       # Seconds before recovery attempt
@@ -599,89 +601,91 @@ mimir:
 
 ```bash
 # Install via the one-shot bootstrap script:
-curl -sSL https://raw.githubusercontent.com/Perseus-Computing-LLC/mimir/main/scripts/bootstrap.sh | bash
+curl -sSL https://raw.githubusercontent.com/Perseus-Computing-LLC/perseus-vault/main/scripts/bootstrap.sh | bash
 
 # Or build from source:
-git clone https://github.com/Perseus-Computing-LLC/mimir.git ~/.mimir
+git clone https://github.com/Perseus-Computing-LLC/perseus-vault.git ~/.mimir
 cd ~/.mimir && cargo build --release
-cp target/release/mimir ~/.local/bin/mimir
+cp target/release/perseus-vault ~/.local/bin/perseus-vault
 
 # Verify
-mimir --version   # expect "mimir 2.2.1" (or later)
+perseus-vault --version   # expect "perseus-vault 2.14.0" (or later)
 ```
 
-> **Mimir tool surface:** Mimir is an MCP JSON-RPC stdio server exposing ~30 tools
-> across its five tiers — including `mimir_remember`, `mimir_recall`, `mimir_get_entity`,
-> `mimir_journal`, `mimir_state_set`/`mimir_state_get`, `mimir_health`, and `mimir_stats`.
+> **Perseus Vault tool surface:** Perseus Vault is an MCP JSON-RPC stdio server exposing ~55 tools
+> across its five tiers — including `perseus_vault_remember`, `perseus_vault_recall`, `perseus_vault_get_entity`,
+> `perseus_vault_journal`, `perseus_vault_state_set`/`perseus_vault_state_get`, `perseus_vault_health`, and `perseus_vault_stats`.
 > Search is SQLite FTS5 keyword by default; embedding/rerank are optional via
-> `mimir_embed` and `mimir_cohere`. No cloud LLM provider is required for core operation.
+> `perseus_vault_embed` and `perseus_vault_cohere`. No cloud LLM provider is required for core operation.
 >
 > **Binary path:** Use the full absolute path in config if the binary is placed in a directory
 > not in the subprocess's PATH. On containers (Docker/Unraid), paths under `/root/` are
-> inaccessible to the runtime user — use a persistent volume path instead:
+> inaccessible to the runtime user — use a persistent volume path instead. When you pin an
+> absolute binary path you must also pass an explicit writable `--db`:
 > ```yaml
-> mimir:
+> perseus_vault:
 >   command:
->     - "/usr/local/bin/mimir"   # absolute path to mimir binary
+>     - "/usr/local/bin/perseus-vault"   # absolute path to perseus-vault binary
+>     - "serve"
 >     - "--db"
->     - "/opt/data/webui/minions/.minions-data/mimir/mimir.db" # persistent, writable by runtime user
+>     - "/opt/data/webui/minions/.minions-data/mimir/perseus-vault.db" # persistent, writable by runtime user
 > ```
 
 > **Merge strategies explained:**
-> - `local_first` — Local Mnēmē FTS5 results first, then Mimir results (default, safest)
-> - `remote_first` — Mimir decay-prioritized results first, then local Mnēmē
-> - `interleave` — Alternate rows between Mimir/local, sorted by decay score within each
-> - `decay_first` — All results sorted globally by Mimir decay_score descending
+> - `local_first` — Local FTS5 results first, then Perseus Vault results (default, safest)
+> - `remote_first` — Perseus Vault decay-prioritized results first, then local FTS5
+> - `interleave` — Alternate rows between vault/local, sorted by decay score within each
+> - `decay_first` — All results sorted globally by Perseus Vault decay_score descending
 
-> **Verification:** After installing Mimir, restart `perseus watch`
-> (or re-render). The next `@memory` resolution uses Mimir via MCP.
-> To confirm: run `perseus doctor` — it reports Mimir connectivity.
-> If Mimir is unreachable, Perseus falls back to local Mnēmē FTS5 silently.
+> **Verification:** After installing Perseus Vault, restart `perseus watch`
+> (or re-render). The next `@memory` resolution uses Perseus Vault via MCP.
+> To confirm: run `perseus doctor` — it reports Perseus Vault connectivity.
+> If Perseus Vault is unreachable, Perseus falls back to local FTS5 silently.
 
-### Mimir (PRIMARY — structured five-tier local memory)
+### Perseus Vault (PRIMARY — structured five-tier local memory)
 
-Perseus integrates with [Mimir](https://github.com/Perseus-Computing-LLC/mimir), an MIT-licensed, local-first memory engine — a Rust binary with SQLite + FTS5. It provides structured entities with category/key idempotent upsert, journal events, state management with TTL, and entity linking. Search is FTS5 keyword by default (embedding/rerank optional), with no required cloud dependency.
+Perseus integrates with [Perseus Vault](https://github.com/Perseus-Computing-LLC/perseus-vault), an MIT-licensed, local-first memory engine — a Rust binary with SQLite + FTS5. It provides structured entities with category/key idempotent upsert, journal events, state management with TTL, and entity linking. Search is FTS5 keyword by default (embedding/rerank optional), with no required cloud dependency.
 
 | Tier | Name | Purpose | MCP tools |
 |------|------|---------|-----|
-| HOT | state | Live working state, rewritten in place | `mimir_state_set` / `mimir_state_get` |
-| WARM | entities | Single source of truth per (category, name) | `mimir_remember` / `mimir_get_entity` |
-| COLD | journal | Append-only event log | `mimir_journal` / `mimir_timeline` |
-| REFERENCE | reference | Static knowledge, rarely changes | `mimir_remember` (category=reference) / `mimir_recall` |
-| ARCHIVE | archive | Retired entities, kept for audit | `mimir_forget` / `mimir_prune` |
+| HOT | state | Live working state, rewritten in place | `perseus_vault_state_set` / `perseus_vault_state_get` |
+| WARM | entities | Single source of truth per (category, name) | `perseus_vault_remember` / `perseus_vault_get_entity` |
+| COLD | journal | Append-only event log | `perseus_vault_journal` / `perseus_vault_timeline` |
+| REFERENCE | reference | Static knowledge, rarely changes | `perseus_vault_remember` (category=reference) / `perseus_vault_recall` |
+| ARCHIVE | archive | Retired entities, kept for audit | `perseus_vault_forget` / `perseus_vault_prune` |
 
 **Install:**
 
 ```bash
 # Bootstrap script (recommended)
-curl -sSL https://raw.githubusercontent.com/Perseus-Computing-LLC/mimir/main/scripts/bootstrap.sh | bash
+curl -sSL https://raw.githubusercontent.com/Perseus-Computing-LLC/perseus-vault/main/scripts/bootstrap.sh | bash
 
 # Or build from source
-git clone https://github.com/Perseus-Computing-LLC/mimir.git ~/.mimir
+git clone https://github.com/Perseus-Computing-LLC/perseus-vault.git ~/.mimir
 cd ~/.mimir && cargo build --release
-cp target/release/mimir ~/.local/bin/mimir
+cp target/release/perseus-vault ~/.local/bin/perseus-vault
 ```
 
 **Enable in Perseus** (`~/.perseus/config.yaml`):
 
 ```yaml
-mimir:
+perseus_vault:
   enabled: true
   transport: stdio
-  command: ["mimir", "serve", "--db", "~/.mimir/data/mimir.db"]
+  command: ["perseus-vault", "serve"]
   fallback_to_local: true
 ```
 
 **Use in context.md:**
 
 ```markdown
-## Persistent Memory (Mimir)
+## Persistent Memory (Perseus Vault)
 @memory mode=search query="project architecture decisions" k=5
 ```
 
-> Mimir context is injected automatically by the render pipeline when enabled — no directive resolver needed. The `@memory mode=search` line documents what's being queried so users know what's in their context.
+> Perseus Vault context is injected automatically by the render pipeline when enabled — no directive resolver needed. The `@memory mode=search` line documents what's being queried so users know what's in their context.
 
-**Degradation:** If the `mimir` binary is not installed, the DB is missing, or search returns nothing, the injected block is empty — no crash, no error. Mimir is **on by default**; set `mimir.enabled: false` to disable and fall back to local Mnēmē FTS5.
+**Degradation:** If the `perseus-vault` binary is not installed, the DB is missing, or search returns nothing, the injected block is empty — no crash, no error. Perseus Vault is **on by default**; set `perseus_vault.enabled: false` to disable and fall back to local FTS5.
 
 No storage cap, no paid tiers, no signup. Fully local and free forever.
 
@@ -711,18 +715,18 @@ perseus memory update
 
 ---
 
-### Mimir MCP Server (Active Memory Modification)
+### Perseus Vault MCP Server (Active Memory Modification)
 
-Mimir is natively MCP. Add to your config:
+Perseus Vault is natively MCP. Add to your config:
 
 ```yaml
 mcp_servers:
-  mimir:
-    command: "mimir"
-    args: ["--db", "~/.mimir/data/mimir.db"]
+  perseus_vault:
+    command: "perseus-vault"
+    args: ["serve"]
 ```
 
-No wrapper server needed. Mimir IS the MCP server.
+No wrapper server needed. Perseus Vault IS the MCP server.
 
 ### Hermes Agent (auto-injection)
 
@@ -1273,6 +1277,5 @@ perseus doctor
 
 ---
 
-*Built from production experience wiring Perseus v1.0.7 into Hermes Agent, Rovo Dev CLI, and Rovo web agent — with Mimir as primary persistent store (Mneme available as optional alternative).*
-*Issues filed: [#128](https://github.com/Perseus-Computing-LLC/perseus/issues/128) – [#135](https://github.com/Perseus-Computing-LLC/perseus/issues/135)*  
-*Guide maintained at: `~/rovodev/docs/perseus-setup-guide.md` (canonical) · this copy: `~/Downloads/perseus-setup-guide.md`*
+*Built from production experience wiring Perseus into Hermes Agent, Rovo Dev CLI, and Rovo web agent — with Perseus Vault as primary persistent store (legacy `mimir:`/`mneme:` config keys still accepted).*
+*Issues filed: [#128](https://github.com/Perseus-Computing-LLC/perseus/issues/128) – [#135](https://github.com/Perseus-Computing-LLC/perseus/issues/135)*

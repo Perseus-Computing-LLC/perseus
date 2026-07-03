@@ -271,16 +271,18 @@ DEFAULT_CONFIG = {
         "claude-opus-4-8":   {"context_target": 1000000, "memory": "on_demand"},  # big window is not an excuse to bloat
     },
     # Perseus Vault persistent memory (MCP binary; formerly "Mimir"/"Mneme").
-    # #662: the canonical config key is now `perseus_vault:`; this default is
-    # still emitted under the legacy `mimir:` key (both accepted — see
-    # _resolve_mneme_config), so existing config.yaml files keep working and
-    # nothing downstream that reads DEFAULT_CONFIG["mimir"] needs to change.
-    "mimir": {
+    # #662/#665: the canonical config key is now `perseus_vault:` and this
+    # default is emitted under it (legacy `mimir:`/`mneme:` keys are still
+    # ACCEPTED on read — see _resolve_mneme_config, which checks perseus_vault
+    # first). The default command carries NO `--db` argument: the perseus-vault
+    # binary self-resolves its canonical default DB path, so omitting it avoids
+    # path drift. The install ships only a `perseus-vault` binary (no `mimir`).
+    "perseus_vault": {
         "enabled": True,
         "auto_inject": True,             # Allow the automatic memory section (pointer or dump per profile posture); set False to require an explicit @memory/@mimir directive (#442). NOTE (#608): whether a pre-materialized dump is injected is now governed by the active profile's `memory` posture — on_demand (default) injects only a retrieval pointer.
         "workspace_scope": True,         # #553: pass the workspace hash to vault recall calls that support it, so unrelated workspaces don't share one undifferentiated memory pool at the render layer
         "transport": "stdio",            # "stdio" (local binary) or "sse" (remote endpoint)
-        "command": ["mimir", "serve", "--db", "~/.mimir/data/mimir.db"],
+        "command": ["perseus-vault", "serve"],
         "endpoint": "",                  # SSE endpoint URL (when transport=sse)
         "timeout_s": 10.0,
         "merge_strategy": "local_first", # local_first | remote_first | interleave | decay_first
@@ -18235,7 +18237,11 @@ from typing import Any, Optional, Callable
 # (_MEMORY_SECTION_HEADER_RE below) still recognises the historical
 # ``(Mimir)`` / ``(Mneme)`` variants, so a doc rendered under an old header is
 # still found and replaced with this one on the next render.
-PERSISTENT_MEMORY_HEADER = "## Persistent Memory (Perseus Vault)"
+# The single user-facing brand for the persistent memory layer. Route ALL
+# user-visible labels (injected header, doctor check labels, ...) through this
+# so a future rename is one edit (#665).
+MEMORY_BRAND = "Perseus Vault"
+PERSISTENT_MEMORY_HEADER = f"## Persistent Memory ({MEMORY_BRAND})"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -23794,17 +23800,17 @@ def _doctor_check_mneme(cfg: dict, workspace: Path) -> DoctorResult:
     mem_cfg = cfg.get("memory", {})
     narrative = _mneme_path(workspace, cfg)
     if not narrative.exists():
-        return DoctorResult("mneme_narrative", "warn", "Mnēmē narrative",
+        return DoctorResult("mneme_narrative", "warn", f"{MEMORY_BRAND} narrative",
                             "not found", "Memory will auto-create on next render with @memory")
     lines = narrative.read_text(errors="replace", encoding="utf-8").splitlines()
     max_lines = mem_cfg.get("max_narrative_lines", 300)
     line_count = len(lines)
     val = f"{line_count} lines"
     if line_count > max_lines:
-        return DoctorResult("mneme_narrative", "warn", "Mnēmē narrative",
+        return DoctorResult("mneme_narrative", "warn", f"{MEMORY_BRAND} narrative",
                             f"{val} (exceeds max_narrative_lines={max_lines})",
                             "Consider pruning old entries from the narrative")
-    return DoctorResult("mneme_narrative", "ok", "Mnēmē narrative", val, "")
+    return DoctorResult("mneme_narrative", "ok", f"{MEMORY_BRAND} narrative", val, "")
 
 
 def _doctor_check_federation(cfg: dict, workspace: Path) -> DoctorResult:
@@ -23917,7 +23923,7 @@ def _doctor_check_mneme_index(_cfg: dict, _workspace: Path) -> DoctorResult:
     try:
         stats = _mneme_index_stats(_cfg)
         if not stats["available"]:
-            return DoctorResult("mneme_fts_index", "warn", "Mnēmē FTS index",
+            return DoctorResult("mneme_fts_index", "warn", f"{MEMORY_BRAND} FTS index",
                                 "index not available (vault may be empty)",
                                 "Add memory files to trigger indexing, or run `perseus memory index rebuild`")
 
@@ -23947,21 +23953,21 @@ def _doctor_check_mneme_index(_cfg: dict, _workspace: Path) -> DoctorResult:
         parts = [f"{doc_count} docs, {file_count} files tracked"]
         if orphan_check_failed:
             parts.append("orphan check failed (index schema mismatch)")
-            return DoctorResult("mneme_fts_index", "warn", "Mnēmē FTS index",
+            return DoctorResult("mneme_fts_index", "warn", f"{MEMORY_BRAND} FTS index",
                                 ", ".join(parts),
                                 "Run `perseus memory index rebuild` to recreate the index")
         if orphans > 0:
             parts.append(f"{orphans} orphaned entries")
-            return DoctorResult("mneme_fts_index", "warn", "Mnēmē FTS index",
+            return DoctorResult("mneme_fts_index", "warn", f"{MEMORY_BRAND} FTS index",
                                 ", ".join(parts),
                                 f"{orphans} orphaned entries — run `perseus memory index rebuild`")
         if doc_count == 0:
-            return DoctorResult("mneme_fts_index", "warn", "Mnēmē FTS index",
+            return DoctorResult("mneme_fts_index", "warn", f"{MEMORY_BRAND} FTS index",
                                 "index exists but is empty",
                                 "Run `perseus memory index rebuild`")
-        return DoctorResult("mneme_fts_index", "ok", "Mnēmē FTS index", ", ".join(parts), "")
+        return DoctorResult("mneme_fts_index", "ok", f"{MEMORY_BRAND} FTS index", ", ".join(parts), "")
     except Exception as exc:
-        return DoctorResult("mneme_fts_index", "error", "Mnēmē FTS index", str(exc), "Check mneme_index.py")
+        return DoctorResult("mneme_fts_index", "error", f"{MEMORY_BRAND} FTS index", str(exc), "Check mneme_index.py")
 
 
 def _doctor_check_llm_reachable(cfg: dict, workspace: Path) -> DoctorResult:
@@ -24138,11 +24144,11 @@ def _doctor_check_mimir_bridge(cfg: dict, workspace: Path) -> DoctorResult:
     enabled = bool(mneme_cfg.get("enabled", True))
 
     if not enabled:
-        return DoctorResult("mimir_connectivity", "ok", "Mimir",
+        return DoctorResult("mimir_connectivity", "ok", MEMORY_BRAND,
                            "disabled", "")
 
-    command = list(mneme_cfg.get("command", ["mimir", "serve", "--db", "~/.mimir/data/mimir.db"]))
-    binary_name = command[0] if command else "mimir"
+    command = list(mneme_cfg.get("command", ["perseus-vault", "serve"]))
+    binary_name = command[0] if command else "perseus-vault"
 
     # Step 1: Auto-discover binary if not on PATH (#227)
     binary_path = _find_mimir_binary(command)
@@ -24150,7 +24156,7 @@ def _doctor_check_mimir_bridge(cfg: dict, workspace: Path) -> DoctorResult:
         # #663: the connector is configured (enabled) but the memory binary is
         # absent, so memory would be silently empty. Warn clearly with
         # copy-paste remediation instead of leaving the user to discover it.
-        return DoctorResult("mimir_connectivity", "warn", "Perseus Vault binary",
+        return DoctorResult("mimir_connectivity", "warn", f"{MEMORY_BRAND} binary",
                            f"configured but not found: '{binary_name}' "
                            "(searched PATH + known locations) — persistent memory "
                            "will be empty until it is installed",
@@ -24185,23 +24191,23 @@ def _doctor_check_mimir_bridge(cfg: dict, workspace: Path) -> DoctorResult:
                         version_info += f" db: {db_path}"
                 connector.close()
                 extra = f" (binary: {binary_path})" if binary_path != binary_name else ""
-                return DoctorResult("mimir_connectivity", "ok", "Mimir",
+                return DoctorResult("mimir_connectivity", "ok", MEMORY_BRAND,
                                    f"connected + healthy{version_info}{extra}", "")
             else:
                 connector.close()
-                return DoctorResult("mimir_connectivity", "warn", "Mimir",
+                return DoctorResult("mimir_connectivity", "warn", MEMORY_BRAND,
                                    f"connected but health check failed: {status}",
-                                   "Check mimir server status")
+                                   "Check the Perseus Vault server status")
         else:
             err = connector.status
             connector.close()
-            return DoctorResult("mimir_connectivity", "warn", "Mimir",
+            return DoctorResult("mimir_connectivity", "warn", MEMORY_BRAND,
                                f"unreachable: {err}",
-                               "Check mimir is running or install it")
+                               "Check Perseus Vault is running or install it")
     except Exception as exc:
-        return DoctorResult("mimir_connectivity", "error", "Mimir",
+        return DoctorResult("mimir_connectivity", "error", MEMORY_BRAND,
                            str(exc),
-                           "Verify mimir binary and config — check mimir.command in config.yaml")
+                           "Verify the perseus-vault binary and the `perseus_vault.command` in config.yaml")
 
 
 
@@ -25732,29 +25738,26 @@ def _quickstart_write_config(
     If generation is provided, the 'generation' and 'llm' blocks are
     populated so pythia/synthesis can use the configured LLM backend.
 
-    The memory connector is always wired (enabled). When ``with_memory`` is
-    set (#663) it is written under the canonical ``perseus_vault:`` key with
-    the ``perseus-vault`` binary name; otherwise the legacy ``mimir:`` key is
-    used for backward compatibility (both are accepted by the resolver).
+    The memory connector is always wired (enabled) under the canonical
+    ``perseus_vault:`` key with the ``perseus-vault`` binary (#665). No ``--db``
+    argument is emitted: the vault binary self-resolves its canonical default DB
+    path, so omitting it eliminates path drift. The install ships ONLY a
+    ``perseus-vault`` binary (there is no ``mimir`` binary), so a legacy
+    ``mimir:``/``mimir serve`` block would be dead on a fresh operator's machine.
+    ``with_memory`` is retained for call-site compatibility but no longer
+    selects a different (legacy) block. Legacy keys are still ACCEPTED on read
+    (see ``_resolve_mneme_config``).
     """
     perseus_dir = workspace / ".perseus"
     perseus_dir.mkdir(parents=True, exist_ok=True)
     config_path = perseus_dir / "config.yaml"
 
-    if with_memory:
-        memory_key = "perseus_vault"
-        memory_block = {
-            "enabled": True,
-            "transport": "stdio",
-            "command": ["perseus-vault", "serve", "--db", "~/.perseus-vault/data/vault.db"],
-        }
-    else:
-        memory_key = "mimir"
-        memory_block = {
-            "enabled": True,
-            "transport": "stdio",
-            "command": ["mimir", "serve", "--db", "~/.mimir/data/mimir.db"],
-        }
+    memory_key = "perseus_vault"
+    memory_block = {
+        "enabled": True,
+        "transport": "stdio",
+        "command": ["perseus-vault", "serve"],
+    }
 
     config: dict = {
         "render": {
@@ -25951,8 +25954,7 @@ def cmd_quickstart(args, cfg) -> int:
                 print(f"✓ Auto-detected LLM: {existing[0]['name']} ({existing[0]['key_env']})")
         path = _quickstart_write_config(workspace, gen_config, with_memory=with_memory)
         print(f"✓ Wrote config: {path}")
-        if with_memory:
-            print("  Memory connector wired under canonical `perseus_vault:` key")
+        print("  Memory connector wired under canonical `perseus_vault:` key")
         if gen_config:
             print(f"  LLM backend: {gen_config['provider']} / {gen_config['model']} / {gen_config['model_url']}")
         print()
@@ -25971,9 +25973,7 @@ def cmd_quickstart(args, cfg) -> int:
     try:
         mcfg = _resolve_mneme_config(cfg) if cfg else {}
         if mcfg.get("enabled", True):
-            command = mcfg.get(
-                "command", ["perseus-vault", "serve", "--db", "~/.perseus-vault/data/vault.db"]
-            )
+            command = mcfg.get("command", ["perseus-vault", "serve"])
             binary_path = _find_mimir_binary(command)
             if binary_path is None:
                 print("⚠ Perseus Vault (persistent memory engine) is configured but NOT installed.")
@@ -29007,19 +29007,19 @@ def cmd_init(args, cfg):
         content = INIT_CONTEXT_TEMPLATE.format(workspace=str(workspace), version=_PERSEUS_VERSION, mneme_query=_context_appropriate_memory_query(workspace))
     context_file.write_text(content, encoding="utf-8")
 
-    # ── Mimir binary auto-discovery (#227) ──
-    # If mimir is not installed, suggest the bootstrap script
+    # ── Perseus Vault binary auto-discovery (#227, #665) ──
+    # If the vault binary is not installed, suggest the bootstrap script.
     mneme_cfg = _resolve_mneme_config(cfg) if cfg else {}
     if mneme_cfg.get("enabled", True):
-        command = mneme_cfg.get("command", ["mimir", "serve", "--db", "~/.mimir/data/mimir.db"])
+        command = mneme_cfg.get("command", ["perseus-vault", "serve"])
         binary_path = _find_mimir_binary(command)
         if binary_path is None:
-            print(f"💡 Mimir not found. For persistent cross-session memory, run:")
-            print(f"   curl -sSL https://raw.githubusercontent.com/Perseus-Computing-LLC/mimir/main/scripts/bootstrap.sh | bash")
-        elif binary_path != command[0]:
+            print(f"💡 Perseus Vault not found. For persistent cross-session memory, run:")
+            print(f"   curl -sSL https://raw.githubusercontent.com/Perseus-Computing-LLC/perseus-vault/main/scripts/bootstrap.sh | bash")
+        else:
             language = _detect_project_language(workspace)
             lang_note = f" (detected: {language})" if language else ""
-            print(f"✓ Context scaffolded{lang_note} — mimir binary at: {binary_path}")
+            print(f"✓ Perseus Vault binary found: {binary_path}{lang_note}")
 
     manifest = None
     if profile_name and not getattr(args, "no_pack", False):
@@ -29060,8 +29060,9 @@ def cmd_init(args, cfg):
         print(f"  3. Run: perseus render {render['source']} --output {render['output']}")
     else:
         print(f"  1. Edit {context_file} to add project-specific @services and @query blocks")
-        print(f"  2. Run: perseus render {context_file}")
-        print(f"  3. Add to cron watchdog: add '{workspace}' to WORKSPACES in perseus-render-workspace.sh")
+        print(f"  2. Run: perseus render {context_file}   — refresh your rendered context")
+        print(f"  3. Run: perseus serve                    — start the LSP for your editor")
+        print(f"  Docs & more commands: https://perseus.observer/docs")
 # ───────────────────── Prompt-size forensics (#606) ──────────────────────────
 #
 # `perseus prompt-size` / `@budget` — byte-accurate, network-free breakdown of
