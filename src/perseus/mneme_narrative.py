@@ -1,4 +1,5 @@
 # stdlib imports available from build artifact header
+from perseus.mneme_connector import MEMORY_BRAND
 # ─────────────────────────────── Mnēmē Memory ────────────────────────────────
 #
 # Mnēmē — narrative project memory. Distills checkpoints + Pythia log into a
@@ -277,7 +278,7 @@ def _enrich_narrative_frontmatter(fm: dict, body: str, workspace: Path) -> None:
         if stripped.startswith("# "):
             title = stripped[2:].strip()
             break
-    fm["title"] = title or f"Mnēmē — {workspace}"
+    fm["title"] = title or f"{MEMORY_BRAND} — {workspace}"
 
     summary = " ".join(
         ln.strip() for ln in body.splitlines()
@@ -550,7 +551,7 @@ def _deterministic_narrative(
     recent_section = "## Recent Activity\n\n" + recent_body + "\n"
 
     # ── Compose ────────────────────────────────────────────────────────────
-    title = f"# Mnēmē — {workspace}\n"
+    title = f"# {MEMORY_BRAND} — {workspace}\n"
     now_h = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z").strip()
     preamble = (
         f"> Narrative last updated {now_h}.\n"

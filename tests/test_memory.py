@@ -172,7 +172,7 @@ def test_memory_show_prints_narrative(tmp_path, capsys):
     capsys.readouterr()
     perseus.cmd_memory(argparse.Namespace(memory_command="show", workspace=str(tmp_path)), local)
     out = capsys.readouterr().out
-    assert "Mnēmē" in out
+    assert "Perseus Vault" in out
     assert "## Project Arc" in out
 
 
@@ -180,7 +180,7 @@ def test_memory_show_warns_when_missing(tmp_path, capsys):
     local = _mneme_cfg(tmp_path)
     perseus.cmd_memory(argparse.Namespace(memory_command="show", workspace=str(tmp_path)), local)
     out = capsys.readouterr().out
-    assert "No Mnēmē narrative" in out
+    assert "No Perseus Vault narrative" in out
 
 
 def test_memory_status_summary(tmp_path, capsys):
@@ -190,7 +190,7 @@ def test_memory_status_summary(tmp_path, capsys):
     capsys.readouterr()
     perseus.cmd_memory(argparse.Namespace(memory_command="status", workspace=str(tmp_path)), local)
     out = capsys.readouterr().out
-    assert "Mnēmē" in out
+    assert "Perseus Vault" in out
     assert "Checkpoints: 1 processed" in out
     assert "deterministic" in out
 
@@ -209,7 +209,107 @@ def test_memory_query_deterministic_grep(tmp_path, capsys):
 def test_resolve_memory_no_narrative_warning(tmp_path):
     local = _mneme_cfg(tmp_path)
     out = perseus.resolve_memory("", local, tmp_path)
-    assert "No Mnēmē narrative" in out
+    assert "No Perseus Vault narrative" in out
+
+
+# ── #666: rendered narrative title routes through the Perseus Vault brand ─────
+
+def test_narrative_title_uses_perseus_vault_brand(tmp_path):
+    """#666: the distilled narrative's H1 title must use the current brand,
+    not the historical `# Mnēmē — …`."""
+    body = perseus._deterministic_narrative([], [], "", tmp_path, _mneme_cfg(tmp_path))
+    assert body.lstrip().startswith("# Perseus Vault — ")
+    assert "# Mnēmē" not in body
+
+
+# ── #670: Recent Activity falls back to a vault recall when checkpoints empty ──
+
+def _fake_session_hits(n=2):
+    hits = []
+    for i in range(n):
+        hits.append(perseus.MemoryHit(
+            id=f"sess-{i}",
+            type=perseus.MemoryTypeEnum.INSIGHT,
+            content=f"Session {i}: reviewed the CoS stack and filed issues.",
+            summary=f"Session {i} summary",
+            created_at_unix_ms=1_700_000_000_000 + i * 1000,
+        ))
+    return hits
+
+
+class _FakeConnector:
+    def __init__(self, available, hits=None):
+        self.available = available
+        self.status = "ok" if available else "unreachable"
+        self._hits = hits or []
+        self.last_filters = None
+
+    def recall(self, query, max_results=10, filters=None, **kwargs):
+        self.last_filters = filters
+        return perseus.MemorySegment(items=list(self._hits))
+
+
+def _seed_empty_recent_narrative(tmp_path, local):
+    """Write a narrative whose Recent Activity is the empty placeholder
+    (the no-checkpoints case #670 describes)."""
+    body = perseus._deterministic_narrative([], [], "", tmp_path, local)
+    assert "_No recent activity._" in body
+    mp = perseus._mneme_path(tmp_path, local)
+    perseus._save_narrative(mp, {"updated": datetime.now().astimezone().isoformat()}, body)
+    return mp
+
+
+def test_recent_activity_vault_fallback_populates(tmp_path, monkeypatch):
+    local = _mneme_cfg(tmp_path)
+    _seed_empty_recent_narrative(tmp_path, local)
+    conn = _FakeConnector(available=True, hits=_fake_session_hits(2))
+    monkeypatch.setattr(perseus, "_get_connector", lambda cfg: conn)
+
+    out = perseus.resolve_memory("", local, tmp_path)
+    assert "_No recent activity._" not in out
+    assert "Session 0 summary" in out
+    assert "Session 1 summary" in out
+    # The fallback queried the vault scoped to session-category memories.
+    assert conn.last_filters == {"category": "session"}
+
+
+def test_recent_activity_vault_fallback_focus_recent(tmp_path, monkeypatch):
+    local = _mneme_cfg(tmp_path)
+    _seed_empty_recent_narrative(tmp_path, local)
+    conn = _FakeConnector(available=True, hits=_fake_session_hits(1))
+    monkeypatch.setattr(perseus, "_get_connector", lambda cfg: conn)
+
+    out = perseus.resolve_memory("focus=recent", local, tmp_path)
+    assert "Session 0 summary" in out
+
+
+def test_recent_activity_no_fallback_when_vault_unavailable(tmp_path, monkeypatch):
+    local = _mneme_cfg(tmp_path)
+    _seed_empty_recent_narrative(tmp_path, local)
+    conn = _FakeConnector(available=False)
+    monkeypatch.setattr(perseus, "_get_connector", lambda cfg: conn)
+
+    out = perseus.resolve_memory("", local, tmp_path)
+    # Unchanged: no vault → keep the honest placeholder.
+    assert "_No recent activity._" in out
+
+
+def test_recent_activity_preserved_when_checkpoints_present(tmp_path, monkeypatch):
+    """The fallback must NOT fire (or query the vault) when checkpoint-derived
+    Recent Activity already exists."""
+    local = _mneme_cfg(tmp_path)
+    _write_checkpoint(Path(local["checkpoints"]["store"]), "2026-05-15T10:00:00+00:00", "Real task")
+    perseus.cmd_memory(argparse.Namespace(memory_command="update", workspace=str(tmp_path), llm=None), local)
+    called = {"n": 0}
+
+    def _boom(cfg):
+        called["n"] += 1
+        raise AssertionError("vault must not be queried when checkpoints exist")
+
+    monkeypatch.setattr(perseus, "_get_connector", _boom)
+    out = perseus.resolve_memory("", local, tmp_path)
+    assert "Real task" in out
+    assert called["n"] == 0
 
 
 def test_resolve_memory_stale_warning(tmp_path):
