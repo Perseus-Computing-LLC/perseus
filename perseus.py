@@ -15929,7 +15929,7 @@ def _enrich_narrative_frontmatter(fm: dict, body: str, workspace: Path) -> None:
         if stripped.startswith("# "):
             title = stripped[2:].strip()
             break
-    fm["title"] = title or f"Mnēmē — {workspace}"
+    fm["title"] = title or f"{MEMORY_BRAND} — {workspace}"
 
     summary = " ".join(
         ln.strip() for ln in body.splitlines()
@@ -16202,7 +16202,7 @@ def _deterministic_narrative(
     recent_section = "## Recent Activity\n\n" + recent_body + "\n"
 
     # ── Compose ────────────────────────────────────────────────────────────
-    title = f"# Mnēmē — {workspace}\n"
+    title = f"# {MEMORY_BRAND} — {workspace}\n"
     now_h = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z").strip()
     preamble = (
         f"> Narrative last updated {now_h}.\n"
@@ -20836,7 +20836,7 @@ def cmd_memory(args, cfg):
     if sub == "show":
         mp = _mneme_path(workspace, cfg)
         if not mp.exists():
-            print(f"> ⚠ No Mnēmē narrative found for {workspace}.")
+            print(f"> ⚠ No {MEMORY_BRAND} narrative found for {workspace}.")
             print("> Run `perseus memory update` to initialize.")
             return
         print(mp.read_text(encoding="utf-8"))
@@ -20850,7 +20850,7 @@ def cmd_memory(args, cfg):
                 import json as _json
                 print(_json.dumps({"workspace": str(workspace), "exists": False}, indent=2))
             else:
-                print(f"Mnēmē — {workspace}")
+                print(f"{MEMORY_BRAND} — {workspace}")
                 print("  No narrative file yet. Run `perseus memory update` to initialize.")
             return
         fm, body = _load_narrative(mp)
@@ -20881,7 +20881,7 @@ def cmd_memory(args, cfg):
             }
             print(_json.dumps(output, indent=2))
         else:
-            print(f"Mnēmē — {workspace}")
+            print(f"{MEMORY_BRAND} — {workspace}")
             print(f"  Updated:     {updated} ({age})")
             print(f"  Checkpoints: {cp_hwm} processed ({cp_pending} pending)")
             print(f"  Pythia log:  {py_hwm} entries processed ({py_pending} pending)")
@@ -20896,7 +20896,7 @@ def cmd_memory(args, cfg):
         question = getattr(args, "question", "") or ""
         mp = _mneme_path(workspace, cfg)
         if not mp.exists():
-            print(f"> ⚠ No Mnēmē narrative found for {workspace}.")
+            print(f"> ⚠ No {MEMORY_BRAND} narrative found for {workspace}.")
             print("> Run `perseus memory update` to initialize.")
             return
         fm, body = _load_narrative(mp)
@@ -20910,7 +20910,7 @@ def cmd_memory(args, cfg):
             )
             model = cfg.get("memory", {}).get("llm_model") or cfg.get("llm", {}).get("model")
             text, code = run_llm(provider, prompt, cfg, model=model)
-            print(text if code == 0 else f"> ⚠ Mnēmē query (LLM) failed: {text}")
+            print(text if code == 0 else f"> ⚠ {MEMORY_BRAND} query (LLM) failed: {text}")
             return
         # Deterministic grep-style search
         terms = [t for t in re.split(r'\s+', question.strip()) if t]
@@ -20982,7 +20982,7 @@ def cmd_memory_doctor(args, cfg) -> None:
             import json as _json
             print(_json.dumps({"scan_before": scan, "migrate": result}, indent=2))
             return
-        print(f"Mnēmē doctor — store: {scan['store']}")
+        print(f"{MEMORY_BRAND} doctor — store: {scan['store']}")
         print(f"  Narrative files:  {len(scan['narrative_files'])}")
         print(f"  Legacy MD5 found: {len(scan['legacy_md5_files'])}")
         print(f"  Migrated:         {len(result['migrated'])}")
@@ -21003,7 +21003,7 @@ def cmd_memory_doctor(args, cfg) -> None:
         import json as _json
         print(_json.dumps(scan, indent=2))
         return
-    print(f"Mnēmē doctor — store: {scan['store']}")
+    print(f"{MEMORY_BRAND} doctor — store: {scan['store']}")
     print(f"  Narrative files:  {len(scan['narrative_files'])}")
     print(f"  SHA-256 (current):{len(scan['sha256_files'])}")
     print(f"  Legacy MD5:       {len(scan['legacy_md5_files'])}")
@@ -21024,7 +21024,7 @@ def cmd_memory_doctor(args, cfg) -> None:
         print("workspace path moved. Review manually before deleting.")
     if scan["unknown_files"]:
         print()
-        print("Files with non-standard names (skipped by Mnēmē):")
+        print(f"Files with non-standard names (skipped by {MEMORY_BRAND}):")
         for fp in scan["unknown_files"]:
             print(f"  - {fp}")
 
@@ -21377,6 +21377,83 @@ def _resolve_memory_federation(args_stripped: str, mods: dict, cfg: dict) -> str
     return _render_federation_digest(cfg, alias_filter)
 
 
+_RECENT_ACTIVITY_PLACEHOLDER = "_No recent activity._"
+
+
+def _recent_activity_from_vault(cfg: dict, workspace: Path, limit: int = 5) -> str:
+    """#670: build a Recent Activity body from the vault when the checkpoint
+    store is empty.
+
+    The narrative's Recent Activity is distilled from Perseus checkpoints
+    (``~/.perseus/checkpoints/*.yaml``). On installs where the background
+    harvest writes session entities straight to the vault
+    (``perseus_vault_remember --category session``) instead of emitting
+    checkpoints, that section renders ``_No recent activity._`` even though the
+    vault holds recent sessions — the two stores never meet. This is the
+    store-empty analog of the #135 ``focus=recent`` fallback: recall recent
+    session-category memories from the vault so the at-a-glance surface isn't
+    dead.
+
+    Returns a markdown body (recent entries, newest first) or ``""`` when the
+    vault is unavailable / disabled / holds no session memories — in which case
+    the caller keeps the existing ``_No recent activity._`` placeholder, so
+    behaviour is unchanged on a stock (checkpoint-only) install.
+    """
+    try:
+        connector = _get_connector(cfg)
+        if not connector.available:
+            return ""
+        seg = connector.recall(
+            query=(workspace.name or "session"),
+            max_results=max(1, limit),
+            filters={"category": "session"},
+        )
+        items = list(seg.items) if (seg and seg.items) else []
+    except Exception:
+        return ""  # best-effort — a vault hiccup must never break narrative render
+    if not items:
+        return ""
+
+    # Newest first — mimir decay scoring already favours recency, but sort
+    # explicitly so the surface reads chronologically regardless of backend.
+    items.sort(key=lambda h: getattr(h, "created_at_unix_ms", 0), reverse=True)
+
+    lines: list[str] = []
+    for h in items[:limit]:
+        raw_title = (getattr(h, "summary", "") or getattr(h, "content", "") or "session").strip()
+        title = raw_title.splitlines()[0][:120] if raw_title else "session"
+        ts = ""
+        try:
+            ts = datetime.fromtimestamp(
+                getattr(h, "created_at_unix_ms", 0) / 1000, tz=timezone.utc
+            ).strftime("%Y-%m-%dT%H%M")
+        except Exception:
+            ts = ""
+        lines.append(f"### {ts} — {title}" if ts else f"### {title}")
+        body_txt = (getattr(h, "content", "") or "").strip()
+        if body_txt and body_txt.splitlines()[0][:120] != title:
+            lines.append(f"- {body_txt[:280]}")
+        lines.append("")
+    if not lines:
+        return ""
+    lines.append(f"> Recalled from the {MEMORY_BRAND} (session memories) — no local checkpoints recorded yet.")
+    return "\n".join(lines).rstrip()
+
+
+def _augment_recent_activity_from_vault(body: str, cfg: dict, ws: Path) -> str:
+    """Replace an empty Recent Activity placeholder with a vault recall (#670)."""
+    if _RECENT_ACTIVITY_PLACEHOLDER not in body:
+        return body  # real checkpoint-derived activity present — leave it be
+    try:
+        limit = int(cfg.get("memory", {}).get("recent_keep", 5))
+    except (ValueError, TypeError):
+        limit = 5
+    vault_recent = _recent_activity_from_vault(cfg, ws, limit)
+    if not vault_recent:
+        return body
+    return body.replace(_RECENT_ACTIVITY_PLACEHOLDER, vault_recent, 1)
+
+
 def _resolve_memory_narrative(args_stripped: str, mods: dict, cfg: dict, ws: Path, limit_n: int = 0) -> str:
     """@memory mode=narrative — render the narrative journal."""
     focus = (mods.get("focus") or "").strip().lower()
@@ -21395,7 +21472,7 @@ def _resolve_memory_narrative(args_stripped: str, mods: dict, cfg: dict, ws: Pat
     mp = _mneme_path(ws, cfg)
     if not mp.exists():
         return _maybe_append_federation(
-            "> \u2139\ufe0f No Mn\u0113m\u0113 narrative found for this workspace — this is expected on a fresh install.\n"
+            "> ℹ️ No " + MEMORY_BRAND + " narrative found for this workspace — this is expected on a fresh install.\n"
             "> Run `perseus memory update` to initialize."
         )
 
@@ -21411,7 +21488,7 @@ def _resolve_memory_narrative(args_stripped: str, mods: dict, cfg: dict, ws: Pat
         if age_s > ttl_s:
             age_h = _human_age(updated)
             stale_note = (
-                f"> \u26a0 Mn\u0113m\u0113 narrative is stale (last updated {age_h}).\n"
+                f"> \u26a0 {MEMORY_BRAND} narrative is stale (last updated {age_h}).\n"
                 "> Run `perseus memory update` to refresh.\n\n"
             )
     except Exception as exc:
@@ -21448,12 +21525,18 @@ def _resolve_memory_narrative(args_stripped: str, mods: dict, cfg: dict, ws: Pat
         warn_at = max(1, int(threshold * 0.8))
         if updates_since >= warn_at:
             compact_note = (
-                f"\n\n> \U0001f4a1 Mn\u0113m\u0113 has {updates_since} incremental updates "
+                f"\n\n> \U0001f4a1 {MEMORY_BRAND} has {updates_since} incremental updates "
                 f"(threshold: {threshold}) \u2014 consider running `perseus memory compact`.\n"
             )
 
+    # #670: if the checkpoint-distilled Recent Activity is empty, fall back to
+    # a vault recall of recent session memories. Operates on a render-only copy
+    # so the recalled content is never persisted back into the narrative file
+    # (the staleness touch above saves the original `body`).
+    render_body = _augment_recent_activity_from_vault(body, cfg, ws)
+
     if not focus:
-        result = body.rstrip()
+        result = render_body.rstrip()
         if stale_note:
             result = stale_note + result
         result = result + compact_note
@@ -21472,7 +21555,7 @@ def _resolve_memory_narrative(args_stripped: str, mods: dict, cfg: dict, ws: Pat
         return _maybe_append_federation(
             f"> \u26a0 Unknown @memory focus={focus!r}. Valid: {', '.join(sorted(focus_map.keys()))}"
         )
-    section = _extract_section(body, heading)
+    section = _extract_section(render_body, heading)
     if not section.strip():
         return _maybe_append_federation(
             f"> \u26a0 @memory focus={focus!r}: section not found in narrative."
