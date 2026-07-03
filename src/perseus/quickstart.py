@@ -62,7 +62,7 @@ Everything else has a better home:
 
 ---
 
-## Persistent Memory (Mimir)
+## Persistent Memory (Perseus Vault)
 
 > 💡 **Query tips:** FTS5 treats multi-word queries as exact phrases.
 > Split long queries across multiple directives for better recall:
@@ -71,22 +71,44 @@ Everything else has a better home:
 > @memory mode=search query="another topic" k=2
 > ```
 > Each sub-query is short enough to match effectively; the relay layer merges results.
-> Falls back gracefully to local Mnēmē FTS5 if Mimir is unavailable.
-> Requires `mimir.enabled: true` in `.perseus/config.yaml`.
+> Falls back gracefully to local Mnēmē FTS5 if Perseus Vault is unavailable.
+> Requires `perseus_vault.enabled: true` (or the legacy `mimir.enabled: true`) in `.perseus/config.yaml`.
 
 @memory mode=search query="{mneme_query}" k=5
 """
 
 
-def _quickstart_write_config(workspace: Path, generation: dict | None = None) -> Path:
+def _quickstart_write_config(
+    workspace: Path, generation: dict | None = None, with_memory: bool = False
+) -> Path:
     """Write a minimal .perseus/config.yaml with safe defaults.
 
     If generation is provided, the 'generation' and 'llm' blocks are
     populated so pythia/synthesis can use the configured LLM backend.
+
+    The memory connector is always wired (enabled). When ``with_memory`` is
+    set (#663) it is written under the canonical ``perseus_vault:`` key with
+    the ``perseus-vault`` binary name; otherwise the legacy ``mimir:`` key is
+    used for backward compatibility (both are accepted by the resolver).
     """
     perseus_dir = workspace / ".perseus"
     perseus_dir.mkdir(parents=True, exist_ok=True)
     config_path = perseus_dir / "config.yaml"
+
+    if with_memory:
+        memory_key = "perseus_vault"
+        memory_block = {
+            "enabled": True,
+            "transport": "stdio",
+            "command": ["perseus-vault", "serve", "--db", "~/.perseus-vault/data/vault.db"],
+        }
+    else:
+        memory_key = "mimir"
+        memory_block = {
+            "enabled": True,
+            "transport": "stdio",
+            "command": ["mimir", "serve", "--db", "~/.mimir/data/mimir.db"],
+        }
 
     config: dict = {
         "render": {
@@ -96,11 +118,7 @@ def _quickstart_write_config(workspace: Path, generation: dict | None = None) ->
         "permissions": {
             "profile": "balanced",
         },
-        "mimir": {
-            "enabled": True,
-            "transport": "stdio",
-            "command": ["mimir", "serve", "--db", "~/.mimir/data/mimir.db"],
-        },
+        memory_key: memory_block,
     }
     if generation:
         config["generation"] = {
@@ -237,6 +255,7 @@ def cmd_quickstart(args, cfg) -> int:
 
     non_interactive = getattr(args, "non_interactive", False)
     no_llm = getattr(args, "no_llm", False)
+    with_memory = getattr(args, "with_memory", False)
 
     print(f"Perseus quickstart — v{_PERSEUS_VERSION}")
     print(f"Workspace: {workspace}")
@@ -284,8 +303,10 @@ def cmd_quickstart(args, cfg) -> int:
                     "api_key_env": existing[0]["key_env"],
                 }
                 print(f"✓ Auto-detected LLM: {existing[0]['name']} ({existing[0]['key_env']})")
-        path = _quickstart_write_config(workspace, gen_config)
+        path = _quickstart_write_config(workspace, gen_config, with_memory=with_memory)
         print(f"✓ Wrote config: {path}")
+        if with_memory:
+            print("  Memory connector wired under canonical `perseus_vault:` key")
         if gen_config:
             print(f"  LLM backend: {gen_config['provider']} / {gen_config['model']} / {gen_config['model_url']}")
         print()
@@ -293,39 +314,33 @@ def cmd_quickstart(args, cfg) -> int:
     # Step 3: Reload config from workspace so permission profile is applied
     cfg = load_config(workspace)
 
-    # ── Mimir Installation & Wiring Check (#301) ──
+    # ── Perseus Vault (memory) install & wiring check (#301, #663) ──
+    #
+    # quickstart always writes an enabled memory connector, but the binary
+    # (Perseus Vault, a separate Rust build) is NOT bundled — so without this
+    # check a user's memory block is silently empty. Detect the missing binary
+    # and print a clear warning + copy-paste remediation. We never auto-download
+    # or build the Rust binary silently (#663); the install is always an
+    # explicit, operator-run command.
     try:
-        from perseus.doctor import _find_mimir_binary
+        from perseus.doctor import _find_mimir_binary, MEMORY_INSTALL_REMEDIATION
         mcfg = _resolve_mneme_config(cfg) if cfg else {}
         if mcfg.get("enabled", True):
-            command = mcfg.get("command", ["mimir", "serve", "--db", "~/.mimir/data/mimir.db"])
+            command = mcfg.get(
+                "command", ["perseus-vault", "serve", "--db", "~/.perseus-vault/data/vault.db"]
+            )
             binary_path = _find_mimir_binary(command)
             if binary_path is None:
-                print("💡 Mimir persistent memory engine was not found on this system.")
-                if not non_interactive:
-                    try:
-                        install_choice = input("Would you like to install Mimir automatically? [y/N]: ").strip().lower()
-                        if install_choice in ("y", "yes"):
-                            print("Downloading and running Mimir bootstrap script...")
-                            import urllib.request
-                            script_url = "https://raw.githubusercontent.com/Perseus-Computing-LLC/mimir/main/scripts/bootstrap.sh"
-                            req_script = urllib.request.Request(script_url, headers={"User-Agent": "perseus-quickstart"})
-                            with urllib.request.urlopen(req_script, timeout=15) as resp:
-                                bootstrap_script = resp.read()
-                            
-                            print("Building and installing Mimir (this may take a minute)...")
-                            res = subprocess.run(["bash"], input=bootstrap_script, capture_output=True, text=True)
-                            if res.returncode == 0:
-                                print("✓ Mimir installed successfully!")
-                            else:
-                                print("✗ Mimir installation failed:")
-                                print(res.stderr)
-                        else:
-                            print("Skipping Mimir installation. You can run it manually later.")
-                    except Exception as e:
-                        print(f"✗ Failed to run installation: {e}")
-                else:
-                    print("To install Mimir, run: curl -sSL https://raw.githubusercontent.com/Perseus-Computing-LLC/mimir/main/scripts/bootstrap.sh | bash")
+                print("⚠ Perseus Vault (persistent memory engine) is configured but NOT installed.")
+                print("  The memory block will be EMPTY until the binary is on PATH.")
+                print(f"  → {MEMORY_INSTALL_REMEDIATION}")
+                if with_memory:
+                    print()
+                    print("  --with-memory: connector config is wired; complete setup with the")
+                    print("  install command above, then re-run `perseus doctor` to confirm.")
+                print()
+            else:
+                print(f"✓ Perseus Vault binary found: {binary_path}")
                 print()
     except Exception:
         pass

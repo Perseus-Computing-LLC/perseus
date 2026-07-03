@@ -486,23 +486,42 @@ def _doctor_check_sessions(cfg: dict, workspace: Path) -> DoctorResult:
 
 
 # Ordered list of doctor checks — adding a check is one function + one line here.
+# #662: the memory binary is now "perseus-vault" (formerly mimir/mneme); search
+# both the new and legacy names so a config that still points at `mimir` OR one
+# migrated to `perseus-vault` is discovered in the common install locations.
+_MEMORY_BINARY_NAMES = ("perseus-vault", "mimir", "mneme")
 _KNOWN_MIMIR_PATHS = [
-    "/usr/local/bin/mimir",
-    os.path.expanduser("~/.local/bin/mimir"),
-    os.path.expanduser("~/.cargo/bin/mimir"),
-    "/usr/bin/mimir",
-    "/usr/local/bin/mimir",
+    os.path.join(prefix, name)
+    for name in _MEMORY_BINARY_NAMES
+    for prefix in (
+        "/usr/local/bin",
+        os.path.expanduser("~/.local/bin"),
+        os.path.expanduser("~/.cargo/bin"),
+        "/usr/bin",
+    )
 ]
+
+# Copy-paste remediation shown when the memory connector is configured but the
+# binary is absent (#663). Perseus does not download/build a Rust binary
+# silently, so point at the install path instead.
+MEMORY_INSTALL_REMEDIATION = (
+    "Install Perseus Vault (the memory engine) or set the connector `command:` "
+    "in .perseus/config.yaml. Quickest: run `perseus quickstart --with-memory` "
+    "for wiring + next steps, or build from source: "
+    "`git clone https://github.com/Perseus-Computing-LLC/perseus-vault && "
+    "cd perseus-vault && cargo build --release` then put "
+    "`target/release/perseus-vault` on PATH (or in ~/.local/bin)."
+)
 
 
 def _find_mimir_binary(configured_command: list[str]) -> str | None:
-    """Search common paths for the mimir binary.
+    """Search common paths for the memory (Perseus Vault) binary.
 
     Returns the first found absolute path, or None if not found.
-    Used by doctor to surface a clear suggestion when mimir is configured
-    but the binary isn't on PATH (#227).
+    Used by doctor/quickstart to surface a clear suggestion when the memory
+    connector is configured but the binary isn't on PATH (#227, #663).
     """
-    binary_name = configured_command[0] if configured_command else "mimir"
+    binary_name = configured_command[0] if configured_command else "perseus-vault"
 
     # Check if the configured binary is already resolvable via PATH
     import shutil as _shutil
@@ -510,14 +529,18 @@ def _find_mimir_binary(configured_command: list[str]) -> str | None:
     if resolved:
         return resolved
 
-    # Search known common paths
+    # Search known common paths (both new perseus-vault and legacy names)
     candidates = list(_KNOWN_MIMIR_PATHS)
 
-    # Also search $PWD/mimir/target/{release,debug}/mimir
+    # Also search $PWD/{perseus-vault,mimir}/target/{release,debug}/<name>
     try:
         cwd = Path.cwd()
-        candidates.append(str(cwd / "mimir" / "target" / "release" / "mimir"))
-        candidates.append(str(cwd / "mimir" / "target" / "debug" / "mimir"))
+        for src_dir, name in (
+            ("perseus-vault", "perseus-vault"),
+            ("mimir", "mimir"),
+        ):
+            candidates.append(str(cwd / src_dir / "target" / "release" / name))
+            candidates.append(str(cwd / src_dir / "target" / "debug" / name))
     except Exception:
         pass
 
@@ -550,19 +573,26 @@ def _doctor_check_mimir_bridge(cfg: dict, workspace: Path) -> DoctorResult:
     # Step 1: Auto-discover binary if not on PATH (#227)
     binary_path = _find_mimir_binary(command)
     if binary_path is None:
-        return DoctorResult("mimir_connectivity", "warn", "Mimir binary",
-                           f"not found: '{binary_name}' (searched PATH + known locations)",
-                           "Install mimir or set mimir.command in config.yaml")
+        # #663: the connector is configured (enabled) but the memory binary is
+        # absent, so memory would be silently empty. Warn clearly with
+        # copy-paste remediation instead of leaving the user to discover it.
+        return DoctorResult("mimir_connectivity", "warn", "Perseus Vault binary",
+                           f"configured but not found: '{binary_name}' "
+                           "(searched PATH + known locations) — persistent memory "
+                           "will be empty until it is installed",
+                           MEMORY_INSTALL_REMEDIATION)
     if binary_path != binary_name:
         # Found at a non-default path — update command for the connection attempt
         command[0] = binary_path
 
     # Step 2: Attempt MCP handshake + health check (#226)
     try:
-        # Build a temporary connector with the discovered binary path
+        # Build a temporary connector with the discovered binary path. Write
+        # under the canonical `perseus_vault:` key (#662) so it wins in
+        # _resolve_mneme_config regardless of which alias the original cfg used.
         test_cfg = dict(cfg)
-        test_cfg["mimir"] = dict(mneme_cfg)
-        test_cfg["mimir"]["command"] = command
+        test_cfg["perseus_vault"] = dict(mneme_cfg)
+        test_cfg["perseus_vault"]["command"] = command
 
         connector = MnemeConnector(test_cfg)
         if connector.available:

@@ -473,7 +473,7 @@ class TestMimirAutoInject:
         with patch.object(perseus, "_get_connector", return_value=connector):
             out = perseus._mneme_context_inject(c)
         assert out is not None
-        assert out.startswith("## Persistent Memory (Mimir)")
+        assert out.startswith("## Persistent Memory (Perseus Vault)")
         assert "a durable memory" in out
 
     def test_hot_entities_injected_via_mimir_context(self):
@@ -491,7 +491,7 @@ class TestMimirAutoInject:
         with patch.object(perseus, "_get_connector", return_value=connector):
             out = perseus._mneme_context_inject(c)
         assert out is not None
-        assert out.startswith("## Persistent Memory (Mimir)")
+        assert out.startswith("## Persistent Memory (Perseus Vault)")
         # Hot always_on entity is injected...
         assert "always-on" in out and "db" in out
         # ...the server's own header/footer are stripped...
