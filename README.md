@@ -22,7 +22,7 @@ Perseus is the live context engine. Seven specialized products extend it:
 
 | Product | Description | Page |
 |---|---|---|
-| **Mimir** | 48 MCP tools — persistent memory with FTS5, entities, layers, confidence decay | [/mimir/](https://perseus.observer/mimir/) |
+| **Perseus Vault** | 55 MCP tools — persistent memory with FTS5, entities, layers, confidence decay | [/perseus-vault/](https://perseus.observer/perseus-vault/) |
 | **MCTS** | 31 security analyzers for MCP servers — tool poisoning, prompt injection, credential leaks | [/mcts/](https://perseus.observer/mcts/) |
 | **PR Pilot** | 5-agent autonomous PR review pipeline — graduated autonomy L1→L3 | [/pr-pilot/](https://perseus.observer/pr-pilot/) |
 | **Blast Radius** | GitLab-native dependency impact analysis — 1 mention, instant risk report | [/blast-radius/](https://perseus.observer/blast-radius/) |
@@ -32,32 +32,32 @@ Perseus is the live context engine. Seven specialized products extend it:
 
 ---
 
-### Mimir — Persistent Memory (MCP)
+### Perseus Vault — Persistent Memory (MCP)
 
-[Mimir](https://github.com/Perseus-Computing-LLC/mimir) is the persistent memory backend for Perseus — a lightweight Rust MCP server with SQLite + FTS5. Zero network calls, no API keys. As of **v2.7.0**, offline dense/hybrid embeddings are **bundled by default** (the model is compiled into the binary), so semantic recall works zero-config with no external model download. v2.12.0 provides **48 MCP tools** across structured entities, hybrid vector search, RAG, connectors, confidence decay, journal events, and state management: `mimir_remember`, `mimir_recall`, `mimir_context`, `mimir_traverse`, `mimir_decay`, `mimir_stats`, `mimir_health`, and more.
+[Perseus Vault](https://github.com/Perseus-Computing-LLC/perseus-vault) is the persistent memory backend for Perseus — a lightweight Rust MCP server with SQLite + FTS5. Zero network calls, no API keys. As of **v2.7.0**, offline dense/hybrid embeddings are **bundled by default** (the model is compiled into the binary), so semantic recall works zero-config with no external model download. v2.14.0 provides **55 MCP tools** across structured entities, hybrid vector search, RAG, connectors, confidence decay, journal events, and state management: `perseus_vault_remember`, `perseus_vault_recall`, `perseus_vault_context`, `perseus_vault_traverse`, `perseus_vault_decay`, `perseus_vault_stats`, `perseus_vault_health`, and more.
 
-📄 [Product page →](https://perseus.observer/mimir/) | ⭐ [GitHub →](https://github.com/Perseus-Computing-LLC/mimir)
+📄 [Product page →](https://perseus.observer/perseus-vault/) | ⭐ [GitHub →](https://github.com/Perseus-Computing-LLC/perseus-vault)
 
 **Install:**
 ```bash
-curl -sSL https://raw.githubusercontent.com/Perseus-Computing-LLC/mimir/main/scripts/bootstrap.sh | bash
+curl -sSL https://raw.githubusercontent.com/Perseus-Computing-LLC/perseus-vault/main/scripts/bootstrap.sh | bash
 ```
 
 **Hermes Agent** — add to `~/.hermes/config.yaml`:
 ```yaml
 mcp_servers:
-  mimir:
-    command: "mimir"
-    args: ["--db", "~/.mimir/data/mimir.db"]
+  perseus_vault:
+    command: "perseus-vault"
+    args: ["serve"]
 ```
 
 **Claude Desktop / Cursor** — add to your MCP settings:
 ```json
 {
   "mcpServers": {
-    "mimir": {
-      "command": "mimir",
-      "args": ["--db", "/home/YOU/.mimir/data/mimir.db"]
+    "perseus_vault": {
+      "command": "perseus-vault",
+      "args": ["serve"]
     }
   }
 }
@@ -65,11 +65,11 @@ mcp_servers:
 
 **Perseus integration** — add to `.perseus/config.yaml`:
 ```yaml
-mimir:
+perseus_vault:
   enabled: true
-  command: ["mimir", "serve", "--db", "~/.mimir/data/mimir.db"]
+  command: ["perseus-vault", "serve"]
 ```
-Then add `@memory mode=search query="your terms"` to `.perseus/context.md` and Perseus resolves live recall at render time.
+The `perseus-vault` binary self-resolves its canonical default DB path, so no `--db` argument is needed (its default is `~/.mimir/data/perseus-vault.db`). The legacy `mimir:` key is still accepted for back-compat, so existing configs keep working. Then add `@memory mode=search query="your terms"` to `.perseus/context.md` and Perseus resolves live recall at render time.
 
 Works with any MCP-compatible assistant.
 
@@ -213,7 +213,7 @@ Published as [`io.github.Perseus-Computing-LLC/perseus`](https://registry.modelc
 
 ### MCP Tools
 
-<!-- test-count: 1552 — recount with: grep -rE "^\s*def test_" tests/ | wc -l -->
+<!-- test-count: 1624 — recount with: grep -rE "^\s*def test_" tests/ | wc -l -->
 <!-- The table below is the exact default output of _get_all_mcp_tools({}) — 30 rows. Recount before editing. -->
 30 MCP tools resolve live state at invocation time (including the legacy aliases `perseus_get_context`/`perseus_get_health`). Two additional sensitive tools — `perseus_query` (run a shell command) and `perseus_agent` (execute a local agent subprocess) — are **not** part of this default set: they require explicit `mcp.tool_allowlist` opt-in because they execute commands in the user's local shell (**not sandboxed, full user permissions apply**).
 
@@ -229,7 +229,7 @@ Published as [`io.github.Perseus-Computing-LLC/perseus`](https://registry.modelc
 | `perseus_session` | Recent session digests |
 | `perseus_health` | Context maintenance report |
 | `perseus_drift` | Oracle drift report |
-| `perseus_memory` | Mnēmē narrative memory (+ persistent store) |
+| `perseus_memory` | Local narrative recall + persistent Perseus Vault store |
 | `perseus_mimir` | Recall persistent memories via BM25 (legacy name of `perseus_mneme`) |
 | `perseus_mneme` | Recall persistent memories from the external Mneme server via BM25 |
 | `perseus_skills` | List available skills with staleness flags |
@@ -940,7 +940,7 @@ Perseus is a **local-first context engine** — it runs entirely on your machine
 
 ### Data Retention
 - Perseus does not retain data independently. Rendered context is ephemeral and regenerated on each invocation.
-- For persistent memory, see [Mimir's privacy policy](https://github.com/Perseus-Computing-LLC/mimir#privacy-policy).
+- For persistent memory, see [Perseus Vault's privacy policy](https://github.com/Perseus-Computing-LLC/perseus-vault#privacy-policy).
 
 ### Contact
 - **Email:** privacy@perseus.observer

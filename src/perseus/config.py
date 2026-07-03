@@ -166,16 +166,18 @@ DEFAULT_CONFIG = {
         "claude-opus-4-8":   {"context_target": 1000000, "memory": "on_demand"},  # big window is not an excuse to bloat
     },
     # Perseus Vault persistent memory (MCP binary; formerly "Mimir"/"Mneme").
-    # #662: the canonical config key is now `perseus_vault:`; this default is
-    # still emitted under the legacy `mimir:` key (both accepted — see
-    # _resolve_mneme_config), so existing config.yaml files keep working and
-    # nothing downstream that reads DEFAULT_CONFIG["mimir"] needs to change.
-    "mimir": {
+    # #662/#665: the canonical config key is now `perseus_vault:` and this
+    # default is emitted under it (legacy `mimir:`/`mneme:` keys are still
+    # ACCEPTED on read — see _resolve_mneme_config, which checks perseus_vault
+    # first). The default command carries NO `--db` argument: the perseus-vault
+    # binary self-resolves its canonical default DB path, so omitting it avoids
+    # path drift. The install ships only a `perseus-vault` binary (no `mimir`).
+    "perseus_vault": {
         "enabled": True,
         "auto_inject": True,             # Allow the automatic memory section (pointer or dump per profile posture); set False to require an explicit @memory/@mimir directive (#442). NOTE (#608): whether a pre-materialized dump is injected is now governed by the active profile's `memory` posture — on_demand (default) injects only a retrieval pointer.
         "workspace_scope": True,         # #553: pass the workspace hash to vault recall calls that support it, so unrelated workspaces don't share one undifferentiated memory pool at the render layer
         "transport": "stdio",            # "stdio" (local binary) or "sse" (remote endpoint)
-        "command": ["mimir", "serve", "--db", "~/.mimir/data/mimir.db"],
+        "command": ["perseus-vault", "serve"],
         "endpoint": "",                  # SSE endpoint URL (when transport=sse)
         "timeout_s": 10.0,
         "merge_strategy": "local_first", # local_first | remote_first | interleave | decay_first
