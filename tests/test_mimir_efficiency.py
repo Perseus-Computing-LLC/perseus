@@ -40,7 +40,10 @@ def _reset_connector_singleton():
 def _test_cfg(strategy="local_first"):
     _reset_connector_singleton()
     c = cfg()
-    c["mimir"] = {
+    # #665: canonical memory key is now `perseus_vault`; the resolver reads it
+    # before the legacy `mimir`/`mneme` aliases, so the connector must be
+    # configured under the canonical key to take effect.
+    c["perseus_vault"] = {
         "enabled": True,
         "transport": "stdio",
         "command": ["/nonexistent/path/mneme"],
@@ -588,8 +591,8 @@ class TestConnectorCacheKeying:
         _reset_connector_singleton()
         c = _test_cfg()
         first = perseus._get_connector(c)
-        # Change a value inside the mimir subtree; a rebuild is expected.
-        c["mimir"] = copy.deepcopy(c["mimir"])
-        c["mimir"]["timeout_s"] = c["mimir"].get("timeout_s", 0.5) + 1.0
+        # Change a value inside the memory subtree; a rebuild is expected.
+        c["perseus_vault"] = copy.deepcopy(c["perseus_vault"])
+        c["perseus_vault"]["timeout_s"] = c["perseus_vault"].get("timeout_s", 0.5) + 1.0
         second = perseus._get_connector(c)
         assert second is not first

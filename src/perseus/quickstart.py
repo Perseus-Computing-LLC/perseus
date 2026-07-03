@@ -86,29 +86,26 @@ def _quickstart_write_config(
     If generation is provided, the 'generation' and 'llm' blocks are
     populated so pythia/synthesis can use the configured LLM backend.
 
-    The memory connector is always wired (enabled). When ``with_memory`` is
-    set (#663) it is written under the canonical ``perseus_vault:`` key with
-    the ``perseus-vault`` binary name; otherwise the legacy ``mimir:`` key is
-    used for backward compatibility (both are accepted by the resolver).
+    The memory connector is always wired (enabled) under the canonical
+    ``perseus_vault:`` key with the ``perseus-vault`` binary (#665). No ``--db``
+    argument is emitted: the vault binary self-resolves its canonical default DB
+    path, so omitting it eliminates path drift. The install ships ONLY a
+    ``perseus-vault`` binary (there is no ``mimir`` binary), so a legacy
+    ``mimir:``/``mimir serve`` block would be dead on a fresh operator's machine.
+    ``with_memory`` is retained for call-site compatibility but no longer
+    selects a different (legacy) block. Legacy keys are still ACCEPTED on read
+    (see ``_resolve_mneme_config``).
     """
     perseus_dir = workspace / ".perseus"
     perseus_dir.mkdir(parents=True, exist_ok=True)
     config_path = perseus_dir / "config.yaml"
 
-    if with_memory:
-        memory_key = "perseus_vault"
-        memory_block = {
-            "enabled": True,
-            "transport": "stdio",
-            "command": ["perseus-vault", "serve", "--db", "~/.perseus-vault/data/vault.db"],
-        }
-    else:
-        memory_key = "mimir"
-        memory_block = {
-            "enabled": True,
-            "transport": "stdio",
-            "command": ["mimir", "serve", "--db", "~/.mimir/data/mimir.db"],
-        }
+    memory_key = "perseus_vault"
+    memory_block = {
+        "enabled": True,
+        "transport": "stdio",
+        "command": ["perseus-vault", "serve"],
+    }
 
     config: dict = {
         "render": {
@@ -305,8 +302,7 @@ def cmd_quickstart(args, cfg) -> int:
                 print(f"✓ Auto-detected LLM: {existing[0]['name']} ({existing[0]['key_env']})")
         path = _quickstart_write_config(workspace, gen_config, with_memory=with_memory)
         print(f"✓ Wrote config: {path}")
-        if with_memory:
-            print("  Memory connector wired under canonical `perseus_vault:` key")
+        print("  Memory connector wired under canonical `perseus_vault:` key")
         if gen_config:
             print(f"  LLM backend: {gen_config['provider']} / {gen_config['model']} / {gen_config['model_url']}")
         print()
@@ -326,9 +322,7 @@ def cmd_quickstart(args, cfg) -> int:
         from perseus.doctor import _find_mimir_binary, MEMORY_INSTALL_REMEDIATION
         mcfg = _resolve_mneme_config(cfg) if cfg else {}
         if mcfg.get("enabled", True):
-            command = mcfg.get(
-                "command", ["perseus-vault", "serve", "--db", "~/.perseus-vault/data/vault.db"]
-            )
+            command = mcfg.get("command", ["perseus-vault", "serve"])
             binary_path = _find_mimir_binary(command)
             if binary_path is None:
                 print("⚠ Perseus Vault (persistent memory engine) is configured but NOT installed.")

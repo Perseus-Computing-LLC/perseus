@@ -220,17 +220,17 @@ def _doctor_check_mneme(cfg: dict, workspace: Path) -> DoctorResult:
     mem_cfg = cfg.get("memory", {})
     narrative = _mneme_path(workspace, cfg)
     if not narrative.exists():
-        return DoctorResult("mneme_narrative", "warn", "Mnēmē narrative",
+        return DoctorResult("mneme_narrative", "warn", f"{MEMORY_BRAND} narrative",
                             "not found", "Memory will auto-create on next render with @memory")
     lines = narrative.read_text(errors="replace", encoding="utf-8").splitlines()
     max_lines = mem_cfg.get("max_narrative_lines", 300)
     line_count = len(lines)
     val = f"{line_count} lines"
     if line_count > max_lines:
-        return DoctorResult("mneme_narrative", "warn", "Mnēmē narrative",
+        return DoctorResult("mneme_narrative", "warn", f"{MEMORY_BRAND} narrative",
                             f"{val} (exceeds max_narrative_lines={max_lines})",
                             "Consider pruning old entries from the narrative")
-    return DoctorResult("mneme_narrative", "ok", "Mnēmē narrative", val, "")
+    return DoctorResult("mneme_narrative", "ok", f"{MEMORY_BRAND} narrative", val, "")
 
 
 def _doctor_check_federation(cfg: dict, workspace: Path) -> DoctorResult:
@@ -343,7 +343,7 @@ def _doctor_check_mneme_index(_cfg: dict, _workspace: Path) -> DoctorResult:
     try:
         stats = _mneme_index_stats(_cfg)
         if not stats["available"]:
-            return DoctorResult("mneme_fts_index", "warn", "Mnēmē FTS index",
+            return DoctorResult("mneme_fts_index", "warn", f"{MEMORY_BRAND} FTS index",
                                 "index not available (vault may be empty)",
                                 "Add memory files to trigger indexing, or run `perseus memory index rebuild`")
 
@@ -373,21 +373,21 @@ def _doctor_check_mneme_index(_cfg: dict, _workspace: Path) -> DoctorResult:
         parts = [f"{doc_count} docs, {file_count} files tracked"]
         if orphan_check_failed:
             parts.append("orphan check failed (index schema mismatch)")
-            return DoctorResult("mneme_fts_index", "warn", "Mnēmē FTS index",
+            return DoctorResult("mneme_fts_index", "warn", f"{MEMORY_BRAND} FTS index",
                                 ", ".join(parts),
                                 "Run `perseus memory index rebuild` to recreate the index")
         if orphans > 0:
             parts.append(f"{orphans} orphaned entries")
-            return DoctorResult("mneme_fts_index", "warn", "Mnēmē FTS index",
+            return DoctorResult("mneme_fts_index", "warn", f"{MEMORY_BRAND} FTS index",
                                 ", ".join(parts),
                                 f"{orphans} orphaned entries — run `perseus memory index rebuild`")
         if doc_count == 0:
-            return DoctorResult("mneme_fts_index", "warn", "Mnēmē FTS index",
+            return DoctorResult("mneme_fts_index", "warn", f"{MEMORY_BRAND} FTS index",
                                 "index exists but is empty",
                                 "Run `perseus memory index rebuild`")
-        return DoctorResult("mneme_fts_index", "ok", "Mnēmē FTS index", ", ".join(parts), "")
+        return DoctorResult("mneme_fts_index", "ok", f"{MEMORY_BRAND} FTS index", ", ".join(parts), "")
     except Exception as exc:
-        return DoctorResult("mneme_fts_index", "error", "Mnēmē FTS index", str(exc), "Check mneme_index.py")
+        return DoctorResult("mneme_fts_index", "error", f"{MEMORY_BRAND} FTS index", str(exc), "Check mneme_index.py")
 
 
 def _doctor_check_llm_reachable(cfg: dict, workspace: Path) -> DoctorResult:
@@ -564,11 +564,11 @@ def _doctor_check_mimir_bridge(cfg: dict, workspace: Path) -> DoctorResult:
     enabled = bool(mneme_cfg.get("enabled", True))
 
     if not enabled:
-        return DoctorResult("mimir_connectivity", "ok", "Mimir",
+        return DoctorResult("mimir_connectivity", "ok", MEMORY_BRAND,
                            "disabled", "")
 
-    command = list(mneme_cfg.get("command", ["mimir", "serve", "--db", "~/.mimir/data/mimir.db"]))
-    binary_name = command[0] if command else "mimir"
+    command = list(mneme_cfg.get("command", ["perseus-vault", "serve"]))
+    binary_name = command[0] if command else "perseus-vault"
 
     # Step 1: Auto-discover binary if not on PATH (#227)
     binary_path = _find_mimir_binary(command)
@@ -576,7 +576,7 @@ def _doctor_check_mimir_bridge(cfg: dict, workspace: Path) -> DoctorResult:
         # #663: the connector is configured (enabled) but the memory binary is
         # absent, so memory would be silently empty. Warn clearly with
         # copy-paste remediation instead of leaving the user to discover it.
-        return DoctorResult("mimir_connectivity", "warn", "Perseus Vault binary",
+        return DoctorResult("mimir_connectivity", "warn", f"{MEMORY_BRAND} binary",
                            f"configured but not found: '{binary_name}' "
                            "(searched PATH + known locations) — persistent memory "
                            "will be empty until it is installed",
@@ -611,23 +611,23 @@ def _doctor_check_mimir_bridge(cfg: dict, workspace: Path) -> DoctorResult:
                         version_info += f" db: {db_path}"
                 connector.close()
                 extra = f" (binary: {binary_path})" if binary_path != binary_name else ""
-                return DoctorResult("mimir_connectivity", "ok", "Mimir",
+                return DoctorResult("mimir_connectivity", "ok", MEMORY_BRAND,
                                    f"connected + healthy{version_info}{extra}", "")
             else:
                 connector.close()
-                return DoctorResult("mimir_connectivity", "warn", "Mimir",
+                return DoctorResult("mimir_connectivity", "warn", MEMORY_BRAND,
                                    f"connected but health check failed: {status}",
-                                   "Check mimir server status")
+                                   "Check the Perseus Vault server status")
         else:
             err = connector.status
             connector.close()
-            return DoctorResult("mimir_connectivity", "warn", "Mimir",
+            return DoctorResult("mimir_connectivity", "warn", MEMORY_BRAND,
                                f"unreachable: {err}",
-                               "Check mimir is running or install it")
+                               "Check Perseus Vault is running or install it")
     except Exception as exc:
-        return DoctorResult("mimir_connectivity", "error", "Mimir",
+        return DoctorResult("mimir_connectivity", "error", MEMORY_BRAND,
                            str(exc),
-                           "Verify mimir binary and config — check mimir.command in config.yaml")
+                           "Verify the perseus-vault binary and the `perseus_vault.command` in config.yaml")
 
 
 

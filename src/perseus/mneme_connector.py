@@ -43,7 +43,11 @@ from typing import Any, Optional, Callable
 # (_MEMORY_SECTION_HEADER_RE below) still recognises the historical
 # ``(Mimir)`` / ``(Mneme)`` variants, so a doc rendered under an old header is
 # still found and replaced with this one on the next render.
-PERSISTENT_MEMORY_HEADER = "## Persistent Memory (Perseus Vault)"
+# The single user-facing brand for the persistent memory layer. Route ALL
+# user-visible labels (injected header, doctor check labels, ...) through this
+# so a future rename is one edit (#665).
+MEMORY_BRAND = "Perseus Vault"
+PERSISTENT_MEMORY_HEADER = f"## Persistent Memory ({MEMORY_BRAND})"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

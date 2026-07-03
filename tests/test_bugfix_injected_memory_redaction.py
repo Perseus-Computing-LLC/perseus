@@ -26,7 +26,8 @@ FAKE_GITHUB_TOKEN = "ghp_" + "Cd2" * 15
 
 def _cfg_with_mimir(**mimir):
     c = cfg()
-    c.setdefault("mimir", {}).update(mimir)
+    # #665: canonical memory key is now `perseus_vault` in DEFAULT_CONFIG.
+    c.setdefault("perseus_vault", {}).update(mimir)
     return c
 
 
