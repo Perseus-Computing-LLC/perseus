@@ -22,7 +22,7 @@ Perseus is the live context engine. Seven specialized products extend it:
 
 | Product | Description | Page |
 |---|---|---|
-| **Perseus Vault** | 55 MCP tools — persistent memory with FTS5, entities, layers, confidence decay | [/perseus-vault/](https://perseus.observer/perseus-vault/) |
+| **Perseus Vault** | 55 MCP tools (exposed under 3 name aliases: `perseus_vault_*`/`mimir_*`/`mneme_*`) — persistent memory with FTS5, entities, layers, confidence decay | [/perseus-vault/](https://perseus.observer/perseus-vault/) |
 | **MCTS** | 31 security analyzers for MCP servers — tool poisoning, prompt injection, credential leaks | [/mcts/](https://perseus.observer/mcts/) |
 | **PR Pilot** | 5-agent autonomous PR review pipeline — graduated autonomy L1→L3 | [/pr-pilot/](https://perseus.observer/pr-pilot/) |
 | **Blast Radius** | GitLab-native dependency impact analysis — 1 mention, instant risk report | [/blast-radius/](https://perseus.observer/blast-radius/) |
@@ -34,7 +34,7 @@ Perseus is the live context engine. Seven specialized products extend it:
 
 ### Perseus Vault — Persistent Memory (MCP)
 
-[Perseus Vault](https://github.com/Perseus-Computing-LLC/perseus-vault) is the persistent memory backend for Perseus — a lightweight Rust MCP server with SQLite + FTS5. Zero network calls, no API keys. As of **v2.7.0**, offline dense/hybrid embeddings are **bundled by default** (the model is compiled into the binary), so semantic recall works zero-config with no external model download. v2.14.0 provides **55 MCP tools** across structured entities, hybrid vector search, RAG, connectors, confidence decay, journal events, and state management: `perseus_vault_remember`, `perseus_vault_recall`, `perseus_vault_context`, `perseus_vault_traverse`, `perseus_vault_decay`, `perseus_vault_stats`, `perseus_vault_health`, and more.
+[Perseus Vault](https://github.com/Perseus-Computing-LLC/perseus-vault) is the persistent memory backend for Perseus — a lightweight Rust MCP server with SQLite + FTS5. Zero network calls, no API keys. As of **v2.7.0**, offline dense/hybrid embeddings are **bundled by default** (the model is compiled into the binary), so semantic recall works zero-config with no external model download. v2.14.0 provides **55 distinct MCP tools** (each exposed under `perseus_vault_*`, `mimir_*`, and `mneme_*` aliases, so a raw tools/list handshake reports ~165) across structured entities, hybrid vector search, RAG, connectors, confidence decay, journal events, and state management: `perseus_vault_remember`, `perseus_vault_recall`, `perseus_vault_context`, `perseus_vault_traverse`, `perseus_vault_decay`, `perseus_vault_stats`, `perseus_vault_health`, and more.
 
 📄 [Product page →](https://perseus.observer/perseus-vault/) | ⭐ [GitHub →](https://github.com/Perseus-Computing-LLC/perseus-vault)
 
