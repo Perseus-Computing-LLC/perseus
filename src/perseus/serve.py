@@ -20,6 +20,21 @@ def _atomic_write_text(out_path: Path, text: str) -> None:
     never a partial one — mirroring the render cache's cache_set pattern.
     """
     import tempfile
+    import stat as _stat
+    # #672: a non-regular output target (e.g. `/dev/null`, a FIFO, or a device
+    # node) can't go through the sibling-tempfile + os.replace scheme. The temp
+    # file is created in the target's parent dir (`/dev/` for `/dev/null`),
+    # where we may lack write permission, so the atomic write raises
+    # PermissionError before it ever reaches os.replace. Atomicity is
+    # meaningless for a sink like /dev/null anyway, so write through directly.
+    try:
+        target_mode = out_path.stat().st_mode
+    except OSError:
+        target_mode = None  # doesn't exist yet — the normal atomic-write case
+    if target_mode is not None and not _stat.S_ISREG(target_mode):
+        with out_path.open("w", encoding="utf-8") as fh:
+            fh.write(text)
+        return
     tmp_name = None
     try:
         with tempfile.NamedTemporaryFile(
