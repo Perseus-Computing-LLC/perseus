@@ -184,6 +184,44 @@ class TestQuickstartLLM:
         assert config["llm"]["url"] == "http://127.0.0.1:8080"
         assert config["permissions"]["profile"] == "balanced"
 
+    def test_write_config_generates_canonical_vault_block(self, tmp_path, monkeypatch):
+        """#665 (P1): plain quickstart (with_memory=False) must generate the
+        CANONICAL vault connector — key `perseus_vault`, command `perseus-vault`,
+        and NO legacy `mimir` command or `~/.mimir/data/mimir.db` path. A fresh
+        operator's install ships only a `perseus-vault` binary, so a legacy
+        `mimir serve` block produced a broken, dead config.
+
+        (This test FAILS on pre-#665 main, where the default branch wrote
+        `mimir:` + `["mimir","serve","--db","~/.mimir/data/mimir.db"]`.)
+        """
+        monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path / ".perseus")
+        config_path = perseus._quickstart_write_config(tmp_path, with_memory=False)
+        raw = config_path.read_text(encoding="utf-8")
+
+        config = yaml.safe_load(raw)
+        # Canonical key present; connector enabled.
+        assert "perseus_vault" in config
+        assert config["perseus_vault"]["enabled"] is True
+        # Command targets the real binary, with NO --db argument (self-resolves).
+        command = config["perseus_vault"]["command"]
+        assert command[0] == "perseus-vault"
+        assert "--db" not in command
+        # No legacy brand anywhere in the generated config.
+        assert "mimir" not in raw
+        assert "~/.mimir/data/mimir.db" not in raw
+
+    def test_write_config_canonical_regardless_of_with_memory(self, tmp_path, monkeypatch):
+        """#665: `with_memory=True` and `with_memory=False` produce the SAME
+        canonical vault block (the flag no longer selects a legacy branch)."""
+        monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path / ".perseus")
+        p_default = perseus._quickstart_write_config(tmp_path / "a", with_memory=False)
+        p_withmem = perseus._quickstart_write_config(tmp_path / "b", with_memory=True)
+        cfg_default = yaml.safe_load(p_default.read_text(encoding="utf-8"))
+        cfg_withmem = yaml.safe_load(p_withmem.read_text(encoding="utf-8"))
+        assert cfg_default["perseus_vault"] == cfg_withmem["perseus_vault"]
+        assert cfg_default["perseus_vault"]["command"][0] == "perseus-vault"
+        assert "mimir" not in cfg_withmem["perseus_vault"]["command"]
+
 
 class TestQuickstartDoctorIntegration:
     """quickstart-produced workspaces pass doctor checks."""

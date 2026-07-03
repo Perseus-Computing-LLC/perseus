@@ -37,6 +37,22 @@ def _file_cfg() -> dict:
     return c
 
 
+def _no_vault_binary_cfg() -> dict:
+    """Config whose memory connector points at a guaranteed-absent binary.
+
+    #665: the default connector command is now `["perseus-vault", "serve"]`.
+    On a dev machine a `perseus-vault` shim may sit on PATH, which would make
+    the connector spuriously "reachable" and defeat tests that assert the
+    vault-unreachable copy. Pinning an impossible binary name makes those
+    tests hermetic regardless of what's installed.
+    """
+    c = cfg()
+    c["perseus_vault"] = dict(c.get("perseus_vault", {}))
+    c["perseus_vault"]["enabled"] = True
+    c["perseus_vault"]["command"] = ["perseus-vault-absent-xyz", "serve"]
+    return c
+
+
 # ---------------------------------------------------------------------------
 # resolve_mimir() — @mimir directive
 # ---------------------------------------------------------------------------
@@ -49,10 +65,10 @@ class TestResolveMimir:
 
     def test_no_hits_returns_info_message(self):
         with patch.object(perseus, "_mneme_recall", return_value=[]):
-            result = perseus.resolve_mimir('query="test search"', cfg())
-        # #539: the default test config has no real mimir binary on PATH, so
-        # the vault is genuinely unreachable — the message must say so
-        # explicitly rather than claiming "fresh install, no memories".
+            result = perseus.resolve_mimir('query="test search"', _no_vault_binary_cfg())
+        # #539: the config points at an absent vault binary, so the vault is
+        # genuinely unreachable — the message must say so explicitly rather
+        # than claiming "fresh install, no memories".
         assert "Vault unreachable" in result
 
     def test_hits_rendered_as_list(self):
@@ -142,11 +158,11 @@ class TestResolveMemoryUnified:
             return []
 
         with patch.object(perseus, "_mneme_recall", side_effect=fake_mneme):
-            result = perseus.resolve_memory('query="test"', cfg(), workspace=tmp_path)
+            result = perseus.resolve_memory('query="test"', _no_vault_binary_cfg(), workspace=tmp_path)
 
         assert called, "_mneme_recall should be called for search mode"
-        # #539: same reasoning as test_no_hits_returns_info_message — no real
-        # vault is reachable in the test config, so the message must name
+        # #539: same reasoning as test_no_hits_returns_info_message — the
+        # config points at an absent vault binary, so the message must name
         # that explicitly rather than the generic "fresh install" copy.
         assert "Vault unreachable" in result
 
@@ -439,7 +455,8 @@ def test_memory_doctor_migrate_skips_when_destination_exists(tmp_path):
 class TestMimirAutoInject:
     def _cfg(self, **mimir):
         c = cfg()
-        c["mimir"].update(mimir)
+        # #665: canonical memory key is now `perseus_vault` in DEFAULT_CONFIG.
+        c["perseus_vault"].update(mimir)
         # #608: the pre-materialized dump these tests exercise is now the
         # LEGACY opt-in posture (`memory: always`); the default posture is
         # on_demand (retrieval pointer only) — covered by
@@ -639,35 +656,38 @@ class TestPackMimirMerge:
         (pdir / "pack.yaml").write_text(pack_yaml, encoding="utf-8")
         return tmp_path
 
+    # #665: canonical memory key is now `perseus_vault` in DEFAULT_CONFIG; the
+    # pack.yaml input still uses the legacy `mimir:` alias to prove the merge
+    # accepts it (back-compat read) and lands on the canonical resolved block.
     def test_pack_mimir_overrides_global(self, tmp_path):
         ws = self._ws(tmp_path, "mimir:\n  enabled: false\n  context_limit: 0\n")
         c = cfg()
-        c["mimir"]["enabled"] = True
-        c["mimir"]["context_limit"] = 10
+        c["perseus_vault"]["enabled"] = True
+        c["perseus_vault"]["context_limit"] = 10
         perseus._merge_pack_mimir_config(c, ws)
-        assert c["mimir"]["enabled"] is False
-        assert c["mimir"]["context_limit"] == 0
+        assert c["perseus_vault"]["enabled"] is False
+        assert c["perseus_vault"]["context_limit"] == 0
         # Unrelated global keys survive the merge.
-        assert "command" in c["mimir"]
+        assert "command" in c["perseus_vault"]
 
     def test_pack_without_mimir_block_is_noop(self, tmp_path):
         ws = self._ws(tmp_path, "renders:\n  - source: a.md\n    output: b.md\n")
         c = cfg()
-        before = copy.deepcopy(c["mimir"])
+        before = copy.deepcopy(c["perseus_vault"])
         perseus._merge_pack_mimir_config(c, ws)
-        assert c["mimir"] == before
+        assert c["perseus_vault"] == before
 
     def test_pack_deep_merges_nested_dicts(self, tmp_path):
         ws = self._ws(tmp_path, "mimir:\n  circuit_breaker:\n    threshold: 9\n")
         c = cfg()
-        c["mimir"].setdefault("circuit_breaker", {"threshold": 3, "cooldown": 120})
+        c["perseus_vault"].setdefault("circuit_breaker", {"threshold": 3, "cooldown": 120})
         perseus._merge_pack_mimir_config(c, ws)
-        assert c["mimir"]["circuit_breaker"]["threshold"] == 9
+        assert c["perseus_vault"]["circuit_breaker"]["threshold"] == 9
         # cooldown is preserved (deep merge, not wholesale replace).
-        assert c["mimir"]["circuit_breaker"]["cooldown"] == 120
+        assert c["perseus_vault"]["circuit_breaker"]["cooldown"] == 120
 
     def test_missing_pack_is_noop(self, tmp_path):
         c = cfg()
-        before = copy.deepcopy(c["mimir"])
+        before = copy.deepcopy(c["perseus_vault"])
         perseus._merge_pack_mimir_config(c, tmp_path)  # no .perseus/pack.yaml
-        assert c["mimir"] == before
+        assert c["perseus_vault"] == before

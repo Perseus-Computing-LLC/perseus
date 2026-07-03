@@ -27,9 +27,16 @@ from conftest import PY_VER, cfg, perseus, _capture_json
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _cfg_with_mneme(overrides=None):
-    """Build a config with Engram enabled but using parameters suitable for testing."""
+    """Build a config with the memory connector enabled but using parameters
+    suitable for testing.
+
+    #665: the canonical config key is now `perseus_vault` and the resolver
+    reads it before the legacy `mimir`/`mneme` aliases, so the connector must
+    be configured under the canonical key for these overrides to take effect
+    (a `mimir:` block would be shadowed by DEFAULT_CONFIG's `perseus_vault:`).
+    """
     c = cfg()
-    c["mimir"] = {
+    c["perseus_vault"] = {
         "enabled": True,
         "transport": "stdio",
         "command": ["nonexistent-mneme-binary", "serve", "--mcp"],  # guaranteed unavailable
@@ -48,7 +55,7 @@ def _cfg_with_mneme(overrides=None):
         },
     }
     if overrides:
-        c["mimir"].update(overrides)
+        c["perseus_vault"].update(overrides)
     return c
 
 

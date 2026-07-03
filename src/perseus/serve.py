@@ -2334,20 +2334,20 @@ def cmd_init(args, cfg):
         content = INIT_CONTEXT_TEMPLATE.format(workspace=str(workspace), version=_PERSEUS_VERSION, mneme_query=_context_appropriate_memory_query(workspace))
     context_file.write_text(content, encoding="utf-8")
 
-    # ── Mimir binary auto-discovery (#227) ──
-    # If mimir is not installed, suggest the bootstrap script
+    # ── Perseus Vault binary auto-discovery (#227, #665) ──
+    # If the vault binary is not installed, suggest the bootstrap script.
     mneme_cfg = _resolve_mneme_config(cfg) if cfg else {}
     if mneme_cfg.get("enabled", True):
         from perseus.doctor import _find_mimir_binary
-        command = mneme_cfg.get("command", ["mimir", "serve", "--db", "~/.mimir/data/mimir.db"])
+        command = mneme_cfg.get("command", ["perseus-vault", "serve"])
         binary_path = _find_mimir_binary(command)
         if binary_path is None:
-            print(f"💡 Mimir not found. For persistent cross-session memory, run:")
-            print(f"   curl -sSL https://raw.githubusercontent.com/Perseus-Computing-LLC/mimir/main/scripts/bootstrap.sh | bash")
-        elif binary_path != command[0]:
+            print(f"💡 Perseus Vault not found. For persistent cross-session memory, run:")
+            print(f"   curl -sSL https://raw.githubusercontent.com/Perseus-Computing-LLC/perseus-vault/main/scripts/bootstrap.sh | bash")
+        else:
             language = _detect_project_language(workspace)
             lang_note = f" (detected: {language})" if language else ""
-            print(f"✓ Context scaffolded{lang_note} — mimir binary at: {binary_path}")
+            print(f"✓ Perseus Vault binary found: {binary_path}{lang_note}")
 
     manifest = None
     if profile_name and not getattr(args, "no_pack", False):
@@ -2388,5 +2388,6 @@ def cmd_init(args, cfg):
         print(f"  3. Run: perseus render {render['source']} --output {render['output']}")
     else:
         print(f"  1. Edit {context_file} to add project-specific @services and @query blocks")
-        print(f"  2. Run: perseus render {context_file}")
-        print(f"  3. Add to cron watchdog: add '{workspace}' to WORKSPACES in perseus-render-workspace.sh")
+        print(f"  2. Run: perseus render {context_file}   — refresh your rendered context")
+        print(f"  3. Run: perseus serve                    — start the LSP for your editor")
+        print(f"  Docs & more commands: https://perseus.observer/docs")

@@ -137,25 +137,27 @@ class TestConfigMerge569:
         )
         assert merged["audit"] is False
 
+    # #665: the canonical memory key in DEFAULT_CONFIG is now `perseus_vault`,
+    # so the deep-merge-over-defaults behavior is exercised against that block.
     def test_nested_partial_override_keeps_sibling_defaults(self, monkeypatch, tmp_path):
         merged = self._load(
             monkeypatch, tmp_path,
             global_yaml=None,
-            ws_yaml="mimir:\n  circuit_breaker:\n    threshold: 5\n",
+            ws_yaml="perseus_vault:\n  circuit_breaker:\n    threshold: 5\n",
         )
-        assert merged["mimir"]["circuit_breaker"]["threshold"] == 5
+        assert merged["perseus_vault"]["circuit_breaker"]["threshold"] == 5
         # Pre-fix: the whole circuit_breaker dict was replaced, dropping cooldown.
-        assert merged["mimir"]["circuit_breaker"]["cooldown"] == \
-            perseus.DEFAULT_CONFIG["mimir"]["circuit_breaker"]["cooldown"]
+        assert merged["perseus_vault"]["circuit_breaker"]["cooldown"] == \
+            perseus.DEFAULT_CONFIG["perseus_vault"]["circuit_breaker"]["cooldown"]
 
     def test_default_config_not_mutated_by_deep_merge(self, monkeypatch, tmp_path):
-        before = perseus.DEFAULT_CONFIG["mimir"]["circuit_breaker"]["threshold"]
+        before = perseus.DEFAULT_CONFIG["perseus_vault"]["circuit_breaker"]["threshold"]
         self._load(
             monkeypatch, tmp_path,
             global_yaml=None,
-            ws_yaml="mimir:\n  circuit_breaker:\n    threshold: 99\n",
+            ws_yaml="perseus_vault:\n  circuit_breaker:\n    threshold: 99\n",
         )
-        assert perseus.DEFAULT_CONFIG["mimir"]["circuit_breaker"]["threshold"] == before
+        assert perseus.DEFAULT_CONFIG["perseus_vault"]["circuit_breaker"]["threshold"] == before
 
     def test_workspace_overrides_global_nested(self, monkeypatch, tmp_path):
         merged = self._load(
