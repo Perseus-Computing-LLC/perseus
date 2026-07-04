@@ -505,12 +505,13 @@ _KNOWN_MIMIR_PATHS = [
 # binary is absent (#663). Perseus does not download/build a Rust binary
 # silently, so point at the install path instead.
 MEMORY_INSTALL_REMEDIATION = (
-    "Install Perseus Vault (the memory engine) or set the connector `command:` "
-    "in .perseus/config.yaml. Quickest: run `perseus quickstart --with-memory` "
-    "for wiring + next steps, or build from source: "
-    "`git clone https://github.com/Perseus-Computing-LLC/perseus-vault && "
-    "cd perseus-vault && cargo build --release` then put "
-    "`target/release/perseus-vault` on PATH (or in ~/.local/bin)."
+    "Install Perseus Vault (the memory engine), then re-run `perseus doctor`. "
+    "Quickest (prebuilt binary, Linux/macOS): "
+    "`curl -sSf https://raw.githubusercontent.com/Perseus-Computing-LLC/"
+    "perseus-vault/main/scripts/install.sh | sh`. "
+    "Build from source (Windows / Intel macOS / no prebuilt): "
+    "`cargo install --git https://github.com/Perseus-Computing-LLC/perseus-vault`. "
+    "Or wire the connector automatically with `perseus quickstart --with-memory`."
 )
 
 
