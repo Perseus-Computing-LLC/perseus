@@ -2350,15 +2350,16 @@ def cmd_init(args, cfg):
     context_file.write_text(content, encoding="utf-8")
 
     # ── Perseus Vault binary auto-discovery (#227, #665) ──
-    # If the vault binary is not installed, suggest the bootstrap script.
+    # If the vault binary is not installed, suggest the prebuilt installer.
     mneme_cfg = _resolve_mneme_config(cfg) if cfg else {}
     if mneme_cfg.get("enabled", True):
         from perseus.doctor import _find_mimir_binary
         command = mneme_cfg.get("command", ["perseus-vault", "serve"])
         binary_path = _find_mimir_binary(command)
         if binary_path is None:
-            print(f"💡 Perseus Vault not found. For persistent cross-session memory, run:")
-            print(f"   curl -sSL https://raw.githubusercontent.com/Perseus-Computing-LLC/perseus-vault/main/scripts/bootstrap.sh | bash")
+            print(f"💡 Perseus Vault not found. For persistent cross-session memory (prebuilt binary):")
+            print(f"   curl -sSf https://raw.githubusercontent.com/Perseus-Computing-LLC/perseus-vault/main/scripts/install.sh | sh")
+            print(f"   then re-run `perseus doctor` to confirm. (Windows/Intel-mac: build from source — see the repo.)")
         else:
             language = _detect_project_language(workspace)
             lang_note = f" (detected: {language})" if language else ""

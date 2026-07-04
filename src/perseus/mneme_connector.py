@@ -2125,7 +2125,9 @@ def _memory_pointer_block(profile_name: str, profile: dict) -> str:
         "- `@memory mode=narrative` — the distilled project narrative\n"
         "- MCP tools: `perseus_memory` (local recall), `perseus_mneme` (cross-session vault)\n\n"
         "Query the vault when a past decision, architecture note, or prior-session\n"
-        "fact would change your answer; otherwise proceed without it."
+        "fact would change your answer; otherwise proceed without it.\n\n"
+        "_Persistent cross-session memory (Perseus Vault) is optional. If recall returns\n"
+        "nothing, it may not be installed — run `perseus doctor` to check._"
     )
 
 
