@@ -691,3 +691,42 @@ class TestPackMimirMerge:
         before = copy.deepcopy(c["perseus_vault"])
         perseus._merge_pack_mimir_config(c, tmp_path)  # no .perseus/pack.yaml
         assert c["perseus_vault"] == before
+
+
+class TestConnectorLaunchHardening:
+    """Pre-launch connection-robustness for the Perseus x Vault integration:
+    a separate/longer initialize timeout (so the v2.17.0 first-open schema
+    migration doesn't spuriously fail the handshake) and a clear exit-code
+    diagnostic when the vault refuses to start (bad binary / wrong key)."""
+
+    # enabled=False so __init__ doesn't eagerly spawn a real vault (the default
+    # `mimir` command resolves on dev boxes); _init_timeout is read regardless.
+    def test_init_timeout_defaults_to_30s(self):
+        conn = perseus.MnemeConnector({"perseus_vault": {"enabled": False}})
+        assert conn._init_timeout == 30.0
+
+    def test_init_timeout_read_from_config(self):
+        conn = perseus.MnemeConnector(
+            {"perseus_vault": {"enabled": False, "init_timeout_s": 45}}
+        )
+        assert conn._init_timeout == 45.0
+
+    def test_stdio_client_carries_separate_init_timeout(self):
+        c = perseus._MCPStdioClient(["x"], timeout_s=5.0, init_timeout_s=25.0)
+        assert c._timeout == 5.0
+        assert c._init_timeout == 25.0
+        assert c.last_error is None
+
+    def test_immediate_nonzero_exit_reports_code_not_generic_eof(self):
+        # A process that exits non-zero immediately is the shape of a wrong/rotated
+        # encryption key (v2.17.0 aborts `serve` on a failed canary) or a broken
+        # binary. connect() must fail AND surface the exit code so the failure is
+        # diagnosable instead of a silent local-only fallback.
+        client = perseus._MCPStdioClient(
+            [sys.executable, "-c", "import sys; sys.exit(3)"],
+            timeout_s=5.0,
+            init_timeout_s=5.0,
+        )
+        assert client.connect() is False
+        assert client.last_error is not None
+        assert "code 3" in client.last_error
