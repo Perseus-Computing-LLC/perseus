@@ -896,6 +896,9 @@ class MnemeConnector:
         # Transport client
         self._client: _MCPStdioClient | _MCPSseClient | None = None
         self._connect_error: str | None = None
+        # Set when the vault connects but doesn't expose the tools this connector
+        # calls (version skew) — see _check_tool_compatibility.
+        self._tool_warning: str | None = None
 
         if self._enabled:
             self._try_connect()
@@ -936,6 +939,11 @@ class MnemeConnector:
 
             if self._client.connect():
                 self._connect_error = None
+                # Version-skew guard: this connector calls hardcoded mimir_* tool
+                # names. A vault that drops those aliases (e.g. a future
+                # perseus_vault_*-only build) would otherwise fail every recall
+                # SILENTLY and degrade to local with no signal. Surface it once.
+                self._check_tool_compatibility()
                 self._breaker.success()
                 return True
             else:
@@ -954,6 +962,37 @@ class MnemeConnector:
             self._breaker.failure()
             self._client = None
             return False
+
+    def _check_tool_compatibility(self) -> None:
+        """Warn (once, loudly) if the connected vault doesn't expose the tools
+        this connector calls. The connector uses hardcoded ``mimir_*`` names; the
+        vault currently ships ``mimir_``/``mneme_``/``perseus_vault_`` aliases, so
+        this passes today — but a future vault that drops the ``mimir_`` aliases
+        would fail every recall silently. Detecting it at connect time turns a
+        silent local-only degradation into a diagnosable warning. Non-fatal and
+        best-effort: a probe error never breaks the (otherwise healthy) connect.
+        """
+        required = "mimir_recall"  # representative of the mimir_* tool family
+        self._tool_warning = None
+        try:
+            names = {
+                t.get("name")
+                for t in (self._client.list_tools() if self._client else [])
+            }
+        except Exception:
+            return
+        if not names or required in names:
+            return  # server advertised no tools (leave to per-call errors), or OK
+        alt = sorted(
+            n for n in names if isinstance(n, str) and n.endswith("_recall")
+        )
+        hint = f" (server has: {', '.join(alt[:3])})" if alt else ""
+        self._tool_warning = (
+            f"vault connected but expected tool '{required}' is missing{hint} — "
+            "likely a version mismatch; memory calls may fail or silently return "
+            "nothing"
+        )
+        print(f"[perseus] Perseus Vault: {self._tool_warning}", file=sys.stderr)
 
     def _ensure_connected(self) -> bool:
         """Reconnect if a previously-live session has since dropped.
@@ -995,6 +1034,8 @@ class MnemeConnector:
     def status(self) -> str:
         """Human-readable connection status."""
         if self.available:
+            if self._tool_warning:
+                return f"connected → {self._transport} (⚠ {self._tool_warning})"
             return f"connected → {self._transport}"
         if not self._enabled:
             return "disabled"
