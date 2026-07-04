@@ -18223,6 +18223,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -18604,7 +18605,9 @@ class _MCPStdioClient:
     JSON-RPC 2.0 messages are sent via stdin and received via stdout.
     """
 
-    def __init__(self, command: list[str], timeout_s: float = 10.0):
+    def __init__(
+        self, command: list[str], timeout_s: float = 10.0, init_timeout_s: float = 30.0
+    ):
         # Copy the command list: connect() rewrites command[0] to an absolute
         # path, and this list is the SAME object as cfg["mimir"]["command"]. In
         # place mutation changed the config subtree the singleton is hashed on,
@@ -18612,6 +18615,13 @@ class _MCPStdioClient:
         # respawned a healthy vault process.
         self._command = list(command)
         self._timeout = timeout_s
+        # The initialize handshake gets a longer budget than per-call timeout:
+        # the first DB open can run a schema migration (e.g. v12->v13) that takes
+        # several seconds on a large vault, which must not trip the tool timeout.
+        self._init_timeout = init_timeout_s
+        # Set on a failed connect() so the outer layer can surface WHY (exit code
+        # / handshake error) instead of a generic "connect failed".
+        self.last_error: Optional[str] = None
         self._process: Optional[subprocess.Popen] = None
         self._request_id = 0
         self._server_capabilities: dict = {}
@@ -18709,13 +18719,38 @@ class _MCPStdioClient:
             self._process = subprocess.Popen(self._command, **popen_kwargs)
             # Start the stdout pump before any request so _call can read with a timeout.
             self._start_reader()
-            # MCP initialize handshake
+            # MCP initialize handshake. Uses the longer init timeout (see
+            # _init_timeout) so a slow first-open / schema migration doesn't fail
+            # the connection spuriously on launch day.
             init_result, err = self._call("initialize", {
                 "protocolVersion": "2025-06-18",
                 "clientInfo": {"name": "perseus-mimir-connector", "version": "1.0.0"},
                 "capabilities": {},
-            })
+            }, timeout=self._init_timeout)
             if err or not init_result:
+                # Capture WHY before tearing down. A non-zero exit here almost
+                # always means the vault refused to start — bad binary/config, or
+                # a wrong/rotated encryption key (v2.17.0 aborts `serve` on a
+                # failed key canary). Surface the exit code instead of leaving the
+                # outer layer to report a generic EOF/connect failure.
+                # A handshake EOF means the child closed stdout; it may not have
+                # been reaped yet, so poll() can still read None. Briefly wait()
+                # for the real exit code (a genuinely hung — not exited — server
+                # times out here and keeps the generic message).
+                rc = None
+                if self._process:
+                    try:
+                        rc = self._process.wait(timeout=2)
+                    except Exception:
+                        rc = self._process.poll()
+                if rc is not None and rc != 0:
+                    self.last_error = (
+                        f"perseus-vault exited (code {rc}) during startup handshake — "
+                        "check the binary and config, and if encryption is enabled, "
+                        "verify the key"
+                    )
+                else:
+                    self.last_error = err or "no response to initialize handshake"
                 # Don't leak the spawned subprocess on a failed handshake.
                 self.disconnect()
                 return False
@@ -18840,15 +18875,23 @@ class _MCPStdioClient:
             except Exception:
                 pass
 
-    def _call(self, method: str, params: dict) -> tuple[dict | None, str | None]:
-        """Send a JSON-RPC request and return the result."""
+    def _call(
+        self, method: str, params: dict, timeout: float | None = None
+    ) -> tuple[dict | None, str | None]:
+        """Send a JSON-RPC request and return the result.
+
+        `timeout` overrides the per-call deadline (used by the initialize
+        handshake, which needs a longer budget than a normal tool call).
+        """
         # Serialize the whole request/response exchange: concurrent callers
         # sharing this client (see _call_lock rationale) must not interleave
         # writes or race on the response queue.
         with self._call_lock:
-            return self._call_locked(method, params)
+            return self._call_locked(method, params, timeout)
 
-    def _call_locked(self, method: str, params: dict) -> tuple[dict | None, str | None]:
+    def _call_locked(
+        self, method: str, params: dict, timeout: float | None = None
+    ) -> tuple[dict | None, str | None]:
         if not self._process or self._process.poll() is not None:
             return None, "MCP process not running"
         self._request_id += 1
@@ -18873,18 +18916,19 @@ class _MCPStdioClient:
         recv = self._recv
         if recv is None:
             return None, "MCP reader not started"
-        deadline = time.monotonic() + self._timeout
+        eff_timeout = timeout if timeout is not None else self._timeout
+        deadline = time.monotonic() + eff_timeout
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 # Tear the process down so the breaker trips and we don't leak it.
                 self.disconnect()
-                return None, f"MCP timeout after {self._timeout}s awaiting response to {method}"
+                return None, f"MCP timeout after {eff_timeout}s awaiting response to {method}"
             try:
                 line = recv.get(timeout=remaining)
             except queue.Empty:
                 self.disconnect()
-                return None, f"MCP timeout after {self._timeout}s awaiting response to {method}"
+                return None, f"MCP timeout after {eff_timeout}s awaiting response to {method}"
             if line is None:
                 return None, "MCP EOF (process may have crashed)"
             line = line.strip()
@@ -18911,9 +18955,13 @@ class _MCPSseClient:
     Not yet implemented — placeholder for future SSE transport.
     """
 
-    def __init__(self, endpoint_url: str, timeout_s: float = 10.0):
+    def __init__(
+        self, endpoint_url: str, timeout_s: float = 10.0, init_timeout_s: float = 30.0
+    ):
         self._endpoint = endpoint_url
         self._timeout = timeout_s
+        self._init_timeout = init_timeout_s
+        self.last_error: Optional[str] = None
 
     def connect(self) -> bool:
         return False
@@ -18986,7 +19034,8 @@ class MnemeConnector:
         transport: str             = "stdio"  — "stdio" or "sse"
         command: list[str]         = ["mimir", "serve", "--db", "~/.mimir/data/mimir.db"]
         endpoint: str              = "http://localhost:50052/sse"  (for sse)
-        timeout_s: float           = 10.0
+        timeout_s: float           = 10.0   # per tool call
+        init_timeout_s: float      = 30.0   # initialize handshake (first-open/migration)
         merge_strategy: str        = "local_first"
         decay_priority_weight: float = 0.4  # weight of decay_score in merge ordering
         circuit_breaker:
@@ -19009,6 +19058,10 @@ class MnemeConnector:
         self._enabled = bool(mcfg.get("enabled", True))
         self._transport = mcfg.get("transport", "stdio")
         self._timeout = float(mcfg.get("timeout_s", 10.0))
+        # Separate, longer budget for the initialize handshake so a slow
+        # first-open / schema migration on a large vault doesn't spuriously fail
+        # the connection (and trip the breaker) on the first render.
+        self._init_timeout = float(mcfg.get("init_timeout_s", 30.0))
         self._command = mcfg.get("command", ["mimir", "serve", "--db", "~/.mimir/data/mimir.db"])
         self._endpoint = mcfg.get("endpoint", "http://localhost:50052/sse")
         self._fallback_to_local = bool(mcfg.get("fallback_to_local", True))
@@ -19069,16 +19122,22 @@ class MnemeConnector:
 
         try:
             if self._transport == "sse":
-                self._client = _MCPSseClient(self._endpoint, self._timeout)
+                self._client = _MCPSseClient(self._endpoint, self._timeout, self._init_timeout)
             else:
-                self._client = _MCPStdioClient(self._command, self._timeout)
+                self._client = _MCPStdioClient(self._command, self._timeout, self._init_timeout)
 
             if self._client.connect():
                 self._connect_error = None
                 self._breaker.success()
                 return True
             else:
-                self._connect_error = f"MCP connect failed (transport: {self._transport})"
+                # Prefer the client's specific reason (exit code / handshake
+                # error) over a generic message, so a wrong key or bad binary is
+                # visible in diagnostics instead of a silent local-only fallback.
+                self._connect_error = (
+                    getattr(self._client, "last_error", None)
+                    or f"MCP connect failed (transport: {self._transport})"
+                )
                 self._breaker.failure()
                 self._client = None
                 return False
@@ -19846,12 +19905,18 @@ _local_hits_to_entity_hits = _local_hits_to_memory_hits
 
 _connector: MnemeConnector | None = None
 _connector_cfg_hash: str = ""
+# Guards the check-then-create below: under `perseus mcp serve`, concurrent
+# requests could both see a stale/None singleton and each spawn a vault
+# subprocess — leaking one process and splitting memory state. (#launch-hardening)
+_connector_lock = threading.Lock()
 
 
 def _get_connector(cfg: dict) -> MnemeConnector:
     """Get or create the singleton MnemeConnector.
 
     Re-creates if config changed. Used by resolve_memory / resolve_mimir.
+    Thread-safe: the create/replace is serialized under `_connector_lock` so
+    concurrent callers can't spawn duplicate vault subprocesses.
     """
     global _connector, _connector_cfg_hash
     # Hash only the resolved mneme/mimir subtree — the sole config the connector
@@ -19863,13 +19928,14 @@ def _get_connector(cfg: dict) -> MnemeConnector:
     cfg_bytes = json.dumps(_resolve_mneme_config(cfg), sort_keys=True, default=str).encode()
     cfg_hash = hashlib.sha256(cfg_bytes).hexdigest()
 
-    if _connector is None or cfg_hash != _connector_cfg_hash:
-        if _connector:
-            _connector.close()
-        _connector = MnemeConnector(cfg)
-        _connector_cfg_hash = cfg_hash
+    with _connector_lock:
+        if _connector is None or cfg_hash != _connector_cfg_hash:
+            if _connector:
+                _connector.close()
+            _connector = MnemeConnector(cfg)
+            _connector_cfg_hash = cfg_hash
 
-    return _connector
+        return _connector
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
