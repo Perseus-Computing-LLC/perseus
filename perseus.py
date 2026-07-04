@@ -20330,6 +20330,48 @@ _MEMORY_DUMP_ADVISORY = (
 )
 
 
+def _clean_degraded_reason(reason: str) -> str:
+    """Trim the internal status/error prefixes off a connector failure string so
+    the rendered one-liner reads cleanly (e.g. 'unavailable: X' / 'mimir_recall
+    failed: X' → 'X')."""
+    reason = (reason or "").strip()
+    for prefix in ("unavailable:", "mimir_recall failed:", "mimir_recall_error:"):
+        if reason.lower().startswith(prefix.lower()):
+            reason = reason[len(prefix):].strip()
+    return reason or "vault not reachable"
+
+
+def _memory_degraded_block(connector, reason: str | None = None) -> str | None:
+    """Item 1b: a one-line signal that persistent memory degraded, for the
+    active-recall postures (``relevant``/``always``).
+
+    In those postures the user opted into memory injection, so a section that
+    silently vanishes when the vault is down is indistinguishable from 'nothing
+    relevant was found' — the failure mode this closes. Emit a minimal header +
+    note instead of returning None.
+
+    Stays SILENT (returns None) when memory isn't actually set up — either the
+    connector is disabled, or there's no failure reason to report. The default
+    ``on_demand`` posture never reaches this path (it returns the static pointer
+    earlier), so the ~95% of users who haven't installed the vault never see it;
+    only someone who explicitly chose active recall and whose vault is
+    unreachable does. NOTE: this path does not serve local-FTS results, so the
+    note says memory was *skipped*, not 'local-only'. Wiring a true local
+    fallback here (so recall still returns local hits, labeled) is a possible
+    follow-up.
+    """
+    if not getattr(connector, "_enabled", False):
+        return None
+    reason = reason or getattr(connector, "_connect_error", None)
+    if not reason:
+        return None
+    return (
+        PERSISTENT_MEMORY_HEADER + "\n\n"
+        + f"_(Perseus Vault unavailable — {_clean_degraded_reason(reason)}; "
+        "persistent memory skipped this render)_"
+    )
+
+
 def _mneme_context_inject(
     cfg: dict,
     rendered: str = "",
@@ -20413,11 +20455,14 @@ def _mneme_context_inject(
     try:
         connector = _get_connector(cfg)
         if not connector.available:
-            # Auto-discovery: silently skip when Mimir is not installed.
-            # The perseus doctor diagnostic surfaces any issues independently;
-            # injecting a warning into every render is noise for the
-            # 95% of users who haven't installed Mimir yet.
-            return None
+            # We are past the on_demand early-return, so the user opted into an
+            # active-recall posture (relevant/always). A silently vanishing
+            # section here reads as "nothing relevant" rather than "the vault is
+            # down" — item 1b. Surface a one-line degradation note when the vault
+            # is enabled+configured yet unreachable; stay silent otherwise (the
+            # default on_demand posture never reaches this path, so the 95% who
+            # haven't installed the vault still see nothing).
+            return _memory_degraded_block(connector)
 
         # #608 point 3: tier-aware injection budget per profile.
         limit = min(limit, _profile_inject_limit(profile))
@@ -20481,6 +20526,12 @@ def _mneme_context_inject(
         # (#553 fix 3) when a workspace is known.
         segment = connector.recall(query="", max_results=limit, workspace_hash=ws_hash)
         if not segment or not getattr(segment, "items", None):
+            # Item 1b: a recall that errored (vault dropped mid-render, tool
+            # missing) must not look the same as a vault that answered "nothing
+            # found". Signal the degradation; stay silent on a genuine empty.
+            seg_err = getattr(segment, "error", None) if segment else None
+            if seg_err:
+                return _memory_degraded_block(connector, reason=seg_err)
             return None
 
         body = segment.as_markdown
