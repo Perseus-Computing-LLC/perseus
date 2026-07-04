@@ -342,9 +342,19 @@ def cmd_quickstart(args, cfg) -> int:
     # Step 4: Verify with a render
     text = context_file.read_text(errors="replace", encoding="utf-8")
     _stats = {"directive_count": 0, "cache_hits": 0, "cache_misses": 0}
-    render_source(text, cfg, workspace, _stats=_stats)
+    rendered = render_source(text, cfg, workspace, _stats=_stats)
     print(f"✓ Render verified — {_stats['directive_count']} directives resolved "
           f"({_stats['cache_hits']} cached, {_stats['cache_misses']} resolved)")
+    # Be honest when the Workspace State section rendered as a gated-off warning
+    # rather than live git output: the default config leaves shell `@query` off
+    # (defense-in-depth), so a "verified" with an empty Workspace State would
+    # otherwise look broken on the very first render.
+    if "@query is disabled" in rendered or "PERSEUS_ALLOW_DANGEROUS" in rendered:
+        print("  ⚠ The Workspace State section uses live shell `@query` (git status/log),")
+        print("    which is OFF by default. To turn it on:")
+        print("      1) set  render.allow_query_shell: true  in .perseus/config.yaml")
+        print("      2) export PERSEUS_ALLOW_DANGEROUS=1")
+        print("    Everything else in your context is already live.")
     print()
 
     # Step 5: Print next steps

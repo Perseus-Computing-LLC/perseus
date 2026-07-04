@@ -20316,7 +20316,9 @@ def _memory_pointer_block(profile_name: str, profile: dict) -> str:
         "- `@memory mode=narrative` — the distilled project narrative\n"
         "- MCP tools: `perseus_memory` (local recall), `perseus_mneme` (cross-session vault)\n\n"
         "Query the vault when a past decision, architecture note, or prior-session\n"
-        "fact would change your answer; otherwise proceed without it."
+        "fact would change your answer; otherwise proceed without it.\n\n"
+        "_Persistent cross-session memory (Perseus Vault) is optional. If recall returns\n"
+        "nothing, it may not be installed — run `perseus doctor` to check._"
     )
 
 
@@ -24326,12 +24328,13 @@ _KNOWN_MIMIR_PATHS = [
 # binary is absent (#663). Perseus does not download/build a Rust binary
 # silently, so point at the install path instead.
 MEMORY_INSTALL_REMEDIATION = (
-    "Install Perseus Vault (the memory engine) or set the connector `command:` "
-    "in .perseus/config.yaml. Quickest: run `perseus quickstart --with-memory` "
-    "for wiring + next steps, or build from source: "
-    "`git clone https://github.com/Perseus-Computing-LLC/perseus-vault && "
-    "cd perseus-vault && cargo build --release` then put "
-    "`target/release/perseus-vault` on PATH (or in ~/.local/bin)."
+    "Install Perseus Vault (the memory engine), then re-run `perseus doctor`. "
+    "Quickest (prebuilt binary, Linux/macOS): "
+    "`curl -sSf https://raw.githubusercontent.com/Perseus-Computing-LLC/"
+    "perseus-vault/main/scripts/install.sh | sh`. "
+    "Build from source (Windows / Intel macOS / no prebuilt): "
+    "`cargo install --git https://github.com/Perseus-Computing-LLC/perseus-vault`. "
+    "Or wire the connector automatically with `perseus quickstart --with-memory`."
 )
 
 
@@ -26234,9 +26237,19 @@ def cmd_quickstart(args, cfg) -> int:
     # Step 4: Verify with a render
     text = context_file.read_text(errors="replace", encoding="utf-8")
     _stats = {"directive_count": 0, "cache_hits": 0, "cache_misses": 0}
-    render_source(text, cfg, workspace, _stats=_stats)
+    rendered = render_source(text, cfg, workspace, _stats=_stats)
     print(f"✓ Render verified — {_stats['directive_count']} directives resolved "
           f"({_stats['cache_hits']} cached, {_stats['cache_misses']} resolved)")
+    # Be honest when the Workspace State section rendered as a gated-off warning
+    # rather than live git output: the default config leaves shell `@query` off
+    # (defense-in-depth), so a "verified" with an empty Workspace State would
+    # otherwise look broken on the very first render.
+    if "@query is disabled" in rendered or "PERSEUS_ALLOW_DANGEROUS" in rendered:
+        print("  ⚠ The Workspace State section uses live shell `@query` (git status/log),")
+        print("    which is OFF by default. To turn it on:")
+        print("      1) set  render.allow_query_shell: true  in .perseus/config.yaml")
+        print("      2) export PERSEUS_ALLOW_DANGEROUS=1")
+        print("    Everything else in your context is already live.")
     print()
 
     # Step 5: Print next steps
@@ -29264,14 +29277,15 @@ def cmd_init(args, cfg):
     context_file.write_text(content, encoding="utf-8")
 
     # ── Perseus Vault binary auto-discovery (#227, #665) ──
-    # If the vault binary is not installed, suggest the bootstrap script.
+    # If the vault binary is not installed, suggest the prebuilt installer.
     mneme_cfg = _resolve_mneme_config(cfg) if cfg else {}
     if mneme_cfg.get("enabled", True):
         command = mneme_cfg.get("command", ["perseus-vault", "serve"])
         binary_path = _find_mimir_binary(command)
         if binary_path is None:
-            print(f"💡 Perseus Vault not found. For persistent cross-session memory, run:")
-            print(f"   curl -sSL https://raw.githubusercontent.com/Perseus-Computing-LLC/perseus-vault/main/scripts/bootstrap.sh | bash")
+            print(f"💡 Perseus Vault not found. For persistent cross-session memory (prebuilt binary):")
+            print(f"   curl -sSf https://raw.githubusercontent.com/Perseus-Computing-LLC/perseus-vault/main/scripts/install.sh | sh")
+            print(f"   then re-run `perseus doctor` to confirm. (Windows/Intel-mac: build from source — see the repo.)")
         else:
             language = _detect_project_language(workspace)
             lang_note = f" (detected: {language})" if language else ""
@@ -29960,7 +29974,7 @@ def main():
     )
     parser.add_argument("--version", action="version", version=f"perseus v{_PERSEUS_VERSION} — Patent Pending")
     parser.add_argument("--offline", action="store_true", help="(Hidden) Enable air-gapped deployment mode. No-op.")
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="command", required=False)
 
     # render
     p_render = sub.add_parser("render", help="Render a @perseus source file")
@@ -30551,6 +30565,17 @@ def main():
 
     args = parser.parse_args()
     cfg = load_config()
+
+    # A bare `perseus` (no subcommand) is a new user's first instinct — point
+    # them at the golden path instead of an argparse "required" error dump.
+    if args.command is None:
+        print(f"Perseus v{_PERSEUS_VERSION} — Live Context Engine for AI assistants.")
+        print("")
+        print("New here?  perseus quickstart      — set up this project in one step")
+        print("Then:      perseus render <file>   — render a @perseus context file")
+        print("           perseus doctor          — check your setup")
+        print("           perseus --help          — all commands")
+        return 0
 
     if args.command == "render":
         cmd_render(args, cfg)

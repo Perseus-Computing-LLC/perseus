@@ -20,9 +20,26 @@ and Synthesis.
    `@query`, and `@session` directives
 3. **Config written** — `.perseus/config.yaml` with the `balanced` permission
    profile (safe for AI-agent workspaces)
-4. **First render verified** — all directives resolved successfully
+4. **First render verified** — Perseus resolved your context. Note: the live
+   shell `@query` directives (git status/log in *Workspace State*) are **off by
+   default** for safety; quickstart prints how to enable them. Everything else
+   renders live.
 5. **(Optional) LLM configured** — if you chose a free backend during the prompt,
    Perseus is ready for `perseus suggest` and `perseus synthesize`
+
+## Add Persistent Memory (optional)
+
+Cross-session memory is a separate, optional component — the **Perseus Vault**
+MCP server. `perseus quickstart` already wires the connector in your config; to
+install the engine (prebuilt binary, Linux/macOS):
+
+```bash
+curl -sSf https://raw.githubusercontent.com/Perseus-Computing-LLC/perseus-vault/main/scripts/install.sh | sh
+perseus doctor    # confirms Perseus can reach the vault
+```
+
+Windows / Intel-macOS: `cargo install --git https://github.com/Perseus-Computing-LLC/perseus-vault`.
+Without it, Perseus works fine — memory recall simply returns nothing.
 
 ## Setting Up a Free LLM Backend
 
@@ -179,10 +196,13 @@ Then create `.perseus/config.yaml`:
 
 ```yaml
 # ~/.perseus/config.yaml
-# ⚠ CRITICAL: render.allow_query_shell must be true for @query to work.
+# ⚠ CRITICAL: @query needs BOTH of these, by design (defense-in-depth):
+#   1) render.allow_query_shell: true  (below), AND
+#   2) export PERSEUS_ALLOW_DANGEROUS=1  in your shell.
+# With only one set, @query renders a warning block instead of shell output.
 # The trust section controls audit display only — NOT the render gate.
 render:
-  allow_query_shell: true        # ← REQUIRED to enable @query
+  allow_query_shell: true        # ← required, but not sufficient alone (see above)
   allow_agent_shell: true
   allow_remote_services_health: true
   allow_services_command: true
