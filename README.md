@@ -38,10 +38,11 @@ Perseus is the live context engine. Seven specialized products extend it:
 
 📄 [Product page →](https://perseus.observer/perseus-vault/) | ⭐ [GitHub →](https://github.com/Perseus-Computing-LLC/perseus-vault)
 
-**Install:**
+**Install** (prebuilt binary — Linux / macOS):
 ```bash
-curl -sSL https://raw.githubusercontent.com/Perseus-Computing-LLC/perseus-vault/main/scripts/bootstrap.sh | bash
+curl -sSf https://raw.githubusercontent.com/Perseus-Computing-LLC/perseus-vault/main/scripts/install.sh | sh
 ```
+Windows / Intel-macOS (build from source): `cargo install --git https://github.com/Perseus-Computing-LLC/perseus-vault`. Then run `perseus doctor` to confirm Perseus can reach it.
 
 **Hermes Agent** — add to `~/.hermes/config.yaml`:
 ```yaml
