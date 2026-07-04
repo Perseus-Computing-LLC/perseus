@@ -8,7 +8,7 @@ def main():
     )
     parser.add_argument("--version", action="version", version=f"perseus v{_PERSEUS_VERSION} — Patent Pending")
     parser.add_argument("--offline", action="store_true", help="(Hidden) Enable air-gapped deployment mode. No-op.")
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="command", required=False)
 
     # render
     p_render = sub.add_parser("render", help="Render a @perseus source file")
@@ -599,6 +599,17 @@ def main():
 
     args = parser.parse_args()
     cfg = load_config()
+
+    # A bare `perseus` (no subcommand) is a new user's first instinct — point
+    # them at the golden path instead of an argparse "required" error dump.
+    if args.command is None:
+        print(f"Perseus v{_PERSEUS_VERSION} — Live Context Engine for AI assistants.")
+        print("")
+        print("New here?  perseus quickstart      — set up this project in one step")
+        print("Then:      perseus render <file>   — render a @perseus context file")
+        print("           perseus doctor          — check your setup")
+        print("           perseus --help          — all commands")
+        return 0
 
     if args.command == "render":
         cmd_render(args, cfg)
