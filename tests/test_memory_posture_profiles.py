@@ -663,3 +663,103 @@ class TestFramingSoftened:
         lowered = rendered.lower()
         assert "snapshot, not ground truth" in lowered
         assert "do not spend initial turns" not in lowered
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Item 1b — silent-degradation banner (vault unreachable in an active posture)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _down_connector(reason="mimir binary not found: 'mimir'", enabled=True):
+    """A connector that failed to connect — the launch-hardening degradation
+    case. MagicMock auto-creates truthy attrs, so `_enabled`/`_connect_error`
+    are set explicitly to exercise `_memory_degraded_block`'s real gating."""
+    conn = MagicMock(available=False)
+    conn._enabled = enabled
+    conn._connect_error = reason
+    return conn
+
+
+class TestDegradedFallbackBanner:
+
+    def test_unreachable_vault_in_relevant_posture_shows_banner(self, tmp_path):
+        """Item 1b: a user who opted into active recall sees a one-line signal
+        that the vault is down, not a silently missing section."""
+        c = _cfg(posture="relevant")
+        connector = _down_connector(reason="unavailable: connection refused")
+        with patch.object(perseus, "_get_connector", return_value=connector):
+            out = perseus._mneme_context_inject(
+                c, source_text="plain", workspace=tmp_path)
+        assert out is not None
+        assert DUMP_HEADER in out
+        assert "unavailable" in out.lower()
+        # The internal "unavailable:" prefix is trimmed from the reason.
+        assert "connection refused" in out
+        assert "unavailable: connection refused" not in out
+        # It is a signal, not a fabricated memory dump.
+        assert "may be stale or tangential" not in out
+
+    def test_unreachable_vault_in_always_posture_shows_banner(self):
+        c = _cfg(posture="always")
+        connector = _down_connector()
+        with patch.object(perseus, "_get_connector", return_value=connector):
+            out = perseus._mneme_context_inject(c)
+        assert out is not None and DUMP_HEADER in out
+        assert "binary not found" in out
+
+    def test_on_demand_default_never_shows_banner(self, tmp_path):
+        """The default posture returns the static pointer without touching the
+        connector, so a down vault never leaks a warning to the 95%."""
+        c = _cfg()  # on_demand
+        connector = _down_connector()
+        with patch.object(perseus, "_get_connector", return_value=connector):
+            out = perseus._mneme_context_inject(
+                c, source_text="plain", workspace=tmp_path)
+        assert out is not None and out.startswith(POINTER_HEADER)
+        assert "unavailable" not in out.lower()
+
+    def test_disabled_connector_stays_silent(self):
+        """Not set up (disabled) → no banner even in an active posture; the
+        banner is for a configured-but-unreachable vault only."""
+        c = _cfg(posture="always")
+        connector = _down_connector(enabled=False)
+        with patch.object(perseus, "_get_connector", return_value=connector):
+            out = perseus._mneme_context_inject(c)
+        assert out is None
+
+    def test_no_reason_stays_silent(self):
+        """Unreachable but with no failure reason to report → silent (avoid a
+        contentless banner)."""
+        c = _cfg(posture="always")
+        connector = _down_connector(reason=None)
+        with patch.object(perseus, "_get_connector", return_value=connector):
+            out = perseus._mneme_context_inject(c)
+        assert out is None
+
+    def test_recall_error_midrender_shows_banner(self):
+        """Vault was reachable at connect but the recall errored (dropped
+        mid-render / tool missing) → degradation signal, not a silent empty."""
+        c = _cfg(posture="always")
+        connector = _connector(
+            context=None,
+            recall=MagicMock(items=[], as_markdown="",
+                             error="mimir_recall failed: broken pipe"))
+        connector._enabled = True
+        connector._connect_error = None
+        with patch.object(perseus, "_get_connector", return_value=connector):
+            out = perseus._mneme_context_inject(c)
+        assert out is not None and DUMP_HEADER in out
+        assert "broken pipe" in out
+        assert "mimir_recall failed:" not in out
+
+    def test_reachable_but_empty_stays_silent(self):
+        """Vault answered 'nothing found' (no error) → still silent; the banner
+        must not fire on a genuine empty recall."""
+        c = _cfg(posture="always")
+        connector = _connector(
+            context=None,
+            recall=MagicMock(items=[], as_markdown="", error=""))
+        connector._enabled = True
+        connector._connect_error = None
+        with patch.object(perseus, "_get_connector", return_value=connector):
+            out = perseus._mneme_context_inject(c)
+        assert out is None
