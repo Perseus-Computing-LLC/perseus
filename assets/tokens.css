@@ -1,73 +1,105 @@
 /* ============================================================
-   Perseus Design System — Tokens
+   Perseus Design System — Tokens  (defense-grade kit, 2026-07)
    The single source of truth for color. Reference these var()
    names in every component. Never hardcode a hex.
 
-   Theme: set [data-theme="dark"|"light"] on a root element.
-   Default = dark. Persist the user's choice in
-   localStorage['perseus-theme'].
+   Brand kit: obsidian ground, restrained violet, the polished
+   -shield mirror motif, classified-doc registration marks.
+   Type: Space Grotesk (display) + IBM Plex Sans (body) +
+   IBM Plex Mono (labels / metrics / code).
+
+   ⚠ ROLE MAP (names kept for low churn; values re-tuned to kit):
+     --amber* = Perseus primary accent  → VIOLET   (#a78bfa)
+     --violet* = Vault / memory accent  → PERIWINKLE BLUE (#8b9cff)
+     --gold*   = Plutus accent          → GOLD     (#d9b45f)
+     --steel*  = MCTS / neutral accent
+   So `.amber` renders violet, `.violet` renders blue — by design.
+
+   Theme: [data-theme="dark"|"light"] on a root element.
+   Default = dark. Persist in localStorage['perseus-theme'].
    ============================================================ */
 
 :root,
 [data-theme="dark"] {
-  /* — surfaces — */
-  --bg: #0A0A12;
-  --surface: #13111C;
-  --surface-2: #1A1726;
-  --elevate: #211D30;
-  --border: #2A2740;
-  --border-soft: #201D30;
+  /* — surfaces (obsidian) — */
+  --bg: #050508;
+  --surface: #0B0A12;
+  --surface-2: #0F0D1A;
+  --elevate: #14111F;
+  --border: #221E36;
+  --border-soft: #17142599;
+  --border-violet: rgba(167, 139, 250, .16);
 
   /* — text — */
-  --text: #ECEAF4;
-  --text-dim: #A7A3B8;
-  --text-faint: #6E6A80;
+  --text: #F4F2FB;
+  --text-dim: #8B8798;
+  --text-faint: #6A6676;
+  --text-ghost: #55525F;
 
-  /* — brand: violet = memory / Mimir — */
-  --violet: #8B5CF6;
-  --violet-ink: #AD92FF;
-  --violet-soft: rgba(139, 92, 246, .13);
+  /* — Perseus primary accent (violet) — */
+  --amber: #A78BFA;
+  --amber-ink: #CBB8FF;
+  --amber-soft: rgba(167, 139, 250, .12);
 
-  /* — brand: amber = context / Perseus — */
-  --amber: #F5A623;
-  --amber-ink: #F8BB54;
-  --amber-soft: rgba(245, 166, 35, .13);
+  /* — Vault accent (periwinkle blue) — */
+  --violet: #8B9CFF;
+  --violet-ink: #B7C2FF;
+  --violet-soft: rgba(139, 156, 255, .12);
 
-  /* — neutral product accent (MCTS, Plutus) — */
+  /* — Plutus accent (gold) — */
+  --gold: #D9B45F;
+  --gold-ink: #F0E2C2;
+  --gold-soft: rgba(217, 180, 95, .12);
+
+  /* — MCTS / neutral accent — */
   --steel: #8A93A8;
   --steel-soft: rgba(138, 147, 168, .12);
 
   /* — status: terminal output ONLY — */
-  --green: #3FB37F;
-  --green-soft: rgba(63, 179, 127, .13);
+  --green: #4BD08A;
+  --green-soft: rgba(75, 208, 138, .13);
   --red: #E5687A;
 
+  /* — deep violet field glow (heroes/frames) — */
+  --field: rgba(124, 92, 214, .26);
+  --field-2: rgba(80, 120, 255, .10);
+
   /* — terminal + chrome — */
-  --term-bg: #0C0A14;
-  --term-border: #221F33;
-  --header-bg: rgba(10, 10, 18, .72);
-  --shadow: 0 1px 0 rgba(255, 255, 255, .03), 0 18px 40px -28px rgba(0, 0, 0, .8);
+  --term-bg: #07070C;
+  --term-border: #211D30;
+  --header-bg: rgba(5, 5, 8, .74);
+  --shadow: 0 1px 0 rgba(255, 255, 255, .03), 0 22px 46px -30px rgba(0, 0, 0, .85);
+
+  /* — dot-grid registration field — */
+  --dot: rgba(167, 139, 250, .06);
+  --dot-size: 24px;
 }
 
 [data-theme="light"] {
-  --bg: #F6F5FC;
+  --bg: #F5F4FB;
   --surface: #FFFFFF;
   --surface-2: #FBFAFF;
   --elevate: #FFFFFF;
-  --border: #E6E3F2;
+  --border: #E4E1F1;
   --border-soft: #EEEBF6;
+  --border-violet: rgba(124, 92, 214, .18);
 
-  --text: #161423;
+  --text: #14111F;
   --text-dim: #56535F;
   --text-faint: #8E8A99;
+  --text-ghost: #A6A2B4;
 
-  --violet: #7C4DEF;
-  --violet-ink: #6A38DE;
-  --violet-soft: rgba(124, 77, 239, .08);
+  --amber: #7C5CD6;
+  --amber-ink: #6A38DE;
+  --amber-soft: rgba(124, 92, 214, .09);
 
-  --amber: #C8860F;
-  --amber-ink: #A96E07;
-  --amber-soft: rgba(200, 134, 15, .10);
+  --violet: #5566E6;
+  --violet-ink: #3B49C9;
+  --violet-soft: rgba(85, 102, 230, .09);
+
+  --gold: #A9832B;
+  --gold-ink: #8A6A1E;
+  --gold-soft: rgba(169, 131, 43, .11);
 
   --steel: #6B7488;
   --steel-soft: rgba(107, 116, 136, .10);
@@ -76,25 +108,31 @@
   --green-soft: rgba(31, 138, 91, .10);
   --red: #C7415A;
 
+  --field: rgba(124, 92, 214, .12);
+  --field-2: rgba(80, 120, 255, .06);
+
   /* terminal stays dark in both themes — it's a code surface */
-  --term-bg: #0C0A14;
-  --term-border: #221F33;
-  --header-bg: rgba(246, 245, 252, .78);
+  --term-bg: #07070C;
+  --term-border: #211D30;
+  --header-bg: rgba(245, 244, 251, .80);
   --shadow: 0 1px 2px rgba(20, 18, 40, .04), 0 18px 38px -26px rgba(60, 50, 110, .22);
+
+  --dot: rgba(124, 92, 214, .07);
+  --dot-size: 24px;
 }
 
 /* ============================================================
-   Type — Space Grotesk (display/body) + JetBrains Mono (code,
-   metrics, labels, eyebrows). Load both 400/500/600/700.
+   Type families — reference via var() where practical.
    ============================================================ */
-/* @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap'); */
+:root {
+  --font-display: 'Space Grotesk', system-ui, sans-serif;
+  --font-body: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+}
 
 /* ============================================================
    ⚠ Theme-toggle gotcha
    Do NOT put a CSS transition on a property whose value is a
-   var() that flips with the theme (e.g. transition:background
-   on the element whose background:var(--bg) changes). The
-   transition prevents the variable re-resolving on some engines
-   and the background appears "stuck". Transition specific
+   var() that flips with the theme. Transition specific
    properties on interactive elements instead.
    ============================================================ */
