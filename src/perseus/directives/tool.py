@@ -93,12 +93,21 @@ def resolve_tool(args_str: str, cfg: dict, workspace: Path | None = None) -> str
     except Exception:
         args = rest.split()
 
-    # Check arg restrictions
+    # Check arg restrictions.
+    # Security: a bare-flag allow-list entry (e.g. "--output") must NOT admit an
+    # arbitrary attached value (e.g. "--output=/etc/anything"), which previously
+    # slipped through because only the flag part was matched. To allow arbitrary
+    # values for a flag, the operator must opt in explicitly by listing the flag
+    # WITH a trailing '=' ("--output="). An exact "--flag=value" entry also works.
     for arg in args:
-        # Split on '=' for --flag=value form — check just the flag part
-        flag = arg.split("=", 1)[0]
-        if arg not in allowed_args and flag not in allowed_args:
-            return f"> ⚠ @tool: argument {arg!r} is not allowed for {tool_name!r}."
+        if arg in allowed_args:
+            continue
+        if "=" in arg:
+            flag = arg.split("=", 1)[0]
+            # "--flag=" in the allow-list = "any value permitted for --flag".
+            if (flag + "=") in allowed_args:
+                continue
+        return f"> ⚠ @tool: argument {arg!r} is not allowed for {tool_name!r}."
 
     # Execute
     try:

@@ -54,11 +54,25 @@ def _fed_entry():
             "_workspace_hash": ""}
 
 
+def _install_fake_opener(monkeypatch, payload, status: int = 200):
+    """Patch the federation no-redirect opener to return a canned response.
+
+    The 2026-07-05 SSRF hardening routes federation fetches through
+    ``_fed_build_opener().open()`` (a no-redirect opener) instead of
+    ``urllib.request.urlopen``, so tests patch that factory."""
+    class _FakeOpener:
+        def open(self, *a, **kw):
+            return _FakeResp(payload, status)
+    monkeypatch.setattr(perseus, "_fed_build_opener", lambda: _FakeOpener())
+
+
 def test_federation_fetch_normal_body_under_cap(monkeypatch):
     payload = json.dumps({"narrative": "## Arc\nhello", "workspace_id": "w1"}).encode()
-    monkeypatch.setattr(urllib.request, "urlopen",
-                        lambda *a, **kw: _FakeResp(payload))
+    _install_fake_opener(monkeypatch, payload)
     c = cfg()
+    # peer.example does not resolve; allow_internal bypasses the SSRF private-IP
+    # guard so this test can exercise the read-cap/timeout logic under mock.
+    c.setdefault("federation", {})["allow_internal"] = True
     body, err, ws = perseus._fetch_remote_narrative(_fed_entry(), c)
     assert err is None
     assert body == "## Arc\nhello"
@@ -67,10 +81,9 @@ def test_federation_fetch_normal_body_under_cap(monkeypatch):
 
 def test_federation_fetch_rejects_oversized_body(monkeypatch):
     huge = json.dumps({"narrative": "x" * 5000}).encode()
-    monkeypatch.setattr(urllib.request, "urlopen",
-                        lambda *a, **kw: _FakeResp(huge))
+    _install_fake_opener(monkeypatch, huge)
     c = cfg()
-    c["federation"] = {"max_fetch_bytes": 1000}
+    c["federation"] = {"max_fetch_bytes": 1000, "allow_internal": True}
     body, err, ws = perseus._fetch_remote_narrative(_fed_entry(), c)
     assert body is None
     assert "max_fetch_bytes" in err
@@ -81,14 +94,13 @@ def test_federation_fetch_applies_read_timeout(monkeypatch):
     """read_timeout_s was parsed but never applied — a peer that streams
     forever must now be cut off at the configured wall-clock deadline."""
     payload = json.dumps({"narrative": "slow"}).encode()
-    monkeypatch.setattr(urllib.request, "urlopen",
-                        lambda *a, **kw: _FakeResp(payload))
+    _install_fake_opener(monkeypatch, payload)
     # First monotonic() call sets the deadline; the next one is already
     # past it — simulating a read phase that exceeded read_timeout_s.
     seq = iter([0.0])
     monkeypatch.setattr(time, "monotonic", lambda: next(seq, 1e9))
     c = cfg()
-    c["federation"] = {"read_timeout_s": 5}
+    c["federation"] = {"read_timeout_s": 5, "allow_internal": True}
     body, err, ws = perseus._fetch_remote_narrative(_fed_entry(), c)
     assert body is None
     assert "timed out" in err

@@ -220,7 +220,13 @@ def run_llm(provider: str, prompt: str, cfg: dict, model: str | None = None, mod
     )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            body = json.loads(resp.read().decode())
+            # DoS guard: a malicious/compromised LLM endpoint could stream an
+            # unbounded body into memory. Cap the read (config-overridable).
+            _max_bytes = int(cfg.get("pythia", {}).get("max_response_bytes", 8 * 1024 * 1024))
+            _raw = resp.read(_max_bytes + 1)
+            if len(_raw) > _max_bytes:
+                return (f"> ⚠ LLM response exceeded max_response_bytes ({_max_bytes}).", 2)
+            body = json.loads(_raw.decode())
         if provider == "ollama":
             text = str(body.get("message", {}).get("content", "")).strip()
         else:
@@ -587,7 +593,12 @@ def run_ollama(prompt: str, cfg: dict, model_override: str | None = None) -> str
     )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            payload = json.loads(resp.read().decode())
+            # DoS guard: cap the response body (config-overridable).
+            _max_bytes = int(cfg.get("pythia", {}).get("max_response_bytes", 8 * 1024 * 1024))
+            _raw = resp.read(_max_bytes + 1)
+            if len(_raw) > _max_bytes:
+                return f"> ⚠ Ollama response exceeded max_response_bytes ({_max_bytes})."
+            payload = json.loads(_raw.decode())
         return str(payload.get("response", "")).strip() or "> ⚠ Ollama returned no response."
     except urllib.error.URLError as exc:
         return f"> ⚠ Ollama request failed: {exc}"
