@@ -26,34 +26,56 @@ def _gpg_verify_signature(repo: Path, args, cfg: dict | None = None) -> tuple[bo
         return True, "signature check skipped (--skip-signature-check)"
 
     fingerprint = update_cfg.get("gpg_fingerprint") or PERSEUS_GPG_FINGERPRINT
+    auto_enabled = bool(update_cfg.get("auto", False))
     if not fingerprint:
-        return True, "no GPG fingerprint configured — set update.gpg_fingerprint in config"
+        # 2026-07-05 security review: previously this ALWAYS returned True, so
+        # `update --apply` pulled+ran whatever origin/main held with zero
+        # verification. Unattended (auto) updates must NOT run unverified; a
+        # manual update may proceed but is loudly flagged as unverified.
+        if auto_enabled:
+            return False, (
+                "unattended auto-update requires update.gpg_fingerprint to be set "
+                "(refusing to pull unverified code); configure it or disable update.auto"
+            )
+        return True, (
+            "⚠ no GPG fingerprint configured — update is NOT signature-verified "
+            "(set update.gpg_fingerprint to enforce)"
+        )
 
+    # A fingerprint IS configured → verification is REQUIRED. Every gap below now
+    # fails CLOSED (was fail-open); use --skip-signature-check to bypass explicitly.
     import subprocess as _sp
 
     # Check for gpg binary
     try:
         _sp.run(["gpg", "--version"], capture_output=True, check=True)
     except Exception:
-        return True, "gpg not found — signature verification skipped"
+        return False, (
+            "gpg not found but update.gpg_fingerprint is set — cannot verify "
+            "(install gpg, or pass --skip-signature-check to override)"
+        )
 
-    # Try verifying the latest signed tag
+    # Verify HEAD's signature against the local keyring AND require it to be the
+    # configured fingerprint (git verify-commit alone trusts any keyring key).
     try:
         result = _sp.run(
-            ["git", "verify-commit", "HEAD"],
+            ["git", "verify-commit", "--raw", "HEAD"],
             capture_output=True, text=True, timeout=30, cwd=str(repo),
         )
         output = (result.stdout + result.stderr).strip()
-        if result.returncode == 0:
-            return True, f"GPG signature verified: {output.split(chr(10))[0] if output else 'ok'}"
-        # Check if the problem is just "no signature" vs "bad signature"
-        if "NO VALID" in output.upper() or "CANNOT CHECK" in output.upper():
-            return True, f"GPG: commit not signed — {output[:100]}"
-        return False, f"GPG verification failed: {output[:200]}"
+        if result.returncode != 0:
+            return False, f"GPG verification failed (commit unsigned or bad signature): {output[:200]}"
+        fp_norm = fingerprint.replace(" ", "").upper()
+        if fp_norm and fp_norm not in output.replace(" ", "").upper():
+            return False, (
+                f"GPG signature is valid but NOT from the configured fingerprint "
+                f"{fingerprint} — refusing to apply"
+            )
+        return True, f"GPG signature verified against {fingerprint}"
     except _sp.TimeoutExpired:
-        return True, "GPG verification timed out — proceeding"
+        return False, "GPG verification timed out — refusing to apply unverified update"
     except Exception as exc:
-        return True, f"GPG verification error (non-fatal): {exc}"
+        return False, f"GPG verification error — refusing to apply: {exc}"
 
 
 def cmd_update(args, cfg) -> int:

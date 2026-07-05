@@ -533,17 +533,22 @@ def _find_mimir_binary(configured_command: list[str]) -> str | None:
     # Search known common paths (both new perseus-vault and legacy names)
     candidates = list(_KNOWN_MIMIR_PATHS)
 
-    # Also search $PWD/{perseus-vault,mimir}/target/{release,debug}/<name>
-    try:
-        cwd = Path.cwd()
-        for src_dir, name in (
-            ("perseus-vault", "perseus-vault"),
-            ("mimir", "mimir"),
-        ):
-            candidates.append(str(cwd / src_dir / "target" / "release" / name))
-            candidates.append(str(cwd / src_dir / "target" / "debug" / name))
-    except Exception:
-        pass
+    # Also search $PWD/{perseus-vault,mimir}/target/{release,debug}/<name>.
+    # 2026-07-05 security review: this CWD-relative search is an untrusted-search-path
+    # vector (CWE-427) — running Perseus from an attacker-influenced directory that
+    # contains ./perseus-vault/target/release/perseus-vault would execute it as "the
+    # vault". Gate it behind an explicit dev opt-in so it never fires in production.
+    if os.environ.get("PERSEUS_DEV_VAULT_BUILD") == "1":
+        try:
+            cwd = Path.cwd()
+            for src_dir, name in (
+                ("perseus-vault", "perseus-vault"),
+                ("mimir", "mimir"),
+            ):
+                candidates.append(str(cwd / src_dir / "target" / "release" / name))
+                candidates.append(str(cwd / src_dir / "target" / "debug" / name))
+        except Exception:
+            pass
 
     for p in candidates:
         expanded = Path(p).expanduser()
