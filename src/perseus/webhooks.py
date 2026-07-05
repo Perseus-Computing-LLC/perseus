@@ -150,6 +150,20 @@ def _webhook_worker(url, ep, wh_cfg, q):
     # L-9: Warn if a ${VAR} placeholder resolved to empty — HMAC silently disabled
     if secret_raw and "${" in secret_raw and not secret:
         print(f"Perseus webhook warning: HMAC secret env var expanded to empty for {_redact_url(url)[:80]}...", file=sys.stderr)
+    # 2026-07-05 security review: if signing was intended (a secret is configured,
+    # or webhooks.require_signature is set) but the secret resolved EMPTY (e.g. a
+    # ${VAR} that expanded to nothing), do NOT fall back to delivering the payload
+    # UNSIGNED — a receiver enforcing signatures would accept an attacker's unsigned
+    # forgery just the same. Refuse to deliver for this endpoint (fail closed).
+    signing_intended = bool(secret_raw) or bool(wh_cfg.get("require_signature", False))
+    refuse_delivery = signing_intended and not secret
+    if refuse_delivery:
+        print(
+            f"Perseus webhook ERROR: signing configured but the secret resolved EMPTY "
+            f"for {_redact_url(url)[:80]} — refusing to deliver UNSIGNED "
+            f"(fix the secret, or unset it to intentionally send unsigned).",
+            file=sys.stderr,
+        )
     extra_headers = ep.get("headers", {})
 
     while True:
@@ -157,7 +171,10 @@ def _webhook_worker(url, ep, wh_cfg, q):
         if item is None:
             q.task_done()
             break
-        
+        if refuse_delivery:
+            q.task_done()
+            continue
+
         event, payload, ts_iso, cfg = item
 
         # Prepare payload

@@ -107,7 +107,9 @@ def test_perseus_no_spurious_ttl_warning(monkeypatch):
 
     monkeypatch.setattr(urllib.request, "build_opener", lambda *h: _FakeOpener())
     out = perseus.resolve_perseus("https://example.com/workspace/w1", _perseus_cfg())
-    assert out == "remote content"
+    # 2026-07-05 security review: remote content is now fenced as untrusted DATA.
+    assert "remote content" in out
+    assert "PERSEUS_REMOTE_CONTENT" in out
     assert "missing @cache ttl=" not in out
 
 

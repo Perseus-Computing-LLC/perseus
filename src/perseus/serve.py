@@ -1809,7 +1809,10 @@ def _serve_host_header_ok(headers, bind_host: str | None = None) -> bool:
     except AttributeError:
         host = ""
     if not host:
-        return True
+        # 2026-07-05 security review: reject a missing Host on a loopback bind
+        # (was `return True`). A DNS-rebinding attacker can omit Host to slip past
+        # the check; HTTP/1.1 always sends it. Matches the mcp.py SSE handler.
+        return False
     hostname = host.split(":")[0]
     return hostname in ("127.0.0.1", "localhost", "::1")
 
