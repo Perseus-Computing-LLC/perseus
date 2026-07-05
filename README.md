@@ -1,3 +1,7 @@
+<div align="center">
+  <img src=".github/banner.png" alt="Perseus — Live Context Engine. One command. Zero orientation." width="100%">
+</div>
+
 # Perseus™ 🪞 — One command. Zero orientation.
 
 [![smithery badge](https://smithery.ai/badge/Perseus-Computing-LLC/perseus)](https://smithery.ai/servers/Perseus-Computing-LLC/perseus)
