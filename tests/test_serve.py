@@ -103,7 +103,7 @@ def test_serve_endpoint_oracle_log_returns_json(tmp_path, monkeypatch):
 
 
 def test_serve_handle_request_no_auth_loopback_legacy_mode(tmp_path):
-    status, ctype, body = perseus._serve_handle_request("/", cfg(), tmp_path, {}, headers={})
+    status, ctype, body = perseus._serve_handle_request("/", cfg(), tmp_path, {}, headers={"Host": "127.0.0.1"})
     assert status == 200
     assert "text/html" in ctype
     assert "Perseus" in body
@@ -113,7 +113,7 @@ def test_serve_handle_request_rejects_missing_bearer_token(tmp_path):
     local = cfg()
     local["serve"]["auth_token"] = "secret"
 
-    status, ctype, body = perseus._serve_handle_request("/", local, tmp_path, {}, headers={})
+    status, ctype, body = perseus._serve_handle_request("/", local, tmp_path, {}, headers={"Host": "127.0.0.1"})
 
     assert status == 401
     assert "application/json" in ctype
@@ -125,7 +125,7 @@ def test_serve_handle_request_rejects_wrong_bearer_token(tmp_path):
     local["serve"]["auth_token"] = "secret"
 
     status, ctype, body = perseus._serve_handle_request(
-        "/", local, tmp_path, {}, headers={"Authorization": "Bearer nope"}
+        "/", local, tmp_path, {}, headers={"Authorization": "Bearer nope", "Host": "127.0.0.1"}
     )
 
     assert status == 401
@@ -138,7 +138,7 @@ def test_serve_handle_request_accepts_valid_bearer_token(tmp_path):
     local["serve"]["auth_token"] = "secret"
 
     status, ctype, body = perseus._serve_handle_request(
-        "/", local, tmp_path, {}, headers={"Authorization": "Bearer secret"}
+        "/", local, tmp_path, {}, headers={"Authorization": "Bearer secret", "Host": "127.0.0.1"}
     )
 
     assert status == 200

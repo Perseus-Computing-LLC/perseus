@@ -70,7 +70,7 @@ def test_foreign_resolve_success(mock_server):
     
     url = f"{mock_server}/workspace/infra @cache ttl=300"
     result = perseus.resolve_perseus(url, c)
-    assert result == "# Infra Context"
+    assert "# Infra Context" in result and "PERSEUS_REMOTE_CONTENT" in result
 
 def test_foreign_resolve_hmac_ok(mock_server):
     c = cfg()
@@ -83,7 +83,7 @@ def test_foreign_resolve_hmac_ok(mock_server):
     
     url = f"{mock_server}/workspace/infra @cache ttl=300"
     result = perseus.resolve_perseus(url, c)
-    assert result == "# Infra Context"
+    assert "# Infra Context" in result and "PERSEUS_REMOTE_CONTENT" in result
 
 def test_foreign_resolve_hmac_fail(mock_server):
     c = cfg()

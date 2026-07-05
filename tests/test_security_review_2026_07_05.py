@@ -115,3 +115,43 @@ def test_federation_fetch_allows_internal_when_opted_in(monkeypatch):
     body, err, ws = perseus._fetch_remote_narrative(entry, c)
     # Not blocked by the SSRF guard — the failure (if any) is a connection error.
     assert err is None or "blocked federation fetch" not in err
+
+
+# ── serve: missing/invalid Host rejected on loopback bind (DNS-rebinding) ─────
+
+def test_serve_host_header_missing_rejected_on_loopback():
+    # Empty/missing Host on a loopback bind is now rejected (was allowed).
+    assert perseus._serve_host_header_ok({}, bind_host="127.0.0.1") is False
+    assert perseus._serve_host_header_ok({"Host": ""}, bind_host="127.0.0.1") is False
+    # A loopback Host is accepted; a foreign (rebound) Host is rejected.
+    assert perseus._serve_host_header_ok({"Host": "127.0.0.1:7991"}, bind_host="127.0.0.1") is True
+    assert perseus._serve_host_header_ok({"Host": "evil.example"}, bind_host="127.0.0.1") is False
+
+
+# ── self-update: GPG verification fails closed when it should ─────────────────
+
+class _NS:
+    def __init__(self, **kw):
+        self.__dict__.update(kw)
+
+
+def test_selfupdate_unattended_without_fingerprint_fails_closed(tmp_path):
+    # auto-update ON + no fingerprint configured → must refuse (was: pass).
+    c = {"update": {"auto": True}}
+    verified, msg = perseus._gpg_verify_signature(tmp_path, _NS(skip_signature_check=False), c)
+    assert verified is False
+    assert "auto-update" in msg.lower()
+
+
+def test_selfupdate_manual_without_fingerprint_warns_but_allows(tmp_path):
+    # manual update + no fingerprint → allowed, but flagged as unverified.
+    c = {"update": {"auto": False}}
+    verified, msg = perseus._gpg_verify_signature(tmp_path, _NS(skip_signature_check=False), c)
+    assert verified is True
+    assert "not" in msg.lower() and "verif" in msg.lower()
+
+
+def test_selfupdate_skip_flag_still_bypasses(tmp_path):
+    c = {"update": {"auto": True, "gpg_fingerprint": "DEADBEEF"}}
+    verified, msg = perseus._gpg_verify_signature(tmp_path, _NS(skip_signature_check=True), c)
+    assert verified is True
