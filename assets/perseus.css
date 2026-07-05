@@ -8,23 +8,51 @@
 html { scroll-behavior: smooth; }
 body {
   margin: 0;
-  background: var(--bg);
+  background-color: var(--bg);
+  background-image: radial-gradient(var(--dot) 1px, transparent 1px);
+  background-size: var(--dot-size) var(--dot-size);
+  background-attachment: fixed;
   color: var(--text);
-  font-family: 'Space Grotesk', system-ui, sans-serif;
+  font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
-  line-height: 1.5;
+  line-height: 1.55;
 }
-::selection { background: var(--violet); color: #fff; }
+::selection { background: var(--amber); color: #0a0813; }
 a { color: inherit; }
 h1, h2, h3, p { margin: 0; }
+h1, h2, h3, h2.h, h1.hero-h { font-family: var(--font-display); }
 
 .wrap { max-width: 1180px; margin: 0 auto; padding: 0 24px; }
-.mono { font-family: 'JetBrains Mono', monospace; }
+.mono { font-family: var(--font-mono); }
+
+/* ---------- brand-kit motifs ---------- */
+/* classification strip — thin mono rule at top of a framed block */
+.classbar {
+  display: flex; align-items: center; justify-content: space-between;
+  font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .22em;
+  color: var(--text-faint); text-transform: uppercase;
+  padding: 9px 0; border-bottom: 1px solid var(--border-violet);
+}
+.classbar .ok { color: var(--amber); }
+/* corner registration reticles (drop into a position:relative box) */
+.reticle { position: absolute; width: 14px; height: 14px; pointer-events: none; z-index: 2; }
+.reticle.tl { top: 16px; left: 16px; border-top: 1px solid var(--border-violet); border-left: 1px solid var(--border-violet); }
+.reticle.tr { top: 16px; right: 16px; border-top: 1px solid var(--border-violet); border-right: 1px solid var(--border-violet); }
+.reticle.bl { bottom: 16px; left: 16px; border-bottom: 1px solid var(--border-violet); border-left: 1px solid var(--border-violet); }
+.reticle.br { bottom: 16px; right: 16px; border-bottom: 1px solid var(--border-violet); border-right: 1px solid var(--border-violet); }
+/* violet field glow — drop into a positioned container */
+.glow { position: absolute; inset: 0; pointer-events: none; z-index: 0;
+  background:
+    radial-gradient(680px 360px at 8% 128%, var(--field), transparent 68%),
+    radial-gradient(520px 300px at 96% -22%, var(--field-2), transparent 70%);
+}
+/* mono // prefix eyebrow variant */
+.eyebrow.slash::before { content: "// "; color: var(--text-faint); }
 
 /* ---------- eyebrow ---------- */
 .eyebrow {
   display: inline-flex; align-items: center; gap: 9px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 12px; letter-spacing: .14em; text-transform: uppercase;
   margin-bottom: 22px;
 }
@@ -84,7 +112,7 @@ header.site {
   display: inline-flex; align-items: center; gap: 7px;
   height: 36px; padding: 0 13px; border-radius: 9px;
   border: 1px solid var(--border); background: var(--surface);
-  color: var(--text-dim); font-family: 'JetBrains Mono', monospace; font-size: 12px; cursor: pointer;
+  color: var(--text-dim); font-family: var(--font-mono); font-size: 12px; cursor: pointer;
   transition: border-color .15s, color .15s;
 }
 .toggle:hover { color: var(--text); border-color: var(--text-faint); }
@@ -117,13 +145,13 @@ h1.hero-h .one { color: var(--amber); }
 .install {
   display: inline-flex; align-items: center; gap: 14px; height: 48px;
   padding: 0 8px 0 18px; border-radius: 11px; background: var(--term-bg);
-  border: 1px solid var(--term-border); font-family: 'JetBrains Mono', monospace;
+  border: 1px solid var(--term-border); font-family: var(--font-mono);
   font-size: 14.5px; color: #E6E3F2;
 }
 .install .pr { color: #6E6A80; }
 .install button {
   height: 34px; padding: 0 13px; border-radius: 8px; border: none;
-  background: var(--amber); color: #1a1308; font-family: 'JetBrains Mono', monospace;
+  background: var(--amber); color: #1a1308; font-family: var(--font-mono);
   font-size: 12px; font-weight: 600; cursor: pointer; transition: opacity .15s;
 }
 .install button:hover { opacity: .9; }
@@ -137,7 +165,7 @@ h1.hero-h .one { color: var(--amber); }
   flex: 1; min-width: 132px; padding: 16px 18px; border-radius: 13px;
   background: var(--surface); border: 1px solid var(--border-soft);
 }
-.stat .n { font-family: 'JetBrains Mono', monospace; font-size: 25px; font-weight: 600; }
+.stat .n { font-family: var(--font-mono); font-size: 25px; font-weight: 600; }
 .stat .n.amber { color: var(--amber); }
 .stat .n.violet { color: var(--violet); }
 .stat .c { font-size: 12.5px; color: var(--text-faint); margin-top: 3px; line-height: 1.4; }
@@ -149,9 +177,9 @@ h1.hero-h .one { color: var(--amber); }
 }
 .term-bar { display: flex; align-items: center; gap: 7px; padding: 13px 16px; border-bottom: 1px solid var(--term-border); }
 .term-bar .d { width: 11px; height: 11px; border-radius: 50%; background: #3a3650; }
-.term-bar .f { margin-left: 8px; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #6E6A80; }
+.term-bar .f { margin-left: 8px; font-family: var(--font-mono); font-size: 12px; color: #6E6A80; }
 .term pre {
-  margin: 0; padding: 22px 20px; font-family: 'JetBrains Mono', monospace;
+  margin: 0; padding: 22px 20px; font-family: var(--font-mono);
   font-size: 13.5px; line-height: 1.85; color: #C9C5D8; white-space: pre-wrap;
 }
 .term .c6 { color: #6E6A80; }
@@ -172,7 +200,7 @@ h1.hero-h .one { color: var(--amber); }
   border: 1px solid var(--border-soft); border-radius: 16px; overflow: hidden;
 }
 .hairgrid .cell { background: var(--surface); padding: 28px 26px; }
-.hairgrid .cell .big { font-family: 'JetBrains Mono', monospace; font-weight: 600; }
+.hairgrid .cell .big { font-family: var(--font-mono); font-weight: 600; }
 .cap { font-size: 13.5px; color: var(--text-faint); line-height: 1.5; }
 
 /* ---------- feature cards ---------- */
@@ -180,7 +208,7 @@ h1.hero-h .one { color: var(--amber); }
 .card { background: var(--surface); border: 1px solid var(--border-soft); border-radius: 16px; padding: 28px; }
 .card .ic { width: 38px; height: 38px; border-radius: 10px; background: var(--violet-soft); display: flex; align-items: center; justify-content: center; margin-bottom: 16px; }
 .card .ic.amber { background: var(--amber-soft); }
-.card .kix { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--amber); margin-bottom: 14px; }
+.card .kix { font-family: var(--font-mono); font-size: 12px; color: var(--amber); margin-bottom: 14px; }
 .card h3 { font-size: 18px; font-weight: 600; margin-bottom: 8px; }
 .card p { font-size: 14.5px; line-height: 1.6; color: var(--text-dim); }
 
@@ -198,12 +226,12 @@ h1.hero-h .one { color: var(--amber); }
 .tier { background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 30px; display: flex; flex-direction: column; }
 .tier.feat { border-color: var(--amber); box-shadow: 0 0 0 4px var(--amber-soft); }
 .tier h3 { font-size: 20px; font-weight: 600; }
-.tier .price { font-family: 'JetBrains Mono', monospace; font-size: 30px; font-weight: 600; margin: 6px 0 4px; }
+.tier .price { font-family: var(--font-mono); font-size: 30px; font-weight: 600; margin: 6px 0 4px; }
 .tier .psub { font-size: 13px; color: var(--text-faint); margin-bottom: 20px; }
 .tier .feats { display: flex; flex-direction: column; gap: 9px; font-size: 14px; color: var(--text-dim); margin-bottom: 24px; }
 .tier .tcta { margin-top: auto; text-align: center; height: 44px; line-height: 44px; border-radius: 10px; text-decoration: none; font-size: 14px; font-weight: 500; }
 .tier .tcta.outline { border: 1px solid var(--border); color: var(--text); }
-.tier .pill-ea { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: var(--amber); background: var(--amber-soft); padding: 3px 8px; border-radius: 20px; }
+.tier .pill-ea { font-family: var(--font-mono); font-size: 10.5px; color: var(--amber); background: var(--amber-soft); padding: 3px 8px; border-radius: 20px; }
 
 /* ---------- comparison table ---------- */
 .tablewrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); }
@@ -233,19 +261,19 @@ table.cmp tr.win .nm { display: flex; align-items: center; gap: 8px; }
 .prod.violet { border-color: var(--violet); box-shadow: 0 0 0 4px var(--violet-soft); }
 .prod-top { display: flex; align-items: center; justify-content: space-between; }
 .chip { width: 56px; height: 56px; border-radius: 14px; background: var(--term-bg); border: 1px solid var(--term-border); display: flex; align-items: center; justify-content: center; }
-.pill { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; padding: 4px 9px; border-radius: 20px; }
+.pill { font-family: var(--font-mono); font-size: 11.5px; padding: 4px 9px; border-radius: 20px; }
 .pill.amber { color: var(--amber); background: var(--amber-soft); }
 .pill.violet { color: var(--violet); background: var(--violet-soft); }
 .pill.steel { color: var(--text-faint); background: var(--steel-soft); }
 .prod h3 { font-size: 20px; font-weight: 600; margin-bottom: 7px; }
 .prod p { font-size: 14px; line-height: 1.6; color: var(--text-dim); }
-.prod .open { margin-top: auto; font-family: 'JetBrains Mono', monospace; font-size: 12.5px; }
+.prod .open { margin-top: auto; font-family: var(--font-mono); font-size: 12.5px; }
 
 /* ---------- badges ---------- */
 .badges { display: flex; flex-wrap: wrap; gap: 10px; }
 .badges.center { justify-content: center; }
 .badge {
-  font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: var(--text-dim);
+  font-family: var(--font-mono); font-size: 12.5px; color: var(--text-dim);
   background: var(--surface); border: 1px solid var(--border); padding: 7px 13px; border-radius: 8px;
 }
 
@@ -256,16 +284,16 @@ footer.site { border-top: 1px solid var(--border-soft); background: var(--bg); }
   padding: 56px 24px 40px; max-width: 1180px; margin: 0 auto;
 }
 .foot .blurb { font-size: 13.5px; line-height: 1.6; color: var(--text-faint); max-width: 34ch; }
-.foot .col-h { font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--text-faint); margin-bottom: 14px; }
+.foot .col-h { font-family: var(--font-mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--text-faint); margin-bottom: 14px; }
 .foot .links { display: flex; flex-direction: column; gap: 9px; font-size: 14px; }
 .foot .links a { color: var(--text-dim); text-decoration: none; transition: color .15s; }
 .foot .links a:hover { color: var(--text); }
 .legal { border-top: 1px solid var(--border-soft); }
-.legal .inner { max-width: 1180px; margin: 0 auto; padding: 20px 24px; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-faint); }
+.legal .inner { max-width: 1180px; margin: 0 auto; padding: 20px 24px; font-family: var(--font-mono); font-size: 12px; color: var(--text-faint); }
 
 /* ---------- footer (compact, product pages) ---------- */
 .foot-compact { display: flex; flex-wrap: wrap; gap: 20px; align-items: center; justify-content: space-between; padding: 40px 24px; max-width: 1180px; margin: 0 auto; }
-.foot-compact .legal-line { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-faint); }
+.foot-compact .legal-line { font-family: var(--font-mono); font-size: 12px; color: var(--text-faint); }
 .foot-compact .brand-line { display: flex; align-items: center; gap: 11px; }
 .foot-compact .sib { display: flex; gap: 20px; font-size: 14px; }
 .foot-compact .sib a { color: var(--text-dim); text-decoration: none; transition: color .15s; }
@@ -278,12 +306,12 @@ footer.site { border-top: 1px solid var(--border-soft); background: var(--bg); }
 .step:nth-child(3) { border-radius: 0 16px 16px 0; }
 .step:nth-child(2) { border-left: none; border-right: none; }
 .step .sh { display: flex; align-items: center; gap: 12px; }
-.step .num { width: 32px; height: 32px; border-radius: 9px; display: flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', monospace; font-weight: 600; flex-shrink: 0; }
+.step .num { width: 32px; height: 32px; border-radius: 9px; display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-weight: 600; flex-shrink: 0; }
 .step .num.v { background: var(--violet-soft); color: var(--violet); }
 .step .num.a { background: var(--amber-soft); color: var(--amber); }
 .step h3 { font-size: 19px; font-weight: 600; }
 .step p { color: var(--text-dim); font-size: 15px; line-height: 1.6; }
-.step pre { margin: 0; background: var(--term-bg); border: 1px solid var(--term-border); border-radius: 10px; padding: 15px; font-family: 'JetBrains Mono', monospace; font-size: 12.5px; line-height: 1.75; color: #C9C5D8; white-space: pre-wrap; overflow: auto; }
+.step pre { margin: 0; background: var(--term-bg); border: 1px solid var(--term-border); border-radius: 10px; padding: 15px; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.75; color: #C9C5D8; white-space: pre-wrap; overflow: auto; }
 .step pre .c6 { color: #6E6A80; } .step pre .vi { color: var(--violet-ink); } .step pre .ai { color: var(--amber-ink); } .step pre .br { color: #E6E3F2; }
 .conn { position: absolute; top: 50%; right: -11px; transform: translateY(-50%); z-index: 3; }
 
@@ -293,15 +321,15 @@ footer.site { border-top: 1px solid var(--border-soft); background: var(--bg); }
 .panel.good { border-color: var(--amber); box-shadow: 0 0 0 4px var(--amber-soft); }
 .panel-h { padding: 15px 20px; border-bottom: 1px solid var(--border-soft); display: flex; justify-content: space-between; align-items: center; }
 .panel-h .t { font-weight: 600; font-size: 15px; }
-.panel-h .meta { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; }
+.panel-h .meta { font-family: var(--font-mono); font-size: 11.5px; }
 .turns { padding: 18px 20px; display: flex; flex-direction: column; gap: 10px; }
 .turn { display: flex; gap: 11px; align-items: flex-start; font-size: 14px; }
-.turn .ix { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-faint); width: 22px; flex-shrink: 0; padding-top: 2px; }
+.turn .ix { font-family: var(--font-mono); font-size: 11px; color: var(--text-faint); width: 22px; flex-shrink: 0; padding-top: 2px; }
 .turn .body { color: var(--text-dim); }
 .turn.a .body { color: var(--text); }
 .turn .body .hl { color: var(--amber); }
-.turn .body code { font-family: 'JetBrains Mono', monospace; font-size: .9em; }
-.ledger { margin-top: 4px; font-family: 'JetBrains Mono', monospace; font-size: 12px; padding: 12px 20px 18px; }
+.turn .body code { font-family: var(--font-mono); font-size: .9em; }
+.ledger { margin-top: 4px; font-family: var(--font-mono); font-size: 12px; padding: 12px 20px 18px; }
 
 /* ---------- form ---------- */
 .field { display: flex; flex-direction: column; gap: 7px; font-size: 13px; color: var(--text-dim); }
@@ -339,3 +367,40 @@ footer.site { border-top: 1px solid var(--border-soft); background: var(--bg); }
   .navlinks { display: none; }
   .nav { gap: 14px; }
 }
+
+/* ============================================================
+   Brand-kit refinements (defense-grade, 2026-07)
+   Gold = Plutus. Violet-tinted chrome. Framed surfaces.
+   ============================================================ */
+/* gold accents (Plutus) */
+.eyebrow.gold { color: var(--gold); }
+.btn-gold { background: var(--gold); color: #221802; }
+.btn-gold:hover { opacity: .92; }
+.stat .n.gold { color: var(--gold); }
+.install.gold button { background: var(--gold); color: #221802; }
+.card .kix.gold, .card .kix.violet { color: inherit; }
+.card .kix.violet { color: var(--violet); }
+.card .kix.gold { color: var(--gold); }
+.pill.gold { color: var(--gold); background: var(--gold-soft); }
+.prod.gold { border-color: var(--gold); box-shadow: 0 0 0 4px var(--gold-soft); }
+.ic.violet { background: var(--violet-soft); }
+.ic.gold { background: var(--gold-soft); }
+.eyebrow.violet { color: var(--violet); }
+
+/* violet-tinted chrome on framed surfaces */
+.card, .prod, .stat, .hairgrid, .tablewrap, .panel, .tier, .term, .step, .install {
+  border-color: var(--border-violet);
+}
+.card, .prod { background: linear-gradient(180deg, rgba(167,139,250,.04), transparent 62%), var(--surface); }
+.prod.violet { background: linear-gradient(180deg, rgba(139,156,255,.05), transparent 62%), var(--surface); }
+.prod.gold   { background: linear-gradient(180deg, rgba(217,180,95,.05), transparent 62%), var(--surface); }
+
+/* hero: deep obsidian + violet field, dot grid handled by body */
+.hero { background: var(--bg); }
+.hero .hero-bg { opacity: .5; }
+
+/* brighter wordmark */
+.brand b { font-family: var(--font-display); letter-spacing: -.02em; }
+
+/* eyebrow default tightening to kit */
+.eyebrow { letter-spacing: .16em; }
