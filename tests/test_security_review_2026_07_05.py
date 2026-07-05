@@ -70,7 +70,7 @@ def test_tree_does_not_follow_symlinked_dir(tmp_path):
     except (OSError, NotImplementedError):
         pytest.skip("symlink creation not permitted on this platform/run")
 
-    out = perseus.render_source("@perseus v0.5\n@tree\n", cfg(), ws)
+    out = perseus.render_source("@perseus v0.5\n@tree .\n", cfg(), ws)
     assert "SECRET_LEAK.md" not in out          # the escaped file is NOT enumerated
     assert "local.md" in out                     # normal contents still listed
     assert "not followed" in out                 # symlink surfaced but not descended

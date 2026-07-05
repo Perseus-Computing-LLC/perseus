@@ -24,7 +24,7 @@ def test_run_ollama_success(monkeypatch):
             return self
         def __exit__(self, exc_type, exc, tb):
             return False
-        def read(self):
+        def read(self, *_a):
             return b'{"response":"ranked output"}'
     monkeypatch.setattr(perseus.urllib.request, "urlopen", lambda *a, **k: Resp())
     out = perseus.run_ollama("prompt", cfg())
@@ -35,7 +35,7 @@ def test_run_llm_openai_compat_success(monkeypatch):
             return self
         def __exit__(self, exc_type, exc, tb):
             return False
-        def read(self):
+        def read(self, *_a):
             return b'{"choices":[{"message":{"content":"compat result"}}]}'
     monkeypatch.setattr(perseus.urllib.request, "urlopen", lambda *a, **k: Resp())
     out, code = perseus.run_llm("openai-compat", "prompt", cfg(), model="mistral", model_url="http://localhost:11434")
@@ -46,7 +46,7 @@ def test_run_llm_daedalus_routes_to_ollama(monkeypatch):
     class FakeResp:
         def __enter__(self): return self
         def __exit__(self, *a): pass
-        def read(self): return b'{"message":{"content":"daedalus-reply"}}'
+        def read(self, *_a): return b'{"message":{"content":"daedalus-reply"}}'
     def fake_urlopen(req, timeout=None):
         captured["url"] = req.full_url
         captured["data"] = json.loads(req.data.decode())
@@ -67,7 +67,7 @@ def test_run_llm_hermes_alias_routes_to_openai_compat(monkeypatch):
     class Resp:
         def __enter__(self): return self
         def __exit__(self, exc_type, exc, tb): return False
-        def read(self):
+        def read(self, *_a):
             return b'{"choices":[{"message":{"content":"pong"}}]}'
 
     def fake_urlopen(req, *a, **k):
@@ -90,7 +90,7 @@ def test_run_llm_hermes_uses_hermes_config_keys(monkeypatch):
     class Resp:
         def __enter__(self): return self
         def __exit__(self, exc_type, exc, tb): return False
-        def read(self):
+        def read(self, *_a):
             return b'{"choices":[{"message":{"content":"ok"}}]}'
 
     def fake_urlopen(req, *a, **k):
@@ -115,7 +115,7 @@ def test_run_llm_hermes_falls_back_to_generic_keys(monkeypatch):
     class Resp:
         def __enter__(self): return self
         def __exit__(self, exc_type, exc, tb): return False
-        def read(self):
+        def read(self, *_a):
             return b'{"choices":[{"message":{"content":"ok"}}]}'
 
     def fake_urlopen(req, *a, **k):
