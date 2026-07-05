@@ -5856,12 +5856,21 @@ def resolve_tool(args_str: str, cfg: dict, workspace: Path | None = None) -> str
     except Exception:
         args = rest.split()
 
-    # Check arg restrictions
+    # Check arg restrictions.
+    # Security: a bare-flag allow-list entry (e.g. "--output") must NOT admit an
+    # arbitrary attached value (e.g. "--output=/etc/anything"), which previously
+    # slipped through because only the flag part was matched. To allow arbitrary
+    # values for a flag, the operator must opt in explicitly by listing the flag
+    # WITH a trailing '=' ("--output="). An exact "--flag=value" entry also works.
     for arg in args:
-        # Split on '=' for --flag=value form — check just the flag part
-        flag = arg.split("=", 1)[0]
-        if arg not in allowed_args and flag not in allowed_args:
-            return f"> ⚠ @tool: argument {arg!r} is not allowed for {tool_name!r}."
+        if arg in allowed_args:
+            continue
+        if "=" in arg:
+            flag = arg.split("=", 1)[0]
+            # "--flag=" in the allow-list = "any value permitted for --flag".
+            if (flag + "=") in allowed_args:
+                continue
+        return f"> ⚠ @tool: argument {arg!r} is not allowed for {tool_name!r}."
 
     # Execute
     try:
@@ -6914,9 +6923,17 @@ def resolve_tree(args_str: str, cfg: dict, workspace: Path | None = None) -> str
             if is_excluded(child.name):
                 continue
             indent = "  " * cur_depth
-            if child.is_dir():
+            # Security: do NOT descend into symlinked directories. `_resolve_path`
+            # validates only the tree root; a workspace-internal symlink pointing
+            # outside the workspace would otherwise leak out-of-tree filenames via
+            # recursion. `@list` (os.walk, followlinks=False) already declines to
+            # follow links — match that behaviour here.
+            if child.is_dir() and not child.is_symlink():
                 out_lines.append(f"{indent}{child.name}/")
                 walk(child, cur_depth + 1)
+            elif child.is_dir():
+                # Surface the symlinked directory by name but never recurse into it.
+                out_lines.append(f"{indent}{child.name}/ (symlink, not followed)")
             else:
                 if matches_file(child.name):
                     out_lines.append(f"{indent}{child.name}")
@@ -16285,6 +16302,60 @@ def _deterministic_narrative(
 
 ALIAS_PATTERN = re.compile(r'^[a-zA-Z0-9_-]+$')
 
+import ipaddress as _fed_ipaddress
+import socket as _fed_socket
+
+
+def _fed_is_private_host(hostname: str) -> bool:
+    """True if hostname is/resolves to a private/loopback/link-local/multicast
+    address. Mirrors the @perseus resolver guard. Unresolvable → treated as
+    private (reject for safety). 127.0.0.1 / ::1 are allowed for local testing."""
+    try:
+        addr = _fed_ipaddress.ip_address(hostname)
+    except ValueError:
+        try:
+            addr = _fed_ipaddress.ip_address(_fed_socket.gethostbyname(hostname))
+        except (_fed_socket.gaierror, ValueError):
+            return True
+    if addr == _fed_ipaddress.IPv4Address("127.0.0.1") or addr == _fed_ipaddress.IPv6Address("::1"):
+        return False
+    return addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_multicast
+
+
+def _federation_url_error(url_str: str, cfg: dict) -> str | None:
+    """SSRF guard for federation fetch/push URLs. Returns None when the URL is
+    permitted, else a short reason string. http/https only + private-IP block
+    (unless federation.allow_internal=true). Callers MUST also use a no-redirect
+    opener (`_fed_build_opener`) so a public URL cannot 30x-pivot to an internal
+    host after this check passes."""
+    try:
+        parsed = urllib.parse.urlparse(url_str)
+    except Exception as e:  # pragma: no cover - defensive
+        return f"invalid URL ({e})"
+    if parsed.scheme not in ("http", "https"):
+        return f"unsupported URL scheme `{parsed.scheme}` (only http/https allowed)"
+    fed_cfg = cfg.get("federation", {}) or {}
+    if fed_cfg.get("allow_internal", False):
+        return None
+    hostname = parsed.hostname
+    if hostname and _fed_is_private_host(hostname):
+        return (f"internal/private host `{hostname}` blocked "
+                "(set federation.allow_internal=true to allow)")
+    return None
+
+
+class _FedNoRedirect(urllib.request.HTTPRedirectHandler):
+    """Block 3xx redirects so a benign federation URL cannot pivot to an
+    internal target after the private-IP pre-check (SSRF via redirect)."""
+    def redirect_request(self, req, fp, code, msg, hdrs, newurl):
+        raise urllib.error.HTTPError(
+            req.full_url, code,
+            f"federation redirect blocked: {code} → {newurl}", hdrs, fp)
+
+
+def _fed_build_opener():
+    return urllib.request.build_opener(_FedNoRedirect)
+
 
 def _federation_manifest_path(cfg: dict) -> Path:
     return Path(
@@ -16510,6 +16581,11 @@ def _fetch_remote_narrative(entry: dict, cfg: dict) -> tuple[str | None, str | N
     if ws_hash:
         req_url += f"?ws={ws_hash}"
 
+    # SSRF guard: scheme + private-IP block before any network access.
+    _ssrf_err = _federation_url_error(req_url, cfg)
+    if _ssrf_err:
+        return (None, f"blocked federation fetch: {_ssrf_err}", None)
+
     try:
         req = urllib.request.Request(req_url)
         req.add_header("User-Agent", f"perseus/{_PERSEUS_VERSION} federation-client")
@@ -16524,7 +16600,7 @@ def _fetch_remote_narrative(entry: dict, cfg: dict) -> tuple[str | None, str | N
         # slightly more generous default, config-overridable.
         max_bytes = int(cfg.get("federation", {}).get("max_fetch_bytes", 4 * 1024 * 1024))
 
-        with urllib.request.urlopen(req, timeout=fetch_timeout) as resp:
+        with _fed_build_opener().open(req, timeout=fetch_timeout) as resp:
             if resp.status == 304:
                 return (None, "not modified (304)", None)
             # #552: read_timeout_s was parsed but never applied, and
@@ -16616,7 +16692,12 @@ def _push_narrative_to_subscriber(sub: dict, narrative_body: str,
         return (False, "no push_url configured")
     
     push_token = remote.get("push_token", "")
-    
+
+    # SSRF guard: scheme + private-IP block before any network access.
+    _ssrf_err = _federation_url_error(push_url, cfg)
+    if _ssrf_err:
+        return (False, f"blocked federation push: {_ssrf_err}")
+
     import json as _json
     payload = _json.dumps({
         "workspace_id": sig.get("workspace_id") if sig else None,
@@ -16638,7 +16719,7 @@ def _push_narrative_to_subscriber(sub: dict, narrative_body: str,
                 req.add_header("Authorization", f"Bearer {push_token}")
             
             timeout = int(cfg.get("federation", {}).get("fetch_timeout_s", 10))
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with _fed_build_opener().open(req, timeout=timeout) as resp:
                 if resp.status in (200, 201, 202):
                     return (True, f"pushed to {push_url}")
                 return (False, f"HTTP {resp.status}")
@@ -21949,7 +22030,13 @@ def run_llm(provider: str, prompt: str, cfg: dict, model: str | None = None, mod
     )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            body = json.loads(resp.read().decode())
+            # DoS guard: a malicious/compromised LLM endpoint could stream an
+            # unbounded body into memory. Cap the read (config-overridable).
+            _max_bytes = int(cfg.get("pythia", {}).get("max_response_bytes", 8 * 1024 * 1024))
+            _raw = resp.read(_max_bytes + 1)
+            if len(_raw) > _max_bytes:
+                return (f"> ⚠ LLM response exceeded max_response_bytes ({_max_bytes}).", 2)
+            body = json.loads(_raw.decode())
         if provider == "ollama":
             text = str(body.get("message", {}).get("content", "")).strip()
         else:
@@ -22316,7 +22403,12 @@ def run_ollama(prompt: str, cfg: dict, model_override: str | None = None) -> str
     )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            payload = json.loads(resp.read().decode())
+            # DoS guard: cap the response body (config-overridable).
+            _max_bytes = int(cfg.get("pythia", {}).get("max_response_bytes", 8 * 1024 * 1024))
+            _raw = resp.read(_max_bytes + 1)
+            if len(_raw) > _max_bytes:
+                return f"> ⚠ Ollama response exceeded max_response_bytes ({_max_bytes})."
+            payload = json.loads(_raw.decode())
         return str(payload.get("response", "")).strip() or "> ⚠ Ollama returned no response."
     except urllib.error.URLError as exc:
         return f"> ⚠ Ollama request failed: {exc}"
