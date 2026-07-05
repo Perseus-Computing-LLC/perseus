@@ -4,7 +4,7 @@
 #  Live Context Engine for AI Assistants
 #
 #  Usage:
-#    curl -sSL https://raw.githubusercontent.com/tcconnally/perseus/main/scripts/bootstrap.sh | bash
+#    curl -sSL https://raw.githubusercontent.com/Perseus-Computing-LLC/perseus/main/scripts/bootstrap.sh | bash
 #
 #  What this does:
 #    1. Installs system dependencies (Python 3.10+, pip)
@@ -39,7 +39,7 @@ echo ""
 echo "============================================"
 echo "  Perseus One-Shot Bootstrap"
 echo "  Live Context Engine for AI Assistants"
-echo "  github.com/tcconnally/perseus"
+echo "  github.com/Perseus-Computing-LLC/perseus"
 echo "============================================"
 
 # ── Step 1: OS detection & system dependencies ─────────────────────────────
@@ -143,6 +143,16 @@ ok "pip: $($PYTHON -m pip --version | awk '{print $2}')"
 # ── Step 2: Install perseus-ctx ─────────────────────────────────────────────
 header "Step 2: Install perseus-ctx"
 
+# Supply-chain: allow pinning the exact version so a curl|bash install is
+# reproducible and not silently exposed to a newly-published (possibly
+# compromised) release. `PERSEUS_CTX_VERSION=1.0.17 curl ... | bash` pins to
+# `perseus-ctx==1.0.17`; unset keeps the previous latest-floating behaviour.
+PKG_SPEC="perseus-ctx"
+if [ -n "${PERSEUS_CTX_VERSION:-}" ]; then
+    PKG_SPEC="perseus-ctx==${PERSEUS_CTX_VERSION}"
+    info "Pinning install to ${PKG_SPEC}"
+fi
+
 if command -v perseus &>/dev/null; then
     CURRENT_VER=$(perseus --version 2>/dev/null || echo "unknown")
     ok "perseus already installed: $CURRENT_VER"
@@ -150,11 +160,11 @@ if command -v perseus &>/dev/null; then
         info "Skipping reinstall (use FORCE=1 to upgrade)"
     else
         info "Upgrading perseus-ctx..."
-        $PYTHON -m pip install --upgrade perseus-ctx
+        $PYTHON -m pip install --upgrade "$PKG_SPEC"
     fi
 else
     info "Installing perseus-ctx via pip..."
-    $PYTHON -m pip install perseus-ctx
+    $PYTHON -m pip install "$PKG_SPEC"
 fi
 
 # Verify installation
@@ -233,7 +243,7 @@ else
     info "Creating .perseus/config.yaml..."
     cat > "$CONFIG_FILE" << 'CONFEOF'
 # Perseus workspace configuration
-# Docs: https://github.com/tcconnally/perseus/blob/main/SETUP-GUIDE.md
+# Docs: https://github.com/Perseus-Computing-LLC/perseus/blob/main/SETUP-GUIDE.md
 
 render:
   # Enable @query shell execution (REQUIRED for shell directives to work)
@@ -348,5 +358,5 @@ echo "    1. source .env                   # Load environment variables"
 echo "    2. perseus render .perseus/context.md --output AGENTS.md"
 echo "    3. cat AGENTS.md                 # Verify rendered context"
 echo ""
-echo "  Full docs: https://github.com/tcconnally/perseus/blob/main/SETUP-GUIDE.md"
+echo "  Full docs: https://github.com/Perseus-Computing-LLC/perseus/blob/main/SETUP-GUIDE.md"
 echo "============================================"
