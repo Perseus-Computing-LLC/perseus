@@ -245,9 +245,17 @@ def resolve_tree(args_str: str, cfg: dict, workspace: Path | None = None) -> str
             if is_excluded(child.name):
                 continue
             indent = "  " * cur_depth
-            if child.is_dir():
+            # Security: do NOT descend into symlinked directories. `_resolve_path`
+            # validates only the tree root; a workspace-internal symlink pointing
+            # outside the workspace would otherwise leak out-of-tree filenames via
+            # recursion. `@list` (os.walk, followlinks=False) already declines to
+            # follow links — match that behaviour here.
+            if child.is_dir() and not child.is_symlink():
                 out_lines.append(f"{indent}{child.name}/")
                 walk(child, cur_depth + 1)
+            elif child.is_dir():
+                # Surface the symlinked directory by name but never recurse into it.
+                out_lines.append(f"{indent}{child.name}/ (symlink, not followed)")
             else:
                 if matches_file(child.name):
                     out_lines.append(f"{indent}{child.name}")
