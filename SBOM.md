@@ -1,32 +1,84 @@
 # Software Bill of Materials (SBOM) for Perseus
 
-This SBOM document lists all direct and transitive dependencies of the Perseus project, as required for federal procurement compliance.
+Perseus is distributed as a **single self-contained Python file** (`perseus.py`).
+This document describes its dependencies for federal procurement compliance.
 
-## NTIA Minimum Elements Checklist
+> **Read this first — scope.** Two very different dependency sets exist and were
+> previously conflated in this file:
+>
+> 1. **Runtime (distributed)** — what actually ships and executes on a user's
+>    machine or in the container image. This is a *tiny* set.
+> 2. **Build / development (NOT distributed)** — the toolchain used to test,
+>    lint, type-check, and package Perseus (pytest, mypy, poetry, twine, …).
+>    None of these are present in the shipped artifact.
+>
+> Attack-surface and vulnerability analysis should be scoped to the **runtime**
+> set. The build/dev freeze is retained at the end of this document for
+> transparency, clearly labeled.
 
-| Element                  | Status      | Notes                                                                                                                                                                                                                                                                          |
-| :----------------------- | :---------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Data Fields**          |             |                                                                                                                                                                                                                                                                                |
-| - Supplier Name          | Provided    | Perseus-Computing-LLC                                                                                                                                                                                                                                                          |
-| - Component Name         | Provided    | Each Python package listed below.                                                                                                                                                                                                                                              |
-| - Component Version      | Provided    | Version numbers are specified for each package.                                                                                                                                                                                                                                |
-| - SPDX ID (or equivalent)| Not Provided| Not directly applicable for Python packages in requirements.txt. Package names serve as identifiers.                                                                                                                                                                          |
-| - Hash of Component      | Not Provided| While `pip` can generate hashes, they are not included in this SBOM by default. Can be generated on request.                                                                                                                                                                  |
-| - Relationship           | Provided    | All listed components are direct dependencies of Perseus.                                                                                                                                                                                                                      |
-| - Author Timestamp       | Provided    | This document's creation date.                                                                                                                                                                                                                                                 |
-| **Automation Support**   |             |                                                                                                                                                                                                                                                                                |
-| - Format                 | Human-readable| Markdown format. Can be converted to machine-readable formats (e.g., SPDX, CycloneDX) if needed.                                                                                                                                                                               |
-| **Practices and Processes** |         |                                                                                                                                                                                                                                                                                |
-| - Frequency              | On Request  | Generated as part of the compliance process. Updated as dependencies change.                                                                                                                                                                                                   |
-| - Depth                  | Transitive  | `pip freeze` captures all installed packages, which includes transitive dependencies.                                                                                                                                                                                          |
-| - Distribution           | Included    | This document is included in the repository.                                                                                                                                                                                                                                   |
-| - Access                 | Public      | This document is publicly available in the Perseus repository.                                                                                                                                                                                                                 |
+A machine-readable CycloneDX 1.5 SBOM of the runtime set is provided alongside
+this document: [`sbom.cdx.json`](sbom.cdx.json).
 
-## Python Dependencies
+---
 
-The following Python packages are used in the Perseus project. This list is generated using `pip freeze` from the project's virtual environment, capturing both direct and transitive dependencies.
+## 1. Runtime dependencies (distributed)
 
-**Note:** License information for each package is not automatically extracted by `pip freeze`. This would require additional tools (e.g., `pip-licenses` or `license-scanner`). For compliance, refer to the individual package repositories or distribution metadata for exact license terms.
+The distributed package `perseus-ctx` declares exactly one third-party runtime
+dependency. `perseus.py` is otherwise built entirely on the Python standard
+library (its single hard third-party import is `yaml`).
+
+| Component | Version | License | Role |
+| :-------- | :------ | :------ | :--- |
+| CPython   | >= 3.10 (image ships 3.12) | Python-2.0 (PSF) | Interpreter |
+| PyYAML    | >= 6.0.1 (tested 6.0.3)    | MIT              | YAML parsing/emitting — the only hard third-party runtime dependency |
+
+Source of truth: `pyproject.toml` → `dependencies = ["pyyaml>=6.0.1"]`.
+
+### Optional extras (installed only on explicit opt-in)
+
+| Extra    | Adds        | When needed |
+| :------- | :---------- | :---------- |
+| `[mcp]`  | `mcp`       | Only if using the external `mcp` package integration path. |
+| `[dev]`  | `pytest`, `coverage`, `hypothesis` | Development/testing only — never distributed. |
+
+### Container / Iron Bank image
+
+The hardened container image ships **only** CPython 3.12 + PyYAML on an approved
+minimal base — it does **not** install the build/dev freeze below (it installs
+`requirements-runtime.txt`, which pins PyYAML alone). See `ironbank/` for the
+hardened Dockerfile, hardening manifest, and a pinned, hash-validated
+image-specific SBOM.
+
+---
+
+## 2. NTIA Minimum Elements Checklist
+
+| Element | Status | Notes |
+| :------ | :----- | :---- |
+| Supplier Name | Provided | Perseus Computing LLC |
+| Component Name | Provided | See runtime table above; machine-readable in `sbom.cdx.json`. |
+| Component Version | Provided | Pinned in `sbom.cdx.json`. |
+| Unique Identifier | Provided | Package URLs (purl) in `sbom.cdx.json`. |
+| Hash of Component | Provided | SHA-256 of the pinned PyYAML wheel in `sbom.cdx.json` and in `ironbank/hardening_manifest.yaml`. |
+| Relationship | Provided | Dependency graph in `sbom.cdx.json` (`dependencies`). |
+| Author / Timestamp | Provided | In `sbom.cdx.json` metadata. |
+| Format | Machine-readable | CycloneDX 1.5 JSON (`sbom.cdx.json`) + this human-readable summary. |
+| Depth | Complete for runtime | Runtime set is flat (PyYAML has no further hard runtime deps). |
+| Distribution | Included | Committed in the repository. |
+| Access | Public | Publicly available in the Perseus repository. |
+| Frequency | On dependency change | Regenerated when `pyproject.toml` runtime deps change. |
+
+---
+
+## 3. Build / development environment (NOT distributed)
+
+> ⚠️ **The packages below are the development, testing, and packaging toolchain.
+> They are NOT part of any shipped Perseus artifact** (not in `perseus.py`, not
+> in the pip package's runtime deps, not in the container image). They are listed
+> only for transparency into the build environment. Do **not** treat this list as
+> the product's attack surface — use §1 for that.
+
+This is a `pip freeze` of the full development virtual environment:
 
 ```
 annotated-doc==0.0.4
