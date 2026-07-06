@@ -682,16 +682,23 @@ def _doctor_check_stale_shim(cfg: dict, workspace: Path) -> DoctorResult:
         return DoctorResult("stale_shim", "ok", "Legacy shim",
                            "no shim at ~/.local/bin/perseus", "")
     
-    # Check if this is a shim (symlink or wrapper script) vs direct binary
+    # Distinguish a legit pip install (a console entry-point script, which may
+    # be reached via a stable symlink) from an old install.sh shim. A pip
+    # entry-point wrapper contains `from perseus import main`; a legacy shim is
+    # a /bin/sh wrapper that execs a bundled perseus.py, or points at the old
+    # ~/.local/share/perseus/perseus.py. Only the latter is stale (#252). A bare
+    # symlink to the pip console script is the recommended stable-pointer setup
+    # and must NOT be flagged (previously any symlink always warned).
     is_shim = False
     try:
-        if os.path.islink(shim_path):
+        target = os.path.realpath(shim_path)
+        with open(target, encoding='utf-8') as f:
+            head = f.read(4096)
+        is_pip_entrypoint = ('from perseus import' in head) or ('import perseus' in head)
+        looks_like_sh_shim = head.startswith('#!/bin/sh') or head.startswith('#!/usr/bin/env sh')
+        refs_legacy_bundle = ('/.local/share/perseus/perseus.py' in head)
+        if not is_pip_entrypoint and (looks_like_sh_shim or refs_legacy_bundle):
             is_shim = True
-        else:
-            with open(shim_path, encoding='utf-8') as f:
-                first_line = f.readline().strip()
-                if 'exec' in first_line or '#!/bin/sh' in first_line or 'perseus.py' in first_line:
-                    is_shim = True
     except Exception:
         pass
     
