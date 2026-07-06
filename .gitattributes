@@ -1,0 +1,10 @@
+# Line-ending policy.
+#
+# perseus.py is a generated, single-file artifact run directly via its
+# `#!/usr/bin/env python3` shebang. If it is checked out or built with CRLF
+# endings (e.g. on Windows with core.autocrlf=true), the Linux kernel reads the
+# shebang as `python3\r` and the entrypoint fails — this bites container and
+# Iron Bank builds in particular. Pin it, and shell scripts (same shebang
+# exposure), to LF regardless of a contributor's local git configuration.
+perseus.py text eol=lf
+*.sh text eol=lf
