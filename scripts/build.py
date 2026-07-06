@@ -309,6 +309,105 @@ def render_artifact(repo_root: Path) -> str:
     return output
 
 
+# Curated license map for runtime dependencies (pyproject does not carry license
+# metadata). Extend when a new runtime dependency is added to pyproject.toml.
+_RUNTIME_DEP_LICENSES = {
+    "pyyaml": "MIT",
+}
+
+
+def render_sbom(repo_root: Path) -> str:
+    """Return the runtime CycloneDX SBOM, generated from pyproject.toml.
+
+    Deterministic (no timestamps, no per-wheel hashes) so it can be drift-checked
+    exactly like perseus.py. Describes the DISTRIBUTED runtime only — CPython plus
+    the declared runtime dependencies. The dev/CI toolchain is documented
+    separately in SBOM.md; the Iron Bank image ships a pinned, hash-validated
+    variant at ironbank/sbom-runtime.cdx.json.
+    """
+    import json
+
+    version = (repo_root / "VERSION").read_text(encoding="utf-8").strip()
+    pyproject = (repo_root / "pyproject.toml").read_text(encoding="utf-8")
+
+    m = re.search(r'^\s*name\s*=\s*"([^"]+)"', pyproject, re.MULTILINE)
+    pkg_name = m.group(1) if m else "perseus-ctx"
+    m = re.search(r'^\s*requires-python\s*=\s*"([^"]+)"', pyproject, re.MULTILINE)
+    py_req = m.group(1) if m else ">=3.10"
+    m = re.search(r'^\s*dependencies\s*=\s*(\[[^\]]*\])', pyproject, re.MULTILINE | re.DOTALL)
+    deps = ast.literal_eval(m.group(1)) if m else []
+
+    components = [{
+        "type": "application",
+        "bom-ref": "python",
+        "name": "python",
+        "version": py_req,
+        "description": "CPython interpreter (the distributed container image ships 3.12).",
+        "licenses": [{"license": {"id": "Python-2.0"}}],
+        "purl": "pkg:generic/python",
+    }]
+    dep_refs = ["python"]
+    _spec = re.compile(r'^([A-Za-z0-9][A-Za-z0-9._-]*)\s*(.*)$')
+    for dep in deps:
+        dm = _spec.match(dep.strip())
+        if not dm:
+            continue
+        name, spec = dm.group(1), dm.group(2).strip()
+        ref = name.lower()
+        comp = {
+            "type": "library",
+            "bom-ref": ref,
+            "name": name,
+            "version": spec or "*",
+            "purl": f"pkg:pypi/{name.lower()}",
+        }
+        lic = _RUNTIME_DEP_LICENSES.get(name.lower())
+        if lic:
+            comp["licenses"] = [{"license": {"id": lic}}]
+        else:
+            print(
+                f"WARNING: no license mapped for runtime dependency {name!r}; "
+                "add it to _RUNTIME_DEP_LICENSES in scripts/build.py",
+                file=sys.stderr,
+            )
+        components.append(comp)
+        dep_refs.append(ref)
+
+    bom = {
+        "bomFormat": "CycloneDX",
+        "specVersion": "1.5",
+        "version": 1,
+        "metadata": {
+            "authors": [{"name": "Perseus Computing LLC", "email": "perseus@perseus.observer"}],
+            "component": {
+                "type": "application",
+                "bom-ref": f"{pkg_name}@{version}",
+                "name": pkg_name,
+                "version": version,
+                "description": "Perseus — single-file, on-prem live context engine for AI agents.",
+                "licenses": [{"license": {"id": "MIT"}}],
+                "purl": f"pkg:pypi/{pkg_name}@{version}",
+                "externalReferences": [
+                    {"type": "website", "url": "https://perseus.observer"},
+                    {"type": "vcs", "url": "https://github.com/Perseus-Computing-LLC/perseus"},
+                ],
+            },
+            "properties": [
+                {"name": "perseus:sbom:scope",
+                 "value": "RUNTIME (distributed) dependencies only. The dev/CI/packaging toolchain is documented in SBOM.md and is NOT shipped."},
+                {"name": "perseus:sbom:generator",
+                 "value": "scripts/build.py render_sbom() — generated from pyproject.toml; do not hand-edit."},
+            ],
+        },
+        "components": components,
+        "dependencies": [
+            {"ref": f"{pkg_name}@{version}", "dependsOn": dep_refs},
+            *[{"ref": r, "dependsOn": []} for r in dep_refs],
+        ],
+    }
+    return json.dumps(bom, indent=2) + "\n"
+
+
 def smoke_test(out_path: Path) -> None:
     """Run the generated artifact's version command."""
     result = subprocess.run(
@@ -343,6 +442,12 @@ def build(output_path: Path | None = None) -> None:
     tmp_path.write_text(output, encoding="utf-8")
     os.replace(tmp_path, out_path)
     print(f"Built {out_path} ({len(output.splitlines())} lines)")
+    # Regenerate the machine-readable runtime SBOM from pyproject.toml so it can
+    # never drift from the declared dependencies (only for the canonical build).
+    if output_path is None:
+        sbom_path = repo_root / "sbom.cdx.json"
+        sbom_path.write_text(render_sbom(repo_root), encoding="utf-8", newline="\n")
+        print(f"Built {sbom_path}")
     smoke_test(out_path)
 
 
@@ -417,6 +522,24 @@ def check() -> None:
         sys.exit(1)
 
     print("Build check ok: perseus.py is in sync with src/")
+
+    # Verify the runtime SBOM matches pyproject.toml (drift guard).
+    sbom_path = repo_root / "sbom.cdx.json"
+    expected_sbom = render_sbom(repo_root)
+    try:
+        current_sbom = sbom_path.read_text(encoding="utf-8")
+    except Exception as exc:
+        print(f"ERROR: could not read {sbom_path}: {exc}", file=sys.stderr)
+        sys.exit(1)
+    if current_sbom != expected_sbom:
+        print(
+            "ERROR: sbom.cdx.json is out of sync with pyproject.toml — run "
+            "`python scripts/build.py` and commit the regenerated SBOM.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    print("Build check ok: sbom.cdx.json is in sync with pyproject.toml")
+
     smoke_test(out_path)
 
 

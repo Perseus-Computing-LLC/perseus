@@ -3,25 +3,45 @@
   "specVersion": "1.5",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-07-06T00:00:00Z",
-    "authors": [{ "name": "Perseus Computing LLC", "email": "perseus@perseus.observer" }],
+    "authors": [
+      {
+        "name": "Perseus Computing LLC",
+        "email": "perseus@perseus.observer"
+      }
+    ],
     "component": {
       "type": "application",
-      "bom-ref": "perseus-ctx@1.0.17",
+      "bom-ref": "perseus-ctx@1.0.19",
       "name": "perseus-ctx",
-      "version": "1.0.17",
-      "description": "Perseus — single-file, on-prem live context engine for AI agents.",
-      "licenses": [{ "license": { "id": "MIT" } }],
-      "purl": "pkg:pypi/perseus-ctx@1.0.17",
+      "version": "1.0.19",
+      "description": "Perseus \u2014 single-file, on-prem live context engine for AI agents.",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "purl": "pkg:pypi/perseus-ctx@1.0.19",
       "externalReferences": [
-        { "type": "website", "url": "https://perseus.observer" },
-        { "type": "vcs", "url": "https://github.com/Perseus-Computing-LLC/perseus" }
+        {
+          "type": "website",
+          "url": "https://perseus.observer"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/Perseus-Computing-LLC/perseus"
+        }
       ]
     },
     "properties": [
       {
         "name": "perseus:sbom:scope",
-        "value": "RUNTIME (distributed) dependencies only. The development/CI/packaging toolchain (pytest, mypy, poetry, twine, etc.) is documented separately in SBOM.md and is NOT part of any shipped artifact."
+        "value": "RUNTIME (distributed) dependencies only. The dev/CI/packaging toolchain is documented in SBOM.md and is NOT shipped."
+      },
+      {
+        "name": "perseus:sbom:generator",
+        "value": "scripts/build.py render_sbom() \u2014 generated from pyproject.toml; do not hand-edit."
       }
     ]
   },
@@ -31,35 +51,46 @@
       "bom-ref": "python",
       "name": "python",
       "version": ">=3.10",
-      "description": "CPython interpreter. The distributed container image ships 3.12.",
-      "licenses": [{ "license": { "id": "Python-2.0" } }],
-      "purl": "pkg:generic/python@3.12"
+      "description": "CPython interpreter (the distributed container image ships 3.12).",
+      "licenses": [
+        {
+          "license": {
+            "id": "Python-2.0"
+          }
+        }
+      ],
+      "purl": "pkg:generic/python"
     },
     {
       "type": "library",
       "bom-ref": "pyyaml",
-      "name": "PyYAML",
-      "version": ">=6.0.1",
-      "description": "YAML parser/emitter. The single hard third-party runtime dependency (pyproject.toml: pyyaml>=6.0.1). Reference/tested pin: 6.0.3.",
-      "licenses": [{ "license": { "id": "MIT" } }],
-      "purl": "pkg:pypi/pyyaml@6.0.3",
-      "hashes": [
+      "name": "pyyaml",
+      "version": ">=6.0.1,<7",
+      "purl": "pkg:pypi/pyyaml",
+      "licenses": [
         {
-          "alg": "SHA-256",
-          "content": "ba1cc08a7ccde2d2ec775841541641e4548226580ab850948cbfda66a1befcdc"
-        }
-      ],
-      "properties": [
-        {
-          "name": "perseus:sbom:hash-note",
-          "value": "SHA-256 is for the reference pin pyyaml 6.0.3 cp312 manylinux x86_64 wheel; the aarch64 wheel is 9149cad251584d5fb4981be1ecde53a1ca46c891a79788c0df828d2f166bda28."
+          "license": {
+            "id": "MIT"
+          }
         }
       ]
     }
   ],
   "dependencies": [
-    { "ref": "perseus-ctx@1.0.17", "dependsOn": ["python", "pyyaml"] },
-    { "ref": "pyyaml", "dependsOn": [] },
-    { "ref": "python", "dependsOn": [] }
+    {
+      "ref": "perseus-ctx@1.0.19",
+      "dependsOn": [
+        "python",
+        "pyyaml"
+      ]
+    },
+    {
+      "ref": "python",
+      "dependsOn": []
+    },
+    {
+      "ref": "pyyaml",
+      "dependsOn": []
+    }
   ]
 }

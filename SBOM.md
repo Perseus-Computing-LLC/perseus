@@ -57,11 +57,11 @@ image-specific SBOM.
 | :------ | :----- | :---- |
 | Supplier Name | Provided | Perseus Computing LLC |
 | Component Name | Provided | See runtime table above; machine-readable in `sbom.cdx.json`. |
-| Component Version | Provided | Pinned in `sbom.cdx.json`. |
+| Component Version | Provided | Version constraints in `sbom.cdx.json`; exact wheel pin in the Iron Bank image SBOM (`ironbank/sbom-runtime.cdx.json`). |
 | Unique Identifier | Provided | Package URLs (purl) in `sbom.cdx.json`. |
-| Hash of Component | Provided | SHA-256 of the pinned PyYAML wheel in `sbom.cdx.json` and in `ironbank/hardening_manifest.yaml`. |
+| Hash of Component | Provided | SHA-256 of the pinned PyYAML wheel in `ironbank/hardening_manifest.yaml` and `ironbank/sbom-runtime.cdx.json` (the shipped-image artifacts, where an exact wheel is pinned). |
 | Relationship | Provided | Dependency graph in `sbom.cdx.json` (`dependencies`). |
-| Author / Timestamp | Provided | In `sbom.cdx.json` metadata. |
+| Author | Provided | In `sbom.cdx.json` metadata. The BOM is generated deterministically from `pyproject.toml` by `scripts/build.py` (no timestamp, so it is reproducible and drift-checkable). |
 | Format | Machine-readable | CycloneDX 1.5 JSON (`sbom.cdx.json`) + this human-readable summary. |
 | Depth | Complete for runtime | Runtime set is flat (PyYAML has no further hard runtime deps). |
 | Distribution | Included | Committed in the repository. |
