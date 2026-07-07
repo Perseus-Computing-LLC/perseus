@@ -165,8 +165,12 @@ class TestConfigMerge569:
             global_yaml="mimir:\n  circuit_breaker:\n    threshold: 7\n    cooldown: 33\n",
             ws_yaml="mimir:\n  circuit_breaker:\n    threshold: 9\n",
         )
-        assert merged["mimir"]["circuit_breaker"]["threshold"] == 9
-        assert merged["mimir"]["circuit_breaker"]["cooldown"] == 33
+        # #704: legacy `mimir:` blocks are folded into the canonical
+        # `perseus_vault:` key at load, so the workspace-over-global nested
+        # merge is asserted there (a raw `mimir` key no longer survives load).
+        assert "mimir" not in merged
+        assert merged["perseus_vault"]["circuit_breaker"]["threshold"] == 9
+        assert merged["perseus_vault"]["circuit_breaker"]["cooldown"] == 33
 
 
 # ────────────────────────── #570: agora claim CAS ────────────────────────────
