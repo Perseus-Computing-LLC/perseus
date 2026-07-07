@@ -228,6 +228,11 @@ DEFAULT_CONFIG = {
         "vacuum_every_runs": 7,     # throttle the physical VACUUM (~weekly at nightly cadence)
         "history_retention": False, # never evict version history unless explicitly enabled
     },
+    # #692 — `perseus knows`: plain-language review of what the Vault holds.
+    "knows": {
+        "enabled": True,
+        "limit": 500,     # max entities loaded per review screen
+    },
     "hooks": {
         "enabled": True,
     },

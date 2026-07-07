@@ -244,6 +244,29 @@ def main():
     p_inbox_dismiss.add_argument("msg_id", help="Message id or prefix")
     p_inbox_dismiss.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
 
+    # knows (#692) — plain-language "what does my assistant know about me?"
+    def _add_knows_args(p):
+        p.add_argument("--json", action="store_true", help="Machine-readable JSON output")
+        p.add_argument("--show", default=None, metavar="ID",
+                       help="Full provenance for one memory (short id or unique prefix)")
+        p.add_argument("--forget", default=None, metavar="ID",
+                       help="Soft-archive a memory (reversible; confirms before writing)")
+        p.add_argument("--correct", default=None, metavar="ID",
+                       help='Record a correction: perseus knows --correct <id> "the right value"')
+        p.add_argument("value", nargs="?", default=None,
+                       help="Corrected value (used with --correct)")
+        p.add_argument("--include-archived", dest="include_archived", action="store_true",
+                       help="Include archived (forgotten) memories in the listing")
+        p.add_argument("--limit", type=int, default=None,
+                       help="Max memories to load (default: knows.limit or 500)")
+        p.add_argument("--yes", action="store_true", help="Skip confirmation prompts (scripting)")
+
+    p_knows = sub.add_parser(
+        "knows",
+        help="What does Perseus know about you? Grouped, trust-annotated, curatable",
+    )
+    _add_knows_args(p_knows)
+
     # memory (Mnēmē)
     p_mem = sub.add_parser("memory", help="Mnēmē — narrative project memory")
     mem_sub = p_mem.add_subparsers(dest="memory_command", required=True)
@@ -263,6 +286,9 @@ def main():
     p_mem_query.add_argument("question", help="Question or search terms")
     p_mem_query.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
     p_mem_query.add_argument("--llm", default=None, help="LLM provider")
+    # #692: `perseus memory review` is an alias for `perseus knows`
+    p_mem_review = mem_sub.add_parser("review", help="Alias for `perseus knows`")
+    _add_knows_args(p_mem_review)
 
     # memory federation (task-19, Phase 8.2)
     p_mem_fed = mem_sub.add_parser(
@@ -691,7 +717,12 @@ def main():
         return cmd_agora(args, cfg)
     elif args.command == "suggest":
         cmd_suggest(args, cfg)
+    elif args.command == "knows":
+        return cmd_knows(args, cfg)
     elif args.command == "memory":
+        # #692: `perseus memory review` aliases `perseus knows`
+        if getattr(args, "memory_command", None) == "review":
+            return cmd_knows(args, cfg)
         cmd_memory(args, cfg)
     elif args.command == "inbox":
         cmd_inbox(args, cfg)
