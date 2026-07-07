@@ -218,7 +218,7 @@ Published as [`io.github.Perseus-Computing-LLC/perseus`](https://registry.modelc
 
 ### MCP Tools
 
-<!-- test-count: 1624 — recount with: grep -rE "^\s*def test_" tests/ | wc -l -->
+<!-- test-count: 1734 — recount with: grep -rE "^\s*def test_" tests/ | wc -l -->
 <!-- The table below is the exact default output of _get_all_mcp_tools({}) — 30 rows. Recount before editing. -->
 31 MCP tools resolve live state at invocation time (including the legacy aliases `perseus_get_context`/`perseus_get_health`). Two additional sensitive tools — `perseus_query` (run a shell command) and `perseus_agent` (execute a local agent subprocess) — are **not** part of this default set: they require explicit `mcp.tool_allowlist` opt-in because they execute commands in the user's local shell (**not sandboxed, full user permissions apply**).
 
