@@ -6547,6 +6547,8 @@ def resolve_session(args_str: str, cfg: dict) -> str:
 _FOCUS_DEFAULT_CAPACITY = 32          # "a few dozen concepts" (paper: J-space holds a few dozen)
 _FOCUS_DEFAULT_HALFLIFE_H = 168.0     # recency half-life in hours (7 days)
 _FOCUS_MAX_TEXT = 500                 # cap item length to keep the broadcast lean
+_FOCUS_DEGREE_NORM = 8.0              # link count that maps to full centrality (1.0)
+_FOCUS_DEFAULT_CENTRALITY_WEIGHT = 0.5
 
 
 def _focus_cfg(cfg: dict) -> dict:
@@ -6576,6 +6578,47 @@ def _focus_halflife(cfg: dict) -> float:
 
 def _focus_now() -> datetime:
     return datetime.now().astimezone()
+
+
+def _focus_centrality(text: str, cfg: dict, workspace: Path) -> float:
+    """Graph-centrality of ``text`` within the Perseus Vault memory graph, in
+    [0, 1]. Higher = the item connects to more of the curated memory graph, so it
+    should broadcast more strongly (the paper's finding that J-space patterns have
+    ~100x the outbound connectivity of ordinary patterns — salience *is* how
+    widely a thing connects).
+
+    Uses degree centrality (link count) of the best-matching Vault entity, lightly
+    blended with recall relevance. Config-gated via ``focus.centrality.enabled``
+    and OFF by default: when disabled, unreachable, or unmatched, returns 0.0 so
+    salience is unchanged (the recency+frequency behavior). Fetched once per
+    admission, not per render, to keep rendering cheap.
+    """
+    cconf = _focus_cfg(cfg).get("centrality", {})
+    if not (isinstance(cconf, dict) and cconf.get("enabled")):
+        return 0.0
+    try:
+        conn = _get_connector(cfg)
+        if conn is None or not conn.available:
+            return 0.0
+        try:
+            k = int(cconf.get("k", 3))
+        except (TypeError, ValueError):
+            k = 3
+        seg = conn.recall(
+            query=text, max_results=max(1, k),
+            workspace_hash=_workspace_hash(workspace),
+        )
+        hits = getattr(seg, "items", None) or []
+        if not hits:
+            return 0.0
+        best = hits[0]
+        degree = len(getattr(best, "links", []) or [])
+        degree_cent = min(1.0, degree / _FOCUS_DEGREE_NORM)
+        relevance = max(0.0, min(1.0, float(getattr(best, "relevance", 0.0) or 0.0)))
+        # Weight degree (structure) over relevance (topical match).
+        return max(0.0, min(1.0, 0.7 * degree_cent + 0.3 * relevance))
+    except Exception:
+        return 0.0
 
 
 def _focus_load(workspace: Path, cfg: dict) -> list[dict]:
@@ -6639,7 +6682,20 @@ def _focus_salience(item: dict, cfg: dict, now: datetime) -> float:
             decay = 0.5 ** (age_h / _focus_halflife(cfg))
         except (ValueError, TypeError):
             decay = 1.0
-    return weight * freq_boost * decay
+
+    # Optional Vault graph-centrality boost (0 when the feature is off / no match).
+    try:
+        cw = float(_focus_cfg(cfg).get("centrality", {}).get(
+            "weight", _FOCUS_DEFAULT_CENTRALITY_WEIGHT))
+    except (TypeError, ValueError, AttributeError):
+        cw = _FOCUS_DEFAULT_CENTRALITY_WEIGHT
+    try:
+        cent = float(item.get("centrality", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        cent = 0.0
+    centrality_boost = 1.0 + cw * cent
+
+    return weight * freq_boost * decay * centrality_boost
 
 
 def _focus_rank(items: list[dict], cfg: dict, now: datetime) -> list[tuple[float, dict]]:
@@ -6692,6 +6748,12 @@ def _focus_render(items: list[dict], cfg: dict, now: datetime) -> str:
         meta = f" _(s={sal:.2f}"
         if hits:
             meta += f", ×{hits}"
+        try:
+            cent = float(it.get("centrality", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            cent = 0.0
+        if cent > 0:
+            meta += f", c={cent:.2f}"
         src = it.get("source")
         if src:
             meta += f", {src}"
@@ -6795,6 +6857,7 @@ def resolve_focus(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
                 "created": now.isoformat(timespec="seconds"),
                 "last_access": now.isoformat(timespec="seconds"),
                 "hits": 0,
+                "centrality": _focus_centrality(text, cfg, ws),
             })
             notes.append(f"{'Pinned' if do_pin else 'Added'}: {text}")
         dirty = True

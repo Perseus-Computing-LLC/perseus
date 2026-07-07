@@ -149,3 +149,85 @@ def test_focus_tool_dispatch_roundtrip(tmp_path):
     res = perseus._call_tool("perseus_focus", {"add": "via mcp"}, c, tmp_path)
     assert "via mcp" in res
     assert _load_items(c, tmp_path)[0]["text"] == "via mcp"
+
+
+# ── Vault graph-centrality salience (opt-in) ─────────────────────────────────
+
+class _FakeHit:
+    def __init__(self, n_links, relevance=0.0):
+        self.links = list(range(n_links))
+        self.relevance = relevance
+
+
+class _FakeSegment:
+    def __init__(self, items):
+        self.items = items
+
+
+class _FakeConn:
+    def __init__(self, hits, available=True):
+        self._hits = hits
+        self.available = available
+
+    def recall(self, query, max_results=10, workspace_hash=None, **kw):
+        return _FakeSegment(self._hits)
+
+
+def _centrality_cfg(tmp_path, weight=1.0):
+    c = _focus_cfg(tmp_path)
+    c["focus"]["centrality"] = {"enabled": True, "weight": weight, "k": 3}
+    return c
+
+
+def test_centrality_disabled_by_default(tmp_path):
+    c = _focus_cfg(tmp_path)  # no centrality block
+    perseus.resolve_focus('add="something"', c, tmp_path)
+    assert _load_items(c, tmp_path)[0]["centrality"] == 0.0
+
+
+def test_centrality_uses_vault_degree(tmp_path, monkeypatch):
+    c = _centrality_cfg(tmp_path)
+    monkeypatch.setattr(perseus, "_get_connector",
+                        lambda cfg: _FakeConn([_FakeHit(n_links=8, relevance=1.0)]))
+    perseus.resolve_focus('add="central item"', c, tmp_path)
+    cent = _load_items(c, tmp_path)[0]["centrality"]
+    assert cent > 0.9  # 8 links -> full degree centrality, + relevance
+
+
+def test_high_centrality_item_outranks_and_survives(tmp_path, monkeypatch):
+    c = _centrality_cfg(tmp_path, weight=3.0)
+    c["focus"]["capacity"] = 2
+
+    # First admission is highly central; later ones are not.
+    calls = {"n": 0}
+
+    def fake_get(cfg):
+        calls["n"] += 1
+        return _FakeConn([_FakeHit(n_links=8 if calls["n"] == 1 else 0)])
+
+    monkeypatch.setattr(perseus, "_get_connector", fake_get)
+    perseus.resolve_focus('add="hub concept"', c, tmp_path)     # central
+    perseus.resolve_focus('add="peripheral one"', c, tmp_path)
+    perseus.resolve_focus('add="peripheral two"', c, tmp_path)  # forces eviction
+    texts = {it["text"] for it in _load_items(c, tmp_path)}
+    assert "hub concept" in texts  # centrality boost keeps it in the workspace
+
+
+def test_centrality_graceful_when_vault_unavailable(tmp_path, monkeypatch):
+    c = _centrality_cfg(tmp_path)
+    monkeypatch.setattr(perseus, "_get_connector",
+                        lambda cfg: _FakeConn([], available=False))
+    perseus.resolve_focus('add="x"', c, tmp_path)
+    assert _load_items(c, tmp_path)[0]["centrality"] == 0.0
+
+
+def test_centrality_graceful_when_recall_raises(tmp_path, monkeypatch):
+    c = _centrality_cfg(tmp_path)
+
+    def boom(cfg):
+        raise RuntimeError("vault down")
+
+    monkeypatch.setattr(perseus, "_get_connector", boom)
+    out = perseus.resolve_focus('add="x"', c, tmp_path)  # must not crash
+    assert "x" in out
+    assert _load_items(c, tmp_path)[0]["centrality"] == 0.0

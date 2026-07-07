@@ -718,8 +718,14 @@ this release and ship in 1.0.10.
   non-pinned items are evicted on overflow, and pinned items are protected.
   Distinct from long-term recall (`@mimir`/`@memory`): bounded and actively
   maintained, not unbounded memory. Per-workspace JSON store under
-  `$PERSEUS_HOME/focus/`. The salience function is the intended extension point
-  for Perseus Vault graph-centrality ranking.
+  `$PERSEUS_HOME/focus/`.
+- **Vault graph-centrality salience (opt-in)** — when `focus.centrality.enabled`
+  is set, an admitted item's salience is boosted by its **degree centrality** in
+  the Perseus Vault memory graph (link count of the best-matching entity, lightly
+  blended with recall relevance): items that connect to more of the curated
+  memory graph broadcast more strongly. Fetched once per admission (not per
+  render); OFF by default and degrades to the recency+frequency behavior when the
+  Vault is disabled, unreachable, or has no match.
 
 ### 🧠 Memory Backend
 
