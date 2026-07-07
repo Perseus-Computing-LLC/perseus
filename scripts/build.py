@@ -79,6 +79,7 @@ MODULE_ORDER = [
     "src/perseus/synthesis.py",         # ← serve.py extraction: @synthesize
     "src/perseus/update.py",            # ← serve.py extraction: self-update
     "src/perseus/quickstart.py",        # ← Track B: perseus quickstart bootstrap + LLM auto-config
+    "src/perseus/knows.py",             # ← #692: `perseus knows` — plain-language memory review + curation (depends on mneme_connector)
     "src/perseus/speculate.py",         # ← #607: @speculate next-intent speculative prefetch (called at runtime from renderer/query/cli)
     "src/perseus/serve.py",             # ← still contains PRODUCT_PROFILES + trust CLI (not yet decomposed)
     "src/perseus/promptsize.py",        # ← #606: perseus prompt-size + @budget forensics (depends on renderer, compress, serve helpers)
