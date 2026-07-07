@@ -410,6 +410,17 @@ def main():
     p_cron_uninstall = cron_sub.add_parser("uninstall", help="Remove a crontab entry")
     p_cron_uninstall.add_argument("source", help="Path to Perseus source file to remove from crontab")
 
+    # vault (Perseus Vault memory-engine passthrough — #691 hygiene)
+    p_vault = sub.add_parser("vault", help="Perseus Vault memory-engine commands")
+    vault_sub = p_vault.add_subparsers(dest="vault_command", required=True)
+    p_vault_maintain = vault_sub.add_parser(
+        "maintain",
+        help="Run the one-shot memory hygiene pass (reversible archives; prints a JSON report)")
+    p_vault_maintain.add_argument("--dry-run", action="store_true", dest="dry_run",
+                        help="Preview the combined report without changing anything")
+    p_vault_maintain.add_argument("--vacuum", action="store_true",
+                        help="Also VACUUM the database file (physical rewrite — throttle to ~weekly)")
+
     # identity (Phase 27B — workspace identity + signing)
     p_identity = sub.add_parser("identity", help="Manage workspace cryptographic identity (Phase 27B)")
     id_sub = p_identity.add_subparsers(dest="identity_command", required=True)
@@ -662,6 +673,8 @@ def main():
             return rc
     elif args.command == "cron":
         cmd_cron(args, cfg)
+    elif args.command == "vault":
+        return cmd_vault_maintain(args, cfg)
     elif args.command == "launchd":
         if getattr(args, "launchd_command", None) == "uninstall":
             cmd_launchd_uninstall(args, cfg)
