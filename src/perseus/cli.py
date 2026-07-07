@@ -398,17 +398,25 @@ def main():
     p_serve.add_argument("--allow-lsp-mutations", action="store_true", dest="allow_lsp_mutations", help="Allow LSP executeCommand handlers that mutate Perseus state")
 
     # cron (POSIX scheduling)
-    p_cron = sub.add_parser("cron", help="Generate or remove a POSIX crontab entry for periodic rendering")
+    p_cron = sub.add_parser("cron", help="Generate or remove a POSIX crontab entry for a scheduled Perseus job")
     cron_sub = p_cron.add_subparsers(dest="cron_command")
     p_cron_create = cron_sub.add_parser("create", help="Generate a crontab entry")
-    p_cron_create.add_argument("source", help="Path to Perseus source file")
-    p_cron_create.add_argument("--output", "-o", required=True, help="Rendered output path")
-    p_cron_create.add_argument("--every", default="5",
-                        help="Minutes between renders (default: 5). Accepts '5', '15', '60'.")
+    p_cron_create.add_argument("source", nargs="?", default=None,
+                        help="Path to Perseus source file (required for --job render)")
+    p_cron_create.add_argument("--output", "-o", default=None,
+                        help="Rendered output path (required for --job render)")
+    p_cron_create.add_argument("--job", choices=["render", "maintain"], default="render",
+                        help="Scheduled job: render a source file (default) or run the "
+                             "memory hygiene pass `perseus vault maintain` (#693)")
+    p_cron_create.add_argument("--every", default=None,
+                        help="Minutes between runs (default: 5 for render; hygiene.schedule_minutes for maintain)")
     p_cron_create.add_argument("--install", action="store_true",
                         help="Append the entry to the current user's crontab (uses `crontab -l` + `crontab -`)")
     p_cron_uninstall = cron_sub.add_parser("uninstall", help="Remove a crontab entry")
-    p_cron_uninstall.add_argument("source", help="Path to Perseus source file to remove from crontab")
+    p_cron_uninstall.add_argument("source", nargs="?", default=None,
+                        help="Path to Perseus source file to remove from crontab (render entries)")
+    p_cron_uninstall.add_argument("--job", choices=["render", "maintain"], default="render",
+                        help="Which job's entries to remove (maintain removes `# perseus-hygiene` lines)")
 
     # vault (Perseus Vault memory-engine passthrough — #691 hygiene)
     p_vault = sub.add_parser("vault", help="Perseus Vault memory-engine commands")
@@ -444,12 +452,16 @@ def main():
     p_launchd = sub.add_parser("launchd", help="Scaffold or remove a macOS LaunchAgent for periodic rendering")
     launchd_sub = p_launchd.add_subparsers(dest="launchd_command")
     p_launchd_create = launchd_sub.add_parser("create", help="Create a LaunchAgent plist")
-    p_launchd_create.add_argument("source", help="Path to Perseus source file")
-    p_launchd_create.add_argument("--output", "-o", required=True, help="Rendered output path")
+    p_launchd_create.add_argument("source", nargs="?", default=None,
+                           help="Path to Perseus source file (required for --job render)")
+    p_launchd_create.add_argument("--output", "-o", default=None,
+                           help="Rendered output path (required for --job render)")
+    p_launchd_create.add_argument("--job", choices=["render", "maintain"], default="render",
+                           help="Scheduled job: render (default) or the memory hygiene pass (#693)")
     p_launchd_create.add_argument("--interval", type=int, default=300,
-                           help="Render interval in seconds (default: 300)")
+                           help="Interval in seconds (default: 300 for render; hygiene.schedule_minutes for maintain)")
     p_launchd_create.add_argument("--label", default=None,
-                           help="launchd label (default: com.perseus.render.<source-stem>)")
+                           help="launchd label (default: com.perseus.render.<source-stem> / com.perseus.hygiene)")
     p_launchd_create.add_argument("--force", action="store_true",
                            help="Overwrite existing plist")
     p_launchd_uninstall = launchd_sub.add_parser("uninstall", help="Remove a LaunchAgent plist")
@@ -459,10 +471,14 @@ def main():
     p_systemd = sub.add_parser("systemd", help="Scaffold or remove a user-space systemd timer for periodic rendering")
     systemd_sub = p_systemd.add_subparsers(dest="systemd_command")
     p_systemd_create = systemd_sub.add_parser("create", help="Create systemd timer + service units")
-    p_systemd_create.add_argument("source", help="Path to Perseus source file")
-    p_systemd_create.add_argument("--output", "-o", required=True, help="Rendered output path")
-    p_systemd_create.add_argument("--interval", default="5m",
-                           help="Render interval (e.g. '5m', '2h'); systemd time spec also accepted")
+    p_systemd_create.add_argument("source", nargs="?", default=None,
+                           help="Path to Perseus source file (required for --job render)")
+    p_systemd_create.add_argument("--output", "-o", default=None,
+                           help="Rendered output path (required for --job render)")
+    p_systemd_create.add_argument("--job", choices=["render", "maintain"], default="render",
+                           help="Scheduled job: render (default) or the memory hygiene pass (#693)")
+    p_systemd_create.add_argument("--interval", default=None,
+                           help="Interval (e.g. '5m', '2h'); default 5m for render, hygiene.schedule_minutes for maintain")
     p_systemd_create.add_argument("--install", action="store_true",
                            help="Write unit files to ~/.config/systemd/user/ and print activation commands")
     p_systemd_create.add_argument("--enable", action="store_true",
