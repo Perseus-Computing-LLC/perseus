@@ -1550,7 +1550,24 @@ def _serve_collect_stats(cfg: dict, workspace: Path) -> dict:
         "inbox_unread": None,
         "skills_count": None,
         "context_file_present": False,
+        "vault_active": None,
+        "vault_archived": None,
     }
+
+    # #695: Vault memory counts for the "What Perseus knows about you" panel.
+    # ACTIVE-only (perseus-vault #493) — the raw total_entities counts archived
+    # rows and would inflate what the user sees. Absent fields (older server)
+    # or an unreachable vault leave the dash ("—") rather than lying. Uses the
+    # shared singleton connector so a long-lived serve process pays the
+    # connection once and the circuit breaker gates re-probing a dead vault.
+    try:
+        if (cfg.get("knows") or {}).get("enabled", True):
+            vstats = _get_connector(cfg).stats()
+            if isinstance(vstats, dict) and "active_entities" in vstats:
+                stats["vault_active"] = vstats.get("active_entities")
+                stats["vault_archived"] = vstats.get("archived_entities")
+    except Exception:
+        pass
 
     # Narrative
     try:
@@ -1691,6 +1708,7 @@ def _serve_render_index(workspace: Path, stats: dict) -> str:
     # Endpoint cards
     endpoints = [
         ("/context", "Rendered .perseus/context.md", "Live render of the canonical context file (markdown)."),
+        ("/knows", "What Perseus knows about you", "Plain-language memory review — active-only counts, trust markers, recency (add ?format=json for machines)."),
         ("/narrative", "Mnēmē narrative", "Per-workspace project narrative distilled from checkpoints."),
         ("/health", "Maintenance report", "Stale checkpoints, near-duplicates, large context, old completed tasks."),
         ("/agora", "Task board", "All tasks in tasks/ with frontmatter status (markdown table)."),
@@ -1751,6 +1769,8 @@ def _serve_render_index(workspace: Path, stats: dict) -> str:
         f"{_stat('Checkpoint age', cp_age)}"
         f"{_stat('Pythia calls (24h)', stats.get('pythia_entries_24h'))}"
         f"{_stat('Pythia calls (all)', stats.get('pythia_entries_total'))}"
+        f"{_stat('Vault memories', stats.get('vault_active'))}"
+        f"{_stat('Vault archived', stats.get('vault_archived'))}"
         f"</div>"
         f"<h2>Endpoints</h2>"
         f"<div class='cards'>{cards}</div>"
@@ -1989,6 +2009,30 @@ def _serve_render_endpoint(endpoint: str, cfg: dict, workspace: Path, query: dic
             narrative_text, _ = redact_text(mp.read_text(encoding="utf-8"), cfg)
             return (200, "text/markdown; charset=utf-8", narrative_text)
 
+        if endpoint == "/knows":
+            # #695: the #692 renderer, served. Read-only — curation stays on
+            # the CLI (`perseus knows --forget/--correct`); the web layer has
+            # no write surface by design. Same redact + auth path as every
+            # other endpoint (bearer auth is enforced in _serve_handle_request
+            # before this function runs).
+            knows_cfg = cfg.get("knows") or {}
+            if not knows_cfg.get("enabled", True):
+                return (404, "text/plain; charset=utf-8",
+                        "perseus knows is disabled (config: knows.enabled = false)")
+            limit = int(knows_cfg.get("limit", _KNOWS_DEFAULT_LIMIT))
+            connector = _get_connector(cfg)   # shared singleton — do not close
+            hits, kerr = connector.browse(limit=limit)
+            if kerr:
+                return (503, "text/plain; charset=utf-8",
+                        f"Perseus Vault unreachable: {kerr}\n"
+                        "Run `perseus doctor` to diagnose the memory bridge.")
+            model = _knows_model(hits, connector.stats(), limit)
+            if query.get("format") == "json":
+                body, _ = redact_text(_render_knows_json(model), cfg)
+                return (200, "application/json; charset=utf-8", body)
+            body, _ = redact_text(_render_knows_human(model), cfg)
+            return (200, "text/markdown; charset=utf-8", body)
+
         if endpoint == "/federation/narrative":
             import json as _json
             import sys as _sys
@@ -2146,8 +2190,9 @@ def cmd_serve(args, cfg):
         elif not (getattr(args, "i_understand_no_auth", False) or bool(serve_cfg.get("allow_insecure_remote", False))):
             sys.stderr.write(
                 f"perseus serve: refusing to bind {host}:{port} — non-loopback hosts expose\n"
-                "  ALL of: rendered context, narrative, health, agora, latest checkpoint,\n"
-                "  AND Pythia log (which may contain prompts/responses from other workspaces).\n"
+                "  ALL of: rendered context, Vault memory review (/knows), narrative, health,\n"
+                "  agora, latest checkpoint, AND Pythia log (which may contain prompts/responses\n"
+                "  from other workspaces).\n"
                 "  Set serve.auth_token to protect endpoints, or set serve.allow_insecure_remote: true\n"
                 "  / pass --i-understand-no-auth to proceed without auth.\n"
             )
@@ -2155,7 +2200,7 @@ def cmd_serve(args, cfg):
         else:
             sys.stderr.write(
                 f"[serve] WARNING: binding to {host}:{port} — set serve.auth_token to protect endpoints\n"
-                "  Exposed endpoints: /, /context, /narrative, /health, /agora, /checkpoint/latest, /oracle/log\n"
+                "  Exposed endpoints: /, /context, /knows, /narrative, /health, /agora, /checkpoint/latest, /oracle/log\n"
             )
 
     class PerseusHandler(BaseHTTPRequestHandler):
