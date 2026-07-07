@@ -217,6 +217,17 @@ DEFAULT_CONFIG = {
         "enabled": PLUGINS_ENABLED_DEFAULT,
         "dir": str(PERSEUS_HOME / "plugins"),
     },
+    # #691 — hands-off memory hygiene: a scheduled `perseus vault maintain`
+    # pass keeps the vault signal-rich without the user ever running a
+    # command. Everything the pass does is a reversible archive; the master
+    # switch is OFF so absence of this block = today's behavior exactly.
+    "hygiene": {
+        "enabled": False,           # master switch — nothing runs unless opted in
+        "schedule_minutes": 1440,   # nightly
+        "dry_run": False,           # onboarding may set True for a report-only first week
+        "vacuum_every_runs": 7,     # throttle the physical VACUUM (~weekly at nightly cadence)
+        "history_retention": False, # never evict version history unless explicitly enabled
+    },
     "hooks": {
         "enabled": True,
     },
