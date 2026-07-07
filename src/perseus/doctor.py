@@ -790,8 +790,98 @@ def _doctor_check_render_freshness(cfg: dict, workspace: Path) -> DoctorResult:
     return DoctorResult("render_freshness", "ok", "rendered output freshness", summary, "")
 
 
+def _legacy_shadowed_paths(expected: dict, resolved: dict, overridden: dict,
+                           prefix: str = "") -> list[str]:
+    """Return dotted paths from `expected` whose values are NOT reflected in
+    `resolved` and NOT explicitly overridden by a raw canonical block (#704).
+
+    A path explicitly set under a raw `perseus_vault:` block is skipped —
+    canonical wins over legacy aliases by design, so that is not shadowing.
+    """
+    bad: list[str] = []
+    for key, val in expected.items():
+        path = f"{prefix}{key}"
+        if isinstance(val, dict):
+            sub_resolved = resolved.get(key)
+            sub_overridden = overridden.get(key)
+            bad.extend(_legacy_shadowed_paths(
+                val,
+                sub_resolved if isinstance(sub_resolved, dict) else {},
+                sub_overridden if isinstance(sub_overridden, dict) else {},
+                path + ".",
+            ))
+        else:
+            if key in overridden:
+                continue
+            if resolved.get(key) != val:
+                bad.append(path)
+    return bad
+
+
+def _doctor_check_legacy_memory_config(cfg: dict, workspace: Path) -> DoctorResult:
+    """#704: a legacy `mneme:`/`mimir:` block must actually take effect.
+
+    Pre-#704, load_config materialized the full default `perseus_vault:` block
+    even when the user's config.yaml only had a legacy `mneme:`/`mimir:` block,
+    and _resolve_mneme_config returned that non-empty default — silently
+    discarding every user setting (including an absolute-path `command:`).
+    This check re-reads the RAW config files and errors if any legacy-block
+    setting is not reflected in the resolved connector config.
+    """
+    raw_sources: list[dict] = []
+    candidates = [PERSEUS_HOME / "config.yaml"]
+    if workspace:
+        candidates.append(Path(workspace) / ".perseus" / "config.yaml")
+    for path in candidates:
+        try:
+            if path.exists():
+                raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+                if isinstance(raw, dict):
+                    raw_sources.append(raw)
+        except Exception:
+            # Unparseable config is _doctor_check_config's problem, not ours.
+            continue
+
+    legacy_by_key: dict[str, dict] = {}
+    canonical_raw: dict = {}
+    for raw in raw_sources:
+        for key in ("mimir", "mneme"):
+            block = raw.get(key)
+            if isinstance(block, dict) and block:
+                _deep_merge_dicts(legacy_by_key.setdefault(key, {}), block)
+        cblock = raw.get("perseus_vault")
+        if isinstance(cblock, dict) and cblock:
+            _deep_merge_dicts(canonical_raw, cblock)
+
+    if not legacy_by_key:
+        return DoctorResult("legacy_memory_config", "ok", "memory config key",
+                            "canonical (`perseus_vault:`) or defaults", "")
+
+    resolved = _resolve_mneme_config(cfg)
+    shadowed: list[str] = []
+    for key, block in sorted(legacy_by_key.items()):
+        shadowed.extend(f"{key}.{p}" for p in
+                        _legacy_shadowed_paths(block, resolved, canonical_raw))
+    keys = ", ".join(f"`{k}:`" for k in sorted(legacy_by_key))
+    if shadowed:
+        return DoctorResult(
+            "legacy_memory_config", "error", "memory config key",
+            f"legacy {keys} block present but SHADOWED — these settings are "
+            f"NOT applied: {', '.join(shadowed[:5])}"
+            + (f" (+{len(shadowed) - 5} more)" if len(shadowed) > 5 else ""),
+            "Rename the block to `perseus_vault:` in config.yaml. Legacy keys "
+            "are deep-merged onto the canonical block since #704 — this error "
+            "means that merge did not happen (stale perseus install, or the "
+            "config was loaded by an older version).")
+    return DoctorResult(
+        "legacy_memory_config", "ok", "memory config key",
+        f"deprecated {keys} block applied (folded into `perseus_vault:`; "
+        "rename to silence the deprecation notice)", "")
+
+
 _DOCTOR_CHECKS = [
     _doctor_check_config,
+    _doctor_check_legacy_memory_config,
     _doctor_check_context_file,
     _doctor_check_render_shell,
     _doctor_check_render_outside_workspace,
