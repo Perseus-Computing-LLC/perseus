@@ -2743,6 +2743,25 @@ def _normalize_pythia_section(section: dict) -> dict:
     return out
 
 
+def _deep_merge_dicts(dst: dict, src: dict) -> None:
+    """Recursively merge `src` into `dst` in place (src wins on conflicts).
+
+    #569: recursive so partial nested overrides (e.g.
+    `perseus_vault: {circuit_breaker: {threshold: 5}}`) update just that key
+    instead of replacing the whole nested dict and silently dropping sibling
+    defaults. Nested dicts are copied before merging so DEFAULT_CONFIG's
+    shared inner dicts are never mutated in place.
+    """
+    for key, val in src.items():
+        cur = dst.get(key)
+        if isinstance(cur, dict) and isinstance(val, dict):
+            merged = dict(cur)
+            _deep_merge_dicts(merged, val)
+            dst[key] = merged
+        else:
+            dst[key] = val
+
+
 def _normalize_loaded_config(loaded: dict, warn_legacy: bool = False) -> dict:
     """Normalize legacy config blocks before merge precedence is applied."""
     loaded = dict(loaded or {})
@@ -2763,6 +2782,36 @@ def _normalize_loaded_config(loaded: dict, warn_legacy: bool = False) -> dict:
         loaded["pythia"] = merged
     elif isinstance(loaded.get("pythia"), dict):
         loaded["pythia"] = _normalize_pythia_section(loaded["pythia"])
+
+    # #704: fold legacy memory-bridge aliases into the canonical key BEFORE
+    # merge precedence is applied. DEFAULT_CONFIG materializes a full
+    # (non-empty) `perseus_vault:` block, so a user block left under a legacy
+    # `mneme:`/`mimir:` key would be permanently shadowed by that default in
+    # _resolve_mneme_config — the user's `command:` (etc.) never applies and
+    # the bridge silently falls back to a bare `perseus-vault` PATH lookup,
+    # masked by fallback_to_local. Fold order mimir → mneme → perseus_vault so
+    # an explicit canonical block still wins key-by-key when several are
+    # present (matches the _MEMORY_CONFIG_KEYS alias precedence).
+    legacy_memory_keys = [
+        k for k in ("mneme", "mimir")
+        if isinstance(loaded.get(k), dict) and loaded[k]
+    ]
+    if legacy_memory_keys:
+        folded: dict = {}
+        for key in ("mimir", "mneme", _MEMORY_CONFIG_CANONICAL):
+            block = loaded.get(key)
+            if isinstance(block, dict) and block:
+                _deep_merge_dicts(folded, block)
+                del loaded[key]
+        loaded[_MEMORY_CONFIG_CANONICAL] = folded
+        if warn_legacy:
+            for key in legacy_memory_keys:
+                if key not in _warned_legacy_config_keys:
+                    sys.stderr.write(
+                        f"perseus: config.yaml `{key}:` block is deprecated, please rename "
+                        f"to `{_MEMORY_CONFIG_CANONICAL}:` (settings still applied)\n"
+                    )
+                    _warned_legacy_config_keys.add(key)
 
     return loaded
 
@@ -2889,22 +2938,6 @@ def load_config(workspace: Path | None = None) -> dict:
                 _provenance[f"{section}_workspace_sourced"] = True
     cfg["_provenance"] = _provenance
 
-    def _deep_merge(dst: dict, src: dict) -> None:
-        # #569: recursive merge so partial nested overrides (e.g.
-        # `mimir: {circuit_breaker: {threshold: 5}}`) update just that key
-        # instead of replacing the whole nested dict and silently dropping
-        # sibling defaults (cooldown, prefetch.adaptive, federation.signing…).
-        # Nested dicts are copied before merging so DEFAULT_CONFIG's shared
-        # inner dicts are never mutated in place.
-        for key, val in src.items():
-            cur = dst.get(key)
-            if isinstance(cur, dict) and isinstance(val, dict):
-                merged = dict(cur)
-                _deep_merge(merged, val)
-                dst[key] = merged
-            else:
-                dst[key] = val
-
     def merge_loaded(loaded: dict) -> None:
         # #446: `loaded` was already parsed + normalized in the pre-scan above
         # (into `loaded_sources`). _normalize_loaded_config is a deterministic
@@ -2919,7 +2952,7 @@ def load_config(workspace: Path | None = None) -> dict:
             # higher-priority value REPLACES the section instead of crashing
             # with AttributeError on `.update()`.
             if section in cfg and isinstance(cfg[section], dict) and isinstance(vals, dict):
-                _deep_merge(cfg[section], vals)
+                _deep_merge_dicts(cfg[section], vals)
             else:
                 cfg[section] = vals
 
@@ -25153,8 +25186,98 @@ def _doctor_check_render_freshness(cfg: dict, workspace: Path) -> DoctorResult:
     return DoctorResult("render_freshness", "ok", "rendered output freshness", summary, "")
 
 
+def _legacy_shadowed_paths(expected: dict, resolved: dict, overridden: dict,
+                           prefix: str = "") -> list[str]:
+    """Return dotted paths from `expected` whose values are NOT reflected in
+    `resolved` and NOT explicitly overridden by a raw canonical block (#704).
+
+    A path explicitly set under a raw `perseus_vault:` block is skipped —
+    canonical wins over legacy aliases by design, so that is not shadowing.
+    """
+    bad: list[str] = []
+    for key, val in expected.items():
+        path = f"{prefix}{key}"
+        if isinstance(val, dict):
+            sub_resolved = resolved.get(key)
+            sub_overridden = overridden.get(key)
+            bad.extend(_legacy_shadowed_paths(
+                val,
+                sub_resolved if isinstance(sub_resolved, dict) else {},
+                sub_overridden if isinstance(sub_overridden, dict) else {},
+                path + ".",
+            ))
+        else:
+            if key in overridden:
+                continue
+            if resolved.get(key) != val:
+                bad.append(path)
+    return bad
+
+
+def _doctor_check_legacy_memory_config(cfg: dict, workspace: Path) -> DoctorResult:
+    """#704: a legacy `mneme:`/`mimir:` block must actually take effect.
+
+    Pre-#704, load_config materialized the full default `perseus_vault:` block
+    even when the user's config.yaml only had a legacy `mneme:`/`mimir:` block,
+    and _resolve_mneme_config returned that non-empty default — silently
+    discarding every user setting (including an absolute-path `command:`).
+    This check re-reads the RAW config files and errors if any legacy-block
+    setting is not reflected in the resolved connector config.
+    """
+    raw_sources: list[dict] = []
+    candidates = [PERSEUS_HOME / "config.yaml"]
+    if workspace:
+        candidates.append(Path(workspace) / ".perseus" / "config.yaml")
+    for path in candidates:
+        try:
+            if path.exists():
+                raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+                if isinstance(raw, dict):
+                    raw_sources.append(raw)
+        except Exception:
+            # Unparseable config is _doctor_check_config's problem, not ours.
+            continue
+
+    legacy_by_key: dict[str, dict] = {}
+    canonical_raw: dict = {}
+    for raw in raw_sources:
+        for key in ("mimir", "mneme"):
+            block = raw.get(key)
+            if isinstance(block, dict) and block:
+                _deep_merge_dicts(legacy_by_key.setdefault(key, {}), block)
+        cblock = raw.get("perseus_vault")
+        if isinstance(cblock, dict) and cblock:
+            _deep_merge_dicts(canonical_raw, cblock)
+
+    if not legacy_by_key:
+        return DoctorResult("legacy_memory_config", "ok", "memory config key",
+                            "canonical (`perseus_vault:`) or defaults", "")
+
+    resolved = _resolve_mneme_config(cfg)
+    shadowed: list[str] = []
+    for key, block in sorted(legacy_by_key.items()):
+        shadowed.extend(f"{key}.{p}" for p in
+                        _legacy_shadowed_paths(block, resolved, canonical_raw))
+    keys = ", ".join(f"`{k}:`" for k in sorted(legacy_by_key))
+    if shadowed:
+        return DoctorResult(
+            "legacy_memory_config", "error", "memory config key",
+            f"legacy {keys} block present but SHADOWED — these settings are "
+            f"NOT applied: {', '.join(shadowed[:5])}"
+            + (f" (+{len(shadowed) - 5} more)" if len(shadowed) > 5 else ""),
+            "Rename the block to `perseus_vault:` in config.yaml. Legacy keys "
+            "are deep-merged onto the canonical block since #704 — this error "
+            "means that merge did not happen (stale perseus install, or the "
+            "config was loaded by an older version).")
+    return DoctorResult(
+        "legacy_memory_config", "ok", "memory config key",
+        f"deprecated {keys} block applied (folded into `perseus_vault:`; "
+        "rename to silence the deprecation notice)", "")
+
+
 _DOCTOR_CHECKS = [
     _doctor_check_config,
+    _doctor_check_legacy_memory_config,
     _doctor_check_context_file,
     _doctor_check_render_shell,
     _doctor_check_render_outside_workspace,
