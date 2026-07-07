@@ -429,6 +429,26 @@ def main():
     p_vault_maintain.add_argument("--vacuum", action="store_true",
                         help="Also VACUUM the database file (physical rewrite — throttle to ~weekly)")
 
+    # schtasks (Windows Task Scheduler — #694)
+    p_schtasks = sub.add_parser("schtasks", help="Create or remove a Windows Scheduled Task for a Perseus job")
+    schtasks_sub = p_schtasks.add_subparsers(dest="schtasks_command")
+    p_schtasks_create = schtasks_sub.add_parser("create", help="Create a Windows Scheduled Task")
+    p_schtasks_create.add_argument("source", nargs="?", default=None,
+                        help="Path to Perseus source file (required for --job render)")
+    p_schtasks_create.add_argument("--output", "-o", default=None,
+                        help="Rendered output path (required for --job render)")
+    p_schtasks_create.add_argument("--job", choices=["render", "maintain"], default="render",
+                        help="Scheduled job: render (default) or the memory hygiene pass (#694)")
+    p_schtasks_create.add_argument("--every", default=None,
+                        help="Minutes between runs (default: 5 for render; hygiene.schedule_minutes for maintain)")
+    p_schtasks_create.add_argument("--install", action="store_true",
+                        help="Create the task(s) via schtasks /Create (default: print the commands)")
+    p_schtasks_uninstall = schtasks_sub.add_parser("uninstall", help="Remove Perseus Scheduled Tasks")
+    p_schtasks_uninstall.add_argument("source", nargs="?", default=None,
+                        help="Path to Perseus source file (render tasks)")
+    p_schtasks_uninstall.add_argument("--job", choices=["render", "maintain"], default="render",
+                        help="Which job's tasks to remove (maintain removes Perseus\\hygiene + vacuum)")
+
     # identity (Phase 27B — workspace identity + signing)
     p_identity = sub.add_parser("identity", help="Manage workspace cryptographic identity (Phase 27B)")
     id_sub = p_identity.add_subparsers(dest="identity_command", required=True)
@@ -688,7 +708,17 @@ def main():
         if isinstance(rc, int):
             return rc
     elif args.command == "cron":
-        cmd_cron(args, cfg)
+        # #694: `cron uninstall` was parsed but never dispatched — it fell
+        # through to cmd_cron (create) and crashed on the missing attrs.
+        if getattr(args, "cron_command", None) == "uninstall":
+            cmd_cron_uninstall(args, cfg)
+        else:
+            cmd_cron(args, cfg)
+    elif args.command == "schtasks":
+        if getattr(args, "schtasks_command", None) == "uninstall":
+            cmd_schtasks_uninstall(args, cfg)
+        else:
+            cmd_schtasks(args, cfg)
     elif args.command == "vault":
         return cmd_vault_maintain(args, cfg)
     elif args.command == "launchd":
