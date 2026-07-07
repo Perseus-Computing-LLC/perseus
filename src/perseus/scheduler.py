@@ -242,6 +242,12 @@ def cmd_cron(args, cfg):
         print("#   the entry below uses a version-specific path that may go stale after a Python upgrade.")
 
     if args.install:
+        if sys.platform == "win32":
+            # #694: no crontab on native Windows — route to the Task
+            # Scheduler backend so `cron create --install` still lands a
+            # working schedule instead of a "crontab not found" error.
+            print("> crontab is not available on native Windows — installing a Windows Scheduled Task instead.")
+            return cmd_schtasks(args, cfg)
         try:
             existing = subprocess.run(
                 ["crontab", "-l"],
@@ -406,6 +412,128 @@ def cmd_systemd(args, cfg):
     print(service_content)
     print(f"# ~/.config/systemd/user/{unit}.timer")
     print(timer_content)
+
+
+# ──────────────────────── Windows Task Scheduler (#694) ──────────────────────
+
+def _schtasks_schedule(every_minutes: int) -> list:
+    """schtasks trigger args for an every-N-minutes cadence.
+
+    schtasks /SC MINUTE caps /MO at 1439, so daily-or-slower cadences map to
+    /SC DAILY (at 03:00, matching the cron backend's off-hours choice).
+    """
+    if every_minutes >= 1440:
+        days = max(1, every_minutes // 1440)
+        return ["/SC", "DAILY", "/MO", str(days), "/ST", "03:00"]
+    return ["/SC", "MINUTE", "/MO", str(every_minutes)]
+
+
+def _schtasks_tr(tokens: list) -> str:
+    """Quote a /TR command string (paths with spaces)."""
+    return " ".join(f'"{t}"' if " " in t else t for t in tokens)
+
+
+def cmd_schtasks(args, cfg):
+    """#694: schedule a Perseus job via the native Windows Task Scheduler.
+
+    Fills the platform gap the other backends leave: cron/launchd/systemd
+    have zero coverage on native Windows, which is exactly where the
+    hands-off hygiene persona lives. Task names parallel the POSIX tags:
+    ``Perseus\\hygiene`` (+ ``Perseus\\hygiene-vacuum`` weekly companion)
+    and ``Perseus\\render-<stem>``.
+    """
+    if sys.platform != "win32":
+        print("Error: `perseus schtasks` is only supported on Windows.", file=sys.stderr)
+        sys.exit(1)
+
+    job_tokens, tag, stem = _resolve_job(args, cfg)
+    is_maintain = tag == "perseus-hygiene"
+    launcher, stable = _perseus_launcher()
+    tr_cmd = _schtasks_tr(launcher + job_tokens)
+
+    raw_every = getattr(args, "every", None)
+    if raw_every is None:
+        raw_every = _hygiene_schedule_minutes(cfg) if is_maintain else 5
+    try:
+        every = int(raw_every)
+    except (TypeError, ValueError):
+        print(f"Error: --every must be an integer (got {raw_every!r})", file=sys.stderr)
+        sys.exit(1)
+    if every <= 0:
+        print("Error: --every must be > 0", file=sys.stderr)
+        sys.exit(1)
+
+    task_name = "Perseus\\hygiene" if is_maintain else f"Perseus\\render-{stem}"
+    commands = [
+        ["schtasks", "/Create", "/TN", task_name, "/TR", tr_cmd] + _schtasks_schedule(every)
+    ]
+    if is_maintain:
+        hygiene = (cfg or {}).get("hygiene", {}) if isinstance(cfg, dict) else {}
+        try:
+            vacuum_runs = int(hygiene.get("vacuum_every_runs", 7) or 0)
+        except (TypeError, ValueError):
+            vacuum_runs = 7
+        if vacuum_runs > 0:
+            # Same stateless-scheduler reasoning as the cron backend: an
+            # explicit weekly VACUUM task replaces an every-Nth-run counter.
+            commands.append([
+                "schtasks", "/Create", "/TN", "Perseus\\hygiene-vacuum",
+                "/TR", tr_cmd + " --vacuum", "/SC", "WEEKLY", "/D", "SUN", "/ST", "03:00",
+            ])
+
+    if not stable:
+        print("# ⚠ Could not find a stable `perseus` launcher (~/.local/bin/perseus or on PATH);")
+        print("#   the task uses a version-specific path that may go stale after a Python upgrade.")
+
+    if not getattr(args, "install", False):
+        print("# Run these to install the Windows Scheduled Task(s):")
+        for c in commands:
+            print("  " + " ".join(f'"{t}"' if (" " in t and not t.startswith('"')) else t for t in c))
+        print()
+        print("Or install automatically with: perseus schtasks ... --install")
+        return
+
+    for c in commands:
+        name = c[c.index("/TN") + 1]
+        probe = subprocess.run(["schtasks", "/Query", "/TN", name],
+                               capture_output=True, text=True, check=False)
+        if probe.returncode == 0:
+            print(f'> ⚠ Task {name} already exists. Remove it first: schtasks /Delete /TN "{name}" /F')
+            sys.exit(1)
+        proc = subprocess.run(c, capture_output=True, text=True, check=False)
+        if proc.returncode != 0:
+            print(f"Error: schtasks /Create failed: {(proc.stderr or proc.stdout).strip()}",
+                  file=sys.stderr)
+            sys.exit(1)
+        print(f"✔ Created scheduled task {name}")
+    print()
+    print(f'Verify with: schtasks /Query /TN "{task_name}"')
+    print(f'Remove with: perseus schtasks uninstall --job {getattr(args, "job", "render")}')
+
+
+def cmd_schtasks_uninstall(args, cfg):
+    """Remove Perseus Windows Scheduled Tasks (render by source, or hygiene)."""
+    if sys.platform != "win32":
+        print("Error: `perseus schtasks` is only supported on Windows.", file=sys.stderr)
+        sys.exit(1)
+    job = getattr(args, "job", "render") or "render"
+    if job == "maintain":
+        names = ["Perseus\\hygiene", "Perseus\\hygiene-vacuum"]
+    else:
+        if not getattr(args, "source", None):
+            print("Error: removing a render task requires the source path.", file=sys.stderr)
+            sys.exit(1)
+        stem = Path(args.source).expanduser().resolve().stem
+        names = [f"Perseus\\render-{stem}"]
+    removed = 0
+    for name in names:
+        proc = subprocess.run(["schtasks", "/Delete", "/TN", name, "/F"],
+                              capture_output=True, text=True, check=False)
+        if proc.returncode == 0:
+            print(f"✔ Removed scheduled task {name}")
+            removed += 1
+    if removed == 0:
+        print("No matching scheduled task found.")
 
 
 def cmd_launchd_uninstall(args, cfg):
