@@ -175,6 +175,28 @@ Single source of truth: Perseus Mneme ✅
 
 ---
 
+## Live-Store Hygiene Is Automatic — Not Part of This Skill
+
+This skill removes stale *external/competing* memory backends. Hygiene of
+the **live Perseus Vault store** (decay, archiving, dedup, consolidation)
+is a separate, scheduled, non-LLM mechanism — do not try to prune the live
+store by hand from this skill.
+
+- One-command enable (nightly pass + weekly VACUUM):
+  `perseus cron create --job maintain --install`
+  (on native Windows: `perseus schtasks create --job maintain --install`,
+  and `cron create --install` auto-routes there)
+- Preview what hygiene would do (zero mutation):
+  `perseus vault maintain --dry-run`
+- Config: the `hygiene:` block in `~/.perseus/config.yaml` (master switch
+  off by default; `dry_run: true` bakes a report-only first week into the
+  scheduled entry).
+
+Everything the pass does is a reversible archive — verified/pinned
+memories are never auto-archived, and hard deletion is never scheduled.
+
+---
+
 ## Known Stale Systems (as of 2026-05-27)
 
 | System | Location | Status | Superseded By |
