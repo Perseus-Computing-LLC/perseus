@@ -29607,7 +29607,7 @@ def _serve_render_index(workspace: Path, stats: dict) -> str:
         f"<meta name='viewport' content='width=device-width,initial-scale=1'>"
         f"<style>{css}</style></head><body><div class='wrap'>"
         f"<h1>Perseus <span class='sub'>· {_esc(workspace.name)}</span>"
-        f"<span class='badge'>v0.6</span></h1>"
+        f"<span class='badge'>v{_esc(_PERSEUS_VERSION)}</span></h1>"
         f"<div class='meta'>Workspace: <code>{_esc(workspace)}</code> · "
         f"Context file: {ctx_indicator}</div>"
         f"<h2>Live state</h2>"
