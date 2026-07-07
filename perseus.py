@@ -322,6 +322,17 @@ DEFAULT_CONFIG = {
         "enabled": PLUGINS_ENABLED_DEFAULT,
         "dir": str(PERSEUS_HOME / "plugins"),
     },
+    # #691 — hands-off memory hygiene: a scheduled `perseus vault maintain`
+    # pass keeps the vault signal-rich without the user ever running a
+    # command. Everything the pass does is a reversible archive; the master
+    # switch is OFF so absence of this block = today's behavior exactly.
+    "hygiene": {
+        "enabled": False,           # master switch — nothing runs unless opted in
+        "schedule_minutes": 1440,   # nightly
+        "dry_run": False,           # onboarding may set True for a report-only first week
+        "vacuum_every_runs": 7,     # throttle the physical VACUUM (~weekly at nightly cadence)
+        "history_retention": False, # never evict version history unless explicitly enabled
+    },
     "hooks": {
         "enabled": True,
     },
@@ -21025,6 +21036,50 @@ def _mneme_context_inject(
         return None
 
 
+def cmd_vault_maintain(args, cfg):
+    """#691: ``perseus vault maintain`` — run Perseus Vault's one-shot hygiene
+    pass (cohere → decay → compact → consolidate → dedup/orphans/reindex) via
+    the configured binary and stream its JSON report.
+
+    Thin passthrough by design: every hygiene semantic (reversible archives,
+    the verified decay floor, vacuum gating) lives in the vault binary;
+    Perseus only resolves WHICH binary to run and forwards flags. This is the
+    command the hygiene scheduler entry invokes (#693), and it is safe to run
+    by hand — ``--dry-run`` previews the combined report with zero mutation.
+    """
+
+    vault_cfg = _resolve_mneme_config(cfg)
+    command = list(vault_cfg.get("command") or ["perseus-vault", "serve"])
+    binary = _find_mimir_binary(command)
+    if not binary:
+        print(
+            "Error: perseus-vault binary not found (checked the configured "
+            "`perseus_vault.command`, PATH, and common install locations).",
+            file=sys.stderr,
+        )
+        print(MEMORY_INSTALL_REMEDIATION, file=sys.stderr)
+        return 1
+
+    argv = [binary, "maintain"]
+    # Carry an explicitly configured --db through. The default config omits
+    # it so the binary self-resolves its canonical DB path (#665).
+    if "--db" in command:
+        i = command.index("--db")
+        if i + 1 < len(command):
+            argv += ["--db", command[i + 1]]
+    if getattr(args, "dry_run", False):
+        argv.append("--dry-run")
+    if getattr(args, "vacuum", False):
+        argv.append("--vacuum")
+
+    try:
+        proc = subprocess.run(argv, check=False)
+    except (FileNotFoundError, OSError) as exc:
+        print(f"Error: failed to execute {argv[0]}: {exc}", file=sys.stderr)
+        return 1
+    return proc.returncode
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Build integration note:
 # This module is concatenated after memory.py, mneme_index.py, mneme_narrative.py,
@@ -30898,6 +30953,17 @@ def main():
     p_cron_uninstall = cron_sub.add_parser("uninstall", help="Remove a crontab entry")
     p_cron_uninstall.add_argument("source", help="Path to Perseus source file to remove from crontab")
 
+    # vault (Perseus Vault memory-engine passthrough — #691 hygiene)
+    p_vault = sub.add_parser("vault", help="Perseus Vault memory-engine commands")
+    vault_sub = p_vault.add_subparsers(dest="vault_command", required=True)
+    p_vault_maintain = vault_sub.add_parser(
+        "maintain",
+        help="Run the one-shot memory hygiene pass (reversible archives; prints a JSON report)")
+    p_vault_maintain.add_argument("--dry-run", action="store_true", dest="dry_run",
+                        help="Preview the combined report without changing anything")
+    p_vault_maintain.add_argument("--vacuum", action="store_true",
+                        help="Also VACUUM the database file (physical rewrite — throttle to ~weekly)")
+
     # identity (Phase 27B — workspace identity + signing)
     p_identity = sub.add_parser("identity", help="Manage workspace cryptographic identity (Phase 27B)")
     id_sub = p_identity.add_subparsers(dest="identity_command", required=True)
@@ -31150,6 +31216,8 @@ def main():
             return rc
     elif args.command == "cron":
         cmd_cron(args, cfg)
+    elif args.command == "vault":
+        return cmd_vault_maintain(args, cfg)
     elif args.command == "launchd":
         if getattr(args, "launchd_command", None) == "uninstall":
             cmd_launchd_uninstall(args, cfg)
