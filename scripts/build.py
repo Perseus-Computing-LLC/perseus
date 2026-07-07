@@ -39,6 +39,7 @@ MODULE_ORDER = [
     "src/perseus/directives/skills.py",
     "src/perseus/directives/waypoint.py",
     "src/perseus/directives/session.py",
+    "src/perseus/directives/focus.py",
     "src/perseus/directives/services.py",
     "src/perseus/directives/misc.py",
     "src/perseus/directives/tokens.py",

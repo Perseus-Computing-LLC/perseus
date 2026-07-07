@@ -706,6 +706,27 @@ this release and ship in 1.0.10.
 
 ## [1.0.7] — 2026-06-12
 
+### 🧭 Global Workspace
+
+- **`@focus` directive / `perseus_focus` tool** — A new "global workspace" tier: a
+  small, capacity-bounded (default 32), salience-ranked set of items that Perseus
+  broadcasts into the rendered context — the shared "what I'm working on now" set
+  for an agent and its subagents. Inspired by Global Workspace Theory (a
+  capacity-limited working set broadcast to many subsystems); this is the
+  external, orchestration-layer analog. Items compete for a fixed number of slots
+  by salience (base weight × frequency × recency decay); the lowest-salience
+  non-pinned items are evicted on overflow, and pinned items are protected.
+  Distinct from long-term recall (`@mimir`/`@memory`): bounded and actively
+  maintained, not unbounded memory. Per-workspace JSON store under
+  `$PERSEUS_HOME/focus/`.
+- **Vault graph-centrality salience (opt-in)** — when `focus.centrality.enabled`
+  is set, an admitted item's salience is boosted by its **degree centrality** in
+  the Perseus Vault memory graph (link count of the best-matching entity, lightly
+  blended with recall relevance): items that connect to more of the curated
+  memory graph broadcast more strongly. Fetched once per admission (not per
+  render); OFF by default and degrades to the recency+frequency behavior when the
+  Vault is disabled, unreachable, or has no match.
+
 ### 🧠 Memory Backend
 
 - **Mimir v0.2.0** — Upgraded Mimir connector to the new entity model. Mimir now provides structured entities with category/key idempotent upsert, journal events (evaluated/acted/forward), state management with TTL, entity linking, soft-delete, category-filtered recall, and session context injection. 17 MCP tools total.
