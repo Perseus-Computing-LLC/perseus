@@ -19779,12 +19779,17 @@ class MnemeConnector:
 
         Args:
             query: Natural language query
-            memory_types: Filter by topic-derived type labels
-            max_results: Max results to return
+            memory_types: Filter by topic-derived type labels. The Vault tool
+                accepts a single `type` filter, so exactly one entry is sent
+                as `type`; several entries fall back to an unfiltered recall.
+            max_results: Max results to return (sent as the tool's `limit`)
             workspace_hash: Current workspace identifier
-            include_federation: Query cross-workspace memories
-            filters: Additional key-value filters
-            min_decay_score: Minimum Ebbinghaus decay score (0.0–1.0)
+            include_federation: DEPRECATED no-op — the current Vault recall
+                tool has no federation flag (kept for API compatibility)
+            filters: DEPRECATED no-op — no tool-side equivalent (kept for
+                API compatibility)
+            min_decay_score: Minimum Ebbinghaus decay score (0.0–1.0), sent
+                as the tool's `min_decay`
             topic_path: Narrow search to a specific topic tree path
         """
         t0 = time.time()
@@ -19798,17 +19803,26 @@ class MnemeConnector:
 
         types_str = [t.value for t in memory_types] if memory_types else []
 
+        # #699: use the Vault tool's canonical argument names. RecallArgs is
+        # deserialized without deny_unknown_fields, so misnamed keys were
+        # silently dropped: `max_results` never reached `limit` (recall was
+        # pinned to the default 10) and `min_decay_score` never reached
+        # `min_decay` (the threshold never applied). `memory_types`,
+        # `include_federation` and `filters` have no tool-side equivalent —
+        # the tool takes a single `type` filter — so a lone type maps onto
+        # `type` and the rest are omitted instead of sent as dead keys.
+        recall_args = {
+            "query": query,
+            "limit": max_results,
+            "min_decay": min_decay_score,
+            "workspace_hash": workspace_hash or "",
+            "topic_path": topic_path or "",
+        }
+        if len(types_str) == 1:
+            recall_args["type"] = types_str[0]
+
         def _do_recall():
-            result, err = self._client.call_tool("mimir_recall", {
-                "query": query,
-                "memory_types": types_str,
-                "max_results": max_results,
-                "workspace_hash": workspace_hash or "",
-                "include_federation": include_federation,
-                "filters": filters or {},
-                "min_decay_score": min_decay_score,
-                "topic_path": topic_path or "",
-            })
+            result, err = self._client.call_tool("mimir_recall", recall_args)
             if err:
                 raise RuntimeError(err)
             return result
