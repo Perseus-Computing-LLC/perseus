@@ -124,6 +124,11 @@ class MemoryHit:
     workspace_hash: str = ""
     tags: dict[str, str] = field(default_factory=dict)
     verified: bool = False   # True when memory exists in both local + mimir
+    # #692: the Vault's (category, key) address — required for curation
+    # (mimir_forget takes category+key, not id). Previously discarded by
+    # _parse_memory_hits except as a display fallback.
+    category: str = ""
+    key: str = ""
 
     def __init__(
         self,
@@ -143,10 +148,14 @@ class MemoryHit:
         workspace_hash: str = "",
         tags: dict[str, str] = None,
         verified: bool = False,
+        category: str = "",
+        key: str = "",
         **kwargs,
     ):
         self.id = id
         self.source = source
+        self.category = category
+        self.key = key
         self.summary = summary
         self.relevance = relevance
         self.decay_score = decay_score
@@ -1279,6 +1288,120 @@ class MnemeConnector:
             return None
         return markdown
 
+    # ── #692 `perseus knows` surface: browse + curation wrappers ──────────
+
+    def browse(
+        self,
+        limit: int = 500,
+        include_archived: bool = False,
+    ) -> tuple[list[MemoryHit], str]:
+        """List the most recent entities across ALL workspaces (#692).
+
+        An empty-query ``mimir_recall`` returns entities by the Vault's
+        decay/recency ranking (active-only unless ``include_archived``).
+        Unlike :meth:`recall`, ``workspace_hash`` is omitted entirely —
+        sending ``""`` would be the Vault's STRICT global scope, hiding every
+        workspace-scoped memory from the review screen.
+
+        Returns ``(hits, error)`` — error is ``""`` on success; fails soft.
+        """
+        if not self._ensure_connected():
+            return [], self.status
+
+        args = {"query": "", "limit": int(limit)}
+        if include_archived:
+            args["include_archived"] = True
+
+        def _do_browse():
+            result, err = self._client.call_tool("mimir_recall", args)
+            if err:
+                raise RuntimeError(err)
+            return result
+
+        raw, err = _retry_with_backoff(
+            _do_browse,
+            max_attempts=self._max_retries,
+            backoff_base=self._backoff_base,
+            circuit_breaker=self._breaker,
+            abort_check=self._transport_gone,
+        )
+        if err:
+            return [], f"mimir_recall failed: {err}"
+        return _parse_memory_hits(raw or {}), ""
+
+    def stats(self) -> dict | None:
+        """Raw ``mimir_stats`` payload, or None when unavailable (#692).
+
+        Consumers should prefer the active-only fields (``active_entities``,
+        ``archived_entities`` — perseus-vault #493) and treat their absence
+        as "server predates the split" rather than zero.
+        """
+        if not self._ensure_connected():
+            return None
+        result, err = self._client.call_tool("mimir_stats", {})
+        if err or not isinstance(result, dict):
+            return None
+        return result
+
+    def get_entity(self, entity_id: str) -> dict | None:
+        """Fetch one entity (full body_json + provenance) by id (#692)."""
+        if not self._ensure_connected():
+            return None
+        result, err = self._client.call_tool("mimir_get_entity", {"id": entity_id})
+        if err or not isinstance(result, dict):
+            return None
+        if result.get("found") is False or result.get("error"):
+            return None
+        return result
+
+    def forget(self, category: str, key: str, reason: str = "") -> tuple[bool, str]:
+        """Soft-archive an entity via ``mimir_forget`` (#692).
+
+        The Vault addresses forget by (category, key) — not id — and the
+        operation is a reversible archive, not a delete.
+        """
+        if not self._ensure_connected():
+            return False, self.status
+        result, err = self._client.call_tool("mimir_forget", {
+            "category": category,
+            "key": key,
+            "reason": reason,
+        })
+        if err:
+            return False, err
+        if isinstance(result, dict) and result.get("error"):
+            return False, str(result["error"])
+        return True, ""
+
+    def correct(
+        self,
+        wrong_approach: str,
+        user_correction: str,
+        task_context: str = "",
+        category: str = "",
+    ) -> tuple[bool, str]:
+        """Record a wrong→right pair via ``mimir_correct`` (#692).
+
+        ``mimir_correct`` does not edit an entity in place — it records the
+        superseding correction bitemporally. Callers pass the old item's
+        content as ``wrong_approach``.
+        """
+        if not self._ensure_connected():
+            return False, self.status
+        args = {
+            "wrong_approach": wrong_approach,
+            "user_correction": user_correction,
+            "task_context": task_context,
+        }
+        if category:
+            args["category"] = category
+        result, err = self._client.call_tool("mimir_correct", args)
+        if err:
+            return False, err
+        if isinstance(result, dict) and result.get("error"):
+            return False, str(result["error"])
+        return True, ""
+
     def store(
         self,
         content: str,
@@ -1685,6 +1808,8 @@ def _parse_memory_hits(data: dict) -> list[MemoryHit]:
             workspace_hash=raw.get("workspace_hash", ""),
             tags=raw.get("tags", {}),
             verified=raw.get("verified", False),
+            category=raw.get("category", ""),
+            key=raw.get("key", ""),
         ))
     return hits
 
