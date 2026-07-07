@@ -220,7 +220,7 @@ Published as [`io.github.Perseus-Computing-LLC/perseus`](https://registry.modelc
 
 <!-- test-count: 1624 — recount with: grep -rE "^\s*def test_" tests/ | wc -l -->
 <!-- The table below is the exact default output of _get_all_mcp_tools({}) — 30 rows. Recount before editing. -->
-30 MCP tools resolve live state at invocation time (including the legacy aliases `perseus_get_context`/`perseus_get_health`). Two additional sensitive tools — `perseus_query` (run a shell command) and `perseus_agent` (execute a local agent subprocess) — are **not** part of this default set: they require explicit `mcp.tool_allowlist` opt-in because they execute commands in the user's local shell (**not sandboxed, full user permissions apply**).
+31 MCP tools resolve live state at invocation time (including the legacy aliases `perseus_get_context`/`perseus_get_health`). Two additional sensitive tools — `perseus_query` (run a shell command) and `perseus_agent` (execute a local agent subprocess) — are **not** part of this default set: they require explicit `mcp.tool_allowlist` opt-in because they execute commands in the user's local shell (**not sandboxed, full user permissions apply**).
 
 | Tool | Description |
 |---|---|
@@ -232,6 +232,7 @@ Published as [`io.github.Perseus-Computing-LLC/perseus`](https://registry.modelc
 | `perseus_date` | Current date/time |
 | `perseus_waypoint` | Latest checkpoint summary |
 | `perseus_session` | Recent session digests |
+| `perseus_focus` | Bounded, salience-ranked global workspace (focus set) |
 | `perseus_health` | Context maintenance report |
 | `perseus_drift` | Oracle drift report |
 | `perseus_memory` | Local narrative recall + persistent Perseus Vault store |
