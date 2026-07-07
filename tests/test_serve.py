@@ -228,8 +228,10 @@ def test_serve_render_index_includes_stats_and_endpoints(tmp_path):
     assert "10m ago" in html      # 600s → 10m
     # Footer
     assert "github.com/Perseus-Computing-LLC/perseus" in html
-    # Version badge
-    assert "v0.6" in html
+    # Version badge (#696: was hardcoded 'v0.6', ~14 releases stale — must
+    # render the same version the CLI reports so it can never drift again)
+    assert f"<span class='badge'>v{perseus._PERSEUS_VERSION}</span>" in html
+    assert "v0.6" not in html
     # Workspace shown
     assert str(tmp_path) in html
 
