@@ -2361,6 +2361,51 @@ def _mneme_context_inject(
         return None
 
 
+def cmd_vault_maintain(args, cfg):
+    """#691: ``perseus vault maintain`` — run Perseus Vault's one-shot hygiene
+    pass (cohere → decay → compact → consolidate → dedup/orphans/reindex) via
+    the configured binary and stream its JSON report.
+
+    Thin passthrough by design: every hygiene semantic (reversible archives,
+    the verified decay floor, vacuum gating) lives in the vault binary;
+    Perseus only resolves WHICH binary to run and forwards flags. This is the
+    command the hygiene scheduler entry invokes (#693), and it is safe to run
+    by hand — ``--dry-run`` previews the combined report with zero mutation.
+    """
+    from perseus.doctor import _find_mimir_binary, MEMORY_INSTALL_REMEDIATION
+
+    vault_cfg = _resolve_mneme_config(cfg)
+    command = list(vault_cfg.get("command") or ["perseus-vault", "serve"])
+    binary = _find_mimir_binary(command)
+    if not binary:
+        print(
+            "Error: perseus-vault binary not found (checked the configured "
+            "`perseus_vault.command`, PATH, and common install locations).",
+            file=sys.stderr,
+        )
+        print(MEMORY_INSTALL_REMEDIATION, file=sys.stderr)
+        return 1
+
+    argv = [binary, "maintain"]
+    # Carry an explicitly configured --db through. The default config omits
+    # it so the binary self-resolves its canonical DB path (#665).
+    if "--db" in command:
+        i = command.index("--db")
+        if i + 1 < len(command):
+            argv += ["--db", command[i + 1]]
+    if getattr(args, "dry_run", False):
+        argv.append("--dry-run")
+    if getattr(args, "vacuum", False):
+        argv.append("--vacuum")
+
+    try:
+        proc = subprocess.run(argv, check=False)
+    except (FileNotFoundError, OSError) as exc:
+        print(f"Error: failed to execute {argv[0]}: {exc}", file=sys.stderr)
+        return 1
+    return proc.returncode
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Build integration note:
 # This module is concatenated after memory.py, mneme_index.py, mneme_narrative.py,
