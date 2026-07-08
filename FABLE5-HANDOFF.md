@@ -35,9 +35,10 @@ first turn. Local-first, MIT licensed. Published as `perseus-ctx` on PyPI.
 - Sweep remaining `mneme`/`mimir` prose references across README, docs/, and
   ROADMAP.md itself (the roadmap's own header still says "Perseus v1.0.8" /
   "Current Perseus version: v1.0.6" — stale, should read current tag).
-- Do NOT touch `mimir_*` MCP tool names, `mneme.v1` proto, or published
-  package names (adk-mimir-memory, mimir-haystack, etc.) — those are locked
-  per the established rename convention (back-compat for external dependents).
+- Do NOT touch `mimir_*` MCP tool names or the `mneme.v1` proto — those are
+  locked for back-compat with external dependents. (The Python adapter packages
+  were since renamed to the Perseus Vault names — adk-perseus-vault-memory,
+  perseus-vault-haystack, etc. — and the old `*-mimir` PyPI projects archived.)
 
 ### Phase 2 — Public-sector compliance track (standing priority)
 Per the long-standing north-star decision (public sector / RFP / SBIR focus):
