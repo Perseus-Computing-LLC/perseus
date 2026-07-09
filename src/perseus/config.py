@@ -191,6 +191,18 @@ DEFAULT_CONFIG = {
             "max_attempts": 3,
             "backoff_base": 1.5,
         },
+        # #713 — @capture: first-class session-boundary memory writes.
+        # Closes the write side of the memory loop live (no cron/launchd
+        # harvest dependency). Opt-in; writes are idempotent (keyed by
+        # checkpoint filename, so re-capture upserts instead of piling up)
+        # and tagged with their provenance (source:perseus-checkpoint).
+        "capture": {
+            "enabled": False,        # master switch for AUTOMATIC capture side-effects
+            "on_checkpoint": True,   # push each checkpoint to the vault at write time
+            "on_memory_update": True, # capture pending checkpoints during `perseus memory update`
+            "category": "session",   # vault category (matches the #670 Recent Activity recall)
+            "limit": 5,              # default max checkpoints per @capture directive render
+        },
     },
     "research": {                       # #513 — @research external paper-search MCP
         # Inject structured paper-search results (Methods/Results per paper)
