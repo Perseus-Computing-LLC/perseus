@@ -38,6 +38,11 @@ DEFAULT_CONFIG = {
         "max_include_warn_bytes": None,  # advisory warning when a single @include renders larger than this (None = disabled) — see #433
         "max_safe_read_bytes": 52428800,  # 50 MB hard pre-read guard for @read/@include before bytes hit memory (None = disabled)
         "max_include_depth": 5,      # max depth for transitive @include recursion
+        # #714 — @context-diff baseline debounce: re-renders within this window
+        # keep the same baseline snapshot, so watch-mode refreshes don't reduce
+        # every "Since last session" delta to "nothing changed". 0 = refresh on
+        # every render.
+        "context_diff_min_age_s": 300,
         "staleness_warn_hours": 48,  # `perseus doctor` warns when a rendered output is older than this (0 = disabled) — see #431
         "integrity_check": False,    # opt-in: detect files modified during render
         "parallel_services": False,   # opt-in: concurrent @services health checks

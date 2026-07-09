@@ -987,3 +987,229 @@ def _resolve_memory_narrative(args_stripped: str, mods: dict, cfg: dict, ws: Pat
 
 
 
+
+
+# ──────────────────────────── @context-diff (#714) ────────────────────────────
+# "What changed since I was last here" as a first-class delta. Every session
+# re-renders full context, but the assistant had no cheap way to tell what is
+# NEW — so it spent turns re-orienting on unchanged state. @context-diff keeps
+# a per-workspace snapshot of the signals Perseus already owns (git position,
+# Agora task board, agent inbox, checkpoints, vault session memories) and
+# renders a compact "Since last session" block of only the differences.
+
+_CONTEXT_DIFF_SCHEMA = 1
+
+
+def _context_diff_state_path(cfg: dict, workspace: Path) -> Path:
+    cache_dir = Path(cfg.get("render", {}).get("cache_dir", str(PERSEUS_HOME / "cache")))
+    return cache_dir / f"context-diff-{_workspace_hash(workspace)}.json"
+
+
+def _context_diff_git(workspace: Path, *argv: str) -> str:
+    """Fixed-argument git introspection (no shell, no user input) — the same
+    trust class as @services' `docker ps` probe, so it is not gated behind
+    PERSEUS_ALLOW_DANGEROUS. Returns "" on any failure (not a git repo, git
+    missing, timeout)."""
+    try:
+        r = subprocess.run(
+            ["git", "-C", str(workspace), *argv],
+            capture_output=True, text=True, timeout=5,
+            stdin=subprocess.DEVNULL,
+        )
+        return r.stdout.strip() if r.returncode == 0 else ""
+    except Exception:
+        return ""
+
+
+def _context_diff_vault_ids(cfg: dict, workspace: Path) -> list:
+    """Best-effort: ids of the most recent session memories in the vault."""
+    try:
+        connector = _get_connector(cfg)
+        if not getattr(connector, "available", False):
+            return []
+        seg = connector.recall(
+            query=(workspace.name or "session"),
+            max_results=5,
+            filters={"category": "session"},
+        )
+        return sorted(getattr(h, "id", "") for h in (seg.items if seg and seg.items else []) if getattr(h, "id", ""))
+    except Exception:
+        return []  # a vault hiccup must never break the delta render
+
+
+def _collect_context_snapshot(cfg: dict, workspace: Path) -> dict:
+    """Gather the current values of every diffed signal."""
+    snap: dict = {
+        "schema": _CONTEXT_DIFF_SCHEMA,
+        "taken_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+    }
+    # Git position
+    head = _context_diff_git(workspace, "rev-parse", "HEAD")
+    if head:
+        snap["git"] = {
+            "branch": _context_diff_git(workspace, "rev-parse", "--abbrev-ref", "HEAD"),
+            "head": head,
+        }
+    # Agora task board: id → status
+    tasks_dir = Path(cfg.get("agora", {}).get("tasks_dir", "tasks"))
+    if not tasks_dir.is_absolute():
+        tasks_dir = workspace / tasks_dir
+    try:
+        snap["tasks"] = {
+            str(fm.get("id") or p.stem): str(fm.get("status") or "")
+            for p, fm, _body in _load_tasks(tasks_dir)
+        }
+    except Exception:
+        snap["tasks"] = {}
+    # Agent inbox: non-dismissed message ids
+    try:
+        snap["inbox"] = sorted(
+            fp.stem for fp, msg in _inbox_load_all(workspace, cfg)
+            if not msg.get("dismissed_at")
+        )
+    except Exception:
+        snap["inbox"] = []
+    # Checkpoints: count + latest stem
+    try:
+        cp_files = _list_checkpoint_files(cfg)  # reverse-chrono
+        snap["checkpoints"] = {
+            "count": len(cp_files),
+            "latest": cp_files[0].stem if cp_files else "",
+        }
+    except Exception:
+        snap["checkpoints"] = {"count": 0, "latest": ""}
+    # Vault session memories (best-effort)
+    snap["vault"] = _context_diff_vault_ids(cfg, workspace)
+    return snap
+
+
+def _render_context_delta(prev: dict, cur: dict, workspace: Path) -> list:
+    """Return the delta bullet lines between two snapshots (empty = no change)."""
+    lines: list = []
+
+    # ── Git ──
+    pg, cg = prev.get("git") or {}, cur.get("git") or {}
+    if cg and pg and (pg.get("head") != cg.get("head") or pg.get("branch") != cg.get("branch")):
+        bits = []
+        if pg.get("branch") != cg.get("branch"):
+            bits.append(f"branch `{pg.get('branch') or '?'}` → `{cg.get('branch') or '?'}`")
+        commit_lines: list = []
+        if pg.get("head") != cg.get("head"):
+            count = _context_diff_git(workspace, "rev-list", "--count",
+                                      f"{pg.get('head')}..{cg.get('head')}")
+            log = _context_diff_git(workspace, "log", "--oneline", "--no-decorate", "-5",
+                                    f"{pg.get('head')}..{cg.get('head')}")
+            if count and count != "0":
+                bits.append(f"+{count} commit{'s' if count != '1' else ''}")
+                commit_lines = [f"  - `{l.strip()}`" for l in log.splitlines() if l.strip()]
+            else:
+                # rebase/reset — the old head is not an ancestor
+                bits.append(f"HEAD moved {pg.get('head', '')[:8]} → {cg.get('head', '')[:8]}")
+        lines.append("- **Git:** " + ", ".join(bits))
+        lines.extend(commit_lines)
+    elif cg and not pg:
+        lines.append(f"- **Git:** now on branch `{cg.get('branch') or '?'}` at `{cg.get('head', '')[:8]}`")
+
+    # ── Agora tasks ──
+    pt, ct = prev.get("tasks") or {}, cur.get("tasks") or {}
+    new_tasks = sorted(set(ct) - set(pt))
+    gone_tasks = sorted(set(pt) - set(ct))
+    changed = [(tid, pt[tid], ct[tid]) for tid in sorted(set(pt) & set(ct)) if pt[tid] != ct[tid]]
+    task_bits = []
+    if new_tasks:
+        task_bits.append(f"+{len(new_tasks)} new ({', '.join(new_tasks[:5])})")
+    if changed:
+        task_bits.append("; ".join(f"{tid}: {old or '?'} → {new or '?'}" for tid, old, new in changed[:5]))
+    if gone_tasks:
+        task_bits.append(f"-{len(gone_tasks)} removed")
+    if task_bits:
+        lines.append("- **Tasks:** " + " · ".join(task_bits))
+
+    # ── Inbox ──
+    new_msgs = sorted(set(cur.get("inbox") or []) - set(prev.get("inbox") or []))
+    if new_msgs:
+        lines.append(f"- **Inbox:** +{len(new_msgs)} new message{'s' if len(new_msgs) != 1 else ''}")
+
+    # ── Checkpoints ──
+    pc = (prev.get("checkpoints") or {})
+    cc = (cur.get("checkpoints") or {})
+    cp_delta = int(cc.get("count") or 0) - int(pc.get("count") or 0)
+    if cp_delta > 0 or (cc.get("latest") and cc.get("latest") != pc.get("latest")):
+        latest = f" (latest: {cc.get('latest')})" if cc.get("latest") else ""
+        delta_txt = f"+{cp_delta}" if cp_delta > 0 else "changed"
+        lines.append(f"- **Checkpoints:** {delta_txt}{latest}")
+
+    # ── Vault session memories ──
+    new_mem = sorted(set(cur.get("vault") or []) - set(prev.get("vault") or []))
+    if new_mem:
+        lines.append(f"- **Vault:** +{len(new_mem)} new session memor{'ies' if len(new_mem) != 1 else 'y'}")
+
+    return lines
+
+
+def resolve_context_diff(args_str: str, cfg: dict, workspace: Path | None = None) -> str:
+    """@context-diff [reset=true] — compact "Since last session" delta (#714).
+
+    Diffs the current workspace signals (git branch/HEAD, Agora task board,
+    agent inbox, checkpoint store, vault session memories) against the last
+    recorded snapshot, renders only the differences, then refreshes the
+    snapshot. First render records a baseline and says so.
+
+    Baseline refresh is debounced via ``render.context_diff_min_age_s``
+    (default 300s): re-renders within the window keep the same baseline, so
+    watch-mode refreshes don't reduce every delta to "nothing changed".
+    Pass ``reset=true`` to force a new baseline now.
+    """
+    ws = (workspace or Path.cwd()).resolve()
+    mods = _parse_kv_modifiers(args_str)
+    force_reset = str(mods.get("reset", "")).strip().lower() in {"true", "1", "yes"}
+
+    state_path = _context_diff_state_path(cfg, ws)
+    prev: dict = {}
+    if state_path.exists() and not force_reset:
+        try:
+            prev = json.loads(state_path.read_text(encoding="utf-8")) or {}
+        except Exception:
+            prev = {}
+
+    cur = _collect_context_snapshot(cfg, ws)
+
+    # Refresh policy: keep the baseline stable across bursty re-renders.
+    try:
+        min_age_s = int(cfg.get("render", {}).get("context_diff_min_age_s", 300))
+    except (ValueError, TypeError):
+        min_age_s = 300
+    baseline_age_s: float | None = None
+    if prev.get("taken_at"):
+        try:
+            taken = datetime.fromisoformat(str(prev["taken_at"]))
+            baseline_age_s = (datetime.now(taken.tzinfo) - taken).total_seconds()
+        except ValueError:
+            baseline_age_s = None
+    should_refresh = (
+        not prev
+        or force_reset
+        or baseline_age_s is None
+        or baseline_age_s >= min_age_s
+    )
+    if should_refresh:
+        try:
+            state_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = state_path.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(cur, ensure_ascii=False, indent=1), encoding="utf-8")
+            os.replace(tmp, state_path)
+        except Exception as exc:
+            sys.stderr.write(f"> ⚠ @context-diff: could not persist snapshot: {exc}\n")
+
+    if not prev:
+        return ("> ℹ️ @context-diff: baseline snapshot recorded — the "
+                "\"Since last session\" delta will render from the next session.")
+
+    delta_lines = _render_context_delta(prev, cur, ws)
+    age_note = ""
+    if prev.get("taken_at"):
+        age_note = f"\n\n_Baseline: {prev['taken_at']} ({_human_age(str(prev['taken_at']))})._"
+    if not delta_lines:
+        return f"## Since last session{age_note}\n\n- Nothing changed since the last snapshot."
+    return f"## Since last session{age_note}\n\n" + "\n".join(delta_lines)
+
