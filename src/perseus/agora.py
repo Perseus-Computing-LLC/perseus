@@ -18,9 +18,35 @@ def _memory_workspace(args, cfg) -> Path:
     cwd = Path.cwd().resolve()
     if (cwd / ".perseus").exists():
         return cwd
-    fallback = Path.home().resolve()
-    sys.stderr.write(f"> ⚠ Mneme: no .perseus/ in CWD; falling back to {fallback}. Use --workspace.\n")
-    return fallback
+    # #712: auto-discover the workspace by walking up from CWD to the nearest
+    # ancestor containing .perseus/ (like git discovers .git), so running from
+    # a project subdirectory targets that project rather than silently
+    # operating on $HOME. The walk stops at $HOME when CWD is under it:
+    # ~/.perseus is the auto-created global Perseus home, so home is the
+    # natural terminal workspace for interactive shells, and anything above a
+    # user's home is never that user's workspace root.
+    home = Path.home().resolve()
+    for parent in cwd.parents:
+        if (parent / ".perseus").exists():
+            if parent != home:
+                sys.stderr.write(
+                    f"> Mneme: using workspace {parent} "
+                    f"(nearest ancestor with .perseus/).\n"
+                )
+            return parent
+        if parent == home:
+            break
+    # #712: no .perseus/ anywhere up the tree (e.g. launchd/cron with CWD=/,
+    # or CWD outside $HOME). The old behavior silently fell back to $HOME,
+    # which made scheduled jobs operate on the wrong workspace unnoticed —
+    # fail fast with an actionable message instead.
+    sys.stderr.write(
+        "> ✖ Mneme: no .perseus/ found in CWD or any ancestor directory "
+        f"(searched up from {cwd}).\n"
+        "> Pass --workspace <dir> explicitly, or run from inside a workspace "
+        "(a directory whose root contains .perseus/).\n"
+    )
+    raise SystemExit(2)
 
 
 def _memory_llm_provider(args, cfg) -> str | None:
@@ -205,6 +231,141 @@ def cmd_memory_update_silent(workspace: Path, cfg: dict) -> None:
         sys.stderr.write(f"> ⚠ Mnēmē update failed: {exc}\n")
 
 
+# ──────────────────────────────── @capture (#713) ─────────────────────────────
+# The write side of the memory loop, symmetric to @memory recall. Perseus
+# already owns the session boundaries (checkpoint writes, memory update,
+# explicit @capture in a rendered doc); these helpers write durable session
+# entities straight to the vault via the existing connector — no scheduled
+# harvest (launchd/cron) required, so lessons persist at the boundary instead
+# of up to hours later.
+
+def _capture_cfg(cfg: dict) -> dict:
+    block = cfg.get("perseus_vault", {}).get("capture")
+    return block if isinstance(block, dict) else {}
+
+
+def _capture_checkpoint_payload(cp: dict) -> str:
+    """Serialize a checkpoint as the vault entity body (JSON object)."""
+    body = {"source": "perseus-checkpoint"}
+    for field in ("task", "status", "next", "notes", "written", "workspace"):
+        val = cp.get(field)
+        if val:
+            body[field] = str(val)
+    return json.dumps(body, ensure_ascii=False)
+
+
+def capture_checkpoints_to_vault(cfg: dict, workspace: Path, limit: int | None = None) -> tuple[int, int, str]:
+    """Capture recent checkpoints for ``workspace`` into the vault (#713).
+
+    Idempotent: each entity is keyed by its checkpoint filename stem, so
+    re-capture upserts in place (dedup by design, not by heuristic). Entities
+    carry provenance tags (``source:perseus-checkpoint``) so they are sourced,
+    not free-floating INSIGHTs (the #525 failure mode).
+
+    Returns ``(attempted, stored, error)`` — ``error`` is ``""`` on success,
+    or the connector failure string (vault down, tool error) so callers can
+    report honestly instead of claiming a write that never happened.
+    """
+    if limit is None:
+        try:
+            limit = int(_capture_cfg(cfg).get("limit", 5))
+        except (ValueError, TypeError):
+            limit = 5
+    category = str(_capture_cfg(cfg).get("category") or "session")
+
+    try:
+        connector = _get_connector(cfg)
+    except Exception as exc:
+        return 0, 0, f"connector init failed: {exc}"
+    if not getattr(connector, "available", False):
+        return 0, 0, f"vault unavailable: {getattr(connector, 'status', 'unknown')}"
+
+    ws_str = str(workspace.resolve()) if isinstance(workspace, Path) else str(workspace)
+    cp_files = _list_checkpoint_files(cfg)  # reverse-chrono
+    attempted = stored = 0
+    last_err = ""
+    for fp in cp_files:
+        if attempted >= max(1, limit):
+            break
+        cp = _load_checkpoint_file(fp)
+        if not cp or not cp.get("task"):
+            continue
+        # Only this workspace's checkpoints — the store is shared across
+        # workspaces and capture must not cross-pollinate memory pools.
+        cp_ws = str(cp.get("workspace", "") or "")
+        if cp_ws and ws_str and cp_ws != ws_str:
+            continue
+        attempted += 1
+        tags = ["source:perseus-checkpoint", "perseus-capture"]
+        if cp.get("status"):
+            tags.append(f"status:{str(cp['status'])[:60]}")
+        try:
+            ok, result = connector.store(
+                content=_capture_checkpoint_payload(cp),
+                memory_type=MemoryTypeEnum.INSIGHT,
+                workspace_hash=_workspace_hash(Path(ws_str)) if ws_str else None,
+                tags=tags,
+                importance=0.6,
+                category=category,
+                key=f"session-{fp.stem}",
+            )
+        except Exception as exc:
+            ok, result = False, str(exc)
+        if ok:
+            stored += 1
+        else:
+            last_err = result or "store failed"
+    return attempted, stored, last_err
+
+
+def capture_after_checkpoint(cfg: dict, workspace: Path) -> None:
+    """Silent best-effort capture side-effect for cmd_checkpoint (#713).
+
+    Gated on ``perseus_vault.capture.enabled`` + ``.on_checkpoint``. Never
+    raises — a vault hiccup must never fail a checkpoint write.
+    """
+    cap = _capture_cfg(cfg)
+    if not (cap.get("enabled") and cap.get("on_checkpoint", True)):
+        return
+    try:
+        attempted, stored, err = capture_checkpoints_to_vault(cfg, workspace, limit=1)
+        if err:
+            sys.stderr.write(f"> ⚠ capture: {err}\n")
+        elif stored:
+            sys.stderr.write(f"> 🧠 capture: session checkpoint written to the vault.\n")
+    except Exception as exc:
+        sys.stderr.write(f"> ⚠ capture failed (non-critical): {exc}\n")
+
+
+def resolve_capture(args_str: str, cfg: dict, workspace: Path | None = None) -> str:
+    """@capture [limit=N] — write recent session checkpoints to the vault (#713).
+
+    The explicit, in-document form of the capture hook: rendering the
+    directive captures up to ``limit`` recent checkpoints for this workspace
+    as durable vault entities. Idempotent (keyed per checkpoint), so a doc
+    that renders every session refreshes rather than duplicates. An explicit
+    directive is its own opt-in — it runs even when the automatic
+    ``perseus_vault.capture.enabled`` switch is off.
+    """
+    ws = workspace or Path.cwd()
+    mods = _parse_kv_modifiers(args_str)
+    limit = None
+    if "limit" in mods:
+        try:
+            limit = max(1, int(mods["limit"]))
+        except (TypeError, ValueError):
+            return "> ⚠ @capture: limit= must be a positive integer."
+
+    attempted, stored, err = capture_checkpoints_to_vault(cfg, ws, limit=limit)
+    if err and not stored:
+        return f"> ⚠ @capture: nothing captured — {err}"
+    if attempted == 0:
+        return "> ℹ️ @capture: no checkpoints found for this workspace — nothing to capture."
+    note = f" ({attempted - stored} failed: {err})" if err else ""
+    return (f"> 🧠 @capture: {stored}/{attempted} session checkpoint"
+            f"{'s' if attempted != 1 else ''} written to the vault{note}.")
+
+
 def cmd_memory(args, cfg):
     sub = getattr(args, "memory_command", None)
     workspace = _memory_workspace(args, cfg)
@@ -213,6 +374,15 @@ def cmd_memory(args, cfg):
         provider = _memory_llm_provider(args, cfg)
         changed, msg = _memory_do_update(workspace, cfg, provider)
         print(msg)
+        # #713: `memory update` is a session boundary Perseus already owns —
+        # capture pending checkpoints to the vault live (opt-in).
+        cap = _capture_cfg(cfg)
+        if cap.get("enabled") and cap.get("on_memory_update", True):
+            attempted, stored, cap_err = capture_checkpoints_to_vault(cfg, workspace)
+            if cap_err and not stored:
+                print(f"> ⚠ capture: {cap_err}")
+            elif attempted:
+                print(f"> 🧠 capture: {stored}/{attempted} session checkpoints written to the vault.")
         if changed:
             mp = _mneme_path(workspace, cfg)
             fm, body = _load_narrative(mp)
@@ -873,10 +1043,109 @@ def _augment_recent_activity_from_vault(body: str, cfg: dict, ws: Path) -> str:
     return body.replace(_RECENT_ACTIVITY_PLACEHOLDER, vault_recent, 1)
 
 
+_NARRATIVE_ENTRY_TS_RE = re.compile(r'^###\s+(\d{4}-\d{2}-\d{2})(?:T\d{2}:?\d{2})?\s*[—–-]')
+
+
+def _cap_section_entries(seg_lines: list, limit_n: int, cutoff) -> list:
+    """Cap one ``## `` section's entries (helper for #717, see below).
+
+    An "entry" is a ``### `` sub-heading when the section has any (Recent
+    Activity's per-checkpoint blocks — their bullets are attributes, not
+    entries), otherwise a top-level list bullet.
+    """
+    has_sub = any(l.startswith("### ") for l in seg_lines)
+    out: list = []
+    count = 0
+    dropped = 0
+    skipping = False
+    for line in seg_lines:
+        is_entry = (
+            line.startswith("### ") if has_sub
+            else re.match(r'^[-*]\s', line) is not None
+        )
+        if is_entry:
+            skipping = False
+            too_old = False
+            if cutoff is not None and has_sub:
+                m = _NARRATIVE_ENTRY_TS_RE.match(line)
+                if m:
+                    try:
+                        too_old = datetime.fromisoformat(m.group(1)).astimezone() < cutoff
+                    except ValueError:
+                        too_old = False
+            count += 1
+            if too_old or (limit_n > 0 and count > limit_n):
+                dropped += 1
+                skipping = has_sub  # ### entries own their continuation lines
+                continue
+        elif skipping:
+            if line.startswith("#"):
+                skipping = False   # next heading ends the dropped entry
+            else:
+                continue
+        out.append(line)
+    if dropped:
+        out.append(f"> _…{dropped} entr{'y' if dropped == 1 else 'ies'} omitted (limit/recency cap)._")
+        out.append("")
+    return out
+
+
+def _cap_narrative_entries(text: str, limit_n: int, max_age_days: int = 0) -> str:
+    """#717: hard-cap and age-filter the entries of a rendered narrative.
+
+    ``limit_n`` caps entries per ``## `` section (0 = no cap);
+    ``max_age_days`` drops ``### <date> — …`` entries older than the window
+    (0 = keep all). Content belonging to a dropped entry is dropped with it;
+    a one-line note marks any truncation so the reader knows the dump is
+    partial.
+    """
+    if limit_n <= 0 and max_age_days <= 0:
+        return text
+    cutoff = None
+    if max_age_days > 0:
+        cutoff = datetime.now().astimezone() - timedelta(days=max_age_days)
+
+    segments: list = []
+    current: list = []
+    for line in text.splitlines():
+        if line.startswith("## "):
+            segments.append(current)
+            current = [line]
+        else:
+            current.append(line)
+    segments.append(current)
+
+    out: list = []
+    for seg in segments:
+        out.extend(_cap_section_entries(seg, limit_n, cutoff))
+    return "\n".join(out)
+
+
 def _resolve_memory_narrative(args_stripped: str, mods: dict, cfg: dict, ws: Path, limit_n: int = 0) -> str:
     """@memory mode=narrative — render the narrative journal."""
     focus = (mods.get("focus") or "").strip().lower()
     include_fed = str(mods.get("include_federation", "")).strip().lower() in {"true", "1", "yes"}
+
+    # #717: a static narrative dump must respect the active memory posture.
+    # Under `on_demand` (the #608 recall-first default), a bare `@memory` /
+    # `@memory focus=… limit=…` in an always-loaded context file pre-injects
+    # stale entries the posture says should be retrieved on demand — so emit
+    # the same retrieval pointer the automatic injector uses. An explicit
+    # `mode=narrative` / `mode=full` / `force=true` is a deliberate dump
+    # request and bypasses the gate.
+    explicit_mode = (mods.get("mode") or "").strip().lower()
+    force_dump = (
+        str(mods.get("force", "")).strip().lower() in {"true", "1", "yes"}
+        or explicit_mode in {"narrative", "full"}
+    )
+    if not force_dump:
+        profile_name, profile = _active_context_profile(cfg)
+        if _memory_posture(profile) == "on_demand":
+            return (
+                _memory_pointer_block(profile_name, profile)
+                + "\n\n<!-- perseus: @memory static dump suppressed (memory posture: on_demand);"
+                  " use mode=narrative or force=true to inject entries. -->"
+            )
 
     ws_override = (mods.get("workspace") or "").strip()
     if ws_override:
@@ -953,6 +1222,15 @@ def _resolve_memory_narrative(args_stripped: str, mods: dict, cfg: dict, ws: Pat
     # so the recalled content is never persisted back into the narrative file
     # (the staleness touch above saves the original `body`).
     render_body = _augment_recent_activity_from_vault(body, cfg, ws)
+
+    # #717: limit=N is a hard cap on emitted entries, and the optional
+    # memory.static_max_age_days window drops stale dated entries — both
+    # applied to the render-only copy, never persisted.
+    try:
+        max_age_days = int(cfg.get("memory", {}).get("static_max_age_days", 0))
+    except (ValueError, TypeError):
+        max_age_days = 0
+    render_body = _cap_narrative_entries(render_body, limit_n, max_age_days)
 
     if not focus:
         result = render_body.rstrip()

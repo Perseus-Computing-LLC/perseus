@@ -149,6 +149,36 @@ _FALLBACK_ESCAPE_MAP = {
     "\\": "\\", '"': '"', "'": "'",
 }
 
+# #716: directives that already warned about the PERSEUS_ALLOW_DANGEROUS gate
+# this RENDER — the guidance is operator-facing and once per directive per
+# render is enough; repeating it per gated block just spams the render log.
+# The renderer resets this set at every top-level render entry
+# (_clear_render_path_memos), so long-lived processes (perseus serve, MCP)
+# re-warn on each render instead of only the first ever.
+_DANGEROUS_GATE_WARNED: set = set()
+
+
+def _warn_dangerous_gate(directive: str) -> None:
+    """#716: PERSEUS_ALLOW_DANGEROUS guidance goes to stderr, not the artifact.
+
+    Emitted at most once per directive per top-level render — the renderer
+    clears _DANGEROUS_GATE_WARNED at render entry.
+
+    The rendered output is model-facing content; a multi-line operator warning
+    there is permanent dead weight in always-loaded context files (AGENTS.md
+    etc.). Gated directives emit their ``fallback=`` text or a one-line HTML
+    comment instead, and this helper tells the human what to do about it.
+    """
+    if directive in _DANGEROUS_GATE_WARNED:
+        return
+    _DANGEROUS_GATE_WARNED.add(directive)
+    sys.stderr.write(
+        f"> ⚠ {directive} is enabled in config but PERSEUS_ALLOW_DANGEROUS=1 is not set.\n"
+        f"> Fix: export PERSEUS_ALLOW_DANGEROUS=1\n"
+        f"> This is a defense-in-depth gate to prevent accidental shell execution.\n"
+        f"> Gated {directive} blocks render their fallback= text (or an HTML comment) instead.\n"
+    )
+
 def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> str:
     """
     @query "shell command" [fallback="text"] [schema="path/to/schema.yaml"] [@cache session|ttl=N]
@@ -177,21 +207,6 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
                     reason="render.allow_query_shell=false",
                     args=args_str[:200])
         return "> ⚠ @query is disabled by config (`render.allow_query_shell=false`)."
-
-    # Defense-in-depth (#616): even with allow_query_shell=true, require the
-    # PERSEUS_ALLOW_DANGEROUS env var — the gate the registry summary promises
-    # and the sibling shell-exec directives (@agent, @services command) enforce.
-    if not os.environ.get("PERSEUS_ALLOW_DANGEROUS"):
-        audit_event(cfg, "policy_denied",
-                    directive="@query",
-                    reason="PERSEUS_ALLOW_DANGEROUS not set",
-                    args=args_str[:200])
-        return (
-            "> ⚠ @query is enabled in config but PERSEUS_ALLOW_DANGEROUS=1 is not set.\n"
-            "> Fix: export PERSEUS_ALLOW_DANGEROUS=1\n"
-            "> This is a defense-in-depth gate to prevent accidental shell execution.\n"
-            "> Set the environment variable to acknowledge the risk."
-        )
 
     # #588: extract the quoted command FIRST so modifier stripping (@cache,
     # schema=, fallback=, timeout=) only ever sees the remainder and can
@@ -231,6 +246,22 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
         # UTF-8 bytes as Latin-1, corrupting characters like é → Ã©).
         fallback = _unescape_fallback(fallback)
         raw = (raw[:fb_match.start()] + raw[fb_match.end():]).rstrip()
+
+    # Defense-in-depth (#616): even with allow_query_shell=true, require the
+    # PERSEUS_ALLOW_DANGEROUS env var — the gate the registry summary promises
+    # and the sibling shell-exec directives (@agent, @services command) enforce.
+    # #716: checked AFTER fallback= extraction so the gate never pollutes the
+    # rendered artifact — emit the fallback text (or a one-line HTML comment)
+    # and route the operator guidance to stderr.
+    if not os.environ.get("PERSEUS_ALLOW_DANGEROUS"):
+        audit_event(cfg, "policy_denied",
+                    directive="@query",
+                    reason="PERSEUS_ALLOW_DANGEROUS not set",
+                    args=args_str[:200])
+        _warn_dangerous_gate("@query")
+        if fallback is not None:
+            return fallback
+        return "<!-- perseus: @query gated (PERSEUS_ALLOW_DANGEROUS=1 is not set) -->"
 
     # #138: strip timeout=N modifier so it never leaks into an unquoted
     # executed shell command (quoted commands were already extracted above).

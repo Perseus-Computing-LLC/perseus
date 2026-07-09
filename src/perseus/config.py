@@ -43,6 +43,11 @@ DEFAULT_CONFIG = {
         # every "Since last session" delta to "nothing changed". 0 = refresh on
         # every render.
         "context_diff_min_age_s": 300,
+        # #715 — files the host agent already loads natively (paths, ~ expanded).
+        # @include of a matching file emits a one-line reference pointer instead
+        # of inlining, preventing the same content landing in model context
+        # multiple times (host-loaded + inlined copies).
+        "host_loaded_paths": [],
         "staleness_warn_hours": 48,  # `perseus doctor` warns when a rendered output is older than this (0 = disabled) — see #431
         "integrity_check": False,    # opt-in: detect files modified during render
         "parallel_services": False,   # opt-in: concurrent @services health checks
@@ -147,6 +152,12 @@ DEFAULT_CONFIG = {
         #   "daedalus"      = call run_llm("daedalus", ...) for inference
         # The daedalus path falls back to deterministic on any failure.
         "pattern_extractor": "deterministic",
+        # #717 — recency window for STATIC @memory narrative injection.
+        # Entries whose `### <timestamp> — …` heading is older than this many
+        # days are dropped from the rendered dump (0 = disabled, keep all).
+        # Applies only to the static render path; search/recall modes rank by
+        # decay/trust in the vault and are unaffected.
+        "static_max_age_days": 0,
     },
     # ── #608 — per-model context profiles (recall-first posture) ────────────
     # Keyed by model name (or context-window class). Selected per render via
@@ -195,6 +206,18 @@ DEFAULT_CONFIG = {
         "retry_policy": {
             "max_attempts": 3,
             "backoff_base": 1.5,
+        },
+        # #713 — @capture: first-class session-boundary memory writes.
+        # Closes the write side of the memory loop live (no cron/launchd
+        # harvest dependency). Opt-in; writes are idempotent (keyed by
+        # checkpoint filename, so re-capture upserts instead of piling up)
+        # and tagged with their provenance (source:perseus-checkpoint).
+        "capture": {
+            "enabled": False,        # master switch for AUTOMATIC capture side-effects
+            "on_checkpoint": True,   # push each checkpoint to the vault at write time
+            "on_memory_update": True, # capture pending checkpoints during `perseus memory update`
+            "category": "session",   # vault category (matches the #670 Recent Activity recall)
+            "limit": 5,              # default max checkpoints per @capture directive render
         },
     },
     "research": {                       # #513 — @research external paper-search MCP

@@ -28,6 +28,9 @@ def _mneme_cfg(tmp_path):
     local = cfg()
     local["memory"]["store"] = str(tmp_path / "memory")
     local["checkpoints"]["store"] = str(tmp_path / "checkpoints")
+    # #717: these tests exercise narrative-dump mechanics; pin the legacy
+    # always-inject posture so the on_demand pointer gate doesn't apply.
+    local.setdefault("profiles", {})["default"] = {"memory": "always"}
     return local
 
 
@@ -102,13 +105,22 @@ def test_bug2_memory_workspace_cwd_with_perseus_dir(tmp_path, monkeypatch):
     assert result == tmp_path.resolve()
 
 
-def test_bug2_memory_workspace_falls_back_to_home(tmp_path, monkeypatch):
-    """When CWD has no .perseus/, _memory_workspace falls back to home."""
-    monkeypatch.chdir(tmp_path)   # no .perseus/ here
+def test_bug2_memory_workspace_resolves_home_when_under_home(tmp_path, monkeypatch):
+    """CWD under $HOME with no project .perseus/ resolves to $HOME via walk-up.
+
+    #712: $HOME is no longer a blind fallback — it is found because it is an
+    ancestor of CWD and ~/.perseus (the global Perseus home) exists.
+    """
+    fake_home = tmp_path
+    (fake_home / ".perseus").mkdir()
+    cwd = fake_home / "somewhere"
+    cwd.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
+    monkeypatch.chdir(cwd)   # no .perseus/ here
     local = _mneme_cfg(tmp_path)
     ns = argparse.Namespace(workspace=None)
     result = perseus._memory_workspace(ns, local)
-    assert result == Path.home().resolve()
+    assert result == fake_home.resolve()
 
 
 def test_bug2_explicit_workspace_flag_always_wins(tmp_path, monkeypatch):
@@ -119,6 +131,63 @@ def test_bug2_explicit_workspace_flag_always_wins(tmp_path, monkeypatch):
     ns = argparse.Namespace(workspace=explicit)
     result = perseus._memory_workspace(ns, local)
     assert result == tmp_path.resolve()
+
+
+# ─────────────────────────── #712 tests ───────────────────────────────────────
+
+def test_712_walkup_discovers_ancestor_workspace(tmp_path, monkeypatch):
+    """From a subdirectory, the nearest ancestor with .perseus/ is used."""
+    (tmp_path / ".perseus").mkdir()
+    deep = tmp_path / "sub" / "deep"
+    deep.mkdir(parents=True)
+    monkeypatch.chdir(deep)
+    local = _mneme_cfg(tmp_path)
+    ns = argparse.Namespace(workspace=None)
+    result = perseus._memory_workspace(ns, local)
+    assert result == tmp_path.resolve()
+
+
+def test_712_walkup_prefers_nearest_ancestor(tmp_path, monkeypatch):
+    """With nested workspaces, the closest ancestor wins."""
+    (tmp_path / ".perseus").mkdir()
+    inner = tmp_path / "inner"
+    (inner / ".perseus").mkdir(parents=True)
+    deep = inner / "sub"
+    deep.mkdir()
+    monkeypatch.chdir(deep)
+    local = _mneme_cfg(tmp_path)
+    ns = argparse.Namespace(workspace=None)
+    result = perseus._memory_workspace(ns, local)
+    assert result == inner.resolve()
+
+
+def test_712_no_workspace_anywhere_errors(tmp_path, monkeypatch):
+    """No .perseus/ in CWD or any ancestor → hard error (exit 2), not $HOME."""
+    fake_home = tmp_path  # no .perseus/ anywhere in the jail
+    jail = tmp_path / "jail" / "cwd"
+    jail.mkdir(parents=True)
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
+    monkeypatch.chdir(jail)
+    local = _mneme_cfg(tmp_path)
+    ns = argparse.Namespace(workspace=None)
+    with pytest.raises(SystemExit) as excinfo:
+        perseus._memory_workspace(ns, local)
+    assert excinfo.value.code == 2
+
+
+def test_712_explicit_workspace_skips_discovery_and_error(tmp_path, monkeypatch):
+    """--workspace wins even when no .perseus/ is discoverable anywhere."""
+    fake_home = tmp_path  # no .perseus/ anywhere
+    jail = tmp_path / "jail" / "cwd"
+    jail.mkdir(parents=True)
+    target = tmp_path / "target-ws"
+    target.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
+    monkeypatch.chdir(jail)
+    local = _mneme_cfg(tmp_path)
+    ns = argparse.Namespace(workspace=str(target))
+    result = perseus._memory_workspace(ns, local)
+    assert result == target.resolve()
 
 
 # ─────────────────────────── Bug #3 tests ─────────────────────────────────────

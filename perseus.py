@@ -148,6 +148,11 @@ DEFAULT_CONFIG = {
         # every "Since last session" delta to "nothing changed". 0 = refresh on
         # every render.
         "context_diff_min_age_s": 300,
+        # #715 — files the host agent already loads natively (paths, ~ expanded).
+        # @include of a matching file emits a one-line reference pointer instead
+        # of inlining, preventing the same content landing in model context
+        # multiple times (host-loaded + inlined copies).
+        "host_loaded_paths": [],
         "staleness_warn_hours": 48,  # `perseus doctor` warns when a rendered output is older than this (0 = disabled) — see #431
         "integrity_check": False,    # opt-in: detect files modified during render
         "parallel_services": False,   # opt-in: concurrent @services health checks
@@ -252,6 +257,12 @@ DEFAULT_CONFIG = {
         #   "daedalus"      = call run_llm("daedalus", ...) for inference
         # The daedalus path falls back to deterministic on any failure.
         "pattern_extractor": "deterministic",
+        # #717 — recency window for STATIC @memory narrative injection.
+        # Entries whose `### <timestamp> — …` heading is older than this many
+        # days are dropped from the rendered dump (0 = disabled, keep all).
+        # Applies only to the static render path; search/recall modes rank by
+        # decay/trust in the vault and are unaffected.
+        "static_max_age_days": 0,
     },
     # ── #608 — per-model context profiles (recall-first posture) ────────────
     # Keyed by model name (or context-window class). Selected per render via
@@ -300,6 +311,18 @@ DEFAULT_CONFIG = {
         "retry_policy": {
             "max_attempts": 3,
             "backoff_base": 1.5,
+        },
+        # #713 — @capture: first-class session-boundary memory writes.
+        # Closes the write side of the memory loop live (no cron/launchd
+        # harvest dependency). Opt-in; writes are idempotent (keyed by
+        # checkpoint filename, so re-capture upserts instead of piling up)
+        # and tagged with their provenance (source:perseus-checkpoint).
+        "capture": {
+            "enabled": False,        # master switch for AUTOMATIC capture side-effects
+            "on_checkpoint": True,   # push each checkpoint to the vault at write time
+            "on_memory_update": True, # capture pending checkpoints during `perseus memory update`
+            "category": "session",   # vault category (matches the #670 Recent Activity recall)
+            "limit": 5,              # default max checkpoints per @capture directive render
         },
     },
     "research": {                       # #513 — @research external paper-search MCP
@@ -1287,7 +1310,7 @@ def _bind_registry() -> None:
         # Tier 1 — Always (lightweight, core context)
         DirectiveSpec("@date",      resolve_date,      ["format="],                "inline",  "a",   cacheable=False, safe_for_hover=True, summary="Current date/time", output_schema={"type": "str", "pattern": ".+"}, tier=1),
         DirectiveSpec("@waypoint",  resolve_waypoint,  ["ttl="],                   "inline",  "ac",  reads_files=True, cacheable=True, summary="Return the most recent session checkpoint: what was being worked on, status, and next steps. Use at session start to resume where you left off. Stale after TTL (default 24h). Read-only; lightweight — call freely.", tier=1),
-        DirectiveSpec("@memory",    resolve_memory,    ["mode=", "query=", "scope=", "k=", "type=", "render=", "focus=", "federation", "include_federation=", "alias=", "workspace=", "project=", "max_tokens="], "inline", "acw", reads_files=True, cacheable=True, summary="Search LOCAL project memory (FTS5, zero-network) for past decisions and architecture notes. Use for in-workspace recall. For cross-session persistent facts, use perseus_mneme instead. Read-only; returns results array with mode and count.", tier=1, is_semantic_hint=True),
+        DirectiveSpec("@memory",    resolve_memory,    ["mode=", "query=", "scope=", "k=", "type=", "render=", "focus=", "limit=", "force=", "federation", "include_federation=", "alias=", "workspace=", "project=", "max_tokens="], "inline", "acw", reads_files=True, cacheable=True, summary="Search LOCAL project memory (FTS5, zero-network) for past decisions and architecture notes. Use for in-workspace recall. For cross-session persistent facts, use perseus_mneme instead. Read-only; returns results array with mode and count.", tier=1, is_semantic_hint=True),
         DirectiveSpec("@auto-skill", resolve_auto_skill, ["skill="],              "inline",  "ac",  cacheable=True,  safe_for_hover=True, summary="Instruct the agent to load a specific skill before starting work. Use at the top of context documents to enforce critical hygiene skills (e.g., memory-hygiene, agent-safety). Renders as a mandatory instruction block. Read-only.", tier=1),
         DirectiveSpec("@profile",   resolve_profile,   ["model="],                 "inline",  "acw", cacheable=False, safe_for_hover=True, summary="Select the per-model context profile for this document (#608): sets the context target and memory posture (on_demand/relevant/always) used by the automatic memory injection layer. Use at the top of a context document, e.g. @profile claude-sonnet-4-6. Unknown names fall back to the default profile. First-wins (#627): with multiple @profile lines only the first non-fenced one governs — later banners are marked ignored, and @profile inside a code fence is documentation, never a directive. Read-only.", tier=1),
         DirectiveSpec("@health",    resolve_health,    [],                         "inline",  "acw", reads_files=True, summary="Audit workspace context health: stale skills, duplicate tasks, oversized output. Use before starting work to catch drift. For deep Daedalus heuristics (cache, directive stats), use perseus_get_health. Read-only; returns status enum and metric counts.", tier=1),
@@ -1302,6 +1325,7 @@ def _bind_registry() -> None:
         DirectiveSpec("@focus",     resolve_focus,     ["add=", "pin=", "unpin=", "drop=", "touch=", "clear=", "weight=", "source="], "inline", "acw", mutates_state=True, cacheable=False, summary="The global-workspace tier: a small, capacity-bounded (default 32), salience-ranked set of items Perseus broadcasts into context — the shared 'what I'm working on now' set for the agent and its subagents. With no args, renders the current working set. add=/pin= admit items; the lowest-salience non-pinned items are evicted when it overflows. Distinct from long-term recall (@mimir/@memory): bounded and actively maintained, not unbounded memory.", tier=1),
         DirectiveSpec("@agora",     resolve_agora,     ["status="],                "inline",  "acw", reads_files=True, cacheable=True, summary="List tasks from the project task board (tasks/*.md files). Use to see what is open, in progress, or completed. Filter by status. Read-only; returns task array with id, title, status, scope.", tier=2),
         DirectiveSpec("@inbox",     resolve_inbox,     ["unread=", "limit="],      "inline",  "acw", reads_files=True, cacheable=True, summary="Read agent-to-agent messages from the workspace inbox. Use to check for coordination messages from other agents. Filter to unread only. Read-only; returns message array with read/unread status.", tier=2),
+        DirectiveSpec("@capture",   resolve_capture,   ["limit="],                 "inline",  "acw", reads_files=True, mutates_state=True, cacheable=False, safe_for_hover=False, summary="Write recent session checkpoints to Perseus Vault as durable memories (#713) — the write side of the memory loop, symmetric to @memory recall. Idempotent per checkpoint (re-render upserts, never duplicates). Use at session boundaries so lessons persist immediately instead of waiting for a scheduled harvest. WRITES to the vault; never cached.", tier=2),
         DirectiveSpec("@drift",     resolve_drift,     [],                         "inline",  "ac",  reads_files=True, summary="Detect drift between predicted and actual tool usage patterns via the Pythia oracle. Use when tool behavior seems off or after config changes. For workspace hygiene checks, prefer perseus_health. Read-only; returns a markdown drift report.", tier=2),
         DirectiveSpec("@context-diff", resolve_context_diff, ["reset="],          "inline",  "acw", reads_files=True, mutates_state=True, cacheable=False, safe_for_hover=False, summary="Render a compact 'Since last session' delta (#714): git branch/commits, Agora task-board changes, new inbox messages, new checkpoints, and new vault session memories since the last recorded snapshot. Use at the top of a context document so the assistant spends zero turns re-orienting on unchanged state. Maintains its own per-workspace snapshot (refresh debounced by render.context_diff_min_age_s); reset=true forces a new baseline. Never cached.", tier=1),
         DirectiveSpec("@perseus",   resolve_perseus,   ["url="],                         "inline",  "acw", cacheable=True, safe_for_hover=False, summary="Fetch rendered context from a remote Perseus instance by URL. Use to pull live workspace state from another machine or container. Read-only; caches results — re-fetch when remote state may have changed.", tier=2),
@@ -1310,7 +1334,7 @@ def _bind_registry() -> None:
         # Tier 3 — On-demand (bulky, expensive)
         DirectiveSpec("@query",     resolve_query,     ["command=", "fallback=", "schema="],   "inline",  "acw", executes_shell=True,  safe_for_hover=False, cacheable=True,  summary="Run a shell command in the workspace and embed its stdout into the rendered context. Use for dynamic facts: git status, docker ps, system info. REQUIRES allow_query_shell=true and PERSEUS_ALLOW_DANGEROUS=1. Destructive — executes arbitrary commands with the user's permissions.", tier=3),
         DirectiveSpec("@read",      resolve_read,      ["path=", "key=", "fallback=", "schema="], "inline", "acw", reads_files=True, cacheable=True, safe_for_hover=False, summary="Read and embed file contents into the rendered context. Use to inject config values, environment files, or any text file. Can extract specific keys from structured files. Read-only; use perseus_list or perseus_tree to browse before reading.", tier=3),
-        DirectiveSpec("@include",   resolve_include,   ["path=", "last=", "since="],      "inline",  "awc", reads_files=True, cacheable=True, safe_for_hover=False, summary="Include and render another Perseus source file, recursively resolving its directives. Use to compose context from multiple files or share common sections across workspaces. Bound a growing file with last=N (final N lines) or since=14d/2w/24h (recent dated sections only). Read-only; resolved directives inherit the parent configuration.", tier=3),
+        DirectiveSpec("@include",   resolve_include,   ["path=", "last=", "since=", "mode="],      "inline",  "awc", reads_files=True, cacheable=True, safe_for_hover=False, summary="Include and render another Perseus source file, recursively resolving its directives. Use to compose context from multiple files or share common sections across workspaces. Bound a growing file with last=N (final N lines) or since=14d/2w/24h (recent dated sections only). Use mode=reference (or render.host_loaded_paths) to emit a one-line pointer instead of inlining files the host agent already loads natively. Read-only; resolved directives inherit the parent configuration.", tier=3),
         DirectiveSpec("@list",      resolve_list,      ["path=", "limit=", "sort="],        "inline",  "acw", reads_files=True, cacheable=True, safe_for_hover=False, summary="List directory contents or structured data. Use to discover files before reading with perseus_read. Supports sorting by name, modified time, or size. Read-only; for hierarchical view, prefer perseus_tree.", tier=3),
         DirectiveSpec("@tree",      resolve_tree,      ["path=", "depth="],                 "inline",  "acw", reads_files=True, cacheable=True, safe_for_hover=False, summary="Display a directory tree with configurable depth. Use to understand project structure at a glance. For flat file listings with metadata, use perseus_list instead. Read-only; depth limits control output size.", tier=3),
         DirectiveSpec("@agent",     resolve_agent,     ["agent=", "prompt="],                         "inline",  "acw", summary="Execute a local agent subprocess with a given prompt. Use to delegate work to another agent profile. Requires agent and prompt parameters. REQUIRES allow_agent_shell=true. Destructive — spawns a subprocess that may modify the workspace.", tier=3),
@@ -4055,12 +4079,17 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
                     _directive_collector: list[dict] | None = None,
                     _stats: dict | None = None) -> str:
     """
-    @include <file>
+    @include <file> [last=N] [since=<Nh|Nd|Nw>] [mode=inline|reference]
 
     Embeds the contents of a file inline. Markdown files are recursively
     rendered (up to max_include_depth) so directives inside included .md
     files are resolved. Structured files (.yaml, .yml, .json, .toml) are
     wrapped in a fenced block.
+
+    #715: ``mode=reference`` emits a one-line pointer instead of inlining —
+    use it for files the host agent already loads natively, where inlining
+    would duplicate the content in model context. Files listed in
+    ``render.host_loaded_paths`` get the same treatment on every @include.
 
     Cycle detection: if a file is an ancestor in the current include
     chain, a circular-dependency warning is emitted. Repeated includes
@@ -4088,15 +4117,21 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
     # appended to each session) so rendered AGENTS.md does not grow unbounded.
     last_n = None
     since_cutoff = None
+    include_mode = "inline"
     if remaining.strip():
         options = _parse_kv_modifiers(remaining)
         leftover = _KV_PAIR_RE.sub("", remaining).strip()
         if leftover:
             return f"> ⚠ @include: unexpected trailing input: `{leftover}`"
-        unknown = set(options) - {"last", "since"}
+        unknown = set(options) - {"last", "since", "mode"}
         if unknown:
             return ("> ⚠ @include: unsupported option(s): "
-                    f"{', '.join(sorted(unknown))}. Supported: last=, since=.")
+                    f"{', '.join(sorted(unknown))}. Supported: last=, since=, mode=.")
+        if "mode" in options:
+            include_mode = str(options["mode"] or "").strip().lower()
+            if include_mode not in ("inline", "reference"):
+                return ("> ⚠ @include: mode= must be `inline` or `reference` "
+                        f"(got `{options['mode']}`).")
         if "last" in options:
             try:
                 # #596: catch TypeError too — _parse_kv_modifiers can return
@@ -4126,6 +4161,28 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
 
     if not fp.exists():
         return f"> ⚠ @include: file not found: `{file_path_str}`"
+
+    # ── #715: reference mode / host-loaded paths — pointer, not content ──
+    # When the host agent already ingests a file natively (its own memory /
+    # AGENTS.md discovery), inlining it via @include lands the same content in
+    # model context 2-4×. `mode=reference` opts a single directive into a
+    # one-line pointer; `render.host_loaded_paths` declares such files once in
+    # config so EVERY @include of them refuses to inline (with a stderr note).
+    if include_mode == "reference":
+        return (f"> 📎 `{file_path_str}` — content not inlined (mode=reference); "
+                f"the host agent loads this file natively.")
+    for host_p in render_cfg.get("host_loaded_paths") or []:
+        try:
+            if Path(str(host_p)).expanduser().resolve() == fp.resolve():
+                sys.stderr.write(
+                    f"> ⚠ @include: `{file_path_str}` is listed in "
+                    f"render.host_loaded_paths — emitting a reference pointer "
+                    f"instead of inlining (see #715).\n"
+                )
+                return (f"> 📎 `{file_path_str}` — content not inlined: listed in "
+                        f"`render.host_loaded_paths` (the host agent loads it natively).")
+        except OSError:
+            continue
 
     # ── Cycle detection (path + inode) ──
     resolved_path = str(fp.resolve())
@@ -4620,6 +4677,36 @@ _FALLBACK_ESCAPE_MAP = {
     "\\": "\\", '"': '"', "'": "'",
 }
 
+# #716: directives that already warned about the PERSEUS_ALLOW_DANGEROUS gate
+# this RENDER — the guidance is operator-facing and once per directive per
+# render is enough; repeating it per gated block just spams the render log.
+# The renderer resets this set at every top-level render entry
+# (_clear_render_path_memos), so long-lived processes (perseus serve, MCP)
+# re-warn on each render instead of only the first ever.
+_DANGEROUS_GATE_WARNED: set = set()
+
+
+def _warn_dangerous_gate(directive: str) -> None:
+    """#716: PERSEUS_ALLOW_DANGEROUS guidance goes to stderr, not the artifact.
+
+    Emitted at most once per directive per top-level render — the renderer
+    clears _DANGEROUS_GATE_WARNED at render entry.
+
+    The rendered output is model-facing content; a multi-line operator warning
+    there is permanent dead weight in always-loaded context files (AGENTS.md
+    etc.). Gated directives emit their ``fallback=`` text or a one-line HTML
+    comment instead, and this helper tells the human what to do about it.
+    """
+    if directive in _DANGEROUS_GATE_WARNED:
+        return
+    _DANGEROUS_GATE_WARNED.add(directive)
+    sys.stderr.write(
+        f"> ⚠ {directive} is enabled in config but PERSEUS_ALLOW_DANGEROUS=1 is not set.\n"
+        f"> Fix: export PERSEUS_ALLOW_DANGEROUS=1\n"
+        f"> This is a defense-in-depth gate to prevent accidental shell execution.\n"
+        f"> Gated {directive} blocks render their fallback= text (or an HTML comment) instead.\n"
+    )
+
 def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> str:
     """
     @query "shell command" [fallback="text"] [schema="path/to/schema.yaml"] [@cache session|ttl=N]
@@ -4648,21 +4735,6 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
                     reason="render.allow_query_shell=false",
                     args=args_str[:200])
         return "> ⚠ @query is disabled by config (`render.allow_query_shell=false`)."
-
-    # Defense-in-depth (#616): even with allow_query_shell=true, require the
-    # PERSEUS_ALLOW_DANGEROUS env var — the gate the registry summary promises
-    # and the sibling shell-exec directives (@agent, @services command) enforce.
-    if not os.environ.get("PERSEUS_ALLOW_DANGEROUS"):
-        audit_event(cfg, "policy_denied",
-                    directive="@query",
-                    reason="PERSEUS_ALLOW_DANGEROUS not set",
-                    args=args_str[:200])
-        return (
-            "> ⚠ @query is enabled in config but PERSEUS_ALLOW_DANGEROUS=1 is not set.\n"
-            "> Fix: export PERSEUS_ALLOW_DANGEROUS=1\n"
-            "> This is a defense-in-depth gate to prevent accidental shell execution.\n"
-            "> Set the environment variable to acknowledge the risk."
-        )
 
     # #588: extract the quoted command FIRST so modifier stripping (@cache,
     # schema=, fallback=, timeout=) only ever sees the remainder and can
@@ -4702,6 +4774,22 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
         # UTF-8 bytes as Latin-1, corrupting characters like é → Ã©).
         fallback = _unescape_fallback(fallback)
         raw = (raw[:fb_match.start()] + raw[fb_match.end():]).rstrip()
+
+    # Defense-in-depth (#616): even with allow_query_shell=true, require the
+    # PERSEUS_ALLOW_DANGEROUS env var — the gate the registry summary promises
+    # and the sibling shell-exec directives (@agent, @services command) enforce.
+    # #716: checked AFTER fallback= extraction so the gate never pollutes the
+    # rendered artifact — emit the fallback text (or a one-line HTML comment)
+    # and route the operator guidance to stderr.
+    if not os.environ.get("PERSEUS_ALLOW_DANGEROUS"):
+        audit_event(cfg, "policy_denied",
+                    directive="@query",
+                    reason="PERSEUS_ALLOW_DANGEROUS not set",
+                    args=args_str[:200])
+        _warn_dangerous_gate("@query")
+        if fallback is not None:
+            return fallback
+        return "<!-- perseus: @query gated (PERSEUS_ALLOW_DANGEROUS=1 is not set) -->"
 
     # #138: strip timeout=N modifier so it never leaks into an unquoted
     # executed shell command (quoted commands were already extracted above).
@@ -5747,20 +5835,6 @@ def resolve_agent(args_str: str, cfg: dict, workspace: Path | None = None) -> st
                     args=args_str[:200])
         return "> ⚠ @agent is disabled by config (`render.allow_agent_shell=false`)."
 
-    # Defense-in-depth: @agent is an ad-hoc shell execution surface, so require
-    # the same explicit operator acknowledgement used by @query and @services.
-    if not os.environ.get("PERSEUS_ALLOW_DANGEROUS"):
-        audit_event(cfg, "policy_denied",
-                    directive="@agent",
-                    reason="PERSEUS_ALLOW_DANGEROUS not set",
-                    args=args_str[:200])
-        return (
-            "> ⚠ @agent is enabled in config but PERSEUS_ALLOW_DANGEROUS=1 is not set.\n"
-            "> Fix: export PERSEUS_ALLOW_DANGEROUS=1\n"
-            "> This is a defense-in-depth gate to prevent accidental shell execution.\n"
-            "> Set the environment variable to acknowledge the risk."
-        )
-
     raw = args_str.strip()
     # Extract command (double or single quoted, else first whitespace-delimited token)
     cmd_match = re.match(r'^"((?:[^"\\]|\\.)*)"', raw)
@@ -5782,6 +5856,21 @@ def resolve_agent(args_str: str, cfg: dict, workspace: Path | None = None) -> st
         timeout = 10
     strip_output = str(mods.get("strip", "true")).strip().lower() != "false"
     fallback = mods.get("fallback")
+
+    # Defense-in-depth: @agent is an ad-hoc shell execution surface, so require
+    # the same explicit operator acknowledgement used by @query and @services.
+    # #716: checked AFTER modifier parsing so the gate never pollutes the
+    # rendered artifact — emit the fallback text (or a one-line HTML comment)
+    # and route the operator guidance to stderr.
+    if not os.environ.get("PERSEUS_ALLOW_DANGEROUS"):
+        audit_event(cfg, "policy_denied",
+                    directive="@agent",
+                    reason="PERSEUS_ALLOW_DANGEROUS not set",
+                    args=args_str[:200])
+        _warn_dangerous_gate("@agent")
+        if fallback is not None:
+            return fallback
+        return "<!-- perseus: @agent gated (PERSEUS_ALLOW_DANGEROUS=1 is not set) -->"
 
     shell = _get_shell(cfg)
 
@@ -7024,7 +7113,10 @@ def _check_one_service(svc: dict, index: int, timeout: float, cfg: dict) -> tupl
                         reason="PERSEUS_ALLOW_DANGEROUS not set",
                         service=name,
                         command=command[:300])
-            return index, f"| {name} | ⚠ PERSEUS_ALLOW_DANGEROUS not set — Fix: export PERSEUS_ALLOW_DANGEROUS=1 | — |"
+            # #716: keep the model-facing table cell compact; the operator
+            # fix ("export PERSEUS_ALLOW_DANGEROUS=1") goes to stderr once.
+            _warn_dangerous_gate("@services")
+            return index, f"| {name} | 🔒 gated (PERSEUS_ALLOW_DANGEROUS not set) | — |"
         # Run arbitrary shell command; success = exit 0
         audit_event(cfg, "shell_exec",
                     directive="@services",
@@ -12230,6 +12322,11 @@ def _clear_render_path_memos() -> None:
     """Reset the #637 path-resolution memos (top-level render entry)."""
     _WS_RESOLVE_MEMO.clear()
     _RESOLVE_PATH_MEMO.clear()
+    # #716 follow-up: the PERSEUS_ALLOW_DANGEROUS gate guidance
+    # (_warn_dangerous_gate in directives/query.py) is scoped to the render,
+    # not the process — reset here so a long-lived process (perseus serve,
+    # MCP) re-warns on each render's log instead of only the first ever.
+    _DANGEROUS_GATE_WARNED.clear()
 
 
 def _resolved_workspace_str(workspace: "Path | None") -> str:
@@ -12355,10 +12452,11 @@ def _parse_cache_modifier(line: str) -> tuple[str, str, int | None, str | None]:
 
 
 # #612: directives whose rendered output depends on PERSEUS_ALLOW_DANGEROUS
-# (they emit a "gate not set" warning instead of running when it's unset, per
-# their resolvers in directives/agent.py, directives/services.py, and
-# directives/query.py). Their cache fingerprint must include the env var so a
-# flip auto-invalidates; every other directive keeps an empty fingerprint
+# (they emit their fallback= value or a "gated" placeholder instead of running
+# when it's unset — #716 — per their resolvers in directives/agent.py,
+# directives/services.py, and directives/query.py). Their cache fingerprint
+# must include the env var so a flip auto-invalidates; every other directive
+# keeps an empty fingerprint
 # (bare base key + TTL fallback). @query joined in #616 when its resolver
 # gained the same defense-in-depth env gate as its shell-exec siblings.
 _ENV_GATED_DIRECTIVES = frozenset({"@agent", "@services", "@query"})
@@ -12414,8 +12512,8 @@ def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path | N
 
     Env-gated directives (#612, #616): @agent, @services, and @query carry a
     PERSEUS_ALLOW_DANGEROUS fragment (see _ENV_GATED_DIRECTIVES) so a flip of
-    that env var — which toggles their "gate not set" warning vs. real output —
-    invalidates their cache.
+    that env var — which toggles their gated fallback/placeholder (#716) vs.
+    real output — invalidates their cache.
     """
     import hashlib as _hashlib
     import stat as _stat
@@ -15040,6 +15138,12 @@ def cmd_checkpoint(args, cfg):
         ws_arg = getattr(args, "workspace", None) or ""
         ws = Path(ws_arg).expanduser().resolve() if ws_arg else Path.cwd().resolve()
         cmd_memory_update_silent(ws, cfg)
+
+    # ── Vault capture (#713, opt-in silent side-effect) ──
+    # A checkpoint write IS a session boundary — push it to the vault live
+    # instead of waiting for a scheduled harvest. Best-effort; never raises.
+    ws_cap = Path(str(cp.get("workspace") or Path.cwd())).expanduser().resolve()
+    capture_after_checkpoint(cfg, ws_cap)
 
     # ── Auto-sign on checkpoint (Phase 27B) ──
     if bool(cfg.get("federation", {}).get("signing", {}).get("enabled", False)):
@@ -21471,9 +21575,35 @@ def _memory_workspace(args, cfg) -> Path:
     cwd = Path.cwd().resolve()
     if (cwd / ".perseus").exists():
         return cwd
-    fallback = Path.home().resolve()
-    sys.stderr.write(f"> ⚠ Mneme: no .perseus/ in CWD; falling back to {fallback}. Use --workspace.\n")
-    return fallback
+    # #712: auto-discover the workspace by walking up from CWD to the nearest
+    # ancestor containing .perseus/ (like git discovers .git), so running from
+    # a project subdirectory targets that project rather than silently
+    # operating on $HOME. The walk stops at $HOME when CWD is under it:
+    # ~/.perseus is the auto-created global Perseus home, so home is the
+    # natural terminal workspace for interactive shells, and anything above a
+    # user's home is never that user's workspace root.
+    home = Path.home().resolve()
+    for parent in cwd.parents:
+        if (parent / ".perseus").exists():
+            if parent != home:
+                sys.stderr.write(
+                    f"> Mneme: using workspace {parent} "
+                    f"(nearest ancestor with .perseus/).\n"
+                )
+            return parent
+        if parent == home:
+            break
+    # #712: no .perseus/ anywhere up the tree (e.g. launchd/cron with CWD=/,
+    # or CWD outside $HOME). The old behavior silently fell back to $HOME,
+    # which made scheduled jobs operate on the wrong workspace unnoticed —
+    # fail fast with an actionable message instead.
+    sys.stderr.write(
+        "> ✖ Mneme: no .perseus/ found in CWD or any ancestor directory "
+        f"(searched up from {cwd}).\n"
+        "> Pass --workspace <dir> explicitly, or run from inside a workspace "
+        "(a directory whose root contains .perseus/).\n"
+    )
+    raise SystemExit(2)
 
 
 def _memory_llm_provider(args, cfg) -> str | None:
@@ -21658,6 +21788,141 @@ def cmd_memory_update_silent(workspace: Path, cfg: dict) -> None:
         sys.stderr.write(f"> ⚠ Mnēmē update failed: {exc}\n")
 
 
+# ──────────────────────────────── @capture (#713) ─────────────────────────────
+# The write side of the memory loop, symmetric to @memory recall. Perseus
+# already owns the session boundaries (checkpoint writes, memory update,
+# explicit @capture in a rendered doc); these helpers write durable session
+# entities straight to the vault via the existing connector — no scheduled
+# harvest (launchd/cron) required, so lessons persist at the boundary instead
+# of up to hours later.
+
+def _capture_cfg(cfg: dict) -> dict:
+    block = cfg.get("perseus_vault", {}).get("capture")
+    return block if isinstance(block, dict) else {}
+
+
+def _capture_checkpoint_payload(cp: dict) -> str:
+    """Serialize a checkpoint as the vault entity body (JSON object)."""
+    body = {"source": "perseus-checkpoint"}
+    for field in ("task", "status", "next", "notes", "written", "workspace"):
+        val = cp.get(field)
+        if val:
+            body[field] = str(val)
+    return json.dumps(body, ensure_ascii=False)
+
+
+def capture_checkpoints_to_vault(cfg: dict, workspace: Path, limit: int | None = None) -> tuple[int, int, str]:
+    """Capture recent checkpoints for ``workspace`` into the vault (#713).
+
+    Idempotent: each entity is keyed by its checkpoint filename stem, so
+    re-capture upserts in place (dedup by design, not by heuristic). Entities
+    carry provenance tags (``source:perseus-checkpoint``) so they are sourced,
+    not free-floating INSIGHTs (the #525 failure mode).
+
+    Returns ``(attempted, stored, error)`` — ``error`` is ``""`` on success,
+    or the connector failure string (vault down, tool error) so callers can
+    report honestly instead of claiming a write that never happened.
+    """
+    if limit is None:
+        try:
+            limit = int(_capture_cfg(cfg).get("limit", 5))
+        except (ValueError, TypeError):
+            limit = 5
+    category = str(_capture_cfg(cfg).get("category") or "session")
+
+    try:
+        connector = _get_connector(cfg)
+    except Exception as exc:
+        return 0, 0, f"connector init failed: {exc}"
+    if not getattr(connector, "available", False):
+        return 0, 0, f"vault unavailable: {getattr(connector, 'status', 'unknown')}"
+
+    ws_str = str(workspace.resolve()) if isinstance(workspace, Path) else str(workspace)
+    cp_files = _list_checkpoint_files(cfg)  # reverse-chrono
+    attempted = stored = 0
+    last_err = ""
+    for fp in cp_files:
+        if attempted >= max(1, limit):
+            break
+        cp = _load_checkpoint_file(fp)
+        if not cp or not cp.get("task"):
+            continue
+        # Only this workspace's checkpoints — the store is shared across
+        # workspaces and capture must not cross-pollinate memory pools.
+        cp_ws = str(cp.get("workspace", "") or "")
+        if cp_ws and ws_str and cp_ws != ws_str:
+            continue
+        attempted += 1
+        tags = ["source:perseus-checkpoint", "perseus-capture"]
+        if cp.get("status"):
+            tags.append(f"status:{str(cp['status'])[:60]}")
+        try:
+            ok, result = connector.store(
+                content=_capture_checkpoint_payload(cp),
+                memory_type=MemoryTypeEnum.INSIGHT,
+                workspace_hash=_workspace_hash(Path(ws_str)) if ws_str else None,
+                tags=tags,
+                importance=0.6,
+                category=category,
+                key=f"session-{fp.stem}",
+            )
+        except Exception as exc:
+            ok, result = False, str(exc)
+        if ok:
+            stored += 1
+        else:
+            last_err = result or "store failed"
+    return attempted, stored, last_err
+
+
+def capture_after_checkpoint(cfg: dict, workspace: Path) -> None:
+    """Silent best-effort capture side-effect for cmd_checkpoint (#713).
+
+    Gated on ``perseus_vault.capture.enabled`` + ``.on_checkpoint``. Never
+    raises — a vault hiccup must never fail a checkpoint write.
+    """
+    cap = _capture_cfg(cfg)
+    if not (cap.get("enabled") and cap.get("on_checkpoint", True)):
+        return
+    try:
+        attempted, stored, err = capture_checkpoints_to_vault(cfg, workspace, limit=1)
+        if err:
+            sys.stderr.write(f"> ⚠ capture: {err}\n")
+        elif stored:
+            sys.stderr.write(f"> 🧠 capture: session checkpoint written to the vault.\n")
+    except Exception as exc:
+        sys.stderr.write(f"> ⚠ capture failed (non-critical): {exc}\n")
+
+
+def resolve_capture(args_str: str, cfg: dict, workspace: Path | None = None) -> str:
+    """@capture [limit=N] — write recent session checkpoints to the vault (#713).
+
+    The explicit, in-document form of the capture hook: rendering the
+    directive captures up to ``limit`` recent checkpoints for this workspace
+    as durable vault entities. Idempotent (keyed per checkpoint), so a doc
+    that renders every session refreshes rather than duplicates. An explicit
+    directive is its own opt-in — it runs even when the automatic
+    ``perseus_vault.capture.enabled`` switch is off.
+    """
+    ws = workspace or Path.cwd()
+    mods = _parse_kv_modifiers(args_str)
+    limit = None
+    if "limit" in mods:
+        try:
+            limit = max(1, int(mods["limit"]))
+        except (TypeError, ValueError):
+            return "> ⚠ @capture: limit= must be a positive integer."
+
+    attempted, stored, err = capture_checkpoints_to_vault(cfg, ws, limit=limit)
+    if err and not stored:
+        return f"> ⚠ @capture: nothing captured — {err}"
+    if attempted == 0:
+        return "> ℹ️ @capture: no checkpoints found for this workspace — nothing to capture."
+    note = f" ({attempted - stored} failed: {err})" if err else ""
+    return (f"> 🧠 @capture: {stored}/{attempted} session checkpoint"
+            f"{'s' if attempted != 1 else ''} written to the vault{note}.")
+
+
 def cmd_memory(args, cfg):
     sub = getattr(args, "memory_command", None)
     workspace = _memory_workspace(args, cfg)
@@ -21666,6 +21931,15 @@ def cmd_memory(args, cfg):
         provider = _memory_llm_provider(args, cfg)
         changed, msg = _memory_do_update(workspace, cfg, provider)
         print(msg)
+        # #713: `memory update` is a session boundary Perseus already owns —
+        # capture pending checkpoints to the vault live (opt-in).
+        cap = _capture_cfg(cfg)
+        if cap.get("enabled") and cap.get("on_memory_update", True):
+            attempted, stored, cap_err = capture_checkpoints_to_vault(cfg, workspace)
+            if cap_err and not stored:
+                print(f"> ⚠ capture: {cap_err}")
+            elif attempted:
+                print(f"> 🧠 capture: {stored}/{attempted} session checkpoints written to the vault.")
         if changed:
             mp = _mneme_path(workspace, cfg)
             fm, body = _load_narrative(mp)
@@ -22326,10 +22600,109 @@ def _augment_recent_activity_from_vault(body: str, cfg: dict, ws: Path) -> str:
     return body.replace(_RECENT_ACTIVITY_PLACEHOLDER, vault_recent, 1)
 
 
+_NARRATIVE_ENTRY_TS_RE = re.compile(r'^###\s+(\d{4}-\d{2}-\d{2})(?:T\d{2}:?\d{2})?\s*[—–-]')
+
+
+def _cap_section_entries(seg_lines: list, limit_n: int, cutoff) -> list:
+    """Cap one ``## `` section's entries (helper for #717, see below).
+
+    An "entry" is a ``### `` sub-heading when the section has any (Recent
+    Activity's per-checkpoint blocks — their bullets are attributes, not
+    entries), otherwise a top-level list bullet.
+    """
+    has_sub = any(l.startswith("### ") for l in seg_lines)
+    out: list = []
+    count = 0
+    dropped = 0
+    skipping = False
+    for line in seg_lines:
+        is_entry = (
+            line.startswith("### ") if has_sub
+            else re.match(r'^[-*]\s', line) is not None
+        )
+        if is_entry:
+            skipping = False
+            too_old = False
+            if cutoff is not None and has_sub:
+                m = _NARRATIVE_ENTRY_TS_RE.match(line)
+                if m:
+                    try:
+                        too_old = datetime.fromisoformat(m.group(1)).astimezone() < cutoff
+                    except ValueError:
+                        too_old = False
+            count += 1
+            if too_old or (limit_n > 0 and count > limit_n):
+                dropped += 1
+                skipping = has_sub  # ### entries own their continuation lines
+                continue
+        elif skipping:
+            if line.startswith("#"):
+                skipping = False   # next heading ends the dropped entry
+            else:
+                continue
+        out.append(line)
+    if dropped:
+        out.append(f"> _…{dropped} entr{'y' if dropped == 1 else 'ies'} omitted (limit/recency cap)._")
+        out.append("")
+    return out
+
+
+def _cap_narrative_entries(text: str, limit_n: int, max_age_days: int = 0) -> str:
+    """#717: hard-cap and age-filter the entries of a rendered narrative.
+
+    ``limit_n`` caps entries per ``## `` section (0 = no cap);
+    ``max_age_days`` drops ``### <date> — …`` entries older than the window
+    (0 = keep all). Content belonging to a dropped entry is dropped with it;
+    a one-line note marks any truncation so the reader knows the dump is
+    partial.
+    """
+    if limit_n <= 0 and max_age_days <= 0:
+        return text
+    cutoff = None
+    if max_age_days > 0:
+        cutoff = datetime.now().astimezone() - timedelta(days=max_age_days)
+
+    segments: list = []
+    current: list = []
+    for line in text.splitlines():
+        if line.startswith("## "):
+            segments.append(current)
+            current = [line]
+        else:
+            current.append(line)
+    segments.append(current)
+
+    out: list = []
+    for seg in segments:
+        out.extend(_cap_section_entries(seg, limit_n, cutoff))
+    return "\n".join(out)
+
+
 def _resolve_memory_narrative(args_stripped: str, mods: dict, cfg: dict, ws: Path, limit_n: int = 0) -> str:
     """@memory mode=narrative — render the narrative journal."""
     focus = (mods.get("focus") or "").strip().lower()
     include_fed = str(mods.get("include_federation", "")).strip().lower() in {"true", "1", "yes"}
+
+    # #717: a static narrative dump must respect the active memory posture.
+    # Under `on_demand` (the #608 recall-first default), a bare `@memory` /
+    # `@memory focus=… limit=…` in an always-loaded context file pre-injects
+    # stale entries the posture says should be retrieved on demand — so emit
+    # the same retrieval pointer the automatic injector uses. An explicit
+    # `mode=narrative` / `mode=full` / `force=true` is a deliberate dump
+    # request and bypasses the gate.
+    explicit_mode = (mods.get("mode") or "").strip().lower()
+    force_dump = (
+        str(mods.get("force", "")).strip().lower() in {"true", "1", "yes"}
+        or explicit_mode in {"narrative", "full"}
+    )
+    if not force_dump:
+        profile_name, profile = _active_context_profile(cfg)
+        if _memory_posture(profile) == "on_demand":
+            return (
+                _memory_pointer_block(profile_name, profile)
+                + "\n\n<!-- perseus: @memory static dump suppressed (memory posture: on_demand);"
+                  " use mode=narrative or force=true to inject entries. -->"
+            )
 
     ws_override = (mods.get("workspace") or "").strip()
     if ws_override:
@@ -22406,6 +22779,15 @@ def _resolve_memory_narrative(args_stripped: str, mods: dict, cfg: dict, ws: Pat
     # so the recalled content is never persisted back into the narrative file
     # (the staleness touch above saves the original `body`).
     render_body = _augment_recent_activity_from_vault(body, cfg, ws)
+
+    # #717: limit=N is a hard cap on emitted entries, and the optional
+    # memory.static_max_age_days window drops stale dated entries — both
+    # applied to the render-only copy, never persisted.
+    try:
+        max_age_days = int(cfg.get("memory", {}).get("static_max_age_days", 0))
+    except (ValueError, TypeError):
+        max_age_days = 0
+    render_body = _cap_narrative_entries(render_body, limit_n, max_age_days)
 
     if not focus:
         result = render_body.rstrip()
@@ -31927,20 +32309,20 @@ def main():
     p_mem = sub.add_parser("memory", help="Mnēmē — narrative project memory")
     mem_sub = p_mem.add_subparsers(dest="memory_command", required=True)
     p_mem_update = mem_sub.add_parser("update", help="Incrementally update narrative")
-    p_mem_update.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
+    p_mem_update.add_argument("--workspace", default=None, help="Workspace path (default: auto-discover nearest ancestor with .perseus/)")
     p_mem_update.add_argument("--llm", default=None, help="LLM provider (ollama, openai-compat)")
     p_mem_compact = mem_sub.add_parser("compact", help="Fully re-distill narrative")
-    p_mem_compact.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
+    p_mem_compact.add_argument("--workspace", default=None, help="Workspace path (default: auto-discover nearest ancestor with .perseus/)")
     p_mem_compact.add_argument("--llm", default=None, help="LLM provider")
     p_mem_compact.add_argument("--pattern-extractor", default=None, choices=["deterministic", "daedalus"], help="Override memory.pattern_extractor (task-21)")
     p_mem_show = mem_sub.add_parser("show", help="Print narrative to stdout")
-    p_mem_show.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
+    p_mem_show.add_argument("--workspace", default=None, help="Workspace path (default: auto-discover nearest ancestor with .perseus/)")
     p_mem_status = mem_sub.add_parser("status", help="Summarize narrative state")
-    p_mem_status.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
+    p_mem_status.add_argument("--workspace", default=None, help="Workspace path (default: auto-discover nearest ancestor with .perseus/)")
     p_mem_status.add_argument("--json", action="store_true", help="Machine-readable JSON output")
     p_mem_query = mem_sub.add_parser("query", help="Query narrative (grep or LLM)")
     p_mem_query.add_argument("question", help="Question or search terms")
-    p_mem_query.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
+    p_mem_query.add_argument("--workspace", default=None, help="Workspace path (default: auto-discover nearest ancestor with .perseus/)")
     p_mem_query.add_argument("--llm", default=None, help="LLM provider")
     # #692: `perseus memory review` is an alias for `perseus knows`
     p_mem_review = mem_sub.add_parser("review", help="Alias for `perseus knows`")
@@ -31964,7 +32346,7 @@ def main():
     p_fed_pull.add_argument("--json", action="store_true", help="Machine-readable JSON output")
     p_fed_push = fed_sub.add_parser("push", help="Push narrative to subscribers with push_url (Phase 27C)")
     p_fed_push.add_argument("--alias", default=None, help="Push to a specific subscriber alias (default: all)")
-    p_fed_push.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
+    p_fed_push.add_argument("--workspace", default=None, help="Workspace path (default: auto-discover nearest ancestor with .perseus/)")
     p_fed_push.add_argument("--json", action="store_true", help="Machine-readable JSON output")
     p_fed_diff = fed_sub.add_parser("diff", help="Side-by-side compare two federated narratives (Phase 27E)")
     p_fed_diff.add_argument("alias_a", help="First subscription alias")
@@ -31975,20 +32357,20 @@ def main():
 
     # memory sign (Phase 27B)
     p_mem_sign = mem_sub.add_parser("sign", help="Sign the current Mneme narrative with workspace identity")
-    p_mem_sign.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
+    p_mem_sign.add_argument("--workspace", default=None, help="Workspace path (default: auto-discover nearest ancestor with .perseus/)")
     p_mem_sign.add_argument("--json", action="store_true", help="Machine-readable JSON output")
 
     # memory verify (Phase 27B)
     p_mem_verify = mem_sub.add_parser("verify", help="Verify a narrative signature")
     p_mem_verify.add_argument("hash", nargs="?", default=None, help="Workspace hash to verify (default: current workspace)")
-    p_mem_verify.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
+    p_mem_verify.add_argument("--workspace", default=None, help="Workspace path (default: auto-discover nearest ancestor with .perseus/)")
     p_mem_verify.add_argument("--key", default=None, help="External public key for cross-workspace verification")
     p_mem_verify.add_argument("--json", action="store_true", help="Machine-readable JSON output")
 
     # memory provenance (Phase 27F)
     p_mem_prov = mem_sub.add_parser("provenance", help="Display narrative provenance chain (Phase 27F)")
     p_mem_prov.add_argument("hash", nargs="?", default=None, help="Workspace hash (default: current workspace)")
-    p_mem_prov.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
+    p_mem_prov.add_argument("--workspace", default=None, help="Workspace path (default: auto-discover nearest ancestor with .perseus/)")
 
     # memory doctor (#128 — legacy MD5 → SHA-256 narrative migration)
     p_mem_doc = mem_sub.add_parser(
