@@ -38,6 +38,11 @@ DEFAULT_CONFIG = {
         "max_include_warn_bytes": None,  # advisory warning when a single @include renders larger than this (None = disabled) — see #433
         "max_safe_read_bytes": 52428800,  # 50 MB hard pre-read guard for @read/@include before bytes hit memory (None = disabled)
         "max_include_depth": 5,      # max depth for transitive @include recursion
+        # #714 — @context-diff baseline debounce: re-renders within this window
+        # keep the same baseline snapshot, so watch-mode refreshes don't reduce
+        # every "Since last session" delta to "nothing changed". 0 = refresh on
+        # every render.
+        "context_diff_min_age_s": 300,
         # #715 — files the host agent already loads natively (paths, ~ expanded).
         # @include of a matching file emits a one-line reference pointer instead
         # of inlining, preventing the same content landing in model context
