@@ -28,6 +28,12 @@ def _mneme_cfg(tmp_path):
     local = cfg()
     local["memory"]["store"] = str(tmp_path / "memory")
     local["checkpoints"]["store"] = str(tmp_path / "checkpoints")
+    # #717: opt into the static narrative dump (the default on_demand posture
+    # now renders a recall pointer) and disable the recency window — these
+    # tests exercise the narrative machinery, not the #717 gating (covered by
+    # test_bugfix_717_memory_limit_posture.py).
+    local["profiles"]["default"]["memory"] = "always"
+    local["memory"]["max_age_days"] = 0
     return local
 
 

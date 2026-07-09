@@ -574,7 +574,19 @@ def resolve_memory(args_str: str, cfg: dict, workspace: Path | None = None) -> s
         → Cross-workspace narrative aggregation.
       mode=vault-mem [project=...] [query=...]
         → Query frozo-ai/vault-mem for typed project memories.
-      limit:N — cap at N entries regardless of mode
+      limit=N — hard cap on emitted entries regardless of mode (#717: in
+        narrative mode the cap applies per rendered section).
+
+    Static-injection hygiene (#717), narrative mode only:
+      - The active memory posture (profiles.<name>.memory, #608) governs the
+        render: under the default ``on_demand`` posture the directive emits a
+        one-line recall pointer instead of a pre-materialized entry dump.
+        ``posture=always`` (same vocabulary as the profile key) is the
+        explicit per-directive opt-in; ``relevant``/``always`` profile
+        postures also opt in. Search / federation / vault-mem modes are the
+        on-demand recall path itself and are never gated.
+      - max_age_days=N — recency window for dated entries; entries older than
+        N days are omitted (default from memory.max_age_days, 7; 0 disables).
 
     Default: if query= is present → search; otherwise → narrative.
     Legacy shim: @mimir calls this with mode=search automatically.
@@ -887,7 +899,7 @@ def _recent_activity_from_vault(cfg: dict, workspace: Path, limit: int = 5) -> s
     return "\n".join(lines).rstrip()
 
 
-def _augment_recent_activity_from_vault(body: str, cfg: dict, ws: Path) -> str:
+def _augment_recent_activity_from_vault(body: str, cfg: dict, ws: Path, limit_n: int = 0) -> str:
     """Replace an empty Recent Activity placeholder with a vault recall (#670)."""
     if _RECENT_ACTIVITY_PLACEHOLDER not in body:
         return body  # real checkpoint-derived activity present — leave it be
@@ -895,16 +907,195 @@ def _augment_recent_activity_from_vault(body: str, cfg: dict, ws: Path) -> str:
         limit = int(cfg.get("memory", {}).get("recent_keep", 5))
     except (ValueError, TypeError):
         limit = 5
+    if limit_n > 0:
+        limit = min(limit, limit_n)  # #717: directive limit= caps the recall too
     vault_recent = _recent_activity_from_vault(cfg, ws, limit)
     if not vault_recent:
         return body
     return body.replace(_RECENT_ACTIVITY_PLACEHOLDER, vault_recent, 1)
 
 
+# ── #717 — static-injection hygiene: posture gate + entry cap + recency ───────
+
+# One-line recall pointer emitted by @memory narrative mode under the
+# on_demand posture. Deliberately a blockquote, not a `## Memory Recall`
+# header: the automatic injection layer's canonical pointer block (#608) is
+# recognized by header, and this line must not suppress it via the #553 dedup.
+_MEMORY_STATIC_POINTER = (
+    "> \U0001f9e0 Memory posture: on_demand — no memory entries pre-injected. "
+    "Recall on demand via `@memory mode=search query=\"<topic>\"` or the "
+    "`perseus_memory` / `perseus_mneme` MCP tools "
+    "(`@memory posture=always` opts this directive into the static dump).\n"
+)
+
+# First YYYY-MM-DD (optionally followed by a THHMM/THH:MM stamp) on an entry's
+# head line — the date formats the deterministic narrative emits (#717).
+_STATIC_ENTRY_DATE_RE = re.compile(r"(?<!\d)(\d{4})-(\d{2})-(\d{2})(?!\d)")
+
+# A markdown table separator row (`|---|---|`), so Task History header rows are
+# never counted (or dropped) as entries.
+_TABLE_SEPARATOR_RE = re.compile(r"^\s*\|[\s:\-|]+\|\s*$")
+
+
+def _memory_max_age_days(mods: dict, cfg: dict) -> int:
+    """#717: resolve the static-injection recency window in whole days.
+
+    Directive ``max_age_days=`` wins over the ``memory.max_age_days`` config
+    key (default 7). 0 disables the age filter entirely.
+    """
+    raw = str(mods.get("max_age_days") or "").strip()
+    if raw:
+        try:
+            return max(0, int(raw))
+        except (TypeError, ValueError):
+            pass
+    try:
+        return max(0, int(cfg.get("memory", {}).get("max_age_days", 7)))
+    except (TypeError, ValueError):
+        return 7
+
+
+def _memory_static_posture(mods: dict, cfg: dict) -> str:
+    """#717: the memory posture governing a @memory static (narrative) render.
+
+    A ``posture=`` directive modifier (same vocabulary as the
+    ``profiles.<name>.memory`` config key, #608) is the explicit per-directive
+    override; otherwise the active context profile from config governs
+    (``render.context_profile`` → ``profiles.default``).
+    """
+    override = str(mods.get("posture") or "").strip().lower()
+    if override:
+        return _memory_posture({"memory": override})
+    _, profile = _active_context_profile(cfg)
+    return _memory_posture(profile)
+
+
+def _cap_narrative_entries(text: str, limit_n: int = 0,
+                           max_age_days: int = 0) -> tuple[str, int]:
+    """#717: apply the entry cap and recency window to a narrative render.
+
+    "Entries" are the repeating units the deterministic narrative emits:
+    ``###`` blocks (Recent Activity, including the #670 vault fallback),
+    top-level bullets (Key Decisions, Patterns & Anti-patterns), and table
+    data rows (Task History). Headings, prose, and blockquote notes pass
+    through untouched.
+
+    - ``limit_n`` > 0 caps entries PER SECTION (the cap resets at each ``#``/
+      ``##`` heading), so `focus=recent limit=3` emits at most 3 entries and a
+      full-narrative render emits at most 3 per section.
+    - ``max_age_days`` > 0 drops entries whose head line carries a parseable
+      ``YYYY-MM-DD`` older than the window (day granularity). Undated entries
+      are never age-filtered (fail-open).
+
+    Returns ``(filtered_text, omitted_count)``.
+    """
+    if limit_n <= 0 and max_age_days <= 0:
+        return text, 0
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=max_age_days)
+              ) if max_age_days > 0 else None
+
+    def _is_stale(head_line: str) -> bool:
+        if cutoff is None:
+            return False
+        m = _STATIC_ENTRY_DATE_RE.search(head_line)
+        if not m:
+            return False
+        try:
+            entry_dt = datetime(int(m.group(1)), int(m.group(2)),
+                                int(m.group(3)), tzinfo=timezone.utc)
+        except ValueError:
+            return False
+        return entry_dt < cutoff
+
+    lines = text.splitlines()
+    out: list[str] = []
+    omitted = 0
+    kept_in_section = 0
+    seen_table_sep = False
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+        # `###` entry block: heading plus everything until the next heading.
+        if line.startswith("### "):
+            j = i + 1
+            while j < len(lines) and not re.match(r"^#{1,6}\s", lines[j]):
+                j += 1
+            if _is_stale(line) or (limit_n > 0 and kept_in_section >= limit_n):
+                omitted += 1
+            else:
+                kept_in_section += 1
+                out.extend(lines[i:j])
+            i = j
+            continue
+        # Section boundary (# / ##): reset the per-section counters.
+        if re.match(r"^#{1,2}\s", line):
+            kept_in_section = 0
+            seen_table_sep = False
+            out.append(line)
+            i += 1
+            continue
+        # Table rows: header + separator pass through; data rows are entries.
+        if stripped.startswith("|") and stripped.endswith("|") and len(stripped) > 1:
+            if _TABLE_SEPARATOR_RE.match(line) or not seen_table_sep:
+                seen_table_sep = seen_table_sep or bool(_TABLE_SEPARATOR_RE.match(line))
+                out.append(line)
+                i += 1
+                continue
+            if _is_stale(line) or (limit_n > 0 and kept_in_section >= limit_n):
+                omitted += 1
+            else:
+                kept_in_section += 1
+                out.append(line)
+            i += 1
+            continue
+        # Top-level bullet entry, with its indented continuation lines.
+        if re.match(r"^[-*]\s", line):
+            j = i + 1
+            while j < len(lines) and lines[j].strip() and lines[j][:1] in (" ", "\t"):
+                j += 1
+            if _is_stale(line) or (limit_n > 0 and kept_in_section >= limit_n):
+                omitted += 1
+            else:
+                kept_in_section += 1
+                out.extend(lines[i:j])
+            i = j
+            continue
+        out.append(line)
+        i += 1
+    return "\n".join(out), omitted
+
+
+def _omitted_entries_note(omitted: int, limit_n: int, max_age_days: int) -> str:
+    """#717: a one-line visibility note when the cap/window dropped entries."""
+    constraints = []
+    if limit_n > 0:
+        constraints.append(f"limit={limit_n}")
+    if max_age_days > 0:
+        constraints.append(f"max_age_days={max_age_days}")
+    plural = "entry" if omitted == 1 else "entries"
+    return (
+        f"\n\n> ℹ️ @memory: {omitted} {plural} omitted from static "
+        f"injection ({', '.join(constraints)}) — recall on demand via "
+        f"`@memory mode=search query=\"<topic>\"` or `perseus memory show`."
+    )
+
+
 def _resolve_memory_narrative(args_stripped: str, mods: dict, cfg: dict, ws: Path, limit_n: int = 0) -> str:
     """@memory mode=narrative — render the narrative journal."""
+    # #717: the narrative render is STATIC injection (pre-materialized entries
+    # in an always-loaded context), so it obeys the memory posture exactly
+    # like the automatic injection layer (#608): under the recall-first
+    # default (on_demand) emit only a one-line recall pointer — no entries,
+    # no vault/narrative reads. `posture=always` on the directive (or an
+    # active-recall profile posture) opts into the dump.
+    if _memory_static_posture(mods, cfg) == "on_demand":
+        return _MEMORY_STATIC_POINTER
+
     focus = (mods.get("focus") or "").strip().lower()
     include_fed = str(mods.get("include_federation", "")).strip().lower() in {"true", "1", "yes"}
+    max_age_days = _memory_max_age_days(mods, cfg)
 
     ws_override = (mods.get("workspace") or "").strip()
     if ws_override:
@@ -980,10 +1171,14 @@ def _resolve_memory_narrative(args_stripped: str, mods: dict, cfg: dict, ws: Pat
     # a vault recall of recent session memories. Operates on a render-only copy
     # so the recalled content is never persisted back into the narrative file
     # (the staleness touch above saves the original `body`).
-    render_body = _augment_recent_activity_from_vault(body, cfg, ws)
+    render_body = _augment_recent_activity_from_vault(body, cfg, ws, limit_n=limit_n)
 
     if not focus:
-        result = render_body.rstrip()
+        # #717: hard entry cap (limit=, per section) + recency window.
+        filtered, omitted = _cap_narrative_entries(render_body, limit_n, max_age_days)
+        result = filtered.rstrip()
+        if omitted:
+            result += _omitted_entries_note(omitted, limit_n, max_age_days)
         if stale_note:
             result = stale_note + result
         result = result + compact_note
@@ -1007,7 +1202,11 @@ def _resolve_memory_narrative(args_stripped: str, mods: dict, cfg: dict, ws: Pat
         return _maybe_append_federation(
             f"> \u26a0 @memory focus={focus!r}: section not found in narrative."
         )
-    result = section.rstrip()
+    # #717: hard entry cap (limit=) + recency window on the focused section.
+    filtered, omitted = _cap_narrative_entries(section, limit_n, max_age_days)
+    result = filtered.rstrip()
+    if omitted:
+        result += _omitted_entries_note(omitted, limit_n, max_age_days)
     if stale_note:
         result = stale_note + result
     result = result + compact_note

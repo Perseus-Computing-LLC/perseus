@@ -121,6 +121,11 @@ DEFAULT_CONFIG = {
     "memory": {
         "store": str(PERSEUS_HOME / "memory"),
         "recent_keep": 5,           # raw checkpoints to include in Recent Activity
+        # #717: recency window (days) for @memory STATIC injection — dated
+        # entries older than this are omitted from the rendered narrative so
+        # stale sessions can't squat in always-loaded context. 0 disables the
+        # age filter. Per-directive override: `@memory max_age_days=N`.
+        "max_age_days": 7,
         "auto_update": True,        # update narrative on every checkpoint write
         "compact_threshold": 20,    # advisory: compact after this many incremental updates
         # #131: wall-clock deadline for `perseus memory compact` LLM path.
