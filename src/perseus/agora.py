@@ -19,10 +19,12 @@ def _memory_workspace(args, cfg) -> Path:
     if (cwd / ".perseus").exists():
         return cwd
     # #712: auto-discover the workspace by walking up from CWD to the nearest
-    # ancestor containing .perseus/, so running from a project subdirectory
-    # targets that project rather than silently operating on $HOME. The walk
-    # stops at $HOME: home doubles as the fallback workspace below, and
-    # anything above it is never another user's workspace root.
+    # ancestor containing .perseus/ (like git discovers .git), so running from
+    # a project subdirectory targets that project rather than silently
+    # operating on $HOME. The walk stops at $HOME when CWD is under it:
+    # ~/.perseus is the auto-created global Perseus home, so home is the
+    # natural terminal workspace for interactive shells, and anything above a
+    # user's home is never that user's workspace root.
     home = Path.home().resolve()
     for parent in cwd.parents:
         if (parent / ".perseus").exists():
@@ -34,21 +36,17 @@ def _memory_workspace(args, cfg) -> Path:
             return parent
         if parent == home:
             break
-    # #712: scheduled jobs (launchd/cron often run with CWD=/) must not
-    # silently operate on the wrong workspace — let them opt into failing
-    # fast instead of falling back.
-    if os.environ.get("PERSEUS_REQUIRE_WORKSPACE", "").strip().lower() in ("1", "true", "yes"):
-        sys.stderr.write(
-            "> ✖ Mneme: no .perseus/ in CWD or its ancestors and "
-            "PERSEUS_REQUIRE_WORKSPACE is set; pass --workspace explicitly.\n"
-        )
-        raise SystemExit(2)
+    # #712: no .perseus/ anywhere up the tree (e.g. launchd/cron with CWD=/,
+    # or CWD outside $HOME). The old behavior silently fell back to $HOME,
+    # which made scheduled jobs operate on the wrong workspace unnoticed —
+    # fail fast with an actionable message instead.
     sys.stderr.write(
-        f"> ⚠ Mneme: no .perseus/ in CWD or its ancestors; falling back to "
-        f"{home}. Use --workspace (or set PERSEUS_REQUIRE_WORKSPACE=1 to "
-        f"error instead).\n"
+        "> ✖ Mneme: no .perseus/ found in CWD or any ancestor directory "
+        f"(searched up from {cwd}).\n"
+        "> Pass --workspace <dir> explicitly, or run from inside a workspace "
+        "(a directory whose root contains .perseus/).\n"
     )
-    return home
+    raise SystemExit(2)
 
 
 def _memory_llm_provider(args, cfg) -> str | None:
