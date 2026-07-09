@@ -18,13 +18,70 @@ def _cfg(tmp_path, allow_shell=True):
     return cfg
 
 
-def test_query_denied_without_env_gate(tmp_path, monkeypatch):
-    """allow_query_shell=true alone must NOT execute; warning names the fix."""
+def test_query_denied_without_env_gate(tmp_path, monkeypatch, capsys):
+    """allow_query_shell=true alone must NOT execute. #716: the rendered
+    output stays clean (one-line HTML comment); the fix guidance goes to
+    stderr, not the model-facing artifact."""
     monkeypatch.delenv("PERSEUS_ALLOW_DANGEROUS", raising=False)
+    perseus._DANGEROUS_GATE_WARNED.clear()
     out = perseus.resolve_query('"echo GATE-LEAK"', _cfg(tmp_path), tmp_path)
     assert "GATE-LEAK" not in out
-    assert "PERSEUS_ALLOW_DANGEROUS" in out
-    assert "export PERSEUS_ALLOW_DANGEROUS=1" in out
+    assert out == "<!-- perseus: @query gated (PERSEUS_ALLOW_DANGEROUS=1 is not set) -->"
+    err = capsys.readouterr().err
+    assert "export PERSEUS_ALLOW_DANGEROUS=1" in err
+
+
+def test_query_denied_emits_fallback_when_present(tmp_path, monkeypatch):
+    """#716: a gated @query with fallback= renders the fallback text, so the
+    directive degrades to its declared best-effort value instead of noise."""
+    monkeypatch.delenv("PERSEUS_ALLOW_DANGEROUS", raising=False)
+    out = perseus.resolve_query(
+        '"echo GATE-LEAK" fallback="(query unavailable)"', _cfg(tmp_path), tmp_path)
+    assert out == "(query unavailable)"
+    assert "GATE-LEAK" not in out
+
+
+def test_agent_denied_emits_fallback_when_present(tmp_path, monkeypatch):
+    """#716: a gated @agent with fallback= renders the fallback text."""
+    monkeypatch.delenv("PERSEUS_ALLOW_DANGEROUS", raising=False)
+    cfg = _cfg(tmp_path)
+    cfg["render"]["allow_agent_shell"] = True
+    out = perseus.resolve_agent(
+        '"echo GATE-LEAK" fallback="(agent unavailable)"', cfg, tmp_path)
+    assert out == "(agent unavailable)"
+
+
+def test_agent_denied_without_fallback_emits_comment(tmp_path, monkeypatch):
+    """#716: a gated @agent without fallback= renders a one-line HTML comment."""
+    monkeypatch.delenv("PERSEUS_ALLOW_DANGEROUS", raising=False)
+    cfg = _cfg(tmp_path)
+    cfg["render"]["allow_agent_shell"] = True
+    out = perseus.resolve_agent('"echo GATE-LEAK"', cfg, tmp_path)
+    assert out == "<!-- perseus: @agent gated (PERSEUS_ALLOW_DANGEROUS=1 is not set) -->"
+
+
+def test_services_denied_row_stays_compact(tmp_path, monkeypatch):
+    """#716: a gated @services command check renders a compact status cell
+    (no multi-line 'export ...' guidance inside the table)."""
+    monkeypatch.delenv("PERSEUS_ALLOW_DANGEROUS", raising=False)
+    cfg = _cfg(tmp_path)
+    cfg["render"]["allow_services_command"] = True
+    _, row = perseus._check_one_service(
+        {"name": "svc", "command": "echo GATE-LEAK"}, 0, 3.0, cfg)
+    assert "GATE-LEAK" not in row
+    assert "export" not in row
+    assert "gated" in row
+
+
+def test_dangerous_gate_warns_stderr_once_per_directive(tmp_path, monkeypatch, capsys):
+    """#716: operator guidance is emitted once per directive per process,
+    not once per gated block."""
+    monkeypatch.delenv("PERSEUS_ALLOW_DANGEROUS", raising=False)
+    perseus._DANGEROUS_GATE_WARNED.clear()
+    perseus.resolve_query('"echo one"', _cfg(tmp_path), tmp_path)
+    perseus.resolve_query('"echo two"', _cfg(tmp_path), tmp_path)
+    err = capsys.readouterr().err
+    assert err.count("export PERSEUS_ALLOW_DANGEROUS=1") == 1
 
 
 def test_query_denied_emits_policy_audit(tmp_path, monkeypatch):
