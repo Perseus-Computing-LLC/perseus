@@ -102,13 +102,22 @@ def test_bug2_memory_workspace_cwd_with_perseus_dir(tmp_path, monkeypatch):
     assert result == tmp_path.resolve()
 
 
-def test_bug2_memory_workspace_falls_back_to_home(tmp_path, monkeypatch):
-    """When CWD has no .perseus/, _memory_workspace falls back to home."""
-    monkeypatch.chdir(tmp_path)   # no .perseus/ here
+def test_bug2_memory_workspace_resolves_home_when_under_home(tmp_path, monkeypatch):
+    """CWD under $HOME with no project .perseus/ resolves to $HOME via walk-up.
+
+    #712: $HOME is no longer a blind fallback — it is found because it is an
+    ancestor of CWD and ~/.perseus (the global Perseus home) exists.
+    """
+    fake_home = tmp_path
+    (fake_home / ".perseus").mkdir()
+    cwd = fake_home / "somewhere"
+    cwd.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
+    monkeypatch.chdir(cwd)   # no .perseus/ here
     local = _mneme_cfg(tmp_path)
     ns = argparse.Namespace(workspace=None)
     result = perseus._memory_workspace(ns, local)
-    assert result == Path.home().resolve()
+    assert result == fake_home.resolve()
 
 
 def test_bug2_explicit_workspace_flag_always_wins(tmp_path, monkeypatch):
@@ -149,32 +158,33 @@ def test_712_walkup_prefers_nearest_ancestor(tmp_path, monkeypatch):
     assert result == inner.resolve()
 
 
-def test_712_require_workspace_errors_instead_of_fallback(tmp_path, monkeypatch):
-    """PERSEUS_REQUIRE_WORKSPACE=1 turns the $HOME fallback into a hard error."""
+def test_712_no_workspace_anywhere_errors(tmp_path, monkeypatch):
+    """No .perseus/ in CWD or any ancestor → hard error (exit 2), not $HOME."""
     fake_home = tmp_path  # no .perseus/ anywhere in the jail
     jail = tmp_path / "jail" / "cwd"
     jail.mkdir(parents=True)
     monkeypatch.setattr(Path, "home", lambda: fake_home)
     monkeypatch.chdir(jail)
-    monkeypatch.setenv("PERSEUS_REQUIRE_WORKSPACE", "1")
     local = _mneme_cfg(tmp_path)
     ns = argparse.Namespace(workspace=None)
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as excinfo:
         perseus._memory_workspace(ns, local)
+    assert excinfo.value.code == 2
 
 
-def test_712_fallback_when_require_workspace_unset(tmp_path, monkeypatch):
-    """Without the strict env var, the walk stops at $HOME and falls back."""
-    fake_home = tmp_path
+def test_712_explicit_workspace_skips_discovery_and_error(tmp_path, monkeypatch):
+    """--workspace wins even when no .perseus/ is discoverable anywhere."""
+    fake_home = tmp_path  # no .perseus/ anywhere
     jail = tmp_path / "jail" / "cwd"
     jail.mkdir(parents=True)
+    target = tmp_path / "target-ws"
+    target.mkdir()
     monkeypatch.setattr(Path, "home", lambda: fake_home)
     monkeypatch.chdir(jail)
-    monkeypatch.delenv("PERSEUS_REQUIRE_WORKSPACE", raising=False)
     local = _mneme_cfg(tmp_path)
-    ns = argparse.Namespace(workspace=None)
+    ns = argparse.Namespace(workspace=str(target))
     result = perseus._memory_workspace(ns, local)
-    assert result == fake_home.resolve()
+    assert result == target.resolve()
 
 
 # ─────────────────────────── Bug #3 tests ─────────────────────────────────────
