@@ -142,6 +142,12 @@ DEFAULT_CONFIG = {
         #   "daedalus"      = call run_llm("daedalus", ...) for inference
         # The daedalus path falls back to deterministic on any failure.
         "pattern_extractor": "deterministic",
+        # #717 — recency window for STATIC @memory narrative injection.
+        # Entries whose `### <timestamp> — …` heading is older than this many
+        # days are dropped from the rendered dump (0 = disabled, keep all).
+        # Applies only to the static render path; search/recall modes rank by
+        # decay/trust in the vault and are unaffected.
+        "static_max_age_days": 0,
     },
     # ── #608 — per-model context profiles (recall-first posture) ────────────
     # Keyed by model name (or context-window class). Selected per render via
