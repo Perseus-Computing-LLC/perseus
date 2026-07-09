@@ -216,6 +216,12 @@ def cmd_checkpoint(args, cfg):
         ws = Path(ws_arg).expanduser().resolve() if ws_arg else Path.cwd().resolve()
         cmd_memory_update_silent(ws, cfg)
 
+    # ── Vault capture (#713, opt-in silent side-effect) ──
+    # A checkpoint write IS a session boundary — push it to the vault live
+    # instead of waiting for a scheduled harvest. Best-effort; never raises.
+    ws_cap = Path(str(cp.get("workspace") or Path.cwd())).expanduser().resolve()
+    capture_after_checkpoint(cfg, ws_cap)
+
     # ── Auto-sign on checkpoint (Phase 27B) ──
     if bool(cfg.get("federation", {}).get("signing", {}).get("enabled", False)):
         identity = _load_identity(cfg)
