@@ -38,6 +38,11 @@ DEFAULT_CONFIG = {
         "max_include_warn_bytes": None,  # advisory warning when a single @include renders larger than this (None = disabled) — see #433
         "max_safe_read_bytes": 52428800,  # 50 MB hard pre-read guard for @read/@include before bytes hit memory (None = disabled)
         "max_include_depth": 5,      # max depth for transitive @include recursion
+        # #715 — files the host agent already loads natively (paths, ~ expanded).
+        # @include of a matching file emits a one-line reference pointer instead
+        # of inlining, preventing the same content landing in model context
+        # multiple times (host-loaded + inlined copies).
+        "host_loaded_paths": [],
         "staleness_warn_hours": 48,  # `perseus doctor` warns when a rendered output is older than this (0 = disabled) — see #431
         "integrity_check": False,    # opt-in: detect files modified during render
         "parallel_services": False,   # opt-in: concurrent @services health checks
