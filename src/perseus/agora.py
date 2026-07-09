@@ -231,6 +231,141 @@ def cmd_memory_update_silent(workspace: Path, cfg: dict) -> None:
         sys.stderr.write(f"> ⚠ Mnēmē update failed: {exc}\n")
 
 
+# ──────────────────────────────── @capture (#713) ─────────────────────────────
+# The write side of the memory loop, symmetric to @memory recall. Perseus
+# already owns the session boundaries (checkpoint writes, memory update,
+# explicit @capture in a rendered doc); these helpers write durable session
+# entities straight to the vault via the existing connector — no scheduled
+# harvest (launchd/cron) required, so lessons persist at the boundary instead
+# of up to hours later.
+
+def _capture_cfg(cfg: dict) -> dict:
+    block = cfg.get("perseus_vault", {}).get("capture")
+    return block if isinstance(block, dict) else {}
+
+
+def _capture_checkpoint_payload(cp: dict) -> str:
+    """Serialize a checkpoint as the vault entity body (JSON object)."""
+    body = {"source": "perseus-checkpoint"}
+    for field in ("task", "status", "next", "notes", "written", "workspace"):
+        val = cp.get(field)
+        if val:
+            body[field] = str(val)
+    return json.dumps(body, ensure_ascii=False)
+
+
+def capture_checkpoints_to_vault(cfg: dict, workspace: Path, limit: int | None = None) -> tuple[int, int, str]:
+    """Capture recent checkpoints for ``workspace`` into the vault (#713).
+
+    Idempotent: each entity is keyed by its checkpoint filename stem, so
+    re-capture upserts in place (dedup by design, not by heuristic). Entities
+    carry provenance tags (``source:perseus-checkpoint``) so they are sourced,
+    not free-floating INSIGHTs (the #525 failure mode).
+
+    Returns ``(attempted, stored, error)`` — ``error`` is ``""`` on success,
+    or the connector failure string (vault down, tool error) so callers can
+    report honestly instead of claiming a write that never happened.
+    """
+    if limit is None:
+        try:
+            limit = int(_capture_cfg(cfg).get("limit", 5))
+        except (ValueError, TypeError):
+            limit = 5
+    category = str(_capture_cfg(cfg).get("category") or "session")
+
+    try:
+        connector = _get_connector(cfg)
+    except Exception as exc:
+        return 0, 0, f"connector init failed: {exc}"
+    if not getattr(connector, "available", False):
+        return 0, 0, f"vault unavailable: {getattr(connector, 'status', 'unknown')}"
+
+    ws_str = str(workspace.resolve()) if isinstance(workspace, Path) else str(workspace)
+    cp_files = _list_checkpoint_files(cfg)  # reverse-chrono
+    attempted = stored = 0
+    last_err = ""
+    for fp in cp_files:
+        if attempted >= max(1, limit):
+            break
+        cp = _load_checkpoint_file(fp)
+        if not cp or not cp.get("task"):
+            continue
+        # Only this workspace's checkpoints — the store is shared across
+        # workspaces and capture must not cross-pollinate memory pools.
+        cp_ws = str(cp.get("workspace", "") or "")
+        if cp_ws and ws_str and cp_ws != ws_str:
+            continue
+        attempted += 1
+        tags = ["source:perseus-checkpoint", "perseus-capture"]
+        if cp.get("status"):
+            tags.append(f"status:{str(cp['status'])[:60]}")
+        try:
+            ok, result = connector.store(
+                content=_capture_checkpoint_payload(cp),
+                memory_type=MemoryTypeEnum.INSIGHT,
+                workspace_hash=_workspace_hash(Path(ws_str)) if ws_str else None,
+                tags=tags,
+                importance=0.6,
+                category=category,
+                key=f"session-{fp.stem}",
+            )
+        except Exception as exc:
+            ok, result = False, str(exc)
+        if ok:
+            stored += 1
+        else:
+            last_err = result or "store failed"
+    return attempted, stored, last_err
+
+
+def capture_after_checkpoint(cfg: dict, workspace: Path) -> None:
+    """Silent best-effort capture side-effect for cmd_checkpoint (#713).
+
+    Gated on ``perseus_vault.capture.enabled`` + ``.on_checkpoint``. Never
+    raises — a vault hiccup must never fail a checkpoint write.
+    """
+    cap = _capture_cfg(cfg)
+    if not (cap.get("enabled") and cap.get("on_checkpoint", True)):
+        return
+    try:
+        attempted, stored, err = capture_checkpoints_to_vault(cfg, workspace, limit=1)
+        if err:
+            sys.stderr.write(f"> ⚠ capture: {err}\n")
+        elif stored:
+            sys.stderr.write(f"> 🧠 capture: session checkpoint written to the vault.\n")
+    except Exception as exc:
+        sys.stderr.write(f"> ⚠ capture failed (non-critical): {exc}\n")
+
+
+def resolve_capture(args_str: str, cfg: dict, workspace: Path | None = None) -> str:
+    """@capture [limit=N] — write recent session checkpoints to the vault (#713).
+
+    The explicit, in-document form of the capture hook: rendering the
+    directive captures up to ``limit`` recent checkpoints for this workspace
+    as durable vault entities. Idempotent (keyed per checkpoint), so a doc
+    that renders every session refreshes rather than duplicates. An explicit
+    directive is its own opt-in — it runs even when the automatic
+    ``perseus_vault.capture.enabled`` switch is off.
+    """
+    ws = workspace or Path.cwd()
+    mods = _parse_kv_modifiers(args_str)
+    limit = None
+    if "limit" in mods:
+        try:
+            limit = max(1, int(mods["limit"]))
+        except (TypeError, ValueError):
+            return "> ⚠ @capture: limit= must be a positive integer."
+
+    attempted, stored, err = capture_checkpoints_to_vault(cfg, ws, limit=limit)
+    if err and not stored:
+        return f"> ⚠ @capture: nothing captured — {err}"
+    if attempted == 0:
+        return "> ℹ️ @capture: no checkpoints found for this workspace — nothing to capture."
+    note = f" ({attempted - stored} failed: {err})" if err else ""
+    return (f"> 🧠 @capture: {stored}/{attempted} session checkpoint"
+            f"{'s' if attempted != 1 else ''} written to the vault{note}.")
+
+
 def cmd_memory(args, cfg):
     sub = getattr(args, "memory_command", None)
     workspace = _memory_workspace(args, cfg)
@@ -239,6 +374,15 @@ def cmd_memory(args, cfg):
         provider = _memory_llm_provider(args, cfg)
         changed, msg = _memory_do_update(workspace, cfg, provider)
         print(msg)
+        # #713: `memory update` is a session boundary Perseus already owns —
+        # capture pending checkpoints to the vault live (opt-in).
+        cap = _capture_cfg(cfg)
+        if cap.get("enabled") and cap.get("on_memory_update", True):
+            attempted, stored, cap_err = capture_checkpoints_to_vault(cfg, workspace)
+            if cap_err and not stored:
+                print(f"> ⚠ capture: {cap_err}")
+            elif attempted:
+                print(f"> 🧠 capture: {stored}/{attempted} session checkpoints written to the vault.")
         if changed:
             mp = _mneme_path(workspace, cfg)
             fm, body = _load_narrative(mp)
