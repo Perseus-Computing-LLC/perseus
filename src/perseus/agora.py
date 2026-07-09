@@ -901,10 +901,109 @@ def _augment_recent_activity_from_vault(body: str, cfg: dict, ws: Path) -> str:
     return body.replace(_RECENT_ACTIVITY_PLACEHOLDER, vault_recent, 1)
 
 
+_NARRATIVE_ENTRY_TS_RE = re.compile(r'^###\s+(\d{4}-\d{2}-\d{2})(?:T\d{2}:?\d{2})?\s*[—–-]')
+
+
+def _cap_section_entries(seg_lines: list, limit_n: int, cutoff) -> list:
+    """Cap one ``## `` section's entries (helper for #717, see below).
+
+    An "entry" is a ``### `` sub-heading when the section has any (Recent
+    Activity's per-checkpoint blocks — their bullets are attributes, not
+    entries), otherwise a top-level list bullet.
+    """
+    has_sub = any(l.startswith("### ") for l in seg_lines)
+    out: list = []
+    count = 0
+    dropped = 0
+    skipping = False
+    for line in seg_lines:
+        is_entry = (
+            line.startswith("### ") if has_sub
+            else re.match(r'^[-*]\s', line) is not None
+        )
+        if is_entry:
+            skipping = False
+            too_old = False
+            if cutoff is not None and has_sub:
+                m = _NARRATIVE_ENTRY_TS_RE.match(line)
+                if m:
+                    try:
+                        too_old = datetime.fromisoformat(m.group(1)).astimezone() < cutoff
+                    except ValueError:
+                        too_old = False
+            count += 1
+            if too_old or (limit_n > 0 and count > limit_n):
+                dropped += 1
+                skipping = has_sub  # ### entries own their continuation lines
+                continue
+        elif skipping:
+            if line.startswith("#"):
+                skipping = False   # next heading ends the dropped entry
+            else:
+                continue
+        out.append(line)
+    if dropped:
+        out.append(f"> _…{dropped} entr{'y' if dropped == 1 else 'ies'} omitted (limit/recency cap)._")
+        out.append("")
+    return out
+
+
+def _cap_narrative_entries(text: str, limit_n: int, max_age_days: int = 0) -> str:
+    """#717: hard-cap and age-filter the entries of a rendered narrative.
+
+    ``limit_n`` caps entries per ``## `` section (0 = no cap);
+    ``max_age_days`` drops ``### <date> — …`` entries older than the window
+    (0 = keep all). Content belonging to a dropped entry is dropped with it;
+    a one-line note marks any truncation so the reader knows the dump is
+    partial.
+    """
+    if limit_n <= 0 and max_age_days <= 0:
+        return text
+    cutoff = None
+    if max_age_days > 0:
+        cutoff = datetime.now().astimezone() - timedelta(days=max_age_days)
+
+    segments: list = []
+    current: list = []
+    for line in text.splitlines():
+        if line.startswith("## "):
+            segments.append(current)
+            current = [line]
+        else:
+            current.append(line)
+    segments.append(current)
+
+    out: list = []
+    for seg in segments:
+        out.extend(_cap_section_entries(seg, limit_n, cutoff))
+    return "\n".join(out)
+
+
 def _resolve_memory_narrative(args_stripped: str, mods: dict, cfg: dict, ws: Path, limit_n: int = 0) -> str:
     """@memory mode=narrative — render the narrative journal."""
     focus = (mods.get("focus") or "").strip().lower()
     include_fed = str(mods.get("include_federation", "")).strip().lower() in {"true", "1", "yes"}
+
+    # #717: a static narrative dump must respect the active memory posture.
+    # Under `on_demand` (the #608 recall-first default), a bare `@memory` /
+    # `@memory focus=… limit=…` in an always-loaded context file pre-injects
+    # stale entries the posture says should be retrieved on demand — so emit
+    # the same retrieval pointer the automatic injector uses. An explicit
+    # `mode=narrative` / `mode=full` / `force=true` is a deliberate dump
+    # request and bypasses the gate.
+    explicit_mode = (mods.get("mode") or "").strip().lower()
+    force_dump = (
+        str(mods.get("force", "")).strip().lower() in {"true", "1", "yes"}
+        or explicit_mode in {"narrative", "full"}
+    )
+    if not force_dump:
+        profile_name, profile = _active_context_profile(cfg)
+        if _memory_posture(profile) == "on_demand":
+            return (
+                _memory_pointer_block(profile_name, profile)
+                + "\n\n<!-- perseus: @memory static dump suppressed (memory posture: on_demand);"
+                  " use mode=narrative or force=true to inject entries. -->"
+            )
 
     ws_override = (mods.get("workspace") or "").strip()
     if ws_override:
@@ -981,6 +1080,15 @@ def _resolve_memory_narrative(args_stripped: str, mods: dict, cfg: dict, ws: Pat
     # so the recalled content is never persisted back into the narrative file
     # (the staleness touch above saves the original `body`).
     render_body = _augment_recent_activity_from_vault(body, cfg, ws)
+
+    # #717: limit=N is a hard cap on emitted entries, and the optional
+    # memory.static_max_age_days window drops stale dated entries — both
+    # applied to the render-only copy, never persisted.
+    try:
+        max_age_days = int(cfg.get("memory", {}).get("static_max_age_days", 0))
+    except (ValueError, TypeError):
+        max_age_days = 0
+    render_body = _cap_narrative_entries(render_body, limit_n, max_age_days)
 
     if not focus:
         result = render_body.rstrip()

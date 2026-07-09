@@ -28,6 +28,9 @@ def _fed_cfg(tmp_path):
     local["memory"]["store"] = str(tmp_path / "memory")
     local["memory"]["federation_manifest"] = str(tmp_path / "memory" / "federation.yaml")
     local["checkpoints"]["store"] = str(tmp_path / "checkpoints")
+    # #717: these tests exercise narrative-dump mechanics; pin the legacy
+    # always-inject posture so the on_demand pointer gate doesn't apply.
+    local.setdefault("profiles", {})["default"] = {"memory": "always"}
     return local
 
 
