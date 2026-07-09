@@ -21,20 +21,6 @@ def resolve_agent(args_str: str, cfg: dict, workspace: Path | None = None) -> st
                     args=args_str[:200])
         return "> ⚠ @agent is disabled by config (`render.allow_agent_shell=false`)."
 
-    # Defense-in-depth: @agent is an ad-hoc shell execution surface, so require
-    # the same explicit operator acknowledgement used by @query and @services.
-    if not os.environ.get("PERSEUS_ALLOW_DANGEROUS"):
-        audit_event(cfg, "policy_denied",
-                    directive="@agent",
-                    reason="PERSEUS_ALLOW_DANGEROUS not set",
-                    args=args_str[:200])
-        return (
-            "> ⚠ @agent is enabled in config but PERSEUS_ALLOW_DANGEROUS=1 is not set.\n"
-            "> Fix: export PERSEUS_ALLOW_DANGEROUS=1\n"
-            "> This is a defense-in-depth gate to prevent accidental shell execution.\n"
-            "> Set the environment variable to acknowledge the risk."
-        )
-
     raw = args_str.strip()
     # Extract command (double or single quoted, else first whitespace-delimited token)
     cmd_match = re.match(r'^"((?:[^"\\]|\\.)*)"', raw)
@@ -56,6 +42,21 @@ def resolve_agent(args_str: str, cfg: dict, workspace: Path | None = None) -> st
         timeout = 10
     strip_output = str(mods.get("strip", "true")).strip().lower() != "false"
     fallback = mods.get("fallback")
+
+    # Defense-in-depth: @agent is an ad-hoc shell execution surface, so require
+    # the same explicit operator acknowledgement used by @query and @services.
+    # #716: checked AFTER modifier parsing so the gate never pollutes the
+    # rendered artifact — emit the fallback text (or a one-line HTML comment)
+    # and route the operator guidance to stderr.
+    if not os.environ.get("PERSEUS_ALLOW_DANGEROUS"):
+        audit_event(cfg, "policy_denied",
+                    directive="@agent",
+                    reason="PERSEUS_ALLOW_DANGEROUS not set",
+                    args=args_str[:200])
+        _warn_dangerous_gate("@agent")
+        if fallback is not None:
+            return fallback
+        return "<!-- perseus: @agent gated (PERSEUS_ALLOW_DANGEROUS=1 is not set) -->"
 
     shell = _get_shell(cfg)
 
