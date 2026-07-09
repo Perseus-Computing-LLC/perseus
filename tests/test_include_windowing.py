@@ -126,3 +126,66 @@ def test_include_registry_exposes_window_args():
     spec = perseus.DIRECTIVE_REGISTRY["@include"]
     assert "last=" in spec.args
     assert "since=" in spec.args
+
+
+# ── #715: mode=reference + render.host_loaded_paths ───────────────────────────
+
+def test_include_mode_reference_emits_pointer(tmp_path):
+    _write_log(tmp_path)
+    out = perseus.resolve_include('"log.md" mode=reference', tmp_path, cfg())
+    assert "log.md" in out
+    assert "not inlined" in out
+    assert "Preamble line." not in out, "reference mode must not inline content"
+    assert len(out.splitlines()) == 1
+
+
+def test_include_mode_inline_is_default_and_explicit(tmp_path):
+    _write_log(tmp_path)
+    out = perseus.resolve_include('"log.md" mode=inline', tmp_path, cfg())
+    assert "Preamble line." in out
+
+
+def test_include_rejects_bad_mode(tmp_path):
+    _write_log(tmp_path)
+    out = perseus.resolve_include('"log.md" mode=sideways', tmp_path, cfg())
+    assert "⚠" in out
+    assert "mode=" in out
+
+
+def test_include_host_loaded_path_refuses_to_inline(tmp_path, capsys):
+    log = _write_log(tmp_path)
+    c = copy.deepcopy(perseus.DEFAULT_CONFIG)
+    c["render"]["host_loaded_paths"] = [str(log)]
+    out = perseus.resolve_include('"log.md"', tmp_path, c)
+    assert "not inlined" in out
+    assert "host_loaded_paths" in out
+    assert "Preamble line." not in out
+    err = capsys.readouterr().err
+    assert "host_loaded_paths" in err, "refusal must be surfaced on stderr"
+
+
+def test_include_host_loaded_paths_non_matching_file_inlines(tmp_path):
+    log = _write_log(tmp_path)
+    other = tmp_path / "other.md"
+    other.write_text("other content\n", encoding="utf-8")
+    c = copy.deepcopy(perseus.DEFAULT_CONFIG)
+    c["render"]["host_loaded_paths"] = [str(other)]
+    out = perseus.resolve_include('"log.md"', tmp_path, c)
+    assert "Preamble line." in out, "non-listed files must inline normally"
+
+
+def test_include_host_loaded_paths_expands_tilde(tmp_path, monkeypatch):
+    import pathlib
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    target = fake_home / "AGENTS.local.md"
+    target.write_text("durable rules\n", encoding="utf-8")
+    monkeypatch.setattr(pathlib.Path, "home", lambda: fake_home)
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setenv("USERPROFILE", str(fake_home))
+    c = copy.deepcopy(perseus.DEFAULT_CONFIG)
+    c["render"]["host_loaded_paths"] = ["~/AGENTS.local.md"]
+    c["render"]["allow_outside_workspace"] = True
+    out = perseus.resolve_include(f'"{target}"', tmp_path, c)
+    assert "not inlined" in out
+    assert "durable rules" not in out
