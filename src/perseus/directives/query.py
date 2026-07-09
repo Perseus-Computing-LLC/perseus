@@ -150,13 +150,19 @@ _FALLBACK_ESCAPE_MAP = {
 }
 
 # #716: directives that already warned about the PERSEUS_ALLOW_DANGEROUS gate
-# this process — the guidance is operator-facing and once per directive is
-# enough; repeating it per gated block just spams the render log.
+# this RENDER — the guidance is operator-facing and once per directive per
+# render is enough; repeating it per gated block just spams the render log.
+# The renderer resets this set at every top-level render entry
+# (_clear_render_path_memos), so long-lived processes (perseus serve, MCP)
+# re-warn on each render instead of only the first ever.
 _DANGEROUS_GATE_WARNED: set = set()
 
 
 def _warn_dangerous_gate(directive: str) -> None:
     """#716: PERSEUS_ALLOW_DANGEROUS guidance goes to stderr, not the artifact.
+
+    Emitted at most once per directive per top-level render — the renderer
+    clears _DANGEROUS_GATE_WARNED at render entry.
 
     The rendered output is model-facing content; a multi-line operator warning
     there is permanent dead weight in always-loaded context files (AGENTS.md
