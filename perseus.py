@@ -143,6 +143,11 @@ DEFAULT_CONFIG = {
         "max_include_warn_bytes": None,  # advisory warning when a single @include renders larger than this (None = disabled) — see #433
         "max_safe_read_bytes": 52428800,  # 50 MB hard pre-read guard for @read/@include before bytes hit memory (None = disabled)
         "max_include_depth": 5,      # max depth for transitive @include recursion
+        # #715 — files the host agent already loads natively (paths, ~ expanded).
+        # @include of a matching file emits a one-line reference pointer instead
+        # of inlining, preventing the same content landing in model context
+        # multiple times (host-loaded + inlined copies).
+        "host_loaded_paths": [],
         "staleness_warn_hours": 48,  # `perseus doctor` warns when a rendered output is older than this (0 = disabled) — see #431
         "integrity_check": False,    # opt-in: detect files modified during render
         "parallel_services": False,   # opt-in: concurrent @services health checks
@@ -1304,7 +1309,7 @@ def _bind_registry() -> None:
         # Tier 3 — On-demand (bulky, expensive)
         DirectiveSpec("@query",     resolve_query,     ["command=", "fallback=", "schema="],   "inline",  "acw", executes_shell=True,  safe_for_hover=False, cacheable=True,  summary="Run a shell command in the workspace and embed its stdout into the rendered context. Use for dynamic facts: git status, docker ps, system info. REQUIRES allow_query_shell=true and PERSEUS_ALLOW_DANGEROUS=1. Destructive — executes arbitrary commands with the user's permissions.", tier=3),
         DirectiveSpec("@read",      resolve_read,      ["path=", "key=", "fallback=", "schema="], "inline", "acw", reads_files=True, cacheable=True, safe_for_hover=False, summary="Read and embed file contents into the rendered context. Use to inject config values, environment files, or any text file. Can extract specific keys from structured files. Read-only; use perseus_list or perseus_tree to browse before reading.", tier=3),
-        DirectiveSpec("@include",   resolve_include,   ["path=", "last=", "since="],      "inline",  "awc", reads_files=True, cacheable=True, safe_for_hover=False, summary="Include and render another Perseus source file, recursively resolving its directives. Use to compose context from multiple files or share common sections across workspaces. Bound a growing file with last=N (final N lines) or since=14d/2w/24h (recent dated sections only). Read-only; resolved directives inherit the parent configuration.", tier=3),
+        DirectiveSpec("@include",   resolve_include,   ["path=", "last=", "since=", "mode="],      "inline",  "awc", reads_files=True, cacheable=True, safe_for_hover=False, summary="Include and render another Perseus source file, recursively resolving its directives. Use to compose context from multiple files or share common sections across workspaces. Bound a growing file with last=N (final N lines) or since=14d/2w/24h (recent dated sections only). Use mode=reference (or render.host_loaded_paths) to emit a one-line pointer instead of inlining files the host agent already loads natively. Read-only; resolved directives inherit the parent configuration.", tier=3),
         DirectiveSpec("@list",      resolve_list,      ["path=", "limit=", "sort="],        "inline",  "acw", reads_files=True, cacheable=True, safe_for_hover=False, summary="List directory contents or structured data. Use to discover files before reading with perseus_read. Supports sorting by name, modified time, or size. Read-only; for hierarchical view, prefer perseus_tree.", tier=3),
         DirectiveSpec("@tree",      resolve_tree,      ["path=", "depth="],                 "inline",  "acw", reads_files=True, cacheable=True, safe_for_hover=False, summary="Display a directory tree with configurable depth. Use to understand project structure at a glance. For flat file listings with metadata, use perseus_list instead. Read-only; depth limits control output size.", tier=3),
         DirectiveSpec("@agent",     resolve_agent,     ["agent=", "prompt="],                         "inline",  "acw", summary="Execute a local agent subprocess with a given prompt. Use to delegate work to another agent profile. Requires agent and prompt parameters. REQUIRES allow_agent_shell=true. Destructive — spawns a subprocess that may modify the workspace.", tier=3),
@@ -4049,12 +4054,17 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
                     _directive_collector: list[dict] | None = None,
                     _stats: dict | None = None) -> str:
     """
-    @include <file>
+    @include <file> [last=N] [since=<Nh|Nd|Nw>] [mode=inline|reference]
 
     Embeds the contents of a file inline. Markdown files are recursively
     rendered (up to max_include_depth) so directives inside included .md
     files are resolved. Structured files (.yaml, .yml, .json, .toml) are
     wrapped in a fenced block.
+
+    #715: ``mode=reference`` emits a one-line pointer instead of inlining —
+    use it for files the host agent already loads natively, where inlining
+    would duplicate the content in model context. Files listed in
+    ``render.host_loaded_paths`` get the same treatment on every @include.
 
     Cycle detection: if a file is an ancestor in the current include
     chain, a circular-dependency warning is emitted. Repeated includes
@@ -4082,15 +4092,21 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
     # appended to each session) so rendered AGENTS.md does not grow unbounded.
     last_n = None
     since_cutoff = None
+    include_mode = "inline"
     if remaining.strip():
         options = _parse_kv_modifiers(remaining)
         leftover = _KV_PAIR_RE.sub("", remaining).strip()
         if leftover:
             return f"> ⚠ @include: unexpected trailing input: `{leftover}`"
-        unknown = set(options) - {"last", "since"}
+        unknown = set(options) - {"last", "since", "mode"}
         if unknown:
             return ("> ⚠ @include: unsupported option(s): "
-                    f"{', '.join(sorted(unknown))}. Supported: last=, since=.")
+                    f"{', '.join(sorted(unknown))}. Supported: last=, since=, mode=.")
+        if "mode" in options:
+            include_mode = str(options["mode"] or "").strip().lower()
+            if include_mode not in ("inline", "reference"):
+                return ("> ⚠ @include: mode= must be `inline` or `reference` "
+                        f"(got `{options['mode']}`).")
         if "last" in options:
             try:
                 # #596: catch TypeError too — _parse_kv_modifiers can return
@@ -4120,6 +4136,28 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
 
     if not fp.exists():
         return f"> ⚠ @include: file not found: `{file_path_str}`"
+
+    # ── #715: reference mode / host-loaded paths — pointer, not content ──
+    # When the host agent already ingests a file natively (its own memory /
+    # AGENTS.md discovery), inlining it via @include lands the same content in
+    # model context 2-4×. `mode=reference` opts a single directive into a
+    # one-line pointer; `render.host_loaded_paths` declares such files once in
+    # config so EVERY @include of them refuses to inline (with a stderr note).
+    if include_mode == "reference":
+        return (f"> 📎 `{file_path_str}` — content not inlined (mode=reference); "
+                f"the host agent loads this file natively.")
+    for host_p in render_cfg.get("host_loaded_paths") or []:
+        try:
+            if Path(str(host_p)).expanduser().resolve() == fp.resolve():
+                sys.stderr.write(
+                    f"> ⚠ @include: `{file_path_str}` is listed in "
+                    f"render.host_loaded_paths — emitting a reference pointer "
+                    f"instead of inlining (see #715).\n"
+                )
+                return (f"> 📎 `{file_path_str}` — content not inlined: listed in "
+                        f"`render.host_loaded_paths` (the host agent loads it natively).")
+        except OSError:
+            continue
 
     # ── Cycle detection (path + inode) ──
     resolved_path = str(fp.resolve())

@@ -73,12 +73,17 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
                     _directive_collector: list[dict] | None = None,
                     _stats: dict | None = None) -> str:
     """
-    @include <file>
+    @include <file> [last=N] [since=<Nh|Nd|Nw>] [mode=inline|reference]
 
     Embeds the contents of a file inline. Markdown files are recursively
     rendered (up to max_include_depth) so directives inside included .md
     files are resolved. Structured files (.yaml, .yml, .json, .toml) are
     wrapped in a fenced block.
+
+    #715: ``mode=reference`` emits a one-line pointer instead of inlining —
+    use it for files the host agent already loads natively, where inlining
+    would duplicate the content in model context. Files listed in
+    ``render.host_loaded_paths`` get the same treatment on every @include.
 
     Cycle detection: if a file is an ancestor in the current include
     chain, a circular-dependency warning is emitted. Repeated includes
@@ -106,15 +111,21 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
     # appended to each session) so rendered AGENTS.md does not grow unbounded.
     last_n = None
     since_cutoff = None
+    include_mode = "inline"
     if remaining.strip():
         options = _parse_kv_modifiers(remaining)
         leftover = _KV_PAIR_RE.sub("", remaining).strip()
         if leftover:
             return f"> ⚠ @include: unexpected trailing input: `{leftover}`"
-        unknown = set(options) - {"last", "since"}
+        unknown = set(options) - {"last", "since", "mode"}
         if unknown:
             return ("> ⚠ @include: unsupported option(s): "
-                    f"{', '.join(sorted(unknown))}. Supported: last=, since=.")
+                    f"{', '.join(sorted(unknown))}. Supported: last=, since=, mode=.")
+        if "mode" in options:
+            include_mode = str(options["mode"] or "").strip().lower()
+            if include_mode not in ("inline", "reference"):
+                return ("> ⚠ @include: mode= must be `inline` or `reference` "
+                        f"(got `{options['mode']}`).")
         if "last" in options:
             try:
                 # #596: catch TypeError too — _parse_kv_modifiers can return
@@ -144,6 +155,28 @@ def resolve_include(args_str: str, workspace: Path | None = None, cfg: dict | No
 
     if not fp.exists():
         return f"> ⚠ @include: file not found: `{file_path_str}`"
+
+    # ── #715: reference mode / host-loaded paths — pointer, not content ──
+    # When the host agent already ingests a file natively (its own memory /
+    # AGENTS.md discovery), inlining it via @include lands the same content in
+    # model context 2-4×. `mode=reference` opts a single directive into a
+    # one-line pointer; `render.host_loaded_paths` declares such files once in
+    # config so EVERY @include of them refuses to inline (with a stderr note).
+    if include_mode == "reference":
+        return (f"> 📎 `{file_path_str}` — content not inlined (mode=reference); "
+                f"the host agent loads this file natively.")
+    for host_p in render_cfg.get("host_loaded_paths") or []:
+        try:
+            if Path(str(host_p)).expanduser().resolve() == fp.resolve():
+                sys.stderr.write(
+                    f"> ⚠ @include: `{file_path_str}` is listed in "
+                    f"render.host_loaded_paths — emitting a reference pointer "
+                    f"instead of inlining (see #715).\n"
+                )
+                return (f"> 📎 `{file_path_str}` — content not inlined: listed in "
+                        f"`render.host_loaded_paths` (the host agent loads it natively).")
+        except OSError:
+            continue
 
     # ── Cycle detection (path + inode) ──
     resolved_path = str(fp.resolve())
