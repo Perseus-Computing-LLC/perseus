@@ -121,6 +121,62 @@ def test_bug2_explicit_workspace_flag_always_wins(tmp_path, monkeypatch):
     assert result == tmp_path.resolve()
 
 
+# ─────────────────────────── #712 tests ───────────────────────────────────────
+
+def test_712_walkup_discovers_ancestor_workspace(tmp_path, monkeypatch):
+    """From a subdirectory, the nearest ancestor with .perseus/ is used."""
+    (tmp_path / ".perseus").mkdir()
+    deep = tmp_path / "sub" / "deep"
+    deep.mkdir(parents=True)
+    monkeypatch.chdir(deep)
+    local = _mneme_cfg(tmp_path)
+    ns = argparse.Namespace(workspace=None)
+    result = perseus._memory_workspace(ns, local)
+    assert result == tmp_path.resolve()
+
+
+def test_712_walkup_prefers_nearest_ancestor(tmp_path, monkeypatch):
+    """With nested workspaces, the closest ancestor wins."""
+    (tmp_path / ".perseus").mkdir()
+    inner = tmp_path / "inner"
+    (inner / ".perseus").mkdir(parents=True)
+    deep = inner / "sub"
+    deep.mkdir()
+    monkeypatch.chdir(deep)
+    local = _mneme_cfg(tmp_path)
+    ns = argparse.Namespace(workspace=None)
+    result = perseus._memory_workspace(ns, local)
+    assert result == inner.resolve()
+
+
+def test_712_require_workspace_errors_instead_of_fallback(tmp_path, monkeypatch):
+    """PERSEUS_REQUIRE_WORKSPACE=1 turns the $HOME fallback into a hard error."""
+    fake_home = tmp_path  # no .perseus/ anywhere in the jail
+    jail = tmp_path / "jail" / "cwd"
+    jail.mkdir(parents=True)
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
+    monkeypatch.chdir(jail)
+    monkeypatch.setenv("PERSEUS_REQUIRE_WORKSPACE", "1")
+    local = _mneme_cfg(tmp_path)
+    ns = argparse.Namespace(workspace=None)
+    with pytest.raises(SystemExit):
+        perseus._memory_workspace(ns, local)
+
+
+def test_712_fallback_when_require_workspace_unset(tmp_path, monkeypatch):
+    """Without the strict env var, the walk stops at $HOME and falls back."""
+    fake_home = tmp_path
+    jail = tmp_path / "jail" / "cwd"
+    jail.mkdir(parents=True)
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
+    monkeypatch.chdir(jail)
+    monkeypatch.delenv("PERSEUS_REQUIRE_WORKSPACE", raising=False)
+    local = _mneme_cfg(tmp_path)
+    ns = argparse.Namespace(workspace=None)
+    result = perseus._memory_workspace(ns, local)
+    assert result == fake_home.resolve()
+
+
 # ─────────────────────────── Bug #3 tests ─────────────────────────────────────
 
 def test_bug3_note_alias_accepted(tmp_path, monkeypatch):
