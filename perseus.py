@@ -21465,9 +21465,37 @@ def _memory_workspace(args, cfg) -> Path:
     cwd = Path.cwd().resolve()
     if (cwd / ".perseus").exists():
         return cwd
-    fallback = Path.home().resolve()
-    sys.stderr.write(f"> ⚠ Mneme: no .perseus/ in CWD; falling back to {fallback}. Use --workspace.\n")
-    return fallback
+    # #712: auto-discover the workspace by walking up from CWD to the nearest
+    # ancestor containing .perseus/, so running from a project subdirectory
+    # targets that project rather than silently operating on $HOME. The walk
+    # stops at $HOME: home doubles as the fallback workspace below, and
+    # anything above it is never another user's workspace root.
+    home = Path.home().resolve()
+    for parent in cwd.parents:
+        if (parent / ".perseus").exists():
+            if parent != home:
+                sys.stderr.write(
+                    f"> Mneme: using workspace {parent} "
+                    f"(nearest ancestor with .perseus/).\n"
+                )
+            return parent
+        if parent == home:
+            break
+    # #712: scheduled jobs (launchd/cron often run with CWD=/) must not
+    # silently operate on the wrong workspace — let them opt into failing
+    # fast instead of falling back.
+    if os.environ.get("PERSEUS_REQUIRE_WORKSPACE", "").strip().lower() in ("1", "true", "yes"):
+        sys.stderr.write(
+            "> ✖ Mneme: no .perseus/ in CWD or its ancestors and "
+            "PERSEUS_REQUIRE_WORKSPACE is set; pass --workspace explicitly.\n"
+        )
+        raise SystemExit(2)
+    sys.stderr.write(
+        f"> ⚠ Mneme: no .perseus/ in CWD or its ancestors; falling back to "
+        f"{home}. Use --workspace (or set PERSEUS_REQUIRE_WORKSPACE=1 to "
+        f"error instead).\n"
+    )
+    return home
 
 
 def _memory_llm_provider(args, cfg) -> str | None:
