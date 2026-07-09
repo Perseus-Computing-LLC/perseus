@@ -220,7 +220,7 @@ Published as [`io.github.Perseus-Computing-LLC/perseus`](https://registry.modelc
 
 <!-- test-count: 1734 — recount with: grep -rE "^\s*def test_" tests/ | wc -l -->
 <!-- The table below is the exact default output of _get_all_mcp_tools({}) — 30 rows. Recount before editing. -->
-31 MCP tools resolve live state at invocation time (including the legacy aliases `perseus_get_context`/`perseus_get_health`). Two additional sensitive tools — `perseus_query` (run a shell command) and `perseus_agent` (execute a local agent subprocess) — are **not** part of this default set: they require explicit `mcp.tool_allowlist` opt-in because they execute commands in the user's local shell (**not sandboxed, full user permissions apply**).
+33 MCP tools resolve live state at invocation time (including the legacy aliases `perseus_get_context`/`perseus_get_health`). Two additional sensitive tools — `perseus_query` (run a shell command) and `perseus_agent` (execute a local agent subprocess) — are **not** part of this default set: they require explicit `mcp.tool_allowlist` opt-in because they execute commands in the user's local shell (**not sandboxed, full user permissions apply**).
 
 | Tool | Description |
 |---|---|
@@ -242,6 +242,8 @@ Published as [`io.github.Perseus-Computing-LLC/perseus`](https://registry.modelc
 | `perseus_include` | Include and render another file |
 | `perseus_agora` | Task board from tasks/*.md |
 | `perseus_inbox` | Agent message inbox |
+| `perseus_capture` | Write recent session checkpoints to Perseus Vault (idempotent) |
+| `perseus_context_diff` | Compact "since last session" delta (git, tasks, inbox, checkpoints, vault) |
 | `perseus_prompt` | System prompt block |
 | `perseus_validate` | Validate rendered block against schema |
 | `perseus_tool` | Run allowlisted external tool |

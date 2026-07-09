@@ -1388,7 +1388,7 @@ quarter-by-quarter plan through 2031; that false precision has been removed.)
 **Smarter resolution**
 - Model-aware output: per-model token budgets from a single source document
 - Intent-driven pre-resolution on session start (active branch, time of day, recent sessions, Mimir hot entities)
-- Context diffing — "what changed since last session" as a first-class delta
+- ~~Context diffing — "what changed since last session" as a first-class delta~~ — **shipped as `@context-diff` (#714)**
 - Context-aware task routing using Plutus cost data — *cross-product; gated on Plutus reaching 1.0 (see product strategy)*
 
 **Ecosystem & reach**
