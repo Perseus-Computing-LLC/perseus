@@ -82,13 +82,16 @@ def _check_one_service(svc: dict, index: int, timeout: float, cfg: dict) -> tupl
             return index, f"| {name} | ⚠ command checks disabled by config | — |"
         # Defense-in-depth: even with allow_services_command=true, require the
         # PERSEUS_ALLOW_DANGEROUS env var gate (same gate as @query shell exec).
+        # #716: keep the table cell terse; the "export PERSEUS_ALLOW_DANGEROUS=1"
+        # operator guidance goes to stderr, once per render.
         if not os.environ.get("PERSEUS_ALLOW_DANGEROUS"):
             audit_event(cfg, "policy_denied",
                         directive="@services",
                         reason="PERSEUS_ALLOW_DANGEROUS not set",
                         service=name,
                         command=command[:300])
-            return index, f"| {name} | ⚠ PERSEUS_ALLOW_DANGEROUS not set — Fix: export PERSEUS_ALLOW_DANGEROUS=1 | — |"
+            _warn_dangerous_gate("@services")
+            return index, f"| {name} | ⚠ gated (PERSEUS_ALLOW_DANGEROUS not set) | — |"
         # Run arbitrary shell command; success = exit 0
         audit_event(cfg, "shell_exec",
                     directive="@services",

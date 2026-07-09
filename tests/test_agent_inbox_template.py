@@ -59,14 +59,18 @@ def test_agent_security_gate(tmp_path):
     assert "disabled by config" in out
 
 
-def test_agent_requires_dangerous_env_gate(tmp_path, monkeypatch):
+def test_agent_requires_dangerous_env_gate(tmp_path, monkeypatch, capsys):
     local = cfg()
     local["render"]["allow_agent_shell"] = True
     monkeypatch.delenv("PERSEUS_ALLOW_DANGEROUS", raising=False)
+    perseus._GATE_GUIDANCE_EMITTED.clear()
 
     out = perseus.resolve_agent('"echo nope"', local, tmp_path)
 
-    assert "PERSEUS_ALLOW_DANGEROUS=1 is not set" in out
+    # #716: gated output is a one-line placeholder; guidance goes to stderr.
+    assert "nope" not in out
+    assert out == "<!-- perseus: @agent gated (PERSEUS_ALLOW_DANGEROUS not set) -->"
+    assert "PERSEUS_ALLOW_DANGEROUS=1" in capsys.readouterr().err
 
 
 def test_agent_through_render(tmp_path):

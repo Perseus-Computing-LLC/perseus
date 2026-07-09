@@ -44,6 +44,11 @@ def _clear_render_path_memos() -> None:
     """Reset the #637 path-resolution memos (top-level render entry)."""
     _WS_RESOLVE_MEMO.clear()
     _RESOLVE_PATH_MEMO.clear()
+    # #716: the PERSEUS_ALLOW_DANGEROUS gate guidance (directives/query.py)
+    # is emitted to stderr at most once per top-level render — reset here so
+    # the next render warns again.
+    with _GATE_GUIDANCE_LOCK:
+        _GATE_GUIDANCE_EMITTED.clear()
 
 
 def _resolved_workspace_str(workspace: "Path | None") -> str:
@@ -169,9 +174,10 @@ def _parse_cache_modifier(line: str) -> tuple[str, str, int | None, str | None]:
 
 
 # #612: directives whose rendered output depends on PERSEUS_ALLOW_DANGEROUS
-# (they emit a "gate not set" warning instead of running when it's unset, per
-# their resolvers in directives/agent.py, directives/services.py, and
-# directives/query.py). Their cache fingerprint must include the env var so a
+# (they emit their fallback= value or a "gated" placeholder instead of running
+# when it's unset — #716 — per their resolvers in directives/agent.py,
+# directives/services.py, and directives/query.py). Their cache fingerprint
+# must include the env var so a
 # flip auto-invalidates; every other directive keeps an empty fingerprint
 # (bare base key + TTL fallback). @query joined in #616 when its resolver
 # gained the same defense-in-depth env gate as its shell-exec siblings.
@@ -228,8 +234,8 @@ def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path | N
 
     Env-gated directives (#612, #616): @agent, @services, and @query carry a
     PERSEUS_ALLOW_DANGEROUS fragment (see _ENV_GATED_DIRECTIVES) so a flip of
-    that env var — which toggles their "gate not set" warning vs. real output —
-    invalidates their cache.
+    that env var — which toggles their gated fallback/placeholder (#716) vs.
+    real output — invalidates their cache.
     """
     import hashlib as _hashlib
     import stat as _stat

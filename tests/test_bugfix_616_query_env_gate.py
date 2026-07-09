@@ -18,13 +18,17 @@ def _cfg(tmp_path, allow_shell=True):
     return cfg
 
 
-def test_query_denied_without_env_gate(tmp_path, monkeypatch):
-    """allow_query_shell=true alone must NOT execute; warning names the fix."""
+def test_query_denied_without_env_gate(tmp_path, monkeypatch, capsys):
+    """allow_query_shell=true alone must NOT execute. #716: the rendered
+    output is a one-line placeholder comment; the fix guidance goes to
+    stderr, not into the document."""
     monkeypatch.delenv("PERSEUS_ALLOW_DANGEROUS", raising=False)
+    perseus._GATE_GUIDANCE_EMITTED.clear()
     out = perseus.resolve_query('"echo GATE-LEAK"', _cfg(tmp_path), tmp_path)
     assert "GATE-LEAK" not in out
-    assert "PERSEUS_ALLOW_DANGEROUS" in out
-    assert "export PERSEUS_ALLOW_DANGEROUS=1" in out
+    assert out == "<!-- perseus: @query gated (PERSEUS_ALLOW_DANGEROUS not set) -->"
+    err = capsys.readouterr().err
+    assert "export PERSEUS_ALLOW_DANGEROUS=1" in err
 
 
 def test_query_denied_emits_policy_audit(tmp_path, monkeypatch):

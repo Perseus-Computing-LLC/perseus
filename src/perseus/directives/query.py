@@ -131,6 +131,42 @@ def _pop_resolver_failure() -> bool:
     return failed
 
 
+# ── #716: PERSEUS_ALLOW_DANGEROUS gate guidance → stderr, once per render ────
+#
+# The "export PERSEUS_ALLOW_DANGEROUS=1" fix instructions are operator
+# guidance, not model content. Rendering them INTO the output document made
+# every gated @query/@agent/@services block permanent dead weight in
+# always-loaded context files (e.g. AGENTS.md). Gated directives now render
+# their fallback= value (or a one-line HTML comment) and route the guidance
+# here — emitted once per top-level render, not once per gated block.
+# Module-level (not thread-local) because the parallel @query pre-scan and
+# parallel @services checks resolve on worker threads; the renderer clears
+# the flag at every top-level render entry (_clear_render_path_memos).
+
+_GATE_GUIDANCE_LOCK = threading.Lock()
+_GATE_GUIDANCE_EMITTED: set[str] = set()
+
+
+def _warn_dangerous_gate(directive: str) -> None:
+    """Emit PERSEUS_ALLOW_DANGEROUS operator guidance to stderr (#716).
+
+    At most once per top-level render — the renderer resets
+    _GATE_GUIDANCE_EMITTED at render entry."""
+    with _GATE_GUIDANCE_LOCK:
+        if _GATE_GUIDANCE_EMITTED:
+            return
+        _GATE_GUIDANCE_EMITTED.add(directive)
+    print(
+        f"⚠ Perseus: {directive} is enabled in config but PERSEUS_ALLOW_DANGEROUS=1 "
+        "is not set — gated directives rendered their fallback= value (or a "
+        "placeholder comment) instead of executing.\n"
+        "  Fix: export PERSEUS_ALLOW_DANGEROUS=1\n"
+        "  This is a defense-in-depth gate to prevent accidental shell execution. "
+        "Set the environment variable to acknowledge the risk.",
+        file=sys.stderr,
+    )
+
+
 def _unescape_fallback(s: str) -> str:
     """Unescape standard escape sequences without mangling non-ASCII.
 
@@ -165,6 +201,12 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
     contextual data (git status when not in a git repo, optional service
     health checks, etc.).
 
+    #716: when @query is enabled in config but the PERSEUS_ALLOW_DANGEROUS
+    env gate is unset, the directive renders its fallback= value (if given)
+    or a one-line HTML comment — never a multi-line operator warning. The
+    "export PERSEUS_ALLOW_DANGEROUS=1" guidance goes to stderr, once per
+    render.
+
     schema="path": if provided, the stdout is parsed as YAML and validated
     against the given schema file. Relative schema paths prefer
     <workspace>/.perseus/schemas/ before the workspace root. Validation errors
@@ -177,21 +219,6 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
                     reason="render.allow_query_shell=false",
                     args=args_str[:200])
         return "> ⚠ @query is disabled by config (`render.allow_query_shell=false`)."
-
-    # Defense-in-depth (#616): even with allow_query_shell=true, require the
-    # PERSEUS_ALLOW_DANGEROUS env var — the gate the registry summary promises
-    # and the sibling shell-exec directives (@agent, @services command) enforce.
-    if not os.environ.get("PERSEUS_ALLOW_DANGEROUS"):
-        audit_event(cfg, "policy_denied",
-                    directive="@query",
-                    reason="PERSEUS_ALLOW_DANGEROUS not set",
-                    args=args_str[:200])
-        return (
-            "> ⚠ @query is enabled in config but PERSEUS_ALLOW_DANGEROUS=1 is not set.\n"
-            "> Fix: export PERSEUS_ALLOW_DANGEROUS=1\n"
-            "> This is a defense-in-depth gate to prevent accidental shell execution.\n"
-            "> Set the environment variable to acknowledge the risk."
-        )
 
     # #588: extract the quoted command FIRST so modifier stripping (@cache,
     # schema=, fallback=, timeout=) only ever sees the remainder and can
@@ -231,6 +258,23 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
         # UTF-8 bytes as Latin-1, corrupting characters like é → Ã©).
         fallback = _unescape_fallback(fallback)
         raw = (raw[:fb_match.start()] + raw[fb_match.end():]).rstrip()
+
+    # Defense-in-depth (#616): even with allow_query_shell=true, require the
+    # PERSEUS_ALLOW_DANGEROUS env var — the gate the registry summary promises
+    # and the sibling shell-exec directives (@agent, @services command) enforce.
+    # Checked AFTER fallback= extraction (pure string parsing, no execution)
+    # so the gated path can honour the directive's designed graceful value.
+    # #716: the gate message is operator guidance, not model content — render
+    # the fallback (or a one-line comment) and route the guidance to stderr.
+    if not os.environ.get("PERSEUS_ALLOW_DANGEROUS"):
+        audit_event(cfg, "policy_denied",
+                    directive="@query",
+                    reason="PERSEUS_ALLOW_DANGEROUS not set",
+                    args=args_str[:200])
+        _warn_dangerous_gate("@query")
+        if fallback is not None:
+            return fallback
+        return "<!-- perseus: @query gated (PERSEUS_ALLOW_DANGEROUS not set) -->"
 
     # #138: strip timeout=N modifier so it never leaks into an unquoted
     # executed shell command (quoted commands were already extracted above).
