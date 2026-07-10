@@ -1,0 +1,51 @@
+name: Security Audit
+
+# SECURITY.md commits Perseus to monitoring its dependencies for known CVEs.
+# This workflow makes that claim true for the Python side (the Rust side is
+# covered by perseus-vault's cargo-audit). It scans dependencies against the
+# PyPI Advisory Database / OSV via pip-audit on every push and PR, and weekly
+# to catch advisories published against already-pinned versions.
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  schedule:
+    - cron: "0 7 * * 1"   # weekly (Mon 07:00 UTC)
+
+permissions:
+  contents: read
+
+jobs:
+  # The shipped surface. perseus.py imports only PyYAML at runtime, so this is
+  # the set an end user actually installs. A vulnerability here gates the build:
+  # we do not ship a runtime with a known CVE.
+  runtime-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install pip-audit
+        run: python -m pip install --upgrade pip pip-audit
+      - name: Audit runtime dependencies (gating)
+        run: pip-audit -r requirements-runtime.txt --strict
+
+  # The full dev/CI freeze (toolchain: poetry, langchain, twine, etc.). These
+  # never ship to users, so a CVE here is lower severity and — like an
+  # unmaintained transitive crate on the Rust side — must not be able to block
+  # a security release. Reported for visibility, non-gating.
+  toolchain-audit:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install pip-audit
+        run: python -m pip install --upgrade pip pip-audit
+      - name: Audit dev/CI toolchain (informational)
+        run: pip-audit -r requirements.txt
