@@ -60,7 +60,7 @@ Perseus is a **read-only context rendering engine**. It does not:
 | Malicious YAML in context files | Low | `yaml.safe_load()` only — no arbitrary code execution |
 | Directive injection via untrusted input | Medium | Directives are explicitly authored in `.perseus/context.md` — not user-submitted |
 | Output file overwrite | None | `perseus render --output` writes to the path you specify — this is the intended behavior |
-| Supply chain (PyPI) | Medium | SBOM published; SLSA attestation in development |
+| Supply chain (PyPI) | Medium | SBOM published; signed SLSA build provenance on releases (see "Verifying releases") |
 
 ### Trust boundaries
 
@@ -88,6 +88,24 @@ Perseus is a **read-only context rendering engine**. It does not:
 - **SBOM published** at [docs/SBOM.md](./docs/SBOM.md)
 - We monitor [GitHub Advisory Database](https://github.com/advisories) for PyYAML CVEs
 - Dependency pinned with hash checking in progress
+
+---
+
+## Verifying releases
+
+Published distributions carry **signed SLSA build provenance** at two layers:
+
+- **GitHub Artifact Attestations** (Sigstore-signed) for the sdist and wheel —
+  verify a downloaded distribution was built by our publish workflow:
+  ```bash
+  gh attestation verify perseus_ctx-<version>-py3-none-any.whl \
+    --repo Perseus-Computing-LLC/perseus
+  ```
+- **PyPI PEP 740 attestations** — generated during trusted publishing and shown
+  as verified provenance on the [PyPI project page](https://pypi.org/p/perseus-ctx).
+
+A successful verification confirms the artifact's origin (repo, workflow, commit)
+and integrity.
 
 ---
 
