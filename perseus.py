@@ -19248,7 +19248,7 @@ class _MCPStdioClient:
     """
 
     def __init__(
-        self, command: list[str], timeout_s: float = 10.0, init_timeout_s: float = 30.0, env: "dict | None" = None
+        self, command: list[str], timeout_s: float = 10.0, init_timeout_s: float = 30.0
     ):
         # Copy the command list: connect() rewrites command[0] to an absolute
         # path, and this list is the SAME object as cfg["mimir"]["command"]. In
@@ -19264,9 +19264,6 @@ class _MCPStdioClient:
         # Set on a failed connect() so the outer layer can surface WHY (exit code
         # / handshake error) instead of a generic "connect failed".
         self.last_error: Optional[str] = None
-        # Per-server environment overrides forwarded from connector config (#730).
-        # Merged on top of os.environ at spawn time; empty dict = inherit parent env.
-        self._env: dict = dict(env) if env else {}
         self._process: Optional[subprocess.Popen] = None
         self._request_id = 0
         self._server_capabilities: dict = {}
@@ -19339,6 +19336,7 @@ class _MCPStdioClient:
                 except Exception:
                     if not os.path.isdir(cwd):
                         cwd = None
+
             popen_kwargs = {
                 "stdin": subprocess.PIPE,
                 "stdout": subprocess.PIPE,
@@ -19347,7 +19345,6 @@ class _MCPStdioClient:
                 # while we wait on stdout — a classic two-pipe deadlock.
                 "stderr": subprocess.DEVNULL,
                 "text": True,
-
                 # Force UTF-8: the vault emits raw UTF-8 (serde_json), but text
                 # mode otherwise decodes with the locale codec (cp1252 on
                 # Windows). A single non-ASCII byte then either mojibakes the
@@ -19358,12 +19355,6 @@ class _MCPStdioClient:
                 "encoding": "utf-8",
                 "errors": "replace",
             }
-            # Forward per-server env overrides from connector config (#730).
-            # Merge on top of the parent env so operators can inject MIMIR_*
-            # tunables (e.g. MIMIR_IDLE_TIMEOUT_SECS=0) without touching the
-            # global process environment. An empty override dict is a no-op.
-            if self._env:
-                popen_kwargs["env"] = {**os.environ, **self._env}
             if cwd:
                 popen_kwargs["cwd"] = cwd
 
@@ -19689,9 +19680,6 @@ class MnemeConnector:
         init_timeout_s: float      = 30.0   # initialize handshake (first-open/migration)
         merge_strategy: str        = "local_first"
         decay_priority_weight: float = 0.4  # weight of decay_score in merge ordering
-        env: dict[str, str]        = {}     # extra env vars forwarded to vault subprocess
-                                             # supports ${VAR} interpolation from os.environ
-                                             # e.g. env: {MIMIR_IDLE_TIMEOUT_SECS: "0"}
         circuit_breaker:
             threshold: int         = 3
             cooldown: int          = 120
@@ -19740,23 +19728,6 @@ class MnemeConnector:
         self._max_retries = int(rp_cfg.get("max_attempts", 3))
         self._backoff_base = float(rp_cfg.get("backoff_base", 1.5))
 
-        # Per-server env overrides (#730): forwarded verbatim to the spawned vault
-        # subprocess so operators can set MIMIR_* tunables from config.yaml without
-        # touching the global process environment.  ${VAR} tokens in values are
-        # expanded from os.environ for parity with the @env directive.
-        import re as _re
-        _env_raw = mcfg.get("env", {})
-        if isinstance(_env_raw, dict):
-            def _expand(v: str) -> str:
-                return _re.sub(
-                    r"\$\{([^}]+)\}",
-                    lambda m: os.environ.get(m.group(1), m.group(0)),
-                    str(v),
-                )
-            self._spawn_env: dict = {str(k): _expand(v) for k, v in _env_raw.items()}
-        else:
-            self._spawn_env = {}
-
         # Transport client
         self._client: _MCPStdioClient | _MCPSseClient | None = None
         self._connect_error: str | None = None
@@ -19798,7 +19769,7 @@ class MnemeConnector:
             if self._transport == "sse":
                 self._client = _MCPSseClient(self._endpoint, self._timeout, self._init_timeout)
             else:
-                self._client = _MCPStdioClient(self._command, self._timeout, self._init_timeout, env=self._spawn_env)
+                self._client = _MCPStdioClient(self._command, self._timeout, self._init_timeout)
 
             if self._client.connect():
                 self._connect_error = None
