@@ -47,5 +47,13 @@ jobs:
           python-version: "3.12"
       - name: Install pip-audit
         run: python -m pip install --upgrade pip pip-audit
+      # --no-deps audits the versions pinned in the file directly, without
+      # re-resolving their dependency tree. requirements.txt is a full
+      # `pip freeze` (every transitive dep already pinned), and that frozen set
+      # is not cleanly re-installable (conflicting transitive pins → pip's
+      # resolver returns ResolutionImpossible). Without --no-deps, pip-audit's
+      # dry-run install fails on resolution and the job errors for a reason that
+      # has nothing to do with a CVE — masking any real advisory. --no-deps
+      # makes this a pure advisory-DB lookup over the pinned versions.
       - name: Audit dev/CI toolchain (informational)
-        run: pip-audit -r requirements.txt
+        run: pip-audit -r requirements.txt --no-deps
