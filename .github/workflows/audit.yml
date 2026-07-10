@@ -2,9 +2,15 @@ name: Security Audit
 
 # SECURITY.md commits Perseus to monitoring its dependencies for known CVEs.
 # This workflow makes that claim true for the Python side (the Rust side is
-# covered by perseus-vault's cargo-audit). It scans dependencies against the
-# PyPI Advisory Database / OSV via pip-audit on every push and PR, and weekly
-# to catch advisories published against already-pinned versions.
+# covered by perseus-vault's cargo-audit). It runs on every push and PR, plus
+# weekly to catch advisories published against already-pinned versions.
+#
+# Two surfaces, two postures:
+#   * runtime-audit  (gating)     — requirements-runtime.txt, what users install.
+#                                   A CVE here fails the build; we don't ship one.
+#   * toolchain-audit (non-gating) — requirements.txt, the dev/CI/build freeze.
+#                                   CVEs here don't ship to users, but we still
+#                                   surface them for visibility.
 
 on:
   push:
@@ -33,19 +39,24 @@ jobs:
       - name: Audit runtime dependencies (gating)
         run: pip-audit -r requirements-runtime.txt --strict
 
-  # The full dev/CI freeze (toolchain: poetry, langchain, twine, etc.). These
-  # never ship to users, so a CVE here is lower severity and — like an
-  # unmaintained transitive crate on the Rust side — must not be able to block
-  # a security release. Reported for visibility, non-gating.
+  # The dev/CI/build freeze (requirements.txt). A CVE in a build/test tool
+  # (poetry, twine, mypy, langchain, …) does not ship to users, so this is
+  # informational rather than blocking. It uses osv-scanner's static lockfile
+  # scan (--no-resolve): it reads the already-pinned versions and queries OSV
+  # directly, with no virtualenv and no re-resolution. That is deliberate — the
+  # earlier pip-audit-based job was dropped because pip-audit dry-run-installs
+  # the set (building wheels, honoring markers) and broke whenever the full
+  # freeze drifted out of a cleanly-resolvable state. A static scan keeps
+  # surfacing advisories regardless.
   toolchain-audit:
     runs-on: ubuntu-latest
-    continue-on-error: true
+    continue-on-error: true   # non-gating: dev-toolchain CVEs are surfaced, not blocking
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Install pip-audit
-        run: python -m pip install --upgrade pip pip-audit
-      - name: Audit dev/CI toolchain (informational)
-        run: pip-audit -r requirements.txt
+      - name: Install osv-scanner
+        run: |
+          curl -sSL -o /usr/local/bin/osv-scanner \
+            https://github.com/google/osv-scanner/releases/download/v2.4.0/osv-scanner_linux_amd64
+          chmod +x /usr/local/bin/osv-scanner
+      - name: Audit dev/CI toolchain freeze against OSV (non-gating)
+        run: osv-scanner scan source --no-resolve --lockfile requirements.txt
