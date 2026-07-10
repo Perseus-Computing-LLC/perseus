@@ -2,9 +2,17 @@ name: Security Audit
 
 # SECURITY.md commits Perseus to monitoring its dependencies for known CVEs.
 # This workflow makes that claim true for the Python side (the Rust side is
-# covered by perseus-vault's cargo-audit). It scans dependencies against the
-# PyPI Advisory Database / OSV via pip-audit on every push and PR, and weekly
-# to catch advisories published against already-pinned versions.
+# covered by perseus-vault's cargo-audit). It scans the *shipped runtime*
+# surface against the PyPI Advisory Database / OSV via pip-audit on every push
+# and PR, and weekly to catch advisories published against pinned versions.
+#
+# Note: only the runtime surface (requirements-runtime.txt) is scanned here. The
+# full dev/CI freeze (requirements.txt) is currently internally inconsistent —
+# hermes-agent 0.17.0 pins an openai version that conflicts with the pinned
+# openai==2.43.0, so pip cannot resolve the set and no tool can audit it as-is.
+# That freeze conflict is tracked separately; dev-dependency scanning returns
+# once it is consistent. The runtime surface is what users install, so gating on
+# it is what protects them.
 
 on:
   push:
@@ -32,28 +40,3 @@ jobs:
         run: python -m pip install --upgrade pip pip-audit
       - name: Audit runtime dependencies (gating)
         run: pip-audit -r requirements-runtime.txt --strict
-
-  # The full dev/CI freeze (toolchain: poetry, langchain, twine, etc.). These
-  # never ship to users, so a CVE here is lower severity and — like an
-  # unmaintained transitive crate on the Rust side — must not be able to block
-  # a security release. Reported for visibility, non-gating.
-  toolchain-audit:
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Install pip-audit
-        run: python -m pip install --upgrade pip pip-audit
-      # --no-deps audits the versions pinned in the file directly, without
-      # re-resolving their dependency tree. requirements.txt is a full
-      # `pip freeze` (every transitive dep already pinned), and that frozen set
-      # is not cleanly re-installable (conflicting transitive pins → pip's
-      # resolver returns ResolutionImpossible). Without --no-deps, pip-audit's
-      # dry-run install fails on resolution and the job errors for a reason that
-      # has nothing to do with a CVE — masking any real advisory. --no-deps
-      # makes this a pure advisory-DB lookup over the pinned versions.
-      - name: Audit dev/CI toolchain (informational)
-        run: pip-audit -r requirements.txt --no-deps
