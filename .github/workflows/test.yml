@@ -6,8 +6,11 @@ on:
   pull_request:
     branches: [main, master]
 
+# Read-only. This workflow verifies the built artifact rather than committing it
+# back, so it needs no write access — a CI job that can push to the repo is a
+# supply-chain risk we avoid.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   test:
@@ -19,9 +22,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          ref: ${{ github.event.pull_request.head.ref || github.ref }}
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
@@ -33,26 +33,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install pyyaml pytest coverage hypothesis tiktoken
 
-      - name: Rebuild and verify build artifact
-        run: |
-          python scripts/build.py
-          echo "Artifact rebuilt. Checking if commit needed..."
-          if [ "${{ matrix.python-version }}" = "3.12" ]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add perseus.py
-            if ! git diff --cached --quiet; then
-              git commit -m "chore: auto-rebuild perseus.py [skip ci]"
-              if [ "${{ github.event_name }}" = "pull_request" ]; then
-                git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
-              else
-                git push
-              fi
-              echo "Pushed rebuilt artifact."
-            else
-              echo "Artifact was already in sync — no commit needed."
-            fi
-          fi
+      - name: Verify build artifact is in sync
+        # The committed perseus.py must match a fresh build from scripts/. We
+        # VERIFY it rather than auto-rebuilding and pushing back: a workflow that
+        # commits to the repo requires contents:write and a push-capable token,
+        # which is a supply-chain risk. Contributors run `python scripts/build.py`
+        # and commit perseus.py themselves; CI fails here if it drifted. (The
+        # Windows job already uses this same --check.)
+        run: python scripts/build.py --check
 
       - name: Smoke test — render validation
         run: |
