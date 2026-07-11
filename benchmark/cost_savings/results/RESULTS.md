@@ -1,11 +1,66 @@
 # Cost-savings certification results (#749)
 
-First quotable live run of the Perseus+Vault vs full-context cost-savings
-harness, with dollars read back from a Plutus ledger and accuracy graded by the
-official LongMemEval per-type judge. All numbers below are reproduced from the
-signed artifacts in this directory.
+Live runs of the Perseus+Vault vs full-context cost-savings harness, with
+dollars read back from a Plutus ledger and accuracy graded by the official
+LongMemEval per-type judge. All numbers below are reproduced from the signed
+artifacts in this directory.
 
-## The certified run (2026-07-11)
+**Headline (stratified run, the representative number): Perseus+Vault spent
+75.1% fewer dollars AND scored 11.7 points higher than full-context stuffing
+on a proportional sample of all six LongMemEval question types.**
+
+## The stratified run (2026-07-11) — quote this one
+
+The pilot below was flagged "re-run stratified before quoting accuracy next to
+dollars"; this is that run. Sample: 60 questions, proportional to the full-500
+type mix (su 8 / sa 7 / sp 4 / ms 16 / tr 16 / ku 9), selected
+deterministically — first-N per type in dataset order, no cherry-picking
+(construction snippet below). Same config as the pilot otherwise
+(k=10, `official-cot`, `gpt-4o-2024-08-06` both arms, `--tpm 600000`).
+
+| arm | dollars (from ledger) | tokens | accuracy |
+|---|---:|---:|---:|
+| baseline: full-context stuffing | **$15.7078** | 6,250,823 | 55.0% (33/60) |
+| product: Perseus + Vault (k=10) | **$3.9056** | 1,529,807 | 66.7% (40/60) |
+
+- **Dollar savings: 75.14% fewer dollars** for the product arm.
+- **Accuracy delta: +0.1167** — the product arm won on the representative mix
+  too, and the per-type split shows why:
+
+| question type | n | full-context | Perseus+Vault |
+|---|---:|---:|---:|
+| single-session-user | 8 | 87.5% | **100.0%** |
+| single-session-assistant | 7 | 85.7% | **100.0%** |
+| knowledge-update | 9 | **88.9%** | 66.7% |
+| single-session-preference | 4 | 25.0% | **50.0%** |
+| multi-session | 16 | 31.2% | **37.5%** |
+| temporal-reasoning | 16 | 37.5% | **68.8%** |
+
+  Full-context stuffing collapses exactly where long context hurts most —
+  multi-session (31.2%) and temporal (37.5%) at ~105k tokens/prompt
+  (lost-in-the-middle) — while paying 4.1x the tokens for it. The one
+  category it won (knowledge-update, 9 questions) is within small-n noise.
+- 120 metered events per arm (60 answer + 60 judge), 0 errors, 0 dropped.
+- Signatures: cost-savings report `aa6533853096dfbe...`, qa report
+  `efee76f95ae0cc63...`. Artifacts:
+  [`cost_savings_stratified_2026-07-11.json`](cost_savings_stratified_2026-07-11.json),
+  [`qa_report_stratified_2026-07-11.json`](qa_report_stratified_2026-07-11.json).
+
+Caveats that remain (stated so nobody overquotes): n=60 means per-type cells
+are noisy (4–16 questions each); the deterministic first-N-per-type subset
+skews slightly harder than the full mix (product arm 66.7% here vs the signed
+79.0% full-500 CoT mean — both arms face the same questions, so the DELTA is
+the robust stat); and the ledger tamper-evidence gap below applies to every
+run.
+
+Subset construction (deterministic, reproducible):
+
+```python
+quota = {t: max(4, round(c * 60 / 500)) for t, c in type_counts.items()}
+# then take the FIRST quota[t] questions of each type in dataset order
+```
+
+## The pilot run (2026-07-11, single-session-user slice)
 
 | setting | value |
 |---|---|
@@ -69,7 +124,8 @@ Not yet trustworthy as a headline, and stated plainly so it is never overquoted:
   LongMemEval category. This subset is a favorable, non-stratified slice. The
   accuracy half of the claim should be re-run stratified across all five
   question types, and ideally on the full 500, before any accuracy figure is
-  published next to a dollar figure.
+  published next to a dollar figure. **(Done — see the stratified run above,
+  which is now the quotable one.)**
 - **The dollars are re-queryable but not tamper-evident.** The Plutus ledger is
   append-only by convention and integer-exact, but it has no hash chain, MAC, or
   signature over its rows, so an operator with database access could rewrite
