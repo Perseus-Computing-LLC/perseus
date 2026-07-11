@@ -185,11 +185,7 @@ DEFAULT_CONFIG = {
     "pythia": {
         "skill_dir": str(SKILLS_DIR),
         "stale_skill_days": 30,
-        "llm_provider": "ollama",
-        "ollama_model": "llama3.1",
-        "llm_timeout_s": 30,
         "max_entries": 10000,          # max JSONL log entries before oldest are pruned (0 = unlimited)
-        "ollama_host": os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434"),
         # Phase 9.1 — Daedalus self-rating / inferred label window.
         # Default: 7 days OR 5 checkpoints after the recommendation,
         # whichever comes first. Floor of 2 checkpoints to call it
@@ -212,15 +208,6 @@ DEFAULT_CONFIG = {
         "ab_testing_enabled": False,          # Phase 14C: transparent candidate exploration
         "ab_testing_rate": 0.10,
     },
-    "llm": {
-        "provider": "ollama",
-        "model": "mistral",
-        "url": "http://localhost:11434",
-        "timeout_s": 30,
-        # task-06: Daedalus — local fine-tuned model routed via ollama
-        "daedalus_model": "perseus-daedalus",
-        "daedalus_url": "http://localhost:11434",
-    },
     "assistant": {
         "sessions_dir": str(SESSIONS_DIR),
     },
@@ -238,24 +225,14 @@ DEFAULT_CONFIG = {
         "recent_keep": 5,           # raw checkpoints to include in Recent Activity
         "auto_update": True,        # update narrative on every checkpoint write
         "compact_threshold": 20,    # advisory: compact after this many incremental updates
-        # #131: wall-clock deadline for `perseus memory compact` LLM path.
-        # 0 = no deadline (pre-1.0.6 behavior — can hang indefinitely on
-        # slow models). Default 180s (3 min) covers Ollama mistral on a
-        # modern laptop for typical workspace sizes. On timeout the LLM
-        # call is abandoned and the deterministic narrative is used.
-        "compact_total_timeout_s": 180,
-        "llm_provider": None,       # None = deterministic; "ollama" / "openai-compat" enables LLM
-        "llm_model": None,          # inherits from llm: block if None
         "max_narrative_lines": 300, # warn (not error) if narrative grows beyond this
         # Mnēmē v2 — Perseus-native vault (SQLite FTS5, no Mneme v2 dependency)
         "mneme_vault_path": "",     # empty = auto-detect ($PERSEUS_HOME/memory/vault/)
         "mneme_index_path": "",     # empty = vault_path / "mneme.index"
         # task-19 (Phase 8.2) — federation manifest path
         "federation_manifest": str(PERSEUS_HOME / "memory" / "federation.yaml"),
-        # task-21 (Phase 9.2) — pattern extractor backend:
-        #   "deterministic" = rule-based (no model), default
-        #   "daedalus"      = call run_llm("daedalus", ...) for inference
-        # The daedalus path falls back to deterministic on any failure.
+        # Pattern extraction is always deterministic (rule-based, no model) —
+        # Perseus runs no inference of its own (observe model).
         "pattern_extractor": "deterministic",
         # #717 — recency window for STATIC @memory narrative injection.
         # Entries whose `### <timestamp> — …` heading is older than this many
@@ -5478,83 +5455,9 @@ def _score_adaptive_candidates_deterministic(candidates: list[dict], corpus: str
     return scores
 
 
-def _adaptive_daedalus_prompt(candidates: list[dict], corpus: str) -> str:
-    lines = [
-        "You are Daedalus scoring predeclared Perseus prefetch candidates.",
-        "Do not invent directives, prose, candidates, or context.",
-        "Return only JSON: [{\"id\":\"...\",\"score\":0.0,\"reason\":\"short\"}]",
-        "Scores are 0.0 to 1.0.",
-        "",
-        "Candidates:",
-    ]
-    for candidate in candidates:
-        directive_line = candidate.get("prefetch")
-        if isinstance(directive_line, dict):
-            directive_line = directive_line.get("line") or directive_line.get("directive_line") or directive_line.get("directive") or ""
-        lines.append(
-            f"- id={candidate['id']} directive={directive_line!r} "
-            f"patterns={candidate.get('patterns', [])!r}"
-        )
-    lines.extend(["", "Evidence:", corpus[-4000:]])
-    return "\n".join(lines)
-
-
-def _parse_daedalus_prefetch_scores(text: str, candidates: list[dict]) -> dict[str, dict] | None:
-    raw = text.strip()
-    if raw.startswith("```"):
-        raw = re.sub(r'^```(?:json)?\s*', '', raw)
-        raw = re.sub(r'\s*```$', '', raw)
-    try:
-        data = json.loads(raw)
-    except Exception:
-        m = re.search(r'(\[.*\])', raw, re.DOTALL)
-        if not m:
-            return None
-        try:
-            data = json.loads(m.group(1))
-        except Exception:
-            return None
-    if isinstance(data, dict):
-        data = data.get("scores")
-    if not isinstance(data, list):
-        return None
-
-    known = {candidate["id"] for candidate in candidates}
-    scores: dict[str, dict] = {}
-    for item in data:
-        if not isinstance(item, dict):
-            continue
-        cid = str(item.get("id", ""))
-        if cid not in known:
-            continue
-        try:
-            score = float(item.get("score", 0.0))
-        except (TypeError, ValueError):
-            score = 0.0
-        score = max(0.0, min(1.0, score))
-        scores[cid] = {"score": score, "reason": str(item.get("reason") or "daedalus score")}
-    return scores
-
-
 def _score_adaptive_candidates(candidates: list[dict], corpus: str, cfg: dict, adaptive_cfg: dict) -> tuple[dict[str, dict], str, str]:
-    backend = adaptive_cfg.get("backend", "deterministic")
-    if backend == "daedalus":
-        prompt = _adaptive_daedalus_prompt(candidates, corpus)
-        text, code = run_llm("daedalus", prompt, cfg, model=adaptive_cfg.get("model") or None)
-        if code == 0:
-            scores = _parse_daedalus_prefetch_scores(text, candidates)
-            if scores is not None:
-                for candidate in candidates:
-                    scores.setdefault(candidate["id"], {"score": 0.0, "reason": "daedalus returned no score"})
-                return scores, "daedalus", ""
-            fallback = "daedalus returned unparseable scores"
-        else:
-            fallback = f"daedalus failed: {text}"
-        scores = _score_adaptive_candidates_deterministic(candidates, corpus)
-        for value in scores.values():
-            value["reason"] = f"{fallback}; deterministic fallback: {value['reason']}"
-        return scores, "deterministic", fallback
-
+    # Adaptive prefetch scoring is always deterministic — Perseus runs no
+    # inference of its own (observe model).
     return _score_adaptive_candidates_deterministic(candidates, corpus), "deterministic", ""
 
 
@@ -16225,9 +16128,9 @@ def _mneme_fmt_bytes(n: int) -> str:
 # Mnēmē — narrative project memory. Distills checkpoints + Pythia log into a
 # per-workspace narrative file at ~/.perseus/memory/<workspace-hash>.md.
 #
-# Two modes:
-#   - Deterministic (default): rule-based extraction; no LLM needed.
-#   - LLM-assisted: opt-in via memory.llm_provider; routed through run_llm().
+# Distillation is deterministic (rule-based extraction; no LLM) — Perseus runs
+# no inference of its own (observe model). The host agent can read/answer the
+# narrative with whatever model it already uses.
 #
 # Narrative file format: standard markdown with YAML frontmatter.
 #
@@ -16427,7 +16330,6 @@ def _load_narrative(path: Path) -> tuple[dict, str]:
     return fm, body
 
 
-
 def _safe_fsync(path):
     """Fsync file + parent directory for durability (#140)."""
     try:
@@ -16453,8 +16355,6 @@ def _save_narrative(path: Path, frontmatter: dict, body: str) -> None:
     # prevent narrative loss on system crash / power loss.
     _safe_fsync(tmp)
     os.replace(tmp, path)
-
-
 
 
 def _mneme_default_frontmatter(workspace: Path) -> dict:
@@ -16608,66 +16508,9 @@ def _deterministic_patterns_body(pythia_entries: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def _daedalus_patterns_body(pythia_entries: list[dict], cfg: dict) -> str | None:
-    """LLM-inferred pattern extraction via run_llm("daedalus", ...).
-
-    Returns ``None`` on any failure so the caller can fall back to the
-    deterministic path. The contract for the model's response is documented
-    in spec/components.md § 6 (Daedalus): a markdown bullet list, one
-    pattern per line, ≤ 80 chars per bullet.
-    """
-    accepted = [e for e in pythia_entries if e.get("accepted") is True or e.get("inferred_label") == "inferred_accept"]
-    if not accepted:
-        return "_No labeled Pythia patterns yet for daedalus extraction._"
-
-    prompt_lines = [
-        "You are Daedalus, the Perseus pattern extractor.",
-        "Given a labeled stream of (prompt → accepted response) pairs,",
-        "produce 3-7 concise patterns or anti-patterns observed.",
-        "OUTPUT FORMAT: a markdown bullet list, one bullet per line,",
-        "each bullet ≤ 80 characters. No prose, no headings, just bullets.",
-        "",
-        "Data:",
-    ]
-    for e in accepted[-30:]:  # cap to most recent 30 to keep prompt small
-        p = str(e.get("prompt", "") or "")[:120].replace("\n", " ")
-        r = str(e.get("response", "") or "")[:120].replace("\n", " ")
-        src = "explicit" if e.get("accepted") is True else "inferred"
-        prompt_lines.append(f"- ({src}) {p} → {r}")
-    prompt = "\n".join(prompt_lines)
-
-    try:
-        text, code = run_llm("daedalus", prompt, cfg)
-    except Exception as exc:
-        sys.stderr.write(f"⚠ daedalus pattern extractor failed ({exc}); falling back to deterministic\n")
-        return None
-    if code != 0 or not text:
-        sys.stderr.write(f"⚠ daedalus pattern extractor returned no output (code={code}); falling back to deterministic\n")
-        return None
-
-    # Validate: must contain at least one bullet line; trim each to 80 chars
-    bullets = []
-    for raw in text.splitlines():
-        s = raw.strip()
-        if not s.startswith(("-", "*", "•")):
-            continue
-        if len(s) > 84:  # 80 + leading "- "
-            s = s[:81] + "…"
-        bullets.append(s if s.startswith("- ") else "- " + s.lstrip("*•- ").strip())
-    if not bullets:
-        sys.stderr.write("⚠ daedalus pattern extractor returned no bullets; falling back to deterministic\n")
-        return None
-    return "\n".join(bullets)
-
-
 def _extract_patterns_section(pythia_entries: list[dict], cfg: dict) -> str:
-    """Dispatch to the configured pattern extractor with graceful fallback."""
-    backend = (cfg.get("memory", {}).get("pattern_extractor") or "deterministic").strip().lower()
-    if backend == "daedalus":
-        out = _daedalus_patterns_body(pythia_entries, cfg)
-        if out is not None:
-            return out
-        # fall through to deterministic
+    """Extract the patterns section. Perseus runs no inference of its own
+    (observe model), so pattern extraction is always deterministic."""
     return _deterministic_patterns_body(pythia_entries)
 
 
@@ -16824,7 +16667,6 @@ def _deterministic_narrative(
             result += "> Review after deterministic update to ensure accuracy.\n"
 
     return result
-
 
 # ───────────────────────── Mnēmē Federation (task-19) ────────────────────────
 #
@@ -17589,36 +17431,12 @@ def cmd_memory_federation_merge(args, cfg) -> int | None:
         return 1
 
     # Build a cited-synthesis prompt
-    prompt = (
-        "You are a conflict mediator for federated AI context.\n"
-        f"Below are narratives from two workspaces: `{alias_a}` and `{alias_b}`.\n"
-        "They may disagree on architectural decisions, deployment strategies, or project direction.\n"
-        "Draft a neutral reconciliation that:\n"
-        "1. Identifies specific points of agreement\n"
-        "2. Identifies specific points of disagreement\n"
-        "3. Suggests a concrete path forward for each disagreement\n"
-        "4. Uses exact citations from both source narratives (format: [source])\n\n"
-        f"NARRATIVE `{alias_a}`:\n{body_a[:3000]}\n\n"
-        f"NARRATIVE `{alias_b}`:\n{body_b[:3000]}\n"
-    )
-
-    # Try LLM synthesis if configured
-    llm_provider = cfg.get("memory", {}).get("llm_provider") or cfg.get("llm", {}).get("provider")
-    if llm_provider:
-        model = cfg.get("memory", {}).get("llm_model") or cfg.get("llm", {}).get("model")
-        text, code = run_llm(llm_provider, prompt, cfg, model=model)
-        if code == 0:
-            print("## Merge Suggestion (LLM-drafted)\n")
-            print(text)
-            print("\n> ⚠ This is a suggestion — not automatically applied to any narrative.")
-            return 0
-        print(f"LLM synthesis failed: {text}. Falling back to deterministic.", file=sys.stderr)
-
-    # Deterministic fallback: show overlap summary
+    # Perseus runs no inference of its own (observe model): the merge view is
+    # a deterministic topic-overlap summary the host agent can reconcile.
     secs_a = _extract_sections(body_a)
     secs_b = _extract_sections(body_b)
     lines = ["## Merge Suggestion (deterministic)\n"]
-    lines.append("> LLM synthesis unavailable. Showing topic overlap summary.\n")
+    lines.append("> Topic overlap summary — reconcile the differences in your own review.\n")
     for heading in sorted(set(list(secs_a.keys()) + list(secs_b.keys()))):
         if heading == "_preamble":
             continue
@@ -21606,19 +21424,6 @@ def _memory_workspace(args, cfg) -> Path:
     raise SystemExit(2)
 
 
-def _memory_llm_provider(args, cfg) -> str | None:
-    """Resolve effective llm provider for this call. None == deterministic."""
-    flag = getattr(args, "llm", None)
-    if flag:
-        v = str(flag).strip().lower()
-        # #130: --llm none means "use deterministic" not "use provider named none"
-        return None if v in ("", "none") else v
-    cfg_provider = cfg.get("memory", {}).get("llm_provider")
-    if cfg_provider:
-        return str(cfg_provider).strip().lower() or None
-    return None
-
-
 def _memory_do_update(workspace: Path, cfg: dict, provider: str | None) -> tuple[bool, str]:
     """Core incremental update routine.
 
@@ -21655,10 +21460,10 @@ def _memory_do_update(workspace: Path, cfg: dict, provider: str | None) -> tuple
     if not new_cp and not new_py and body.strip():
         return (False, "Nothing new since last update.")
 
-    if provider:
-        new_body = _mneme_update_llm(body, fm, new_cp, new_py, cfg, provider)
-    else:
-        new_body = _deterministic_narrative(all_checkpoints, all_pythia, body, workspace, cfg)
+    # Narrative is always distilled deterministically — Perseus runs no
+    # inference of its own (observe model). `provider` is accepted for
+    # call-site compatibility and ignored.
+    new_body = _deterministic_narrative(all_checkpoints, all_pythia, body, workspace, cfg)
 
     fm["checkpoints_processed"] = len(all_checkpoints)
     _set_mneme_pythia_hwm(fm, len(all_pythia))
@@ -21688,79 +21493,10 @@ def _memory_do_compact(workspace: Path, cfg: dict, provider: str | None) -> str:
     if not fm:
         fm = _mneme_default_frontmatter(workspace)
 
-    if provider:
-        # Regression for #131 — pre-1.0.6, _mneme_compact_llm() called run_llm()
-        # which only enforced `llm.timeout_s` (default 30s) on the HTTP request
-        # itself. With streaming-token providers like Ollama serving a large
-        # model, individual tokens can arrive within timeout but total wall
-        # time was unbounded — operators reported `memory compact` hanging
-        # for hours.
-        #
-        # We now wrap the LLM call in a wall-clock deadline (memory.
-        # compact_total_timeout_s, default 180s). On timeout we abandon the
-        # LLM future and fall back to deterministic narrative — operators get
-        # SOME narrative, plus a clear stderr signal so they can decide
-        # whether to upgrade their LLM setup or stay deterministic.
-        #
-        # Limitation: ThreadPoolExecutor cannot truly kill the worker thread
-        # (Python provides no public API for that). The in-flight HTTP
-        # request continues until urllib's per-request timeout fires.
-        # Worst-case observed total wait is therefore
-        # `compact_total_timeout_s + llm.timeout_s`. The leaked thread is
-        # daemonized by Python's default ThreadPoolExecutor settings; it
-        # will not prevent process exit.
-        total_timeout = float(cfg.get("memory", {}).get(
-            "compact_total_timeout_s", 180.0
-        ))
-        try:
-            import concurrent.futures as _cf
-            executor = _cf.ThreadPoolExecutor(
-                max_workers=1, thread_name_prefix="mimir-compact-llm",
-            )
-            try:
-                fut = executor.submit(
-                    _mneme_compact_llm,
-                    all_checkpoints, all_pythia, workspace, cfg, provider,
-                )
-                new_body = fut.result(timeout=total_timeout)
-            finally:
-                # Don't block on the worker — it may still be waiting on
-                # urllib. The thread is daemonic and will not block exit.
-                executor.shutdown(wait=False, cancel_futures=True)
-        except _cf.TimeoutError:
-            sys.stderr.write(
-                f"> ⚠ Mnēmē compact: LLM provider {provider!r} exceeded "
-                f"compact_total_timeout_s={total_timeout:.0f}s; "
-                f"falling back to deterministic narrative.\n"
-            )
-            try:
-                audit_event(
-                    cfg, "memory_compact_timeout",
-                    provider=provider,
-                    total_timeout_s=total_timeout,
-                    workspace_hash=_workspace_hash(workspace),
-                )
-            except Exception as exc:
-                import logging
-                logging.getLogger("perseus.agora").warning(
-                    "Agora task list parse failed for workspace %s: %s",
-                    getattr(workspace, 'path', workspace), exc
-                )
-            new_body = _deterministic_narrative(
-                all_checkpoints, all_pythia, "", workspace, cfg,
-            )
-        except Exception as exc:
-            # LLM call raised (model server unreachable, payload error, etc.)
-            # — surface the failure but still produce SOMETHING usable.
-            sys.stderr.write(
-                f"> ⚠ Mnēmē compact: LLM provider {provider!r} failed "
-                f"({exc}); falling back to deterministic narrative.\n"
-            )
-            new_body = _deterministic_narrative(
-                all_checkpoints, all_pythia, "", workspace, cfg,
-            )
-    else:
-        new_body = _deterministic_narrative(all_checkpoints, all_pythia, "", workspace, cfg)
+    # Compaction always distills deterministically — Perseus runs no inference
+    # of its own (observe model). `provider` is accepted for call-site
+    # compatibility and ignored.
+    new_body = _deterministic_narrative(all_checkpoints, all_pythia, "", workspace, cfg)
 
     fm["checkpoints_processed"] = len(all_checkpoints)
     _set_mneme_pythia_hwm(fm, len(all_pythia))
@@ -21779,11 +21515,7 @@ def _memory_do_compact(workspace: Path, cfg: dict, provider: str | None) -> str:
 def cmd_memory_update_silent(workspace: Path, cfg: dict) -> None:
     """Silent side-effect for cmd_checkpoint. Never raises."""
     try:
-        provider = None
-        cfg_provider = cfg.get("memory", {}).get("llm_provider")
-        if cfg_provider:
-            provider = str(cfg_provider).strip().lower() or None
-        _memory_do_update(workspace, cfg, provider)
+        _memory_do_update(workspace, cfg, None)
     except Exception as exc:
         sys.stderr.write(f"> ⚠ Mnēmē update failed: {exc}\n")
 
@@ -21928,8 +21660,7 @@ def cmd_memory(args, cfg):
     workspace = _memory_workspace(args, cfg)
 
     if sub == "update":
-        provider = _memory_llm_provider(args, cfg)
-        changed, msg = _memory_do_update(workspace, cfg, provider)
+        changed, msg = _memory_do_update(workspace, cfg, None)
         print(msg)
         # #713: `memory update` is a session boundary Perseus already owns —
         # capture pending checkpoints to the vault live (opt-in).
@@ -21964,13 +21695,12 @@ def cmd_memory(args, cfg):
         return
 
     if sub == "compact":
-        provider = _memory_llm_provider(args, cfg)
         # task-21: per-invocation override for pattern_extractor
         pe_override = getattr(args, "pattern_extractor", None)
         if pe_override:
             cfg = copy.deepcopy(cfg)
             cfg.setdefault("memory", {})["pattern_extractor"] = pe_override
-        msg = _memory_do_compact(workspace, cfg, provider)
+        msg = _memory_do_compact(workspace, cfg, None)
         # Record last_compact_processed so future advisory math works
         mp = _mneme_path(workspace, cfg)
         fm, body = _load_narrative(mp)
@@ -22007,7 +21737,7 @@ def cmd_memory(args, cfg):
         cp_pending = max(0, len(all_cp) - cp_hwm)
         py_pending = max(0, len(all_py) - py_hwm)
         line_count = body.count("\n") + (1 if body and not body.endswith("\n") else 0)
-        mode = "LLM (" + str(cfg.get("memory", {}).get("llm_provider")) + ")" if cfg.get("memory", {}).get("llm_provider") else "deterministic"
+        mode = "deterministic"
         updated = fm.get("updated", "(unknown)")
         age = _human_age(updated) if isinstance(updated, str) else "(unknown)"
         if use_json:
@@ -22034,8 +21764,6 @@ def cmd_memory(args, cfg):
             print(f"  Compactions: {fm.get('compaction_count', 0)}")
             print(f"  Size:        {line_count} lines")
             print(f"  Mode:        {mode}")
-        if not use_json and mode == "deterministic":
-            print("               (set memory.llm_provider to enable LLM distillation)")
         return
 
     if sub == "query":
@@ -22046,19 +21774,7 @@ def cmd_memory(args, cfg):
             print("> Run `perseus memory update` to initialize.")
             return
         fm, body = _load_narrative(mp)
-        provider = _memory_llm_provider(args, cfg)
-        if provider:
-            prompt = (
-                "You are Mnēmē. Answer the user's question about this project, citing "
-                "only the narrative below. If the narrative does not contain the answer, "
-                "say so plainly.\n\n"
-                f"NARRATIVE:\n{body}\n\nQUESTION: {question}\n"
-            )
-            model = cfg.get("memory", {}).get("llm_model") or cfg.get("llm", {}).get("model")
-            text, code = run_llm(provider, prompt, cfg, model=model)
-            print(text if code == 0 else f"> ⚠ {MEMORY_BRAND} query (LLM) failed: {text}")
-            return
-        # Deterministic grep-style search
+        # Deterministic grep-style search (Perseus runs no inference of its own)
         terms = [t for t in re.split(r'\s+', question.strip()) if t]
         matches: list[str] = []
         sections = re.split(r'(?m)^(?=##\s+)', body)
@@ -22821,9 +22537,6 @@ def _resolve_memory_narrative(args_stripped: str, mods: dict, cfg: dict, ws: Pat
     return _maybe_append_federation(result)
 
 
-
-
-
 # ──────────────────────────── @context-diff (#714) ────────────────────────────
 # "What changed since I was last here" as a first-class delta. Every session
 # re-renders full context, but the assistant had no cheap way to tell what is
@@ -23048,82 +22761,6 @@ def resolve_context_diff(args_str: str, cfg: dict, workspace: Path | None = None
         return f"## Since last session{age_note}\n\n- Nothing changed since the last snapshot."
     return f"## Since last session{age_note}\n\n" + "\n".join(delta_lines)
 
-# ── LLM-assisted paths (opt-in) ───────────────────────────────────────────────
-
-def _truncate_pythia_for_llm(entries: list[dict]) -> list[dict]:
-    return [
-        {"task": e.get("task"), "accepted": e.get("accepted"), "timestamp": e.get("timestamp")}
-        for e in entries
-    ]
-
-
-def _mneme_update_llm(
-    existing_body: str,
-    frontmatter: dict,
-    new_checkpoints: list[dict],
-    new_pythia_entries: list[dict],
-    cfg: dict,
-    provider: str,
-) -> str:
-    """LLM-assisted incremental update. Returns updated narrative body."""
-    recent_keep = int(cfg.get("memory", {}).get("recent_keep", 5))
-    truncated = _truncate_pythia_for_llm(new_pythia_entries)
-    cp_yaml = yaml.safe_dump(new_checkpoints, default_flow_style=False, allow_unicode=True, sort_keys=False)
-    oc_json = json.dumps(truncated, ensure_ascii=False, indent=2)
-    body_block = existing_body if existing_body.strip() else "(none — initialize from scratch)"
-    prompt = (
-        "You are Mnēmē, the keeper of project narrative for an AI development workflow.\n\n"
-        "Your job: update a structured project narrative by incorporating new activity.\n"
-        "Preserve all existing content unless it directly contradicts new information.\n"
-        "Do not invent content. Do not pad. Be terse and factual.\n\n"
-        f"EXISTING NARRATIVE:\n{body_block}\n\n"
-        f"NEW CHECKPOINTS ({len(new_checkpoints)} since last update):\n{cp_yaml}\n\n"
-        f"NEW PYTHIA LOG ENTRIES ({len(new_pythia_entries)} since last update):\n{oc_json}\n\n"
-        "INSTRUCTIONS:\n"
-        "- Update the \"Project Arc\" section if the recent work represents a significant milestone\n"
-        "- Add new entries to \"Key Decisions\" if checkpoint notes contain decision language\n"
-        "- Update \"Task History\" table with any newly completed tasks\n"
-        "- Update \"Patterns & Anti-patterns\" based on accepted Pythia entries\n"
-        f"- Rewrite \"Recent Activity\" with the {recent_keep} most recent checkpoints\n"
-        "- Return ONLY the updated markdown body. No preamble. No commentary. Start with \"## Project Arc\".\n"
-    )
-    model = cfg.get("memory", {}).get("llm_model") or cfg.get("llm", {}).get("model")
-    text, code = run_llm(provider, prompt, cfg, model=model)
-    if code != 0:
-        raise RuntimeError(text)
-    return text
-
-
-def _mneme_compact_llm(
-    all_checkpoints: list[dict],
-    all_pythia_entries: list[dict],
-    workspace: Path,
-    cfg: dict,
-    provider: str,
-) -> str:
-    """LLM-assisted full compaction. Returns rebuilt narrative body."""
-    recent_keep = int(cfg.get("memory", {}).get("recent_keep", 5))
-    truncated = _truncate_pythia_for_llm(all_pythia_entries)
-    cp_yaml = yaml.safe_dump(all_checkpoints, default_flow_style=False, allow_unicode=True, sort_keys=False)
-    oc_json = json.dumps(truncated, ensure_ascii=False, indent=2)
-    prompt = (
-        "You are Mnēmē, the keeper of project narrative for an AI development workflow.\n\n"
-        f"Your job: build a structured project narrative from scratch for workspace {workspace}.\n"
-        "Do not invent content. Do not pad. Be terse and factual.\n\n"
-        f"ALL CHECKPOINTS ({len(all_checkpoints)}):\n{cp_yaml}\n\n"
-        f"ALL PYTHIA LOG ENTRIES ({len(all_pythia_entries)}):\n{oc_json}\n\n"
-        "INSTRUCTIONS:\n"
-        "- Produce the sections: Project Arc, Key Decisions, Task History, "
-        "Patterns & Anti-patterns, Recent Activity\n"
-        f"- Recent Activity should contain the {recent_keep} most recent checkpoints verbatim\n"
-        "- Return ONLY the markdown body. No preamble. No commentary. Start with \"## Project Arc\".\n"
-    )
-    model = cfg.get("memory", {}).get("llm_model") or cfg.get("llm", {}).get("model")
-    text, code = run_llm(provider, prompt, cfg, model=model)
-    if code != 0:
-        raise RuntimeError(text)
-    return text
-
 
 # ──────────────────────────────── Suggest ─────────────────────────────────────
 
@@ -23201,156 +22838,6 @@ def build_pythia_log_entry(task: str, snapshot: dict, prompt: str, response: str
         "accepted": None,
         "flags": list(flags or []),
     }
-
-
-def run_llm(provider: str, prompt: str, cfg: dict, model: str | None = None, model_url: str | None = None) -> tuple[str, int]:
-    """Run the Pythia prompt through a configured provider and return (text, exit_code)."""
-    provider = provider.strip().lower()
-    llm_cfg = cfg.get("llm", {})
-    timeout = float(llm_cfg.get("timeout_s", 30))
-
-    if provider == "ollama":
-        url = (model_url or str(llm_cfg.get("url", "http://localhost:11434"))).rstrip("/") + "/api/chat"
-        payload = {
-            "model": model or str(llm_cfg.get("model", "mistral")),
-            "messages": [
-                {"role": "system", "content": "You are Perseus Pythia, the Tool Oracle."},
-                {"role": "user", "content": prompt},
-            ],
-            "stream": False,
-        }
-    elif provider == "daedalus":
-        # task-06: routes to a fine-tuned local model via ollama
-        url = (model_url or str(llm_cfg.get("daedalus_url", "http://localhost:11434"))).rstrip("/") + "/api/chat"
-        payload = {
-            "model": model or str(llm_cfg.get("daedalus_model", "perseus-daedalus")),
-            "messages": [
-                {"role": "system", "content": "You are Perseus Pythia, the Tool Oracle (Daedalus)."},
-                {"role": "user", "content": prompt},
-            ],
-            "stream": False,
-        }
-        # share the ollama response-parsing branch below
-        provider = "ollama"
-    elif provider in {"llamacpp", "openai-compat", "hermes"}:
-        # `hermes` is an alias for `openai-compat` because Hermes Agent
-        # (NousResearch) exposes an OpenAI-compatible /v1/chat/completions
-        # server. Using the alias makes config read naturally
-        # (`llm.provider: hermes`) and reserves the name for a future
-        # Hermes-specific provider (auth headers, model picker, etc.).
-        # When the alias is used we look at llm.hermes_url and
-        # llm.hermes_model first so users can keep hermes settings
-        # independent of any other openai-compat endpoint they configure.
-        if provider == "hermes":
-            base_default = str(llm_cfg.get("hermes_url", llm_cfg.get("url", "http://localhost:8080"))).rstrip("/")
-            model_default = str(llm_cfg.get("hermes_model", llm_cfg.get("model", "default")))
-        else:
-            base_default = str(llm_cfg.get("url", "http://localhost:11434")).rstrip("/")
-            model_default = str(llm_cfg.get("model", "mistral"))
-        base = (model_url or base_default).rstrip("/")
-        url = base + "/v1/chat/completions"
-        payload = {
-            "model": model or model_default,
-            "messages": [
-                {"role": "system", "content": "You are Perseus Pythia, the Tool Oracle."},
-                {"role": "user", "content": prompt},
-            ],
-            "stream": False,
-        }
-        # share the openai-compat response-parsing branch below
-        provider = "openai-compat"
-    else:
-        return (f"> ⚠ Unsupported llm provider: {provider}. Currently supported: ollama, llamacpp, openai-compat, hermes, daedalus", 2)
-
-    req = urllib.request.Request(
-        url,
-        data=json.dumps(payload).encode(),
-        headers={"Content-Type": "application/json"},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            # DoS guard: a malicious/compromised LLM endpoint could stream an
-            # unbounded body into memory. Cap the read (config-overridable).
-            _max_bytes = int(cfg.get("pythia", {}).get("max_response_bytes", 8 * 1024 * 1024))
-            _raw = resp.read(_max_bytes + 1)
-            if len(_raw) > _max_bytes:
-                return (f"> ⚠ LLM response exceeded max_response_bytes ({_max_bytes}).", 2)
-            body = json.loads(_raw.decode())
-        if provider == "ollama":
-            text = str(body.get("message", {}).get("content", "")).strip()
-        else:
-            choices = body.get("choices", [])
-            text = str(choices[0].get("message", {}).get("content", "")).strip() if choices else ""
-        return (text or "> ⚠ LLM returned no response.", 0)
-    except urllib.error.URLError as exc:
-        return (f"> ⚠ LLM request failed: {exc}", 2)
-    except Exception as exc:
-        return (f"> ⚠ LLM error: {exc}", 2)
-
-
-def cmd_llm(args, cfg) -> int:
-    """`perseus llm ping` — verify the configured LLM provider is reachable.
-
-    Sends a tiny no-op prompt through ``run_llm`` and prints either a
-    pass line (provider, model, base URL, elapsed ms, response preview)
-    or an explicit error line. Exit codes:
-
-    - ``0`` on success
-    - ``2`` on transport or provider error
-    - ``3`` on unknown subcommand
-
-    Used by humans to confirm a fresh install ("does Perseus see Hermes
-    on this box?") and by future Daedalus drift detection to bail out
-    early when the inference path is broken.
-    """
-    sub = getattr(args, "llm_sub", None)
-    if sub != "ping":
-        print(f"unknown llm subcommand: {sub}", file=sys.stderr)
-        return 3
-
-    llm_cfg = cfg.get("llm", {})
-    provider = (args.provider or llm_cfg.get("provider") or "ollama").strip().lower()
-    model = args.model or None
-    model_url = args.url or None
-
-    # Build a base URL string for the report — mirror run_llm's resolution
-    if provider == "ollama":
-        base = (model_url or str(llm_cfg.get("url", "http://localhost:11434"))).rstrip("/")
-        resolved_model = model or str(llm_cfg.get("model", "mistral"))
-    elif provider == "daedalus":
-        base = (model_url or str(llm_cfg.get("daedalus_url", "http://localhost:11434"))).rstrip("/")
-        resolved_model = model or str(llm_cfg.get("daedalus_model", "perseus-daedalus"))
-    elif provider == "hermes":
-        base = (model_url or str(llm_cfg.get("hermes_url", llm_cfg.get("url", "http://localhost:8080")))).rstrip("/")
-        resolved_model = model or str(llm_cfg.get("hermes_model", llm_cfg.get("model", "default")))
-    elif provider in {"llamacpp", "openai-compat"}:
-        base = (model_url or str(llm_cfg.get("url", "http://localhost:11434"))).rstrip("/")
-        resolved_model = model or str(llm_cfg.get("model", "mistral"))
-    else:
-        print(f"✗ unsupported provider: {provider}", file=sys.stderr)
-        return 2
-
-    start = time.time()
-    text, code = run_llm(provider, "Reply with the single word: pong.", cfg, model=model, model_url=model_url)
-    elapsed_ms = int((time.time() - start) * 1000)
-
-    if code != 0:
-        if getattr(args, "json", False):
-            import json as _json
-            print(_json.dumps({"provider": provider, "model": resolved_model, "url": base,
-                                "latency_ms": elapsed_ms, "status": "error", "error": text}, indent=2))
-        else:
-            print(f"✗ {provider} · {base} · {elapsed_ms} ms · {text}")
-        return 2
-
-    preview = text.replace("\n", " ")[:60]
-    if getattr(args, "json", False):
-        import json as _json
-        print(_json.dumps({"provider": provider, "model": resolved_model, "url": base,
-                            "latency_ms": elapsed_ms, "status": "ok", "error": None}, indent=2))
-    else:
-        print(f"✓ {provider} · model={resolved_model} · {base} · {elapsed_ms} ms · {preview!r}")
-    return 0
 
 
 def _outcome_weight_for_entry(entry: dict) -> float | None:
@@ -23629,34 +23116,13 @@ Format: ranked list, most recommended first. Be direct. No hedging.
 {divider}"""
 
 
-def run_ollama(prompt: str, cfg: dict, model_override: str | None = None) -> str:
-    """Run the Pythia prompt against a local Ollama instance."""
-    host = str(cfg["pythia"].get("ollama_host", "http://127.0.0.1:11434")).rstrip("/")
-    model = model_override or str(cfg["pythia"].get("ollama_model", "llama3.1"))
-    timeout = float(cfg["pythia"].get("llm_timeout_s", 30))
-    body = json.dumps({"model": model, "prompt": prompt, "stream": False}).encode()
-    req = urllib.request.Request(
-        f"{host}/api/generate",
-        data=body,
-        headers={"Content-Type": "application/json"},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            # DoS guard: cap the response body (config-overridable).
-            _max_bytes = int(cfg.get("pythia", {}).get("max_response_bytes", 8 * 1024 * 1024))
-            _raw = resp.read(_max_bytes + 1)
-            if len(_raw) > _max_bytes:
-                return f"> ⚠ Ollama response exceeded max_response_bytes ({_max_bytes})."
-            payload = json.loads(_raw.decode())
-        return str(payload.get("response", "")).strip() or "> ⚠ Ollama returned no response."
-    except urllib.error.URLError as exc:
-        return f"> ⚠ Ollama request failed: {exc}"
-    except Exception as exc:
-        return f"> ⚠ Ollama error: {exc}"
-
-
 def cmd_suggest(args, cfg):
-    """Pythia: build a live snapshot, render a prompt, optionally run a local model, and log the interaction.
+    """Pythia: build a live snapshot and render the tool-oracle prompt for the
+    host agent to answer, then log the interaction.
+
+    Perseus does not run its own inference (observe model): `suggest` renders a
+    ranked, outcome-weighted prompt and prints it — the calling agent answers it
+    with whatever model it is already using.
 
     Flag handling (task-10):
       --quick           shortens the prompt; implies --no-services
@@ -23667,9 +23133,6 @@ def cmd_suggest(args, cfg):
     quick = getattr(args, "quick", False)
     no_services = getattr(args, "no_services", False)
     category = getattr(args, "category", None)
-    llm = getattr(args, "llm", None)
-    model = getattr(args, "model", None)
-    model_url = getattr(args, "model_url", None)
 
     # Build list of active flags for log entry
     active_flags: list[str] = []
@@ -23683,27 +23146,12 @@ def cmd_suggest(args, cfg):
     snapshot = build_pythia_snapshot(cfg, category=category, no_services=no_services, quick=quick, task=task)
 
     prompt = render_pythia_prompt(task, snapshot)
-    response_text = None
-    provider_used = None
-    model_used = None
-    exit_code = 0
-
-    if llm:
-        provider_used = llm.strip().lower()
-        if ":" in provider_used and not model:
-            provider_used, _, model = provider_used.partition(":")
-        response_text, exit_code = run_llm(provider_used, prompt, cfg, model=model or None, model_url=model_url)
-        model_used = model or cfg.get("llm", {}).get("model")
-        print(response_text)
-    else:
-        print(prompt)
+    print(prompt)
 
     append_pythia_log(
-        build_pythia_log_entry(task, snapshot, prompt, response_text, provider_used, model_used, flags=active_flags),
+        build_pythia_log_entry(task, snapshot, prompt, None, None, None, flags=active_flags),
         cfg,
     )
-    if exit_code:
-        raise SystemExit(exit_code)
 
 
 # ────────────────────────── Oracle / Daedalus (task-06) ──────────────────────
@@ -24411,7 +23859,6 @@ def resolve_drift(args: str, cfg: dict) -> str:
         for f in report["findings"]:
             lines.append(f"- {f}")
     return "\n".join(lines)
-
 
 # ─────── Phase 11.1 — Perseus LSP server (extracted from serve.py, task-25) ───
 
@@ -25544,67 +24991,6 @@ def _doctor_check_mneme_index(_cfg: dict, _workspace: Path) -> DoctorResult:
         return DoctorResult("mneme_fts_index", "error", f"{MEMORY_BRAND} FTS index", str(exc), "Check mneme_index.py")
 
 
-def _doctor_check_llm_reachable(cfg: dict, workspace: Path) -> DoctorResult:
-    """Check whether the configured LLM backend is reachable."""
-    llm_cfg = cfg.get("llm", {})
-    provider = str(llm_cfg.get("provider", "ollama")).strip().lower()
-    url = str(llm_cfg.get("url", "")).strip()
-
-    if not url:
-        return DoctorResult("llm_reachable", "ok", "LLM backend",
-                           f"provider={provider} — no URL configured (skipped)", "")
-
-    # For openai-compat/llamacpp, check /v1/models
-    check_url = url.rstrip("/") + "/v1/models"
-    if provider == "ollama":
-        check_url = url.rstrip("/") + "/api/tags"
-
-    try:
-        req = urllib.request.Request(check_url)
-        start = time.time()
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            status = resp.getcode()
-        elapsed_ms = int((time.time() - start) * 1000)
-        if 200 <= status < 300:
-            return DoctorResult("llm_reachable", "ok", "LLM backend",
-                               f"{provider} @ {url} — reachable ({elapsed_ms}ms)", "")
-        else:
-            return DoctorResult("llm_reachable", "warn", "LLM backend",
-                               f"{provider} @ {url} — HTTP {status}",
-                               "Check LLM server is running")
-    except Exception as exc:
-        return DoctorResult("llm_reachable", "warn", "LLM backend",
-                           f"{provider} @ {url} — unreachable ({exc})",
-                           "Start LLM server or set llm.url")
-
-
-def _doctor_check_llm_functional(cfg: dict, workspace: Path) -> DoctorResult:
-    """Check whether the LLM backend can actually complete a request."""
-    llm_cfg = cfg.get("llm", {})
-    provider = str(llm_cfg.get("provider", "ollama")).strip().lower()
-
-    # Only test if generation is enabled
-    gen_enabled = bool(cfg.get("generation", {}).get("enabled", False))
-    if not gen_enabled:
-        return DoctorResult("llm_functional", "ok", "LLM functional",
-                           "generation not enabled (skipped)", "")
-
-    try:
-        start = time.time()
-        text, code = run_llm(provider, "Reply with the single word: pong.", cfg)
-        elapsed_ms = int((time.time() - start) * 1000)
-        if code == 0 and text.strip():
-            return DoctorResult("llm_functional", "ok", "LLM functional",
-                               f"{elapsed_ms}ms — response ok", "")
-        else:
-            return DoctorResult("llm_functional", "warn", "LLM functional",
-                               f"call failed: {text[:60] or 'empty response'}",
-                               "Verify LLM server is running and model is available")
-    except Exception as exc:
-        return DoctorResult("llm_functional", "warn", "LLM functional",
-                           str(exc), "Check LLM configuration")
-
-
 def _doctor_check_cache_writable(cfg: dict, workspace: Path) -> DoctorResult:
     """Check whether the render cache directory is writable."""
     cache_dir = Path(cfg.get("render", {}).get("cache_dir", str(PERSEUS_HOME / "cache")))
@@ -25788,7 +25174,6 @@ def _doctor_check_mimir_bridge(cfg: dict, workspace: Path) -> DoctorResult:
         return DoctorResult("mimir_connectivity", "error", MEMORY_BRAND,
                            str(exc),
                            "Verify the perseus-vault binary and the `perseus_vault.command` in config.yaml")
-
 
 
 def _doctor_check_version_header(cfg: dict, workspace: Path) -> DoctorResult:
@@ -26179,8 +25564,6 @@ _DOCTOR_CHECKS = [
     _doctor_check_serve_loopback,
     _doctor_check_registry,
     _doctor_check_mcp,
-    _doctor_check_llm_reachable,
-    _doctor_check_llm_functional,
     _doctor_check_cache_writable,
     _doctor_check_mimir_bridge,
     _doctor_check_sessions,
@@ -27317,54 +26700,15 @@ def synthesize_question(
     else:
         prompt = build_synthesis_prompt(question, sources, max_claims)
     result["prompt"] = prompt
-    if not llm:
-        return result, 0
-
-    if not (enable_generation or bool(generation_cfg.get("enabled", False))):
-        audit_event(cfg, "policy_denied",
-                    directive="@synthesize",
-                    reason="generation.enabled=false",
-                    question=str(question)[:200])
-        result["error"] = "generation is disabled; set generation.enabled=true or pass --enable-generation"
-        return result, 2
-
-    # #587 item 2: ALWAYS split a provider:model shorthand — the renderer
-    # passes both llm and model whenever generation.model/llm.model is set,
-    # so gating the split on `not model` left "ollama:llama3" as the provider
-    # and broke exact-match dispatch for ALL synthesis. An explicitly passed
-    # model wins over the shorthand suffix. Lowercase only the provider part:
-    # model IDs are case-sensitive and must be preserved.
-    provider_used = llm.strip()
-    if ":" in provider_used:
-        provider_used, _, shorthand_model = provider_used.partition(":")
-        if not model:
-            model = shorthand_model.strip() or None
-    provider_used = provider_used.strip().lower()
-    model_used = model or generation_cfg.get("model") or cfg.get("llm", {}).get("model")
-    # task-47: audit the model call before it crosses the LLM trust boundary.
-    audit_event(cfg, "model_call",
-                provider=provider_used,
-                model=model_used,
-                prompt_chars=len(prompt or ""),
-                question=str(question)[:200])
-    response_text, exit_code = run_llm(provider_used, prompt, cfg, model=model_used or None, model_url=model_url)
-    result["generated"] = exit_code == 0
-    result["model"] = {"provider": provider_used, "model": model_used}
-    result["raw_response"] = response_text
-    if exit_code:
-        result["error"] = "model request failed"
-        return result, exit_code
-    parsed, parse_error = _extract_json_object(response_text)
-    if parse_error:
-        result["error"] = parse_error
-        return result, 1
-    claims, dropped = _validate_synthesis_claims(parsed, sources, max_claims)
-    result["claims"] = claims
-    result["dropped_claims"] = dropped
-    if consistency_mode:
-        conflicts, dropped_conflicts = _validate_consistency_conflicts(parsed, sources, max_claims)
-        result["conflicts"] = conflicts
-        result["dropped_conflicts"] = dropped_conflicts
+    # Perseus runs no inference of its own (observe model): @synthesize
+    # assembles the cited-synthesis prompt (sources + citation scaffolding) and
+    # returns it for the host agent to answer with whatever model it already
+    # uses. The `llm`/`enable_generation` arguments are accepted for call-site
+    # compatibility but Perseus no longer calls a provider itself; when they are
+    # set we surface the prompt plus a note rather than generating in-process.
+    if llm:
+        result["note"] = ("in-process generation removed — Perseus returns the "
+                          "synthesis prompt for the host agent to answer")
     return result, 0
 
 
@@ -27795,12 +27139,12 @@ Everything else has a better home:
 
 
 def _quickstart_write_config(
-    workspace: Path, generation: dict | None = None, with_memory: bool = False
+    workspace: Path, with_memory: bool = False
 ) -> Path:
     """Write a minimal .perseus/config.yaml with safe defaults.
 
-    If generation is provided, the 'generation' and 'llm' blocks are
-    populated so pythia/synthesis can use the configured LLM backend.
+    Perseus runs no inference of its own (observe model), so no LLM backend is
+    configured here — the host agent uses whatever model it already has.
 
     The memory connector is always wired (enabled) under the canonical
     ``perseus_vault:`` key with the ``perseus-vault`` binary (#665). No ``--db``
@@ -27833,113 +27177,10 @@ def _quickstart_write_config(
         },
         memory_key: memory_block,
     }
-    if generation:
-        config["generation"] = {
-            "enabled": generation.get("enabled", True),
-            "model": generation.get("model"),
-            "provider": generation.get("provider"),
-        }
-        config["llm"] = {
-            "provider": generation.get("provider", "openai-compat"),
-            "model": generation.get("model", "mistral"),
-            "url": generation.get("model_url", "http://localhost:11434"),
-        }
 
     with open(config_path, "w", encoding="utf-8") as f:
         yaml.safe_dump(config, f, sort_keys=False)
     return config_path
-
-
-def _quickstart_detect_llm_backends() -> list[dict]:
-    """Scan environment for known LLM API keys and return available backends."""
-    backends: list[dict] = []
-    for name, env_var, provider, model, url in [
-        ("Gemini", "GEMINI_API_KEY", "openai-compat", "gemini-2.5-flash",
-         "https://generativelanguage.googleapis.com/v1beta"),
-        ("Groq", "GROQ_API_KEY", "openai-compat", "llama-3.3-70b",
-         "https://api.groq.com/openai"),
-        ("DeepSeek", "DEEPSEEK_API_KEY", "openai-compat", "deepseek-chat",
-         "https://api.deepseek.com"),
-        ("OpenAI", "OPENAI_API_KEY", "openai-compat", "gpt-4o-mini",
-         "https://api.openai.com"),
-    ]:
-        key = os.environ.get(env_var, "")
-        if key:
-            backends.append({
-                "name": name,
-                "provider": provider,
-                "model": model,
-                "url": url,
-                "key_env": env_var,
-                "key": key,
-            })
-    return backends
-
-
-def _quickstart_configure_llm(workspace: Path) -> dict | None:
-    """Prompt the user to choose a free LLM backend, or auto-detect one.
-
-    Returns a generation config dict to merge into config.yaml, or None
-    if the user skips.
-    """
-    # Auto-detect any already-set keys
-    existing = _quickstart_detect_llm_backends()
-    if existing:
-        print(f"✓ Detected existing LLM key: {existing[0]['name']} ({existing[0]['key_env']})")
-        return {
-            "enabled": True,
-            "provider": existing[0]["provider"],
-            "model": existing[0]["model"],
-            "model_url": existing[0]["url"],
-            "api_key_env": existing[0]["key_env"],
-        }
-
-    print()
-    print("No LLM backend detected. Pythia and Synthesis need one.")
-    print()
-    print("Options:")
-    print("  [1] Gemini free tier (recommended — no credit card, 15 req/min)")
-    print("      → Get key at https://aistudio.google.com/apikey")
-    print("  [2] Groq free tier (no credit card, fast)")
-    print("      → Get key at https://console.groq.com/keys")
-    print("  [3] OpenAI (requires billing)")
-    print("  [4] Local llama.cpp (no network needed)")
-    print("  [5] Skip — I'll configure later")
-    print()
-
-    try:
-        choice = input("Choice [1-5]: ").strip()
-    except (EOFError, KeyboardInterrupt):
-        print("\nSkipping LLM configuration.")
-        return None
-
-    if choice == "1":
-        provider = "openai-compat"
-        model = "gemini-2.5-flash"
-        url = "https://generativelanguage.googleapis.com/v1beta"
-    elif choice == "2":
-        provider = "openai-compat"
-        model = "llama-3.3-70b"
-        url = "https://api.groq.com/openai"
-    elif choice == "3":
-        provider = "openai-compat"
-        model = "gpt-4o-mini"
-        url = "https://api.openai.com"
-    elif choice == "4":
-        provider = "llamacpp"
-        model = "llama-3.2-3b"
-        url = "http://127.0.0.1:8080"
-    else:
-        print("Skipping LLM configuration.")
-        return None
-
-    return {
-        "enabled": True,
-        "provider": provider,
-        "model": model,
-        "model_url": url,
-        "api_key_env": "",  # user will configure manually
-    }
 
 
 def cmd_quickstart(args, cfg) -> int:
@@ -27967,7 +27208,6 @@ def cmd_quickstart(args, cfg) -> int:
         pass
 
     non_interactive = getattr(args, "non_interactive", False)
-    no_llm = getattr(args, "no_llm", False)
     with_memory = getattr(args, "with_memory", False)
 
     print(f"Perseus quickstart — v{_PERSEUS_VERSION}")
@@ -28001,26 +27241,9 @@ def cmd_quickstart(args, cfg) -> int:
     if config_file.exists():
         print(f"✓ Config already exists: {config_file}")
     else:
-        gen_config = None
-        if not no_llm and not non_interactive:
-            gen_config = _quickstart_configure_llm(workspace)
-        elif not no_llm:
-            # Non-interactive: just check for existing keys
-            existing = _quickstart_detect_llm_backends()
-            if existing:
-                gen_config = {
-                    "enabled": True,
-                    "provider": existing[0]["provider"],
-                    "model": existing[0]["model"],
-                    "model_url": existing[0]["url"],
-                    "api_key_env": existing[0]["key_env"],
-                }
-                print(f"✓ Auto-detected LLM: {existing[0]['name']} ({existing[0]['key_env']})")
-        path = _quickstart_write_config(workspace, gen_config, with_memory=with_memory)
+        path = _quickstart_write_config(workspace, with_memory=with_memory)
         print(f"✓ Wrote config: {path}")
         print("  Memory connector wired under canonical `perseus_vault:` key")
-        if gen_config:
-            print(f"  LLM backend: {gen_config['provider']} / {gen_config['model']} / {gen_config['model_url']}")
         print()
 
     # Step 3: Reload config from workspace so permission profile is applied
@@ -32388,12 +31611,6 @@ def main():
     p_suggest.add_argument("--category", default=None, help="Limit skill search to category")
     p_suggest.add_argument("--no-services", action="store_true", dest="no_services",
                            help="Skip live service health checks")
-    p_suggest.add_argument("--llm", default=None,
-                           help="Optionally run the Pythia prompt through a local model provider (ollama, llamacpp, openai-compat)")
-    p_suggest.add_argument("--model", default=None,
-                           help="Override the configured LLM model name")
-    p_suggest.add_argument("--model-url", default=None,
-                           help="Override the configured LLM provider URL")
 
     # inbox (task-16)
     p_inbox = sub.add_parser("inbox", help="Point-to-point agent message store")
@@ -32443,20 +31660,16 @@ def main():
     mem_sub = p_mem.add_subparsers(dest="memory_command", required=True)
     p_mem_update = mem_sub.add_parser("update", help="Incrementally update narrative")
     p_mem_update.add_argument("--workspace", default=None, help="Workspace path (default: auto-discover nearest ancestor with .perseus/)")
-    p_mem_update.add_argument("--llm", default=None, help="LLM provider (ollama, openai-compat)")
     p_mem_compact = mem_sub.add_parser("compact", help="Fully re-distill narrative")
     p_mem_compact.add_argument("--workspace", default=None, help="Workspace path (default: auto-discover nearest ancestor with .perseus/)")
-    p_mem_compact.add_argument("--llm", default=None, help="LLM provider")
-    p_mem_compact.add_argument("--pattern-extractor", default=None, choices=["deterministic", "daedalus"], help="Override memory.pattern_extractor (task-21)")
     p_mem_show = mem_sub.add_parser("show", help="Print narrative to stdout")
     p_mem_show.add_argument("--workspace", default=None, help="Workspace path (default: auto-discover nearest ancestor with .perseus/)")
     p_mem_status = mem_sub.add_parser("status", help="Summarize narrative state")
     p_mem_status.add_argument("--workspace", default=None, help="Workspace path (default: auto-discover nearest ancestor with .perseus/)")
     p_mem_status.add_argument("--json", action="store_true", help="Machine-readable JSON output")
-    p_mem_query = mem_sub.add_parser("query", help="Query narrative (grep or LLM)")
+    p_mem_query = mem_sub.add_parser("query", help="Query narrative (deterministic grep search)")
     p_mem_query.add_argument("question", help="Question or search terms")
     p_mem_query.add_argument("--workspace", default=None, help="Workspace path (default: auto-discover nearest ancestor with .perseus/)")
-    p_mem_query.add_argument("--llm", default=None, help="LLM provider")
     # #692: `perseus memory review` is an alias for `perseus knows`
     p_mem_review = mem_sub.add_parser("review", help="Alias for `perseus knows`")
     _add_knows_args(p_mem_review)
@@ -32794,15 +32007,6 @@ def main():
                               help="Wire the Perseus Vault memory connector and print exact "
                                    "install/next-step commands (does not silently build the Rust binary)")
 
-    # llm ping — verify the configured LLM provider is reachable.
-    p_llm = sub.add_parser("llm", help="LLM provider utilities (ping)")
-    llm_sub = p_llm.add_subparsers(dest="llm_sub")
-    p_llm_ping = llm_sub.add_parser("ping", help="Send a no-op prompt to verify reachability")
-    p_llm_ping.add_argument("--provider", default=None, help="Override llm.provider (ollama, openai-compat, hermes, llamacpp, daedalus)")
-    p_llm_ping.add_argument("--model", default=None, help="Override llm.model")
-    p_llm_ping.add_argument("--url", default=None, help="Override llm.url (base URL, no trailing /v1)")
-    p_llm_ping.add_argument("--json", action="store_true", help="Machine-readable JSON output")
-
     # bandit (#605) — outcome feedback + decision transparency for @bandit
     # adaptive directive selection. Self-contained block: both subparsers are
     # dispatched through the single cmd_bandit_cli entry point below.
@@ -32957,8 +32161,6 @@ def main():
         rc = cmd_oracle(args, cfg)
         if isinstance(rc, int):
             return rc
-    elif args.command == "llm":
-        return cmd_llm(args, cfg)
     elif args.command == "feedback":
         # #605: @bandit outcome feedback
         return cmd_bandit_cli(args, cfg)

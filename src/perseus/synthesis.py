@@ -303,54 +303,15 @@ def synthesize_question(
     else:
         prompt = build_synthesis_prompt(question, sources, max_claims)
     result["prompt"] = prompt
-    if not llm:
-        return result, 0
-
-    if not (enable_generation or bool(generation_cfg.get("enabled", False))):
-        audit_event(cfg, "policy_denied",
-                    directive="@synthesize",
-                    reason="generation.enabled=false",
-                    question=str(question)[:200])
-        result["error"] = "generation is disabled; set generation.enabled=true or pass --enable-generation"
-        return result, 2
-
-    # #587 item 2: ALWAYS split a provider:model shorthand — the renderer
-    # passes both llm and model whenever generation.model/llm.model is set,
-    # so gating the split on `not model` left "ollama:llama3" as the provider
-    # and broke exact-match dispatch for ALL synthesis. An explicitly passed
-    # model wins over the shorthand suffix. Lowercase only the provider part:
-    # model IDs are case-sensitive and must be preserved.
-    provider_used = llm.strip()
-    if ":" in provider_used:
-        provider_used, _, shorthand_model = provider_used.partition(":")
-        if not model:
-            model = shorthand_model.strip() or None
-    provider_used = provider_used.strip().lower()
-    model_used = model or generation_cfg.get("model") or cfg.get("llm", {}).get("model")
-    # task-47: audit the model call before it crosses the LLM trust boundary.
-    audit_event(cfg, "model_call",
-                provider=provider_used,
-                model=model_used,
-                prompt_chars=len(prompt or ""),
-                question=str(question)[:200])
-    response_text, exit_code = run_llm(provider_used, prompt, cfg, model=model_used or None, model_url=model_url)
-    result["generated"] = exit_code == 0
-    result["model"] = {"provider": provider_used, "model": model_used}
-    result["raw_response"] = response_text
-    if exit_code:
-        result["error"] = "model request failed"
-        return result, exit_code
-    parsed, parse_error = _extract_json_object(response_text)
-    if parse_error:
-        result["error"] = parse_error
-        return result, 1
-    claims, dropped = _validate_synthesis_claims(parsed, sources, max_claims)
-    result["claims"] = claims
-    result["dropped_claims"] = dropped
-    if consistency_mode:
-        conflicts, dropped_conflicts = _validate_consistency_conflicts(parsed, sources, max_claims)
-        result["conflicts"] = conflicts
-        result["dropped_conflicts"] = dropped_conflicts
+    # Perseus runs no inference of its own (observe model): @synthesize
+    # assembles the cited-synthesis prompt (sources + citation scaffolding) and
+    # returns it for the host agent to answer with whatever model it already
+    # uses. The `llm`/`enable_generation` arguments are accepted for call-site
+    # compatibility but Perseus no longer calls a provider itself; when they are
+    # set we surface the prompt plus a note rather than generating in-process.
+    if llm:
+        result["note"] = ("in-process generation removed — Perseus returns the "
+                          "synthesis prompt for the host agent to answer")
     return result, 0
 
 

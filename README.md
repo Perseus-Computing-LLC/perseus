@@ -890,7 +890,7 @@ In your context file:
 @memory focus="recent"     # recent activity
 ```
 
-Mnēmē is LLM-optional: deterministic assembly works zero-dependency; an optional `memory.llm_provider` enables richer distillation. Full docs: [spec/components.md](./spec/components.md) § 4.
+Mnēmē distills deterministically and zero-dependency — Perseus runs no inference of its own (observe model); the host agent reads and reasons over the narrative with whatever model it already uses. Full docs: [spec/components.md](./spec/components.md) § 4.
 
 ---
 

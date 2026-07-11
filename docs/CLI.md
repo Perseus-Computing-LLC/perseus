@@ -11,7 +11,7 @@
 | `perseus compress <file> [--output FILE] [--json] [--strip-comments]` | Render then **deterministically** compress the context (trim trailing whitespace, collapse blank-line runs, drop adjacent duplicate lines, optional comment strip; fenced code preserved verbatim) and report a citable token-reduction percent. Dependency-free and reproducible — a build can assert on the number. |
 | `perseus graph <file> [--json]` | Build a static directive graph without executing directives; foundation for predictive prefetching. |
 | `perseus prefetch <file> [--json]` | Apply configured `prefetch.rules` to the static graph and warm directive caches. |
-| `perseus synthesize <question> --source FILE [--json]` | Build a cited-synthesis prompt, or explicitly run an LLM drafter with citation validation. Uncited claims are dropped. |
+| `perseus synthesize <question> --source FILE [--json]` | Build a cited-synthesis prompt (sources + citation scaffolding) for the host agent to answer. Perseus runs no inference of its own. |
 | `perseus pack {validate,show} [--json]` | Inspect and validate `.perseus/pack.yaml` context pack manifests. |
 | `perseus watch [--source FILE] [--output FILE] [--interval N]` | Poll context sources and refresh render outputs without platform scheduler dependencies. |
 | `perseus validate --schema SCHEMA [payload\|-] [--json]` | Validate YAML/JSON payloads against Perseus schemas; omit payload or pass `-` to read stdin. |
@@ -19,13 +19,12 @@
 | `perseus diff [--from FILE] [--to FILE]` | Show diff between two checkpoints (default: latest two). |
 | `perseus recover [--workspace PATH]` | Print the latest checkpoint for the workspace. |
 | `perseus agora [--status open\|in_progress\|completed]` | Live task board from `tasks/*.md`. |
-| `perseus suggest <prompt> [--llm provider]` | Pythia tool oracle — ranks skills against a prompt, with transparent outcome-weight hints when data exists. |
+| `perseus suggest <prompt>` | Pythia tool oracle — ranks skills against a prompt and prints the prompt for the host agent to answer, with transparent outcome-weight hints when data exists. |
 | `perseus memory {update,compact,show,status,query,federation}` | Mnēmē narrative project memory + cross-workspace federation. |
 | `perseus memory index {rebuild,stats,search}` | Mnēmē v2 FTS5 vault index management. `rebuild` re-indexes all `.md` files in `~/.perseus/memory/vault/`. `stats` shows document count and index size. `search --query "..." --k 5` runs a BM25 search against the vault. |
 | `perseus inbox {send,list,read,unread,mark-read}` | Point-to-point messages between agents. |
 | `perseus health` | Maintenance report — stale skills, large narrative, Pythia log volume. |
 | `perseus oracle {accept,reject,log,export,infer-labels,outcomes,drift}` | Daedalus Pythia log management, inferred labels, outcome signals, and drift checks. |
-| `perseus llm ping [--provider hermes\|ollama\|...]` | Verify the configured LLM provider is reachable. |
 | `perseus init [--template name \| --profile name] <workspace>` | Scaffold `.perseus/context.md`; profiles also write `.perseus/pack.yaml`. |
 | `perseus serve [--port N] [--host H] [--generate-token]` | Read-only HTTP view of workspace state on `http://127.0.0.1:7991/`; optional static bearer auth via `serve.auth_token`. |
 | `perseus serve --lsp --stdio\|--tcp PORT [--allow-lsp-mutations]` | Run as a Language Server Protocol server for editor integration. Mutation commands are opt-in. |
@@ -40,7 +39,7 @@
 
 ## JSON Surfaces
 
-Agent-readable `--json` contracts for synthesis, oracle, memory, federation, drift, and LLM health commands are documented in [Agent JSON Surfaces](./AGENT_SURFACES.md).
+Agent-readable `--json` contracts for synthesis, oracle, memory, federation, and drift commands are documented in [Agent JSON Surfaces](./AGENT_SURFACES.md).
 
 ## Quick Start
 

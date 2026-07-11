@@ -52,29 +52,8 @@ def test_render_pythia_prompt_contains_snapshot_sections():
     assert "### Available Skills" in prompt
     assert "skills" in prompt
     assert "sessions" in prompt
-def test_cmd_suggest_with_unsupported_llm_warns(capsys):
-    args = argparse.Namespace(task="x", quick=False, no_services=True, category=None, llm="other:model", model=None, model_url=None)
-    with pytest.raises(SystemExit) as exc:
-        perseus.cmd_suggest(args, cfg())
-    captured = capsys.readouterr()
-    assert exc.value.code == 2
-    assert "Unsupported llm provider" in captured.out
 
 
-def test_cmd_suggest_with_ollama_prints_model_output(monkeypatch, capsys):
-    monkeypatch.setattr(perseus, "build_pythia_snapshot", lambda *a, **k: {
-        "rendered_at": "now",
-        "skills_table": "skills",
-        "services_table": "services",
-        "checkpoint_summary": "checkpoint",
-        "session_digest": "sessions",
-    })
-    monkeypatch.setattr(perseus, "run_llm", lambda *a, **k: ("llm result", 0))
-    monkeypatch.setattr(perseus, "append_pythia_log", lambda *a, **k: None)
-    args = argparse.Namespace(task="x", quick=False, no_services=True, category=None, llm="ollama:llama3.1", model=None, model_url=None)
-    perseus.cmd_suggest(args, cfg())
-    captured = capsys.readouterr()
-    assert captured.out.strip() == "llm result"
 def test_cmd_suggest_appends_oracle_log(monkeypatch):
     seen = {}
     monkeypatch.setattr(perseus, "build_pythia_snapshot", lambda *a, **k: {
