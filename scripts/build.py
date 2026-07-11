@@ -29,6 +29,7 @@ MODULE_ORDER = [
     "src/perseus/redaction.py",
     "src/perseus/compress.py",
     "src/perseus/audit.py",
+    "src/perseus/metering.py",          # ← #755: observe-model runtime cost metering (config→Plutus Meter)
     "src/perseus/directives/env.py",
     "src/perseus/directives/include.py",
     "src/perseus/directives/read.py",
