@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Perseus context engine · every session starts already oriented</title>
+<meta name="description" content="Perseus resolves your workspace (git, services, tests, tasks) into verified facts before the context window opens. 94% fewer prompt tokens, 0 ms overhead, 33 MCP tools. Local-first, MIT.">
+<link rel="canonical" href="https://perseus.observer/context-engine/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Perseus context engine · every session starts already oriented">
+<meta property="og:description" content="Resolves workspace state into verified facts before the context window opens. 94% fewer prompt tokens, 0 ms overhead. Local-first, MIT.">
+<meta property="og:url" content="https://perseus.observer/context-engine/">
+<meta property="og:image" content="https://perseus.observer/assets/og/perseus.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Perseus context engine · every session starts already oriented">
+<meta name="twitter:description" content="Resolves workspace state into verified facts before the context window opens. 94% fewer prompt tokens, 0 ms overhead. Local-first, MIT.">
+<meta name="twitter:image" content="https://perseus.observer/assets/og/perseus.png">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/assets/fonts.css">
+<style>
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin:0; background:#0b0c0f; color:#e7e9ee; font-family:'IBM Plex Sans',system-ui,-apple-system,sans-serif; -webkit-font-smoothing:antialiased; line-height:1.55; }
+a { color:#a78bfa; text-decoration:none; }
+a:hover { color:#c4b5fd; }
+p { margin:0; }
+h1,h2,h3,h4 { margin:0; font-weight:600; letter-spacing:-0.01em; }
+::selection { background:#a78bfa; color:#0b0c0f; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+@media (max-width:900px){ .nav-links{ display:none !important; } .grid-2,.grid-3,.grid-4{ grid-template-columns:1fr !important; } }
+</style>
+</head>
+<body>
+
+<div style="max-width:100%;overflow-x:hidden;">
+
+<!-- ===== NAV ===== -->
+<nav style="position:sticky;top:0;z-index:50;display:flex;align-items:center;justify-content:space-between;gap:24px;padding:16px 32px;background:rgba(11,12,15,0.82);backdrop-filter:blur(12px);border-bottom:1px solid #1b1e25;">
+  <a href="/" style="display:flex;align-items:center;gap:10px;color:#e7e9ee;">
+    <svg width="22" height="26" viewBox="0 0 22 26" fill="none" style="display:block;"><path d="M11 1L21 5.5V13c0 6.2-4.1 10.2-10 11.9C5.1 23.2 1 19.2 1 13V5.5L11 1z" stroke="#a78bfa" stroke-width="1.4" fill="rgba(167,139,250,0.08)"/><path d="M11 6.5v13" stroke="#3fb37f" stroke-width="1.3"/><path d="M6.5 11l4.5 3 4.5-3" stroke="#a78bfa" stroke-width="1.3" fill="none"/></svg>
+    <span style="font-weight:600;font-size:16px;letter-spacing:-0.01em;">Perseus Computing</span>
+  </a>
+  <div class="nav-links" style="display:flex;align-items:center;gap:26px;font-size:14px;color:#9aa2ad;">
+    <a href="#top" style="color:#e7e9ee;">Context engine</a>
+    <a href="/vault/" style="color:#9aa2ad;">Vault</a>
+    <a href="/#calculator" style="color:#9aa2ad;">Calculator</a>
+    <a href="/government/" style="color:#9aa2ad;">Sovereignty</a>
+    <a href="/demo/" style="color:#9aa2ad;">Demo</a>
+    <a href="/" style="color:#9aa2ad;">Home</a>
+  </div>
+  <div style="display:flex;align-items:center;gap:12px;">
+    <a href="https://github.com/Perseus-Computing-LLC/perseus" style="font-size:13px;color:#9aa2ad;border:1px solid #262a33;border-radius:7px;padding:7px 12px;">GitHub</a>
+    <a href="#install" style="font-size:13px;color:#0b0c0f;background:#a78bfa;border-radius:7px;padding:8px 14px;font-weight:600;">Install</a>
+  </div>
+</nav>
+
+<!-- ===== HERO ===== -->
+<header id="top" style="position:relative;padding:88px 32px 60px;background:radial-gradient(1100px 520px at 50% -12%,rgba(167,139,250,0.14),transparent 70%);">
+  <div style="max-width:940px;margin:0 auto;text-align:center;">
+    <div style="display:inline-flex;align-items:center;gap:10px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:#9aa2ad;border:1px solid #262a33;border-radius:999px;padding:6px 14px;margin-bottom:26px;">
+      <span style="color:#a78bfa;">Perseus</span> · live context engine · <span style="color:#3fb37f;">v1.0.21</span>
+    </div>
+    <h1 style="font-size:52px;line-height:1.05;letter-spacing:-0.03em;font-weight:700;max-width:840px;margin:0 auto 20px;">Every session starts already oriented.</h1>
+    <p style="font-size:19px;line-height:1.5;color:#b9c0ca;max-width:680px;margin:0 auto 32px;">Perseus resolves your workspace (git, services, tests, tasks) into verified facts before the context window opens. Your agent reads what's true, not instructions to go find out. Fewer tokens, no cold-start tax.</p>
+    <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-bottom:34px;">
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#a78bfa;border:1px solid #2c2740;background:rgba(167,139,250,0.06);border-radius:999px;padding:7px 14px;">94% fewer prompt tokens</span>
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#a78bfa;border:1px solid #2c2740;background:rgba(167,139,250,0.06);border-radius:999px;padding:7px 14px;">0 ms P99 overhead</span>
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#a78bfa;border:1px solid #2c2740;background:rgba(167,139,250,0.06);border-radius:999px;padding:7px 14px;">33 MCP tools</span>
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#3fb37f;border:1px solid #21402f;background:rgba(63,179,127,0.06);border-radius:999px;padding:7px 14px;">MIT · local-first</span>
+    </div>
+    <div id="install" style="margin:0 auto;max-width:440px;background:#0f1014;border:1px solid #262a33;border-radius:10px;padding:14px 16px;display:flex;align-items:center;gap:12px;font-family:'IBM Plex Mono',monospace;font-size:14px;text-align:left;">
+      <span style="color:#3fb37f;">$</span><span style="color:#e7e9ee;">pip install perseus-ctx &amp;&amp; perseus quickstart</span>
+    </div>
+  </div>
+</header>
+
+<!-- ===== RESOLVE BEFORE CONTEXT ===== -->
+<section style="padding:64px 32px;border-top:1px solid #14161c;background:#0d0e12;">
+  <div style="max-width:1040px;margin:0 auto;">
+    <div style="text-align:center;max-width:640px;margin:0 auto 40px;">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#a78bfa;letter-spacing:0.04em;text-transform:uppercase;margin-bottom:14px;">Resolve before context</div>
+      <h2 style="font-size:30px;line-height:1.14;">Facts, not instructions to go find facts.</h2>
+      <p style="font-size:15px;color:#9aa2ad;margin-top:14px;">Static context files rot the moment you write them. Perseus renders live state at the moment the session opens, so nothing is stale, and the agent never burns turns re-discovering it.</p>
+    </div>
+    <div class="grid-2" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+      <div style="background:#14161c;border:1px solid #262a33;border-radius:14px;padding:24px;">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#7d8590;margin-bottom:16px;">Without Perseus · stale &amp; vague</div>
+        <div style="display:flex;flex-direction:column;gap:10px;font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#7d8590;">
+          <div style="padding:9px 12px;background:#0f1014;border:1px solid #262a33;border-radius:8px;">"Port is 3001 (check .env)"</div>
+          <div style="padding:9px 12px;background:#0f1014;border:1px solid #262a33;border-radius:8px;">"47 tests (may be stale)"</div>
+          <div style="padding:9px 12px;background:#0f1014;border:1px solid #262a33;border-radius:8px;">"Check docker ps first"</div>
+          <div style="padding:9px 12px;background:#0f1014;border:1px solid #262a33;border-radius:8px;">"Where did we leave off?"</div>
+        </div>
+      </div>
+      <div style="background:#14161c;border:1px solid #21402f;border-radius:14px;padding:24px;">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#3fb37f;margin-bottom:16px;">With Perseus · resolved &amp; verified</div>
+        <div style="display:flex;flex-direction:column;gap:10px;font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#c3cad4;">
+          <div style="padding:9px 12px;background:#0f1014;border:1px solid #21402f;border-radius:8px;">Port: 3001</div>
+          <div style="padding:9px 12px;background:#0f1014;border:1px solid #21402f;border-radius:8px;">Tests: all passing (run 8s ago)</div>
+          <div style="padding:9px 12px;background:#0f1014;border:1px solid #21402f;border-radius:8px;">mongo-dev: Up 4h 12m</div>
+          <div style="padding:9px 12px;background:#0f1014;border:1px solid #21402f;border-radius:8px;">Checkpoint: webhook handler, pending test run</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== VALUE ===== -->
+<section style="padding:72px 32px 36px;">
+  <div style="max-width:1080px;margin:0 auto;">
+    <div class="grid-3" style="display:grid;grid-template-columns:repeat(3,1fr);gap:20px;">
+      <div style="background:#14161c;border:1px solid #262a33;border-radius:14px;padding:28px;">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:26px;color:#a78bfa;margin-bottom:12px;">94%</div>
+        <h3 style="font-size:18px;margin-bottom:9px;">Fewer tokens on every call</h3>
+        <p style="font-size:14px;color:#a2a9b4;">A resolved document is a fraction of the size of "go check these ten things." Average prompt fell from 488 to 27 tokens in a 200-request A/B, with 0 ms added latency.</p>
+      </div>
+      <div style="background:#14161c;border:1px solid #262a33;border-radius:14px;padding:28px;">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:26px;color:#a78bfa;margin-bottom:12px;">0</div>
+        <h3 style="font-size:18px;margin-bottom:9px;">Orientation turns wasted</h3>
+        <p style="font-size:14px;color:#a2a9b4;">No "let me check what's running" round-trips. The first turn is productive because the context was already true when it arrived.</p>
+      </div>
+      <div style="background:#14161c;border:1px solid #262a33;border-radius:14px;padding:28px;">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:26px;color:#a78bfa;margin-bottom:12px;">1:1</div>
+        <h3 style="font-size:18px;margin-bottom:9px;">Same answers, fewer tokens</h3>
+        <p style="font-size:14px;color:#a2a9b4;">A live judge found 20/20 A/B pairs semantically equivalent: Perseus changes what the agent <em style="font-style:normal;color:#c3cad4;">knows</em>, not what it says.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== CAPABILITIES ===== -->
+<section style="padding:48px 32px 64px;">
+  <div style="max-width:1080px;margin:0 auto;">
+    <div style="text-align:center;max-width:600px;margin:0 auto 44px;">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#a78bfa;letter-spacing:0.04em;text-transform:uppercase;margin-bottom:14px;">Under the hood</div>
+      <h2 style="font-size:30px;line-height:1.14;">A context compiler, not another config file.</h2>
+    </div>
+    <div class="grid-3" style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;">
+      <div style="background:#14161c;border:1px solid #262a33;border-radius:12px;padding:22px;"><h4 style="font-size:15px;margin-bottom:7px;">Directives</h4><p style="font-size:13px;color:#9aa2ad;">Write <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#a78bfa;">@query</span>, <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#a78bfa;">@services</span>, <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#a78bfa;">@read</span>, <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#a78bfa;">@waypoint</span>; Perseus resolves them to plain markdown at render time.</p></div>
+      <div style="background:#14161c;border:1px solid #262a33;border-radius:12px;padding:22px;"><h4 style="font-size:15px;margin-bottom:7px;">Tiered context</h4><p style="font-size:13px;color:#9aa2ad;">Progressive disclosure: lean tier-1 core by default; the agent pulls heavier context on demand. One integer compare per directive.</p></div>
+      <div style="background:#14161c;border:1px solid #262a33;border-radius:12px;padding:22px;"><h4 style="font-size:15px;margin-bottom:7px;">Prompt-size forensics</h4><p style="font-size:13px;color:#9aa2ad;"><span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#a78bfa;">perseus prompt-size</span> attributes every byte per directive; <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#a78bfa;">@budget</span> fails CI when context bloats.</p></div>
+      <div style="background:#14161c;border:1px solid #262a33;border-radius:12px;padding:22px;"><h4 style="font-size:15px;margin-bottom:7px;">Recall-first profiles</h4><p style="font-size:13px;color:#9aa2ad;">Per-model context profiles retrieve memory on demand instead of stapling a standing blob into every prompt. Prefix-cache friendly.</p></div>
+      <div style="background:#14161c;border:1px solid #262a33;border-radius:12px;padding:22px;"><h4 style="font-size:15px;margin-bottom:7px;">Waypoints &amp; multi-agent</h4><p style="font-size:13px;color:#9aa2ad;">Crash-safe checkpoints on disk; namespaced, lock-protected stores let agents hand off without an orchestration platform.</p></div>
+      <div style="background:#14161c;border:1px solid #262a33;border-radius:12px;padding:22px;"><h4 style="font-size:15px;margin-bottom:7px;">Extensible</h4><p style="font-size:13px;color:#9aa2ad;">Plugins, macros, render hooks, and pipes: drop Python into <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#a78bfa;">~/.perseus/</span>, no source patching.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== PROOF ===== -->
+<section style="padding:56px 32px 64px;border-top:1px solid #14161c;background:#0d0e12;">
+  <div style="max-width:1080px;margin:0 auto;">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:26px;">
+      <h2 style="font-size:24px;">Measured, reproducible.</h2>
+      <p style="font-size:13px;color:#9aa2ad;max-width:460px;">Named methodology and rerunnable scripts in the repo.</p>
+    </div>
+    <div class="grid-4" style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;">
+      <a href="https://github.com/Perseus-Computing-LLC/perseus/tree/main/benchmark" style="background:#101216;border:1px solid #262a33;border-radius:12px;padding:20px 18px;display:block;"><div style="font-family:'IBM Plex Mono',monospace;font-size:24px;color:#a78bfa;">94%</div><div style="font-size:12px;color:#9aa2ad;margin-top:6px;line-height:1.4;">token cut<br>488→27, 200-req A/B</div></a>
+      <a href="https://github.com/Perseus-Computing-LLC/perseus/blob/main/benchmark/real_deltas.json" style="background:#101216;border:1px solid #262a33;border-radius:12px;padding:20px 18px;display:block;"><div style="font-family:'IBM Plex Mono',monospace;font-size:24px;color:#a78bfa;">1,190×</div><div style="font-size:12px;color:#9aa2ad;margin-top:6px;line-height:1.4;">cold→warm<br>render gap</div></a>
+      <a href="https://github.com/Perseus-Computing-LLC/perseus/tree/main/benchmark/gauntlet/v2" style="background:#101216;border:1px solid #262a33;border-radius:12px;padding:20px 18px;display:block;"><div style="font-family:'IBM Plex Mono',monospace;font-size:24px;color:#a78bfa;">100/100</div><div style="font-size:12px;color:#9aa2ad;margin-top:6px;line-height:1.4;">Gauntlet v2<br>16/16 hard gates</div></a>
+      <a href="https://github.com/Perseus-Computing-LLC/perseus" style="background:#101216;border:1px solid #262a33;border-radius:12px;padding:20px 18px;display:block;"><div style="font-family:'IBM Plex Mono',monospace;font-size:24px;color:#a78bfa;">1.0</div><div style="font-size:12px;color:#9aa2ad;margin-top:6px;line-height:1.4;">semantic equiv.<br>20/20 A/B pairs</div></a>
+    </div>
+  </div>
+</section>
+
+<!-- ===== WORKS WITH ===== -->
+<section style="padding:64px 32px;">
+  <div style="max-width:1000px;margin:0 auto;text-align:center;">
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#a78bfa;letter-spacing:0.04em;text-transform:uppercase;margin-bottom:14px;">Works with your assistant</div>
+    <h2 style="font-size:28px;line-height:1.14;margin-bottom:12px;">One command. Any MCP host.</h2>
+    <p style="font-size:15px;color:#9aa2ad;max-width:600px;margin:0 auto 30px;">Perseus speaks the Model Context Protocol and writes whatever file your assistant reads at session start.</p>
+    <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-bottom:22px;">
+      <span style="font-size:13px;color:#c3cad4;border:1px solid #262a33;background:#14161c;border-radius:8px;padding:9px 15px;">Claude Code</span>
+      <span style="font-size:13px;color:#c3cad4;border:1px solid #262a33;background:#14161c;border-radius:8px;padding:9px 15px;">Claude Desktop</span>
+      <span style="font-size:13px;color:#c3cad4;border:1px solid #262a33;background:#14161c;border-radius:8px;padding:9px 15px;">Cursor</span>
+      <span style="font-size:13px;color:#c3cad4;border:1px solid #262a33;background:#14161c;border-radius:8px;padding:9px 15px;">Codex</span>
+      <span style="font-size:13px;color:#c3cad4;border:1px solid #262a33;background:#14161c;border-radius:8px;padding:9px 15px;">Hermes Agent</span>
+      <span style="font-size:13px;color:#c3cad4;border:1px solid #262a33;background:#14161c;border-radius:8px;padding:9px 15px;">Rovo Dev</span>
+    </div>
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#6d7480;">renders → CLAUDE.md · AGENTS.md · .cursorrules · .hermes.md</div>
+  </div>
+</section>
+
+<!-- ===== PAIRS WITH VAULT ===== -->
+<section style="padding:16px 32px 72px;">
+  <div style="max-width:1000px;margin:0 auto;">
+    <a href="/vault/" style="display:block;background:linear-gradient(180deg,#131a1a,#101116);border:1px solid #21402f;border-radius:16px;padding:32px;color:inherit;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:20px;flex-wrap:wrap;">
+        <div style="max-width:640px;">
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#3fb37f;margin-bottom:8px;">Pairs with</div>
+          <h3 style="font-size:22px;margin-bottom:8px;">Perseus Vault · persistent memory</h3>
+          <p style="font-size:15px;color:#b9c0ca;">Perseus resolves the present; Vault remembers the past. Add encrypted, durable memory so your agent recalls decisions and conventions across sessions.</p>
+        </div>
+        <span style="font-size:14px;font-weight:600;color:#a78bfa;white-space:nowrap;">Explore Vault →</span>
+      </div>
+    </a>
+  </div>
+</section>
+
+<!-- ===== CTA / FOOTER ===== -->
+<footer style="padding:48px 32px;border-top:1px solid #1b1e25;background:#0b0c0f;">
+  <div style="max-width:1000px;margin:0 auto;display:flex;justify-content:space-between;gap:24px;flex-wrap:wrap;align-items:center;">
+    <div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:14px;color:#e7e9ee;margin-bottom:6px;">pip install perseus-ctx</div>
+      <div style="font-size:13px;color:#6d7480;">MIT · local-first · zero telemetry · <a href="/government/" style="color:#9aa2ad;">air-gap ready →</a></div>
+    </div>
+    <div style="display:flex;gap:12px;">
+      <a href="https://github.com/Perseus-Computing-LLC/perseus" style="font-size:14px;color:#e7e9ee;border:1px solid #2f3440;border-radius:9px;padding:11px 18px;">GitHub</a>
+      <a href="https://pypi.org/project/perseus-ctx/" style="font-size:14px;color:#0b0c0f;background:#a78bfa;border-radius:9px;padding:11px 18px;font-weight:600;">PyPI</a>
+    </div>
+  </div>
+  <div style="max-width:1000px;margin:28px auto 0;padding-top:18px;border-top:1px solid #14161c;font-size:12px;color:#6d7480;font-family:'IBM Plex Mono',monospace;">© 2026 Perseus Computing LLC · Perseus™ · patent pending (provisional)</div>
+</footer>
+
+</div>
+</body>
+</html>
