@@ -77,6 +77,15 @@ main.bench pre{background:var(--surface,#101018);border:1px solid var(--border,#
   Where conditions differ from a competitor's published run, the comparison is flagged, not blended.
   Per-type table is from the primary run's signed report.</p>
   <div class="stats"><div class='stat big'><div class='v'>73.8%</div><div class='l'>mean of 3 independent full runs (range 72.8&ndash;75.0%, gpt-4o-2024-08-06)</div></div></div>
+  
+  <div class="stats"><div class='stat big'><div class='v'>79.0%</div>
+  <div class='l'>with LongMemEval's official CoT answer prompt (<code>answer_prompt: official-cot</code>) &mdash;
+  mean of 3 independent signed full runs (range 78.4&ndash;80.0%)</div></div></div>
+  <p class="note">The benchmark ships two official answer prompts (plain and step-by-step CoT);
+  both distributions above are 100% official methodology and differ only in that flag &mdash;
+  each number carries its <code>answer_prompt</code>, recorded in the signed report.
+  Zep's publication does not state which variant they used, so the comparison is flagged, not blended.</p>
+  <div class="src">source: <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/longmemeval/qa_report_cot.json">benchmark/longmemeval/qa_report_cot.json</a> <span class="sig" title="sha256 over the result set">sig 20327b31b594</span></div><div class="src">source: <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/longmemeval/qa_report_cot_seed2.json">benchmark/longmemeval/qa_report_cot_seed2.json</a> <span class="sig" title="sha256 over the result set">sig 7c8ce1b406c0</span></div><div class="src">source: <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/longmemeval/qa_report_cot_seed3.json">benchmark/longmemeval/qa_report_cot_seed3.json</a> <span class="sig" title="sha256 over the result set">sig eb848e786677</span></div>
   <div class='tablewrap'><table><thead><tr><th>question type</th><th>correct</th><th>accuracy</th></tr></thead><tbody><tr><th>knowledge-update</th><td>60/78</td><td>76.9%</td></tr><tr><th>multi-session</th><td>84/133</td><td>63.2%</td></tr><tr><th>single-session-assistant</th><td>56/56</td><td>100.0%</td></tr><tr><th>single-session-preference</th><td>9/30</td><td>30.0%</td></tr><tr><th>single-session-user</th><td>67/70</td><td>95.7%</td></tr><tr><th>temporal-reasoning</th><td>92/133</td><td>69.2%</td></tr></tbody></table></div>
   <div class="src">source: <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/longmemeval/qa_report.json">benchmark/longmemeval/qa_report.json</a> <span class="sig" title="sha256 over the result set">sig 929623670d8b</span></div>
   <div class="src">source: <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/longmemeval/qa_report_seed2.json">benchmark/longmemeval/qa_report_seed2.json</a> <span class="sig" title="sha256 over the result set">sig 4e816cf0a904</span></div><div class="src">source: <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/longmemeval/qa_report_seed3.json">benchmark/longmemeval/qa_report_seed3.json</a> <span class="sig" title="sha256 over the result set">sig c712d867a958</span></div>
@@ -95,7 +104,7 @@ main.bench pre{background:var(--surface,#101018);border:1px solid var(--border,#
   <h2>Temporal correctness</h2>
   <p class="note">Bi-temporal reconstruction checked scenario by scenario: what was believed at T
   (transaction time), what was true at T (valid time), and the full cell. Deterministic, offline.</p>
-  <div class='stats'><div class='stat big'><div class='v'>92.3%</div><div class='l'>gauntlet: 12/13 checks</div></div><div class='stat'><div class='v'>9/10</div><div class='l'>valid_at</div></div><div class='stat'><div class='v'>1/1</div><div class='l'>as_of</div></div><div class='stat'><div class='v'>2/2</div><div class='l'>bitemporal</div></div></div><div class="src">source: <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/temporal/gauntlet_report.json">benchmark/temporal/gauntlet_report.json</a> <span class="sig" title="sha256 over the result set">sig 4225997f79a8</span></div><div class='stats'><div class='stat'><div class='v'>100.0%</div><div class='l'>temporal suite: 20/20</div></div></div><div class="src">source: <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/temporal/report.json">benchmark/temporal/report.json</a> <span class="sig" title="sha256 over the result set">sig 009c4c3e25cb</span></div>
+  <div class='stats'><div class='stat big'><div class='v'>100.0%</div><div class='l'>gauntlet: 13/13 checks</div></div><div class='stat'><div class='v'>10/10</div><div class='l'>valid_at</div></div><div class='stat'><div class='v'>1/1</div><div class='l'>as_of</div></div><div class='stat'><div class='v'>2/2</div><div class='l'>bitemporal</div></div></div><div class="src">source: <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/temporal/gauntlet_report.json">benchmark/temporal/gauntlet_report.json</a> <span class="sig" title="sha256 over the result set">sig 2c1e38ab18aa</span></div><div class='stats'><div class='stat'><div class='v'>100.0%</div><div class='l'>temporal suite: 20/20</div></div></div><div class="src">source: <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/temporal/report.json">benchmark/temporal/report.json</a> <span class="sig" title="sha256 over the result set">sig 009c4c3e25cb</span></div>
 </section>
 <section id="reproduce">
   <h2>Reproduce every number</h2>
@@ -110,14 +119,14 @@ python benchmark/temporal/gauntlet.py # bi-temporal gauntlet (offline)
 python benchmark/scale/run.py         # scale + latency (offline)
 python benchmark/longmemeval/qa.py    # end-to-end QA (needs an OpenAI key; prints cost first)</code></pre>
   <p class="note">This page was generated by <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/scripts/gen_benchmark_page.py">scripts/gen_benchmark_page.py</a>
-  at commit <code>5f0cbf4</code>. If a number here cannot be traced to a committed signed report, that is a bug; please file it.</p>
+  at commit <code>eb8bc17</code>. If a number here cannot be traced to a committed signed report, that is a bug; please file it.</p>
 </section>
 </main>
 <footer class="site">
   <div class="foot-compact">
     <div class="brand-line">
       <svg width="26" height="26" viewBox="0 0 56 56" fill="none" aria-hidden="true"><rect x="3" y="14" width="17" height="3.6" rx="1.8" fill="var(--violet)"/><rect x="3" y="21" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".75"/><rect x="3" y="28" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".55"/><rect x="3" y="35" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".4"/><g stroke="var(--amber)" stroke-width="2.4" stroke-linecap="round"><line x1="22" y1="16" x2="42" y2="28"/><line x1="22" y1="23" x2="42" y2="28"/><line x1="22" y1="30" x2="42" y2="28"/><line x1="22" y1="37" x2="42" y2="28"/></g><circle cx="44" cy="28" r="4.2" fill="var(--amber)"/></svg>
-      <span class="legal-line">Perseus Computing LLC · generated 2026-07-10 at 5f0cbf4 · perseus.observer/benchmarks</span>
+      <span class="legal-line">Perseus Computing LLC · generated 2026-07-11 at eb8bc17 · perseus.observer/benchmarks</span>
     </div>
     <div class="sib"><a href="/">Perseus</a><a href="/perseus-vault/">Perseus Vault</a><a href="/plutus/">Plutus</a><a href="https://github.com/Perseus-Computing-LLC/perseus-vault">GitHub</a></div>
   </div>
