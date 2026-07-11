@@ -66,16 +66,20 @@ main.bench pre{background:var(--surface,#101018);border:1px solid var(--border,#
   <h2>Retrieval recall (LongMemEval)</h2>
   <p class="note">Session-level recall against the 500-instance LongMemEval split
   (23,867 sessions ingested into the real binary, offline, judge-free;
-  default hybrid retrieval). perseus-vault.exe.</p>
+  default hybrid retrieval). mimir.exe.</p>
   <div class="stats"><div class='stat'><div class='v'>84.6%</div><div class='l'>recall@1</div></div><div class='stat'><div class='v'>95.2%</div><div class='l'>recall@3</div></div><div class='stat'><div class='v'>97.4%</div><div class='l'>recall@5</div></div><div class='stat'><div class='v'>99.2%</div><div class='l'>recall@10</div></div><div class='stat'><div class='v'>0.903</div><div class='l'>MRR</div></div></div>
   <div class="src">source: <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/longmemeval/report.json">benchmark/longmemeval/report.json</a> <span class="sig" title="sha256 over the result set">sig 9babb85f54f9</span></div>
 </section>
 <section id="qa">
   <h2>End-to-end QA vs Zep</h2>
-  <p class="note">Zep publishes <b>63.8%</b> on LongMemEval with GPT-4o (<a href="https://arxiv.org/abs/2501.13956">their paper</a>). Our end-to-end run (same 500-instance split, pinned
-  gpt-4o-2024-08-06 answerer and judge, temperature 0) is in progress; the signed
-  report and per-category breakdown will render here when it lands. Until then this
-  section shows no number, because there is no signed number to show.</p>
+  <p class="note">Zep publishes <b>63.8%</b> on LongMemEval with GPT-4o (<a href="https://arxiv.org/abs/2501.13956">their paper</a>). Ours below: identical split, pinned answerer and judge named in the
+  report, LongMemEval's official per-type judge prompts. The headline is the mean of 3 independent signed runs (73.6% / 75.0% / 72.8%); the worst run scores +9.0 points vs Zep's published number.
+  Where conditions differ from a competitor's published run, the comparison is flagged, not blended.
+  Per-type table is from the primary run's signed report.</p>
+  <div class="stats"><div class='stat big'><div class='v'>73.8%</div><div class='l'>mean of 3 independent full runs (range 72.8&ndash;75.0%, gpt-4o-2024-08-06)</div></div></div>
+  <div class='tablewrap'><table><thead><tr><th>question type</th><th>correct</th><th>accuracy</th></tr></thead><tbody><tr><th>knowledge-update</th><td>60/78</td><td>76.9%</td></tr><tr><th>multi-session</th><td>84/133</td><td>63.2%</td></tr><tr><th>single-session-assistant</th><td>56/56</td><td>100.0%</td></tr><tr><th>single-session-preference</th><td>9/30</td><td>30.0%</td></tr><tr><th>single-session-user</th><td>67/70</td><td>95.7%</td></tr><tr><th>temporal-reasoning</th><td>92/133</td><td>69.2%</td></tr></tbody></table></div>
+  <div class="src">source: <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/longmemeval/qa_report.json">benchmark/longmemeval/qa_report.json</a> <span class="sig" title="sha256 over the result set">sig 929623670d8b</span></div>
+  <div class="src">source: <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/longmemeval/qa_report_seed2.json">benchmark/longmemeval/qa_report_seed2.json</a> <span class="sig" title="sha256 over the result set">sig 4e816cf0a904</span></div><div class="src">source: <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/longmemeval/qa_report_seed3.json">benchmark/longmemeval/qa_report_seed3.json</a> <span class="sig" title="sha256 over the result set">sig c712d867a958</span></div>
 </section>
 <section id="scale">
   <h2>Scale and latency</h2>
@@ -84,8 +88,8 @@ main.bench pre{background:var(--surface,#101018);border:1px solid var(--border,#
   lookups stay flat from 10K to 100K entities; that column is the differentiator.</p>
   <div class="tablewrap"><table><thead><tr><th>entities</th><th>write sustained</th>
   <th>fts5 p50/p99</th><th>dense p50/p99</th><th>hybrid p50/p99</th><th>as_of p99</th><th>cold start</th></tr></thead>
-  <tbody><tr><th>10,000</th><td>529/s</td><td>3.8 / 8.87 ms</td><td>11.15 / 13.99 ms</td><td>31.14 / 33.87 ms</td><td>0.24 ms</td><td>26.8 ms</td></tr><tr><th>100,000</th><td>46/s</td><td>14.26 / 19.07 ms</td><td>22.82 / 24.88 ms</td><td>263.37 / 282.15 ms</td><td>0.18 ms</td><td>54.7 ms</td></tr></tbody></table></div>
-  <div class="src">source: <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/scale/report.json">benchmark/scale/report.json</a> <span class="sig" title="sha256 over the result set">sig 6a4bf67281b1</span></div>
+  <tbody><tr><th>10,000</th><td>479/s</td><td>3.14 / 9.62 ms</td><td>11.96 / 14.29 ms</td><td>19.03 / 24.56 ms</td><td>0.53 ms</td><td>56.6 ms</td></tr><tr><th>100,000</th><td>40/s</td><td>15.67 / 23.23 ms</td><td>25.43 / 32.78 ms</td><td>79.73 / 92.86 ms</td><td>0.46 ms</td><td>58.2 ms</td></tr></tbody></table></div>
+  <div class="src">source: <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/scale/report.json">benchmark/scale/report.json</a> <span class="sig" title="sha256 over the result set">sig c688a8490cc1</span></div>
 </section>
 <section id="temporal">
   <h2>Temporal correctness</h2>
@@ -106,14 +110,14 @@ python benchmark/temporal/gauntlet.py # bi-temporal gauntlet (offline)
 python benchmark/scale/run.py         # scale + latency (offline)
 python benchmark/longmemeval/qa.py    # end-to-end QA (needs an OpenAI key; prints cost first)</code></pre>
   <p class="note">This page was generated by <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/scripts/gen_benchmark_page.py">scripts/gen_benchmark_page.py</a>
-  at commit <code>d803809</code>. If a number here cannot be traced to a committed signed report, that is a bug; please file it.</p>
+  at commit <code>5f0cbf4</code>. If a number here cannot be traced to a committed signed report, that is a bug; please file it.</p>
 </section>
 </main>
 <footer class="site">
   <div class="foot-compact">
     <div class="brand-line">
       <svg width="26" height="26" viewBox="0 0 56 56" fill="none" aria-hidden="true"><rect x="3" y="14" width="17" height="3.6" rx="1.8" fill="var(--violet)"/><rect x="3" y="21" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".75"/><rect x="3" y="28" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".55"/><rect x="3" y="35" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".4"/><g stroke="var(--amber)" stroke-width="2.4" stroke-linecap="round"><line x1="22" y1="16" x2="42" y2="28"/><line x1="22" y1="23" x2="42" y2="28"/><line x1="22" y1="30" x2="42" y2="28"/><line x1="22" y1="37" x2="42" y2="28"/></g><circle cx="44" cy="28" r="4.2" fill="var(--amber)"/></svg>
-      <span class="legal-line">Perseus Computing LLC · generated 2026-07-08 at d803809 · perseus.observer/benchmarks</span>
+      <span class="legal-line">Perseus Computing LLC · generated 2026-07-10 at 5f0cbf4 · perseus.observer/benchmarks</span>
     </div>
     <div class="sib"><a href="/">Perseus</a><a href="/perseus-vault/">Perseus Vault</a><a href="/plutus/">Plutus</a><a href="https://github.com/Perseus-Computing-LLC/perseus-vault">GitHub</a></div>
   </div>
