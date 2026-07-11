@@ -217,12 +217,6 @@ def main():
     p_suggest.add_argument("--category", default=None, help="Limit skill search to category")
     p_suggest.add_argument("--no-services", action="store_true", dest="no_services",
                            help="Skip live service health checks")
-    p_suggest.add_argument("--llm", default=None,
-                           help="Optionally run the Pythia prompt through a local model provider (ollama, llamacpp, openai-compat)")
-    p_suggest.add_argument("--model", default=None,
-                           help="Override the configured LLM model name")
-    p_suggest.add_argument("--model-url", default=None,
-                           help="Override the configured LLM provider URL")
 
     # inbox (task-16)
     p_inbox = sub.add_parser("inbox", help="Point-to-point agent message store")
@@ -272,20 +266,16 @@ def main():
     mem_sub = p_mem.add_subparsers(dest="memory_command", required=True)
     p_mem_update = mem_sub.add_parser("update", help="Incrementally update narrative")
     p_mem_update.add_argument("--workspace", default=None, help="Workspace path (default: auto-discover nearest ancestor with .perseus/)")
-    p_mem_update.add_argument("--llm", default=None, help="LLM provider (ollama, openai-compat)")
     p_mem_compact = mem_sub.add_parser("compact", help="Fully re-distill narrative")
     p_mem_compact.add_argument("--workspace", default=None, help="Workspace path (default: auto-discover nearest ancestor with .perseus/)")
-    p_mem_compact.add_argument("--llm", default=None, help="LLM provider")
-    p_mem_compact.add_argument("--pattern-extractor", default=None, choices=["deterministic", "daedalus"], help="Override memory.pattern_extractor (task-21)")
     p_mem_show = mem_sub.add_parser("show", help="Print narrative to stdout")
     p_mem_show.add_argument("--workspace", default=None, help="Workspace path (default: auto-discover nearest ancestor with .perseus/)")
     p_mem_status = mem_sub.add_parser("status", help="Summarize narrative state")
     p_mem_status.add_argument("--workspace", default=None, help="Workspace path (default: auto-discover nearest ancestor with .perseus/)")
     p_mem_status.add_argument("--json", action="store_true", help="Machine-readable JSON output")
-    p_mem_query = mem_sub.add_parser("query", help="Query narrative (grep or LLM)")
+    p_mem_query = mem_sub.add_parser("query", help="Query narrative (deterministic grep search)")
     p_mem_query.add_argument("question", help="Question or search terms")
     p_mem_query.add_argument("--workspace", default=None, help="Workspace path (default: auto-discover nearest ancestor with .perseus/)")
-    p_mem_query.add_argument("--llm", default=None, help="LLM provider")
     # #692: `perseus memory review` is an alias for `perseus knows`
     p_mem_review = mem_sub.add_parser("review", help="Alias for `perseus knows`")
     _add_knows_args(p_mem_review)
@@ -623,15 +613,6 @@ def main():
                               help="Wire the Perseus Vault memory connector and print exact "
                                    "install/next-step commands (does not silently build the Rust binary)")
 
-    # llm ping — verify the configured LLM provider is reachable.
-    p_llm = sub.add_parser("llm", help="LLM provider utilities (ping)")
-    llm_sub = p_llm.add_subparsers(dest="llm_sub")
-    p_llm_ping = llm_sub.add_parser("ping", help="Send a no-op prompt to verify reachability")
-    p_llm_ping.add_argument("--provider", default=None, help="Override llm.provider (ollama, openai-compat, hermes, llamacpp, daedalus)")
-    p_llm_ping.add_argument("--model", default=None, help="Override llm.model")
-    p_llm_ping.add_argument("--url", default=None, help="Override llm.url (base URL, no trailing /v1)")
-    p_llm_ping.add_argument("--json", action="store_true", help="Machine-readable JSON output")
-
     # bandit (#605) — outcome feedback + decision transparency for @bandit
     # adaptive directive selection. Self-contained block: both subparsers are
     # dispatched through the single cmd_bandit_cli entry point below.
@@ -786,8 +767,6 @@ def main():
         rc = cmd_oracle(args, cfg)
         if isinstance(rc, int):
             return rc
-    elif args.command == "llm":
-        return cmd_llm(args, cfg)
     elif args.command == "feedback":
         # #605: @bandit outcome feedback
         return cmd_bandit_cli(args, cfg)

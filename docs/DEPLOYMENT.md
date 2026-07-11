@@ -3,7 +3,7 @@
 > *"The mirror lets Perseus face the monster clearly, without meeting her gaze."*
 
 This guide walks through deploying every Perseus surface — context engine, Bastra Recall
-(Mnēmē memory), LLM proxy, Pythia oracle, Agora task board, Synthesis, and Prefetch
+(Mnēmē memory), Pythia oracle, Agora task board, Synthesis, and Prefetch
 cache warming — on a Hermes Agent host. By the end, you will have a self-maintaining
 deployment where every component is watchdogged, health-checked, and wired into Hermes
 cron.
@@ -28,10 +28,8 @@ available, Python 3.10+ available.
 │  └────┬──────┘  └────┬─────┘  └────┬─────┘  └─────┬──────┘ │
 │       │              │             │               │        │
 │       ▼              ▼             ▼               ▼        │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │              Perseus LLM Proxy (:18080)               │  │
-│  │         Anthropic forwarder (watchdog 10m)            │  │
-│  └────────────────────────┬─────────────────────────────┘  │
+│   (each renders a prompt the host agent answers with its    │
+│    own model — Perseus runs no inference of its own)        │
 │                           │                                │
 │  ┌────────────────────────┼─────────────────────────────┐  │
 │  │          Bastra Recall (Mnēmē — :6723)                │  │
@@ -235,11 +233,17 @@ hermes cron create "every 5m" \
 
 ---
 
-## Step 2: Perseus LLM Proxy
+## Step 2: Perseus LLM Proxy (deprecated — no longer required)
+
+> **Deprecated.** Perseus runs no inference of its own (observe model): Pythia,
+> Synthesis, and Mnēmē now render prompts for the host agent to answer with the
+> model it already uses, and no component calls a provider directly. This proxy
+> is no longer needed for a Perseus deployment — skip this step. The section is
+> retained only for operators with an existing proxy still wired into unrelated
+> tooling.
 
 The LLM proxy is a thin Python HTTP server that forwards OpenAI-compatible
 `/v1/chat/completions` requests to the Anthropic API, injecting your API key.
-Pythia and Synthesis depend on it.
 
 ### 2.1 Create the Proxy Script
 

@@ -113,35 +113,15 @@ class TestQuickstartBasic:
 class TestQuickstartLLM:
     """LLM auto-detection and configuration."""
 
-    def test_auto_detects_env_key(self, tmp_path, monkeypatch):
-        """quickstart detects GEMINI_API_KEY in environment."""
+    def test_no_llm_config_is_written(self, tmp_path, monkeypatch):
+        """Perseus runs no inference of its own (observe model): quickstart
+        never writes a generation/llm block, even with a provider key set."""
         monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path / ".perseus")
         (tmp_path / ".perseus").mkdir()
         monkeypatch.setenv("GEMINI_API_KEY", "test-key-123")
 
         ns = argparse.Namespace(
-            workspace=str(tmp_path), non_interactive=True, no_llm=False,
-        )
-        rc = perseus.cmd_quickstart(ns, cfg())
-        assert rc == 0
-
-        config_file = tmp_path / ".perseus" / "config.yaml"
-        with open(config_file, encoding="utf-8") as f:
-            config = yaml.safe_load(f)
-
-        assert "generation" in config
-        assert config["generation"]["enabled"] is True
-        assert "gemini" in str(config["generation"].get("model", "")).lower()
-        assert "llm" in config
-
-    def test_no_llm_flag_skips_detection(self, tmp_path, monkeypatch):
-        """--no-llm skips LLM detection even when keys are present."""
-        monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path / ".perseus")
-        (tmp_path / ".perseus").mkdir()
-        monkeypatch.setenv("GEMINI_API_KEY", "test-key-123")
-
-        ns = argparse.Namespace(
-            workspace=str(tmp_path), non_interactive=True, no_llm=True,
+            workspace=str(tmp_path), non_interactive=True,
         )
         rc = perseus.cmd_quickstart(ns, cfg())
         assert rc == 0
@@ -152,37 +132,6 @@ class TestQuickstartLLM:
 
         assert "generation" not in config
         assert "llm" not in config
-
-    def test_detect_backends_returns_list(self):
-        """_quickstart_detect_llm_backends returns a list."""
-        backends = perseus._quickstart_detect_llm_backends()
-        assert isinstance(backends, list)
-        for b in backends:
-            assert "name" in b
-            assert "provider" in b
-            assert "model" in b
-            assert "url" in b
-            assert "key_env" in b
-
-    def test_write_config_with_generation(self, tmp_path, monkeypatch):
-        """_quickstart_write_config writes correct LLM config."""
-        monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path / ".perseus")
-        gen = {
-            "enabled": True,
-            "provider": "llamacpp",
-            "model": "llama-3.2-3b",
-            "model_url": "http://127.0.0.1:8080",
-        }
-        config_path = perseus._quickstart_write_config(tmp_path, gen)
-
-        with open(config_path, encoding="utf-8") as f:
-            config = yaml.safe_load(f)
-
-        assert config["generation"]["enabled"] is True
-        assert config["generation"]["model"] == "llama-3.2-3b"
-        assert config["llm"]["provider"] == "llamacpp"
-        assert config["llm"]["url"] == "http://127.0.0.1:8080"
-        assert config["permissions"]["profile"] == "balanced"
 
     def test_write_config_generates_canonical_vault_block(self, tmp_path, monkeypatch):
         """#665 (P1): plain quickstart (with_memory=False) must generate the
