@@ -4,7 +4,14 @@
 # Usage:
 #   1. Install tooltrim:  npm install -g tooltrim
 #   2. Copy this file to your project root as tooltrim.config.yaml
-#   3. Add tooltrim as your MCP proxy in Claude/Cursor/Codex config
+#   3. Add tooltrim as your MCP proxy:
+#        - Claude Desktop / Cursor / Codex: add a `tooltrim` entry to mcpServers
+#        - Rovo Dev (acli): declare `tooltrim` in ~/.rovodev/mcp.json and allow it
+#          in ~/.rovodev/config.yml (allowedMcpServers). See README "Rovo Dev".
+#          NOTE: tooltrim proxies only self-declared servers (below). Rovo Dev's
+#          platform integration bundle (google_drive/slack/jas/... gated by
+#          INTEGRATIONS_SERVICE_MCP_API_TOKEN) is server-side and CANNOT be
+#          proxied/filtered by tooltrim.
 #   4. Adjust filters below to match your workflow
 #
 # Results (tested 2026-06-13 with 76 Perseus skills):

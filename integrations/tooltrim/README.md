@@ -45,6 +45,95 @@ cp integrations/tooltrim/tooltrim.perseus.yaml ./tooltrim.config.yaml
 perseus render .perseus/context.md
 ```
 
+## Assistant Wiring
+
+Tooltrim is an MCP proxy: you point your assistant at tooltrim, and tooltrim
+points at the real Perseus (and/or Perseus Vault) server upstream. Wiring
+differs slightly per host.
+
+### Claude Desktop / Cursor / Codex
+
+Add tooltrim as the MCP server (see Quick Start above) — these hosts read a
+single `mcpServers` map and tooltrim proxies whatever you list under `servers:`
+in `tooltrim.config.yaml`.
+
+### Rovo Dev (Atlassian `acli rovodev`)
+
+Rovo Dev reads user-declared MCP servers from `~/.rovodev/mcp.json` and gates
+them via `allowedMcpServers` in `~/.rovodev/config.yml`. To put a server behind
+tooltrim, replace the *direct* stdio entry (e.g. `perseus mcp serve`) with a
+tooltrim proxy entry whose upstream is that server.
+
+`~/.rovodev/mcp.json` — declare tooltrim instead of perseus directly:
+
+```json
+{
+  "mcpServers": {
+    "tooltrim": {
+      "command": "npx",
+      "args": ["-y", "tooltrim"]
+    }
+  }
+}
+```
+
+`~/.rovodev/config.yml` — allow the tooltrim server:
+
+```yaml
+allowedMcpServers:
+  - tooltrim
+```
+
+`tooltrim.config.yaml` — point tooltrim's upstream at your local servers. You
+can shrink both `perseus` and (optionally) `perseus-vault` (~57 tools) behind
+one filtered inbound endpoint instead of loading every tool schema every
+session:
+
+```yaml
+servers:
+  perseus-skills:
+    transport: stdio
+    command: ["perseus", "mcp", "serve"]
+  perseus-vault:            # optional — Perseus Vault's ~57 memory tools
+    transport: stdio
+    command: ["perseus-vault", "serve"]
+
+filters:
+  allow:
+    - "*.core/**"
+    - "*.devops/**"
+    - "perseus-vault.perseus_vault_recall"
+    - "perseus-vault.perseus_vault_remember"
+    - "perseus-vault.perseus_vault_context"
+
+inbound:
+  stdio: true
+```
+
+Result: Rovo Dev sees one `tooltrim` server exposing only the filtered subset,
+instead of the full Perseus + Perseus Vault tool surface every session.
+
+#### Limitation: Rovo Dev's platform integration bundle is NOT proxyable
+
+Rovo Dev also injects a large **built-in** integration bundle (~21 toolsets:
+`google_drive` ~42 tools, `slack` ~23, `jas` ~19, `loom` ~17, plus `s360`,
+`c360`, `tap`, `switcheroo`, `socrates`, `feedback`, `atlassian`, `bitbucket`,
+`compass`, ...). These are provisioned **server-side by the Rovo Dev platform**,
+gated only by the presence of `INTEGRATIONS_SERVICE_MCP_API_TOKEN`, and there is
+**no local config hook to route them through an MCP proxy**.
+
+So tooltrim shrinks **self-declared** servers (the ones you list under
+`servers:`), but it **cannot** filter the platform bundle — that is all-or-nothing
+via the token. Granular filtering of the platform bundle is a Rovo Dev / `acli`
+side feature request: the host must expose an upstream/proxy override or a
+per-toolset allowlist for its built-in integrations before tooltrim (or any
+proxy) can trim them.
+
+If session-token bloat is the concern and you can't drop the whole bundle,
+unset `INTEGRATIONS_SERVICE_MCP_API_TOKEN` to remove the platform bundle
+entirely, then re-add only the self-declared servers you actually need behind
+tooltrim.
+
 ## Filter Modes
 
 - **Task mode** (84.7% savings): Uncomment the task filter block in the config.
