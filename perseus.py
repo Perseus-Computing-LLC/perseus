@@ -25884,6 +25884,14 @@ def _read_perseus_module_version(path: str) -> str:
     return m.group(1) if m else "?"
 
 
+def _version_sort_key(ver: str):
+    """Sort key: newest version first among non-active installs."""
+    parts = re.findall(r"\d+", ver or "")
+    nums = tuple(int(p) for p in parts[:3]) if parts else (0,)
+    # Negate so that higher versions sort earlier within the non-active group.
+    return tuple(-n for n in nums)
+
+
 def _discover_perseus_installs() -> list[dict]:
     """Find every installed ``perseus.py`` copy across Python minor versions.
 
@@ -25950,18 +25958,9 @@ def _discover_perseus_installs() -> list[dict]:
         }
 
     installs = list(by_real.values())
-    installs.sort(key=lambda d: (not d["active"], d["version"]), reverse=False)
     # Put active first, then highest version among the rest.
     installs.sort(key=lambda d: (0 if d["active"] else 1, _version_sort_key(d["version"])))
     return installs
-
-
-def _version_sort_key(ver: str):
-    """Sort key: newest version first among non-active installs."""
-    parts = re.findall(r"\d+", ver or "")
-    nums = tuple(int(p) for p in parts[:3]) if parts else (0,)
-    # Negate so that higher versions sort earlier within the non-active group.
-    return tuple(-n for n in nums)
 
 
 def _doctor_check_duplicate_installs(cfg: dict, workspace: Path) -> DoctorResult:
