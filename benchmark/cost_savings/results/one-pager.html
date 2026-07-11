@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Perseus + Vault: verified LLM savings statement</title>
+<style>
+  @page { size: letter; margin: 14mm; }
+  body { font: 10.5pt/1.45 'IBM Plex Sans', 'Segoe UI', sans-serif; color: #16181d;
+         max-width: 7.5in; margin: 0 auto; padding: 12px; }
+  h1 { font-size: 17pt; margin: 0 0 2px; }
+  .headline { font-size: 12.5pt; font-weight: 600; color: #5b3fb3; margin: 6px 0 14px; }
+  table { border-collapse: collapse; width: 100%; margin: 8px 0 14px; }
+  th, td { border: 1px solid #d7d9df; padding: 5px 9px; text-align: right; font-size: 9.5pt; }
+  th:first-child, td:first-child { text-align: left; }
+  thead th { background: #f2f0fa; }
+  .big td { font-size: 11pt; }
+  .win { font-weight: 700; color: #1d7a4f; }
+  h2 { font-size: 11.5pt; margin: 14px 0 4px; }
+  ol, ul { margin: 4px 0 10px 20px; padding: 0; }
+  li { margin: 3px 0; }
+  code { font: 8.5pt 'IBM Plex Mono', monospace; background: #f4f4f6; padding: 1px 4px; }
+  .limits { background: #faf7ee; border: 1px solid #e6ddc2; padding: 8px 12px; font-size: 9pt; }
+  footer { margin-top: 12px; font-size: 8.5pt; color: #666; border-top: 1px solid #d7d9df;
+            padding-top: 6px; }
+</style></head><body>
+<h1>Perseus + Vault: verified LLM savings statement</h1>
+<div class="headline">75.1% fewer LLM dollars. +11.7 points MORE
+accurate. Read from the meter, not a marketing model.</div>
+
+<p>We ran the same 60 memory-recall tasks two ways, with the same model
+(<code>gpt-4o-2024-08-06</code>) answering and the same official benchmark judge grading both:</p>
+
+<table class="big"><thead><tr><th></th><th>LLM spend</th><th>tokens billed</th><th>accuracy</th></tr></thead>
+<tbody>
+<tr><td>Without Perseus (full context every call)</td><td>$15.71</td><td>6,250,823</td><td>55.0%</td></tr>
+<tr><td><b>With Perseus + Vault</b></td><td class="win">$3.91</td><td class="win">1,529,807</td><td class="win">66.7%</td></tr>
+</tbody></table>
+
+<p>Perseus + Vault loads only the context each task needs (4.1x fewer tokens), so
+the model reads less, costs less, and answers better: long stuffed prompts measurably
+<em>lose</em> accuracy on the tasks agents do most.</p>
+
+<table><thead><tr><th>task type</th><th>n</th><th>full context</th><th>Perseus + Vault</th></tr></thead>
+<tbody><tr><td>Multi-session aggregation</td><td>16</td><td>31%</td><td class=win>38%</td></tr><tr><td>Temporal reasoning</td><td>16</td><td>38%</td><td class=win>69%</td></tr><tr><td>Updated facts (latest wins)</td><td>9</td><td class=win>89%</td><td>67%</td></tr><tr><td>Facts the user stated</td><td>8</td><td>88%</td><td class=win>100%</td></tr><tr><td>Facts the assistant stated</td><td>7</td><td>86%</td><td class=win>100%</td></tr><tr><td>User preferences</td><td>4</td><td>25%</td><td class=win>50%</td></tr></tbody></table>
+
+<h2>Why you can trust this number</h2>
+<ol>
+<li><b>Dollars come from a meter, not a spreadsheet.</b> Every model call in both arms was
+recorded as a usage event in a Plutus ledger; the totals above are sums over that ledger,
+reproducible with one line of SQL against the shipped ledger file:<br>
+<code>SELECT w.name, SUM(u.cost_micros)/1e6 AS usd FROM usage_events u JOIN workspaces w ON w.id=u.workspace_id GROUP BY w.id;</code></li>
+<li><b>Accuracy is graded by the benchmark's own judge</b>, not ours: LongMemEval's official
+per-question-type prompts, pinned <code>gpt-4o-2024-08-06</code>, temperature 0,
+<code>answer_prompt: official-cot</code>.</li>
+<li><b>The task sample is stratified, not cherry-picked</b>: 60 questions drawn
+proportionally from all six LongMemEval question types, first-N per type in dataset order.
+Full methodology, signed reports (aa6533853096dfbe&hellip; / efee76f95ae0cc63&hellip;), and the harness that
+reproduces the run are public: <code>benchmark/cost_savings/</code> in the Perseus repo.</li>
+</ol>
+
+<h2>Stated limits (we would rather you check than take our word)</h2>
+<div class="limits"><ul>
+<li>Sample size is 60 questions; per-task-type cells are small. The signed full-500
+accuracy distribution for the product arm is published separately (79.0% mean, official CoT prompt).</li>
+<li>The ledger is integer-exact and independently re-queryable, but not yet cryptographically
+tamper-evident; that hardening is scheduled and tracked publicly. Until then we recommend
+verifying savings against your own provider invoice, which is the strongest baseline anyway.</li>
+<li>Prices from the public price table as of 2026-06-26; the savings percentage is
+rate-invariant (same model both arms).</li>
+</ul></div>
+
+<footer>Perseus Computing LLC &middot; perseus.observer &middot; perseus@perseus.observer &middot;
+generated 2026-07-11 from signed report aa6533853096dfbe&hellip;</footer>
+</body></html>
