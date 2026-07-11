@@ -149,6 +149,9 @@ def main() -> None:
     ap.add_argument("--mode", choices=("mock", "live"), default="mock")
     ap.add_argument("--bin", default=None, help="perseus-vault binary")
     ap.add_argument("--outdir", default=str(HERE / "out"))
+    ap.add_argument("--tpm", type=int, default=None,
+                    help="live mode: tokens/min pacing passed to qa.py "
+                         "(set to your provider tier's limit)")
     ap.add_argument("--yes", action="store_true",
                     help="live mode: skip qa.py's cost confirmation")
     ap.add_argument("--skip-qa", action="store_true",
@@ -187,6 +190,8 @@ def main() -> None:
                 cmd.append("--cot")
             if args.yes:
                 cmd.append("--yes")
+            if args.tpm:
+                cmd += ["--tpm", str(args.tpm)]
         print(f"[1/3] running qa.py ({args.mode}, {args.limit} questions, "
               f"k={args.k}) ...", flush=True)
         rc = subprocess.run(cmd, cwd=str(qa.parent)).returncode
