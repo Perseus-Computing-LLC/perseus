@@ -1,448 +1,509 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Perseus: persistent, deterministic memory for AI agents</title>
-<link rel="icon" href="/assets/perseus.svg">
+<title>Perseus Computing · load only the context your agents need</title>
+<meta name="description" content="Perseus is the memory & context layer for AI agents. Load only the context they actually need: 94% fewer prompt tokens, a 67% smaller tool schema, 73.6% on LongMemEval. Local-first, air-gap ready, open source (MIT).">
 <link rel="canonical" href="https://perseus.observer/">
-<meta name="description" content="Perseus is persistent, deterministic memory for AI agents: the same answer every time, provable at any point in time, running entirely on your own hardware. Open source, local-first, MIT.">
-<meta name="theme-color" content="#050508">
 <meta property="og:type" content="website">
-<meta property="og:site_name" content="Perseus">
-<meta property="og:title" content="Perseus: they guess, we remember.">
-<meta property="og:description" content="Persistent, deterministic memory for AI agents: the same answer every time, provable at any point in time, running entirely on your own hardware.">
+<meta property="og:title" content="Perseus Computing · the memory & context layer for AI agents">
+<meta property="og:description" content="Load only the context your agents actually need. 94% fewer prompt tokens, 0 ms overhead. Local-first, air-gap ready, open source.">
 <meta property="og:url" content="https://perseus.observer/">
 <meta property="og:image" content="https://perseus.observer/assets/og/perseus.png">
-<meta property="og:image:width" content="1200">
-<meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Perseus: they guess, we remember.">
-<meta name="twitter:description" content="Persistent, deterministic memory for AI agents: the same answer every time, provable at any point in time, running entirely on your own hardware.">
+<meta name="twitter:title" content="Perseus Computing · the memory & context layer for AI agents">
+<meta name="twitter:description" content="Load only the context your agents actually need. 94% fewer prompt tokens, 0 ms overhead. Local-first, air-gap ready, open source.">
 <meta name="twitter:image" content="https://perseus.observer/assets/og/perseus.png">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/assets/fonts.css">
 <style>
-:root, [data-theme="dark"] {
-  --bg:#050508; --surface:#0B0A12; --surface-2:#0F0D1A; --elevate:#14111F;
-  --border:#221E36; --border-soft:#171425; --border-violet:rgba(167,139,250,.16);
-  --text:#F4F2FB; --text-dim:#8B8798; --text-faint:#6A6676; --text-ghost:#55525F;
-  --amber:#A78BFA; --amber-ink:#CBB8FF; --amber-soft:rgba(167,139,250,.12);
-  --violet:#8B9CFF; --violet-ink:#B7C2FF; --violet-soft:rgba(139,156,255,.12);
-  --gold:#D9B45F; --gold-soft:rgba(217,180,95,.12);
-  --steel:#8A93A8; --steel-soft:rgba(138,147,168,.12);
-  --green:#4BD08A; --green-soft:rgba(75,208,138,.13); --red:#E5687A;
-  --field:rgba(124,92,214,.26); --field-2:rgba(80,120,255,.10);
-  --term-bg:#07070C; --term-border:#211D30; --header-bg:rgba(5,5,8,.74);
-  --shadow:0 1px 0 rgba(255,255,255,.03), 0 22px 46px -30px rgba(0,0,0,.85);
-  --dot:rgba(167,139,250,.06);
-  --font-display:'Space Grotesk',system-ui,sans-serif;
-  --font-body:'IBM Plex Sans',system-ui,sans-serif;
-  --font-mono:'IBM Plex Mono',ui-monospace,monospace;
-}
-[data-theme="light"] {
-  --bg:#F5F4FB; --surface:#FFFFFF; --surface-2:#FBFAFF; --elevate:#FFFFFF;
-  --border:#E4E1F1; --border-soft:#EEEBF6; --border-violet:rgba(124,92,214,.18);
-  --text:#14111F; --text-dim:#56535F; --text-faint:#8E8A99; --text-ghost:#A6A2B4;
-  --amber:#7C5CD6; --amber-ink:#6A38DE; --amber-soft:rgba(124,92,214,.09);
-  --violet:#5566E6; --violet-ink:#3B49C9; --violet-soft:rgba(85,102,230,.09);
-  --gold:#A9832B; --gold-soft:rgba(169,131,43,.11);
-  --steel:#6B7488; --steel-soft:rgba(107,116,136,.10);
-  --green:#1F8A5B; --red:#C7415A;
-  --field:rgba(124,92,214,.12); --field-2:rgba(80,120,255,.06);
-  --term-bg:#07070C; --term-border:#211D30; --header-bg:rgba(245,244,251,.80);
-  --shadow:0 1px 2px rgba(20,18,40,.04), 0 18px 38px -26px rgba(60,50,110,.22);
-  --dot:rgba(124,92,214,.07);
-}
-* { box-sizing:border-box; }
-html { scroll-behavior:smooth; }
-body {
-  margin:0; background-color:var(--bg);
-  background-image:radial-gradient(var(--dot) 1px, transparent 1px);
-  background-size:24px 24px; background-attachment:fixed;
-  color:var(--text); font-family:var(--font-body);
-  -webkit-font-smoothing:antialiased; line-height:1.55;
-}
-::selection { background:var(--amber); color:#0a0813; }
-a { color:var(--violet-ink); text-decoration:none; }
-a:hover { color:var(--amber-ink); }
-@keyframes blink { 50% { opacity:0; } }
-@media (max-width: 860px) {
-  [data-cols="compare"], [data-cols="engines"], [data-cols="start"], [data-cols="hero"] { grid-template-columns:1fr !important; }
-  [data-cols="foot"] { grid-template-columns:1fr 1fr !important; }
-  nav.mainnav { display:none !important; }
-}
-@media (prefers-reduced-motion: reduce) {
-  html { scroll-behavior:auto; }
-  .cursor { animation:none !important; }
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin:0; background:#0b0c0f; color:#e7e9ee; font-family:'IBM Plex Sans',system-ui,-apple-system,sans-serif; -webkit-font-smoothing:antialiased; line-height:1.55; }
+a { color:#a78bfa; text-decoration:none; }
+a:hover { color:#c4b5fd; }
+p { margin:0; }
+h1,h2,h3,h4 { margin:0; font-weight:600; letter-spacing:-0.01em; }
+::selection { background:#a78bfa; color:#0b0c0f; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+input[type=range]{ -webkit-appearance:none; appearance:none; width:100%; height:4px; border-radius:2px; background:#262a33; outline:none; margin:0; }
+input[type=range]::-webkit-slider-thumb{ -webkit-appearance:none; width:18px;height:18px;border-radius:50%;background:#a78bfa;cursor:pointer;border:3px solid #0b0c0f;box-shadow:0 0 0 1px #a78bfa; }
+input[type=range]::-moz-range-thumb{ width:18px;height:18px;border-radius:50%;background:#a78bfa;cursor:pointer;border:3px solid #0b0c0f; }
+input[type=number]{ font-family:'IBM Plex Mono',monospace; }
+@media (max-width:900px){
+  .nav-links{ display:none !important; }
+  .grid-2, .grid-3, .grid-5, .cal-grid { grid-template-columns:1fr !important; }
 }
 </style>
-<script>try{var t=localStorage.getItem('perseus-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
-<script defer src="https://stats.perseus.observer/script.js" data-website-id="74dc0a11-f2dd-4d6f-b0b7-4a550116bbe5"></script>
 </head>
 <body>
 
-<div style="min-height:100vh; background:var(--bg); font-family:var(--font-body); color:var(--text);">
+<div style="max-width:100%;overflow-x:hidden;">
 
-  <!-- ===================== HEADER ===================== -->
-  <header style="position:sticky; top:0; z-index:60; backdrop-filter:saturate(140%) blur(14px); background:var(--header-bg); border-bottom:1px solid var(--border-soft);">
-    <div style="display:flex; align-items:center; gap:28px; padding:14px 24px; max-width:1180px; margin:0 auto;">
-      <a href="#top" aria-label="Perseus home" style="display:flex; align-items:center; gap:11px; color:var(--text); margin-right:auto;">
-        <svg width="30" height="30" viewBox="0 0 56 56" fill="none" aria-hidden="true">
-          <rect x="3" y="14" width="17" height="3.6" rx="1.8" fill="var(--violet)"></rect>
-          <rect x="3" y="21" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".75"></rect>
-          <rect x="3" y="28" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".55"></rect>
-          <rect x="3" y="35" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".4"></rect>
-          <g stroke="var(--amber)" stroke-width="2.4" stroke-linecap="round">
-            <line x1="22" y1="16" x2="42" y2="28"></line><line x1="22" y1="23" x2="42" y2="28"></line>
-            <line x1="22" y1="30" x2="42" y2="28"></line><line x1="22" y1="37" x2="42" y2="28"></line>
-          </g>
-          <circle cx="44" cy="28" r="4.2" fill="var(--amber)"></circle>
-        </svg>
-        <b style="font-family:var(--font-display); font-weight:600; font-size:18px; letter-spacing:-.02em;">Perseus</b>
+<!-- ===== NAV ===== -->
+<nav style="position:sticky;top:0;z-index:50;display:flex;align-items:center;justify-content:space-between;gap:24px;padding:16px 32px;background:rgba(11,12,15,0.82);backdrop-filter:blur(12px);border-bottom:1px solid #1b1e25;">
+  <a href="#top" style="display:flex;align-items:center;gap:10px;color:#e7e9ee;">
+    <svg width="22" height="26" viewBox="0 0 22 26" fill="none" style="display:block;"><path d="M11 1L21 5.5V13c0 6.2-4.1 10.2-10 11.9C5.1 23.2 1 19.2 1 13V5.5L11 1z" stroke="#a78bfa" stroke-width="1.4" fill="rgba(167,139,250,0.08)"/><path d="M11 6.5v13" stroke="#3fb37f" stroke-width="1.3"/><path d="M6.5 11l4.5 3 4.5-3" stroke="#a78bfa" stroke-width="1.3" fill="none"/></svg>
+    <span style="font-weight:600;font-size:16px;letter-spacing:-0.01em;">Perseus Computing</span>
+  </a>
+  <div class="nav-links" style="display:flex;align-items:center;gap:24px;font-size:14px;color:#9aa2ad;">
+    <a href="/context-engine/" style="color:#9aa2ad;">Context engine</a>
+    <a href="/vault/" style="color:#9aa2ad;">Vault</a>
+    <a href="#calculator" style="color:#9aa2ad;">Calculator</a>
+    <a href="/government/" style="color:#9aa2ad;">Sovereignty</a>
+    <a href="/demo/" style="color:#9aa2ad;">Demo</a>
+  </div>
+  <div style="display:flex;align-items:center;gap:12px;">
+    <a href="https://github.com/Perseus-Computing-LLC" style="font-size:13px;color:#9aa2ad;border:1px solid #262a33;border-radius:7px;padding:7px 12px;">GitHub</a>
+    <a href="#products" style="font-size:13px;color:#0b0c0f;background:#a78bfa;border-radius:7px;padding:8px 14px;font-weight:600;">Get started</a>
+  </div>
+</nav>
+
+<!-- ===== HERO ===== -->
+<header id="top" style="position:relative;padding:96px 32px 72px;background:radial-gradient(1100px 520px at 50% -12%,rgba(167,139,250,0.14),transparent 70%);">
+  <div style="max-width:1000px;margin:0 auto;text-align:center;">
+    <div style="display:inline-flex;align-items:center;gap:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:#9aa2ad;border:1px solid #262a33;border-radius:999px;padding:6px 14px;margin-bottom:28px;">
+      <span style="width:7px;height:7px;border-radius:50%;background:#3fb37f;animation:blink 2.4s ease-in-out infinite;"></span>
+      memory &amp; context for AI agents · open source · local-first
+    </div>
+    <h1 style="font-size:56px;line-height:1.05;letter-spacing:-0.03em;font-weight:700;max-width:900px;margin:0 auto 22px;">Load only the context your agents actually need.</h1>
+    <p style="font-size:20px;line-height:1.5;color:#b9c0ca;max-width:720px;margin:0 auto 14px;">Perseus is the memory and context layer for AI agents. It cuts the token bill and makes agents smarter by handing them the exact facts a task needs.</p>
+    <p style="font-size:16px;color:#9aa2ad;max-width:660px;margin:0 auto 36px;">Not the whole notebook, re-read from page one on every single call.</p>
+
+    <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-bottom:44px;">
+      <a href="#calculator" style="font-size:15px;color:#0b0c0f;background:#a78bfa;border-radius:9px;padding:13px 22px;font-weight:600;">Estimate your savings</a>
+      <a href="#products" style="font-size:15px;color:#e7e9ee;border:1px solid #2f3440;border-radius:9px;padding:13px 22px;font-weight:500;">Read the docs</a>
+    </div>
+
+    <div class="grid-3" style="display:flex;gap:14px;justify-content:center;flex-wrap:wrap;max-width:820px;margin:0 auto;">
+      <div style="flex:1;min-width:200px;background:#14161c;border:1px solid #262a33;border-radius:12px;padding:20px 18px;text-align:left;">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:32px;font-weight:600;color:#a78bfa;letter-spacing:-0.02em;">94%</div>
+        <div style="font-size:13px;color:#9aa2ad;margin-top:4px;line-height:1.4;">fewer prompt tokens per request<br><span style="color:#6d7480;">measured 200-request A/B</span></div>
+      </div>
+      <div style="flex:1;min-width:200px;background:#14161c;border:1px solid #262a33;border-radius:12px;padding:20px 18px;text-align:left;">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:32px;font-weight:600;color:#a78bfa;letter-spacing:-0.02em;">171&#8202;→&#8202;57</div>
+        <div style="font-size:13px;color:#9aa2ad;margin-top:4px;line-height:1.4;">tool schemas advertised<br><span style="color:#6d7480;">~67% smaller tool payload</span></div>
+      </div>
+      <div style="flex:1;min-width:200px;background:#14161c;border:1px solid #262a33;border-radius:12px;padding:20px 18px;text-align:left;">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:32px;font-weight:600;color:#a78bfa;letter-spacing:-0.02em;">73.6%</div>
+        <div style="font-size:13px;color:#9aa2ad;margin-top:4px;line-height:1.4;">LongMemEval QA accuracy<br><span style="color:#6d7480;">official harness · vs Zep 63.8%</span></div>
+      </div>
+    </div>
+
+    <div style="margin:40px auto 0;max-width:520px;background:#0f1014;border:1px solid #262a33;border-radius:10px;padding:14px 16px;display:flex;align-items:center;gap:12px;font-family:'IBM Plex Mono',monospace;font-size:14px;text-align:left;">
+      <span style="color:#3fb37f;">$</span>
+      <span style="color:#e7e9ee;">pip install perseus-ctx</span>
+      <span style="color:#4a505c;">·</span>
+      <span style="color:#9aa2ad;">MIT · zero telemetry</span>
+    </div>
+  </div>
+</header>
+
+<!-- ===== ANALOGY ===== -->
+<section style="padding:72px 32px;border-top:1px solid #14161c;background:#0d0e12;">
+  <div class="grid-2" style="max-width:1040px;margin:0 auto;display:grid;grid-template-columns:1fr 1fr;gap:48px;align-items:center;">
+    <div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#a78bfa;letter-spacing:0.04em;text-transform:uppercase;margin-bottom:14px;">The problem</div>
+      <h2 style="font-size:32px;line-height:1.15;margin-bottom:18px;">Agents re-read everything, every call. You pay per word.</h2>
+      <p style="font-size:16px;color:#b9c0ca;margin-bottom:14px;">An agent with no memory layer reloads its entire working set on every turn: all its tools, the whole history, every doc, and the model is billed for every token, every time.</p>
+      <p style="font-size:16px;color:#b9c0ca;">Perseus resolves the workspace into verified facts <em style="color:#e7e9ee;font-style:normal;font-weight:600;">before</em> the context window opens, and retrieves only the memory a task needs. It hands the agent the one page it's looking for.</p>
+    </div>
+    <div style="background:#14161c;border:1px solid #262a33;border-radius:14px;padding:26px;">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#9aa2ad;margin-bottom:18px;">avg prompt tokens per request</div>
+      <div style="margin-bottom:22px;">
+        <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:7px;"><span style="color:#9aa2ad;">Without Perseus</span><span style="font-family:'IBM Plex Mono',monospace;color:#e7e9ee;">488</span></div>
+        <div style="height:14px;border-radius:7px;background:#262a33;overflow:hidden;"><div style="width:100%;height:100%;background:linear-gradient(90deg,#3a3f4a,#565d6b);"></div></div>
+      </div>
+      <div>
+        <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:7px;"><span style="color:#9aa2ad;">With Perseus</span><span style="font-family:'IBM Plex Mono',monospace;color:#a78bfa;">27</span></div>
+        <div style="height:14px;border-radius:7px;background:#262a33;overflow:hidden;"><div style="width:5.5%;height:100%;background:linear-gradient(90deg,#a78bfa,#c4b5fd);"></div></div>
+      </div>
+      <div style="margin-top:20px;padding-top:16px;border-top:1px solid #262a33;font-size:12px;color:#6d7480;font-family:'IBM Plex Mono',monospace;">measured · 200-request live A/B · P99 latency overhead 0 ms</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== VALUE PILLARS ===== -->
+<section id="value" style="padding:84px 32px 40px;">
+  <div style="max-width:1080px;margin:0 auto;">
+    <div style="text-align:center;max-width:640px;margin:0 auto 56px;">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#a78bfa;letter-spacing:0.04em;text-transform:uppercase;margin-bottom:14px;">Why pay for it</div>
+      <h2 style="font-size:34px;line-height:1.12;">Three reasons the memory layer earns its place.</h2>
+    </div>
+
+    <div class="grid-3" style="display:grid;grid-template-columns:repeat(3,1fr);gap:20px;">
+      <!-- Pillar 1 -->
+      <div style="background:#14161c;border:1px solid #262a33;border-radius:14px;padding:28px;">
+        <div style="width:38px;height:38px;border-radius:9px;background:rgba(167,139,250,0.12);display:flex;align-items:center;justify-content:center;margin-bottom:18px;"><svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M10 1v18M6 4h6.5a2.5 2.5 0 010 5H5m0 2h9a2.5 2.5 0 010 5H7" stroke="#a78bfa" stroke-width="1.4" stroke-linecap="round"/></svg></div>
+        <h3 style="font-size:19px;margin-bottom:10px;">It pays for itself in tokens.</h3>
+        <p style="font-size:14.5px;color:#a2a9b4;margin-bottom:18px;">Resolve-before-context and a slimmer tool manifest mean the model reads a fraction of the tokens on every call.</p>
+        <ul style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:11px;font-size:13.5px;">
+          <li style="display:flex;gap:9px;"><span style="color:#3fb37f;font-family:'IBM Plex Mono',monospace;">94%</span><span style="color:#9aa2ad;">fewer prompt tokens (488 → 27 avg/request)</span></li>
+          <li style="display:flex;gap:9px;"><span style="color:#3fb37f;font-family:'IBM Plex Mono',monospace;">67%</span><span style="color:#9aa2ad;">smaller tool schema (171 → 57 advertised)</span></li>
+          <li style="display:flex;gap:9px;"><span style="color:#3fb37f;font-family:'IBM Plex Mono',monospace;">0ms</span><span style="color:#9aa2ad;">added P99 latency, nothing to trade off</span></li>
+        </ul>
+      </div>
+      <!-- Pillar 2 -->
+      <div style="background:#14161c;border:1px solid #262a33;border-radius:14px;padding:28px;">
+        <div style="width:38px;height:38px;border-radius:9px;background:rgba(63,179,127,0.12);display:flex;align-items:center;justify-content:center;margin-bottom:18px;"><svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M10 1.5l7 3v5c0 4.4-2.9 7.3-7 8.5-4.1-1.2-7-4.1-7-8.5v-5l7-3z" stroke="#3fb37f" stroke-width="1.4" fill="none"/><path d="M7 10l2 2 4-4.3" stroke="#3fb37f" stroke-width="1.4" stroke-linecap="round"/></svg></div>
+        <h3 style="font-size:19px;margin-bottom:10px;">It unlocks deployments others can't.</h3>
+        <p style="font-size:14.5px;color:#a2a9b4;margin-bottom:18px;">Fully local-first and air-gap ready: the encrypted, offline posture regulated and sovereign buyers require.</p>
+        <ul style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:11px;font-size:13.5px;">
+          <li style="display:flex;gap:9px;"><span style="color:#3fb37f;">→</span><span style="color:#9aa2ad;">Runs offline · zero telemetry · no cloud calls</span></li>
+          <li style="display:flex;gap:9px;"><span style="color:#3fb37f;">→</span><span style="color:#9aa2ad;">AES-256-GCM encryption at rest</span></li>
+          <li style="display:flex;gap:9px;"><span style="color:#3fb37f;">→</span><span style="color:#9aa2ad;">Immutable, crypto-chained audit journal</span></li>
+        </ul>
+      </div>
+      <!-- Pillar 3 -->
+      <div style="background:#14161c;border:1px solid #262a33;border-radius:14px;padding:28px;">
+        <div style="width:38px;height:38px;border-radius:9px;background:rgba(167,139,250,0.12);display:flex;align-items:center;justify-content:center;margin-bottom:18px;"><svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="8" stroke="#a78bfa" stroke-width="1.4"/><path d="M10 5.5v4.7l3 1.8" stroke="#a78bfa" stroke-width="1.4" stroke-linecap="round"/></svg></div>
+        <h3 style="font-size:19px;margin-bottom:10px;">It makes agents smarter.</h3>
+        <p style="font-size:14.5px;color:#a2a9b4;margin-bottom:18px;">Durable memory means agents remember decisions, conventions, and past failures, so they stop repeating them.</p>
+        <ul style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:11px;font-size:13.5px;">
+          <li style="display:flex;gap:9px;"><span style="color:#a78bfa;font-family:'IBM Plex Mono',monospace;">73.6%</span><span style="color:#9aa2ad;">LongMemEval QA (vs Zep 63.8%, Mem0 49.0%)</span></li>
+          <li style="display:flex;gap:9px;"><span style="color:#a78bfa;">→</span><span style="color:#9aa2ad;">Bi-temporal history: what was true &amp; when</span></li>
+          <li style="display:flex;gap:9px;"><span style="color:#a78bfa;">→</span><span style="color:#9aa2ad;">Hybrid recall · confidence decay · dedup</span></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== CALCULATOR ===== -->
+<section id="calculator" style="padding:56px 32px 84px;">
+  <div style="max-width:1080px;margin:0 auto;background:linear-gradient(180deg,#131a1a,#101116);border:1px solid #21402f;border-radius:18px;padding:40px;">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:20px;flex-wrap:wrap;margin-bottom:8px;">
+      <div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#3fb37f;letter-spacing:0.04em;text-transform:uppercase;margin-bottom:10px;">Value calculator</div>
+        <h2 style="font-size:30px;line-height:1.12;">Plug in your fleet. See the token bill.</h2>
+      </div>
+      <div style="display:inline-flex;align-items:center;gap:7px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#d9a441;border:1px solid rgba(217,164,65,0.4);background:rgba(217,164,65,0.08);border-radius:999px;padding:6px 12px;max-width:280px;line-height:1.35;">
+        <span style="font-size:13px;">⚠</span> Illustrative economic model, not a measured result for your workload.
+      </div>
+    </div>
+
+    <div class="cal-grid" style="display:grid;grid-template-columns:0.95fr 1.05fr;gap:36px;margin-top:28px;align-items:start;">
+      <!-- Controls -->
+      <div style="display:flex;flex-direction:column;gap:26px;">
+        <div>
+          <div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:12px;"><span style="color:#c3cad4;">Agents in your fleet</span><span id="cal-agents-val" style="font-family:'IBM Plex Mono',monospace;color:#a78bfa;font-size:16px;">100</span></div>
+          <input id="cal-agents" type="range" min="5" max="500" step="5" value="100">
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:#6d7480;font-family:'IBM Plex Mono',monospace;margin-top:6px;"><span>5</span><span>500</span></div>
+        </div>
+        <div>
+          <div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:12px;"><span style="color:#c3cad4;">Calls per agent / day</span><span id="cal-calls-val" style="font-family:'IBM Plex Mono',monospace;color:#a78bfa;font-size:16px;">1,000</span></div>
+          <input id="cal-calls" type="range" min="100" max="5000" step="100" value="1000">
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:#6d7480;font-family:'IBM Plex Mono',monospace;margin-top:6px;"><span>100</span><span>5,000</span></div>
+        </div>
+        <!-- Model-price presets -->
+        <div>
+          <div style="font-size:13px;color:#c3cad4;margin-bottom:10px;">Model tier / 1M input tokens <span style="color:#6d7480;">· FedRAMP-authorized platforms, Jul 2026 list</span></div>
+          <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;">
+            <button type="button" class="cal-preset" data-preset="frontier" data-price="5"><span style="display:block;font-weight:600;margin-bottom:2px;">Frontier · ~$5.00</span><span style="opacity:.65;">Claude Opus-class</span></button>
+            <button type="button" class="cal-preset" data-preset="standard" data-price="2.5"><span style="display:block;font-weight:600;margin-bottom:2px;">Standard · ~$2.50</span><span style="opacity:.65;">GPT-4o / Sonnet-class</span></button>
+            <button type="button" class="cal-preset" data-preset="efficient" data-price="1"><span style="display:block;font-weight:600;margin-bottom:2px;">Efficient · ~$1.00</span><span style="opacity:.65;">Haiku / Flash-class</span></button>
+            <button type="button" class="cal-preset" data-preset="economy" data-price="0.1"><span style="display:block;font-weight:600;margin-bottom:2px;">Economy · ~$0.10</span><span style="opacity:.65;">Nano / Nova-class</span></button>
+          </div>
+          <label style="display:flex;align-items:center;gap:10px;margin-top:12px;cursor:pointer;font-size:12.5px;color:#c3cad4;">
+            <input id="cal-gov" type="checkbox" style="width:16px;height:16px;accent-color:#3fb37f;cursor:pointer;">
+            Add GovCloud / Gov-region premium <span style="color:#6d7480;">(+25%: AWS GovCloud &amp; Azure Government run ~20–30% over commercial)</span>
+          </label>
+        </div>
+
+        <div style="display:flex;gap:12px;flex-wrap:wrap;">
+          <label style="flex:1;min-width:96px;">
+            <div style="font-size:13px;color:#c3cad4;margin-bottom:8px;">Currency</div>
+            <select id="cal-currency" style="width:100%;background:#0f1014;border:1px solid #262a33;border-radius:8px;color:#e7e9ee;font-size:15px;padding:9px 10px;outline:none;font-family:'IBM Plex Sans',sans-serif;cursor:pointer;">
+              <option value="USD">USD $</option>
+              <option value="EUR">EUR €</option>
+              <option value="GBP">GBP £</option>
+              <option value="CAD">CAD C$</option>
+              <option value="AUD">AUD A$</option>
+              <option value="JPY">JPY ¥</option>
+              <option value="INR">INR ₹</option>
+            </select>
+          </label>
+          <label style="flex:1;min-width:96px;">
+            <div style="font-size:13px;color:#c3cad4;margin-bottom:8px;">Price / 1M</div>
+            <div style="display:flex;align-items:center;background:#0f1014;border:1px solid #262a33;border-radius:8px;padding:0 10px;"><span id="cal-symbol" style="color:#6d7480;font-family:'IBM Plex Mono',monospace;">$</span><input id="cal-price" type="number" min="0" max="100000" step="0.1" value="3.00" style="width:100%;background:transparent;border:none;color:#e7e9ee;font-size:15px;padding:9px 6px;outline:none;"></div>
+            <div id="cal-effnote" style="font-size:11px;color:#3fb37f;font-family:'IBM Plex Mono',monospace;margin-top:6px;min-height:14px;"></div>
+          </label>
+          <label style="flex:1;min-width:96px;">
+            <div style="font-size:13px;color:#c3cad4;margin-bottom:8px;">Baseline tok/call</div>
+            <input id="cal-baseline" type="number" min="30" max="20000" step="1" value="488" style="width:100%;background:#0f1014;border:1px solid #262a33;border-radius:8px;color:#e7e9ee;font-size:15px;padding:9px 11px;outline:none;">
+          </label>
+        </div>
+
+        <div style="font-size:12px;color:#7d848f;line-height:1.6;border-top:1px solid #1e2129;padding-top:16px;">
+          <span style="color:#c3cad4;font-weight:600;">How this is estimated.</span> We apply the measured <span id="cal-redpct">94</span>% prompt-token reduction (from a 200-request live A/B where average prompt size fell from 488 to 27 tokens per request) to the request volume you set (agents × calls/day × 365).
+          <br><br>
+          <span style="color:#c3cad4;">Model tiers</span> are illustrative <em style="font-style:normal;color:#c3cad4;">input-token</em> list rates (Jul 2026) for the platforms the public sector actually buys: <em style="font-style:normal;">Frontier</em> ≈ Claude Opus on Bedrock ($5); <em style="font-style:normal;">Standard</em> ≈ GPT-4o on Azure / Claude Sonnet ($2.50–$3); <em style="font-style:normal;">Efficient</em> ≈ Claude Haiku / Gemini Flash ($1–$1.50); <em style="font-style:normal;">Economy</em> ≈ GPT-5-nano / Amazon Nova / Gemini Flash-Lite ($0.05–$0.10). The GovCloud toggle adds a flat 25% for AWS GovCloud / Azure Government / Gemini for Government regions. Every field is editable, so plug in your own contracted rate.
+          <br><br>
+          Counts input/prompt tokens only (not output); each currency is shown at its own list price, with no exchange-rate conversion. This is an illustrative model, not a measured result for your workload.
+          <br><br>
+          <span style="color:#9aa2ad;">Prices assessed July 2026</span> against AWS Bedrock (incl. GovCloud), Azure OpenAI / Azure Government, and Google Vertex / Gemini for Government. Model versions and promotional rates move quickly (e.g. Claude Sonnet 5's launch rate expires Aug 31, 2026), so treat the presets as anchors, not contract quotes, and enter your own contracted rate.
+        </div>
+      </div>
+
+      <!-- Output -->
+      <div style="background:#0f1014;border:1px solid #262a33;border-radius:14px;padding:28px;">
+        <div style="font-size:13px;color:#9aa2ad;margin-bottom:6px;">Estimated annual token savings</div>
+        <div id="cal-annual" style="font-family:'IBM Plex Mono',monospace;font-size:52px;font-weight:600;color:#3fb37f;letter-spacing:-0.02em;line-height:1;">$0</div>
+        <div style="font-size:13px;color:#9aa2ad;margin-top:8px;">≈ <span id="cal-monthly">$0</span> / month · <span id="cal-tokens">0</span> tokens saved / yr</div>
+
+        <div style="margin-top:26px;display:flex;flex-direction:column;gap:16px;">
+          <div>
+            <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:7px;"><span style="color:#9aa2ad;">Baseline spend / yr</span><span id="cal-baseline-annual" style="font-family:'IBM Plex Mono',monospace;color:#e7e9ee;">$0</span></div>
+            <div style="height:12px;border-radius:6px;background:#262a33;overflow:hidden;"><div style="width:100%;height:100%;background:#565d6b;"></div></div>
+          </div>
+          <div>
+            <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:7px;"><span style="color:#9aa2ad;">With Perseus / yr</span><span id="cal-perseus-annual" style="font-family:'IBM Plex Mono',monospace;color:#a78bfa;">$0</span></div>
+            <div style="height:12px;border-radius:6px;background:#262a33;overflow:hidden;"><div id="cal-bar" style="width:5.5%;height:100%;background:linear-gradient(90deg,#a78bfa,#c4b5fd);min-width:3px;"></div></div>
+          </div>
+        </div>
+        <div style="margin-top:22px;padding-top:16px;border-top:1px solid #262a33;font-size:12px;color:#6d7480;">Token savings only. Excludes output tokens, infra, and the compounding value of fewer agent errors.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== PRODUCTS ===== -->
+<section id="products" style="padding:80px 32px;border-top:1px solid #14161c;background:#0d0e12;">
+  <div style="max-width:1080px;margin:0 auto;">
+    <div style="text-align:center;max-width:620px;margin:0 auto 48px;">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#a78bfa;letter-spacing:0.04em;text-transform:uppercase;margin-bottom:14px;">Two products, one layer</div>
+      <h2 style="font-size:34px;line-height:1.12;">The context engine and the memory store.</h2>
+    </div>
+    <div class="grid-2" style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+      <!-- Perseus -->
+      <div style="background:#14161c;border:1px solid #262a33;border-radius:16px;padding:32px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+          <div style="display:flex;align-items:center;gap:11px;"><svg width="20" height="24" viewBox="0 0 22 26" fill="none"><path d="M11 1L21 5.5V13c0 6.2-4.1 10.2-10 11.9C5.1 23.2 1 19.2 1 13V5.5L11 1z" stroke="#a78bfa" stroke-width="1.4" fill="rgba(167,139,250,0.08)"/><path d="M6.5 11l4.5 3 4.5-3" stroke="#a78bfa" stroke-width="1.3" fill="none"/></svg><h3 style="font-size:22px;">Perseus</h3></div>
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#3fb37f;border:1px solid #21402f;border-radius:6px;padding:4px 9px;">v1.0.21</span>
+        </div>
+        <p style="font-size:15px;color:#b9c0ca;margin-bottom:20px;">The live context engine. Resolves git, services, tests, and workspace state into verified facts before the session opens, so agents never burn turns re-orienting.</p>
+        <ul style="list-style:none;padding:0;margin:0 0 24px;display:flex;flex-direction:column;gap:12px;font-size:13.5px;">
+          <li style="display:flex;gap:10px;"><span style="color:#a78bfa;font-family:'IBM Plex Mono',monospace;min-width:56px;">94%</span><span style="color:#9aa2ad;">fewer prompt tokens, 0 ms P99 overhead</span></li>
+          <li style="display:flex;gap:10px;"><span style="color:#a78bfa;font-family:'IBM Plex Mono',monospace;min-width:56px;">33</span><span style="color:#9aa2ad;">MCP tools resolving live state at call time</span></li>
+          <li style="display:flex;gap:10px;"><span style="color:#a78bfa;font-family:'IBM Plex Mono',monospace;min-width:56px;">MIT</span><span style="color:#9aa2ad;">local-first · zero telemetry · air-gap ready</span></li>
+        </ul>
+        <div style="background:#0f1014;border:1px solid #262a33;border-radius:9px;padding:12px 14px;display:flex;align-items:center;gap:10px;font-family:'IBM Plex Mono',monospace;font-size:13.5px;"><span style="color:#3fb37f;">$</span><span style="color:#e7e9ee;">pip install perseus-ctx</span></div>
+        <a href="/context-engine/" style="display:inline-flex;align-items:center;gap:6px;margin-top:16px;font-size:14px;font-weight:600;color:#a78bfa;">Explore the context engine →</a>
+      </div>
+      <!-- Perseus Vault -->
+      <div style="background:#14161c;border:1px solid #262a33;border-radius:16px;padding:32px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+          <div style="display:flex;align-items:center;gap:11px;"><svg width="20" height="24" viewBox="0 0 22 26" fill="none"><rect x="3" y="6" width="16" height="16" rx="2.5" stroke="#3fb37f" stroke-width="1.4" fill="rgba(63,179,127,0.07)"/><path d="M7 6V4.5A4 4 0 0115 4.5V6" stroke="#3fb37f" stroke-width="1.4"/><circle cx="11" cy="13" r="1.7" fill="#3fb37f"/><path d="M11 14.5V17" stroke="#3fb37f" stroke-width="1.4" stroke-linecap="round"/></svg><h3 style="font-size:22px;">Perseus Vault</h3></div>
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#3fb37f;border:1px solid #21402f;border-radius:6px;padding:4px 9px;">v2.20.0</span>
+        </div>
+        <p style="font-size:15px;color:#b9c0ca;margin-bottom:20px;">Persistent, encrypted memory in a single Rust binary. One file, no Docker, no Postgres, no cloud: durable agent memory that works with any MCP host.</p>
+        <ul style="list-style:none;padding:0;margin:0 0 24px;display:flex;flex-direction:column;gap:12px;font-size:13.5px;">
+          <li style="display:flex;gap:10px;"><span style="color:#3fb37f;font-family:'IBM Plex Mono',monospace;min-width:56px;">57</span><span style="color:#9aa2ad;">MCP tools (advertised once, not 171)</span></li>
+          <li style="display:flex;gap:10px;"><span style="color:#3fb37f;font-family:'IBM Plex Mono',monospace;min-width:56px;">73.6%</span><span style="color:#9aa2ad;">LongMemEval QA · hybrid BM25 + dense recall</span></li>
+          <li style="display:flex;gap:10px;"><span style="color:#3fb37f;font-family:'IBM Plex Mono',monospace;min-width:56px;">AES</span><span style="color:#9aa2ad;">256-GCM at rest · bi-temporal · audit journal</span></li>
+        </ul>
+        <div style="background:#0f1014;border:1px solid #262a33;border-radius:9px;padding:12px 14px;display:flex;align-items:center;gap:10px;font-family:'IBM Plex Mono',monospace;font-size:13px;overflow:hidden;"><span style="color:#3fb37f;">$</span><span style="color:#e7e9ee;white-space:nowrap;">curl -sSf …/install.sh | sh</span></div>
+        <a href="/vault/" style="display:inline-flex;align-items:center;gap:6px;margin-top:16px;font-size:14px;font-weight:600;color:#3fb37f;">Explore Perseus Vault →</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== COMPLIANCE / SOVEREIGNTY ===== -->
+<section id="compliance" style="padding:80px 32px;">
+  <div class="grid-2" style="max-width:1080px;margin:0 auto;display:grid;grid-template-columns:0.9fr 1.1fr;gap:48px;align-items:center;">
+    <div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#3fb37f;letter-spacing:0.04em;text-transform:uppercase;margin-bottom:14px;">Sovereignty &amp; compliance</div>
+      <h2 style="font-size:32px;line-height:1.14;margin-bottom:18px;">Built for the deployments the cloud can't reach.</h2>
+      <p style="font-size:16px;color:#b9c0ca;margin-bottom:14px;">Perseus runs entirely on your machine. No data leaves the boundary, nothing phones home, and there is no service to depend on, which is exactly what regulated, classified, and sovereign environments require.</p>
+      <p style="font-size:15px;color:#9aa2ad;margin-bottom:22px;">Open formats, open source, no vendor lock-in.</p>
+      <a href="/government/" style="display:inline-flex;align-items:center;gap:7px;font-size:14px;font-weight:600;color:#a78bfa;border:1px solid #2f3440;border-radius:9px;padding:11px 18px;">Read the full sovereignty brief →</a>
+    </div>
+    <div class="grid-2" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+      <div style="background:#14161c;border:1px solid #262a33;border-radius:12px;padding:20px;"><div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#3fb37f;margin-bottom:8px;">Air-gapped</div><div style="font-size:13.5px;color:#9aa2ad;">Fully offline. Zero cloud dependencies, zero telemetry.</div></div>
+      <div style="background:#14161c;border:1px solid #262a33;border-radius:12px;padding:20px;"><div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#3fb37f;margin-bottom:8px;">Encrypted</div><div style="font-size:13.5px;color:#9aa2ad;">AES-256-GCM at rest with immutable, chained audit trail.</div></div>
+      <div style="background:#14161c;border:1px solid #262a33;border-radius:12px;padding:20px;"><div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#3fb37f;margin-bottom:8px;">MIT licensed</div><div style="font-size:13.5px;color:#9aa2ad;">No copyleft, no GPL/AGPL, no lock-in. Yours to run.</div></div>
+      <div style="background:#14161c;border:1px solid #262a33;border-radius:12px;padding:20px;"><div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#3fb37f;margin-bottom:8px;">Government-ready</div><div style="font-size:13.5px;color:#9aa2ad;">SBOM per EO 14028 · NIST AI RMF aligned · EAR99.</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== MEASURED PROOF STRIP ===== -->
+<section id="proof" style="padding:60px 32px 80px;border-top:1px solid #14161c;background:#0d0e12;">
+  <div style="max-width:1080px;margin:0 auto;">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:28px;">
+      <h2 style="font-size:24px;">Measured, reproducible.</h2>
+      <p style="font-size:13.5px;color:#9aa2ad;max-width:520px;">Every figure below is measured on named hardware with a rerunnable script. Economic models are labeled illustrative; benchmarks are not.</p>
+    </div>
+    <div class="grid-5" style="display:grid;grid-template-columns:repeat(5,1fr);gap:14px;">
+      <a href="https://github.com/Perseus-Computing-LLC/perseus/tree/main/benchmark" style="background:#101216;border:1px solid #262a33;border-radius:12px;padding:20px 18px;display:block;">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:26px;font-weight:600;color:#a78bfa;">94%</div>
+        <div style="font-size:12.5px;color:#9aa2ad;margin-top:6px;line-height:1.4;">prompt-token cut<br>200-req A/B</div>
       </a>
-      <nav class="mainnav" style="display:flex; align-items:center; gap:26px; font-size:14.5px;">
-        <a href="#problem" style="color:var(--text-dim);">Problem</a>
-        <a href="#proof" style="color:var(--text-dim);">Deterministic</a>
-        <a href="#how" style="color:var(--text-dim);">How it works</a>
-        <a href="#products" style="color:var(--text-dim);">Products</a>
-      </nav>
-      <button id="themeToggle" aria-label="Toggle theme" style="display:inline-flex; align-items:center; gap:7px; height:36px; padding:0 13px; border-radius:9px; border:1px solid var(--border); background:var(--surface); color:var(--text-dim); font-family:var(--font-mono); font-size:12px; cursor:pointer;">
-        <span style="width:13px; height:13px; border-radius:50%; border:2px solid currentColor; background:linear-gradient(90deg, currentColor 50%, transparent 50%); display:inline-block;"></span>
-        <span id="themeLabel">Light</span>
-      </button>
-      <a href="https://github.com/Perseus-Computing-LLC/perseus" style="display:inline-flex; align-items:center; justify-content:center; gap:8px; height:36px; padding:0 16px; border-radius:9px; font-size:14px; font-weight:600; background:var(--text); color:var(--bg);">GitHub ↗</a>
+      <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/PERF.md" style="background:#101216;border:1px solid #262a33;border-radius:12px;padding:20px 18px;display:block;">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:26px;font-weight:600;color:#a78bfa;">3.7×</div>
+        <div style="font-size:12.5px;color:#9aa2ad;margin-top:6px;line-height:1.4;">hybrid recall<br>295→81ms @100K</div>
+      </a>
+      <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/tree/main/benchmark/longmemeval" style="background:#101216;border:1px solid #262a33;border-radius:12px;padding:20px 18px;display:block;">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:26px;font-weight:600;color:#a78bfa;">73.6%</div>
+        <div style="font-size:12.5px;color:#9aa2ad;margin-top:6px;line-height:1.4;">LongMemEval QA<br>official harness</div>
+      </a>
+      <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/docs/deployment-amd-mi300x.md" style="background:#101216;border:1px solid #262a33;border-radius:12px;padding:20px 18px;display:block;">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:26px;font-weight:600;color:#a78bfa;">11.7×</div>
+        <div style="font-size:12.5px;color:#9aa2ad;margin-top:6px;line-height:1.4;">$/agent-hr<br>MI300X measured</div>
+      </a>
+      <a href="https://github.com/Perseus-Computing-LLC/perseus-vault#stress-test-100k-entities" style="background:#101216;border:1px solid #262a33;border-radius:12px;padding:20px 18px;display:block;">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:26px;font-weight:600;color:#a78bfa;">98K/s</div>
+        <div style="font-size:12.5px;color:#9aa2ad;margin-top:6px;line-height:1.4;">100K entities<br>inserted in 1.01s</div>
+      </a>
     </div>
-  </header>
+  </div>
+</section>
 
-  <!-- ===================== HERO ===================== -->
-  <section id="top" style="position:relative; overflow:hidden; border-bottom:1px solid var(--border-soft);">
-    <div style="position:absolute; inset:0; pointer-events:none; z-index:0; background:radial-gradient(760px 420px at 50% -10%, var(--field), transparent 66%), radial-gradient(560px 320px at 90% 120%, var(--field-2), transparent 70%);"></div>
-    <span style="position:absolute; top:20px; left:20px; width:14px; height:14px; border-top:1px solid var(--border-violet); border-left:1px solid var(--border-violet);"></span>
-    <span style="position:absolute; top:20px; right:20px; width:14px; height:14px; border-top:1px solid var(--border-violet); border-right:1px solid var(--border-violet);"></span>
-    <div style="position:relative; max-width:1180px; margin:0 auto; padding:clamp(60px,8vw,104px) 24px clamp(52px,6vw,84px); text-align:center;">
-      <span style="display:inline-flex; align-items:center; gap:9px; font-family:var(--font-mono); font-size:12px; letter-spacing:.18em; text-transform:uppercase; color:var(--amber); margin-bottom:26px;">
-        <span style="color:var(--text-faint);">//</span> Two engines. One deterministic stack.
-      </span>
-      <h1 style="font-family:var(--font-display); font-size:clamp(44px,8vw,104px); line-height:.98; font-weight:600; letter-spacing:-.03em; margin:0 auto 26px; max-width:15ch;">They guess.<br><span style="color:var(--amber);">We remember.</span></h1>
-      <div style="display:flex; flex-wrap:wrap; justify-content:center; gap:10px; margin-bottom:26px;">
-        <span style="font-family:var(--font-mono); font-size:13px; color:var(--amber-ink); background:var(--amber-soft); border:1px solid var(--border-violet); padding:7px 14px; border-radius:20px;">Persistent by name</span>
-        <span style="font-family:var(--font-mono); font-size:13px; color:var(--amber-ink); background:var(--amber-soft); border:1px solid var(--border-violet); padding:7px 14px; border-radius:20px;">Deterministic by design</span>
-        <span style="font-family:var(--font-mono); font-size:13px; color:var(--amber-ink); background:var(--amber-soft); border:1px solid var(--border-violet); padding:7px 14px; border-radius:20px;">Local by default</span>
-      </div>
-      <p style="font-size:clamp(16px,1.6vw,19px); line-height:1.6; color:var(--text-dim); max-width:60ch; margin:0 auto 38px;">Perseus is persistent, deterministic memory for AI agents: the <span style="color:var(--text);">same answer every time</span>, provable at any point in time, running entirely on your own hardware.</p>
-      <div style="display:flex; flex-wrap:wrap; justify-content:center; gap:14px; margin-bottom:52px;">
-        <div style="display:inline-flex; align-items:center; gap:14px; height:48px; padding:0 8px 0 18px; border-radius:11px; background:var(--term-bg); border:1px solid var(--term-border); font-family:var(--font-mono); font-size:14px; color:#E6E3F2;">
-          <span><span style="color:#6E6A80;">$</span> pip install perseus-ctx</span>
-          <button class="copyBtn" data-cmd="pip install perseus-ctx" style="height:34px; padding:0 13px; border-radius:8px; border:none; background:var(--amber); color:#1a1308; font-family:var(--font-mono); font-size:12px; font-weight:600; cursor:pointer;">Copy</button>
-        </div>
-        <div style="display:inline-flex; align-items:center; gap:14px; height:48px; padding:0 8px 0 18px; border-radius:11px; background:var(--term-bg); border:1px solid var(--term-border); font-family:var(--font-mono); font-size:14px; color:#E6E3F2;">
-          <span><span style="color:#6E6A80;">$</span> curl … perseus-vault | sh</span>
-          <button class="copyBtn" data-cmd="curl -sSf https://raw.githubusercontent.com/Perseus-Computing-LLC/perseus-vault/main/scripts/install.sh | sh" style="height:34px; padding:0 13px; border-radius:8px; border:none; background:var(--violet); color:#0c0814; font-family:var(--font-mono); font-size:12px; font-weight:600; cursor:pointer;">Copy</button>
-        </div>
-      </div>
-      <!-- dual-engine terminal -->
-      <div style="max-width:820px; margin:0 auto; border-radius:14px; background:var(--term-bg); border:1px solid var(--term-border); overflow:hidden; box-shadow:var(--shadow); text-align:left;">
-        <div style="display:flex; align-items:center; gap:7px; padding:13px 16px; border-bottom:1px solid var(--term-border);"><span style="width:11px; height:11px; border-radius:50%; background:#3a3650;"></span><span style="width:11px; height:11px; border-radius:50%; background:#3a3650;"></span><span style="width:11px; height:11px; border-radius:50%; background:#3a3650;"></span><span style="margin-left:8px; font-family:var(--font-mono); font-size:12px; color:#6E6A80;">~/project · session start</span></div>
-        <pre id="term" style="margin:0; padding:22px 22px; font-family:var(--font-mono); font-size:13.5px; line-height:1.9; color:#C9C5D8; white-space:pre-wrap; min-height:280px;"></pre>
-      </div>
+<!-- ===== README HERO MOCK ===== -->
+<section style="padding:70px 32px;">
+  <div style="max-width:1000px;margin:0 auto;">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:16px;">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#9aa2ad;letter-spacing:0.04em;text-transform:uppercase;">GitHub README lead</div>
+      <a href="/readme-preview/" style="font-size:13.5px;font-weight:600;color:#a78bfa;">See both README leads →</a>
     </div>
-  </section>
-
-  <!-- ===================== PROBLEM: ORIENTATION TAX ===================== -->
-  <section id="problem" style="padding:clamp(76px,9vw,120px) 0;">
-    <div style="max-width:1180px; margin:0 auto; padding:0 24px;">
-      <span style="display:inline-flex; align-items:center; gap:9px; font-family:var(--font-mono); font-size:12px; letter-spacing:.16em; text-transform:uppercase; color:var(--violet); margin-bottom:22px;">
-        <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true"><g stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><line x1="1.5" y1="3" x2="11.5" y2="3"></line><line x1="1.5" y1="6.5" x2="11.5" y2="6.5"></line><line x1="1.5" y1="10" x2="11.5" y2="10"></line></g></svg>
-        The orientation tax
-      </span>
-      <h2 style="font-family:var(--font-display); font-size:clamp(26px,3.4vw,40px); line-height:1.16; font-weight:600; letter-spacing:-.02em; max-width:24ch; margin:0 0 18px;">Every session, your assistant starts <span style="color:var(--violet);">blind</span> and <span style="color:var(--amber);">amnesiac</span>.</h2>
-      <p style="font-size:clamp(16px,1.5vw,18px); line-height:1.65; color:var(--text-dim); max-width:64ch; margin:0 0 48px;">It opens without your branch, your running services, or what you decided last week, so the conversation begins with interrogation, not work. Stale context is a tax on every session, and it compounds with every developer.</p>
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-bottom:36px;" data-cols="compare">
-        <div style="border:1px solid var(--border-violet); border-radius:16px; overflow:hidden; background:var(--surface);">
-          <div style="padding:15px 20px; border-bottom:1px solid var(--border-soft); display:flex; justify-content:space-between; align-items:center;"><span style="font-weight:600; font-size:15px; color:var(--text-dim);">Without Perseus</span><span style="font-family:var(--font-mono); font-size:11.5px; color:var(--text-faint);">CLAUDE.md · 11 days old</span></div>
-          <div style="padding:18px 20px; display:flex; flex-direction:column; gap:10px;">
-            <div style="display:flex; gap:11px; align-items:flex-start; font-size:14px;"><span style="font-family:var(--font-mono); font-size:11px; color:var(--text-faint); width:24px;">you</span><span style="color:var(--text);">deploy the api to staging</span></div>
-            <div style="display:flex; gap:11px; align-items:flex-start; font-size:14px;"><span style="font-family:var(--font-mono); font-size:11px; color:var(--text-faint); width:24px;">01</span><span style="color:var(--text-dim);">Which branch are you on?</span></div>
-            <div style="display:flex; gap:11px; align-items:flex-start; font-size:14px;"><span style="font-family:var(--font-mono); font-size:11px; color:var(--text-faint); width:24px;">02</span><span style="color:var(--text-dim);">Is the helm chart still v0.3?</span></div>
-            <div style="display:flex; gap:11px; align-items:flex-start; font-size:14px;"><span style="font-family:var(--font-mono); font-size:11px; color:var(--text-faint); width:24px;">03</span><span style="color:var(--text-dim);">What did we decide about retries?</span></div>
-            <div style="display:flex; gap:11px; align-items:flex-start; font-size:14px;"><span style="font-family:var(--font-mono); font-size:11px; color:var(--text-faint); width:24px;">04</span><span style="color:var(--text-dim);">Makefile target removed in #482?</span></div>
-          </div>
-          <div style="font-family:var(--font-mono); font-size:12px; padding:12px 20px 18px; color:var(--text-faint);">4 orientation turns · 11K tokens · 0 progress</div>
-        </div>
-        <div style="border:1px solid var(--amber); border-radius:16px; overflow:hidden; background:var(--surface); box-shadow:0 0 0 4px var(--amber-soft);">
-          <div style="padding:15px 20px; border-bottom:1px solid var(--border-soft); display:flex; justify-content:space-between; align-items:center;"><span style="font-weight:600; font-size:15px;">With Perseus</span><span style="font-family:var(--font-mono); font-size:11.5px; color:var(--amber);">context + memory · fresh</span></div>
-          <div style="padding:18px 20px; display:flex; flex-direction:column; gap:10px;">
-            <div style="display:flex; gap:11px; align-items:flex-start; font-size:14px;"><span style="font-family:var(--font-mono); font-size:11px; color:var(--text-faint); width:24px;">you</span><span style="color:var(--text);">deploy the api to staging</span></div>
-            <div style="display:flex; gap:11px; align-items:flex-start; font-size:14px;"><span style="font-family:var(--font-mono); font-size:11px; color:var(--amber); width:24px;">→</span><span style="color:var(--text);">You're on <span style="color:var(--amber);">feat/billing-v2</span>, helm v0.4.1, staging = eu-west-2/stg-a.</span></div>
-            <div style="display:flex; gap:11px; align-items:flex-start; font-size:14px;"><span style="font-family:var(--font-mono); font-size:11px; color:var(--violet); width:24px;">⧉</span><span style="color:var(--text);">Recall: retries capped at 3, exponential backoff <span style="color:var(--violet);">(decided Jun 12)</span>.</span></div>
-            <div style="display:flex; gap:11px; align-items:flex-start; font-size:14px;"><span style="font-family:var(--font-mono); font-size:11px; color:var(--amber); width:24px;">→</span><span style="color:var(--text);">Running <span style="font-family:var(--font-mono); font-size:.9em;">./scripts/deploy.sh staging api</span></span></div>
-            <div style="display:flex; gap:11px; align-items:flex-start; font-size:14px;"><span style="font-family:var(--font-mono); font-size:11px; color:var(--amber); width:24px;">→</span><span style="color:var(--text);"><span style="color:var(--amber);">✓</span> Image pushed. <span style="color:var(--amber);">✓</span> Helm upgrade applied.</span></div>
-          </div>
-          <div style="font-family:var(--font-mono); font-size:12px; padding:12px 20px 18px; color:var(--amber);">1 turn · facts resolved, memory recalled · shipped</div>
-        </div>
+    <div style="border:1px solid #262a33;border-radius:14px;overflow:hidden;background:#0d1117;">
+      <div style="display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid #21262d;background:#161b22;">
+        <span style="width:11px;height:11px;border-radius:50%;background:#f85149;"></span>
+        <span style="width:11px;height:11px;border-radius:50%;background:#d29922;"></span>
+        <span style="width:11px;height:11px;border-radius:50%;background:#3fb950;"></span>
+        <span style="margin-left:10px;font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#8b949e;">Perseus-Computing-LLC / perseus · README.md</span>
       </div>
-      <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:1px; background:var(--border-soft); border:1px solid var(--border-soft); border-radius:16px; overflow:hidden;">
-        <div style="background:var(--surface); padding:28px 26px;"><div style="font-family:var(--font-mono); font-size:38px; font-weight:600; color:var(--text);">4–6</div><div style="font-size:14px; font-weight:600; margin:8px 0 4px;">turns</div><div style="font-size:13.5px; color:var(--text-faint); line-height:1.5;">wasted on discovery before the first real action</div></div>
-        <div style="background:var(--surface); padding:28px 26px;"><div style="font-family:var(--font-mono); font-size:38px; font-weight:600; color:var(--text);">11K</div><div style="font-size:14px; font-weight:600; margin:8px 0 4px;">tokens</div><div style="font-size:13.5px; color:var(--text-faint); line-height:1.5;">burned per session, just on orientation</div></div>
-        <div style="background:var(--surface); padding:28px 26px;"><div style="font-family:var(--font-mono); font-size:38px; font-weight:600; color:var(--text);">15–40%</div><div style="font-size:14px; font-weight:600; margin:8px 0 4px;">of every session</div><div style="font-size:13.5px; color:var(--text-faint); line-height:1.5;">spent rediscovering facts that are already known</div></div>
-      </div>
-      <p style="font-family:var(--font-mono); margin-top:16px; font-size:12px; color:var(--text-faint);">Illustrative estimates: orientation cost varies by team and codebase; not a measured benchmark.</p>
-    </div>
-  </section>
-
-  <!-- ===================== DETERMINISTIC PROOF (THE WEDGE) ===================== -->
-  <section id="proof" style="padding:clamp(76px,9vw,120px) 0; background:var(--surface-2); border-top:1px solid var(--border-soft); border-bottom:1px solid var(--border-soft);">
-    <div style="max-width:1180px; margin:0 auto; padding:0 24px;">
-      <span style="display:inline-flex; align-items:center; gap:9px; font-family:var(--font-mono); font-size:12px; letter-spacing:.16em; text-transform:uppercase; color:var(--amber); margin-bottom:22px;"><span style="color:var(--text-faint);">//</span> The determinism wedge</span>
-      <h2 style="font-family:var(--font-display); font-size:clamp(26px,3.4vw,40px); line-height:1.16; font-weight:600; letter-spacing:-.02em; max-width:26ch; margin:0 0 14px;">Probabilistic memory <span style="color:var(--text-faint);">guesses</span>. Perseus <span style="color:var(--amber);">returns the same answer</span>, every time.</h2>
-      <p style="font-size:clamp(16px,1.5vw,18px); line-height:1.65; color:var(--text-dim); max-width:62ch; margin:0 0 40px;">Cloud memory extracts facts with an LLM into a hosted vector store, so the same query drifts. Perseus Vault is FTS5, SQL, and full bi-temporal history: replayable at any point in time, offline, and audited.</p>
-      <div style="overflow-x:auto; border:1px solid var(--border-violet); border-radius:16px; background:var(--surface);">
-        <table style="width:100%; border-collapse:collapse; font-size:14.5px; min-width:640px;">
-          <thead>
-            <tr>
-              <th style="padding:18px 20px; text-align:left; font-weight:600; color:var(--text); border-bottom:1px solid var(--border);">Can it…</th>
-              <th style="padding:18px 20px; text-align:center; font-weight:500; color:var(--text-dim); border-bottom:1px solid var(--border);">Mem0 / vector memory</th>
-              <th style="padding:18px 20px; text-align:center; font-weight:600; color:var(--amber); border-bottom:1px solid var(--border);">Perseus Vault</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td style="padding:18px 20px; border-bottom:1px solid var(--border-soft); color:var(--text); font-weight:500;">Same query → same result?</td>
-              <td style="padding:18px 20px; border-bottom:1px solid var(--border-soft); text-align:center; color:var(--text-dim);"><span style="color:var(--red);">No</span> · LLM extraction + ANN drift</td>
-              <td style="padding:18px 20px; border-bottom:1px solid var(--border-soft); text-align:center; background:var(--amber-soft);"><span style="color:var(--amber); font-weight:600;">Yes</span> · FTS5 + SQL</td>
-            </tr>
-            <tr>
-              <td style="padding:18px 20px; border-bottom:1px solid var(--border-soft); color:var(--text); font-weight:500;">Replay belief at time T?</td>
-              <td style="padding:18px 20px; border-bottom:1px solid var(--border-soft); text-align:center; color:var(--text-dim);"><span style="color:var(--red);">No</span></td>
-              <td style="padding:18px 20px; border-bottom:1px solid var(--border-soft); text-align:center; background:var(--amber-soft);"><span style="color:var(--amber); font-weight:600;">Yes</span> · transaction-time as_of</td>
-            </tr>
-            <tr>
-              <td style="padding:18px 20px; border-bottom:1px solid var(--border-soft); color:var(--text); font-weight:500;">Offline / air-gapped?</td>
-              <td style="padding:18px 20px; border-bottom:1px solid var(--border-soft); text-align:center; color:var(--text-dim);"><span style="color:var(--red);">No</span></td>
-              <td style="padding:18px 20px; border-bottom:1px solid var(--border-soft); text-align:center; background:var(--amber-soft);"><span style="color:var(--amber); font-weight:600;">Yes</span> · bundled ONNX, single binary</td>
-            </tr>
-            <tr>
-              <td style="padding:18px 20px; color:var(--text); font-weight:500;">Audit the answer?</td>
-              <td style="padding:18px 20px; text-align:center; color:var(--text-dim);"><span style="color:var(--red);">No</span></td>
-              <td style="padding:18px 20px; text-align:center; background:var(--amber-soft);"><span style="color:var(--amber); font-weight:600;">Yes</span> · crypto-chained log</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <div style="display:flex; flex-wrap:wrap; gap:10px; margin-top:24px; align-items:center;">
-        <span style="font-family:var(--font-mono); font-size:12.5px; color:var(--text-faint); letter-spacing:.06em;">The P-stack:</span>
-        <span style="font-family:var(--font-mono); font-size:13px; color:var(--amber-ink); background:var(--amber-soft); border:1px solid var(--border-violet); padding:6px 13px; border-radius:8px;">Perseus</span>
-        <span style="font-family:var(--font-mono); font-size:13px; color:var(--amber-ink); background:var(--amber-soft); border:1px solid var(--border-violet); padding:6px 13px; border-radius:8px;">Persistent</span>
-        <span style="font-family:var(--font-mono); font-size:13px; color:var(--amber-ink); background:var(--amber-soft); border:1px solid var(--border-violet); padding:6px 13px; border-radius:8px;">Predictable</span>
-        <span style="font-family:var(--font-mono); font-size:13px; color:var(--amber-ink); background:var(--amber-soft); border:1px solid var(--border-violet); padding:6px 13px; border-radius:8px;">Provable</span>
-      </div>
-    </div>
-  </section>
-
-  <!-- ===================== HOW IT WORKS: TWO ENGINES ===================== -->
-  <section id="how" style="padding:clamp(76px,9vw,120px) 0;">
-    <div style="max-width:1180px; margin:0 auto; padding:0 24px;">
-      <span style="display:inline-flex; align-items:center; gap:9px; font-family:var(--font-mono); font-size:12px; letter-spacing:.16em; text-transform:uppercase; color:var(--amber); margin-bottom:22px;"><span style="color:var(--text-faint);">//</span> How it works</span>
-      <h2 style="font-family:var(--font-display); font-size:clamp(26px,3.4vw,40px); line-height:1.16; font-weight:600; letter-spacing:-.02em; max-width:28ch; margin:0 0 14px;">Two engines resolve the two things assistants forget: <span style="color:var(--amber);">live context</span> and <span style="color:var(--violet);">durable memory</span>.</h2>
-      <p style="font-size:clamp(16px,1.5vw,18px); line-height:1.65; color:var(--text-dim); max-width:60ch; margin:0 0 44px;">Perseus resolves your environment into ready facts before the session opens. Perseus Vault writes verified decisions into deterministic storage and recalls them on demand. Both run entirely on your hardware.</p>
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px;" data-cols="engines">
-        <div style="border:1px solid var(--border-violet); border-radius:18px; padding:30px; background:linear-gradient(180deg, rgba(167,139,250,.04), transparent 62%), var(--surface);">
-          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;">
-            <div style="display:flex; align-items:center; gap:12px;">
-              <div style="width:44px; height:44px; border-radius:12px; background:var(--amber-soft); display:flex; align-items:center; justify-content:center;">
-                <svg width="26" height="26" viewBox="0 0 48 48" fill="none"><g stroke="var(--amber)" stroke-width="2.4" stroke-linecap="round"><line x1="9" y1="13" x2="33" y2="24"></line><line x1="9" y1="20" x2="33" y2="24"></line><line x1="9" y1="28" x2="33" y2="24"></line><line x1="9" y1="35" x2="33" y2="24"></line></g><circle cx="35" cy="24" r="3.8" fill="var(--amber)"></circle></svg>
-              </div>
-              <div><h3 style="font-family:var(--font-display); font-size:19px; font-weight:600; margin:0;">Perseus</h3><div style="font-size:12.5px; color:var(--text-faint);">Live context engine</div></div>
-            </div>
-            <span style="font-family:var(--font-mono); font-size:11.5px; color:var(--amber); background:var(--amber-soft); padding:4px 9px; border-radius:20px;">context</span>
-          </div>
-          <p style="font-size:14.5px; line-height:1.6; color:var(--text-dim); margin:0 0 16px;">Write directives once. Perseus resolves git, services, and tests into verified facts, then writes them into the file the assistant reads (AGENTS.md / CLAUDE.md).</p>
-          <pre style="margin:0; background:var(--term-bg); border:1px solid var(--term-border); border-radius:10px; padding:15px; font-family:var(--font-mono); font-size:12.5px; line-height:1.8; color:#C9C5D8; white-space:pre-wrap;"><span style="color:#6E6A80;">$</span> perseus render
-<span style="color:var(--amber-ink);">✓</span> 4 directives in 31ms
-<span style="color:var(--amber-ink);">✓</span> wrote CLAUDE.md <span style="color:#6E6A80;"># 76% smaller</span></pre>
-        </div>
-        <div style="border:1px solid var(--border-violet); border-radius:18px; padding:30px; background:linear-gradient(180deg, rgba(139,156,255,.05), transparent 62%), var(--surface);">
-          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;">
-            <div style="display:flex; align-items:center; gap:12px;">
-              <div style="width:44px; height:44px; border-radius:12px; background:var(--violet-soft); display:flex; align-items:center; justify-content:center;">
-                <svg width="26" height="26" viewBox="0 0 48 48" fill="none"><rect x="9" y="11" width="30" height="4.4" rx="2.2" fill="var(--violet)"></rect><rect x="9" y="19" width="30" height="4.4" rx="2.2" fill="var(--violet)" fill-opacity=".78"></rect><rect x="9" y="27" width="30" height="4.4" rx="2.2" fill="var(--violet)" fill-opacity=".58"></rect><rect x="9" y="35" width="30" height="4.4" rx="2.2" fill="var(--violet)" fill-opacity=".42"></rect></svg>
-              </div>
-              <div><h3 style="font-family:var(--font-display); font-size:19px; font-weight:600; margin:0;">Perseus Vault</h3><div style="font-size:12.5px; color:var(--text-faint);">Persistent memory server</div></div>
-            </div>
-            <span style="font-family:var(--font-mono); font-size:11.5px; color:var(--violet); background:var(--violet-soft); padding:4px 9px; border-radius:20px;">memory</span>
-          </div>
-          <p style="font-size:14.5px; line-height:1.6; color:var(--text-dim); margin:0 0 16px;">Remember verified facts across sessions. SQLite + FTS5, AES-256-GCM, bi-temporal history, crypto-chained audit. 57 MCP tools in one Rust binary, zero network.</p>
-          <pre style="margin:0; background:var(--term-bg); border:1px solid var(--term-border); border-radius:10px; padding:15px; font-family:var(--font-mono); font-size:12.5px; line-height:1.8; color:#C9C5D8; white-space:pre-wrap;"><span style="color:#6E6A80;">›</span> recall("auth decision")
-<span style="color:var(--violet-ink);">→</span> JWT · RS256 · 24h <span style="color:#6E6A80;">(Jun 12)</span>
-<span style="color:var(--violet-ink);">→</span> same answer, replayable</pre>
+      <div style="padding:40px 44px;">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;"><svg width="26" height="30" viewBox="0 0 22 26" fill="none"><path d="M11 1L21 5.5V13c0 6.2-4.1 10.2-10 11.9C5.1 23.2 1 19.2 1 13V5.5L11 1z" stroke="#a78bfa" stroke-width="1.4" fill="rgba(167,139,250,0.08)"/><path d="M6.5 11l4.5 3 4.5-3" stroke="#a78bfa" stroke-width="1.3" fill="none"/></svg><h3 style="font-size:28px;color:#e6edf3;">Perseus</h3></div>
+        <p style="font-size:19px;color:#e6edf3;font-weight:600;margin-bottom:14px;line-height:1.35;">The memory &amp; context layer for AI agents: load only the context they actually need.</p>
+        <p style="font-size:15px;color:#8b949e;line-height:1.6;margin-bottom:20px;">Your agents re-read their whole notebook from page one on every call, and you're billed per word. Perseus hands them just the page they need: it resolves live workspace state into verified facts before the context window opens, and pairs with Perseus Vault for durable, encrypted memory. The result: <span style="color:#e6edf3;">94% fewer prompt tokens</span>, a <span style="color:#e6edf3;">67% smaller tool schema</span>, and <span style="color:#e6edf3;">73.6% on LongMemEval</span>. Local-first, air-gap ready, MIT.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#a78bfa;background:rgba(167,139,250,0.1);border-radius:5px;padding:4px 9px;">pip install perseus-ctx</span>
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#3fb950;background:rgba(63,185,80,0.1);border-radius:5px;padding:4px 9px;">MIT</span>
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#8b949e;background:rgba(139,148,158,0.1);border-radius:5px;padding:4px 9px;">patent pending</span>
         </div>
       </div>
     </div>
-  </section>
+  </div>
+</section>
 
-  <!-- ===================== PRODUCTS ===================== -->
-  <section id="products" style="padding:clamp(76px,9vw,120px) 0; background:var(--surface-2); border-top:1px solid var(--border-soft); border-bottom:1px solid var(--border-soft);">
-    <div style="max-width:1180px; margin:0 auto; padding:0 24px;">
-      <span style="display:inline-flex; align-items:center; gap:9px; font-family:var(--font-mono); font-size:12px; letter-spacing:.16em; text-transform:uppercase; color:var(--violet); margin-bottom:22px;">
-        <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true"><g stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><line x1="1.5" y1="3" x2="11.5" y2="3"></line><line x1="1.5" y1="6.5" x2="11.5" y2="6.5"></line><line x1="1.5" y1="10" x2="11.5" y2="10"></line></g></svg>
-        Product family
-      </span>
-      <h2 style="font-family:var(--font-display); font-size:clamp(26px,3.4vw,40px); line-height:1.16; font-weight:600; letter-spacing:-.02em; max-width:24ch; margin:0 0 14px;">Two flagships, and the tools around them.</h2>
-      <p style="font-size:clamp(16px,1.5vw,18px); line-height:1.65; color:var(--text-dim); max-width:60ch; margin:0 0 44px;">Each is open source, standalone, and local-first. Each install is a doorway into the others.</p>
-      <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(248px,1fr)); gap:20px;">
-        <a href="https://github.com/Perseus-Computing-LLC/perseus" style="color:inherit; border:1px solid var(--amber); box-shadow:0 0 0 4px var(--amber-soft); border-radius:18px; padding:26px; display:flex; flex-direction:column; gap:16px; background:linear-gradient(180deg, rgba(167,139,250,.05), transparent 62%), var(--surface);">
-          <div style="display:flex; align-items:center; justify-content:space-between;">
-            <div style="width:56px; height:56px; border-radius:14px; background:var(--term-bg); border:1px solid var(--term-border); display:flex; align-items:center; justify-content:center;"><svg width="40" height="40" viewBox="0 0 48 48" fill="none"><g stroke="var(--amber)" stroke-width="2.4" stroke-linecap="round"><line x1="9" y1="13" x2="33" y2="24"></line><line x1="9" y1="20" x2="33" y2="24"></line><line x1="9" y1="28" x2="33" y2="24"></line><line x1="9" y1="35" x2="33" y2="24"></line></g><circle cx="35" cy="24" r="3.8" fill="var(--amber)"></circle></svg></div>
-            <span style="font-family:var(--font-mono); font-size:11.5px; color:var(--amber); background:var(--amber-soft); padding:4px 9px; border-radius:20px;">context engine</span>
-          </div>
-          <div><h3 style="font-family:var(--font-display); font-size:20px; font-weight:600; margin:0 0 7px;">Perseus</h3><p style="font-size:14px; line-height:1.6; color:var(--text-dim); margin:0;">Live context engine. Resolves git, services, and tests into ready facts before the session opens. <span style="font-family:var(--font-mono); color:var(--amber);">pip install perseus-ctx</span></p></div>
-          <span style="margin-top:auto; font-family:var(--font-mono); font-size:12.5px; color:var(--amber);">GitHub ↗</span>
-        </a>
-        <a href="https://github.com/Perseus-Computing-LLC/perseus-vault" style="color:inherit; border:1px solid var(--violet); box-shadow:0 0 0 4px var(--violet-soft); border-radius:18px; padding:26px; display:flex; flex-direction:column; gap:16px; background:linear-gradient(180deg, rgba(139,156,255,.06), transparent 62%), var(--surface);">
-          <div style="display:flex; align-items:center; justify-content:space-between;">
-            <div style="width:56px; height:56px; border-radius:14px; background:var(--term-bg); border:1px solid var(--term-border); display:flex; align-items:center; justify-content:center;"><svg width="40" height="40" viewBox="0 0 48 48" fill="none"><rect x="9" y="11" width="30" height="4.4" rx="2.2" fill="var(--violet)"></rect><rect x="9" y="19" width="30" height="4.4" rx="2.2" fill="var(--violet)" fill-opacity=".78"></rect><rect x="9" y="27" width="30" height="4.4" rx="2.2" fill="var(--violet)" fill-opacity=".58"></rect><rect x="9" y="35" width="30" height="4.4" rx="2.2" fill="var(--violet)" fill-opacity=".42"></rect></svg></div>
-            <span style="font-family:var(--font-mono); font-size:11.5px; color:var(--violet); background:var(--violet-soft); padding:4px 9px; border-radius:20px;">57 tools</span>
-          </div>
-          <div><h3 style="font-family:var(--font-display); font-size:20px; font-weight:600; margin:0 0 7px;">Perseus Vault</h3><p style="font-size:14px; line-height:1.6; color:var(--text-dim); margin:0;">Persistent memory server. SQLite + FTS5, AES-256-GCM, bi-temporal history, crypto-chained audit. Single Rust binary, zero network.</p></div>
-          <span style="margin-top:auto; font-family:var(--font-mono); font-size:12.5px; color:var(--violet);">GitHub ↗</span>
-        </a>
-        <a href="https://github.com/Perseus-Computing-LLC/MCTS" style="color:inherit; border:1px solid var(--border-violet); border-radius:18px; padding:26px; display:flex; flex-direction:column; gap:16px; background:var(--surface);">
-          <div style="display:flex; align-items:center; justify-content:space-between;">
-            <div style="width:56px; height:56px; border-radius:14px; background:var(--term-bg); border:1px solid var(--term-border); display:flex; align-items:center; justify-content:center;"><svg width="40" height="40" viewBox="0 0 48 48" fill="none"><g stroke="var(--steel)" stroke-width="1.5" opacity=".55"><line x1="14" y1="9" x2="14" y2="39"></line><line x1="24" y1="9" x2="24" y2="39"></line><line x1="34" y1="9" x2="34" y2="39"></line><line x1="9" y1="14" x2="39" y2="14"></line><line x1="9" y1="24" x2="39" y2="24"></line><line x1="9" y1="34" x2="39" y2="34"></line></g><circle cx="24" cy="24" r="4" fill="var(--amber)"></circle></svg></div>
-            <span style="font-family:var(--font-mono); font-size:11.5px; color:var(--text-faint); background:var(--steel-soft); padding:4px 9px; border-radius:20px;">security</span>
-          </div>
-          <div><h3 style="font-family:var(--font-display); font-size:20px; font-weight:600; margin:0 0 7px;">MCTS</h3><p style="font-size:14px; line-height:1.6; color:var(--text-dim); margin:0;">Model Context Threat Scanner. 30+ analyzers for MCP servers: tool poisoning, prompt injection, credential leaks. JSON, SARIF, HTML.</p></div>
-          <span style="margin-top:auto; font-family:var(--font-mono); font-size:12.5px; color:var(--text-faint);">GitHub ↗</span>
-        </a>
-        <a href="https://github.com/Perseus-Computing-LLC/plutus" style="color:inherit; border:1px solid var(--border-violet); border-radius:18px; padding:26px; display:flex; flex-direction:column; gap:16px; background:linear-gradient(180deg, rgba(217,180,95,.05), transparent 62%), var(--surface);">
-          <div style="display:flex; align-items:center; justify-content:space-between;">
-            <div style="width:56px; height:56px; border-radius:14px; background:var(--term-bg); border:1px solid var(--term-border); display:flex; align-items:center; justify-content:center;"><svg width="40" height="40" viewBox="0 0 48 48" fill="none"><rect x="9" y="11" width="22" height="4" rx="2" fill="var(--gold)"></rect><rect x="9" y="19" width="30" height="4" rx="2" fill="var(--gold)" fill-opacity=".8"></rect><rect x="9" y="27" width="16" height="4" rx="2" fill="var(--gold)" fill-opacity=".8"></rect><rect x="9" y="35" width="26" height="4" rx="2" fill="var(--gold)" fill-opacity=".8"></rect><circle cx="35" cy="13" r="3.4" fill="var(--gold)"></circle></svg></div>
-            <span style="font-family:var(--font-mono); font-size:11.5px; color:var(--gold); background:var(--gold-soft); padding:4px 9px; border-radius:20px;">ledger</span>
-          </div>
-          <div><h3 style="font-family:var(--font-display); font-size:20px; font-weight:600; margin:0 0 7px;">Plutus</h3><p style="font-size:14px; line-height:1.6; color:var(--text-dim); margin:0;">Credit and spend monitor. Meters every LLM call, prices it, depletes prepaid credit, and shows spend on a live dashboard.</p></div>
-          <span style="margin-top:auto; font-family:var(--font-mono); font-size:12.5px; color:var(--text-faint);">GitHub ↗</span>
-        </a>
+<!-- ===== FOOTER ===== -->
+<footer style="padding:48px 32px;border-top:1px solid #1b1e25;background:#0b0c0f;">
+  <div style="max-width:1080px;margin:0 auto;display:flex;justify-content:space-between;gap:24px;flex-wrap:wrap;align-items:flex-start;">
+    <div style="max-width:340px;">
+      <div style="display:flex;align-items:center;gap:9px;margin-bottom:12px;"><svg width="18" height="22" viewBox="0 0 22 26" fill="none"><path d="M11 1L21 5.5V13c0 6.2-4.1 10.2-10 11.9C5.1 23.2 1 19.2 1 13V5.5L11 1z" stroke="#a78bfa" stroke-width="1.4" fill="rgba(167,139,250,0.08)"/><path d="M11 6.5v13" stroke="#3fb37f" stroke-width="1.3"/></svg><span style="font-weight:600;">Perseus Computing</span></div>
+      <p style="font-size:13px;color:#6d7480;line-height:1.55;">Live context and persistent memory infrastructure for AI agents. Local-first, air-gap ready, open source.</p>
+    </div>
+    <div style="display:flex;gap:52px;flex-wrap:wrap;">
+      <div style="display:flex;flex-direction:column;gap:9px;font-size:13.5px;">
+        <span style="color:#e7e9ee;font-weight:600;margin-bottom:3px;">Products</span>
+        <a href="/context-engine/" style="color:#9aa2ad;">Perseus context engine</a>
+        <a href="/vault/" style="color:#9aa2ad;">Perseus Vault</a>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:9px;font-size:13.5px;">
+        <span style="color:#e7e9ee;font-weight:600;margin-bottom:3px;">Resources</span>
+        <a href="https://pypi.org/project/perseus-ctx/" style="color:#9aa2ad;">PyPI</a>
+        <a href="https://github.com/Perseus-Computing-LLC" style="color:#9aa2ad;">GitHub</a>
+        <a href="#proof" style="color:#9aa2ad;">Benchmarks</a>
       </div>
     </div>
-  </section>
-
-  <!-- ===================== GET STARTED ===================== -->
-  <section id="start" style="padding:clamp(76px,9vw,120px) 0;">
-    <div style="max-width:1180px; margin:0 auto; padding:0 24px; display:grid; grid-template-columns:1fr 1fr; gap:clamp(40px,6vw,72px); align-items:center;" data-cols="start">
-      <div>
-        <span style="display:inline-flex; align-items:center; gap:9px; font-family:var(--font-mono); font-size:12px; letter-spacing:.16em; text-transform:uppercase; color:var(--amber); margin-bottom:22px;"><span style="color:var(--text-faint);">//</span> Get started</span>
-        <h2 style="font-family:var(--font-display); font-size:clamp(26px,3.4vw,40px); line-height:1.16; font-weight:600; letter-spacing:-.02em; margin:0 0 20px;">Local-first, on your machine, in <span style="color:var(--amber);">60 seconds</span>.</h2>
-        <p style="font-size:16px; line-height:1.65; color:var(--text-dim); max-width:52ch; margin:0 0 28px;">No cloud, no account, no API keys, no data leaving your environment. Install the engine, add the vault, point your assistant at the file.</p>
-        <div style="display:flex; flex-wrap:wrap; gap:10px;">
-          <span style="font-family:var(--font-mono); font-size:12.5px; color:var(--text-dim); background:var(--surface); border:1px solid var(--border); padding:7px 13px; border-radius:8px;">MIT licensed</span>
-          <span style="font-family:var(--font-mono); font-size:12.5px; color:var(--text-dim); background:var(--surface); border:1px solid var(--border); padding:7px 13px; border-radius:8px;">0 cloud dependencies</span>
-          <span style="font-family:var(--font-mono); font-size:12.5px; color:var(--text-dim); background:var(--surface); border:1px solid var(--border); padding:7px 13px; border-radius:8px;">AES-256-GCM at rest</span>
-          <span style="font-family:var(--font-mono); font-size:12.5px; color:var(--text-dim); background:var(--surface); border:1px solid var(--border); padding:7px 13px; border-radius:8px;">Air-gap ready</span>
-          <span style="font-family:var(--font-mono); font-size:12.5px; color:var(--text-dim); background:var(--surface); border:1px solid var(--border); padding:7px 13px; border-radius:8px;">Patent pending</span>
-        </div>
-      </div>
-      <div style="border-radius:14px; background:var(--term-bg); border:1px solid var(--term-border); overflow:hidden; box-shadow:var(--shadow);">
-        <div style="display:flex; align-items:center; gap:7px; padding:13px 16px; border-bottom:1px solid var(--term-border);"><span style="width:11px; height:11px; border-radius:50%; background:#3a3650;"></span><span style="width:11px; height:11px; border-radius:50%; background:#3a3650;"></span><span style="width:11px; height:11px; border-radius:50%; background:#3a3650;"></span></div>
-        <pre style="margin:0; padding:22px 20px; font-family:var(--font-mono); font-size:13px; line-height:1.85; color:#C9C5D8; white-space:pre-wrap;"><span style="color:#6E6A80;"># 1 · live context</span>
-<span style="color:#6E6A80;">$</span> pip install perseus-ctx
-<span style="color:#6E6A80;">$</span> perseus render
-<span style="color:var(--amber-ink);">✓</span> wrote CLAUDE.md (3.2 KB)
-
-<span style="color:#6E6A80;"># 2 · persistent memory</span>
-<span style="color:#6E6A80;">$</span> curl … perseus-vault | sh
-<span style="color:var(--violet-ink);">✓</span> 57 MCP tools, one binary
-
-<span style="color:#6E6A80;"># your assistant is ready.</span></pre>
-      </div>
-    </div>
-  </section>
-
-  <!-- ===================== FOOTER ===================== -->
-  <footer style="border-top:1px solid var(--border-soft); background:var(--bg);">
-    <div style="display:grid; grid-template-columns:1.6fr 1fr 1fr 1fr; gap:40px; padding:56px 24px 40px; max-width:1180px; margin:0 auto;" data-cols="foot">
-      <div>
-        <div style="display:flex; align-items:center; gap:11px; margin-bottom:14px;">
-          <svg width="28" height="28" viewBox="0 0 56 56" fill="none" aria-hidden="true"><rect x="3" y="14" width="17" height="3.6" rx="1.8" fill="var(--violet)"></rect><rect x="3" y="21" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".75"></rect><rect x="3" y="28" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".55"></rect><rect x="3" y="35" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".4"></rect><g stroke="var(--amber)" stroke-width="2.4" stroke-linecap="round"><line x1="22" y1="16" x2="42" y2="28"></line><line x1="22" y1="23" x2="42" y2="28"></line><line x1="22" y1="30" x2="42" y2="28"></line><line x1="22" y1="37" x2="42" y2="28"></line></g><circle cx="44" cy="28" r="4.2" fill="var(--amber)"></circle></svg>
-          <span style="font-family:var(--font-display); font-weight:600; font-size:17px;">Perseus</span>
-        </div>
-        <p style="font-size:13.5px; line-height:1.6; color:var(--text-faint); max-width:36ch; margin:0 0 14px;">Persistent, deterministic memory for AI agents. They guess. We remember. Open source, local-first, MIT licensed.</p>
-        <div style="font-family:var(--font-mono); font-size:12px; color:var(--text-faint);">Perseus. Persistent. Predictable. Provable.</div>
-      </div>
-      <div><div style="font-family:var(--font-mono); font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--text-faint); margin-bottom:14px;">Products</div><div style="display:flex; flex-direction:column; gap:9px; font-size:14px;"><a href="https://github.com/Perseus-Computing-LLC/perseus" style="color:var(--text-dim);">Perseus</a><a href="https://github.com/Perseus-Computing-LLC/perseus-vault" style="color:var(--text-dim);">Perseus Vault</a><a href="https://github.com/Perseus-Computing-LLC/MCTS" style="color:var(--text-dim);">MCTS</a><a href="https://github.com/Perseus-Computing-LLC/plutus" style="color:var(--text-dim);">Plutus</a></div></div>
-      <div><div style="font-family:var(--font-mono); font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--text-faint); margin-bottom:14px;">Resources</div><div style="display:flex; flex-direction:column; gap:9px; font-size:14px;"><a href="https://pypi.org/project/perseus-ctx/" style="color:var(--text-dim);">PyPI</a><a href="https://registry.modelcontextprotocol.io/" style="color:var(--text-dim);">MCP Registry</a><a href="https://github.com/Perseus-Computing-LLC/perseus/blob/main/SECURITY.md" style="color:var(--text-dim);">Security</a></div></div>
-      <div><div style="font-family:var(--font-mono); font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--text-faint); margin-bottom:14px;">Company</div><div style="display:flex; flex-direction:column; gap:9px; font-size:14px;"><a href="mailto:perseus@perseus.observer" style="color:var(--text-dim);">Contact</a><a href="https://perseus.observer/government/" style="color:var(--text-dim);">Government</a></div></div>
-    </div>
-    <div style="border-top:1px solid var(--border-soft);"><div style="max-width:1180px; margin:0 auto; padding:20px 24px; font-family:var(--font-mono); font-size:12px; color:var(--text-faint);">Perseus Computing LLC · Austin, TX · MIT License · EAR99 · Patent pending · perseus.observer</div></div>
-  </footer>
+  </div>
+  <div style="max-width:1080px;margin:32px auto 0;padding-top:20px;border-top:1px solid #14161c;display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;font-size:12px;color:#6d7480;font-family:'IBM Plex Mono',monospace;">
+    <span>© 2026 Perseus Computing LLC · MIT licensed</span>
+    <span>Patent pending (provisional) · open formats · zero telemetry</span>
+  </div>
+</footer>
 
 </div>
 
 <script>
+/* ===== Value calculator (ported from the design component) ===== */
 (function () {
-  // ---- theme toggle ----
-  var toggle = document.getElementById('themeToggle');
-  var label = document.getElementById('themeLabel');
-  function syncLabel() {
-    var cur = document.documentElement.getAttribute('data-theme') || 'dark';
-    if (label) label.textContent = cur === 'dark' ? 'Light' : 'Dark';
-  }
-  syncLabel();
-  if (toggle) toggle.addEventListener('click', function () {
-    var cur = document.documentElement.getAttribute('data-theme') || 'dark';
-    var next = cur === 'dark' ? 'light' : 'dark';
-    document.documentElement.setAttribute('data-theme', next);
-    try { localStorage.setItem('perseus-theme', next); } catch (e) {}
-    syncLabel();
-  });
+  var CURRENCIES = {
+    USD: { symbol: '$',  code: 'USD', locale: 'en-US', def: 3.0 },
+    EUR: { symbol: '€',  code: 'EUR', locale: 'de-DE', def: 2.8 },
+    GBP: { symbol: '£',  code: 'GBP', locale: 'en-GB', def: 2.4 },
+    CAD: { symbol: 'C$', code: 'CAD', locale: 'en-CA', def: 4.1 },
+    AUD: { symbol: 'A$', code: 'AUD', locale: 'en-AU', def: 4.6 },
+    JPY: { symbol: '¥',  code: 'JPY', locale: 'ja-JP', def: 450 },
+    INR: { symbol: '₹',  code: 'INR', locale: 'en-IN', def: 250 }
+  };
+  var GOV_MULT = 1.25;
+  var state = { agents: 100, callsPerDay: 1000, currency: 'USD', govCloud: false, price: 3.0, baseline: 488, reduced: 27 };
+  var $ = function (id) { return document.getElementById(id); };
 
-  // ---- copy buttons ----
-  Array.prototype.forEach.call(document.querySelectorAll('.copyBtn'), function (btn) {
+  function compact(n) {
+    if (n >= 1e12) return (n / 1e12).toFixed(1) + 'T';
+    if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
+    if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+    if (n >= 1e3) return (n / 1e3).toFixed(0) + 'K';
+    return String(Math.round(n));
+  }
+
+  function render() {
+    var s = state;
+    var cur = CURRENCIES[s.currency] || CURRENCIES.USD;
+    var agents = Number(s.agents) || 0;
+    var callsPerDay = Number(s.callsPerDay) || 0;
+    var price = Number(s.price) || 0;
+    var baseline = Math.max(Number(s.baseline) || 0, 1);
+    var reduced = Math.min(Number(s.reduced) || 0, baseline);
+
+    var effPrice = price * (s.govCloud ? GOV_MULT : 1);
+    var callsPerYear = agents * callsPerDay * 365;
+    var savedPerCall = Math.max(baseline - reduced, 0);
+    var annualSaved = callsPerYear * savedPerCall / 1e6 * effPrice;
+    var baselineAnnual = callsPerYear * baseline / 1e6 * effPrice;
+    var perseusAnnual = callsPerYear * reduced / 1e6 * effPrice;
+    var tokensSavedYr = callsPerYear * savedPerCall;
+
+    var nf = new Intl.NumberFormat(cur.locale, { style: 'currency', currency: cur.code, maximumFractionDigits: 0 });
+    var money = function (n) { return nf.format(Math.round(n)); };
+    var dp = cur.code === 'JPY' ? 0 : 2;
+
+    $('cal-agents-val').textContent = agents;
+    $('cal-calls-val').textContent = callsPerDay.toLocaleString('en-US');
+    $('cal-symbol').textContent = cur.symbol;
+    $('cal-effnote').textContent = s.govCloud ? ('Gov +25% → ' + cur.symbol + effPrice.toFixed(dp) + ' /1M') : '';
+    $('cal-redpct').textContent = Math.round((1 - reduced / baseline) * 100);
+    $('cal-annual').textContent = money(annualSaved);
+    $('cal-monthly').textContent = money(annualSaved / 12);
+    $('cal-tokens').textContent = compact(tokensSavedYr);
+    $('cal-baseline-annual').textContent = money(baselineAnnual);
+    $('cal-perseus-annual').textContent = money(perseusAnnual);
+    $('cal-bar').style.width = (reduced / baseline * 100).toFixed(1) + '%';
+
+    var isUSD = s.currency === 'USD';
+    var near = function (a, b) { return Math.abs(a - b) < 1e-6; };
+    var active = isUSD ? (near(price, 5.0) ? 'frontier' : near(price, 2.5) ? 'standard' : near(price, 1.0) ? 'efficient' : near(price, 0.1) ? 'economy' : null) : null;
+    var base = "font-family:'IBM Plex Mono',monospace;font-size:11.5px;padding:9px 10px;border-radius:8px;cursor:pointer;line-height:1.3;transition:all .12s;text-align:left;";
+    document.querySelectorAll('.cal-preset').forEach(function (btn) {
+      var on = btn.getAttribute('data-preset') === active;
+      btn.setAttribute('style', base + (on ? 'background:rgba(167,139,250,0.12);border:1px solid #a78bfa;color:#e7e9ee;' : 'background:#0f1014;border:1px solid #262a33;color:#c3cad4;'));
+    });
+  }
+
+  $('cal-agents').addEventListener('input', function (e) { state.agents = e.target.value; render(); });
+  $('cal-calls').addEventListener('input', function (e) { state.callsPerDay = e.target.value; render(); });
+  $('cal-price').addEventListener('input', function (e) { state.price = e.target.value; render(); });
+  $('cal-baseline').addEventListener('input', function (e) { state.baseline = e.target.value; render(); });
+  $('cal-gov').addEventListener('change', function (e) { state.govCloud = e.target.checked; render(); });
+  $('cal-currency').addEventListener('change', function (e) {
+    var c = e.target.value; var d = (CURRENCIES[c] || CURRENCIES.USD).def;
+    state.currency = c; state.price = d; $('cal-price').value = (c === 'JPY' ? d.toFixed(0) : d.toFixed(2)); render();
+  });
+  document.querySelectorAll('.cal-preset').forEach(function (btn) {
     btn.addEventListener('click', function () {
-      var cmd = btn.getAttribute('data-cmd') || '';
-      try { navigator.clipboard.writeText(cmd); } catch (e) {}
-      var prev = btn.textContent;
-      btn.textContent = 'Copied';
-      setTimeout(function () { btn.textContent = prev; }, 1600);
+      state.currency = 'USD'; state.price = Number(btn.getAttribute('data-price'));
+      $('cal-currency').value = 'USD';
+      $('cal-price').value = state.price.toFixed(2);
+      render();
     });
   });
 
-  // ---- hero terminal typing ----
-  var el = document.getElementById('term');
-  if (!el) return;
-  var C6 = 'color:#6E6A80', AI = 'color:#CBB8FF', VI = 'color:#B7C2FF', BR = 'color:#E6E3F2';
-  var seq = [
-    '<span style="' + C6 + '">$</span> perseus render',
-    '<span style="' + AI + '">✓</span> resolved <span style="' + BR + '">@services</span> <span style="' + C6 + '">→ api ✓ db ✓ redis ✓</span>',
-    '<span style="' + AI + '">✓</span> wrote <span style="' + BR + '">CLAUDE.md</span> in 31ms',
-    '',
-    '<span style="' + C6 + '">›</span> vault recall <span style="' + BR + '">"auth decision"</span>',
-    '<span style="' + VI + '">→</span> JWT · RS256 · 24h expiry <span style="' + C6 + '">(decided Jun 12)</span>',
-    '<span style="' + VI + '">→</span> same query, <span style="' + BR + '">same answer</span> · replayable as_of',
-    '',
-    '<span style="color:#8B9CFF">// context resolved. memory recalled.</span>',
-    '<span style="color:#8B9CFF">// zero cloud calls.</span>'
-  ];
-  var reduce = false;
-  try { reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
-  if (reduce) {
-    el.innerHTML = seq.map(function (s) { return '<span style="display:block">' + (s || '&nbsp;') + '</span>'; }).join('');
-    return;
-  }
-  var i = 0, timers = [];
-  function step() {
-    if (i >= seq.length) {
-      var last = el.lastChild;
-      if (last) last.innerHTML += '<span class="cursor" style="display:inline-block; width:8px; height:1.05em; background:#A78BFA; vertical-align:-2px; margin-left:2px; animation:blink 1.05s steps(1) infinite;"></span>';
-      return;
-    }
-    var line = document.createElement('span');
-    line.style.display = 'block';
-    line.innerHTML = seq[i] || '&nbsp;';
-    el.appendChild(line);
-    i++;
-    timers.push(setTimeout(step, 300));
-  }
-  timers.push(setTimeout(step, 380));
+  render();
 })();
 </script>
 </body>
