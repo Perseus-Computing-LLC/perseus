@@ -5,9 +5,9 @@ from perseus.mneme_connector import MEMORY_BRAND
 # Mnēmē — narrative project memory. Distills checkpoints + Pythia log into a
 # per-workspace narrative file at ~/.perseus/memory/<workspace-hash>.md.
 #
-# Two modes:
-#   - Deterministic (default): rule-based extraction; no LLM needed.
-#   - LLM-assisted: opt-in via memory.llm_provider; routed through run_llm().
+# Distillation is deterministic (rule-based extraction; no LLM) — Perseus runs
+# no inference of its own (observe model). The host agent can read/answer the
+# narrative with whatever model it already uses.
 #
 # Narrative file format: standard markdown with YAML frontmatter.
 #
@@ -207,7 +207,6 @@ def _load_narrative(path: Path) -> tuple[dict, str]:
     return fm, body
 
 
-
 def _safe_fsync(path):
     """Fsync file + parent directory for durability (#140)."""
     try:
@@ -233,8 +232,6 @@ def _save_narrative(path: Path, frontmatter: dict, body: str) -> None:
     # prevent narrative loss on system crash / power loss.
     _safe_fsync(tmp)
     os.replace(tmp, path)
-
-
 
 
 def _mneme_default_frontmatter(workspace: Path) -> dict:
@@ -388,66 +385,9 @@ def _deterministic_patterns_body(pythia_entries: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def _daedalus_patterns_body(pythia_entries: list[dict], cfg: dict) -> str | None:
-    """LLM-inferred pattern extraction via run_llm("daedalus", ...).
-
-    Returns ``None`` on any failure so the caller can fall back to the
-    deterministic path. The contract for the model's response is documented
-    in spec/components.md § 6 (Daedalus): a markdown bullet list, one
-    pattern per line, ≤ 80 chars per bullet.
-    """
-    accepted = [e for e in pythia_entries if e.get("accepted") is True or e.get("inferred_label") == "inferred_accept"]
-    if not accepted:
-        return "_No labeled Pythia patterns yet for daedalus extraction._"
-
-    prompt_lines = [
-        "You are Daedalus, the Perseus pattern extractor.",
-        "Given a labeled stream of (prompt → accepted response) pairs,",
-        "produce 3-7 concise patterns or anti-patterns observed.",
-        "OUTPUT FORMAT: a markdown bullet list, one bullet per line,",
-        "each bullet ≤ 80 characters. No prose, no headings, just bullets.",
-        "",
-        "Data:",
-    ]
-    for e in accepted[-30:]:  # cap to most recent 30 to keep prompt small
-        p = str(e.get("prompt", "") or "")[:120].replace("\n", " ")
-        r = str(e.get("response", "") or "")[:120].replace("\n", " ")
-        src = "explicit" if e.get("accepted") is True else "inferred"
-        prompt_lines.append(f"- ({src}) {p} → {r}")
-    prompt = "\n".join(prompt_lines)
-
-    try:
-        text, code = run_llm("daedalus", prompt, cfg)
-    except Exception as exc:
-        sys.stderr.write(f"⚠ daedalus pattern extractor failed ({exc}); falling back to deterministic\n")
-        return None
-    if code != 0 or not text:
-        sys.stderr.write(f"⚠ daedalus pattern extractor returned no output (code={code}); falling back to deterministic\n")
-        return None
-
-    # Validate: must contain at least one bullet line; trim each to 80 chars
-    bullets = []
-    for raw in text.splitlines():
-        s = raw.strip()
-        if not s.startswith(("-", "*", "•")):
-            continue
-        if len(s) > 84:  # 80 + leading "- "
-            s = s[:81] + "…"
-        bullets.append(s if s.startswith("- ") else "- " + s.lstrip("*•- ").strip())
-    if not bullets:
-        sys.stderr.write("⚠ daedalus pattern extractor returned no bullets; falling back to deterministic\n")
-        return None
-    return "\n".join(bullets)
-
-
 def _extract_patterns_section(pythia_entries: list[dict], cfg: dict) -> str:
-    """Dispatch to the configured pattern extractor with graceful fallback."""
-    backend = (cfg.get("memory", {}).get("pattern_extractor") or "deterministic").strip().lower()
-    if backend == "daedalus":
-        out = _daedalus_patterns_body(pythia_entries, cfg)
-        if out is not None:
-            return out
-        # fall through to deterministic
+    """Extract the patterns section. Perseus runs no inference of its own
+    (observe model), so pattern extraction is always deterministic."""
     return _deterministic_patterns_body(pythia_entries)
 
 
@@ -604,5 +544,4 @@ def _deterministic_narrative(
             result += "> Review after deterministic update to ensure accuracy.\n"
 
     return result
-
 

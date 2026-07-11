@@ -79,12 +79,12 @@ Everything else has a better home:
 
 
 def _quickstart_write_config(
-    workspace: Path, generation: dict | None = None, with_memory: bool = False
+    workspace: Path, with_memory: bool = False
 ) -> Path:
     """Write a minimal .perseus/config.yaml with safe defaults.
 
-    If generation is provided, the 'generation' and 'llm' blocks are
-    populated so pythia/synthesis can use the configured LLM backend.
+    Perseus runs no inference of its own (observe model), so no LLM backend is
+    configured here — the host agent uses whatever model it already has.
 
     The memory connector is always wired (enabled) under the canonical
     ``perseus_vault:`` key with the ``perseus-vault`` binary (#665). No ``--db``
@@ -117,113 +117,10 @@ def _quickstart_write_config(
         },
         memory_key: memory_block,
     }
-    if generation:
-        config["generation"] = {
-            "enabled": generation.get("enabled", True),
-            "model": generation.get("model"),
-            "provider": generation.get("provider"),
-        }
-        config["llm"] = {
-            "provider": generation.get("provider", "openai-compat"),
-            "model": generation.get("model", "mistral"),
-            "url": generation.get("model_url", "http://localhost:11434"),
-        }
 
     with open(config_path, "w", encoding="utf-8") as f:
         yaml.safe_dump(config, f, sort_keys=False)
     return config_path
-
-
-def _quickstart_detect_llm_backends() -> list[dict]:
-    """Scan environment for known LLM API keys and return available backends."""
-    backends: list[dict] = []
-    for name, env_var, provider, model, url in [
-        ("Gemini", "GEMINI_API_KEY", "openai-compat", "gemini-2.5-flash",
-         "https://generativelanguage.googleapis.com/v1beta"),
-        ("Groq", "GROQ_API_KEY", "openai-compat", "llama-3.3-70b",
-         "https://api.groq.com/openai"),
-        ("DeepSeek", "DEEPSEEK_API_KEY", "openai-compat", "deepseek-chat",
-         "https://api.deepseek.com"),
-        ("OpenAI", "OPENAI_API_KEY", "openai-compat", "gpt-4o-mini",
-         "https://api.openai.com"),
-    ]:
-        key = os.environ.get(env_var, "")
-        if key:
-            backends.append({
-                "name": name,
-                "provider": provider,
-                "model": model,
-                "url": url,
-                "key_env": env_var,
-                "key": key,
-            })
-    return backends
-
-
-def _quickstart_configure_llm(workspace: Path) -> dict | None:
-    """Prompt the user to choose a free LLM backend, or auto-detect one.
-
-    Returns a generation config dict to merge into config.yaml, or None
-    if the user skips.
-    """
-    # Auto-detect any already-set keys
-    existing = _quickstart_detect_llm_backends()
-    if existing:
-        print(f"✓ Detected existing LLM key: {existing[0]['name']} ({existing[0]['key_env']})")
-        return {
-            "enabled": True,
-            "provider": existing[0]["provider"],
-            "model": existing[0]["model"],
-            "model_url": existing[0]["url"],
-            "api_key_env": existing[0]["key_env"],
-        }
-
-    print()
-    print("No LLM backend detected. Pythia and Synthesis need one.")
-    print()
-    print("Options:")
-    print("  [1] Gemini free tier (recommended — no credit card, 15 req/min)")
-    print("      → Get key at https://aistudio.google.com/apikey")
-    print("  [2] Groq free tier (no credit card, fast)")
-    print("      → Get key at https://console.groq.com/keys")
-    print("  [3] OpenAI (requires billing)")
-    print("  [4] Local llama.cpp (no network needed)")
-    print("  [5] Skip — I'll configure later")
-    print()
-
-    try:
-        choice = input("Choice [1-5]: ").strip()
-    except (EOFError, KeyboardInterrupt):
-        print("\nSkipping LLM configuration.")
-        return None
-
-    if choice == "1":
-        provider = "openai-compat"
-        model = "gemini-2.5-flash"
-        url = "https://generativelanguage.googleapis.com/v1beta"
-    elif choice == "2":
-        provider = "openai-compat"
-        model = "llama-3.3-70b"
-        url = "https://api.groq.com/openai"
-    elif choice == "3":
-        provider = "openai-compat"
-        model = "gpt-4o-mini"
-        url = "https://api.openai.com"
-    elif choice == "4":
-        provider = "llamacpp"
-        model = "llama-3.2-3b"
-        url = "http://127.0.0.1:8080"
-    else:
-        print("Skipping LLM configuration.")
-        return None
-
-    return {
-        "enabled": True,
-        "provider": provider,
-        "model": model,
-        "model_url": url,
-        "api_key_env": "",  # user will configure manually
-    }
 
 
 def cmd_quickstart(args, cfg) -> int:
@@ -251,7 +148,6 @@ def cmd_quickstart(args, cfg) -> int:
         pass
 
     non_interactive = getattr(args, "non_interactive", False)
-    no_llm = getattr(args, "no_llm", False)
     with_memory = getattr(args, "with_memory", False)
 
     print(f"Perseus quickstart — v{_PERSEUS_VERSION}")
@@ -285,26 +181,9 @@ def cmd_quickstart(args, cfg) -> int:
     if config_file.exists():
         print(f"✓ Config already exists: {config_file}")
     else:
-        gen_config = None
-        if not no_llm and not non_interactive:
-            gen_config = _quickstart_configure_llm(workspace)
-        elif not no_llm:
-            # Non-interactive: just check for existing keys
-            existing = _quickstart_detect_llm_backends()
-            if existing:
-                gen_config = {
-                    "enabled": True,
-                    "provider": existing[0]["provider"],
-                    "model": existing[0]["model"],
-                    "model_url": existing[0]["url"],
-                    "api_key_env": existing[0]["key_env"],
-                }
-                print(f"✓ Auto-detected LLM: {existing[0]['name']} ({existing[0]['key_env']})")
-        path = _quickstart_write_config(workspace, gen_config, with_memory=with_memory)
+        path = _quickstart_write_config(workspace, with_memory=with_memory)
         print(f"✓ Wrote config: {path}")
         print("  Memory connector wired under canonical `perseus_vault:` key")
-        if gen_config:
-            print(f"  LLM backend: {gen_config['provider']} / {gen_config['model']} / {gen_config['model_url']}")
         print()
 
     # Step 3: Reload config from workspace so permission profile is applied

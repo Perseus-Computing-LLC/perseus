@@ -1,80 +1,4 @@
 # stdlib imports available from build artifact header
-# ── LLM-assisted paths (opt-in) ───────────────────────────────────────────────
-
-def _truncate_pythia_for_llm(entries: list[dict]) -> list[dict]:
-    return [
-        {"task": e.get("task"), "accepted": e.get("accepted"), "timestamp": e.get("timestamp")}
-        for e in entries
-    ]
-
-
-def _mneme_update_llm(
-    existing_body: str,
-    frontmatter: dict,
-    new_checkpoints: list[dict],
-    new_pythia_entries: list[dict],
-    cfg: dict,
-    provider: str,
-) -> str:
-    """LLM-assisted incremental update. Returns updated narrative body."""
-    recent_keep = int(cfg.get("memory", {}).get("recent_keep", 5))
-    truncated = _truncate_pythia_for_llm(new_pythia_entries)
-    cp_yaml = yaml.safe_dump(new_checkpoints, default_flow_style=False, allow_unicode=True, sort_keys=False)
-    oc_json = json.dumps(truncated, ensure_ascii=False, indent=2)
-    body_block = existing_body if existing_body.strip() else "(none — initialize from scratch)"
-    prompt = (
-        "You are Mnēmē, the keeper of project narrative for an AI development workflow.\n\n"
-        "Your job: update a structured project narrative by incorporating new activity.\n"
-        "Preserve all existing content unless it directly contradicts new information.\n"
-        "Do not invent content. Do not pad. Be terse and factual.\n\n"
-        f"EXISTING NARRATIVE:\n{body_block}\n\n"
-        f"NEW CHECKPOINTS ({len(new_checkpoints)} since last update):\n{cp_yaml}\n\n"
-        f"NEW PYTHIA LOG ENTRIES ({len(new_pythia_entries)} since last update):\n{oc_json}\n\n"
-        "INSTRUCTIONS:\n"
-        "- Update the \"Project Arc\" section if the recent work represents a significant milestone\n"
-        "- Add new entries to \"Key Decisions\" if checkpoint notes contain decision language\n"
-        "- Update \"Task History\" table with any newly completed tasks\n"
-        "- Update \"Patterns & Anti-patterns\" based on accepted Pythia entries\n"
-        f"- Rewrite \"Recent Activity\" with the {recent_keep} most recent checkpoints\n"
-        "- Return ONLY the updated markdown body. No preamble. No commentary. Start with \"## Project Arc\".\n"
-    )
-    model = cfg.get("memory", {}).get("llm_model") or cfg.get("llm", {}).get("model")
-    text, code = run_llm(provider, prompt, cfg, model=model)
-    if code != 0:
-        raise RuntimeError(text)
-    return text
-
-
-def _mneme_compact_llm(
-    all_checkpoints: list[dict],
-    all_pythia_entries: list[dict],
-    workspace: Path,
-    cfg: dict,
-    provider: str,
-) -> str:
-    """LLM-assisted full compaction. Returns rebuilt narrative body."""
-    recent_keep = int(cfg.get("memory", {}).get("recent_keep", 5))
-    truncated = _truncate_pythia_for_llm(all_pythia_entries)
-    cp_yaml = yaml.safe_dump(all_checkpoints, default_flow_style=False, allow_unicode=True, sort_keys=False)
-    oc_json = json.dumps(truncated, ensure_ascii=False, indent=2)
-    prompt = (
-        "You are Mnēmē, the keeper of project narrative for an AI development workflow.\n\n"
-        f"Your job: build a structured project narrative from scratch for workspace {workspace}.\n"
-        "Do not invent content. Do not pad. Be terse and factual.\n\n"
-        f"ALL CHECKPOINTS ({len(all_checkpoints)}):\n{cp_yaml}\n\n"
-        f"ALL PYTHIA LOG ENTRIES ({len(all_pythia_entries)}):\n{oc_json}\n\n"
-        "INSTRUCTIONS:\n"
-        "- Produce the sections: Project Arc, Key Decisions, Task History, "
-        "Patterns & Anti-patterns, Recent Activity\n"
-        f"- Recent Activity should contain the {recent_keep} most recent checkpoints verbatim\n"
-        "- Return ONLY the markdown body. No preamble. No commentary. Start with \"## Project Arc\".\n"
-    )
-    model = cfg.get("memory", {}).get("llm_model") or cfg.get("llm", {}).get("model")
-    text, code = run_llm(provider, prompt, cfg, model=model)
-    if code != 0:
-        raise RuntimeError(text)
-    return text
-
 
 # ──────────────────────────────── Suggest ─────────────────────────────────────
 
@@ -152,156 +76,6 @@ def build_pythia_log_entry(task: str, snapshot: dict, prompt: str, response: str
         "accepted": None,
         "flags": list(flags or []),
     }
-
-
-def run_llm(provider: str, prompt: str, cfg: dict, model: str | None = None, model_url: str | None = None) -> tuple[str, int]:
-    """Run the Pythia prompt through a configured provider and return (text, exit_code)."""
-    provider = provider.strip().lower()
-    llm_cfg = cfg.get("llm", {})
-    timeout = float(llm_cfg.get("timeout_s", 30))
-
-    if provider == "ollama":
-        url = (model_url or str(llm_cfg.get("url", "http://localhost:11434"))).rstrip("/") + "/api/chat"
-        payload = {
-            "model": model or str(llm_cfg.get("model", "mistral")),
-            "messages": [
-                {"role": "system", "content": "You are Perseus Pythia, the Tool Oracle."},
-                {"role": "user", "content": prompt},
-            ],
-            "stream": False,
-        }
-    elif provider == "daedalus":
-        # task-06: routes to a fine-tuned local model via ollama
-        url = (model_url or str(llm_cfg.get("daedalus_url", "http://localhost:11434"))).rstrip("/") + "/api/chat"
-        payload = {
-            "model": model or str(llm_cfg.get("daedalus_model", "perseus-daedalus")),
-            "messages": [
-                {"role": "system", "content": "You are Perseus Pythia, the Tool Oracle (Daedalus)."},
-                {"role": "user", "content": prompt},
-            ],
-            "stream": False,
-        }
-        # share the ollama response-parsing branch below
-        provider = "ollama"
-    elif provider in {"llamacpp", "openai-compat", "hermes"}:
-        # `hermes` is an alias for `openai-compat` because Hermes Agent
-        # (NousResearch) exposes an OpenAI-compatible /v1/chat/completions
-        # server. Using the alias makes config read naturally
-        # (`llm.provider: hermes`) and reserves the name for a future
-        # Hermes-specific provider (auth headers, model picker, etc.).
-        # When the alias is used we look at llm.hermes_url and
-        # llm.hermes_model first so users can keep hermes settings
-        # independent of any other openai-compat endpoint they configure.
-        if provider == "hermes":
-            base_default = str(llm_cfg.get("hermes_url", llm_cfg.get("url", "http://localhost:8080"))).rstrip("/")
-            model_default = str(llm_cfg.get("hermes_model", llm_cfg.get("model", "default")))
-        else:
-            base_default = str(llm_cfg.get("url", "http://localhost:11434")).rstrip("/")
-            model_default = str(llm_cfg.get("model", "mistral"))
-        base = (model_url or base_default).rstrip("/")
-        url = base + "/v1/chat/completions"
-        payload = {
-            "model": model or model_default,
-            "messages": [
-                {"role": "system", "content": "You are Perseus Pythia, the Tool Oracle."},
-                {"role": "user", "content": prompt},
-            ],
-            "stream": False,
-        }
-        # share the openai-compat response-parsing branch below
-        provider = "openai-compat"
-    else:
-        return (f"> ⚠ Unsupported llm provider: {provider}. Currently supported: ollama, llamacpp, openai-compat, hermes, daedalus", 2)
-
-    req = urllib.request.Request(
-        url,
-        data=json.dumps(payload).encode(),
-        headers={"Content-Type": "application/json"},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            # DoS guard: a malicious/compromised LLM endpoint could stream an
-            # unbounded body into memory. Cap the read (config-overridable).
-            _max_bytes = int(cfg.get("pythia", {}).get("max_response_bytes", 8 * 1024 * 1024))
-            _raw = resp.read(_max_bytes + 1)
-            if len(_raw) > _max_bytes:
-                return (f"> ⚠ LLM response exceeded max_response_bytes ({_max_bytes}).", 2)
-            body = json.loads(_raw.decode())
-        if provider == "ollama":
-            text = str(body.get("message", {}).get("content", "")).strip()
-        else:
-            choices = body.get("choices", [])
-            text = str(choices[0].get("message", {}).get("content", "")).strip() if choices else ""
-        return (text or "> ⚠ LLM returned no response.", 0)
-    except urllib.error.URLError as exc:
-        return (f"> ⚠ LLM request failed: {exc}", 2)
-    except Exception as exc:
-        return (f"> ⚠ LLM error: {exc}", 2)
-
-
-def cmd_llm(args, cfg) -> int:
-    """`perseus llm ping` — verify the configured LLM provider is reachable.
-
-    Sends a tiny no-op prompt through ``run_llm`` and prints either a
-    pass line (provider, model, base URL, elapsed ms, response preview)
-    or an explicit error line. Exit codes:
-
-    - ``0`` on success
-    - ``2`` on transport or provider error
-    - ``3`` on unknown subcommand
-
-    Used by humans to confirm a fresh install ("does Perseus see Hermes
-    on this box?") and by future Daedalus drift detection to bail out
-    early when the inference path is broken.
-    """
-    sub = getattr(args, "llm_sub", None)
-    if sub != "ping":
-        print(f"unknown llm subcommand: {sub}", file=sys.stderr)
-        return 3
-
-    llm_cfg = cfg.get("llm", {})
-    provider = (args.provider or llm_cfg.get("provider") or "ollama").strip().lower()
-    model = args.model or None
-    model_url = args.url or None
-
-    # Build a base URL string for the report — mirror run_llm's resolution
-    if provider == "ollama":
-        base = (model_url or str(llm_cfg.get("url", "http://localhost:11434"))).rstrip("/")
-        resolved_model = model or str(llm_cfg.get("model", "mistral"))
-    elif provider == "daedalus":
-        base = (model_url or str(llm_cfg.get("daedalus_url", "http://localhost:11434"))).rstrip("/")
-        resolved_model = model or str(llm_cfg.get("daedalus_model", "perseus-daedalus"))
-    elif provider == "hermes":
-        base = (model_url or str(llm_cfg.get("hermes_url", llm_cfg.get("url", "http://localhost:8080")))).rstrip("/")
-        resolved_model = model or str(llm_cfg.get("hermes_model", llm_cfg.get("model", "default")))
-    elif provider in {"llamacpp", "openai-compat"}:
-        base = (model_url or str(llm_cfg.get("url", "http://localhost:11434"))).rstrip("/")
-        resolved_model = model or str(llm_cfg.get("model", "mistral"))
-    else:
-        print(f"✗ unsupported provider: {provider}", file=sys.stderr)
-        return 2
-
-    start = time.time()
-    text, code = run_llm(provider, "Reply with the single word: pong.", cfg, model=model, model_url=model_url)
-    elapsed_ms = int((time.time() - start) * 1000)
-
-    if code != 0:
-        if getattr(args, "json", False):
-            import json as _json
-            print(_json.dumps({"provider": provider, "model": resolved_model, "url": base,
-                                "latency_ms": elapsed_ms, "status": "error", "error": text}, indent=2))
-        else:
-            print(f"✗ {provider} · {base} · {elapsed_ms} ms · {text}")
-        return 2
-
-    preview = text.replace("\n", " ")[:60]
-    if getattr(args, "json", False):
-        import json as _json
-        print(_json.dumps({"provider": provider, "model": resolved_model, "url": base,
-                            "latency_ms": elapsed_ms, "status": "ok", "error": None}, indent=2))
-    else:
-        print(f"✓ {provider} · model={resolved_model} · {base} · {elapsed_ms} ms · {preview!r}")
-    return 0
 
 
 def _outcome_weight_for_entry(entry: dict) -> float | None:
@@ -580,34 +354,13 @@ Format: ranked list, most recommended first. Be direct. No hedging.
 {divider}"""
 
 
-def run_ollama(prompt: str, cfg: dict, model_override: str | None = None) -> str:
-    """Run the Pythia prompt against a local Ollama instance."""
-    host = str(cfg["pythia"].get("ollama_host", "http://127.0.0.1:11434")).rstrip("/")
-    model = model_override or str(cfg["pythia"].get("ollama_model", "llama3.1"))
-    timeout = float(cfg["pythia"].get("llm_timeout_s", 30))
-    body = json.dumps({"model": model, "prompt": prompt, "stream": False}).encode()
-    req = urllib.request.Request(
-        f"{host}/api/generate",
-        data=body,
-        headers={"Content-Type": "application/json"},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            # DoS guard: cap the response body (config-overridable).
-            _max_bytes = int(cfg.get("pythia", {}).get("max_response_bytes", 8 * 1024 * 1024))
-            _raw = resp.read(_max_bytes + 1)
-            if len(_raw) > _max_bytes:
-                return f"> ⚠ Ollama response exceeded max_response_bytes ({_max_bytes})."
-            payload = json.loads(_raw.decode())
-        return str(payload.get("response", "")).strip() or "> ⚠ Ollama returned no response."
-    except urllib.error.URLError as exc:
-        return f"> ⚠ Ollama request failed: {exc}"
-    except Exception as exc:
-        return f"> ⚠ Ollama error: {exc}"
-
-
 def cmd_suggest(args, cfg):
-    """Pythia: build a live snapshot, render a prompt, optionally run a local model, and log the interaction.
+    """Pythia: build a live snapshot and render the tool-oracle prompt for the
+    host agent to answer, then log the interaction.
+
+    Perseus does not run its own inference (observe model): `suggest` renders a
+    ranked, outcome-weighted prompt and prints it — the calling agent answers it
+    with whatever model it is already using.
 
     Flag handling (task-10):
       --quick           shortens the prompt; implies --no-services
@@ -618,9 +371,6 @@ def cmd_suggest(args, cfg):
     quick = getattr(args, "quick", False)
     no_services = getattr(args, "no_services", False)
     category = getattr(args, "category", None)
-    llm = getattr(args, "llm", None)
-    model = getattr(args, "model", None)
-    model_url = getattr(args, "model_url", None)
 
     # Build list of active flags for log entry
     active_flags: list[str] = []
@@ -634,27 +384,12 @@ def cmd_suggest(args, cfg):
     snapshot = build_pythia_snapshot(cfg, category=category, no_services=no_services, quick=quick, task=task)
 
     prompt = render_pythia_prompt(task, snapshot)
-    response_text = None
-    provider_used = None
-    model_used = None
-    exit_code = 0
-
-    if llm:
-        provider_used = llm.strip().lower()
-        if ":" in provider_used and not model:
-            provider_used, _, model = provider_used.partition(":")
-        response_text, exit_code = run_llm(provider_used, prompt, cfg, model=model or None, model_url=model_url)
-        model_used = model or cfg.get("llm", {}).get("model")
-        print(response_text)
-    else:
-        print(prompt)
+    print(prompt)
 
     append_pythia_log(
-        build_pythia_log_entry(task, snapshot, prompt, response_text, provider_used, model_used, flags=active_flags),
+        build_pythia_log_entry(task, snapshot, prompt, None, None, None, flags=active_flags),
         cfg,
     )
-    if exit_code:
-        raise SystemExit(exit_code)
 
 
 # ────────────────────────── Oracle / Daedalus (task-06) ──────────────────────
@@ -1363,5 +1098,4 @@ def resolve_drift(args: str, cfg: dict) -> str:
         for f in report["findings"]:
             lines.append(f"- {f}")
     return "\n".join(lines)
-
 
