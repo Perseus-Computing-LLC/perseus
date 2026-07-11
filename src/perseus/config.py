@@ -80,11 +80,7 @@ DEFAULT_CONFIG = {
     "pythia": {
         "skill_dir": str(SKILLS_DIR),
         "stale_skill_days": 30,
-        "llm_provider": "ollama",
-        "ollama_model": "llama3.1",
-        "llm_timeout_s": 30,
         "max_entries": 10000,          # max JSONL log entries before oldest are pruned (0 = unlimited)
-        "ollama_host": os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434"),
         # Phase 9.1 — Daedalus self-rating / inferred label window.
         # Default: 7 days OR 5 checkpoints after the recommendation,
         # whichever comes first. Floor of 2 checkpoints to call it
@@ -107,15 +103,6 @@ DEFAULT_CONFIG = {
         "ab_testing_enabled": False,          # Phase 14C: transparent candidate exploration
         "ab_testing_rate": 0.10,
     },
-    "llm": {
-        "provider": "ollama",
-        "model": "mistral",
-        "url": "http://localhost:11434",
-        "timeout_s": 30,
-        # task-06: Daedalus — local fine-tuned model routed via ollama
-        "daedalus_model": "perseus-daedalus",
-        "daedalus_url": "http://localhost:11434",
-    },
     "assistant": {
         "sessions_dir": str(SESSIONS_DIR),
     },
@@ -133,24 +120,14 @@ DEFAULT_CONFIG = {
         "recent_keep": 5,           # raw checkpoints to include in Recent Activity
         "auto_update": True,        # update narrative on every checkpoint write
         "compact_threshold": 20,    # advisory: compact after this many incremental updates
-        # #131: wall-clock deadline for `perseus memory compact` LLM path.
-        # 0 = no deadline (pre-1.0.6 behavior — can hang indefinitely on
-        # slow models). Default 180s (3 min) covers Ollama mistral on a
-        # modern laptop for typical workspace sizes. On timeout the LLM
-        # call is abandoned and the deterministic narrative is used.
-        "compact_total_timeout_s": 180,
-        "llm_provider": None,       # None = deterministic; "ollama" / "openai-compat" enables LLM
-        "llm_model": None,          # inherits from llm: block if None
         "max_narrative_lines": 300, # warn (not error) if narrative grows beyond this
         # Mnēmē v2 — Perseus-native vault (SQLite FTS5, no Mneme v2 dependency)
         "mneme_vault_path": "",     # empty = auto-detect ($PERSEUS_HOME/memory/vault/)
         "mneme_index_path": "",     # empty = vault_path / "mneme.index"
         # task-19 (Phase 8.2) — federation manifest path
         "federation_manifest": str(PERSEUS_HOME / "memory" / "federation.yaml"),
-        # task-21 (Phase 9.2) — pattern extractor backend:
-        #   "deterministic" = rule-based (no model), default
-        #   "daedalus"      = call run_llm("daedalus", ...) for inference
-        # The daedalus path falls back to deterministic on any failure.
+        # Pattern extraction is always deterministic (rule-based, no model) —
+        # Perseus runs no inference of its own (observe model).
         "pattern_extractor": "deterministic",
         # #717 — recency window for STATIC @memory narrative injection.
         # Entries whose `### <timestamp> — …` heading is older than this many

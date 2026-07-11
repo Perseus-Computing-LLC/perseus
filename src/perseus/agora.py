@@ -49,19 +49,6 @@ def _memory_workspace(args, cfg) -> Path:
     raise SystemExit(2)
 
 
-def _memory_llm_provider(args, cfg) -> str | None:
-    """Resolve effective llm provider for this call. None == deterministic."""
-    flag = getattr(args, "llm", None)
-    if flag:
-        v = str(flag).strip().lower()
-        # #130: --llm none means "use deterministic" not "use provider named none"
-        return None if v in ("", "none") else v
-    cfg_provider = cfg.get("memory", {}).get("llm_provider")
-    if cfg_provider:
-        return str(cfg_provider).strip().lower() or None
-    return None
-
-
 def _memory_do_update(workspace: Path, cfg: dict, provider: str | None) -> tuple[bool, str]:
     """Core incremental update routine.
 
@@ -98,10 +85,10 @@ def _memory_do_update(workspace: Path, cfg: dict, provider: str | None) -> tuple
     if not new_cp and not new_py and body.strip():
         return (False, "Nothing new since last update.")
 
-    if provider:
-        new_body = _mneme_update_llm(body, fm, new_cp, new_py, cfg, provider)
-    else:
-        new_body = _deterministic_narrative(all_checkpoints, all_pythia, body, workspace, cfg)
+    # Narrative is always distilled deterministically — Perseus runs no
+    # inference of its own (observe model). `provider` is accepted for
+    # call-site compatibility and ignored.
+    new_body = _deterministic_narrative(all_checkpoints, all_pythia, body, workspace, cfg)
 
     fm["checkpoints_processed"] = len(all_checkpoints)
     _set_mneme_pythia_hwm(fm, len(all_pythia))
@@ -131,79 +118,10 @@ def _memory_do_compact(workspace: Path, cfg: dict, provider: str | None) -> str:
     if not fm:
         fm = _mneme_default_frontmatter(workspace)
 
-    if provider:
-        # Regression for #131 — pre-1.0.6, _mneme_compact_llm() called run_llm()
-        # which only enforced `llm.timeout_s` (default 30s) on the HTTP request
-        # itself. With streaming-token providers like Ollama serving a large
-        # model, individual tokens can arrive within timeout but total wall
-        # time was unbounded — operators reported `memory compact` hanging
-        # for hours.
-        #
-        # We now wrap the LLM call in a wall-clock deadline (memory.
-        # compact_total_timeout_s, default 180s). On timeout we abandon the
-        # LLM future and fall back to deterministic narrative — operators get
-        # SOME narrative, plus a clear stderr signal so they can decide
-        # whether to upgrade their LLM setup or stay deterministic.
-        #
-        # Limitation: ThreadPoolExecutor cannot truly kill the worker thread
-        # (Python provides no public API for that). The in-flight HTTP
-        # request continues until urllib's per-request timeout fires.
-        # Worst-case observed total wait is therefore
-        # `compact_total_timeout_s + llm.timeout_s`. The leaked thread is
-        # daemonized by Python's default ThreadPoolExecutor settings; it
-        # will not prevent process exit.
-        total_timeout = float(cfg.get("memory", {}).get(
-            "compact_total_timeout_s", 180.0
-        ))
-        try:
-            import concurrent.futures as _cf
-            executor = _cf.ThreadPoolExecutor(
-                max_workers=1, thread_name_prefix="mimir-compact-llm",
-            )
-            try:
-                fut = executor.submit(
-                    _mneme_compact_llm,
-                    all_checkpoints, all_pythia, workspace, cfg, provider,
-                )
-                new_body = fut.result(timeout=total_timeout)
-            finally:
-                # Don't block on the worker — it may still be waiting on
-                # urllib. The thread is daemonic and will not block exit.
-                executor.shutdown(wait=False, cancel_futures=True)
-        except _cf.TimeoutError:
-            sys.stderr.write(
-                f"> ⚠ Mnēmē compact: LLM provider {provider!r} exceeded "
-                f"compact_total_timeout_s={total_timeout:.0f}s; "
-                f"falling back to deterministic narrative.\n"
-            )
-            try:
-                audit_event(
-                    cfg, "memory_compact_timeout",
-                    provider=provider,
-                    total_timeout_s=total_timeout,
-                    workspace_hash=_workspace_hash(workspace),
-                )
-            except Exception as exc:
-                import logging
-                logging.getLogger("perseus.agora").warning(
-                    "Agora task list parse failed for workspace %s: %s",
-                    getattr(workspace, 'path', workspace), exc
-                )
-            new_body = _deterministic_narrative(
-                all_checkpoints, all_pythia, "", workspace, cfg,
-            )
-        except Exception as exc:
-            # LLM call raised (model server unreachable, payload error, etc.)
-            # — surface the failure but still produce SOMETHING usable.
-            sys.stderr.write(
-                f"> ⚠ Mnēmē compact: LLM provider {provider!r} failed "
-                f"({exc}); falling back to deterministic narrative.\n"
-            )
-            new_body = _deterministic_narrative(
-                all_checkpoints, all_pythia, "", workspace, cfg,
-            )
-    else:
-        new_body = _deterministic_narrative(all_checkpoints, all_pythia, "", workspace, cfg)
+    # Compaction always distills deterministically — Perseus runs no inference
+    # of its own (observe model). `provider` is accepted for call-site
+    # compatibility and ignored.
+    new_body = _deterministic_narrative(all_checkpoints, all_pythia, "", workspace, cfg)
 
     fm["checkpoints_processed"] = len(all_checkpoints)
     _set_mneme_pythia_hwm(fm, len(all_pythia))
@@ -222,11 +140,7 @@ def _memory_do_compact(workspace: Path, cfg: dict, provider: str | None) -> str:
 def cmd_memory_update_silent(workspace: Path, cfg: dict) -> None:
     """Silent side-effect for cmd_checkpoint. Never raises."""
     try:
-        provider = None
-        cfg_provider = cfg.get("memory", {}).get("llm_provider")
-        if cfg_provider:
-            provider = str(cfg_provider).strip().lower() or None
-        _memory_do_update(workspace, cfg, provider)
+        _memory_do_update(workspace, cfg, None)
     except Exception as exc:
         sys.stderr.write(f"> ⚠ Mnēmē update failed: {exc}\n")
 
@@ -371,8 +285,7 @@ def cmd_memory(args, cfg):
     workspace = _memory_workspace(args, cfg)
 
     if sub == "update":
-        provider = _memory_llm_provider(args, cfg)
-        changed, msg = _memory_do_update(workspace, cfg, provider)
+        changed, msg = _memory_do_update(workspace, cfg, None)
         print(msg)
         # #713: `memory update` is a session boundary Perseus already owns —
         # capture pending checkpoints to the vault live (opt-in).
@@ -407,13 +320,12 @@ def cmd_memory(args, cfg):
         return
 
     if sub == "compact":
-        provider = _memory_llm_provider(args, cfg)
         # task-21: per-invocation override for pattern_extractor
         pe_override = getattr(args, "pattern_extractor", None)
         if pe_override:
             cfg = copy.deepcopy(cfg)
             cfg.setdefault("memory", {})["pattern_extractor"] = pe_override
-        msg = _memory_do_compact(workspace, cfg, provider)
+        msg = _memory_do_compact(workspace, cfg, None)
         # Record last_compact_processed so future advisory math works
         mp = _mneme_path(workspace, cfg)
         fm, body = _load_narrative(mp)
@@ -450,7 +362,7 @@ def cmd_memory(args, cfg):
         cp_pending = max(0, len(all_cp) - cp_hwm)
         py_pending = max(0, len(all_py) - py_hwm)
         line_count = body.count("\n") + (1 if body and not body.endswith("\n") else 0)
-        mode = "LLM (" + str(cfg.get("memory", {}).get("llm_provider")) + ")" if cfg.get("memory", {}).get("llm_provider") else "deterministic"
+        mode = "deterministic"
         updated = fm.get("updated", "(unknown)")
         age = _human_age(updated) if isinstance(updated, str) else "(unknown)"
         if use_json:
@@ -477,8 +389,6 @@ def cmd_memory(args, cfg):
             print(f"  Compactions: {fm.get('compaction_count', 0)}")
             print(f"  Size:        {line_count} lines")
             print(f"  Mode:        {mode}")
-        if not use_json and mode == "deterministic":
-            print("               (set memory.llm_provider to enable LLM distillation)")
         return
 
     if sub == "query":
@@ -489,19 +399,7 @@ def cmd_memory(args, cfg):
             print("> Run `perseus memory update` to initialize.")
             return
         fm, body = _load_narrative(mp)
-        provider = _memory_llm_provider(args, cfg)
-        if provider:
-            prompt = (
-                "You are Mnēmē. Answer the user's question about this project, citing "
-                "only the narrative below. If the narrative does not contain the answer, "
-                "say so plainly.\n\n"
-                f"NARRATIVE:\n{body}\n\nQUESTION: {question}\n"
-            )
-            model = cfg.get("memory", {}).get("llm_model") or cfg.get("llm", {}).get("model")
-            text, code = run_llm(provider, prompt, cfg, model=model)
-            print(text if code == 0 else f"> ⚠ {MEMORY_BRAND} query (LLM) failed: {text}")
-            return
-        # Deterministic grep-style search
+        # Deterministic grep-style search (Perseus runs no inference of its own)
         terms = [t for t in re.split(r'\s+', question.strip()) if t]
         matches: list[str] = []
         sections = re.split(r'(?m)^(?=##\s+)', body)
@@ -1262,9 +1160,6 @@ def _resolve_memory_narrative(args_stripped: str, mods: dict, cfg: dict, ws: Pat
         result = stale_note + result
     result = result + compact_note
     return _maybe_append_federation(result)
-
-
-
 
 
 # ──────────────────────────── @context-diff (#714) ────────────────────────────

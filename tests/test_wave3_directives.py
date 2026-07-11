@@ -488,40 +488,6 @@ def test_synthesis_unreadable_source_accumulates_error(tmp_path, monkeypatch):
     assert len(errors) == 1 and "could not read source" in errors[0]
 
 
-def test_synthesis_provider_model_shorthand_with_explicit_model(tmp_path, monkeypatch):
-    """renderer passes both llm='ollama:llama3' and model=... — the colon must
-    still be split so run_llm gets a bare provider name."""
-    (tmp_path / "s.md").write_text("fact\n")
-    seen = {}
-
-    def fake_run_llm(provider, prompt, cfg, model=None, model_url=None):
-        seen["provider"], seen["model"] = provider, model
-        return '{"claims":[]}', 0
-
-    monkeypatch.setattr(perseus, "run_llm", fake_run_llm)
-    perseus.synthesize_question("q?", ["s.md"], _gen_cfg(), tmp_path,
-                                llm="ollama:llama3", model="ExplicitModel",
-                                enable_generation=True)
-    assert seen["provider"] == "ollama"
-    assert seen["model"] == "ExplicitModel"
-
-
-def test_synthesis_shorthand_model_case_preserved(tmp_path, monkeypatch):
-    (tmp_path / "s.md").write_text("fact\n")
-    seen = {}
-
-    def fake_run_llm(provider, prompt, cfg, model=None, model_url=None):
-        seen["provider"], seen["model"] = provider, model
-        return '{"claims":[]}', 0
-
-    monkeypatch.setattr(perseus, "run_llm", fake_run_llm)
-    perseus.synthesize_question("q?", ["s.md"], _gen_cfg(), tmp_path,
-                                llm="Ollama:Llama3-70B", model=None,
-                                enable_generation=True)
-    assert seen["provider"] == "ollama"
-    assert seen["model"] == "Llama3-70B"
-
-
 def test_synthesis_max_source_bytes_is_byte_aware(tmp_path):
     # 20 x 'é' = 40 UTF-8 bytes but only 20 characters.
     (tmp_path / "u.md").write_text("é" * 20, encoding="utf-8")

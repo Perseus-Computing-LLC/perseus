@@ -762,36 +762,12 @@ def cmd_memory_federation_merge(args, cfg) -> int | None:
         return 1
 
     # Build a cited-synthesis prompt
-    prompt = (
-        "You are a conflict mediator for federated AI context.\n"
-        f"Below are narratives from two workspaces: `{alias_a}` and `{alias_b}`.\n"
-        "They may disagree on architectural decisions, deployment strategies, or project direction.\n"
-        "Draft a neutral reconciliation that:\n"
-        "1. Identifies specific points of agreement\n"
-        "2. Identifies specific points of disagreement\n"
-        "3. Suggests a concrete path forward for each disagreement\n"
-        "4. Uses exact citations from both source narratives (format: [source])\n\n"
-        f"NARRATIVE `{alias_a}`:\n{body_a[:3000]}\n\n"
-        f"NARRATIVE `{alias_b}`:\n{body_b[:3000]}\n"
-    )
-
-    # Try LLM synthesis if configured
-    llm_provider = cfg.get("memory", {}).get("llm_provider") or cfg.get("llm", {}).get("provider")
-    if llm_provider:
-        model = cfg.get("memory", {}).get("llm_model") or cfg.get("llm", {}).get("model")
-        text, code = run_llm(llm_provider, prompt, cfg, model=model)
-        if code == 0:
-            print("## Merge Suggestion (LLM-drafted)\n")
-            print(text)
-            print("\n> ⚠ This is a suggestion — not automatically applied to any narrative.")
-            return 0
-        print(f"LLM synthesis failed: {text}. Falling back to deterministic.", file=sys.stderr)
-
-    # Deterministic fallback: show overlap summary
+    # Perseus runs no inference of its own (observe model): the merge view is
+    # a deterministic topic-overlap summary the host agent can reconcile.
     secs_a = _extract_sections(body_a)
     secs_b = _extract_sections(body_b)
     lines = ["## Merge Suggestion (deterministic)\n"]
-    lines.append("> LLM synthesis unavailable. Showing topic overlap summary.\n")
+    lines.append("> Topic overlap summary — reconcile the differences in your own review.\n")
     for heading in sorted(set(list(secs_a.keys()) + list(secs_b.keys()))):
         if heading == "_preamble":
             continue
