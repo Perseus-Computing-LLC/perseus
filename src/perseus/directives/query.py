@@ -950,83 +950,9 @@ def _score_adaptive_candidates_deterministic(candidates: list[dict], corpus: str
     return scores
 
 
-def _adaptive_daedalus_prompt(candidates: list[dict], corpus: str) -> str:
-    lines = [
-        "You are Daedalus scoring predeclared Perseus prefetch candidates.",
-        "Do not invent directives, prose, candidates, or context.",
-        "Return only JSON: [{\"id\":\"...\",\"score\":0.0,\"reason\":\"short\"}]",
-        "Scores are 0.0 to 1.0.",
-        "",
-        "Candidates:",
-    ]
-    for candidate in candidates:
-        directive_line = candidate.get("prefetch")
-        if isinstance(directive_line, dict):
-            directive_line = directive_line.get("line") or directive_line.get("directive_line") or directive_line.get("directive") or ""
-        lines.append(
-            f"- id={candidate['id']} directive={directive_line!r} "
-            f"patterns={candidate.get('patterns', [])!r}"
-        )
-    lines.extend(["", "Evidence:", corpus[-4000:]])
-    return "\n".join(lines)
-
-
-def _parse_daedalus_prefetch_scores(text: str, candidates: list[dict]) -> dict[str, dict] | None:
-    raw = text.strip()
-    if raw.startswith("```"):
-        raw = re.sub(r'^```(?:json)?\s*', '', raw)
-        raw = re.sub(r'\s*```$', '', raw)
-    try:
-        data = json.loads(raw)
-    except Exception:
-        m = re.search(r'(\[.*\])', raw, re.DOTALL)
-        if not m:
-            return None
-        try:
-            data = json.loads(m.group(1))
-        except Exception:
-            return None
-    if isinstance(data, dict):
-        data = data.get("scores")
-    if not isinstance(data, list):
-        return None
-
-    known = {candidate["id"] for candidate in candidates}
-    scores: dict[str, dict] = {}
-    for item in data:
-        if not isinstance(item, dict):
-            continue
-        cid = str(item.get("id", ""))
-        if cid not in known:
-            continue
-        try:
-            score = float(item.get("score", 0.0))
-        except (TypeError, ValueError):
-            score = 0.0
-        score = max(0.0, min(1.0, score))
-        scores[cid] = {"score": score, "reason": str(item.get("reason") or "daedalus score")}
-    return scores
-
-
 def _score_adaptive_candidates(candidates: list[dict], corpus: str, cfg: dict, adaptive_cfg: dict) -> tuple[dict[str, dict], str, str]:
-    backend = adaptive_cfg.get("backend", "deterministic")
-    if backend == "daedalus":
-        prompt = _adaptive_daedalus_prompt(candidates, corpus)
-        text, code = run_llm("daedalus", prompt, cfg, model=adaptive_cfg.get("model") or None)
-        if code == 0:
-            scores = _parse_daedalus_prefetch_scores(text, candidates)
-            if scores is not None:
-                for candidate in candidates:
-                    scores.setdefault(candidate["id"], {"score": 0.0, "reason": "daedalus returned no score"})
-                return scores, "daedalus", ""
-            fallback = "daedalus returned unparseable scores"
-        else:
-            fallback = f"daedalus failed: {text}"
-        scores = _score_adaptive_candidates_deterministic(candidates, corpus)
-        for value in scores.values():
-            value["reason"] = f"{fallback}; deterministic fallback: {value['reason']}"
-        return scores, "deterministic", fallback
-
+    # Adaptive prefetch scoring is always deterministic — Perseus runs no
+    # inference of its own (observe model).
     return _score_adaptive_candidates_deterministic(candidates, corpus), "deterministic", ""
 
 
