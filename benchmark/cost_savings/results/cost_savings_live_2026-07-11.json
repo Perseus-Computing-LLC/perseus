@@ -1,0 +1,41 @@
+{
+  "benchmark": "perseus-vault-cost-savings (#749)",
+  "mode": "live",
+  "accuracy_grading": "official LongMemEval per-type judge",
+  "dollars": "provider-billed tokens x Plutus price table",
+  "price_table_as_of": "2026-06-26",
+  "answerer_model": "gpt-4o-2024-08-06",
+  "judge_model": "gpt-4o-2024-08-06",
+  "answer_prompt": "official-cot",
+  "k": 10,
+  "n_questions": 25,
+  "dataset": "longmemeval_s_cleaned.json",
+  "arms": {
+    "fullcontext": {
+      "workspace": "baseline-fullcontext",
+      "ledger_cost_usd": 6.527301,
+      "ledger_tokens": 2603042,
+      "ledger_events": 50,
+      "metered_records": 50,
+      "errored_records_unmetered": 0,
+      "accuracy": 0.84,
+      "n_graded": 25
+    },
+    "mimir": {
+      "workspace": "perseus-vault",
+      "ledger_cost_usd": 1.389083,
+      "ledger_tokens": 548614,
+      "ledger_events": 50,
+      "metered_records": 50,
+      "errored_records_unmetered": 0,
+      "accuracy": 0.96,
+      "n_graded": 25
+    }
+  },
+  "savings_pct": 78.72,
+  "accuracy_delta": 0.12,
+  "qa_report": "qa_report_live.json",
+  "qa_signature_sha256": "1db193ec77f9f243dc1ea69d9761da9cc43c5b7165d8f5f7e4360dd51b75d483",
+  "plutus_ledger": "plutus_ledger.db",
+  "signature_sha256": "d217876646fb814a1c4e91e973cfb66f91bcaabb4170dafae4f07f935ac7b4d0"
+}
