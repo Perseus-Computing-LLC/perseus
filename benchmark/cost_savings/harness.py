@@ -164,7 +164,9 @@ def main() -> None:
     qa = find_qa()
     vault_repo = qa.parent.parent.parent
     binary = find_binary(args.bin, vault_repo)
-    outdir = Path(args.outdir)
+    # Absolute: qa.py runs with cwd at its own checkout, so relative paths
+    # would resolve there, not here.
+    outdir = Path(args.outdir).resolve()
     outdir.mkdir(parents=True, exist_ok=True)
     journal = outdir / f"qa_journal_{args.mode}.jsonl"
     qa_report = outdir / f"qa_report_{args.mode}.json"
