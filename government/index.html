@@ -1,146 +1,258 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Perseus for Government: sovereign, air-gap ready</title>
-<script>try{var t=localStorage.getItem('perseus-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
-<link rel="icon" href="/assets/perseus.svg">
+<title>Perseus · sovereignty &amp; compliance for federal buyers</title>
+<meta name="description" content="Perseus runs entirely inside your boundary: air-gap ready, AES-256-GCM encrypted, zero telemetry, MIT. SBOM per EO 14028, NIST AI RMF aligned, EAR99. Deployments the cloud can't reach.">
 <link rel="canonical" href="https://perseus.observer/government/">
-<meta name="description" content="Perseus runs entirely on-premise: single binary, air-gap ready, EAR99, SBOM published, Ed25519-signed federation. Sovereign context for regulated environments.">
-<meta name="theme-color" content="#0A0A12">
 <meta property="og:type" content="website">
-<meta property="og:site_name" content="Perseus">
-<meta property="og:title" content="Perseus for Government: sovereign, air-gap ready">
-<meta property="og:description" content="Perseus runs entirely on-premise: single binary, air-gap ready, EAR99, SBOM published, Ed25519-signed federation. Sovereign context for regulated environments.">
+<meta property="og:title" content="Perseus · sovereignty &amp; compliance">
+<meta property="og:description" content="Deployments the cloud can't reach. Air-gap ready, encrypted, zero telemetry, MIT. SBOM per EO 14028, NIST AI RMF aligned, EAR99.">
 <meta property="og:url" content="https://perseus.observer/government/">
-<meta property="og:image" content="https://perseus.observer/assets/og/government.png">
-<meta property="og:image:width" content="1200">
-<meta property="og:image:height" content="630">
+<meta property="og:image" content="https://perseus.observer/assets/og/perseus.png">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Perseus for Government: sovereign, air-gap ready">
-<meta name="twitter:description" content="Perseus runs entirely on-premise: single binary, air-gap ready, EAR99, SBOM published, Ed25519-signed federation. Sovereign context for regulated environments.">
-<meta name="twitter:image" content="https://perseus.observer/assets/og/government.png">
+<meta name="twitter:title" content="Perseus · sovereignty &amp; compliance">
+<meta name="twitter:description" content="Deployments the cloud can't reach. Air-gap ready, encrypted, zero telemetry, MIT. SBOM per EO 14028, NIST AI RMF aligned, EAR99.">
+<meta name="twitter:image" content="https://perseus.observer/assets/og/perseus.png">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/assets/fonts.css">
-<link rel="stylesheet" href="/assets/tokens.css">
-<link rel="stylesheet" href="/assets/perseus.css">
-<script defer src="https://stats.perseus.observer/script.js" data-website-id="74dc0a11-f2dd-4d6f-b0b7-4a550116bbe5"></script>
+<style>
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin:0; background:#0b0c0f; color:#e7e9ee; font-family:'IBM Plex Sans',system-ui,-apple-system,sans-serif; -webkit-font-smoothing:antialiased; line-height:1.55; }
+a { color:#a78bfa; text-decoration:none; }
+a:hover { color:#c4b5fd; }
+p { margin:0; }
+h1,h2,h3,h4 { margin:0; font-weight:600; letter-spacing:-0.01em; }
+::selection { background:#a78bfa; color:#0b0c0f; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+@media (max-width:900px){ .nav-links{ display:none !important; } .grid-2,.grid-3{ grid-template-columns:1fr !important; } }
+</style>
 </head>
 <body>
 
-<header class="site">
-  <div class="nav">
-    <a href="/" class="brand" aria-label="Perseus home">
-      <svg width="30" height="30" viewBox="0 0 56 56" fill="none" aria-hidden="true"><rect x="3" y="14" width="17" height="3.6" rx="1.8" fill="var(--violet)"/><rect x="3" y="21" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".75"/><rect x="3" y="28" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".55"/><rect x="3" y="35" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".4"/><g stroke="var(--amber)" stroke-width="2.4" stroke-linecap="round"><line x1="22" y1="16" x2="42" y2="28"/><line x1="22" y1="23" x2="42" y2="28"/><line x1="22" y1="30" x2="42" y2="28"/><line x1="22" y1="37" x2="42" y2="28"/></g><circle cx="44" cy="28" r="4.2" fill="var(--amber)"/></svg>
-      <b>Perseus<span class="sub"> / Government</span></b>
-    </a>
-    <nav class="navlinks">
-      <a href="#posture">Posture</a>
-      <a href="#deploy">Deployment</a>
-      <a href="/">Perseus ↗</a>
-    </nav>
-    <button class="toggle" data-theme-toggle aria-label="Toggle theme"><span class="dot"></span><span data-theme-label>Light</span></button>
-    <a href="mailto:perseus@perseus.observer?subject=Government%20inquiry" class="btn btn-primary">Contact</a>
+<div style="max-width:100%;overflow-x:hidden;">
+
+<!-- ===== NAV ===== -->
+<nav style="position:sticky;top:0;z-index:50;display:flex;align-items:center;justify-content:space-between;gap:24px;padding:16px 32px;background:rgba(11,12,15,0.82);backdrop-filter:blur(12px);border-bottom:1px solid #1b1e25;">
+  <a href="/" style="display:flex;align-items:center;gap:10px;color:#e7e9ee;">
+    <svg width="22" height="26" viewBox="0 0 22 26" fill="none" style="display:block;"><path d="M11 1L21 5.5V13c0 6.2-4.1 10.2-10 11.9C5.1 23.2 1 19.2 1 13V5.5L11 1z" stroke="#a78bfa" stroke-width="1.4" fill="rgba(167,139,250,0.08)"/><path d="M11 6.5v13" stroke="#3fb37f" stroke-width="1.3"/><path d="M6.5 11l4.5 3 4.5-3" stroke="#a78bfa" stroke-width="1.3" fill="none"/></svg>
+    <span style="font-weight:600;font-size:16px;letter-spacing:-0.01em;">Perseus Computing</span>
+  </a>
+  <div class="nav-links" style="display:flex;align-items:center;gap:26px;font-size:14px;color:#9aa2ad;">
+    <a href="/context-engine/" style="color:#9aa2ad;">Context engine</a>
+    <a href="/vault/" style="color:#9aa2ad;">Vault</a>
+    <a href="/#calculator" style="color:#9aa2ad;">Calculator</a>
+    <a href="#top" style="color:#e7e9ee;">Sovereignty</a>
+    <a href="/demo/" style="color:#9aa2ad;">Demo</a>
+    <a href="/" style="color:#9aa2ad;">Home</a>
+  </div>
+  <div style="display:flex;align-items:center;gap:12px;">
+    <a href="#procurement" style="font-size:13px;color:#9aa2ad;border:1px solid #262a33;border-radius:7px;padding:7px 12px;">For federal buyers</a>
+    <a href="/" style="font-size:13px;color:#0b0c0f;background:#a78bfa;border-radius:7px;padding:8px 14px;font-weight:600;">← Home</a>
+  </div>
+</nav>
+
+<!-- ===== HERO ===== -->
+<header id="top" style="position:relative;padding:88px 32px 64px;background:radial-gradient(1100px 520px at 50% -12%,rgba(63,179,127,0.13),transparent 70%);">
+  <div style="max-width:960px;margin:0 auto;text-align:center;">
+    <div style="display:inline-flex;align-items:center;gap:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:#9aa2ad;border:1px solid #262a33;border-radius:999px;padding:6px 14px;margin-bottom:26px;">
+      <span style="width:7px;height:7px;border-radius:50%;background:#3fb37f;animation:blink 2.4s ease-in-out infinite;"></span>
+      compliance &amp; sovereignty
+    </div>
+    <h1 style="font-size:50px;line-height:1.06;letter-spacing:-0.03em;font-weight:700;max-width:820px;margin:0 auto 20px;">Deployments the cloud can't reach.</h1>
+    <p style="font-size:19px;line-height:1.5;color:#b9c0ca;max-width:700px;margin:0 auto 32px;">Perseus runs entirely inside your boundary. No data leaves the machine, nothing phones home, and there is no service to depend on: the posture regulated, classified, and sovereign environments require.</p>
+    <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#3fb37f;border:1px solid #21402f;background:rgba(63,179,127,0.06);border-radius:999px;padding:7px 14px;">Air-gap ready</span>
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#3fb37f;border:1px solid #21402f;background:rgba(63,179,127,0.06);border-radius:999px;padding:7px 14px;">Zero telemetry</span>
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#3fb37f;border:1px solid #21402f;background:rgba(63,179,127,0.06);border-radius:999px;padding:7px 14px;">AES-256-GCM</span>
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#3fb37f;border:1px solid #21402f;background:rgba(63,179,127,0.06);border-radius:999px;padding:7px 14px;">MIT, no lock-in</span>
+    </div>
   </div>
 </header>
 
-<!-- HERO -->
-<section class="hero" data-screen-label="Government hero">
-  <div class="glow"></div>
-  <span class="reticle tl"></span><span class="reticle tr"></span><span class="reticle bl"></span><span class="reticle br"></span>
-  <svg class="hero-bg" viewBox="0 0 600 360" preserveAspectRatio="xMidYMid slice" aria-hidden="true" style="opacity:.32;">
-    <g stroke="var(--violet)" stroke-width="2.2" stroke-linecap="round" opacity=".45"><line x1="170" y1="100" x2="340" y2="185"/><line x1="170" y1="145" x2="340" y2="185"/><line x1="170" y1="185" x2="340" y2="185"/><line x1="170" y1="225" x2="340" y2="185"/></g>
-    <line x1="340" y1="185" x2="470" y2="185" stroke="var(--amber)" stroke-width="2.2" stroke-linecap="round" opacity=".55"/>
-    <circle cx="472" cy="185" r="7" fill="var(--amber)"/>
-  </svg>
-  <div class="hero-inner">
-    <span class="eyebrow amber">
-      <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M6.5 1.5l4 1.6v3c0 2.6-1.7 4.4-4 5.4-2.3-1-4-2.8-4-5.4v-3z"/></svg>
-      Public sector &amp; regulated industry
-    </span>
-    <h1 class="hero-h" style="font-size:clamp(38px,5.6vw,64px); max-width:20ch;">Sovereign by design. <span style="color:var(--amber);">Air-gap ready</span>.</h1>
-    <p class="lead" style="max-width:64ch;">Perseus runs entirely on-premise: a single binary, no cloud calls, no telemetry. <span class="em">Data never leaves your boundary</span>, which makes it a natural fit for classified, regulated, and disconnected environments.</p>
-    <div class="hero-cta" style="margin-bottom:0;">
-      <a href="mailto:perseus@perseus.observer?subject=Government%20briefing" class="btn btn-amber btn-lg">Request a briefing</a>
-      <a href="https://github.com/Perseus-Computing-LLC/perseus/blob/main/SECURITY.md" class="btn btn-ghost btn-lg">Security docs ↗</a>
-    </div>
-  </div>
-</section>
-
-<!-- POSTURE -->
-<section id="posture" class="sec" data-screen-label="Posture">
-  <div class="wrap reveal">
-    <span class="eyebrow violet">
-      <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true"><g stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><line x1="1.5" y1="3" x2="11.5" y2="3"/><line x1="1.5" y1="6.5" x2="11.5" y2="6.5"/><line x1="1.5" y1="10" x2="11.5" y2="10"/></g></svg>
-      Security posture
-    </span>
-    <h2 class="h" style="max-width:24ch; margin-bottom:44px;">Built for environments that <span style="color:var(--violet);">can't trust the cloud</span>.</h2>
-    <div class="hairgrid" style="grid-template-columns:repeat(auto-fit,minmax(230px,1fr));">
-      <div class="cell"><div class="big" style="font-size:20px; color:var(--amber); margin-bottom:8px;">EAR99</div><div style="font-size:14px; color:var(--text-dim); line-height:1.55;">Classified for broad exportability: no special license for most destinations.</div></div>
-      <div class="cell"><div class="big" style="font-size:20px; color:var(--text); margin-bottom:8px;">Air-gap</div><div style="font-size:14px; color:var(--text-dim); line-height:1.55;">Zero outbound network calls. Runs fully disconnected: install once, operate offline.</div></div>
-      <div class="cell"><div class="big" style="font-size:20px; color:var(--text); margin-bottom:8px;">SBOM</div><div style="font-size:14px; color:var(--text-dim); line-height:1.55;">Published software bill of materials for every release: full dependency transparency.</div></div>
-      <div class="cell"><div class="big" style="font-size:20px; color:var(--text); margin-bottom:8px;">Ed25519</div><div style="font-size:14px; color:var(--text-dim); line-height:1.55;">Signed federation payloads: every shared context is cryptographically verifiable.</div></div>
-      <div class="cell"><div class="big" style="font-size:20px; color:var(--text); margin-bottom:8px;">MIT</div><div style="font-size:14px; color:var(--text-dim); line-height:1.55;">Open source and auditable end to end. Inspect every line before it touches your network.</div></div>
-      <div class="cell"><div class="big" style="font-size:20px; color:var(--text); margin-bottom:8px;">Single binary</div><div style="font-size:14px; color:var(--text-dim); line-height:1.55;">No runtime sprawl. One self-contained artifact, simple to review, approve, and deploy.</div></div>
-    </div>
-  </div>
-</section>
-
-<!-- DEPLOY -->
-<section id="deploy" class="sec band" data-screen-label="Deployment">
-  <div class="wrap reveal split">
+<!-- ===== THESIS ===== -->
+<section style="padding:64px 32px;border-top:1px solid #14161c;background:#0d0e12;">
+  <div class="grid-2" style="max-width:1000px;margin:0 auto;display:grid;grid-template-columns:1fr 1fr;gap:48px;align-items:center;">
     <div>
-      <span class="eyebrow amber">
-        <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M6.5 1.5l4 1.6v3c0 2.6-1.7 4.4-4 5.4-2.3-1-4-2.8-4-5.4v-3z"/></svg>
-        Deployment model
-      </span>
-      <h2 class="h" style="margin-bottom:20px;">Install behind the boundary. Operate offline.</h2>
-      <p class="lead" style="font-size:16px; margin-bottom:22px;">Drop the binary into your accredited environment, render against local repositories and services, and federate only within your own signed network. Nothing phones home. Verify it yourself in the open source.</p>
-      <a href="mailto:perseus@perseus.observer?subject=Government%20deployment" class="mono" style="font-size:14px; color:var(--amber); text-decoration:none;">Discuss your environment ↗</a>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#3fb37f;letter-spacing:0.04em;text-transform:uppercase;margin-bottom:14px;">Why it matters</div>
+      <h2 style="font-size:30px;line-height:1.16;margin-bottom:18px;">The value isn't only cheaper tokens. It's deployments you otherwise couldn't make.</h2>
+      <p style="font-size:16px;color:#b9c0ca;margin-bottom:14px;">A cloud-dependent memory layer is a non-starter the moment data can't leave the boundary. Perseus is local-first by construction: a single binary and a Python package that resolve context and store memory on your own disk.</p>
+      <p style="font-size:16px;color:#b9c0ca;">That turns "we can't use agents here" into a supported configuration: on-premises, disconnected, or classified.</p>
     </div>
-    <div class="term">
-      <div class="term-bar"><span class="d"></span><span class="d"></span><span class="d"></span><span class="f">air-gapped host</span></div>
-      <pre><span class="c6"># single binary, offline</span>
-<span class="c6">$</span> perseus render --offline
-<span class="gr">✓</span> 0 outbound connections
-<span class="gr">✓</span> SBOM verified
-<span class="ai">✓</span> wrote context.md (3.2 KB)
-
-<span class="c6"># nothing left the boundary.</span></pre>
-    </div>
-  </div>
-</section>
-
-<!-- CTA -->
-<section class="sec cta-center" data-screen-label="Briefing">
-  <div class="wrap reveal">
-    <h2 class="h">Request a security briefing.</h2>
-    <p class="lead" style="font-size:16px; max-width:50ch;">We'll walk your team through the architecture, the SBOM, and a deployment plan for your accredited environment.</p>
-    <form data-capture action="https://formspree.io/f/mrewkdvr" style="max-width:560px; margin:8px auto 0; display:flex; flex-direction:column; gap:14px; text-align:left;">
-      <input type="hidden" name="_subject" value="Government: security briefing request">
-      <input type="hidden" name="source" value="government-briefing">
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
-        <input name="name" type="text" required placeholder="Name" aria-label="Name" style="font-family:inherit; font-size:14px; color:var(--text); background:var(--surface-2); border:1px solid var(--border); border-radius:11px; padding:13px 15px; outline:none;">
-        <input name="email" type="email" required placeholder="Email" aria-label="Email" style="font-family:inherit; font-size:14px; color:var(--text); background:var(--surface-2); border:1px solid var(--border); border-radius:11px; padding:13px 15px; outline:none;">
+    <div style="background:#14161c;border:1px solid #262a33;border-radius:14px;padding:26px;">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#9aa2ad;margin-bottom:18px;">what leaves your boundary</div>
+      <div style="display:flex;flex-direction:column;gap:14px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:#0f1014;border:1px solid #262a33;border-radius:9px;"><span style="font-size:14px;color:#c3cad4;">Telemetry / usage stats</span><span style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#3fb37f;">none</span></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:#0f1014;border:1px solid #262a33;border-radius:9px;"><span style="font-size:14px;color:#c3cad4;">Cloud API calls</span><span style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#3fb37f;">none</span></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:#0f1014;border:1px solid #262a33;border-radius:9px;"><span style="font-size:14px;color:#c3cad4;">Model download at runtime</span><span style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#3fb37f;">none</span></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:#0f1014;border:1px solid #262a33;border-radius:9px;"><span style="font-size:14px;color:#c3cad4;">Your project data</span><span style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#3fb37f;">stays on disk</span></div>
       </div>
-      <input name="organization" type="text" placeholder="Organization or agency" aria-label="Organization" style="font-family:inherit; font-size:14px; color:var(--text); background:var(--surface-2); border:1px solid var(--border); border-radius:11px; padding:13px 15px; outline:none;">
-      <textarea name="message" rows="3" placeholder="Environment and what you need" aria-label="Message" style="font-family:inherit; font-size:14px; color:var(--text); background:var(--surface-2); border:1px solid var(--border); border-radius:11px; padding:13px 15px; outline:none; resize:vertical;"></textarea>
-      <button type="submit" class="btn btn-amber btn-lg" style="justify-content:center;">Request a briefing</button>
-      <p data-note class="mono" style="display:none; margin:0; font-size:13px; color:var(--violet-ink); text-align:center;"></p>
-    </form>
+      <div style="margin-top:18px;font-size:12px;color:#6d7480;font-family:'IBM Plex Mono',monospace;">Offline dense embeddings are compiled into the Vault binary, so semantic recall works with no network.</div>
+    </div>
   </div>
 </section>
 
-<footer class="site">
-  <div class="foot-compact">
-    <div class="brand-line">
-      <svg width="26" height="26" viewBox="0 0 56 56" fill="none" aria-hidden="true"><rect x="3" y="14" width="17" height="3.6" rx="1.8" fill="var(--violet)"/><rect x="3" y="21" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".75"/><rect x="3" y="28" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".55"/><rect x="3" y="35" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".4"/><g stroke="var(--amber)" stroke-width="2.4" stroke-linecap="round"><line x1="22" y1="16" x2="42" y2="28"/><line x1="22" y1="23" x2="42" y2="28"/><line x1="22" y1="30" x2="42" y2="28"/><line x1="22" y1="37" x2="42" y2="28"/></g><circle cx="44" cy="28" r="4.2" fill="var(--amber)"/></svg>
-      <span class="legal-line">Perseus Computing LLC · EAR99 · NVIDIA Inception Member · MIT License · perseus.observer/government</span>
+<!-- ===== POSTURE GRID ===== -->
+<section style="padding:72px 32px 40px;">
+  <div style="max-width:1080px;margin:0 auto;">
+    <div style="text-align:center;max-width:620px;margin:0 auto 48px;">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#a78bfa;letter-spacing:0.04em;text-transform:uppercase;margin-bottom:14px;">Security posture</div>
+      <h2 style="font-size:32px;line-height:1.12;">Local-first, encrypted, inspectable.</h2>
     </div>
-    <div class="sib"><a href="/">Perseus</a><a href="/cloud/">Cloud</a><a href="https://github.com/Perseus-Computing-LLC/perseus">GitHub</a></div>
+    <div class="grid-3" style="display:grid;grid-template-columns:repeat(3,1fr);gap:18px;">
+      <div style="background:#14161c;border:1px solid #262a33;border-radius:14px;padding:26px;">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#3fb37f;margin-bottom:10px;">Air-gapped</div>
+        <p style="font-size:14px;color:#a2a9b4;">Fully offline by default. Zero cloud dependencies, no external network requests unless you explicitly configure one.</p>
+      </div>
+      <div style="background:#14161c;border:1px solid #262a33;border-radius:14px;padding:26px;">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#3fb37f;margin-bottom:10px;">Encrypted at rest</div>
+        <p style="font-size:14px;color:#a2a9b4;">Perseus Vault encrypts entity bodies with AES-256-GCM (opt-in via key file). The search index stays plaintext so recall still works.</p>
+      </div>
+      <div style="background:#14161c;border:1px solid #262a33;border-radius:14px;padding:26px;">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#3fb37f;margin-bottom:10px;">Immutable audit</div>
+        <p style="font-size:14px;color:#a2a9b4;">Every memory event is appended to a SHA-256 chained journal with actor attribution: a tamper-evident chain of custody.</p>
+      </div>
+      <div style="background:#14161c;border:1px solid #262a33;border-radius:14px;padding:26px;">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#3fb37f;margin-bottom:10px;">Zero telemetry</div>
+        <p style="font-size:14px;color:#a2a9b4;">No data collection, no usage stats, no phoning home, on either product. Nothing to disclose on a data-flow diagram.</p>
+      </div>
+      <div style="background:#14161c;border:1px solid #262a33;border-radius:14px;padding:26px;">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#3fb37f;margin-bottom:10px;">MIT licensed</div>
+        <p style="font-size:14px;color:#a2a9b4;">No copyleft, no GPL/AGPL, no vendor lock-in. Read the source, fork it, run it on your own hardware indefinitely.</p>
+      </div>
+      <div style="background:#14161c;border:1px solid #262a33;border-radius:14px;padding:26px;">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#3fb37f;margin-bottom:10px;">Open formats</div>
+        <p style="font-size:14px;color:#a2a9b4;">Memory exports to plain Markdown; context renders to plain files. Open licensing and open formats: your data is never trapped.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== PROCUREMENT MATRIX ===== -->
+<section id="procurement" style="padding:56px 32px 72px;">
+  <div style="max-width:1000px;margin:0 auto;">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:24px;">
+      <h2 style="font-size:26px;">Procurement &amp; compliance status</h2>
+      <p style="font-size:13px;color:#9aa2ad;max-width:440px;">Honest status: shipped capabilities and in-progress items are labeled distinctly.</p>
+    </div>
+    <div style="border:1px solid #262a33;border-radius:14px;overflow:hidden;">
+      <div style="display:grid;grid-template-columns:1fr 1.4fr;gap:0;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#6d7480;text-transform:uppercase;letter-spacing:0.04em;background:#101216;border-bottom:1px solid #262a33;">
+        <div style="padding:12px 20px;">Capability</div><div style="padding:12px 20px;">Status</div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1.4fr;font-size:14px;border-bottom:1px solid #1b1e25;"><div style="padding:14px 20px;color:#c3cad4;">License</div><div style="padding:14px 20px;color:#9aa2ad;">MIT: no copyleft, no GPL/AGPL</div></div>
+      <div style="display:grid;grid-template-columns:1fr 1.4fr;font-size:14px;border-bottom:1px solid #1b1e25;background:#0e0f13;"><div style="padding:14px 20px;color:#c3cad4;">Deployment</div><div style="padding:14px 20px;color:#9aa2ad;">Air-gapped, on-premises, or classified: zero cloud dependencies</div></div>
+      <div style="display:grid;grid-template-columns:1fr 1.4fr;font-size:14px;border-bottom:1px solid #1b1e25;"><div style="padding:14px 20px;color:#c3cad4;">Encryption at rest</div><div style="padding:14px 20px;color:#9aa2ad;">AES-256-GCM (Perseus Vault); the read-only context engine stores nothing</div></div>
+      <div style="display:grid;grid-template-columns:1fr 1.4fr;font-size:14px;border-bottom:1px solid #1b1e25;background:#0e0f13;"><div style="padding:14px 20px;color:#c3cad4;">Telemetry</div><div style="padding:14px 20px;color:#9aa2ad;">None: no phoning home, no tracking</div></div>
+      <div style="display:grid;grid-template-columns:1fr 1.4fr;font-size:14px;border-bottom:1px solid #1b1e25;"><div style="padding:14px 20px;color:#c3cad4;">Audit trail</div><div style="padding:14px 20px;color:#9aa2ad;">Immutable, SHA-256 chain-of-custody journal (Vault)</div></div>
+      <div style="display:grid;grid-template-columns:1fr 1.4fr;font-size:14px;border-bottom:1px solid #1b1e25;background:#0e0f13;"><div style="padding:14px 20px;color:#c3cad4;">SBOM</div><div style="padding:14px 20px;color:#9aa2ad;">Published: NTIA minimum elements, per EO 14028</div></div>
+      <div style="display:grid;grid-template-columns:1fr 1.4fr;font-size:14px;border-bottom:1px solid #1b1e25;"><div style="padding:14px 20px;color:#c3cad4;">AI governance</div><div style="padding:14px 20px;color:#9aa2ad;">NIST AI RMF aligned (all four functions)</div></div>
+      <div style="display:grid;grid-template-columns:1fr 1.4fr;font-size:14px;border-bottom:1px solid #1b1e25;background:#0e0f13;"><div style="padding:14px 20px;color:#c3cad4;">Export control</div><div style="padding:14px 20px;color:#9aa2ad;">EAR99 self-classified: no ITAR restrictions</div></div>
+      <div style="display:grid;grid-template-columns:1fr 1.4fr;font-size:14px;border-bottom:1px solid #1b1e25;"><div style="padding:14px 20px;color:#c3cad4;">Supply chain</div><div style="padding:14px 20px;color:#d9a441;">SLSA attestation: in progress</div></div>
+      <div style="display:grid;grid-template-columns:1fr 1.4fr;font-size:14px;"><div style="padding:14px 20px;color:#c3cad4;">Business status</div><div style="padding:14px 20px;color:#d9a441;">US-owned small business · SAM.gov registration in progress · NAICS 541715, 541511, 541512</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== DEPLOYMENT MODELS ===== -->
+<section style="padding:72px 32px;border-top:1px solid #14161c;background:#0d0e12;">
+  <div style="max-width:1080px;margin:0 auto;">
+    <div style="text-align:center;max-width:600px;margin:0 auto 44px;">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#a78bfa;letter-spacing:0.04em;text-transform:uppercase;margin-bottom:14px;">Deployment models</div>
+      <h2 style="font-size:30px;line-height:1.14;">Three ways to run it inside the boundary.</h2>
+    </div>
+    <div class="grid-3" style="display:grid;grid-template-columns:repeat(3,1fr);gap:18px;">
+      <div style="background:#14161c;border:1px solid #262a33;border-radius:14px;padding:28px;">
+        <h3 style="font-size:19px;margin-bottom:10px;">Air-gapped</h3>
+        <p style="font-size:14px;color:#a2a9b4;margin-bottom:16px;">Runs with no network at all. Offline embeddings are compiled into the binary, so semantic recall needs no model download and no API key.</p>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#6d7480;">disconnected networks · SCIFs</div>
+      </div>
+      <div style="background:#14161c;border:1px solid #262a33;border-radius:14px;padding:28px;">
+        <h3 style="font-size:19px;margin-bottom:10px;">On-premises</h3>
+        <p style="font-size:14px;color:#a2a9b4;margin-bottom:16px;">Your hardware, your boundary. A single Rust binary for memory and a <span style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#c3cad4;">pip install</span> for context: no Docker, no Postgres, no cloud.</p>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#6d7480;">agency data centers · private VPC</div>
+      </div>
+      <div style="background:#14161c;border:1px solid #262a33;border-radius:14px;padding:28px;">
+        <h3 style="font-size:19px;margin-bottom:10px;">Classified</h3>
+        <p style="font-size:14px;color:#a2a9b4;margin-bottom:16px;">No telemetry, no external calls, fully open source and inspectable. Bring your own encryption key; audit every memory event.</p>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#6d7480;">accredited enclaves</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== SECURITY SURFACE ===== -->
+<section style="padding:72px 32px;">
+  <div style="max-width:1080px;margin:0 auto;">
+    <div style="text-align:center;max-width:600px;margin:0 auto 44px;">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#a78bfa;letter-spacing:0.04em;text-transform:uppercase;margin-bottom:14px;">Security surface, per product</div>
+      <h2 style="font-size:30px;line-height:1.14;">Hardened where it counts.</h2>
+    </div>
+    <div class="grid-2" style="display:grid;grid-template-columns:1fr 1fr;gap:18px;">
+      <div style="background:#14161c;border:1px solid #262a33;border-radius:16px;padding:30px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px;"><svg width="18" height="22" viewBox="0 0 22 26" fill="none"><path d="M11 1L21 5.5V13c0 6.2-4.1 10.2-10 11.9C5.1 23.2 1 19.2 1 13V5.5L11 1z" stroke="#a78bfa" stroke-width="1.4" fill="rgba(167,139,250,0.08)"/><path d="M6.5 11l4.5 3 4.5-3" stroke="#a78bfa" stroke-width="1.3" fill="none"/></svg><h3 style="font-size:19px;">Perseus · context engine</h3></div>
+        <ul style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:13px;font-size:13.5px;">
+          <li style="display:flex;gap:10px;"><span style="color:#a78bfa;">→</span><span style="color:#9aa2ad;">Read-only pre-processor: renders context, never stores it</span></li>
+          <li style="display:flex;gap:10px;"><span style="color:#a78bfa;">→</span><span style="color:#9aa2ad;">SSRF protection: URL allowlist, private-IP blocking, HMAC signature verification</span></li>
+          <li style="display:flex;gap:10px;"><span style="color:#a78bfa;">→</span><span style="color:#9aa2ad;">Workspace boundary enforcement: symlink escapes blocked</span></li>
+          <li style="display:flex;gap:10px;"><span style="color:#a78bfa;">→</span><span style="color:#9aa2ad;">Shell-executing directives gated behind explicit opt-in</span></li>
+          <li style="display:flex;gap:10px;"><span style="color:#a78bfa;">→</span><span style="color:#9aa2ad;">MCP SSE transport requires a bearer token</span></li>
+        </ul>
+      </div>
+      <div style="background:#14161c;border:1px solid #262a33;border-radius:16px;padding:30px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px;"><svg width="18" height="22" viewBox="0 0 22 26" fill="none"><rect x="3" y="6" width="16" height="16" rx="2.5" stroke="#3fb37f" stroke-width="1.4" fill="rgba(63,179,127,0.07)"/><path d="M7 6V4.5A4 4 0 0115 4.5V6" stroke="#3fb37f" stroke-width="1.4"/><circle cx="11" cy="13" r="1.7" fill="#3fb37f"/></svg><h3 style="font-size:19px;">Perseus Vault · memory</h3></div>
+        <ul style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:13px;font-size:13.5px;">
+          <li style="display:flex;gap:10px;"><span style="color:#3fb37f;">→</span><span style="color:#9aa2ad;">AES-256-GCM encryption of entity bodies at rest (opt-in key file)</span></li>
+          <li style="display:flex;gap:10px;"><span style="color:#3fb37f;">→</span><span style="color:#9aa2ad;">Immutable journal with actor attribution and SHA-256 chaining</span></li>
+          <li style="display:flex;gap:10px;"><span style="color:#3fb37f;">→</span><span style="color:#9aa2ad;">Bearer-token auth on SSE / HTTP transports (constant-time compare)</span></li>
+          <li style="display:flex;gap:10px;"><span style="color:#3fb37f;">→</span><span style="color:#9aa2ad;">One local SQLite file you own: no server, no cloud</span></li>
+          <li style="display:flex;gap:10px;"><span style="color:#3fb37f;">→</span><span style="color:#9aa2ad;">You control retention: soft-delete, archive, or permanent purge</span></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== IP & OPEN ===== -->
+<section style="padding:64px 32px 72px;border-top:1px solid #14161c;background:#0d0e12;">
+  <div class="grid-2" style="max-width:1000px;margin:0 auto;display:grid;grid-template-columns:1fr 1fr;gap:44px;align-items:center;">
+    <div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#a78bfa;letter-spacing:0.04em;text-transform:uppercase;margin-bottom:14px;">IP &amp; open source</div>
+      <h2 style="font-size:28px;line-height:1.15;margin-bottom:16px;">Open where it should be, protected where it matters.</h2>
+      <p style="font-size:15px;color:#b9c0ca;margin-bottom:12px;">The code is MIT and the formats are open, aligned with Open Knowledge Foundation principles, so nothing you build on Perseus is locked to us.</p>
+      <p style="font-size:15px;color:#9aa2ad;">The underlying resolve-before-context architecture is covered by a provisional patent application. The MIT license does not include a patent grant; those rights are reserved separately.</p>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div style="background:#14161c;border:1px solid #262a33;border-radius:12px;padding:20px;display:flex;justify-content:space-between;align-items:center;gap:12px;"><span style="font-size:14px;color:#c3cad4;">Patent status</span><span style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#d9a441;">Patent pending (provisional)</span></div>
+      <div style="background:#14161c;border:1px solid #262a33;border-radius:12px;padding:20px;display:flex;justify-content:space-between;align-items:center;gap:12px;"><span style="font-size:14px;color:#c3cad4;">Source license</span><span style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#3fb37f;">MIT</span></div>
+      <div style="background:#14161c;border:1px solid #262a33;border-radius:12px;padding:20px;display:flex;justify-content:space-between;align-items:center;gap:12px;"><span style="font-size:14px;color:#c3cad4;">Data &amp; memory formats</span><span style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#3fb37f;">Open (Markdown / files)</span></div>
+      <div style="background:#14161c;border:1px solid #262a33;border-radius:12px;padding:20px;display:flex;justify-content:space-between;align-items:center;gap:12px;"><span style="font-size:14px;color:#c3cad4;">Trademark</span><span style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#9aa2ad;">PERSEUS™</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== CTA ===== -->
+<section style="padding:72px 32px;">
+  <div style="max-width:820px;margin:0 auto;text-align:center;background:linear-gradient(180deg,#131a1a,#101116);border:1px solid #21402f;border-radius:18px;padding:48px 40px;">
+    <h2 style="font-size:28px;line-height:1.15;margin-bottom:14px;">For federal &amp; regulated buyers</h2>
+    <p style="font-size:15px;color:#b9c0ca;max-width:560px;margin:0 auto 28px;">Compliance status, deployment models, and an SBOM are documented for procurement review. Perseus Computing is a US-owned small business; SAM.gov registration is in progress.</p>
+    <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
+      <a href="https://github.com/Perseus-Computing-LLC/perseus" style="font-size:15px;color:#0b0c0f;background:#a78bfa;border-radius:9px;padding:13px 22px;font-weight:600;">Review the source</a>
+      <a href="/#calculator" style="font-size:15px;color:#e7e9ee;border:1px solid #2f3440;border-radius:9px;padding:13px 22px;font-weight:500;">See the value calculator</a>
+    </div>
+    <div style="margin-top:22px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:#6d7480;">NAICS 541715 · 541511 · 541512 · EAR99 · MIT</div>
+  </div>
+</section>
+
+<!-- ===== FOOTER ===== -->
+<footer style="padding:44px 32px;border-top:1px solid #1b1e25;background:#0b0c0f;">
+  <div style="max-width:1000px;margin:0 auto;display:flex;justify-content:space-between;gap:24px;flex-wrap:wrap;align-items:center;">
+    <div style="display:flex;align-items:center;gap:9px;"><svg width="18" height="22" viewBox="0 0 22 26" fill="none"><path d="M11 1L21 5.5V13c0 6.2-4.1 10.2-10 11.9C5.1 23.2 1 19.2 1 13V5.5L11 1z" stroke="#a78bfa" stroke-width="1.4" fill="rgba(167,139,250,0.08)"/><path d="M11 6.5v13" stroke="#3fb37f" stroke-width="1.3"/></svg><span style="font-weight:600;">Perseus Computing</span></div>
+    <div style="font-size:12px;color:#6d7480;font-family:'IBM Plex Mono',monospace;">© 2026 Perseus Computing LLC · MIT · Patent pending (provisional) · zero telemetry</div>
   </div>
 </footer>
 
-<script src="/assets/perseus.js"></script>
+</div>
 </body>
 </html>
