@@ -7,6 +7,21 @@
 [![smithery badge](https://smithery.ai/badge/Perseus-Computing-LLC/perseus)](https://smithery.ai/servers/Perseus-Computing-LLC/perseus)
 **`pip install perseus-ctx && cd your-project && perseus quickstart`**
 
+Zero to rendered context in three lines — no config spelunking:
+
+```bash
+pip install perseus-ctx                       # 1. install
+cd your-project && perseus quickstart         # 2. scaffold .perseus/context.md + config
+perseus render .perseus/context.md -o AGENTS.md   # 3. write live context your agent reads
+```
+
+`quickstart` detects your stack, scaffolds `.perseus/context.md`, writes config,
+and verifies a render. Step 3 writes the file your assistant loads at session
+start (`AGENTS.md`, `CLAUDE.md`, `.cursorrules`, ...). Keep it live with
+`perseus watch` (or cron/systemd/launchd). Full walkthrough:
+[QUICKSTART.md](./QUICKSTART.md).
+
+
 ![Perseus demo — before/after cold-start](demo.gif)
 
 [![CI](https://github.com/Perseus-Computing-LLC/perseus/actions/workflows/test.yml/badge.svg)](https://github.com/Perseus-Computing-LLC/perseus/actions/workflows/test.yml)

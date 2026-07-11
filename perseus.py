@@ -25865,6 +25865,139 @@ def _doctor_check_stale_shim(cfg: dict, workspace: Path) -> DoctorResult:
                        "shim at ~/.local/bin/perseus looks current", "")
 
 
+def _read_perseus_module_version(path: str) -> str:
+    """Extract the build-time ``_PERSEUS_VERSION`` literal from a perseus.py copy.
+
+    Reads only the head of the file and matches the first assignment of the
+    form ``_PERSEUS_VERSION = "X.Y.Z"`` (the literal replaced at build time by
+    scripts/build.py). Returns ``"?"`` when the file can't be read or no
+    version literal is found. We deliberately parse the source text rather than
+    importing the module — importing a *stale* copy would shadow the active one
+    and is far more expensive/dangerous than a read.
+    """
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            head = f.read(8192)
+    except Exception:
+        return "?"
+    m = re.search(r'''_PERSEUS_VERSION\s*=\s*["']([\d]+\.[\d]+\.[\d]+[^"']*)["']''', head)
+    return m.group(1) if m else "?"
+
+
+def _discover_perseus_installs() -> list[dict]:
+    """Find every installed ``perseus.py`` copy across Python minor versions.
+
+    ``perseus`` installs as a single top-level module into a per-Python-minor
+    site-packages dir. Upgrading the interpreter (e.g. 3.13 -> 3.14) and
+    reinstalling with ``pip install --user`` leaves the OLD copy behind in the
+    previous minor's site-packages (#734). The ``~/.local/bin/perseus`` symlink
+    points at the newest, so the active binary is correct, but the stale copies
+    are a latent footgun that show up as historical-residue warnings whose
+    source is invisible to ``perseus --version`` (which only reports the active
+    install).
+
+    Scans both macOS and Linux ``--user`` layouts plus any site-packages on
+    ``sys.path`` (covers venvs / system installs). Returns one dict per DISTINCT
+    real path: ``{"path", "version", "active"}``, sorted with the active install
+    first, then by version descending.
+    """
+    import glob as _glob
+
+    home = os.path.expanduser("~")
+    patterns = [
+        # macOS `pip install --user` (per-minor):
+        os.path.join(home, "Library", "Python", "*", "lib", "python", "site-packages", "perseus.py"),
+        # Linux `pip install --user` (per-minor):
+        os.path.join(home, ".local", "lib", "python*", "site-packages", "perseus.py"),
+        # Legacy install.sh bundle location:
+        os.path.join(home, ".local", "share", "perseus", "perseus.py"),
+    ]
+    candidates: set[str] = set()
+    for pat in patterns:
+        for hit in _glob.glob(pat):
+            candidates.add(hit)
+    # Also probe every site-packages currently on sys.path (venvs, system).
+    for entry in list(sys.path):
+        if not entry:
+            continue
+        cand = os.path.join(entry, "perseus.py")
+        if os.path.isfile(cand):
+            candidates.add(cand)
+
+    try:
+        active_real = os.path.realpath(os.path.abspath(__file__))
+    except Exception:
+        active_real = ""
+    # Always represent the active install itself, even if it lives outside the
+    # scanned site-packages layouts (e.g. a repo checkout or an editable install).
+    if active_real and os.path.isfile(active_real):
+        candidates.add(active_real)
+
+    by_real: dict[str, dict] = {}
+    for path in candidates:
+        try:
+            if not os.path.isfile(path):
+                continue
+            real = os.path.realpath(path)
+        except Exception:
+            continue
+        if real in by_real:
+            continue
+        by_real[real] = {
+            "path": path,
+            "version": _read_perseus_module_version(real),
+            "active": (real == active_real),
+        }
+
+    installs = list(by_real.values())
+    installs.sort(key=lambda d: (not d["active"], d["version"]), reverse=False)
+    # Put active first, then highest version among the rest.
+    installs.sort(key=lambda d: (0 if d["active"] else 1, _version_sort_key(d["version"])))
+    return installs
+
+
+def _version_sort_key(ver: str):
+    """Sort key: newest version first among non-active installs."""
+    parts = re.findall(r"\d+", ver or "")
+    nums = tuple(int(p) for p in parts[:3]) if parts else (0,)
+    # Negate so that higher versions sort earlier within the non-active group.
+    return tuple(-n for n in nums)
+
+
+def _doctor_check_duplicate_installs(cfg: dict, workspace: Path) -> DoctorResult:
+    """Warn when multiple perseus.py copies exist across Python minors (#734).
+
+    The active binary is correct (the ~/.local/bin/perseus symlink resolves to
+    the newest), but stale copies in older Python minors' site-packages emit
+    historical-residue warnings whose origin is invisible to `perseus
+    --version`. Surface the drift (never auto-delete) so the active-vs-stale
+    split is obvious and removable.
+    """
+    installs = _discover_perseus_installs()
+
+    if len(installs) <= 1:
+        loc = installs[0]["path"] if installs else "(active install only)"
+        return DoctorResult("duplicate_installs", "ok", "Duplicate installs",
+                            f"single install ({loc})", "")
+
+    # More than one distinct copy on disk — flag the stale ones.
+    active = next((d for d in installs if d["active"]), None)
+    active_ver = active["version"] if active else "?"
+    stale = [d for d in installs if not d["active"]]
+    stale_desc = ", ".join(f"v{d['version']} @ {d['path']}" for d in stale)
+    active_desc = f"active v{active_ver}" + (f" @ {active['path']}" if active else "")
+    remediation = (
+        "Remove stale copies (active install is fine): "
+        + " ; ".join(f"rm -f {d['path']}" for d in stale)
+        + "  then re-run `perseus doctor`"
+    )
+    return DoctorResult(
+        "duplicate_installs", "warn", "Duplicate installs",
+        f"{len(installs)} copies found — {active_desc}; stale: {stale_desc}",
+        remediation,
+    )
+
+
 def _doctor_check_render_freshness(cfg: dict, workspace: Path) -> DoctorResult:
     """Warn when a rendered output is older than render.staleness_warn_hours (#431).
 
@@ -26054,6 +26187,7 @@ _DOCTOR_CHECKS = [
     _doctor_check_sessions,
     _doctor_check_version_header,
     _doctor_check_stale_shim,
+    _doctor_check_duplicate_installs,
     _doctor_check_render_freshness,
 ]
 

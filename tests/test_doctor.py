@@ -384,3 +384,64 @@ def test_doctor_labels_use_perseus_vault_brand(tmp_path):
         for bad in forbidden:
             assert bad not in label, f"legacy brand {bad!r} leaked into doctor label {label!r}"
         assert "Perseus Vault" in label, f"label not rebranded: {label!r}"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# #734: doctor warns about stale duplicate perseus installs across Python minors
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _seed_user_install(home: Path, minor: str, version: str) -> Path:
+    """Create a fake Linux `pip install --user` perseus.py for a Python minor."""
+    d = home / ".local" / "lib" / f"python{minor}" / "site-packages"
+    d.mkdir(parents=True, exist_ok=True)
+    p = d / "perseus.py"
+    p.write_text(f'_PERSEUS_VERSION = "{version}"  # replaced at build time\n', encoding="utf-8")
+    return p
+
+
+def test_read_perseus_module_version_parses_literal(tmp_path):
+    p = tmp_path / "perseus.py"
+    p.write_text('import os\n_PERSEUS_VERSION = "1.2.3"\n', encoding="utf-8")
+    assert perseus._read_perseus_module_version(str(p)) == "1.2.3"
+
+
+def test_read_perseus_module_version_missing_returns_question(tmp_path):
+    p = tmp_path / "perseus.py"
+    p.write_text("no version here\n", encoding="utf-8")
+    assert perseus._read_perseus_module_version(str(p)) == "?"
+    assert perseus._read_perseus_module_version(str(tmp_path / "nope.py")) == "?"
+
+
+def test_doctor_duplicate_installs_single_is_ok(tmp_path, monkeypatch):
+    """Exactly one copy on disk -> ok, no warning."""
+    active = _seed_user_install(tmp_path, "3.14", "1.0.22")
+    monkeypatch.setattr(perseus.os.path, "expanduser",
+                        lambda p: p.replace("~", str(tmp_path), 1) if p.startswith("~") else p)
+    monkeypatch.setattr(perseus, "__file__", str(active))
+    monkeypatch.setattr(perseus.sys, "path", [])
+    r = perseus._doctor_check_duplicate_installs({}, tmp_path)
+    assert r.status == "ok", r.value
+    assert r.id == "duplicate_installs"
+
+
+def test_doctor_duplicate_installs_warns_and_lists_stale(tmp_path, monkeypatch):
+    """Two copies across Python minors -> warn, active flagged, stale listed."""
+    stale = _seed_user_install(tmp_path, "3.13", "1.0.8")
+    active = _seed_user_install(tmp_path, "3.14", "1.0.22")
+    monkeypatch.setattr(perseus.os.path, "expanduser",
+                        lambda p: p.replace("~", str(tmp_path), 1) if p.startswith("~") else p)
+    monkeypatch.setattr(perseus, "__file__", str(active))
+    monkeypatch.setattr(perseus.sys, "path", [])
+
+    installs = perseus._discover_perseus_installs()
+    assert len(installs) == 2
+    assert installs[0]["active"] is True
+    assert installs[0]["path"] == str(active)
+
+    r = perseus._doctor_check_duplicate_installs({}, tmp_path)
+    assert r.status == "warn", r.value
+    assert "2 copies" in r.value
+    assert "1.0.8" in r.value           # stale version surfaced
+    assert str(stale) in r.remediation  # removable path in remediation
+    assert str(active) not in r.remediation  # never suggest removing the active one
+    assert "rm -f" in r.remediation
