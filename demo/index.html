@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Perseus · live efficiency demo</title>
+<meta name="description" content="Watch an agent send calls with and without Perseus, or point it at your own local model to measure the real token savings. Simulated + live local-LLM modes.">
+<link rel="canonical" href="https://perseus.observer/demo/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Perseus · live efficiency demo">
+<meta property="og:description" content="See the tokens you're not sending. Simulated stream, or measure real usage.prompt_tokens on your own local model.">
+<meta property="og:url" content="https://perseus.observer/demo/">
+<meta property="og:image" content="https://perseus.observer/assets/og/perseus.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Perseus · live efficiency demo">
+<meta name="twitter:description" content="See the tokens you're not sending. Simulated stream, or measure real usage.prompt_tokens on your own local model.">
+<meta name="twitter:image" content="https://perseus.observer/assets/og/perseus.png">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/assets/fonts.css">
+<style>
+* { box-sizing: border-box; }
+body { margin:0; background:#0b0c0f; color:#e7e9ee; font-family:'IBM Plex Sans',system-ui,-apple-system,sans-serif; -webkit-font-smoothing:antialiased; line-height:1.5; }
+a { color:#a78bfa; text-decoration:none; }
+a:hover { color:#c4b5fd; }
+p { margin:0; }
+h1,h2,h3,h4 { margin:0; font-weight:600; letter-spacing:-0.01em; }
+::selection { background:#a78bfa; color:#0b0c0f; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.25} }
+@keyframes slidein { from{opacity:0;transform:translateY(-6px)} to{opacity:1;transform:translateY(0)} }
+select, textarea, input { font-family:'IBM Plex Sans',sans-serif; }
+textarea { resize:vertical; }
+@media (max-width:900px){ .nav-links{ display:none !important; } .demo-grid{ grid-template-columns:1fr !important; } .live-row-3,.live-row-2{ grid-template-columns:1fr !important; } }
+</style>
+</head>
+<body>
+
+<div style="max-width:100%;overflow-x:hidden;min-height:100vh;">
+
+<!-- ===== NAV ===== -->
+<nav style="display:flex;align-items:center;justify-content:space-between;gap:24px;padding:15px 32px;border-bottom:1px solid #1b1e25;background:#0c0d11;">
+  <a href="/" style="display:flex;align-items:center;gap:10px;">
+    <svg width="20" height="24" viewBox="0 0 22 26" fill="none" style="display:block;"><path d="M11 1L21 5.5V13c0 6.2-4.1 10.2-10 11.9C5.1 23.2 1 19.2 1 13V5.5L11 1z" stroke="#a78bfa" stroke-width="1.4" fill="rgba(167,139,250,0.08)"/><path d="M6.5 11l4.5 3 4.5-3" stroke="#a78bfa" stroke-width="1.3" fill="none"/></svg>
+    <span style="font-family:'IBM Plex Mono',monospace;font-weight:500;font-size:14.5px;color:#c3cad4;">demo.perseus.observer</span>
+  </a>
+  <div class="nav-links" style="display:flex;align-items:center;gap:22px;font-size:14px;color:#9aa2ad;">
+    <a href="/context-engine/" style="color:#9aa2ad;">Context engine</a>
+    <a href="/vault/" style="color:#9aa2ad;">Vault</a>
+    <a href="/#calculator" style="color:#9aa2ad;">Calculator</a>
+    <a href="/government/" style="color:#9aa2ad;">Sovereignty</a>
+    <a href="/" style="color:#9aa2ad;">Home</a>
+  </div>
+  <div style="display:flex;align-items:center;gap:14px;">
+    <span style="display:inline-flex;align-items:center;gap:7px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:#d9a441;" id="dm-modewrap"><span id="dm-modedot" style="width:7px;height:7px;border-radius:50%;background:#d9a441;animation:blink 1.4s ease-in-out infinite;"></span><span id="dm-modetag">simulated</span></span>
+    <a href="/" style="font-size:13px;color:#0b0c0f;background:#a78bfa;border-radius:7px;padding:8px 14px;font-weight:600;">perseus.observer →</a>
+  </div>
+</nav>
+
+<!-- ===== HEADER + CONTROLS ===== -->
+<section style="padding:36px 32px 22px;max-width:1180px;margin:0 auto;">
+  <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:24px;flex-wrap:wrap;">
+    <div>
+      <h1 style="font-size:30px;line-height:1.1;letter-spacing:-0.02em;margin-bottom:8px;">Live efficiency</h1>
+      <p style="font-size:15px;color:#9aa2ad;max-width:580px;">Watch an agent send calls with and without Perseus. Point it at your own local model to measure the token savings for real.</p>
+    </div>
+    <!-- mode switch -->
+    <div style="display:inline-flex;background:#0f1014;border:1px solid #262a33;border-radius:10px;padding:4px;gap:4px;">
+      <button id="dm-mode-sim" type="button">Simulated</button>
+      <button id="dm-mode-live" type="button">Live · local LLM</button>
+    </div>
+  </div>
+
+  <!-- SIM controls -->
+  <div id="dm-sim-controls" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:20px;">
+    <button id="dm-toggle" type="button" style="display:inline-flex;align-items:center;gap:8px;font-size:14px;font-weight:600;color:#0b0c0f;background:#a78bfa;border:none;border-radius:9px;padding:10px 18px;cursor:pointer;">⏸ Pause</button>
+    <button id="dm-reset-sim" type="button" style="font-size:14px;color:#c3cad4;background:transparent;border:1px solid #2f3440;border-radius:9px;padding:10px 16px;cursor:pointer;">Reset</button>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#9aa2ad;">Speed
+      <select id="dm-speed" style="background:#0f1014;border:1px solid #262a33;border-radius:8px;color:#e7e9ee;font-size:13px;padding:8px 10px;outline:none;cursor:pointer;">
+        <option value="1200">0.5×</option>
+        <option value="700" selected>1×</option>
+        <option value="320">2×</option>
+      </select>
+    </label>
+  </div>
+
+  <!-- LIVE config -->
+  <div id="dm-live-config" style="display:none;margin-top:20px;background:#0f1014;border:1px solid #262a33;border-radius:14px;padding:22px;">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;"><span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#a78bfa;">local endpoint</span><span style="font-size:12px;color:#6d7480;">· OpenAI-compatible /v1/chat/completions (Ollama, vLLM, LM Studio…)</span></div>
+    <div class="live-row-3" style="display:grid;grid-template-columns:2fr 1.2fr 1fr;gap:12px;margin-bottom:14px;">
+      <label><div style="font-size:12px;color:#9aa2ad;margin-bottom:6px;">Endpoint URL</div><input id="dm-endpoint" type="text" style="width:100%;background:#0b0c0f;border:1px solid #262a33;border-radius:8px;color:#e7e9ee;font-size:13px;padding:9px 11px;outline:none;font-family:'IBM Plex Mono',monospace;"></label>
+      <label><div style="font-size:12px;color:#9aa2ad;margin-bottom:6px;">Model</div><input id="dm-model" type="text" style="width:100%;background:#0b0c0f;border:1px solid #262a33;border-radius:8px;color:#e7e9ee;font-size:13px;padding:9px 11px;outline:none;font-family:'IBM Plex Mono',monospace;"></label>
+      <label><div style="font-size:12px;color:#9aa2ad;margin-bottom:6px;">API key <span style="color:#6d7480;">(opt.)</span></div><input id="dm-key" type="password" style="width:100%;background:#0b0c0f;border:1px solid #262a33;border-radius:8px;color:#e7e9ee;font-size:13px;padding:9px 11px;outline:none;font-family:'IBM Plex Mono',monospace;"></label>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;padding:11px 14px;background:#0b0c0f;border:1px solid #262a33;border-radius:10px;">
+      <button id="dm-folder" type="button" style="font-size:13px;font-weight:600;color:#3fb37f;background:rgba(63,179,127,0.08);border:1px solid #21402f;border-radius:8px;padding:8px 14px;cursor:pointer;white-space:nowrap;">📁 <span id="dm-folder-label">Connect folder</span></button>
+      <span id="dm-folder-status" style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#9aa2ad;flex:1;min-width:180px;">no folder connected · paste below, or connect the demo/ folder</span>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#6d7480;">base <input id="dm-basefile" type="text" value="baseline.txt" style="width:94px;background:#0b0c0f;border:1px solid #262a33;border-radius:6px;color:#c3cad4;font-size:12px;padding:6px 8px;outline:none;font-family:'IBM Plex Mono',monospace;"></label>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#6d7480;">resolved <input id="dm-resolvedfile" type="text" value="resolved.txt" style="width:102px;background:#0b0c0f;border:1px solid #262a33;border-radius:6px;color:#c3cad4;font-size:12px;padding:6px 8px;outline:none;font-family:'IBM Plex Mono',monospace;"></label>
+      <label style="display:flex;align-items:center;gap:7px;font-size:12px;color:#c3cad4;cursor:pointer;"><input id="dm-autorefresh" type="checkbox" checked style="width:15px;height:15px;accent-color:#3fb37f;cursor:pointer;">auto-refresh before each measure</label>
+    </div>
+    <div class="live-row-2" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
+      <label><div style="font-size:12px;color:#9aa2ad;margin-bottom:6px;">Baseline context · full, unresolved</div><textarea id="dm-baseline-text" style="width:100%;height:120px;background:#0b0c0f;border:1px solid #262a33;border-radius:8px;color:#c3cad4;font-size:11.5px;padding:10px 11px;outline:none;font-family:'IBM Plex Mono',monospace;line-height:1.5;"></textarea></label>
+      <label><div style="font-size:12px;color:#9aa2ad;margin-bottom:6px;">Perseus-resolved context · slim <span style="color:#6d7480;">(from `perseus render`)</span></div><textarea id="dm-resolved-text" style="width:100%;height:120px;background:#0b0c0f;border:1px solid #262a33;border-radius:8px;color:#c3cad4;font-size:11.5px;padding:10px 11px;outline:none;font-family:'IBM Plex Mono',monospace;line-height:1.5;"></textarea></label>
+    </div>
+    <label style="display:block;margin-bottom:16px;"><div style="font-size:12px;color:#9aa2ad;margin-bottom:6px;">Task / user message (sent with both)</div><input id="dm-task" type="text" style="width:100%;background:#0b0c0f;border:1px solid #262a33;border-radius:8px;color:#e7e9ee;font-size:13px;padding:9px 11px;outline:none;"></label>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      <button id="dm-measure" type="button" style="font-size:14px;font-weight:600;color:#0b0c0f;background:#3fb37f;border:none;border-radius:9px;padding:10px 18px;cursor:pointer;">Measure once</button>
+      <button id="dm-loop" type="button" style="font-size:14px;font-weight:600;color:#0b0c0f;background:#a78bfa;border:none;border-radius:9px;padding:10px 18px;cursor:pointer;">↻ Loop</button>
+      <button id="dm-reset-live" type="button" style="font-size:14px;color:#c3cad4;background:transparent;border:1px solid #2f3440;border-radius:9px;padding:10px 16px;cursor:pointer;">Reset</button>
+      <span id="dm-livestatus" style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#9aa2ad;">idle</span>
+    </div>
+    <div id="dm-error" style="display:none;margin-top:12px;background:rgba(248,81,73,0.08);border:1px solid rgba(248,81,73,0.35);border-radius:8px;padding:10px 14px;font-size:12.5px;color:#ff9a94;font-family:'IBM Plex Mono',monospace;"></div>
+    <div style="margin-top:12px;font-size:11.5px;color:#6d7480;line-height:1.5;">Requests go straight from your browser to your endpoint. Enable CORS on the server (e.g. <span style="color:#9aa2ad;">OLLAMA_ORIGINS=*</span>) and prompt tokens are read from each response's <span style="color:#9aa2ad;">usage.prompt_tokens</span>. To generate the resolved context automatically, use the Claude Code setup snippet below.</div>
+  </div>
+
+  <!-- tier selector (shared) -->
+  <div style="display:flex;align-items:center;gap:8px;margin-top:20px;flex-wrap:wrap;">
+    <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#6d7480;margin-right:4px;">price / 1M input · Jul 2026 list:</span>
+    <button class="dm-tier" data-tier="frontier" type="button">Frontier $5.00</button>
+    <button class="dm-tier" data-tier="standard" type="button">Standard $2.50</button>
+    <button class="dm-tier" data-tier="efficient" type="button">Efficient $1.00</button>
+    <button class="dm-tier" data-tier="economy" type="button">Economy $0.10</button>
+  </div>
+</section>
+
+<!-- ===== MAIN GRID ===== -->
+<section style="padding:8px 32px 32px;max-width:1180px;margin:0 auto;">
+  <div class="demo-grid" style="display:grid;grid-template-columns:1.1fr 1fr;gap:20px;align-items:start;">
+
+    <!-- CONSOLE -->
+    <div style="background:#0d1117;border:1px solid #21262d;border-radius:14px;overflow:hidden;">
+      <div style="display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid #21262d;background:#12161d;">
+        <span style="width:10px;height:10px;border-radius:50%;background:#f85149;"></span>
+        <span style="width:10px;height:10px;border-radius:50%;background:#d29922;"></span>
+        <span style="width:10px;height:10px;border-radius:50%;background:#3fb950;"></span>
+        <span style="margin-left:8px;font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#8b949e;">agent-session · perseus mcp</span>
+        <span style="margin-left:auto;font-family:'IBM Plex Mono',monospace;font-size:12px;color:#6d7480;">calls: <span id="dm-calls">0</span></span>
+      </div>
+      <div style="padding:16px 18px;min-height:340px;font-family:'IBM Plex Mono',monospace;font-size:12.5px;line-height:1.7;">
+        <div id="dm-console-prompt" style="color:#6d7480;margin-bottom:8px;">$ perseus mcp serve &amp;&amp; agent run --loop</div>
+        <div id="dm-log"></div>
+        <div style="color:#3fb950;margin-top:10px;display:flex;align-items:center;gap:6px;"><span style="width:7px;height:7px;border-radius:50%;background:#3fb950;animation:blink 1.2s infinite;"></span><span id="dm-statusline">streaming calls…</span></div>
+      </div>
+    </div>
+
+    <!-- METRICS -->
+    <div style="display:flex;flex-direction:column;gap:16px;">
+      <div style="background:#14161c;border:1px solid #262a33;border-radius:14px;padding:26px;">
+        <div style="font-size:13px;color:#9aa2ad;margin-bottom:6px;">Token reduction this session</div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:56px;font-weight:600;color:#a78bfa;letter-spacing:-0.02em;line-height:1;"><span id="dm-redpct">94</span>%</div>
+        <div style="margin-top:22px;display:flex;flex-direction:column;gap:15px;">
+          <div>
+            <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:7px;"><span style="color:#9aa2ad;">Without Perseus <span style="color:#6d7480;">· <span id="dm-basetag">estimated</span></span></span><span style="font-family:'IBM Plex Mono',monospace;color:#e7e9ee;" id="dm-basetok">0 tok</span></div>
+            <div style="height:12px;border-radius:6px;background:#262a33;overflow:hidden;"><div style="width:100%;height:100%;background:#565d6b;"></div></div>
+          </div>
+          <div>
+            <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:7px;"><span style="color:#9aa2ad;">With Perseus <span style="color:#6d7480;">· <span id="dm-pertag">measured A/B</span></span></span><span style="font-family:'IBM Plex Mono',monospace;color:#a78bfa;" id="dm-pertok">0 tok</span></div>
+            <div style="height:12px;border-radius:6px;background:#262a33;overflow:hidden;"><div id="dm-bar" style="width:6%;height:100%;background:linear-gradient(90deg,#a78bfa,#c4b5fd);min-width:3px;transition:width .3s ease;"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="live-row-2" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+        <div style="background:#131a1a;border:1px solid #21402f;border-radius:14px;padding:22px;">
+          <div style="font-size:12.5px;color:#9aa2ad;margin-bottom:6px;">Tokens saved</div>
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:30px;font-weight:600;color:#3fb37f;letter-spacing:-0.02em;" id="dm-saved">0</div>
+        </div>
+        <div style="background:#131a1a;border:1px solid #21402f;border-radius:14px;padding:22px;">
+          <div style="font-size:12.5px;color:#9aa2ad;margin-bottom:6px;">Spend avoided <span style="color:#6d7480;">· est.</span></div>
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:30px;font-weight:600;color:#3fb37f;letter-spacing:-0.02em;" id="dm-dollars">$0.00</div>
+        </div>
+      </div>
+
+      <div style="background:#14161c;border:1px solid #262a33;border-radius:14px;padding:22px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;"><span style="font-size:13px;color:#c3cad4;">Tool schema advertised</span><span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#6d7480;">every call</span></div>
+        <div style="display:flex;align-items:center;gap:14px;">
+          <div style="flex:1;text-align:center;"><div style="font-family:'IBM Plex Mono',monospace;font-size:24px;color:#7d8590;text-decoration:line-through;">171</div><div style="font-size:11px;color:#6d7480;margin-top:2px;">aliased ×3</div></div>
+          <span style="color:#4a505c;font-size:20px;">→</span>
+          <div style="flex:1;text-align:center;"><div style="font-family:'IBM Plex Mono',monospace;font-size:24px;color:#a78bfa;">57</div><div style="font-size:11px;color:#6d7480;margin-top:2px;">deduped</div></div>
+          <div style="flex:1.2;text-align:center;border-left:1px solid #262a33;padding-left:14px;"><div style="font-family:'IBM Plex Mono',monospace;font-size:24px;color:#3fb37f;">−67%</div><div style="font-size:11px;color:#6d7480;margin-top:2px;">schema tokens</div></div>
+        </div>
+      </div>
+
+      <div style="background:#14161c;border:1px solid #262a33;border-radius:14px;padding:20px 22px;">
+        <div style="font-size:12.5px;color:#9aa2ad;margin-bottom:4px;">Extrapolated to a 50-agent fleet <span style="color:#d9a441;">· illustrative</span></div>
+        <div style="font-size:15px;color:#e7e9ee;"><span style="font-family:'IBM Plex Mono',monospace;color:#3fb37f;font-size:18px;" id="dm-fleet">$0.00</span> / year at the current rate</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- METHODOLOGY -->
+  <div style="margin-top:22px;background:#0e0f13;border:1px solid #1e2129;border-radius:12px;padding:18px 22px;font-size:12.5px;color:#7d848f;line-height:1.6;">
+    <span style="color:#c3cad4;font-weight:600;">Methodology.</span> <span id="dm-method"></span>
+  </div>
+
+  <!-- CLAUDE CODE SETUP -->
+  <div style="margin-top:16px;background:#0d1117;border:1px solid #21262d;border-radius:12px;overflow:hidden;">
+    <div style="display:flex;align-items:center;gap:8px;padding:12px 18px;border-bottom:1px solid #21262d;background:#12161d;">
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#a78bfa;">◐ Set it up with Claude Code</span>
+      <span style="font-size:12px;color:#6d7480;">· paste this to generate the real baseline / resolved contexts and enable CORS</span>
+    </div>
+    <div style="padding:16px 20px;font-family:'IBM Plex Mono',monospace;font-size:12px;line-height:1.65;color:#c3cad4;white-space:pre-wrap;">Set up the Perseus live-efficiency demo in this repo:
+
+1. Install and scaffold:
+   pip install perseus-ctx
+   perseus quickstart            # detects the stack, writes .perseus/context.md
+
+2. Produce the two contexts the demo compares, and print both:
+   • BASELINE (unresolved): the raw .perseus/context.md PLUS the full MCP tool
+     list an agent would otherwise carry every call → save to demo/baseline.txt
+   • RESOLVED (Perseus):
+     perseus render .perseus/context.md --output demo/resolved.txt
+
+3. Serve a local OpenAI-compatible model with CORS on so the browser can call it:
+   • Ollama:  OLLAMA_ORIGINS='*' ollama serve   &amp;&amp;  ollama pull qwen2.5
+     endpoint → http://localhost:11434/v1/chat/completions
+   • vLLM:    vllm serve &lt;model&gt; --port 8000 --allowed-origins '["*"]'
+     endpoint → http://localhost:8000/v1/chat/completions
+
+4. Keep demo/baseline.txt and demo/resolved.txt in the demo/ folder, and tell me
+   the model name. (Re-run `perseus render` any time to refresh resolved.txt.)
+
+Then in Live mode I'll click Connect folder → pick demo/, set the endpoint +
+model, and hit Measure/Loop. With auto-refresh on, the demo re-reads both files
+before every measurement · so regenerating them here flows straight through,
+reading the real usage.prompt_tokens from my own model.</div>
+  </div>
+</section>
+
+</div>
+
+<script>
+/* ===== Live-efficiency demo (ported from the design component) ===== */
+(function () {
+  var TIERS = { frontier: 5.0, standard: 2.5, efficient: 1.0, economy: 0.1 };
+  var DEFAULT_BASELINE = "# Project context (CLAUDE.md)\nRepo: acme-api (Python / FastAPI). Assistant should orient before working.\nMCP tools available (full schemas inlined): perseus_services, perseus_read, perseus_list, perseus_tree, perseus_env, perseus_date, perseus_waypoint, perseus_session, perseus_focus, perseus_health, perseus_memory, perseus_skills, perseus_include, perseus_agora, perseus_inbox, perseus_capture, perseus_prompt, perseus_validate, perseus_tool ... (30+ tools).\nServices: check `docker ps` for mongo-dev / redis-dev; API port is in .env (default 3001?), may have changed.\nTests: ~894 tests, status unknown, may be stale, re-run pytest to confirm.\nConventions: pytest, type annotations, ruff. Ports sometimes change between sessions.\nHistory: last session implemented a webhook handler; unclear if tests were run. Check the checkpoint.\nDocs: see README, SETUP-GUIDE, DIRECTIVES for how context is assembled. Re-read this file on every call.";
+  var DEFAULT_RESOLVED = "# Context, resolved 8s ago\nAPI_PORT: 3001\nServices: mongo-dev up 4h, redis-dev up 4h\nTests: 894 passing (ran 8s ago)\nLast checkpoint: webhook handler written, pending test run";
+
+  var state = {
+    mode: 'sim', running: true, calls: 0, baseTok: 0, perTok: 0, tier: 'standard', speedMs: 700, log: [],
+    endpoint: 'http://localhost:11434/v1/chat/completions', model: 'qwen2.5', apiKey: '',
+    task: 'What port is the API on, and are the tests passing?',
+    baselineText: DEFAULT_BASELINE, resolvedText: DEFAULT_RESOLVED,
+    liveRunning: false, liveStatus: 'idle', liveError: '',
+    folderName: '', folderReady: false, autoRefresh: true, baseFile: 'baseline.txt', resolvedFile: 'resolved.txt'
+  };
+
+  var simTimer = null, liveTimer = null, busy = false, dirHandle = null;
+  var $ = function (id) { return document.getElementById(id); };
+
+  function compact(n) {
+    if (n >= 1e9) return (n / 1e9).toFixed(2) + 'B';
+    if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M';
+    if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+    return String(Math.round(n));
+  }
+  function money(n) {
+    if (n >= 1e6) return '$' + (n / 1e6).toFixed(2) + 'M';
+    if (n >= 1e3) return '$' + (n / 1e3).toFixed(1) + 'K';
+    return '$' + n.toFixed(2);
+  }
+  function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+  // ---- simulated ----
+  function simStart() { if (simTimer || !state.running || state.mode !== 'sim') return; simTimer = setInterval(simTick, Number(state.speedMs) || 700); }
+  function simStop() { if (simTimer) { clearInterval(simTimer); simTimer = null; } }
+  function simTick() {
+    var base = Math.round(488 + (Math.random() * 120 - 60));
+    var per = Math.max(1, Math.round(27 + (Math.random() * 16 - 8)));
+    state.calls += 1;
+    state.baseTok += base; state.perTok += per;
+    state.log = [{ id: state.calls, base: base, per: per, live: false }].concat(state.log).slice(0, 7);
+    render();
+  }
+  function simToggle() { state.running = !state.running; if (state.running) simStart(); else simStop(); render(); }
+  function setSpeed(ms) { simStop(); state.speedMs = ms; simStart(); }
+
+  // ---- shared ----
+  function reset() { state.calls = 0; state.baseTok = 0; state.perTok = 0; state.log = []; render(); }
+  function setTier(t) { state.tier = t; render(); }
+  function setMode(m) {
+    simStop(); liveStop();
+    state.mode = m; state.liveError = ''; state.liveStatus = 'idle';
+    if (m === 'sim' && state.running) simStart();
+    render();
+  }
+
+  // ---- live ----
+  function liveMeasure() {
+    if (busy) return Promise.resolve();
+    var endpoint = (state.endpoint || '').trim();
+    if (!endpoint) { state.liveError = 'Set an endpoint URL first.'; state.liveStatus = 'error'; liveStop(); render(); return Promise.resolve(); }
+    busy = true; state.liveStatus = 'measuring…'; state.liveError = ''; render();
+
+    var call = function (ctx) {
+      var headers = { 'Content-Type': 'application/json' };
+      if (state.apiKey) headers['Authorization'] = 'Bearer ' + state.apiKey;
+      return fetch(endpoint, {
+        method: 'POST', headers: headers,
+        body: JSON.stringify({ model: state.model, messages: [{ role: 'system', content: ctx }, { role: 'user', content: state.task }], max_tokens: 1, stream: false })
+      }).then(function (res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status + ' ' + res.statusText);
+        return res.json();
+      }).then(function (j) {
+        var pt = j && j.usage && j.usage.prompt_tokens;
+        if (typeof pt !== 'number') throw new Error('Response had no usage.prompt_tokens');
+        return pt;
+      });
+    };
+
+    var baseCtx = state.baselineText, resCtx = state.resolvedText;
+    var pre = Promise.resolve();
+    if (dirHandle && state.autoRefresh && state.folderReady) {
+      pre = readFiles().then(function (r) { baseCtx = r.base; resCtx = r.resolved; state.baselineText = r.base; state.resolvedText = r.resolved; $('dm-baseline-text').value = r.base; $('dm-resolved-text').value = r.resolved; });
+    }
+    return pre.then(function () { return call(baseCtx); }).then(function (base) {
+      return call(resCtx).then(function (per) {
+        state.calls += 1; state.baseTok += base; state.perTok += per;
+        state.log = [{ id: state.calls, base: base, per: per, live: true }].concat(state.log).slice(0, 7);
+        state.liveStatus = 'measured ✓ (' + state.model + ')';
+        render();
+      });
+    }).catch(function (e) {
+      var msg = String((e && e.message) || e);
+      var hint = /Failed to fetch|NetworkError|load failed/i.test(msg)
+        ? msg + ' · check the endpoint is running and CORS is enabled (e.g. OLLAMA_ORIGINS=*).'
+        : msg;
+      state.liveError = hint; state.liveStatus = 'error'; liveStop(); render();
+    }).then(function () { busy = false; });
+  }
+  function liveStart() { if (liveTimer) return; state.liveRunning = true; liveMeasure(); liveTimer = setInterval(liveMeasure, 2500); render(); }
+  function liveStop() { if (liveTimer) { clearInterval(liveTimer); liveTimer = null; } if (state.liveRunning) { state.liveRunning = false; } }
+  function loopToggle() { if (state.liveRunning) { liveStop(); state.liveStatus = 'stopped'; render(); } else { liveStart(); } }
+
+  // ---- folder auto-load (File System Access API) ----
+  function idb() { return new Promise(function (res, rej) { var q = indexedDB.open('perseus-demo', 1); q.onupgradeneeded = function () { q.result.createObjectStore('h'); }; q.onsuccess = function () { res(q.result); }; q.onerror = function () { rej(q.error); }; }); }
+  function saveHandle(h) { return idb().then(function (db) { return new Promise(function (res, rej) { var t = db.transaction('h', 'readwrite'); t.objectStore('h').put(h, 'dir'); t.oncomplete = res; t.onerror = function () { rej(t.error); }; }); }).catch(function () {}); }
+  function loadHandle() { return idb().then(function (db) { return new Promise(function (res) { var t = db.transaction('h', 'readonly'); var rq = t.objectStore('h').get('dir'); rq.onsuccess = function () { res(rq.result || null); }; rq.onerror = function () { res(null); }; }); }).catch(function () { return null; }); }
+  function readFiles() {
+    var dir = dirHandle;
+    var read = function (name) { return dir.getFileHandle(name).catch(function () { throw new Error('“' + name + '” not found in /' + dir.name); }).then(function (fh) { return fh.getFile(); }).then(function (f) { return f.text(); }); };
+    return read(state.baseFile).then(function (base) { return read(state.resolvedFile).then(function (resolved) { return { base: base, resolved: resolved }; }); });
+  }
+  function loadFromHandle(status) {
+    return readFiles().then(function (r) {
+      state.folderName = dirHandle.name; state.folderReady = true;
+      state.baselineText = r.base; state.resolvedText = r.resolved; state.liveStatus = status; state.liveError = '';
+      $('dm-baseline-text').value = r.base; $('dm-resolved-text').value = r.resolved;
+      render();
+    });
+  }
+  function connectFolder() {
+    try {
+      if (dirHandle && dirHandle.requestPermission) {
+        return dirHandle.requestPermission({ mode: 'read' }).then(function (p) {
+          if (p === 'granted') return loadFromHandle('folder refreshed ✓');
+          return pickFolder();
+        });
+      }
+      return pickFolder();
+    } catch (e) { state.liveError = 'Folder: ' + ((e && e.message) || e); state.folderReady = false; render(); }
+  }
+  function pickFolder() {
+    if (!window.showDirectoryPicker) { state.liveError = 'Folder loading needs a Chromium browser (Chrome / Edge). Paste the contexts instead.'; render(); return Promise.resolve(); }
+    return window.showDirectoryPicker().then(function (h) { dirHandle = h; return saveHandle(h).then(function () { return loadFromHandle('folder connected ✓'); }); })
+      .catch(function (e) { if (e && e.name === 'AbortError') return; state.liveError = 'Folder: ' + ((e && e.message) || e); state.folderReady = false; render(); });
+  }
+  function restoreFolder() {
+    if (!window.indexedDB) return;
+    loadHandle().then(function (h) {
+      if (!h) return;
+      dirHandle = h;
+      var permP = h.queryPermission ? h.queryPermission({ mode: 'read' }) : Promise.resolve('prompt');
+      Promise.resolve(permP).then(function (perm) {
+        if (perm === 'granted') { loadFromHandle('folder reconnected ✓'); }
+        else { state.folderName = h.name; state.folderReady = false; state.liveStatus = 'folder found · click Reconnect to grant access'; render(); }
+      });
+    }).catch(function () {});
+  }
+
+  // ---- render ----
+  function render() {
+    var s = state;
+    var isLive = s.mode === 'live';
+    var price = TIERS[s.tier] != null ? TIERS[s.tier] : 2.5;
+    var saved = Math.max(s.baseTok - s.perTok, 0);
+    var reductionPct = s.baseTok > 0 ? Math.round((1 - s.perTok / s.baseTok) * 100) : 94;
+    var dollars = saved / 1e6 * price;
+    var avgSaved = s.calls > 0 ? saved / s.calls : 461;
+    var fleetAnnual = avgSaved * 50 * 1000 * 365 / 1e6 * price;
+
+    // nav mode tag
+    $('dm-modetag').textContent = isLive ? (s.liveRunning ? 'live · measuring' : 'live · local') : 'simulated';
+    var dotColor = isLive ? '#3fb37f' : '#d9a441';
+    $('dm-modedot').style.background = dotColor;
+    $('dm-modewrap').style.color = dotColor;
+
+    // mode buttons
+    var modeStyle = function (on) { return "font-family:'IBM Plex Sans',sans-serif;font-size:13px;font-weight:600;padding:8px 14px;border-radius:7px;cursor:pointer;border:none;" + (on ? 'background:#a78bfa;color:#0b0c0f;' : 'background:transparent;color:#9aa2ad;'); };
+    $('dm-mode-sim').setAttribute('style', modeStyle(!isLive));
+    $('dm-mode-live').setAttribute('style', modeStyle(isLive));
+
+    // section visibility
+    $('dm-sim-controls').style.display = isLive ? 'none' : 'flex';
+    $('dm-live-config').style.display = isLive ? 'block' : 'none';
+
+    // sim controls
+    $('dm-toggle').textContent = s.running ? '⏸ Pause' : '▶ Play';
+
+    // tier buttons
+    var btnBase = "font-family:'IBM Plex Mono',monospace;font-size:12px;padding:8px 12px;border-radius:8px;cursor:pointer;transition:all .12s;";
+    document.querySelectorAll('.dm-tier').forEach(function (btn) {
+      var on = btn.getAttribute('data-tier') === s.tier;
+      btn.setAttribute('style', btnBase + (on ? 'background:rgba(167,139,250,0.14);border:1px solid #a78bfa;color:#e7e9ee;' : 'background:#0f1014;border:1px solid #262a33;color:#c3cad4;'));
+    });
+
+    // live config fields (set once/echo; avoid clobbering focus by only setting when different)
+    var setVal = function (id, v) { var el = $(id); if (el && el.value !== v) el.value = v; };
+    setVal('dm-endpoint', s.endpoint); setVal('dm-model', s.model); setVal('dm-key', s.apiKey);
+    setVal('dm-task', s.task); setVal('dm-basefile', s.baseFile); setVal('dm-resolvedfile', s.resolvedFile);
+    $('dm-autorefresh').checked = s.autoRefresh;
+    $('dm-folder-label').textContent = s.folderName ? (s.folderReady ? 'Refresh folder' : 'Reconnect folder') : 'Connect folder';
+    $('dm-folder-status').textContent = s.folderName ? ('/' + s.folderName + (s.folderReady ? ' · ' + s.baseFile + ' + ' + s.resolvedFile : ' · access needed')) : 'no folder connected · paste below, or connect the demo/ folder';
+    $('dm-livestatus').textContent = s.liveStatus;
+    $('dm-livestatus').style.color = s.liveStatus === 'error' ? '#ff9a94' : (/measured/.test(s.liveStatus) ? '#3fb37f' : '#9aa2ad');
+    $('dm-loop').textContent = s.liveRunning ? '⏹ Stop loop' : '↻ Loop';
+    var errEl = $('dm-error');
+    if (s.liveError) { errEl.style.display = 'block'; errEl.textContent = s.liveError; } else { errEl.style.display = 'none'; }
+
+    // console
+    $('dm-calls').textContent = s.calls;
+    $('dm-console-prompt').textContent = isLive ? '$ perseus render && curl $ENDPOINT/v1/chat/completions' : '$ perseus mcp serve && agent run --loop';
+    $('dm-log').innerHTML = s.log.map(function (r) {
+      var mark = r.live ? '' : '~';
+      return '<div style="display:grid;grid-template-columns:52px 1fr auto;gap:10px;padding:5px 0;border-bottom:1px solid #161b22;animation:slidein .25s ease;">'
+        + '<span style="color:#6d7480;">#' + r.id + '</span>'
+        + '<span style="color:#8b949e;">context assembled</span>'
+        + '<span><span style="color:#7d8590;">base ' + mark + r.base + '</span> <span style="color:#4a505c;">→</span> <span style="color:#a78bfa;">' + r.per + ' tok</span></span>'
+        + '</div>';
+    }).join('');
+    $('dm-statusline').textContent = isLive
+      ? (s.liveRunning ? 'measuring on your endpoint…' : (s.calls > 0 ? 'ready' : 'configure endpoint, then Measure'))
+      : (s.running ? 'streaming calls…' : 'paused');
+
+    // metrics
+    $('dm-redpct').textContent = reductionPct;
+    $('dm-basetok').textContent = compact(s.baseTok) + ' tok';
+    $('dm-pertok').textContent = compact(s.perTok) + ' tok';
+    $('dm-bar').style.width = s.baseTok > 0 ? (s.perTok / s.baseTok * 100).toFixed(1) + '%' : '6%';
+    $('dm-basetag').textContent = isLive ? 'measured on your model' : 'estimated';
+    $('dm-pertag').textContent = isLive ? 'measured on your model' : 'measured A/B';
+    $('dm-saved').textContent = compact(saved);
+    $('dm-dollars').textContent = money(dollars);
+    $('dm-fleet').textContent = money(fleetAnnual);
+    $('dm-method').textContent = isLive
+      ? 'Live mode sends your baseline and Perseus-resolved contexts to your own endpoint and reads the real usage.prompt_tokens each returns: the token counts are measured on your model, not estimated. Spend and fleet figures are illustrative, at the selected tier’s July 2026 list input-token price. Generate the resolved context with `perseus render` (see the Claude Code snippet below).'
+      : 'The without-Perseus figure is an estimated baseline: per-call prompt size drawn around the 488-token average from Perseus’s measured 200-request A/B, not a live capture. The with-Perseus figure is anchored to that A/B’s measured 27-token average. Switch to Live mode to measure real token counts on your own local model. Spend and fleet figures are illustrative at the selected tier’s July 2026 list price.';
+  }
+
+  // ---- wire up ----
+  $('dm-mode-sim').addEventListener('click', function () { setMode('sim'); });
+  $('dm-mode-live').addEventListener('click', function () { setMode('live'); });
+  $('dm-toggle').addEventListener('click', simToggle);
+  $('dm-reset-sim').addEventListener('click', reset);
+  $('dm-reset-live').addEventListener('click', reset);
+  $('dm-speed').addEventListener('change', function (e) { setSpeed(e.target.value); });
+  $('dm-endpoint').addEventListener('input', function (e) { state.endpoint = e.target.value; });
+  $('dm-model').addEventListener('input', function (e) { state.model = e.target.value; });
+  $('dm-key').addEventListener('input', function (e) { state.apiKey = e.target.value; });
+  $('dm-task').addEventListener('input', function (e) { state.task = e.target.value; });
+  $('dm-baseline-text').addEventListener('input', function (e) { state.baselineText = e.target.value; });
+  $('dm-resolved-text').addEventListener('input', function (e) { state.resolvedText = e.target.value; });
+  $('dm-basefile').addEventListener('input', function (e) { state.baseFile = e.target.value; });
+  $('dm-resolvedfile').addEventListener('input', function (e) { state.resolvedFile = e.target.value; });
+  $('dm-autorefresh').addEventListener('change', function (e) { state.autoRefresh = e.target.checked; });
+  $('dm-folder').addEventListener('click', connectFolder);
+  $('dm-measure').addEventListener('click', function () { liveMeasure(); });
+  $('dm-loop').addEventListener('click', loopToggle);
+  document.querySelectorAll('.dm-tier').forEach(function (btn) { btn.addEventListener('click', function () { setTier(btn.getAttribute('data-tier')); }); });
+
+  // init
+  $('dm-baseline-text').value = state.baselineText;
+  $('dm-resolved-text').value = state.resolvedText;
+  render();
+  if (state.mode === 'sim') simStart();
+  restoreFolder();
+})();
+</script>
+</body>
+</html>
