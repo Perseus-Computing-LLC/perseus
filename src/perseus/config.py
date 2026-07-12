@@ -184,6 +184,21 @@ DEFAULT_CONFIG = {
             "max_attempts": 3,
             "backoff_base": 1.5,
         },
+        # #580 — optional LLM query expansion (multi-query fusion). DEFAULT OFF:
+        # with enabled=false recall is a single verbatim query (unchanged). When
+        # on, the question is planned into decomposed/expanded sub-queries, each
+        # recalled and RRF-fused — lifts weak-category recall (multi-session /
+        # temporal / preference). Model-agnostic (any OpenAI-compatible endpoint);
+        # the API key is read from `api_key_env`, never stored in config.
+        "expansion": {
+            "enabled": False,
+            "endpoint": "https://api.openai.com/v1/chat/completions",
+            "model": "gpt-4o-mini",
+            "api_key_env": "OPENAI_API_KEY",
+            "timeout_s": 20.0,
+            "max_subqueries": 6,
+            "per_query_limit_factor": 2,   # over-fetch each arm to factor × max_results
+        },
         # #713 — @capture: first-class session-boundary memory writes.
         # Closes the write side of the memory loop live (no cron/launchd
         # harvest dependency). Opt-in; writes are idempotent (keyed by
