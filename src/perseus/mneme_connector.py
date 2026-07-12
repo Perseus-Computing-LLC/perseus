@@ -36,6 +36,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Optional, Callable
 
+from perseus.retrieval_expansion import ExpansionConfig, plan_query, rrf_fuse
+
 
 # The heading emitted above every injected persistent-memory block. Rebranded
 # for #662 (Mimir → Mneme → Perseus Vault): the generator used to emit
@@ -902,6 +904,15 @@ class MnemeConnector:
         self._max_retries = int(rp_cfg.get("max_attempts", 3))
         self._backoff_base = float(rp_cfg.get("backoff_base", 1.5))
 
+        # #580: optional LLM query expansion (multi-query fusion). Off by default;
+        # when enabled the API key is resolved from the configured env var so the
+        # secret never lives in config.yaml. Disabled if no key is present.
+        self._expansion = ExpansionConfig.from_dict(mcfg.get("expansion"))
+        if self._expansion.enabled:
+            self._expansion.api_key = os.environ.get(self._expansion.api_key_env, "")
+            if not self._expansion.api_key:
+                self._expansion.enabled = False  # fail safe: no key -> no expansion
+
         # Transport client
         self._client: _MCPStdioClient | _MCPSseClient | None = None
         self._connect_error: str | None = None
@@ -1101,29 +1112,60 @@ class MnemeConnector:
             )
 
         types_str = [t.value for t in memory_types] if memory_types else []
+        # The Vault tool takes a single `type` filter; a lone type maps onto it,
+        # several fall back to an unfiltered recall (#699).
+        type_filter = types_str[0] if len(types_str) == 1 else None
 
-        # #699: use the Vault tool's canonical argument names. RecallArgs is
-        # deserialized without deny_unknown_fields, so misnamed keys were
-        # silently dropped: `max_results` never reached `limit` (recall was
-        # pinned to the default 10) and `min_decay_score` never reached
-        # `min_decay` (the threshold never applied). `memory_types`,
-        # `include_federation` and `filters` have no tool-side equivalent —
-        # the tool takes a single `type` filter — so a lone type maps onto
-        # `type` and the rest are omitted instead of sent as dead keys.
+        # #580: optional LLM query expansion. Plan the question into decomposed /
+        # expanded sub-queries, recall each, and RRF-fuse the hits — this lifts
+        # weak-category recall (multi-session / temporal / preference) where a
+        # single verbatim query misses the relevant session. Off unless
+        # `mneme.expansion.enabled`; any planner failure falls through to the
+        # unchanged single-query recall below, so retrieval never breaks.
+        if self._expansion.enabled and query and query.strip():
+            seg = self._recall_expanded(
+                query, max_results, min_decay_score, workspace_hash,
+                topic_path, type_filter, t0)
+            if seg is not None:
+                return seg
+
+        hits, err = self._recall_once(
+            query, max_results, min_decay_score, workspace_hash,
+            topic_path, type_filter)
+        if err:
+            return MemorySegment(
+                query_time_ms=int((time.time() - t0) * 1000),
+                strategy_used="mimir_recall_error",
+                error=f"mimir_recall failed: {err}",
+            )
+        return MemorySegment(
+            items=hits,
+            strategy_used="mimir_recall",
+            total_available=len(hits),
+            query_time_ms=int((time.time() - t0) * 1000),
+        )
+
+    def _recall_once(self, query, limit, min_decay, workspace_hash, topic_path,
+                     type_filter):
+        """One `mimir_recall` call (retry + parse). Returns ``(hits, err)``. The
+        single-query primitive shared by plain recall and the expansion arms.
+
+        #699: RecallArgs is deserialized without deny_unknown_fields, so misnamed
+        keys are silently dropped — these are the tool's canonical names."""
         recall_args = {
             "query": query,
-            "limit": max_results,
-            "min_decay": min_decay_score,
+            "limit": limit,
+            "min_decay": min_decay,
             "workspace_hash": workspace_hash or "",
             "topic_path": topic_path or "",
         }
-        if len(types_str) == 1:
-            recall_args["type"] = types_str[0]
+        if type_filter:
+            recall_args["type"] = type_filter
 
         def _do_recall():
-            result, err = self._client.call_tool("mimir_recall", recall_args)
-            if err:
-                raise RuntimeError(err)
+            result, e = self._client.call_tool("mimir_recall", recall_args)
+            if e:
+                raise RuntimeError(e)
             return result
 
         raw_result, err = _retry_with_backoff(
@@ -1133,19 +1175,41 @@ class MnemeConnector:
             circuit_breaker=self._breaker,
             abort_check=self._transport_gone,
         )
-
         if err:
-            return MemorySegment(
-                query_time_ms=int((time.time() - t0) * 1000),
-                strategy_used="mimir_recall_error",
-                error=f"mimir_recall failed: {err}",
-            )
+            return [], err
+        return _parse_memory_hits(raw_result or {}), None
 
-        items = _parse_memory_hits(raw_result or {})
+    def _recall_expanded(self, query, max_results, min_decay, workspace_hash,
+                         topic_path, type_filter, t0):
+        """LLM-planned multi-query fusion (#580). Returns a fused MemorySegment,
+        or None to signal the caller to fall back to single-query recall (planner
+        unavailable / returned nothing)."""
+        # asked_date = today (the planner resolves relative dates against it);
+        # use time.strftime, NOT `import datetime` — the bundle binds
+        # `datetime` to the class via `from datetime import datetime`, and
+        # re-importing the module here would shadow it for every other module.
+        plan = plan_query(query, time.strftime("%Y-%m-%d"), self._expansion)
+        if plan is None:
+            return None
+        queries = plan.query_set(query)
+        per = max(max_results, max_results * self._expansion.per_query_limit_factor)
+        id_lists, by_id = [], {}
+        for q in queries:
+            hits, err = self._recall_once(q, per, min_decay, workspace_hash,
+                                          topic_path, type_filter)
+            if err:
+                continue
+            id_lists.append([h.id for h in hits])
+            for h in hits:
+                by_id.setdefault(h.id, h)
+        if not by_id:
+            return None  # nothing retrieved — let the caller try a plain recall
+        fused = rrf_fuse(id_lists)[:max_results]
+        items = [by_id[i] for i in fused if i in by_id]
         return MemorySegment(
             items=items,
-            strategy_used="mimir_recall",
-            total_available=len(items),
+            strategy_used="mimir_recall_expanded",
+            total_available=len(by_id),
             query_time_ms=int((time.time() - t0) * 1000),
         )
 
