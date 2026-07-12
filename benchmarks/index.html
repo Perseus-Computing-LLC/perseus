@@ -90,6 +90,24 @@ main.bench pre{background:var(--surface,#101018);border:1px solid var(--border,#
   <div class="src">source: <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/longmemeval/qa_report.json">benchmark/longmemeval/qa_report.json</a> <span class="sig" title="sha256 over the result set">sig 929623670d8b</span></div>
   <div class="src">source: <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/longmemeval/qa_report_seed2.json">benchmark/longmemeval/qa_report_seed2.json</a> <span class="sig" title="sha256 over the result set">sig 4e816cf0a904</span></div><div class="src">source: <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/longmemeval/qa_report_seed3.json">benchmark/longmemeval/qa_report_seed3.json</a> <span class="sig" title="sha256 over the result set">sig c712d867a958</span></div>
 </section>
+<section id="samebox">
+  <h2>Same-box recall, all systems fully local</h2>
+  <p class="note">Every system stood up and run live on one H100 against the same local Ollama
+  (<code>qwen2.5:14b-instruct</code> + <code>nomic-embed-text</code>): identical fact set, identical
+  queries, identical substring judge. No published or cloud numbers are substituted for a competitor.
+  Cells show recall accuracy and p50 latency.</p>
+  <div class="tablewrap"><table><thead><tr><th>system</th><th>recall</th><th>p50 latency</th><th>stack</th></tr></thead><tbody><tr><th>Perseus Vault (hybrid)</th><td class="us">1.00</td><td class="us">35.6 ms</td><td class="us">single local binary, in-process</td></tr><tr><th>Letta (archival / pgvector)</th><td>1.00</td><td>135.5 ms</td><td>server + Postgres/pgvector</td></tr><tr><th>Mem0 (vector)</th><td>0.60</td><td>37.9 ms</td><td>Python + Qdrant</td></tr><tr><th>Zep (Graphiti temporal KG)</th><td>0.20</td><td>49.7 ms</td><td>server + Neo4j</td></tr></tbody></table></div>
+  <p class="note">Letta matches Perseus Vault on recall for this corpus; the difference is operational,
+  an in-process binary answering in ~35 ms versus a server plus Postgres at ~135 ms p50. Zep's
+  self-hosted Community Edition server is deprecated and its <code>zep_python</code> memory API is now
+  Zep Cloud only, so this measures Zep's open-source engine, Graphiti (a temporal knowledge graph on
+  Neo4j), with entity extraction and embeddings both on the same local Ollama. Building a knowledge
+  graph needs an LLM to do structured extraction, and a local model is lossy at it (5 entities and 2
+  edges from 6 facts here), so 0.20 reflects local-extraction quality rather than Zep Cloud, which
+  uses frontier models. The point of this table is not a scoreboard; it is what each architecture does
+  when the whole stack has to run locally.</p>
+  <div class="src">source: <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/lambda/results/competitors.json">benchmark/lambda/results/competitors.json</a> &middot; <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/lambda/competitors_bench.py">competitors_bench.py</a></div>
+</section>
 <section id="scale">
   <h2>Scale and latency</h2>
   <p class="note">The real binary over MCP stdio, seeded corpus, 100 queries
