@@ -13648,9 +13648,11 @@ def _render_lines(
     # the end of this function).
     _saw_resolver_failure = False
 
+    # ── Resolve render config once, reused by multiple directives below ──
+    _render_cfg: dict = cfg.get("render", {})
     # ── File integrity pre-check (top-level only) ──
     _integrity_snapshot: dict[str, float] = {}
-    if top_level and cfg.get("render", {}).get("integrity_check", False):
+    if top_level and _render_cfg.get("integrity_check", False):
         _integrity_snapshot = _capture_file_snapshot(lines, workspace)
 
     # ── Pre-scan @query directives for parallel resolution ──────────────
@@ -13681,12 +13683,15 @@ def _render_lines(
     # by the parallel worker on write so the write key cannot drift from the
     # read key (the workspace suffix was previously dropped on write).
     query_cache_keys: dict[int, str] = {}
+    # Pre-scanned clean_args per @query index so the main loop's prefetched-
+    # result early return can skip a redundant _parse_cache_modifier call.
+    query_clean_args: dict[int, str] = {}
     # Raw source line per pending query, captured at enqueue. The pending
     # comprehension below previously paired every idx with the loop's stale
     # `raw_line` (the LAST scanned line), so all parallel queries ran the
     # last query's command and clobbered each other's results.
     query_raw_lines: dict[int, str] = {}
-    if top_level and cfg.get("render", {}).get("parallel_queries", False):
+    if top_level and _render_cfg.get("parallel_queries", False):
         in_fence_pre = False
         fc_pre = ""
         fl_pre = 0
@@ -13790,6 +13795,7 @@ def _render_lines(
                 clean_args, cache_mode, cache_ttl, cache_mock = _parse_cache_modifier(
                     ((_m_clean.group(2) if _m_clean else m.group(2)) or "").strip()
                 )
+                query_clean_args[idx] = clean_args
                 if cache_mode == "mock":
                     query_results[idx] = cache_mock or "(mock)"
                     query_sources[idx] = "mock"
@@ -14270,7 +14276,7 @@ def _render_lines(
                         and _qsrc != "mock"):
                     _directive_collector.append({
                         "name": directive.lstrip("@"),
-                        "args": _parse_cache_modifier(raw_args)[0].strip(),
+                        "args": query_clean_args.get(i, _parse_cache_modifier(raw_args)[0].strip()),
                         "output": query_results[i],
                         "cached": _qsrc == "cache",
                         "prefetched": True,
@@ -14638,7 +14644,7 @@ def render_source(
         result = result + "\n".join(manifest_lines)
 
     # Apply deduplication pass if enabled
-    if _include_depth == 0 and cfg.get("render", {}).get("dedup", True):
+    if _include_depth == 0 and _render_cfg.get("dedup", True):
         result, dedup_report = _deduplicate_rendered_output(result, cfg)
         if dedup_report["removed_facts"] > 0:
             result += f"\n\nDedup: removed {dedup_report['removed_facts']} duplicate facts, saved ~{dedup_report['saved_tokens']} tokens"
@@ -14801,7 +14807,7 @@ def _deduplicate_rendered_output(text: str, cfg: dict) -> tuple[str, dict]:
     delimiters themselves) are never removed or counted, and structural
     lines (hrules, table separators) are whitelisted.
     """
-    if not cfg.get("render", {}).get("dedup", True):
+    if not _render_cfg.get("dedup", True):
         return text, {"removed_facts": 0, "saved_tokens": 0}
 
     lines = text.splitlines()
@@ -19600,7 +19606,7 @@ class _MCPStdioClient:
             # MCP initialize handshake. Uses the longer init timeout (see
             # _init_timeout) so a slow first-open / schema migration doesn't fail
             # the connection spuriously on launch day.
-            init_result, err = self._call("initialize", {
+            init_result, err = self._client.call_tool("initialize", {
                 "protocolVersion": "2025-06-18",
                 "clientInfo": {"name": "perseus-mimir-connector", "version": "1.0.0"},
                 "capabilities": {},
@@ -19705,7 +19711,7 @@ class _MCPStdioClient:
 
     def call_tool(self, tool_name: str, arguments: dict) -> tuple[dict | None, str | None]:
         """Call an MCP tool via tools/call. Returns (result_dict, error_string)."""
-        result, err = self._call("tools/call", {
+        result, err = self._client.call_tool("tools/call", {
             "name": tool_name,
             "arguments": arguments,
         })
@@ -19738,7 +19744,7 @@ class _MCPStdioClient:
 
     def list_tools(self) -> list[dict]:
         """List available MCP tools on the server."""
-        result, err = self._call("tools/list", {})
+        result, err = self._client.call_tool("tools/list", {})
         if err or not result:
             return []
         return result.get("tools", [])
@@ -19979,6 +19985,9 @@ class MnemeConnector:
         # Set when the vault connects but doesn't expose the tools this connector
         # calls (version skew) — see _check_tool_compatibility.
         self._tool_warning: str | None = None
+        # Maps legacy tool names to resolved canonical names (e.g. mimir_recall →
+        # perseus_vault_recall). Populated by _check_tool_compatibility.
+        self._tool_names: dict[str, str] = {}
 
         if self._enabled:
             self._try_connect()
@@ -20043,15 +20052,28 @@ class MnemeConnector:
             return False
 
     def _check_tool_compatibility(self) -> None:
-        """Warn (once, loudly) if the connected vault doesn't expose the tools
-        this connector calls. The connector uses hardcoded ``mimir_*`` names; the
-        vault currently ships ``mimir_``/``mneme_``/``perseus_vault_`` aliases, so
-        this passes today — but a future vault that drops the ``mimir_`` aliases
-        would fail every recall silently. Detecting it at connect time turns a
-        silent local-only degradation into a diagnosable warning. Non-fatal and
-        best-effort: a probe error never breaks the (otherwise healthy) connect.
+        """Resolve tool names and warn if any are unavailable on the connected vault.
+
+        The connector historically hardcoded ``mimir_*`` names, but Perseus Vault
+        2.x uses canonical ``perseus_vault_*`` names.  This function resolves each
+        legacy name against the server-advertised tool list and stores the resolved
+        name so call sites don't hardcode.  Falls back to the legacy name when the
+        server isn't reachable yet (the _call helper will surface the real error at
+        call time).
+
+        Resolution order per tool (first match wins):
+          1. ``perseus_vault_<name>``  (canonical)
+          2. ``mneme_<name>``          (deprecated alias)
+          3. ``mimir_<name>``          (legacy alias)
+          4. legacy name unchanged     (will error at call time)
         """
-        required = "mimir_recall"  # representative of the mimir_* tool family
+        _LEGACY_TOOLS = [
+            "mimir_recall", "mimir_recall_when", "mimir_as_of", "mimir_context",
+            "mimir_stats", "mimir_get_entity", "mimir_forget", "mimir_correct",
+            "mimir_remember", "mimir_health",
+        ]
+        _PREFIXES = ["perseus_vault_", "mneme_", "mimir_"]
+
         self._tool_warning = None
         try:
             names = {
@@ -20059,19 +20081,42 @@ class MnemeConnector:
                 for t in (self._client.list_tools() if self._client else [])
             }
         except Exception:
+            # Can't reach the server yet — fall back to legacy names.
+            for lt in _LEGACY_TOOLS:
+                self._tool_names[lt] = lt
             return
-        if not names or required in names:
-            return  # server advertised no tools (leave to per-call errors), or OK
-        alt = sorted(
-            n for n in names if isinstance(n, str) and n.endswith("_recall")
-        )
-        hint = f" (server has: {', '.join(alt[:3])})" if alt else ""
-        self._tool_warning = (
-            f"vault connected but expected tool '{required}' is missing{hint} — "
-            "likely a version mismatch; memory calls may fail or silently return "
-            "nothing"
-        )
-        print(f"[perseus] Perseus Vault: {self._tool_warning}", file=sys.stderr)
+
+        missing: list[str] = []
+        for lt in _LEGACY_TOOLS:
+            # Strip the mimir_ prefix to get the base name
+            base = lt[6:]  # len("mimir_") == 6
+            resolved = lt  # fallback
+            for prefix in _PREFIXES:
+                candidate = prefix + base
+                if candidate in names:
+                    resolved = candidate
+                    break
+            else:
+                missing.append(lt)
+            self._tool_names[lt] = resolved
+
+        if missing:
+            alt = sorted(
+                n for n in names if isinstance(n, str) and n.endswith("_recall")
+            )
+            hint = f" (server has: {', '.join(alt[:3])})" if alt else ""
+            self._tool_warning = (
+                f"vault connected but {len(missing)} tool(s) missing: "
+                f"{', '.join(missing)}{hint} — "
+                "likely a version mismatch; memory calls may fail or silently "
+                "return nothing"
+            )
+            print(f"[perseus] Perseus Vault: {self._tool_warning}", file=sys.stderr)
+
+    def _call(self, legacy_tool: str, args: dict) -> tuple:
+        """Call a tool via MCP, resolving the legacy name to the vault's canonical name."""
+        resolved = self._tool_names.get(legacy_tool, legacy_tool)
+        return self._client.call_tool(resolved, args)
 
     def _ensure_connected(self) -> bool:
         """Reconnect if a previously-live session has since dropped.
@@ -20222,7 +20267,7 @@ class MnemeConnector:
             recall_args["type"] = type_filter
 
         def _do_recall():
-            result, e = self._client.call_tool("mimir_recall", recall_args)
+            result, e = self._call("mimir_recall", recall_args)
             if e:
                 raise RuntimeError(e)
             return result
@@ -20298,7 +20343,7 @@ class MnemeConnector:
             )
 
         def _do_recall_when():
-            result, err = self._client.call_tool("mimir_recall_when", {
+            result, err = self._call("mimir_recall_when", {
                 "context": context,
                 "limit": min(limit, 100),
             })
@@ -20357,7 +20402,7 @@ class MnemeConnector:
             return None
 
         def _do_as_of():
-            result, err = self._client.call_tool("mimir_as_of", {
+            result, err = self._call("mimir_as_of", {
                 "category": category,
                 "key": key,
                 "as_of_unix_ms": int(as_of_unix_ms),
@@ -20401,7 +20446,7 @@ class MnemeConnector:
             return None
 
         def _do_context():
-            result, err = self._client.call_tool("mimir_context", {
+            result, err = self._call("mimir_context", {
                 "categories": categories or [],
                 "limit": limit,
             })
@@ -20450,7 +20495,7 @@ class MnemeConnector:
             args["include_archived"] = True
 
         def _do_browse():
-            result, err = self._client.call_tool("mimir_recall", args)
+            result, err = self._call("mimir_recall", args)
             if err:
                 raise RuntimeError(err)
             return result
@@ -20475,7 +20520,7 @@ class MnemeConnector:
         """
         if not self._ensure_connected():
             return None
-        result, err = self._client.call_tool("mimir_stats", {})
+        result, err = self._call("mimir_stats", {})
         if err or not isinstance(result, dict):
             return None
         return result
@@ -20484,7 +20529,7 @@ class MnemeConnector:
         """Fetch one entity (full body_json + provenance) by id (#692)."""
         if not self._ensure_connected():
             return None
-        result, err = self._client.call_tool("mimir_get_entity", {"id": entity_id})
+        result, err = self._call("mimir_get_entity", {"id": entity_id})
         if err or not isinstance(result, dict):
             return None
         if result.get("found") is False or result.get("error"):
@@ -20499,7 +20544,7 @@ class MnemeConnector:
         """
         if not self._ensure_connected():
             return False, self.status
-        result, err = self._client.call_tool("mimir_forget", {
+        result, err = self._call("mimir_forget", {
             "category": category,
             "key": key,
             "reason": reason,
@@ -20532,7 +20577,7 @@ class MnemeConnector:
         }
         if category:
             args["category"] = category
-        result, err = self._client.call_tool("mimir_correct", args)
+        result, err = self._call("mimir_correct", args)
         if err:
             return False, err
         if isinstance(result, dict) and result.get("error"):
@@ -20600,7 +20645,7 @@ class MnemeConnector:
             tag_list = []
 
         def _do_store():
-            result, err = self._client.call_tool("mimir_remember", {
+            result, err = self._call("mimir_remember", {
                 "category": cat,
                 "key": ent_key,
                 "body_json": body_json,
@@ -20634,7 +20679,7 @@ class MnemeConnector:
             return False, "Mneme unavailable"
 
         def _do_health():
-            result, err = self._client.call_tool("mimir_health", {})
+            result, err = self._call("mimir_health", {})
             if err:
                 raise RuntimeError(err)
             return result
