@@ -2198,7 +2198,7 @@ def render_source(
         result = result + "\n".join(manifest_lines)
 
     # Apply deduplication pass if enabled
-    if _include_depth == 0 and _render_cfg.get("dedup", True):
+    if _include_depth == 0 and cfg.get("render", {}).get("dedup", True):
         result, dedup_report = _deduplicate_rendered_output(result, cfg)
         if dedup_report["removed_facts"] > 0:
             result += f"\n\nDedup: removed {dedup_report['removed_facts']} duplicate facts, saved ~{dedup_report['saved_tokens']} tokens"
@@ -2361,7 +2361,7 @@ def _deduplicate_rendered_output(text: str, cfg: dict) -> tuple[str, dict]:
     delimiters themselves) are never removed or counted, and structural
     lines (hrules, table separators) are whitelisted.
     """
-    if not _render_cfg.get("dedup", True):
+    if not cfg.get("render", {}).get("dedup", True):
         return text, {"removed_facts": 0, "saved_tokens": 0}
 
     lines = text.splitlines()
