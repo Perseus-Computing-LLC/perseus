@@ -1202,9 +1202,11 @@ def _render_lines(
     # the end of this function).
     _saw_resolver_failure = False
 
+    # ── Resolve render config once, reused by multiple directives below ──
+    _render_cfg: dict = cfg.get("render", {})
     # ── File integrity pre-check (top-level only) ──
     _integrity_snapshot: dict[str, float] = {}
-    if top_level and cfg.get("render", {}).get("integrity_check", False):
+    if top_level and _render_cfg.get("integrity_check", False):
         _integrity_snapshot = _capture_file_snapshot(lines, workspace)
 
     # ── Pre-scan @query directives for parallel resolution ──────────────
@@ -1243,7 +1245,7 @@ def _render_lines(
     # `raw_line` (the LAST scanned line), so all parallel queries ran the
     # last query's command and clobbered each other's results.
     query_raw_lines: dict[int, str] = {}
-    if top_level and cfg.get("render", {}).get("parallel_queries", False):
+    if top_level and _render_cfg.get("parallel_queries", False):
         in_fence_pre = False
         fc_pre = ""
         fl_pre = 0
