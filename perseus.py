@@ -20763,13 +20763,19 @@ class MnemeConnector:
             diagnostics["mimir"] = f"unavailable: {self._connect_error or 'disabled'}"
 
         # ── Local Mnēmē FTS5 fallback ──
+        # #774: fallback, not additive — scan the local index only when the
+        # vault contributed nothing. The unconditional scan doubled recall
+        # latency and injected duplicate hits whenever the vault was healthy.
         local_items: list[MemoryHit] = []
-        if local_recall_fn and cfg:
+        if local_recall_fn and cfg and not mimir_segment.items:
             try:
                 local_results = local_recall_fn(cfg, query, k=kwargs.get("max_results", 10))
                 local_items = _local_hits_to_memory_hits(local_results)
+                diagnostics["local_scan"] = f"fallback ({len(local_items)} hits)"
             except Exception as e:
                 diagnostics["local_fallback_error"] = str(e)
+        elif local_recall_fn and cfg:
+            diagnostics["local_scan"] = "skipped (vault provided results, #774)"
 
         diagnostics["memory_ms"] = str(int((time.time() - t_memory) * 1000))
 
@@ -22583,7 +22589,16 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path, limit_n: int 
     if limit_n > 0:
         k = min(k, limit_n)
 
-    hits = _mneme_recall(cfg, query, k=k, scope=scope, type_filter=type_filter, sensitivity=sensitivity)
+    # ── #774: vault-first; local FTS5 is a FALLBACK, not additive ────────
+    # The local scan previously ran unconditionally and rendered alongside
+    # vault hits — ~2x recall latency and duplicate content whenever the
+    # vault was healthy. Query the vault first; scan the local index only
+    # when the vault contributed nothing (down, errored, or zero matches).
+    # `mimir.local_additive: true` restores the historical additive render.
+    additive_local = bool((cfg.get("mimir") or {}).get("local_additive"))
+    hits: list = []
+    if additive_local:
+        hits = _mneme_recall(cfg, query, k=k, scope=scope, type_filter=type_filter, sensitivity=sensitivity)
 
     # ── Mimir augmentation (MCP) ──────────────────────────────────────
     # Query Mimir persistent memory backend for additional historical
@@ -22601,7 +22616,7 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path, limit_n: int 
     try:
         mseg = _mneme_hybrid_search(
             cfg=cfg, query=query, workspace=str(workspace),
-            local_hits=hits, max_results=k,
+            local_hits=hits or None, max_results=k,
         )
         mneme_items = mseg.items if mseg else []
         vault_error = (mseg.error if mseg else "") or ""
@@ -22611,6 +22626,10 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path, limit_n: int 
             "Mimir recall failed, falling back to local Mnēmē FTS5: %s", e
         )
         vault_error = f"unexpected error calling vault: {e}"
+
+    # #774: the vault contributed nothing — NOW pay for the local scan.
+    if not additive_local and not mneme_items:
+        hits = _mneme_recall(cfg, query, k=k, scope=scope, type_filter=type_filter, sensitivity=sensitivity)
 
     if not hits and not mneme_items:
         if vault_error:
