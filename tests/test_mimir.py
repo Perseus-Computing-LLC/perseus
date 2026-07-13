@@ -732,25 +732,44 @@ class TestConnectorLaunchHardening:
         assert "code 3" in client.last_error
 
     def test_tool_compatibility_check_flags_version_skew(self):
-        # The connector calls hardcoded mimir_* tool names. If a (future) vault
-        # exposes only renamed tools, _check_tool_compatibility must set a visible
-        # warning instead of letting every recall fail silently.
+        # With dynamic tool-name resolution, a vault that has perseus_vault_*
+        # tools is fine — the connector resolves mimir_recall → perseus_vault_recall.
+        # The warning fires only when ALL prefix families are missing for a tool.
         conn = perseus.MnemeConnector({"perseus_vault": {"enabled": False}})
+
+        _ALL_TOOLS = [
+            "mimir_recall", "mimir_recall_when", "mimir_as_of", "mimir_context",
+            "mimir_stats", "mimir_get_entity", "mimir_forget", "mimir_correct",
+            "mimir_remember", "mimir_health",
+        ]
 
         class _StubOK:
             def list_tools(self):
-                return [{"name": "mimir_recall"}, {"name": "mimir_remember"}]
+                return [{"name": t} for t in _ALL_TOOLS]
+
+        class _StubVault2x:
+            def list_tools(self):
+                # Vault 2.x with canonical names — should resolve fine
+                return [{"name": "perseus_vault_" + t[6:]} for t in _ALL_TOOLS]
 
         class _StubSkew:
             def list_tools(self):
-                return [{"name": "perseus_vault_recall"}, {"name": "perseus_vault_remember"}]
+                # Neither mimir_* nor perseus_vault_* — should warn
+                return [{"name": "some_other_tool"}]
 
+        # Legacy names: no warning
         conn._client = _StubOK()
         conn._check_tool_compatibility()
         assert conn._tool_warning is None
 
+        # Vault 2.x canonical names: resolved, no warning
+        conn._client = _StubVault2x()
+        conn._check_tool_compatibility()
+        assert conn._tool_warning is None
+        assert conn._tool_names["mimir_recall"] == "perseus_vault_recall"
+
+        # Neither family present: should warn
         conn._client = _StubSkew()
         conn._check_tool_compatibility()
         assert conn._tool_warning is not None
         assert "mimir_recall" in conn._tool_warning          # names the missing tool
-        assert "perseus_vault_recall" in conn._tool_warning  # hints at what's there
