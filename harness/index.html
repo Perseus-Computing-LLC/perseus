@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Perseus Vault: The Memory Layer of AI Harness Engineering</title>
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;700&family=IBM+Plex+Mono:wght@400;700&family=IBM+Plex+Sans:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        /* CSS custom properties */
+        :root {
+            --bg: #09090b;
+            --bg-2: #121118;
+            --bg-3: #1a1724;
+            --line: rgba(167, 139, 250, 0.10);
+            --line-strong: rgba(167, 139, 250, 0.20);
+            --text: #f4f0ff;
+            --text-dim: #a89cc4;
+            --text-muted: #5d5078;
+            --accent: #a78bfa;
+            --accent-2: #22d3ee;
+            --good: #34d399;
+            --serif: "Cormorant Garamond", "EB Garamond", Georgia, serif;
+            --sans: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+            --mono: "JetBrains Mono", "IBM Plex Mono", ui-monospace, monospace;
+        }
+
+        /* General Body Styles */
+        body {
+            font-family: var(--sans);
+            color: var(--text);
+            background-color: var(--bg);
+            line-height: 1.6;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+
+        a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        h1, h2, h3, h4, h5, h6 {
+            font-family: var(--serif);
+            color: var(--text);
+            margin-top: 2rem;
+            margin-bottom: 1rem;
+        }
+
+        h1 { font-size: 3em; }
+        h2 { font-size: 2.5em; }
+        h3 { font-size: 2em; }
+        p { margin-bottom: 1em; }
+        strong { color: var(--accent); }
+
+        .container {
+            max-width: 960px;
+            margin: 0 auto;
+            padding: 20px;
+            flex-grow: 1; /* Allow content to grow and push footer down */
+        }
+
+        /* Topbar (assuming similar to main page) */
+        .topbar {
+            background-color: var(--bg-2);
+            padding: 15px 20px;
+            border-bottom: 1px solid var(--line-strong);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .topbar .logo {
+            font-family: var(--serif);
+            font-size: 1.8em;
+            color: var(--accent);
+            font-weight: bold;
+        }
+        .topbar nav a {
+            margin-left: 20px;
+            color: var(--text-dim);
+            font-weight: 500;
+        }
+        .topbar nav a:hover {
+            color: var(--text);
+            text-decoration: none;
+        }
+
+        /* Hero Section */
+        .hero {
+            text-align: center;
+            padding: 80px 20px;
+            background-color: var(--bg-3);
+            border-bottom: 1px solid var(--line);
+        }
+        .hero h1 {
+            font-size: 3.5em;
+            margin-bottom: 0.5em;
+            color: var(--accent);
+        }
+        .hero p {
+            font-size: 1.3em;
+            color: var(--text-dim);
+            max-width: 700px;
+            margin: 0 auto 30px auto;
+        }
+        .stat-cards {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin-top: 40px;
+            flex-wrap: wrap;
+        }
+        .stat-card {
+            background-color: var(--bg-2);
+            border: 1px solid var(--line-strong);
+            padding: 20px 30px;
+            border-radius: 8px;
+            text-align: center;
+            min-width: 200px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        }
+        .stat-card .value {
+            font-family: var(--mono);
+            font-size: 2.5em;
+            font-weight: bold;
+            color: var(--accent-2);
+            margin-bottom: 5px;
+        }
+        .stat-card .label {
+            color: var(--text-dim);
+            font-size: 0.9em;
+        }
+
+        /* Content Sections */
+        .section {
+            padding: 60px 20px;
+            border-bottom: 1px solid var(--line);
+        }
+        .section:nth-of-type(even) {
+            background-color: var(--bg-2);
+        }
+        .section h2 {
+            text-align: center;
+            color: var(--accent);
+            margin-bottom: 2em;
+        }
+        .section p, .section ul {
+            max-width: 800px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        .section ul {
+            list-style: disc;
+            padding-left: 25px;
+        }
+        .section ul li {
+            margin-bottom: 0.8em;
+            color: var(--text-dim);
+        }
+        .section .quote {
+            font-family: var(--serif);
+            font-size: 1.5em;
+            font-style: italic;
+            text-align: center;
+            margin: 40px auto;
+            max-width: 800px;
+            color: var(--accent-2);
+            border-left: 5px solid var(--accent);
+            padding-left: 20px;
+        }
+        .code-block {
+            background-color: #000;
+            color: var(--good);
+            font-family: var(--mono);
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            margin: 20px auto;
+            max-width: 600px;
+            white-space: pre-wrap; /* Ensures long lines wrap */
+            word-break: break-all; /* Breaks words if necessary to prevent overflow */
+        }
+
+        /* Call to Action */
+        .cta-section {
+            text-align: center;
+            padding: 80px 20px;
+            background-color: var(--bg-3);
+        }
+        .cta-section h2 {
+            color: var(--good);
+        }
+        .cta-buttons {
+            margin-top: 40px;
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+            flex-wrap: wrap;
+        }
+        .cta-button {
+            background-color: var(--accent);
+            color: var(--bg);
+            padding: 15px 30px;
+            border-radius: 5px;
+            font-size: 1.2em;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            transition: background-color 0.3s ease;
+            display: inline-block;
+        }
+        .cta-button:hover {
+            background-color: var(--accent-2);
+            color: var(--bg-2);
+            text-decoration: none;
+        }
+        .cta-commands {
+            margin-top: 30px;
+            text-align: left;
+        }
+        .cta-commands p {
+            color: var(--text-dim);
+            font-family: var(--mono);
+            font-size: 0.9em;
+        }
+
+        /* Footer (assuming similar to main page) */
+        .footer {
+            background-color: var(--bg-2);
+            color: var(--text-muted);
+            text-align: center;
+            padding: 30px 20px;
+            margin-top: auto; /* Pushes footer to the bottom */
+            border-top: 1px solid var(--line);
+        }
+        .footer .social-links a {
+            margin: 0 10px;
+            color: var(--text-muted);
+        }
+        .footer .social-links a:hover {
+            color: var(--text);
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            .hero h1 { font-size: 2.5em; }
+            .hero p { font-size: 1.1em; }
+            .stat-cards { flex-direction: column; align-items: center; }
+            .stat-card { width: 80%; }
+            .section { padding: 40px 15px; }
+            h2 { font-size: 2em; }
+            .quote { font-size: 1.2em; }
+            .topbar { flex-direction: column; }
+            .topbar nav { margin-top: 15px; }
+            .topbar nav a { margin: 0 10px; }
+        }
+    </style>
+</head>
+<body>
+    <header class="topbar">
+        <div class="logo">Perseus</div>
+        <nav>
+            <a href="/">Home</a>
+            <a href="/docs">Docs</a>
+            <a href="/blog">Blog</a>
+            <a href="https://github.com/your-org/perseus" target="_blank">GitHub</a>
+        </nav>
+    </header>
+
+    <main class="container">
+        <section class="hero">
+            <h1>Perseus Vault: The Memory Layer of AI Harness Engineering</h1>
+            <p>In the rapidly evolving landscape of AI, the focus has shifted. It's no longer just about the model—it's about the sophisticated systems built around it. Perseus Vault provides the critical memory infrastructure for this new paradigm.</p>
+
+            <div class="stat-cards">
+                <div class="stat-card">
+                    <div class="value">94%</div>
+                    <div class="label">Fewer Prompt Tokens</div>
+                </div>
+                <div class="stat-card">
+                    <div class="value">73.6%</div>
+                    <div class="label">LongMemEval Score</div>
+                </div>
+                <div class="stat-card">
+                    <div class="value">57</div>
+                    <div class="label">MCP Tools</div>
+                </div>
+                <div class="stat-card">
+                    <div class="value">MIT</div>
+                    <div class="label">Licensed</div>
+                </div>
+            </div>
+        </section>
+
+        <section class="section">
+            <h2>§ 01: The Rise of Harness Engineering</h2>
+            <p>The year 2026 marks a consensus shift in AI development: <strong>"the model isn't the product -- the system around the model is."</strong> This paradigm, coined by industry visionary <a href="https://mitchellh.com/writing/my-ai-adoption-journey" target="_blank">Mitchell Hashimoto in February 2026</a>, quickly became the guiding principle for leading AI organizations.</p>
+            <p>Within weeks, giants like <a href="https://openai.com/index/harness-engineering" target="_blank">OpenAI (boasting 1M lines of code with zero written by human hands)</a>, <a href="https://anthropic.com/engineering/effective-harnesses-for-long-running-agents" target="_blank">Anthropic</a>, ThoughtWorks, and Red Hat all published their frameworks for what is now known as "Harness Engineering."</p>
+            <p>At its core, Harness Engineering defines a proactive approach: <strong>"Every time an agent makes a mistake, you engineer a solution so it never makes that mistake again."</strong> This is about building resilient, self-improving AI systems that learn from their failures and continuously optimize their performance.</p>
+        </section>
+
+        <section class="section">
+            <h2>§ 02: The Harness Model Maturity Framework</h2>
+            <p>To navigate this new landscape, <a href="https://handsonarchitects.com/blog/2026/the-harness-model-ai-engineering-maturity-matrix" target="_blank">Hands-On Architects introduced the Harness Model maturity framework</a>, outlining 5 stages across 10 critical dimensions. This framework provides a roadmap for organizations to assess and advance their AI engineering capabilities. The core idea is simple: <strong>Agent = Model + Harness</strong>.</p>
+            <p class="quote">
+                "The harness includes the documentation agents read, the linters that enforce boundaries, the tests that catch regressions, AND the feedback loops that improve all of these over time."
+            </p>
+            <p>This quote encapsulates the holistic nature of the harness—it's a comprehensive ecosystem designed to guide, validate, and evolve AI agent behavior.</p>
+        </section>
+
+        <section class="section">
+            <h2>§ 03: Perseus's Role in Harness Evolution</h2>
+            <p>Perseus is purpose-built to be the pre-built harness infrastructure, directly addressing key dimensions of the Harness Model maturity framework:</p>
+            <ul>
+                <li><strong>Perseus Vault</strong> maps directly to:
+                    <ul>
+                        <li><strong>Context Engineering (Stage 3→4):</strong> Providing robust, structured memory for agents to store and retrieve vital information, enabling complex reasoning and reducing prompt token usage.</li>
+                        <li><strong>Knowledge & Feedback Loops (Stage 3):</strong> Facilitating the capture of lessons learned and agent experiences, directly feeding into the system's ability to avoid past mistakes.</li>
+                        <li><strong>Security & Trust (Stage 4):</strong> Offering encrypted (AES-256-GCM), local-first storage, ensuring data privacy and integrity without relying on external APIs or third-party services.</li>
+                    </ul>
+                </li>
+                <li><strong>Perseus Context Engine</strong> (the runtime component) maps to:
+                    <ul>
+                        <li><strong>Human-Agent Interaction:</strong> Streamlining the way humans interact with and guide AI agents.</li>
+                        <li><strong>Workflow Dimensions:</strong> Enhancing the overall operational flow and efficiency of agent-driven tasks.</li>
+                    </ul>
+                </li>
+            </ul>
+            <p>Perseus is designed with security and autonomy in mind: encrypted (AES-256-GCM), local-first, zero-API-key, and distributed as a single binary. It gives you complete control over your AI's memory and operational environment.</p>
+        </section>
+
+        <section class="cta-section">
+            <h2>§ 04: Build Your Harness Today</h2>
+            <p>Don't just run models; build intelligent, robust, and self-improving AI systems. Perseus Vault provides the foundational memory layer you need to elevate your AI harness engineering efforts.</p>
+            <div class="cta-buttons">
+                <a href="https://github.com/your-org/perseus" target="_blank" class="cta-button">Learn More on GitHub</a>
+            </div>
+            <div class="cta-commands">
+                <p><strong>Install Perseus Context Engine (Python):</strong></p>
+                <div class="code-block">pip install perseus-ctx</div>
+                <p><strong>Install Perseus Vault (Binary):</strong></p>
+                <div class="code-block">curl -fsSL https://install.perseus.observer/vault | sh</div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <p>&copy; 2026 Perseus. All rights reserved.</p>
+        <div class="social-links">
+            <a href="#">Twitter</a> | <a href="#">GitHub</a> | <a href="#">Discord</a>
+        </div>
+    </footer>
+</body>
+</html>
