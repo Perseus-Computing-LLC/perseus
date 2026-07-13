@@ -1698,13 +1698,19 @@ class MnemeConnector:
             diagnostics["mimir"] = f"unavailable: {self._connect_error or 'disabled'}"
 
         # ── Local Mnēmē FTS5 fallback ──
+        # #774: fallback, not additive — scan the local index only when the
+        # vault contributed nothing. The unconditional scan doubled recall
+        # latency and injected duplicate hits whenever the vault was healthy.
         local_items: list[MemoryHit] = []
-        if local_recall_fn and cfg:
+        if local_recall_fn and cfg and not mimir_segment.items:
             try:
                 local_results = local_recall_fn(cfg, query, k=kwargs.get("max_results", 10))
                 local_items = _local_hits_to_memory_hits(local_results)
+                diagnostics["local_scan"] = f"fallback ({len(local_items)} hits)"
             except Exception as e:
                 diagnostics["local_fallback_error"] = str(e)
+        elif local_recall_fn and cfg:
+            diagnostics["local_scan"] = "skipped (vault provided results, #774)"
 
         diagnostics["memory_ms"] = str(int((time.time() - t_memory) * 1000))
 
