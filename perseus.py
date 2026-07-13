@@ -20070,7 +20070,7 @@ class MnemeConnector:
         _LEGACY_TOOLS = [
             "mimir_recall", "mimir_recall_when", "mimir_as_of", "mimir_context",
             "mimir_stats", "mimir_get_entity", "mimir_forget", "mimir_correct",
-            "mimir_remember", "mimir_health",
+            "mimir_remember", "mimir_health", "mimir_recall_batch",
         ]
         _PREFIXES = ["perseus_vault_", "mneme_", "mimir_"]
 
@@ -20287,16 +20287,32 @@ class MnemeConnector:
                          topic_path, type_filter, t0):
         """LLM-planned multi-query fusion (#580). Returns a fused MemorySegment,
         or None to signal the caller to fall back to single-query recall (planner
-        unavailable / returned nothing)."""
-        # asked_date = today (the planner resolves relative dates against it);
-        # use time.strftime, NOT `import datetime` — the bundle binds
-        # `datetime` to the class via `from datetime import datetime`, and
-        # re-importing the module here would shadow it for every other module.
+        unavailable / returned nothing).
+
+        Uses mimir_recall_batch (#641) when available — server-side RRF fusion
+        in a single MCP round-trip instead of N sequential calls. Falls back to
+        sequential _recall_once + client-side RRF for older vaults.
+        """
         plan = plan_query(query, time.strftime("%Y-%m-%d"), self._expansion)
         if plan is None:
             return None
         queries = plan.query_set(query)
+        if not queries:
+            return None
         per = max(max_results, max_results * self._expansion.per_query_limit_factor)
+
+        # Prefer server-side batch fusion (#641) — single round-trip
+        resolved_batch = self._tool_names.get("mimir_recall_batch", "mimir_recall_batch")
+        if resolved_batch != "mimir_recall_batch":
+            # Batch tool is available on the vault — use it
+            try:
+                return self._recall_expanded_batch(
+                    queries, per, min_decay, workspace_hash, topic_path,
+                    type_filter, max_results, t0)
+            except Exception:
+                pass  # Fall through to sequential path
+
+        # Fallback: sequential _recall_once + client-side RRF fusion
         id_lists, by_id = [], {}
         for q in queries:
             hits, err = self._recall_once(q, per, min_decay, workspace_hash,
@@ -20307,13 +20323,56 @@ class MnemeConnector:
             for h in hits:
                 by_id.setdefault(h.id, h)
         if not by_id:
-            return None  # nothing retrieved — let the caller try a plain recall
+            return None
         fused = rrf_fuse(id_lists)[:max_results]
         items = [by_id[i] for i in fused if i in by_id]
         return MemorySegment(
             items=items,
             strategy_used="mimir_recall_expanded",
             total_available=len(by_id),
+            query_time_ms=int((time.time() - t0) * 1000),
+        )
+
+    def _recall_expanded_batch(self, queries, per, min_decay, workspace_hash,
+                                topic_path, type_filter, max_results, t0):
+        """Server-side batch recall via mimir_recall_batch (#641)."""
+        batch_args = {
+            "queries": [
+                {
+                    "query": q,
+                    "limit": per,
+                    "min_decay": min_decay,
+                    "workspace_hash": workspace_hash or "",
+                    "topic_path": topic_path or "",
+                }
+                for q in queries
+            ]
+        }
+        if type_filter:
+            for ba in batch_args["queries"]:
+                ba["type"] = type_filter
+
+        def _do_batch():
+            result, e = self._call("mimir_recall_batch", batch_args)
+            if e:
+                raise RuntimeError(e)
+            return result
+
+        raw_result, err = _retry_with_backoff(
+            _do_batch,
+            max_attempts=self._max_retries,
+            backoff_base=self._backoff_base,
+            circuit_breaker=self._breaker,
+            abort_check=self._transport_gone,
+        )
+        if err:
+            return None
+
+        hits = _parse_memory_hits(raw_result or {})
+        return MemorySegment(
+            items=hits[:max_results],
+            strategy_used="mimir_recall_batch",
+            total_available=len(hits),
             query_time_ms=int((time.time() - t0) * 1000),
         )
 
