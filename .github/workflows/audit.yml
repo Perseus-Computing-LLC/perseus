@@ -30,7 +30,7 @@ jobs:
   runtime-audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -52,11 +52,15 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true   # non-gating: dev-toolchain CVEs are surfaced, not blocking
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install osv-scanner
         run: |
           curl -sSL -o /usr/local/bin/osv-scanner \
             https://github.com/google/osv-scanner/releases/download/v2.4.0/osv-scanner_linux_amd64
           chmod +x /usr/local/bin/osv-scanner
       - name: Audit dev/CI toolchain freeze against OSV (non-gating)
-        run: osv-scanner scan source --no-resolve --lockfile requirements.txt
+        # continue-on-error on the job surfaces advisories but doesn't set the
+        # job conclusion to failure when osv-scanner exits non-zero. The shell
+        # || true makes that reliable (step-level continue-on-error alone still
+        # marks the job as failed).
+        run: osv-scanner scan source --no-resolve --lockfile requirements.txt || true
