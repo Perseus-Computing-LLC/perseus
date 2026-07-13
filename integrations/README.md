@@ -8,6 +8,7 @@ points the markdown at the file your assistant already reads.
 | **[VS Code / Cursor](./vscode/)** | Every dev using Copilot, Cursor, Codex, Claude | `.vsix` or Marketplace | VS Code Marketplace |
 | **[Claude Code](./claude-code/)** | Session-start hook | One curl command | README snippet |
 | **[GitHub Action](./github-action/)** | Every repo on GitHub | One workflow file | GitHub Actions Marketplace |
+| **[Invarium](./invarium.md)** | Context regression testing for Perseus agents | `pip install invarium` | Docs + PyPI |
 
 ## Pattern
 
