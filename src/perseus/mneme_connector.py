@@ -540,7 +540,7 @@ class _MCPStdioClient:
             # MCP initialize handshake. Uses the longer init timeout (see
             # _init_timeout) so a slow first-open / schema migration doesn't fail
             # the connection spuriously on launch day.
-            init_result, err = self._client.call_tool("initialize", {
+            init_result, err = self._call("initialize", {
                 "protocolVersion": "2025-06-18",
                 "clientInfo": {"name": "perseus-mimir-connector", "version": "1.0.0"},
                 "capabilities": {},
@@ -645,7 +645,7 @@ class _MCPStdioClient:
 
     def call_tool(self, tool_name: str, arguments: dict) -> tuple[dict | None, str | None]:
         """Call an MCP tool via tools/call. Returns (result_dict, error_string)."""
-        result, err = self._client.call_tool("tools/call", {
+        result, err = self._call("tools/call", {
             "name": tool_name,
             "arguments": arguments,
         })
@@ -678,7 +678,7 @@ class _MCPStdioClient:
 
     def list_tools(self) -> list[dict]:
         """List available MCP tools on the server."""
-        result, err = self._client.call_tool("tools/list", {})
+        result, err = self._call("tools/list", {})
         if err or not result:
             return []
         return result.get("tools", [])
