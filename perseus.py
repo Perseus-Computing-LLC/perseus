@@ -13681,6 +13681,9 @@ def _render_lines(
     # by the parallel worker on write so the write key cannot drift from the
     # read key (the workspace suffix was previously dropped on write).
     query_cache_keys: dict[int, str] = {}
+    # Pre-scanned clean_args per @query index so the main loop's prefetched-
+    # result early return can skip a redundant _parse_cache_modifier call.
+    query_clean_args: dict[int, str] = {}
     # Raw source line per pending query, captured at enqueue. The pending
     # comprehension below previously paired every idx with the loop's stale
     # `raw_line` (the LAST scanned line), so all parallel queries ran the
@@ -13790,6 +13793,7 @@ def _render_lines(
                 clean_args, cache_mode, cache_ttl, cache_mock = _parse_cache_modifier(
                     ((_m_clean.group(2) if _m_clean else m.group(2)) or "").strip()
                 )
+                query_clean_args[idx] = clean_args
                 if cache_mode == "mock":
                     query_results[idx] = cache_mock or "(mock)"
                     query_sources[idx] = "mock"
@@ -14270,7 +14274,7 @@ def _render_lines(
                         and _qsrc != "mock"):
                     _directive_collector.append({
                         "name": directive.lstrip("@"),
-                        "args": _parse_cache_modifier(raw_args)[0].strip(),
+                        "args": query_clean_args.get(i, _parse_cache_modifier(raw_args)[0].strip()),
                         "output": query_results[i],
                         "cached": _qsrc == "cache",
                         "prefetched": True,
