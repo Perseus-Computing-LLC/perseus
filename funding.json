@@ -5,8 +5,8 @@
     "type": "individual",
     "role": "maintainer",
     "name": "Thomas Connally",
-    "email": "tcconnally@proton.me",
-    "description": "Creator and lead maintainer of Perseus, a live context engine and MCP server for AI coding assistants. Also creator of Minions (Hermes Agent WebUI). Active contributor to open-source AI infrastructure and developer tooling.",
+    "email": "perseus@perseus.observer",
+    "description": "Maintainer of Perseus, the memory & context layer for AI agents (Perseus Computing LLC). Also creator of Minions (Hermes Agent WebUI). Active contributor to open-source AI infrastructure and developer tooling.",
     "webpageUrl": {
       "url": "https://perseus.observer"
     }
@@ -15,7 +15,7 @@
     {
       "guid": "perseus",
       "name": "Perseus",
-      "description": "Live context engine and MCP server for AI coding assistants. Resolves @services, @read, @memory, @list, @drift directives into pre-rendered facts before the AI assistant opens its context file \u2014 eliminating the cold-start orientation tax. Works with any MCP-compatible assistant (Claude Code, Cursor, Copilot, Aider, Hermes Agent).",
+      "description": "The memory & context layer for AI agents: load only the context they actually need. Perseus resolves live workspace state into verified facts before the context window opens, and pairs with Perseus Vault for durable, encrypted memory. Works with any MCP host (Claude Code, Claude Desktop, Cursor, Codex, Hermes). Local-first, MIT.",
       "webpageUrl": {
         "url": "https://perseus.observer"
       },
