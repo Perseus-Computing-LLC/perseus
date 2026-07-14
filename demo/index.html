@@ -173,10 +173,10 @@ textarea { resize:vertical; }
       <div style="background:#14161c;border:1px solid #262a33;border-radius:14px;padding:22px;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;"><span style="font-size:13px;color:#c3cad4;">Tool schema advertised</span><span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#6d7480;">every call</span></div>
         <div style="display:flex;align-items:center;gap:14px;">
-          <div style="flex:1;text-align:center;"><div style="font-family:'IBM Plex Mono',monospace;font-size:24px;color:#7d8590;text-decoration:line-through;">171</div><div style="font-size:11px;color:#6d7480;margin-top:2px;">aliased ×3</div></div>
+          <div style="flex:1;text-align:center;"><div style="font-family:'IBM Plex Mono',monospace;font-size:15px;color:#7d8590;text-decoration:line-through;">3× aliased</div><div style="font-size:11px;color:#6d7480;margin-top:2px;">each tool tripled</div></div>
           <span style="color:#4a505c;font-size:20px;">→</span>
-          <div style="flex:1;text-align:center;"><div style="font-family:'IBM Plex Mono',monospace;font-size:24px;color:#a78bfa;">57</div><div style="font-size:11px;color:#6d7480;margin-top:2px;">deduped</div></div>
-          <div style="flex:1.2;text-align:center;border-left:1px solid #262a33;padding-left:14px;"><div style="font-family:'IBM Plex Mono',monospace;font-size:24px;color:#3fb37f;">−67%</div><div style="font-size:11px;color:#6d7480;margin-top:2px;">schema tokens</div></div>
+          <div style="flex:1;text-align:center;"><div style="font-family:'IBM Plex Mono',monospace;font-size:15px;color:#a78bfa;">advertised once</div><div style="font-size:11px;color:#6d7480;margin-top:2px;">per tool, not aliased</div></div>
+          <div style="flex:1.2;text-align:center;border-left:1px solid #262a33;padding-left:14px;"><div style="font-family:'IBM Plex Mono',monospace;font-size:24px;color:#3fb37f;">~67%</div><div style="font-size:11px;color:#6d7480;margin-top:2px;">smaller schema</div></div>
         </div>
       </div>
 
@@ -232,7 +232,7 @@ reading the real usage.prompt_tokens from my own model.</div>
 /* ===== Live-efficiency demo (ported from the design component) ===== */
 (function () {
   var TIERS = { frontier: 5.0, standard: 2.5, efficient: 1.0, economy: 0.1 };
-  var DEFAULT_BASELINE = "# Project context (CLAUDE.md)\nRepo: acme-api (Python / FastAPI). Assistant should orient before working.\nMCP tools available (full schemas inlined): perseus_services, perseus_read, perseus_list, perseus_tree, perseus_env, perseus_date, perseus_waypoint, perseus_session, perseus_focus, perseus_health, perseus_memory, perseus_skills, perseus_include, perseus_agora, perseus_inbox, perseus_capture, perseus_prompt, perseus_validate, perseus_tool ... (30+ tools).\nServices: check `docker ps` for mongo-dev / redis-dev; API port is in .env (default 3001?), may have changed.\nTests: ~894 tests, status unknown, may be stale, re-run pytest to confirm.\nConventions: pytest, type annotations, ruff. Ports sometimes change between sessions.\nHistory: last session implemented a webhook handler; unclear if tests were run. Check the checkpoint.\nDocs: see README, SETUP-GUIDE, DIRECTIVES for how context is assembled. Re-read this file on every call.";
+  var DEFAULT_BASELINE = "# Project context (CLAUDE.md)\nRepo: acme-api (Python / FastAPI). Assistant should orient before working.\nMCP tools available (full schemas inlined): perseus_services, perseus_read, perseus_list, perseus_tree, perseus_env, perseus_date, perseus_waypoint, perseus_session, perseus_focus, perseus_health, perseus_memory, perseus_skills, perseus_include, perseus_agora, perseus_inbox, perseus_capture, perseus_prompt, perseus_validate, perseus_tool ... (33 tools).\nServices: check `docker ps` for mongo-dev / redis-dev; API port is in .env (default 3001?), may have changed.\nTests: ~894 tests, status unknown, may be stale, re-run pytest to confirm.\nConventions: pytest, type annotations, ruff. Ports sometimes change between sessions.\nHistory: last session implemented a webhook handler; unclear if tests were run. Check the checkpoint.\nDocs: see README, SETUP-GUIDE, DIRECTIVES for how context is assembled. Re-read this file on every call.";
   var DEFAULT_RESOLVED = "# Context, resolved 8s ago\nAPI_PORT: 3001\nServices: mongo-dev up 4h, redis-dev up 4h\nTests: 894 passing (ran 8s ago)\nLast checkpoint: webhook handler written, pending test run";
 
   var state = {

@@ -771,3 +771,53 @@ class TestRetryAfterTransportTeardown:
             f"retries after transport teardown must short-circuit, took {elapsed:.2f}s"
             " (pre-#649: ~2.7s of which ~2.5s dead sleep)")
         assert conn._breaker.is_open, "one fully failed query still opens the breaker"
+
+
+class TestLazyLocalScan774:
+    """#774: local FTS5 is a FALLBACK for the vault, not additive — the local
+    scan must not run (or render) when the vault already provided results."""
+
+    def test_hybrid_recall_skips_local_scan_when_vault_returns_items(self, monkeypatch):
+        _reset_connector_singleton()
+        from conftest import perseus as p
+        c = _cfg_with_mneme()
+        connector = p._get_connector(c)
+        calls = {"local": 0}
+
+        def local_fn(cfg, query, k=10, **kw):
+            calls["local"] += 1
+            return _mock_local_hits()
+
+        vault_items = p._local_hits_to_memory_hits(_mock_local_hits())
+        monkeypatch.setattr(type(connector), "available", property(lambda self: True))
+        monkeypatch.setattr(connector, "recall", lambda **kw: p.MemorySegment(items=vault_items))
+
+        pkg = connector.hybrid_recall("auth database", cfg=c, workspace="/tmp/x",
+                                      local_recall_fn=local_fn)
+        assert calls["local"] == 0, \
+            "local scan must be SKIPPED when the vault returns items (#774)"
+        assert pkg.diagnostics.get("local_scan", "").startswith("skipped"), \
+            "the skip must be visible in diagnostics"
+        assert len(pkg.memory.items) == len(vault_items)
+        _reset_connector_singleton()
+
+    def test_hybrid_recall_runs_local_scan_when_vault_is_empty(self, monkeypatch):
+        _reset_connector_singleton()
+        from conftest import perseus as p
+        c = _cfg_with_mneme()
+        connector = p._get_connector(c)
+        calls = {"local": 0}
+
+        def local_fn(cfg, query, k=10, **kw):
+            calls["local"] += 1
+            return _mock_local_hits()
+
+        monkeypatch.setattr(type(connector), "available", property(lambda self: True))
+        monkeypatch.setattr(connector, "recall", lambda **kw: p.MemorySegment())
+
+        pkg = connector.hybrid_recall("auth database", cfg=c, workspace="/tmp/x",
+                                      local_recall_fn=local_fn)
+        assert calls["local"] == 1, \
+            "local scan must RUN when the vault returns nothing (#774)"
+        assert len(pkg.memory.items) == 3, "local fallback hits must flow into the package"
+        _reset_connector_singleton()

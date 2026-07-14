@@ -74,7 +74,7 @@ from typing import NamedTuple, Callable
 # ── Version (injected by scripts/build.py at build time) ──────────────────
 # All other modules reference _PERSEUS_VERSION; the build script's
 # _VERSION_RE replaces the literal "0.0.0" with the VERSION file value.
-_PERSEUS_VERSION = "1.0.22"  # replaced at build time by scripts/build.py — see VERSION file for canonical value
+_PERSEUS_VERSION = "1.0.23"  # replaced at build time by scripts/build.py — see VERSION file for canonical value
 
 # Register as 'perseus' so plugins can import from us (task-65)
 import sys as _sys
@@ -990,7 +990,7 @@ from datetime import datetime, timezone
 try:
     from .serve import _PERSEUS_VERSION
 except ImportError:
-    _PERSEUS_VERSION = "1.0.22"  # replaced at build time by scripts/build.py (see VERSION file)
+    _PERSEUS_VERSION = "1.0.23"  # replaced at build time by scripts/build.py (see VERSION file)
 
 # ──────────────────────────────── Webhooks ───────────────────────────────────
 
@@ -20070,7 +20070,7 @@ class MnemeConnector:
         _LEGACY_TOOLS = [
             "mimir_recall", "mimir_recall_when", "mimir_as_of", "mimir_context",
             "mimir_stats", "mimir_get_entity", "mimir_forget", "mimir_correct",
-            "mimir_remember", "mimir_health",
+            "mimir_remember", "mimir_health", "mimir_recall_batch",
         ]
         _PREFIXES = ["perseus_vault_", "mneme_", "mimir_"]
 
@@ -20287,16 +20287,32 @@ class MnemeConnector:
                          topic_path, type_filter, t0):
         """LLM-planned multi-query fusion (#580). Returns a fused MemorySegment,
         or None to signal the caller to fall back to single-query recall (planner
-        unavailable / returned nothing)."""
-        # asked_date = today (the planner resolves relative dates against it);
-        # use time.strftime, NOT `import datetime` — the bundle binds
-        # `datetime` to the class via `from datetime import datetime`, and
-        # re-importing the module here would shadow it for every other module.
+        unavailable / returned nothing).
+
+        Uses mimir_recall_batch (#641) when available — server-side RRF fusion
+        in a single MCP round-trip instead of N sequential calls. Falls back to
+        sequential _recall_once + client-side RRF for older vaults.
+        """
         plan = plan_query(query, time.strftime("%Y-%m-%d"), self._expansion)
         if plan is None:
             return None
         queries = plan.query_set(query)
+        if not queries:
+            return None
         per = max(max_results, max_results * self._expansion.per_query_limit_factor)
+
+        # Prefer server-side batch fusion (#641) — single round-trip
+        resolved_batch = self._tool_names.get("mimir_recall_batch", "mimir_recall_batch")
+        if resolved_batch != "mimir_recall_batch":
+            # Batch tool is available on the vault — use it
+            try:
+                return self._recall_expanded_batch(
+                    queries, per, min_decay, workspace_hash, topic_path,
+                    type_filter, max_results, t0)
+            except Exception:
+                pass  # Fall through to sequential path
+
+        # Fallback: sequential _recall_once + client-side RRF fusion
         id_lists, by_id = [], {}
         for q in queries:
             hits, err = self._recall_once(q, per, min_decay, workspace_hash,
@@ -20307,13 +20323,56 @@ class MnemeConnector:
             for h in hits:
                 by_id.setdefault(h.id, h)
         if not by_id:
-            return None  # nothing retrieved — let the caller try a plain recall
+            return None
         fused = rrf_fuse(id_lists)[:max_results]
         items = [by_id[i] for i in fused if i in by_id]
         return MemorySegment(
             items=items,
             strategy_used="mimir_recall_expanded",
             total_available=len(by_id),
+            query_time_ms=int((time.time() - t0) * 1000),
+        )
+
+    def _recall_expanded_batch(self, queries, per, min_decay, workspace_hash,
+                                topic_path, type_filter, max_results, t0):
+        """Server-side batch recall via mimir_recall_batch (#641)."""
+        batch_args = {
+            "queries": [
+                {
+                    "query": q,
+                    "limit": per,
+                    "min_decay": min_decay,
+                    "workspace_hash": workspace_hash or "",
+                    "topic_path": topic_path or "",
+                }
+                for q in queries
+            ]
+        }
+        if type_filter:
+            for ba in batch_args["queries"]:
+                ba["type"] = type_filter
+
+        def _do_batch():
+            result, e = self._call("mimir_recall_batch", batch_args)
+            if e:
+                raise RuntimeError(e)
+            return result
+
+        raw_result, err = _retry_with_backoff(
+            _do_batch,
+            max_attempts=self._max_retries,
+            backoff_base=self._backoff_base,
+            circuit_breaker=self._breaker,
+            abort_check=self._transport_gone,
+        )
+        if err:
+            return None
+
+        hits = _parse_memory_hits(raw_result or {})
+        return MemorySegment(
+            items=hits[:max_results],
+            strategy_used="mimir_recall_batch",
+            total_available=len(hits),
             query_time_ms=int((time.time() - t0) * 1000),
         )
 
@@ -20763,13 +20822,19 @@ class MnemeConnector:
             diagnostics["mimir"] = f"unavailable: {self._connect_error or 'disabled'}"
 
         # ── Local Mnēmē FTS5 fallback ──
+        # #774: fallback, not additive — scan the local index only when the
+        # vault contributed nothing. The unconditional scan doubled recall
+        # latency and injected duplicate hits whenever the vault was healthy.
         local_items: list[MemoryHit] = []
-        if local_recall_fn and cfg:
+        if local_recall_fn and cfg and not mimir_segment.items:
             try:
                 local_results = local_recall_fn(cfg, query, k=kwargs.get("max_results", 10))
                 local_items = _local_hits_to_memory_hits(local_results)
+                diagnostics["local_scan"] = f"fallback ({len(local_items)} hits)"
             except Exception as e:
                 diagnostics["local_fallback_error"] = str(e)
+        elif local_recall_fn and cfg:
+            diagnostics["local_scan"] = "skipped (vault provided results, #774)"
 
         diagnostics["memory_ms"] = str(int((time.time() - t_memory) * 1000))
 
@@ -22583,7 +22648,16 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path, limit_n: int 
     if limit_n > 0:
         k = min(k, limit_n)
 
-    hits = _mneme_recall(cfg, query, k=k, scope=scope, type_filter=type_filter, sensitivity=sensitivity)
+    # ── #774: vault-first; local FTS5 is a FALLBACK, not additive ────────
+    # The local scan previously ran unconditionally and rendered alongside
+    # vault hits — ~2x recall latency and duplicate content whenever the
+    # vault was healthy. Query the vault first; scan the local index only
+    # when the vault contributed nothing (down, errored, or zero matches).
+    # `mimir.local_additive: true` restores the historical additive render.
+    additive_local = bool((cfg.get("mimir") or {}).get("local_additive"))
+    hits: list = []
+    if additive_local:
+        hits = _mneme_recall(cfg, query, k=k, scope=scope, type_filter=type_filter, sensitivity=sensitivity)
 
     # ── Mimir augmentation (MCP) ──────────────────────────────────────
     # Query Mimir persistent memory backend for additional historical
@@ -22601,7 +22675,7 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path, limit_n: int 
     try:
         mseg = _mneme_hybrid_search(
             cfg=cfg, query=query, workspace=str(workspace),
-            local_hits=hits, max_results=k,
+            local_hits=hits or None, max_results=k,
         )
         mneme_items = mseg.items if mseg else []
         vault_error = (mseg.error if mseg else "") or ""
@@ -22611,6 +22685,10 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path, limit_n: int 
             "Mimir recall failed, falling back to local Mnēmē FTS5: %s", e
         )
         vault_error = f"unexpected error calling vault: {e}"
+
+    # #774: the vault contributed nothing — NOW pay for the local scan.
+    if not additive_local and not mneme_items:
+        hits = _mneme_recall(cfg, query, k=k, scope=scope, type_filter=type_filter, sensitivity=sensitivity)
 
     if not hits and not mneme_items:
         if vault_error:
@@ -25257,7 +25335,7 @@ def _find_version() -> str:
             return candidate.read_text(encoding="utf-8").strip()
     return _PERSEUS_VERSION  # fallback to build-time injected literal
 
-_PERSEUS_VERSION = "1.0.22"  # replaced at build time by scripts/build.py (see VERSION file)
+_PERSEUS_VERSION = "1.0.23"  # replaced at build time by scripts/build.py (see VERSION file)
 _PERSEUS_VERSION = _find_version()
 
 
