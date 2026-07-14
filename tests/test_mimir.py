@@ -740,7 +740,7 @@ class TestConnectorLaunchHardening:
         _ALL_TOOLS = [
             "mimir_recall", "mimir_recall_when", "mimir_as_of", "mimir_context",
             "mimir_stats", "mimir_get_entity", "mimir_forget", "mimir_correct",
-            "mimir_remember", "mimir_health",
+            "mimir_remember", "mimir_health", "mimir_recall_batch",
         ]
 
         class _StubOK:
