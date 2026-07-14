@@ -4,16 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Perseus Vault · persistent, encrypted memory for AI agents</title>
-<meta name="description" content="A single Rust binary that gives agents durable memory across sessions. 55+ MCP tools, hybrid recall (BM25 + dense + RRF), bi-temporal history, AES-256-GCM. 73.6% on LongMemEval. Local-first, air-gap ready, MIT.">
+<meta name="description" content="A single Rust binary that gives agents durable memory across sessions. 55+ MCP tools, hybrid recall (BM25 + dense + RRF), bi-temporal history, AES-256-GCM. 73.8% on LongMemEval. Local-first, air-gap ready, MIT.">
 <link rel="canonical" href="https://perseus.observer/vault/">
 <meta property="og:type" content="website">
 <meta property="og:title" content="Perseus Vault · persistent, encrypted memory for AI agents">
-<meta property="og:description" content="Durable, encrypted agent memory in one Rust binary. 55+ MCP tools, hybrid recall, bi-temporal history. 73.6% on LongMemEval. Local-first, MIT.">
+<meta property="og:description" content="Durable, encrypted agent memory in one Rust binary. 55+ MCP tools, hybrid recall, bi-temporal history. 73.8% on LongMemEval. Local-first, MIT.">
 <meta property="og:url" content="https://perseus.observer/vault/">
 <meta property="og:image" content="https://perseus.observer/assets/og/perseus-vault.png">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Perseus Vault · persistent, encrypted memory for AI agents">
-<meta name="twitter:description" content="Durable, encrypted agent memory in one Rust binary. 55+ MCP tools, hybrid recall, bi-temporal history. 73.6% on LongMemEval. Local-first, MIT.">
+<meta name="twitter:description" content="Durable, encrypted agent memory in one Rust binary. 55+ MCP tools, hybrid recall, bi-temporal history. 73.8% on LongMemEval. Local-first, MIT.">
 <meta name="twitter:image" content="https://perseus.observer/assets/og/perseus-vault.png">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/assets/fonts.css">
@@ -58,13 +58,13 @@ h1,h2,h3,h4 { margin:0; font-weight:600; letter-spacing:-0.01em; }
 <header id="top" style="position:relative;padding:88px 32px 60px;background:radial-gradient(1100px 520px at 50% -12%,rgba(63,179,127,0.13),transparent 70%);">
   <div style="max-width:940px;margin:0 auto;text-align:center;">
     <div style="display:inline-flex;align-items:center;gap:10px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:#9aa2ad;border:1px solid #262a33;border-radius:999px;padding:6px 14px;margin-bottom:26px;">
-      <span style="color:#3fb37f;">Perseus Vault</span> · persistent memory · <span style="color:#3fb37f;">v2.20.0</span>
+      <span style="color:#3fb37f;">Perseus Vault</span> · persistent memory · <span style="color:#3fb37f;">v2.20.2</span>
     </div>
     <h1 style="font-size:52px;line-height:1.05;letter-spacing:-0.03em;font-weight:700;max-width:840px;margin:0 auto 20px;">Memory your agents keep, encrypted and yours.</h1>
     <p style="font-size:19px;line-height:1.5;color:#b9c0ca;max-width:690px;margin:0 auto 32px;">A single Rust binary that gives agents durable memory across sessions. One file: no Docker, no Postgres, no cloud. So they stop re-deriving what they already learned, and stop repeating past mistakes.</p>
     <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-bottom:34px;">
       <span style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#3fb37f;border:1px solid #21402f;background:rgba(63,179,127,0.06);border-radius:999px;padding:7px 14px;">55+ MCP tools</span>
-      <span style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#3fb37f;border:1px solid #21402f;background:rgba(63,179,127,0.06);border-radius:999px;padding:7px 14px;">73.6% LongMemEval</span>
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#3fb37f;border:1px solid #21402f;background:rgba(63,179,127,0.06);border-radius:999px;padding:7px 14px;">73.8% LongMemEval</span>
       <span style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#3fb37f;border:1px solid #21402f;background:rgba(63,179,127,0.06);border-radius:999px;padding:7px 14px;">AES-256-GCM</span>
       <span style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#3fb37f;border:1px solid #21402f;background:rgba(63,179,127,0.06);border-radius:999px;padding:7px 14px;">single Rust binary</span>
     </div>
@@ -86,7 +86,7 @@ h1,h2,h3,h4 { margin:0; font-weight:600; letter-spacing:-0.01em; }
     <div style="background:#14161c;border:1px solid #262a33;border-radius:14px;padding:26px;">
       <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#9aa2ad;margin-bottom:16px;">recall quality · LongMemEval QA (official harness)</div>
       <div style="display:flex;flex-direction:column;gap:14px;">
-        <div><div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px;"><span style="color:#c3cad4;">Perseus Vault</span><span style="font-family:'IBM Plex Mono',monospace;color:#3fb37f;">73.6%</span></div><div style="height:12px;border-radius:6px;background:#262a33;overflow:hidden;"><div style="width:73.6%;height:100%;background:linear-gradient(90deg,#3fb37f,#5fd39f);"></div></div></div>
+        <div><div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px;"><span style="color:#c3cad4;">Perseus Vault</span><span style="font-family:'IBM Plex Mono',monospace;color:#3fb37f;">73.8%</span></div><div style="height:12px;border-radius:6px;background:#262a33;overflow:hidden;"><div style="width:73.8%;height:100%;background:linear-gradient(90deg,#3fb37f,#5fd39f);"></div></div></div>
         <div><div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px;"><span style="color:#9aa2ad;">Zep</span><span style="font-family:'IBM Plex Mono',monospace;color:#9aa2ad;">63.8%</span></div><div style="height:12px;border-radius:6px;background:#262a33;overflow:hidden;"><div style="width:63.8%;height:100%;background:#565d6b;"></div></div></div>
         <div><div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px;"><span style="color:#9aa2ad;">Mem0</span><span style="font-family:'IBM Plex Mono',monospace;color:#9aa2ad;">49.0%</span></div><div style="height:12px;border-radius:6px;background:#262a33;overflow:hidden;"><div style="width:49%;height:100%;background:#565d6b;"></div></div></div>
       </div>
@@ -118,7 +118,7 @@ h1,h2,h3,h4 { margin:0; font-weight:600; letter-spacing:-0.01em; }
   <div style="max-width:1080px;margin:0 auto;">
     <div class="grid-4" style="display:grid;grid-template-columns:repeat(5,1fr);gap:14px;">
       <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/tree/main/benchmark/lambda" style="background:#101216;border:1px solid #3fb37f;border-radius:12px;padding:20px 18px;display:block;"><div style="font-family:'IBM Plex Mono',monospace;font-size:24px;color:#3fb37f;">~66×</div><div style="font-size:12px;color:#9aa2ad;margin-top:6px;line-height:1.4;">hybrid vs keyword<br>recall@5 @100K entities</div></a>
-      <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/tree/main/benchmark/longmemeval" style="background:#101216;border:1px solid #262a33;border-radius:12px;padding:20px 18px;display:block;"><div style="font-family:'IBM Plex Mono',monospace;font-size:24px;color:#3fb37f;">73.6%</div><div style="font-size:12px;color:#9aa2ad;margin-top:6px;line-height:1.4;">LongMemEval QA<br>official harness</div></a>
+      <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/tree/main/benchmark/longmemeval" style="background:#101216;border:1px solid #262a33;border-radius:12px;padding:20px 18px;display:block;"><div style="font-family:'IBM Plex Mono',monospace;font-size:24px;color:#3fb37f;">73.8%</div><div style="font-size:12px;color:#9aa2ad;margin-top:6px;line-height:1.4;">LongMemEval QA<br>official harness</div></a>
       <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/PERF.md" style="background:#101216;border:1px solid #262a33;border-radius:12px;padding:20px 18px;display:block;"><div style="font-family:'IBM Plex Mono',monospace;font-size:24px;color:#3fb37f;">3.7×</div><div style="font-size:12px;color:#9aa2ad;margin-top:6px;line-height:1.4;">hybrid recall<br>295→81ms @100K</div></a>
       <a href="https://github.com/Perseus-Computing-LLC/perseus-vault#stress-test-100k-entities" style="background:#101216;border:1px solid #262a33;border-radius:12px;padding:20px 18px;display:block;"><div style="font-family:'IBM Plex Mono',monospace;font-size:24px;color:#3fb37f;">98K/s</div><div style="font-size:12px;color:#9aa2ad;margin-top:6px;line-height:1.4;">100K entities<br>inserted in 1.01s</div></a>
       <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/docs/deployment-amd-mi300x.md" style="background:#101216;border:1px solid #262a33;border-radius:12px;padding:20px 18px;display:block;"><div style="font-family:'IBM Plex Mono',monospace;font-size:24px;color:#3fb37f;">±0.6%</div><div style="font-size:12px;color:#9aa2ad;margin-top:6px;line-height:1.4;">recall under 100%<br>GPU load (MI300X)</div></a>
@@ -138,7 +138,7 @@ h1,h2,h3,h4 { margin:0; font-weight:600; letter-spacing:-0.01em; }
         <div style="padding:12px 18px;"></div><div style="padding:12px 14px;color:#3fb37f;">Perseus Vault</div><div style="padding:12px 14px;">Mem0</div><div style="padding:12px 14px;">Zep</div>
       </div>
       <div class="cmp-row" style="display:grid;grid-template-columns:1.6fr 1fr 1fr 1fr;font-size:13px;border-bottom:1px solid #1b1e25;"><div style="padding:13px 18px;color:#c3cad4;">Deployment</div><div style="padding:13px 14px;color:#3fb37f;">Single binary</div><div style="padding:13px 14px;color:#9aa2ad;">Cloud + self-host</div><div style="padding:13px 14px;color:#9aa2ad;">Docker/Postgres</div></div>
-      <div class="cmp-row" style="display:grid;grid-template-columns:1.6fr 1fr 1fr 1fr;font-size:13px;border-bottom:1px solid #1b1e25;background:#0e0f13;"><div style="padding:13px 18px;color:#c3cad4;">MCP-native tools</div><div style="padding:13px 14px;color:#3fb37f;">57</div><div style="padding:13px 14px;color:#9aa2ad;">5 (not native)</div><div style="padding:13px 14px;color:#9aa2ad;">0</div></div>
+      <div class="cmp-row" style="display:grid;grid-template-columns:1.6fr 1fr 1fr 1fr;font-size:13px;border-bottom:1px solid #1b1e25;background:#0e0f13;"><div style="padding:13px 18px;color:#c3cad4;">MCP-native tools</div><div style="padding:13px 14px;color:#3fb37f;">55+</div><div style="padding:13px 14px;color:#9aa2ad;">5 (not native)</div><div style="padding:13px 14px;color:#9aa2ad;">0</div></div>
       <div class="cmp-row" style="display:grid;grid-template-columns:1.6fr 1fr 1fr 1fr;font-size:13px;border-bottom:1px solid #1b1e25;"><div style="padding:13px 18px;color:#c3cad4;">Offline / local</div><div style="padding:13px 14px;color:#3fb37f;">Fully local</div><div style="padding:13px 14px;color:#9aa2ad;">Cloud-dependent</div><div style="padding:13px 14px;color:#9aa2ad;">Docker needed</div></div>
       <div class="cmp-row" style="display:grid;grid-template-columns:1.6fr 1fr 1fr 1fr;font-size:13px;border-bottom:1px solid #1b1e25;background:#0e0f13;"><div style="padding:13px 18px;color:#c3cad4;">Encryption at rest</div><div style="padding:13px 14px;color:#3fb37f;">AES-256-GCM</div><div style="padding:13px 14px;color:#6d7480;">–</div><div style="padding:13px 14px;color:#6d7480;">–</div></div>
       <div class="cmp-row" style="display:grid;grid-template-columns:1.6fr 1fr 1fr 1fr;font-size:13px;"><div style="padding:13px 18px;color:#c3cad4;">Bi-temporal history</div><div style="padding:13px 14px;color:#3fb37f;">Yes</div><div style="padding:13px 14px;color:#6d7480;">–</div><div style="padding:13px 14px;color:#6d7480;">–</div></div>
