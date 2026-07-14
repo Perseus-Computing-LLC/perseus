@@ -33,7 +33,7 @@ start (`AGENTS.md`, `CLAUDE.md`, `.cursorrules`, ...). Keep it live with
 
 **Perseus: the memory & context layer for AI agents. Load only the context they actually need.**
 
-Your agents re-read their whole notebook from page one on every call, and you're billed per word. Perseus hands them just the page they need: it resolves live workspace state into verified facts before the context window opens, and pairs with [Perseus Vault](https://github.com/Perseus-Computing-LLC/perseus-vault) for durable, encrypted memory. The result: **94% fewer prompt tokens**, a **67% smaller tool schema**, and **73.6% on LongMemEval**. Local-first, air-gap ready, MIT.
+Your agents re-read their whole notebook from page one on every call, and you're billed per word. Perseus hands them just the page they need: it resolves live workspace state into verified facts before the context window opens, and pairs with [Perseus Vault](https://github.com/Perseus-Computing-LLC/perseus-vault) for durable, encrypted memory. The result: **94% fewer prompt tokens**, a **67% smaller tool schema**, and **73.8% on LongMemEval**. Local-first, air-gap ready, MIT.
 
 <!-- mcp-name: io.github.Perseus-Computing-LLC/perseus -->
 
@@ -45,7 +45,7 @@ Perseus is the live context engine. Seven specialized products extend it:
 
 | Product | Description | Page |
 |---|---|---|
-| **Perseus Vault** | 55 MCP tools (exposed under 3 name aliases: `perseus_vault_*`/`mimir_*`/`mneme_*`) — persistent memory with FTS5, entities, layers, confidence decay | [/perseus-vault/](https://perseus.observer/perseus-vault/) |
+| **Perseus Vault** | 55+ MCP tools (exposed under 3 name aliases: `perseus_vault_*`/`mimir_*`/`mneme_*`) — persistent memory with FTS5, entities, layers, confidence decay | [/perseus-vault/](https://perseus.observer/perseus-vault/) |
 | **MCTS** | 31 security analyzers for MCP servers — tool poisoning, prompt injection, credential leaks | [/mcts/](https://perseus.observer/mcts/) |
 | **PR Pilot** | 5-agent autonomous PR review pipeline — graduated autonomy L1→L3 | [/pr-pilot/](https://perseus.observer/pr-pilot/) |
 | **Blast Radius** | GitLab-native dependency impact analysis — 1 mention, instant risk report | [/blast-radius/](https://perseus.observer/blast-radius/) |
@@ -57,7 +57,7 @@ Perseus is the live context engine. Seven specialized products extend it:
 
 ### Perseus Vault — Persistent Memory (MCP)
 
-[Perseus Vault](https://github.com/Perseus-Computing-LLC/perseus-vault) is the persistent memory backend for Perseus — a lightweight Rust MCP server with SQLite + FTS5. Zero network calls, no API keys. As of **v2.7.0**, offline dense/hybrid embeddings are **bundled by default** (the model is compiled into the binary), so semantic recall works zero-config with no external model download. v2.14.0 provides **55 distinct MCP tools** (each exposed under `perseus_vault_*`, `mimir_*`, and `mneme_*` aliases, so a raw tools/list handshake reports ~165) across structured entities, hybrid vector search, RAG, connectors, confidence decay, journal events, and state management: `perseus_vault_remember`, `perseus_vault_recall`, `perseus_vault_context`, `perseus_vault_traverse`, `perseus_vault_decay`, `perseus_vault_stats`, `perseus_vault_health`, and more.
+[Perseus Vault](https://github.com/Perseus-Computing-LLC/perseus-vault) is the persistent memory backend for Perseus — a lightweight Rust MCP server with SQLite + FTS5. Zero network calls, no API keys. Offline dense/hybrid embeddings are **bundled by default** (the model is compiled into the binary), so semantic recall works zero-config with no external model download. Perseus Vault exposes **55+ MCP tools** (each also exposed under `perseus_vault_*`, `mimir_*`, and `mneme_*` aliases) across structured entities, hybrid vector search, RAG, connectors, confidence decay, journal events, and state management: `perseus_vault_remember`, `perseus_vault_recall`, `perseus_vault_context`, `perseus_vault_traverse`, `perseus_vault_decay`, `perseus_vault_stats`, `perseus_vault_health`, and more.
 
 📄 [Product page →](https://perseus.observer/perseus-vault/) | ⭐ [GitHub →](https://github.com/Perseus-Computing-LLC/perseus-vault)
 
@@ -238,7 +238,7 @@ Published as [`io.github.Perseus-Computing-LLC/perseus`](https://registry.modelc
 ### MCP Tools
 
 <!-- test-count: 1734 — recount with: grep -rE "^\s*def test_" tests/ | wc -l -->
-<!-- The table below is the exact default output of _get_all_mcp_tools({}) — 30 rows. Recount before editing. -->
+<!-- The table below is the exact default output of _get_all_mcp_tools({}) — 33 rows. Recount before editing. -->
 33 MCP tools resolve live state at invocation time (including the legacy aliases `perseus_get_context`/`perseus_get_health`). Two additional sensitive tools — `perseus_query` (run a shell command) and `perseus_agent` (execute a local agent subprocess) — are **not** part of this default set: they require explicit `mcp.tool_allowlist` opt-in because they execute commands in the user's local shell (**not sandboxed, full user permissions apply**).
 
 | Tool | Description |
@@ -362,12 +362,11 @@ Perseus delivers verified, up-to-date context, eliminating the need for AI assis
 ### Performance & Efficiency
 
 - **94% fewer prompt tokens, 0ms overhead** — live 200-request A/B harness: 488 → 27 avg prompt tokens per request, with **0ms** P99 latency overhead. Perseus changes what the agent *knows*, not what it costs you in time. [Full harness results →](benchmark/ultimate_suite_results.json)
-- **67% smaller tool schema (171 → 57 advertised)** — with [Perseus Vault](https://github.com/Perseus-Computing-LLC/perseus-vault), the memory backend advertises its tools once instead of tripled, so the model carries a smaller tool payload on every call.
+- **67% smaller tool schema (each tool advertised once, not 3× aliased)** — with [Perseus Vault](https://github.com/Perseus-Computing-LLC/perseus-vault), the memory backend advertises its tools once instead of tripled, so the model carries a smaller tool payload on every call.
 - **1.0 semantic equivalence (20/20 A/B pairs)** — a live judge found every A/B pair semantically equivalent: same answers, fewer tokens.
 - **1,190× cold→warm gap** — Real-world scenario using the Perseus repo itself as the benchmark target. At the 1,408 directive scale, the cold render took **578.7s**, while the warm render took **0.486s**. [Raw data →](benchmark/real_deltas.json)
 - **Mnēmē persistent memory** — In-process BM25 recall, zero daemon. **37ms search P50 at 10,000 docs**, flat across all scales. Perseus `@mimir` renders: **51× cold→warm speedup** with @cache. **2,700 docs/sec** write throughput, **0.4ms P50** saves. v1.0.7 adds **Mimir** (Project Synapse) — MCP-based remote memory with Ebbinghaus time-decay and FTS5 + LIKE hybrid search, circuit-breaker protected. Local Mnēmē remains the default. [Full results →](benchmark/mneme_hardcore.json)
 - **Enterprise Ready** — Cost analysis shows that for a 500-developer team, Perseus can save significant token costs per year. [Cost analysis →](benchmark/titan_cost.json)
-- **Extreme Enterprise Benchmark** — 10-phase suite (reps=10, 50 devs, 250 concurrent agents): **10/10 hard gates · 6/6 soft gates · 0 errors at 250 concurrent · 90% enterprise ROI · fleet P99 1,169ms**. The benchmark is designed to surface regressions, not hide them. [Full methodology →](benchmark/README_EXTREME.md) · [Raw results →](benchmark/extreme_enterprise_results_full.json)
 
 ![Perseus v1.0.6 — Performance Benchmarks](https://raw.githubusercontent.com/Perseus-Computing-LLC/perseus/main/benchmark/infographic/perseus-benchmarks.svg)
 
