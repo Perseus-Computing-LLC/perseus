@@ -1,0 +1,32 @@
+{
+  "_meta": {
+    "description": "Canonical claim registry for Perseus Computing public surfaces. Every public figure derives from here. When a benchmark re-runs, update THIS file only; scripts/render_claims.py regenerates manifest strings and tests/test_claims_sync.py fails CI if any surface drifts.",
+    "updated": "2026-07-14"
+  },
+  "claims": {
+    "perseus_version": {"value": "1.0.23", "source": "VERSION", "status": "release", "publishable": true},
+    "vault_version": {"value": "2.20.2", "source": "perseus-vault/Cargo.toml", "status": "release", "publishable": true},
+    "perseus_tool_count": {"value": "33", "source": "perseus._get_all_mcp_tools({})", "status": "code-enforced", "publishable": true},
+    "vault_tool_count": {"value": "55+", "source": "perseus-vault CLAIMS-AUDIT.md (source integer 57; published as 55+ per naming convention)", "status": "convention", "publishable": true},
+    "token_reduction_pct": {"value": "94%", "detail": "488->27 avg prompt tokens, 200-request A/B, 0 ms P99 overhead", "source": "benchmark/ultimate_suite_results.json", "signature_sha256": null, "status": "committed-unsigned", "label": "measured", "publishable": true},
+    "semantic_equivalence": {"value": "1.0", "detail": "20/20 A/B pairs, Gemini-2.5-Flash judge", "source": "benchmark/ultimate_suite_results.json", "status": "committed-unsigned", "label": "measured", "publishable": true},
+    "cold_warm_speedup": {"value": "1,190x", "detail": "578.7s->0.486s, 1,408 directives", "source": "benchmark/real_deltas.json", "status": "committed-unsigned", "label": "measured", "publishable": true},
+    "gauntlet": {"value": "16/16 gates, 100%", "source": "benchmark/gauntlet/v2/gauntlet_v2_report.md", "status": "committed-unsigned", "label": "measured", "publishable": true},
+    "longmemeval_qa": {"value": "73.8%", "detail": "plain mean of 3 runs (72.8/73.6/75.0); longmemeval_s 500, gpt-4o-2024-08-06 answerer + official per-type judge", "source": "perseus-vault/benchmark/longmemeval/qa_report*.json + COMPARISON.md", "status": "signed", "label": "measured", "publishable": true},
+    "longmemeval_cot": {"value": "79.0%", "detail": "official-CoT mean (80.0/78.6/78.4)", "source": "perseus-vault/benchmark/longmemeval/qa_report_cot*.json", "status": "signed", "label": "measured", "publishable": true},
+    "longmemeval_retrieval_recall10": {"value": "99.2%", "detail": "session-level recall@10, retrieval-only", "source": "perseus-vault/benchmark/longmemeval/report.json", "status": "signed", "label": "measured", "publishable": true},
+    "competitor_zep": {"value": "63.8%", "status": "cited", "label": "published-not-reproduced", "publishable": true},
+    "competitor_mem0": {"value": "49.0%", "status": "cited", "label": "published-not-reproduced", "publishable": true},
+    "vault_scale_p50_100k": {"value": "79.73 ms", "detail": "hybrid p50 @100K (p99 92.86)", "source": "perseus-vault/benchmark/scale/report.json", "status": "signed", "label": "measured", "publishable": true},
+    "vault_durable_write_100k": {"value": "40/s", "detail": "durable sustained write @100K -- DISTINCT from in-memory bulk insert", "source": "perseus-vault/benchmark/scale/report.json", "status": "signed", "label": "measured", "publishable": true},
+    "vault_bulk_insert": {"value": "98,732/s", "detail": "in-memory bulk insert, 100K in 1.01s -- NOT a sustained durable write rate", "source": "perseus-vault README stress test", "status": "committed-unsigned", "label": "measured", "publishable": true},
+    "hybrid_recall_speedup": {"value": "3.7x", "detail": "295.5->80.9 ms p50 @100K on AMD64/Windows box (NOT MI300X)", "source": "perseus-vault/PERF.md #511", "status": "committed-unsigned", "label": "measured", "publishable": true},
+    "mi300x_dollar_per_agent_hr": {"value": "11.7x", "detail": "$0.143 vs $1.68/agent-hr (2xH100); hardware economics, NOT a customer cost-savings claim", "source": "perseus-vault/PERF.md #530 + docs/deployment-amd-mi300x.md", "status": "committed-unsigned", "label": "measured", "publishable": true},
+    "mi300x_recall_under_load": {"value": "+/-0.6%", "source": "perseus-vault/PERF.md #530", "status": "committed-unsigned", "label": "measured", "publishable": true},
+    "temporal_correctness": {"value": "13/13", "source": "perseus-vault/benchmark/temporal/gauntlet_report.json", "status": "signed", "label": "measured", "publishable": true},
+    "cost_savings_pct": {"value": "75.14%", "detail": "fewer dollars at +11.7 pts accuracy; Baseline-A (full-context) UPPER BOUND, n=60 stratified, rate-invariant; per-type gate (knowledge-update regressed)", "source": "benchmark/cost_savings/results/cost_savings_stratified_2026-07-11.json", "status": "signed", "label": "illustrative-baseline-A", "publishable": false, "note": "Owner decision 2026-07-14: keep behind the illustrative calculator / signed cert context; do NOT publish as a marketing headline."},
+    "binary_size": {"value": null, "status": "unbacked", "publishable": false, "note": "No size-measurement artifact; README ~8MB and legacy 3.7MB both unbacked. Do not publish a hard size."},
+    "vs_llm_speedup_301x": {"value": null, "status": "unbacked", "publishable": false, "note": "extreme_week_results.json absent from main. Do not publish until an artifact is committed."},
+    "enterprise_roi_90pct": {"value": null, "status": "unbacked", "publishable": false, "note": "extreme_enterprise_results_full.json absent (broken link). Do not publish."}
+  }
+}
