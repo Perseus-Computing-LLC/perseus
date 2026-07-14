@@ -683,7 +683,16 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path, limit_n: int 
     if limit_n > 0:
         k = min(k, limit_n)
 
-    hits = _mneme_recall(cfg, query, k=k, scope=scope, type_filter=type_filter, sensitivity=sensitivity)
+    # ── #774: vault-first; local FTS5 is a FALLBACK, not additive ────────
+    # The local scan previously ran unconditionally and rendered alongside
+    # vault hits — ~2x recall latency and duplicate content whenever the
+    # vault was healthy. Query the vault first; scan the local index only
+    # when the vault contributed nothing (down, errored, or zero matches).
+    # `mimir.local_additive: true` restores the historical additive render.
+    additive_local = bool((cfg.get("mimir") or {}).get("local_additive"))
+    hits: list = []
+    if additive_local:
+        hits = _mneme_recall(cfg, query, k=k, scope=scope, type_filter=type_filter, sensitivity=sensitivity)
 
     # ── Mimir augmentation (MCP) ──────────────────────────────────────
     # Query Mimir persistent memory backend for additional historical
@@ -701,7 +710,7 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path, limit_n: int 
     try:
         mseg = _mneme_hybrid_search(
             cfg=cfg, query=query, workspace=str(workspace),
-            local_hits=hits, max_results=k,
+            local_hits=hits or None, max_results=k,
         )
         mneme_items = mseg.items if mseg else []
         vault_error = (mseg.error if mseg else "") or ""
@@ -711,6 +720,10 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path, limit_n: int 
             "Mimir recall failed, falling back to local Mnēmē FTS5: %s", e
         )
         vault_error = f"unexpected error calling vault: {e}"
+
+    # #774: the vault contributed nothing — NOW pay for the local scan.
+    if not additive_local and not mneme_items:
+        hits = _mneme_recall(cfg, query, k=k, scope=scope, type_filter=type_filter, sensitivity=sensitivity)
 
     if not hits and not mneme_items:
         if vault_error:
