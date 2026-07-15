@@ -21479,16 +21479,122 @@ def _active_context_profile(cfg: dict, source_text: str = "") -> tuple[str, dict
     return name, _resolve_context_profile(cfg, name)
 
 
-def _memory_pointer_block(profile_name: str, profile: dict) -> str:
+# #792 — workflow-specific startup-memory profiles. One fixed startup query is a
+# compromise across workflows: the most valuable startup fact is the one that
+# changes the FIRST retrieval move for THIS task, and that differs for a pre-call
+# brief vs a daily recap vs a stakeholder dossier. A startup profile shapes the
+# on_demand pointer's suggested first move without pre-materializing a memory
+# dump — keeping the block lean while making the first retrieval task-shaped.
+# Built-ins below; extend/override via `render.startup_profiles` in config.
+_STARTUP_PROFILES: dict[str, dict] = {
+    "pre_call_brief": {
+        "note": "About to join a call — lead with the live state of THIS account/relationship.",
+        "first_query": "latest status, open items, and last decision for the call's subject",
+        "defer": "background/history unless a specific fact is contested",
+    },
+    "daily_recap": {
+        "note": "Start-of-day recap — lead with what changed since yesterday and what's due.",
+        "first_query": "recent activity, blockers, and due/overdue items across active work",
+        "defer": "long-lived reference facts already known",
+    },
+    "stakeholder_dossier": {
+        "note": "Preparing a stakeholder dossier — lead with who they are, prior commitments, open asks.",
+        "first_query": "profile, prior commitments, and open items for the stakeholder",
+        "defer": "unrelated projects",
+    },
+    "ticket_triage": {
+        "note": "Health review / ticket triage — lead with active escalations and their owners/next steps.",
+        "first_query": "open escalations, incidents, and their next steps",
+        "defer": "resolved tickets and general background",
+    },
+}
+
+
+def _scan_startup_profile_name(source_text: str) -> str | None:
+    """Return the profile name from the first column-0 `@startup-profile <name>`
+    directive, outside code fences (mirrors `@profile` selection — first-wins,
+    fence-aware, column-0 anchored so a fenced/indented example is inert)."""
+    if not source_text or "@startup-profile" not in source_text:
+        return None
+    in_fence = False
+    for raw in source_text.splitlines():
+        stripped = raw.strip()
+        if stripped.startswith("```") or stripped.startswith("~~~"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        if raw.startswith("@startup-profile"):
+            parts = raw.split(None, 1)
+            if len(parts) == 2 and parts[1].strip():
+                return parts[1].strip().split()[0]
+    return None
+
+
+def _resolve_startup_profile(cfg: dict, source_text: str = "") -> tuple[str | None, dict | None]:
+    """Resolve (name, profile_dict) for the render's startup-memory emphasis.
+
+    Selection precedence: env ``PERSEUS_STARTUP_PROFILE`` > a `@startup-profile`
+    directive in the source > ``render.startup_profile`` in config > none.
+    Available profiles are the built-ins (`_STARTUP_PROFILES`) overlaid with any
+    ``render.startup_profiles`` from config. A selected-but-unknown name resolves
+    to ``(name, None)`` so the caller falls back to the plain pointer.
+    """
+    name = (os.environ.get("PERSEUS_STARTUP_PROFILE", "") or "").strip() or None
+    if not name:
+        name = _scan_startup_profile_name(source_text)
+    if not name and isinstance(cfg, dict):
+        cfg_name = (cfg.get("render", {}) or {}).get("startup_profile")
+        if cfg_name:
+            name = str(cfg_name).strip()
+    if not name:
+        return None, None
+    profiles = dict(_STARTUP_PROFILES)
+    if isinstance(cfg, dict):
+        overrides = (cfg.get("render", {}) or {}).get("startup_profiles", {})
+        if isinstance(overrides, dict):
+            for k, v in overrides.items():
+                if isinstance(v, dict):
+                    profiles[k] = {**profiles.get(k, {}), **v}
+    return name, profiles.get(name)
+
+
+def _startup_profile_lead(startup: tuple[str, dict] | None) -> str:
+    """Render the task-shaped 'first move' lead for a selected startup profile,
+    or '' when none is selected / the name is unknown. Stable per selected
+    profile (prefix-cache safe): it depends on the profile, never on vault
+    contents."""
+    if not startup:
+        return ""
+    sname, sp = startup
+    if not sp:
+        return ""
+    lines = [f"**Startup profile: {sname}** — task-shaped first retrieval move."]
+    note = str(sp.get("note", "")).strip()
+    fq = str(sp.get("first_query", "")).strip()
+    defer = str(sp.get("defer", "")).strip()
+    if note:
+        lines.append(note)
+    if fq:
+        lines.append(f'- Do this first: `@memory mode=search query="{fq}" k=5`')
+    if defer:
+        lines.append(f"- Defer for now: {defer}")
+    return "\n".join(lines) + "\n\n"
+
+
+def _memory_pointer_block(profile_name: str, profile: dict, startup: tuple[str, dict] | None = None) -> str:
     """The on_demand posture block: a short retrieval pointer + tools.
 
     Deliberately STATIC with respect to vault contents — the fixed prompt
     prefix must not change when a memory fact changes (prefix-cache stability,
     #608 acceptance criteria). Only the profile identity appears, which is
-    stable per config.
+    stable per config. #792: an optional startup profile prepends a task-shaped
+    "first move" lead; it too is stable per selected profile (config/source
+    driven, not vault-content driven), so the prefix-cache invariant holds.
     """
     return (
         f"{_MEMORY_POINTER_HEADER}\n\n"
+        f"{_startup_profile_lead(startup)}"
         f"Long-term memory is not pre-loaded into this context "
         f"(profile: {profile_name}, memory posture: on_demand).\n"
         "Retrieve exactly what a task needs, when it needs it:\n\n"
@@ -21631,8 +21737,20 @@ def _mneme_context_inject(
     profile_name, profile = _active_context_profile(cfg, source_text)
     posture = _memory_posture(profile)
 
+    # #792: resolve the workflow startup profile (env / @startup-profile / config)
+    # so the on_demand pointer's first move is task-shaped. A selected-but-unknown
+    # name is flagged and falls back to the plain pointer.
+    startup = _resolve_startup_profile(cfg, source_text)
+    if startup[0] and not startup[1]:
+        print(
+            f"[perseus] startup profile {startup[0]!r} not found "
+            "(known: " + ", ".join(sorted(_STARTUP_PROFILES)) + ") — using the "
+            "default startup pointer.",
+            file=sys.stderr,
+        )
+
     if posture == "on_demand":
-        return _memory_pointer_block(profile_name, profile)
+        return _memory_pointer_block(profile_name, profile, startup=startup)
 
     try:
         connector = _get_connector(cfg)
