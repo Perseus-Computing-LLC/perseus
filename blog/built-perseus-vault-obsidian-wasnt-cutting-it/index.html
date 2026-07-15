@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>I built an AI agent memory engine because Obsidian wasn't cutting it</title>
+<script>try{var t=localStorage.getItem('perseus-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="icon" href="/assets/perseus.svg">
+<link rel="canonical" href="https://perseus.observer/blog/built-perseus-vault-obsidian-wasnt-cutting-it/">
+<meta name="description" content="Obsidian is great for humans. For AI agents, it's a square peg. Here's why I built Perseus Vault — a single-binary, encrypted, local-first persistent memory engine purpose-built for agents.">
+<meta name="theme-color" content="#0A0A12">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Perseus">
+<meta property="og:title" content="I built an AI agent memory engine because Obsidian wasn't cutting it">
+<meta property="og:description" content="Obsidian is great for humans. For AI agents, it's a square peg. Here's why I built Perseus Vault — a single-binary, encrypted, local-first persistent memory engine purpose-built for agents.">
+<meta property="og:url" content="https://perseus.observer/blog/built-perseus-vault-obsidian-wasnt-cutting-it/">
+<meta property="og:image" content="https://perseus.observer/assets/og/perseus.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="I built an AI agent memory engine because Obsidian wasn't cutting it">
+<meta name="twitter:description" content="Obsidian is great for humans. For AI agents, it's a square peg. Here's why I built Perseus Vault — a single-binary, encrypted, local-first persistent memory engine purpose-built for agents.">
+<meta name="twitter:image" content="https://perseus.observer/assets/og/perseus.png">
+<link rel="stylesheet" href="/assets/fonts.css">
+<link rel="stylesheet" href="/assets/tokens.css">
+<link rel="stylesheet" href="/assets/perseus.css">
+<script defer src="https://stats.perseus.observer/script.js" data-website-id="74dc0a11-f2dd-4d6f-b0b7-4a550116bbe5"></script>
+</head>
+<body>
+<header class="site">
+  <div class="nav">
+    <a href="/" class="brand" aria-label="Perseus home">
+      <svg width="30" height="30" viewBox="0 0 56 56" fill="none" aria-hidden="true"><rect x="3" y="14" width="17" height="3.6" rx="1.8" fill="var(--violet)"/><rect x="3" y="21" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".75"/><rect x="3" y="28" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".55"/><rect x="3" y="35" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".4"/><g stroke="var(--amber)" stroke-width="2.4" stroke-linecap="round"><line x1="22" y1="16" x2="42" y2="28"/><line x1="22" y1="23" x2="42" y2="28"/><line x1="22" y1="30" x2="42" y2="28"/><line x1="22" y1="37" x2="42" y2="28"/></g><circle cx="44" cy="28" r="4.2" fill="var(--amber)"/></svg>
+      <b>Perseus<span class="sub"> / Blog</span></b>
+    </a>
+    <nav class="navlinks">
+      <a href="/services/">Services</a>
+      <a href="/">Perseus ↗</a>
+    </nav>
+    <button class="toggle" data-theme-toggle aria-label="Toggle theme"><span class="dot"></span><span data-theme-label>Light</span></button>
+  </div>
+</header>
+<section class="sec" data-screen-label="Article">
+  <div class="wrap reveal" style="max-width:720px;">
+    <span class="eyebrow amber">
+      <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M3.5 9.5a2.5 2.5 0 010-5 3.2 3.2 0 016.2-1 2.3 2.3 0 01.8 4.5z"/></svg>
+      Engineering
+    </span>
+    <h1 class="h" style="margin-bottom:8px;">I built an AI agent memory engine because Obsidian wasn't cutting it</h1>
+    <p class="mono" style="color:var(--text-faint); font-size:13.5px; margin-bottom:36px;">Thomas Connally, Perseus Computing &middot; July 2026</p>
+    <p class="lead" style="margin-bottom:28px;">Six months ago my AI agent couldn't find anything in my 2,000-note Obsidian vault. Today it has perfect recall across tens of thousands of facts, runs fully offline, and fits in a single 8MB binary. Here's what I learned building the thing that replaced it.</p>
+    <h2 class="h" style="font-size:26px; margin:36px 0 14px;">The moment Obsidian broke</h2>
+    <p style="color:var(--text-dim); line-height:1.7; margin-bottom:18px;">I was an Obsidian true believer. 2,000+ notes, bidirectional links, daily journals, the whole thing. When MCP support landed for Obsidian, I wired it up to my Hermes agent and felt like a genius. My agent could read my notes, search my vault, and pull context from years of accumulated knowledge.</p>
+    <p style="color:var(--text-dim); line-height:1.7; margin-bottom:18px;">Then the vault crossed ~1,500 notes and everything fell apart.</p>
+    <p style="color:var(--text-dim); line-height:1.7; margin-bottom:18px;">Search degraded to unusable. My agent started hallucinating file contents. Context windows ballooned with irrelevant markdown. The "memory" that worked beautifully at 200 notes became an active liability at 2,000. Every session burned tokens re-reading files it had already read a dozen times. There was no concept of importance — a grocery list and a critical architecture decision carried equal weight in search results.</p>
+    <p style="color:var(--text-dim); line-height:1.7; margin-bottom:18px;">The fundamental problem wasn't Obsidian. Obsidian is an incredible note-taking app — for humans. Humans can skim, prioritize, and context-switch. AI agents can't. They need memory that's <em>structured for machine consumption</em>, not prose organized for human browsing.</p>
+    <h2 class="h" style="font-size:26px; margin:36px 0 14px;">What agents actually need from memory</h2>
+    <p style="color:var(--text-dim); line-height:1.7; margin-bottom:18px;">After six months of building and iterating, here's what I found agents actually require from a memory layer — none of which a note-taking app provides out of the box:</p>
+    <p style="color:var(--text-dim); line-height:1.7; margin-bottom:18px;"><strong style="color:var(--text);">1. Hybrid search that actually works.</strong> Keyword search (grep) fails on paraphrased queries. Pure vector search hallucinates relevance on edge cases. You need FTS5 + dense embeddings with reciprocal rank fusion. My agent asking "what's our deployment strategy for Lambda?" should match a note titled "AWS Lambda provisioning playbook" even though they share zero keywords.</p>
+    <p style="color:var(--text-dim); line-height:1.7; margin-bottom:18px;"><strong style="color:var(--text);">2. Importance and decay.</strong> Not all facts are equal. A production database password matters more than what I ate for lunch. Memory needs a weighting system — and facts should naturally decay unless reinforced. An agent shouldn't still be referencing a three-month-old bug workaround that was fixed two months ago.</p>
+    <p style="color:var(--text-dim); line-height:1.7; margin-bottom:18px;"><strong style="color:var(--text);">3. Deduplication.</strong> Agents love to re-remember the same facts. Without content-aware dedup, your memory store becomes an echo chamber of near-identical entries, each one diluting search quality.</p>
+    <p style="color:var(--text-dim); line-height:1.7; margin-bottom:18px;"><strong style="color:var(--text);">4. Bi-temporal history.</strong> Facts change. You need to know what was true <em>then</em> versus what's true <em>now</em>. An agent debugging a production incident needs to see the config as it existed at 3:14 PM, not the version you patched at 3:17 PM.</p>
+    <p style="color:var(--text-dim); line-height:1.7; margin-bottom:18px;"><strong style="color:var(--text);">5. Encryption at rest.</strong> If your agent's memory contains API keys, architecture docs, and business logic, it needs to be encrypted. Not "encrypted in transit to someone's cloud." Encrypted <em>on disk</em>, with keys you control.</p>
+    <h2 class="h" style="font-size:26px; margin:36px 0 14px;">The result: Perseus Vault</h2>
+    <p style="color:var(--text-dim); line-height:1.7; margin-bottom:18px;">Perseus Vault is a single Rust binary. No Docker, no Postgres, no Python environment, no cloud dependency. It ships as an MCP server — drop it into any MCP-compatible agent (Claude Code, Cursor, Cline, Hermes, anything) and it exposes 57 tools for remember, recall, reflect, and search.</p>
+    <p style="color:var(--text-dim); line-height:1.7; margin-bottom:18px;">The design constraints were brutal and deliberate:</p>
+    <ul style="color:var(--text-dim); line-height:1.7; margin-bottom:18px; padding-left:20px;">
+      <li style="margin-bottom:8px;"><strong style="color:var(--text);">Single binary.</strong> No install script, no dependency tree. Download and run.</li>
+      <li style="margin-bottom:8px;"><strong style="color:var(--text);">Works offline.</strong> Bundled embeddings. No API keys, no network calls, no telemetry.</li>
+      <li style="margin-bottom:8px;"><strong style="color:var(--text);">AES-256-GCM.</strong> Everything encrypted at rest. Keys never leave the machine.</li>
+      <li style="margin-bottom:8px;"><strong style="color:var(--text);">MIT licensed.</strong> No open-core, no enterprise tier. The whole thing is free.</li>
+    </ul>
+    <h2 class="h" style="font-size:26px; margin:36px 0 14px;">Benchmarks that mean something</h2>
+    <p style="color:var(--text-dim); line-height:1.7; margin-bottom:18px;">I don't trust benchmark numbers I can't reproduce, so the entire harness is offline and re-runnable. Here's what it looks like on real workloads:</p>
+    <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin:24px 0;">
+      <div style="background:var(--surface); border:1px solid var(--border-soft); border-radius:10px; padding:18px; text-align:center;">
+        <div style="font-size:28px; font-weight:700; color:var(--amber); font-family:var(--font-mono);">73.6%</div>
+        <div style="font-size:12px; color:var(--text-faint); margin-top:4px;">LongMemEval</div>
+      </div>
+      <div style="background:var(--surface); border:1px solid var(--border-soft); border-radius:10px; padding:18px; text-align:center;">
+        <div style="font-size:28px; font-weight:700; color:var(--amber); font-family:var(--font-mono);">91.7%</div>
+        <div style="font-size:12px; color:var(--text-faint); margin-top:4px;">Recall@1 (offline)</div>
+      </div>
+      <div style="background:var(--surface); border:1px solid var(--border-soft); border-radius:10px; padding:18px; text-align:center;">
+        <div style="font-size:28px; font-weight:700; color:var(--amber); font-family:var(--font-mono);">100%</div>
+        <div style="font-size:12px; color:var(--text-faint); margin-top:4px;">Recall@5 (offline)</div>
+      </div>
+    </div>
+    <p style="color:var(--text-dim); line-height:1.7; margin-bottom:18px;">For comparison, naive keyword search on the same paraphrased queries hits 4.2% recall@1. That's the difference between an agent that remembers and an agent that's guessing.</p>
+    <h2 class="h" style="font-size:26px; margin:36px 0 14px;">Honest tradeoffs</h2>
+    <p style="color:var(--text-dim); line-height:1.7; margin-bottom:18px;">Every engineering decision is a tradeoff. Here are the ones I made that you should know about before adopting:</p>
+    <p style="color:var(--text-dim); line-height:1.7; margin-bottom:18px;"><strong style="color:var(--text);">FTS5 index sits over plaintext.</strong> The underlying records are AES-256-GCM encrypted, but the FTS5 search index operates on plaintext for performance. If full disk encryption is part of your threat model this is a non-issue, but if you need search-index-level encryption, this is a gap. I'm upfront about it in the docs rather than hand-waving.</p>
+    <p style="color:var(--text-dim); line-height:1.7; margin-bottom:18px;"><strong style="color:var(--text);">Bundled embeddings are smaller models.</strong> The offline embedding model that ships in the binary is fast and zero-dependency, but it won't match the semantic quality of a massive cloud-hosted embedding model. If you need maximum recall quality and have the infrastructure, you can point it at an external Ollama endpoint with a larger model.</p>
+    <p style="color:var(--text-dim); line-height:1.7; margin-bottom:18px;"><strong style="color:var(--text);">It's an MCP server, not a database.</strong> Perseus Vault isn't trying to replace Postgres or SQLite for general-purpose storage. It's purpose-built as the memory layer for AI agents, exposed through MCP tools. If you need a general-purpose database, use one.</p>
+    <h2 class="h" style="font-size:26px; margin:36px 0 14px;">Two minutes to try it</h2>
+    <pre style="background:var(--surface); border:1px solid var(--border-soft); border-radius:12px; padding:18px; overflow-x:auto; font-size:13.5px; line-height:1.6;"># Download the binary (Linux x86_64)
+curl -L https://github.com/Perseus-Computing-LLC/perseus-vault/releases/latest/download/perseus-vault-linux-x86_64 -o perseus-vault
+chmod +x perseus-vault
+
+# Start it
+./perseus-vault serve --db memory.db
+
+# Wire it into your MCP client
+# Add to your mcpServers config:
+# {
+#   "perseus-vault": {
+#     "command": "perseus-vault",
+#     "args": ["serve", "--db", "~/.mimir/data/perseus-vault.db"]
+#   }
+# }</pre>
+    <p style="color:var(--text-dim); line-height:1.7; margin:18px 0 18px;">Your agent can now remember, recall, and search across sessions. No Obsidian vault required.</p>
+    <p style="color:var(--text-dim); line-height:1.7; margin-bottom:18px;">If you're building agents in environments where cloud-only memory is a non-starter — defense, healthcare, finance, or just a homelab where you want control — <a href="/services/" style="color:var(--amber);">we do integration pilots</a>: we deploy into your environment and prove recall quality on your own data in 2–4 weeks.</p>
+    <div style="display:flex; gap:14px; flex-wrap:wrap; margin-top:32px;">
+      <a href="https://github.com/Perseus-Computing-LLC/perseus-vault" class="btn btn-amber">Perseus Vault on GitHub ↗</a>
+      <a href="https://github.com/Perseus-Computing-LLC/perseus" class="btn btn-ghost">Perseus Context Engine ↗</a>
+    </div>
+  </div>
+</section>
+<footer class="site">
+  <div class="foot-compact">
+    <div class="brand-line">
+      <svg width="26" height="26" viewBox="0 0 56 56" fill="none" aria-hidden="true"><rect x="3" y="14" width="17" height="3.6" rx="1.8" fill="var(--violet)"/><rect x="3" y="21" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".75"/><rect x="3" y="28" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".55"/><rect x="3" y="35" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".4"/><g stroke="var(--amber)" stroke-width="2.4" stroke-linecap="round"><line x1="22" y1="16" x2="42" y2="28"/><line x1="22" y1="23" x2="42" y2="28"/><line x1="22" y1="30" x2="42" y2="28"/><line x1="22" y1="37" x2="42" y2="28"/></g><circle cx="44" cy="28" r="4.2" fill="var(--amber)"/></svg>
+      <span class="legal-line">Perseus Computing LLC · perseus.observer/blog</span>
+    </div>
+    <div class="sib"><a href="/">Perseus</a><a href="/perseus-vault/">Perseus Vault</a><a href="/services/">Services</a><a href="https://github.com/Perseus-Computing-LLC/perseus">GitHub</a></div>
+  </div>
+</footer>
+<script src="/assets/perseus.js"></script>
+</body>
+</html>
