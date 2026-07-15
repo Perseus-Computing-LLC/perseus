@@ -26064,6 +26064,94 @@ def _doctor_check_render_freshness(cfg: dict, workspace: Path) -> DoctorResult:
     return DoctorResult("render_freshness", "ok", "rendered output freshness", summary, "")
 
 
+def _doctor_check_agents_startup_route(cfg: dict, workspace: Path) -> DoctorResult:
+    """Validate the AGENTS.md startup-memory route end-to-end (#793).
+
+    Clients that load an instructions file at startup instead of running a
+    session-start hook — Rovo Dev CLI is the motivating case (perseus#790, whose
+    event hooks can't inject context) — get their startup memory by *rendering
+    it into AGENTS.md before the session*, not from a hook. When that render
+    silently stops or was never wired, AGENTS.md freezes with no startup-memory
+    block and no error, and recall "does nothing" for reasons that take manual
+    forensics to find. This check confirms, in one place, that:
+
+      1. an ``AGENTS.md`` exists in the workspace (else the route isn't in use),
+      2. it contains a Perseus startup-memory block — the ``on_demand`` retrieval
+         pointer or an active-recall Persistent Memory section, and
+      3. it is not older than its render source (``.perseus/context.md`` /
+         ``.hermes.md``),
+
+    reporting the first break so the user knows *where* the path is broken
+    rather than having to hand-inspect the source, the rendered file, the hook,
+    and the connector separately.
+    """
+    check_id = "agents_startup_route"
+    label = "AGENTS.md startup-memory route"
+
+    # Resolve the AGENTS.md target exactly like `perseus render --format agents-md`.
+    try:
+        agents_path = Path(get_default_output_path("agents-md", str(workspace)))
+    except Exception:
+        agents_path = workspace / "AGENTS.md"
+
+    if not agents_path.is_file():
+        # No AGENTS.md → this workspace doesn't use the AGENTS route. Not a fault
+        # (hook-based clients never render one); report informational, not warn.
+        return DoctorResult(check_id, "ok", label,
+                            "not in use (no AGENTS.md in workspace)", "")
+
+    try:
+        text = agents_path.read_text(errors="replace")
+    except OSError as exc:
+        return DoctorResult(check_id, "error", label,
+                            f"AGENTS.md present but unreadable: {exc}",
+                            f"Check permissions on {agents_path}")
+
+    try:
+        rel = str(agents_path.relative_to(workspace))
+    except ValueError:
+        rel = agents_path.name
+
+    # Which startup-memory block, if any, did the last render inject?
+    has_pointer = _MEMORY_POINTER_HEADER in text
+    has_active = PERSISTENT_MEMORY_HEADER in text
+    if not (has_pointer or has_active):
+        return DoctorResult(
+            check_id, "warn", label,
+            f"{rel} has no startup-memory block",
+            "Re-render it with `perseus render <source> --format agents-md` "
+            "(memory injection appends the block). If the block still doesn't "
+            f"appear, check the memory posture/connector via the {MEMORY_BRAND} "
+            "row above.")
+    block = "on_demand pointer" if has_pointer else "active-recall (Persistent Memory)"
+
+    # Freshness vs the render source — a frozen AGENTS.md is the #790/#430 failure
+    # mode (a scheduled render that silently stopped leaves stale startup memory).
+    source = None
+    for name in (".perseus/context.md", ".hermes.md"):
+        p = workspace / name
+        if p.is_file():
+            source = p
+            break
+    if source is not None:
+        try:
+            # +1s tolerance so a render that touches both files in one run,
+            # or equal mtimes, doesn't flap as "stale".
+            if source.stat().st_mtime > agents_path.stat().st_mtime + 1.0:
+                return DoctorResult(
+                    check_id, "warn", label,
+                    f"{rel} ({block}) is older than its source {source.name}",
+                    "Re-render AGENTS.md — its source context has changed since "
+                    "the last render (`perseus render <source> --format agents-md`), "
+                    "or check the scheduled render job (launchctl/systemctl/crontab).")
+        except OSError:
+            pass
+
+    src_note = f", source {source.name}" if source is not None else ""
+    return DoctorResult(check_id, "ok", label,
+                        f"{rel}: {block} block present{src_note}", "")
+
+
 def _legacy_shadowed_paths(expected: dict, resolved: dict, overridden: dict,
                            prefix: str = "") -> list[str]:
     """Return dotted paths from `expected` whose values are NOT reflected in
@@ -26174,6 +26262,7 @@ _DOCTOR_CHECKS = [
     _doctor_check_stale_shim,
     _doctor_check_duplicate_installs,
     _doctor_check_render_freshness,
+    _doctor_check_agents_startup_route,
 ]
 
 
