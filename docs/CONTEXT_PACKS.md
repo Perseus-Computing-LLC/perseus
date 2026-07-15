@@ -87,6 +87,47 @@ sources that do not exist yet.
 
 ---
 
+## Startup-memory profiles (#792)
+
+A single fixed startup-memory query is a compromise across workflows: the most
+valuable startup fact is the one that changes the **first retrieval move** for
+*this* task, and that differs for a pre-call brief vs a daily recap vs a
+stakeholder dossier. A **startup profile** shapes the `on_demand` memory pointer
+(the default posture, and what AGENTS.md-based clients load at startup) so its
+suggested first move is task-shaped — without pre-materializing a memory dump,
+so the block stays lean and prefix-cache stable.
+
+**Selection** (first match wins):
+
+1. env `PERSEUS_STARTUP_PROFILE=<name>`
+2. a column-0 `@startup-profile <name>` directive in the source `.perseus/context.md`
+3. `render.startup_profile: <name>` in `config.yaml`
+
+**Built-in profiles:** `pre_call_brief`, `daily_recap`, `stakeholder_dossier`,
+`ticket_triage`. Each contributes a one-line framing, a suggested first
+retrieval query, and what to defer. A selected-but-unknown name falls back to
+the plain pointer (with a stderr note).
+
+**Extend / override** in `config.yaml`:
+
+```yaml
+render:
+  startup_profile: pre_call_brief        # default profile for this workspace
+  startup_profiles:                      # add or override profiles
+    incident_bridge:
+      note: "Joining an incident bridge — lead with the current state and owner."
+      first_query: "active incident status, timeline, and current owner"
+      defer: "post-mortem history until the incident is stable"
+```
+
+The rendered `on_demand` block then leads with a **"Startup profile: <name>"**
+first-move section, keeping startup context lean while making the first
+retrieval highly task-shaped. Verify the wiring with `perseus doctor` (the
+`AGENTS.md startup-memory route` check) and measure the effect with the
+[Startup-Memory Benchmark](./startup-memory-benchmark.md).
+
+---
+
 ## Schema
 
 | Field | Required | Meaning |
