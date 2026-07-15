@@ -15,6 +15,7 @@ Perseus is a live context engine for AI assistants. It solves the **cold-start p
 | **Full setup, config & automation guide** | **[Setup Guide](../SETUP-GUIDE.md)** |
 | Wire Perseus to a specific assistant (Hermes, Codex, Claude Code, Cursor, Rovo Dev) | [Integration guide](./HERMES_INTEGRATION.md) · [spec/integration.md](../spec/integration.md) |
 | Use context packs and profiles | [Context Packs](./CONTEXT_PACKS.md) |
+| Measure whether startup memory is actually saving time | [Startup-Memory Benchmark](./startup-memory-benchmark.md) |
 | Deploy with Docker / run as a service | [Container deployment](./CONTAINER.md) |
 | Deploy the full ecosystem on Hermes (Bastra, LLM proxy, crons) | [Deployment Guide](./DEPLOYMENT.md) |
 | Enable cited synthesis (`@synthesize`) | [Cited Synthesis](./CITED_SYNTHESIS.md) |
