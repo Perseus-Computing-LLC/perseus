@@ -445,3 +445,50 @@ def test_doctor_duplicate_installs_warns_and_lists_stale(tmp_path, monkeypatch):
     assert str(stale) in r.remediation  # removable path in remediation
     assert str(active) not in r.remediation  # never suggest removing the active one
     assert "rm -f" in r.remediation
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# #793: AGENTS.md startup-memory route validation
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def test_doctor_agents_route_not_in_use(tmp_path):
+    """No AGENTS.md → the route isn't in use; report ok (not a fault)."""
+    r = perseus._doctor_check_agents_startup_route(cfg(), tmp_path)
+    assert r.status == "ok", r.value
+    assert r.id == "agents_startup_route"
+    assert "not in use" in r.value
+
+
+def test_doctor_agents_route_missing_block(tmp_path):
+    """AGENTS.md present but with no startup-memory block → warn with a
+    re-render remediation (the #790 'render silently stopped' failure)."""
+    (tmp_path / "AGENTS.md").write_text("# Project rules\n\nBe concise.\n", encoding="utf-8")
+    r = perseus._doctor_check_agents_startup_route(cfg(), tmp_path)
+    assert r.status == "warn", r.value
+    assert "no startup-memory block" in r.value
+    assert "perseus render" in r.remediation
+
+
+def test_doctor_agents_route_ok_with_pointer_block(tmp_path):
+    """AGENTS.md carrying the on_demand pointer block → ok."""
+    body = f"# Rules\n\n{perseus._MEMORY_POINTER_HEADER}\n\nquery the vault when relevant.\n"
+    (tmp_path / "AGENTS.md").write_text(body, encoding="utf-8")
+    r = perseus._doctor_check_agents_startup_route(cfg(), tmp_path)
+    assert r.status == "ok", r.value
+    assert "on_demand pointer" in r.value
+
+
+def test_doctor_agents_route_stale_vs_source(tmp_path):
+    """AGENTS.md has a block but its source context.md is newer → warn stale."""
+    (tmp_path / ".perseus").mkdir()
+    source = tmp_path / ".perseus" / "context.md"
+    source.write_text("@perseus\n# ctx\n", encoding="utf-8")
+    agents = tmp_path / "AGENTS.md"
+    agents.write_text(
+        f"# Rules\n\n{perseus._MEMORY_POINTER_HEADER}\n\npointer.\n", encoding="utf-8")
+    # Make AGENTS.md clearly older than its source.
+    old = time.time() - 3600
+    os.utime(agents, (old, old))
+    r = perseus._doctor_check_agents_startup_route(cfg(), tmp_path)
+    assert r.status == "warn", r.value
+    assert "older than its source" in r.value
