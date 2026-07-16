@@ -46,6 +46,16 @@ SURFACE_CHECKS = [
     ("index.html", "perseus_version"),      # 1.0.23 (version pill)
     ("index.html", "vault_version"),        # 2.20.2 (version pill)
     (".well-known/mcp/server-card.json", "perseus_version"),  # 1.0.23
+    # BEAM (vault #685/#697) published on the benchmarks page. These values are
+    # unique to the BEAM section, so their presence pins the page to the signed
+    # benchmark/beam/report.json. benchmarks/index.html is intentionally NOT in
+    # PUBLIC_SURFACES (it legitimately shows the per-run "73.6%" from the QA
+    # distribution, a forbidden headline token elsewhere), so BEAM is enforced
+    # here via targeted surface checks rather than the blanket sweep.
+    ("benchmarks/index.html", "beam_correctness"),     # 13/13
+    ("benchmarks/index.html", "beam_determinism"),     # deterministic=true
+    ("benchmarks/index.html", "beam_as_of_p50_10m"),   # 23.07 ms (flat point-lookup at 10M)
+    ("benchmarks/index.html", "beam_scale_10m"),       # 10M top tier
 ]
 
 # Retired / unbacked tokens that must NOT appear on public surfaces.
