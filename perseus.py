@@ -26103,6 +26103,19 @@ def _doctor_check_duplicate_installs(cfg: dict, workspace: Path) -> DoctorResult
     )
 
 
+def _abbrev_home(path_str: str) -> str:
+    """Return ``path_str`` with the user's home directory collapsed to ``~``.
+
+    Freshness warnings must name the *exact* file so an operator does not audit
+    the wrong one when several outputs share a basename like ``AGENTS.md``
+    (#798). An absolute path is unambiguous; home-abbreviation keeps it
+    readable."""
+    try:
+        return str(Path("~") / Path(path_str).relative_to(Path.home()))
+    except (ValueError, OSError):
+        return path_str
+
+
 def _doctor_check_render_freshness(cfg: dict, workspace: Path) -> DoctorResult:
     """Warn when a rendered output is older than render.staleness_warn_hours (#431).
 
@@ -26157,11 +26170,10 @@ def _doctor_check_render_freshness(cfg: dict, workspace: Path) -> DoctorResult:
             except OSError:
                 continue
         age_h = (now_utc - gen_dt).total_seconds() / 3600.0
-        try:
-            name = str(p.relative_to(workspace))
-        except ValueError:
-            name = p.name
-        found.append((name, age_h))
+        # #798: keep the absolute path — the warning names the exact file so a
+        # workspace AGENTS.md is never confused with a startup target rendered
+        # elsewhere. Display is home-abbreviated at format time.
+        found.append((str(p), age_h))
 
     if not found:
         return DoctorResult("render_freshness", "ok", "rendered output freshness",
@@ -26171,14 +26183,22 @@ def _doctor_check_render_freshness(cfg: dict, workspace: Path) -> DoctorResult:
         return f"{h / 24:.1f}d" if h >= 48 else f"{h:.1f}h"
 
     found.sort(key=lambda t: t[1], reverse=True)
-    oldest_name, oldest_age = found[0]
-    summary = ", ".join(f"{n} {_fmt_age(a)}" for n, a in found[:4])
+    oldest_path, oldest_age = found[0]
+    summary = ", ".join(f"{_abbrev_home(pth)} {_fmt_age(a)}" for pth, a in found[:4])
     if oldest_age > threshold_h:
         return DoctorResult(
             "render_freshness", "warn", "rendered output freshness",
             f"{summary} (threshold {threshold_h:.0f}h)",
-            f"`{oldest_name}` looks stale — re-run `perseus render` or check the "
-            f"scheduled render job (launchctl/systemctl/crontab)")
+            # #798: name the EXACT stale file (not a bare basename) so a
+            # multi-AGENTS setup doesn't send the operator to audit the wrong
+            # one, and point at the two things that actually resolve it —
+            # watching the real target and the authoritative startup-route check.
+            f"`{_abbrev_home(oldest_path)}` looks stale — re-run `perseus render` "
+            "or check the scheduled render job (launchctl/systemctl/crontab). If "
+            "your startup-memory target renders to a different path (e.g. outside "
+            "this workspace), add it to render.staleness_watch so this check "
+            "watches the right file; the 'AGENTS.md startup-memory route' check "
+            "audits the startup target directly.")
     return DoctorResult("render_freshness", "ok", "rendered output freshness", summary, "")
 
 
