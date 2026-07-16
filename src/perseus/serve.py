@@ -54,6 +54,20 @@ def _atomic_write_text(out_path: Path, text: str) -> None:
         raise
 
 
+def _render_run_failed(source, reason: str) -> None:
+    """Emit a structured, stamped per-run failure marker to stderr (#799).
+
+    A scheduled render agent routes stderr to a long-lived log that accumulates
+    historical warnings; a stamped ``render FAILED`` line with an explicit
+    reason lets an operator grep the *current* run's outcome instead of guessing
+    from a pile of old noise. Mirrors the success path, which already prints its
+    own stamped ``rendered ...`` line — both share the ``perseus <v>: render``
+    prefix, so one grep shows every run's status."""
+    ts = datetime.now().astimezone().isoformat(timespec="seconds")
+    sys.stderr.write(
+        f"perseus {_PERSEUS_VERSION}: render FAILED source={source} — {reason} at {ts}\n")
+
+
 def cmd_render(args, cfg):
     source_path = Path(args.source).expanduser().resolve()
     if not source_path.exists():
@@ -63,6 +77,7 @@ def cmd_render(args, cfg):
             print(f"Error: context file not found: {source_path}. Run `perseus init` to create it.", file=sys.stderr)
         else:
             print(f"Error: file not found: {source_path}", file=sys.stderr)
+        _render_run_failed(source_path, "source not found")
         sys.exit(1)
 
     workspace = _infer_workspace(source_path)
@@ -122,7 +137,9 @@ def cmd_render(args, cfg):
 
     strict = getattr(args, "strict", False)
     if strict and "⚠" in rendered:
-        print(f"Perseus: strict mode — {rendered.count('⚠')} warning(s) in rendered output", file=sys.stderr)
+        n_warn = rendered.count("⚠")
+        print(f"Perseus: strict mode — {n_warn} warning(s) in rendered output", file=sys.stderr)
+        _render_run_failed(source_path, f"strict mode: {n_warn} warning(s) in rendered output")
         sys.exit(1)
 
     if output:

@@ -15,6 +15,23 @@ LEGACY_PYTHIA_HWM_KEY = LEGACY_PYTHIA_CONFIG_KEY + "_entries_processed"
 # the three sites can never silently drift apart again (see test_plugin.py).
 PLUGINS_ENABLED_DEFAULT = True
 
+
+# Repeated low-signal warnings (missing plugin/format manifest, memory-dedup
+# near-miss, ...) otherwise fire on every render and bury the one line an
+# operator actually needs — Perseus runs as a long-lived MCP server and as a
+# repeatedly-invoked render agent (#799/#800). Emit each distinct warning at
+# most once per process, keyed so genuinely different conditions still surface
+# (and so per-test tmp paths keep test isolation; see the conftest reset fixture).
+_WARNED_ONCE: set[str] = set()
+
+
+def _warn_once(key: str, msg: str) -> None:
+    """Write ``msg`` to stderr the first time ``key`` is seen this process."""
+    if key in _WARNED_ONCE:
+        return
+    _WARNED_ONCE.add(key)
+    sys.stderr.write(msg if msg.endswith("\n") else msg + "\n")
+
 DEFAULT_CONFIG = {
     "render": {
         "cache_dir": str(PERSEUS_HOME / "cache"),

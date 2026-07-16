@@ -120,6 +120,23 @@ LEGACY_PYTHIA_HWM_KEY = LEGACY_PYTHIA_CONFIG_KEY + "_entries_processed"
 # the three sites can never silently drift apart again (see test_plugin.py).
 PLUGINS_ENABLED_DEFAULT = True
 
+
+# Repeated low-signal warnings (missing plugin/format manifest, memory-dedup
+# near-miss, ...) otherwise fire on every render and bury the one line an
+# operator actually needs — Perseus runs as a long-lived MCP server and as a
+# repeatedly-invoked render agent (#799/#800). Emit each distinct warning at
+# most once per process, keyed so genuinely different conditions still surface
+# (and so per-test tmp paths keep test isolation; see the conftest reset fixture).
+_WARNED_ONCE: set[str] = set()
+
+
+def _warn_once(key: str, msg: str) -> None:
+    """Write ``msg`` to stderr the first time ``key`` is seen this process."""
+    if key in _WARNED_ONCE:
+        return
+    _WARNED_ONCE.add(key)
+    sys.stderr.write(msg if msg.endswith("\n") else msg + "\n")
+
 DEFAULT_CONFIG = {
     "render": {
         "cache_dir": str(PERSEUS_HOME / "cache"),
@@ -1681,11 +1698,13 @@ def _discover_plugins(cfg: dict) -> list["DirectiveSpec"]:
     manifest_path = plugins_dir / "MANIFEST.toml"
     allow_unsigned = plugins_cfg.get("allow_unsigned", False)
     if not allow_unsigned and not manifest_path.is_file():
-        print(
-            "Perseus plugin security: plugins dir exists but no MANIFEST.toml found.\n"
+        # #800: name the exact checked path so the operator can see the source,
+        # and warn at most once per process (this else fires on every render).
+        _warn_once(
+            f"plugin-manifest-missing:{manifest_path}",
+            f"Perseus plugin security: no MANIFEST.toml in plugins dir {plugins_dir}.\n"
             "  Set plugins.allow_unsigned: true to load plugins without a manifest, or\n"
-            "  create plugins/MANIFEST.toml with [plugins.<name>] hash entries.",
-            file=sys.stderr,
+            f"  create {manifest_path} with [plugins.<name>] hash entries.",
         )
         return []
 
@@ -1710,9 +1729,9 @@ def _discover_plugins(cfg: dict) -> list["DirectiveSpec"]:
                     if isinstance(entry, dict) and "hash" in entry:
                         manifest_hashes[name] = str(entry["hash"])
         except Exception as e:
-            print(
-                f"Perseus plugin security: failed to parse MANIFEST.toml: {e}",
-                file=sys.stderr,
+            _warn_once(
+                f"plugin-manifest-parse:{manifest_path}",
+                f"Perseus plugin security: failed to parse {manifest_path}: {e}",
             )
             return []
 
@@ -1783,11 +1802,12 @@ def _discover_formats(cfg: dict) -> dict[str, "Callable"]:
     manifest_path = formats_dir / "MANIFEST.toml"
     allow_unsigned = formats_cfg.get("allow_unsigned", False)
     if not allow_unsigned and not manifest_path.is_file():
-        print(
-            "Perseus format security: formats dir exists but no MANIFEST.toml found.\n"
+        # #800: name the exact checked path; warn at most once per process.
+        _warn_once(
+            f"format-manifest-missing:{manifest_path}",
+            f"Perseus format security: no MANIFEST.toml in formats dir {formats_dir}.\n"
             "  Set formats.allow_unsigned: true to load adapters without a manifest, or\n"
-            "  create formats/MANIFEST.toml with [formats.<name>] hash entries.",
-            file=sys.stderr,
+            f"  create {manifest_path} with [formats.<name>] hash entries.",
         )
         return {}
 
@@ -1813,9 +1833,9 @@ def _discover_formats(cfg: dict) -> dict[str, "Callable"]:
                     if isinstance(entry, dict) and "hash" in entry:
                         format_hashes[name] = str(entry["hash"])
         except Exception as e:
-            print(
-                f"Perseus format security: failed to parse MANIFEST.toml: {e}",
-                file=sys.stderr,
+            _warn_once(
+                f"format-manifest-parse:{manifest_path}",
+                f"Perseus format security: failed to parse {manifest_path}: {e}",
             )
             return {}
 
@@ -21716,11 +21736,14 @@ def _mneme_context_inject(
             return None
         loose = _MEMORY_SECTION_HEADER_LOOSE_RE.search(rendered)
         if loose:
-            print(
+            # #800: a stable user-authored heading re-triggers this near-miss on
+            # every render; warn once per distinct heading per process instead.
+            heading = loose.group(0).strip()
+            _warn_once(
+                f"memory-dedup:{heading}",
                 "[perseus] memory dedup (#627): heading "
-                f"{loose.group(0).strip()!r} looks memory-like but is not a "
+                f"{heading!r} looks memory-like but is not a "
                 "Perseus-generated section — injecting normally.",
-                file=sys.stderr,
             )
 
     # context_limit=0 means "inject nothing" — pointer AND dump. Use an
@@ -29192,6 +29215,20 @@ def _atomic_write_text(out_path: Path, text: str) -> None:
         raise
 
 
+def _render_run_failed(source, reason: str) -> None:
+    """Emit a structured, stamped per-run failure marker to stderr (#799).
+
+    A scheduled render agent routes stderr to a long-lived log that accumulates
+    historical warnings; a stamped ``render FAILED`` line with an explicit
+    reason lets an operator grep the *current* run's outcome instead of guessing
+    from a pile of old noise. Mirrors the success path, which already prints its
+    own stamped ``rendered ...`` line — both share the ``perseus <v>: render``
+    prefix, so one grep shows every run's status."""
+    ts = datetime.now().astimezone().isoformat(timespec="seconds")
+    sys.stderr.write(
+        f"perseus {_PERSEUS_VERSION}: render FAILED source={source} — {reason} at {ts}\n")
+
+
 def cmd_render(args, cfg):
     source_path = Path(args.source).expanduser().resolve()
     if not source_path.exists():
@@ -29201,6 +29238,7 @@ def cmd_render(args, cfg):
             print(f"Error: context file not found: {source_path}. Run `perseus init` to create it.", file=sys.stderr)
         else:
             print(f"Error: file not found: {source_path}", file=sys.stderr)
+        _render_run_failed(source_path, "source not found")
         sys.exit(1)
 
     workspace = _infer_workspace(source_path)
@@ -29260,7 +29298,9 @@ def cmd_render(args, cfg):
 
     strict = getattr(args, "strict", False)
     if strict and "⚠" in rendered:
-        print(f"Perseus: strict mode — {rendered.count('⚠')} warning(s) in rendered output", file=sys.stderr)
+        n_warn = rendered.count("⚠")
+        print(f"Perseus: strict mode — {n_warn} warning(s) in rendered output", file=sys.stderr)
+        _render_run_failed(source_path, f"strict mode: {n_warn} warning(s) in rendered output")
         sys.exit(1)
 
     if output:
