@@ -739,6 +739,14 @@ DEFAULT_CONFIG["plutus"] = {
     "workspace": None,        # default workspace tag (deployment/agent id); per-call override wins
     "task_type": "serving",   # default task_type tag; per-call override wins
     "fail_open": True,        # a metering error never fails the serving call (log-and-continue)
+    # #805 — savings-wire additions. meter_memory_posture (default OFF) records
+    # one estimate-arm reduction event per render: the memory block actually
+    # injected vs the dump the legacy `always` posture would have injected.
+    # Costs one vault call per render when on. Estimate-arm events land in
+    # estimates_workspace (never the real-spend workspace) so estimated context
+    # sizes can never contaminate provider-billed spend accounting.
+    "meter_memory_posture": False,
+    "estimates_workspace": "perseus-render-estimates",
 }
 
 
@@ -3967,6 +3975,7 @@ module (scripts/build.py) where every top-level name must be globally unique.
 """
 
 
+import inspect
 import os
 import sys
 import threading
@@ -4047,6 +4056,91 @@ def _mtr_get_meter(cfg: dict):
         return meter
 
 
+def _mtr_track_supports_baselines(meter) -> bool:
+    """True when the installed plutus-agent's ``Meter.track`` accepts the
+    savings-baseline kwargs (plutus #134, > 1.0.1).
+
+    Older plutus-agents meter spend fine but cannot carry a counterfactual;
+    passing the kwargs anyway would raise TypeError and (fail-open) drop the
+    WHOLE event — losing real spend data to gain nothing. So baselines are
+    forwarded only when supported, and silently dropped (with one warning)
+    otherwise: spend accounting must never regress to record a saving.
+    """
+    try:
+        return "baseline_input_tokens" in inspect.signature(meter.track).parameters
+    except (TypeError, ValueError):
+        return False
+
+
+def _mtr_baseline_kwargs(meter, baseline_cost_usd, baseline_model,
+                         baseline_input_tokens, baseline_output_tokens) -> dict:
+    """The baseline kwargs to forward, or {} when unsupported/absent (#805)."""
+    if (baseline_cost_usd is None and baseline_model is None
+            and baseline_input_tokens is None and baseline_output_tokens is None):
+        return {}
+    if not _mtr_track_supports_baselines(meter):
+        _mtr_warn_once(
+            "installed plutus-agent predates savings baselines (plutus #134); "
+            "spend is metered, counterfactuals are dropped — upgrade plutus-agent"
+        )
+        return {}
+    kw: dict = {}
+    if baseline_cost_usd is not None:
+        kw["baseline_cost_usd"] = baseline_cost_usd
+    if baseline_model is not None:
+        kw["baseline_model"] = baseline_model
+    if baseline_input_tokens is not None:
+        kw["baseline_input_tokens"] = int(baseline_input_tokens)
+    if baseline_output_tokens is not None:
+        kw["baseline_output_tokens"] = int(baseline_output_tokens)
+    return kw
+
+
+def _mtr_extract_usage(response: Any) -> Optional[dict]:
+    """Pull token counts out of a provider response, either SDK shape.
+
+    Returns {input, output, cache_read, reasoning} or None when the response
+    carries no usage block. Field names follow the provider conventions the
+    detector below sniffs (Anthropic input_tokens/output_tokens vs OpenAI
+    prompt_tokens/completion_tokens).
+    """
+    u = getattr(response, "usage", None)
+    if u is None and isinstance(response, dict):
+        u = response.get("usage")
+    if u is None:
+        return None
+    get = (u.get if isinstance(u, dict)
+           else lambda k, d=None: getattr(u, k, d))
+    if get("input_tokens") is not None:
+        return {"input": int(get("input_tokens") or 0),
+                "output": int(get("output_tokens") or 0),
+                "cache_read": int(get("cache_read_input_tokens") or 0),
+                "reasoning": 0}
+    if get("prompt_tokens") is not None:
+        details = get("completion_tokens_details")
+        dget = ((details.get if isinstance(details, dict)
+                 else lambda k, d=None: getattr(details, k, d))
+                if details is not None else (lambda k, d=None: None))
+        return {"input": int(get("prompt_tokens") or 0),
+                "output": int(get("completion_tokens") or 0),
+                "cache_read": 0,
+                "reasoning": int(dget("reasoning_tokens") or 0)}
+    return None
+
+
+def _mtr_count_tokens(text: str) -> tuple:
+    """(token_count, exact) for a text. tiktoken cl100k_base when installed
+    (exact=True), else the same word-count heuristic ``@tokens`` documents
+    (exact=False). Callers surface exactness via the event's ``source``.
+    """
+    try:
+        import tiktoken
+        enc = tiktoken.get_encoding("cl100k_base")
+        return len(enc.encode(text or "")), True
+    except Exception:
+        return int(len((text or "").split()) * 1.3), False
+
+
 def _mtr_detect_provider(response: Any) -> Optional[str]:
     """Infer the provider from the shape of ``response.usage``.
 
@@ -4070,7 +4164,11 @@ def _mtr_detect_provider(response: Any) -> Optional[str]:
 
 def meter_response(cfg: dict, response: Any, *, provider: Optional[str] = None,
                    model: Optional[str] = None, task_type: Optional[str] = None,
-                   workspace: Optional[str] = None):
+                   workspace: Optional[str] = None,
+                   baseline_cost_usd: Optional[float] = None,
+                   baseline_model: Optional[str] = None,
+                   baseline_input_tokens: Optional[int] = None,
+                   baseline_output_tokens: Optional[int] = None):
     """Meter one provider response into the configured Plutus ledger.
 
     ``response`` is the object a provider SDK returned (or a dict with a
@@ -4078,6 +4176,14 @@ def meter_response(cfg: dict, response: Any, *, provider: Optional[str] = None,
     given. ``task_type`` / ``workspace`` default to the ``plutus`` config block.
     Returns the ``MeterResult`` on success, or ``None`` when metering is off or
     the event was dropped. Never raises when ``fail_open`` (the default).
+
+    Savings baselines (#805): pass what this call would have cost WITHOUT
+    Perseus — ``baseline_input_tokens``/``baseline_output_tokens`` (the
+    counterfactual token counts, e.g. the full-context prompt a recall
+    replaced; priced by Plutus from its published table), ``baseline_model``
+    (same tokens at another model = substitution savings), or an explicit
+    ``baseline_cost_usd``. Requires plutus-agent with plutus#134; an older
+    plutus-agent still meters spend and drops the baseline with one warning.
     """
     global _MTR_DROPPED
     meter = _mtr_get_meter(cfg)
@@ -4090,16 +4196,34 @@ def meter_response(cfg: dict, response: Any, *, provider: Optional[str] = None,
     provider = (provider or _mtr_detect_provider(response) or "").strip().lower()
 
     try:
-        from plutus_agent.integrations import track_anthropic, track_openai
-        if provider == "anthropic":
-            res = track_anthropic(meter, response, model=model,
-                                  task_type=task_type, workspace=workspace)
+        bl = _mtr_baseline_kwargs(meter, baseline_cost_usd, baseline_model,
+                                  baseline_input_tokens, baseline_output_tokens)
+        if bl:
+            # The adapter signatures predate baselines, so a baseline-carrying
+            # response is metered through Meter.track directly from its usage
+            # block — same counts the adapters would read.
+            usage = _mtr_extract_usage(response)
+            if usage is None:
+                raise ValueError("response has no usage block to meter")
+            res = meter.track(
+                provider=provider or "openai",
+                model=model or getattr(response, "model", None),
+                task_type=task_type, workspace=workspace,
+                input_tokens=usage["input"], output_tokens=usage["output"],
+                cache_read_tokens=usage["cache_read"],
+                reasoning_tokens=usage["reasoning"],
+                source="perseus", **bl)
         else:
-            # OpenAI-compatible response shape (the common case); also the
-            # fallback for an empty/unknown provider — track_openai reads the
-            # standard ``usage`` block and records whatever tokens are present.
-            res = track_openai(meter, response, model=model,
-                               task_type=task_type, workspace=workspace)
+            from plutus_agent.integrations import track_anthropic, track_openai
+            if provider == "anthropic":
+                res = track_anthropic(meter, response, model=model,
+                                      task_type=task_type, workspace=workspace)
+            else:
+                # OpenAI-compatible response shape (the common case); also the
+                # fallback for an empty/unknown provider — track_openai reads the
+                # standard ``usage`` block and records whatever tokens are present.
+                res = track_openai(meter, response, model=model,
+                                   task_type=task_type, workspace=workspace)
         if res is not None and not getattr(res, "recorded", True):
             _MTR_DROPPED += 1
             return None
@@ -4117,12 +4241,17 @@ def meter_usage(cfg: dict, provider: str, *, model: Optional[str] = None,
                 cache_read_tokens: int = 0, reasoning_tokens: int = 0,
                 cost_usd: Optional[float] = None,
                 task_type: Optional[str] = None,
-                workspace: Optional[str] = None, source: str = "perseus"):
+                workspace: Optional[str] = None, source: str = "perseus",
+                baseline_cost_usd: Optional[float] = None,
+                baseline_model: Optional[str] = None,
+                baseline_input_tokens: Optional[int] = None,
+                baseline_output_tokens: Optional[int] = None):
     """Meter a call from raw, already-extracted token counts.
 
     For paths without a provider response object (a proxy that only sees usage
     numbers, or a caller passing an authoritative ``cost_usd``). Same opt-in /
-    fail-open / drop-counting contract as :func:`meter_response`.
+    fail-open / drop-counting contract as :func:`meter_response`, including the
+    #805 baseline kwargs (see there).
     """
     global _MTR_DROPPED
     meter = _mtr_get_meter(cfg)
@@ -4130,13 +4259,15 @@ def meter_usage(cfg: dict, provider: str, *, model: Optional[str] = None,
         return None
     p = _mtr_cfg(cfg)
     try:
+        bl = _mtr_baseline_kwargs(meter, baseline_cost_usd, baseline_model,
+                                  baseline_input_tokens, baseline_output_tokens)
         res = meter.track(
             provider=provider, model=model,
             task_type=task_type or p.get("task_type") or "serving",
             workspace=workspace or p.get("workspace"),
             input_tokens=input_tokens, output_tokens=output_tokens,
             cache_read_tokens=cache_read_tokens, reasoning_tokens=reasoning_tokens,
-            cost_usd=cost_usd, source=source)
+            cost_usd=cost_usd, source=source, **bl)
         if res is not None and not getattr(res, "recorded", True):
             _MTR_DROPPED += 1
             return None
@@ -4147,6 +4278,61 @@ def meter_usage(cfg: dict, provider: str, *, model: Optional[str] = None,
             raise
         _mtr_warn_once(f"usage event dropped ({exc})")
         return None
+
+
+def meter_context_reduction(cfg: dict, *, actual_text: Optional[str] = None,
+                            actual_tokens: Optional[int] = None,
+                            baseline_text: Optional[str] = None,
+                            baseline_tokens: Optional[int] = None,
+                            model: Optional[str] = None,
+                            provider: str = "openai",
+                            task_type: str = "context-reduction",
+                            workspace: Optional[str] = None):
+    """Record one ESTIMATE-arm token-reduction event (#805).
+
+    ``actual_*`` is the context Perseus actually produced; ``baseline_*`` is the
+    counterfactual it replaced (the full dump / untrimmed assembly). Texts are
+    token-counted with tiktoken when installed (exact) or the documented
+    word-count heuristic otherwise; the event's ``source`` records which
+    (``estimate-exact`` vs ``estimate-heuristic``) so a heuristic count can
+    never masquerade as a tokenizer count.
+
+    IMPORTANT ledger semantics: this event is an ESTIMATE of context size, not
+    a provider-billed call, so it is metered into a DEDICATED workspace
+    (``plutus.estimates_workspace``, default ``perseus-render-estimates``) and
+    never mixed into the real-spend workspace. Real provable savings for
+    billing should instead attach ``baseline_input_tokens`` to the REAL
+    provider-billed event via :func:`meter_response` — this helper exists so a
+    deployment can see its reduction ratio before wiring that up.
+
+    Returns the MeterResult, or None (metering off / nothing to record /
+    dropped). Never raises when ``fail_open``.
+    """
+    if not metering_enabled(cfg):
+        return None
+    if actual_tokens is None:
+        if actual_text is None:
+            return None
+        actual_tokens, a_exact = _mtr_count_tokens(actual_text)
+    else:
+        a_exact = True
+    if baseline_tokens is None:
+        if baseline_text is None:
+            return None
+        baseline_tokens, b_exact = _mtr_count_tokens(baseline_text)
+    else:
+        b_exact = True
+    if int(baseline_tokens) <= 0:
+        return None  # no counterfactual, nothing provable to record
+    p = _mtr_cfg(cfg)
+    ws = workspace or p.get("estimates_workspace") or "perseus-render-estimates"
+    source = "estimate-exact" if (a_exact and b_exact) else "estimate-heuristic"
+    return meter_usage(
+        cfg, provider, model=model,
+        input_tokens=int(actual_tokens), output_tokens=0,
+        task_type=task_type, workspace=ws, source=source,
+        baseline_input_tokens=int(baseline_tokens), baseline_output_tokens=0,
+        baseline_model=None)
 
 
 def _mtr_reset_for_tests() -> None:
@@ -21686,6 +21872,80 @@ def _memory_degraded_block(connector, reason: str | None = None) -> str | None:
     )
 
 
+def _measure_always_dump(connector, mcfg: dict, limit: int, ws_hash) -> str | None:
+    """Measurement-only mirror of the legacy ``always``-posture fetch (#805).
+
+    Returns the markdown block the ``always`` posture WOULD inject right now
+    (same header + advisory framing), or None. Used exclusively by
+    :func:`_maybe_meter_posture_reduction` to size the counterfactual; the real
+    ``always`` path below keeps its own fetch (with degradation semantics this
+    measurement path deliberately does not need — an unreachable vault here
+    simply means no counterfactual is recorded).
+    """
+    try:
+        categories = mcfg.get("context_categories") or []
+        try:
+            hot_md = connector.context(categories=categories, limit=limit)
+        except Exception:
+            hot_md = None
+        if isinstance(hot_md, str):
+            hot_body = _mneme_hot_block(hot_md)
+            if hot_body:
+                return (PERSISTENT_MEMORY_HEADER + "\n\n"
+                        + _MEMORY_DUMP_ADVISORY + "\n" + hot_body)
+        segment = connector.recall(query="", max_results=limit,
+                                   workspace_hash=ws_hash)
+        if not segment or not getattr(segment, "items", None):
+            return None
+        body = segment.as_markdown
+        if not body or body.strip() == "_(no persistent memories found)_":
+            return None
+        return (PERSISTENT_MEMORY_HEADER + "\n\n"
+                + _MEMORY_DUMP_ADVISORY + "\n" + body)
+    except Exception:
+        return None
+
+
+def _maybe_meter_posture_reduction(cfg: dict, actual_block: str | None,
+                                   mcfg: dict, limit: int, workspace) -> None:
+    """#805: opt-in counterfactual metering for the recall-first posture.
+
+    When ``plutus.meter_memory_posture`` is true AND metering is enabled, size
+    the memory block the legacy ``always`` posture would have injected and
+    record one estimate-arm reduction event (actual injected block vs that
+    dump) via :func:`perseus.metering.meter_context_reduction`. This is what
+    turns on ``covered_events`` in a production ledger without any host-agent
+    code. Costs one vault call per render, which is why it is OFF by default.
+
+    Fails open in every path: metering must never break or slow a render
+    beyond the documented vault call.
+    """
+    try:
+        p = cfg.get("plutus") if isinstance(cfg, dict) else None
+        p = p if isinstance(p, dict) else {}
+        if not p.get("meter_memory_posture"):
+            return
+        if not metering_enabled(cfg):
+            return
+        connector = _get_connector(cfg)
+        if not connector.available:
+            return
+        ws_hash = None
+        if workspace is not None and mcfg.get("workspace_scope", True):
+            try:
+                ws_hash = _workspace_hash(Path(workspace))
+            except Exception:
+                ws_hash = None
+        dump = _measure_always_dump(connector, mcfg, limit, ws_hash)
+        if not dump:
+            return
+        meter_context_reduction(cfg, actual_text=actual_block or "",
+                                baseline_text=dump,
+                                task_type="memory-posture")
+    except Exception:
+        pass
+
+
 def _mneme_context_inject(
     cfg: dict,
     rendered: str = "",
@@ -21779,7 +22039,9 @@ def _mneme_context_inject(
         )
 
     if posture == "on_demand":
-        return _memory_pointer_block(profile_name, profile, startup=startup)
+        block = _memory_pointer_block(profile_name, profile, startup=startup)
+        _maybe_meter_posture_reduction(cfg, block, mcfg, limit, workspace)
+        return block
 
     try:
         connector = _get_connector(cfg)
@@ -21819,13 +22081,18 @@ def _mneme_context_inject(
             segment = connector.recall_when(context=context_str, limit=limit)
             if segment is not None and not segment.error:
                 if not segment.items:
-                    return None  # vault reachable, no triggers matched → no dump
-                return (
+                    # vault reachable, no triggers matched → no dump. #805: an
+                    # empty injection vs the always-dump is still a reduction.
+                    _maybe_meter_posture_reduction(cfg, "", mcfg, limit, workspace)
+                    return None
+                block = (
                     PERSISTENT_MEMORY_HEADER + "\n\n"
                     + _MEMORY_DUMP_ADVISORY
                     + "\n"
                     + segment.as_markdown
                 )
+                _maybe_meter_posture_reduction(cfg, block, mcfg, limit, workspace)
+                return block
             # recall_when unavailable on this server (older vault) — degrade
             # gracefully to the legacy hot-entity path below.
 
