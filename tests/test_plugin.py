@@ -408,3 +408,35 @@ REGISTER = {
     # Should not crash — render continues with an error in output
     out = perseus.render_source("@perseus v0.5\n@broken", c, None)
     assert "error" in out.lower() or "exploded" in out
+
+
+# ── Test: diagnostic-noise fixes (#799/#800) ────────────────────────────────
+
+def test_warn_once_emits_once(capsys):
+    """_warn_once emits per key once per process; distinct keys still surface."""
+    perseus._WARNED_ONCE.clear()
+    perseus._warn_once("k1", "first")
+    perseus._warn_once("k1", "first-again")  # same key → suppressed
+    perseus._warn_once("k2", "second")       # new key → emitted
+    err = capsys.readouterr().err
+    assert err.count("first") == 1
+    assert "first-again" not in err
+    assert "second" in err
+
+
+def test_plugin_manifest_missing_names_path(monkeypatch, tmp_path, capsys):
+    """#800: the missing-manifest warning names the exact checked path so the
+    operator can see its source, instead of a generic 'plugins dir exists'."""
+    home = tmp_path / ".perseus"
+    plugins_dir = home / "plugins"
+    plugins_dir.mkdir(parents=True)
+    monkeypatch.setattr(perseus, "PERSEUS_HOME", home)
+    (plugins_dir / "p.py").write_text("REGISTER = {}\n", encoding="utf-8")  # no MANIFEST.toml
+    c = cfg()
+    c["plugins"]["dir"] = str(plugins_dir)  # DEFAULT_CONFIG froze the default at import
+    c["plugins"]["allow_unsigned"] = False
+    specs = perseus._discover_plugins(c)
+    err = capsys.readouterr().err
+    assert specs == []
+    assert str(plugins_dir) in err          # exact checked path is named
+    assert "no MANIFEST.toml" in err
