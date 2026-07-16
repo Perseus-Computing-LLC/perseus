@@ -1,0 +1,17 @@
+# One realistic developer ask per line. Lines starting with # are comments.
+# These are counted identically in both arms; they exist so the measured
+# request is a full request, not a bare context blob.
+Where is the @include size cap enforced, and what is the default limit?
+What changed in the most recent release?
+Which directives are gated behind PERSEUS_ALLOW_DANGEROUS and why?
+How do I keep CLAUDE.md fresh automatically between sessions?
+What does mode=reference do on an @include, and when should I use it?
+Is there anything in the unreleased changelog section I should know before cutting a release?
+How does the since= window on @include decide which sections of a log to keep?
+What is the default context tier, and how do I render a smaller context?
+Where do I report a security issue for this project?
+What are the contribution rules for opening a pull request here?
+How does the render cache decide when a cached directive result is stale?
+What is on the roadmap right now that touches the renderer?
+How do I initialize the project narrative, and where is it stored?
+What is the support policy for old versions?
