@@ -106,5 +106,42 @@ def test_doctor_freshness_no_outputs(tmp_path):
     assert "no rendered outputs" in r.value
 
 
+def test_doctor_freshness_names_exact_path(tmp_path):
+    # #798: the warning must name the exact file, not a bare "AGENTS.md", so a
+    # multi-AGENTS setup doesn't send the operator to audit the wrong one.
+    ws = tmp_path / "sam"
+    ws.mkdir()
+    (ws / "AGENTS.md").write_text(
+        _gen_header(datetime.now(timezone.utc) - timedelta(days=10)), encoding="utf-8")
+    r = perseus._doctor_check_render_freshness(cfg(), ws)
+    assert r.status == "warn"
+    # The distinctive parent dir is present in both summary and remediation,
+    # i.e. the full path is shown rather than the ambiguous basename alone.
+    assert "sam" in r.value
+    assert "sam" in r.remediation
+    # Remediation points operators at the two things that actually resolve it.
+    assert "staleness_watch" in r.remediation
+    assert "startup-memory route" in r.remediation
+
+
+def test_doctor_freshness_flags_watched_out_of_workspace_target(tmp_path):
+    # A fresh workspace AGENTS.md but a stale startup target rendered OUTSIDE the
+    # workspace (the #798 shape): a staleness_watch entry points at the real
+    # target, and the warning names that exact out-of-workspace path.
+    ws = tmp_path / "sam"
+    ws.mkdir()
+    (ws / "AGENTS.md").write_text(
+        _gen_header(datetime.now(timezone.utc)), encoding="utf-8")  # fresh
+    target = tmp_path / "rovo" / "AGENTS.md"
+    target.parent.mkdir()
+    target.write_text(
+        _gen_header(datetime.now(timezone.utc) - timedelta(days=10)), encoding="utf-8")
+    c = cfg()
+    c["render"]["staleness_watch"] = [str(target)]
+    r = perseus._doctor_check_render_freshness(c, ws)
+    assert r.status == "warn"
+    assert "rovo" in r.remediation  # the stale out-of-workspace target is named
+
+
 def test_doctor_freshness_registered():
     assert perseus._doctor_check_render_freshness in perseus._DOCTOR_CHECKS
