@@ -26,6 +26,11 @@ PUBLIC_SURFACES = [
     "cloud/index.html",
     "demo/index.html",
     "manifest.json",
+    # #803: pages that carried retired figures but were not swept before.
+    "government/capability-statement.html",
+    "readme-preview/index.html",
+    "harness/index.html",
+    "bench/index.html",
 ]
 
 
@@ -69,6 +74,26 @@ FORBIDDEN_TOKENS = [
     ("301×", None),                                   # unbacked vs-LLM speedup
     ("301x", None),                                   # unbacked vs-LLM speedup (ASCII)
     ("1.0.13", "manifest.json"),                      # stale manifest version
+    # #803: retired synthetic-harness headline and its satellite figures. The
+    # harness gave State A a hard-coded +250 token penalty and counted only the
+    # compiled context for State B, so none of these may reappear until the
+    # honest re-run in #804 produces a new artifact.
+    ("94%", None),
+    ("488 → 27", None),
+    ("488->27", None),
+    ("0 ms P99", None),
+    ("0ms P99", None),
+    ("0 ms overhead", None),
+    ("0ms overhead", None),
+    ("0 ms added", None),
+    ("200-request", None),
+    # #803: best-single-block figure; the artifact's own headline is 611x avg.
+    ("1,190", None),
+    # #803: no artifact anywhere for the bulk-insert rate (perseus-vault#702).
+    ("98,732", None),
+    # #803: hard-coded tooltrim marketing range, removed from the connector.
+    ("70–93%", None),
+    ("70-93%", None),
 ]
 
 
