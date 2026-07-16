@@ -1,7 +1,7 @@
 {
   "_meta": {
     "description": "Canonical claim registry for Perseus Computing public surfaces. Every public figure derives from here. When a benchmark re-runs, update THIS file only; scripts/render_claims.py regenerates manifest strings and tests/test_claims_sync.py fails CI if any surface drifts.",
-    "updated": "2026-07-14"
+    "updated": "2026-07-15"
   },
   "claims": {
     "perseus_version": {"value": "1.0.23", "source": "VERSION", "status": "release", "publishable": true},
@@ -24,6 +24,10 @@
     "mi300x_dollar_per_agent_hr": {"value": "11.7x", "detail": "$0.143 vs $1.68/agent-hr (2xH100); hardware economics, NOT a customer cost-savings claim", "source": "perseus-vault/PERF.md #530 + docs/deployment-amd-mi300x.md", "status": "committed-unsigned", "label": "measured", "publishable": true},
     "mi300x_recall_under_load": {"value": "+/-0.6%", "source": "perseus-vault/PERF.md #530", "status": "committed-unsigned", "label": "measured", "publishable": true},
     "temporal_correctness": {"value": "13/13", "source": "perseus-vault/benchmark/temporal/gauntlet_report.json", "status": "signed", "label": "measured", "publishable": true},
+    "beam_correctness": {"value": "13/13", "detail": "100% gauntlet correctness at every BEAM token tier (128K/500K/1M/10M); the embedded bi-temporal gauntlet reused verbatim, offline, lean FTS5 + bi-temporal binary", "source": "perseus-vault/benchmark/beam/report.json (vault #685/#697; committed via PR #691)", "signature_sha256": "2c1e38ab18aad935089acad0bf2ccc750a7f627d59865dcad4a5ec2daff5f077", "status": "signed", "label": "measured", "publishable": true},
+    "beam_determinism": {"value": "deterministic=true", "detail": "two independent runs produce an identical PASS/FAIL signature at every tier (128K/500K/1M/10M)", "source": "perseus-vault/benchmark/beam/report.json", "signature_sha256": "2c1e38ab18aad935089acad0bf2ccc750a7f627d59865dcad4a5ec2daff5f077", "status": "signed", "label": "measured", "publishable": true},
+    "beam_as_of_p50_10m": {"value": "23.07 ms", "detail": "point-lookup as_of p50 at the 10M-token tier; stays flat from 128K (22.08 ms) to 10M (23.07 ms), 40 samples/tier", "source": "perseus-vault/benchmark/beam/report.json", "signature_sha256": "2c1e38ab18aad935089acad0bf2ccc750a7f627d59865dcad4a5ec2daff5f077", "status": "signed", "label": "measured", "publishable": true},
+    "beam_scale_10m": {"value": "10M", "detail": "top tier = 153,846 filler entities, ~10.1M tokens (10,115,374), 332.43s populate; Linux/Unraid", "source": "perseus-vault/benchmark/beam/report.json", "signature_sha256": "2c1e38ab18aad935089acad0bf2ccc750a7f627d59865dcad4a5ec2daff5f077", "status": "signed", "label": "measured", "publishable": true},
     "cost_savings_pct": {"value": "75.14%", "detail": "fewer dollars at +11.7 pts accuracy; Baseline-A (full-context) UPPER BOUND, n=60 stratified, rate-invariant; per-type gate (knowledge-update regressed)", "source": "benchmark/cost_savings/results/cost_savings_stratified_2026-07-11.json", "status": "signed", "label": "illustrative-baseline-A", "publishable": false, "note": "Owner decision 2026-07-14: keep behind the illustrative calculator / signed cert context; do NOT publish as a marketing headline."},
     "binary_size": {"value": null, "status": "unbacked", "publishable": false, "note": "No size-measurement artifact; README ~8MB and legacy 3.7MB both unbacked. Do not publish a hard size."},
     "vs_llm_speedup_301x": {"value": null, "status": "unbacked", "publishable": false, "note": "extreme_week_results.json absent from main. Do not publish until an artifact is committed."},
