@@ -4,16 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Perseus context engine · every session starts already oriented</title>
-<meta name="description" content="Perseus resolves your workspace (git, services, tests, tasks) into verified facts before the context window opens. 94% fewer prompt tokens, 0 ms overhead, 33 MCP tools. Local-first, MIT.">
+<meta name="description" content="Perseus resolves your workspace (git, services, tests, tasks) into verified facts before the context window opens. 611x warmer renders, a 67% smaller tool schema, 33 MCP tools. Local-first, MIT.">
 <link rel="canonical" href="https://perseus.observer/context-engine/">
 <meta property="og:type" content="website">
 <meta property="og:title" content="Perseus context engine · every session starts already oriented">
-<meta property="og:description" content="Resolves workspace state into verified facts before the context window opens. 94% fewer prompt tokens, 0 ms overhead. Local-first, MIT.">
+<meta property="og:description" content="Resolves workspace state into verified facts before the context window opens. 611x warmer renders, 67% smaller tool schema. Local-first, MIT.">
 <meta property="og:url" content="https://perseus.observer/context-engine/">
 <meta property="og:image" content="https://perseus.observer/assets/og/perseus.png">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Perseus context engine · every session starts already oriented">
-<meta name="twitter:description" content="Resolves workspace state into verified facts before the context window opens. 94% fewer prompt tokens, 0 ms overhead. Local-first, MIT.">
+<meta name="twitter:description" content="Resolves workspace state into verified facts before the context window opens. 611x warmer renders, 67% smaller tool schema. Local-first, MIT.">
 <meta name="twitter:image" content="https://perseus.observer/assets/og/perseus.png">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/assets/fonts.css">
@@ -63,8 +63,8 @@ h1,h2,h3,h4 { margin:0; font-weight:600; letter-spacing:-0.01em; }
     <h1 style="font-size:52px;line-height:1.05;letter-spacing:-0.03em;font-weight:700;max-width:840px;margin:0 auto 20px;">Every session starts already oriented.</h1>
     <p style="font-size:19px;line-height:1.5;color:#b9c0ca;max-width:680px;margin:0 auto 32px;">Perseus resolves your workspace (git, services, tests, tasks) into verified facts before the context window opens. Your agent reads what's true, not instructions to go find out. Fewer tokens, no cold-start tax.</p>
     <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-bottom:34px;">
-      <span style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#a78bfa;border:1px solid #2c2740;background:rgba(167,139,250,0.06);border-radius:999px;padding:7px 14px;">94% fewer prompt tokens</span>
-      <span style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#a78bfa;border:1px solid #2c2740;background:rgba(167,139,250,0.06);border-radius:999px;padding:7px 14px;">0 ms P99 overhead</span>
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#a78bfa;border:1px solid #2c2740;background:rgba(167,139,250,0.06);border-radius:999px;padding:7px 14px;">67% smaller tool schema</span>
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#a78bfa;border:1px solid #2c2740;background:rgba(167,139,250,0.06);border-radius:999px;padding:7px 14px;">611&times; warm-cache renders</span>
       <span style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#a78bfa;border:1px solid #2c2740;background:rgba(167,139,250,0.06);border-radius:999px;padding:7px 14px;">33 MCP tools</span>
       <span style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#3fb37f;border:1px solid #21402f;background:rgba(63,179,127,0.06);border-radius:999px;padding:7px 14px;">MIT · local-first</span>
     </div>
@@ -110,9 +110,9 @@ h1,h2,h3,h4 { margin:0; font-weight:600; letter-spacing:-0.01em; }
   <div style="max-width:1080px;margin:0 auto;">
     <div class="grid-3" style="display:grid;grid-template-columns:repeat(3,1fr);gap:20px;">
       <div style="background:#14161c;border:1px solid #262a33;border-radius:14px;padding:28px;">
-        <div style="font-family:'IBM Plex Mono',monospace;font-size:26px;color:#a78bfa;margin-bottom:12px;">94%</div>
-        <h3 style="font-size:18px;margin-bottom:9px;">Fewer tokens on every call</h3>
-        <p style="font-size:14px;color:#a2a9b4;">A resolved document is a fraction of the size of "go check these ten things." Average prompt fell from 488 to 27 tokens in a 200-request A/B, with 0 ms added latency.</p>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:26px;color:#a78bfa;margin-bottom:12px;">611&times;</div>
+        <h3 style="font-size:18px;margin-bottom:9px;">Warm renders, measured</h3>
+        <p style="font-size:14px;color:#a2a9b4;">A resolved document is a fraction of the size of "go check these ten things." On the Perseus repo itself, 22,528 varied directives rendered in 1.014s warm vs 619.1s cold.</p>
       </div>
       <div style="background:#14161c;border:1px solid #262a33;border-radius:14px;padding:28px;">
         <div style="font-family:'IBM Plex Mono',monospace;font-size:26px;color:#a78bfa;margin-bottom:12px;">0</div>
@@ -154,8 +154,8 @@ h1,h2,h3,h4 { margin:0; font-weight:600; letter-spacing:-0.01em; }
       <p style="font-size:13px;color:#9aa2ad;max-width:460px;">Named methodology and rerunnable scripts in the repo.</p>
     </div>
     <div class="grid-4" style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;">
-      <a href="https://github.com/Perseus-Computing-LLC/perseus/tree/main/benchmark" style="background:#101216;border:1px solid #262a33;border-radius:12px;padding:20px 18px;display:block;"><div style="font-family:'IBM Plex Mono',monospace;font-size:24px;color:#a78bfa;">94%</div><div style="font-size:12px;color:#9aa2ad;margin-top:6px;line-height:1.4;">token cut<br>488→27, 200-req A/B</div></a>
-      <a href="https://github.com/Perseus-Computing-LLC/perseus/blob/main/benchmark/real_deltas.json" style="background:#101216;border:1px solid #262a33;border-radius:12px;padding:20px 18px;display:block;"><div style="font-family:'IBM Plex Mono',monospace;font-size:24px;color:#a78bfa;">1,190×</div><div style="font-size:12px;color:#9aa2ad;margin-top:6px;line-height:1.4;">cold→warm<br>render gap</div></a>
+      <a href="https://github.com/Perseus-Computing-LLC/perseus/blob/main/benchmark/real_deltas.json" style="background:#101216;border:1px solid #262a33;border-radius:12px;padding:20px 18px;display:block;"><div style="font-family:'IBM Plex Mono',monospace;font-size:24px;color:#a78bfa;">611&times;</div><div style="font-size:12px;color:#9aa2ad;margin-top:6px;line-height:1.4;">cold→warm cache<br>22,528 directives</div></a>
+      <a href="https://github.com/Perseus-Computing-LLC/perseus/blob/main/benchmark/ultimate_suite_results.json" style="background:#101216;border:1px solid #262a33;border-radius:12px;padding:20px 18px;display:block;"><div style="font-family:'IBM Plex Mono',monospace;font-size:24px;color:#a78bfa;">1.0</div><div style="font-size:12px;color:#9aa2ad;margin-top:6px;line-height:1.4;">semantic equivalence<br>20/20 A/B pairs</div></a>
       <a href="https://github.com/Perseus-Computing-LLC/perseus/tree/main/benchmark/gauntlet/v2" style="background:#101216;border:1px solid #262a33;border-radius:12px;padding:20px 18px;display:block;"><div style="font-family:'IBM Plex Mono',monospace;font-size:24px;color:#a78bfa;">100/100</div><div style="font-size:12px;color:#9aa2ad;margin-top:6px;line-height:1.4;">Gauntlet v2<br>16/16 hard gates</div></a>
       <a href="https://github.com/Perseus-Computing-LLC/perseus" style="background:#101216;border:1px solid #262a33;border-radius:12px;padding:20px 18px;display:block;"><div style="font-family:'IBM Plex Mono',monospace;font-size:24px;color:#a78bfa;">1.0</div><div style="font-size:12px;color:#9aa2ad;margin-top:6px;line-height:1.4;">semantic equiv.<br>20/20 A/B pairs</div></a>
     </div>
