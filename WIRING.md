@@ -321,3 +321,48 @@ perseus render .perseus/context.md --explain
 # Permission posture
 perseus trust
 ```
+
+## 9. Savings Wire — Metering Spend and Provable Savings into Plutus
+
+Perseus observes; it never brokers your LLM calls. The `plutus:` config block
+(default off) lets a deployment record real usage, and the counterfactual it
+replaced, into a [Plutus](https://github.com/Perseus-Computing-LLC/plutus)
+ledger whose totals a customer can re-derive by raw SQL.
+
+```yaml
+# .perseus/config.yaml
+plutus:
+  enabled: true
+  db_path: ~/.plutus/perseus-ledger.db   # or endpoint: https://plutus.example
+  org: my-org
+  workspace: prod-agent
+```
+
+Three levels of wiring, from zero-code to billing-grade:
+
+1. **Spend only.** After each provider call, hand the SDK response to the
+   meter: `perseus.meter_response(cfg, response)`. Tokens and cost land in the
+   ledger, tagged workspace and task_type.
+
+2. **Provable savings on real calls (billing-grade).** If you know what the
+   call would have cost without Perseus, attach the counterfactual to the same
+   event: `perseus.meter_response(cfg, response, baseline_input_tokens=N)`
+   where N is the token count of the context you would have sent (for
+   example, the full-context prompt a Vault recall replaced). Plutus prices
+   the counterfactual from its published table, floors the actual at list
+   price, and hash-chains both, so the per-event saving is reconstructable
+   and tamper-evident (plutus #134). Requires plutus-agent > 1.0.1; an older
+   plutus-agent still meters spend and drops the baseline with one warning.
+
+3. **Zero-code reduction estimates.** `plutus.meter_memory_posture: true`
+   records one estimate-arm event per render: the memory block Perseus
+   actually injected versus the dump the legacy `always` posture would have
+   injected. These land in a dedicated workspace
+   (`plutus.estimates_workspace`, default `perseus-render-estimates`) and are
+   labeled `estimate-exact` (tiktoken installed) or `estimate-heuristic`, so
+   estimated context sizes never contaminate provider-billed spend. Costs one
+   vault call per render. There is also a direct helper for custom wiring:
+   `perseus.meter_context_reduction(cfg, actual_text=..., baseline_text=...)`.
+
+Estimates are for visibility; bills come from level 2. Never quote an
+estimate-arm figure as a measured saving.
