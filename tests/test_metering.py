@@ -163,3 +163,105 @@ def test_fail_closed_raises_when_configured(tmp_path):
                                      completion_tokens_details=None))
     with pytest.raises(Exception):
         perseus.meter_response(cfg, bad)
+
+
+# ── #805: savings baselines through the bridge ────────────────────────────────
+
+def _baselines_supported():
+    import inspect as _inspect
+    from plutus_agent import Meter
+    return "baseline_input_tokens" in _inspect.signature(Meter.track).parameters
+
+
+needs_baselines = pytest.mark.skipif(
+    not _baselines_supported(),
+    reason="installed plutus-agent predates savings baselines (plutus #134)")
+
+
+@needs_baselines
+def test_meter_usage_carries_token_reduction_baseline(tmp_path):
+    ledger = tmp_path / "l.db"
+    cfg = _enabled_cfg(ledger)
+    res = perseus.meter_usage(
+        cfg, "anthropic", model="claude-opus-4-8",
+        input_tokens=100_000, output_tokens=10_000, task_type="serving",
+        baseline_input_tokens=1_000_000, baseline_output_tokens=10_000)
+    assert res.recorded
+    assert res.savings_usd > 0
+    con = sqlite3.connect(str(ledger))
+    try:
+        bl = con.execute(
+            "SELECT baseline_micros FROM usage_events").fetchone()[0]
+        assert bl is not None and bl > 0
+    finally:
+        con.close()
+
+
+@needs_baselines
+def test_meter_response_carries_baseline(tmp_path):
+    ledger = tmp_path / "l.db"
+    cfg = _enabled_cfg(ledger)
+    res = perseus.meter_response(
+        cfg, _openai_resp(prompt=25_000, completion=500),
+        baseline_input_tokens=100_000)
+    assert res.recorded
+    assert res.savings_usd > 0
+    assert perseus.metering_dropped_events() == 0
+
+
+@needs_baselines
+def test_context_reduction_lands_in_estimates_workspace(tmp_path):
+    ledger = tmp_path / "l.db"
+    cfg = _enabled_cfg(ledger)
+    res = perseus.meter_context_reduction(
+        cfg,
+        actual_text="short pointer block " * 10,
+        baseline_text="the full memory dump this replaced " * 400)
+    assert res is not None and res.recorded
+    assert res.savings_usd >= 0
+    con = sqlite3.connect(str(ledger))
+    try:
+        src, tt, ws, bl = con.execute(
+            "SELECT e.source, e.task_type, w.name, e.baseline_micros "
+            "FROM usage_events e LEFT JOIN workspaces w ON w.id=e.workspace_id"
+        ).fetchone()
+        # estimate-arm events never land in the real-spend workspace, and the
+        # source records whether the count was tokenizer-exact or heuristic.
+        assert ws == "perseus-render-estimates"
+        assert src in ("estimate-exact", "estimate-heuristic")
+        assert tt == "context-reduction"
+        assert bl is not None and bl > 0
+    finally:
+        con.close()
+
+
+def test_context_reduction_noop_when_disabled(tmp_path):
+    res = perseus.meter_context_reduction(
+        perseus.DEFAULT_CONFIG, actual_text="a", baseline_text="b " * 100)
+    assert res is None
+    assert not list(tmp_path.iterdir())
+
+
+def test_old_plutus_agent_drops_baselines_not_spend():
+    # A meter whose track() predates #134: baselines must be silently dropped
+    # (one warning), never passed as unexpected kwargs that would fail the
+    # whole event and lose real spend data.
+    class _OldMeter:
+        def track(self, provider, *, model=None, task_type="general",
+                  workspace=None, input_tokens=0, output_tokens=0,
+                  cache_read_tokens=0, reasoning_tokens=0, cost_usd=None,
+                  source="sdk"):
+            raise AssertionError("track should not be called by this test")
+
+    kw = perseus._mtr_baseline_kwargs(_OldMeter(), None, None, 1000, 0)
+    assert kw == {}
+    # and a modern signature passes them through
+    class _NewMeter:
+        def track(self, provider, *, baseline_cost_usd=None,
+                  baseline_model=None, baseline_input_tokens=None,
+                  baseline_output_tokens=None, **rest):
+            raise AssertionError("track should not be called by this test")
+
+    kw = perseus._mtr_baseline_kwargs(_NewMeter(), None, "gpt-5", 1000, 0)
+    assert kw == {"baseline_model": "gpt-5", "baseline_input_tokens": 1000,
+                  "baseline_output_tokens": 0}

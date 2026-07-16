@@ -634,6 +634,14 @@ DEFAULT_CONFIG["plutus"] = {
     "workspace": None,        # default workspace tag (deployment/agent id); per-call override wins
     "task_type": "serving",   # default task_type tag; per-call override wins
     "fail_open": True,        # a metering error never fails the serving call (log-and-continue)
+    # #805 — savings-wire additions. meter_memory_posture (default OFF) records
+    # one estimate-arm reduction event per render: the memory block actually
+    # injected vs the dump the legacy `always` posture would have injected.
+    # Costs one vault call per render when on. Estimate-arm events land in
+    # estimates_workspace (never the real-spend workspace) so estimated context
+    # sizes can never contaminate provider-billed spend accounting.
+    "meter_memory_posture": False,
+    "estimates_workspace": "perseus-render-estimates",
 }
 
 
