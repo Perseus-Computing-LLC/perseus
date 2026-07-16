@@ -403,11 +403,13 @@ def _discover_plugins(cfg: dict) -> list["DirectiveSpec"]:
     manifest_path = plugins_dir / "MANIFEST.toml"
     allow_unsigned = plugins_cfg.get("allow_unsigned", False)
     if not allow_unsigned and not manifest_path.is_file():
-        print(
-            "Perseus plugin security: plugins dir exists but no MANIFEST.toml found.\n"
+        # #800: name the exact checked path so the operator can see the source,
+        # and warn at most once per process (this else fires on every render).
+        _warn_once(
+            f"plugin-manifest-missing:{manifest_path}",
+            f"Perseus plugin security: no MANIFEST.toml in plugins dir {plugins_dir}.\n"
             "  Set plugins.allow_unsigned: true to load plugins without a manifest, or\n"
-            "  create plugins/MANIFEST.toml with [plugins.<name>] hash entries.",
-            file=sys.stderr,
+            f"  create {manifest_path} with [plugins.<name>] hash entries.",
         )
         return []
 
@@ -432,9 +434,9 @@ def _discover_plugins(cfg: dict) -> list["DirectiveSpec"]:
                     if isinstance(entry, dict) and "hash" in entry:
                         manifest_hashes[name] = str(entry["hash"])
         except Exception as e:
-            print(
-                f"Perseus plugin security: failed to parse MANIFEST.toml: {e}",
-                file=sys.stderr,
+            _warn_once(
+                f"plugin-manifest-parse:{manifest_path}",
+                f"Perseus plugin security: failed to parse {manifest_path}: {e}",
             )
             return []
 
@@ -505,11 +507,12 @@ def _discover_formats(cfg: dict) -> dict[str, "Callable"]:
     manifest_path = formats_dir / "MANIFEST.toml"
     allow_unsigned = formats_cfg.get("allow_unsigned", False)
     if not allow_unsigned and not manifest_path.is_file():
-        print(
-            "Perseus format security: formats dir exists but no MANIFEST.toml found.\n"
+        # #800: name the exact checked path; warn at most once per process.
+        _warn_once(
+            f"format-manifest-missing:{manifest_path}",
+            f"Perseus format security: no MANIFEST.toml in formats dir {formats_dir}.\n"
             "  Set formats.allow_unsigned: true to load adapters without a manifest, or\n"
-            "  create formats/MANIFEST.toml with [formats.<name>] hash entries.",
-            file=sys.stderr,
+            f"  create {manifest_path} with [formats.<name>] hash entries.",
         )
         return {}
 
@@ -535,9 +538,9 @@ def _discover_formats(cfg: dict) -> dict[str, "Callable"]:
                     if isinstance(entry, dict) and "hash" in entry:
                         format_hashes[name] = str(entry["hash"])
         except Exception as e:
-            print(
-                f"Perseus format security: failed to parse MANIFEST.toml: {e}",
-                file=sys.stderr,
+            _warn_once(
+                f"format-manifest-parse:{manifest_path}",
+                f"Perseus format security: failed to parse {manifest_path}: {e}",
             )
             return {}
 

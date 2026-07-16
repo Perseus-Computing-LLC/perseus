@@ -2652,11 +2652,14 @@ def _mneme_context_inject(
             return None
         loose = _MEMORY_SECTION_HEADER_LOOSE_RE.search(rendered)
         if loose:
-            print(
+            # #800: a stable user-authored heading re-triggers this near-miss on
+            # every render; warn once per distinct heading per process instead.
+            heading = loose.group(0).strip()
+            _warn_once(
+                f"memory-dedup:{heading}",
                 "[perseus] memory dedup (#627): heading "
-                f"{loose.group(0).strip()!r} looks memory-like but is not a "
+                f"{heading!r} looks memory-like but is not a "
                 "Perseus-generated section — injecting normally.",
-                file=sys.stderr,
             )
 
     # context_limit=0 means "inject nothing" — pointer AND dump. Use an
