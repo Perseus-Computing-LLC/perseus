@@ -57,6 +57,22 @@ def test_render_to_stdout_has_no_audit_line(tmp_path, monkeypatch, capsys):
     assert "# Hello" in out
 
 
+def test_render_failure_prints_structured_marker(tmp_path, monkeypatch, capsys):
+    # #799: a failed run must leave a stamped, greppable marker on stderr so a
+    # noisy render-agent log makes the current run's outcome obvious.
+    monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path / "home")
+    (tmp_path / "home").mkdir()
+    missing = tmp_path / "does_not_exist.md"
+    with pytest.raises(SystemExit):
+        perseus.cmd_render(
+            argparse.Namespace(command="render", source=str(missing), output=None), {})
+    err = capsys.readouterr().err
+    assert f"perseus {perseus._PERSEUS_VERSION}" in err
+    assert "render FAILED" in err
+    assert "source not found" in err
+    assert str(missing) in err
+
+
 # ── doctor freshness check ────────────────────────────────────────────────────
 
 def _gen_header(when_utc: datetime) -> str:
