@@ -33,7 +33,7 @@ start (`AGENTS.md`, `CLAUDE.md`, `.cursorrules`, ...). Keep it live with
 
 **Perseus: the memory & context layer for AI agents. Load only the context they actually need.**
 
-Your agents re-read their whole notebook from page one on every call, and you're billed per word. Perseus hands them just the page they need: it resolves live workspace state into verified facts before the context window opens, and pairs with [Perseus Vault](https://github.com/Perseus-Computing-LLC/perseus-vault) for durable, encrypted memory. The result: **94% fewer prompt tokens**, a **67% smaller tool schema**, and **73.8% on LongMemEval**. Local-first, air-gap ready, MIT.
+Your agents re-read their whole notebook from page one on every call, and you're billed per word. Perseus hands them just the page they need: it resolves live workspace state into verified facts before the context window opens, and pairs with [Perseus Vault](https://github.com/Perseus-Computing-LLC/perseus-vault) for durable, encrypted memory. The result: **73.8% on LongMemEval** (official harness), a **67% smaller tool schema**, and **611× warmer renders**. Local-first, air-gap ready, MIT.
 
 <!-- mcp-name: io.github.Perseus-Computing-LLC/perseus -->
 
@@ -361,10 +361,10 @@ Perseus delivers verified, up-to-date context, eliminating the need for AI assis
 
 ### Performance & Efficiency
 
-- **94% fewer prompt tokens, 0ms overhead** — live 200-request A/B harness: 488 → 27 avg prompt tokens per request, with **0ms** P99 latency overhead. Perseus changes what the agent *knows*, not what it costs you in time. [Full harness results →](benchmark/ultimate_suite_results.json)
 - **67% smaller tool schema (each tool advertised once, not 3× aliased)** — with [Perseus Vault](https://github.com/Perseus-Computing-LLC/perseus-vault), the memory backend advertises its tools once instead of tripled, so the model carries a smaller tool payload on every call.
 - **1.0 semantic equivalence (20/20 A/B pairs)** — a live judge found every A/B pair semantically equivalent: same answers, fewer tokens.
-- **1,190× cold→warm gap** — Real-world scenario using the Perseus repo itself as the benchmark target. At the 1,408 directive scale, the cold render took **578.7s**, while the warm render took **0.486s**. [Raw data →](benchmark/real_deltas.json)
+- **611× cold→warm cache speedup** — measured on the Perseus repo itself: 22,528 varied directives (22 types), cold render **619.1s**, warm render **1.014s**. Real git/tree/query/include/file directives, not synthetic strings. [Raw data →](benchmark/real_deltas.json)
+- **A retired claim, on purpose** — an earlier "prompt-token reduction" headline came from a harness with asymmetric arms and is retired pending an honest re-run ([#804](https://github.com/Perseus-Computing-LLC/perseus/issues/804)). Every figure we publish traces to a committed artifact via [claims.json](claims.json), and CI fails if a surface drifts.
 - **Mnēmē persistent memory** — In-process BM25 recall, zero daemon. **37ms search P50 at 10,000 docs**, flat across all scales. Perseus `@mimir` renders: **51× cold→warm speedup** with @cache. **2,700 docs/sec** write throughput, **0.4ms P50** saves. v1.0.7 adds **Mimir** (Project Synapse) — MCP-based remote memory with Ebbinghaus time-decay and FTS5 + LIKE hybrid search, circuit-breaker protected. Local Mnēmē remains the default. [Full results →](benchmark/mneme_hardcore.json)
 - **Enterprise Ready** — Cost analysis shows that for a 500-developer team, Perseus can save significant token costs per year. [Cost analysis →](benchmark/titan_cost.json)
 
