@@ -1,0 +1,158 @@
+{
+  "benchmark": "tokenab",
+  "issue": "https://github.com/Perseus-Computing-LLC/perseus/issues/804",
+  "measured_question": "For the same information need, how many prompt tokens does a request carry when context is assembled naively versus by Perseus's shipped defaults?",
+  "run": {
+    "timestamp_utc": "2026-07-16T14:07:02+00:00",
+    "hostname": "greg",
+    "platform": "Linux-6.18.33-Unraid-x86_64-13th_Gen_Intel-R-_Core-TM-_i5-13500-with-glibc2.43",
+    "python_version": "3.11.15",
+    "tokenizer": "cl100k_base",
+    "tiktoken_version": "0.13.0",
+    "perseus_version": "1.0.23",
+    "repo_commit": "9a8dd3ddae422786aae87c16a9807f73285296b6",
+    "repo_dirty": false,
+    "cold_runs_per_doc": 3,
+    "warm_runs_per_doc": 3,
+    "user_prompt_count": 14,
+    "system_stub_tokens": 72,
+    "system_stub_note": "identical bytes in both arms; reported here and EXCLUDED from every reduction percentage"
+  },
+  "docs": [
+    {
+      "fixture": "fixtures/docs/01_claude_code_onboarding.md",
+      "directives": [
+        "@include AGENTS.md mode=reference",
+        "@include CHANGELOG.md since=30d",
+        "@include CONTRIBUTING.md"
+      ],
+      "arm_a_context_tokens": 19877,
+      "arm_b_context_tokens_cold": 14006,
+      "arm_b_context_tokens_warm": 14006,
+      "reduction_pct_context_cold": 29.54,
+      "reduction_pct_context_warm": 29.54,
+      "arm_a_payload_tokens_with_prompts": 278529,
+      "arm_b_payload_tokens_with_prompts_cold": 196335,
+      "arm_b_payload_tokens_with_prompts_warm": 196335,
+      "reduction_pct_with_prompts_cold": 29.51
+    },
+    {
+      "fixture": "fixtures/docs/02_local_cli_session.md",
+      "directives": [
+        "@include docs/DIRECTIVES.md last=25",
+        "@include docs/quickstart.md last=80"
+      ],
+      "arm_a_context_tokens": 3992,
+      "arm_b_context_tokens_cold": 1032,
+      "arm_b_context_tokens_warm": 1032,
+      "reduction_pct_context_cold": 74.15,
+      "reduction_pct_context_warm": 74.15,
+      "arm_a_payload_tokens_with_prompts": 56139,
+      "arm_b_payload_tokens_with_prompts_cold": 14699,
+      "arm_b_payload_tokens_with_prompts_warm": 14699,
+      "reduction_pct_with_prompts_cold": 73.82
+    },
+    {
+      "fixture": "fixtures/docs/03_assistant_profile.md",
+      "directives": [
+        "@include ROADMAP.md last=120",
+        "@include SECURITY.md last=60",
+        "@memory focus=\"recent\""
+      ],
+      "arm_a_context_tokens": 18301,
+      "arm_b_context_tokens_cold": 2476,
+      "arm_b_context_tokens_warm": 2476,
+      "reduction_pct_context_cold": 86.47,
+      "reduction_pct_context_warm": 86.47,
+      "arm_a_payload_tokens_with_prompts": 256465,
+      "arm_b_payload_tokens_with_prompts_cold": 34929,
+      "arm_b_payload_tokens_with_prompts_warm": 34929,
+      "reduction_pct_with_prompts_cold": 86.38
+    },
+    {
+      "fixture": "fixtures/docs/04_release_digest.md",
+      "directives": [
+        "@include VERSION",
+        "@include CHANGELOG.md since=14d",
+        "@include SUPPORT.md"
+      ],
+      "arm_a_context_tokens": 19246,
+      "arm_b_context_tokens_cold": 10443,
+      "arm_b_context_tokens_warm": 10443,
+      "reduction_pct_context_cold": 45.74,
+      "reduction_pct_context_warm": 45.74,
+      "arm_a_payload_tokens_with_prompts": 269695,
+      "arm_b_payload_tokens_with_prompts_cold": 146453,
+      "arm_b_payload_tokens_with_prompts_warm": 146453,
+      "reduction_pct_with_prompts_cold": 45.7
+    },
+    {
+      "fixture": "fixtures/docs/05_control_full_inline.md",
+      "directives": [
+        "@include docs/CLI.md",
+        "@include CONTRIBUTING.md"
+      ],
+      "arm_a_context_tokens": 1772,
+      "arm_b_context_tokens_cold": 1926,
+      "arm_b_context_tokens_warm": 1926,
+      "reduction_pct_context_cold": -8.69,
+      "reduction_pct_context_warm": -8.69,
+      "arm_a_payload_tokens_with_prompts": 25059,
+      "arm_b_payload_tokens_with_prompts_cold": 27215,
+      "arm_b_payload_tokens_with_prompts_warm": 27215,
+      "reduction_pct_with_prompts_cold": -8.6
+    }
+  ],
+  "aggregate": {
+    "arm_a_context_tokens": 63188,
+    "arm_b_context_tokens_cold": 29883,
+    "arm_b_context_tokens_warm": 29883,
+    "reduction_pct_context_cold": 52.71,
+    "reduction_pct_context_warm": 52.71,
+    "arm_a_payload_tokens_with_prompts": 885887,
+    "arm_b_payload_tokens_with_prompts_cold": 419631,
+    "arm_b_payload_tokens_with_prompts_warm": 419631,
+    "reduction_pct_with_prompts_cold": 52.63,
+    "reduction_pct_with_prompts_warm": 52.63,
+    "full_request_tokens_incl_stub_arm_a": 890927,
+    "full_request_tokens_incl_stub_arm_b_cold": 424601,
+    "headline": "reduction_pct_with_prompts_cold: the full-request payload (context + user prompts, stub excluded), cold cache, the least favorable of the reported variants"
+  },
+  "latency_ms": {
+    "arm_b_render_cold": {
+      "n": 15,
+      "min_ms": 255.3,
+      "p50_ms": 341.5,
+      "p95_ms": 405.8,
+      "max_ms": 405.8,
+      "mean_ms": 324.6
+    },
+    "arm_b_render_warm": {
+      "n": 15,
+      "min_ms": 250.7,
+      "p50_ms": 315.6,
+      "p95_ms": 419.5,
+      "max_ms": 419.5,
+      "mean_ms": 320.9
+    },
+    "arm_a_assembly": {
+      "n": 5,
+      "min_ms": 0.1,
+      "p50_ms": 0.3,
+      "p95_ms": 0.5,
+      "max_ms": 0.5,
+      "mean_ms": 0.3
+    },
+    "note": "arm B latency is the full `perseus render` subprocess, Python interpreter startup included, timed inside the measurement window; no sleeps, no stubs"
+  },
+  "warnings": [],
+  "limits": [
+    "single-repo corpus: the Perseus repository itself; results on other corpora will differ",
+    "arm A is a defined naive baseline (full-file concatenation with minimal headers), not a recorded production workload",
+    "measures context-assembly token reduction only; says nothing about end-task accuracy",
+    "since= windows are date-relative, so a rerun on a later date over the same commit can select different changelog sections",
+    "shell-backed directives (@query, @services) are excluded: shipped defaults refuse shell execution, and counting a refused directive against full naive command output would credit Perseus for omitting information rather than compressing it",
+    "the @memory pointer is the one arm B element with no arm A counterpart: the corpus has no memory files, so arm A gets zero tokens there and arm B pays for the pointer"
+  ],
+  "signature_sha256": "f014830b4465bd9a2cda76e51f4d7feb4c95ac358bc9a2a940d0a569d24a0cf4"
+}
