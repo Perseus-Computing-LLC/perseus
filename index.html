@@ -4,16 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Perseus Computing · load only the context your agents need</title>
-<meta name="description" content="Perseus is the memory & context layer for AI agents. Load only the context they actually need: 94% fewer prompt tokens, a 67% smaller tool schema, 73.8% on LongMemEval. Local-first, air-gap ready, open source (MIT).">
+<meta name="description" content="Perseus is the memory & context layer for AI agents. Load only the context they actually need: 73.8% on LongMemEval, a 67% smaller tool schema, 611x warmer renders. Local-first, air-gap ready, open source (MIT).">
 <link rel="canonical" href="https://perseus.observer/">
 <meta property="og:type" content="website">
 <meta property="og:title" content="Perseus Computing · the memory & context layer for AI agents">
-<meta property="og:description" content="Load only the context your agents actually need. 94% fewer prompt tokens, 0 ms overhead. Local-first, air-gap ready, open source.">
+<meta property="og:description" content="Load only the context your agents actually need. 73.8% on LongMemEval, 67% smaller tool schema. Local-first, air-gap ready, open source.">
 <meta property="og:url" content="https://perseus.observer/">
 <meta property="og:image" content="https://perseus.observer/assets/og/perseus.png">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Perseus Computing · the memory & context layer for AI agents">
-<meta name="twitter:description" content="Load only the context your agents actually need. 94% fewer prompt tokens, 0 ms overhead. Local-first, air-gap ready, open source.">
+<meta name="twitter:description" content="Load only the context your agents actually need. 73.8% on LongMemEval, 67% smaller tool schema. Local-first, air-gap ready, open source.">
 <meta name="twitter:image" content="https://perseus.observer/assets/og/perseus.png">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/assets/fonts.css">
@@ -79,12 +79,12 @@ input[type=number]{ font-family:'IBM Plex Mono',monospace; }
 
     <div class="grid-3" style="display:flex;gap:14px;justify-content:center;flex-wrap:wrap;max-width:820px;margin:0 auto;">
       <div style="flex:1;min-width:200px;background:#14161c;border:1px solid #262a33;border-radius:12px;padding:20px 18px;text-align:left;">
-        <div style="font-family:'IBM Plex Mono',monospace;font-size:32px;font-weight:600;color:#a78bfa;letter-spacing:-0.02em;">94%</div>
-        <div style="font-size:13px;color:#9aa2ad;margin-top:4px;line-height:1.4;">fewer prompt tokens per request<br><span style="color:#6d7480;">measured 200-request A/B</span></div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:32px;font-weight:600;color:#a78bfa;letter-spacing:-0.02em;">611&times;</div>
+        <div style="font-size:13px;color:#9aa2ad;margin-top:4px;line-height:1.4;">warm vs cold renders<br><span style="color:#6d7480;">measured on the Perseus repo itself</span></div>
       </div>
       <div style="flex:1;min-width:200px;background:#14161c;border:1px solid #262a33;border-radius:12px;padding:20px 18px;text-align:left;">
-        <div style="font-family:'IBM Plex Mono',monospace;font-size:32px;font-weight:600;color:#a78bfa;letter-spacing:-0.02em;">171&#8202;→&#8202;57</div>
-        <div style="font-size:13px;color:#9aa2ad;margin-top:4px;line-height:1.4;">tool schemas advertised<br><span style="color:#6d7480;">~67% smaller tool payload</span></div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:32px;font-weight:600;color:#a78bfa;letter-spacing:-0.02em;">3&#8202;→&#8202;1</div>
+        <div style="font-size:13px;color:#9aa2ad;margin-top:4px;line-height:1.4;">listings per tool advertised<br><span style="color:#6d7480;">~67% smaller tool payload</span></div>
       </div>
       <div style="flex:1;min-width:200px;background:#14161c;border:1px solid #262a33;border-radius:12px;padding:20px 18px;text-align:left;">
         <div style="font-family:'IBM Plex Mono',monospace;font-size:32px;font-weight:600;color:#a78bfa;letter-spacing:-0.02em;">73.8%</div>
@@ -111,16 +111,16 @@ input[type=number]{ font-family:'IBM Plex Mono',monospace; }
       <p style="font-size:16px;color:#b9c0ca;">Perseus resolves the workspace into verified facts <em style="color:#e7e9ee;font-style:normal;font-weight:600;">before</em> the context window opens, and retrieves only the memory a task needs. It hands the agent the one page it's looking for.</p>
     </div>
     <div style="background:#14161c;border:1px solid #262a33;border-radius:14px;padding:26px;">
-      <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#9aa2ad;margin-bottom:18px;">avg prompt tokens per request</div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#9aa2ad;margin-bottom:18px;">avg tokens per task, LongMemEval_s (n=60, same questions both arms)</div>
       <div style="margin-bottom:22px;">
-        <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:7px;"><span style="color:#9aa2ad;">Without Perseus</span><span style="font-family:'IBM Plex Mono',monospace;color:#e7e9ee;">488</span></div>
+        <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:7px;"><span style="color:#9aa2ad;">Full-context baseline</span><span style="font-family:'IBM Plex Mono',monospace;color:#e7e9ee;">104,180</span></div>
         <div style="height:14px;border-radius:7px;background:#262a33;overflow:hidden;"><div style="width:100%;height:100%;background:linear-gradient(90deg,#3a3f4a,#565d6b);"></div></div>
       </div>
       <div>
-        <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:7px;"><span style="color:#9aa2ad;">With Perseus</span><span style="font-family:'IBM Plex Mono',monospace;color:#a78bfa;">27</span></div>
-        <div style="height:14px;border-radius:7px;background:#262a33;overflow:hidden;"><div style="width:5.5%;height:100%;background:linear-gradient(90deg,#a78bfa,#c4b5fd);"></div></div>
+        <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:7px;"><span style="color:#9aa2ad;">With Perseus + Vault</span><span style="font-family:'IBM Plex Mono',monospace;color:#a78bfa;">25,497</span></div>
+        <div style="height:14px;border-radius:7px;background:#262a33;overflow:hidden;"><div style="width:24.5%;height:100%;background:linear-gradient(90deg,#a78bfa,#c4b5fd);"></div></div>
       </div>
-      <div style="margin-top:20px;padding-top:16px;border-top:1px solid #262a33;font-size:12px;color:#6d7480;font-family:'IBM Plex Mono',monospace;">measured · 200-request live A/B · P99 latency overhead 0 ms</div>
+      <div style="margin-top:20px;padding-top:16px;border-top:1px solid #262a33;font-size:12px;color:#6d7480;font-family:'IBM Plex Mono',monospace;">measured · provider-billed tokens, Plutus ledger · accuracy 55.0% → 66.7% on the same run · full-context is a no-memory-management upper bound</div>
     </div>
   </div>
 </section>
@@ -140,9 +140,9 @@ input[type=number]{ font-family:'IBM Plex Mono',monospace; }
         <h3 style="font-size:19px;margin-bottom:10px;">It pays for itself in tokens.</h3>
         <p style="font-size:14.5px;color:#a2a9b4;margin-bottom:18px;">Resolve-before-context and a slimmer tool manifest mean the model reads a fraction of the tokens on every call.</p>
         <ul style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:11px;font-size:13.5px;">
-          <li style="display:flex;gap:9px;"><span style="color:#3fb37f;font-family:'IBM Plex Mono',monospace;">94%</span><span style="color:#9aa2ad;">fewer prompt tokens (488 → 27 avg/request)</span></li>
+          <li style="display:flex;gap:9px;"><span style="color:#3fb37f;font-family:'IBM Plex Mono',monospace;">611×</span><span style="color:#9aa2ad;">warm-cache renders (619.1s → 1.014s, 22,528 directives)</span></li>
           <li style="display:flex;gap:9px;"><span style="color:#3fb37f;font-family:'IBM Plex Mono',monospace;">67%</span><span style="color:#9aa2ad;">smaller tool schema (each tool advertised once, not 3× aliased)</span></li>
-          <li style="display:flex;gap:9px;"><span style="color:#3fb37f;font-family:'IBM Plex Mono',monospace;">0ms</span><span style="color:#9aa2ad;">added P99 latency, nothing to trade off</span></li>
+          <li style="display:flex;gap:9px;"><span style="color:#3fb37f;font-family:'IBM Plex Mono',monospace;">1.0</span><span style="color:#9aa2ad;">semantic equivalence (20/20 A/B pairs): same answers, fewer tokens</span></li>
         </ul>
       </div>
       <!-- Pillar 2 -->
@@ -231,13 +231,13 @@ input[type=number]{ font-family:'IBM Plex Mono',monospace; }
             <div id="cal-effnote" style="font-size:11px;color:#3fb37f;font-family:'IBM Plex Mono',monospace;margin-top:6px;min-height:14px;"></div>
           </label>
           <label style="flex:1;min-width:96px;">
-            <div style="font-size:13px;color:#c3cad4;margin-bottom:8px;">Baseline tok/call</div>
-            <input id="cal-baseline" type="number" min="30" max="20000" step="1" value="488" style="width:100%;background:#0f1014;border:1px solid #262a33;border-radius:8px;color:#e7e9ee;font-size:15px;padding:9px 11px;outline:none;">
+            <div style="font-size:13px;color:#c3cad4;margin-bottom:8px;">Baseline tok/task</div>
+            <input id="cal-baseline" type="number" min="100" max="2000000" step="1" value="104180" style="width:100%;background:#0f1014;border:1px solid #262a33;border-radius:8px;color:#e7e9ee;font-size:15px;padding:9px 11px;outline:none;">
           </label>
         </div>
 
         <div style="font-size:12px;color:#7d848f;line-height:1.6;border-top:1px solid #1e2129;padding-top:16px;">
-          <span style="color:#c3cad4;font-weight:600;">How this is estimated.</span> We apply the measured <span id="cal-redpct">94</span>% prompt-token reduction (from a 200-request live A/B where average prompt size fell from 488 to 27 tokens per request) to the request volume you set (agents × calls/day × 365).
+          <span style="color:#c3cad4;font-weight:600;">How this is estimated.</span> We apply the measured <span id="cal-redpct">75</span>% token reduction from our cost-savings certification (LongMemEval_s, n=60 stratified: 6.25M &rarr; 1.53M provider-billed tokens for the same question set, accuracy 55.0% &rarr; 66.7%, dollars read back from a Plutus ledger) to the task volume you set (agents × calls/day × 365). The baseline arm is full-context stuffing, a no-memory-management upper bound: if you already do retrieval, your reduction will be smaller. Editing the baseline scales both arms by the measured ratio.
           <br><br>
           <span style="color:#c3cad4;">Model tiers</span> are illustrative <em style="font-style:normal;color:#c3cad4;">input-token</em> list rates (Jul 2026) for the platforms the public sector actually buys: <em style="font-style:normal;">Frontier</em> ≈ Claude Opus on Bedrock ($5); <em style="font-style:normal;">Standard</em> ≈ GPT-4o on Azure / Claude Sonnet ($2.50–$3); <em style="font-style:normal;">Efficient</em> ≈ Claude Haiku / Gemini Flash ($1–$1.50); <em style="font-style:normal;">Economy</em> ≈ GPT-5-nano / Amazon Nova / Gemini Flash-Lite ($0.05–$0.10). The GovCloud toggle adds a flat 25% for AWS GovCloud / Azure Government / Gemini for Government regions. Every field is editable, so plug in your own contracted rate.
           <br><br>
@@ -285,7 +285,7 @@ input[type=number]{ font-family:'IBM Plex Mono',monospace; }
         </div>
         <p style="font-size:15px;color:#b9c0ca;margin-bottom:20px;">The live context engine. Resolves git, services, tests, and workspace state into verified facts before the session opens, so agents never burn turns re-orienting.</p>
         <ul style="list-style:none;padding:0;margin:0 0 24px;display:flex;flex-direction:column;gap:12px;font-size:13.5px;">
-          <li style="display:flex;gap:10px;"><span style="color:#a78bfa;font-family:'IBM Plex Mono',monospace;min-width:56px;">94%</span><span style="color:#9aa2ad;">fewer prompt tokens, 0 ms P99 overhead</span></li>
+          <li style="display:flex;gap:10px;"><span style="color:#a78bfa;font-family:'IBM Plex Mono',monospace;min-width:56px;">611×</span><span style="color:#9aa2ad;">warm-cache renders, measured on this repo</span></li>
           <li style="display:flex;gap:10px;"><span style="color:#a78bfa;font-family:'IBM Plex Mono',monospace;min-width:56px;">33</span><span style="color:#9aa2ad;">MCP tools resolving live state at call time</span></li>
           <li style="display:flex;gap:10px;"><span style="color:#a78bfa;font-family:'IBM Plex Mono',monospace;min-width:56px;">MIT</span><span style="color:#9aa2ad;">local-first · zero telemetry · air-gap ready</span></li>
         </ul>
@@ -371,8 +371,8 @@ input[type=number]{ font-family:'IBM Plex Mono',monospace; }
     </div>
     <div class="grid-5" style="display:grid;grid-template-columns:repeat(5,1fr);gap:14px;">
       <a href="https://github.com/Perseus-Computing-LLC/perseus/tree/main/benchmark" style="background:#101216;border:1px solid #262a33;border-radius:12px;padding:20px 18px;display:block;">
-        <div style="font-family:'IBM Plex Mono',monospace;font-size:26px;font-weight:600;color:#a78bfa;">94%</div>
-        <div style="font-size:12.5px;color:#9aa2ad;margin-top:6px;line-height:1.4;">prompt-token cut<br>200-req A/B</div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:26px;font-weight:600;color:#a78bfa;">611×</div>
+        <div style="font-size:12.5px;color:#9aa2ad;margin-top:6px;line-height:1.4;">cold→warm cache<br>22,528 directives</div>
       </a>
       <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/PERF.md" style="background:#101216;border:1px solid #262a33;border-radius:12px;padding:20px 18px;display:block;">
         <div style="font-family:'IBM Plex Mono',monospace;font-size:26px;font-weight:600;color:#a78bfa;">3.7×</div>
@@ -411,7 +411,7 @@ input[type=number]{ font-family:'IBM Plex Mono',monospace; }
       <div style="padding:40px 44px;">
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;"><svg width="26" height="30" viewBox="0 0 22 26" fill="none"><path d="M11 1L21 5.5V13c0 6.2-4.1 10.2-10 11.9C5.1 23.2 1 19.2 1 13V5.5L11 1z" stroke="#a78bfa" stroke-width="1.4" fill="rgba(167,139,250,0.08)"/><path d="M6.5 11l4.5 3 4.5-3" stroke="#a78bfa" stroke-width="1.3" fill="none"/></svg><h3 style="font-size:28px;color:#e6edf3;">Perseus</h3></div>
         <p style="font-size:19px;color:#e6edf3;font-weight:600;margin-bottom:14px;line-height:1.35;">The memory &amp; context layer for AI agents: load only the context they actually need.</p>
-        <p style="font-size:15px;color:#8b949e;line-height:1.6;margin-bottom:20px;">Your agents re-read their whole notebook from page one on every call, and you're billed per word. Perseus hands them just the page they need: it resolves live workspace state into verified facts before the context window opens, and pairs with Perseus Vault for durable, encrypted memory. The result: <span style="color:#e6edf3;">94% fewer prompt tokens</span>, a <span style="color:#e6edf3;">67% smaller tool schema</span>, and <span style="color:#e6edf3;">73.8% on LongMemEval</span>. Local-first, air-gap ready, MIT.</p>
+        <p style="font-size:15px;color:#8b949e;line-height:1.6;margin-bottom:20px;">Your agents re-read their whole notebook from page one on every call, and you're billed per word. Perseus hands them just the page they need: it resolves live workspace state into verified facts before the context window opens, and pairs with Perseus Vault for durable, encrypted memory. The result: <span style="color:#e6edf3;">73.8% on LongMemEval</span>, a <span style="color:#e6edf3;">67% smaller tool schema</span>, and <span style="color:#e6edf3;">611× warmer renders</span>. Local-first, air-gap ready, MIT.</p>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#a78bfa;background:rgba(167,139,250,0.1);border-radius:5px;padding:4px 9px;">pip install perseus-ctx</span>
           <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#3fb950;background:rgba(63,185,80,0.1);border-radius:5px;padding:4px 9px;">MIT</span>
@@ -465,7 +465,10 @@ input[type=number]{ font-family:'IBM Plex Mono',monospace; }
     INR: { symbol: '₹',  code: 'INR', locale: 'en-IN', def: 250 }
   };
   var GOV_MULT = 1.25;
-  var state = { agents: 100, callsPerDay: 1000, currency: 'USD', govCloud: false, price: 3.0, baseline: 488, reduced: 27 };
+  // Measured ratio from benchmark/cost_savings/results/cost_savings_stratified_2026-07-11.json:
+  // 1,529,807 / 6,250,823 provider-billed tokens (same 60 questions, both arms, Plutus ledger).
+  var MEASURED_RATIO = 1529807 / 6250823;
+  var state = { agents: 100, callsPerDay: 1000, currency: 'USD', govCloud: false, price: 3.0, baseline: 104180, reduced: Math.round(104180 * MEASURED_RATIO) };
   var $ = function (id) { return document.getElementById(id); };
 
   function compact(n) {
@@ -522,7 +525,12 @@ input[type=number]{ font-family:'IBM Plex Mono',monospace; }
   $('cal-agents').addEventListener('input', function (e) { state.agents = e.target.value; render(); });
   $('cal-calls').addEventListener('input', function (e) { state.callsPerDay = e.target.value; render(); });
   $('cal-price').addEventListener('input', function (e) { state.price = e.target.value; render(); });
-  $('cal-baseline').addEventListener('input', function (e) { state.baseline = e.target.value; render(); });
+  $('cal-baseline').addEventListener('input', function (e) {
+    state.baseline = e.target.value;
+    // Both arms scale by the measured ratio; the reduction percentage stays what we measured.
+    state.reduced = Math.round(Math.max(Number(state.baseline) || 0, 1) * MEASURED_RATIO);
+    render();
+  });
   $('cal-gov').addEventListener('change', function (e) { state.govCloud = e.target.checked; render(); });
   $('cal-currency').addEventListener('change', function (e) {
     var c = e.target.value; var d = (CURRENCIES[c] || CURRENCIES.USD).def;
