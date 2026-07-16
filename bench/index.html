@@ -94,8 +94,8 @@
     <p class="lead" style="font-size:15.5px; max-width:64ch; margin-bottom:40px;">These come from scripts that model larger workloads (tens of thousands of directives, a 500 developer week) using measured per-operation costs. They are reproducible, but they are projections, not production telemetry. We label them that way so you can weigh them honestly.</p>
     <div class="statstrip" style="margin-bottom:28px;">
       <div class="stat"><div class="n amber">450×</div><div class="c">Cold to warm, 50,000 directives</div></div>
-      <div class="stat"><div class="n amber">301×</div><div class="c">Faster than LLM tool-calling, enterprise week</div></div>
-      <div class="stat"><div class="n amber">1,190×</div><div class="c">Cache punch throughput</div></div>
+      <div class="stat"><div class="n amber">1.0</div><div class="c">Semantic equivalence, 20/20 A/B pairs</div></div>
+      <div class="stat"><div class="n amber">611×</div><div class="c">Cold to warm, 22,528 directives</div></div>
     </div>
     <div class="cards">
       <div class="card">
@@ -103,12 +103,12 @@
         <p>At 50,000 directives a cold render takes 612.6s and a warm one takes 1.36s. The cache absorbs the cost. Source: <span class="mono" style="color:var(--amber-ink);">benchmark/cold-vs-warm.json</span>.</p>
       </div>
       <div class="card">
-        <h3>301× vs LLM discovery</h3>
-        <p>Across a modeled 500 developer week, resolving context with Perseus instead of LLM tool calls completes the same work far faster, with the cost saving spelled out in the data. Source: <span class="mono" style="color:var(--amber-ink);">benchmark/enterprise/</span>.</p>
+        <h3>1.0 semantic equivalence</h3>
+        <p>A live judge scored every A/B pair semantically equivalent: same answers from the resolved context as from the raw workspace state. Source: <span class="mono" style="color:var(--amber-ink);">benchmark/ultimate_suite_results.json</span>.</p>
       </div>
       <div class="card">
-        <h3>1,190× cache throughput</h3>
-        <p>Repeated resolution of cached directives versus cold subprocess work. Source: <span class="mono" style="color:var(--amber-ink);">benchmark/edge-bench/</span>.</p>
+        <h3>611× cold to warm</h3>
+        <p>22,528 varied directives against the real Perseus repo: cold 619.1s, warm 1.014s. Source: <span class="mono" style="color:var(--amber-ink);">benchmark/real_deltas.json</span>.</p>
       </div>
     </div>
   </div>
