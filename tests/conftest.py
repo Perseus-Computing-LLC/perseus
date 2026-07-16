@@ -39,6 +39,18 @@ def cfg():
     return c
 
 
+@pytest.fixture(autouse=True)
+def _reset_warn_once():
+    """Clear the per-process warn-once ledger between tests (#799/#800).
+
+    ``_warn_once`` suppresses a warning after its first emission this process;
+    without a reset that suppression would leak across tests and a later test
+    asserting the warning would see nothing."""
+    if perseus is not None and hasattr(perseus, "_WARNED_ONCE"):
+        perseus._WARNED_ONCE.clear()
+    yield
+
+
 def make_tool_script(dir_path, name, *, sh, bat):
     """Write a directly-executable @tool script appropriate to the platform.
 
