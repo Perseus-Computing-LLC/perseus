@@ -4,7 +4,7 @@
     "updated": "2026-07-16"
   },
   "claims": {
-    "perseus_version": {"value": "1.0.23", "source": "VERSION", "status": "release", "publishable": true},
+    "perseus_version": {"value": "1.0.24", "source": "VERSION", "status": "release", "publishable": true},
     "vault_version": {"value": "2.20.2", "source": "perseus-vault/Cargo.toml", "status": "release", "publishable": true},
     "perseus_tool_count": {"value": "33", "source": "perseus._get_all_mcp_tools({}) via tests/test_tool_count_claim.py", "status": "code-enforced", "publishable": true},
     "tool_schema_reduction": {"value": "67%", "detail": "canonical-only tool advertising: each Vault tool is published once instead of three aliased copies (mimir_/mneme_/perseus_vault_), so the advertised schema is one third of the aliased surface", "source": "perseus-vault src/mcp.rs advertise-time alias synthesis (vault PR #548)", "status": "derived-structural", "label": "derived", "publishable": true},
