@@ -41,24 +41,24 @@
   <!-- === TOP ROW: 3 stat cards === -->
   <!-- Card 1: Cache Punch -->
   <rect x="50" y="215" width="273" height="140" rx="6" fill="#07040d" stroke="#1c1430" stroke-width="1"/>
-  <text x="186" y="258" text-anchor="middle" fill="url(#cyanGrad)" font-size="42" font-weight="800" letter-spacing="-0.02em" filter="url(#glow)">1,190×</text>
+  <text x="186" y="258" text-anchor="middle" fill="url(#cyanGrad)" font-size="42" font-weight="800" letter-spacing="-0.02em" filter="url(#glow)">611×</text>
   <text x="186" y="284" text-anchor="middle" fill="#9a8cc4" font-size="14" font-weight="600">Cache Punch Speedup</text>
-  <text x="186" y="306" text-anchor="middle" fill="#5d5078" font-size="11">578.7s cold → <tspan fill="#56e1ff">0.486s</tspan> warm</text>
-  <text x="186" y="326" text-anchor="middle" fill="#5d5078" font-size="11">Real-world directives. Render = free.</text>
+  <text x="186" y="306" text-anchor="middle" fill="#5d5078" font-size="11">619.1s cold → <tspan fill="#56e1ff">1.014s</tspan> warm</text>
+  <text x="186" y="326" text-anchor="middle" fill="#5d5078" font-size="11">22,528 real directives. Render = free.</text>
 
   <!-- Card 2: vs LLM -->
   <rect x="343" y="215" width="273" height="140" rx="6" fill="#07040d" stroke="#1c1430" stroke-width="1"/>
-  <text x="480" y="258" text-anchor="middle" fill="url(#accentGrad)" font-size="42" font-weight="800" letter-spacing="-0.02em" filter="url(#glow)">301×</text>
-  <text x="480" y="284" text-anchor="middle" fill="#9a8cc4" font-size="14" font-weight="600">vs. LLM Tool-Calling</text>
-  <text x="480" y="306" text-anchor="middle" fill="#5d5078" font-size="11">Perseus: <tspan fill="#c77dff">16 min, $0</tspan> · LLM: 83 hours, $$$</text>
-  <text x="480" y="326" text-anchor="middle" fill="#5d5078" font-size="11">500 devs · 10 teams · 5-day week</text>
+  <text x="480" y="258" text-anchor="middle" fill="url(#accentGrad)" font-size="42" font-weight="800" letter-spacing="-0.02em" filter="url(#glow)">73.8%</text>
+  <text x="480" y="284" text-anchor="middle" fill="#9a8cc4" font-size="14" font-weight="600">LongMemEval QA</text>
+  <text x="480" y="306" text-anchor="middle" fill="#5d5078" font-size="11">vs Zep <tspan fill="#c77dff">63.8%</tspan> · Mem0 49.0% (published)</text>
+  <text x="480" y="326" text-anchor="middle" fill="#5d5078" font-size="11">official harness · gpt-4o answerer + judge</text>
 
   <!-- Card 3: Token Compression -->
   <rect x="636" y="215" width="273" height="140" rx="6" fill="#07040d" stroke="#1c1430" stroke-width="1"/>
-  <text x="773" y="258" text-anchor="middle" fill="url(#cyanGrad)" font-size="42" font-weight="800" letter-spacing="-0.02em" filter="url(#glow)">94%</text>
-  <text x="773" y="284" text-anchor="middle" fill="#9a8cc4" font-size="14" font-weight="600">Token Compression</text>
-  <text x="773" y="306" text-anchor="middle" fill="#5d5078" font-size="11">488 → <tspan fill="#56e1ff">27 avg</tspan> prompt tokens</text>
-  <text x="773" y="326" text-anchor="middle" fill="#5d5078" font-size="11">P99 latency overhead: 0ms</text>
+  <text x="773" y="258" text-anchor="middle" fill="url(#cyanGrad)" font-size="42" font-weight="800" letter-spacing="-0.02em" filter="url(#glow)">99.2%</text>
+  <text x="773" y="284" text-anchor="middle" fill="#9a8cc4" font-size="14" font-weight="600">Retrieval Recall@10</text>
+  <text x="773" y="306" text-anchor="middle" fill="#5d5078" font-size="11">session-level recall@10, <tspan fill="#56e1ff">retrieval-only</tspan></text>
+  <text x="773" y="326" text-anchor="middle" fill="#5d5078" font-size="11">LongMemEval_s · content-hashed report</text>
 
   <!-- === BOTTOM ROW: 3 stat cards === -->
   <!-- Card 4: Concurrent Writes -->
