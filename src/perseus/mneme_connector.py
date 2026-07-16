@@ -2596,6 +2596,81 @@ def _memory_degraded_block(connector, reason: str | None = None) -> str | None:
     )
 
 
+def _measure_always_dump(connector, mcfg: dict, limit: int, ws_hash) -> str | None:
+    """Measurement-only mirror of the legacy ``always``-posture fetch (#805).
+
+    Returns the markdown block the ``always`` posture WOULD inject right now
+    (same header + advisory framing), or None. Used exclusively by
+    :func:`_maybe_meter_posture_reduction` to size the counterfactual; the real
+    ``always`` path below keeps its own fetch (with degradation semantics this
+    measurement path deliberately does not need — an unreachable vault here
+    simply means no counterfactual is recorded).
+    """
+    try:
+        categories = mcfg.get("context_categories") or []
+        try:
+            hot_md = connector.context(categories=categories, limit=limit)
+        except Exception:
+            hot_md = None
+        if isinstance(hot_md, str):
+            hot_body = _mneme_hot_block(hot_md)
+            if hot_body:
+                return (PERSISTENT_MEMORY_HEADER + "\n\n"
+                        + _MEMORY_DUMP_ADVISORY + "\n" + hot_body)
+        segment = connector.recall(query="", max_results=limit,
+                                   workspace_hash=ws_hash)
+        if not segment or not getattr(segment, "items", None):
+            return None
+        body = segment.as_markdown
+        if not body or body.strip() == "_(no persistent memories found)_":
+            return None
+        return (PERSISTENT_MEMORY_HEADER + "\n\n"
+                + _MEMORY_DUMP_ADVISORY + "\n" + body)
+    except Exception:
+        return None
+
+
+def _maybe_meter_posture_reduction(cfg: dict, actual_block: str | None,
+                                   mcfg: dict, limit: int, workspace) -> None:
+    """#805: opt-in counterfactual metering for the recall-first posture.
+
+    When ``plutus.meter_memory_posture`` is true AND metering is enabled, size
+    the memory block the legacy ``always`` posture would have injected and
+    record one estimate-arm reduction event (actual injected block vs that
+    dump) via :func:`perseus.metering.meter_context_reduction`. This is what
+    turns on ``covered_events`` in a production ledger without any host-agent
+    code. Costs one vault call per render, which is why it is OFF by default.
+
+    Fails open in every path: metering must never break or slow a render
+    beyond the documented vault call.
+    """
+    try:
+        p = cfg.get("plutus") if isinstance(cfg, dict) else None
+        p = p if isinstance(p, dict) else {}
+        if not p.get("meter_memory_posture"):
+            return
+        from perseus.metering import meter_context_reduction, metering_enabled
+        if not metering_enabled(cfg):
+            return
+        connector = _get_connector(cfg)
+        if not connector.available:
+            return
+        ws_hash = None
+        if workspace is not None and mcfg.get("workspace_scope", True):
+            try:
+                ws_hash = _workspace_hash(Path(workspace))
+            except Exception:
+                ws_hash = None
+        dump = _measure_always_dump(connector, mcfg, limit, ws_hash)
+        if not dump:
+            return
+        meter_context_reduction(cfg, actual_text=actual_block or "",
+                                baseline_text=dump,
+                                task_type="memory-posture")
+    except Exception:
+        pass
+
+
 def _mneme_context_inject(
     cfg: dict,
     rendered: str = "",
@@ -2689,7 +2764,9 @@ def _mneme_context_inject(
         )
 
     if posture == "on_demand":
-        return _memory_pointer_block(profile_name, profile, startup=startup)
+        block = _memory_pointer_block(profile_name, profile, startup=startup)
+        _maybe_meter_posture_reduction(cfg, block, mcfg, limit, workspace)
+        return block
 
     try:
         connector = _get_connector(cfg)
@@ -2730,13 +2807,18 @@ def _mneme_context_inject(
             segment = connector.recall_when(context=context_str, limit=limit)
             if segment is not None and not segment.error:
                 if not segment.items:
-                    return None  # vault reachable, no triggers matched → no dump
-                return (
+                    # vault reachable, no triggers matched → no dump. #805: an
+                    # empty injection vs the always-dump is still a reduction.
+                    _maybe_meter_posture_reduction(cfg, "", mcfg, limit, workspace)
+                    return None
+                block = (
                     PERSISTENT_MEMORY_HEADER + "\n\n"
                     + _MEMORY_DUMP_ADVISORY
                     + "\n"
                     + segment.as_markdown
                 )
+                _maybe_meter_posture_reduction(cfg, block, mcfg, limit, workspace)
+                return block
             # recall_when unavailable on this server (older vault) — degrade
             # gracefully to the legacy hot-entity path below.
 
