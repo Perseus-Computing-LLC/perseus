@@ -238,10 +238,16 @@ def resolve_tooltrim(
     )
     audit_state = "enabled" if obs.get("audit", {}).get("enabled") else "disabled"
 
-    # Token savings estimate
+    # Token savings: never emit a hard-coded multiplier or range here. The
+    # rendered context is product output, and a fabricated figure in product
+    # output is the exact pattern #756 removed from @tokens (see
+    # directives/tokens.py). Savings depend on the deployment's filter
+    # strictness and tool surface; point at the proxy's own measured report
+    # instead of asserting a number we did not measure (#803).
     token_savings_desc = (
-        "Typical savings: 70–93% reduction in tool metadata tokens "
-        "depending on filter strictness. See tooltrim bench/REPORT.md."
+        "Savings depend on filter strictness and the tool surface; "
+        "measure with the tooltrim proxy's own bench (see tooltrim "
+        "bench/REPORT.md for its report on your config)."
     )
     token_savings = f"**Token efficiency**: {token_savings_desc}"
 

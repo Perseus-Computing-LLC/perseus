@@ -264,8 +264,11 @@ reading the real usage.prompt_tokens from my own model.</div>
   function simStart() { if (simTimer || !state.running || state.mode !== 'sim') return; simTimer = setInterval(simTick, Number(state.speedMs) || 700); }
   function simStop() { if (simTimer) { clearInterval(simTimer); simTimer = null; } }
   function simTick() {
-    var base = Math.round(488 + (Math.random() * 120 - 60));
-    var per = Math.max(1, Math.round(27 + (Math.random() * 16 - 8)));
+    // Anchored to the cost-savings certification per-task averages
+    // (benchmark/cost_savings/results/cost_savings_stratified_2026-07-11.json):
+    // full-context 104,180 tok/task vs Perseus+Vault 25,497 tok/task.
+    var base = Math.round(104180 + (Math.random() * 24000 - 12000));
+    var per = Math.max(1, Math.round(25497 + (Math.random() * 6000 - 3000)));
     state.calls += 1;
     state.baseTok += base; state.perTok += per;
     state.log = [{ id: state.calls, base: base, per: per, live: false }].concat(state.log).slice(0, 7);
@@ -453,7 +456,7 @@ reading the real usage.prompt_tokens from my own model.</div>
     $('dm-fleet').textContent = money(fleetAnnual);
     $('dm-method').textContent = isLive
       ? 'Live mode sends your baseline and Perseus-resolved contexts to your own endpoint and reads the real usage.prompt_tokens each returns: the token counts are measured on your model, not estimated. Spend and fleet figures are illustrative, at the selected tier’s July 2026 list input-token price. Generate the resolved context with `perseus render` (see the Claude Code snippet below).'
-      : 'The without-Perseus figure is an estimated baseline: per-call prompt size drawn around the 488-token average from Perseus’s measured 200-request A/B, not a live capture. The with-Perseus figure is anchored to that A/B’s measured 27-token average. Switch to Live mode to measure real token counts on your own local model. Spend and fleet figures are illustrative at the selected tier’s July 2026 list price.';
+      : 'The without-Perseus figure is an estimated baseline: per-task prompt size drawn around the full-context arm of the cost-savings certification (LongMemEval_s, n=60, provider-billed tokens metered through a Plutus ledger), not a live capture. The with-Perseus figure is anchored to the same run\'s Perseus+Vault arm. The baseline is full-context stuffing, a no-memory-management upper bound. Switch to Live mode to measure real token counts on your own local model. Spend and fleet figures are illustrative at the selected tier\'s July 2026 list price.';
   }
 
   // ---- wire up ----
