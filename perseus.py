@@ -421,11 +421,10 @@ DEFAULT_CONFIG = {
         "poll_interval_s": 5,
     },
     "permissions": {                  # Phase 17A — task-45
-        # profile: null | "strict" | "balanced" | "power-user"
-        # null preserves existing behavior (no profile applied). Named profiles
-        # set defaults across render/agent/serve/generation; any explicit config
-        # value in the same key wins (overrides take precedence over profiles).
-        "profile": None,
+        # profile: null | "locked-down" | "operator" | "development" | legacy names
+        # Default: "locked-down" for new installs (#814). Explicit config values
+        # always override the profile (user wins).
+        "profile": "locked-down",
     },
     "redaction": {                    # Phase 17B — task-46
         # Redact common secret shapes before output crosses Perseus's trust
@@ -519,7 +518,8 @@ DEFAULT_CONFIG = {
 #   while still keeping LLM generation opt-in (`generation.enabled: false`)
 #   because uncited generation is a separate trust boundary (see PRODUCT_CONTRACT).
 PERMISSION_PROFILES: dict[str, dict[str, dict[str, object]]] = {
-    "strict": {
+    # Enterprise-named profiles (#814)
+    "locked-down": {
         "render": {
             "allow_query_shell": False,
             "allow_agent_shell": False,
@@ -530,7 +530,7 @@ PERMISSION_PROFILES: dict[str, dict[str, dict[str, object]]] = {
         "generation": {"enabled": False},
         "serve": {"bind": "127.0.0.1", "bind_host": "127.0.0.1"},
     },
-    "balanced": {
+    "operator": {
         "render": {
             "allow_query_shell": False,
             "allow_agent_shell": False,
@@ -541,7 +541,7 @@ PERMISSION_PROFILES: dict[str, dict[str, dict[str, object]]] = {
         "generation": {"enabled": False},
         "serve": {"bind": "127.0.0.1", "bind_host": "127.0.0.1"},
     },
-    "power-user": {
+    "development": {
         "render": {
             "allow_query_shell": True,
             "allow_agent_shell": True,
@@ -549,9 +549,13 @@ PERMISSION_PROFILES: dict[str, dict[str, dict[str, object]]] = {
             "allow_remote_services_health": True,
             "allow_outside_workspace": False,  # still off — workspace boundary is a hard wall
         },
-        "generation": {"enabled": False},      # generation stays opt-in even for power-user
+        "generation": {"enabled": False},      # generation stays opt-in even for development
         "serve": {"bind": "127.0.0.1", "bind_host": "127.0.0.1"},
     },
+    # Legacy aliases (backward compatible)
+    "strict": {"render": {"allow_query_shell": False, "allow_agent_shell": False, "allow_services_command": False, "allow_remote_services_health": False, "allow_outside_workspace": False}, "generation": {"enabled": False}, "serve": {"bind": "127.0.0.1", "bind_host": "127.0.0.1"}},
+    "balanced": {"render": {"allow_query_shell": False, "allow_agent_shell": False, "allow_services_command": False, "allow_remote_services_health": False, "allow_outside_workspace": False}, "generation": {"enabled": False}, "serve": {"bind": "127.0.0.1", "bind_host": "127.0.0.1"}},
+    "power-user": {"render": {"allow_query_shell": True, "allow_agent_shell": True, "allow_services_command": True, "allow_remote_services_health": True, "allow_outside_workspace": False}, "generation": {"enabled": False}, "serve": {"bind": "127.0.0.1", "bind_host": "127.0.0.1"}},
 }
 
 
@@ -5409,9 +5413,12 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
     lang = _guess_lang(cmd)
 
     # task-47: audit the shell-execution decision crossing the trust boundary.
+    # #814: include deterministic command hash for forensics.
+    cmd_hash = hashlib.sha256(cmd.encode()).hexdigest()[:16]
     audit_event(cfg, "shell_exec",
                 directive="@query",
                 command=cmd[:500],
+                command_hash=cmd_hash,
                 shell=shell)
 
     try:
@@ -6398,9 +6405,12 @@ def resolve_agent(args_str: str, cfg: dict, workspace: Path | None = None) -> st
     shell = _get_shell(cfg)
 
     # task-47: audit @agent shell execution crossing the trust boundary.
+    # #814: include deterministic command hash for forensics.
+    cmd_hash = hashlib.sha256(cmd.encode()).hexdigest()[:16]
     audit_event(cfg, "shell_exec",
                 directive="@agent",
                 command=cmd[:500],
+                command_hash=cmd_hash,
                 shell=shell or "(platform default)",
                 timeout=timeout)
 
@@ -7645,6 +7655,7 @@ def _check_one_service(svc: dict, index: int, timeout: float, cfg: dict) -> tupl
                     directive="@services",
                     service=name,
                     command=command[:500],
+                    command_hash=hashlib.sha256(command.encode()).hexdigest()[:16],
                     shell=_get_shell(cfg))
         try:
             result = subprocess.run(

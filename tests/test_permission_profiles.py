@@ -49,7 +49,8 @@ def _write_workspace_cfg(workspace: Path, data: dict) -> None:
 
 def test_default_config_has_permissions_section():
     assert "permissions" in perseus.DEFAULT_CONFIG
-    assert perseus.DEFAULT_CONFIG["permissions"]["profile"] is None
+    # #814: default changed to locked-down for new installs
+    assert perseus.DEFAULT_CONFIG["permissions"]["profile"] == "locked-down"
 
 
 def test_default_config_has_serve_section():
@@ -63,7 +64,8 @@ def test_default_config_has_serve_section():
 
 
 def test_known_profiles_registered():
-    assert set(perseus.PERMISSION_PROFILES) == {"strict", "balanced", "power-user"}
+    expected = {"locked-down", "operator", "development", "strict", "balanced", "power-user"}
+    assert set(perseus.PERMISSION_PROFILES) == expected
 
 
 # ── _apply_permission_profile ────────────────────────────────────────────────
@@ -203,8 +205,11 @@ def test_cmd_trust_human_output_with_no_profile(capsys, monkeypatch, tmp_path):
     assert rc == 0
     assert "perseus trust" in out
     assert "profile:" in out
-    assert "(none" in out
-    assert "balanced" in out and "strict" in out and "power-user" in out
+    # #814: default is now locked-down
+    assert "locked-down" in out
+    # All named profiles listed
+    for name in ("locked-down", "operator", "development", "strict", "balanced", "power-user"):
+        assert name in out
 
 
 def test_cmd_trust_json_shape(capsys, monkeypatch, tmp_path):
@@ -217,7 +222,7 @@ def test_cmd_trust_json_shape(capsys, monkeypatch, tmp_path):
     assert payload["version"]
     assert payload["permissions"]["configured_profile"] == "strict"
     assert payload["permissions"]["applied_profile"] == "strict"
-    assert payload["permissions"]["available_profiles"] == ["balanced", "power-user", "strict"]
+    assert payload["permissions"]["available_profiles"] == sorted(["locked-down", "operator", "development", "strict", "balanced", "power-user"])
     eff = payload["effective"]
     assert eff["render"]["allow_query_shell"] is False
     assert eff["render"]["allow_agent_shell"] is False
