@@ -1589,6 +1589,7 @@ class MnemeConnector:
         topic_path: str | None = None,
         category: str | None = None,
         key: str | None = None,
+        cfg: dict | None = None,
         **kwargs,
     ) -> tuple[bool, str]:
         """Persist a memory in Mimir via the ``mimir_remember`` MCP tool.
@@ -1665,6 +1666,28 @@ class MnemeConnector:
             return False, err
         mem_id = (raw_result or {}).get("id", "")
         success = (raw_result or {}).get("success", bool(mem_id))
+
+        # #817: Capture Chancery cross-reference from vault write response.
+        # When the vault verifies a write through Chancery, it returns
+        # `chancery_writ_id` and optionally `chancery_blk`.  Record these
+        # in the Perseus audit log so both chains are bidirectionally
+        # walkable (authority → content and content → authority).
+        chancery_wid = (raw_result or {}).get("chancery_writ_id")
+        if chancery_wid and success:
+            try:
+                audit_event(
+                    cfg,
+                    "memory_write_chancery_verified",
+                    directive="mimir_remember",
+                    category=cat,
+                    key=ent_key,
+                    chancery_writ_id=chancery_wid,
+                    chancery_xref=f"chancery:{chancery_wid}",
+                    chancery_blk=(raw_result or {}).get("chancery_blk"),
+                )
+            except Exception:
+                pass  # audit failure must not block the write
+
         return success, mem_id
 
     def health_check(self) -> tuple[bool, str]:
