@@ -2916,6 +2916,72 @@ def cmd_vault_maintain(args, cfg):
     return proc.returncode
 
 
+def cmd_vault_export(args, cfg):
+    """#816: ``perseus vault export`` — export vault entries as plain or prose markdown.
+
+    Machine-readable mode (default): concatenates vault .md files with
+    frontmatter preserved. Compatible with existing export consumers.
+
+    Prose mode (--prose): strips JSON/YAML frontmatter, outputs only the
+    human-accreted prose body of each vault entry. Meets CoalWash's input
+    contract for store-neutral prose cleaning.
+    """
+    vault_path = _mneme_vault_path(cfg)
+    if not vault_path.is_dir():
+        print(f"Error: vault path not found: {vault_path}", file=sys.stderr)
+        return 1
+
+    md_files = sorted(vault_path.rglob("*.md"))
+    if not md_files:
+        print("No vault entries found.", file=sys.stderr)
+        return 0
+
+    lines: list[str] = []
+    for md_file in md_files:
+        try:
+            text = md_file.read_text(encoding="utf-8", errors="replace")
+        except Exception as exc:
+            print(f"Warning: skipping {md_file}: {exc}", file=sys.stderr)
+            continue
+
+        if not text.strip():
+            continue
+
+        if getattr(args, "prose", False):
+            # Prose mode: strip JSON/YAML frontmatter, keep only the body
+            _fm, body = _parse_frontmatter(text)
+            body = body.strip()
+            if not body:
+                continue
+            # Use filename stem as a heading for context
+            stem = md_file.stem
+            lines.append(f"--- {stem}")
+            lines.append("")
+            lines.append(body)
+            lines.append("")
+            lines.append("")
+        else:
+            # Machine-readable mode: include full content with frontmatter
+            lines.append(text.strip())
+            lines.append("\n---\n")
+
+    output_content = "\n".join(lines).strip()
+    out_path = getattr(args, "output", None)
+    if out_path:
+        out_path = Path(str(out_path)).expanduser()
+        try:
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(output_content + "\n", encoding="utf-8")
+            print(f"Exported {len(md_files)} entries to {out_path}")
+        except Exception as exc:
+            print(f"Error: failed to write {out_path}: {exc}", file=sys.stderr)
+            return 1
+    else:
+        print(output_content)
+
+    return 0
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Build integration note:
 # This module is concatenated after memory.py, mneme_index.py, mneme_narrative.py,
