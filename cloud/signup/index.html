@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign up — Perseus Cloud</title>
+<script>try{var t=localStorage.getItem('perseus-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="icon" href="/assets/perseus.svg">
+<link rel="canonical" href="https://perseus.observer/cloud/signup/">
+<meta name="description" content="Create your Perseus Cloud account. Free starter tier with 1,000 entities and 1 workspace.">
+<meta name="theme-color" content="#0A0A12">
+<link rel="stylesheet" href="/assets/fonts.css">
+<link rel="stylesheet" href="/assets/tokens.css">
+<link rel="stylesheet" href="/assets/perseus.css">
+<style>
+.auth-page { display:flex; min-height:100vh; align-items:center; justify-content:center; padding:24px; }
+.auth-card { background:var(--surface-1); border:1px solid var(--border); border-radius:16px; padding:40px; max-width:420px; width:100%; }
+.auth-card h1 { font-size:22px; margin:0 0 8px; }
+.auth-card .sub { color:var(--text-faint); font-size:14px; margin-bottom:28px; }
+.form-group { margin-bottom:18px; }
+.form-group label { display:block; font-size:13px; color:var(--text-faint); margin-bottom:6px; }
+.form-group input { width:100%; font-family:'JetBrains Mono',monospace; font-size:14px; color:var(--text); background:var(--surface-2); border:1px solid var(--border); border-radius:10px; padding:12px 14px; outline:none; box-sizing:border-box; }
+.form-group input:focus { border-color:var(--violet); }
+.form-group input.input-error { border-color:#ff4444; }
+.form-error { color:#ff6666; font-size:12px; margin-top:4px; display:none; }
+.btn-full { width:100%; padding:14px; font-size:15px; }
+.alert { padding:12px 16px; border-radius:10px; font-size:13px; margin-bottom:20px; display:none; }
+.alert-error { background:rgba(255,68,68,.12); border:1px solid rgba(255,68,68,.3); color:#ff8888; }
+.alert-success { background:rgba(0,200,120,.12); border:1px solid rgba(0,200,120,.3); color:#00c878; }
+.auth-footer { text-align:center; margin-top:20px; font-size:13px; color:var(--text-faint); }
+.auth-footer a { color:var(--violet); }
+.spinner { display:none; width:16px; height:16px; border:2px solid var(--border); border-top-color:var(--violet); border-radius:50%; animation:spin .6s linear infinite; margin-left:8px; }
+@keyframes spin { to { transform:rotate(360deg); } }
+.btn { display:inline-flex; align-items:center; justify-content:center; gap:8px; }
+</style>
+</head>
+<body class="auth-page">
+<div class="auth-card">
+  <h1>Create your Perseus Cloud account</h1>
+  <p class="sub">Free starter tier — 1,000 entities, 1 workspace. No credit card required.</p>
+
+  <div id="alert-error" class="alert alert-error"></div>
+  <div id="alert-success" class="alert alert-success"></div>
+
+  <form id="signup-form">
+    <div class="form-group">
+      <label for="email">Email</label>
+      <input type="email" id="email" name="email" required placeholder="you@company.com" autocomplete="email">
+      <div class="form-error" id="email-error"></div>
+    </div>
+    <div class="form-group">
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" required placeholder="Minimum 8 characters" autocomplete="new-password" minlength="8">
+      <div class="form-error" id="password-error"></div>
+    </div>
+    <button type="submit" class="btn btn-amber btn-full" id="submit-btn">
+      Create account
+      <span class="spinner" id="spinner"></span>
+    </button>
+  </form>
+
+  <div class="auth-footer">
+    Already have an account? <a href="/cloud/login/">Log in</a>
+    &nbsp;·&nbsp;
+    <a href="/cloud/">Back to Cloud</a>
+  </div>
+</div>
+
+<script>
+const API_BASE = '/api/cloud';
+
+function showError(msg) {
+  const el = document.getElementById('alert-error');
+  el.textContent = msg;
+  el.style.display = 'block';
+  document.getElementById('alert-success').style.display = 'none';
+}
+
+function showSuccess(msg) {
+  const el = document.getElementById('alert-success');
+  el.textContent = msg;
+  el.style.display = 'block';
+  document.getElementById('alert-error').style.display = 'none';
+}
+
+function setLoading(loading) {
+  document.getElementById('submit-btn').disabled = loading;
+  document.getElementById('spinner').style.display = loading ? 'block' : 'none';
+}
+
+function clearFieldErrors() {
+  ['email','password'].forEach(f => {
+    document.getElementById(f+'-error').style.display = 'none';
+    document.getElementById(f).classList.remove('input-error');
+  });
+}
+
+document.getElementById('signup-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  clearFieldErrors();
+  document.getElementById('alert-error').style.display = 'none';
+  document.getElementById('alert-success').style.display = 'none';
+
+  const email = document.getElementById('email').value.trim();
+  const password = document.getElementById('password').value;
+
+  if (!email || !email.includes('@')) {
+    document.getElementById('email-error').textContent = 'Please enter a valid email address.';
+    document.getElementById('email-error').style.display = 'block';
+    document.getElementById('email').classList.add('input-error');
+    return;
+  }
+  if (password.length < 8) {
+    document.getElementById('password-error').textContent = 'Password must be at least 8 characters.';
+    document.getElementById('password-error').style.display = 'block';
+    document.getElementById('password').classList.add('input-error');
+    return;
+  }
+
+  setLoading(true);
+  try {
+    const resp = await fetch(API_BASE + '/accounts/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await resp.json();
+
+    if (resp.ok) {
+      showSuccess('Account created! Check your email to verify your address.');
+      document.getElementById('signup-form').reset();
+    } else if (resp.status === 409) {
+      showError(data.detail || 'An account with this email already exists.');
+    } else {
+      showError(data.detail || 'Registration failed. Please try again.');
+    }
+  } catch (err) {
+    showError('Network error. Please check your connection and try again.');
+  } finally {
+    setLoading(false);
+  }
+});
+</script>
+<script defer src="https://stats.perseus.observer/script.js" data-website-id="74dc0a11-f2dd-4d6f-b0b7-4a550116bbe5"></script>
+</body>
+</html>

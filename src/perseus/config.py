@@ -316,11 +316,10 @@ DEFAULT_CONFIG = {
         "poll_interval_s": 5,
     },
     "permissions": {                  # Phase 17A — task-45
-        # profile: null | "strict" | "balanced" | "power-user"
-        # null preserves existing behavior (no profile applied). Named profiles
-        # set defaults across render/agent/serve/generation; any explicit config
-        # value in the same key wins (overrides take precedence over profiles).
-        "profile": None,
+        # profile: null | "locked-down" | "operator" | "development" | legacy names
+        # Default: "locked-down" for new installs (#814). Explicit config values
+        # always override the profile (user wins).
+        "profile": "locked-down",
     },
     "redaction": {                    # Phase 17B — task-46
         # Redact common secret shapes before output crosses Perseus's trust
@@ -414,7 +413,8 @@ DEFAULT_CONFIG = {
 #   while still keeping LLM generation opt-in (`generation.enabled: false`)
 #   because uncited generation is a separate trust boundary (see PRODUCT_CONTRACT).
 PERMISSION_PROFILES: dict[str, dict[str, dict[str, object]]] = {
-    "strict": {
+    # Enterprise-named profiles (#814)
+    "locked-down": {
         "render": {
             "allow_query_shell": False,
             "allow_agent_shell": False,
@@ -425,7 +425,7 @@ PERMISSION_PROFILES: dict[str, dict[str, dict[str, object]]] = {
         "generation": {"enabled": False},
         "serve": {"bind": "127.0.0.1", "bind_host": "127.0.0.1"},
     },
-    "balanced": {
+    "operator": {
         "render": {
             "allow_query_shell": False,
             "allow_agent_shell": False,
@@ -436,7 +436,7 @@ PERMISSION_PROFILES: dict[str, dict[str, dict[str, object]]] = {
         "generation": {"enabled": False},
         "serve": {"bind": "127.0.0.1", "bind_host": "127.0.0.1"},
     },
-    "power-user": {
+    "development": {
         "render": {
             "allow_query_shell": True,
             "allow_agent_shell": True,
@@ -444,9 +444,13 @@ PERMISSION_PROFILES: dict[str, dict[str, dict[str, object]]] = {
             "allow_remote_services_health": True,
             "allow_outside_workspace": False,  # still off — workspace boundary is a hard wall
         },
-        "generation": {"enabled": False},      # generation stays opt-in even for power-user
+        "generation": {"enabled": False},      # generation stays opt-in even for development
         "serve": {"bind": "127.0.0.1", "bind_host": "127.0.0.1"},
     },
+    # Legacy aliases (backward compatible)
+    "strict": {"render": {"allow_query_shell": False, "allow_agent_shell": False, "allow_services_command": False, "allow_remote_services_health": False, "allow_outside_workspace": False}, "generation": {"enabled": False}, "serve": {"bind": "127.0.0.1", "bind_host": "127.0.0.1"}},
+    "balanced": {"render": {"allow_query_shell": False, "allow_agent_shell": False, "allow_services_command": False, "allow_remote_services_health": False, "allow_outside_workspace": False}, "generation": {"enabled": False}, "serve": {"bind": "127.0.0.1", "bind_host": "127.0.0.1"}},
+    "power-user": {"render": {"allow_query_shell": True, "allow_agent_shell": True, "allow_services_command": True, "allow_remote_services_health": True, "allow_outside_workspace": False}, "generation": {"enabled": False}, "serve": {"bind": "127.0.0.1", "bind_host": "127.0.0.1"}},
 }
 
 

@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Log in — Perseus Cloud</title>
+<script>try{var t=localStorage.getItem('perseus-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="icon" href="/assets/perseus.svg">
+<link rel="canonical" href="https://perseus.observer/cloud/login/">
+<meta name="description" content="Log in to your Perseus Cloud account.">
+<meta name="theme-color" content="#0A0A12">
+<link rel="stylesheet" href="/assets/fonts.css">
+<link rel="stylesheet" href="/assets/tokens.css">
+<link rel="stylesheet" href="/assets/perseus.css">
+<style>
+.auth-page { display:flex; min-height:100vh; align-items:center; justify-content:center; padding:24px; }
+.auth-card { background:var(--surface-1); border:1px solid var(--border); border-radius:16px; padding:40px; max-width:420px; width:100%; }
+.auth-card h1 { font-size:22px; margin:0 0 8px; }
+.auth-card .sub { color:var(--text-faint); font-size:14px; margin-bottom:28px; }
+.form-group { margin-bottom:18px; }
+.form-group label { display:block; font-size:13px; color:var(--text-faint); margin-bottom:6px; }
+.form-group input { width:100%; font-family:'JetBrains Mono',monospace; font-size:14px; color:var(--text); background:var(--surface-2); border:1px solid var(--border); border-radius:10px; padding:12px 14px; outline:none; box-sizing:border-box; }
+.form-group input:focus { border-color:var(--violet); }
+.form-group input.input-error { border-color:#ff4444; }
+.form-error { color:#ff6666; font-size:12px; margin-top:4px; display:none; }
+.btn-full { width:100%; padding:14px; font-size:15px; }
+.alert { padding:12px 16px; border-radius:10px; font-size:13px; margin-bottom:20px; display:none; }
+.alert-error { background:rgba(255,68,68,.12); border:1px solid rgba(255,68,68,.3); color:#ff8888; }
+.alert-success { background:rgba(0,200,120,.12); border:1px solid rgba(0,200,120,.3); color:#00c878; }
+.auth-footer { text-align:center; margin-top:20px; font-size:13px; color:var(--text-faint); }
+.auth-footer a { color:var(--violet); }
+.spinner { display:none; width:16px; height:16px; border:2px solid var(--border); border-top-color:var(--violet); border-radius:50%; animation:spin .6s linear infinite; margin-left:8px; }
+@keyframes spin { to { transform:rotate(360deg); } }
+.btn { display:inline-flex; align-items:center; justify-content:center; gap:8px; }
+</style>
+</head>
+<body class="auth-page">
+<div class="auth-card">
+  <h1>Log in to Perseus Cloud</h1>
+  <p class="sub">Access your vault, manage API keys, and configure federation.</p>
+
+  <div id="alert-error" class="alert alert-error"></div>
+
+  <form id="login-form">
+    <div class="form-group">
+      <label for="email">Email</label>
+      <input type="email" id="email" name="email" required placeholder="you@company.com" autocomplete="email">
+    </div>
+    <div class="form-group">
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" required placeholder="Your password" autocomplete="current-password">
+    </div>
+    <button type="submit" class="btn btn-amber btn-full" id="submit-btn">
+      Log in
+      <span class="spinner" id="spinner"></span>
+    </button>
+  </form>
+
+  <div class="auth-footer">
+    <a href="/cloud/signup/">Create an account</a>
+    &nbsp;·&nbsp;
+    <a href="/cloud/password-reset/">Forgot password?</a>
+    &nbsp;·&nbsp;
+    <a href="/cloud/">Back to Cloud</a>
+  </div>
+</div>
+
+<script>
+const API_BASE = '/api/cloud';
+
+function showError(msg) {
+  const el = document.getElementById('alert-error');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+
+function setLoading(loading) {
+  document.getElementById('submit-btn').disabled = loading;
+  document.getElementById('spinner').style.display = loading ? 'block' : 'none';
+}
+
+document.getElementById('login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  document.getElementById('alert-error').style.display = 'none';
+
+  const email = document.getElementById('email').value.trim();
+  const password = document.getElementById('password').value;
+
+  if (!email || !password) {
+    showError('Please enter both email and password.');
+    return;
+  }
+
+  setLoading(true);
+  try {
+    const resp = await fetch(API_BASE + '/accounts/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await resp.json();
+
+    if (resp.ok) {
+      // Store token and redirect
+      if (data.token) {
+        localStorage.setItem('perseus_token', data.token);
+      }
+      window.location.href = '/cloud/dashboard/';
+    } else if (resp.status === 403) {
+      showError('Email not verified. Check your inbox for the verification link.');
+    } else {
+      showError(data.detail || 'Invalid email or password.');
+    }
+  } catch (err) {
+    showError('Network error. Please check your connection and try again.');
+  } finally {
+    setLoading(false);
+  }
+});
+</script>
+<script defer src="https://stats.perseus.observer/script.js" data-website-id="74dc0a11-f2dd-4d6f-b0b7-4a550116bbe5"></script>
+</body>
+</html>

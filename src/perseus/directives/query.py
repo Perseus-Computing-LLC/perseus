@@ -284,9 +284,12 @@ def resolve_query(args_str: str, cfg: dict, workspace: "Path | None" = None) -> 
     lang = _guess_lang(cmd)
 
     # task-47: audit the shell-execution decision crossing the trust boundary.
+    # #814: include deterministic command hash for forensics.
+    cmd_hash = hashlib.sha256(cmd.encode()).hexdigest()[:16]
     audit_event(cfg, "shell_exec",
                 directive="@query",
                 command=cmd[:500],
+                command_hash=cmd_hash,
                 shell=shell)
 
     try:
