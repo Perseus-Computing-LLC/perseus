@@ -732,6 +732,8 @@ def main():
         else:
             cmd_schtasks(args, cfg)
     elif args.command == "vault":
+        if getattr(args, "vault_command", None) == "export":
+            return cmd_vault_export(args, cfg)
         return cmd_vault_maintain(args, cfg)
     elif args.command == "launchd":
         if getattr(args, "launchd_command", None) == "uninstall":
