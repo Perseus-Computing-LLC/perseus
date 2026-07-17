@@ -97,6 +97,7 @@ def _check_one_service(svc: dict, index: int, timeout: float, cfg: dict) -> tupl
                     directive="@services",
                     service=name,
                     command=command[:500],
+                    command_hash=hashlib.sha256(command.encode()).hexdigest()[:16],
                     shell=_get_shell(cfg))
         try:
             result = subprocess.run(
