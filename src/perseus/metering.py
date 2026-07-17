@@ -31,11 +31,13 @@ module (scripts/build.py) where every top-level name must be globally unique.
 from __future__ import annotations
 
 import inspect
+import json
 import os
 import sys
 import threading
 import time
 from contextvars import ContextVar
+from pathlib import Path
 from typing import Any, Optional
 
 # ``plutus_agent`` is intentionally NOT imported at module load — see the
@@ -49,6 +51,17 @@ _MTR_CONTEXT_BASELINE: ContextVar[dict | None] = ContextVar(
     "perseus_context_baseline", default=None
 )
 _MTR_CONTEXT_BASELINE_TTL_S = 60.0
+_MTR_STATUS = {
+    "attempts": 0,
+    "accepted_events": 0,
+    "accepted_with_baseline": 0,
+    "dropped_events": 0,
+    "dropped_by_reason": {},
+    "last_success_at": None,
+    "last_error_at": None,
+    "last_error": None,
+}
+_MTR_STATUS_PATH_CACHE: Path | None = None
 
 
 def _mtr_cfg(cfg: dict) -> dict:
@@ -99,6 +112,88 @@ def consume_context_baseline() -> dict | None:
     return {k: value[k] for k in (
         "actual_input_tokens", "baseline_input_tokens", "source"
     )}
+
+
+def _mtr_status_path(p: Optional[dict] = None) -> Path:
+    global _MTR_STATUS_PATH_CACHE
+    if _MTR_STATUS_PATH_CACHE is not None:
+        return _MTR_STATUS_PATH_CACHE
+    p = p if isinstance(p, dict) else {}
+    configured = p.get("status_path") or os.environ.get("PERSEUS_METERING_STATUS_PATH")
+    if configured:
+        path = Path(str(configured)).expanduser()
+    else:
+        root = Path(os.environ.get("PERSEUS_HOME", Path.home() / ".perseus"))
+        path = root / "metering-status.json"
+    _MTR_STATUS_PATH_CACHE = path
+    return path
+
+
+def _mtr_persist_status(p: Optional[dict] = None) -> None:
+    """Atomically persist redacted metering health state."""
+    path = _mtr_status_path(p)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(_MTR_STATUS, sort_keys=True) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def _mtr_status_attempt(p: dict) -> None:
+    _MTR_STATUS["attempts"] += 1
+    try:
+        _mtr_persist_status(p)
+    except Exception:
+        pass
+
+
+def _mtr_status_accepted(p: dict, *, has_baseline: bool) -> None:
+    _MTR_STATUS["accepted_events"] += 1
+    if has_baseline:
+        _MTR_STATUS["accepted_with_baseline"] += 1
+    _MTR_STATUS["last_success_at"] = time.time()
+    try:
+        _mtr_persist_status(p)
+    except Exception:
+        pass
+
+
+def _mtr_status_dropped(p: dict, reason: str) -> None:
+    _MTR_STATUS["dropped_events"] += 1
+    reasons = _MTR_STATUS["dropped_by_reason"]
+    reasons[reason] = int(reasons.get(reason, 0)) + 1
+    _MTR_STATUS["last_error_at"] = time.time()
+    _MTR_STATUS["last_error"] = reason[:240]
+    try:
+        _mtr_persist_status(p)
+    except Exception:
+        pass
+
+
+def metering_status(cfg: Optional[dict] = None) -> dict:
+    """Return redacted, restart-surviving metering health information."""
+    p = _mtr_cfg(cfg or {})
+    snapshot = dict(_MTR_STATUS)
+    snapshot["dropped_by_reason"] = dict(_MTR_STATUS["dropped_by_reason"])
+    try:
+        path = _mtr_status_path(p)
+        if path.exists():
+            persisted = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(persisted, dict) and persisted.get("attempts", 0) >= snapshot["attempts"]:
+                snapshot.update(persisted)
+    except Exception:
+        pass
+    attempts = int(snapshot.get("attempts") or 0)
+    accepted = int(snapshot.get("accepted_events") or 0)
+    snapshot["coverage_pct"] = round(
+        100.0 * int(snapshot.get("accepted_with_baseline") or 0) / accepted, 2
+    ) if accepted else 0.0
+    snapshot["configured"] = bool(p.get("db_path") or p.get("endpoint"))
+    snapshot["enabled"] = bool(p.get("enabled")) and snapshot["configured"]
+    snapshot["degraded"] = bool(snapshot["dropped_events"] or (
+        attempts > 0 and snapshot["accepted_events"] == 0
+    ))
+    snapshot["status_path"] = str(_mtr_status_path(p))
+    return snapshot
 
 
 def _mtr_warn_once(msg: str) -> None:
@@ -274,11 +369,15 @@ def meter_response(cfg: dict, response: Any, *, provider: Optional[str] = None,
     plutus-agent still meters spend and drops the baseline with one warning.
     """
     global _MTR_DROPPED
+    p = _mtr_cfg(cfg)
+    if metering_enabled(cfg):
+        _mtr_status_attempt(p)
     meter = _mtr_get_meter(cfg)
     if meter is None:
+        if metering_enabled(cfg):
+            _mtr_status_dropped(p, "meter_unavailable")
         return None
 
-    p = _mtr_cfg(cfg)
     task_type = task_type or p.get("task_type") or "serving"
     workspace = workspace or p.get("workspace")
     provider = (provider or _mtr_detect_provider(response) or "").strip().lower()
@@ -314,10 +413,13 @@ def meter_response(cfg: dict, response: Any, *, provider: Optional[str] = None,
                                    task_type=task_type, workspace=workspace)
         if res is not None and not getattr(res, "recorded", True):
             _MTR_DROPPED += 1
+            _mtr_status_dropped(p, "ledger_rejected")
             return None
+        _mtr_status_accepted(p, has_baseline=bool(bl))
         return res
     except Exception as exc:
         _MTR_DROPPED += 1
+        _mtr_status_dropped(p, type(exc).__name__.lower())
         if not p.get("fail_open", True):
             raise
         _mtr_warn_once(f"usage event dropped ({exc})")
@@ -342,10 +444,15 @@ def meter_usage(cfg: dict, provider: str, *, model: Optional[str] = None,
     #805 baseline kwargs (see there).
     """
     global _MTR_DROPPED
+    p = _mtr_cfg(cfg)
+    if metering_enabled(cfg):
+        _mtr_status_attempt(p)
     meter = _mtr_get_meter(cfg)
     if meter is None:
+        if metering_enabled(cfg):
+            _mtr_status_dropped(p, "meter_unavailable")
         return None
-    p = _mtr_cfg(cfg)
+
     try:
         bl = _mtr_baseline_kwargs(meter, baseline_cost_usd, baseline_model,
                                   baseline_input_tokens, baseline_output_tokens)
@@ -358,10 +465,13 @@ def meter_usage(cfg: dict, provider: str, *, model: Optional[str] = None,
             cost_usd=cost_usd, source=source, **bl)
         if res is not None and not getattr(res, "recorded", True):
             _MTR_DROPPED += 1
+            _mtr_status_dropped(p, "ledger_rejected")
             return None
+        _mtr_status_accepted(p, has_baseline=bool(bl))
         return res
     except Exception as exc:
         _MTR_DROPPED += 1
+        _mtr_status_dropped(p, type(exc).__name__.lower())
         if not p.get("fail_open", True):
             raise
         _mtr_warn_once(f"usage event dropped ({exc})")
@@ -431,9 +541,20 @@ def meter_context_reduction(cfg: dict, *, actual_text: Optional[str] = None,
 
 def _mtr_reset_for_tests() -> None:
     """Drop cached meters/counters so a test can reconfigure. Test-only."""
-    global _MTR_DROPPED, _MTR_WARNED
+    global _MTR_DROPPED, _MTR_WARNED, _MTR_STATUS_PATH_CACHE
     with _MTR_LOCK:
         _MTR_METERS.clear()
     _MTR_DROPPED = 0
     _MTR_WARNED = False
     _MTR_CONTEXT_BASELINE.set(None)
+    _MTR_STATUS_PATH_CACHE = None
+    _MTR_STATUS.update({
+        "attempts": 0,
+        "accepted_events": 0,
+        "accepted_with_baseline": 0,
+        "dropped_events": 0,
+        "dropped_by_reason": {},
+        "last_success_at": None,
+        "last_error_at": None,
+        "last_error": None,
+    })
