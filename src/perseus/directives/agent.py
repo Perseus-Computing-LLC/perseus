@@ -61,9 +61,12 @@ def resolve_agent(args_str: str, cfg: dict, workspace: Path | None = None) -> st
     shell = _get_shell(cfg)
 
     # task-47: audit @agent shell execution crossing the trust boundary.
+    # #814: include deterministic command hash for forensics.
+    cmd_hash = hashlib.sha256(cmd.encode()).hexdigest()[:16]
     audit_event(cfg, "shell_exec",
                 directive="@agent",
                 command=cmd[:500],
+                command_hash=cmd_hash,
                 shell=shell or "(platform default)",
                 timeout=timeout)
 
