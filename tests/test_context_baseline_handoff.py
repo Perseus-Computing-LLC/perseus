@@ -1,4 +1,12 @@
+import sys
 import unittest
+from pathlib import Path
+
+# The repository root contains the generated `perseus.py` launcher. Put the
+# source package first so this test exercises src/perseus on every platform.
+_SOURCE = Path(__file__).resolve().parents[1] / "src"
+sys.path.insert(0, str(_SOURCE))
+sys.modules.pop("perseus", None)
 
 from perseus.metering import (
     consume_context_baseline,

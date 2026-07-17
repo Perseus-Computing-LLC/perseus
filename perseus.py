@@ -3979,6 +3979,8 @@ import inspect
 import os
 import sys
 import threading
+import time
+from contextvars import ContextVar
 from typing import Any, Optional
 
 # ``plutus_agent`` is intentionally NOT imported at module load — see the
@@ -3988,6 +3990,10 @@ _MTR_LOCK = threading.Lock()
 _MTR_METERS: dict = {}      # cache key -> plutus_agent.Meter | None (built once)
 _MTR_DROPPED = 0            # events we failed to record (surfaced for ops)
 _MTR_WARNED = False         # so a broken meter warns once, not per call
+_MTR_CONTEXT_BASELINE: ContextVar[dict | None] = ContextVar(
+    "perseus_context_baseline", default=None
+)
+_MTR_CONTEXT_BASELINE_TTL_S = 60.0
 
 
 def _mtr_cfg(cfg: dict) -> dict:
@@ -4011,6 +4017,33 @@ def metering_dropped_events() -> int:
     must not be treated as complete until reconciled.
     """
     return _MTR_DROPPED
+
+
+def publish_context_baseline(*, actual_input_tokens: int,
+                             baseline_input_tokens: int,
+                             source: str = "estimate-heuristic") -> None:
+    """Publish the latest render baseline for the host serving loop."""
+    if int(actual_input_tokens) < 0 or int(baseline_input_tokens) <= 0:
+        return
+    _MTR_CONTEXT_BASELINE.set({
+        "actual_input_tokens": int(actual_input_tokens),
+        "baseline_input_tokens": int(baseline_input_tokens),
+        "source": str(source or "estimate-heuristic"),
+        "published_at": time.monotonic(),
+    })
+
+
+def consume_context_baseline() -> dict | None:
+    """Consume the current render baseline once, rejecting stale state."""
+    value = _MTR_CONTEXT_BASELINE.get()
+    _MTR_CONTEXT_BASELINE.set(None)
+    if not value:
+        return None
+    if time.monotonic() - float(value.get("published_at", 0)) > _MTR_CONTEXT_BASELINE_TTL_S:
+        return None
+    return {k: value[k] for k in (
+        "actual_input_tokens", "baseline_input_tokens", "source"
+    )}
 
 
 def _mtr_warn_once(msg: str) -> None:
@@ -4327,12 +4360,18 @@ def meter_context_reduction(cfg: dict, *, actual_text: Optional[str] = None,
     p = _mtr_cfg(cfg)
     ws = workspace or p.get("estimates_workspace") or "perseus-render-estimates"
     source = "estimate-exact" if (a_exact and b_exact) else "estimate-heuristic"
-    return meter_usage(
+    result = meter_usage(
         cfg, provider, model=model,
         input_tokens=int(actual_tokens), output_tokens=0,
         task_type=task_type, workspace=ws, source=source,
         baseline_input_tokens=int(baseline_tokens), baseline_output_tokens=0,
         baseline_model=None)
+    publish_context_baseline(
+        actual_input_tokens=int(actual_tokens),
+        baseline_input_tokens=int(baseline_tokens),
+        source=source,
+    )
+    return result
 
 
 def _mtr_reset_for_tests() -> None:
@@ -4342,6 +4381,7 @@ def _mtr_reset_for_tests() -> None:
         _MTR_METERS.clear()
     _MTR_DROPPED = 0
     _MTR_WARNED = False
+    _MTR_CONTEXT_BASELINE.set(None)
 # ──────────────────────────────── @env ────────────────────────────────────────
 
 # task-61: Default deny-list always active. Patterns are fnmatch globs.
