@@ -26354,6 +26354,39 @@ def _doctor_check_mimir_bridge(cfg: dict, workspace: Path) -> DoctorResult:
                            "Verify the perseus-vault binary and the `perseus_vault.command` in config.yaml")
 
 
+def _doctor_check_plutus_metering(cfg: dict, workspace: Path) -> DoctorResult:
+    """Check supported Plutus runtime wiring without exposing secrets."""
+    p = cfg.get("plutus") if isinstance(cfg, dict) else None
+    if not isinstance(p, dict) or not p.get("enabled"):
+        return DoctorResult("plutus_metering", "ok", "Plutus metering", "disabled", "")
+    if not (p.get("endpoint") or p.get("db_path")):
+        return DoctorResult(
+            "plutus_metering", "error", "Plutus metering",
+            "enabled but no endpoint or db_path is configured",
+            "Set plutus.endpoint or plutus.db_path in config.yaml",
+        )
+    try:
+        metering_status = globals().get("metering_status")
+        if metering_status is None:
+            from .metering import metering_status
+        status = metering_status(cfg)
+        if status.get("degraded"):
+            return DoctorResult(
+                "plutus_metering", "warn", "Plutus metering",
+                f"DEGRADED: {status.get('dropped_events', 0)} dropped, "
+                f"{status.get('coverage_pct', 0):.1f}% baseline coverage",
+                "Inspect metering-status.json and Plutus reachability",
+            )
+        return DoctorResult(
+            "plutus_metering", "ok", "Plutus metering",
+            f"enabled, {status.get('coverage_pct', 0):.1f}% baseline coverage",
+            "",
+        )
+    except Exception as exc:
+        return DoctorResult("plutus_metering", "error", "Plutus metering", str(exc),
+                           "Verify the installed Perseus/Plutus integration")
+
+
 def _doctor_check_version_header(cfg: dict, workspace: Path) -> DoctorResult:
     """Check if the @perseus version header in context.md matches installed version."""
     ctx_path = workspace / ".perseus" / "context.md"
@@ -26852,6 +26885,7 @@ _DOCTOR_CHECKS = [
     _doctor_check_mcp,
     _doctor_check_cache_writable,
     _doctor_check_mimir_bridge,
+    _doctor_check_plutus_metering,
     _doctor_check_sessions,
     _doctor_check_version_header,
     _doctor_check_stale_shim,
