@@ -33276,6 +33276,12 @@ def main():
                         help="Preview the combined report without changing anything")
     p_vault_maintain.add_argument("--vacuum", action="store_true",
                         help="Also VACUUM the database file (physical rewrite — throttle to ~weekly)")
+    p_vault_export = vault_sub.add_parser(
+        "export", help="Export vault Markdown entries (use --prose for frontmatter-free output)")
+    p_vault_export.add_argument("--prose", action="store_true",
+                        help="Strip YAML frontmatter and emit prose bodies only")
+    p_vault_export.add_argument("--output", "-o", default=None,
+                        help="Write export to this file instead of stdout")
 
     # schtasks (Windows Task Scheduler — #694)
     p_schtasks = sub.add_parser("schtasks", help="Create or remove a Windows Scheduled Task for a Perseus job")
