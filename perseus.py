@@ -106,9 +106,12 @@ if "perseus" not in _sys.modules:
         _sys.modules["perseus"] = _sys.modules[__name__]
 # ─────────────────────────────── Paths & Config ───────────────────────────────
 
-PERSEUS_HOME = Path(os.environ.get("PERSEUS_HOME", Path.home() / ".perseus"))
-SKILLS_DIR = Path(os.environ.get("PERSEUS_SKILLS_DIR", os.environ.get("HERMES_SKILLS_DIR", Path.home() / ".hermes" / "skills")))
-SESSIONS_DIR = Path(os.environ.get("PERSEUS_SESSIONS_DIR", os.environ.get("HERMES_SESSIONS_DIR", Path.home() / ".hermes" / "sessions")))
+PERSEUS_HOME = Path(os.environ["PERSEUS_HOME"]) if "PERSEUS_HOME" in os.environ else Path.home() / ".perseus"
+_default_hermes_root = PERSEUS_HOME.parent / ".hermes"
+_skills_dir = os.environ.get("PERSEUS_SKILLS_DIR") or os.environ.get("HERMES_SKILLS_DIR")
+SKILLS_DIR = Path(_skills_dir) if _skills_dir else _default_hermes_root / "skills"
+_sessions_dir = os.environ.get("PERSEUS_SESSIONS_DIR") or os.environ.get("HERMES_SESSIONS_DIR")
+SESSIONS_DIR = Path(_sessions_dir) if _sessions_dir else _default_hermes_root / "sessions"
 PYTHIA_LOG_NAME = "pythia_log.jsonl"
 LEGACY_PYTHIA_CONFIG_KEY = "or" + "acle"
 LEGACY_PYTHIA_LOG_NAME = LEGACY_PYTHIA_CONFIG_KEY + "_log.jsonl"
