@@ -106,9 +106,12 @@ if "perseus" not in _sys.modules:
         _sys.modules["perseus"] = _sys.modules[__name__]
 # ─────────────────────────────── Paths & Config ───────────────────────────────
 
-PERSEUS_HOME = Path(os.environ.get("PERSEUS_HOME", Path.home() / ".perseus"))
-SKILLS_DIR = Path(os.environ.get("PERSEUS_SKILLS_DIR", os.environ.get("HERMES_SKILLS_DIR", Path.home() / ".hermes" / "skills")))
-SESSIONS_DIR = Path(os.environ.get("PERSEUS_SESSIONS_DIR", os.environ.get("HERMES_SESSIONS_DIR", Path.home() / ".hermes" / "sessions")))
+PERSEUS_HOME = Path(os.environ["PERSEUS_HOME"]) if "PERSEUS_HOME" in os.environ else Path.home() / ".perseus"
+_default_hermes_root = PERSEUS_HOME.parent / ".hermes"
+_skills_dir = os.environ.get("PERSEUS_SKILLS_DIR") or os.environ.get("HERMES_SKILLS_DIR")
+SKILLS_DIR = Path(_skills_dir) if _skills_dir else _default_hermes_root / "skills"
+_sessions_dir = os.environ.get("PERSEUS_SESSIONS_DIR") or os.environ.get("HERMES_SESSIONS_DIR")
+SESSIONS_DIR = Path(_sessions_dir) if _sessions_dir else _default_hermes_root / "sessions"
 PYTHIA_LOG_NAME = "pythia_log.jsonl"
 LEGACY_PYTHIA_CONFIG_KEY = "or" + "acle"
 LEGACY_PYTHIA_LOG_NAME = LEGACY_PYTHIA_CONFIG_KEY + "_log.jsonl"
@@ -21038,6 +21041,7 @@ class MnemeConnector:
         topic_path: str | None = None,
         category: str | None = None,
         key: str | None = None,
+        cfg: dict | None = None,
         **kwargs,
     ) -> tuple[bool, str]:
         """Persist a memory in Mimir via the ``mimir_remember`` MCP tool.
@@ -21114,6 +21118,28 @@ class MnemeConnector:
             return False, err
         mem_id = (raw_result or {}).get("id", "")
         success = (raw_result or {}).get("success", bool(mem_id))
+
+        # #817: Capture Chancery cross-reference from vault write response.
+        # When the vault verifies a write through Chancery, it returns
+        # `chancery_writ_id` and optionally `chancery_blk`.  Record these
+        # in the Perseus audit log so both chains are bidirectionally
+        # walkable (authority → content and content → authority).
+        chancery_wid = (raw_result or {}).get("chancery_writ_id")
+        if chancery_wid and success:
+            try:
+                audit_event(
+                    cfg,
+                    "memory_write_chancery_verified",
+                    directive="mimir_remember",
+                    category=cat,
+                    key=ent_key,
+                    chancery_writ_id=chancery_wid,
+                    chancery_xref=f"chancery:{chancery_wid}",
+                    chancery_blk=(raw_result or {}).get("chancery_blk"),
+                )
+            except Exception:
+                pass  # audit failure must not block the write
+
         return success, mem_id
 
     def health_check(self) -> tuple[bool, str]:
@@ -22359,6 +22385,72 @@ def cmd_vault_maintain(args, cfg):
         print(f"Error: failed to execute {argv[0]}: {exc}", file=sys.stderr)
         return 1
     return proc.returncode
+
+
+def cmd_vault_export(args, cfg):
+    """#816: ``perseus vault export`` — export vault entries as plain or prose markdown.
+
+    Machine-readable mode (default): concatenates vault .md files with
+    frontmatter preserved. Compatible with existing export consumers.
+
+    Prose mode (--prose): strips JSON/YAML frontmatter, outputs only the
+    human-accreted prose body of each vault entry. Meets CoalWash's input
+    contract for store-neutral prose cleaning.
+    """
+    vault_path = _mneme_vault_path(cfg)
+    if not vault_path.is_dir():
+        print(f"Error: vault path not found: {vault_path}", file=sys.stderr)
+        return 1
+
+    md_files = sorted(vault_path.rglob("*.md"))
+    if not md_files:
+        print("No vault entries found.", file=sys.stderr)
+        return 0
+
+    lines: list[str] = []
+    for md_file in md_files:
+        try:
+            text = md_file.read_text(encoding="utf-8", errors="replace")
+        except Exception as exc:
+            print(f"Warning: skipping {md_file}: {exc}", file=sys.stderr)
+            continue
+
+        if not text.strip():
+            continue
+
+        if getattr(args, "prose", False):
+            # Prose mode: strip JSON/YAML frontmatter, keep only the body
+            _fm, body = _parse_frontmatter(text)
+            body = body.strip()
+            if not body:
+                continue
+            # Use filename stem as a heading for context
+            stem = md_file.stem
+            lines.append(f"--- {stem}")
+            lines.append("")
+            lines.append(body)
+            lines.append("")
+            lines.append("")
+        else:
+            # Machine-readable mode: include full content with frontmatter
+            lines.append(text.strip())
+            lines.append("\n---\n")
+
+    output_content = "\n".join(lines).strip()
+    out_path = getattr(args, "output", None)
+    if out_path:
+        out_path = Path(str(out_path)).expanduser()
+        try:
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(output_content + "\n", encoding="utf-8")
+            print(f"Exported {len(md_files)} entries to {out_path}")
+        except Exception as exc:
+            print(f"Error: failed to write {out_path}: {exc}", file=sys.stderr)
+            return 1
+    else:
+        print(output_content)
+
+    return 0
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -33187,6 +33279,12 @@ def main():
                         help="Preview the combined report without changing anything")
     p_vault_maintain.add_argument("--vacuum", action="store_true",
                         help="Also VACUUM the database file (physical rewrite — throttle to ~weekly)")
+    p_vault_export = vault_sub.add_parser(
+        "export", help="Export vault Markdown entries (use --prose for frontmatter-free output)")
+    p_vault_export.add_argument("--prose", action="store_true",
+                        help="Strip YAML frontmatter and emit prose bodies only")
+    p_vault_export.add_argument("--output", "-o", default=None,
+                        help="Write export to this file instead of stdout")
 
     # schtasks (Windows Task Scheduler — #694)
     p_schtasks = sub.add_parser("schtasks", help="Create or remove a Windows Scheduled Task for a Perseus job")
@@ -33475,6 +33573,8 @@ def main():
         else:
             cmd_schtasks(args, cfg)
     elif args.command == "vault":
+        if getattr(args, "vault_command", None) == "export":
+            return cmd_vault_export(args, cfg)
         return cmd_vault_maintain(args, cfg)
     elif args.command == "launchd":
         if getattr(args, "launchd_command", None) == "uninstall":
