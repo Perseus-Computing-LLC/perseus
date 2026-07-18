@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard — Perseus Cloud</title>
+<script>try{var t=localStorage.getItem('perseus-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="icon" href="/assets/perseus.svg">
+<link rel="stylesheet" href="/assets/fonts.css">
+<link rel="stylesheet" href="/assets/tokens.css">
+<link rel="stylesheet" href="/assets/perseus.css">
+<style>
+.dashboard { min-height:100vh; padding:28px 20px 56px; }
+.wrap { max-width:960px; margin:0 auto; }
+.top { display:flex; justify-content:space-between; align-items:center; gap:16px; margin-bottom:32px; }
+.brand { color:var(--text); text-decoration:none; font-weight:700; }
+.card-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:14px; }
+.card { background:var(--surface-1); border:1px solid var(--border); border-radius:14px; padding:20px; }
+.card h2 { font-size:13px; color:var(--text-faint); margin:0 0 10px; font-weight:500; }
+.metric { font:600 23px/1.15 'JetBrains Mono',monospace; color:var(--amber); }
+.detail { color:var(--text-faint); font-size:13px; margin:9px 0 0; }
+.panel { margin-top:16px; background:var(--surface-1); border:1px solid var(--border); border-radius:14px; padding:22px; }
+.panel h1 { margin:0 0 8px; font-size:22px; }
+.panel p { color:var(--text-faint); line-height:1.55; }
+.hidden { display:none; }
+.error { border-color:#ff6666; color:#ff9999; }
+</style>
+</head>
+<body class="dashboard">
+<main class="wrap">
+  <div class="top">
+    <a class="brand" href="/cloud/">Perseus <span style="color:var(--amber)">/ Cloud</span></a>
+    <a class="btn btn-ghost" href="/cloud/login/" id="logout">Log out</a>
+  </div>
+
+  <section class="panel" id="loading"><h1>Loading your Cloud workspace…</h1><p>Fetching your verified tenant contract.</p></section>
+  <section class="panel hidden" id="error"><h1>We could not load your dashboard.</h1><p id="error-text"></p><a class="btn btn-amber" href="/cloud/login/">Log in again</a></section>
+  <section class="hidden" id="content">
+    <div class="panel"><h1>Welcome to Perseus Cloud</h1><p id="tenant"></p></div>
+    <div class="card-grid">
+      <article class="card"><h2>Plan</h2><div class="metric" id="plan"></div><p class="detail">Your current Cloud tier.</p></article>
+      <article class="card"><h2>Included seats</h2><div class="metric" id="seats"></div><p class="detail">Add seat 11 to start a Team upgrade.</p></article>
+      <article class="card"><h2>Verified-savings recommendation</h2><div class="metric" id="donation"></div><p class="detail">Optional; never an automatic charge.</p></article>
+    </div>
+    <section class="panel"><h1>Savings and audit</h1><p id="savings"></p><p>Plutus provides the ledger-backed audit receipt for your verified savings.</p><a class="btn btn-amber" href="https://plutus.perseus.observer/auth/login">Open audit receipt in Plutus</a></section>
+  </section>
+</main>
+<script>
+const API_BASE = 'https://cloud-api.perseus.observer/api';
+const token = localStorage.getItem('perseus_token');
+const show = id => document.getElementById(id).classList.remove('hidden');
+const hide = id => document.getElementById(id).classList.add('hidden');
+
+async function loadDashboard() {
+  if (!token) { window.location.replace('/cloud/login/'); return; }
+  try {
+    const response = await fetch(API_BASE + '/accounts/onboarding', {
+      headers: { 'Authorization': 'Bearer ' + token },
+      credentials: 'include',
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || 'Authentication expired.');
+    const info = data.onboarding;
+    document.getElementById('tenant').textContent = 'Tenant ' + data.tenant_id + ' · email ' + (data.email_verified ? 'verified' : 'unverified');
+    document.getElementById('plan').textContent = info.plan.charAt(0).toUpperCase() + info.plan.slice(1);
+    document.getElementById('seats').textContent = info.max_seats + ' seats';
+    document.getElementById('donation').textContent = (info.donation_bps / 100) + '%';
+    document.getElementById('savings').textContent = info.savings_tally;
+    hide('loading'); show('content');
+  } catch (error) {
+    hide('loading');
+    document.getElementById('error-text').textContent = error.message || 'Please log in again.';
+    show('error');
+  }
+}
+
+document.getElementById('logout').addEventListener('click', () => localStorage.removeItem('perseus_token'));
+loadDashboard();
+</script>
+</body>
+</html>
