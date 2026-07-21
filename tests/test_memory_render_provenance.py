@@ -9,18 +9,37 @@ Verifies the render contract from docs/served-memory-rendering.md §4:
 
 import importlib.util
 import sys
+import types
 from pathlib import Path
 
-# The repo-root perseus.py artifact shadows the src/perseus package under
-# pytest; put src first and evict any non-package 'perseus' module.
-_SRC = str(Path(__file__).resolve().parents[1] / "src")
-if sys.path[0] != _SRC:
-    sys.path.insert(0, _SRC)
-_mod = sys.modules.get("perseus")
-if _mod is not None and not hasattr(_mod, "__path__"):
-    del sys.modules["perseus"]
+# Load mneme_connector + its package deps directly by path, WITHOUT mutating
+# sys.path or leaving a src-backed 'perseus' in sys.modules: the repo-root
+# perseus.py artifact shadows the src/perseus package for every other test
+# module (see test_composite_ranking.py for the same pattern), and leaking
+# either mutation breaks collection of alphabetically-later test modules.
+_SRC = Path(__file__).resolve().parents[1] / "src" / "perseus"
 
-import perseus.mneme_connector as mc  # noqa: E402
+
+def _load(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+_saved = {k: v for k, v in sys.modules.items() if k == "perseus" or k.startswith("perseus.")}
+_pkg = types.ModuleType("perseus")
+_pkg.__path__ = [str(_SRC)]
+sys.modules["perseus"] = _pkg
+try:
+    _load("perseus.composite_ranking", _SRC / "composite_ranking.py")
+    _load("perseus.retrieval_expansion", _SRC / "retrieval_expansion.py")
+    mc = _load("perseus.mneme_connector", _SRC / "mneme_connector.py")
+finally:
+    for k in ("perseus", "perseus.composite_ranking", "perseus.retrieval_expansion", "perseus.mneme_connector"):
+        sys.modules.pop(k, None)
+    sys.modules.update(_saved)
 
 
 def hit(*, origin=None, refs=None, summary="a memory", content=""):
