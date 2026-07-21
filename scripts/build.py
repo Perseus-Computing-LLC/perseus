@@ -70,6 +70,7 @@ MODULE_ORDER = [
     "src/perseus/mneme_federation.py",   # ← Mnēmē v2: federation (depends on narrative)
     "src/perseus/identity.py",           # ← Phase 27B: workspace identity + signing (depends on federation, narrative)
     "src/perseus/retrieval_expansion.py",  # ← #580: LLM query expansion (stdlib-only; before the connector that uses it)
+    "src/perseus/composite_ranking.py",  # ← #831: explicit composite retrieval ranking (stdlib-only; before the connector that uses it)
     "src/perseus/mneme_connector.py",  # ← Mneme bridge: MCP client + hybrid resolution (depends on memory)
     "src/perseus/inbox.py",
     "src/perseus/agora.py",
