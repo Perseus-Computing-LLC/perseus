@@ -20719,6 +20719,7 @@ class MnemeConnector:
             "mimir_recall", "mimir_recall_when", "mimir_as_of", "mimir_context",
             "mimir_stats", "mimir_get_entity", "mimir_forget", "mimir_correct",
             "mimir_remember", "mimir_health", "mimir_recall_batch",
+            "mimir_promote",
         ]
         _PREFIXES = ["perseus_vault_", "mneme_", "mimir_"]
 
@@ -21295,6 +21296,50 @@ class MnemeConnector:
         if isinstance(result, dict) and result.get("error"):
             return False, str(result["error"])
         return True, ""
+
+    def promote(
+        self,
+        from_category: str,
+        from_key: str,
+        to_category: str | None = None,
+        to_workspace_hash: str | None = None,
+        to_key: str | None = None,
+        reason: str = "",
+    ) -> tuple[bool, "dict | str"]:
+        """Promote a memory across the class/scope ladder via ``mimir_promote`` (#832).
+
+        The promotion ladder (docs/shared-memory-promotion-ladder.md) moves a
+        memory up the class ladder (``to_category``, e.g. episodes → convention)
+        and/or the scope ladder (``to_workspace_hash`` — personal → workspace →
+        team → org; empty string = global). The vault creates a new entity
+        carrying a ``promoted_from`` provenance record and links the source to
+        it with relationship ``promoted_to``; the source is never edited, so raw
+        evidence stays reachable.
+
+        Returns ``(True, result_dict)`` on success (the vault's response,
+        including ``to_id`` and ``to_workspace_hash``), ``(False, error)``
+        otherwise. On a vault older than the primitive (no ``mimir_promote``
+        tool), the unresolved-name error is surfaced verbatim.
+        """
+        if not self._ensure_connected():
+            return False, self.status
+        args: dict = {"from_category": from_category, "from_key": from_key}
+        if to_category is not None:
+            args["to_category"] = to_category
+        if to_workspace_hash is not None:
+            args["to_workspace_hash"] = to_workspace_hash
+        if to_key is not None:
+            args["to_key"] = to_key
+        if reason:
+            args["reason"] = reason
+        result, err = self._call("mimir_promote", args)
+        if err:
+            return False, err
+        if isinstance(result, dict) and result.get("error"):
+            return False, str(result["error"])
+        if not isinstance(result, dict) or not result.get("promoted"):
+            return False, f"unexpected mimir_promote response: {result!r}"
+        return True, result
 
     def store(
         self,
