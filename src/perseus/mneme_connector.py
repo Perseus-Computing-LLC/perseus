@@ -37,6 +37,7 @@ from enum import Enum
 from typing import Any, Optional, Callable
 
 from perseus.retrieval_expansion import ExpansionConfig, plan_query, rrf_fuse
+from perseus.composite_ranking import CompositeRankingConfig, composite_rerank
 
 
 # The heading emitted above every injected persistent-memory block. Rebranded
@@ -913,6 +914,13 @@ class MnemeConnector:
             if not self._expansion.api_key:
                 self._expansion.enabled = False  # fail safe: no key -> no expansion
 
+        # #831: optional composite retrieval ranking (spec
+        # docs/composite-retrieval-ranking.md). Off by default; when enabled,
+        # recall hits are re-ranked by the explicit composite score and each
+        # hit carries inspectable per-component scores.
+        self._composite = CompositeRankingConfig.from_dict(
+            mcfg.get("composite_ranking"))
+
         # Transport client
         self._client: _MCPStdioClient | _MCPSseClient | None = None
         self._connect_error: str | None = None
@@ -1166,6 +1174,9 @@ class MnemeConnector:
                 query, max_results, min_decay_score, workspace_hash,
                 topic_path, type_filter, t0)
             if seg is not None:
+                if self._composite.enabled:
+                    seg.items = composite_rerank(
+                        seg.items, query, workspace_hash, self._composite)
                 return seg
 
         hits, err = self._recall_once(
@@ -1177,6 +1188,8 @@ class MnemeConnector:
                 strategy_used="mimir_recall_error",
                 error=f"mimir_recall failed: {err}",
             )
+        if self._composite.enabled:
+            hits = composite_rerank(hits, query, workspace_hash, self._composite)
         return MemorySegment(
             items=hits,
             strategy_used="mimir_recall",
