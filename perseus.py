@@ -19691,6 +19691,7 @@ Key features:
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -19815,6 +19816,8 @@ class MemoryHit:
         verified: bool = False,
         category: str = "",
         key: str = "",
+        origin: dict | None = None,
+        external_refs: list | None = None,
         **kwargs,
     ):
         self.id = id
@@ -19833,6 +19836,11 @@ class MemoryHit:
         self.workspace_hash = workspace_hash
         self.tags = tags if tags is not None else {}
         self.verified = verified
+        # #838: structured provenance metadata (vault origin/external_refs
+        # spec). Both default to absence — entities without them render
+        # exactly as before.
+        self.origin = origin or {}
+        self.external_refs = external_refs or []
 
         # Handle aliases / alternate names
         resolved_content = content
@@ -19883,6 +19891,9 @@ class MemorySegment:
     strategy_used: str = "hybrid"
     total_available: int = 0
     query_time_ms: int = 0
+    # #838: "compact" (default) renders one line per memory; "rich" adds
+    # origin/provenance detail and the full external_refs list per item.
+    render_mode: str = "compact"
     # #539: human-readable reason the vault produced zero items via MCP, e.g.
     # "unavailable: mimir binary not found" or "mimir_recall error: <msg>".
     # Empty string means "no error — query genuinely ran and returned N items
@@ -19913,12 +19924,46 @@ class MemorySegment:
                 source_tag = f"[{item.source.value}]" if item.source != MemorySource.LOCAL else ""
                 verified_mark = " ✓" if item.verified else ""
                 decay_hint = f" (freshness: {item.decay_score:.0%})" if item.decay_score < 0.9 else ""
+                # #838: origin badge — inferred/extracted/imported material is
+                # marked so operators and downstream prompts can tell it apart
+                # from asserted/observed facts (which stay unmarked).
+                kind = (item.origin or {}).get("memory_kind", "")
+                origin_badge = f" [{kind}]" if kind in ("extracted", "inferred", "imported") else ""
                 title = item.summary or item.content[:80]
-                blocks.append(f"- {source_tag} {title}{verified_mark}{decay_hint}")
+                blocks.append(f"- {source_tag} {title}{verified_mark}{origin_badge}{decay_hint}")
+                # #838: first external ref renders as the compact source cue.
+                if item.external_refs:
+                    first = item.external_refs[0]
+                    if isinstance(first, dict) and first.get("ref_value"):
+                        blocks.append(f"  ⌗ {first['ref_value']}")
+                if self.render_mode == "rich":
+                    blocks.extend(_rich_provenance_lines(item))
                 if item.links:
                     for lnk in item.links[:3]:
                         blocks.append(f"  ↳ `{lnk.relationship}` → {lnk.target_id[:8]}…")
         return "\n".join(blocks)
+
+def _rich_provenance_lines(item: MemoryHit) -> list[str]:
+    """#838: full provenance detail for render_mode='rich' — the complete
+    origin record and every external ref, one indented line each. Absent
+    metadata renders nothing (backwards compatible by construction)."""
+    lines = []
+    origin = item.origin or {}
+    if origin:
+        parts = [f"{k}={v}" for k, v in (
+            ("kind", origin.get("memory_kind")),
+            ("source", origin.get("source_system")),
+            ("method", origin.get("capture_method")),
+            ("observed_ms", origin.get("observed_at_unix_ms")),
+        ) if v is not None]
+        if parts:
+            lines.append(f"  origin: {', '.join(parts)}")
+    for ref in (item.external_refs or [])[1:]:
+        if isinstance(ref, dict) and ref.get("ref_value"):
+            rel = ref.get("relationship") or "about"
+            lines.append(f"  ⌗ {ref['ref_value']} ({rel})")
+    return lines
+
 
 @dataclass
 class ContextPackage:
@@ -21638,9 +21683,9 @@ def _parse_memory_hits(data: dict) -> list[MemoryHit]:
         # falling back to the entity key/category so titles never render blank.
         content = raw.get("content", "")
         summary = raw.get("summary", "")
+        parsed = None  # body_json dict when available (also feeds #838 metadata)
         if not content and not summary:
             body = raw.get("body_json", "")
-            parsed = None
             if isinstance(body, dict):
                 parsed = body
             elif isinstance(body, str) and body.strip():
@@ -21688,6 +21733,11 @@ def _parse_memory_hits(data: dict) -> list[MemoryHit]:
             verified=raw.get("verified", False),
             category=raw.get("category", ""),
             key=raw.get("key", ""),
+            # #838: the vault expands body metadata to top level on recall;
+            # fall back to the parsed body for older vaults.
+            origin=raw.get("origin") or (parsed or {}).get("origin") or {},
+            external_refs=(raw.get("external_refs")
+                           or (parsed or {}).get("external_refs") or []),
         ))
     return hits
 
