@@ -741,6 +741,7 @@ class TestConnectorLaunchHardening:
             "mimir_recall", "mimir_recall_when", "mimir_as_of", "mimir_context",
             "mimir_stats", "mimir_get_entity", "mimir_forget", "mimir_correct",
             "mimir_remember", "mimir_health", "mimir_recall_batch",
+            "mimir_promote",
         ]
 
         class _StubOK:
