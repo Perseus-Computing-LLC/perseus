@@ -33,7 +33,7 @@ start (`AGENTS.md`, `CLAUDE.md`, `.cursorrules`, ...). Keep it live with
 
 **Perseus: the memory & context layer for AI agents. Load only the context they actually need.**
 
-Your agents re-read their whole notebook from page one on every call, and you're billed per word. Perseus hands them just the page they need: it resolves live workspace state into verified facts before the context window opens, and pairs with [Perseus Vault](https://github.com/Perseus-Computing-LLC/perseus-vault) for durable, encrypted memory. The result: **73.8% on LongMemEval** (official harness), a **67% smaller tool schema**, and **611× warmer renders**. Local-first, air-gap ready, MIT.
+Your agents re-read their whole notebook from page one on every call, and you're billed per word. Perseus hands them just the page they need: it resolves live workspace state into verified facts before the context window opens, and pairs with [Perseus Vault](https://github.com/Perseus-Computing-LLC/perseus-vault) for durable, encrypted memory. The result: **73.8% on LongMemEval** (official harness), a **67% smaller tool schema**, and **611× warmer renders**. On LOCOMO (run on [Mem0's own harness](https://github.com/Perseus-Computing-LLC/memory-benchmarks)): Perseus Vault **87.9%** vs Mem0 Platform 82.2% vs Zep Cloud 33.8%. Local-first, air-gap ready, MIT.
 
 <!-- mcp-name: io.github.Perseus-Computing-LLC/perseus -->
 
