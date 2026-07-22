@@ -4,16 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Perseus Computing · load only the context your agents need</title>
-<meta name="description" content="Perseus is the memory & context layer for AI agents. Load only the context they actually need: 73.8% on LongMemEval, a 67% smaller tool schema, 611x warmer renders. Local-first, air-gap ready, open source (MIT).">
+<meta name="description" content="Perseus is the memory & context layer for AI agents. Load only the context they actually need: 73.8% on LongMemEval, 87.9% on LOCOMO (vs Mem0 82.2%), a 67% smaller tool schema, 611x warmer renders. Local-first, air-gap ready, open source (MIT).">
 <link rel="canonical" href="https://perseus.observer/">
 <meta property="og:type" content="website">
 <meta property="og:title" content="Perseus Computing · the memory & context layer for AI agents">
-<meta property="og:description" content="Load only the context your agents actually need. 73.8% on LongMemEval, 67% smaller tool schema. Local-first, air-gap ready, open source.">
+<meta property="og:description" content="Load only the context your agents actually need. 73.8% on LongMemEval, 87.9% on LOCOMO, 67% smaller tool schema. Local-first, air-gap ready, open source.">
 <meta property="og:url" content="https://perseus.observer/">
 <meta property="og:image" content="https://perseus.observer/assets/og/perseus.png">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Perseus Computing · the memory & context layer for AI agents">
-<meta name="twitter:description" content="Load only the context your agents actually need. 73.8% on LongMemEval, 67% smaller tool schema. Local-first, air-gap ready, open source.">
+<meta name="twitter:description" content="Load only the context your agents actually need. 73.8% on LongMemEval, 87.9% on LOCOMO, 67% smaller tool schema. Local-first, air-gap ready, open source.">
 <meta name="twitter:image" content="https://perseus.observer/assets/og/perseus.png">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/assets/fonts.css">
@@ -89,6 +89,10 @@ input[type=number]{ font-family:'IBM Plex Mono',monospace; }
       <div style="flex:1;min-width:200px;background:#14161c;border:1px solid #262a33;border-radius:12px;padding:20px 18px;text-align:left;">
         <div style="font-family:'IBM Plex Mono',monospace;font-size:32px;font-weight:600;color:#a78bfa;letter-spacing:-0.02em;">73.8%</div>
         <div style="font-size:13px;color:#9aa2ad;margin-top:4px;line-height:1.4;">LongMemEval QA accuracy<br><span style="color:#6d7480;">official harness · vs Zep 63.8%</span></div>
+      </div>
+      <div style="flex:1;min-width:200px;background:#14161c;border:1px solid #262a33;border-radius:12px;padding:20px 18px;text-align:left;">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:32px;font-weight:600;color:#a78bfa;letter-spacing:-0.02em;">87.9%</div>
+        <div style="font-size:13px;color:#9aa2ad;margin-top:4px;line-height:1.4;">LOCOMO accuracy<br><span style="color:#6d7480;">vs Mem0 82.2%, Zep 33.8 · mem0's own harness</span></div>
       </div>
     </div>
 
@@ -381,6 +385,10 @@ input[type=number]{ font-family:'IBM Plex Mono',monospace; }
       <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/tree/main/benchmark/longmemeval" style="background:#101216;border:1px solid #262a33;border-radius:12px;padding:20px 18px;display:block;">
         <div style="font-family:'IBM Plex Mono',monospace;font-size:26px;font-weight:600;color:#a78bfa;">73.8%</div>
         <div style="font-size:12.5px;color:#9aa2ad;margin-top:6px;line-height:1.4;">LongMemEval QA<br>official harness</div>
+      </a>
+      <a href="https://github.com/Perseus-Computing-LLC/memory-benchmarks/blob/main/LEADERBOARD.md" style="background:#101216;border:1px solid #262a33;border-radius:12px;padding:20px 18px;display:block;">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:26px;font-weight:600;color:#a78bfa;">87.9%</div>
+        <div style="font-size:12.5px;color:#9aa2ad;margin-top:6px;line-height:1.4;">LOCOMO cats 1-4<br>vs Mem0 82.2% · Zep 33.8%</div>
       </a>
       <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/docs/deployment-amd-mi300x.md" style="background:#101216;border:1px solid #262a33;border-radius:12px;padding:20px 18px;display:block;">
         <div style="font-family:'IBM Plex Mono',monospace;font-size:26px;font-weight:600;color:#a78bfa;">11.7×</div>
