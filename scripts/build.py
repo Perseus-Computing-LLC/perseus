@@ -261,6 +261,10 @@ def render_artifact(repo_root: Path) -> str:
         )
         sys.exit(1)
 
+    # #853: build provenance — short git SHA (+ -dirty marker) of the source
+    # revision, injected into _PERSEUS_BUILD_SHA in the artifact.
+    build_sha = _git_build_sha(repo_root)
+
     for rel_path in MODULE_ORDER:
         path = repo_root / rel_path
         if not path.exists():
@@ -311,7 +315,32 @@ def render_artifact(repo_root: Path) -> str:
     # ── Inject version from VERSION file ────────────────────────────────────
     _VERSION_RE = re.compile(r'^(\s*_PERSEUS_VERSION\s*=\s*)".*?"(\s*#.*)?$', re.MULTILINE)
     output = _VERSION_RE.sub(lambda m: f'{m.group(1)}"{build_version}"{m.group(2) or ""}', output)
+    # ── Inject build provenance (short git SHA + dirty marker) — #853 ───────
+    _SHA_RE = re.compile(r'^(\s*_PERSEUS_BUILD_SHA\s*=\s*)".*?"(\s*#.*)?$', re.MULTILINE)
+    output = _SHA_RE.sub(lambda m: f'{m.group(1)}"{build_sha}"{m.group(2) or ""}', output)
     return output
+
+
+def _git_build_sha(repo_root: Path) -> str:
+    """Short commit SHA of the build source, with -dirty marker if the tree
+    has uncommitted changes. Empty string when git is unavailable (#853)."""
+    try:
+        r = subprocess.run(
+            ["git", "-C", str(repo_root), "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if r.returncode != 0:
+            return ""
+        sha = r.stdout.strip()
+        dirty = subprocess.run(
+            ["git", "-C", str(repo_root), "status", "--porcelain"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if dirty.returncode == 0 and dirty.stdout.strip():
+            sha += "-dirty"
+        return sha
+    except Exception:
+        return ""
 
 
 def smoke_test(out_path: Path) -> None:

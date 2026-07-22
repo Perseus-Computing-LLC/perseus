@@ -1264,16 +1264,15 @@ def cmd_trust(args, cfg) -> int:
     return 2
 
 
-def cmd_doctor(args, cfg) -> int:
-    """Run readiness checks and report status."""
-    workspace = Path(getattr(args, "workspace", None) or os.getcwd()).resolve()
-    use_json = getattr(args, "json", False)
-    try:
-        cfg = load_config(workspace)
-    except Exception:
-        # Keep going so doctor can report config/parser failures as checks.
-        pass
+def run_doctor_checks(cfg: dict, workspace: Path) -> dict:
+    """Run the full doctor check suite and return the structured result.
 
+    This is the machine-readable core of `perseus doctor --json`, extracted
+    so other surfaces (notably the MCP `perseus_get_health` tool in
+    ``mode="doctor"``) can return the identical payload instead of scraping
+    prose (#852). Returns a dict: perseus_version, workspace, checks,
+    summary, exit.
+    """
     cfg = dict(cfg)
     cfg["render"] = dict(cfg.get("render", {}))
     if cfg["render"].get("cache_dir") == DEFAULT_CONFIG.get("render", {}).get("cache_dir"):
@@ -1304,30 +1303,49 @@ def cmd_doctor(args, cfg) -> int:
     err = sum(1 for r in results if r.status == "error")
     exit_code = 1 if err > 0 else 0
 
+    return {
+        "perseus_version": _PERSEUS_VERSION,
+        "workspace": str(workspace),
+        "checks": [
+            {
+                "id": r.id,
+                "status": r.status,
+                "label": r.label,
+                "value": r.value,
+                **({"remediation": r.remediation} if r.remediation else {}),
+            }
+            for r in results
+        ],
+        "summary": {"ok": ok, "warn": warn, "error": err},
+        "exit": exit_code,
+    }
+
+
+def cmd_doctor(args, cfg) -> int:
+    """Run readiness checks and report status."""
+    workspace = Path(getattr(args, "workspace", None) or os.getcwd()).resolve()
+    use_json = getattr(args, "json", False)
+    try:
+        cfg = load_config(workspace)
+    except Exception:
+        # Keep going so doctor can report config/parser failures as checks.
+        pass
+
+    output = run_doctor_checks(cfg, workspace)
+    ok = output["summary"]["ok"]
+    warn = output["summary"]["warn"]
+    err = output["summary"]["error"]
+    exit_code = output["exit"]
+
     if use_json:
         import json as _json
-        output = {
-            "perseus_version": _PERSEUS_VERSION,
-            "workspace": str(workspace),
-            "checks": [
-                {
-                    "id": r.id,
-                    "status": r.status,
-                    "value": r.value,
-                    **({"remediation": r.remediation} if r.remediation else {}),
-                }
-                for r in results
-            ],
-            "summary": {"ok": ok, "warn": warn, "error": err},
-            "exit": exit_code,
-        }
         print(_json.dumps(output, indent=2))
     else:
         status_icons = {"ok": "✓", "warn": "⚠", "error": "✗"}
         print(f"perseus doctor — workspace: {workspace}")
-        for r in results:
-            icon = status_icons.get(r.status, "?")
-            print(f"{icon} {r.label:<40s} {r.value}")
+        for c in output["checks"]:
+            icon = status_icons.get(c["status"], "?")
+            print(f"{icon} {c['label']:<40s} {c['value']}")
         print(f"─ Summary: {ok} ok · {warn} warning · {err} errors  (exit {exit_code})")
 
     return exit_code
