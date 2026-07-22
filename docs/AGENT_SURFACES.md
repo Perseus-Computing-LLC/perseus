@@ -222,3 +222,22 @@ Failure:
   "error": "LLM request failed: connection refused"
 }
 ```
+
+## MCP health/context surfaces (CLI ↔ MCP mapping)
+
+The MCP server exposes health/context tools that mirror the CLI health
+surfaces, so agents can verify a (re)started MCP child without shell access.
+Tools that advertise an `outputSchema` also return a matching
+`structuredContent` payload alongside the legacy text content.
+
+| CLI command | MCP tool call | Payload |
+|---|---|---|
+| `perseus health` | `perseus_get_health {}` | `{status, report}` — maintenance-heuristics report (`status`: ok / warning / critical) |
+| `perseus doctor --json` | `perseus_get_health {"mode": "doctor"}` | `{status, mode, version, workspace, summary, checks}` — identical check results to `doctor --json`, plus derived overall `status` |
+| `perseus render` of `.perseus/context.md` | `perseus_get_context {"format": "markdown"}` | `{rendered, format}` |
+| `perseus render --format json` | `perseus_get_context {"format": "json"}` | `{rendered, format, workspace}` |
+
+Restart-verification recipe for MCP clients: call
+`perseus_get_health {"mode": "doctor"}` and check `structuredContent.status`
+(`ok` / `warning` / `critical`) and `structuredContent.summary` for the
+per-check tally — the same data `perseus doctor --json` prints on the CLI.
