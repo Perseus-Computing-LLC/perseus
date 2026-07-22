@@ -75,15 +75,16 @@ def test_perseus_get_context_redacts_secret(workspace_with_context):
 
 
 def test_perseus_get_context_json_format_redacts(workspace_with_context):
-    """Same regression in JSON format — the embedded `resolved` field
-    must be redacted before serialization."""
+    """Same regression in JSON format — the embedded `rendered` field
+    (named `resolved` before the #854 schema-alignment fix) must be
+    redacted before serialization."""
     cfg = _cfg(redaction_enabled=True)
     result = perseus._call_tool(
         "perseus_get_context", {"format": "json"}, cfg, workspace_with_context
     )
     payload = json.loads(result)
-    assert SECRET_NEEDLE not in payload["resolved"]
-    assert "[REDACTED:test_secret_needle]" in payload["resolved"]
+    assert SECRET_NEEDLE not in payload["rendered"]
+    assert "[REDACTED:test_secret_needle]" in payload["rendered"]
 
 
 def test_perseus_get_context_preserves_secret_when_redaction_disabled(

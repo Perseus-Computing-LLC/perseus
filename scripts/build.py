@@ -261,6 +261,10 @@ def render_artifact(repo_root: Path) -> str:
         )
         sys.exit(1)
 
+    # #853: build provenance — short git SHA (+ -dirty marker) of the source
+    # revision, injected into _PERSEUS_BUILD_SHA in the artifact.
+    build_sha = _git_build_sha(repo_root)
+
     for rel_path in MODULE_ORDER:
         path = repo_root / rel_path
         if not path.exists():
@@ -311,7 +315,32 @@ def render_artifact(repo_root: Path) -> str:
     # ── Inject version from VERSION file ────────────────────────────────────
     _VERSION_RE = re.compile(r'^(\s*_PERSEUS_VERSION\s*=\s*)".*?"(\s*#.*)?$', re.MULTILINE)
     output = _VERSION_RE.sub(lambda m: f'{m.group(1)}"{build_version}"{m.group(2) or ""}', output)
+    # ── Inject build provenance (short git SHA + dirty marker) — #853 ───────
+    _SHA_RE = re.compile(r'^(\s*_PERSEUS_BUILD_SHA\s*=\s*)".*?"(\s*#.*)?$', re.MULTILINE)
+    output = _SHA_RE.sub(lambda m: f'{m.group(1)}"{build_sha}"{m.group(2) or ""}', output)
     return output
+
+
+def _git_build_sha(repo_root: Path) -> str:
+    """Short commit SHA of the build source, with -dirty marker if the tree
+    has uncommitted changes. Empty string when git is unavailable (#853)."""
+    try:
+        r = subprocess.run(
+            ["git", "-C", str(repo_root), "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if r.returncode != 0:
+            return ""
+        sha = r.stdout.strip()
+        dirty = subprocess.run(
+            ["git", "-C", str(repo_root), "status", "--porcelain"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if dirty.returncode == 0 and dirty.stdout.strip():
+            sha += "-dirty"
+        return sha
+    except Exception:
+        return ""
 
 
 def smoke_test(out_path: Path) -> None:
@@ -411,7 +440,12 @@ def check() -> None:
         )
         sys.exit(1)
 
-    if current != output:
+    # #853: _PERSEUS_BUILD_SHA is volatile by design — it embeds the SHA of
+    # the commit the artifact was built from, so a committed artifact can
+    # never byte-match a fresh build from a later commit. Normalize the
+    # provenance line on both sides before the sync comparison; every other
+    # line must still match exactly.
+    if _normalize_provenance(current) != _normalize_provenance(output):
         print(
             "ERROR: perseus.py is out of sync with src/ — run "
             "`python scripts/build.py` and commit the regenerated artifact.\n"
@@ -423,6 +457,17 @@ def check() -> None:
 
     print("Build check ok: perseus.py is in sync with src/")
     smoke_test(out_path)
+
+
+_PROVENANCE_RE = re.compile(
+    r'^(\s*_PERSEUS_BUILD_SHA\s*=\s*)".*?"(\s*#.*)?$', re.MULTILINE
+)
+
+
+def _normalize_provenance(text: str) -> str:
+    """Replace the volatile _PERSEUS_BUILD_SHA value with a constant so the
+    --check sync gate ignores build provenance (#853)."""
+    return _PROVENANCE_RE.sub(lambda m: f'{m.group(1)}"<normalized>"{m.group(2) or ""}', text)
 
 
 def main(argv: list[str] | None = None) -> None:

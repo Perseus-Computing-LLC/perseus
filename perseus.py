@@ -76,6 +76,48 @@ from typing import NamedTuple, Callable
 # _VERSION_RE replaces the literal "0.0.0" with the VERSION file value.
 _PERSEUS_VERSION = "1.0.24"  # replaced at build time by scripts/build.py — see VERSION file for canonical value
 
+# ── Build provenance (injected by scripts/build.py at build time) ───────────
+# Short git SHA of the source revision the artifact was built from (#853).
+# Empty when unknown (unbuilt source tree without git metadata).
+_PERSEUS_BUILD_SHA = "ff01e7d-dirty"  # replaced at build time by scripts/build.py — see #853
+
+
+def _perseus_build_sha() -> str:
+    """Best-effort short commit SHA for the running code (#853).
+
+    Prefers the build-time injected value; falls back to resolving git HEAD
+    of the repository containing this file (covers pip installs straight
+    from a git checkout, where build.py never ran).
+    """
+    if _PERSEUS_BUILD_SHA:
+        return _PERSEUS_BUILD_SHA
+    try:
+        import subprocess
+        start = Path(__file__).resolve().parent
+        for p in [start] + list(start.parents):
+            if (p / ".git").exists():
+                r = subprocess.run(
+                    ["git", "-C", str(p), "rev-parse", "--short", "HEAD"],
+                    capture_output=True, text=True, timeout=5,
+                )
+                return r.stdout.strip() if r.returncode == 0 else ""
+    except Exception:
+        pass
+    return ""
+
+
+def _perseus_version_banner() -> str:
+    """`perseus --version` output, with commit provenance when known (#853).
+
+    Shape: `perseus v1.0.24 (g5eaa08f) — Patent Pending`, matching the
+    perseus-vault convention of embedding a short SHA in version output.
+    """
+    sha = _perseus_build_sha()
+    base = f"perseus v{_PERSEUS_VERSION}"
+    if sha:
+        base += f" (g{sha})"
+    return base + " — Patent Pending"
+
 # Register as 'perseus' so plugins can import from us (task-65)
 import sys as _sys
 
@@ -9340,15 +9382,21 @@ def _build_output_schema(tool_name: str, spec) -> dict | None:
             "type": "object",
             "properties": {
                 "rendered": {"type": "string", "description": "Full rendered context as markdown or JSON"},
-                "format": {"type": "string", "description": "Output format used"}
+                "format": {"type": "string", "description": "Output format used"},
+                "workspace": {"type": "string", "description": "Workspace path the context was rendered for (json format only)"}
             }
         }
     if tool_name == "perseus_get_health":
         return {
             "type": "object",
             "properties": {
-                "status": {"type": "string", "description": "Overall health status"},
-                "report": {"type": "string", "description": "Detailed health report as markdown"}
+                "status": {"type": "string", "description": "Overall health status: ok, warning, or critical"},
+                "report": {"type": "string", "description": "Detailed health report as markdown (basic mode)"},
+                "mode": {"type": "string", "description": "Health mode used: basic or doctor"},
+                "version": {"type": "string", "description": "Perseus version (doctor mode)"},
+                "workspace": {"type": "string", "description": "Workspace path checked (doctor mode)"},
+                "summary": {"type": "object", "description": "Doctor check tally: {ok, warn, error} (doctor mode)"},
+                "checks": {"type": "array", "items": {"type": "object"}, "description": "Individual doctor check results, identical to `perseus doctor --json` (doctor mode)"}
             }
         }
     if tool_name == "perseus_memory":
@@ -9644,20 +9692,29 @@ LEGACY_MCP_TOOLS: list[dict] = [
             "type": "object",
             "properties": {
                 "rendered": {"type": "string", "description": "Full rendered context"},
-                "format": {"type": "string", "description": "Output format used"}
+                "format": {"type": "string", "description": "Output format used"},
+                "workspace": {"type": "string", "description": "Workspace path the context was rendered for (json format only)"}
             }
         },
         annotations={"readOnlyHint": True},
     ),
     _tool_schema(
         "perseus_get_health",
-        "Run Daedalus context-maintenance heuristics — cache health, directive resolution stats, memory integrity check.",
-        {},
+        "Run Daedalus context-maintenance heuristics — cache health, directive resolution stats, memory integrity check. "
+        "mode=basic (default) returns the @health maintenance report; mode=doctor returns the same structured payload as "
+        "`perseus doctor --json` (per-check status + summary), the MCP equivalent of the CLI doctor surface for "
+        "restart/health verification.",
+        {"mode": {"type": "string", "description": "Health mode: basic (default, maintenance heuristics report) or doctor (full doctor --json equivalent structured diagnostics)"}},
         output_schema={
             "type": "object",
             "properties": {
-                "status": {"type": "string", "description": "Overall health status"},
-                "report": {"type": "string", "description": "Detailed health report"}
+                "status": {"type": "string", "description": "Overall health status: ok, warning, or critical"},
+                "report": {"type": "string", "description": "Detailed health report (basic mode)"},
+                "mode": {"type": "string", "description": "Health mode used: basic or doctor"},
+                "version": {"type": "string", "description": "Perseus version (doctor mode)"},
+                "workspace": {"type": "string", "description": "Workspace path checked (doctor mode)"},
+                "summary": {"type": "object", "description": "Doctor check tally: {ok, warn, error} (doctor mode)"},
+                "checks": {"type": "array", "items": {"type": "object"}, "description": "Individual doctor check results, identical to `perseus doctor --json` (doctor mode)"}
             }
         },
         annotations={"readOnlyHint": True},
@@ -9941,13 +9998,57 @@ def _call_tool(tool_name: str, arguments: dict, cfg: dict, workspace: Path) -> s
                 result = _mcp_redact(result, cfg)
                 fmt = arguments.get("format", "markdown")
                 if fmt == "json":
-                    return json.dumps({"resolved": result, "workspace": str(workspace)})
+                    # #854: the advertised output schema declares `rendered` +
+                    # `format`, but this path used to return `resolved` +
+                    # `workspace` — clients validating against the schema saw
+                    # a contract violation. Payload now matches the schema
+                    # (workspace kept as an extra, additive field).
+                    return json.dumps({
+                        "rendered": result,
+                        "format": fmt,
+                        "workspace": str(workspace),
+                    })
                 return result
             return f"No context file at {ctx_path}"
         except Exception as exc:
             return f"Error rendering context: {exc}"
 
     if tool_name == "perseus_get_health":
+        # #852: `mode="doctor"` returns the exact structured payload of
+        # `perseus doctor --json` (via the shared run_doctor_checks core),
+        # giving MCP clients a machine-readable restart/health verification
+        # path equivalent to the CLI. Default `basic` mode keeps the
+        # historical @health maintenance-heuristics report.
+        mode = str(arguments.get("mode", "basic") or "basic").lower()
+        if mode == "doctor":
+            # run_doctor_checks (doctor.py) is a top-level symbol in the
+            # built artifact; resolve via globals() so a stripped internal
+            # import is never needed (cf. #299 stripped-import hazard).
+            _rdc = globals().get("run_doctor_checks")
+            if _rdc is None:
+                return "Error: run_doctor_checks unavailable in this build"
+            try:
+                output = _rdc(cfg, workspace)
+            except Exception as exc:
+                return f"Error running doctor checks: {exc}"
+            summary = output.get("summary", {})
+            if summary.get("error", 0) > 0:
+                status = "critical"
+            elif summary.get("warn", 0) > 0:
+                status = "warning"
+            else:
+                status = "ok"
+            payload = {
+                "status": status,
+                "mode": "doctor",
+                "version": output.get("perseus_version", ""),
+                "workspace": output.get("workspace", str(workspace)),
+                "summary": summary,
+                "checks": output.get("checks", []),
+            }
+            return json.dumps(payload)
+        if mode != "basic":
+            return f"Error: unknown mode {mode!r} for perseus_get_health (expected 'basic' or 'doctor')"
         spec = DIRECTIVE_REGISTRY.get("@health")
         if spec and spec.resolver:
             report = _call_resolver(spec, "", cfg, workspace)
@@ -10207,14 +10308,67 @@ def _handle_tools_list(msg: dict, cfg: dict) -> dict:
     return _make_response(msg["id"], {"tools": tools})
 
 
+def _structured_content_for(tool_name: str, arguments: dict, result_text: str):
+    """Build the MCP `structuredContent` payload for a tool call result.
+
+    #851: tools that advertise an `outputSchema` must also return
+    `structuredContent` matching it — otherwise strict MCP bridges warn
+    "tool has an output schema but did not return structured content" and
+    automated health/verification checks get nothing machine-readable.
+
+    Strategy:
+      - Tools whose text result is already JSON (get_context format=json,
+        get_health mode=doctor, and any resolver that emits a JSON object)
+        are parsed and passed through.
+      - `perseus_get_context` markdown results are wrapped into the declared
+        {rendered, format} shape.
+      - `perseus_get_health` basic (markdown report) results are wrapped into
+        the declared {status, report} shape, with status derived from the
+        report's warning markers.
+    Returns None when there is no sensible structured payload (e.g. error
+    strings), in which case the result stays text-only.
+    """
+    if not isinstance(result_text, str):
+        return None
+    if result_text.startswith("Error:") or result_text.startswith("No context file"):
+        return None
+    try:
+        parsed = json.loads(result_text)
+        if isinstance(parsed, dict):
+            return parsed
+    except (ValueError, TypeError):
+        pass
+    if tool_name == "perseus_get_context":
+        fmt = arguments.get("format", "markdown")
+        return {"rendered": result_text, "format": fmt}
+    if tool_name == "perseus_get_health":
+        lowered = result_text.lower()
+        if "critical" in lowered:
+            status = "critical"
+        elif "⚠" in result_text or "warning" in lowered or "stale" in lowered:
+            status = "warning"
+        else:
+            status = "ok"
+        return {"status": status, "report": result_text}
+    return None
+
+
 def _handle_tools_call(msg: dict, cfg: dict, workspace: Path) -> dict:
     params = msg.get("params", {})
     tool_name = params.get("name", "")
     arguments = params.get("arguments", {})
     result_text = _call_tool(tool_name, arguments, cfg, workspace)
-    return _make_response(msg["id"], {
+    result: dict = {
         "content": [{"type": "text", "text": result_text}],
-    })
+    }
+    # #851: when the tool advertises an output schema, attach a matching
+    # structuredContent payload so strict bridges stop warning and clients
+    # get machine-readable output.
+    if _build_output_schema(tool_name, None) is not None:
+        structured = _structured_content_for(tool_name, arguments, result_text)
+        if structured is not None:
+            result["structuredContent"] = structured
+    return _make_response(msg["id"], result)
 
 
 # ── Server loop (stdio) ─────────────────────────────────────────────────────
@@ -27462,16 +27616,15 @@ def cmd_trust(args, cfg) -> int:
     return 2
 
 
-def cmd_doctor(args, cfg) -> int:
-    """Run readiness checks and report status."""
-    workspace = Path(getattr(args, "workspace", None) or os.getcwd()).resolve()
-    use_json = getattr(args, "json", False)
-    try:
-        cfg = load_config(workspace)
-    except Exception:
-        # Keep going so doctor can report config/parser failures as checks.
-        pass
+def run_doctor_checks(cfg: dict, workspace: Path) -> dict:
+    """Run the full doctor check suite and return the structured result.
 
+    This is the machine-readable core of `perseus doctor --json`, extracted
+    so other surfaces (notably the MCP `perseus_get_health` tool in
+    ``mode="doctor"``) can return the identical payload instead of scraping
+    prose (#852). Returns a dict: perseus_version, workspace, checks,
+    summary, exit.
+    """
     cfg = dict(cfg)
     cfg["render"] = dict(cfg.get("render", {}))
     if cfg["render"].get("cache_dir") == DEFAULT_CONFIG.get("render", {}).get("cache_dir"):
@@ -27502,30 +27655,49 @@ def cmd_doctor(args, cfg) -> int:
     err = sum(1 for r in results if r.status == "error")
     exit_code = 1 if err > 0 else 0
 
+    return {
+        "perseus_version": _PERSEUS_VERSION,
+        "workspace": str(workspace),
+        "checks": [
+            {
+                "id": r.id,
+                "status": r.status,
+                "label": r.label,
+                "value": r.value,
+                **({"remediation": r.remediation} if r.remediation else {}),
+            }
+            for r in results
+        ],
+        "summary": {"ok": ok, "warn": warn, "error": err},
+        "exit": exit_code,
+    }
+
+
+def cmd_doctor(args, cfg) -> int:
+    """Run readiness checks and report status."""
+    workspace = Path(getattr(args, "workspace", None) or os.getcwd()).resolve()
+    use_json = getattr(args, "json", False)
+    try:
+        cfg = load_config(workspace)
+    except Exception:
+        # Keep going so doctor can report config/parser failures as checks.
+        pass
+
+    output = run_doctor_checks(cfg, workspace)
+    ok = output["summary"]["ok"]
+    warn = output["summary"]["warn"]
+    err = output["summary"]["error"]
+    exit_code = output["exit"]
+
     if use_json:
         import json as _json
-        output = {
-            "perseus_version": _PERSEUS_VERSION,
-            "workspace": str(workspace),
-            "checks": [
-                {
-                    "id": r.id,
-                    "status": r.status,
-                    "value": r.value,
-                    **({"remediation": r.remediation} if r.remediation else {}),
-                }
-                for r in results
-            ],
-            "summary": {"ok": ok, "warn": warn, "error": err},
-            "exit": exit_code,
-        }
         print(_json.dumps(output, indent=2))
     else:
         status_icons = {"ok": "✓", "warn": "⚠", "error": "✗"}
         print(f"perseus doctor — workspace: {workspace}")
-        for r in results:
-            icon = status_icons.get(r.status, "?")
-            print(f"{icon} {r.label:<40s} {r.value}")
+        for c in output["checks"]:
+            icon = status_icons.get(c["status"], "?")
+            print(f"{icon} {c['label']:<40s} {c['value']}")
         print(f"─ Summary: {ok} ok · {warn} warning · {err} errors  (exit {exit_code})")
 
     return exit_code
@@ -33157,7 +33329,7 @@ def main():
         prog="perseus",
         description=f"Perseus — Live Context Engine for AI Assistants (v{_PERSEUS_VERSION})",
     )
-    parser.add_argument("--version", action="version", version=f"perseus v{_PERSEUS_VERSION} — Patent Pending")
+    parser.add_argument("--version", action="version", version=_perseus_version_banner())
     parser.add_argument("--offline", action="store_true", help="(Hidden) Enable air-gapped deployment mode. No-op.")
     sub = parser.add_subparsers(dest="command", required=False)
 
