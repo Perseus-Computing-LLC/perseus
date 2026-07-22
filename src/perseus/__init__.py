@@ -71,6 +71,48 @@ from typing import NamedTuple, Callable
 # _VERSION_RE replaces the literal "0.0.0" with the VERSION file value.
 _PERSEUS_VERSION = "0.0.0"  # replaced at build time by scripts/build.py — see VERSION file for canonical value
 
+# ── Build provenance (injected by scripts/build.py at build time) ───────────
+# Short git SHA of the source revision the artifact was built from (#853).
+# Empty when unknown (unbuilt source tree without git metadata).
+_PERSEUS_BUILD_SHA = ""  # replaced at build time by scripts/build.py — see #853
+
+
+def _perseus_build_sha() -> str:
+    """Best-effort short commit SHA for the running code (#853).
+
+    Prefers the build-time injected value; falls back to resolving git HEAD
+    of the repository containing this file (covers pip installs straight
+    from a git checkout, where build.py never ran).
+    """
+    if _PERSEUS_BUILD_SHA:
+        return _PERSEUS_BUILD_SHA
+    try:
+        import subprocess
+        start = Path(__file__).resolve().parent
+        for p in [start] + list(start.parents):
+            if (p / ".git").exists():
+                r = subprocess.run(
+                    ["git", "-C", str(p), "rev-parse", "--short", "HEAD"],
+                    capture_output=True, text=True, timeout=5,
+                )
+                return r.stdout.strip() if r.returncode == 0 else ""
+    except Exception:
+        pass
+    return ""
+
+
+def _perseus_version_banner() -> str:
+    """`perseus --version` output, with commit provenance when known (#853).
+
+    Shape: `perseus v1.0.24 (g5eaa08f) — Patent Pending`, matching the
+    perseus-vault convention of embedding a short SHA in version output.
+    """
+    sha = _perseus_build_sha()
+    base = f"perseus v{_PERSEUS_VERSION}"
+    if sha:
+        base += f" (g{sha})"
+    return base + " — Patent Pending"
+
 # Register as 'perseus' so plugins can import from us (task-65)
 import sys as _sys
 
