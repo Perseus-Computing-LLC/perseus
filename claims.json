@@ -1,7 +1,7 @@
 {
   "_meta": {
     "description": "Canonical claim registry for Perseus Computing public surfaces. Every public figure derives from here. When a benchmark re-runs, update THIS file only; scripts/render_claims.py regenerates manifest strings and tests/test_claims_sync.py fails CI if any surface drifts.",
-    "updated": "2026-07-16"
+    "updated": "2026-07-22"
   },
   "claims": {
     "perseus_version": {"value": "1.0.24", "source": "VERSION", "status": "release", "publishable": true},
@@ -19,6 +19,8 @@
     "longmemeval_retrieval_recall10": {"value": "99.2%", "detail": "session-level recall@10, retrieval-only", "source": "perseus-vault/benchmark/longmemeval/report.json", "status": "signed", "label": "measured", "publishable": true},
     "competitor_zep": {"value": "63.8%", "status": "cited", "label": "published-not-reproduced", "publishable": true},
     "competitor_mem0": {"value": "49.0%", "status": "cited", "label": "published-not-reproduced", "publishable": true},
+    "locomo_overall": {"value": "87.9%", "detail": "LOCOMO categories 1-4, top-200 retrieval (1540 questions), gpt-5 answerer + judge, mem0's own harness forked; identical-corpus head-to-head: Mem0 Platform 82.2%, Zep Cloud 33.8% (mem0's own published file scores 91.6 -- disclosed as judge/platform drift in the leaderboard)", "source": "https://github.com/Perseus-Computing-LLC/memory-benchmarks/blob/main/LEADERBOARD.md", "status": "measured", "label": "measured", "publishable": true},
+    "locomo_adversarial": {"value": "63.5%", "detail": "LOCOMO category-5 adversarial (446 questions), same forked mem0 harness; Mem0 Platform 55.6%, Zep Cloud 49.8%; Perseus Vault is a fully local single binary, time-to-searchable instant vs Mem0 ~11-45s and Zep ~222s", "source": "https://github.com/Perseus-Computing-LLC/memory-benchmarks/blob/main/LEADERBOARD.md", "status": "measured", "label": "measured", "publishable": true},
     "vault_scale_p50_100k": {"value": "79.73 ms", "detail": "hybrid p50 @100K (p99 92.86)", "source": "perseus-vault/benchmark/scale/report.json", "status": "signed", "label": "measured", "publishable": true},
     "vault_durable_write_100k": {"value": "40/s", "detail": "durable sustained write @100K -- DISTINCT from in-memory bulk insert", "source": "perseus-vault/benchmark/scale/report.json", "status": "signed", "label": "measured", "publishable": true},
     "vault_bulk_insert": {"value": "98,732/s", "detail": "in-memory bulk insert, 100K in 1.01s -- NOT a sustained durable write rate", "source": "perseus-vault README stress test", "status": "unbacked", "label": "unverified", "publishable": false, "note": "Retired 2026-07-16 (#803): no artifact exists anywhere in the perseus-vault repo; the only source was the README sentence itself. Vault-side removal tracked in perseus-vault#702. Use vault_durable_write_100k (signed scale report) instead."},
