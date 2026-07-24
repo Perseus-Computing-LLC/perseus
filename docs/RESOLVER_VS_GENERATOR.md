@@ -62,7 +62,7 @@ section with provenance links to resolved inputs. The useful version is cited
 synthesis under scarcity: claims that compress relationships across sources the
 assistant may not otherwise receive in full.
 
-**Upside:** Captures value from broad source access, Mneme, Daedalus, and
+**Upside:** Captures value from broad source access, Perseus Vault, Daedalus, and
 Pythia without collapsing the trust model.
 
 **Downside:** Requires evals, provenance UI, and stronger language around what
@@ -102,7 +102,7 @@ Do not begin generative context work until all of these are true:
 - The owner explicitly chooses a generator/curator direction. ✅
 - Generated content has a separate output section or command surface.
 - Every generated claim can point back to exact resolved context, Pythia log
-  entries, Mneme narrative text, or explicit user input.
+  entries, Perseus Vault narrative text, or explicit user input.
 - Model failure leaves normal `perseus render` output unchanged.
 - Tests include golden fixtures, provenance checks, model-unavailable behavior,
   and clear separation between resolved and generated sections.

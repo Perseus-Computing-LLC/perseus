@@ -23,7 +23,7 @@ A local MCP context engine that combines memory persistence, code intelligence, 
 | `@services` health directive | N/A (code-focused, not infra) | None |
 | `@memory` / `@read` directives | `context_pack`, `retrieve_memory` | **HIGH** |
 | `@file` directive | `lookup_symbol` (FAISS + AST) | **HIGH** |
-| Mimir persistent memory | `store_memory`, `retrieve_memory`, BM25 + vector | **HIGH** |
+| Perseus Vault persistent memory | `store_memory`, `retrieve_memory`, BM25 + vector | **HIGH** |
 | `@agent` directive (task board) | `prime_session` (session init) | Medium |
 | `@skills` directive | N/A | None |
 | `mimir_remember` / `mimir_recall` | `store_memory` / `retrieve_memory` | **HIGH** |
@@ -48,7 +48,7 @@ A local MCP context engine that combines memory persistence, code intelligence, 
 
 3. **User behavior profiling**: `get_user_profile()` adapts context depth and style to individual developers. Perseus has no user-adaptation layer.
 
-4. **Error pattern learning**: `record_error()` builds institutional memory of past failures. Perseus's Mimir can store errors but doesn't learn from them automatically.
+4. **Error pattern learning**: `record_error()` builds institutional memory of past failures. Perseus's Perseus Vault can store errors but doesn't learn from them automatically.
 
 5. **Cross-agent handoff**: `last_context.json` works across Claude → Gemini → Cursor. Perseus's cross-agent story is configuration-based (AGENTS.md), not a shared context file standard.
 
@@ -58,17 +58,17 @@ A local MCP context engine that combines memory persistence, code intelligence, 
 
 2. **Operational scope**: Perseus handles git state, task boards, skill management, config drift detection. CogniRepo doesn't touch these.
 
-3. **Tool count and structure**: Mimir has 27 focused tools with clear categories. CogniRepo's 34 tools cover more surface area but may have schema bloat (self-admitted: "MCP tool schema overhead ~4,100 tokens for 34 tools").
+3. **Tool count and structure**: Perseus Vault has 27 focused tools with clear categories. CogniRepo's 34 tools cover more surface area but may have schema bloat (self-admitted: "MCP tool schema overhead ~4,100 tokens for 34 tools").
 
-4. **Rust vs Python**: Mimir is a compiled Rust binary (fast, no runtime). CogniRepo is Python (slower indexing, pip dependency chain).
+4. **Rust vs Python**: Perseus Vault is a compiled Rust binary (fast, no runtime). CogniRepo is Python (slower indexing, pip dependency chain).
 
 5. **Skill system**: Perseus's `@skills` directive surfaces procedural knowledge. CogniRepo has no equivalent.
 
-6. **Ebbinghaus decay**: Mimir's decay model is scientifically grounded. CogniRepo's `prune_memory.py` is a cron job, not a cognitive model.
+6. **Ebbinghaus decay**: Perseus Vault's decay model is scientifically grounded. CogniRepo's `prune_memory.py` is a cron job, not a cognitive model.
 
 ### Honest Assessment
 
-CogniRepo is the most serious competitive threat to Perseus in the "context engine" space. It overlaps significantly with Perseus's context rendering AND Mimir's persistent memory. However:
+CogniRepo is the most serious competitive threat to Perseus in the "context engine" space. It overlaps significantly with Perseus's context rendering AND Perseus Vault's persistent memory. However:
 
 - **CogniRepo is code-first.** Perseus is **workspace-first**. They optimize for different primary use cases.
 - **CogniRepo excels at Python repos.** Perseus is language-agnostic.
@@ -127,6 +127,6 @@ ContextForge addresses a real problem (repo too big for context window) but Pers
 | codebase-memory-mcp | Code structural memory | None (complementary) | Document, integrate via `@codebase` |
 | memory-mesh | Personal data memory | None (too early) | Monitor, re-evaluate Sep 2026 |
 | memtrace-public | Code structural memory | Medium (proprietary) | Watch for license change |
-| YourMemory | Agent memory | HIGH (published benchmarks) | Publish Mimir benchmarks |
+| YourMemory | Agent memory | HIGH (published benchmarks) | Publish Perseus Vault benchmarks |
 | cognirepo | Context + memory engine | HIGH (direct overlap) | Lean into operational context moat |
 | ContextForge | Context compression | Low | Monitor for maturity |
