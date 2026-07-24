@@ -21,7 +21,7 @@ See the patent disclosure for how this unification reads on claim element (a):
 |---|---|
 | filesystem / workspace | Reads files or workspace artifacts (no shell) |
 | shell / live system | Executes a sandboxed subprocess (gated) |
-| semantic memory (FTS5/Perseus Vault/Perseus Vault) | Local index / vault recall; offline |
+| semantic memory (FTS5/Perseus Vault) | Local index / vault recall; offline |
 | sub-agent subprocess | Delegates to an agent subprocess (gated) |
 | allowlisted external tool | Runs an executable from the tools allowlist |
 | in-process / computed | Pure in-process computation (date, env, prompt) |
@@ -40,7 +40,7 @@ See the patent disclosure for how this unification reads on claim element (a):
 | `@env` | `resolve_env` | inline | `acw` | 1 | in-process / computed |  |
 | `@health` | `resolve_health` | inline | `acw` | 1 | filesystem / workspace |  |
 | `@if` | `— (control)` | control | `block` | 1 | control/structural |  |
-| `@memory` | `resolve_memory` | inline | `acw` | 1 | semantic memory (FTS5/Perseus Vault/Perseus Vault) | @search (semantic memory) |
+| `@memory` | `resolve_memory` | inline | `acw` | 1 | semantic memory (FTS5/Perseus Vault) | @search (semantic memory) |
 | `@profile` | `resolve_profile` | inline | `acw` | 1 | in-process / computed |  |
 | `@prompt` | `resolve_prompt_block` | block | `block` | 1 | in-process / computed |  |
 | `@tokens` | `resolve_tokens` | block | `a` | 1 | shell / live system |  |
@@ -49,7 +49,7 @@ See the patent disclosure for how this unification reads on claim element (a):
 | `@agora` | `resolve_agora` | inline | `acw` | 2 | filesystem / workspace |  |
 | `@drift` | `resolve_drift` | inline | `ac` | 2 | filesystem / workspace |  |
 | `@inbox` | `resolve_inbox` | inline | `acw` | 2 | filesystem / workspace |  |
-| `@mimir` | `resolve_mimir` | inline | `acw` | 2 | semantic memory (FTS5/Perseus Vault/Perseus Vault) |  |
+| `@mimir` | `resolve_mimir` | inline | `acw` | 2 | semantic memory (FTS5/Perseus Vault) |  |
 | `@perseus` | `resolve_perseus` | inline | `acw` | 2 | in-process / computed |  |
 | `@services` | `resolve_services` | block | `block` | 2 | shell / live system |  |
 | `@session` | `resolve_session` | inline | `ac` | 2 | filesystem / workspace |  |
