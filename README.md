@@ -45,7 +45,7 @@ Perseus is the live context engine. Seven specialized products extend it:
 
 | Product | Description | Page |
 |---|---|---|
-| **Perseus Vault** | 55+ MCP tools (exposed under 3 name aliases: `perseus_vault_*`/`mimir_*`/`mneme_*`) — persistent memory with FTS5, entities, layers, confidence decay | [/perseus-vault/](https://perseus.observer/perseus-vault/) |
+| **Perseus Vault** | Persistent, encrypted memory for AI agents — FTS5, entities, layers, confidence decay. New integrations use `perseus_vault_*`; legacy aliases remain compatible. | [/perseus-vault/](https://perseus.observer/perseus-vault/) |
 | **MCTS** | 31 security analyzers for MCP servers — tool poisoning, prompt injection, credential leaks | [/mcts/](https://perseus.observer/mcts/) |
 | **PR Pilot** | 5-agent autonomous PR review pipeline — graduated autonomy L1→L3 | [/pr-pilot/](https://perseus.observer/pr-pilot/) |
 | **Blast Radius** | GitLab-native dependency impact analysis — 1 mention, instant risk report | [/blast-radius/](https://perseus.observer/blast-radius/) |
@@ -57,7 +57,7 @@ Perseus is the live context engine. Seven specialized products extend it:
 
 ### Perseus Vault — Persistent Memory (MCP)
 
-[Perseus Vault](https://github.com/Perseus-Computing-LLC/perseus-vault) is the persistent memory backend for Perseus — a lightweight Rust MCP server with SQLite + FTS5. Zero network calls, no API keys. Offline dense/hybrid embeddings are **bundled by default** (the model is compiled into the binary), so semantic recall works zero-config with no external model download. Perseus Vault exposes **55+ MCP tools** (each also exposed under `perseus_vault_*`, `mimir_*`, and `mneme_*` aliases) across structured entities, hybrid vector search, RAG, connectors, confidence decay, journal events, and state management: `perseus_vault_remember`, `perseus_vault_recall`, `perseus_vault_context`, `perseus_vault_traverse`, `perseus_vault_decay`, `perseus_vault_stats`, `perseus_vault_health`, and more.
+[Perseus Vault](https://github.com/Perseus-Computing-LLC/perseus-vault) is the persistent memory backend for Perseus — a lightweight Rust MCP server with SQLite + FTS5. Zero network calls, no API keys. Offline dense/hybrid embeddings are **bundled by default** (the model is compiled into the binary), so semantic recall works zero-config with no external model download. Perseus Vault exposes **55+ MCP tools** under canonical `perseus_vault_*` names across structured entities, hybrid vector search, RAG, connectors, confidence decay, journal events, and state management: `perseus_vault_remember`, `perseus_vault_recall`, `perseus_vault_context`, `perseus_vault_traverse`, `perseus_vault_decay`, `perseus_vault_stats`, `perseus_vault_health`, and more.
 
 📄 [Product page →](https://perseus.observer/perseus-vault/) | ⭐ [GitHub →](https://github.com/Perseus-Computing-LLC/perseus-vault)
 
@@ -93,7 +93,7 @@ perseus_vault:
   enabled: true
   command: ["perseus-vault", "serve"]
 ```
-The `perseus-vault` binary self-resolves its canonical default DB path, so no `--db` argument is needed (its default is `~/.mimir/data/perseus-vault.db`). The legacy `mimir:` key is still accepted for back-compat, so existing configs keep working. Then add `@memory mode=search query="your terms"` to `.perseus/context.md` and Perseus resolves live recall at render time.
+The `perseus-vault` binary self-resolves its canonical default DB path, so no `--db` argument is needed (its default is `~/.perseus-vault/data/perseus-vault.db`). Legacy `mimir:` configuration is still accepted for back-compat, so existing configs keep working. Then add `@memory mode=search query="your terms"` to `.perseus/context.md` and Perseus resolves live recall at render time.
 
 Works with any MCP-compatible assistant.
 
@@ -366,7 +366,7 @@ Perseus delivers verified, up-to-date context, eliminating the need for AI assis
 - **611× cold→warm cache speedup** — measured on the Perseus repo itself: 22,528 varied directives (22 types), cold render **619.1s**, warm render **1.014s**. Real git/tree/query/include/file directives, not synthetic strings. [Raw data →](benchmark/real_deltas.json)
 - **52.63% fewer prompt tokens, measured (naive assembly vs shipped defaults):** on this repo's own corpus, 5 context documents and 14 developer prompts, both arms counted as full requests with tiktoken (cl100k_base), cold cache; render overhead p50 341.5 ms cold / 315.6 ms warm, subprocess-timed inside the window. Scope is context assembly on this single repo, not end-task accuracy. [Artifact →](benchmark/tokenab/report.json)
 - **A retired claim, and its honest re-run:** an earlier "prompt-token reduction" headline came from a harness with asymmetric arms. We retired it ([#803](https://github.com/Perseus-Computing-LLC/perseus/issues/803); the retired entry stays visible in [claims.json](claims.json)) and re-measured with symmetric full-request arms in [#804](https://github.com/Perseus-Computing-LLC/perseus/issues/804), producing the figure above ([benchmark/tokenab/report.json](benchmark/tokenab/report.json)). Every figure we publish traces to a committed artifact via [claims.json](claims.json), and CI fails if a surface drifts.
-- **Mnēmē persistent memory** — In-process BM25 recall, zero daemon. **37ms search P50 at 10,000 docs**, flat across all scales. Perseus `@mimir` renders: **51× cold→warm speedup** with @cache. **2,700 docs/sec** write throughput, **0.4ms P50** saves. v1.0.7 adds **Mimir** (Project Synapse) — MCP-based remote memory with Ebbinghaus time-decay and FTS5 + LIKE hybrid search, circuit-breaker protected. Local Mnēmē remains the default. [Full results →](benchmark/mneme_hardcore.json)
+- **Perseus Vault persistent memory** — local-first durable memory with hybrid retrieval, temporal history, lifecycle controls, and encrypted storage. Earlier Mimir and Mnēmē names remain compatibility identifiers, not separate products. [Full results →](benchmark/mneme_hardcore.json)
 - **Enterprise Ready** — Cost analysis shows that for a 500-developer team, Perseus can save significant token costs per year. [Cost analysis →](benchmark/titan_cost.json)
 
 ![Perseus — Performance Benchmarks](https://raw.githubusercontent.com/Perseus-Computing-LLC/perseus/main/benchmark/infographic/perseus-benchmarks.svg)
@@ -947,7 +947,7 @@ See **[docs/ip/](docs/ip/)** for the public IP portfolio, including
 technical disclosures and evidence exhibits.
 
 **PERSEUS™** is a trademark of Thomas Connally. Internal subsystem names
-(Pythia, Daedalus, Agora, Mnēmē) are not independently trademarked and
+(Pythia, Daedalus, Agora) are not independently trademarked and
 are covered under the PERSEUS mark.
 
 ## Privacy Policy
@@ -961,7 +961,7 @@ Perseus is a **local-first context engine** — it runs entirely on your machine
 ### Data Usage & Storage
 - Perseus reads project files, git state, and environment variables to resolve context directives.
 - No project data leaves your machine. Perseus does not cache or store file contents beyond the render pipeline.
-- When paired with Mimir for persistent memory, memory data is stored locally per Mimir's privacy policy.
+- When paired with Perseus Vault for persistent memory, memory data is stored locally per the Perseus Vault privacy policy.
 
 ### Third-Party Sharing
 - **None.** Perseus is fully offline by default — no API calls, no cloud services, no external network requests.
