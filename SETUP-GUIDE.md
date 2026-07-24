@@ -134,7 +134,7 @@ local FTS5 if Perseus Vault is unavailable. Requires `perseus_vault.enabled: tru
   context.md                       # Home-workspace context template
   checkpoints/                     # Session checkpoint files (YAML)
   cache/                           # Directive output cache
-  memory/                          # Mnēmē narrative files (per-workspace)
+  memory/                          # Perseus Vault narrative files (per-workspace)
     <sha256_hash>.md               # Narrative for workspace at that hash
     vault/                         # Backup copies and aliases
   inbox/                           # Inter-agent messages
@@ -502,7 +502,7 @@ hash = hashlib.sha256(str(workspace).encode()).hexdigest()[:12]
 The narrative file lives at: `~/.perseus/memory/<hash>.md`
 
 > ⚠️ **Upgrade note (pre-v1.0.3 → v1.0.3+):** Older Perseus versions used **MD5** for workspace hashes.
-> If `@memory` returns "No Mnēmē narrative found" after upgrading, you have a hash mismatch.
+> If `@memory` returns "No Perseus Vault narrative found" after upgrading, you have a hash mismatch.
 > See [#128](https://github.com/Perseus-Computing-LLC/perseus/issues/128) for the migration workaround.
 
 ### Manual migration (MD5 → SHA256)
@@ -604,8 +604,8 @@ perseus_vault:
 curl -sSL https://raw.githubusercontent.com/Perseus-Computing-LLC/perseus-vault/main/scripts/bootstrap.sh | bash
 
 # Or build from source:
-git clone https://github.com/Perseus-Computing-LLC/perseus-vault.git ~/.mimir
-cd ~/.mimir && cargo build --release
+git clone https://github.com/Perseus-Computing-LLC/perseus-vault.git ~/.perseus-vault
+cd ~/.perseus-vault && cargo build --release
 cp target/release/perseus-vault ~/.local/bin/perseus-vault
 
 # Verify
@@ -661,8 +661,8 @@ Perseus integrates with [Perseus Vault](https://github.com/Perseus-Computing-LLC
 curl -sSL https://raw.githubusercontent.com/Perseus-Computing-LLC/perseus-vault/main/scripts/bootstrap.sh | bash
 
 # Or build from source
-git clone https://github.com/Perseus-Computing-LLC/perseus-vault.git ~/.mimir
-cd ~/.mimir && cargo build --release
+git clone https://github.com/Perseus-Computing-LLC/perseus-vault.git ~/.perseus-vault
+cd ~/.perseus-vault && cargo build --release
 cp target/release/perseus-vault ~/.local/bin/perseus-vault
 ```
 
@@ -974,7 +974,7 @@ EOF
 
 Or ask your AI CoS: *"Write a Perseus checkpoint for this session"* — it will draft `notes` and `next` from the conversation.
 
-**2. Merge into Mnēmē:**
+**2. Merge into Perseus Vault:**
 
 ```bash
 perseus memory update
@@ -1010,7 +1010,7 @@ HTTP endpoints:
 |---|---|
 | `/` | Dashboard with live stats |
 | `/context` | Rendered context.md (markdown) |
-| `/narrative` | Mnēmē project narrative |
+| `/narrative` | Perseus Vault project narrative |
 | `/health` | Maintenance report |
 | `/agora` | Task board |
 | `/checkpoint/latest` | Latest checkpoint (YAML) |
@@ -1018,7 +1018,7 @@ HTTP endpoints:
 
 Available MCP tools: `perseus_query`, `perseus_services`, `perseus_memory`, `perseus_waypoint`, `perseus_agora`, `perseus_inbox`, `perseus_health`, `perseus_session`, and more.
 
-### Mnēmē v2 Vault Setup
+### Perseus Vault v2 Vault Setup
 
 The `@memory mode=search` and `@mneme` directives search a vault of `.md` files
 indexed by SQLite FTS5 BM25. To populate your vault:
@@ -1099,7 +1099,7 @@ render:
 
 ---
 
-### `@memory` shows "No Mnēmē narrative found" after running `memory update`
+### `@memory` shows "No Perseus Vault narrative found" after running `memory update`
 
 **Cause:** The `@memory` directive cached the "not found" result from a previous render
 (before you ran `memory update`). The cache TTL hasn't expired yet.
@@ -1120,11 +1120,11 @@ perseus render ~/.perseus/context.md --output ~/AGENTS.md
 > ```markdown
 > @memory ttl=60    # 1 minute while you're still configuring
 > ```
-> Increase to `ttl=300` or higher once your Mnēmē narrative stabilizes.
+> Increase to `ttl=300` or higher once your Perseus Vault narrative stabilizes.
 
 ---
 
-### `@memory` returns "No Mnēmē narrative found" after upgrade
+### `@memory` returns "No Perseus Vault narrative found" after upgrade
 
 **Cause:** Workspace hash algorithm changed from MD5 (older versions) to SHA256 (v1.0.3+).
 
@@ -1255,7 +1255,7 @@ notes: |
   What was done, decisions made, URLs for traceability.
 EOF
 
-# Update Mnēmē narrative (deterministic)
+# Update Perseus Vault narrative (deterministic)
 perseus memory update
 
 # Show narrative
