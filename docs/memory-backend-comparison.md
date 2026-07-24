@@ -1,6 +1,6 @@
 # Memory Backend Comparison
 
-Evaluation of 4 memory backends discovered via Discord Scout against **Mimir** (Perseus's native memory engine).
+Evaluation of 4 memory backends discovered via Discord Scout against **Perseus Vault** (Perseus's native memory engine).
 
 **Date:** 2026-06-18  
 **Phase:** 1 of Discord Scout Integration Plan
@@ -9,7 +9,7 @@ Evaluation of 4 memory backends discovered via Discord Scout against **Mimir** (
 
 ## Quick Comparison Matrix
 
-| Dimension | Mimir | codebase-memory-mcp | memory-mesh | memtrace-public | YourMemory |
+| Dimension | Perseus Vault | codebase-memory-mcp | memory-mesh | memtrace-public | YourMemory |
 |---|---|---|---|---|---|
 | **Stars** | — | 5,800 | 5 | 194 | 245 |
 | **Commits** | 61 | 862 | 5 | 103 | 230 |
@@ -31,7 +31,7 @@ Evaluation of 4 memory backends discovered via Discord Scout against **Mimir** (
 ## 1. codebase-memory-mcp (DeusData)
 
 **Repo:** <https://github.com/DeusData/codebase-memory-mcp>  
-**Score:** 6.0 (plan) → **Re-rated: LOW overlap with Mimir**
+**Score:** 6.0 (plan) → **Re-rated: LOW overlap with Perseus Vault**
 
 ### Summary
 
@@ -51,9 +51,9 @@ A production-grade code intelligence engine that indexes codebases into a persis
 - Sub-1ms structural queries
 - 83% answer quality, 10× fewer tokens, 2.1× fewer tool calls vs file-by-file exploration
 
-### Mimir Comparison
+### Perseus Vault Comparison
 
-| Aspect | codebase-memory-mcp | Mimir |
+| Aspect | codebase-memory-mcp | Perseus Vault |
 |---|---|---|
 | Domain | Code structure (AST, call graphs) | Agent knowledge (decisions, facts, state) |
 | Input | Source code files | Structured entities + journal + state |
@@ -62,7 +62,7 @@ A production-grade code intelligence engine that indexes codebases into a persis
 | Decay | N/A (code doesn't decay) | Ebbinghaus decay curve |
 | Agent support | 11 coding agents auto-configured | Any MCP host (stdio) |
 
-**Verdict: Complementary, not competitive.** codebase-memory-mcp excels at "what's in my codebase right now." Mimir excels at "what did we decide last week." They solve different problems. Perseus could invoke codebase-memory-mcp as a pre-render step for code-heavy workspaces via a `@codebase` directive.
+**Verdict: Complementary, not competitive.** codebase-memory-mcp excels at "what's in my codebase right now." Perseus Vault excels at "what did we decide last week." They solve different problems. Perseus could invoke codebase-memory-mcp as a pre-render step for code-heavy workspaces via a `@codebase` directive.
 
 **Integration approach:** Document as complementary in Perseus docs. A `@codebase` directive in Perseus that surfaces codebase-memory-mcp's knowledge graph alongside operational context.
 
@@ -87,9 +87,9 @@ A personal data memory hub for MCP agents. Indexes files, email, calendar, brows
 - **Tiered memory**: hot/warm/cold with configurable forgetting decay
 - **Encryption**: Fernet AES-128 at rest
 
-### Mimir Comparison
+### Perseus Vault Comparison
 
-| Aspect | memory-mesh | Mimir |
+| Aspect | memory-mesh | Perseus Vault |
 |---|---|---|
 | Maturity | 5 commits, v0.8.0 but barely started | 61 commits, production-grade |
 | Connectors | 47 (ambitious) | 1 (mimir_ingest with GitHub issues) |
@@ -100,7 +100,7 @@ A personal data memory hub for MCP agents. Indexes files, email, calendar, brows
 | Extensions | VS Code + browser extensions | N/A |
 | Setup | `pip install` + config | `cargo build` or binary download |
 
-**Verdict: Monitor, don't invest now.** The 47-connector vision is ambitious but only 5 commits exist so far. Most features are likely scaffolded, not functional. The tiered memory model (hot/warm/cold) is interesting but Mimir's Ebbinghaus decay is more scientifically grounded. Revisit in 3 months if development accelerates.
+**Verdict: Monitor, don't invest now.** The 47-connector vision is ambitious but only 5 commits exist so far. Most features are likely scaffolded, not functional. The tiered memory model (hot/warm/cold) is interesting but Perseus Vault's Ebbinghaus decay is more scientifically grounded. Revisit in 3 months if development accelerates.
 
 **Integration approach:** None currently. Set a reminder to re-evaluate in September 2026.
 
@@ -131,9 +131,9 @@ A bi-temporal episodic structural knowledge graph for AI coding agents. Rust-nat
 - **Telemetry** — sends aggregate node/edge counts and license validation home
 - Claims Hermes support in README badges
 
-### Mimir Comparison
+### Perseus Vault Comparison
 
-| Aspect | memtrace-public | Mimir |
+| Aspect | memtrace-public | Perseus Vault |
 |---|---|---|
 | License | **Proprietary EULA** | MIT |
 | Domain | Code structural memory | Agent knowledge memory |
@@ -143,7 +143,7 @@ A bi-temporal episodic structural knowledge graph for AI coding agents. Rust-nat
 | Setup | Waitlist → npm install | Build from source or download binary |
 | Cost | Unknown (private beta) | Free, MIT |
 
-**Verdict: Competitive threat needs monitoring, NOT integration candidate.** The proprietary license makes it unsuitable for Perseus ecosystem integration. However, its technical capabilities (1,200× faster indexing, LeanCTX compression, Louvain community detection) are impressive and represent features Perseus/Mimir should track. The "Hermes support" claim in their README is worth verifying — if they support Hermes Agent as a client, that's a potential user acquisition channel competing with Perseus.
+**Verdict: Competitive threat needs monitoring, NOT integration candidate.** The proprietary license makes it unsuitable for Perseus ecosystem integration. However, its technical capabilities (1,200× faster indexing, LeanCTX compression, Louvain community detection) are impressive and represent features Perseus/Perseus Vault should track. The "Hermes support" claim in their README is worth verifying — if they support Hermes Agent as a client, that's a potential user acquisition channel competing with Perseus.
 
 **Integration approach:** None. Monitor for license changes. If memtrace goes open-source, re-evaluate as a code-structure pre-render step (like codebase-memory-mcp).
 
@@ -152,11 +152,11 @@ A bi-temporal episodic structural knowledge graph for AI coding agents. Rust-nat
 ## 4. YourMemory (sachitrafa)
 
 **Repo:** <https://github.com/sachitrafa/YourMemory>  
-**Score:** 4.0 (plan) → **Re-rated: Most direct Mimir competitor, evaluate decay model**
+**Score:** 4.0 (plan) → **Re-rated: Most direct Perseus Vault competitor, evaluate decay model**
 
 ### Summary
 
-The most mature agent memory alternative. 245 stars, 230 commits, active development (last commit 2 days ago). Implements Ebbinghaus forgetting curve decay — same model as Mimir. Claims +16pp better recall than Mem0 on LoCoMo benchmark.
+The most mature agent memory alternative. 245 stars, 230 commits, active development (last commit 2 days ago). Implements Ebbinghaus forgetting curve decay — same model as Perseus Vault. Claims +16pp better recall than Mem0 on LoCoMo benchmark.
 
 ### Architecture
 
@@ -186,9 +186,9 @@ The most mature agent memory alternative. 245 stars, 230 commits, active develop
 
 Requires a one-time activation token from [yourmemoryai.xyz](https://yourmemoryai.xyz/) via email verification. This is a commercial growth hack, not a technical requirement — the token gates usage behind an email capture flow.
 
-### Mimir Comparison
+### Perseus Vault Comparison
 
-| Aspect | YourMemory | Mimir |
+| Aspect | YourMemory | Perseus Vault |
 |---|---|---|
 | License | CC BY-NC 4.0 | **MIT** |
 | Activation | Email token required | None |
@@ -204,15 +204,15 @@ Requires a one-time activation token from [yourmemoryai.xyz](https://yourmemorya
 | Benchmarks | Published (LoCoMo, LongMemEval, HotpotQA) | None published |
 | Multi-agent | Agent registry with ACL | Per-session isolation |
 
-**Verdict: Direct Mimir competitor. Strong on benchmarks, weaker on openness.** YourMemory has published benchmarks showing impressive results on standard memory evaluation datasets — Mimir has none. However, the CC BY-NC license, activation requirement, and Ollama dependency make it unsuitable as a Perseus default memory backend. 
+**Verdict: Direct Perseus Vault competitor. Strong on benchmarks, weaker on openness.** YourMemory has published benchmarks showing impressive results on standard memory evaluation datasets — Perseus Vault has none. However, the CC BY-NC license, activation requirement, and Ollama dependency make it unsuitable as a Perseus default memory backend. 
 
-**Key risk for Mimir:** YourMemory's published benchmarks will be cited in comparison discussions. Mimir needs its own published benchmark results to compete credibly.
+**Key risk for Perseus Vault:** YourMemory's published benchmarks will be cited in comparison discussions. Perseus Vault needs its own published benchmark results to compete credibly.
 
 **Integration approach:** NOT recommended as a Perseus connector. Worth studying:
-1. YourMemory's decay implementation — any improvements over Mimir's Ebbinghaus model?
-2. The "ask without LLM" feature — could Mimir add local answer synthesis?
+1. YourMemory's decay implementation — any improvements over Perseus Vault's Ebbinghaus model?
+2. The "ask without LLM" feature — could Perseus Vault add local answer synthesis?
 3. The agent registry model — multi-tenant memory access patterns
-4. File a feature request issue on Mimir for published benchmarks
+4. File a feature request issue on Perseus Vault for published benchmarks
 
 ---
 
@@ -220,9 +220,9 @@ Requires a one-time activation token from [yourmemoryai.xyz](https://yourmemorya
 
 ### Immediate Actions
 
-1. **Publish Mimir benchmarks** — Run LongMemEval-S and LoCoMo-10 against Mimir. YourMemory's published numbers are the bar to beat. This is the single highest-impact action for Mimir's credibility.
+1. **Publish Perseus Vault benchmarks** — Run LongMemEval-S and LoCoMo-10 against Perseus Vault. YourMemory's published numbers are the bar to beat. This is the single highest-impact action for Perseus Vault's credibility.
 
-2. **Adopt "ask without LLM" pattern** — YourMemory's ability to answer simple factual queries without an LLM call is a genuine UX win. Mimir could add a `mimir_fact` tool that checks for exact entity matches before escalating to `mimir_ask` (RAG).
+2. **Adopt "ask without LLM" pattern** — YourMemory's ability to answer simple factual queries without an LLM call is a genuine UX win. Perseus Vault could add a `mimir_fact` tool that checks for exact entity matches before escalating to `mimir_ask` (RAG).
 
 3. **Document codebase-memory-mcp as complementary** — Not competitive. Different domain. Add to Perseus docs as recommended companion for code-heavy workspaces.
 
@@ -247,6 +247,6 @@ Requires a one-time activation token from [yourmemoryai.xyz](https://yourmemorya
 | codebase-memory-mcp | 6.0 | **7.0** | Higher quality than expected. Complementary, not competitive. |
 | memory-mesh | 6.0 | **2.0** | 5 commits, mostly scaffold. Over-scored by LLM classifier. |
 | memtrace-public | 4.5 | **3.0** | Proprietary license kills integration value. Good tech, bad fit. |
-| YourMemory | 4.0 | **5.0** | Strong competitor. Published benchmarks raise the bar for Mimir. CC BY-NC blocks integration. |
+| YourMemory | 4.0 | **5.0** | Strong competitor. Published benchmarks raise the bar for Perseus Vault. CC BY-NC blocks integration. |
 
 *Generated from direct repo inspection and README analysis, not LLM classification.*
