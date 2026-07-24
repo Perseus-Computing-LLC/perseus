@@ -256,7 +256,7 @@ Published as [`io.github.Perseus-Computing-LLC/perseus`](https://registry.modelc
 | `perseus_drift` | Oracle drift report |
 | `perseus_memory` | Local narrative recall + persistent Perseus Vault store |
 | `perseus_mimir` | Recall persistent memories via BM25 (legacy name of `perseus_mneme`) |
-| `perseus_mneme` | Recall persistent memories from the external Mneme server via BM25 |
+| `perseus_mneme` | Recall persistent memories from Perseus Vault via BM25 (legacy tool name) |
 | `perseus_skills` | List available skills with staleness flags |
 | `perseus_include` | Include and render another file |
 | `perseus_agora` | Task board from tasks/*.md |

@@ -31,7 +31,7 @@ specific niceties.
 |---|---|---|
 | `perseus.binary` | `perseus` | Path to the `perseus` executable. |
 | `perseus.tracing` | `off` | LSP trace level (`off`, `messages`, `verbose`). |
-| `perseus.allowMutations` | `false` | Start the LSP with mutation commands enabled, including Mneme compaction. |
+| `perseus.allowMutations` | `false` | Start the LSP with mutation commands enabled, including Perseus Vault compaction. |
 
 ## Development
 
