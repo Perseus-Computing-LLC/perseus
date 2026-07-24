@@ -264,15 +264,17 @@ def _scenario_a5_nfs_partition(home: Path):
 
     def setup():
         lock_file.write_text("locked", encoding="utf-8")
-        # Make the home temporarily unwritable
+        # Make the isolated benchmark home temporarily unwritable to its owner.
+        # Owner-only modes preserve the outage simulation without making its
+        # contents broadly readable or executable.
         try:
-            os.chmod(str(home), 0o444)  # read-only
+            os.chmod(str(home), 0o500)
         except OSError:
             pass
 
     def cleanup():
         try:
-            os.chmod(str(home), 0o755)
+            os.chmod(str(home), 0o700)
         except OSError:
             pass
         lock_file.unlink(missing_ok=True)
