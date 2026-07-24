@@ -110,7 +110,7 @@ perseus render .perseus/context.md --output AGENTS.md
 
 > **Scaffold quality note:** `perseus init` generates a starter `context.md` with
 > `@prompt` (including Memory Backend Policy), `@waypoint`, `@query`, `@skills`,
-> `@services`, `@session`, `@memory` (narrative + Mneme search), and
+> `@services`, `@session`, `@memory` (narrative + Perseus Vault search), and
 > `@memory mode=search` directives. The scaffold is functional but minimal — it
 > includes one example `@services` check and a few `@query` probes. After init,
 > you'll want to customize the `@services` block with your actual services, replace
@@ -1058,7 +1058,7 @@ perseus memory index search --query "architecture" --k 5
 
 > **Required fields:** Only `id` (alphanumeric slug) and `title` are required.
 > For best search results, include `type`, `summary`, `scope`, and `tags`.
-> See `docs/mneme-vault-format.md` for the full field reference.
+> See the [Vault format reference](docs/mneme-vault-format.md) for the full field reference.
 >
 > **FTS5 quirk:** Multi-word queries are matched as exact FTS5 phrases.
 > Use single-word queries for broad recall, or short phrases that appear
