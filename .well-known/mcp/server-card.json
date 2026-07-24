@@ -484,7 +484,7 @@
     },
     {
       "name": "perseus_mimir",
-      "description": "Query the EXTERNAL Mimir memory server for cross-session, curated facts that survive across workspaces. Use for long-lived knowledge (bug patterns, design decisions). For fast local recall, prefer perseus_memory. Read-only; falls back to local FTS5 if Mimir is unreachable.",
+      "description": "Query the external Perseus Vault memory server for cross-session, curated facts that survive across workspaces. Use for long-lived knowledge (bug patterns, design decisions). For fast local recall, prefer perseus_memory. Read-only; falls back to local FTS5 if Perseus Vault is unreachable.",
       "inputSchema": {
         "type": "object",
         "properties": {
