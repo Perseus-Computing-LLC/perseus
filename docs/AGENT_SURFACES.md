@@ -117,7 +117,7 @@ which window is short and `verdict` is `insufficient_data`.
 
 ## `perseus memory status --json`
 
-Summarizes the Mneme narrative for a workspace.
+Summarizes the Perseus Vault narrative for a workspace.
 
 When no narrative exists:
 
