@@ -947,7 +947,7 @@ See **[docs/ip/](docs/ip/)** for the public IP portfolio, including
 technical disclosures and evidence exhibits.
 
 **PERSEUS™** is a trademark of Thomas Connally. Internal subsystem names
-(Pythia, Daedalus, Agora, Mnēmē) are not independently trademarked and
+(Pythia, Daedalus, Agora) are not independently trademarked and
 are covered under the PERSEUS mark.
 
 ## Privacy Policy
