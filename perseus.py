@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.24"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "7c0d2f1-dirty"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "c7f2759-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -20038,6 +20038,47 @@ class LiveStateSegment:
             lines.append(f"- **{e.key}**: {e.value}")
         return "\n".join(lines)
 
+def apply_recall_budget(items: list[MemoryHit], max_chars: int) -> tuple[list[MemoryHit], dict[str, object]]:
+    """Select high-signal recall hits under a character budget (#863).
+
+    Lower-relevance content is trimmed first. A single oversized leading hit is
+    retained as a concise explanation rather than discarded, preserving a
+    drill-down-capable identifier while preventing bulk injection.
+    """
+    budget = max(1, int(max_chars))
+    selected: list[MemoryHit] = []
+    included_ids: list[str] = []
+    trimmed_ids: list[str] = []
+    demoted_ids: list[str] = []
+    spent = 0
+    for item in sorted(items, key=lambda hit: hit.relevance, reverse=True):
+        text = item.content or item.summary
+        size = len(text)
+        if spent + size <= budget:
+            selected.append(item)
+            included_ids.append(item.id)
+            spent += size
+            continue
+        if not selected:
+            concise = (item.summary or item.content)[: max(1, budget - 2)].rstrip() + "…"
+            item.content = concise
+            item.summary = concise
+            selected.append(item)
+            included_ids.append(item.id)
+            demoted_ids.append(item.id)
+            spent += len(concise)
+        else:
+            trimmed_ids.append(item.id)
+    return selected, {
+        "budget_chars": budget,
+        "spent_chars": spent,
+        "included_ids": included_ids,
+        "trimmed_ids": trimmed_ids,
+        "demoted_to_explanation_ids": demoted_ids,
+        "budget_exhausted": bool(trimmed_ids or demoted_ids),
+    }
+
+
 @dataclass
 class MemorySegment:
     """Collection of recalled memory items with metadata."""
@@ -22294,6 +22335,27 @@ def _memory_posture(profile: dict) -> str:
     return "on_demand"
 
 
+def _profile_recall_budget_chars(profile: dict) -> int:
+    """Character budget for served-memory injection (#863)."""
+    raw = profile.get("recall_budget_chars", profile.get("max_context_chars", 1500))
+    try:
+        return max(80, int(raw))
+    except (TypeError, ValueError):
+        return 1500
+
+
+def _recall_budget_diagnostic(diagnostics: dict[str, object]) -> str:
+    """Compact, debug-safe budget trace appended only when pressure occurred."""
+    if not diagnostics.get("budget_exhausted"):
+        return ""
+    return (
+        "\n<!-- recall-budget: included=" + ",".join(diagnostics["included_ids"])
+        + " trimmed=" + ",".join(diagnostics["trimmed_ids"])
+        + " demoted=" + ",".join(diagnostics["demoted_to_explanation_ids"])
+        + " -->"
+    )
+
+
 def _profile_inject_limit(profile: dict) -> int:
     """Tier-aware injection budget: max entities admitted per profile.
 
@@ -22753,11 +22815,16 @@ def _mneme_context_inject(
                     # empty injection vs the always-dump is still a reduction.
                     _maybe_meter_posture_reduction(cfg, "", mcfg, limit, workspace)
                     return None
+                selected, budget = apply_recall_budget(
+                    segment.items, _profile_recall_budget_chars(profile)
+                )
+                segment.items = selected
                 block = (
                     PERSISTENT_MEMORY_HEADER + "\n\n"
                     + _MEMORY_DUMP_ADVISORY
                     + "\n"
                     + segment.as_markdown
+                    + _recall_budget_diagnostic(budget)
                 )
                 _maybe_meter_posture_reduction(cfg, block, mcfg, limit, workspace)
                 return block
@@ -22798,7 +22865,11 @@ def _mneme_context_inject(
                 return _memory_degraded_block(connector, reason=seg_err)
             return None
 
-        body = segment.as_markdown
+        selected, budget = apply_recall_budget(
+            segment.items, _profile_recall_budget_chars(profile)
+        )
+        segment.items = selected
+        body = segment.as_markdown + _recall_budget_diagnostic(budget)
         if not body or body.strip() == "_(no persistent memories found)_":
             return None
 
