@@ -230,6 +230,15 @@ def apply_recall_budget(items: list[MemoryHit], max_chars: int) -> tuple[list[Me
     drill-down-capable identifier while preventing bulk injection.
     """
     budget = max(1, int(max_chars))
+    # Connector integration tests and third-party connectors may provide
+    # memory-shaped objects that expose only `items` + pre-rendered markdown.
+    # Preserve that compatibility; concrete Vault hits receive budget control.
+    if not all(isinstance(item, MemoryHit) for item in items):
+        return list(items), {
+            "budget_chars": budget, "spent_chars": 0,
+            "included_ids": [], "trimmed_ids": [],
+            "demoted_to_explanation_ids": [], "budget_exhausted": False,
+        }
     selected: list[MemoryHit] = []
     included_ids: list[str] = []
     trimmed_ids: list[str] = []
