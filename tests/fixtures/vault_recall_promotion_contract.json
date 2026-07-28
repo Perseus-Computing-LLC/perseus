@@ -1,0 +1,23 @@
+{
+  "contract_version": "2026-07-28",
+  "producer": "perseus-vault mimir_recall",
+  "items": [
+    {
+      "id": "mem-observation",
+      "category": "observation",
+      "key": "canary-rollout",
+      "content": "Canary rollout reduces blast radius.",
+      "workspace_hash": "github:Perseus-Computing-LLC/perseus",
+      "promoted_from": {"id": "mem-episode", "category": "episodes"},
+      "promotion_transition": {"from_state": "episode", "to_state": "observation"},
+      "why_served": {
+        "memory_class": "observation",
+        "promotion_state": "observation",
+        "support_count": 1,
+        "source_evidence_ids": ["mem-episode"],
+        "promoted_scope": "github:Perseus-Computing-LLC/perseus",
+        "reason": "matched the recall query"
+      }
+    }
+  ]
+}
