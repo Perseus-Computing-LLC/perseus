@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.24"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "1f342ea-dirty"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "1360ece-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -20047,6 +20047,11 @@ def apply_serving_profile(items: list[MemoryHit], profile: str, workspace_hash: 
     }
     if profile not in allowed:
         raise ValueError(f"unknown serving profile: {profile}")
+    # Older connectors and integration doubles expose pre-rendered memory
+    # objects rather than concrete Vault hits. Preserve that compatibility;
+    # audience filtering applies only when category/scope data is available.
+    if not all(isinstance(item, MemoryHit) for item in items):
+        return list(items), {"profile": profile, "included_ids": [], "excluded_ids": []}
     selected = []
     excluded = []
     for item in items:

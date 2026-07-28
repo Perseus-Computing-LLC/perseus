@@ -231,6 +231,11 @@ def apply_serving_profile(items: list[MemoryHit], profile: str, workspace_hash: 
     }
     if profile not in allowed:
         raise ValueError(f"unknown serving profile: {profile}")
+    # Older connectors and integration doubles expose pre-rendered memory
+    # objects rather than concrete Vault hits. Preserve that compatibility;
+    # audience filtering applies only when category/scope data is available.
+    if not all(isinstance(item, MemoryHit) for item in items):
+        return list(items), {"profile": profile, "included_ids": [], "excluded_ids": []}
     selected = []
     excluded = []
     for item in items:
