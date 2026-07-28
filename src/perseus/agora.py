@@ -621,6 +621,36 @@ def select_retrieval_policy(task: str) -> dict[str, object]:
     return {"start": "targeted_fetch", "fallbacks": ["broad_search", "synthesis"], "synthesis_requires_lower_tier_miss": True}
 
 
+def build_retrieval_debug_trace(task: str) -> dict[str, object]:
+    """Return a stable, inspectable retrieval decision trace (#866)."""
+    policy = select_retrieval_policy(task)
+    tier = str(policy["start"])
+    reasons = {
+        "structured_truth": "factual/current-status task shape",
+        "targeted_fetch": "specific or unclassified task shape",
+        "broad_search": "comparison or recommendation task shape",
+    }
+    return {
+        "answering_tier": tier,
+        "tier_reason": reasons.get(tier, "configured retrieval policy"),
+        "descent_order": policy["fallbacks"],
+        "synthesis_only_after_lower_tier_miss": policy["synthesis_requires_lower_tier_miss"],
+        "precedence_override": "none",
+    }
+
+
+def render_retrieval_debug_trace(task: str) -> str:
+    """Opt-in compact trace suitable for rendered context without prompt bulk."""
+    trace = build_retrieval_debug_trace(task)
+    return (
+        "<!-- retrieval-trace: tier=" + str(trace["answering_tier"])
+        + " reason=" + str(trace["tier_reason"])
+        + " descent=" + ">".join(trace["descent_order"])
+        + " precedence_override=" + str(trace["precedence_override"])
+        + " -->"
+    )
+
+
 def resolve_memory(args_str: str, cfg: dict, workspace: Path | None = None) -> str:
     """Render the unified @memory directive — Mnēmē v2.
 
