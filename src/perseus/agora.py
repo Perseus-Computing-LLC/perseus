@@ -105,6 +105,16 @@ def _memory_do_update(workspace: Path, cfg: dict, provider: str | None) -> tuple
 
 
 def _memory_do_compact(workspace: Path, cfg: dict, provider: str | None) -> str:
+    # #864 durability barrier: flush capture before reading/rebuilding the
+    # narrative, so compaction never wins a race against unsaved session facts.
+    # Empty capture is a successful no-op; capture errors are non-fatal because
+    # local checkpoints remain the authoritative input to this compaction.
+    cap = _capture_cfg(cfg)
+    if cap.get("enabled"):
+        try:
+            capture_checkpoints_to_vault(cfg, workspace)
+        except Exception as exc:
+            sys.stderr.write(f"> ⚠ pre-compact capture failed (non-critical): {exc}\n")
     cp_files = sorted(_list_checkpoint_files(cfg), key=lambda f: f.name)
     all_checkpoints: list[dict] = []
     for fp in cp_files:
