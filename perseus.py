@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.24"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "f24c5df-dirty"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "1f342ea-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -20038,6 +20038,26 @@ class LiveStateSegment:
             lines.append(f"- **{e.key}**: {e.value}")
         return "\n".join(lines)
 
+def apply_serving_profile(items: list[MemoryHit], profile: str, workspace_hash: str = "") -> tuple[list[MemoryHit], dict[str, object]]:
+    """Partition memory by serving audience before budgeted injection (#867)."""
+    allowed = {
+        "personal": {"preference", "personal"},
+        "agent": {"convention", "correction", "keystone"},
+        "shared": None,
+    }
+    if profile not in allowed:
+        raise ValueError(f"unknown serving profile: {profile}")
+    selected = []
+    excluded = []
+    for item in items:
+        if profile == "shared":
+            include = item.category not in {"preference", "personal"} and item.workspace_hash == workspace_hash
+        else:
+            include = item.category in allowed[profile]
+        (selected if include else excluded).append(item)
+    return selected, {"profile": profile, "included_ids": [i.id for i in selected], "excluded_ids": [i.id for i in excluded]}
+
+
 def apply_recall_budget(items: list[MemoryHit], max_chars: int) -> tuple[list[MemoryHit], dict[str, object]]:
     """Select high-signal recall hits under a character budget (#863).
 
@@ -22841,8 +22861,11 @@ def _mneme_context_inject(
                     # empty injection vs the always-dump is still a reduction.
                     _maybe_meter_posture_reduction(cfg, "", mcfg, limit, workspace)
                     return None
+                served, serving_trace = apply_serving_profile(
+                    segment.items, str(mcfg.get("serving_profile", "shared")), ws_hash or ""
+                )
                 selected, budget = apply_recall_budget(
-                    segment.items, _profile_recall_budget_chars(profile)
+                    served, _profile_recall_budget_chars(profile)
                 )
                 segment.items = selected
                 block = (
@@ -22891,8 +22914,11 @@ def _mneme_context_inject(
                 return _memory_degraded_block(connector, reason=seg_err)
             return None
 
+        served, serving_trace = apply_serving_profile(
+            segment.items, str(mcfg.get("serving_profile", "shared")), ws_hash or ""
+        )
         selected, budget = apply_recall_budget(
-            segment.items, _profile_recall_budget_chars(profile)
+            served, _profile_recall_budget_chars(profile)
         )
         segment.items = selected
         body = segment.as_markdown + _recall_budget_diagnostic(budget)
