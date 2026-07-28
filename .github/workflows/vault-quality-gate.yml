@@ -25,7 +25,7 @@ jobs:
         working-directory: perseus-vault
         run: |
           cargo build --no-default-features
-          python3 benchmark/quality/run.py --binary target/debug/perseus-vault --out /tmp/vault-quality-report.json
+          python3 benchmark/quality/run.py --bin target/debug/perseus-vault --out /tmp/vault-quality-report.json
           python3 benchmark/quality/scorecard.py /tmp/vault-quality-report.json --out /tmp/vault-quality-scorecard.json
       - name: Enforce Vault scorecard
         run: python3 scripts/check_vault_quality_scorecard.py /tmp/vault-quality-scorecard.json
