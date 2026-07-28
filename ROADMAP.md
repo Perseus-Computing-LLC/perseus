@@ -836,7 +836,34 @@ fixtures, performance budgets, and migration checks before v1.
 - **21C Compatibility and migration suite (task-59):** Verify old configs,
   checkpoints, cache files, Pythia logs, and memory narratives still work.
 
-### Phase 22 — v1 Release Candidate
+### Phase 21B — Memory serving discipline and durable cognition
+
+**Goal:** make Perseus consume memory as structured, explainable served context rather than raw memory stuffing.
+
+Perseus already knows how to retrieve and render memory-backed context. This phase sharpens the contract so memory is served by policy, bounded by budget, and explained well enough for operators to trust why a fact appeared.
+
+### 21B.1 — Retrieval policy by task shape
+Codify which question and task shapes start at structured truth, targeted fetch, broad search, or synthesis. Treat synthesis as the last step, not the default first move.
+
+### 21B.2 — Selective recall budgets
+Bound memory injection by task/profile and prefer short explanations plus drill-down provenance over bulk memory inclusion.
+
+### 21B.3 — Flush-before-compact integration
+Ensure session facts are captured to Vault before any compaction, summarization, or pruning stage runs.
+
+### 21B.4 — Derived knowledge surfaces in context
+Add compiled sections for conventions, corrections, and scoped operating rules, with drill-down provenance and explicit budget controls.
+
+### 21B.5 — Memory debug traces
+Show which retrieval tier answered, why lower tiers were skipped or descended to, and which override or precedence rule fired.
+
+### 21B.6 — Personal vs agent vs shared memory profiles
+Separate writing and serving policies for operator preferences, agent conventions, and shared workspace knowledge.
+
+### 21B.7 — Vault contract tests
+Enforce the cross-repo contract for capture, recall, promotion metadata, and served explanation fields.
+
+## Phase 22 — v1 Release Candidate
 
 **Goal:** Produce a deployable v1 candidate with docs, examples, artifacts,
 release gates, and a clear support envelope.
