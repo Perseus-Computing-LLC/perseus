@@ -1,0 +1,44 @@
+name: Vault Memory Quality Gate
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+jobs:
+  vault-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Perseus-Computing-LLC/perseus-vault
+          path: perseus-vault
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build Vault quality benchmark
+        working-directory: perseus-vault
+        run: |
+          cargo build --no-default-features
+          python3 benchmark/quality/run.py --bin target/debug/perseus-vault --out /tmp/vault-quality-report.json
+          python3 benchmark/quality/scorecard.py /tmp/vault-quality-report.json --out /tmp/vault-quality-scorecard.json
+      - name: Enforce Vault scorecard
+        run: python3 scripts/check_vault_quality_scorecard.py /tmp/vault-quality-scorecard.json
+      - name: Upload Vault quality evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vault-memory-quality-scorecard
+          path: |
+            /tmp/vault-quality-report.json
+            /tmp/vault-quality-scorecard.json
+          if-no-files-found: warn
+
+# Blocking by default. A maintainer override requires a documented remediation
+# issue and release-note record, following the override_policy embedded in the
+# Vault scorecard; do not weaken this workflow with continue-on-error.
