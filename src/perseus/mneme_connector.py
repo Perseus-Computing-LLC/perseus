@@ -303,32 +303,49 @@ class MemorySegment:
             MemoryTypeEnum.DECISION: "Key Decisions",
             MemoryTypeEnum.INSIGHT: "Insights",
         }
+        derived_categories = {
+            "convention": "Conventions",
+            "correction": "Corrections",
+            "keystone": "Scoped Operating Rules",
+        }
+        derived_items: dict[str, list[MemoryHit]] = {label: [] for label in derived_categories.values()}
+        for item in self.items:
+            label = derived_categories.get(item.category)
+            if label:
+                derived_items[label].append(item)
+
+        def render_item(item: MemoryHit) -> list[str]:
+            source_tag = f"[{item.source.value}]" if item.source != MemorySource.LOCAL else ""
+            verified_mark = " ✓" if item.verified else ""
+            decay_hint = f" (freshness: {item.decay_score:.0%})" if item.decay_score < 0.9 else ""
+            kind = (item.origin or {}).get("memory_kind", "")
+            origin_badge = f" [{kind}]" if kind in ("extracted", "inferred", "imported") else ""
+            title = item.summary or item.content[:80]
+            lines = [f"- {source_tag} {title}{verified_mark}{origin_badge}{decay_hint}"]
+            if item.external_refs:
+                first = item.external_refs[0]
+                if isinstance(first, dict) and first.get("ref_value"):
+                    lines.append(f"  ⌗ {first['ref_value']}")
+            if self.render_mode == "rich":
+                lines.extend(_rich_provenance_lines(item))
+            if item.links:
+                for lnk in item.links[:3]:
+                    lines.append(f"  ↳ `{lnk.relationship}` → {lnk.target_id[:8]}…")
+            return lines
+
+        for label in ("Conventions", "Corrections", "Scoped Operating Rules"):
+            if derived_items[label]:
+                blocks.append(f"### {label}")
+                for item in derived_items[label]:
+                    blocks.extend(render_item(item))
         for mtype, label in type_labels.items():
             items = by_type.get(mtype, [])
             if not items:
                 continue
             blocks.append(f"### {label}")
             for item in items:
-                source_tag = f"[{item.source.value}]" if item.source != MemorySource.LOCAL else ""
-                verified_mark = " ✓" if item.verified else ""
-                decay_hint = f" (freshness: {item.decay_score:.0%})" if item.decay_score < 0.9 else ""
-                # #838: origin badge — inferred/extracted/imported material is
-                # marked so operators and downstream prompts can tell it apart
-                # from asserted/observed facts (which stay unmarked).
-                kind = (item.origin or {}).get("memory_kind", "")
-                origin_badge = f" [{kind}]" if kind in ("extracted", "inferred", "imported") else ""
-                title = item.summary or item.content[:80]
-                blocks.append(f"- {source_tag} {title}{verified_mark}{origin_badge}{decay_hint}")
-                # #838: first external ref renders as the compact source cue.
-                if item.external_refs:
-                    first = item.external_refs[0]
-                    if isinstance(first, dict) and first.get("ref_value"):
-                        blocks.append(f"  ⌗ {first['ref_value']}")
-                if self.render_mode == "rich":
-                    blocks.extend(_rich_provenance_lines(item))
-                if item.links:
-                    for lnk in item.links[:3]:
-                        blocks.append(f"  ↳ `{lnk.relationship}` → {lnk.target_id[:8]}…")
+                if item.category not in derived_categories:
+                    blocks.extend(render_item(item))
         return "\n".join(blocks)
 
 def _rich_provenance_lines(item: MemoryHit) -> list[str]:
