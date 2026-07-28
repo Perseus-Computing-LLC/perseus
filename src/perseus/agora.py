@@ -599,6 +599,18 @@ def resolve_mimir(args_str: str, cfg: dict,
     return resolve_memory(f"mode=search {args_str}", cfg, workspace)
 
 
+def select_retrieval_policy(task: str) -> dict[str, object]:
+    """Choose a deterministic Vault retrieval plan for a task shape (#862)."""
+    text = task.lower().strip()
+    factual_markers = ("what is", "what's", "current ", "version", "status", "when did")
+    synthesis_markers = ("compare", "recommend", "tradeoff", "synthesize", "pros and cons")
+    if any(marker in text for marker in factual_markers):
+        return {"start": "structured_truth", "fallbacks": ["targeted_fetch", "broad_search", "synthesis"], "synthesis_requires_lower_tier_miss": True}
+    if any(marker in text for marker in synthesis_markers):
+        return {"start": "broad_search", "fallbacks": ["synthesis"], "synthesis_requires_lower_tier_miss": True}
+    return {"start": "targeted_fetch", "fallbacks": ["broad_search", "synthesis"], "synthesis_requires_lower_tier_miss": True}
+
+
 def resolve_memory(args_str: str, cfg: dict, workspace: Path | None = None) -> str:
     """Render the unified @memory directive — Mnēmē v2.
 

@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.24"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "ff01e7d-dirty"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "7c0d2f1-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -23710,6 +23710,18 @@ def resolve_mimir(args_str: str, cfg: dict,
     """
     # Build equivalent @memory args: mode=search query="..." [scope=...] [k=...] [type=...]
     return resolve_memory(f"mode=search {args_str}", cfg, workspace)
+
+
+def select_retrieval_policy(task: str) -> dict[str, object]:
+    """Choose a deterministic Vault retrieval plan for a task shape (#862)."""
+    text = task.lower().strip()
+    factual_markers = ("what is", "what's", "current ", "version", "status", "when did")
+    synthesis_markers = ("compare", "recommend", "tradeoff", "synthesize", "pros and cons")
+    if any(marker in text for marker in factual_markers):
+        return {"start": "structured_truth", "fallbacks": ["targeted_fetch", "broad_search", "synthesis"], "synthesis_requires_lower_tier_miss": True}
+    if any(marker in text for marker in synthesis_markers):
+        return {"start": "broad_search", "fallbacks": ["synthesis"], "synthesis_requires_lower_tier_miss": True}
+    return {"start": "targeted_fetch", "fallbacks": ["broad_search", "synthesis"], "synthesis_requires_lower_tier_miss": True}
 
 
 def resolve_memory(args_str: str, cfg: dict, workspace: Path | None = None) -> str:
