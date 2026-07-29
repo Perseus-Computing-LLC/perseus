@@ -42,7 +42,7 @@ finally:
     sys.modules.update(_saved)
 
 
-def hit(*, origin=None, refs=None, summary="a memory", content=""):
+def hit(*, origin=None, refs=None, summary="a memory", content="", **kwargs):
     return mc.MemoryHit(
         id="mem-test000001",
         type=mc.MemoryTypeEnum.INSIGHT,
@@ -50,6 +50,7 @@ def hit(*, origin=None, refs=None, summary="a memory", content=""):
         summary=summary,
         origin=origin or {},
         external_refs=refs or [],
+        **kwargs,
     )
 
 
@@ -114,6 +115,43 @@ class TestRichMode:
         md = segment([hit(origin={"memory_kind": "inferred",
                                   "source_system": "agent"})]).as_markdown
         assert "source_system" not in md and "source=agent" not in md
+
+
+class TestRenderTrace:
+    def test_hash_only_trace_is_deterministic_and_carries_served_provenance(self):
+        seg = segment([hit(
+            summary="private memory must not leak",
+            content="raw content must never appear in a trace",
+            category="observation",
+            key="canary-rollout",
+            workspace_hash="github:Perseus-Computing-LLC/perseus",
+            origin={"memory_kind": "observed"},
+            refs=[{"ref_type": "repo", "ref_value": "github:Perseus-Computing-LLC/perseus"}],
+            why_served={
+                "memory_class": "observation",
+                "promotion_state": "observation",
+                "support_count": 1,
+                "source_evidence_ids": ["mem-episode"],
+                "promoted_scope": "github:Perseus-Computing-LLC/perseus",
+                "reason": "matched the recall query",
+            },
+            promotion_transition={"from_state": "episode", "to_state": "observation"},
+            promoted_from={"id": "mem-episode"},
+        )])
+        rendered = "# Context\n\n" + seg.as_markdown
+        first = seg.render_trace(rendered)
+        second = seg.render_trace(rendered)
+        assert first == second
+        assert first["schema_version"] == "perseus-context-render-trace/v1"
+        assert first["producer_tool"] == "perseus_vault_recall"
+        assert first["render_sha256"] != ""
+        projection = first["served_memories"][0]
+        assert projection["why_served"]["promotion_state"] == "observation"
+        assert projection["promotion_transition"]["to_state"] == "observation"
+        assert projection["promoted_from"]["id"] == "mem-episode"
+        assert "content" not in projection and "summary" not in projection
+        assert "raw content" not in str(first)
+        assert "private memory" not in str(first)
 
 
 class TestBackwardsCompatibility:
