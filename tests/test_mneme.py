@@ -16,8 +16,6 @@ import pytest
 
 from conftest import PY_VER, cfg, perseus
 
-pytestmark = pytest.mark.skip(reason="Pre-existing: Mneme→Mimir migration needs test rewrite")
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -47,10 +45,11 @@ class TestResolveMneme:
         assert "@memory search requires" in result
         assert "query=" in result
 
-    def test_no_hits_returns_info_message(self):
+    def test_no_hits_reports_vault_unavailability_distinctly(self):
         with patch.object(perseus, "_mneme_recall", return_value=[]):
             result = perseus.resolve_mimir('query="test search"', cfg())
-        assert "No Mnēmē memories matched" in result
+        assert "Vault unreachable" in result
+        assert "NOT the same as \"no memories exist\"" in result
 
     def test_hits_rendered_as_list(self):
         hits = [
@@ -142,7 +141,7 @@ class TestResolveMemoryUnified:
             result = perseus.resolve_memory('query="test"', cfg(), workspace=tmp_path)
 
         assert called, "_mneme_recall should be called for search mode"
-        assert "No Mnēmē memories matched" in result
+        assert "Vault unreachable" in result
 
     def test_search_renders_hits(self, tmp_path):
         hits = [{"title": "Arch decision", "summary": "Chose monorepo.", "score": 80, "type": "decision"}]
