@@ -133,6 +133,10 @@ class MemoryHit:
     # _parse_memory_hits except as a display fallback.
     category: str = ""
     key: str = ""
+    # #882: hash-only context-render trace inputs from the served-memory contract.
+    why_served: dict = field(default_factory=dict)
+    promotion_transition: dict = field(default_factory=dict)
+    promoted_from: dict = field(default_factory=dict)
 
     def __init__(
         self,
@@ -156,6 +160,9 @@ class MemoryHit:
         key: str = "",
         origin: dict | None = None,
         external_refs: list | None = None,
+        why_served: dict | None = None,
+        promotion_transition: dict | None = None,
+        promoted_from: dict | None = None,
         **kwargs,
     ):
         self.id = id
@@ -179,6 +186,9 @@ class MemoryHit:
         # exactly as before.
         self.origin = origin or {}
         self.external_refs = external_refs or []
+        self.why_served = why_served or {}
+        self.promotion_transition = promotion_transition or {}
+        self.promoted_from = promoted_from or {}
 
         # Handle aliases / alternate names
         resolved_content = content
@@ -372,6 +382,43 @@ class MemorySegment:
                 if item.category not in derived_categories:
                     blocks.extend(render_item(item))
         return "\n".join(blocks)
+
+    def render_trace(self, rendered_context: str) -> dict:
+        """Return the deterministic, hash-only #882 render-attestation projection.
+
+        The trace carries enough served-memory provenance to bind a rendered
+        context to a Plutus evidence receipt, while deliberately excluding the
+        context body and every recalled memory's content/summary.
+        """
+        memories = []
+        for item in self.items:
+            refs = []
+            for ref in item.external_refs or []:
+                if isinstance(ref, dict):
+                    projected = {key: ref[key] for key in ("ref_type", "ref_value", "relationship")
+                                 if isinstance(ref.get(key), str) and ref[key]}
+                    if projected:
+                        refs.append(projected)
+            origin = item.origin or {}
+            projected_origin = {key: origin[key] for key in ("memory_kind", "source_system", "capture_method", "observed_at_unix_ms")
+                                if origin.get(key) is not None}
+            memories.append({
+                "id": item.id,
+                "category": item.category,
+                "key": item.key,
+                "workspace_hash": item.workspace_hash,
+                "why_served": item.why_served or {},
+                "promotion_transition": item.promotion_transition or {},
+                "promoted_from": item.promoted_from or {},
+                "origin": projected_origin,
+                "external_refs": refs,
+            })
+        return {
+            "schema_version": "perseus-context-render-trace/v1",
+            "producer_tool": "perseus_vault_recall",
+            "render_sha256": hashlib.sha256(rendered_context.encode("utf-8")).hexdigest(),
+            "served_memories": memories,
+        }
 
 def _rich_provenance_lines(item: MemoryHit) -> list[str]:
     """#838: full provenance detail for render_mode='rich' — the complete
@@ -2215,6 +2262,9 @@ def _parse_memory_hits(data: dict) -> list[MemoryHit]:
             origin=raw.get("origin") or (parsed or {}).get("origin") or {},
             external_refs=(raw.get("external_refs")
                            or (parsed or {}).get("external_refs") or []),
+            why_served=raw.get("why_served") or {},
+            promotion_transition=raw.get("promotion_transition") or {},
+            promoted_from=raw.get("promoted_from") or {},
         ))
     return hits
 
