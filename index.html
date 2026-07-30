@@ -3,18 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Perseus Computing · load only the context your agents need</title>
-<meta name="description" content="Perseus is the memory & context layer for AI agents. Load only the context they actually need: 73.8% on LongMemEval, 87.9% on LOCOMO (vs Mem0 82.2%), a 67% smaller tool schema, 611x warmer renders. Local-first, air-gap ready, open source (MIT).">
+<title>Perseus Computing · context, memory, and evidence for autonomous systems</title>
+<meta name="description" content="Perseus Computing builds local-first infrastructure for trustworthy autonomous systems: verified context, durable memory, and verifiable provenance.">
 <link rel="canonical" href="https://perseus.observer/">
 <meta property="og:type" content="website">
-<meta property="og:title" content="Perseus Computing · the memory & context layer for AI agents">
-<meta property="og:description" content="Load only the context your agents actually need. 73.8% on LongMemEval, 87.9% on LOCOMO, 67% smaller tool schema. Local-first, air-gap ready, open source.">
+<meta property="og:title" content="Perseus Computing · infrastructure for trustworthy autonomous systems">
+<meta property="og:description" content="Verified context, durable memory, and verifiable provenance. Local-first and open source.">
 <meta property="og:url" content="https://perseus.observer/">
-<meta property="og:image" content="https://perseus.observer/assets/og/perseus.png">
+<meta property="og:image" content="https://perseus.observer/assets/og/perseus-computing-hero.png">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Perseus Computing · the memory & context layer for AI agents">
-<meta name="twitter:description" content="Load only the context your agents actually need. 73.8% on LongMemEval, 87.9% on LOCOMO, 67% smaller tool schema. Local-first, air-gap ready, open source.">
-<meta name="twitter:image" content="https://perseus.observer/assets/og/perseus.png">
+<meta name="twitter:title" content="Perseus Computing · infrastructure for trustworthy autonomous systems">
+<meta name="twitter:description" content="Verified context, durable memory, and verifiable provenance. Local-first and open source.">
+<meta name="twitter:image" content="https://perseus.observer/assets/og/perseus-computing-hero.png">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/assets/fonts.css">
 <style>
@@ -35,6 +35,12 @@ input[type=number]{ font-family:'IBM Plex Mono',monospace; }
   .nav-links{ display:none !important; }
   .grid-2, .grid-3, .grid-5, .cal-grid { grid-template-columns:1fr !important; }
 }
+.hero-field { isolation:isolate; overflow:hidden; }
+.hero-field:before { content:""; position:absolute; inset:0; z-index:-2; background:#090b0f url('/assets/og/perseus-computing-hero.png') center/cover no-repeat; opacity:.9; }
+.hero-field:after { content:""; position:absolute; inset:0; z-index:-1; background:linear-gradient(90deg,rgba(9,11,15,.97) 0%,rgba(9,11,15,.62) 50%,rgba(9,11,15,.86) 100%); }
+.hero-copy { text-align:left !important; margin-left:0 !important; max-width:720px !important; }
+.hero-copy .hero-actions { justify-content:flex-start !important; }
+@media (max-width:900px){ .hero-copy { text-align:center !important; margin:0 auto !important; } .hero-copy .hero-actions{justify-content:center !important;} }
 </style>
 </head>
 <body>
@@ -50,6 +56,7 @@ input[type=number]{ font-family:'IBM Plex Mono',monospace; }
   <div class="nav-links" style="display:flex;align-items:center;gap:24px;font-size:14px;color:#9aa2ad;">
     <a href="/context-engine/" style="color:#9aa2ad;">Context engine</a>
     <a href="/vault/" style="color:#9aa2ad;">Vault</a>
+    <a href="/ledger/" style="color:#9aa2ad;">Ledger</a>
     <a href="/harness/" style="color:#9aa2ad;">Harness</a>
     <a href="#calculator" style="color:#9aa2ad;">Calculator</a>
     <a href="/government/" style="color:#9aa2ad;">Sovereignty</a>
@@ -62,23 +69,22 @@ input[type=number]{ font-family:'IBM Plex Mono',monospace; }
 </nav>
 
 <!-- ===== HERO ===== -->
-<header id="top" style="position:relative;padding:96px 32px 72px;background:radial-gradient(1100px 520px at 50% -12%,rgba(167,139,250,0.14),transparent 70%);">
-  <div style="max-width:1000px;margin:0 auto;text-align:center;">
-    <div style="display:inline-flex;align-items:center;gap:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:#9aa2ad;border:1px solid #262a33;border-radius:999px;padding:6px 14px;margin-bottom:28px;">
+<header id="top" class="hero-field" style="position:relative;padding:112px 32px 80px;">
+  <div class="hero-copy" style="max-width:1080px;margin:0 auto;">
+    <div style="display:inline-flex;align-items:center;gap:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:#c7cbd2;border:1px solid #3a404b;border-radius:999px;padding:6px 14px;margin-bottom:28px;">
       <span style="width:7px;height:7px;border-radius:50%;background:#3fb37f;animation:blink 2.4s ease-in-out infinite;"></span>
-      memory &amp; context for AI agents · open source · local-first
+      open-source systems infrastructure · local-first
     </div>
-    <h1 style="font-size:56px;line-height:1.05;letter-spacing:-0.03em;font-weight:700;max-width:900px;margin:0 auto 22px;">Load only the context your agents actually need.</h1>
-    <p style="font-size:20px;line-height:1.5;color:#b9c0ca;max-width:720px;margin:0 auto 14px;">Perseus is the memory and context layer for AI agents. It cuts the token bill and makes agents smarter by handing them the exact facts a task needs.</p>
-    <p style="font-size:16px;color:#9aa2ad;max-width:660px;margin:0 auto 36px;">Not the whole notebook, re-read from page one on every single call.</p>
+    <h1 style="font-size:60px;line-height:1.02;letter-spacing:-0.035em;font-weight:700;max-width:760px;margin:0 0 22px;">Build systems that can <span style="color:#d9a441;">show their work.</span></h1>
+    <p style="font-size:20px;line-height:1.5;color:#c7cbd2;max-width:650px;margin:0 0 14px;">Perseus Computing makes the working state available, keeps the knowledge that matters, and preserves a record of what happened.</p>
+    <p style="font-size:15px;color:#a6adb8;max-width:620px;margin:0 0 36px;">Three independent products. One inspectable path from context to memory to evidence.</p>
 
-    <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-bottom:44px;">
-      <a href="https://vault-demo.perseus.observer/" style="font-size:15px;color:#0b0c0f;background:#3fb37f;border-radius:9px;padding:13px 22px;font-weight:700;">Try the live Vault demo ↗</a>
-      <a href="#calculator" style="font-size:15px;color:#0b0c0f;background:#a78bfa;border-radius:9px;padding:13px 22px;font-weight:600;">Estimate your savings</a>
-      <a href="#products" style="font-size:15px;color:#e7e9ee;border:1px solid #2f3440;border-radius:9px;padding:13px 22px;font-weight:500;">Explore products</a>
+    <div class="hero-actions" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:44px;">
+      <a href="#products" style="font-size:15px;color:#0b0c0f;background:#d9a441;border-radius:5px;padding:13px 22px;font-weight:700;">Explore the system</a>
+      <a href="https://github.com/Perseus-Computing-LLC" style="font-size:15px;color:#e7e9ee;border:1px solid #4b515d;border-radius:5px;padding:13px 22px;font-weight:500;">Read the code ↗</a>
     </div>
 
-    <div class="grid-3" style="display:flex;gap:14px;justify-content:center;flex-wrap:wrap;max-width:820px;margin:0 auto;">
+    <div class="grid-3" style="display:flex;gap:14px;flex-wrap:wrap;max-width:820px;margin:0;">
       <div style="flex:1;min-width:200px;background:#14161c;border:1px solid #262a33;border-radius:12px;padding:20px 18px;text-align:left;">
         <div style="font-family:'IBM Plex Mono',monospace;font-size:32px;font-weight:600;color:#a78bfa;letter-spacing:-0.02em;">611&times;</div>
         <div style="font-size:13px;color:#9aa2ad;margin-top:4px;line-height:1.4;">warm vs cold renders<br><span style="color:#6d7480;">measured on the Perseus repo itself</span></div>
@@ -278,8 +284,8 @@ input[type=number]{ font-family:'IBM Plex Mono',monospace; }
 <section id="products" style="padding:80px 32px;border-top:1px solid #14161c;background:#0d0e12;">
   <div style="max-width:1080px;margin:0 auto;">
     <div style="text-align:center;max-width:620px;margin:0 auto 48px;">
-      <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#a78bfa;letter-spacing:0.04em;text-transform:uppercase;margin-bottom:14px;">Two products, one layer</div>
-      <h2 style="font-size:34px;line-height:1.12;">The context engine and the memory store.</h2>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#a78bfa;letter-spacing:0.04em;text-transform:uppercase;margin-bottom:14px;">Three products, separate boundaries</div>
+      <h2 style="font-size:34px;line-height:1.12;">Context. Memory. Evidence.</h2>
     </div>
     <div class="grid-2" style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
       <!-- Perseus -->
@@ -301,19 +307,30 @@ input[type=number]{ font-family:'IBM Plex Mono',monospace; }
       <div style="background:#14161c;border:1px solid #262a33;border-radius:16px;padding:32px;">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
           <div style="display:flex;align-items:center;gap:11px;"><svg width="20" height="24" viewBox="0 0 22 26" fill="none"><rect x="3" y="6" width="16" height="16" rx="2.5" stroke="#3fb37f" stroke-width="1.4" fill="rgba(63,179,127,0.07)"/><path d="M7 6V4.5A4 4 0 0115 4.5V6" stroke="#3fb37f" stroke-width="1.4"/><circle cx="11" cy="13" r="1.7" fill="#3fb37f"/><path d="M11 14.5V17" stroke="#3fb37f" stroke-width="1.4" stroke-linecap="round"/></svg><h3 style="font-size:22px;">Perseus Vault</h3></div>
-          <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#3fb37f;border:1px solid #21402f;border-radius:6px;padding:4px 9px;">v2.20.2</span>
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#3fb37f;border:1px solid #21402f;border-radius:6px;padding:4px 9px;">memory</span>
         </div>
         <p style="font-size:15px;color:#b9c0ca;margin-bottom:20px;">Persistent, encrypted memory in a single Rust binary. One file, no Docker, no Postgres, no cloud: durable agent memory that works with any MCP host.</p>
         <ul style="list-style:none;padding:0;margin:0 0 24px;display:flex;flex-direction:column;gap:12px;font-size:13.5px;">
-          <li style="display:flex;gap:10px;"><span style="color:#3fb37f;font-family:'IBM Plex Mono',monospace;min-width:56px;">55+</span><span style="color:#9aa2ad;">MCP tools (advertised once per tool, not 3× aliased)</span></li>
-          <li style="display:flex;gap:10px;"><span style="color:#3fb37f;font-family:'IBM Plex Mono',monospace;min-width:56px;">73.8%</span><span style="color:#9aa2ad;">LongMemEval QA · hybrid BM25 + dense recall</span></li>
-          <li style="display:flex;gap:10px;"><span style="color:#3fb37f;font-family:'IBM Plex Mono',monospace;min-width:56px;">AES</span><span style="color:#9aa2ad;">256-GCM at rest · bi-temporal · audit journal</span></li>
+          <li style="display:flex;gap:10px;"><span style="color:#3fb37f;font-family:'IBM Plex Mono',monospace;min-width:56px;">55+</span><span style="color:#9aa2ad;">MCP tools, encrypted local state, hybrid recall</span></li>
+          <li style="display:flex;gap:10px;"><span style="color:#3fb37f;font-family:'IBM Plex Mono',monospace;min-width:56px;">AES</span><span style="color:#9aa2ad;">256-GCM at rest with bi-temporal history</span></li>
         </ul>
-        <div style="background:#0f1014;border:1px solid #262a33;border-radius:9px;padding:12px 14px;display:flex;align-items:center;gap:10px;font-family:'IBM Plex Mono',monospace;font-size:13px;overflow:hidden;"><span style="color:#3fb37f;">$</span><span style="color:#e7e9ee;white-space:nowrap;">curl -sSf …/install.sh | sh</span></div>
         <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-top:16px;">
-          <a href="https://vault-demo.perseus.observer/" style="display:inline-flex;align-items:center;gap:6px;font-size:14px;font-weight:700;color:#0b0c0f;background:#3fb37f;border-radius:7px;padding:9px 13px;">Try the live demo ↗</a>
-          <a href="/vault/" style="display:inline-flex;align-items:center;gap:6px;font-size:14px;font-weight:600;color:#3fb37f;">Explore Perseus Vault →</a>
+          <a href="https://vault-demo.perseus.observer/" style="display:inline-flex;align-items:center;gap:6px;font-size:14px;font-weight:700;color:#0b0c0f;background:#3fb37f;border-radius:5px;padding:9px 13px;">Try the live demo ↗</a>
+          <a href="/vault/" style="display:inline-flex;align-items:center;gap:6px;font-size:14px;font-weight:600;color:#3fb37f;">Explore Vault →</a>
         </div>
+      </div>
+      <div style="background:#14161c;border:1px solid #3d3423;border-radius:16px;padding:32px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+          <div style="display:flex;align-items:center;gap:11px;"><svg width="20" height="24" viewBox="0 0 22 26" fill="none"><path d="M5 5h12v16H5z" stroke="#d9a441" stroke-width="1.4"/><path d="M8 10h6M8 14h6" stroke="#d9a441" stroke-width="1.4" stroke-linecap="round"/><circle cx="16" cy="18" r="2.2" fill="#d9a441"/></svg><h3 style="font-size:22px;">Perseus Ledger</h3></div>
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#d9a441;border:1px solid #5a4829;border-radius:6px;padding:4px 9px;">provenance</span>
+        </div>
+        <p style="font-size:15px;color:#b9c0ca;margin-bottom:20px;">A hash-chained record of events, evidence links, authority references, and optional resource allocation. Built to preserve what happened, not just a dashboard aggregate.</p>
+        <ul style="list-style:none;padding:0;margin:0 0 24px;display:flex;flex-direction:column;gap:12px;font-size:13.5px;">
+          <li style="display:flex;gap:10px;"><span style="color:#d9a441;font-family:'IBM Plex Mono',monospace;min-width:56px;">/v1</span><span style="color:#9aa2ad;">HTTP ingestion with stable compatibility contracts</span></li>
+          <li style="display:flex;gap:10px;"><span style="color:#d9a441;font-family:'IBM Plex Mono',monospace;min-width:56px;">MIT</span><span style="color:#9aa2ad;">self-hostable, runtime-neutral, local-first</span></li>
+        </ul>
+        <div style="background:#0f1014;border:1px solid #3d3423;border-radius:9px;padding:12px 14px;display:flex;align-items:center;gap:10px;font-family:'IBM Plex Mono',monospace;font-size:13px;overflow:hidden;"><span style="color:#d9a441;">$</span><span style="color:#e7e9ee;white-space:nowrap;">pip install plutus-agent</span></div>
+        <a href="/ledger/" style="display:inline-flex;align-items:center;gap:6px;margin-top:16px;font-size:14px;font-weight:600;color:#d9a441;">Explore Ledger →</a>
       </div>
     </div>
   </div>
