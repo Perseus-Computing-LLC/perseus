@@ -1,4 +1,4 @@
-# Perseus & Perseus Vault — AI Infrastructure for Government
+# Perseus Computing — Context, Memory, and Event Provenance for Government
 
 ## The Stack
 
@@ -6,8 +6,9 @@
 |---|---|---|---|
 | **Perseus** | Live context engine — grounds AI agents with verifiable state before every turn | MIT | Python 3.10+ |
 | **Perseus Vault** | Persistent memory — encrypted, auditable, FTS5-searchable knowledge store for AI agents | MIT | Rust |
+| **Perseus Ledger** | Hash-chained event provenance with evidence links and authority references | MIT | Python |
 
-Both are open source, production-deployed, and maintained by Perseus Computing LLC (US-owned).
+Perseus resolves. Vault remembers. Ledger proves. The products are independently usable and interoperable. All are open source and maintained by Perseus Computing LLC (US-owned).
 
 ---
 
@@ -45,7 +46,7 @@ Both are open source, production-deployed, and maintained by Perseus Computing L
 ## Deployment Models
 
 ### Air-Gapped / Classified
-Single-container deployment. All dependencies bundled. No internet required. Suitable for DoD IL5+, IC Directive 503 environments.
+Self-hostable deployment with no required cloud service. Evaluate and accredit the deployment for the target environment; Perseus Computing does not claim an IL level, CUI authorization, or authority to operate.
 
 ### On-Premises
 Deploy on agency infrastructure. Full data sovereignty. Integrate with existing identity providers.
@@ -82,8 +83,8 @@ Perseus and Perseus Vault address multiple government AI priorities:
 | Field | Value |
 |---|---|
 | Entity | Perseus Computing LLC |
-| UEI | [Pending SAM.gov registration] |
-| CAGE Code | [Pending] |
+| UEI | PJS2LW7HAK35 |
+| CAGE Code | 22JC5 |
 | NAICS Codes | 541715 (Primary), 541511, 541512 |
 | SBIR Registry | [Pending] |
 | Website | https://perseus.observer |
