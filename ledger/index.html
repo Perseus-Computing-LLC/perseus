@@ -1,152 +1,31 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en" data-theme="dark">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Perseus Ledger: verifiable event provenance</title>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Perseus Ledger · evidence for autonomous systems</title>
+<meta name="description" content="Perseus Ledger records hash-chained events, evidence links, and authority references for autonomous systems. Self-hosted, runtime-neutral, and MIT licensed.">
+<link rel="canonical" href="https://perseus.observer/ledger/"><link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <script>try{var t=localStorage.getItem('perseus-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
-<link rel="icon" href="/assets/perseus.svg">
-<link rel="canonical" href="https://perseus.observer/ledger/">
-<meta name="description" content="Perseus Ledger is a self-hosted, runtime-neutral, hash-chained event and provenance layer for autonomous systems. MIT licensed.">
-<meta name="theme-color" content="#0A0A12">
-<meta property="og:type" content="website">
-<meta property="og:site_name" content="Perseus Computing">
-<meta property="og:title" content="Perseus Ledger: verifiable event provenance">
-<meta property="og:description" content="Self-hosted, runtime-neutral, hash-chained event provenance for autonomous systems.">
-<meta property="og:url" content="https://perseus.observer/ledger/">
-<meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Perseus Ledger: verifiable event provenance">
-<meta name="twitter:description" content="Self-hosted, runtime-neutral, hash-chained event provenance for autonomous systems.">
-<link rel="stylesheet" href="/assets/fonts.css">
-<link rel="stylesheet" href="/assets/tokens.css">
-<link rel="stylesheet" href="/assets/perseus.css">
-<script defer src="https://stats.perseus.observer/script.js" data-website-id="74dc0a11-f2dd-4d6f-b0b7-4a550116bbe5"></script>
+<link rel="stylesheet" href="/assets/fonts.css"><link rel="stylesheet" href="/assets/site-shell.css">
+<style>
+.ledger-v2 .shell-hero{padding-bottom:70px}.ledger-v2 .hero-grid-shell{grid-template-columns:.9fr 1.1fr}.ledger-v2 .shell-title{max-width:12ch}
+.ledger-record{border:1px solid var(--shell-line-strong);border-radius:16px;background:#080b0d;overflow:hidden;box-shadow:var(--shell-shadow)}.ledger-record-head{display:flex;justify-content:space-between;gap:15px;padding:14px 18px;border-bottom:1px solid var(--shell-line);color:var(--shell-faint);font:10px 'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase}.ledger-event{display:grid;grid-template-columns:80px 1fr auto;gap:16px;align-items:start;padding:17px 18px;border-bottom:1px solid rgba(32,42,50,.8);font-size:13px}.ledger-event:last-child{border-bottom:0}.ledger-event .time{color:var(--shell-faint);font:11px 'IBM Plex Mono',monospace}.ledger-event strong{display:block;color:#dbe5df;font-weight:600}.ledger-event span{display:block;margin-top:4px;color:#7f918d;font-size:12px}.ledger-event .hash{color:var(--shell-green);font:10px 'IBM Plex Mono',monospace}.ledger-event.current{background:rgba(113,194,155,.06)}
+.ledger-v2 .cards-ledger{display:grid;grid-template-columns:1.15fr .85fr;gap:1px;background:var(--shell-line);border:1px solid var(--shell-line);border-radius:14px;overflow:hidden}.ledger-v2 .ledger-card{padding:30px;background:var(--shell-surface)}.ledger-v2 .ledger-card h2{max-width:13ch;margin:0 0 13px;font:600 38px/1.02 'Space Grotesk',sans-serif;letter-spacing:-.055em}.ledger-v2 .ledger-card p{max-width:52ch;color:var(--shell-muted);font-size:14px;line-height:1.65}.ledger-v2 .ledger-card.side{background:color-mix(in srgb,var(--shell-surface) 90%,var(--shell-accent))}.ledger-v2 .ledger-card.side strong{display:block;margin-bottom:24px;color:var(--shell-accent-strong);font:11px 'IBM Plex Mono',monospace;text-transform:uppercase;letter-spacing:.12em}.ledger-list{display:flex;flex-direction:column;gap:13px;margin:0;padding:0;list-style:none}.ledger-list li{display:flex;gap:10px;color:var(--shell-muted);font-size:13px}.ledger-list li::before{content:'→';color:var(--shell-accent-strong);font-family:'IBM Plex Mono',monospace}
+@media(max-width:900px){.ledger-v2 .hero-grid-shell,.ledger-v2 .cards-ledger{grid-template-columns:1fr}.ledger-event{grid-template-columns:62px 1fr}.ledger-event .hash{grid-column:2}}
+</style>
 </head>
-<body>
+<body class="ledger-v2">
+<header class="site-nav" data-site-nav><div class="shell-wrap nav-inner"><a class="brand" href="/" aria-label="Perseus home"><svg class="brand-mark" viewBox="0 0 56 56" fill="none" aria-hidden="true"><rect x="4" y="14" width="16" height="4" rx="2" fill="var(--shell-blue)"/><rect x="4" y="22" width="16" height="4" rx="2" fill="var(--shell-blue)" fill-opacity=".72"/><rect x="4" y="30" width="16" height="4" rx="2" fill="var(--shell-blue)" fill-opacity=".46"/><rect x="4" y="38" width="16" height="4" rx="2" fill="var(--shell-blue)" fill-opacity=".28"/><g stroke="var(--shell-accent)" stroke-width="2.4" stroke-linecap="round"><line x1="22" y1="16" x2="43" y2="28"/><line x1="22" y1="24" x2="43" y2="28"/><line x1="22" y1="32" x2="43" y2="28"/><line x1="22" y1="40" x2="43" y2="28"/></g><circle cx="44" cy="28" r="4" fill="var(--shell-accent)"/></svg><span class="brand-name">Perseus<span class="brand-context">/ Ledger</span></span></a><nav class="nav-links" aria-label="Primary"><a href="/context-engine/">Context</a><a href="/vault/">Vault</a><a href="/ledger/" aria-current="page">Ledger</a><a href="/benchmarks/">Proof</a><a href="/government/">Sovereignty</a></nav><div class="nav-actions"><button class="btn-shell theme-toggle" type="button" data-theme-toggle aria-label="Switch theme">◐</button><a class="btn-shell btn-shell-quiet" href="https://github.com/Perseus-Computing-LLC/Ledger">Source ↗</a><a class="btn-shell btn-shell-primary" href="#install">Try Ledger</a><button class="nav-menu-button" type="button" data-menu-button aria-expanded="false" aria-label="Open navigation">☰</button></div></div></header>
+<div class="mobile-menu-backdrop" data-menu-backdrop hidden></div><nav class="mobile-menu" data-mobile-menu hidden><a href="/context-engine/">Context engine</a><a href="/vault/">Vault</a><a href="/ledger/">Ledger</a><a href="/benchmarks/">Benchmarks</a><a href="/government/">Sovereignty</a></nav>
+<main class="shell-main"><section class="shell-hero"><div class="shell-wrap hero-grid-shell"><div class="hero-copy-shell"><div class="eyebrow">Evidence before assertion</div><h1 class="shell-title">Know what your system <span class="accent">did.</span></h1><p class="shell-lead">Perseus Ledger turns consequential activity into a verifiable record: who acted, what changed, which evidence supports it, and whether the chain still holds.</p><div class="shell-actions"><a class="btn-shell btn-shell-primary" href="#install">Run the demo</a><a class="btn-shell btn-shell-quiet" href="https://github.com/Perseus-Computing-LLC/Ledger">Inspect the source ↗</a></div></div><div class="hero-side-shell"><div class="ledger-record"><div class="ledger-record-head"><span>ledger / local</span><span class="status">CHAIN VERIFIED</span></div><div class="ledger-event"><div class="time">09:41:02</div><div><strong>context.render</strong><span>workspace snapshot attached</span></div><div class="hash">a7c1…8e2</div></div><div class="ledger-event current"><div class="time">09:41:04</div><div><strong>agent.action</strong><span>migration plan produced · evidence linked</span></div><div class="hash">c20f…3b9</div></div><div class="ledger-event"><div class="time">09:41:06</div><div><strong>review.accepted</strong><span>authority reference recorded</span></div><div class="hash">9f83…a11</div></div></div><div class="command-row"><code>plutus demo</code><button type="button" data-copy="plutus demo">Copy</button></div></div></div></section>
+<section class="shell-section"><div class="shell-wrap cards-ledger"><div class="ledger-card"><div class="eyebrow">A record, not a dashboard</div><h2>Preserve the path from action to evidence.</h2><p>Dashboards show an aggregate. A ledger preserves the chain. Ledger is self-hosted and runtime-neutral, so your event data, keys, and retained checkpoints stay where you put them.</p><div class="shell-actions"><a class="btn-shell btn-shell-quiet" href="#install">See the API path →</a></div></div><div class="ledger-card side"><strong>What an event can carry</strong><ul class="ledger-list"><li>actor, boundary, and configuration</li><li>action, result, and external evidence</li><li>authority reference and optional allocation</li><li>hash link to the prior record</li></ul></div></div></section>
+<section class="shell-section-tight"><div class="shell-wrap split-shell"><div><div class="eyebrow">One command</div><h2 class="shell-heading">Record. Link. Verify.</h2><p class="shell-copy">Send an event through the stable API or SDK, associate the evidence and authority context you have, then verify the chain. Existing <code>plutus</code> commands remain supported during the transition.</p></div><div class="install-panel"><div class="install-panel-head"><span>plutus meter</span><span class="status">HASH-CHAINED</span></div><pre><span class="prompt">$</span> plutus meter --provider anthropic \
+    --model claude-opus --task code_review \
+    --input 8200 --output 2400
 
-<header class="site">
-  <div class="nav">
-    <a href="/" class="brand" aria-label="Perseus home">
-      <svg width="30" height="30" viewBox="0 0 56 56" fill="none" aria-hidden="true"><rect x="3" y="14" width="17" height="3.6" rx="1.8" fill="var(--violet)"/><rect x="3" y="21" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".75"/><rect x="3" y="28" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".55"/><rect x="3" y="35" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".4"/><g stroke="var(--gold)" stroke-width="2.4" stroke-linecap="round"><line x1="22" y1="16" x2="42" y2="28"/><line x1="22" y1="23" x2="42" y2="28"/><line x1="22" y1="30" x2="42" y2="28"/><line x1="22" y1="37" x2="42" y2="28"/></g><circle cx="44" cy="28" r="4.2" fill="var(--gold)"/></svg>
-      <b>Perseus<span class="sub"> / Ledger</span></b>
-    </a>
-    <nav class="navlinks">
-      <a href="#features">Features</a>
-      <a href="#ledger">Ledger</a>
-      <a href="/">Perseus ↗</a>
-    </nav>
-    <button class="toggle" data-theme-toggle aria-label="Toggle theme"><span class="dot"></span><span data-theme-label>Light</span></button>
-    <a href="https://github.com/Perseus-Computing-LLC/Ledger" class="btn btn-primary">GitHub ↗</a>
-  </div>
-</header>
-
-<!-- HERO -->
-<section class="hero" data-screen-label="Perseus Ledger hero">
-  <div class="glow"></div>
-  <span class="reticle tl"></span><span class="reticle tr"></span><span class="reticle bl"></span><span class="reticle br"></span>
-  <svg class="hero-bg" viewBox="0 0 600 360" preserveAspectRatio="xMidYMid slice" aria-hidden="true" style="opacity:.34;">
-    <g fill="var(--steel)"><rect x="340" y="80" width="150" height="8" rx="4"/><rect x="340" y="120" width="200" height="8" rx="4" opacity=".8"/><rect x="340" y="160" width="110" height="8" rx="4" opacity=".8"/><rect x="340" y="200" width="180" height="8" rx="4" opacity=".8"/><rect x="340" y="240" width="140" height="8" rx="4" opacity=".8"/></g>
-    <circle cx="520" cy="84" r="7" fill="var(--gold)"/>
-  </svg>
-  <div class="hero-inner">
-    <span class="eyebrow gold">
-      <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="6.5" cy="6.5" r="5"/><path d="M6.5 4v5M5 5.2h2.2a1.1 1.1 0 010 2.2H5"/></svg>
-      Evidence before assertion
-    </span>
-    <h1 class="hero-h" style="max-width:20ch;">Know what your autonomous system <span style="color:var(--gold);">did—and prove it.</span></h1>
-    <p class="lead" style="max-width:62ch;">Perseus Ledger records <span class="em">hash-chained events, evidence links, authority references, and optional resource allocation</span>. Self-hosted, runtime-neutral, and independently verifiable.</p>
-    <div class="hero-cta">
-      <div class="install gold">
-        <span><span class="pr">$</span> plutus demo</span>
-        <button data-copy="plutus demo">Copy</button>
-      </div>
-      <a href="https://github.com/Perseus-Computing-LLC/Ledger" class="btn btn-ghost">View on GitHub ↗</a>
-    </div>
-    <div class="statstrip">
-      <div class="stat"><div class="n gold">Verify</div><div class="c">Event integrity</div></div>
-      <div class="stat"><div class="n">Link</div><div class="c">Evidence & authority</div></div>
-      <div class="stat"><div class="n">Local</div><div class="c">SQLite ledger</div></div>
-      <div class="stat"><div class="n">0</div><div class="c">Cloud dependencies</div></div>
-    </div>
-  </div>
-</section>
-
-<!-- FEATURES -->
-<section id="features" class="sec" data-screen-label="Features">
-  <div class="wrap reveal">
-    <span class="eyebrow gold">
-      <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="6.5" cy="6.5" r="5"/><path d="M6.5 4v5M5 5.2h2.2a1.1 1.1 0 010 2.2H5"/></svg>
-      What it does
-    </span>
-    <h2 class="h" style="max-width:24ch; margin-bottom:48px;">A verifiable record for <span style="color:var(--gold);">every consequential event</span>.</h2>
-    <div class="cards">
-      <div class="card">
-        <h3>Record activity</h3>
-        <p>Each event can carry actor, boundary, configuration, action, result, external evidence, and optional allocation metadata.</p>
-      </div>
-      <div class="card">
-        <h3>Verify the chain</h3>
-        <p>Append-only, hash-chained records support local verification and optional external checkpoints for independent review.</p>
-      </div>
-      <div class="card">
-        <h3>Integrate anywhere</h3>
-        <p>HTTP ingestion, a Python SDK, and optional allocation, reconciliation, and settlement adapters work with any runtime.</p>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- LEDGER -->
-<section id="ledger" class="sec band" data-screen-label="Ledger">
-  <div class="wrap reveal split">
-    <div>
-      <span class="eyebrow gold">
-        <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="6.5" cy="6.5" r="5"/><path d="M6.5 4v5M5 5.2h2.2a1.1 1.1 0 010 2.2H5"/></svg>
-        One command
-      </span>
-      <h2 class="h" style="margin-bottom:20px;">Record, link, and verify.</h2>
-      <p class="lead" style="font-size:16px;">Send events through the stable API or SDK, associate the evidence and authority context you have, then verify the chain. Existing <code class="mono">plutus</code> commands remain supported during the transition.</p>
-    </div>
-    <div class="term">
-      <div class="term-bar"><span class="d"></span><span class="d"></span><span class="d"></span><span class="f">plutus meter</span></div>
-      <pre><span class="c6">$</span> plutus meter --provider anthropic --model claude-opus-4-8 \
-             --task code_review --input 8200 --output 2400
-
-<span class="gr">✓</span> event recorded   <span class="br">hash-chained</span>
-<span class="gr">✓</span> evidence linked   <span class="br">verifiable</span>
-
-<span class="c6">dashboard → http://localhost:8420 · local ledger</span></pre>
-    </div>
-  </div>
-</section>
-
-<!-- CTA -->
-<section class="sec cta-center" data-screen-label="Get started">
-  <div class="wrap reveal">
-    <h2 class="h" style="max-width:22ch;">Keep an evidence trail you can verify.</h2>
-    <p class="lead" style="font-size:16px; max-width:48ch;">Open source and local-first. Your event data, keys, and retained checkpoints stay under your control.</p>
-    <div class="cta-row" style="margin-bottom:30px;">
-      <a href="https://github.com/Perseus-Computing-LLC/Ledger" class="btn btn-gold btn-lg">Get Perseus Ledger ↗</a>
-      <a href="mailto:perseus@perseus.observer" class="btn btn-ghost btn-lg">Contact the team</a>
-    </div>
-    <div class="badges center">
-      <span class="badge">MIT licensed</span>
-      <span class="badge">Live dashboard</span>
-      <span class="badge">0 cloud dependencies</span>
-    </div>
-  </div>
-</section>
-
-<footer class="site">
-  <div class="foot-compact">
-    <div class="brand-line">
-      <svg width="26" height="26" viewBox="0 0 56 56" fill="none" aria-hidden="true"><rect x="3" y="14" width="17" height="3.6" rx="1.8" fill="var(--violet)"/><rect x="3" y="21" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".75"/><rect x="3" y="28" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".55"/><rect x="3" y="35" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".4"/><g stroke="var(--gold)" stroke-width="2.4" stroke-linecap="round"><line x1="22" y1="16" x2="42" y2="28"/><line x1="22" y1="23" x2="42" y2="28"/><line x1="22" y1="30" x2="42" y2="28"/><line x1="22" y1="37" x2="42" y2="28"/></g><circle cx="44" cy="28" r="4.2" fill="var(--gold)"/></svg>
-      <span class="legal-line">Perseus Computing LLC · MIT License · perseus.observer/ledger</span>
-    </div>
-    <div class="sib"><a href="/">Perseus</a><a href="/perseus-vault/">Perseus Vault</a><a href="/mcts/">MCTS</a><a href="https://github.com/Perseus-Computing-LLC/Ledger">GitHub</a></div>
-  </div>
-</footer>
-
-<script src="/assets/perseus.js"></script>
-</body>
-</html>
+<span class="prompt">✓</span> event recorded
+<span class="prompt">✓</span> evidence linked
+<span class="prompt">✓</span> chain verified</pre></div></div></section>
+<section id="install" class="shell-section-tight"><div class="shell-wrap start-band"><div><div class="eyebrow">Get the evidence layer</div><h2>Keep an audit trail you can verify.</h2><p>Open source, local-first, and designed to compose with Perseus and Vault.</p></div><div class="shell-actions"><a class="btn-shell btn-shell-primary" href="https://github.com/Perseus-Computing-LLC/Ledger">Get Ledger ↗</a><a class="btn-shell btn-shell-quiet" href="/">See the full system →</a></div></div></section></main>
+<footer class="shell-footer"><div class="shell-wrap"><div class="footer-grid"><div><a class="brand" href="/"><span class="brand-name">Perseus</span></a><p class="footer-blurb">Context, memory, and evidence for autonomous systems that need to show their work.</p></div><div><div class="footer-heading">System</div><div class="footer-links"><a href="/context-engine/">Context</a><a href="/vault/">Vault</a><a href="/ledger/">Ledger</a></div></div><div><div class="footer-heading">Methods</div><div class="footer-links"><a href="/benchmarks/">Benchmarks</a><a href="/government/">Sovereignty</a></div></div><div><div class="footer-heading">Source</div><div class="footer-links"><a href="https://github.com/Perseus-Computing-LLC/Ledger">GitHub ↗</a><a href="mailto:perseus@perseus.observer">Contact</a></div></div></div><div class="footer-legal"><span>© 2026 Perseus Computing LLC</span><span>MIT · local-first · verifiable</span></div></div></footer><script src="/assets/site-shell.js"></script>
+</body></html>
