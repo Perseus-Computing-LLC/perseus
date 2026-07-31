@@ -28,20 +28,27 @@ Atlassian can own managed enterprise memory for product relevance. Perseus shoul
 - define served-memory views
 - add retrieval explanations
 - publish non-competitive positioning
+- ship an explainable context-planning decision record ([#890](https://github.com/Perseus-Computing-LLC/perseus/issues/890)): deterministic `inline | reduced_text | artifact_pointer | retrieve_on_demand` routing, fidelity and cache assumptions, counterfactual-vs-actual token accounting, and source references
 
 ### Next
 - context-aware briefing outputs
 - scope-aware serving controls
+- consume Vault artifact manifests and exact evidence excerpts in context assembly; represent large immutable sources as retrievable evidence, not opaque summaries
+- expose context decisions in preview, prompt-size, and metering views while keeping estimated reductions distinct from provider-billed usage
 
 ### Later
 - optional interoperability with external managed-memory inputs
 - memory health dashboards
+- optional multimodal context representations only after model- and task-specific paired evaluations; never as a transparent request-rewriting default
 
 ## Success metrics
 - at least one served-memory view implemented end to end
 - at least one user-facing output consumes served memory
 - explanation metadata attached to most served items in prototype flows
 - positioning language reused consistently in roadmap and docs
+- every material context reduction has a deterministic decision record that states route, fidelity, counterfactual, and cache assumption
+- artifact-backed context can retrieve and quote exact evidence without exposing inaccessible source metadata
+- cost claims distinguish rendered-token estimates from observed provider usage and task-quality evidence
 
 ## Bottom line
 Perseus should be the durable cognition layer that complements product-native memory.
