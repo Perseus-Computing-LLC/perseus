@@ -1,177 +1,27 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en" data-theme="dark">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Perseus Vault benchmarks: reproducible numbers, signed reports</title>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Perseus benchmarks · reproducible numbers, signed reports</title>
+<meta name="description" content="Perseus benchmark methods: LongMemEval QA, retrieval recall, same-box comparisons, scale, temporal correctness, and BEAM determinism. Every headline is tied to a report and rerunnable script.">
+<link rel="canonical" href="https://perseus.observer/benchmarks/"><link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <script>try{var t=localStorage.getItem('perseus-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
-<link rel="icon" href="/assets/perseus.svg">
-<link rel="canonical" href="https://perseus.observer/benchmarks/">
-<meta name="description" content="Reproducible agent-memory benchmarks: LongMemEval retrieval recall, bi-temporal correctness, and BEAM correctness + determinism at scale (128K to 10M tokens). Every number generated from a signed report with a script you can rerun.">
-<meta name="theme-color" content="#0A0A12">
-<meta property="og:type" content="website">
-<meta property="og:site_name" content="Perseus">
-<meta property="og:title" content="Perseus Vault benchmarks">
-<meta property="og:description" content="Every number here has a script. Signed reports, named models, reproducible offline.">
-<meta property="og:url" content="https://perseus.observer/benchmarks/">
-<link rel="stylesheet" href="/assets/fonts.css">
-<link rel="stylesheet" href="/assets/tokens.css">
-<link rel="stylesheet" href="/assets/perseus.css">
-<style>
-main.bench{max-width:1080px;margin:0 auto;padding:32px 20px 64px}
-main.bench h1{font-size:34px;margin:18px 0 6px}
-main.bench h2{font-size:22px;margin:38px 0 8px}
-main.bench .lead,main.bench .note{color:var(--text-dim,#98a0b3);font-size:14.5px;line-height:1.55}
-main.bench .stats{display:flex;flex-wrap:wrap;gap:12px;margin:14px 0}
-main.bench .stat{background:var(--surface,#101018);border:1px solid var(--border,#23232f);border-radius:10px;padding:12px 18px;min-width:120px}
-main.bench .stat .v{font-size:24px;font-weight:700;font-family:var(--font-display,'Space Grotesk',sans-serif)}
-main.bench .stat.big .v{font-size:32px;color:var(--violet,#a78bfa)}
-main.bench .stat .l{font-size:12px;color:var(--text-dim,#98a0b3);margin-top:2px}
-main.bench .tablewrap{overflow-x:auto;margin:12px 0}
-main.bench table{border-collapse:collapse;width:100%;font-size:13.5px}
-main.bench th,main.bench td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--border,#23232f);vertical-align:top}
-main.bench thead th{color:var(--text-dim,#98a0b3);font-size:12px;text-transform:uppercase;letter-spacing:.5px}
-main.bench td.us{color:var(--violet,#a78bfa);font-weight:600}
-main.bench .src{font-size:12px;color:var(--text-dim,#98a0b3);margin-top:6px}
-main.bench .src .sig{font-family:var(--font-mono,'IBM Plex Mono',monospace);opacity:.8;margin-left:6px}
-main.bench pre{background:var(--surface,#101018);border:1px solid var(--border,#23232f);border-radius:10px;padding:14px 16px;overflow-x:auto;font-size:13px}
-</style>
-<script defer src="https://stats.perseus.observer/script.js" data-website-id="74dc0a11-f2dd-4d6f-b0b7-4a550116bbe5"></script>
+<link rel="stylesheet" href="/assets/fonts.css"><link rel="stylesheet" href="/assets/site-shell.css">
 </head>
 <body>
-<header class="site">
-  <div class="nav">
-    <a href="/" class="brand" aria-label="Perseus home">
-      <svg width="30" height="30" viewBox="0 0 56 56" fill="none" aria-hidden="true"><rect x="3" y="14" width="17" height="3.6" rx="1.8" fill="var(--violet)"/><rect x="3" y="21" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".75"/><rect x="3" y="28" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".55"/><rect x="3" y="35" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".4"/><g stroke="var(--amber)" stroke-width="2.4" stroke-linecap="round"><line x1="22" y1="16" x2="42" y2="28"/><line x1="22" y1="23" x2="42" y2="28"/><line x1="22" y1="30" x2="42" y2="28"/><line x1="22" y1="37" x2="42" y2="28"/></g><circle cx="44" cy="28" r="4.2" fill="var(--amber)"/></svg>
-      <b>Perseus<span class="sub"> / Benchmarks</span></b>
-    </a>
-    <nav class="navlinks">
-      <a href="/perseus-vault/">Perseus Vault</a>
-      <a href="https://github.com/Perseus-Computing-LLC/perseus-vault">GitHub</a>
-    </nav>
-  </div>
-</header>
-<main class="bench">
-  <h1>Benchmarks that you can rerun</h1>
-  <p class="lead">Agent-memory vendors publish numbers; ours come with the script, the dataset,
-  the named model, and a sha256 signature over the result set. Everything below is generated
-  from committed reports in the open repo. If you cannot reproduce a number, it comes down.</p>
-  
-<section id="matrix">
-  <h2>Feature matrix</h2>
-  <p class="note">Architecture facts, not adjectives. Competitor rows come from their public repos (<a href="https://github.com/getzep/graphiti">Zep / Graphiti</a> · <a href="https://github.com/mem0ai/mem0">Mem0</a> · <a href="https://github.com/topoteretes/cognee">Cognee</a> · <a href="https://github.com/letta-ai/letta">Letta</a>); anything we could not verify is "n/a".</p>
-  <div class="tablewrap"><table><thead><tr><th></th><th>Perseus Vault</th><th>Zep / Graphiti</th><th>Mem0</th><th>Cognee</th><th>Letta</th></tr></thead><tbody><tr><th>Temporal model</th><td class="us">Full SQL:2011 bi-temporal (valid + transaction time, point-in-time recall)</td><td class="">Bi-temporal edges (Graphiti)</td><td class="">Timestamps</td><td class="">Timestamps</td><td class="">Timestamps</td></tr><tr><th>Storage / deployment</th><td class="us">Single local binary, SQLite, offline</td><td class="">Server + graph DB</td><td class="">Server or SaaS, vector DB</td><td class="">Server, graph + vector DBs</td><td class="">Server, Postgres</td></tr><tr><th>Encryption at rest</th><td class="us">AES-256-GCM built in</td><td class="">n/a</td><td class="">n/a</td><td class="">n/a</td><td class="">n/a</td></tr><tr><th>Audit trail</th><td class="us">Hash-chained journal (keyed MAC under encryption; external review pending)</td><td class="">n/a</td><td class="">n/a</td><td class="">n/a</td><td class="">n/a</td></tr><tr><th>Retrieval modes</th><td class="us">FTS5 keyword + dense vector + hybrid RRF, decay + trust weighted</td><td class="">Graph + semantic</td><td class="">Vector</td><td class="">Graph + vector</td><td class="">Vector + recall memory</td></tr><tr><th>License</th><td class="us">MIT</td><td class="">Apache-2.0 (Graphiti)</td><td class="">Apache-2.0</td><td class="">Apache-2.0</td><td class="">Apache-2.0</td></tr></tbody></table></div>
-</section>
-<section id="retrieval">
-  <h2>Retrieval recall (LongMemEval)</h2>
-  <p class="note">Session-level recall against the 500-instance LongMemEval split
-  (23,867 sessions ingested into the real binary, offline, judge-free;
-  default hybrid retrieval). perseus-vault.exe.</p>
-  <div class="stats"><div class='stat'><div class='v'>84.6%</div><div class='l'>recall@1</div></div><div class='stat'><div class='v'>95.2%</div><div class='l'>recall@3</div></div><div class='stat'><div class='v'>97.4%</div><div class='l'>recall@5</div></div><div class='stat'><div class='v'>99.2%</div><div class='l'>recall@10</div></div><div class='stat'><div class='v'>0.903</div><div class='l'>MRR</div></div></div>
-  <div class="src">source: <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/longmemeval/report.json">benchmark/longmemeval/report.json</a> <span class="sig" title="sha256 over the result set">sig 9babb85f54f9</span></div>
-</section>
-<section id="qa">
-  <h2>End-to-end QA vs Zep</h2>
-  <p class="note">Zep publishes <b>63.8%</b> on LongMemEval with GPT-4o (<a href="https://arxiv.org/abs/2501.13956">their paper</a>). Ours below: identical split, pinned answerer and judge named in the
-  report, LongMemEval's official per-type judge prompts. The headline is the mean of 3 independent signed runs (73.6% / 75.0% / 72.8%); the worst run scores +9.0 points vs Zep's published number.
-  Where conditions differ from a competitor's published run, the comparison is flagged, not blended.
-  Per-type table is from the primary run's signed report.</p>
-  <div class="stats"><div class='stat big'><div class='v'>73.8%</div><div class='l'>mean of 3 independent full runs (range 72.8&ndash;75.0%, gpt-4o-2024-08-06)</div></div></div>
-  
-  <div class="stats"><div class='stat big'><div class='v'>79.0%</div>
-  <div class='l'>with LongMemEval's official CoT answer prompt (<code>answer_prompt: official-cot</code>) &mdash;
-  mean of 3 independent signed full runs (range 78.4&ndash;80.0%)</div></div></div>
-  <p class="note">The benchmark ships two official answer prompts (plain and step-by-step CoT);
-  both distributions above are 100% official methodology and differ only in that flag &mdash;
-  each number carries its <code>answer_prompt</code>, recorded in the signed report.
-  Zep's publication does not state which variant they used, so the comparison is flagged, not blended.</p>
-  <div class="src">source: <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/longmemeval/qa_report_cot.json">benchmark/longmemeval/qa_report_cot.json</a> <span class="sig" title="sha256 over the result set">sig 20327b31b594</span></div><div class="src">source: <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/longmemeval/qa_report_cot_seed2.json">benchmark/longmemeval/qa_report_cot_seed2.json</a> <span class="sig" title="sha256 over the result set">sig 7c8ce1b406c0</span></div><div class="src">source: <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/longmemeval/qa_report_cot_seed3.json">benchmark/longmemeval/qa_report_cot_seed3.json</a> <span class="sig" title="sha256 over the result set">sig eb848e786677</span></div>
-  <div class='tablewrap'><table><thead><tr><th>question type</th><th>correct</th><th>accuracy</th></tr></thead><tbody><tr><th>knowledge-update</th><td>60/78</td><td>76.9%</td></tr><tr><th>multi-session</th><td>84/133</td><td>63.2%</td></tr><tr><th>single-session-assistant</th><td>56/56</td><td>100.0%</td></tr><tr><th>single-session-preference</th><td>9/30</td><td>30.0%</td></tr><tr><th>single-session-user</th><td>67/70</td><td>95.7%</td></tr><tr><th>temporal-reasoning</th><td>92/133</td><td>69.2%</td></tr></tbody></table></div>
-  <div class="src">source: <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/longmemeval/qa_report.json">benchmark/longmemeval/qa_report.json</a> <span class="sig" title="sha256 over the result set">sig 929623670d8b</span></div>
-  <div class="src">source: <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/longmemeval/qa_report_seed2.json">benchmark/longmemeval/qa_report_seed2.json</a> <span class="sig" title="sha256 over the result set">sig 4e816cf0a904</span></div><div class="src">source: <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/longmemeval/qa_report_seed3.json">benchmark/longmemeval/qa_report_seed3.json</a> <span class="sig" title="sha256 over the result set">sig c712d867a958</span></div>
-</section>
-<section id="samebox">
-  <h2>Same-box recall, all systems fully local</h2>
-  <p class="note">Every system stood up and run live on one H100 against the same local Ollama
-  (<code>qwen2.5:14b-instruct</code> + <code>nomic-embed-text</code>): identical fact set, identical
-  queries, identical substring judge. No published or cloud numbers are substituted for a competitor.
-  Cells show recall accuracy and p50 latency.</p>
-  <div class="tablewrap"><table><thead><tr><th>system</th><th>recall</th><th>p50 latency</th><th>stack</th></tr></thead><tbody><tr><th>Perseus Vault (hybrid)</th><td class="us">1.00</td><td class="us">35.6 ms</td><td class="us">single local binary, in-process</td></tr><tr><th>Letta (archival / pgvector)</th><td>1.00</td><td>135.5 ms</td><td>server + Postgres/pgvector</td></tr><tr><th>Mem0 (vector)</th><td>0.60</td><td>37.9 ms</td><td>Python + Qdrant</td></tr><tr><th>Zep (Graphiti temporal KG)</th><td>0.20</td><td>49.7 ms</td><td>server + Neo4j</td></tr></tbody></table></div>
-  <p class="note">Letta matches Perseus Vault on recall for this corpus; the difference is operational,
-  an in-process binary answering in ~35 ms versus a server plus Postgres at ~135 ms p50. Zep's
-  self-hosted Community Edition server is deprecated and its <code>zep_python</code> memory API is now
-  Zep Cloud only, so this measures Zep's open-source engine, Graphiti (a temporal knowledge graph on
-  Neo4j), with entity extraction and embeddings both on the same local Ollama. Building a knowledge
-  graph needs an LLM to do structured extraction, and a local model is lossy at it (5 entities and 2
-  edges from 6 facts here), so 0.20 reflects local-extraction quality rather than Zep Cloud, which
-  uses frontier models. The point of this table is not a scoreboard; it is what each architecture does
-  when the whole stack has to run locally.</p>
-  <div class="src">source: <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/lambda/results/competitors.json">benchmark/lambda/results/competitors.json</a> &middot; <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/lambda/competitors_bench.py">competitors_bench.py</a></div>
-</section>
-<section id="scale">
-  <h2>Scale and latency</h2>
-  <p class="note">The real binary over MCP stdio, seeded corpus, 100 queries
-  per metric. Hardware named in the report: Windows 11, 16 cores. Bi-temporal point
-  lookups stay flat from 10K to 100K entities; that column is the differentiator.</p>
-  <div class="tablewrap"><table><thead><tr><th>entities</th><th>write sustained</th>
-  <th>fts5 p50/p99</th><th>dense p50/p99</th><th>hybrid p50/p99</th><th>as_of p99</th><th>cold start</th></tr></thead>
-  <tbody><tr><th>10,000</th><td>479/s</td><td>3.14 / 9.62 ms</td><td>11.96 / 14.29 ms</td><td>19.03 / 24.56 ms</td><td>0.53 ms</td><td>56.6 ms</td></tr><tr><th>100,000</th><td>40/s</td><td>15.67 / 23.23 ms</td><td>25.43 / 32.78 ms</td><td>79.73 / 92.86 ms</td><td>0.46 ms</td><td>58.2 ms</td></tr></tbody></table></div>
-  <div class="src">source: <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/scale/report.json">benchmark/scale/report.json</a> <span class="sig" title="sha256 over the result set">sig c688a8490cc1</span></div>
-</section>
-<section id="temporal">
-  <h2>Temporal correctness</h2>
-  <p class="note">Bi-temporal reconstruction checked scenario by scenario: what was believed at T
-  (transaction time), what was true at T (valid time), and the full cell. Deterministic, offline.</p>
-  <div class='stats'><div class='stat big'><div class='v'>100.0%</div><div class='l'>gauntlet: 13/13 checks</div></div><div class='stat'><div class='v'>10/10</div><div class='l'>valid_at</div></div><div class='stat'><div class='v'>1/1</div><div class='l'>as_of</div></div><div class='stat'><div class='v'>2/2</div><div class='l'>bitemporal</div></div></div><div class="src">source: <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/temporal/gauntlet_report.json">benchmark/temporal/gauntlet_report.json</a> <span class="sig" title="sha256 over the result set">sig 2c1e38ab18aa</span></div><div class='stats'><div class='stat'><div class='v'>100.0%</div><div class='l'>temporal suite: 20/20</div></div></div><div class="src">source: <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/temporal/report.json">benchmark/temporal/report.json</a> <span class="sig" title="sha256 over the result set">sig 009c4c3e25cb</span></div>
-</section>
-<section id="beam">
-  <h2>Correctness and determinism at scale (BEAM)</h2>
-  <p class="note">Named for <a href="https://arxiv.org/abs/2510.27246">BEAM</a> (Beyond a Million Tokens), which tests at
-  128K / 500K / 1M / 10M tokens to defeat the "dump everything in context" cheat. Our claim is orthogonal to a
-  context-window score: <b>FTS5 + deterministic bi-temporal retrieval must not degrade as the corpus grows.</b>
-  BEAM embeds the CI-verified bi-temporal gauntlet (the same 13 checks) inside a filler corpus sized to each token
-  tier and asserts, at every tier, that correctness holds (13/13), that two independent runs produce an identical
-  signature (<code>deterministic=true</code>), and that point lookups stay flat. Fully offline, lean FTS5 + bi-temporal
-  binary (no embeddings), on Linux / Unraid.</p>
-  <div class='stats'><div class='stat big'><div class='v'>100.0%</div><div class='l'>gauntlet: 13/13 at every tier (128K&ndash;10M)</div></div><div class='stat'><div class='v'>deterministic=true</div><div class='l'>identical signature across two runs, every tier</div></div><div class='stat'><div class='v'>23.07 ms</div><div class='l'>as_of p50 at 10M (flat from 22.08 ms at 128K)</div></div><div class='stat'><div class='v'>10M</div><div class='l'>153,846 entities, ~10.1M tokens, 332.43s populate</div></div></div>
-  <div class="tablewrap"><table><thead><tr><th>token tier</th><th>filler entities</th><th>approx tokens</th><th>populate</th><th>gauntlet</th><th>deterministic</th><th>as_of p50/p95</th><th>valid_at p50/p95</th></tr></thead>
-  <tbody>
-  <tr><th>128K</th><td>1,969</td><td>129,461</td><td>2.87 s</td><td class="us">13/13</td><td class="us">yes</td><td>22.08 / 24.36 ms</td><td>22.75 / 25.61 ms</td></tr>
-  <tr><th>500K</th><td>7,692</td><td>505,749</td><td>10.21 s</td><td class="us">13/13</td><td class="us">yes</td><td>21.26 / 24.45 ms</td><td>17.7 / 24.11 ms</td></tr>
-  <tr><th>1M</th><td>15,384</td><td>1,011,498</td><td>27.58 s</td><td class="us">13/13</td><td class="us">yes</td><td>23.17 / 88.83 ms</td><td>22.09 / 23.95 ms</td></tr>
-  <tr><th>10M</th><td>153,846</td><td>10,115,374</td><td>332.43 s</td><td class="us">13/13</td><td class="us">yes</td><td>23.07 / 24.61 ms</td><td>22.62 / 25.56 ms</td></tr>
-  </tbody></table></div>
-  <p class="note">Point-lookup p50 is flat (22.08 &rarr; 21.26 &rarr; 23.17 &rarr; 23.07 ms as the corpus grows 128K&ndash;10M),
-  because lookups are <code>(category,key)</code>-indexed. p95 is flat too except a single 88.83 ms sample at the 1M
-  tier, shown as measured; every other tier stays under 26 ms. 40 samples per axis per tier.</p>
-  <div class="src">source: <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/beam/report.json">benchmark/beam/report.json</a> <span class="sig" title="sha256 over the result set">sig 2c1e38ab18aa</span> &middot; <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/beam/README.md">methodology</a></div>
-</section>
-<section id="reproduce">
-  <h2>Reproduce every number</h2>
-  <p class="note">Every report above is generated by a script in the repo and signed with a sha256
-  over its result set. From a clean clone:</p>
-  <pre><code>git clone https://github.com/Perseus-Computing-LLC/perseus-vault.git
-cd perseus-vault
-cargo build --release
-python benchmark/recall/run.py        # recall quality (offline)
-python benchmark/longmemeval/run.py   # LongMemEval retrieval (offline)
-python benchmark/temporal/gauntlet.py # bi-temporal gauntlet (offline)
-python benchmark/scale/run.py         # scale + latency (offline)
-python benchmark/beam/run.py --tiers 128K 500K 1M 10M --out /tmp/beam.json  # BEAM: correctness + determinism at scale (offline)
-python benchmark/longmemeval/qa.py    # end-to-end QA (needs an OpenAI key; prints cost first)</code></pre>
-  <p class="note">This page was generated by <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/scripts/gen_benchmark_page.py">scripts/gen_benchmark_page.py</a>
-  at commit <code>eb8bc17</code>. If a number here cannot be traced to a committed signed report, that is a bug; please file it.</p>
-</section>
+<header class="site-nav" data-site-nav><div class="shell-wrap nav-inner"><a class="brand" href="/" aria-label="Perseus home"><svg class="brand-mark" viewBox="0 0 56 56" fill="none" aria-hidden="true"><rect x="4" y="14" width="16" height="4" rx="2" fill="var(--shell-blue)"/><rect x="4" y="22" width="16" height="4" rx="2" fill="var(--shell-blue)" fill-opacity=".72"/><rect x="4" y="30" width="16" height="4" rx="2" fill="var(--shell-blue)" fill-opacity=".46"/><rect x="4" y="38" width="16" height="4" rx="2" fill="var(--shell-blue)" fill-opacity=".28"/><g stroke="var(--shell-accent)" stroke-width="2.4" stroke-linecap="round"><line x1="22" y1="16" x2="43" y2="28"/><line x1="22" y1="24" x2="43" y2="28"/><line x1="22" y1="32" x2="43" y2="28"/><line x1="22" y1="40" x2="43" y2="28"/></g><circle cx="44" cy="28" r="4" fill="var(--shell-accent)"/></svg><span class="brand-name">Perseus<span class="brand-context">/ Benchmarks</span></span></a><nav class="nav-links" aria-label="Primary"><a href="/context-engine/">Context</a><a href="/vault/">Vault</a><a href="/ledger/">Ledger</a><a href="/benchmarks/" aria-current="page">Proof</a><a href="/government/">Sovereignty</a></nav><div class="nav-actions"><button class="btn-shell theme-toggle" type="button" data-theme-toggle aria-label="Switch theme">◐</button><a class="btn-shell btn-shell-quiet" href="https://github.com/Perseus-Computing-LLC/perseus-vault">Source ↗</a><a class="btn-shell btn-shell-primary" href="#reproduce">Reproduce</a><button class="nav-menu-button" type="button" data-menu-button aria-expanded="false" aria-label="Open navigation">☰</button></div></div></header>
+<div class="mobile-menu-backdrop" data-menu-backdrop hidden></div><nav class="mobile-menu" data-mobile-menu hidden><a href="/context-engine/">Context engine</a><a href="/vault/">Vault</a><a href="/ledger/">Ledger</a><a href="/benchmarks/">Benchmarks</a><a href="/government/">Sovereignty</a></nav>
+<main class="shell-main"><section class="shell-section" style="padding-top:70px;"><div class="shell-wrap"><div class="bench-intro"><div><div class="eyebrow">Evidence desk</div><h1 class="shell-heading" style="font-size:clamp(36px,5vw,62px);max-width:16ch;">Numbers with their conditions attached.</h1><p class="shell-lead" style="font-size:17px;">Every public figure should answer three questions: what was measured, under which conditions, and can someone else run it? This page keeps those answers next to the number.</p></div><label class="bench-controls">Show <select data-benchmark-filter><option value="all">all measurements</option><option value="quality">quality</option><option value="retrieval">retrieval</option><option value="operations">operations</option><option value="correctness">correctness</option></select></label></div><div class="proof-rail"><div class="proof-cell"><span class="metric-value">79.0%</span><span class="metric-label">official CoT QA mean</span><span class="metric-source">three signed full runs</span></div><div class="proof-cell"><span class="metric-value">99.2%</span><span class="metric-label">retrieval recall@10</span><span class="metric-source">500-instance split</span></div><div class="proof-cell"><span class="metric-value">13/13</span><span class="metric-label">temporal correctness</span><span class="metric-source">offline gauntlet</span></div><div class="proof-cell"><span class="metric-value">10M</span><span class="metric-label">BEAM top corpus tier</span><span class="metric-source">deterministic signature</span></div></div></div></section>
+<section id="qa" class="bench-section" data-benchmark-section="quality"><div class="shell-wrap"><div class="eyebrow">01 / quality</div><h2>End-to-end QA: LongMemEval</h2><p class="method">The headline product-quality result is the mean of three independent full runs using LongMemEval’s official step-by-step CoT answer prompt. The signed distribution is 80.0% / 78.6% / 78.4%, for a 79.0% mean. The plain prompt is a separate 73.8% distribution and remains visible as a methodology distinction — never blended into the CoT claim.</p><div class="bench-highlight"><strong>79.0%</strong><span>official CoT prompt · mean of 3 signed full runs · range 78.4–80.0%</span></div><div class="bench-table-wrap"><table class="bench-table"><thead><tr><th>question type</th><th>correct</th><th>accuracy</th></tr></thead><tbody><tr><th>knowledge-update</th><td>60 / 78</td><td class="emphasis">76.9%</td></tr><tr><th>multi-session</th><td>84 / 133</td><td>63.2%</td></tr><tr><th>single-session-assistant</th><td>56 / 56</td><td class="emphasis">100.0%</td></tr><tr><th>single-session-preference</th><td>9 / 30</td><td>30.0%</td></tr><tr><th>single-session-user</th><td>67 / 70</td><td class="emphasis">95.7%</td></tr><tr><th>temporal-reasoning</th><td>92 / 133</td><td>69.2%</td></tr></tbody></table></div><p class="source">Sources: <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/longmemeval/qa_report_cot.json">qa_report_cot.json</a>, <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/longmemeval/qa_report_cot_seed2.json">seed2</a>, <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/longmemeval/qa_report_cot_seed3.json">seed3</a> · signed reports</p></div></section>
+<section class="bench-section" data-benchmark-section="retrieval" id="retrieval"><div class="shell-wrap"><div class="eyebrow">02 / retrieval</div><h2>Retrieval recall, without a judge.</h2><p class="method">Session-level recall against the 500-instance LongMemEval split, with 23,867 sessions ingested into the real binary, offline. This is a retrieval measurement — not end-to-end answer accuracy.</p><div class="bench-table-wrap"><table class="bench-table"><thead><tr><th>metric</th><th>result</th><th>scope</th></tr></thead><tbody><tr><th>recall@1</th><td class="emphasis">84.6%</td><td>session-level</td></tr><tr><th>recall@3</th><td class="emphasis">95.2%</td><td>session-level</td></tr><tr><th>recall@5</th><td class="emphasis">97.4%</td><td>session-level</td></tr><tr><th>recall@10</th><td class="emphasis">99.2%</td><td>session-level</td></tr><tr><th>MRR</th><td>0.903</td><td>session-level</td></tr></tbody></table></div><p class="source">Source: <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/longmemeval/report.json">benchmark/longmemeval/report.json</a> · signed report</p></div></section>
+<section class="bench-section" data-benchmark-section="retrieval"><div class="shell-wrap"><div class="eyebrow">03 / local comparison</div><h2>Same-box recall, all systems local.</h2><p class="method">One H100, one local Ollama stack, identical fact set, identical queries, identical substring judge. This measures the operational tradeoff of each architecture under a fully local setup; it is not a universal leaderboard.</p><div class="bench-table-wrap"><table class="bench-table"><thead><tr><th>system</th><th>recall</th><th>p50 latency</th><th>stack</th></tr></thead><tbody><tr><th>Perseus Vault (hybrid)</th><td class="emphasis">1.00</td><td class="emphasis">35.6 ms</td><td>single local binary, in-process</td></tr><tr><th>Letta (archival / pgvector)</th><td>1.00</td><td>135.5 ms</td><td>server + Postgres/pgvector</td></tr><tr><th>Mem0 (vector)</th><td>0.60</td><td>37.9 ms</td><td>Python + Qdrant</td></tr><tr><th>Zep (Graphiti temporal KG)</th><td>0.20</td><td>49.7 ms</td><td>server + Neo4j</td></tr></tbody></table></div><p class="source">Source: <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/lambda/results/competitors.json">competitors.json</a> · methodology and caveats included in the report</p></div></section>
+<section id="scale" class="bench-section" data-benchmark-section="operations"><div class="shell-wrap"><div class="eyebrow">04 / operations</div><h2>Scale and latency.</h2><p class="method">Real binary over MCP stdio, seeded corpus, 100 queries per metric. Hardware: Windows 11, 16 cores. The p50/p99 pair is kept intact so a fast median does not hide tail behavior.</p><div class="bench-table-wrap"><table class="bench-table"><thead><tr><th>entities</th><th>durable write</th><th>FTS5 p50/p99</th><th>dense p50/p99</th><th>hybrid p50/p99</th><th>as_of p99</th></tr></thead><tbody><tr><th>10,000</th><td>479/s</td><td>3.14 / 9.62 ms</td><td>11.96 / 14.29 ms</td><td>19.03 / 24.56 ms</td><td>0.53 ms</td></tr><tr><th>100,000</th><td>40/s</td><td>15.67 / 23.23 ms</td><td>25.43 / 32.78 ms</td><td class="emphasis">79.73 / 92.86 ms</td><td>0.46 ms</td></tr></tbody></table></div><p class="source">Source: <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/scale/report.json">benchmark/scale/report.json</a> · signed report</p></div></section>
+<section class="bench-section" data-benchmark-section="correctness"><div class="shell-wrap"><div class="eyebrow">05 / correctness</div><h2>Temporal correctness and BEAM.</h2><p class="method">Bi-temporal reconstruction is checked scenario by scenario: what was believed, what was true, and the full point-in-time cell. BEAM repeats the correctness gauntlet inside filler corpora from 128K through 10M tokens and requires an identical signature across two runs.</p><div class="bench-table-wrap"><table class="bench-table"><thead><tr><th>tier</th><th>approx tokens</th><th>gauntlet</th><th>deterministic</th><th>as_of p50</th></tr></thead><tbody><tr><th>128K</th><td>129,461</td><td class="emphasis">13/13</td><td class="emphasis">yes</td><td>22.08 ms</td></tr><tr><th>500K</th><td>505,749</td><td class="emphasis">13/13</td><td class="emphasis">yes</td><td>21.26 ms</td></tr><tr><th>1M</th><td>1,011,498</td><td class="emphasis">13/13</td><td class="emphasis">yes</td><td>23.17 ms</td></tr><tr><th>10M</th><td>10,115,374</td><td class="emphasis">13/13</td><td class="emphasis">yes</td><td>23.07 ms</td></tr></tbody></table></div><p class="source">Sources: <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/temporal/gauntlet_report.json">temporal gauntlet</a> · <a href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/beam/report.json">BEAM report</a></p></div></section>
+<section id="reproduce" class="shell-section-tight"><div class="shell-wrap split-shell"><div><div class="eyebrow">Reproduce</div><h2 class="shell-heading">If you cannot rerun the number, do not headline it.</h2><p class="shell-copy">Clone the repository, build the binary, and run the offline suites. The end-to-end QA command names its external key requirement and prints cost before work begins.</p></div><div class="install-panel"><div class="install-panel-head"><span>perseus-vault benchmarks</span><span class="status">OPEN / RERUNNABLE</span></div><pre><span class="prompt">$</span> git clone https://github.com/Perseus-Computing-LLC/perseus-vault.git
+<span class="prompt">$</span> cd perseus-vault &amp;&amp; cargo build --release
+<span class="prompt">$</span> python benchmark/longmemeval/run.py
+<span class="prompt">$</span> python benchmark/temporal/gauntlet.py
+<span class="prompt">$</span> python benchmark/beam/run.py --tiers 128K 500K 1M 10M</pre></div></div></section>
 </main>
-<footer class="site">
-  <div class="foot-compact">
-    <div class="brand-line">
-      <svg width="26" height="26" viewBox="0 0 56 56" fill="none" aria-hidden="true"><rect x="3" y="14" width="17" height="3.6" rx="1.8" fill="var(--violet)"/><rect x="3" y="21" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".75"/><rect x="3" y="28" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".55"/><rect x="3" y="35" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".4"/><g stroke="var(--amber)" stroke-width="2.4" stroke-linecap="round"><line x1="22" y1="16" x2="42" y2="28"/><line x1="22" y1="23" x2="42" y2="28"/><line x1="22" y1="30" x2="42" y2="28"/><line x1="22" y1="37" x2="42" y2="28"/></g><circle cx="44" cy="28" r="4.2" fill="var(--amber)"/></svg>
-      <span class="legal-line">Perseus Computing LLC · generated 2026-07-11 at eb8bc17 · perseus.observer/benchmarks</span>
-    </div>
-    <div class="sib"><a href="/">Perseus</a><a href="/perseus-vault/">Perseus Vault</a><a href="/ledger/">Perseus Ledger</a><a href="https://github.com/Perseus-Computing-LLC/perseus-vault">GitHub</a></div>
-  </div>
-</footer>
-<script src="/assets/perseus.js"></script>
-</body>
-</html>
+<footer class="shell-footer"><div class="shell-wrap"><div class="footer-grid"><div><a class="brand" href="/"><span class="brand-name">Perseus</span></a><p class="footer-blurb">Evidence-led infrastructure for agents that need to work inside real constraints.</p></div><div><div class="footer-heading">Products</div><div class="footer-links"><a href="/context-engine/">Context</a><a href="/vault/">Vault</a><a href="/ledger/">Ledger</a></div></div><div><div class="footer-heading">Methods</div><div class="footer-links"><a href="#qa">Quality</a><a href="#retrieval">Retrieval</a><a href="#scale">Operations</a></div></div><div><div class="footer-heading">Source</div><div class="footer-links"><a href="https://github.com/Perseus-Computing-LLC/perseus-vault">Vault repo ↗</a><a href="/government/">Sovereignty</a></div></div></div><div class="footer-legal"><span>© 2026 Perseus Computing LLC</span><span>Signed reports · named conditions · no blended claims</span></div></div></footer><script src="/assets/site-shell.js"></script>
+</body></html>
