@@ -1,4 +1,5 @@
 # stdlib imports available from build artifact header
+from perseus.context_decision import decision_from_prompt_size
 # ───────────────────── Prompt-size forensics (#606) ──────────────────────────
 #
 # `perseus prompt-size` / `@budget` — byte-accurate, network-free breakdown of
@@ -559,6 +560,21 @@ def cmd_prompt_size(args, cfg):
 
     report = compute_prompt_size(text, cfg, workspace, max_tier=max_tier,
                                  no_cache=no_cache, source_name=source_path.name)
+    source_refs = list(getattr(args, "source_ref", []) or [])
+    counterfactual = getattr(args, "counterfactual_tokens", None)
+    counterfactual = report["total"]["tokens"] if counterfactual is None else counterfactual
+    artifact_available = any(ref.startswith(("artifact:", "vault:")) for ref in source_refs)
+    report["context_decision"] = decision_from_prompt_size(
+        report,
+        counterfactual_tokens=counterfactual,
+        fidelity=getattr(args, "fidelity", "exact"),
+        cache_assumption=getattr(args, "cache_assumption", "unknown"),
+        source_refs=source_refs,
+        artifact_available=artifact_available,
+        retrieval_available=artifact_available,
+        reduction_available=report["total"]["tokens"] < int(counterfactual),
+        requires_exact=getattr(args, "fidelity", "exact") == "exact",
+    )
     rows = report["directives"]
 
     # ── Diff mode: --since <git-ref> ──

@@ -85,6 +85,7 @@ MODULE_ORDER = [
     "src/perseus/knows.py",             # ← #692: `perseus knows` — plain-language memory review + curation (depends on mneme_connector)
     "src/perseus/speculate.py",         # ← #607: @speculate next-intent speculative prefetch (called at runtime from renderer/query/cli)
     "src/perseus/serve.py",             # ← still contains PRODUCT_PROFILES + trust CLI (not yet decomposed)
+    "src/perseus/context_decision.py",  # ← #890: deterministic explainable context routing
     "src/perseus/promptsize.py",        # ← #606: perseus prompt-size + @budget forensics (depends on renderer, compress, serve helpers)
     "src/perseus/cli.py",  # includes _bind_registry() call before dispatch
 ]
