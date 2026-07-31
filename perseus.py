@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.24"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "f7c4f32-dirty"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "2eb2f16-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -32920,6 +32920,87 @@ def cmd_init(args, cfg):
         print(f"  2. Run: perseus render {context_file}   — refresh your rendered context")
         print(f"  3. Run: perseus serve                    — start the LSP for your editor")
         print(f"  Docs & more commands: https://perseus.observer/docs")
+"""Deterministic, visibility-safe context routing decisions (#890).
+
+This is policy accounting, not a provider-billing claim. Token values come from
+Perseus render metering and must be labeled estimates unless separately matched
+to provider usage telemetry.
+"""
+
+
+from typing import Any
+
+_CONTEXT_ROUTES = {"inline", "reduced_text", "artifact_pointer", "retrieve_on_demand"}
+_CONTEXT_FIDELITIES = {"exact", "selective", "summary"}
+_CONTEXT_CACHE = {"warm", "cold", "unknown"}
+
+
+def _ctx_safe_source_refs(source_refs: Any) -> list[str]:
+    """Return deterministic public-safe refs; never emit arbitrary metadata."""
+    if not isinstance(source_refs, (list, tuple)):
+        return []
+    allowed = ("file:", "vault:", "artifact:")
+    return sorted({str(ref) for ref in source_refs
+                   if isinstance(ref, str) and ref.startswith(allowed)})
+
+
+def decide_context_route(*, actual_tokens: int, counterfactual_tokens: int,
+                         fidelity: str = "exact", cache_assumption: str = "unknown",
+                         source_refs: Any = None, declared_budget: int | None = None,
+                         requires_exact: bool = False, contains_sensitive_data: bool = False,
+                         artifact_available: bool = False, retrieval_available: bool = False,
+                         reduction_available: bool = False) -> dict:
+    """Choose a deterministic representation without transforming user content.
+
+    ``actual_tokens`` is the rendered representation under consideration;
+    ``counterfactual_tokens`` is the defined full-inline baseline. Neither is a
+    provider-billed saving. Callers are responsible for attaching observed
+    provider usage separately.
+    """
+    actual = max(0, int(actual_tokens))
+    counterfactual = max(0, int(counterfactual_tokens))
+    fidelity = fidelity if fidelity in _CONTEXT_FIDELITIES else "exact"
+    cache = cache_assumption if cache_assumption in _CONTEXT_CACHE else "unknown"
+    refs = _ctx_safe_source_refs(source_refs)
+
+    if declared_budget is not None and actual > int(declared_budget):
+        route, reason = "retrieve_on_demand", "declared budget rejects inline representation"
+    elif contains_sensitive_data:
+        route, reason = "retrieve_on_demand", "sensitive content requires explicit retrieval under policy"
+    elif requires_exact or fidelity == "exact":
+        if artifact_available and retrieval_available and counterfactual > actual:
+            route, reason = "artifact_pointer", "exactness preserves source bytes behind a retrievable artifact pointer"
+        else:
+            route, reason = "inline", "exactness requirement rejects lossy reduction"
+    elif cache == "warm" and actual <= counterfactual:
+        route, reason = "inline", "warm cached content is no more expensive than transformation or retrieval"
+    elif reduction_available and actual < counterfactual:
+        route, reason = "reduced_text", "deterministic reduced representation fits the declared fidelity"
+    elif artifact_available and retrieval_available:
+        route, reason = "retrieve_on_demand", "artifact is available for bounded retrieval when needed"
+    else:
+        route, reason = "inline", "no safe lower-fidelity or retrieval representation is available"
+
+    return {
+        "route": route,
+        "reason": reason,
+        "fidelity": fidelity,
+        "actual_tokens": actual,
+        "counterfactual_tokens": counterfactual,
+        "cache_assumption": cache,
+        "source_refs": refs,
+        "token_accounting": "rendered token accounting; not provider-billed savings",
+    }
+
+
+def decision_from_prompt_size(report: dict, **policy: Any) -> dict:
+    """Build a decision from existing prompt-size output without replacing it."""
+    total = (report or {}).get("total") or {}
+    actual = int(total.get("tokens", 0) or 0)
+    counterfactual = int(policy.pop("counterfactual_tokens", actual) or 0)
+    return decide_context_route(actual_tokens=actual,
+                                counterfactual_tokens=counterfactual,
+                                **policy)
 # ───────────────────── Prompt-size forensics (#606) ──────────────────────────
 #
 # `perseus prompt-size` / `@budget` — byte-accurate, network-free breakdown of
@@ -33480,6 +33561,21 @@ def cmd_prompt_size(args, cfg):
 
     report = compute_prompt_size(text, cfg, workspace, max_tier=max_tier,
                                  no_cache=no_cache, source_name=source_path.name)
+    source_refs = list(getattr(args, "source_ref", []) or [])
+    counterfactual = getattr(args, "counterfactual_tokens", None)
+    counterfactual = report["total"]["tokens"] if counterfactual is None else counterfactual
+    artifact_available = any(ref.startswith(("artifact:", "vault:")) for ref in source_refs)
+    report["context_decision"] = decision_from_prompt_size(
+        report,
+        counterfactual_tokens=counterfactual,
+        fidelity=getattr(args, "fidelity", "exact"),
+        cache_assumption=getattr(args, "cache_assumption", "unknown"),
+        source_refs=source_refs,
+        artifact_available=artifact_available,
+        retrieval_available=artifact_available,
+        reduction_available=report["total"]["tokens"] < int(counterfactual),
+        requires_exact=getattr(args, "fidelity", "exact") == "exact",
+    )
     rows = report["directives"]
 
     # ── Diff mode: --since <git-ref> ──
@@ -33671,6 +33767,14 @@ def main():
     p_psize.add_argument("--tier", type=int, default=None, choices=[1, 2, 3],
                          help="Context tier limit for the render (default: config / 3)")
     p_psize.add_argument("--no-cache", action="store_true", help="Bypass the render cache")
+    p_psize.add_argument("--counterfactual-tokens", type=int, default=None,
+                         help="Defined full-inline comparison token count for a context decision record")
+    p_psize.add_argument("--fidelity", choices=["exact", "selective", "summary"], default="exact",
+                         help="Required representation fidelity for a context decision (default: exact)")
+    p_psize.add_argument("--cache-assumption", choices=["warm", "cold", "unknown"], default="unknown",
+                         help="Cache assumption for a context decision (default: unknown)")
+    p_psize.add_argument("--source-ref", action="append", default=[],
+                         help="Visibility-safe file:/vault:/artifact: source reference (repeatable)")
 
     # watch (Phase 20C)
     p_watch = sub.add_parser("watch", help="Poll and refresh render outputs when context sources change")
