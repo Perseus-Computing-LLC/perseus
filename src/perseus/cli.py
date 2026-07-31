@@ -118,6 +118,14 @@ def main():
     p_psize.add_argument("--tier", type=int, default=None, choices=[1, 2, 3],
                          help="Context tier limit for the render (default: config / 3)")
     p_psize.add_argument("--no-cache", action="store_true", help="Bypass the render cache")
+    p_psize.add_argument("--counterfactual-tokens", type=int, default=None,
+                         help="Defined full-inline comparison token count for a context decision record")
+    p_psize.add_argument("--fidelity", choices=["exact", "selective", "summary"], default="exact",
+                         help="Required representation fidelity for a context decision (default: exact)")
+    p_psize.add_argument("--cache-assumption", choices=["warm", "cold", "unknown"], default="unknown",
+                         help="Cache assumption for a context decision (default: unknown)")
+    p_psize.add_argument("--source-ref", action="append", default=[],
+                         help="Visibility-safe file:/vault:/artifact: source reference (repeatable)")
 
     # watch (Phase 20C)
     p_watch = sub.add_parser("watch", help="Poll and refresh render outputs when context sources change")
