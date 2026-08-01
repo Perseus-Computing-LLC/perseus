@@ -1869,9 +1869,9 @@ class MnemeConnector:
                 memory_type = entity_type
 
         if not self._ensure_connected():
-            return False, f"Mimir unavailable: {self._connect_error}"
+            return False, f"Perseus Vault unavailable: {self._connect_error}"
 
-        # (category, key) are required by mimir_remember. Default category to the
+        # (category, key) are required by perseus_vault_remember. Default category to the
         # type label and key to a stable content hash for idempotent upserts.
         cat = category or memory_type.value
         ent_key = key or f"mem-{hashlib.md5(content.encode()).hexdigest()[:12]}"
@@ -1883,7 +1883,7 @@ class MnemeConnector:
         except (ValueError, TypeError):
             body_json = json.dumps({"content": content})
 
-        # mimir_remember expects tags as a list of strings (not a dict).
+        # perseus_vault_remember expects tags as a list of strings (not a dict).
         if isinstance(tags, dict):
             tag_list = [f"{k}:{v}" for k, v in tags.items()]
         elif isinstance(tags, list):

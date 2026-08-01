@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "728c98c-dirty"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "b856c05-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -21692,9 +21692,9 @@ class MnemeConnector:
                 memory_type = entity_type
 
         if not self._ensure_connected():
-            return False, f"Mimir unavailable: {self._connect_error}"
+            return False, f"Perseus Vault unavailable: {self._connect_error}"
 
-        # (category, key) are required by mimir_remember. Default category to the
+        # (category, key) are required by perseus_vault_remember. Default category to the
         # type label and key to a stable content hash for idempotent upserts.
         cat = category or memory_type.value
         ent_key = key or f"mem-{hashlib.md5(content.encode()).hexdigest()[:12]}"
@@ -21706,7 +21706,7 @@ class MnemeConnector:
         except (ValueError, TypeError):
             body_json = json.dumps({"content": content})
 
-        # mimir_remember expects tags as a list of strings (not a dict).
+        # perseus_vault_remember expects tags as a list of strings (not a dict).
         if isinstance(tags, dict):
             tag_list = [f"{k}:{v}" for k, v in tags.items()]
         elif isinstance(tags, list):
@@ -23320,6 +23320,7 @@ def resolve_inbox(args_str: str, cfg: dict, workspace: Path | None = None) -> st
                 lines.append(f"  > {bl}")
     return "\n".join(lines)
 
+import time
 from datetime import timedelta # Added for #397
 # ── Command dispatch ──────────────────────────────────────────────────────────
 
@@ -23543,6 +23544,14 @@ def capture_checkpoints_to_vault(cfg: dict, workspace: Path, limit: int | None =
                 content=_capture_checkpoint_payload(cp),
                 memory_type=MemoryTypeEnum.INSIGHT,
                 workspace_hash=_workspace_hash(Path(ws_str)) if ws_str else None,
+                evidence={
+                    "capture_mode": "snapshot",
+                    "resolved_value": cp,
+                    "source_system": "perseus_checkpoint",
+                    "source_ref": cp.get("checkpoint_id") or cp.get("session_id") or cp.get("written"),
+                    "captured_at_unix_ms": int(time.time() * 1000),
+                    "replayable": True,
+                },
                 tags=tags,
                 importance=0.6,
                 category=category,
