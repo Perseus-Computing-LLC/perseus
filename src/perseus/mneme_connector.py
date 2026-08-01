@@ -1,17 +1,16 @@
-"""
-src/perseus/mneme_connector.py — Perseus × Mneme Bridge (Project Synapse v2)
+"""src/perseus/mneme_connector.py — Perseus × Vault Bridge (Project Synapse v2)
 
-Hybrid context resolution: Perseus live state (Sense) + Mneme persistent
+Hybrid context resolution: Perseus live state (Sense) + Vault persistent
 memory (Memory) → unified ContextPackage for LLM injection.
 
-Mneme (formerly "Mimir") is a high-performance Rust memory engine using:
+Vault is a high-performance Rust memory engine using:
   - Three-layer memory: Buffer → Working → Core (time-based progression)
   - Ebbinghaus decay algorithm (forgetting curve)
   - Topic Trees (hierarchical knowledge organization)
   - Hybrid Search: Semantic vector + BM25 keyword
 
 Protocol: MCP (Model Context Protocol) — JSON-RPC 2.0 over stdio or SSE.
-Fallback: Local Mnēmē v2 SQLite FTS5 when Mneme is unreachable.
+Fallback: local SQLite FTS5 when Vault is unreachable.
 
 Config back-compat: reads the `mneme:` config block (preferred); falls back
 to the legacy `mimir:` block when `mneme:` is absent so existing config.yaml
@@ -21,7 +20,7 @@ Key features:
   - Circuit Breaker with configurable threshold/cooldown
   - Exponential backoff retry policy
   - Configurable merge strategies with decay-aware ordering
-  - Source-tagged memory items (local vs mneme)
+  - Source-tagged memory items (local vs Vault)
 """
 # stdlib imports available from build artifact header
 import hashlib
@@ -56,18 +55,19 @@ PERSISTENT_MEMORY_HEADER = f"## Persistent Memory ({MEMORY_BRAND})"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Data Models — Mneme Schema
+# Data Models — Vault Schema
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class MemorySource(str, Enum):
     """Where a memory hit originated."""
-    LOCAL = "local"          # Mnēmē FTS5 (Perseus)
-    MIMIR = "mimir"        # Mneme persistent store
+    LOCAL = "local"          # Local FTS5 (Perseus)
+    VAULT = "vault"          # Perseus Vault persistent store
     FEDERATED = "federated"  # Cross-workspace federation
-    MNEME = "mimir"
+    MIMIR = "vault"          # legacy Python name
+    MNEME = "vault"          # legacy Python name
 
 class MemoryLayer(str, Enum):
-    """Mneme time-based memory layer.
+    """Vault time-based memory layer.
 
     Memories progress: Buffer → Working → Core as they are accessed
     and survive decay thresholds.
@@ -104,9 +104,9 @@ class MemoryLink:
 
 @dataclass
 class MemoryHit:
-    """A single memory recall result — from either local Mnēmē or Mneme.
+    """A single memory recall result — from either local context or Vault.
 
-    Mneme-specific fields: decay_score (Ebbinghaus), retrieval_count,
+    Vault-specific fields: decay_score (Ebbinghaus), retrieval_count,
     layer (Buffer/Working/Core).
     """
     id: str
@@ -116,7 +116,7 @@ class MemoryHit:
     summary: str = ""
     relevance: float = 0.0
 
-    # ── Mneme decay & layer fields ──
+    # ── Vault decay & layer fields ──
     decay_score: float = 1.0          # Ebbinghaus: 1.0 = fresh, 0.0 = fully decayed
     retrieval_count: int = 0          # Number of times this memory has been recalled
     layer: MemoryLayer = MemoryLayer.WORKING
@@ -137,6 +137,7 @@ class MemoryHit:
     why_served: dict = field(default_factory=dict)
     promotion_transition: dict = field(default_factory=dict)
     promoted_from: dict = field(default_factory=dict)
+    evidence: dict = field(default_factory=dict)
 
     def __init__(
         self,
@@ -163,6 +164,7 @@ class MemoryHit:
         why_served: dict | None = None,
         promotion_transition: dict | None = None,
         promoted_from: dict | None = None,
+        evidence: dict | None = None,
         **kwargs,
     ):
         self.id = id
@@ -189,6 +191,7 @@ class MemoryHit:
         self.why_served = why_served or {}
         self.promotion_transition = promotion_transition or {}
         self.promoted_from = promoted_from or {}
+        self.evidence = evidence or {}
 
         # Handle aliases / alternate names
         resolved_content = content
@@ -402,6 +405,7 @@ class MemorySegment:
             origin = item.origin or {}
             projected_origin = {key: origin[key] for key in ("memory_kind", "source_system", "capture_method", "observed_at_unix_ms")
                                 if origin.get(key) is not None}
+            evidence = item.evidence or {}
             memories.append({
                 "id": item.id,
                 "category": item.category,
@@ -412,6 +416,11 @@ class MemorySegment:
                 "promoted_from": item.promoted_from or {},
                 "origin": projected_origin,
                 "external_refs": refs,
+                "evidence": {
+                    key: evidence[key]
+                    for key in ("capture_mode", "content_sha256", "source_system", "source_ref", "captured_at_unix_ms", "replayable")
+                    if key in evidence
+                },
             })
         return {
             "schema_version": "perseus-context-render-trace/v1",
@@ -1154,9 +1163,9 @@ class MnemeConnector:
 
             if self._client.connect():
                 self._connect_error = None
-                # Version-skew guard: this connector calls hardcoded mimir_* tool
-                # names. A vault that drops those aliases (e.g. a future
-                # perseus_vault_*-only build) would otherwise fail every recall
+                # Version-skew guard: resolve canonical Vault tool names before
+                # calls. A Vault that drops legacy aliases must still work.
+                # a perseus_vault_*-only build) would otherwise fail every recall
                 # SILENTLY and degrade to local with no signal. Surface it once.
                 self._check_tool_compatibility()
                 self._breaker.success()
@@ -1832,9 +1841,10 @@ class MnemeConnector:
         category: str | None = None,
         key: str | None = None,
         cfg: dict | None = None,
+        evidence: dict | None = None,
         **kwargs,
     ) -> tuple[bool, str]:
-        """Persist a memory in Mimir via the ``mimir_remember`` MCP tool.
+        """Persist a memory in Perseus Vault via the canonical MCP tool.
 
         Entities are addressed by (category, key) and are idempotent — storing
         the same key updates in place. ``category`` defaults to the memory type
@@ -1842,8 +1852,8 @@ class MnemeConnector:
         writes of the same fact dedupe rather than pile up. The body is stored
         as a JSON object — a plain string is wrapped as ``{"content": ...}``.
 
-        Previously this called a non-existent ``mimir_store`` tool, so every
-        write errored out (perseus#525); Mimir registers ``mimir_remember``.
+        The canonical Vault tool is ``perseus_vault_remember``; legacy aliases
+        remain accepted by the server during the rename transition.
 
         Returns (success, memory_id_or_error).
         """
@@ -1881,8 +1891,11 @@ class MnemeConnector:
         else:
             tag_list = []
 
+        if evidence is not None and not evidence.get("capture_mode"):
+            return False, "evidence.capture_mode is required when an evidence envelope is provided"
+
         def _do_store():
-            result, err = self._call("mimir_remember", {
+            result, err = self._call("perseus_vault_remember", {
                 "category": cat,
                 "key": ent_key,
                 "body_json": body_json,
@@ -1891,6 +1904,7 @@ class MnemeConnector:
                 "importance": importance,
                 "topic_path": topic_path or "",
                 "workspace_hash": workspace_hash or "",
+                **({"evidence": evidence} if evidence is not None else {}),
             })
             if err:
                 raise RuntimeError(err)
@@ -2046,7 +2060,7 @@ class MnemeConnector:
             diagnostics=diagnostics,
         )
 
-        # ── Build ContextPackage ──
+        # ── Build ContextPackage from live state + Vault memory ──
         package = ContextPackage(
             request_id=request_id,
             live_state=live_state,
@@ -2167,7 +2181,7 @@ def _parse_memory_hits(data: dict) -> list[MemoryHit]:
     """Parse MemoryHit list from MCP tool response JSON.
 
     The MCP response may wrap hits in "items", "results", or be a flat list.
-    Mneme responses include decay_score, retrieval_count, and layer fields.
+    Vault responses include decay_score, retrieval_count, and layer fields.
     """
     items_raw = data.get("items") or data.get("results") or data.get("hits") or []
     if isinstance(items_raw, dict):
@@ -2265,6 +2279,7 @@ def _parse_memory_hits(data: dict) -> list[MemoryHit]:
             why_served=raw.get("why_served") or {},
             promotion_transition=raw.get("promotion_transition") or {},
             promoted_from=raw.get("promoted_from") or {},
+            evidence=raw.get("evidence") or (parsed or {}).get("evidence") or {},
         ))
     return hits
 
