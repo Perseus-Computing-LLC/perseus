@@ -173,3 +173,66 @@ class TestBackwardsCompatibility:
         hits = mc._parse_memory_hits(raw)
         assert hits[0].origin["memory_kind"] == "observed"
         assert hits[0].external_refs[0]["ref_value"] == "github:Org/r"
+
+    def test_parse_and_render_trace_preserve_evidence_capture_mode(self):
+        raw = {"items": [{
+            "id": "mem-evidence",
+            "type": "decision",
+            "evidence": {
+                "capture_mode": "hash_only",
+                "content_sha256": "a" * 64,
+                "captured_at_unix_ms": 100,
+                "replayable": False,
+            },
+            "body_json": '{"content": "decision body"}',
+        }]}
+        hits = mc._parse_memory_hits(raw)
+        assert hits[0].evidence["capture_mode"] == "hash_only"
+        trace = mc.MemorySegment(items=hits).render_trace("decision body")
+        assert trace["served_memories"][0]["evidence"]["capture_mode"] == "hash_only"
+        assert trace["served_memories"][0]["evidence"]["replayable"] is False
+
+    def test_store_requires_capture_mode_when_evidence_is_supplied(self):
+        class Client:
+            is_connected = True
+
+            def call_tool(self, *_args, **_kwargs):
+                raise AssertionError("transport must not be called")
+
+        connector = mc.MnemeConnector({"perseus_vault": {"enabled": False}})
+        connector._enabled = True
+        connector._client = Client()
+        ok, error = connector.store("decision", category="decision", key="k", evidence={})
+        assert ok is False
+        assert "capture_mode is required" in error
+
+    def test_store_forwards_evidence_to_canonical_vault_tool(self):
+        class Client:
+            is_connected = True
+
+            def __init__(self):
+                self.calls = []
+
+            def call_tool(self, name, arguments):
+                self.calls.append((name, arguments))
+                return {"id": "mem-evidence", "action": "created"}, None
+
+        client = Client()
+        connector = mc.MnemeConnector({"perseus_vault": {"enabled": False}})
+        connector._enabled = True
+        connector._client = client
+        ok, _ = connector.store(
+            "decision body",
+            category="decision",
+            key="evidence-key",
+            evidence={
+                "capture_mode": "snapshot",
+                "resolved_value": {"state": "ready"},
+                "captured_at_unix_ms": 100,
+                "replayable": True,
+            },
+        )
+        assert ok is True
+        name, args = client.calls[0]
+        assert name == "perseus_vault_remember"
+        assert args["evidence"]["capture_mode"] == "snapshot"
