@@ -44,14 +44,14 @@ def _claim_value(claim_id: str) -> str:
 
 # (relative_path, claim_id) pairs: the claim's canonical value MUST appear in the file.
 SURFACE_CHECKS = [
-    ("README.md", "longmemeval_qa"),        # 73.8%
+    ("README.md", "longmemeval_cot"),       # 79.0% official-CoT headline
+    ("README.md", "longmemeval_qa"),        # 73.8% plain-prompt methodology result
     ("README.md", "perseus_tool_count"),    # 33
-    ("manifest.json", "perseus_version"),   # 1.0.23
-    ("index.html", "longmemeval_cot"),      # 79.0% — current public headline
-    (".well-known/mcp/server-card.json", "perseus_version"),  # 1.0.23
-
-    # BEAM (vault #685/#697) is published on the benchmarks page. These values
-    # are unique to the BEAM section, so their presence pins the page to the signed
+    ("manifest.json", "perseus_version"),   # 1.0.24
+    ("index.html", "longmemeval_cot"),      # 79.0% official-CoT headline
+    (".well-known/mcp/server-card.json", "perseus_version"),  # 1.0.24
+    # BEAM (vault #685/#697) published on the benchmarks page. These values are
+    # unique to the BEAM section, so their presence pins the page to the signed
     # benchmark/beam/report.json. benchmarks/index.html is intentionally NOT in
     # PUBLIC_SURFACES (it legitimately shows the per-run "73.6%" from the QA
     # distribution, a forbidden headline token elsewhere), so BEAM is enforced
