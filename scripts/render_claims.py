@@ -4,7 +4,7 @@ render_claims.py -- regenerate machine-readable fields from the claims registry.
 
 `claims.json` (repo root) is the single source of truth for Perseus public
 figures. This script keeps the *machine* fields of the distribution manifests
-(version + tool-count strings) in lockstep with that registry.
+(version strings) in lockstep with that registry.
 
 Usage:
     python scripts/render_claims.py            # --check (default): report drift, exit 1 if any
@@ -35,7 +35,7 @@ def _claims() -> dict:
 #   (relative_path, claim_id, regex)
 TARGETS = [
     ("manifest.json", "perseus_version", r'("version"\s*:\s*")([^"]*)(")'),
-    ("manifest.json", "perseus_tool_count", r'(MCP server with )(\d+)( tools)'),
+
     ("server.json", "perseus_version", r'("version"\s*:\s*")([^"]*)(")'),
     (
         ".well-known/mcp/server-card.json",
