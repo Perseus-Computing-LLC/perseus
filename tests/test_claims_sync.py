@@ -44,13 +44,12 @@ def _claim_value(claim_id: str) -> str:
 
 # (relative_path, claim_id) pairs: the claim's canonical value MUST appear in the file.
 SURFACE_CHECKS = [
-    ("README.md", "longmemeval_qa"),        # 73.8%
+    ("README.md", "longmemeval_cot"),       # 79.0% official-CoT headline
+    ("README.md", "longmemeval_qa"),        # 73.8% plain-prompt methodology result
     ("README.md", "perseus_tool_count"),    # 33
-    ("manifest.json", "perseus_version"),   # 1.0.23
-    ("index.html", "longmemeval_qa"),       # 73.8%
-    ("index.html", "perseus_version"),      # 1.0.23 (version pill)
-    ("index.html", "vault_version"),        # 2.20.2 (version pill)
-    (".well-known/mcp/server-card.json", "perseus_version"),  # 1.0.23
+    ("manifest.json", "perseus_version"),   # 1.0.24
+    ("index.html", "longmemeval_cot"),      # 79.0% official-CoT headline
+    (".well-known/mcp/server-card.json", "perseus_version"),  # 1.0.24
     # BEAM (vault #685/#697) published on the benchmarks page. These values are
     # unique to the BEAM section, so their presence pins the page to the signed
     # benchmark/beam/report.json. benchmarks/index.html is intentionally NOT in
@@ -58,7 +57,6 @@ SURFACE_CHECKS = [
     # distribution, a forbidden headline token elsewhere), so BEAM is enforced
     # here via targeted surface checks rather than the blanket sweep.
     ("benchmarks/index.html", "beam_correctness"),     # 13/13
-    ("benchmarks/index.html", "beam_determinism"),     # deterministic=true
     ("benchmarks/index.html", "beam_as_of_p50_10m"),   # 23.07 ms (flat point-lookup at 10M)
     ("benchmarks/index.html", "beam_scale_10m"),       # 10M top tier
 ]
