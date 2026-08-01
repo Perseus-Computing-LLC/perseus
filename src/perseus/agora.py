@@ -1,4 +1,5 @@
 # stdlib imports available from build artifact header
+import time
 from datetime import timedelta # Added for #397
 from perseus.memory import _mneme_recall
 from perseus.mneme_connector import MEMORY_BRAND, _get_connector
@@ -228,6 +229,14 @@ def capture_checkpoints_to_vault(cfg: dict, workspace: Path, limit: int | None =
                 content=_capture_checkpoint_payload(cp),
                 memory_type=MemoryTypeEnum.INSIGHT,
                 workspace_hash=_workspace_hash(Path(ws_str)) if ws_str else None,
+                evidence={
+                    "capture_mode": "snapshot",
+                    "resolved_value": cp,
+                    "source_system": "perseus_checkpoint",
+                    "source_ref": cp.get("checkpoint_id") or cp.get("session_id") or cp.get("written"),
+                    "captured_at_unix_ms": int(time.time() * 1000),
+                    "replayable": True,
+                },
                 tags=tags,
                 importance=0.6,
                 category=category,
