@@ -74,12 +74,12 @@ from typing import NamedTuple, Callable
 # ── Version (injected by scripts/build.py at build time) ──────────────────
 # All other modules reference _PERSEUS_VERSION; the build script's
 # _VERSION_RE replaces the literal "0.0.0" with the VERSION file value.
-_PERSEUS_VERSION = "1.0.25"  # replaced at build time by scripts/build.py — see VERSION file for canonical value
+_PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — see VERSION file for canonical value
 
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "205ce73-dirty"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "bf0bf92-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -1064,7 +1064,7 @@ from datetime import datetime, timezone
 try:
     from .serve import _PERSEUS_VERSION
 except ImportError:
-    _PERSEUS_VERSION = "1.0.25"  # replaced at build time by scripts/build.py (see VERSION file)
+    _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py (see VERSION file)
 
 # ──────────────────────────────── Webhooks ───────────────────────────────────
 
@@ -26713,7 +26713,7 @@ def _find_version() -> str:
             return candidate.read_text(encoding="utf-8").strip()
     return _PERSEUS_VERSION  # fallback to build-time injected literal
 
-_PERSEUS_VERSION = "1.0.25"  # replaced at build time by scripts/build.py (see VERSION file)
+_PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py (see VERSION file)
 _PERSEUS_VERSION = _find_version()
 
 
