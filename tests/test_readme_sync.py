@@ -1,10 +1,9 @@
 """
 README ↔ reality sync checks (#551).
 
-The MCP tool table and prose count in README.md previously disagreed with
-each other AND with the actual default toolset (27 vs 29 vs a different 29),
-and the test-count comment was stale. These tests pin the README to ground
-truth so the numbers cannot silently rot again.
+The MCP tool table in README.md must stay aligned with the actual default
+toolset. These tests pin the README to ground truth so the surface cannot
+silently rot again.
 """
 
 import re
@@ -51,16 +50,12 @@ def test_readme_default_tool_table_matches_get_all_mcp_tools():
         "opt-in-only tools unexpectedly present in the default toolset"
 
 
-def test_readme_prose_count_matches_table():
+def test_readme_prose_tool_surface_matches_table():
     section = _mcp_section()
-    m = re.search(r"(\d+) MCP tools resolve live state", section)
-    assert m, "README prose tool count sentence missing"
+    assert "MCP tools resolve live state" in section, "README prose MCP-surface sentence missing"
     optin_at = section.find("Opt-in only")
     default_rows = _table_tools(section[:optin_at])
-    assert int(m.group(1)) == len(default_rows), (
-        f"README prose says {m.group(1)} tools but the table has "
-        f"{len(default_rows)} rows"
-    )
+    assert default_rows, "README MCP tool table is empty"
 
 
 def test_readme_test_count_comment_roughly_current():

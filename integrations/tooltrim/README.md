@@ -85,7 +85,7 @@ allowedMcpServers:
 ```
 
 `tooltrim.config.yaml` — point tooltrim's upstream at your local servers. You
-can shrink both `perseus` and (optionally) `perseus-vault` (~57 tools) behind
+can shrink both `perseus` and (optionally) `perseus-vault` behind
 one filtered inbound endpoint instead of loading every tool schema every
 session:
 
@@ -94,7 +94,7 @@ servers:
   perseus-skills:
     transport: stdio
     command: ["perseus", "mcp", "serve"]
-  perseus-vault:            # optional — Perseus Vault's ~57 memory tools
+  perseus-vault:            # optional — Perseus Vault's memory tools
     transport: stdio
     command: ["perseus-vault", "serve"]
 
