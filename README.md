@@ -52,7 +52,7 @@ for assistant profiles, refresh options, and security settings.
 
 **Perseus: the memory & context layer for AI agents. Load only the context they actually need.**
 
-Your agents re-read their whole notebook from page one on every call, and you're billed per word. Perseus hands them just the page they need: it resolves live workspace state into verified facts before the context window opens, and pairs with [Perseus Vault](https://github.com/Perseus-Computing-LLC/perseus-vault) for durable, encrypted memory. The result: **79.0% on LongMemEval** with the official CoT answer prompt, a **67% smaller tool schema**, and **611× warmer renders**. The separately labeled plain-prompt LongMemEval result is **73.8%**. On LOCOMO (run on [Mem0's own harness](https://github.com/Perseus-Computing-LLC/memory-benchmarks)): Perseus Vault **87.9%** vs Mem0 Platform 82.2% vs Zep Cloud 33.8%. Local-first, air-gap ready, MIT.
+Your agents re-read their whole notebook from page one on every call, and you're billed per word. Perseus hands them just the page they need: it resolves live workspace state into verified facts before the context window opens, and pairs with [Perseus Vault](https://github.com/Perseus-Computing-LLC/perseus-vault) for durable, encrypted memory. The result: **79.0% on LongMemEval** with the official CoT answer prompt, a **67% smaller tool schema**, and **611× warmer renders**. The separately labeled plain-prompt LongMemEval result is **73.8%**. On LOCOMO (run on [Mem0's own harness](https://github.com/Perseus-Computing-LLC/memory-benchmarks)), the same local evaluation reports Perseus Vault **87.9%**, Mem0 Platform 82.2%, and Zep Cloud 33.8%. Local-first, air-gap ready, MIT.
 
 <!-- mcp-name: io.github.Perseus-Computing-LLC/perseus -->
 
@@ -76,7 +76,7 @@ Perseus is the live context engine. Seven specialized products extend it:
 
 ### Perseus Vault — Persistent Memory (MCP)
 
-[Perseus Vault](https://github.com/Perseus-Computing-LLC/perseus-vault) is the persistent memory backend for Perseus — a lightweight Rust MCP server with SQLite + FTS5. Zero network calls, no API keys. Offline dense/hybrid embeddings are **bundled by default** (the model is compiled into the binary), so semantic recall works zero-config with no external model download. Perseus Vault exposes **55+ MCP tools** under canonical `perseus_vault_*` names across structured entities, hybrid vector search, RAG, connectors, confidence decay, journal events, and state management: `perseus_vault_remember`, `perseus_vault_recall`, `perseus_vault_context`, `perseus_vault_traverse`, `perseus_vault_decay`, `perseus_vault_stats`, `perseus_vault_health`, and more.
+[Perseus Vault](https://github.com/Perseus-Computing-LLC/perseus-vault) is the persistent memory backend for Perseus — a lightweight Rust MCP server with SQLite + FTS5. Zero network calls, no API keys. Offline dense/hybrid embeddings are **bundled by default** (the model is compiled into the binary), so semantic recall works zero-config with no external model download. Perseus Vault exposes a broad canonical MCP surface under `perseus_vault_*` names across structured entities, hybrid vector search, RAG, connectors, confidence decay, journal events, and state management. Legacy `mimir_*` and `mneme_*` aliases remain callable for compatibility but are not counted as separate capabilities: `perseus_vault_remember`, `perseus_vault_recall`, `perseus_vault_context`, `perseus_vault_traverse`, `perseus_vault_decay`, `perseus_vault_stats`, `perseus_vault_health`, and more.
 
 📄 [Product page →](https://perseus.observer/perseus-vault/) | ⭐ [Vault on GitHub →](https://github.com/Perseus-Computing-LLC/perseus-vault)
 
@@ -257,8 +257,8 @@ Published as [`io.github.Perseus-Computing-LLC/perseus`](https://registry.modelc
 ### MCP Tools
 
 <!-- test-count: 1831 — recount with: grep -rE "^\s*def test_" tests/ | wc -l -->
-<!-- The table below is the exact default output of _get_all_mcp_tools({}) — 33 rows. Recount before editing. -->
-33 MCP tools resolve live state at invocation time (including the legacy aliases `perseus_get_context`/`perseus_get_health`). Two additional sensitive tools — `perseus_query` (run a shell command) and `perseus_agent` (execute a local agent subprocess) — are **not** part of this default set: they require explicit `mcp.tool_allowlist` opt-in because they execute commands in the user's local shell (**not sandboxed, full user permissions apply**).
+<!-- The table below documents the current default output of _get_all_mcp_tools({}). Recount before editing. -->
+MCP tools resolve live state at invocation time (including the legacy aliases `perseus_get_context`/`perseus_get_health`). Two additional sensitive tools — `perseus_query` (run a shell command) and `perseus_agent` (execute a local agent subprocess) — are **not** part of this default set: they require explicit `mcp.tool_allowlist` opt-in because they execute commands in the user's local shell (**not sandboxed, full user permissions apply**).
 
 | Tool | Description |
 |---|---|

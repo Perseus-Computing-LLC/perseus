@@ -1,13 +1,13 @@
-"""Enforce claims.json's perseus_tool_count against the actual MCP registry.
+"""Enforce the internal MCP compatibility count against the actual registry.
 
-claims.json marks perseus_tool_count as "code-enforced". Before #803 nothing
-computed the count: test_claims_sync only pinned the string on surfaces, so the
-registry could drift from the published number without failing CI. This test
-makes the label true: it asks the same function the MCP server uses to
-advertise tools and compares the length to the claim.
+The internal compatibility claim is deliberately not a public marketing
+surface, but it still guards the current default registry contract. The test
+asks the same function the MCP server uses to advertise tools and compares the
+length to the internal claim.
 
-If this fails after adding or removing a directive, update claims.json AND
-every surface pinned by test_claims_sync in the same change.
+If this fails after adding or removing a directive, update the internal claim
+and compatibility tests in the same change. Public copy should not be changed
+to add a fixed tool count.
 """
 
 import json
@@ -30,5 +30,5 @@ def test_mcp_tool_count_matches_claim():
     assert len(tools) == claimed, (
         f"claims.json says perseus_tool_count={claimed} but "
         f"_get_all_mcp_tools() advertises {len(tools)} tools: {sorted(names)}. "
-        "Update claims.json and the pinned surfaces together."
+        "Update the internal claim and compatibility tests together; do not add a public count."
     )
