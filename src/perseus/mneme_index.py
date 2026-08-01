@@ -14,6 +14,7 @@ _MNEME_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS mneme_files (
     path TEXT PRIMARY KEY,
     mtime REAL NOT NULL,
+    fingerprint TEXT NOT NULL DEFAULT '',
     indexed_at TEXT NOT NULL
 );
 
@@ -43,6 +44,7 @@ CREATE TABLE IF NOT EXISTS mneme_meta (
 # Runs lazily on first index open — idempotent, safe with existing databases.
 _MNEME_MIGRATIONS = [
     "ALTER TABLE mneme_files ADD COLUMN sensitivity TEXT DEFAULT 'team'",
+    "ALTER TABLE mneme_files ADD COLUMN fingerprint TEXT NOT NULL DEFAULT ''",
 ]
 
 # Per-column BM25 weights for FTS5 native weighting (bm25() positional args).
@@ -298,35 +300,42 @@ def _mneme_parse_vault_file(file_path: Path) -> dict | None:
     }
 
 
-def _mneme_index_is_current(conn, vault_path) -> bool:
-    """Read-only check: does mneme_files already reflect every vault .md file?
+def _mneme_file_fingerprint(file_path: Path) -> str:
+    """Hash a Vault document so rapid same-size rewrites are detected."""
+    import hashlib as _hashlib
+    try:
+        return _hashlib.sha256(file_path.read_bytes()).hexdigest()
+    except (OSError, PermissionError):
+        return ""
 
-    Returns True iff the on-disk set of (resolved path, mtime) exactly matches
-    what is indexed — no new files, no content changes (which bump mtime), and no
-    deletions/renames. This is exactly the condition under which the incremental
-    builder would write nothing, so recall can skip the BEGIN IMMEDIATE
-    transaction entirely on the common unchanged path (#445). Conservative: any
-    stat error or mismatch returns False so the full builder runs. Uses the same
-    `mtime ==` comparison the builder already relies on to skip unchanged files,
-    so it never serves staler results than before.
+
+def _mneme_index_is_current(conn, vault_path) -> bool:
+    """Read-only check: does mneme_files reflect the current Vault files?
+
+    The check includes path, mtime, and a content fingerprint. Mtime alone can
+    miss rapid same-size rewrites on filesystems with coarse timestamp
+    resolution. Any stat/hash mismatch conservatively triggers an incremental
+    rebuild.
     """
     try:
-        indexed: dict[str, float] = {}
-        for row in conn.execute("SELECT path, mtime FROM mneme_files"):
-            indexed[row["path"]] = row["mtime"]
+        indexed: dict[str, tuple[float, str]] = {}
+        for row in conn.execute("SELECT path, mtime, fingerprint FROM mneme_files"):
+            indexed[row["path"]] = (row["mtime"], row["fingerprint"] or "")
     except Exception:
         return False
+
     seen: set[str] = set()
     for md_file in vault_path.rglob("*.md"):
         try:
             file_path_str = str(md_file.resolve())
             mtime = md_file.stat().st_mtime
+            fingerprint = _mneme_file_fingerprint(md_file)
         except Exception:
             return False
-        if indexed.get(file_path_str) != mtime:
-            return False  # new or content-changed file
+        if indexed.get(file_path_str) != (mtime, fingerprint):
+            return False
         seen.add(file_path_str)
-    return seen == set(indexed.keys())  # False if any indexed file was deleted/renamed
+    return seen == set(indexed.keys())
 
 
 def _mneme_build_index(cfg: dict, force: bool = False) -> int:
@@ -361,10 +370,10 @@ def _mneme_build_index(cfg: dict, force: bool = False) -> int:
             conn.execute("DELETE FROM mneme_fts")
             conn.execute("DELETE FROM mneme_files")
 
-        # Load currently indexed files (path → mtime)
-        indexed = {}
-        for row in conn.execute("SELECT path, mtime FROM mneme_files"):
-            indexed[row["path"]] = row["mtime"]
+        # Load currently indexed files (path → mtime + content fingerprint)
+        indexed: dict[str, tuple[float, str]] = {}
+        for row in conn.execute("SELECT path, mtime, fingerprint FROM mneme_files"):
+            indexed[row["path"]] = (row["mtime"], row["fingerprint"] or "")
 
         count = 0
         current_paths: set[str] = set()
@@ -373,10 +382,11 @@ def _mneme_build_index(cfg: dict, force: bool = False) -> int:
             current_paths.add(file_path_str)
             try:
                 mtime = md_file.stat().st_mtime
+                fingerprint = _mneme_file_fingerprint(md_file)
             except Exception:
                 continue
 
-            if not force and file_path_str in indexed and indexed[file_path_str] == mtime:
+            if not force and file_path_str in indexed and indexed[file_path_str] == (mtime, fingerprint):
                 continue
 
             doc = _mneme_parse_vault_file(md_file)
@@ -408,8 +418,8 @@ def _mneme_build_index(cfg: dict, force: bool = False) -> int:
                  file_path_str, doc["updated"]),
             )
             conn.execute(
-                "INSERT INTO mneme_files (path, mtime, indexed_at, sensitivity) VALUES (?, ?, ?, ?)",
-                (file_path_str, mtime, now, doc.get("sensitivity", "team")),
+                "INSERT INTO mneme_files (path, mtime, fingerprint, indexed_at, sensitivity) VALUES (?, ?, ?, ?, ?)",
+                (file_path_str, mtime, fingerprint, now, doc.get("sensitivity", "team")),
             )
             count += 1
 
@@ -541,8 +551,8 @@ def _mneme_index_document(cfg: dict, file_path: Path) -> bool:
              file_path_str, doc["updated"]),
         )
         conn.execute(
-            "INSERT INTO mneme_files (path, mtime, indexed_at, sensitivity) VALUES (?, ?, ?, ?)",
-            (file_path_str, file_path.stat().st_mtime, now, doc.get("sensitivity", "team")),
+            "INSERT INTO mneme_files (path, mtime, fingerprint, indexed_at, sensitivity) VALUES (?, ?, ?, ?, ?)",
+            (file_path_str, file_path.stat().st_mtime, _mneme_file_fingerprint(file_path), now, doc.get("sensitivity", "team")),
         )
         # Self-maintaining FTS5 table: the DELETE+INSERT above already updated the
         # index. No O(corpus) 'rebuild' needed for a single-doc upsert. (#447)
