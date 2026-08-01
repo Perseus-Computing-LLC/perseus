@@ -221,8 +221,8 @@ def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path | N
     This is concatenated to the cache key so stale entries miss automatically.
 
     Fingerprinted directives:
-      @read <file>         → size + mtime of file
-      @include <file>      → size + mtime of file (first-level only;
+      @read <file>         → content digest of file
+      @include <file>      → content digest of file (first-level only;
                               transitive deps handled by recursive render)
       @list <dir>          → sha256 of directory listing (file names + mtimes)
       @tree <dir>          → sha256 of recursive directory listing
@@ -261,13 +261,12 @@ def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path | N
         fpath = _safe_dependency_path()
         if fpath is not None:
             try:
-                # Use size + mtime as the fingerprint rather than hashing the
-                # whole file — a stat is O(1) vs O(filesize), and a cache *hit*
-                # no longer has to read the file just to build the key (#446).
-                # Consistent with the @list/@tree fingerprint below; the same
-                # TOCTOU/stale-hit tradeoff documented above applies.
-                st = fpath.stat()
-                parts.append(f"{directive}:{fpath}:{st.st_size}:{st.st_mtime_ns}")
+                # Hash contents so rapid same-size rewrites cannot reuse a
+                # stale cache entry when filesystem timestamp resolution is
+                # coarse. This read occurs before cache_get, at the key's
+                # correctness boundary.
+                content_digest = _hashlib.sha256(fpath.read_bytes()).hexdigest()
+                parts.append(f"{directive}:{fpath}:{content_digest}")
             except (OSError, PermissionError):
                 pass  # can't stat → no fingerprint (cache miss is safe)
 
