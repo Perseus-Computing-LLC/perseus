@@ -572,8 +572,8 @@ class TestMimirAutoInject:
         assert md is not None and "**k**" in md
         assert stub.calls == [("mimir_context", {"categories": ["x"], "limit": 3})]
 
-    def test_connector_store_calls_mimir_remember_with_typed_fields(self):
-        """store() upserts via mimir_remember (not the nonexistent mimir_store),
+    def test_connector_store_calls_vault_remember_with_typed_fields(self):
+        """store() upserts via the canonical perseus_vault_remember tool,
         with category/key/type/body_json and a string tag list (perseus#525)."""
         c = self._cfg(enabled=True)
         connector = perseus.MnemeConnector(c)
@@ -598,7 +598,7 @@ class TestMimirAutoInject:
         assert ok is True and mem_id == "mem-abc123"
         assert len(stub.calls) == 1
         name, args = stub.calls[0]
-        assert name == "mimir_remember"
+        assert name == "perseus_vault_remember", f"unexpected tool {name!r}"
         assert args["category"] == "decision"
         assert args["key"] == "db-choice"
         assert args["type"] == "decision"
