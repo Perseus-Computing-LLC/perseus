@@ -1,7 +1,7 @@
 {
   "serverInfo": {
     "name": "perseus",
-    "version": "1.0.25"
+    "version": "1.0.26"
   },
   "authentication": {
     "required": false,
