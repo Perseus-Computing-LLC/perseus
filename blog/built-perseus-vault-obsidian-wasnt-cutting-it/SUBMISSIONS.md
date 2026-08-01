@@ -14,7 +14,7 @@ Six months ago my AI agent couldn't find anything in my 2,000-note Obsidian vaul
 The bigger the vault got, the worse recall became — no semantic search, no dedup,
 no concept of importance or decay.
 
-So I built Perseus Vault: a single 8MB Rust binary that gives AI agents 57 MCP
+So I built Perseus Vault: a single 8MB Rust binary that gives AI agents local MCP
 tools for remember/recall/reflect/search. FTS5 + dense vector hybrid search.
 AES-256-GCM encrypted at rest. Works fully offline with bundled embeddings.
 Zero dependencies. MIT licensed.
@@ -47,7 +47,7 @@ Link: https://perseus.observer/blog/built-perseus-vault-obsidian-wasnt-cutting-i
 Or just post as text:
 Just shipped something the local LLM crowd might appreciate: Perseus Vault — an
 8MB Rust binary that gives your agents persistent memory with zero cloud deps.
-Bundled embeddings (works fully offline), AES-256-GCM encrypted, 57 MCP tools
+Bundled embeddings (works fully offline), AES-256-GCM encrypted, local MCP tools
 for remember/recall/search. FTS5 + vector hybrid search. 73.6% on LongMemEval.
 
 Single command: `perseus-vault serve --db memory.db`
@@ -82,7 +82,7 @@ URL: https://perseus.observer/blog/built-perseus-vault-obsidian-wasnt-cutting-it
 Tags: ai, rust, programming, security
 
 Description:
-Single-binary, encrypted, local-first persistent memory for AI agents. 57 MCP
+Single-binary, encrypted, local-first persistent memory for AI agents. Local MCP
 tools, FTS5 + vector hybrid search, 73.6% LongMemEval. MIT licensed. No cloud.
 
 ================================================================================
@@ -123,7 +123,7 @@ After six months of building and iterating, here's what I found agents actually 
 
 ## The result: Perseus Vault
 
-Perseus Vault is a single Rust binary. No Docker, no Postgres, no Python environment, no cloud dependency. It ships as an MCP server — drop it into any MCP-compatible agent (Claude Code, Cursor, Cline, Hermes, anything) and it exposes 57 tools for remember, recall, reflect, and search.
+Perseus Vault is a single Rust binary. No Docker, no Postgres, no Python environment, no cloud dependency. It ships as an MCP server — drop it into any MCP-compatible agent (Claude Code, Cursor, Cline, Hermes, anything) and use its memory tools for remember, recall, reflect, and search.
 
 The design constraints were brutal and deliberate:
 
@@ -176,7 +176,7 @@ Tweet 1:
 I got fed up with using Obsidian as AI agent memory and built something better.
 
 Perseus Vault: single Rust binary, zero deps, AES-256-GCM encrypted, local-first.
-57 MCP tools. 73.6% LongMemEval. MIT licensed.
+Local MCP tools. 73.6% LongMemEval. MIT licensed.
 
 https://perseus.observer/blog/built-perseus-vault-obsidian-wasnt-cutting-it/
 
