@@ -863,6 +863,29 @@ Separate writing and serving policies for operator preferences, agent convention
 ### 21B.7 — Vault contract tests
 Enforce the cross-repo contract for capture, recall, promotion metadata, and served explanation fields.
 
+### 21B.8 — Decoder-backed compression and load-bearing retention
+Treat selective recall as a lossy write-to-context operation with an explicit
+decoder. Under budget pressure, corrections, keystones, constraints,
+contradictions, policies, and prohibitions outrank ordinary relevance. Any
+omitted or shortened memory retains a content-free Vault ID/address/evidence
+reference so an operator or downstream assistant can drill back to the source.
+The source hit is never mutated by serving-time shortening.
+
+**Status:** Initial serving slice shipped in `apply_recall_budget`; a bounded
+offline semantic-density gate now covers task resumption, load-bearing
+retention, and decoder recovery. Follow-up work is to expose structured decoder
+references through the served-memory API and replay a larger real-Vault corpus.
+
+The first real-Vault replay is now implemented as the bounded
+`benchmark/real_vault_density` harness. It uses a temporary database and the
+release binary over MCP stdio; it does not require Greg or AWS.
+
+The harness now also supports a reviewed, regex-sanitized 24-item corpus
+derived from a read-only local Vault scan. The committed replay artifact
+records 23 omitted items with 100% decoder-reference coverage at a 160-character
+serving budget. This is an integration/provenance result, not a semantic QA
+claim; the corpus has no gold task queries.
+
 ## Phase 22 — v1 Release Candidate
 
 **Goal:** Produce a deployable v1 candidate with docs, examples, artifacts,
